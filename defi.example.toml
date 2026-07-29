@@ -1,0 +1,57 @@
+default_key_modifier = "hyper"
+
+[layout]
+gaps = 4
+
+[workspaces]
+names = ["dev", "web", "dev-secondary", "tools", "misc", "6", "7", "8", "9"]
+
+[modifier_combinations]
+hyper = "Alt + Cmd + Ctrl"
+
+[[rules]]
+app_id = "com.apple.dt.Xcode"
+workspace = "dev"
+follow_focus = true
+
+[[rules]]
+app_id = "com.openai.codex"
+workspace = "dev"
+follow_focus = true
+
+[[rules]]
+app_id = "dev.zed.Zed"
+workspace = "dev"
+follow_focus = true
+
+[[rules]]
+app_id = "com.apple.iphonesimulator"
+workspace = "dev"
+follow_focus = true
+force_tiling = true
+intrinsic_size = true
+
+[[rules]]
+app_id = "app.zen-browser.zen"
+workspace = "web"
+follow_focus = true
+
+[[rules]]
+app_id = "fun.tw93.kaku"
+workspace = "dev-secondary"
+follow_focus = true
+
+[[rules]]
+app_id = "com.DanPristupov.Fork"
+workspace = "tools"
+follow_focus = true
+
+[[rules]]
+app_id = "md.obsidian"
+workspace = "tools"
+follow_focus = true
+
+[[rules]]
+app_id = "com.proxyman.NSProxy"
+workspace = "tools"
+follow_focus = true
