@@ -11,12 +11,44 @@ enum PlatformEventKind: Equatable {
   case screens
 }
 
+struct MouseGestureEventNormalizer {
+  private var moved = false
+  private var synchronizedDuringGesture = false
+
+  mutating func shouldSynchronizeDesktop(
+    for eventType: NSEvent.EventType
+  ) -> Bool {
+    switch eventType {
+    case .leftMouseDown:
+      moved = false
+      synchronizedDuringGesture = false
+      return false
+    case .leftMouseDragged:
+      moved = true
+      guard synchronizedDuringGesture == false else {
+        return false
+      }
+      synchronizedDuringGesture = true
+      return true
+    case .leftMouseUp:
+      defer {
+        moved = false
+        synchronizedDuringGesture = false
+      }
+      return moved
+    default:
+      return false
+    }
+  }
+}
+
 @MainActor
 final class PlatformEventMonitor {
   private let handler: (PlatformEventKind) -> Void
   private var workspaceTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
+  private var mouseGestureNormalizer = MouseGestureEventNormalizer()
   private var observers: [pid_t: AXObserver] = [:]
   private var observedWindows: [pid_t: [AXUIElement]] = [:]
   private var frameNotificationsEnabled = true
@@ -73,9 +105,16 @@ final class PlatformEventMonitor {
 
     mouseMonitor = NSEvent.addGlobalMonitorForEvents(
       matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-    ) { [weak self] _ in
+    ) { [weak self] event in
       MainActor.assumeIsolated {
-        self?.handler(.mouse)
+        guard let self,
+          self.mouseGestureNormalizer.shouldSynchronizeDesktop(
+            for: event.type
+          )
+        else {
+          return
+        }
+        self.handler(.mouse)
       }
     }
   }
