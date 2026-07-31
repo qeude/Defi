@@ -388,10 +388,34 @@ public func focusedColumnLeftScrollOffset(
   windows: [Window] = []
 ) -> Double {
   let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
-  return columnsWidth(
+  let focusedLeft = columnsWidth(
     Array(workspace.columns.prefix(workspace.focusedColumn)),
     viewport: viewport,
     windowsByID: windowsByID
+  )
+  let totalWidth = columnsWidth(workspace.columns, viewport: viewport, windowsByID: windowsByID)
+  return min(max(focusedLeft, 0), max(totalWidth - 1, 0))
+}
+
+public func focusedColumnRevealScrollOffset(
+  workspace: Workspace,
+  viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
+  windows: [Window] = []
+) -> Double {
+  let minimumReveal = focusedColumnTargetScrollOffset(
+    workspace: workspace,
+    viewport: viewport,
+    windows: windows,
+    centerFocusedColumn: .never
+  )
+  let pixelTolerance = 1 / max(viewport.width, 1)
+  guard abs(minimumReveal - workspace.scrollOffset) > pixelTolerance else {
+    return minimumReveal
+  }
+  return focusedColumnLeftScrollOffset(
+    workspace: workspace,
+    viewport: viewport,
+    windows: windows
   )
 }
 

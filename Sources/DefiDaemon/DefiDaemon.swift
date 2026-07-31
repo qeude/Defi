@@ -120,6 +120,7 @@ private final class Daemon: NSObject {
   private var lastAnimationDurationMS = 0.0
   private var lastCommandDurationMS = 0.0
   private var suppressNativeFocusUntil: TimeInterval = 0
+  private var ignoredRedundantNativeFocusCount = 0
   private var pendingAnimatedFocusWindowID: WindowID?
   private var frameNotificationsSuspended = false
   private var animationActivity: NSObjectProtocol?
@@ -329,14 +330,22 @@ private final class Daemon: NSObject {
     )
     var nativelyFocusedMonitorID: MonitorID?
     reconcileWindows(snapshot.windows, config: config, state: &state)
-    if let focusedWindowID = snapshot.focusedWindowID,
-      activeMonitorID == nil
-        || (snapshot.nativeFocusChanged
-          && ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil)
-    {
-      focusWindow(focusedWindowID, state: &state)
-      activeMonitorID = state.monitorID(containing: focusedWindowID)
-      nativelyFocusedMonitorID = activeMonitorID
+    if let focusedWindowID = snapshot.focusedWindowID {
+      let nativeFocusAccepted =
+        snapshot.nativeFocusChanged
+        && ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil
+      let selectionChanged = nativeFocusChangesSelection(
+        focusedWindowID,
+        activeMonitorID: activeMonitorID,
+        state: state
+      )
+      if activeMonitorID == nil || (nativeFocusAccepted && selectionChanged) {
+        focusWindow(focusedWindowID, state: &state)
+        activeMonitorID = state.monitorID(containing: focusedWindowID)
+        nativelyFocusedMonitorID = activeMonitorID
+      } else if nativeFocusAccepted {
+        ignoredRedundantNativeFocusCount += 1
+      }
     }
     if let activeMonitorID,
       !state.monitors.contains(where: { $0.id == activeMonitorID })
@@ -752,7 +761,7 @@ private final class Daemon: NSObject {
       "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
     }.joined(separator: ",")
     return
-      "running monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) workspace=\(workspace) focused=\(focused) columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) events=\(observedPlatformEventCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) capture=\(capture) hidden=\(platform.hiddenWindowCount) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
+      "running monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) workspace=\(workspace) focused=\(focused) columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) capture=\(capture) hidden=\(platform.hiddenWindowCount) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
   }
 
   private func columnWidthStatus(_ width: ColumnWidth) -> String {

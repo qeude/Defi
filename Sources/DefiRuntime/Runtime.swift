@@ -385,6 +385,18 @@ public func focusWindow(
   }
 }
 
+public func nativeFocusChangesSelection(
+  _ windowID: WindowID,
+  activeMonitorID: MonitorID?,
+  state: RuntimeState
+) -> Bool {
+  guard let focusedMonitorID = state.monitorID(containing: windowID) else {
+    return false
+  }
+  return activeMonitorID != focusedMonitorID
+    || state.selectedWindowID(on: focusedMonitorID) != windowID
+}
+
 public func synchronizeScrollOffsets(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]
@@ -426,7 +438,7 @@ public func alignFocusedColumnLeft(
     .flatMap(\.windows)
     .compactMap { state.windows[$0] }
   state.monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset =
-    focusedColumnLeftScrollOffset(
+    focusedColumnRevealScrollOffset(
       workspace: workspace,
       viewport: viewport,
       windows: windows
