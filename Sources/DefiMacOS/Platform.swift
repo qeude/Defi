@@ -47,18 +47,19 @@ func frameIsOnExpectedCommitPath(
 ) -> Bool {
   guard !leftMouseButtonDown,
     now < expectation.deadline,
-    frameDistance(currentTarget, expectation.target) <= tolerance,
-    abs(actual.width - expectation.target.width) <= tolerance,
-    abs(actual.height - expectation.target.height) <= tolerance
+    frameDistance(currentTarget, expectation.target) <= tolerance
   else {
     return false
   }
-  let minimumX = min(expectation.from.x, expectation.target.x) - tolerance
-  let maximumX = max(expectation.from.x, expectation.target.x) + tolerance
-  let minimumY = min(expectation.from.y, expectation.target.y) - tolerance
-  let maximumY = max(expectation.from.y, expectation.target.y) + tolerance
-  return actual.x >= minimumX && actual.x <= maximumX
-    && actual.y >= minimumY && actual.y <= maximumY
+  return [
+    (actual.x, expectation.from.x, expectation.target.x),
+    (actual.y, expectation.from.y, expectation.target.y),
+    (actual.width, expectation.from.width, expectation.target.width),
+    (actual.height, expectation.from.height, expectation.target.height),
+  ].allSatisfy { value, from, target in
+    value >= min(from, target) - tolerance
+      && value <= max(from, target) + tolerance
+  }
 }
 
 func requiresVerifiedOffscreenWrite(
@@ -1460,6 +1461,7 @@ public final class MacOSPlatform {
     let previousTargetFrames = targetFrames
     let coordinatorWasBusy = frameCoordinator.isBusy
     var writeIntents: [WindowID: (position: Bool, size: Bool)] = [:]
+    var referenceFrames: [WindowID: Rect] = [:]
     var startPositions: [WindowID: CGPoint] = [:]
     let now = ProcessInfo.processInfo.systemUptime
     for assignment in assignments where !skippedWindowIDs.contains(assignment.windowID) {
@@ -1493,6 +1495,7 @@ public final class MacOSPlatform {
         || abs(reference.height - assignment.frame.height) >= 0.5
       if positionChanged || sizeChanged {
         writeIntents[assignment.windowID] = (positionChanged, sizeChanged)
+        referenceFrames[assignment.windowID] = reference
         startPositions[assignment.windowID] = CGPoint(
           x: reference.x,
           y: reference.y
@@ -1538,6 +1541,30 @@ public final class MacOSPlatform {
         y: assignment.frame.y
       )
       reenteringWindowIDs.insert(assignment.windowID)
+    }
+    let commitDeadline =
+      now + max(animationDuration + 0.25, 0.8)
+    for assignment in assignments
+    where !hiddenWindowIDs.contains(assignment.windowID)
+      && writeIntents[assignment.windowID] != nil
+    {
+      guard let reference = referenceFrames[assignment.windowID] else {
+        continue
+      }
+      let start = animationStartPositions[assignment.windowID]
+        ?? CGPoint(x: reference.x, y: reference.y)
+      frameCommitExpectations[assignment.windowID] = FrameCommitExpectation(
+        from: Rect(
+          x: start.x,
+          y: start.y,
+          width: reference.width,
+          height: reference.height
+        ),
+        target: assignment.frame,
+        issuedAt: now,
+        deadline: commitDeadline,
+        observedAt: nil
+      )
     }
     let affectedProcessIDs = asynchronousPositions
       ? []
@@ -1617,29 +1644,6 @@ public final class MacOSPlatform {
         }
       )
       : []
-    if !animatedWindowIDs.isEmpty {
-      let deadline =
-        now + max(animationDuration + 0.25, 0.65)
-      for (windowID, write) in asynchronousWrites where !write.isParked {
-        frameCommitExpectations[windowID] = FrameCommitExpectation(
-          from: Rect(
-            x: write.fromPoint.x,
-            y: write.fromPoint.y,
-            width: write.size.width,
-            height: write.size.height
-          ),
-          target: Rect(
-            x: write.point.x,
-            y: write.point.y,
-            width: write.size.width,
-            height: write.size.height
-          ),
-          issuedAt: now,
-          deadline: deadline,
-          observedAt: nil
-        )
-      }
-    }
     frameCoordinator.submit(
       asynchronousWrites,
       source: source,

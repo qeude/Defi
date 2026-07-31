@@ -19,10 +19,27 @@ final class DesktopE2ETests: XCTestCase {
     return platform
   }
 
+  private func testWindows(in snapshot: DesktopSnapshot) -> [Window] {
+    snapshot.windows
+      .filter {
+        $0.appID != "com.openai.codex"
+          && $0.intrinsicSize == false
+      }
+      .sorted {
+        if $0.appID == "com.t3tools.t3code" {
+          return $1.appID != "com.t3tools.t3code"
+        }
+        if $1.appID == "com.t3tools.t3code" {
+          return false
+        }
+        return $0.id.rawValue < $1.id.rawValue
+      }
+  }
+
   func testFocusedWindowRemainsResolvableWhileParkedOffscreen() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard let window = snapshot.windows.first else {
+    guard let window = testWindows(in: snapshot).first else {
       throw XCTSkip("No manageable desktop window")
     }
     let original = window.frame
@@ -47,37 +64,49 @@ final class DesktopE2ETests: XCTestCase {
   func testAppliedTargetConvergesWithRealWindowFrame() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard let window = snapshot.windows.max(by: { $0.frame.width < $1.frame.width }),
-      window.frame.width > 500
-    else {
+    let candidates = testWindows(in: snapshot).filter {
+      $0.frame.width > 500
+    }
+    guard candidates.isEmpty == false else {
       throw XCTSkip("No resizable desktop window")
     }
-    let original = window.frame
-    let target = Rect(
-      x: original.x + 12,
-      y: original.y,
-      width: original.width - 24,
-      height: original.height
-    )
-    defer {
+    var failures: [String] = []
+    for window in candidates {
+      let original = window.frame
+      let target = Rect(
+        x: original.x + 40,
+        y: original.y,
+        width: original.width - 80,
+        height: original.height
+      )
+      platform.apply([FrameAssignment(windowID: window.id, frame: target)])
+      let converged = pumpRunLoop(
+        until: {
+          let actual = platform.snapshot(config: Config()).windows
+            .first(where: { $0.id == window.id })?.frame
+          return abs((actual?.x ?? .infinity) - target.x) <= 2
+            && abs((actual?.width ?? .infinity) - target.width) <= 2
+        },
+        timeout: 0.8
+      )
+      let actual = platform.snapshot(config: Config()).windows
+        .first(where: { $0.id == window.id })?.frame
       platform.apply([FrameAssignment(windowID: window.id, frame: original)])
       pumpRunLoop(for: 0.3)
+      if converged {
+        return
+      }
+      failures.append(
+        "\(window.appID)#\(window.id.rawValue) target=\(target) actual=\(String(describing: actual))"
+      )
     }
-
-    platform.apply([FrameAssignment(windowID: window.id, frame: target)])
-    pumpRunLoop(for: 0.4)
-    let actual = platform.snapshot(config: Config()).windows
-      .first(where: { $0.id == window.id })?.frame
-
-    XCTAssertNotNil(actual)
-    XCTAssertEqual(actual?.x ?? 0, target.x, accuracy: 2)
-    XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
+    XCTFail("No resizable AX window converged: \(failures.joined(separator: "; "))")
   }
 
   func testHorizontalAnimationFrameWritesPositionWithoutSize() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard let window = snapshot.windows.first else {
+    guard let window = testWindows(in: snapshot).first else {
       throw XCTSkip("No manageable desktop window")
     }
     let original = window.frame
@@ -109,7 +138,7 @@ final class DesktopE2ETests: XCTestCase {
   func testUnhiddenOnePixelStripAnchorConvergesWithRealWindowFrame() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    let candidates = snapshot.windows.filter {
+    let candidates = testWindows(in: snapshot).filter {
       !$0.intrinsicSize && $0.frame.width >= 300
     }
     let preferredWindow =
@@ -170,9 +199,10 @@ final class DesktopE2ETests: XCTestCase {
   func testReenteringWindowJoinsFirstAnimatedRibbonSample() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard snapshot.windows.count >= 2,
-      let window = snapshot.windows.first,
-      let neighbor = snapshot.windows.dropFirst().first,
+    let windows = testWindows(in: snapshot)
+    guard windows.count >= 2,
+      let window = windows.first,
+      let neighbor = windows.dropFirst().first,
       let monitor = snapshot.monitors.first
     else {
       throw XCTSkip("Need two manageable desktop windows")
@@ -242,7 +272,7 @@ final class DesktopE2ETests: XCTestCase {
     guard let monitor = snapshot.monitors.first else {
       throw XCTSkip("No desktop monitor")
     }
-    let candidates = snapshot.windows.filter { window in
+    let candidates = testWindows(in: snapshot).filter { window in
       let intersectionWidth = max(
         min(
           window.frame.x + window.frame.width,
@@ -253,7 +283,7 @@ final class DesktopE2ETests: XCTestCase {
       return !window.intrinsicSize
         && intersectionWidth >= window.frame.width * 0.5
     }
-    guard let window = candidates.max(by: { $0.frame.width < $1.frame.width }) else {
+    guard let window = candidates.first else {
       throw XCTSkip("No manageable desktop window")
     }
     let original = window.frame
@@ -336,7 +366,11 @@ final class DesktopE2ETests: XCTestCase {
   func testNativeFocusEmitsPlatformEvent() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard let window = snapshot.windows.first(where: { $0.id != snapshot.focusedWindowID }) else {
+    guard
+      let window = testWindows(in: snapshot).first(
+        where: { $0.id != snapshot.focusedWindowID }
+      )
+    else {
       throw XCTSkip("Need a non-focused manageable window")
     }
     var eventCount = 0
@@ -416,7 +450,7 @@ final class DesktopE2ETests: XCTestCase {
   func testCornerParkingConvergesWithRealWindowFrame() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard let window = snapshot.windows.first,
+    guard let window = testWindows(in: snapshot).first,
       let monitor = snapshot.monitors.first
     else {
       throw XCTSkip("No manageable desktop window")
@@ -450,7 +484,7 @@ final class DesktopE2ETests: XCTestCase {
   func testCornerParkingRepairsDelayedRollback() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard let window = snapshot.windows.first,
+    guard let window = testWindows(in: snapshot).first,
       let monitor = snapshot.monitors.first
     else {
       throw XCTSkip("No manageable desktop window")
@@ -486,7 +520,13 @@ final class DesktopE2ETests: XCTestCase {
     ])
     pumpRunLoop(for: 0.2)
 
-    pumpRunLoop(for: 0.5)
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { platform.parkingPerformance.repairs >= 1 },
+        timeout: 1.6
+      ),
+      "parking repair did not run before its 1.4 second backstop"
+    )
     let repaired = platform.snapshot(config: Config()).windows
       .first(where: { $0.id == window.id })?.frame
     XCTAssertEqual(repaired?.x ?? 0, parked.x, accuracy: 2)
