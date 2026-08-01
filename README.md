@@ -1,5 +1,7 @@
 # Defi
 
+[![CI](https://github.com/qeude/Defi/actions/workflows/ci.yml/badge.svg)](https://github.com/qeude/Defi/actions/workflows/ci.yml)
+
 macOS-native scrolling-column window manager inspired by Niri.
 
 Basic MVP includes:
