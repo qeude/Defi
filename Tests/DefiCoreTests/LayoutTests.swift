@@ -188,6 +188,19 @@ final class LayoutTests: XCTestCase {
     XCTAssertNil(column.fullscreenPreviousWidth)
   }
 
+  func testSpeculativeNavigationSettlementWaitsPastVisualAnimation() {
+    XCTAssertEqual(
+      speculativeNavigationSettlementDelay(animationDuration: 0.035),
+      0.075,
+      accuracy: 0.000_1
+    )
+    XCTAssertEqual(
+      speculativeNavigationSettlementDelay(animationDuration: 0.1),
+      0.12,
+      accuracy: 0.000_1
+    )
+  }
+
   func testFrameBatchSkipsUnchangedAssignments() {
     let first = FrameAssignment(
       windowID: WindowID(rawValue: 1),
@@ -403,7 +416,62 @@ final class LayoutTests: XCTestCase {
         refreshRateHz: 120,
         availableIntermediateFrames: 4
       ),
+      1
+    )
+  }
+
+  func testSpringProgressAnticipatesAXCompletionLatency() {
+    XCTAssertEqual(
+      anticipatedSpringProgressIndex(
+        predictedFrameLatency: 0.002,
+        refreshRateHz: 120,
+        availableIntermediateFrames: 4
+      ),
       0
+    )
+    XCTAssertEqual(
+      anticipatedSpringProgressIndex(
+        predictedFrameLatency: 0.018,
+        refreshRateHz: 120,
+        availableIntermediateFrames: 4
+      ),
+      2
+    )
+    XCTAssertEqual(
+      anticipatedSpringProgressIndex(
+        predictedFrameLatency: 0.030,
+        refreshRateHz: 120,
+        availableIntermediateFrames: 4
+      ),
+      3
+    )
+    XCTAssertEqual(
+      anticipatedSpringProgressIndex(
+        predictedFrameLatency: 0.051,
+        refreshRateHz: 120,
+        availableIntermediateFrames: 4,
+        maximumIndex: 1
+      ),
+      1
+    )
+  }
+
+  func testCompletedAXFrameSchedulesNextWriteAfterDisplayInterval() {
+    XCTAssertEqual(
+      nextCompletedFrameDispatchDeadline(
+        completedAt: 10,
+        refreshRateHz: 120
+      ),
+      10 + 1.0 / 120,
+      accuracy: 0.000_001
+    )
+    XCTAssertEqual(
+      nextCompletedFrameDispatchDeadline(
+        completedAt: 10,
+        refreshRateHz: 60
+      ),
+      10 + 1.0 / 60,
+      accuracy: 0.000_001
     )
   }
 

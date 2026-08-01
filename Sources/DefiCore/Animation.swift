@@ -91,13 +91,34 @@ public func adaptiveIntermediateFrameLimit(
   guard availableIntermediateFrames > 0 else { return 0 }
   let latency = max(predictedFrameLatency, 0)
   if latency >= 0.025 {
-    return 0
+    return 1
   }
   let refreshRate = min(max(refreshRateHz, 30), 120)
   if latency >= 1 / refreshRate {
     return 1
   }
   return availableIntermediateFrames
+}
+
+public func anticipatedSpringProgressIndex(
+  predictedFrameLatency: TimeInterval,
+  refreshRateHz: Double,
+  availableIntermediateFrames: Int,
+  minimumIndex: Int = 0,
+  maximumIndex: Int? = nil
+) -> Int? {
+  guard availableIntermediateFrames > 0 else { return nil }
+  let refreshRate = min(max(refreshRateHz, 30), 120)
+  let interval = 1 / refreshRate
+  let completedIntervals = max(
+    Int(ceil(max(predictedFrameLatency, interval) / interval)),
+    1
+  )
+  let anticipated = min(
+    max(completedIntervals - 1, minimumIndex),
+    availableIntermediateFrames - 1
+  )
+  return min(anticipated, maximumIndex ?? anticipated)
 }
 
 public func completedFrameSupportsAnotherSample(
@@ -109,11 +130,25 @@ public func completedFrameSupportsAnotherSample(
   return max(duration, 0) < maximumDuration
 }
 
+public func nextCompletedFrameDispatchDeadline(
+  completedAt: TimeInterval,
+  refreshRateHz: Double
+) -> TimeInterval {
+  let refreshRate = min(max(refreshRateHz, 30), 120)
+  return completedAt + 1 / refreshRate
+}
+
 public func anticipatedFinalFrameDispatchDelay(
   animationDuration: TimeInterval,
   predictedFrameLatency: TimeInterval
 ) -> TimeInterval {
   max(animationDuration - max(predictedFrameLatency, 0), 0)
+}
+
+public func speculativeNavigationSettlementDelay(
+  animationDuration: TimeInterval
+) -> TimeInterval {
+  min(max(max(animationDuration, 0) + 0.04, 0.075), 0.12)
 }
 
 public struct DisplayedScalarRebase: Equatable, Sendable {

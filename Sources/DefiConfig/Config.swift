@@ -5,6 +5,7 @@ import TOMLDecoder
 public struct Config: Equatable, Sendable {
   public var layout: LayoutConfig
   public var animation: AnimationConfig
+  public var experimental: ExperimentalConfig
   public var workspaces: WorkspacesConfig
   public var modifierCombinations: [String: String]
   public var defaultKeyModifier: String
@@ -14,6 +15,7 @@ public struct Config: Equatable, Sendable {
   public init(
     layout: LayoutConfig = LayoutConfig(),
     animation: AnimationConfig = AnimationConfig(),
+    experimental: ExperimentalConfig = ExperimentalConfig(),
     workspaces: WorkspacesConfig = WorkspacesConfig(),
     modifierCombinations: [String: String] = [:],
     defaultKeyModifier: String = "alt",
@@ -22,6 +24,7 @@ public struct Config: Equatable, Sendable {
   ) {
     self.layout = layout
     self.animation = animation
+    self.experimental = experimental
     self.workspaces = workspaces
     self.modifierCombinations = modifierCombinations
     self.defaultKeyModifier = defaultKeyModifier
@@ -39,6 +42,7 @@ public struct Config: Equatable, Sendable {
     let config = Config(
       layout: raw.layout ?? LayoutConfig(),
       animation: raw.animation ?? AnimationConfig(),
+      experimental: raw.experimental ?? ExperimentalConfig(),
       workspaces: workspaces,
       modifierCombinations: raw.modifierCombinations ?? [:],
       defaultKeyModifier: modifier,
@@ -161,6 +165,27 @@ public struct Config: Equatable, Sendable {
       result["\(modifier)-shift-\(number)"] = "move-window-to-workspace \(workspace)"
     }
     return result
+  }
+}
+
+public struct ExperimentalConfig: Codable, Equatable, Sendable {
+  public var skyLightPositionAnimation: Bool
+
+  public init(skyLightPositionAnimation: Bool = false) {
+    self.skyLightPositionAnimation = skyLightPositionAnimation
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case skyLightPositionAnimation = "skylight_position_animation"
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    skyLightPositionAnimation =
+      try values.decodeIfPresent(
+        Bool.self,
+        forKey: .skyLightPositionAnimation
+      ) ?? false
   }
 }
 
@@ -376,6 +401,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
 private struct RawConfig: Decodable {
   var layout: LayoutConfig?
   var animation: AnimationConfig?
+  var experimental: ExperimentalConfig?
   var workspaces: WorkspacesConfig?
   var modifierCombinations: [String: String]?
   var defaultKeyModifier: String?
@@ -385,6 +411,7 @@ private struct RawConfig: Decodable {
   enum CodingKeys: String, CodingKey {
     case layout
     case animation
+    case experimental
     case workspaces
     case modifierCombinations = "modifier_combinations"
     case defaultKeyModifier = "default_key_modifier"

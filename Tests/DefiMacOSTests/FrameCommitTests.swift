@@ -1,3 +1,4 @@
+import DefiCore
 import DefiModel
 import XCTest
 
@@ -101,6 +102,84 @@ final class FrameCommitTests: XCTestCase {
           Rect(x: 1_512, y: 0, width: 1_920, height: 1_080),
         ]
       )
+    )
+  }
+
+  func testAXLatencyClassificationUsesHysteresis() {
+    XCTAssertFalse(
+      axProcessIsLatencySensitive(
+        previouslySensitive: false,
+        predictedLatencyMS: 11.9
+      )
+    )
+    XCTAssertTrue(
+      axProcessIsLatencySensitive(
+        previouslySensitive: false,
+        predictedLatencyMS: 12
+      )
+    )
+    XCTAssertTrue(
+      axProcessIsLatencySensitive(
+        previouslySensitive: true,
+        predictedLatencyMS: 7
+      )
+    )
+    XCTAssertFalse(
+      axProcessIsLatencySensitive(
+        previouslySensitive: true,
+        predictedLatencyMS: 6.9
+      )
+    )
+  }
+
+  func testSkippedWindowKeepsPreviousTargetUntilSettlement() {
+    let skipped = WindowID(rawValue: 1)
+    let fast = WindowID(rawValue: 2)
+    let previous: [WindowID: Rect] = [
+      skipped: Rect(x: 10, y: 0, width: 400, height: 700),
+      fast: Rect(x: 420, y: 0, width: 400, height: 700),
+    ]
+    let next = frameTargetsPreservingSkippedWindows(
+      previous: previous,
+      assignments: [
+        FrameAssignment(
+          windowID: skipped,
+          frame: Rect(x: -390, y: 0, width: 400, height: 700)
+        ),
+        FrameAssignment(
+          windowID: fast,
+          frame: Rect(x: 20, y: 0, width: 400, height: 700)
+        ),
+      ],
+      skippedWindowIDs: [skipped]
+    )
+
+    XCTAssertEqual(next[skipped], previous[skipped])
+    XCTAssertEqual(next[fast], Rect(x: 20, y: 0, width: 400, height: 700))
+  }
+
+  func testSkippedWindowKeepsPreviousParkingStateUntilSettlement() {
+    let skipped = WindowID(rawValue: 1)
+    let fast = WindowID(rawValue: 2)
+
+    XCTAssertEqual(
+      hiddenWindowsPreservingSkippedWindows(
+        previous: [skipped],
+        desired: [fast],
+        skippedWindowIDs: [skipped]
+      ),
+      [skipped, fast]
+    )
+  }
+
+  func testRibbonNavigationNeverPlansSizeWrites() {
+    XCTAssertEqual(
+      frameWriteIntent(
+        reference: Rect(x: 800, y: 0, width: 600, height: 700),
+        target: Rect(x: 100, y: 0, width: 1_000, height: 900),
+        positionsOnly: true
+      ),
+      FrameWriteIntent(position: true, size: false)
     )
   }
 }
