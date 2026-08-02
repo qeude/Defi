@@ -44,4 +44,11 @@ final class ModelTests: XCTestCase {
       XCTAssertEqual(error as? CommandParseError, .invalidDirection("right"))
     }
   }
+
+  func testManagedLayoutResizeCommandsAreExplicit() {
+    XCTAssertTrue(Command.cycleWidth(.next).resizesManagedLayout)
+    XCTAssertTrue(Command.toggleFullscreen.resizesManagedLayout)
+    XCTAssertFalse(Command.focusColumn(.right).resizesManagedLayout)
+    XCTAssertFalse(Command.toggleFloating.resizesManagedLayout)
+  }
 }

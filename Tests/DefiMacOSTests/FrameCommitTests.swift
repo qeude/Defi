@@ -182,4 +182,15 @@ final class FrameCommitTests: XCTestCase {
       FrameWriteIntent(position: true, size: false)
     )
   }
+
+  func testFrameAnimationInterpolatesPositionAndSize() {
+    XCTAssertEqual(
+      interpolatedFrame(
+        from: Rect(x: 100, y: 40, width: 600, height: 700),
+        to: Rect(x: 40, y: 20, width: 1_000, height: 800),
+        progress: 0.25
+      ),
+      Rect(x: 85, y: 35, width: 700, height: 725)
+    )
+  }
 }

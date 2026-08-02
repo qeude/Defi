@@ -135,6 +135,57 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(platform.successfulSizeWriteCount, sizeWrites)
   }
 
+  func testManagedResizeAnimationWritesIntermediateSizesAndConverges() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    guard let monitor = snapshot.monitors.first else {
+      throw XCTSkip("No desktop monitor")
+    }
+    guard let window = testWindows(in: snapshot).first(where: {
+      $0.frame.width >= 500
+        && $0.frame.x < monitor.frame.x + monitor.frame.width
+        && $0.frame.x + $0.frame.width > monitor.frame.x
+    }) else {
+      throw XCTSkip("No visible resizable desktop window")
+    }
+    let original = window.frame
+    let target = Rect(
+      x: original.x,
+      y: original.y,
+      width: original.width - 120,
+      height: original.height
+    )
+    defer {
+      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
+      pumpRunLoop(for: 0.3)
+    }
+    let sizeWrites = platform.successfulSizeWriteCount
+
+    platform.apply(
+      [FrameAssignment(windowID: window.id, frame: target)],
+      asynchronousPositions: true,
+      animationDuration: 0.08,
+      animationRefreshRateHz: 120,
+      animateSizeChanges: true,
+      source: "test-resize-animation"
+    )
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { !platform.hasPendingAnimatedFrameWrites },
+        timeout: 1
+      )
+    )
+
+    let actual = platform.snapshot(config: Config()).windows
+      .first(where: { $0.id == window.id })?.frame
+    XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
+    XCTAssertGreaterThanOrEqual(
+      platform.successfulSizeWriteCount - sizeWrites,
+      2
+    )
+    XCTAssertTrue(platform.frameCoordinatorTrace.contains("backend=ax"))
+  }
+
   func testExperimentalSkyLightAnimatesVisibleHorizontalMove() throws {
     let platform = try makePlatform()
     let config = Config(

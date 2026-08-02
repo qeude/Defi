@@ -46,6 +46,9 @@ final class ConfigTests: XCTestCase {
     XCTAssertEqual(config.animation.durationMS, 120)
     XCTAssertEqual(config.workspaces.defaultName, "dev")
     XCTAssertEqual(config.keys["hyper-1"], "workspace dev")
+    XCTAssertEqual(config.keys["hyper-minus"], "cycle-width previous")
+    XCTAssertEqual(config.keys["hyper-equal"], "cycle-width next")
+    XCTAssertEqual(config.keys["hyper-f"], "toggle-fullscreen")
     XCTAssertEqual(config.modifierCombinations["hyper"], "Alt + Cmd + Ctrl")
     XCTAssertEqual(config.rules.count, 1)
   }

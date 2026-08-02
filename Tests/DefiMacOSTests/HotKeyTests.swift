@@ -37,4 +37,23 @@ final class HotKeyTests: XCTestCase {
       ]).rawValue
     )
   }
+
+  func testHyperResizeKeysUseExpectedKeyCodesAndModifiers() throws {
+    let expectedModifierBits = CGEventFlags([
+      .maskAlternate,
+      .maskCommand,
+      .maskControl,
+    ]).rawValue
+
+    let cases: [(accelerator: String, code: CGKeyCode)] = [
+      ("hyper-equal", 24),
+      ("hyper-minus", 27),
+      ("hyper-f", 3),
+    ]
+    for (accelerator, code) in cases {
+      let key = try Key(accelerator: accelerator, aliases: aliases)
+      XCTAssertEqual(key.code, code)
+      XCTAssertEqual(key.modifierBits, expectedModifierBits)
+    }
+  }
 }

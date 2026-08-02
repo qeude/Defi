@@ -156,6 +156,9 @@ private final class Daemon: NSObject {
       },
       displayConfigurationHandler: { [weak self] in
         self?.scheduleDisplayReconciliation()
+      },
+      mouseGestureHandler: { [weak self] in
+        self?.cancelAnimationForMouseGesture()
       }
     )
 
@@ -265,6 +268,10 @@ private final class Daemon: NSObject {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
+      let animatedManagedResize =
+        command.resizesManagedLayout
+        && config.animation.enabled
+        && config.animation.durationMS > 0
       if !speculativeRibbonNavigation {
         cancelDeferredSlowLane()
       }
@@ -296,9 +303,11 @@ private final class Daemon: NSObject {
       } else {
         deferredWindowIDs = []
       }
-      if switchesWorkspace
-        || !dispatchScrollAnimationIfNeeded(skipping: deferredWindowIDs)
-      {
+      let dispatchedAnimation =
+        animatedManagedResize
+        ? dispatchManagedResizeAnimation(skipping: deferredWindowIDs)
+        : dispatchScrollAnimationIfNeeded(skipping: deferredWindowIDs)
+      if switchesWorkspace || !dispatchedAnimation {
         applyCurrentLayout(
           asynchronousPositions: true,
           updateVisibility: scrollAnimations.isEmpty,
@@ -388,7 +397,12 @@ private final class Daemon: NSObject {
       ?? snapshot.focusedWindowID.flatMap { state.monitorID(containing: $0) }
       ?? state.monitors.first?.id
 
-    if !displayGeometryChanged && snapshot.leftMouseButtonDown {
+    let mouseResizeGestureActive =
+      snapshot.leftMouseButtonDown || snapshot.mouseResizeGestureObserved
+    if !displayGeometryChanged && mouseResizeGestureActive {
+      if !snapshot.leftMouseButtonDown {
+        activelyResizedWindowID = nil
+      }
       for (windowID, frame) in snapshot.externallyChangedFrames {
         if learnTiledWindowWidth(
           windowID,
@@ -396,7 +410,7 @@ private final class Daemon: NSObject {
           state: &state,
           viewports: viewportsByMonitor
         ) {
-          activelyResizedWindowID = windowID
+          activelyResizedWindowID = snapshot.leftMouseButtonDown ? windowID : nil
         }
       }
     } else {
@@ -440,7 +454,6 @@ private final class Daemon: NSObject {
   }
 
   private func startScrollAnimationsIfNeeded() {
-    let wasAnimating = !scrollAnimations.isEmpty
     let duration = TimeInterval(config.animation.durationMS) / 1_000
     let now = ProcessInfo.processInfo.systemUptime
     for monitorIndex in state.monitors.indices {
@@ -480,18 +493,24 @@ private final class Daemon: NSObject {
       }
     }
     if !scrollAnimations.isEmpty {
-      if !wasAnimating {
-        currentAnimationFrameCount = 0
-        maximumAnimationStepDurationMS = 0
-        animationActivity = ProcessInfo.processInfo.beginActivity(
-          options: [.userInitiated, .latencyCritical],
-          reason: "Defi scrolling animation"
-        )
-        platform.setFrameNotificationsEnabled(false)
-        frameNotificationsSuspended = true
-      }
-      setTimerFrequency(min(activeDisplayRefreshRate, 120))
+      beginFrameAnimationActivity()
     }
+  }
+
+  private func beginFrameAnimationActivity() {
+    if animationActivity == nil {
+      currentAnimationFrameCount = 0
+      maximumAnimationStepDurationMS = 0
+      animationActivity = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiated, .latencyCritical],
+        reason: "Defi frame animation"
+      )
+    }
+    if !frameNotificationsSuspended {
+      platform.setFrameNotificationsEnabled(false)
+      frameNotificationsSuspended = true
+    }
+    setTimerFrequency(min(activeDisplayRefreshRate, 120))
   }
 
   private func snapScrollOffsetsToTargets() {
@@ -521,6 +540,37 @@ private final class Daemon: NSObject {
     )
     needsDesktopSync = true
     return true
+  }
+
+  private func dispatchManagedResizeAnimation(
+    skipping skippedWindowIDs: Set<WindowID> = []
+  ) -> Bool {
+    let duration = TimeInterval(config.animation.durationMS) / 1_000
+    guard config.animation.enabled, duration > 0 else { return false }
+    snapScrollOffsetsToTargets()
+    beginFrameAnimationActivity()
+    applyCurrentLayout(
+      asynchronousPositions: true,
+      updateVisibility: true,
+      positionTimeoutSeconds: 0.05,
+      animationDuration: duration,
+      animateSizeChanges: true,
+      skipping: skippedWindowIDs,
+      source: "command-resize-animation"
+    )
+    needsDesktopSync = true
+    return true
+  }
+
+  private func cancelAnimationForMouseGesture() {
+    guard !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites else {
+      return
+    }
+    scrollAnimations.removeAll(keepingCapacity: true)
+    pendingAnimatedFocusWindowID = nil
+    cancelDeferredSlowLane()
+    platform.cancelPendingFrameWrites()
+    needsDesktopSync = true
   }
 
   private func finishPendingAnimatedFocusIfReady() {
@@ -680,6 +730,7 @@ private final class Daemon: NSObject {
     updateVisibility: Bool? = nil,
     positionTimeoutSeconds: Float = 0.016,
     animationDuration: TimeInterval = 0,
+    animateSizeChanges: Bool = false,
     skipping additionalSkippedWindowIDs: Set<WindowID> = [],
     positionsOnly: Bool = false,
     source: String = "layout"
@@ -749,6 +800,7 @@ private final class Daemon: NSObject {
       asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
       animationDuration: animationDuration,
       animationRefreshRateHz: activeDisplayRefreshRate,
+      animateSizeChanges: animateSizeChanges,
       positionsOnly: positionsOnly,
       updateVisibility: updateVisibility ?? !asynchronousPositions,
       source: source

@@ -182,6 +182,15 @@ public enum Command: Equatable, Codable, Sendable {
   case joinWindow(Direction)
   case unjoinWindows
   case runStartupCommands
+
+  public var resizesManagedLayout: Bool {
+    switch self {
+    case .cycleWidth, .toggleFullscreen:
+      true
+    default:
+      false
+    }
+  }
 }
 
 public enum Event: Equatable, Codable, Sendable {

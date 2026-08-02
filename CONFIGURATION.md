@@ -27,7 +27,7 @@ enabled = true
 duration_ms = 35
 ```
 
-- `enabled`: animate scrolling-column focus changes
+- `enabled`: animate scrolling-column focus and managed column resize commands
 - `duration_ms`: animation duration, `0...2000`; `0` disables animation
 
 ## `[experimental]`

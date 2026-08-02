@@ -143,14 +143,31 @@ func frameWriteIntent(
   )
 }
 
+func interpolatedFrame(
+  from: Rect,
+  to: Rect,
+  progress: Double
+) -> Rect {
+  let progress = min(max(progress, 0), 1)
+  return Rect(
+    x: from.x + (to.x - from.x) * progress,
+    y: from.y + (to.y - from.y) * progress,
+    width: from.width + (to.width - from.width) * progress,
+    height: from.height + (to.height - from.height) * progress
+  )
+}
+
 private struct AsyncPositionWrite: @unchecked Sendable {
   let element: AXUIElement
   let application: AXUIElement
   let processID: pid_t
   let fromPoint: CGPoint
   let point: CGPoint
+  let fromSize: CGSize
   let size: CGSize
+  let positionChanged: Bool
   let sizeChanged: Bool
+  let animatesSize: Bool
   let enhancedUIWasEnabled: Bool
   let timeoutSeconds: Float
   let isParked: Bool
@@ -235,9 +252,11 @@ private final class AXFrameCoordinator: @unchecked Sendable {
   private var running = false
   private var activeAnimationRunning = false
   private var completedWrites = 0
+  private var completedAnimatedSizeWrites = 0
   private var skippedStaleWrites = 0
   private var droppedFrameCount = 0
   private var completedPositions: [WindowID: CGPoint] = [:]
+  private var completedSizes: [WindowID: CGSize] = [:]
   private var traceEntries: [String] = []
   private var lastFrameDurationMS = 0.0
   private var maximumFrameDurationMS = 0.0
@@ -279,20 +298,21 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     lock.unlock()
   }
 
-  func invalidate() {
+  func invalidate(reason: String) {
     lock.lock()
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     pending = nil
     completedPositions.removeAll(keepingCapacity: true)
+    completedSizes.removeAll(keepingCapacity: true)
     skyLightVisualPositions.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
-    appendTraceLocked("invalidate g=\(nextGeneration) reason=display-change")
+    appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
   }
 
   func invalidateAndWaitForWrites() {
-    invalidate()
+    invalidate(reason: "synchronous-restore")
     queue.sync {}
   }
 
@@ -362,6 +382,12 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     return completedWrites
   }
 
+  var animatedSizeWriteCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return completedAnimatedSizeWrites
+  }
+
   var staleWriteCount: Int {
     lock.lock()
     defer { lock.unlock() }
@@ -378,6 +404,18 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return completedPositions[windowID]
+  }
+
+  func completedSize(for windowID: WindowID) -> CGSize? {
+    lock.lock()
+    defer { lock.unlock() }
+    return completedSizes[windowID]
+  }
+
+  func alignCompletedSize(windowID: WindowID, size: CGSize) {
+    lock.lock()
+    completedSizes[windowID] = size
+    lock.unlock()
   }
 
   func alignVisualPosition(
@@ -554,20 +592,28 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     var writes = frame.writes
     var count = 0
     for (windowID, write) in frame.writes {
-      guard !write.isReentering,
-        let completed = completedPositions[windowID],
-        pointDistance(completed, write.fromPoint) >= 0.5
-      else {
-        continue
-      }
+      guard !write.isReentering else { continue }
+      let completedPoint = completedPositions[windowID]
+      let completedSize = completedSizes[windowID]
+      let rebasesPosition = completedPoint.map {
+        pointDistance($0, write.fromPoint) >= 0.5
+      } ?? false
+      let rebasesSize = completedSize.map {
+        abs($0.width - write.fromSize.width) >= 0.5
+          || abs($0.height - write.fromSize.height) >= 0.5
+      } ?? false
+      guard rebasesPosition || rebasesSize else { continue }
       writes[windowID] = AsyncPositionWrite(
         element: write.element,
         application: write.application,
         processID: write.processID,
-        fromPoint: completed,
+        fromPoint: completedPoint ?? write.fromPoint,
         point: write.point,
+        fromSize: completedSize ?? write.fromSize,
         size: write.size,
+        positionChanged: write.positionChanged,
         sizeChanged: write.sizeChanged,
+        animatesSize: write.animatesSize,
         enhancedUIWasEnabled: write.enhancedUIWasEnabled,
         timeoutSeconds: write.timeoutSeconds,
         isParked: write.isParked,
@@ -1253,26 +1299,46 @@ private final class AXFrameCoordinator: @unchecked Sendable {
         stale += batch.writes.count - index
         break
       }
-      let point = CGPoint(
-        x: item.value.fromPoint.x
-          + (item.value.point.x - item.value.fromPoint.x) * progress,
-        y: item.value.fromPoint.y
-          + (item.value.point.y - item.value.fromPoint.y) * progress
+      let interpolated = interpolatedFrame(
+        from: Rect(
+          x: item.value.fromPoint.x,
+          y: item.value.fromPoint.y,
+          width: item.value.fromSize.width,
+          height: item.value.fromSize.height
+        ),
+        to: Rect(
+          x: item.value.point.x,
+          y: item.value.point.y,
+          width: item.value.size.width,
+          height: item.value.size.height
+        ),
+        progress: progress
+      )
+      let point = CGPoint(x: interpolated.x, y: interpolated.y)
+      let size = CGSize(
+        width: interpolated.width,
+        height: interpolated.height
       )
       let writeStartedAt = ProcessInfo.processInfo.systemUptime
+      let intermediateTimeout: Float = item.value.animatesSize ? 0.016 : 0.006
       let timeout = intermediate
-        ? min(item.value.timeoutSeconds, 0.006)
+        ? min(item.value.timeoutSeconds, intermediateTimeout)
         : max(item.value.timeoutSeconds, 0.016)
       AXUIElementSetMessagingTimeout(item.value.application, timeout)
       AXUIElementSetMessagingTimeout(item.value.element, timeout)
       let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
-      let appliedWrite = applyPosition(
-        item.value,
-        point: point,
-        forceOffscreenAccess:
-          (stagingReentry && item.value.isReentering)
-          || (!intermediate && item.value.requiresVerifiedOffscreenWrite)
-      )
+      let sizeApplied = !item.value.animatesSize
+        || applySize(item.value, size: size)
+      let positionApplied =
+        !item.value.positionChanged
+        || applyPosition(
+          item.value,
+          point: point,
+          forceOffscreenAccess:
+            (stagingReentry && item.value.isReentering)
+            || (!intermediate && item.value.requiresVerifiedOffscreenWrite)
+        )
+      let appliedWrite = sizeApplied && positionApplied
       let positionAppliedAt = ProcessInfo.processInfo.systemUptime
       AXUIElementSetMessagingTimeout(item.value.element, 0)
       AXUIElementSetMessagingTimeout(item.value.application, 0)
@@ -1291,7 +1357,7 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       let requiresReadback =
         item.value.isParked
         || item.value.requiresVerifiedOffscreenWrite
-      if appliedWrite {
+      if positionApplied, item.value.positionChanged {
         applied += 1
         alignVisualPosition(
           windowID: item.key,
@@ -1302,6 +1368,13 @@ private final class AXFrameCoordinator: @unchecked Sendable {
           ? readPosition(item.value.element) ?? point
           : point
         recordCompletedPosition(completedPoint, windowID: item.key)
+      }
+      if sizeApplied, item.value.animatesSize {
+        recordCompletedSize(
+          size,
+          windowID: item.key,
+          incrementWriteCount: true
+        )
       }
       if requiresReadback, !intermediate {
         scheduleParkingVerification(
@@ -1333,6 +1406,52 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       kAXPositionAttribute as CFString,
       value
     )
+  }
+
+  private func applySize(
+    _ write: AsyncPositionWrite,
+    size: CGSize
+  ) -> Bool {
+    let initialResult = applySizeValue(write, size: size)
+    if initialResult == .success {
+      return true
+    }
+    guard initialResult != .cannotComplete,
+      write.enhancedUIWasEnabled
+    else {
+      return false
+    }
+    setEnhancedUserInterface(false, application: write.application)
+    defer {
+      setEnhancedUserInterface(true, application: write.application)
+    }
+    return applySizeValue(write, size: size) == .success
+  }
+
+  private func applySizeValue(
+    _ write: AsyncPositionWrite,
+    size: CGSize
+  ) -> AXError {
+    var size = size
+    guard let value = AXValueCreate(.cgSize, &size) else { return .failure }
+    return AXUIElementSetAttributeValue(
+      write.element,
+      kAXSizeAttribute as CFString,
+      value
+    )
+  }
+
+  private func recordCompletedSize(
+    _ size: CGSize,
+    windowID: WindowID,
+    incrementWriteCount: Bool
+  ) {
+    lock.lock()
+    completedSizes[windowID] = size
+    if incrementWriteCount {
+      completedAnimatedSizeWrites += 1
+    }
+    lock.unlock()
   }
 
   private func applyPosition(
@@ -1778,6 +1897,7 @@ public struct DesktopSnapshot: Sendable {
   public let nativeFocusChanged: Bool
   public let externallyChangedFrames: [WindowID: Rect]
   public let leftMouseButtonDown: Bool
+  public let mouseResizeGestureObserved: Bool
   public let targetMismatchCount: Int
   public let targetMismatches: [FrameMismatch]
 
@@ -1788,6 +1908,7 @@ public struct DesktopSnapshot: Sendable {
     nativeFocusChanged: Bool = false,
     externallyChangedFrames: [WindowID: Rect] = [:],
     leftMouseButtonDown: Bool = false,
+    mouseResizeGestureObserved: Bool = false,
     targetMismatchCount: Int = 0,
     targetMismatches: [FrameMismatch] = []
   ) {
@@ -1797,6 +1918,7 @@ public struct DesktopSnapshot: Sendable {
     self.nativeFocusChanged = nativeFocusChanged
     self.externallyChangedFrames = externallyChangedFrames
     self.leftMouseButtonDown = leftMouseButtonDown
+    self.mouseResizeGestureObserved = mouseResizeGestureObserved
     self.targetMismatchCount = targetMismatchCount
     self.targetMismatches = targetMismatches
   }
@@ -1852,6 +1974,7 @@ public final class MacOSPlatform {
   private var lastHiddenWindowIDs = Set<WindowID>()
   private var eventMonitor: PlatformEventMonitor?
   private var frameEventPending = false
+  private var mouseResizeGesturePending = false
   private var nativeFocusEventPending = false
   private var nativeFocusRetryCount = 0
   private var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
@@ -1865,12 +1988,16 @@ public final class MacOSPlatform {
 
   public func startObserving(
     _ handler: @escaping () -> Void,
-    displayConfigurationHandler: @escaping () -> Void = {}
+    displayConfigurationHandler: @escaping () -> Void = {},
+    mouseGestureHandler: @escaping () -> Void = {}
   ) {
     guard eventMonitor == nil else { return }
     let monitor = PlatformEventMonitor { [weak self] kind in
-      if kind == .frame {
+      if kind == .frame || kind == .mouse {
         self?.frameEventPending = true
+      }
+      if kind == .mouse {
+        self?.mouseResizeGesturePending = true
       }
       if kind == .focus {
         self?.nativeFocusEventPending = true
@@ -1878,6 +2005,9 @@ public final class MacOSPlatform {
       }
       if kind == .screens {
         displayConfigurationHandler()
+      }
+      if kind == .mouse {
+        mouseGestureHandler()
       }
       handler()
     }
@@ -1894,8 +2024,12 @@ public final class MacOSPlatform {
   }
 
   public func invalidateFrameStateForDisplayChange() {
-    frameCoordinator.invalidate()
+    frameCoordinator.invalidate(reason: "display-change")
     clearFrameState()
+  }
+
+  public func cancelPendingFrameWrites() {
+    frameCoordinator.invalidate(reason: "mouse-gesture")
   }
 
   public func prepareForSynchronousRestore() {
@@ -2011,6 +2145,9 @@ public final class MacOSPlatform {
       .combinedSessionState,
       button: .left
     )
+    let mouseResizeGestureObserved = mouseResizeGesturePending
+    let externalResizeGestureActive =
+      leftMouseButtonDown || mouseResizeGestureObserved
     let now = ProcessInfo.processInfo.systemUptime
     var externallyChangedFrames: [WindowID: Rect] = [:]
     var targetMismatches: [FrameMismatch] = []
@@ -2043,7 +2180,7 @@ public final class MacOSPlatform {
           currentTarget: target,
           expectation: expectation,
           now: now,
-          leftMouseButtonDown: leftMouseButtonDown
+          leftMouseButtonDown: externalResizeGestureActive
         ) {
           frameCommitExpectations[window.id] = nil
         }
@@ -2062,7 +2199,7 @@ public final class MacOSPlatform {
           currentTarget: target,
           expectation: expectation,
           now: now,
-          leftMouseButtonDown: leftMouseButtonDown
+          leftMouseButtonDown: externalResizeGestureActive
         )
       {
         deferredMismatchCount += 1
@@ -2072,11 +2209,12 @@ public final class MacOSPlatform {
       targetMismatches.append(
         FrameMismatch(windowID: window.id, actual: window.frame, target: target)
       )
-      if leftMouseButtonDown && frameEventPending {
+      if externalResizeGestureActive && frameEventPending {
         externallyChangedFrames[window.id] = window.frame
       }
     }
     frameEventPending = false
+    mouseResizeGesturePending = false
     pendingFrameCorrections = Dictionary(
       uniqueKeysWithValues: targetMismatches.map { ($0.windowID, $0.actual) }
     )
@@ -2121,6 +2259,7 @@ public final class MacOSPlatform {
       nativeFocusChanged: nativeFocusChanged,
       externallyChangedFrames: externallyChangedFrames,
       leftMouseButtonDown: leftMouseButtonDown,
+      mouseResizeGestureObserved: mouseResizeGestureObserved,
       targetMismatchCount: targetMismatches.count,
       targetMismatches: targetMismatches
     )
@@ -2134,6 +2273,7 @@ public final class MacOSPlatform {
     asynchronousPositionTimeoutSeconds: Float = 0.016,
     animationDuration: TimeInterval = 0,
     animationRefreshRateHz: Double = 60,
+    animateSizeChanges: Bool = false,
     positionsOnly: Bool = false,
     updateVisibility: Bool = true,
     source: String = "platform"
@@ -2193,10 +2333,16 @@ public final class MacOSPlatform {
       skippedWindowIDs: skippedWindowIDs
     )
     var animationStartPositions = startPositions
+    var animationStartSizes = referenceFrames.mapValues {
+      CGSize(width: $0.width, height: $0.height)
+    }
     if coordinatorWasBusy {
       for windowID in Array(animationStartPositions.keys) {
         if let completed = frameCoordinator.completedPosition(for: windowID) {
           animationStartPositions[windowID] = completed
+        }
+        if let completed = frameCoordinator.completedSize(for: windowID) {
+          animationStartSizes[windowID] = completed
         }
       }
     }
@@ -2240,12 +2386,14 @@ public final class MacOSPlatform {
       }
       let start = animationStartPositions[assignment.windowID]
         ?? CGPoint(x: reference.x, y: reference.y)
+      let startSize = animationStartSizes[assignment.windowID]
+        ?? CGSize(width: reference.width, height: reference.height)
       frameCommitExpectations[assignment.windowID] = FrameCommitExpectation(
         from: Rect(
           x: start.x,
           y: start.y,
-          width: reference.width,
-          height: reference.height
+          width: startSize.width,
+          height: startSize.height
         ),
         target: assignment.frame,
         issuedAt: now,
@@ -2269,6 +2417,7 @@ public final class MacOSPlatform {
     }
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
+    var animatedWindowIDs = Set<WindowID>()
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
       guard let element = elements[assignment.windowID] else { continue }
@@ -2277,10 +2426,6 @@ public final class MacOSPlatform {
 
       var position = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
       var size = CGSize(width: assignment.frame.width, height: assignment.frame.height)
-      if intent?.size == true, let sizeValue = AXValueCreate(.cgSize, &size) {
-        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
-        sizeWriteCount += 1
-      }
       guard let processID = processIDs[assignment.windowID],
         let application = applications[processID]
       else {
@@ -2290,24 +2435,67 @@ public final class MacOSPlatform {
         frame: assignment.frame,
         monitorFrames: lastMonitorFrames
       )
+      let startPoint = animationStartPositions[assignment.windowID] ?? position
+      let startSize = animationStartSizes[assignment.windowID] ?? size
+      let startFrame = Rect(
+        x: startPoint.x,
+        y: startPoint.y,
+        width: startSize.width,
+        height: startSize.height
+      )
+      let wantsFrameAnimation =
+        animationDuration > 0
+        && !isParked
+        && transitionCrossesViewport(
+          from: startFrame,
+          to: assignment.frame
+        )
+        && (intent?.position == true
+          || (animateSizeChanges && intent?.size == true))
+      let animatesSize =
+        wantsFrameAnimation
+        && animateSizeChanges
+        && intent?.size == true
       let write = AsyncPositionWrite(
         element: element,
         application: application,
         processID: processID,
-        fromPoint: animationStartPositions[assignment.windowID] ?? position,
+        fromPoint: startPoint,
         point: position,
+        fromSize: startSize,
         size: size,
+        positionChanged: intent?.position == true,
         sizeChanged: intent?.size == true,
+        animatesSize: animatesSize,
         enhancedUIWasEnabled: enhancedUIByProcess[processID] == true,
         timeoutSeconds: asynchronousPositionTimeoutSeconds,
         isParked: isParked,
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite
       )
+      if intent?.size == true, !animatesSize,
+        let sizeValue = AXValueCreate(.cgSize, &size)
+      {
+        let result = AXUIElementSetAttributeValue(
+          element,
+          kAXSizeAttribute as CFString,
+          sizeValue
+        )
+        if result == .success {
+          frameCoordinator.alignCompletedSize(
+            windowID: assignment.windowID,
+            size: size
+          )
+          sizeWriteCount += 1
+        }
+      }
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
       }
-      if intent?.position == true {
+      if wantsFrameAnimation {
+        asynchronousWrites[assignment.windowID] = write
+        animatedWindowIDs.insert(assignment.windowID)
+      } else if intent?.position == true {
         if asynchronousPositions || isParked || needsVerifiedOffscreenWrite {
           asynchronousWrites[assignment.windowID] = write
         } else if let positionValue = AXValueCreate(.cgPoint, &position) {
@@ -2326,16 +2514,6 @@ public final class MacOSPlatform {
       pendingFrameCorrections[assignment.windowID] = nil
     }
     frameCoordinator.updateParkingTargets(parkingTargets)
-    let animatedWindowIDs =
-      animationDuration > 0
-      ? Set(
-        asynchronousWrites.compactMap { windowID, write in
-          !write.isParked && transitionCrossesViewport(write)
-            ? windowID
-            : nil
-        }
-      )
-      : []
     frameCoordinator.submit(
       asynchronousWrites,
       source: source,
@@ -2430,7 +2608,7 @@ public final class MacOSPlatform {
   }
 
   public var successfulSizeWriteCount: Int {
-    sizeWriteCount
+    sizeWriteCount + frameCoordinator.animatedSizeWriteCount
   }
 
   public var frameApplyDurationMS: Double {
@@ -2462,15 +2640,14 @@ public final class MacOSPlatform {
   }
 
   private func transitionCrossesViewport(
-    _ write: AsyncPositionWrite
+    from: Rect,
+    to: Rect
   ) -> Bool {
     guard !lastMonitorFrames.isEmpty else { return true }
-    let minX = min(write.fromPoint.x, write.point.x)
-    let minY = min(write.fromPoint.y, write.point.y)
-    let maxX =
-      max(write.fromPoint.x, write.point.x) + write.size.width
-    let maxY =
-      max(write.fromPoint.y, write.point.y) + write.size.height
+    let minX = min(from.x, to.x)
+    let minY = min(from.y, to.y)
+    let maxX = max(from.x + from.width, to.x + to.width)
+    let maxY = max(from.y + from.height, to.y + to.height)
     let swept = Rect(
       x: minX,
       y: minY,
