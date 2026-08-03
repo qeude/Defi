@@ -13,6 +13,29 @@ final class FrameCommitTests: XCTestCase {
     observedAt: nil
   )
 
+  func testWorkspaceSwitchPlacesVisibleWindowsBeforeParkingOldWorkspace() {
+    let visible = WindowID(rawValue: 1)
+    let parked = Set([WindowID(rawValue: 2), WindowID(rawValue: 3)])
+    let all = parked.union([visible])
+
+    XCTAssertEqual(
+      positionWritePhases(
+        windowIDs: all,
+        parkedWindowIDs: parked,
+        stagesVisibleBeforeParking: true
+      ),
+      [Set([visible]), parked]
+    )
+    XCTAssertEqual(
+      positionWritePhases(
+        windowIDs: all,
+        parkedWindowIDs: parked,
+        stagesVisibleBeforeParking: false
+      ),
+      [all]
+    )
+  }
+
   func testExpectedHorizontalCommitLagIsQuarantined() {
     XCTAssertTrue(
       frameIsOnExpectedCommitPath(

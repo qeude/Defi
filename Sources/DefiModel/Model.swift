@@ -191,6 +191,15 @@ public enum Command: Equatable, Codable, Sendable {
       false
     }
   }
+
+  public var activatesWorkspace: Bool {
+    switch self {
+    case .switchWorkspace, .moveWindowToWorkspace:
+      true
+    default:
+      false
+    }
+  }
 }
 
 public enum Event: Equatable, Codable, Sendable {
