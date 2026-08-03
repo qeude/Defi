@@ -75,6 +75,14 @@ SERVICE_WAS_LOADED=0
 if /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1; then
   SERVICE_WAS_LOADED=1
   "$INSTALLED_CLI" service stop
+  for _ in {1..50}; do
+    pgrep -x "$PROCESS_NAME" >/dev/null 2>&1 || break
+    sleep 0.1
+  done
+  if pgrep -x "$PROCESS_NAME" >/dev/null 2>&1; then
+    echo "$PROCESS_NAME did not stop before bundle replacement" >&2
+    exit 1
+  fi
 else
   if [[ -x "$INSTALLED_CLI" ]]; then
     "$INSTALLED_CLI" quit >/dev/null 2>&1 || true
@@ -144,11 +152,13 @@ case "$MODE" in
       then
         "$INSTALLED_CLI" service start >/dev/null
       fi
-      if pgrep -x "$PROCESS_NAME" >/dev/null 2>&1 \
-        && "$INSTALLED_CLI" status >/dev/null 2>&1
-      then
-        "$INSTALLED_CLI" status
-        exit 0
+      if pgrep -x "$PROCESS_NAME" >/dev/null 2>&1; then
+        if STATUS_OUTPUT="$("$INSTALLED_CLI" status 2>/dev/null)" \
+          && [[ -n "$STATUS_OUTPUT" ]]
+        then
+          echo "$STATUS_OUTPUT"
+          exit 0
+        fi
       fi
       sleep 0.1
     done

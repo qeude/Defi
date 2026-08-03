@@ -198,7 +198,11 @@ private final class Daemon: NSObject {
     }
     tickCount += 1
     let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
-    if scrollAnimations.isEmpty && !animatedWritesPending {
+    let liveBorderGesture = platform.isLeftMouseButtonDown
+    if liveBorderGesture {
+      setTimerFrequency(min(activeDisplayRefreshRate, 120))
+    }
+    if scrollAnimations.isEmpty && !animatedWritesPending && !liveBorderGesture {
       if let animationActivity {
         ProcessInfo.processInfo.endActivity(animationActivity)
         self.animationActivity = nil
@@ -217,6 +221,7 @@ private final class Daemon: NSObject {
       needsDesktopSync = false
       synchronizeDesktop()
     }
+    platform.refreshWindowBorders()
   }
 
   private func enqueueHotKey(_ command: String) {
@@ -271,6 +276,7 @@ private final class Daemon: NSObject {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      let switchesWorkspace = command.activatesWorkspace
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
       let animatedManagedResize =
         command.resizesManagedLayout
@@ -284,7 +290,7 @@ private final class Daemon: NSObject {
       if !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites {
         rebaseActiveScrollOffsetToDisplayedFrames()
       }
-      if case .switchWorkspace = command {
+      if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
         pendingAnimatedFocusWindowID = nil
       }
@@ -292,12 +298,9 @@ private final class Daemon: NSObject {
       persistPlacements()
       updateMenuBar()
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
-      let switchesWorkspace: Bool
-      if case .switchWorkspace = command {
-        switchesWorkspace = true
+      if switchesWorkspace {
         snapScrollOffsetsToTargets()
       } else {
-        switchesWorkspace = false
         startScrollAnimationsIfNeeded()
       }
       let deferredWindowIDs: Set<WindowID>
@@ -313,16 +316,24 @@ private final class Daemon: NSObject {
         ? dispatchManagedResizeAnimation(skipping: deferredWindowIDs)
         : dispatchScrollAnimationIfNeeded(skipping: deferredWindowIDs)
       if switchesWorkspace || !dispatchedAnimation {
+        let focusWindowIDAfterCommit = switchesWorkspace
+          ? (activeMonitorID ?? state.monitors.first?.id).flatMap {
+            state.selectedWindowID(on: $0)
+          }
+          : nil
         applyCurrentLayout(
           asynchronousPositions: true,
           updateVisibility: scrollAnimations.isEmpty,
           positionTimeoutSeconds: scrollAnimations.isEmpty ? 0.05 : 0.016,
           skipping: deferredWindowIDs,
           positionsOnly: speculativeRibbonNavigation,
+          stagesVisibleBeforeParking: switchesWorkspace,
+          focusWindowIDAfterCommit: focusWindowIDAfterCommit,
           source: switchesWorkspace ? "workspace-command" : "command"
         )
       }
-      if let monitorID = activeMonitorID ?? state.monitors.first?.id,
+      if !switchesWorkspace,
+        let monitorID = activeMonitorID ?? state.monitors.first?.id,
         let selected = state.selectedWindowID(on: monitorID),
         selected != previouslySelectedWindowID
       {
@@ -756,6 +767,8 @@ private final class Daemon: NSObject {
     animateSizeChanges: Bool = false,
     skipping additionalSkippedWindowIDs: Set<WindowID> = [],
     positionsOnly: Bool = false,
+    stagesVisibleBeforeParking: Bool = false,
+    focusWindowIDAfterCommit: WindowID? = nil,
     source: String = "layout"
   ) {
     var assignments: [FrameAssignment] = []
@@ -770,9 +783,10 @@ private final class Daemon: NSObject {
       }
       let viewport = monitorSnapshot.frame
       let physicalFrame = monitorSnapshot.physicalFrame
-      let activeWorkspaceIndex = monitor.workspaces.firstIndex {
-        $0.id == monitor.activeWorkspace
-      } ?? 0
+      let activeWorkspaceIndex =
+        monitor.workspaces.firstIndex {
+          $0.id == monitor.activeWorkspace
+        } ?? 0
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
         let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
         let workspaceWindows = workspace.columns
@@ -812,9 +826,20 @@ private final class Daemon: NSObject {
     let skipped = additionalSkippedWindowIDs.union(
       activelyResizedWindowID.map { Set([$0]) } ?? []
     )
-    let platformAssignments = asynchronousPositions
+    let platformAssignments =
+      asynchronousPositions
       ? assignments.map(roundAnimatedPosition)
       : assignments
+    let selectedWindowID = activeMonitorID.flatMap {
+      state.selectedWindowID(on: $0)
+    }
+    platform.prepareWindowBorderSelection(selectedWindowID)
+    platform.updateWindowBorders(
+      frames: platformAssignments,
+      selectedWindowID: selectedWindowID,
+      liveWindowID: activelyResizedWindowID,
+      config: config.decorations.borders
+    )
     platform.apply(
       platformAssignments,
       hiddenWindowIDs: hiddenWindowIDs,
@@ -826,7 +851,15 @@ private final class Daemon: NSObject {
       animateSizeChanges: animateSizeChanges,
       positionsOnly: positionsOnly,
       updateVisibility: updateVisibility ?? !asynchronousPositions,
+      stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      focusWindowIDAfterCommit: focusWindowIDAfterCommit,
       source: source
+    )
+    platform.updateWindowBorders(
+      frames: platformAssignments,
+      selectedWindowID: selectedWindowID,
+      liveWindowID: activelyResizedWindowID,
+      config: config.decorations.borders
     )
   }
 
@@ -897,9 +930,13 @@ private final class Daemon: NSObject {
       return "\(mismatch.windowID.rawValue)@\(app):\(dx),\(dy),\(dw),\(dh)"
     }.joined(separator: ";")
     let parking = platform.parkingPerformance
-    let positionBackend = platform.positionBackendPerformance
-    let axSettlement = platform.axSettlementPerformance
     let frameCommit = platform.frameCommitPerformance
+    let borders = platform.windowBorderPerformance
+    let borderOpacity = String(format: "%.2f", borders.activeOpacity)
+    let borderSurfaceMiB = String(
+      format: "%.2f",
+      Double(borders.estimatedSurfacePixels * 4) / 1_048_576
+    )
     let visibility = "topology-parking"
     let commandMS = String(format: "%.2f", lastCommandDurationMS)
     let frameMS = String(format: "%.2f", platform.frameApplyDurationMS)
@@ -934,14 +971,6 @@ private final class Daemon: NSObject {
       format: "%.2f",
       frameCommit.maximumObservedLatencyMS
     )
-    let skyLightMS = String(
-      format: "%.2f",
-      positionBackend.lastDurationMS
-    )
-    let skyLightMaxMS = String(
-      format: "%.2f",
-      positionBackend.maximumDurationMS
-    )
     let focusedColumnState: String = {
       guard let monitorID = activeMonitorID,
         let monitor = state.monitors.first(where: { $0.id == monitorID }),
@@ -953,13 +982,14 @@ private final class Daemon: NSObject {
         return "none"
       }
       let column = workspace.columns[workspace.focusedColumn]
-      return "\(columnWidthStatus(column.width))/prev:\(column.fullscreenPreviousWidth.map(columnWidthStatus) ?? "none")"
+      return
+        "\(columnWidthStatus(column.width))/prev:\(column.fullscreenPreviousWidth.map(columnWidthStatus) ?? "none")"
     }()
     let displaySizes = latestMonitors.map {
       "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
     }.joined(separator: ",")
     return
-      "running monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) workspace=\(workspace) focused=\(focused) columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) hidden=\(platform.hiddenWindowCount) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) slowApps=\(platform.latencySensitiveProcessCount) slowDeferred=\(deferredSlowWindowIDs.count) slowDeferrals=\(slowLaneDeferralCount) slowSettlements=\(slowLaneSettlementCount) posBackend=\(positionBackend.state) slBatches=\(positionBackend.batches) slMoves=\(positionBackend.moves) slFailures=\(positionBackend.failures) slFallbacks=\(positionBackend.fallbacks) slProbe=\(positionBackend.probeVerified) slMs=\(skyLightMS) slMaxMs=\(skyLightMaxMS) axSettled=\(axSettlement.completed) axSettleCancelled=\(axSettlement.cancelled) axSettleRepairs=\(axSettlement.repaired) posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) focusFast=\(focusPerformance.fastPaths) focusCancelled=\(focusPerformance.cancelled) focusRetries=\(focusPerformance.retries) focusMainMs=\(focusMainMS) focusRaiseMs=\(focusRaiseMS) focusActivateMs=\(focusActivateMS) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
+      "running monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) workspace=\(workspace) focused=\(focused) columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) hidden=\(platform.hiddenWindowCount) borders=\(borders.visible) borderNodes=\(borders.allocated) borderDormant=\(borders.dormant) borderOpacity=\(borderOpacity) borderSurfaceMiB=\(borderSurfaceMiB) borderCapture=\(borders.captureEnabled) borderPlans=\(borders.appliedPlans) borderSkips=\(borders.skippedPlans) borderGeometry=\(borders.geometryUpdates) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) slowApps=\(platform.latencySensitiveProcessCount) slowDeferred=\(deferredSlowWindowIDs.count) slowDeferrals=\(slowLaneDeferralCount) slowSettlements=\(slowLaneSettlementCount) posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) focusFast=\(focusPerformance.fastPaths) focusCancelled=\(focusPerformance.cancelled) focusRetries=\(focusPerformance.retries) focusMainMs=\(focusMainMS) focusRaiseMs=\(focusRaiseMS) focusActivateMs=\(focusActivateMS) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
   }
 
   private func columnWidthStatus(_ width: ColumnWidth) -> String {
@@ -1061,6 +1091,7 @@ private final class Daemon: NSObject {
 
   private func shutdown() -> Never {
     timer?.cancel()
+    platform.hideWindowBorders()
     restoreAllWindows()
     server.removeSocketFile()
     log("stopped; windows restored")

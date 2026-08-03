@@ -45,6 +45,8 @@ struct MouseGestureEventNormalizer {
 @MainActor
 final class PlatformEventMonitor {
   private let handler: (PlatformEventKind) -> Void
+  private let frameHandler: (AXUIElement) -> Void
+  private let liveFrameHandler: () -> Void
   private var workspaceTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
@@ -54,8 +56,14 @@ final class PlatformEventMonitor {
   private var frameNotificationsEnabled = true
   private var displayCallbackRegistered = false
 
-  init(handler: @escaping (PlatformEventKind) -> Void) {
+  init(
+    handler: @escaping (PlatformEventKind) -> Void,
+    frameHandler: @escaping (AXUIElement) -> Void = { _ in },
+    liveFrameHandler: @escaping () -> Void = {}
+  ) {
     self.handler = handler
+    self.frameHandler = frameHandler
+    self.liveFrameHandler = liveFrameHandler
   }
 
   func start() {
@@ -107,7 +115,11 @@ final class PlatformEventMonitor {
       matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
     ) { [weak self] event in
       MainActor.assumeIsolated {
-        guard let self,
+        guard let self else { return }
+        if event.type == .leftMouseDragged || event.type == .leftMouseUp {
+          self.liveFrameHandler()
+        }
+        guard
           self.mouseGestureNormalizer.shouldSynchronizeDesktop(
             for: event.type
           )
@@ -197,7 +209,7 @@ final class PlatformEventMonitor {
     var observer: AXObserver?
     let result = AXObserverCreate(
       processID,
-      { _, _, notification, context in
+      { _, element, notification, context in
         guard let context else { return }
         let monitor = Unmanaged<PlatformEventMonitor>
           .fromOpaque(context)
@@ -207,6 +219,7 @@ final class PlatformEventMonitor {
           case kAXFocusedWindowChangedNotification:
             monitor.handler(.focus)
           case kAXMovedNotification, kAXResizedNotification:
+            monitor.frameHandler(element)
             monitor.handler(.frame)
           default:
             monitor.handler(.windows)

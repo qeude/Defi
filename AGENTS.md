@@ -42,18 +42,7 @@ Exclude from MVP:
 - native macOS Spaces control
 - compositor replacement
 - mouse-first shell
-- private WindowServer APIs
-
-Experimental exception:
-
-- private SkyLight transforms must stay disabled by default
-- never request Screen Recording for direct SkyLight transforms
-- restrict SkyLight to visible, horizontal, position-only animation frames
-- keep resize, focus, parking, and non-animated commits on Accessibility
-- settle SkyLight targets through delayed AX writes after visual completion
-- repair stale AX settlements immediately with the latest SkyLight position
-- dynamically resolve symbols and fall back to Accessibility without crashing
-- keep a session circuit breaker and runtime performance counters
+- private WindowServer mutation APIs
 
 ## Runtime rules
 
@@ -96,7 +85,7 @@ The scrolling workspace is one continuous horizontal strip.
 - animate entering, visible, and leaving windows on the same movement timeline when their AX lane permits it
 - never impose an arbitrary cap that leaves an entering ribbon window unanimated
 - never minimize managed windows to implement virtual workspaces
-- park inactive-workspace windows through topology and Accessibility, not SkyLight alpha
+- park inactive-workspace windows through topology and Accessibility, never visual opacity
 - keep same-workspace offscreen columns at their verified one-pixel strip anchors
 - keep native click, Dock, and Command-Tab focus compatible with virtual-workspace activation
 - ignore redundant native focus on the already-selected window; no reflow or animation from a plain click
