@@ -11,7 +11,7 @@ struct NativeFocusTests {
   func alreadySelectedWindowDoesNotChangeNativeFocusSelection() throws {
     var state = try makeState()
     let selected = WindowID(rawValue: 1)
-    focusWindow(selected, state: &state)
+    #expect(focusWindow(selected, state: &state) == false)
 
     #expect(
       nativeFocusChangesSelection(
@@ -20,6 +20,13 @@ struct NativeFocusTests {
         state: state
       ) == false
     )
+  }
+
+  @Test
+  func focusInsideActiveWorkspaceDoesNotReportWorkspaceActivation() throws {
+    var state = try makeState()
+
+    #expect(focusWindow(WindowID(rawValue: 2), state: &state) == false)
   }
 
   @Test
