@@ -247,6 +247,45 @@ final class RuntimeTests: XCTestCase {
     )
   }
 
+  func testDisconnectMigratesLiveWindowWithoutOverwritingPreferredMonitor() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    let externalMonitorID = MonitorID(rawValue: 2)
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalMonitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.Chat",
+      title: "Chat",
+      frame: Rect(x: 1_500, y: 0, width: 600, height: 800),
+      monitorID: externalMonitorID
+    )
+    try discoverWindow(
+      window,
+      decision: RuleDecision(workspace: WorkspaceID(rawValue: "web")),
+      state: &state
+    )
+    var preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web"),
+          monitorID: externalMonitorID
+        )
+      ]
+    )
+
+    state.retainMonitors([monitorID])
+
+    XCTAssertEqual(state.location(containing: window.id)?.monitorID, monitorID)
+
+    preferences.recordPlacements(from: state)
+
+    XCTAssertEqual(
+      preferences.applications["com.example.chat"]?.monitorID,
+      externalMonitorID
+    )
+  }
+
   func testReconcilePreservesIntrinsicDimensionsAfterAppliedGaps() throws {
     let config = Config()
     var state = RuntimeState(config: config)
