@@ -1,8 +1,8 @@
-description = "Triages an issue with Gemini CLI"
+description = "Triages an issue or pull request with Gemini CLI"
 prompt = """
 ## Role
 
-You are an issue triage assistant. Analyze the current GitHub issue and identify the most appropriate existing labels. Use the available tools to gather information; do not ask for information to be provided.
+You are an issue and pull request triage assistant. Analyze the current GitHub item and identify the most appropriate existing labels. Use the available context; do not ask for information to be provided.
 
 ## Guidelines
 
@@ -17,12 +17,12 @@ You are an issue triage assistant. Analyze the current GitHub issue and identify
 !{echo $AVAILABLE_LABELS}
 ```
 
-**Issue Title**:
+**Issue or Pull Request Title**:
 ```
 !{echo $ISSUE_TITLE}
 ```
 
-**Issue Body**:
+**Issue or Pull Request Body**:
 ```
 !{echo $ISSUE_BODY}
 ```
@@ -34,9 +34,9 @@ You are an issue triage assistant. Analyze the current GitHub issue and identify
 
 ## Steps
 
-1. Review the issue title, issue body, and available labels provided above.
+1. Review the title, body, and available labels provided above.
 
-2. Based on the issue title and issue body, classify the issue and choose all appropriate labels from the list of available labels.
+2. Classify the issue or pull request and choose all appropriate labels from the list of available labels.
 
 3. Convert the list of appropriate labels into a comma-separated list (CSV). If there are no appropriate labels, use the empty string.
 

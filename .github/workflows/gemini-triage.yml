@@ -62,8 +62,8 @@ jobs:
         uses: 'google-github-actions/run-gemini-cli@v0' # ratchet:exclude
         env:
           GITHUB_TOKEN: '' # Do NOT pass any auth tokens here since this runs on untrusted inputs
-          ISSUE_TITLE: '${{ github.event.issue.title }}'
-          ISSUE_BODY: '${{ github.event.issue.body }}'
+          ISSUE_TITLE: '${{ github.event.pull_request.title || github.event.issue.title }}'
+          ISSUE_BODY: '${{ github.event.pull_request.body || github.event.issue.body }}'
           AVAILABLE_LABELS: '${{ steps.get_labels.outputs.available_labels }}'
         with:
           gcp_location: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
@@ -79,8 +79,8 @@ jobs:
           use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
           upload_artifacts: '${{ vars.UPLOAD_ARTIFACTS }}'
           workflow_name: 'gemini-triage'
-          # Explicitly set the issue number to handle `issue_comment` triggers where the context might be ambiguous
-          github_issue_number: '${{ github.event.issue.number }}'
+          # Pull requests use the issues API for labels.
+          github_issue_number: '${{ github.event.pull_request.number || github.event.issue.number }}'
           settings: |-
             {
               "model": {
@@ -124,7 +124,7 @@ jobs:
 
       - name: 'Apply labels'
         env:
-          ISSUE_NUMBER: '${{ github.event.issue.number }}'
+          ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
           AVAILABLE_LABELS: '${{ needs.triage.outputs.available_labels }}'
           SELECTED_LABELS: '${{ needs.triage.outputs.selected_labels }}'
         uses: 'actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd' # ratchet:actions/github-script@v8.0.0
@@ -145,10 +145,10 @@ jobs:
               .filter((label) => availableLabels.includes(label))
               .sort()
 
-            // Set the labels
+            // Preserve existing labels and add the selected classification.
             const issueNumber = process.env.ISSUE_NUMBER;
             if (selectedLabels && selectedLabels.length > 0) {
-              await github.rest.issues.setLabels({
+              await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,

@@ -132,7 +132,7 @@ jobs:
   triage:
     needs: 'dispatch'
     if: |-
-      ${{ needs.dispatch.outputs.command == 'triage' }}
+      ${{ needs.dispatch.outputs.command == 'triage' || github.event_name == 'pull_request' }}
     uses: './.github/workflows/gemini-triage.yml'
     permissions:
       contents: 'read'
