@@ -2122,7 +2122,8 @@ public final class MacOSPlatform {
           shouldManage(
             candidate,
             element: element,
-            forceTiling: decision.forceTiling
+            forceTiling: decision.forceTiling,
+            wasPreviouslyManaged: previousWindowID != nil
           )
         else {
           continue
@@ -2764,7 +2765,7 @@ public final class MacOSPlatform {
     let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
     let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
-    guard let record = (
+    let record = (
         preferredWindowID.flatMap { preferred in
           cgWindows.first {
             $0.id == CGWindowID(preferred.rawValue)
@@ -2780,12 +2781,15 @@ public final class MacOSPlatform {
           excluding: usedCGWindowIDs
         )
     )
-    else {
+    guard let resolvedWindowID = resolvedCGWindowID(
+      matchedRecord: record,
+      preferredWindowID: preferredWindowID
+    ) else {
       return nil
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
     return (Window(
-      id: WindowID(rawValue: UInt64(record.id)),
+      id: WindowID(rawValue: UInt64(resolvedWindowID)),
       appID: appID,
       title: title,
       frame: frame,
@@ -2794,19 +2798,30 @@ public final class MacOSPlatform {
       processID: processID,
       monitorID: monitorID,
       forceTiling: false
-    ), record.id)
+    ), resolvedWindowID)
   }
 
   private func shouldManage(
     _ window: Window,
     element: AXUIElement,
-    forceTiling: Bool
+    forceTiling: Bool,
+    wasPreviouslyManaged: Bool
   ) -> Bool {
-    shouldManageWindow(
+    var closeButton: CFTypeRef?
+    let closeButtonError = AXUIElementCopyAttributeValue(
+      element,
+      kAXCloseButtonAttribute as CFString,
+      &closeButton
+    )
+    return shouldManageWindow(
       role: window.role,
       subrole: window.subrole,
       appID: window.appID,
-      hasCloseButton: copyAttribute(element, name: kAXCloseButtonAttribute) != nil,
+      hasCloseButton: shouldTreatWindowAsClosable(
+        error: closeButtonError,
+        hasValue: closeButton != nil,
+        wasPreviouslyManaged: wasPreviouslyManaged
+      ),
       forceTiling: forceTiling
     )
   }
@@ -2931,6 +2946,17 @@ struct CGWindowRecord {
   let frame: Rect
 }
 
+func resolvedCGWindowID(
+  matchedRecord: CGWindowRecord?,
+  preferredWindowID: WindowID?
+) -> CGWindowID? {
+  if let matchedRecord {
+    return matchedRecord.id
+  }
+  guard let preferredWindowID else { return nil }
+  return CGWindowID(exactly: preferredWindowID.rawValue)
+}
+
 private func copyCGWindows() -> [CGWindowRecord] {
   guard
     let info = CGWindowListCopyWindowInfo(
@@ -3015,6 +3041,21 @@ func shouldManageWindow(
     "com.raycast.macos",
   ]
   return !ignoredApps.contains(appID.lowercased())
+}
+
+func shouldTreatWindowAsClosable(
+  error: AXError,
+  hasValue: Bool,
+  wasPreviouslyManaged: Bool
+) -> Bool {
+  switch error {
+  case .success:
+    hasValue
+  case .attributeUnsupported, .noValue:
+    false
+  default:
+    wasPreviouslyManaged
+  }
 }
 
 func shouldSelectSpecificWindow(
