@@ -5,7 +5,6 @@ MODE="${1:-run}"
 APP_NAME="Defi"
 PROCESS_NAME="defi-daemon"
 BUNDLE_ID="com.quentin.defi"
-DEFAULT_DEVELOPMENT_TEAM=""
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING_ROOT="$ROOT_DIR/dist"
@@ -39,12 +38,19 @@ chmod +x "$APP_BINARY" "$CLI_BINARY"
 
 SIGNING_IDENTITY="${DEFI_CODESIGN_IDENTITY:-}"
 if [[ -z "$SIGNING_IDENTITY" ]]; then
-  DEVELOPMENT_TEAM="${DEFI_DEVELOPMENT_TEAM:-$DEFAULT_DEVELOPMENT_TEAM}"
-  SIGNING_IDENTITY="$(
-    security find-identity -p codesigning -v |
-      awk -v team="($DEVELOPMENT_TEAM)" \
-        '$0 ~ /Apple Development:/ && index($0, team) { print $2; exit }'
-  )"
+  DEVELOPMENT_TEAM="${DEFI_DEVELOPMENT_TEAM:-}"
+  if [[ -n "$DEVELOPMENT_TEAM" ]]; then
+    SIGNING_IDENTITY="$(
+      security find-identity -p codesigning -v |
+        awk -v team="($DEVELOPMENT_TEAM)" \
+          '$0 ~ /Apple Development:/ && index($0, team) { print $2; exit }'
+    )"
+  else
+    SIGNING_IDENTITY="$(
+      security find-identity -p codesigning -v |
+        awk '$0 ~ /Apple Development:/ { print $2; exit }'
+    )"
+  fi
 fi
 if [[ -z "$SIGNING_IDENTITY" ]]; then
   echo "No Apple Development signing identity found." >&2
