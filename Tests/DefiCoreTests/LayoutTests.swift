@@ -188,6 +188,28 @@ final class LayoutTests: XCTestCase {
     XCTAssertNil(column.fullscreenPreviousWidth)
   }
 
+  func testCyclingForwardFromFullscreenUsesFirstPreset() {
+    var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
+    let presets = [0.33, 0.5, 0.66, 0.8]
+
+    toggleFullscreen(of: &column, defaultWidth: 0.8)
+    cycleWidth(of: &column, direction: .next, presets: presets)
+
+    XCTAssertEqual(column.width, .fraction(0.33))
+    XCTAssertNil(column.fullscreenPreviousWidth)
+  }
+
+  func testCyclingBackwardFromFullscreenUsesLastPreset() {
+    var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
+    let presets = [0.33, 0.5, 0.66, 0.8]
+
+    toggleFullscreen(of: &column, defaultWidth: 0.8)
+    cycleWidth(of: &column, direction: .previous, presets: presets)
+
+    XCTAssertEqual(column.width, .fraction(0.8))
+    XCTAssertNil(column.fullscreenPreviousWidth)
+  }
+
   func testSpeculativeNavigationSettlementWaitsPastVisualAnimation() {
     XCTAssertEqual(
       speculativeNavigationSettlementDelay(animationDuration: 0.035),

@@ -172,6 +172,20 @@ public func cycleWidth(
   presets: [Double]
 ) {
   guard !presets.isEmpty else { return }
+  if column.fullscreenPreviousWidth != nil {
+    let boundaryIndex: Int
+    switch direction {
+    case .next, .right, .first:
+      boundaryIndex = 0
+    case .previous, .left, .last:
+      boundaryIndex = presets.count - 1
+    case .up, .down:
+      boundaryIndex = nearestPresetIndex(current: 1, presets: presets)
+    }
+    column.width = .fraction(presets[boundaryIndex])
+    column.fullscreenPreviousWidth = nil
+    return
+  }
   guard case .fraction(let current) = column.width else {
     column.width = .fraction(presets[0])
     column.fullscreenPreviousWidth = nil
