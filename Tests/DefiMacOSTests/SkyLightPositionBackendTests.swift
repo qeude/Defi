@@ -5,6 +5,22 @@ import Testing
 
 struct SkyLightPositionBackendTests {
   @Test
+  func companionMovesRequireExperimentalOptIn() {
+    #expect(
+      shouldMoveSkyLightCompanions(
+        experimentalSkyLightEnabled: false,
+        companionCount: 4
+      ) == false
+    )
+    #expect(
+      shouldMoveSkyLightCompanions(
+        experimentalSkyLightEnabled: true,
+        companionCount: 4
+      )
+    )
+  }
+
+  @Test
   func disabledExperimentUsesAccessibility() {
     #expect(
       selectPositionAnimationBackend(

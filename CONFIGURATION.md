@@ -83,6 +83,7 @@ edge surfaces individually; full-desktop capture shows the composed border.
 ```toml
 [experimental]
 skylight_position_animation = false
+skylight_border_tracking = false
 ```
 
 - `skylight_position_animation`: use private SkyLight compositor transforms for visible
@@ -91,6 +92,9 @@ skylight_position_animation = false
   settlement synchronizes app-owned geometry after visual completion. Missing
   symbols or repeated failures automatically fall back to Accessibility for the
   session. This experiment does not request Screen Recording permission.
+- `skylight_border_tracking`: read private WindowServer bounds and corner radii so
+  public AppKit border overlays exactly follow native windows. Disabled by default.
+  Border movement, ordering, and opacity remain on AppKit.
 
 ## `[workspaces]`
 
