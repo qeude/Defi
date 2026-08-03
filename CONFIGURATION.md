@@ -76,20 +76,6 @@ request Screen Recording permission. Z-order and capture sharing are independent
 after changing it. App-scoped capture tools such as Computer Use expose the Defi
 edge surfaces individually; full-desktop capture shows the composed border.
 
-## `[experimental]`
-
-```toml
-[experimental]
-skylight_position_animation = false
-```
-
-- `skylight_position_animation`: use private SkyLight compositor transforms for visible
-  horizontal animation frames. Disabled by default. Resize, focus, parking, and
-  non-animated frame commits remain on Accessibility. A delayed Accessibility
-  settlement synchronizes app-owned geometry after visual completion. Missing
-  symbols or repeated failures automatically fall back to Accessibility for the
-  session. This experiment does not request Screen Recording permission.
-
 ## `[workspaces]`
 
 ```toml

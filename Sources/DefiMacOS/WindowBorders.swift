@@ -324,15 +324,6 @@ final class WindowBorderManager {
     compositorCommitPending = true
   }
 
-  func skyLightCompanions() -> [WindowID: [SkyLightPositionCompanion]] {
-    Dictionary(
-      uniqueKeysWithValues: overlays.compactMap { windowID, overlay in
-        let companions = overlay.skyLightCompanions
-        return companions.isEmpty ? nil : (windowID, companions)
-      }
-    )
-  }
-
   func hide() {
     for overlay in overlays.values {
       overlay.hide()
