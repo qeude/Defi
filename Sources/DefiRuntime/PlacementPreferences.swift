@@ -40,13 +40,25 @@ public struct PlacementPreferences: Codable, Equatable, Sendable {
     }
 
     for (application, locations) in locationsByApplication {
-      guard locations.count == 1, let location = locations.first else {
+      let workspaceIDs = Set(locations.map(\.workspaceID))
+      guard workspaceIDs.count == 1, let workspaceID = workspaceIDs.first else {
         applications[application] = nil
         continue
       }
+      let availableMonitorIDs = Set(state.monitors.map(\.id))
+      let existingMonitorID = applications[application]?.monitorID
+      let observedMonitorIDs = Set(locations.map(\.monitorID))
+      let monitorID: MonitorID?
+      if let existingMonitorID,
+        !availableMonitorIDs.contains(existingMonitorID)
+      {
+        monitorID = existingMonitorID
+      } else {
+        monitorID = observedMonitorIDs.count == 1 ? observedMonitorIDs.first : nil
+      }
       applications[application] = WindowPlacementPreference(
-        workspaceID: location.workspaceID,
-        monitorID: location.monitorID
+        workspaceID: workspaceID,
+        monitorID: monitorID
       )
     }
   }
