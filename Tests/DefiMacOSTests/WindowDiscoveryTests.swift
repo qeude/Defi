@@ -74,6 +74,16 @@ final class WindowDiscoveryTests: XCTestCase {
     XCTAssertEqual(match?.id, matchingTitle.id)
   }
 
+  func testPreviousWindowIDSurvivesMissingCGSnapshotRecord() {
+    XCTAssertEqual(
+      resolvedCGWindowID(
+        matchedRecord: nil,
+        preferredWindowID: WindowID(rawValue: 42)
+      ),
+      42
+    )
+  }
+
   func testStandardClosableWindowIsManaged() {
     XCTAssertTrue(
       shouldManageWindow(
@@ -94,6 +104,33 @@ final class WindowDiscoveryTests: XCTestCase {
         appID: "net.imput.helium",
         hasCloseButton: false,
         forceTiling: false
+      )
+    )
+  }
+
+  func testTransientCloseButtonFailurePreservesManagedWindow() {
+    XCTAssertTrue(
+      shouldTreatWindowAsClosable(
+        error: .cannotComplete,
+        hasValue: false,
+        wasPreviouslyManaged: true
+      )
+    )
+    XCTAssertFalse(
+      shouldTreatWindowAsClosable(
+        error: .cannotComplete,
+        hasValue: false,
+        wasPreviouslyManaged: false
+      )
+    )
+  }
+
+  func testMissingCloseButtonRemainsUnmanaged() {
+    XCTAssertFalse(
+      shouldTreatWindowAsClosable(
+        error: .noValue,
+        hasValue: false,
+        wasPreviouslyManaged: true
       )
     )
   }

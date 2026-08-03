@@ -2081,7 +2081,8 @@ public final class MacOSPlatform {
           shouldManage(
             candidate,
             element: element,
-            forceTiling: decision.forceTiling
+            forceTiling: decision.forceTiling,
+            wasPreviouslyManaged: previousWindowID != nil
           )
         else {
           continue
@@ -2757,51 +2758,63 @@ public final class MacOSPlatform {
     let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
     let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
-    guard
-      let record =
-        (preferredWindowID.flatMap { preferred in
+    let record = (
+        preferredWindowID.flatMap { preferred in
           cgWindows.first {
             $0.id == CGWindowID(preferred.rawValue)
               && $0.processID == processID
               && !usedCGWindowIDs.contains($0.id)
           }
         }
-          ?? bestCGWindow(
-            processID: processID,
-            title: title,
-            frame: frame,
-            records: cgWindows,
-            excluding: usedCGWindowIDs
-          ))
-    else {
+        ?? bestCGWindow(
+          processID: processID,
+          title: title,
+          frame: frame,
+          records: cgWindows,
+          excluding: usedCGWindowIDs
+        )
+    )
+    guard let resolvedWindowID = resolvedCGWindowID(
+      matchedRecord: record,
+      preferredWindowID: preferredWindowID
+    ) else {
       return nil
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
-    return (
-      Window(
-        id: WindowID(rawValue: UInt64(record.id)),
-        appID: appID,
-        title: title,
-        frame: frame,
-        role: role,
-        subrole: subrole,
-        processID: processID,
-        monitorID: monitorID,
-        forceTiling: false
-      ), record.id
-    )
+    return (Window(
+      id: WindowID(rawValue: UInt64(resolvedWindowID)),
+      appID: appID,
+      title: title,
+      frame: frame,
+      role: role,
+      subrole: subrole,
+      processID: processID,
+      monitorID: monitorID,
+      forceTiling: false
+    ), resolvedWindowID)
   }
 
   private func shouldManage(
     _ window: Window,
     element: AXUIElement,
-    forceTiling: Bool
+    forceTiling: Bool,
+    wasPreviouslyManaged: Bool
   ) -> Bool {
-    shouldManageWindow(
+    var closeButton: CFTypeRef?
+    let closeButtonError = AXUIElementCopyAttributeValue(
+      element,
+      kAXCloseButtonAttribute as CFString,
+      &closeButton
+    )
+    return shouldManageWindow(
       role: window.role,
       subrole: window.subrole,
       appID: window.appID,
-      hasCloseButton: copyAttribute(element, name: kAXCloseButtonAttribute) != nil,
+      hasCloseButton: shouldTreatWindowAsClosable(
+        error: closeButtonError,
+        hasValue: closeButton != nil,
+        wasPreviouslyManaged: wasPreviouslyManaged
+      ),
       forceTiling: forceTiling
     )
   }
@@ -2926,6 +2939,17 @@ struct CGWindowRecord {
   let frame: Rect
 }
 
+func resolvedCGWindowID(
+  matchedRecord: CGWindowRecord?,
+  preferredWindowID: WindowID?
+) -> CGWindowID? {
+  if let matchedRecord {
+    return matchedRecord.id
+  }
+  guard let preferredWindowID else { return nil }
+  return CGWindowID(exactly: preferredWindowID.rawValue)
+}
+
 private func copyCGWindows() -> [CGWindowRecord] {
   guard
     let info = CGWindowListCopyWindowInfo(
@@ -3010,6 +3034,21 @@ func shouldManageWindow(
     "com.raycast.macos",
   ]
   return !ignoredApps.contains(appID.lowercased())
+}
+
+func shouldTreatWindowAsClosable(
+  error: AXError,
+  hasValue: Bool,
+  wasPreviouslyManaged: Bool
+) -> Bool {
+  switch error {
+  case .success:
+    hasValue
+  case .attributeUnsupported, .noValue:
+    false
+  default:
+    wasPreviouslyManaged
+  }
 }
 
 func shouldSelectSpecificWindow(
