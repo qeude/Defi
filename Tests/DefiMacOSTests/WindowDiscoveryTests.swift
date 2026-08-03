@@ -170,4 +170,16 @@ final class WindowDiscoveryTests: XCTestCase {
       )
     )
   }
+
+  func testFrontmostSingleWindowDefersSelectionToAsyncValidation() {
+    XCTAssertFalse(
+      shouldSelectSpecificWindow(
+        activatesApplication: false,
+        hasUnmanagedAuxiliaryWindows: true,
+        hasMultipleManagedWindows: false,
+        focusWritePending: false,
+        targetWasLastFocused: true
+      )
+    )
+  }
 }

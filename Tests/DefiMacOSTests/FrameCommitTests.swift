@@ -36,6 +36,54 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testOnlyIncomingWorkspaceWritesSuppressNativePositionAnimation() {
+    XCTAssertTrue(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: true,
+        isParked: false,
+        isIntermediate: false
+      )
+    )
+    XCTAssertFalse(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: true,
+        isParked: true,
+        isIntermediate: false
+      )
+    )
+    XCTAssertFalse(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: false,
+        isParked: false,
+        isIntermediate: false
+      )
+    )
+    XCTAssertFalse(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: true,
+        isParked: false,
+        isIntermediate: true
+      )
+    )
+  }
+
+  func testDeferredFocusOnlyAppliesToCurrentSelection() {
+    let target = WindowID(rawValue: 1)
+
+    XCTAssertTrue(
+      shouldApplyDeferredFocus(
+        targetWindowID: target,
+        selectedWindowID: target
+      )
+    )
+    XCTAssertFalse(
+      shouldApplyDeferredFocus(
+        targetWindowID: target,
+        selectedWindowID: WindowID(rawValue: 2)
+      )
+    )
+  }
+
   func testExpectedHorizontalCommitLagIsQuarantined() {
     XCTAssertTrue(
       frameIsOnExpectedCommitPath(
