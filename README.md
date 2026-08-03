@@ -100,7 +100,8 @@ Defi restores parked windows before managed shutdown or service stop.
 
 ## Signing identity
 
-Local builds require an Apple Development identity. Select a team or exact identity:
+Local builds use the first available Apple Development identity. Select a team
+or exact identity when multiple identities are installed:
 
 ```sh
 DEFI_DEVELOPMENT_TEAM=TEAMID ./script/build_and_run.sh
