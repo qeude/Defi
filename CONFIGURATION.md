@@ -57,10 +57,11 @@ compacted to one pixel. Enabling inactive borders keeps four
 narrow surfaces per visible tiled window, never parked or off-workspace windows.
 Unchanged decoration plans perform no AppKit work.
 
-Borders follow Accessibility animation writes through grouped WindowServer moves
-on a dedicated connection. Final-position repairs are coalesced while native
-commits settle, preventing stale geometry from overwriting the displayed border.
-Native move and resize notifications trigger an immediate WindowServer bounds read.
+Borders automatically read native WindowServer bounds and corner radii when the
+dynamically resolved symbols are available. Bounds fall back to observed
+Accessibility frames; corner radii fall back to the stable macOS radius. No
+configuration switch is required. Native move and resize notifications refresh
+visible border geometry immediately.
 Every mouse-drag event also refreshes visible borders directly, while the bounded
 refresh tick rises to the active display rate during the gesture. This keeps the
 active border on the real displayed size even when an application coalesces
@@ -68,10 +69,7 @@ Accessibility notifications.
 New surfaces are placed and ordered while transparent. They become opaque
 immediately after the target receives native focus. Borders disappear and change
 color immediately, avoiding stale presentation opacity and compositor timing.
-Window corner radii come from WindowServer when available, with a stable macOS
-radius fallback. Strokes stay inside the exact target frame. Every visible
-surface is ordered immediately above its own target and inherits its target's
-WindowServer level and sublevel when available. Surfaces ignore all input. They
+Strokes stay inside the exact target frame. Surfaces ignore all input. They
 use `NSWindowSharingNone` by default, so they stay outside screenshots and never
 request Screen Recording permission. Z-order and capture sharing are independent.
 `capture_enabled = true` changes sharing to read-only for debugging; restart Defi
@@ -83,7 +81,6 @@ edge surfaces individually; full-desktop capture shows the composed border.
 ```toml
 [experimental]
 skylight_position_animation = false
-skylight_border_tracking = false
 ```
 
 - `skylight_position_animation`: use private SkyLight compositor transforms for visible
@@ -92,9 +89,6 @@ skylight_border_tracking = false
   settlement synchronizes app-owned geometry after visual completion. Missing
   symbols or repeated failures automatically fall back to Accessibility for the
   session. This experiment does not request Screen Recording permission.
-- `skylight_border_tracking`: read private WindowServer bounds and corner radii so
-  public AppKit border overlays exactly follow native windows. Disabled by default.
-  Border movement, ordering, and opacity remain on AppKit.
 
 ## `[workspaces]`
 

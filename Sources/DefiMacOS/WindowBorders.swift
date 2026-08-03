@@ -113,6 +113,21 @@ func borderCornerRadius(windowRadius: Double) -> Double {
   max(windowRadius, 0)
 }
 
+func resolvedWindowBorderRadius(nativeRadius: Double?) -> Double {
+  guard let nativeRadius, nativeRadius.isFinite, nativeRadius > 0 else {
+    return 9
+  }
+  return nativeRadius
+}
+
+func resolvedWindowBorderFrame(
+  nativeFrame: Rect?,
+  observedFrame: Rect?,
+  plannedFrame: Rect?
+) -> Rect? {
+  nativeFrame ?? observedFrame ?? plannedFrame
+}
+
 private func frameIntersectsAnyMonitor(
   _ frame: Rect,
   monitorFrames: [Rect]
@@ -135,7 +150,7 @@ func borderOpacity(_ color: UInt32) -> Float {
 
 @MainActor
 final class WindowBorderManager {
-  private var radiusProvider: WindowCornerRadiusProvider?
+  private let radiusProvider = WindowCornerRadiusProvider()
   private var overlays: [WindowID: BorderOverlay] = [:]
   private(set) var activeWindowID: WindowID?
   private var lastPlan: WindowBorderRenderPlan?
@@ -167,18 +182,6 @@ final class WindowBorderManager {
       overlays.compactMap { windowID, overlay in
         overlay.isVisible ? windowID : nil
       })
-  }
-
-  func configureExperimentalNativeGeometry(enabled: Bool) {
-    let wasEnabled = radiusProvider != nil
-    guard wasEnabled != enabled else { return }
-    if enabled {
-      radiusProvider = WindowCornerRadiusProvider()
-    } else {
-      radiusProvider = nil
-    }
-    lastPlan = nil
-    lastDisplayedFrames.removeAll(keepingCapacity: true)
   }
 
   func revealPendingBorders() {
@@ -271,7 +274,7 @@ final class WindowBorderManager {
     lastPlan = plan
     lastDisplayedFrames = displayedFrames
     appliedPlans += 1
-    radiusProvider?.retain(
+    radiusProvider.retain(
       windowIDs: trackedWindowIDs.union(overlays.keys)
     )
     let desiredAssignments = plan.inactive + [plan.active].compactMap { $0 }
@@ -362,7 +365,7 @@ final class WindowBorderManager {
   }
 
   private func radius(for windowID: WindowID) -> Double {
-    radiusProvider?.radius(for: windowID) ?? 9
+    radiusProvider.radius(for: windowID)
   }
 }
 
@@ -491,7 +494,9 @@ private final class WindowCornerRadiusProvider {
 
   func radius(for windowID: WindowID) -> Double {
     if let cached = cache[windowID] { return cached }
-    let radius = readRadius(for: windowID) ?? 9
+    let radius = resolvedWindowBorderRadius(
+      nativeRadius: readRadius(for: windowID)
+    )
     cache[windowID] = radius
     return radius
   }

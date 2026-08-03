@@ -2158,7 +2158,7 @@ public final class MacOSPlatform {
   private let frameCoordinator = AXFrameCoordinator()
   private let focusWriter = AXFocusWriter()
   private let borderManager = WindowBorderManager()
-  private var borderBoundsProvider: WindowServerBoundsProvider?
+  private let borderBoundsProvider = WindowServerBoundsProvider()
   private var targetFrames: [WindowID: Rect] = [:]
   private var pendingFrameCorrections: [WindowID: Rect] = [:]
   private var latestObservedFrames: [WindowID: Rect] = [:]
@@ -2375,7 +2375,7 @@ public final class MacOSPlatform {
         }
         return (
           windowID,
-          borderBoundsProvider?.frame(for: windowID) ?? fallback
+          borderBoundsProvider.frame(for: windowID) ?? fallback
         )
       }
     )
@@ -2429,7 +2429,7 @@ public final class MacOSPlatform {
   private func displayedBorderFrame(
     for assignment: FrameAssignment
   ) -> Rect {
-    if let nativeFrame = borderBoundsProvider?.frame(for: assignment.windowID) {
+    if let nativeFrame = borderBoundsProvider.frame(for: assignment.windowID) {
       return nativeFrame
     }
     if assignment.windowID == borderLiveWindowID,
@@ -2453,9 +2453,11 @@ public final class MacOSPlatform {
   }
 
   private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
-    borderBoundsProvider?.frame(for: windowID)
-      ?? latestObservedFrames[windowID]
-      ?? borderFrames.first(where: { $0.windowID == windowID })?.frame
+    resolvedWindowBorderFrame(
+      nativeFrame: borderBoundsProvider.frame(for: windowID),
+      observedFrame: latestObservedFrames[windowID],
+      plannedFrame: borderFrames.first(where: { $0.windowID == windowID })?.frame
+    )
   }
 
   public func setFrameNotificationsEnabled(_ enabled: Bool) {
@@ -2474,21 +2476,7 @@ public final class MacOSPlatform {
     return AXIsProcessTrustedWithOptions(options)
   }
 
-  private func configureExperimentalBorderTracking(enabled: Bool) {
-    if enabled {
-      if borderBoundsProvider == nil {
-        borderBoundsProvider = WindowServerBoundsProvider()
-      }
-    } else {
-      borderBoundsProvider = nil
-    }
-    borderManager.configureExperimentalNativeGeometry(enabled: enabled)
-  }
-
   public func snapshot(config: Config) -> DesktopSnapshot {
-    configureExperimentalBorderTracking(
-      enabled: config.experimental.skyLightBorderTracking
-    )
     frameCoordinator.configureExperimentalSkyLight(
       enabled: config.experimental.skyLightPositionAnimation
     )
