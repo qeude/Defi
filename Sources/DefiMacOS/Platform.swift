@@ -1637,6 +1637,7 @@ public final class MacOSPlatform {
   private var elements: [WindowID: AXUIElement] = [:]
   private var processIDs: [WindowID: pid_t] = [:]
   private var applications: [pid_t: AXUIElement] = [:]
+  private var applicationWindowCounts: [pid_t: Int] = [:]
   private var enhancedUIByProcess: [pid_t: Bool] = [:]
   private let frameCoordinator = AXFrameCoordinator()
   private let focusWriter = AXFocusWriter()
@@ -2005,7 +2006,14 @@ public final class MacOSPlatform {
           continue
         }
         let decision = config.decision(for: candidate)
-        guard shouldManage(candidate, forceTiling: decision.forceTiling) else {
+        guard
+          shouldManage(
+            candidate,
+            element: element,
+            forceTiling: decision.forceTiling,
+            wasPreviouslyManaged: previousWindowID != nil
+          )
+        else {
           continue
         }
         guard usedCGWindowIDs.insert(cgWindowID).inserted else {
@@ -2020,6 +2028,7 @@ public final class MacOSPlatform {
     elements = nextElements
     processIDs = nextProcessIDs
     applications = nextApplications
+    applicationWindowCounts = applicationWindows.mapValues(\.count)
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
     eventMonitor?.refresh(applications: applicationWindows)
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
@@ -2586,18 +2595,27 @@ public final class MacOSPlatform {
     internalFocusDeadlines[windowID] =
       ProcessInfo.processInfo.systemUptime + 2
     let focusWritePending = focusWriter.isBusy
+    let activatesApplication =
+      focusWriter.hasInFlightRequest(forDifferentProcess: processID)
+      || NSWorkspace.shared.frontmostApplication?.processIdentifier != processID
+    let hasMultipleManagedWindows =
+      processIDs.values.lazy.filter { $0 == processID }.prefix(2).count > 1
+    let hasUnmanagedAuxiliaryWindows =
+      (applicationWindowCounts[processID] ?? 0)
+      > processIDs.values.lazy.filter { $0 == processID }.count
     focusWriter.submit(
       AsyncFocusRequest(
         element: element,
         application: application,
         processID: processID,
-        selectsSpecificWindow:
-          processIDs.values.lazy.filter { $0 == processID }.prefix(2).count > 1
-          && (focusWritePending
-            || lastFocusedWindowByProcess[processID] != windowID),
-        activatesApplication:
-          focusWriter.hasInFlightRequest(forDifferentProcess: processID)
-          || NSWorkspace.shared.frontmostApplication?.processIdentifier != processID
+        selectsSpecificWindow: shouldSelectSpecificWindow(
+          activatesApplication: activatesApplication,
+          hasUnmanagedAuxiliaryWindows: hasUnmanagedAuxiliaryWindows,
+          hasMultipleManagedWindows: hasMultipleManagedWindows,
+          focusWritePending: focusWritePending,
+          targetWasLastFocused: lastFocusedWindowByProcess[processID] == windowID
+        ),
+        activatesApplication: activatesApplication
       )
     ) { [weak self] completedLatest in
       guard completedLatest else { return }
@@ -2657,55 +2675,65 @@ public final class MacOSPlatform {
     let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
     let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
-    guard
-      let record =
-        (preferredWindowID.flatMap { preferred in
+    let record = (
+        preferredWindowID.flatMap { preferred in
           cgWindows.first {
             $0.id == CGWindowID(preferred.rawValue)
               && $0.processID == processID
               && !usedCGWindowIDs.contains($0.id)
           }
         }
-          ?? bestCGWindow(
-            processID: processID,
-            title: title,
-            frame: frame,
-            records: cgWindows,
-            excluding: usedCGWindowIDs
-          ))
-    else {
+        ?? bestCGWindow(
+          processID: processID,
+          title: title,
+          frame: frame,
+          records: cgWindows,
+          excluding: usedCGWindowIDs
+        )
+    )
+    guard let resolvedWindowID = resolvedCGWindowID(
+      matchedRecord: record,
+      preferredWindowID: preferredWindowID
+    ) else {
       return nil
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
-    return (
-      Window(
-        id: WindowID(rawValue: UInt64(record.id)),
-        appID: appID,
-        title: title,
-        frame: frame,
-        role: role,
-        subrole: subrole,
-        processID: processID,
-        monitorID: monitorID,
-        forceTiling: false
-      ), record.id
-    )
+    return (Window(
+      id: WindowID(rawValue: UInt64(resolvedWindowID)),
+      appID: appID,
+      title: title,
+      frame: frame,
+      role: role,
+      subrole: subrole,
+      processID: processID,
+      monitorID: monitorID,
+      forceTiling: false
+    ), resolvedWindowID)
   }
 
-  private func shouldManage(_ window: Window, forceTiling: Bool) -> Bool {
-    if forceTiling { return true }
-    guard window.role == kAXWindowRole,
-      window.subrole == kAXStandardWindowSubrole
-    else {
-      return false
-    }
-    let ignoredApps = [
-      "com.apple.dock",
-      "com.apple.systemuiserver",
-      "com.raycast.macos",
-    ]
-    guard !ignoredApps.contains(window.appID.lowercased()) else { return false }
-    return true
+  private func shouldManage(
+    _ window: Window,
+    element: AXUIElement,
+    forceTiling: Bool,
+    wasPreviouslyManaged: Bool
+  ) -> Bool {
+    var closeButton: CFTypeRef?
+    let closeButtonError = AXUIElementCopyAttributeValue(
+      element,
+      kAXCloseButtonAttribute as CFString,
+      &closeButton
+    )
+    return shouldManageWindow(
+      role: window.role,
+      subrole: window.subrole,
+      appID: window.appID,
+      hasCloseButton: shouldTreatWindowAsClosable(
+        error: closeButtonError,
+        hasValue: closeButton != nil,
+        wasPreviouslyManaged: wasPreviouslyManaged
+      ),
+      forceTiling: forceTiling
+    )
   }
 
   private func focusedWindowID(
@@ -2821,11 +2849,22 @@ public final class MacOSPlatform {
   }
 }
 
-private struct CGWindowRecord {
+struct CGWindowRecord {
   let id: CGWindowID
   let processID: pid_t
   let title: String
   let frame: Rect
+}
+
+func resolvedCGWindowID(
+  matchedRecord: CGWindowRecord?,
+  preferredWindowID: WindowID?
+) -> CGWindowID? {
+  if let matchedRecord {
+    return matchedRecord.id
+  }
+  guard let preferredWindowID else { return nil }
+  return CGWindowID(exactly: preferredWindowID.rawValue)
 }
 
 private func copyCGWindows() -> [CGWindowRecord] {
@@ -2860,22 +2899,84 @@ private func copyCGWindows() -> [CGWindowRecord] {
   }
 }
 
-private func bestCGWindow(
+func bestCGWindow(
   processID: pid_t,
   title: String,
   frame: Rect,
   records: [CGWindowRecord],
-  excluding usedWindowIDs: Set<CGWindowID> = []
+  excluding usedWindowIDs: Set<CGWindowID> = [],
+  maximumDistance: Double = 80
 ) -> CGWindowRecord? {
   let candidates = records.filter {
     $0.processID == processID && !usedWindowIDs.contains($0.id)
   }
-  let matchingTitles = candidates.filter {
-    title.isEmpty || $0.title.isEmpty || $0.title == title
+  guard
+    let closest = candidates.min(by: { lhs, rhs in
+      let lhsDistance = frameDistance(lhs.frame, frame)
+      let rhsDistance = frameDistance(rhs.frame, frame)
+      if abs(lhsDistance - rhsDistance) > 0.5 {
+        return lhsDistance < rhsDistance
+      }
+      return windowTitleMatchRank(lhs.title, title) < windowTitleMatchRank(rhs.title, title)
+    }),
+    frameDistance(closest.frame, frame) <= maximumDistance
+  else {
+    return nil
   }
-  return (matchingTitles.isEmpty ? candidates : matchingTitles).min {
-    frameDistance($0.frame, frame) < frameDistance($1.frame, frame)
+  return closest
+}
+
+private func windowTitleMatchRank(_ cgTitle: String, _ accessibilityTitle: String) -> Int {
+  guard !cgTitle.isEmpty, !accessibilityTitle.isEmpty else { return 1 }
+  return cgTitle == accessibilityTitle ? 0 : 2
+}
+
+func shouldManageWindow(
+  role: String?,
+  subrole: String?,
+  appID: String,
+  hasCloseButton: Bool,
+  forceTiling: Bool
+) -> Bool {
+  if forceTiling { return true }
+  guard role == kAXWindowRole,
+    subrole == kAXStandardWindowSubrole,
+    hasCloseButton
+  else {
+    return false
   }
+  let ignoredApps = [
+    "com.apple.dock",
+    "com.apple.systemuiserver",
+    "com.raycast.macos",
+  ]
+  return !ignoredApps.contains(appID.lowercased())
+}
+
+func shouldTreatWindowAsClosable(
+  error: AXError,
+  hasValue: Bool,
+  wasPreviouslyManaged: Bool
+) -> Bool {
+  switch error {
+  case .success:
+    hasValue
+  case .attributeUnsupported, .noValue:
+    false
+  default:
+    wasPreviouslyManaged
+  }
+}
+
+func shouldSelectSpecificWindow(
+  activatesApplication: Bool,
+  hasUnmanagedAuxiliaryWindows: Bool,
+  hasMultipleManagedWindows: Bool,
+  focusWritePending: Bool,
+  targetWasLastFocused: Bool
+) -> Bool {
+  (activatesApplication && hasUnmanagedAuxiliaryWindows)
+    || (hasMultipleManagedWindows && (focusWritePending || !targetWasLastFocused))
 }
 
 private func monitor(
