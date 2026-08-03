@@ -11,8 +11,66 @@ final class ConfigTests: XCTestCase {
     XCTAssertEqual(config.layout.defaultColumnWidth, 0.8)
     XCTAssertTrue(config.animation.enabled)
     XCTAssertEqual(config.animation.durationMS, 35)
+    XCTAssertTrue(config.decorations.borders.enabled)
+    XCTAssertEqual(config.decorations.borders.width, 4)
+    XCTAssertEqual(config.decorations.borders.color, "#FFC099FF")
+    XCTAssertFalse(config.decorations.borders.inactiveEnabled)
+    XCTAssertEqual(config.decorations.borders.inactiveColor, "#66C099FF")
+    XCTAssertFalse(config.decorations.borders.captureEnabled)
     XCTAssertEqual(config.keys["alt-left"], "focus-column left")
     XCTAssertEqual(config.keys["alt-shift-1"], "move-window-to-workspace 1")
+  }
+
+  func testDecodesBorderConfiguration() throws {
+    let config = try Config.decode(
+      Data(
+        """
+        [decorations.borders]
+        enabled = true
+        width = 3.5
+        color = "#ff33aaff"
+        inactive_enabled = true
+        inactive_color = "0x4433aaff"
+        capture_enabled = true
+        """.utf8
+      )
+    )
+
+    XCTAssertEqual(config.decorations.borders.width, 3.5)
+    XCTAssertEqual(config.decorations.borders.color, "#ff33aaff")
+    XCTAssertTrue(config.decorations.borders.inactiveEnabled)
+    XCTAssertEqual(config.decorations.borders.inactiveColor, "0x4433aaff")
+    XCTAssertTrue(config.decorations.borders.captureEnabled)
+  }
+
+  func testRejectsInvalidBorderConfiguration() {
+    XCTAssertThrowsError(
+      try Config.decode(
+        Data(
+          """
+          [decorations.borders]
+          width = 65
+          """.utf8
+        )
+      )
+    )
+    XCTAssertThrowsError(
+      try Config.decode(
+        Data(
+          """
+          [decorations.borders]
+          color = "ffffff"
+          """.utf8
+        )
+      )
+    )
+  }
+
+  func testParsesBorderColors() {
+    XCTAssertEqual(parseBorderColor("0xffffffff"), 0xffff_ffff)
+    XCTAssertEqual(parseBorderColor("#8033aaff"), 0x8033_aaff)
+    XCTAssertNil(parseBorderColor("#fff"))
+    XCTAssertNil(parseBorderColor("8033aaff"))
   }
 
   func testDecodesExampleShapeAndGeneratesNamedWorkspaceKeys() throws {

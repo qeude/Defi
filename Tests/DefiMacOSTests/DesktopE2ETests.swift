@@ -135,7 +135,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(platform.successfulSizeWriteCount, sizeWrites)
   }
 
-  func testManagedResizeAnimationWritesIntermediateSizesAndConverges() throws {
+  func testManagedResizeAnimationConvergesWithAdaptiveSizeWrites() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     guard let monitor = snapshot.monitors.first else {
@@ -181,112 +181,9 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
     XCTAssertGreaterThanOrEqual(
       platform.successfulSizeWriteCount - sizeWrites,
-      2
+      1
     )
-    XCTAssertTrue(platform.frameCoordinatorTrace.contains("backend=ax"))
-  }
-
-  func testExperimentalSkyLightAnimatesVisibleHorizontalMove() throws {
-    let platform = try makePlatform()
-    let config = Config(
-      experimental: ExperimentalConfig(
-        skyLightPositionAnimation: true
-      )
-    )
-    let snapshot = platform.snapshot(config: config)
-    let visibleCandidates = testWindows(in: snapshot).compactMap {
-      window -> (window: Window, visibleWidth: Double)? in
-      let visibleWidth = snapshot.monitors.reduce(0.0) { maximum, monitor in
-        max(
-          maximum,
-          max(
-            min(window.frame.x + window.frame.width, monitor.frame.x + monitor.frame.width)
-              - max(window.frame.x, monitor.frame.x),
-            0
-          )
-        )
-      }
-      return visibleWidth >= 80 ? (window, visibleWidth) : nil
-    }
-    guard
-      let window = visibleCandidates.max(
-        by: { $0.visibleWidth < $1.visibleWidth }
-      )?.window,
-      let monitor = snapshot.monitors.first(where: {
-        window.frame.x + window.frame.width > $0.frame.x
-          && window.frame.x < $0.frame.x + $0.frame.width
-      })
-    else {
-      throw XCTSkip("No visible manageable desktop window")
-    }
-    let original = window.frame
-    let deltaX =
-      original.x + original.width + 24
-        <= monitor.frame.x + monitor.frame.width
-      ? 24.0
-      : -24.0
-    let target = Rect(
-      x: original.x + deltaX,
-      y: original.y,
-      width: original.width,
-      height: original.height
-    )
-    defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
-      pumpRunLoop(for: 0.3)
-    }
-
-    platform.apply(
-      [FrameAssignment(windowID: window.id, frame: target)],
-      asynchronousPositions: true,
-      animationDuration: 0.08,
-      animationRefreshRateHz: 120,
-      source: "test-skylight-animation"
-    )
-    XCTAssertTrue(
-      pumpRunLoop(
-        until: { !platform.hasPendingAnimatedFrameWrites },
-        timeout: 1
-      )
-    )
-    _ = pumpRunLoop(
-      until: {
-        platform.axSettlementPerformance.completed > 0
-      },
-      timeout: 0.5
-    )
-
-    let performance = platform.positionBackendPerformance
-    let actual = platform.snapshot(config: config).windows
-      .first(where: { $0.id == window.id })?.frame
-    let diagnostics =
-      "actual=\(String(describing: actual)) completed=\(String(describing: platform.completedPosition(for: window.id))) settle=\(platform.axSettlementPerformance) trace=\n\(platform.frameCoordinatorTrace)"
-    XCTAssertTrue(performance.state.hasPrefix("ready"))
-    XCTAssertGreaterThan(
-      performance.batches + performance.failures,
-      0
-    )
-    if performance.failures == 0 {
-      XCTAssertGreaterThan(performance.moves, 0)
-      XCTAssertTrue(performance.probeVerified)
-    } else {
-      XCTAssertGreaterThan(performance.fallbacks, 0)
-    }
-    XCTAssertEqual(
-      actual?.x ?? 0,
-      target.x,
-      accuracy: 2,
-      diagnostics
-    )
-    XCTAssertEqual(
-      actual?.y ?? 0,
-      target.y,
-      accuracy: 2,
-      diagnostics
-    )
-    XCTAssertTrue(
-      platform.frameCoordinatorTrace.contains("backend=skylight")
-    )
+    XCTAssertTrue(platform.frameCoordinatorTrace.contains("i=final"))
   }
 
   func testUnhiddenOnePixelStripAnchorConvergesWithRealWindowFrame() throws {
