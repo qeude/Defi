@@ -36,6 +36,37 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testOnlyIncomingWorkspaceWritesSuppressNativePositionAnimation() {
+    XCTAssertTrue(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: true,
+        isParked: false,
+        isIntermediate: false
+      )
+    )
+    XCTAssertFalse(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: true,
+        isParked: true,
+        isIntermediate: false
+      )
+    )
+    XCTAssertFalse(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: false,
+        isParked: false,
+        isIntermediate: false
+      )
+    )
+    XCTAssertFalse(
+      suppressesNativePositionAnimation(
+        stagesVisibleBeforeParking: true,
+        isParked: false,
+        isIntermediate: true
+      )
+    )
+  }
+
   func testExpectedHorizontalCommitLagIsQuarantined() {
     XCTAssertTrue(
       frameIsOnExpectedCommitPath(

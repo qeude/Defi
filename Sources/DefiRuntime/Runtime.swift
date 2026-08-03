@@ -358,10 +358,11 @@ public func reduce(
   }
 }
 
+@discardableResult
 public func focusWindow(
   _ windowID: WindowID,
   state: inout RuntimeState
-) {
+) -> Bool {
   for monitorIndex in state.monitors.indices {
     for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
       for columnIndex in state.monitors[monitorIndex].workspaces[workspaceIndex].columns.indices {
@@ -371,6 +372,9 @@ public func focusWindow(
           .windows
           .firstIndex(of: windowID)
         {
+          let activatedWorkspace =
+            state.monitors[monitorIndex].activeWorkspace
+            != state.monitors[monitorIndex].workspaces[workspaceIndex].id
           state.monitors[monitorIndex].workspaces[workspaceIndex].focusedColumn = columnIndex
           state.monitors[monitorIndex].activeWorkspace =
             state.monitors[monitorIndex].workspaces[workspaceIndex].id
@@ -378,11 +382,12 @@ public func focusWindow(
             .workspaces[workspaceIndex]
             .columns[columnIndex]
             .focusedWindow = windowIndex
-          return
+          return activatedWorkspace
         }
       }
     }
   }
+  return false
 }
 
 public func nativeFocusChangesSelection(

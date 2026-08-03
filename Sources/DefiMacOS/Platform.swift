@@ -198,6 +198,14 @@ func positionWritePhases(
     .filter { !$0.isEmpty }
 }
 
+func suppressesNativePositionAnimation(
+  stagesVisibleBeforeParking: Bool,
+  isParked: Bool,
+  isIntermediate: Bool
+) -> Bool {
+  stagesVisibleBeforeParking && !isParked && !isIntermediate
+}
+
 private struct ProcessWriteBatch: @unchecked Sendable {
   let processID: pid_t
   let writes: [(key: WindowID, value: AsyncPositionWrite)]
@@ -1469,7 +1477,12 @@ private final class AXFrameCoordinator: @unchecked Sendable {
           item.value,
           point: point,
           forceOffscreenAccess: (stagingReentry && item.value.isReentering)
-            || (!intermediate && item.value.requiresVerifiedOffscreenWrite)
+            || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+          suppressNativeAnimation: suppressesNativePositionAnimation(
+            stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+            isParked: item.value.isParked,
+            isIntermediate: intermediate
+          )
         )
       let appliedWrite = sizeApplied && positionApplied
       let positionAppliedAt = ProcessInfo.processInfo.systemUptime
@@ -1594,8 +1607,17 @@ private final class AXFrameCoordinator: @unchecked Sendable {
   private func applyPosition(
     _ write: AsyncPositionWrite,
     point: CGPoint,
-    forceOffscreenAccess: Bool = false
+    forceOffscreenAccess: Bool = false,
+    suppressNativeAnimation: Bool = false
   ) -> Bool {
+    if suppressNativeAnimation, write.enhancedUIWasEnabled {
+      // WindowServer can animate a successful offscreen-to-visible AX write.
+      setEnhancedUserInterface(false, application: write.application)
+      defer {
+        setEnhancedUserInterface(true, application: write.application)
+      }
+      return apply(write, point: point) == .success
+    }
     if write.isParked || forceOffscreenAccess {
       setEnhancedUserInterface(false, application: write.application)
       defer {

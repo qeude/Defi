@@ -380,6 +380,7 @@ private final class Daemon: NSObject {
       nextViewports: viewportsByMonitor
     )
     var nativelyFocusedMonitorID: MonitorID?
+    var nativelyActivatedWorkspace = false
     reconcileWindows(snapshot.windows, config: config, state: &state)
     if let focusedWindowID = snapshot.focusedWindowID {
       let nativeFocusAccepted =
@@ -391,7 +392,8 @@ private final class Daemon: NSObject {
         state: state
       )
       if activeMonitorID == nil || (nativeFocusAccepted && selectionChanged) {
-        focusWindow(focusedWindowID, state: &state)
+        let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
+        nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
         activeMonitorID = state.monitorID(containing: focusedWindowID)
         nativelyFocusedMonitorID = activeMonitorID
       } else if nativeFocusAccepted {
@@ -441,7 +443,10 @@ private final class Daemon: NSObject {
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
-      source: "desktop-sync"
+      stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+      source: nativelyActivatedWorkspace
+        ? "native-workspace"
+        : "desktop-sync"
     )
     updateMenuBar()
   }

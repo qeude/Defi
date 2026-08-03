@@ -119,7 +119,7 @@ final class RuntimeTests: XCTestCase {
     )
     XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "dev"))
 
-    focusWindow(window.id, state: &state)
+    XCTAssertTrue(focusWindow(window.id, state: &state))
 
     XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "web"))
   }
