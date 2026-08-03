@@ -174,6 +174,79 @@ final class RuntimeTests: XCTestCase {
     )
   }
 
+  func testRecordingSharedWorkspaceAcrossMonitorsOmitsMonitor() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    let externalMonitorID = MonitorID(rawValue: 2)
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalMonitorID)
+    let windows = [
+      Window(
+        id: WindowID(rawValue: 1),
+        appID: "com.example.Chat",
+        title: "Primary",
+        frame: Rect(x: 0, y: 0, width: 600, height: 800),
+        monitorID: monitorID
+      ),
+      Window(
+        id: WindowID(rawValue: 2),
+        appID: "com.example.Chat",
+        title: "External",
+        frame: Rect(x: 1_000, y: 0, width: 600, height: 800),
+        monitorID: externalMonitorID
+      ),
+    ]
+    for window in windows {
+      try discoverWindow(
+        window,
+        decision: RuleDecision(workspace: WorkspaceID(rawValue: "web")),
+        state: &state
+      )
+    }
+    var preferences = PlacementPreferences()
+
+    preferences.recordPlacements(from: state)
+
+    XCTAssertEqual(
+      preferences.applications["com.example.chat"],
+      WindowPlacementPreference(workspaceID: WorkspaceID(rawValue: "web"))
+    )
+  }
+
+  func testRecordingFallbackRetainsDisconnectedMonitor() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    let disconnectedMonitorID = MonitorID(rawValue: 99)
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.Chat",
+      title: "Chat",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    try discoverWindow(
+      window,
+      decision: RuleDecision(workspace: WorkspaceID(rawValue: "web")),
+      state: &state
+    )
+    var preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web"),
+          monitorID: disconnectedMonitorID
+        )
+      ]
+    )
+
+    preferences.recordPlacements(from: state)
+
+    XCTAssertEqual(
+      preferences.applications["com.example.chat"]?.monitorID,
+      disconnectedMonitorID
+    )
+  }
+
   func testReconcilePreservesIntrinsicDimensionsAfterAppliedGaps() throws {
     let config = Config()
     var state = RuntimeState(config: config)
