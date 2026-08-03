@@ -1822,6 +1822,7 @@ private struct AsyncFocusRequest: @unchecked Sendable {
   let application: AXUIElement
   let processID: pid_t
   let selectsSpecificWindow: Bool
+  let validatesSpecificWindowFocus: Bool
   let activatesApplication: Bool
 }
 
@@ -1941,7 +1942,11 @@ private final class AXFocusWriter: @unchecked Sendable {
       var mainDurationMS = 0.0
       var raiseDurationMS = 0.0
       var activationDurationMS = 0.0
-      if request.selectsSpecificWindow {
+      var selectsSpecificWindow = request.selectsSpecificWindow
+      if !selectsSpecificWindow, request.validatesSpecificWindowFocus {
+        selectsSpecificWindow = !isTargetFocused(request.element)
+      }
+      if selectsSpecificWindow {
         AXUIElementSetMessagingTimeout(request.application, 0.016)
         AXUIElementSetMessagingTimeout(request.element, 0.016)
         let mainStartedAt = ProcessInfo.processInfo.systemUptime
@@ -2065,6 +2070,32 @@ private final class AXFocusWriter: @unchecked Sendable {
   private func resetTimeouts(_ request: AsyncFocusRequest) {
     AXUIElementSetMessagingTimeout(request.element, 0)
     AXUIElementSetMessagingTimeout(request.application, 0)
+  }
+
+  private func isTargetFocused(_ element: AXUIElement) -> Bool {
+    AXUIElementSetMessagingTimeout(element, 0.016)
+    defer { AXUIElementSetMessagingTimeout(element, 0) }
+    return readBoolean(element, attribute: kAXFocusedAttribute) == true
+      || readBoolean(element, attribute: kAXMainAttribute) == true
+  }
+
+  private func readBoolean(
+    _ element: AXUIElement,
+    attribute: String
+  ) -> Bool? {
+    var rawValue: CFTypeRef?
+    guard
+      AXUIElementCopyAttributeValue(
+        element,
+        attribute as CFString,
+        &rawValue
+      ) == .success,
+      let rawValue,
+      CFGetTypeID(rawValue) == CFBooleanGetTypeID()
+    else {
+      return nil
+    }
+    return CFBooleanGetValue((rawValue as! CFBoolean))
   }
 }
 
@@ -2210,6 +2241,7 @@ public final class MacOSPlatform {
   private var lastMonitorFrames: [Rect] = []
   private var borderFrames: [FrameAssignment] = []
   private var borderSelectedWindowID: WindowID?
+  private var desiredSelectedWindowID: WindowID?
   private var lastNativeFocusedWindowID: WindowID?
   private var borderHiddenWindowIDs = Set<WindowID>()
   private var borderLiveWindowID: WindowID?
@@ -2294,6 +2326,7 @@ public final class MacOSPlatform {
     frameCommitExpectations.removeAll(keepingCapacity: true)
     lastHiddenWindowIDs.removeAll(keepingCapacity: true)
     borderFrames.removeAll(keepingCapacity: true)
+    desiredSelectedWindowID = nil
     lastNativeFocusedWindowID = nil
     borderHiddenWindowIDs.removeAll(keepingCapacity: true)
     borderLiveWindowID = nil
@@ -2326,6 +2359,7 @@ public final class MacOSPlatform {
   }
 
   public func prepareWindowBorderSelection(_ selectedWindowID: WindowID?) {
+    desiredSelectedWindowID = selectedWindowID
     let selectedFrame = selectedWindowID.flatMap { windowID in
       resolvedBorderFrame(for: windowID)
     }
@@ -3002,7 +3036,7 @@ public final class MacOSPlatform {
           if let focusWindowIDAfterCommit,
             shouldApplyDeferredFocus(
               targetWindowID: focusWindowIDAfterCommit,
-              selectedWindowID: self.borderSelectedWindowID
+              selectedWindowID: self.desiredSelectedWindowID
             )
           {
             self.focus(focusWindowIDAfterCommit)
@@ -3023,7 +3057,7 @@ public final class MacOSPlatform {
     if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit,
       shouldApplyDeferredFocus(
         targetWindowID: focusWindowIDAfterCommit,
-        selectedWindowID: borderSelectedWindowID
+        selectedWindowID: desiredSelectedWindowID
       )
     {
       focus(focusWindowIDAfterCommit)
@@ -3202,22 +3236,20 @@ public final class MacOSPlatform {
     let hasUnmanagedAuxiliaryWindows =
       (applicationWindowCounts[processID] ?? 0)
       > processIDs.values.lazy.filter { $0 == processID }.count
-    let targetIsFocused =
-      value(element, attribute: kAXFocusedAttribute, as: Bool.self) == true
-      || value(element, attribute: kAXMainAttribute, as: Bool.self) == true
+    let selectsSpecificWindow = shouldSelectSpecificWindow(
+      activatesApplication: activatesApplication,
+      hasUnmanagedAuxiliaryWindows: hasUnmanagedAuxiliaryWindows,
+      hasMultipleManagedWindows: hasMultipleManagedWindows,
+      focusWritePending: focusWritePending,
+      targetWasLastFocused: lastFocusedWindowByProcess[processID] == windowID
+    )
     focusWriter.submit(
       AsyncFocusRequest(
         element: element,
         application: application,
         processID: processID,
-        selectsSpecificWindow: shouldSelectSpecificWindow(
-          activatesApplication: activatesApplication,
-          hasUnmanagedAuxiliaryWindows: hasUnmanagedAuxiliaryWindows,
-          hasMultipleManagedWindows: hasMultipleManagedWindows,
-          focusWritePending: focusWritePending,
-          targetWasLastFocused: lastFocusedWindowByProcess[processID] == windowID,
-          targetIsFocused: targetIsFocused
-        ),
+        selectsSpecificWindow: selectsSpecificWindow,
+        validatesSpecificWindowFocus: !selectsSpecificWindow,
         activatesApplication: activatesApplication
       )
     ) { [weak self] completedLatest in
@@ -3538,11 +3570,9 @@ func shouldSelectSpecificWindow(
   hasUnmanagedAuxiliaryWindows: Bool,
   hasMultipleManagedWindows: Bool,
   focusWritePending: Bool,
-  targetWasLastFocused: Bool,
-  targetIsFocused: Bool
+  targetWasLastFocused: Bool
 ) -> Bool {
-  !targetIsFocused
-    || (activatesApplication && hasUnmanagedAuxiliaryWindows)
+  (activatesApplication && hasUnmanagedAuxiliaryWindows)
     || (hasMultipleManagedWindows && (focusWritePending || !targetWasLastFocused))
 }
 
