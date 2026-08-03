@@ -271,13 +271,19 @@ public func parseBorderColor(_ value: String) -> UInt32? {
 
 public struct ExperimentalConfig: Codable, Equatable, Sendable {
   public var skyLightPositionAnimation: Bool
+  public var skyLightBorderTracking: Bool
 
-  public init(skyLightPositionAnimation: Bool = false) {
+  public init(
+    skyLightPositionAnimation: Bool = false,
+    skyLightBorderTracking: Bool = false
+  ) {
     self.skyLightPositionAnimation = skyLightPositionAnimation
+    self.skyLightBorderTracking = skyLightBorderTracking
   }
 
   enum CodingKeys: String, CodingKey {
     case skyLightPositionAnimation = "skylight_position_animation"
+    case skyLightBorderTracking = "skylight_border_tracking"
   }
 
   public init(from decoder: Decoder) throws {
@@ -286,6 +292,11 @@ public struct ExperimentalConfig: Codable, Equatable, Sendable {
       try values.decodeIfPresent(
         Bool.self,
         forKey: .skyLightPositionAnimation
+      ) ?? false
+    skyLightBorderTracking =
+      try values.decodeIfPresent(
+        Bool.self,
+        forKey: .skyLightBorderTracking
       ) ?? false
   }
 }

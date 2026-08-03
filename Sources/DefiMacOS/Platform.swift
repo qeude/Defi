@@ -287,7 +287,7 @@ private final class AXFrameCoordinator: @unchecked Sendable {
   private var processWriteQueues: [pid_t: DispatchQueue] = [:]
   private var experimentalSkyLightEnabled = false
   private var skyLightBackend: SkyLightPositionBackend?
-  private let skyLightCompanionMoveBackend = SkyLightCompanionMoveBackend()
+  private var skyLightCompanionMoveBackend: SkyLightCompanionMoveBackend?
   private var skyLightVisualPositions: [WindowID: CGPoint] = [:]
   private var skyLightPositionCompanions: [WindowID: [SkyLightPositionCompanion]] = [:]
   private var completedAXSettlements = 0
@@ -297,15 +297,23 @@ private final class AXFrameCoordinator: @unchecked Sendable {
   func configureExperimentalSkyLight(enabled: Bool) {
     lock.lock()
     experimentalSkyLightEnabled = enabled
-    let shouldCreateBackend =
-      enabled && skyLightBackend == nil
+    let shouldCreateBackend = enabled && skyLightBackend == nil
+    let shouldCreateCompanionBackend =
+      enabled && skyLightCompanionMoveBackend == nil
     lock.unlock()
-    guard shouldCreateBackend else { return }
+    guard shouldCreateBackend || shouldCreateCompanionBackend else { return }
 
-    let backend = SkyLightPositionBackend()
+    let backend = shouldCreateBackend ? SkyLightPositionBackend() : nil
+    let companionBackend =
+      shouldCreateCompanionBackend
+      ? SkyLightCompanionMoveBackend()
+      : nil
     lock.lock()
-    if skyLightBackend == nil {
+    if enabled, skyLightBackend == nil {
       skyLightBackend = backend
+    }
+    if enabled, skyLightCompanionMoveBackend == nil {
+      skyLightCompanionMoveBackend = companionBackend
     }
     lock.unlock()
   }
@@ -468,8 +476,15 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     point: CGPoint
   ) {
     lock.lock()
-    let backend = skyLightBackend
-    let companions = skyLightPositionCompanions[windowID] ?? []
+    let enabled = experimentalSkyLightEnabled
+    let backend = enabled ? skyLightBackend : nil
+    let companionBackend = enabled ? skyLightCompanionMoveBackend : nil
+    let storedCompanions = skyLightPositionCompanions[windowID] ?? []
+    let companions =
+      shouldMoveSkyLightCompanions(
+        experimentalSkyLightEnabled: enabled,
+        companionCount: storedCompanions.count
+      ) ? storedCompanions : []
     lock.unlock()
     guard
       let rawWindowID = UInt32(
@@ -487,7 +502,7 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       for: targetMove,
       companions: companions
     )
-    let companionsMoved = skyLightCompanionMoveBackend.apply(companionMoves)
+    let companionsMoved = companionBackend?.apply(companionMoves) ?? false
     if !companionMoves.isEmpty {
       lock.lock()
       appendTraceLocked(
@@ -1649,7 +1664,9 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     for delay in [0.016, 0.05] {
       queue.asyncAfter(deadline: .now() + delay) { [self] in
         lock.lock()
-        guard let completed = completedPositions[windowID],
+        guard experimentalSkyLightEnabled,
+          let companionBackend = skyLightCompanionMoveBackend,
+          let completed = completedPositions[windowID],
           pointDistance(completed, point) < 0.5,
           let companions = skyLightPositionCompanions[windowID],
           !companions.isEmpty
@@ -1667,7 +1684,7 @@ private final class AXFrameCoordinator: @unchecked Sendable {
             )
           )
         }
-        _ = skyLightCompanionMoveBackend.apply(moves)
+        _ = companionBackend.apply(moves)
       }
     }
   }
@@ -2141,6 +2158,7 @@ public final class MacOSPlatform {
   private let frameCoordinator = AXFrameCoordinator()
   private let focusWriter = AXFocusWriter()
   private let borderManager = WindowBorderManager()
+  private var borderBoundsProvider: WindowServerBoundsProvider?
   private var targetFrames: [WindowID: Rect] = [:]
   private var pendingFrameCorrections: [WindowID: Rect] = [:]
   private var latestObservedFrames: [WindowID: Rect] = [:]
@@ -2279,7 +2297,7 @@ public final class MacOSPlatform {
 
   public func prepareWindowBorderSelection(_ selectedWindowID: WindowID?) {
     let selectedFrame = selectedWindowID.flatMap { windowID in
-      borderFrames.first(where: { $0.windowID == windowID })?.frame
+      resolvedBorderFrame(for: windowID)
     }
     borderManager.prepareForSelection(
       selectedWindowID,
@@ -2287,10 +2305,7 @@ public final class MacOSPlatform {
     )
     let freshFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
-        guard let frame = borderFrames.first(where: { $0.windowID == windowID })?.frame
-        else {
-          return nil
-        }
+        guard let frame = resolvedBorderFrame(for: windowID) else { return nil }
         return (windowID, frame)
       }
     )
@@ -2352,14 +2367,15 @@ public final class MacOSPlatform {
     )
     let finalDisplayedFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
-        guard let fallback = displayedFrames[windowID]
-          ?? relevantFrames.first(where: { $0.windowID == windowID })?.frame
+        guard
+          let fallback = displayedFrames[windowID]
+            ?? relevantFrames.first(where: { $0.windowID == windowID })?.frame
         else {
           return nil
         }
         return (
           windowID,
-          fallback
+          borderBoundsProvider?.frame(for: windowID) ?? fallback
         )
       }
     )
@@ -2388,9 +2404,7 @@ public final class MacOSPlatform {
     guard !windowIDs.isEmpty else { return }
     let frames = Dictionary(
       uniqueKeysWithValues: windowIDs.compactMap { windowID in
-        borderFrames.first(where: { $0.windowID == windowID }).map {
-          (windowID, $0.frame)
-        }
+        resolvedBorderFrame(for: windowID).map { (windowID, $0) }
       }
     )
     guard !frames.isEmpty,
@@ -2415,6 +2429,9 @@ public final class MacOSPlatform {
   private func displayedBorderFrame(
     for assignment: FrameAssignment
   ) -> Rect {
+    if let nativeFrame = borderBoundsProvider?.frame(for: assignment.windowID) {
+      return nativeFrame
+    }
     if assignment.windowID == borderLiveWindowID,
       let observed = latestObservedFrames[assignment.windowID]
     {
@@ -2435,6 +2452,12 @@ public final class MacOSPlatform {
     )
   }
 
+  private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
+    borderBoundsProvider?.frame(for: windowID)
+      ?? latestObservedFrames[windowID]
+      ?? borderFrames.first(where: { $0.windowID == windowID })?.frame
+  }
+
   public func setFrameNotificationsEnabled(_ enabled: Bool) {
     eventMonitor?.setFrameNotificationsEnabled(enabled)
   }
@@ -2451,7 +2474,21 @@ public final class MacOSPlatform {
     return AXIsProcessTrustedWithOptions(options)
   }
 
+  private func configureExperimentalBorderTracking(enabled: Bool) {
+    if enabled {
+      if borderBoundsProvider == nil {
+        borderBoundsProvider = WindowServerBoundsProvider()
+      }
+    } else {
+      borderBoundsProvider = nil
+    }
+    borderManager.configureExperimentalNativeGeometry(enabled: enabled)
+  }
+
   public func snapshot(config: Config) -> DesktopSnapshot {
+    configureExperimentalBorderTracking(
+      enabled: config.experimental.skyLightBorderTracking
+    )
     frameCoordinator.configureExperimentalSkyLight(
       enabled: config.experimental.skyLightPositionAnimation
     )

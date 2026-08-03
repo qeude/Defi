@@ -78,6 +78,13 @@ func skyLightMovesIncludingCompanions(
   return moves.sorted { $0.windowID < $1.windowID }
 }
 
+func shouldMoveSkyLightCompanions(
+  experimentalSkyLightEnabled: Bool,
+  companionCount: Int
+) -> Bool {
+  experimentalSkyLightEnabled && companionCount > 0
+}
+
 final class SkyLightCompanionMoveBackend: @unchecked Sendable {
   private typealias MainConnectionIDFunc = @convention(c) () -> Int32
   private typealias NewConnectionFunc =
@@ -137,7 +144,8 @@ final class SkyLightCompanionMoveBackend: @unchecked Sendable {
     if let newConnection {
       _ = newConnection(0, &dedicatedConnectionID)
     }
-    connectionID = dedicatedConnectionID != 0
+    connectionID =
+      dedicatedConnectionID != 0
       ? dedicatedConnectionID
       : mainConnectionID?() ?? 0
   }
@@ -172,15 +180,17 @@ final class SkyLightCompanionMoveBackend: @unchecked Sendable {
     defer {
       Unmanaged<AnyObject>.fromOpaque(transaction).release()
     }
+    var succeeded = true
     for move in moves.sorted(by: { $0.windowID < $1.windowID }) {
-      _ = transactionMoveWindowWithGroup(
+      if transactionMoveWindowWithGroup(
         transaction,
         move.windowID,
         move.point
-      )
+      ) != .success {
+        succeeded = false
+      }
     }
-    _ = transactionCommit(transaction, 1)
-    return true
+    return transactionCommit(transaction, 1) == .success && succeeded
   }
 }
 
