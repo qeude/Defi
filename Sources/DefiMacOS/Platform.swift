@@ -2141,7 +2141,6 @@ public final class MacOSPlatform {
   private let frameCoordinator = AXFrameCoordinator()
   private let focusWriter = AXFocusWriter()
   private let borderManager = WindowBorderManager()
-  private let borderBoundsProvider = WindowServerBoundsProvider()
   private var targetFrames: [WindowID: Rect] = [:]
   private var pendingFrameCorrections: [WindowID: Rect] = [:]
   private var latestObservedFrames: [WindowID: Rect] = [:]
@@ -2280,8 +2279,7 @@ public final class MacOSPlatform {
 
   public func prepareWindowBorderSelection(_ selectedWindowID: WindowID?) {
     let selectedFrame = selectedWindowID.flatMap { windowID in
-      borderBoundsProvider.frame(for: windowID)
-        ?? borderFrames.first(where: { $0.windowID == windowID })?.frame
+      borderFrames.first(where: { $0.windowID == windowID })?.frame
     }
     borderManager.prepareForSelection(
       selectedWindowID,
@@ -2289,8 +2287,7 @@ public final class MacOSPlatform {
     )
     let freshFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
-        guard let frame = borderBoundsProvider.frame(for: windowID)
-          ?? borderFrames.first(where: { $0.windowID == windowID })?.frame
+        guard let frame = borderFrames.first(where: { $0.windowID == windowID })?.frame
         else {
           return nil
         }
@@ -2345,10 +2342,7 @@ public final class MacOSPlatform {
       uniqueKeysWithValues: relevantFrames.map { assignment in
         (
           assignment.windowID,
-          displayedBorderFrame(
-            for: assignment,
-            liveGeometryWindowIDs: liveGeometryWindowIDs
-          )
+          displayedBorderFrame(for: assignment)
         )
       }
     )
@@ -2365,7 +2359,7 @@ public final class MacOSPlatform {
         }
         return (
           windowID,
-          borderBoundsProvider.frame(for: windowID) ?? fallback
+          fallback
         )
       }
     )
@@ -2394,7 +2388,9 @@ public final class MacOSPlatform {
     guard !windowIDs.isEmpty else { return }
     let frames = Dictionary(
       uniqueKeysWithValues: windowIDs.compactMap { windowID in
-        borderBoundsProvider.frame(for: windowID).map { (windowID, $0) }
+        borderFrames.first(where: { $0.windowID == windowID }).map {
+          (windowID, $0.frame)
+        }
       }
     )
     guard !frames.isEmpty,
@@ -2417,16 +2413,8 @@ public final class MacOSPlatform {
   }
 
   private func displayedBorderFrame(
-    for assignment: FrameAssignment,
-    liveGeometryWindowIDs: Set<WindowID>
+    for assignment: FrameAssignment
   ) -> Rect {
-    if assignment.windowID == borderSelectedWindowID
-      || assignment.windowID == borderLiveWindowID
-      || liveGeometryWindowIDs.contains(assignment.windowID),
-      let actual = borderBoundsProvider.frame(for: assignment.windowID)
-    {
-      return actual
-    }
     if assignment.windowID == borderLiveWindowID,
       let observed = latestObservedFrames[assignment.windowID]
     {
