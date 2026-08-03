@@ -163,6 +163,29 @@ struct WindowBorderTests {
   }
 
   @Test
+  func nativeBorderMetadataFallsBackIndependently() {
+    let observed = Rect(x: 10, y: 20, width: 800, height: 600)
+    let planned = Rect(x: 30, y: 40, width: 900, height: 700)
+
+    #expect(resolvedWindowBorderRadius(nativeRadius: 14) == 14)
+    #expect(resolvedWindowBorderRadius(nativeRadius: nil) == 9)
+    #expect(
+      resolvedWindowBorderFrame(
+        nativeFrame: nil,
+        observedFrame: observed,
+        plannedFrame: planned
+      ) == observed
+    )
+    #expect(
+      resolvedWindowBorderFrame(
+        nativeFrame: nil,
+        observedFrame: nil,
+        plannedFrame: planned
+      ) == planned
+    )
+  }
+
+  @Test
   func segmentedBorderAllocatesOnlyNarrowEdgeSurfaces() {
     let geometries = windowBorderSegmentGeometries(
       windowFrame: Rect(x: 100, y: 200, width: 800, height: 600),
