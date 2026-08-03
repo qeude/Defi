@@ -117,7 +117,8 @@ final class WindowDiscoveryTests: XCTestCase {
         hasUnmanagedAuxiliaryWindows: true,
         hasMultipleManagedWindows: false,
         focusWritePending: false,
-        targetWasLastFocused: true
+        targetWasLastFocused: true,
+        targetIsFocused: false
       )
     )
   }
@@ -129,7 +130,21 @@ final class WindowDiscoveryTests: XCTestCase {
         hasUnmanagedAuxiliaryWindows: false,
         hasMultipleManagedWindows: false,
         focusWritePending: false,
-        targetWasLastFocused: true
+        targetWasLastFocused: true,
+        targetIsFocused: true
+      )
+    )
+  }
+
+  func testFrontmostApplicationSelectsUnfocusedManagedTarget() {
+    XCTAssertTrue(
+      shouldSelectSpecificWindow(
+        activatesApplication: false,
+        hasUnmanagedAuxiliaryWindows: true,
+        hasMultipleManagedWindows: false,
+        focusWritePending: false,
+        targetWasLastFocused: true,
+        targetIsFocused: false
       )
     )
   }

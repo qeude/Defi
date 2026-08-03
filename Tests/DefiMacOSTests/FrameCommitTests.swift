@@ -67,6 +67,23 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testDeferredFocusOnlyAppliesToCurrentSelection() {
+    let target = WindowID(rawValue: 1)
+
+    XCTAssertTrue(
+      shouldApplyDeferredFocus(
+        targetWindowID: target,
+        selectedWindowID: target
+      )
+    )
+    XCTAssertFalse(
+      shouldApplyDeferredFocus(
+        targetWindowID: target,
+        selectedWindowID: WindowID(rawValue: 2)
+      )
+    )
+  }
+
   func testExpectedHorizontalCommitLagIsQuarantined() {
     XCTAssertTrue(
       frameIsOnExpectedCommitPath(

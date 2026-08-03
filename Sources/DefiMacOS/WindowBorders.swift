@@ -1,6 +1,4 @@
 import AppKit
-import CoreFoundation
-import Darwin
 import DefiCore
 import DefiModel
 
@@ -135,8 +133,6 @@ func borderOpacity(_ color: UInt32) -> Float {
 
 @MainActor
 final class WindowBorderManager {
-  private let radiusProvider = WindowCornerRadiusProvider()
-  private let orderingBackend = WindowOrderingBackend()
   private var overlays: [WindowID: BorderOverlay] = [:]
   private(set) var activeWindowID: WindowID?
   private var lastPlan: WindowBorderRenderPlan?
@@ -207,17 +203,15 @@ final class WindowBorderManager {
         overlay = existing
       } else {
         let created = BorderOverlay(
-          windowID: windowID,
-          orderingBackend: orderingBackend
+          windowID: windowID
         )
         overlays[windowID] = created
         overlay = created
       }
-      radiusProvider.retain(windowIDs: Set(overlays.keys))
       _ = overlay.syncGeometry(
         frame: displayedFrame,
         width: style.width,
-        windowRadius: radiusProvider.radius(for: windowID),
+        windowRadius: 9,
         captureEnabled: style.captureEnabled
       )
       overlay.prepareReveal(to: style.activeColor)
@@ -236,7 +230,7 @@ final class WindowBorderManager {
       let changed = overlay.syncGeometry(
         frame: frame,
         width: style.width,
-        windowRadius: radiusProvider.radius(for: windowID),
+        windowRadius: 9,
         captureEnabled: style.captureEnabled
       )
       if changed {
@@ -262,15 +256,10 @@ final class WindowBorderManager {
     lastPlan = plan
     lastDisplayedFrames = displayedFrames
     appliedPlans += 1
-    radiusProvider.retain(
-      windowIDs: trackedWindowIDs.union(overlays.keys)
-    )
-
     let desiredAssignments = plan.inactive + [plan.active].compactMap { $0 }
     for assignment in desiredAssignments where overlays[assignment.windowID] == nil {
       overlays[assignment.windowID] = BorderOverlay(
-        windowID: assignment.windowID,
-        orderingBackend: orderingBackend
+        windowID: assignment.windowID
       )
     }
 
@@ -280,7 +269,7 @@ final class WindowBorderManager {
           frame: displayedFrames[assignment.windowID] ?? assignment.frame,
           width: plan.style.width,
           color: plan.style.activeColor,
-          windowRadius: radiusProvider.radius(for: assignment.windowID),
+          windowRadius: 9,
           captureEnabled: plan.style.captureEnabled
         )
       }
@@ -292,7 +281,7 @@ final class WindowBorderManager {
         frame: displayedFrames[assignment.windowID] ?? assignment.frame,
         width: plan.style.width,
         color: plan.style.inactiveColor,
-        windowRadius: radiusProvider.radius(for: assignment.windowID),
+        windowRadius: 9,
         captureEnabled: plan.style.captureEnabled
       )
     }
@@ -340,13 +329,8 @@ final class WindowBorderManager {
       compositorCommitPending = false
       return
     }
-    let updates = visibleOverlays.flatMap { $0.compositorUpdates() }
-    guard !updates.isEmpty, orderingBackend.apply(updates) else {
-      for overlay in visibleOverlays {
-        overlay.applyCompositorFallback()
-      }
-      compositorCommitPending = false
-      return
+    for overlay in visibleOverlays {
+      overlay.applyCompositorFallback()
     }
     compositorCommitPending = false
   }
@@ -357,205 +341,6 @@ final class WindowBorderManager {
     for overlay in overlays {
       overlay.revealPendingOpacity()
     }
-  }
-}
-
-struct WindowCompositorUpdate {
-  let windowNumber: Int
-  let targetWindowID: WindowID
-  let origin: CGPoint
-}
-
-final class WindowOrderingBackend {
-  private typealias MainConnectionIDFunc = @convention(c) () -> Int32
-  private typealias TransactionCreateFunc =
-    @convention(c) (Int32) -> UnsafeMutableRawPointer?
-  private typealias TransactionOrderWindowFunc =
-    @convention(c) (
-      UnsafeMutableRawPointer,
-      UInt32,
-      Int32,
-      UInt32
-    ) -> CGError
-  private typealias GetWindowLevelFunc =
-    @convention(c) (Int32, UInt32, UnsafeMutablePointer<Int64>) -> CGError
-  private typealias GetWindowSubLevelFunc =
-    @convention(c) (Int32, UInt32) -> Int32
-  private typealias TransactionSetWindowLevelFunc =
-    @convention(c) (UnsafeMutableRawPointer, UInt32, Int32) -> CGError
-  private typealias TransactionSetWindowSubLevelFunc =
-    @convention(c) (UnsafeMutableRawPointer, UInt32, Int32) -> CGError
-  private typealias TransactionMoveWindowWithGroupFunc =
-    @convention(c) (UnsafeMutableRawPointer, UInt32, CGPoint) -> CGError
-  private typealias TransactionSetWindowAlphaFunc =
-    @convention(c) (UnsafeMutableRawPointer, UInt32, Float) -> CGError
-  private typealias TransactionCommitFunc =
-    @convention(c) (UnsafeMutableRawPointer, Int32) -> CGError
-
-  private let libraryHandle: UnsafeMutableRawPointer?
-  private let mainConnectionID: MainConnectionIDFunc?
-  private let transactionCreate: TransactionCreateFunc?
-  private let transactionOrderWindow: TransactionOrderWindowFunc?
-  private let getWindowLevel: GetWindowLevelFunc?
-  private let getWindowSubLevel: GetWindowSubLevelFunc?
-  private let transactionSetWindowLevel: TransactionSetWindowLevelFunc?
-  private let transactionSetWindowSubLevel: TransactionSetWindowSubLevelFunc?
-  private let transactionMoveWindowWithGroup: TransactionMoveWindowWithGroupFunc?
-  private let transactionSetWindowAlpha: TransactionSetWindowAlphaFunc?
-  private let transactionCommit: TransactionCommitFunc?
-
-  var supportsCompositorUpdates: Bool {
-    mainConnectionID != nil
-      && transactionCreate != nil
-      && transactionOrderWindow != nil
-      && transactionMoveWindowWithGroup != nil
-      && transactionSetWindowAlpha != nil
-      && transactionCommit != nil
-  }
-
-  init() {
-    let handle = dlopen(
-      "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
-      RTLD_LAZY | RTLD_LOCAL
-    )
-    libraryHandle = handle
-
-    func resolve<T>(_ symbol: String, as _: T.Type) -> T? {
-      guard let handle, let pointer = dlsym(handle, symbol) else { return nil }
-      return unsafeBitCast(pointer, to: T.self)
-    }
-
-    mainConnectionID = resolve("SLSMainConnectionID", as: MainConnectionIDFunc.self)
-    transactionCreate = resolve(
-      "SLSTransactionCreate",
-      as: TransactionCreateFunc.self
-    )
-    transactionOrderWindow = resolve(
-      "SLSTransactionOrderWindow",
-      as: TransactionOrderWindowFunc.self
-    )
-    getWindowLevel = resolve(
-      "SLSGetWindowLevel",
-      as: GetWindowLevelFunc.self
-    )
-    getWindowSubLevel = resolve(
-      "SLSGetWindowSubLevel",
-      as: GetWindowSubLevelFunc.self
-    )
-    transactionSetWindowLevel = resolve(
-      "SLSTransactionSetWindowLevel",
-      as: TransactionSetWindowLevelFunc.self
-    )
-    transactionSetWindowSubLevel = resolve(
-      "SLSTransactionSetWindowSubLevel",
-      as: TransactionSetWindowSubLevelFunc.self
-    )
-    transactionMoveWindowWithGroup = resolve(
-      "SLSTransactionMoveWindowWithGroup",
-      as: TransactionMoveWindowWithGroupFunc.self
-    )
-    transactionSetWindowAlpha = resolve(
-      "SLSTransactionSetWindowAlpha",
-      as: TransactionSetWindowAlphaFunc.self
-    )
-    transactionCommit = resolve(
-      "SLSTransactionCommit",
-      as: TransactionCommitFunc.self
-    )
-  }
-
-  deinit {
-    if let libraryHandle {
-      dlclose(libraryHandle)
-    }
-  }
-
-  func apply(_ updates: [WindowCompositorUpdate]) -> Bool {
-    guard !updates.isEmpty else { return true }
-    let resolvedUpdates = updates.compactMap { update -> ResolvedWindowUpdate? in
-      guard let windowID = UInt32(exactly: update.windowNumber),
-        let targetWindowID = UInt32(exactly: update.targetWindowID.rawValue)
-      else {
-        return nil
-      }
-      return ResolvedWindowUpdate(
-        windowID: windowID,
-        targetWindowID: targetWindowID,
-        origin: update.origin
-      )
-    }
-    guard resolvedUpdates.count == updates.count else { return false }
-    return commit(resolvedUpdates)
-  }
-
-  private func commit(_ updates: [ResolvedWindowUpdate]) -> Bool {
-    guard
-      let mainConnectionID,
-      let transactionCreate,
-      let transactionOrderWindow,
-      let transactionMoveWindowWithGroup,
-      let transactionSetWindowAlpha,
-      let transactionCommit
-    else {
-      return false
-    }
-    let connectionID = mainConnectionID()
-    guard connectionID != 0,
-      let transaction = transactionCreate(connectionID)
-    else {
-      return false
-    }
-    defer {
-      Unmanaged<AnyObject>.fromOpaque(transaction).release()
-    }
-    for update in updates {
-      let windowID = update.windowID
-      let targetWindowID = update.targetWindowID
-      _ = transactionMoveWindowWithGroup(
-        transaction,
-        windowID,
-        update.origin
-      )
-      _ = transactionSetWindowAlpha(transaction, windowID, 1)
-      if let getWindowLevel, let transactionSetWindowLevel {
-        var level: Int64 = 0
-        _ = getWindowLevel(connectionID, targetWindowID, &level)
-        if let exactLevel = Int32(exactly: level)
-        {
-          _ = transactionSetWindowLevel(
-            transaction,
-            windowID,
-            exactLevel
-          )
-        }
-      }
-      if let getWindowSubLevel, let transactionSetWindowSubLevel {
-        let targetSubLevel = getWindowSubLevel(connectionID, targetWindowID)
-        let overlaySubLevel =
-          targetSubLevel == Int32.max
-          ? targetSubLevel
-          : targetSubLevel + 1
-        _ = transactionSetWindowSubLevel(
-          transaction,
-          windowID,
-          overlaySubLevel
-        )
-      }
-      _ = transactionOrderWindow(
-        transaction,
-        windowID,
-        1,
-        targetWindowID
-      )
-    }
-    _ = transactionCommit(transaction, 1)
-    return true
-  }
-
-  private struct ResolvedWindowUpdate {
-    let windowID: UInt32
-    let targetWindowID: UInt32
-    let origin: CGPoint
   }
 }
 
@@ -575,151 +360,4 @@ func normalizedWindowBorderFrame(_ bounds: CGRect) -> Rect? {
     width: Double(bounds.size.width),
     height: Double(bounds.size.height)
   )
-}
-
-final class WindowServerBoundsProvider {
-  private typealias MainConnectionIDFunc = @convention(c) () -> Int32
-  private typealias GetWindowBoundsFunc =
-    @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGRect>) -> Int32
-
-  private let libraryHandle: UnsafeMutableRawPointer?
-  private let mainConnectionID: MainConnectionIDFunc?
-  private let getWindowBounds: GetWindowBoundsFunc?
-
-  init() {
-    let handle = dlopen(
-      "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
-      RTLD_LAZY | RTLD_LOCAL
-    )
-    libraryHandle = handle
-
-    func resolve<T>(_ symbol: String, as _: T.Type) -> T? {
-      guard let handle, let pointer = dlsym(handle, symbol) else { return nil }
-      return unsafeBitCast(pointer, to: T.self)
-    }
-
-    mainConnectionID = resolve("SLSMainConnectionID", as: MainConnectionIDFunc.self)
-    getWindowBounds = resolve("SLSGetWindowBounds", as: GetWindowBoundsFunc.self)
-  }
-
-  deinit {
-    if let libraryHandle {
-      dlclose(libraryHandle)
-    }
-  }
-
-  func frame(for windowID: WindowID) -> Rect? {
-    guard let rawWindowID = UInt32(exactly: windowID.rawValue),
-      let mainConnectionID,
-      let getWindowBounds
-    else {
-      return nil
-    }
-    var bounds = CGRect.zero
-    guard getWindowBounds(mainConnectionID(), rawWindowID, &bounds) == 0 else {
-      return nil
-    }
-    return normalizedWindowBorderFrame(bounds)
-  }
-}
-
-private final class WindowCornerRadiusProvider {
-  private typealias MainConnectionIDFunc = @convention(c) () -> Int32
-  private typealias WindowQueryFunc =
-    @convention(c) (Int32, UnsafeRawPointer?, UInt32) -> UnsafeMutableRawPointer?
-  private typealias QueryCopyWindowsFunc =
-    @convention(c) (UnsafeRawPointer?) -> UnsafeMutableRawPointer?
-  private typealias IteratorCountFunc = @convention(c) (UnsafeRawPointer?) -> Int32
-  private typealias IteratorAdvanceFunc = @convention(c) (UnsafeRawPointer?) -> Bool
-  private typealias IteratorCornerRadiiFunc =
-    @convention(c) (UnsafeRawPointer?) -> UnsafeMutableRawPointer?
-
-  private let libraryHandle: UnsafeMutableRawPointer?
-  private let mainConnectionID: MainConnectionIDFunc?
-  private let windowQuery: WindowQueryFunc?
-  private let queryCopyWindows: QueryCopyWindowsFunc?
-  private let iteratorCount: IteratorCountFunc?
-  private let iteratorAdvance: IteratorAdvanceFunc?
-  private let iteratorCornerRadii: IteratorCornerRadiiFunc?
-  private var cache: [WindowID: Double] = [:]
-
-  init() {
-    let handle = dlopen(
-      "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
-      RTLD_LAZY | RTLD_LOCAL
-    )
-    libraryHandle = handle
-
-    func resolve<T>(_ symbol: String, as _: T.Type) -> T? {
-      guard let handle, let pointer = dlsym(handle, symbol) else { return nil }
-      return unsafeBitCast(pointer, to: T.self)
-    }
-
-    mainConnectionID = resolve("SLSMainConnectionID", as: MainConnectionIDFunc.self)
-    windowQuery = resolve("SLSWindowQueryWindows", as: WindowQueryFunc.self)
-    queryCopyWindows = resolve(
-      "SLSWindowQueryResultCopyWindows",
-      as: QueryCopyWindowsFunc.self
-    )
-    iteratorCount = resolve("SLSWindowIteratorGetCount", as: IteratorCountFunc.self)
-    iteratorAdvance = resolve(
-      "SLSWindowIteratorAdvance",
-      as: IteratorAdvanceFunc.self
-    )
-    iteratorCornerRadii = resolve(
-      "SLSWindowIteratorGetCornerRadii",
-      as: IteratorCornerRadiiFunc.self
-    )
-  }
-
-  deinit {
-    if let libraryHandle {
-      dlclose(libraryHandle)
-    }
-  }
-
-  func retain(windowIDs: Set<WindowID>) {
-    cache = cache.filter { windowIDs.contains($0.key) }
-  }
-
-  func radius(for windowID: WindowID) -> Double {
-    if let cached = cache[windowID] { return cached }
-    let radius = readRadius(for: windowID) ?? 9
-    cache[windowID] = radius
-    return radius
-  }
-
-  private func readRadius(for windowID: WindowID) -> Double? {
-    guard let rawWindowID = UInt32(exactly: windowID.rawValue),
-      let mainConnectionID,
-      let windowQuery,
-      let queryCopyWindows,
-      let iteratorCount,
-      let iteratorAdvance,
-      let iteratorCornerRadii
-    else {
-      return nil
-    }
-    let windowIDs = NSArray(object: NSNumber(value: rawWindowID))
-    let windowIDsPointer = Unmanaged.passUnretained(windowIDs).toOpaque()
-    guard let query = windowQuery(mainConnectionID(), windowIDsPointer, 0) else {
-      return nil
-    }
-    defer { Unmanaged<AnyObject>.fromOpaque(query).release() }
-    guard let iterator = queryCopyWindows(query) else { return nil }
-    defer { Unmanaged<AnyObject>.fromOpaque(iterator).release() }
-    guard iteratorCount(iterator) > 0, iteratorAdvance(iterator) else { return nil }
-    guard let radii = iteratorCornerRadii(iterator) else { return nil }
-    defer { Unmanaged<AnyObject>.fromOpaque(radii).release() }
-    let values = Unmanaged<CFArray>.fromOpaque(radii).takeUnretainedValue()
-    guard CFArrayGetCount(values) > 0,
-      let rawValue = CFArrayGetValueAtIndex(values, 0)
-    else {
-      return nil
-    }
-    let value = Unmanaged<NSNumber>.fromOpaque(
-      UnsafeMutableRawPointer(mutating: rawValue)
-    ).takeUnretainedValue().doubleValue
-    return value > 0 && value.isFinite ? value : nil
-  }
 }

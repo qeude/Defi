@@ -153,12 +153,12 @@ case "$MODE" in
         "$INSTALLED_CLI" service start >/dev/null
       fi
       if pgrep -x "$PROCESS_NAME" >/dev/null 2>&1; then
-        STATUS_OUTPUT="$("$INSTALLED_CLI" status 2>/dev/null)" || continue
-        if [[ -z "$STATUS_OUTPUT" ]]; then
-          continue
+        if STATUS_OUTPUT="$("$INSTALLED_CLI" status 2>/dev/null)" \
+          && [[ -n "$STATUS_OUTPUT" ]]
+        then
+          echo "$STATUS_OUTPUT"
+          exit 0
         fi
-        echo "$STATUS_OUTPUT"
-        exit 0
       fi
       sleep 0.1
     done

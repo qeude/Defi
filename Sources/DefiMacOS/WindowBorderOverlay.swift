@@ -90,7 +90,6 @@ func windowBorderSegmentGeometries(
 @MainActor
 final class BorderOverlay {
   private let targetWindowNumber: Int
-  private let orderingBackend: WindowOrderingBackend
   private let segments: [WindowBorderSegmentKind: BorderSegment]
   private var windowFrame: Rect?
   private var width = -1.0
@@ -127,12 +126,8 @@ final class BorderOverlay {
     }
   }
 
-  init(
-    windowID: WindowID,
-    orderingBackend: WindowOrderingBackend
-  ) {
+  init(windowID: WindowID) {
     targetWindowNumber = Int(windowID.rawValue)
-    self.orderingBackend = orderingBackend
     segments = Dictionary(
       uniqueKeysWithValues: WindowBorderSegmentKind.allCases.map {
         ($0, BorderSegment(targetWindowNumber: Int(windowID.rawValue)))
@@ -188,7 +183,7 @@ final class BorderOverlay {
         width: width,
         radius: radius,
         captureEnabled: captureEnabled,
-        directMovementEnabled: orderingBackend.supportsCompositorUpdates
+        directMovementEnabled: false
       )
     }
     windowFrame = frame
@@ -226,19 +221,6 @@ final class BorderOverlay {
 
   func hide() {
     compactBacking()
-  }
-
-  func compositorUpdates() -> [WindowCompositorUpdate] {
-    guard visible else { return [] }
-    return segments.values.compactMap { segment in
-      guard let frame = segment.frame else { return nil }
-      segment.ensureOrderedIn()
-      return WindowCompositorUpdate(
-        windowNumber: segment.windowNumber,
-        targetWindowID: WindowID(rawValue: UInt64(targetWindowNumber)),
-        origin: CGPoint(x: frame.x, y: frame.y)
-      )
-    }
   }
 
   func applyCompositorFallback() {
