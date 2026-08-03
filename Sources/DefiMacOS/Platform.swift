@@ -1896,11 +1896,18 @@ public final class MacOSPlatform {
       plan.tracked.map {
         FrameAssignment(windowID: $0.windowID, frame: $0.frame)
       } + retainedLiveFrames
+    let nativeFrames = windowBorderFrameSnapshot(
+      windowIDs: Set(relevantFrames.map(\.windowID)),
+      frameProvider: borderBoundsProvider.frame
+    )
     let displayedFrames = Dictionary(
       uniqueKeysWithValues: relevantFrames.map { assignment in
         (
           assignment.windowID,
-          displayedBorderFrame(for: assignment)
+          displayedBorderFrame(
+            for: assignment,
+            nativeFrame: nativeFrames[assignment.windowID]
+          )
         )
       }
     )
@@ -1918,7 +1925,7 @@ public final class MacOSPlatform {
         }
         return (
           windowID,
-          borderBoundsProvider.frame(for: windowID) ?? fallback
+          nativeFrames[windowID] ?? fallback
         )
       }
     )
@@ -1963,9 +1970,10 @@ public final class MacOSPlatform {
   }
 
   private func displayedBorderFrame(
-    for assignment: FrameAssignment
+    for assignment: FrameAssignment,
+    nativeFrame: Rect?
   ) -> Rect {
-    if let nativeFrame = borderBoundsProvider.frame(for: assignment.windowID) {
+    if let nativeFrame {
       return nativeFrame
     }
     if assignment.windowID == borderLiveWindowID,

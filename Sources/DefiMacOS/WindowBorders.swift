@@ -378,6 +378,17 @@ func normalizedWindowBorderFrame(_ bounds: CGRect) -> Rect? {
   )
 }
 
+func windowBorderFrameSnapshot(
+  windowIDs: Set<WindowID>,
+  frameProvider: (WindowID) -> Rect?
+) -> [WindowID: Rect] {
+  Dictionary(
+    uniqueKeysWithValues: windowIDs.compactMap { windowID in
+      frameProvider(windowID).map { (windowID, $0) }
+    }
+  )
+}
+
 final class WindowServerBoundsProvider {
   private typealias MainConnectionIDFunc = @convention(c) () -> Int32
   private typealias GetWindowBoundsFunc =

@@ -243,6 +243,24 @@ struct WindowBorderTests {
     )
   }
 
+  @Test
+  func nativeBoundsSnapshotQueriesEachWindowOnce() {
+    let first = WindowID(rawValue: 1)
+    let second = WindowID(rawValue: 2)
+    var queryCounts: [WindowID: Int] = [:]
+
+    let snapshot = windowBorderFrameSnapshot(windowIDs: [first, second]) { windowID in
+      queryCounts[windowID, default: 0] += 1
+      return windowID == first
+        ? Rect(x: 10, y: 20, width: 800, height: 600)
+        : nil
+    }
+
+    #expect(snapshot[first] == Rect(x: 10, y: 20, width: 800, height: 600))
+    #expect(snapshot[second] == nil)
+    #expect(queryCounts == [first: 1, second: 1])
+  }
+
   @Test @MainActor
   func rapidSelectionKeepsLatestActiveIdentity() {
     let manager = WindowBorderManager()
