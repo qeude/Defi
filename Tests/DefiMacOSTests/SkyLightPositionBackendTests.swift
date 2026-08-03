@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 
 @testable import DefiMacOS
@@ -66,6 +67,47 @@ struct SkyLightPositionBackendTests {
         containsSizeChange: false,
         containsVerticalMove: false
       ) == .accessibility
+    )
+  }
+
+  @Test
+  func borderCompanionsUseTargetPositionAndStableOffsets() {
+    let moves = skyLightMovesIncludingCompanions(
+      [
+        SkyLightPositionMove(
+          windowID: 10,
+          point: CGPoint(x: 100, y: 200)
+        )
+      ],
+      companions: [
+        10: [
+          SkyLightPositionCompanion(
+            windowID: 90,
+            offset: CGPoint(x: -3, y: -3)
+          ),
+          SkyLightPositionCompanion(
+            windowID: 91,
+            offset: CGPoint(x: 7, y: 11)
+          ),
+        ]
+      ]
+    )
+
+    #expect(
+      moves == [
+        SkyLightPositionMove(
+          windowID: 10,
+          point: CGPoint(x: 100, y: 200)
+        ),
+        SkyLightPositionMove(
+          windowID: 90,
+          point: CGPoint(x: 97, y: 197)
+        ),
+        SkyLightPositionMove(
+          windowID: 91,
+          point: CGPoint(x: 107, y: 211)
+        ),
+      ]
     )
   }
 }

@@ -24,6 +24,20 @@ final class ModelTests: XCTestCase {
     XCTAssertTrue(workspace.floatingWindows.isEmpty)
   }
 
+  func testOnlyFollowingWorkspaceCommandsActivateWorkspace() {
+    XCTAssertTrue(
+      Command.switchWorkspace(WorkspaceID(rawValue: "web")).activatesWorkspace
+    )
+    XCTAssertTrue(
+      Command.moveWindowToWorkspace(WorkspaceID(rawValue: "web")).activatesWorkspace
+    )
+    XCTAssertFalse(
+      Command.sendWindowToWorkspace(WorkspaceID(rawValue: "web")).activatesWorkspace
+    )
+    XCTAssertFalse(Command.focusColumn(.right).activatesWorkspace)
+    XCTAssertFalse(Command.cycleWidth(.next).activatesWorkspace)
+  }
+
   func testParsesSharedCommands() throws {
     XCTAssertEqual(try parseCommand("focus-column left"), .focusColumn(.left))
     XCTAssertEqual(try parseCommand("focus-column first"), .focusColumn(.first))

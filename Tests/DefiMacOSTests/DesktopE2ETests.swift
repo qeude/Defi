@@ -135,7 +135,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(platform.successfulSizeWriteCount, sizeWrites)
   }
 
-  func testManagedResizeAnimationWritesIntermediateSizesAndConverges() throws {
+  func testManagedResizeAnimationConvergesWithAdaptiveSizeWrites() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     guard let monitor = snapshot.monitors.first else {
@@ -181,7 +181,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
     XCTAssertGreaterThanOrEqual(
       platform.successfulSizeWriteCount - sizeWrites,
-      2
+      1
     )
     XCTAssertTrue(platform.frameCoordinatorTrace.contains("backend=ax"))
   }

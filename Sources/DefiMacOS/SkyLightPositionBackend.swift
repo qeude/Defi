@@ -33,9 +33,155 @@ func selectPositionAnimationBackend(
   return .skyLight
 }
 
-struct SkyLightPositionMove: Sendable {
+struct SkyLightPositionMove: Equatable, Sendable {
   let windowID: UInt32
   let point: CGPoint
+}
+
+struct SkyLightPositionCompanion: Equatable, Sendable {
+  let windowID: UInt32
+  let offset: CGPoint
+}
+
+func skyLightCompanionMoves(
+  for targetMove: SkyLightPositionMove,
+  companions: [SkyLightPositionCompanion]
+) -> [SkyLightPositionMove] {
+  companions.map { companion in
+    SkyLightPositionMove(
+      windowID: companion.windowID,
+      point: CGPoint(
+        x: targetMove.point.x + companion.offset.x,
+        y: targetMove.point.y + companion.offset.y
+      )
+    )
+  }
+}
+
+func skyLightMovesIncludingCompanions(
+  _ targetMoves: [SkyLightPositionMove],
+  companions: [UInt32: [SkyLightPositionCompanion]]
+) -> [SkyLightPositionMove] {
+  var moves = targetMoves
+  moves.reserveCapacity(
+    targetMoves.count + companions.values.reduce(0) { $0 + $1.count }
+  )
+  for targetMove in targetMoves {
+    guard let targetCompanions = companions[targetMove.windowID] else { continue }
+    moves.append(
+      contentsOf: skyLightCompanionMoves(
+        for: targetMove,
+        companions: targetCompanions
+      )
+    )
+  }
+  return moves.sorted { $0.windowID < $1.windowID }
+}
+
+final class SkyLightCompanionMoveBackend: @unchecked Sendable {
+  private typealias MainConnectionIDFunc = @convention(c) () -> Int32
+  private typealias NewConnectionFunc =
+    @convention(c) (Int32, UnsafeMutablePointer<Int32>) -> CGError
+  private typealias ReleaseConnectionFunc = @convention(c) (Int32) -> CGError
+  private typealias TransactionCreateFunc =
+    @convention(c) (Int32) -> UnsafeMutableRawPointer?
+  private typealias TransactionMoveWindowWithGroupFunc =
+    @convention(c) (UnsafeMutableRawPointer, UInt32, CGPoint) -> CGError
+  private typealias TransactionCommitFunc =
+    @convention(c) (UnsafeMutableRawPointer, Int32) -> CGError
+
+  private let lock = NSLock()
+  private let libraryHandle: UnsafeMutableRawPointer?
+  private let mainConnectionID: MainConnectionIDFunc?
+  private let releaseConnection: ReleaseConnectionFunc?
+  private let connectionID: Int32
+  private let transactionCreate: TransactionCreateFunc?
+  private let transactionMoveWindowWithGroup: TransactionMoveWindowWithGroupFunc?
+  private let transactionCommit: TransactionCommitFunc?
+
+  init() {
+    let libraryHandle = dlopen(
+      "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+      RTLD_LAZY | RTLD_LOCAL
+    )
+    self.libraryHandle = libraryHandle
+
+    func resolve<T>(_ symbol: String, as _: T.Type) -> T? {
+      guard let libraryHandle,
+        let pointer = dlsym(libraryHandle, symbol)
+      else {
+        return nil
+      }
+      return unsafeBitCast(pointer, to: T.self)
+    }
+
+    mainConnectionID = resolve("SLSMainConnectionID", as: MainConnectionIDFunc.self)
+    let newConnection = resolve("SLSNewConnection", as: NewConnectionFunc.self)
+    releaseConnection = resolve(
+      "SLSReleaseConnection",
+      as: ReleaseConnectionFunc.self
+    )
+    transactionCreate = resolve(
+      "SLSTransactionCreate",
+      as: TransactionCreateFunc.self
+    )
+    transactionMoveWindowWithGroup = resolve(
+      "SLSTransactionMoveWindowWithGroup",
+      as: TransactionMoveWindowWithGroupFunc.self
+    )
+    transactionCommit = resolve(
+      "SLSTransactionCommit",
+      as: TransactionCommitFunc.self
+    )
+    var dedicatedConnectionID: Int32 = 0
+    if let newConnection {
+      _ = newConnection(0, &dedicatedConnectionID)
+    }
+    connectionID = dedicatedConnectionID != 0
+      ? dedicatedConnectionID
+      : mainConnectionID?() ?? 0
+  }
+
+  deinit {
+    if connectionID != 0,
+      connectionID != mainConnectionID?()
+    {
+      _ = releaseConnection?(connectionID)
+    }
+    if let libraryHandle {
+      dlclose(libraryHandle)
+    }
+  }
+
+  @discardableResult
+  func apply(_ moves: [SkyLightPositionMove]) -> Bool {
+    guard !moves.isEmpty,
+      let transactionCreate,
+      let transactionMoveWindowWithGroup,
+      let transactionCommit
+    else {
+      return moves.isEmpty
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    guard connectionID != 0,
+      let transaction = transactionCreate(connectionID)
+    else {
+      return false
+    }
+    defer {
+      Unmanaged<AnyObject>.fromOpaque(transaction).release()
+    }
+    for move in moves.sorted(by: { $0.windowID < $1.windowID }) {
+      _ = transactionMoveWindowWithGroup(
+        transaction,
+        move.windowID,
+        move.point
+      )
+    }
+    _ = transactionCommit(transaction, 1)
+    return true
+  }
 }
 
 public struct SkyLightPositionPerformance: Equatable, Sendable {
@@ -318,13 +464,14 @@ final class SkyLightPositionBackend: @unchecked Sendable {
     defer {
       Unmanaged<AnyObject>.fromOpaque(transaction).release()
     }
-    guard transactionSetWindowTransform(
-      transaction,
-      move.windowID,
-      0,
-      0,
-      transform
-    ) == .success
+    guard
+      transactionSetWindowTransform(
+        transaction,
+        move.windowID,
+        0,
+        0,
+        transform
+      ) == .success
     else {
       return
     }

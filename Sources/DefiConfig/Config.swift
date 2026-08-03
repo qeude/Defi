@@ -5,6 +5,7 @@ import TOMLDecoder
 public struct Config: Equatable, Sendable {
   public var layout: LayoutConfig
   public var animation: AnimationConfig
+  public var decorations: DecorationsConfig
   public var experimental: ExperimentalConfig
   public var workspaces: WorkspacesConfig
   public var modifierCombinations: [String: String]
@@ -15,6 +16,7 @@ public struct Config: Equatable, Sendable {
   public init(
     layout: LayoutConfig = LayoutConfig(),
     animation: AnimationConfig = AnimationConfig(),
+    decorations: DecorationsConfig = DecorationsConfig(),
     experimental: ExperimentalConfig = ExperimentalConfig(),
     workspaces: WorkspacesConfig = WorkspacesConfig(),
     modifierCombinations: [String: String] = [:],
@@ -24,6 +26,7 @@ public struct Config: Equatable, Sendable {
   ) {
     self.layout = layout
     self.animation = animation
+    self.decorations = decorations
     self.experimental = experimental
     self.workspaces = workspaces
     self.modifierCombinations = modifierCombinations
@@ -42,6 +45,7 @@ public struct Config: Equatable, Sendable {
     let config = Config(
       layout: raw.layout ?? LayoutConfig(),
       animation: raw.animation ?? AnimationConfig(),
+      decorations: raw.decorations ?? DecorationsConfig(),
       experimental: raw.experimental ?? ExperimentalConfig(),
       workspaces: workspaces,
       modifierCombinations: raw.modifierCombinations ?? [:],
@@ -80,6 +84,15 @@ public struct Config: Equatable, Sendable {
     }
     guard (0...2_000).contains(animation.durationMS) else {
       throw ConfigError.invalidValue("animation.duration_ms")
+    }
+    guard (0...64).contains(decorations.borders.width) else {
+      throw ConfigError.invalidValue("decorations.borders.width")
+    }
+    guard parseBorderColor(decorations.borders.color) != nil else {
+      throw ConfigError.invalidValue("decorations.borders.color")
+    }
+    guard parseBorderColor(decorations.borders.inactiveColor) != nil else {
+      throw ConfigError.invalidValue("decorations.borders.inactive_color")
     }
     guard !workspaces.names.isEmpty,
       Set(workspaces.names).count == workspaces.names.count
@@ -166,6 +179,94 @@ public struct Config: Equatable, Sendable {
     }
     return result
   }
+}
+
+public struct DecorationsConfig: Codable, Equatable, Sendable {
+  public var borders: BordersConfig
+
+  public init(borders: BordersConfig = BordersConfig()) {
+    self.borders = borders
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case borders
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    borders =
+      try values.decodeIfPresent(BordersConfig.self, forKey: .borders)
+      ?? BordersConfig()
+  }
+}
+
+public struct BordersConfig: Codable, Equatable, Sendable {
+  public var enabled: Bool
+  public var width: Double
+  public var color: String
+  public var inactiveEnabled: Bool
+  public var inactiveColor: String
+  public var captureEnabled: Bool
+
+  public init(
+    enabled: Bool = true,
+    width: Double = 4,
+    color: String = "#FFC099FF",
+    inactiveEnabled: Bool = false,
+    inactiveColor: String = "#66C099FF",
+    captureEnabled: Bool = false
+  ) {
+    self.enabled = enabled
+    self.width = width
+    self.color = color
+    self.inactiveEnabled = inactiveEnabled
+    self.inactiveColor = inactiveColor
+    self.captureEnabled = captureEnabled
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case enabled
+    case width
+    case color
+    case inactiveEnabled = "inactive_enabled"
+    case inactiveColor = "inactive_color"
+    case captureEnabled = "capture_enabled"
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    let defaults = BordersConfig()
+    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+    width = try values.decodeIfPresent(Double.self, forKey: .width) ?? defaults.width
+    color = try values.decodeIfPresent(String.self, forKey: .color) ?? defaults.color
+    inactiveEnabled =
+      try values.decodeIfPresent(Bool.self, forKey: .inactiveEnabled)
+      ?? defaults.inactiveEnabled
+    inactiveColor =
+      try values.decodeIfPresent(String.self, forKey: .inactiveColor)
+      ?? defaults.inactiveColor
+    captureEnabled =
+      try values.decodeIfPresent(Bool.self, forKey: .captureEnabled)
+      ?? defaults.captureEnabled
+  }
+}
+
+public func parseBorderColor(_ value: String) -> UInt32? {
+  let digits: Substring
+  if value.hasPrefix("0x") || value.hasPrefix("0X") {
+    digits = value.dropFirst(2)
+  } else if value.hasPrefix("#") {
+    digits = value.dropFirst()
+  } else {
+    return nil
+  }
+  guard digits.count == 8,
+    digits.allSatisfy({ $0.isHexDigit }),
+    let color = UInt32(digits, radix: 16)
+  else {
+    return nil
+  }
+  return color
 }
 
 public struct ExperimentalConfig: Codable, Equatable, Sendable {
@@ -401,6 +502,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
 private struct RawConfig: Decodable {
   var layout: LayoutConfig?
   var animation: AnimationConfig?
+  var decorations: DecorationsConfig?
   var experimental: ExperimentalConfig?
   var workspaces: WorkspacesConfig?
   var modifierCombinations: [String: String]?
@@ -411,6 +513,7 @@ private struct RawConfig: Decodable {
   enum CodingKeys: String, CodingKey {
     case layout
     case animation
+    case decorations
     case experimental
     case workspaces
     case modifierCombinations = "modifier_combinations"

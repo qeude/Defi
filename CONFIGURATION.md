@@ -30,6 +30,54 @@ duration_ms = 35
 - `enabled`: animate scrolling-column focus and managed column resize commands
 - `duration_ms`: animation duration, `0...2000`; `0` disables animation
 
+## `[decorations.borders]`
+
+```toml
+[decorations.borders]
+enabled = true
+width = 4
+color = "#FFC099FF"
+inactive_enabled = false
+inactive_color = "#66C099FF"
+capture_enabled = false
+```
+
+- `enabled`: draw window borders; default `true`
+- `width`: logical-pixel border width, `0...64`; default `4`
+- `color`: selected-window color in `0xAARRGGBB` or `#AARRGGBB` form
+- `inactive_enabled`: draw borders around other visible tiled windows; default `false`
+- `inactive_color`: inactive-window color in same ARGB format
+- `capture_enabled`: include border overlays in screenshots and screen capture for
+  debugging; default `false`
+
+Each visible managed window owns a stable lightweight border node backed by four
+narrow edge surfaces instead of one full-window surface. In active-only mode,
+only the active border remains ordered; dormant surfaces are ordered out and
+compacted to one pixel. Enabling inactive borders keeps four
+narrow surfaces per visible tiled window, never parked or off-workspace windows.
+Unchanged decoration plans perform no AppKit work.
+
+Borders follow Accessibility animation writes through grouped WindowServer moves
+on a dedicated connection. Final-position repairs are coalesced while native
+commits settle, preventing stale geometry from overwriting the displayed border.
+Native move and resize notifications trigger an immediate WindowServer bounds read.
+Every mouse-drag event also refreshes visible borders directly, while the bounded
+refresh tick rises to the active display rate during the gesture. This keeps the
+active border on the real displayed size even when an application coalesces
+Accessibility notifications.
+New surfaces are placed and ordered while transparent. They become opaque
+immediately after the target receives native focus. Borders disappear and change
+color immediately, avoiding stale presentation opacity and compositor timing.
+Window corner radii come from WindowServer when available, with a stable macOS
+radius fallback. Strokes stay inside the exact target frame. Every visible
+surface is ordered immediately above its own target and inherits its target's
+WindowServer level and sublevel when available. Surfaces ignore all input. They
+use `NSWindowSharingNone` by default, so they stay outside screenshots and never
+request Screen Recording permission. Z-order and capture sharing are independent.
+`capture_enabled = true` changes sharing to read-only for debugging; restart Defi
+after changing it. App-scoped capture tools such as Computer Use expose the Defi
+edge surfaces individually; full-desktop capture shows the composed border.
+
 ## `[experimental]`
 
 ```toml
@@ -134,4 +182,4 @@ With default modifier `alt`:
 
 ## Unsupported in basic MVP
 
-Borders, dimming, status item, startup commands, config hot reload, and floating-window management remain roadmap items.
+Dimming, startup commands, config hot reload, and floating-window management remain roadmap items.
