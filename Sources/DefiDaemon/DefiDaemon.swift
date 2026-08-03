@@ -93,7 +93,9 @@ private final class Daemon: NSObject {
   private let config: Config
   private let platform = MacOSPlatform()
   private let server: UnixSocketServer
+  private let placementStore: PlacementStore
   private var state: RuntimeState
+  private var placementPreferences: PlacementPreferences
   private var hotKeys: HotKeyManager?
   private var menuBar: MenuBarController?
   private var timer: DispatchSourceTimer?
@@ -137,6 +139,8 @@ private final class Daemon: NSObject {
   init(options: DaemonOptions) throws {
     config = try Config.load(from: options.configURL)
     server = try UnixSocketServer(url: options.socketURL)
+    placementStore = PlacementStore()
+    placementPreferences = (try? placementStore.load()) ?? PlacementPreferences()
     state = RuntimeState(config: config)
     super.init()
   }
@@ -285,6 +289,7 @@ private final class Daemon: NSObject {
         pendingAnimatedFocusWindowID = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)
+      persistPlacements()
       updateMenuBar()
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
       let switchesWorkspace: Bool
@@ -369,7 +374,12 @@ private final class Daemon: NSObject {
       nextViewports: viewportsByMonitor
     )
     var nativelyFocusedMonitorID: MonitorID?
-    reconcileWindows(snapshot.windows, config: config, state: &state)
+    reconcileWindows(
+      snapshot.windows,
+      config: config,
+      placementPreferences: placementPreferences,
+      state: &state
+    )
     if let focusedWindowID = snapshot.focusedWindowID {
       let nativeFocusAccepted =
         snapshot.nativeFocusChanged
@@ -432,7 +442,20 @@ private final class Daemon: NSObject {
       positionTimeoutSeconds: 0.05,
       source: "desktop-sync"
     )
+    persistPlacements()
     updateMenuBar()
+  }
+
+  private func persistPlacements() {
+    var updated = placementPreferences
+    updated.recordPlacements(from: state)
+    guard updated != placementPreferences else { return }
+    do {
+      try placementStore.save(updated)
+      placementPreferences = updated
+    } catch {
+      log("placement persistence failed: \(error)")
+    }
   }
 
   private func displayGeometryDescription(

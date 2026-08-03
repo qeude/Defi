@@ -86,12 +86,18 @@ public struct RuntimeState: Equatable, Sendable {
   }
 
   public func monitorID(containing windowID: WindowID) -> MonitorID? {
+    location(containing: windowID)?.monitorID
+  }
+
+  public func location(
+    containing windowID: WindowID
+  ) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
     for monitor in monitors {
       for workspace in monitor.workspaces
       where workspace.columns.contains(where: { $0.windows.contains(windowID) })
         || workspace.floatingWindows.contains(windowID)
       {
-        return monitor.id
+        return (monitor.id, workspace.id)
       }
     }
     return nil
@@ -165,6 +171,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
 public func discoverWindow(
   _ original: Window,
   decision: RuleDecision,
+  placement: WindowPlacementPreference? = nil,
   state: inout RuntimeState
 ) throws {
   guard !state.monitors.isEmpty else {
@@ -179,9 +186,20 @@ public func discoverWindow(
   window.floating = decision.floating
   window.forceTiling = decision.forceTiling
   window.intrinsicSize = decision.intrinsicSize
-  let monitorID = window.monitorID ?? state.monitors[0].id
+  let preferredMonitorID = placement?.monitorID.flatMap { preferred in
+    state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
+  }
+  let monitorID = preferredMonitorID ?? window.monitorID ?? state.monitors[0].id
   let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }) ?? 0
-  let workspaceID = decision.workspace ?? state.monitors[monitorIndex].activeWorkspace
+  let preferredWorkspaceID = placement?.workspaceID
+  let workspaceID =
+    decision.workspace
+    ?? preferredWorkspaceID.flatMap { preferred in
+      state.monitors[monitorIndex].workspaces.contains(where: { $0.id == preferred })
+        ? preferred
+        : nil
+    }
+    ?? state.monitors[monitorIndex].activeWorkspace
   guard
     let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
       where: { $0.id == workspaceID }
@@ -208,6 +226,7 @@ public func discoverWindow(
 public func reconcileWindows(
   _ discovered: [Window],
   config: Config,
+  placementPreferences: PlacementPreferences = PlacementPreferences(),
   state: inout RuntimeState
 ) {
   let discoveredIDs = Set(discovered.map(\.id))
@@ -218,7 +237,12 @@ public func reconcileWindows(
 
   for window in discovered {
     if state.windows[window.id] == nil {
-      try? discoverWindow(window, decision: config.decision(for: window), state: &state)
+      try? discoverWindow(
+        window,
+        decision: config.decision(for: window),
+        placement: placementPreferences.preference(for: window),
+        state: &state
+      )
     } else {
       var updated = window
       if let existing = state.windows[window.id] {
