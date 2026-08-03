@@ -70,6 +70,110 @@ final class RuntimeTests: XCTestCase {
     XCTAssertTrue(state.monitors[0].workspaces[0].columns.isEmpty)
   }
 
+  func testReconcileRestoresPersistedApplicationWorkspace() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.Chat",
+      title: "Chat",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    let preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web"),
+          monitorID: monitorID
+        )
+      ]
+    )
+
+    reconcileWindows(
+      [window],
+      config: config,
+      placementPreferences: preferences,
+      state: &state
+    )
+
+    XCTAssertEqual(
+      state.location(containing: window.id)?.workspaceID,
+      WorkspaceID(rawValue: "web")
+    )
+  }
+
+  func testConfiguredRuleOverridesPersistedApplicationWorkspace() throws {
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", "web"]),
+      rules: [Rule(appID: "com.example.chat", workspace: "dev")]
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.Chat",
+      title: "Chat",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    let preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web")
+        )
+      ]
+    )
+
+    reconcileWindows(
+      [window],
+      config: config,
+      placementPreferences: preferences,
+      state: &state
+    )
+
+    XCTAssertEqual(
+      state.location(containing: window.id)?.workspaceID,
+      WorkspaceID(rawValue: "dev")
+    )
+  }
+
+  func testRecordingPlacementsKeepsClosedApplicationPreferences() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.Chat",
+      title: "Chat",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    try discoverWindow(
+      window,
+      decision: RuleDecision(workspace: WorkspaceID(rawValue: "web")),
+      state: &state
+    )
+    var preferences = PlacementPreferences(
+      applications: [
+        "com.example.closed": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "dev")
+        )
+      ]
+    )
+
+    preferences.recordPlacements(from: state)
+
+    XCTAssertEqual(
+      preferences.applications["com.example.chat"]?.workspaceID,
+      WorkspaceID(rawValue: "web")
+    )
+    XCTAssertEqual(
+      preferences.applications["com.example.closed"]?.workspaceID,
+      WorkspaceID(rawValue: "dev")
+    )
+  }
+
   func testReconcilePreservesIntrinsicDimensionsAfterAppliedGaps() throws {
     let config = Config()
     var state = RuntimeState(config: config)
