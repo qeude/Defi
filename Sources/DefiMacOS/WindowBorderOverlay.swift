@@ -108,24 +108,6 @@ final class BorderOverlay {
 
   var opacity: Double { Double(opacityValue) }
 
-  var skyLightCompanions: [SkyLightPositionCompanion] {
-    guard visible, let windowFrame else { return [] }
-    return segments.values.compactMap { segment in
-      guard let frame = segment.frame,
-        let windowID = UInt32(exactly: segment.windowNumber)
-      else {
-        return nil
-      }
-      return SkyLightPositionCompanion(
-        windowID: windowID,
-        offset: CGPoint(
-          x: frame.x - windowFrame.x,
-          y: frame.y - windowFrame.y
-        )
-      )
-    }
-  }
-
   init(windowID: WindowID) {
     targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(

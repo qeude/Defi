@@ -300,61 +300,10 @@ private final class AXFrameCoordinator: @unchecked Sendable {
   private var predictedProcessLatencyMS: [pid_t: Double] = [:]
   private var latencySensitiveProcessIDs = Set<pid_t>()
   private var processWriteQueues: [pid_t: DispatchQueue] = [:]
-  private var experimentalSkyLightEnabled = false
-  private var skyLightBackend: SkyLightPositionBackend?
-  private var skyLightCompanionMoveBackend: SkyLightCompanionMoveBackend?
-  private var skyLightVisualPositions: [WindowID: CGPoint] = [:]
-  private var skyLightPositionCompanions: [WindowID: [SkyLightPositionCompanion]] = [:]
-  private var completedAXSettlements = 0
-  private var cancelledAXSettlements = 0
-  private var repairedStaleAXSettlements = 0
-
-  func configureExperimentalSkyLight(enabled: Bool) {
-    lock.lock()
-    experimentalSkyLightEnabled = enabled
-    let shouldCreateBackend = enabled && skyLightBackend == nil
-    let shouldCreateCompanionBackend =
-      enabled && skyLightCompanionMoveBackend == nil
-    lock.unlock()
-    guard shouldCreateBackend || shouldCreateCompanionBackend else { return }
-
-    let backend = shouldCreateBackend ? SkyLightPositionBackend() : nil
-    let companionBackend =
-      shouldCreateCompanionBackend
-      ? SkyLightCompanionMoveBackend()
-      : nil
-    lock.lock()
-    if enabled, skyLightBackend == nil {
-      skyLightBackend = backend
-    }
-    if enabled, skyLightCompanionMoveBackend == nil {
-      skyLightCompanionMoveBackend = companionBackend
-    }
-    lock.unlock()
-  }
 
   func updateParkingTargets(_ targets: [WindowID: AsyncPositionWrite]) {
     lock.lock()
     parkingTargets = targets
-    lock.unlock()
-  }
-
-  func updateSkyLightPositionCompanions(
-    _ companions: [WindowID: [SkyLightPositionCompanion]]
-  ) {
-    lock.lock()
-    guard skyLightPositionCompanions != companions else {
-      lock.unlock()
-      return
-    }
-    skyLightPositionCompanions = companions
-    let surfaceCount = companions.values.reduce(0) { $0 + $1.count }
-    let targetIDs = companions.keys.sorted {
-      $0.rawValue < $1.rawValue
-    }.map { String($0.rawValue) }.joined(separator: ",")
-    appendTraceLocked(
-      "border-companions targets=\(companions.count)[\(targetIDs)] surfaces=\(surfaceCount)"
-    )
     lock.unlock()
   }
 
@@ -365,7 +314,6 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     pending = nil
     completedPositions.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
-    skyLightVisualPositions.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
@@ -486,52 +434,6 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     lock.unlock()
   }
 
-  func alignVisualPosition(
-    windowID: WindowID,
-    point: CGPoint
-  ) {
-    lock.lock()
-    let enabled = experimentalSkyLightEnabled
-    let backend = enabled ? skyLightBackend : nil
-    let companionBackend = enabled ? skyLightCompanionMoveBackend : nil
-    let storedCompanions = skyLightPositionCompanions[windowID] ?? []
-    let companions =
-      shouldMoveSkyLightCompanions(
-        experimentalSkyLightEnabled: enabled,
-        companionCount: storedCompanions.count
-      ) ? storedCompanions : []
-    lock.unlock()
-    guard
-      let rawWindowID = UInt32(
-        exactly: windowID.rawValue
-      )
-    else {
-      return
-    }
-    let targetMove = SkyLightPositionMove(
-      windowID: rawWindowID,
-      point: point
-    )
-    backend?.alignIfManaged(targetMove)
-    let companionMoves = skyLightCompanionMoves(
-      for: targetMove,
-      companions: companions
-    )
-    let companionsMoved = companionBackend?.apply(companionMoves) ?? false
-    if !companionMoves.isEmpty {
-      lock.lock()
-      appendTraceLocked(
-        "border-follow wid=\(windowID.rawValue) surfaces=\(companionMoves.count) moved=\(companionsMoved ? 1 : 0) x=\(Int(point.x.rounded())) y=\(Int(point.y.rounded()))"
-      )
-      lock.unlock()
-    }
-    for companionMove in companionMoves {
-      backend?.alignIfManaged(
-        companionMove
-      )
-    }
-  }
-
   var trace: String {
     lock.lock()
     defer { lock.unlock() }
@@ -581,52 +483,6 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return latencySensitiveProcessIDs
-  }
-
-  var positionBackendPerformance: SkyLightPositionPerformance {
-    lock.lock()
-    let enabled = experimentalSkyLightEnabled
-    let backend = skyLightBackend
-    lock.unlock()
-    guard enabled else {
-      return SkyLightPositionPerformance(
-        state: "disabled",
-        batches: 0,
-        moves: 0,
-        failures: 0,
-        fallbacks: 0,
-        lastDurationMS: 0,
-        maximumDurationMS: 0,
-        probeVerified: false
-      )
-    }
-    return backend?.performance
-      ?? SkyLightPositionPerformance(
-        state: "initializing",
-        batches: 0,
-        moves: 0,
-        failures: 0,
-        fallbacks: 0,
-        lastDurationMS: 0,
-        maximumDurationMS: 0,
-        probeVerified: false
-      )
-  }
-
-  var axSettlementPerformance:
-    (
-      completed: Int,
-      cancelled: Int,
-      repaired: Int
-    )
-  {
-    lock.lock()
-    defer { lock.unlock() }
-    return (
-      completedAXSettlements,
-      cancelledAXSettlements,
-      repairedStaleAXSettlements
-    )
   }
 
   private func drain() {
@@ -775,30 +631,16 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       duration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz
     )
-    let maximumAXIntermediateFrames = min(
+    let maximumIntermediateFrames = min(
       availableIntermediateProgresses.count,
       3
     )
-    var skyLightBackend = positionBackend(
-      for: animatedWrites,
-      animatedPositionFrame: true
+    let initialPredictedLatency = predictedFrameLatency(for: animatedWrites)
+    var intermediateFrameLimit = adaptiveIntermediateFrameLimit(
+      predictedFrameLatency: initialPredictedLatency,
+      refreshRateHz: frame.refreshRateHz,
+      availableIntermediateFrames: maximumIntermediateFrames
     )
-    let initialPredictedLatency =
-      skyLightBackend == nil
-      ? predictedFrameLatency(for: animatedWrites)
-      : 0
-    var intermediateFrameLimit =
-      skyLightBackend == nil
-      ? adaptiveIntermediateFrameLimit(
-        predictedFrameLatency: initialPredictedLatency,
-        refreshRateHz: frame.refreshRateHz,
-        availableIntermediateFrames: maximumAXIntermediateFrames
-      )
-      : availableIntermediateProgresses.count
-    let maximumIntermediateFrames =
-      skyLightBackend == nil
-      ? maximumAXIntermediateFrames
-      : availableIntermediateProgresses.count
     if intermediateFrameLimit < maximumIntermediateFrames {
       lock.lock()
       appendTraceLocked(
@@ -824,10 +666,7 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       }
       let now = ProcessInfo.processInfo.systemUptime
       let elapsed = now - startedAt
-      let predictedLatency =
-        skyLightBackend == nil
-        ? predictedFrameLatency(for: animatedWrites)
-        : 0
+      let predictedLatency = predictedFrameLatency(for: animatedWrites)
       if frames > 0,
         !completedFrameSupportsAnotherSample(
           duration: lastCompletedFrameDuration,
@@ -858,32 +697,13 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       let springProgress = availableIntermediateProgresses[progressIndex]
       nextProgressIndex = progressIndex + 1
       let applyStartedAt = ProcessInfo.processInfo.systemUptime
-      let result:
-        (
-          applied: Int,
-          stale: Int,
-          slowProcesses: Set<pid_t>,
-          completionSpreadMS: Double,
-          frames: Int
-        )
-      if let backend = skyLightBackend,
-        let skyLightResult = applySkyLightFrame(
-          animatedFrame,
-          progress: springProgress,
-          backend: backend
-        )
-      {
-        result = skyLightResult
-      } else {
-        skyLightBackend = nil
-        result = applyFrame(
-          animatedFrame,
-          progress: springProgress,
-          skippedProcesses: [],
-          intermediate: true,
-          stagingReentry: frames == 0 && !reentryWrites.isEmpty
-        )
-      }
+      let result = applyFrame(
+        animatedFrame,
+        progress: springProgress,
+        skippedProcesses: [],
+        intermediate: true,
+        stagingReentry: frames == 0 && !reentryWrites.isEmpty
+      )
       applied += result.applied
       stale += result.stale
       frames += 1
@@ -907,7 +727,7 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       }
       lock.lock()
       appendTraceLocked(
-        "sample g=\(frame.generation) backend=\(skyLightBackend == nil ? "ax" : "skylight") i=\(frames) pi=\(progressIndex) p=\(String(format: "%.3f", springProgress)) applied=\(result.applied) spread=\(String(format: "%.2f", result.completionSpreadMS)) ms=\(String(format: "%.2f", applyDurationMS)) reentry=\(frames == 1 ? reentryWrites.count : 0)"
+        "sample g=\(frame.generation) i=\(frames) pi=\(progressIndex) p=\(String(format: "%.3f", springProgress)) applied=\(result.applied) spread=\(String(format: "%.2f", result.completionSpreadMS)) ms=\(String(format: "%.2f", applyDurationMS)) reentry=\(frames == 1 ? reentryWrites.count : 0)"
       )
       lock.unlock()
       nextDeadline = nextCompletedFrameDispatchDeadline(
@@ -923,18 +743,13 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       )
       return (applied, stale + animatedWrites.count, frames)
     }
-    let finalDispatchDelay: TimeInterval
-    if skyLightBackend != nil {
-      finalDispatchDelay = frame.animationDuration
-    } else {
-      finalDispatchDelay =
-        intermediateFrameLimit == 0
-        ? 0
-        : anticipatedFinalFrameDispatchDelay(
-          animationDuration: frame.animationDuration,
-          predictedFrameLatency: predictedFrameLatency(for: animatedWrites)
-        )
-    }
+    let finalDispatchDelay =
+      intermediateFrameLimit == 0
+      ? 0
+      : anticipatedFinalFrameDispatchDelay(
+        animationDuration: frame.animationDuration,
+        predictedFrameLatency: predictedFrameLatency(for: animatedWrites)
+      )
     let finalDeadline = max(
       startedAt + finalDispatchDelay,
       frames > 0 ? nextDeadline : startedAt
@@ -952,48 +767,20 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       return (applied, stale + animatedWrites.count, frames)
     }
     let finalStartedAt = ProcessInfo.processInfo.systemUptime
-    let final:
-      (
-        applied: Int,
-        stale: Int,
-        slowProcesses: Set<pid_t>,
-        completionSpreadMS: Double,
-        frames: Int
-      )
-    let usedSkyLightFinal: Bool
-    if let backend = skyLightBackend,
-      let skyLightFinal = applySkyLightFrame(
-        animatedFrame,
-        progress: 1,
-        backend: backend
-      )
-    {
-      final = skyLightFinal
-      usedSkyLightFinal = true
-    } else {
-      skyLightBackend = nil
-      final = applyFrame(
-        animatedFrame,
-        progress: 1,
-        skippedProcesses: []
-      )
-      usedSkyLightFinal = false
-    }
+    let final = applyFrame(
+      animatedFrame,
+      progress: 1,
+      skippedProcesses: []
+    )
     applied += final.applied
     stale += final.stale
     let finalDurationMS =
       (ProcessInfo.processInfo.systemUptime - finalStartedAt) * 1_000
     lock.lock()
     appendTraceLocked(
-      "sample g=\(frame.generation) backend=\(skyLightBackend == nil ? "ax" : "skylight") i=final p=1.000 applied=\(final.applied) spread=\(String(format: "%.2f", final.completionSpreadMS)) ms=\(String(format: "%.2f", finalDurationMS)) reentry=0"
+      "sample g=\(frame.generation) i=final p=1.000 applied=\(final.applied) spread=\(String(format: "%.2f", final.completionSpreadMS)) ms=\(String(format: "%.2f", finalDurationMS)) reentry=0"
     )
     lock.unlock()
-    if usedSkyLightFinal, let backend = skyLightBackend {
-      scheduleAXSettlement(
-        animatedFrame,
-        backend: backend
-      )
-    }
     markAnimationFinished(
       generation: frame.generation,
       startedAt: startedAt
@@ -1120,266 +907,6 @@ private final class AXFrameCoordinator: @unchecked Sendable {
       result.slowProcesses,
       result.completionSpreadMS,
       1
-    )
-  }
-
-  private func positionBackend(
-    for writes: [WindowID: AsyncPositionWrite],
-    animatedPositionFrame: Bool
-  ) -> SkyLightPositionBackend? {
-    lock.lock()
-    let enabled = experimentalSkyLightEnabled
-    let backend = skyLightBackend
-    lock.unlock()
-    let selected = selectPositionAnimationBackend(
-      experimentalSkyLightEnabled: enabled,
-      skyLightAvailable: backend?.isAvailable == true,
-      animatedPositionFrame: animatedPositionFrame,
-      containsParkedWrite: writes.values.contains(where: \.isParked),
-      containsSizeChange: writes.values.contains(where: \.sizeChanged),
-      containsVerticalMove: writes.values.contains(where: {
-        abs($0.fromPoint.y - $0.point.y) >= 0.5
-      })
-    )
-    guard selected == .skyLight else {
-      if enabled, backend?.isAvailable == false {
-        backend?.recordFallback()
-      }
-      return nil
-    }
-    return backend
-  }
-
-  private func applySkyLightFrame(
-    _ frame: QueuedPositionFrame,
-    progress: Double,
-    backend: SkyLightPositionBackend
-  ) -> (
-    applied: Int,
-    stale: Int,
-    slowProcesses: Set<pid_t>,
-    completionSpreadMS: Double,
-    frames: Int
-  )? {
-    guard isCurrent(generation: frame.generation) else {
-      return (
-        applied: 0,
-        stale: frame.writes.count,
-        slowProcesses: [],
-        completionSpreadMS: 0,
-        frames: 1
-      )
-    }
-    var completedPoints: [(windowID: WindowID, point: CGPoint)] = []
-    completedPoints.reserveCapacity(frame.writes.count)
-    var moves: [SkyLightPositionMove] = []
-    moves.reserveCapacity(frame.writes.count)
-    for (windowID, write) in frame.writes.sorted(
-      by: { $0.key.rawValue < $1.key.rawValue }
-    ) {
-      guard let rawWindowID = UInt32(exactly: windowID.rawValue) else {
-        backend.recordFallback()
-        return nil
-      }
-      let point = CGPoint(
-        x: write.fromPoint.x
-          + (write.point.x - write.fromPoint.x) * progress,
-        y: write.fromPoint.y
-          + (write.point.y - write.fromPoint.y) * progress
-      )
-      completedPoints.append((windowID, point))
-      moves.append(
-        SkyLightPositionMove(
-          windowID: rawWindowID,
-          point: point
-        )
-      )
-    }
-    lock.lock()
-    let companions = rawSkyLightCompanions(skyLightPositionCompanions)
-    lock.unlock()
-    let transactionMoves = skyLightMovesIncludingCompanions(
-      moves,
-      companions: companions
-    )
-    guard
-      backend.apply(
-        transactionMoves,
-        verifyReadback: progress >= 0.999
-      )
-    else {
-      return nil
-    }
-    lock.lock()
-    for completed in completedPoints {
-      completedPositions[completed.windowID] = completed.point
-      skyLightVisualPositions[completed.windowID] = completed.point
-    }
-    lock.unlock()
-    return (
-      applied: completedPoints.count,
-      stale: 0,
-      slowProcesses: [],
-      completionSpreadMS: 0,
-      frames: 1
-    )
-  }
-
-  private func scheduleAXSettlement(
-    _ frame: QueuedPositionFrame,
-    backend: SkyLightPositionBackend
-  ) {
-    queue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-      guard let self else { return }
-      guard self.isCurrent(generation: frame.generation) else {
-        self.lock.lock()
-        self.cancelledAXSettlements += frame.writes.count
-        self.appendTraceLocked(
-          "ax-settle-cancel g=\(frame.generation) windows=\(frame.writes.count)"
-        )
-        self.lock.unlock()
-        return
-      }
-      let batches = Dictionary(
-        grouping: frame.writes.sorted {
-          if $0.value.processID != $1.value.processID {
-            return $0.value.processID < $1.value.processID
-          }
-          return $0.key.rawValue < $1.key.rawValue
-        },
-        by: \.value.processID
-      ).map {
-        ProcessWriteBatch(processID: $0.key, writes: $0.value)
-      }
-      for batch in batches {
-        self.processWriteQueue(for: batch.processID).async { [self] in
-          settleAXBatch(
-            batch,
-            frame: frame,
-            backend: backend
-          )
-        }
-      }
-    }
-  }
-
-  private func settleAXBatch(
-    _ batch: ProcessWriteBatch,
-    frame: QueuedPositionFrame,
-    backend: SkyLightPositionBackend
-  ) {
-    let startedAt = ProcessInfo.processInfo.systemUptime
-    var completed = 0
-    var cancelled = 0
-    var staleWindowIDs: [WindowID] = []
-    for item in batch.writes {
-      guard isCurrent(generation: frame.generation) else {
-        cancelled += 1
-        continue
-      }
-      let write = item.value
-      AXUIElementSetMessagingTimeout(
-        write.application,
-        max(write.timeoutSeconds, 0.016)
-      )
-      AXUIElementSetMessagingTimeout(
-        write.element,
-        max(write.timeoutSeconds, 0.016)
-      )
-      let applied = applyPosition(
-        write,
-        point: write.point
-      )
-      AXUIElementSetMessagingTimeout(write.element, 0)
-      AXUIElementSetMessagingTimeout(write.application, 0)
-      guard isCurrent(generation: frame.generation) else {
-        cancelled += 1
-        if applied {
-          staleWindowIDs.append(item.key)
-        }
-        continue
-      }
-      if applied {
-        alignVisualPosition(
-          windowID: item.key,
-          point: write.point
-        )
-        recordCompletedPosition(
-          write.point,
-          windowID: item.key
-        )
-        completed += 1
-      }
-    }
-    let repaired = restoreLatestSkyLightPositions(
-      for: staleWindowIDs,
-      backend: backend
-    )
-    let elapsedMS =
-      (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
-    recordProcessLatencySamples([batch.processID: elapsedMS])
-    lock.lock()
-    completedAXSettlements += completed
-    cancelledAXSettlements += cancelled
-    repairedStaleAXSettlements += repaired
-    appendTraceLocked(
-      "ax-settle g=\(frame.generation) pid=\(batch.processID) completed=\(completed) cancelled=\(cancelled) repaired=\(repaired) ms=\(String(format: "%.2f", elapsedMS))"
-    )
-    lock.unlock()
-  }
-
-  private func restoreLatestSkyLightPositions(
-    for windowIDs: [WindowID],
-    backend: SkyLightPositionBackend
-  ) -> Int {
-    guard windowIDs.isEmpty == false else { return 0 }
-    lock.lock()
-    let positions: [(windowID: WindowID, point: CGPoint)] =
-      windowIDs.compactMap { windowID in
-        guard let point = skyLightVisualPositions[windowID] else {
-          return nil
-        }
-        return (
-          windowID: windowID,
-          point: point
-        )
-      }
-    let companions = skyLightPositionCompanions
-    lock.unlock()
-    let targetMoves = positions.compactMap { position -> SkyLightPositionMove? in
-      guard
-        let rawWindowID = UInt32(exactly: position.windowID.rawValue)
-      else {
-        return nil
-      }
-      return SkyLightPositionMove(
-        windowID: rawWindowID,
-        point: position.point
-      )
-    }
-    let moves = skyLightMovesIncludingCompanions(
-      targetMoves,
-      companions: rawSkyLightCompanions(companions)
-    )
-    guard targetMoves.count == positions.count,
-      backend.apply(moves)
-    else {
-      return 0
-    }
-    return targetMoves.count
-  }
-
-  private func rawSkyLightCompanions(
-    _ companions: [WindowID: [SkyLightPositionCompanion]]
-  ) -> [UInt32: [SkyLightPositionCompanion]] {
-    Dictionary(
-      uniqueKeysWithValues: companions.compactMap {
-        windowID, companions -> (UInt32, [SkyLightPositionCompanion])? in
-        guard let rawWindowID = UInt32(exactly: windowID.rawValue) else {
-          return nil
-        }
-        return (rawWindowID, companions)
-      }
     )
   }
 
@@ -1527,19 +1054,11 @@ private final class AXFrameCoordinator: @unchecked Sendable {
         || item.value.requiresVerifiedOffscreenWrite
       if positionApplied, item.value.positionChanged {
         applied += 1
-        alignVisualPosition(
-          windowID: item.key,
-          point: point
-        )
         let completedPoint =
           requiresReadback
           ? readPosition(item.value.element) ?? point
           : point
         recordCompletedPosition(completedPoint, windowID: item.key)
-        scheduleCompanionRepairs(
-          windowID: item.key,
-          point: completedPoint
-        )
       }
       if sizeApplied, item.value.animatesSize {
         recordCompletedSize(
@@ -1686,38 +1205,6 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     }
   }
 
-  private func scheduleCompanionRepairs(
-    windowID: WindowID,
-    point: CGPoint
-  ) {
-    for delay in [0.016, 0.05] {
-      queue.asyncAfter(deadline: .now() + delay) { [self] in
-        lock.lock()
-        guard experimentalSkyLightEnabled,
-          let companionBackend = skyLightCompanionMoveBackend,
-          let completed = completedPositions[windowID],
-          pointDistance(completed, point) < 0.5,
-          let companions = skyLightPositionCompanions[windowID],
-          !companions.isEmpty
-        else {
-          lock.unlock()
-          return
-        }
-        lock.unlock()
-        let moves = companions.map {
-          SkyLightPositionMove(
-            windowID: $0.windowID,
-            point: CGPoint(
-              x: point.x + $0.offset.x,
-              y: point.y + $0.offset.y
-            )
-          )
-        }
-        _ = companionBackend.apply(moves)
-      }
-    }
-  }
-
   private func verifyParkingTarget(
     windowID: WindowID,
     expectedPoint: CGPoint
@@ -1744,10 +1231,6 @@ private final class AXFrameCoordinator: @unchecked Sendable {
     else {
       return
     }
-    alignVisualPosition(
-      windowID: windowID,
-      point: expectedPoint
-    )
     let repaired = readPosition(write.element) ?? expectedPoint
     recordCompletedPosition(repaired, windowID: windowID)
     lock.lock()
@@ -2331,7 +1814,6 @@ public final class MacOSPlatform {
     borderHiddenWindowIDs.removeAll(keepingCapacity: true)
     borderLiveWindowID = nil
     borderManager.hide()
-    frameCoordinator.updateSkyLightPositionCompanions([:])
   }
 
   public func updateWindowBorders(
@@ -2374,9 +1856,6 @@ public final class MacOSPlatform {
       }
     )
     borderManager.updateGeometry(frames: freshFrames, style: borderStyle)
-    frameCoordinator.updateSkyLightPositionCompanions(
-      borderManager.skyLightCompanions()
-    )
   }
 
   public func refreshWindowBorders() {
@@ -2447,9 +1926,6 @@ public final class MacOSPlatform {
       frames: finalDisplayedFrames,
       style: borderStyle
     )
-    frameCoordinator.updateSkyLightPositionCompanions(
-      borderManager.skyLightCompanions()
-    )
   }
 
   private func refreshWindowBorderGeometry(for element: AXUIElement) {
@@ -2476,14 +1952,10 @@ public final class MacOSPlatform {
     else {
       return
     }
-    frameCoordinator.updateSkyLightPositionCompanions(
-      borderManager.skyLightCompanions()
-    )
   }
 
   public func hideWindowBorders() {
     borderManager.hide()
-    frameCoordinator.updateSkyLightPositionCompanions([:])
   }
 
   public var windowBorderPerformance: WindowBorderPerformance {
@@ -2541,9 +2013,6 @@ public final class MacOSPlatform {
   }
 
   public func snapshot(config: Config) -> DesktopSnapshot {
-    frameCoordinator.configureExperimentalSkyLight(
-      enabled: config.experimental.skyLightPositionAnimation
-    )
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
     let cgWindows = copyCGWindows()
@@ -2999,10 +2468,6 @@ public final class MacOSPlatform {
             kAXPositionAttribute as CFString,
             positionValue
           )
-          frameCoordinator.alignVisualPosition(
-            windowID: assignment.windowID,
-            point: position
-          )
           positionWriteCount += 1
         }
       }
@@ -3096,20 +2561,6 @@ public final class MacOSPlatform {
 
   public var parkingPerformance: (checks: Int, repairs: Int) {
     frameCoordinator.parkingPerformance
-  }
-
-  public var positionBackendPerformance: SkyLightPositionPerformance {
-    frameCoordinator.positionBackendPerformance
-  }
-
-  public var axSettlementPerformance:
-    (
-      completed: Int,
-      cancelled: Int,
-      repaired: Int
-    )
-  {
-    frameCoordinator.axSettlementPerformance
   }
 
   public var frameCommitPerformance:

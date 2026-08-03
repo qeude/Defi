@@ -6,7 +6,6 @@ public struct Config: Equatable, Sendable {
   public var layout: LayoutConfig
   public var animation: AnimationConfig
   public var decorations: DecorationsConfig
-  public var experimental: ExperimentalConfig
   public var workspaces: WorkspacesConfig
   public var modifierCombinations: [String: String]
   public var defaultKeyModifier: String
@@ -17,7 +16,6 @@ public struct Config: Equatable, Sendable {
     layout: LayoutConfig = LayoutConfig(),
     animation: AnimationConfig = AnimationConfig(),
     decorations: DecorationsConfig = DecorationsConfig(),
-    experimental: ExperimentalConfig = ExperimentalConfig(),
     workspaces: WorkspacesConfig = WorkspacesConfig(),
     modifierCombinations: [String: String] = [:],
     defaultKeyModifier: String = "alt",
@@ -27,7 +25,6 @@ public struct Config: Equatable, Sendable {
     self.layout = layout
     self.animation = animation
     self.decorations = decorations
-    self.experimental = experimental
     self.workspaces = workspaces
     self.modifierCombinations = modifierCombinations
     self.defaultKeyModifier = defaultKeyModifier
@@ -46,7 +43,6 @@ public struct Config: Equatable, Sendable {
       layout: raw.layout ?? LayoutConfig(),
       animation: raw.animation ?? AnimationConfig(),
       decorations: raw.decorations ?? DecorationsConfig(),
-      experimental: raw.experimental ?? ExperimentalConfig(),
       workspaces: workspaces,
       modifierCombinations: raw.modifierCombinations ?? [:],
       defaultKeyModifier: modifier,
@@ -269,27 +265,6 @@ public func parseBorderColor(_ value: String) -> UInt32? {
   return color
 }
 
-public struct ExperimentalConfig: Codable, Equatable, Sendable {
-  public var skyLightPositionAnimation: Bool
-
-  public init(skyLightPositionAnimation: Bool = false) {
-    self.skyLightPositionAnimation = skyLightPositionAnimation
-  }
-
-  enum CodingKeys: String, CodingKey {
-    case skyLightPositionAnimation = "skylight_position_animation"
-  }
-
-  public init(from decoder: Decoder) throws {
-    let values = try decoder.container(keyedBy: CodingKeys.self)
-    skyLightPositionAnimation =
-      try values.decodeIfPresent(
-        Bool.self,
-        forKey: .skyLightPositionAnimation
-      ) ?? false
-  }
-}
-
 public struct AnimationConfig: Codable, Equatable, Sendable {
   public var enabled: Bool
   public var durationMS: Int
@@ -503,7 +478,6 @@ private struct RawConfig: Decodable {
   var layout: LayoutConfig?
   var animation: AnimationConfig?
   var decorations: DecorationsConfig?
-  var experimental: ExperimentalConfig?
   var workspaces: WorkspacesConfig?
   var modifierCombinations: [String: String]?
   var defaultKeyModifier: String?
@@ -514,7 +488,6 @@ private struct RawConfig: Decodable {
     case layout
     case animation
     case decorations
-    case experimental
     case workspaces
     case modifierCombinations = "modifier_combinations"
     case defaultKeyModifier = "default_key_modifier"
