@@ -193,6 +193,7 @@ extension Daemon {
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+      forceFloatingFrameWrites: displayGeometryChanged,
       source: nativelyActivatedWorkspace
         ? "native-workspace"
         : "desktop-sync"
@@ -329,6 +330,7 @@ extension Daemon {
     positionsOnly: Bool = false,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    forceFloatingFrameWrites: Bool = false,
     source: String = "layout"
   ) {
     var assignments: [FrameAssignment] = []
@@ -374,7 +376,8 @@ extension Daemon {
 
           for assignment in floatingAssignments(in: workspace) {
             borderAssignments.append(assignment)
-            if platform.isWindowHidden(assignment.windowID)
+            if forceFloatingFrameWrites
+              || platform.isWindowHidden(assignment.windowID)
               || platform.hasPendingFrameTransition(assignment.windowID)
             {
               assignments.append(assignment)

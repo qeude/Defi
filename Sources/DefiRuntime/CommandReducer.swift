@@ -172,10 +172,7 @@ private func moveFocusedWindow(
     throw ReducerError.unknownWorkspace(workspaceID)
   }
   let source = state.monitors[monitorIndex].workspaces[sourceIndex]
-  if source.focusedLayer == .floating,
-    source.floatingWindows.indices.contains(source.focusedFloatingWindow)
-  {
-    let windowID = source.floatingWindows[source.focusedFloatingWindow]
+  if let windowID = effectiveSelectedFloatingWindowID(in: source) {
     removeWindow(
       windowID,
       from: &state.monitors[monitorIndex].workspaces[sourceIndex],
@@ -222,14 +219,7 @@ private func toggleFocusedFloating(
   )
   guard let workspaceIndex else { throw ReducerError.noMonitor }
   var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
-  let hasSelectedTiledWindow = workspace.columns.indices.contains(workspace.focusedColumn)
-    && workspace.columns[workspace.focusedColumn].windows.indices.contains(
-      workspace.columns[workspace.focusedColumn].focusedWindow
-    )
-  if (workspace.focusedLayer == .floating || !hasSelectedTiledWindow),
-    workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
-  {
-    let windowID = workspace.floatingWindows[workspace.focusedFloatingWindow]
+  if let windowID = effectiveSelectedFloatingWindowID(in: workspace) {
     removeWindow(windowID, from: &workspace, settings: state.layout)
     insertNewWindow(windowID, into: &workspace, settings: state.layout)
     state.windows[windowID]?.floating = false
@@ -251,6 +241,23 @@ private func toggleFocusedFloating(
     throw ReducerError.noFocusedWindow
   }
   state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
+}
+
+private func effectiveSelectedFloatingWindowID(in workspace: Workspace) -> WindowID? {
+  guard workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow) else {
+    return nil
+  }
+  if workspace.focusedLayer == .floating {
+    return workspace.floatingWindows[workspace.focusedFloatingWindow]
+  }
+  guard workspace.columns.indices.contains(workspace.focusedColumn) else {
+    return workspace.floatingWindows[workspace.focusedFloatingWindow]
+  }
+  let column = workspace.columns[workspace.focusedColumn]
+  guard column.windows.indices.contains(column.focusedWindow) else {
+    return workspace.floatingWindows[workspace.focusedFloatingWindow]
+  }
+  return nil
 }
 
 private func focusFloating(_ direction: Direction, workspace: inout Workspace) {

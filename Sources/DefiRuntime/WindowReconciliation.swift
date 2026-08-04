@@ -49,6 +49,11 @@ public func discoverWindow(
 
   if window.floating && !window.forceTiling {
     state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(window.id)
+    if decision.followFocus {
+      state.monitors[monitorIndex].workspaces[workspaceIndex].focusedFloatingWindow =
+        state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.count - 1
+      state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .floating
+    }
   } else {
     insertNewWindow(
       window.id,
