@@ -16,7 +16,22 @@ extension MacOSPlatform {
   ) {
     guard eventMonitor == nil else { return }
     let monitor = PlatformEventMonitor(
-      handler: { [weak self] kind in
+      handler: { [weak self] kind, processID in
+        switch windowSnapshotInvalidation(for: kind, processID: processID) {
+        case .process(let processID):
+          self?.windowTopologyEventPending = true
+          self?.pendingWindowTopologyProcessIDs.insert(processID)
+          self?.frameCoordinator.recordTrace(
+            "window-event kind=\(String(describing: kind)) pid=\(processID)"
+          )
+        case .full:
+          if kind == .windows || kind == .applicationTerminated {
+            self?.windowTopologyEventPending = true
+          }
+          self?.windowTopologyRequiresFullSnapshot = true
+        case .none:
+          break
+        }
         if kind == .frame || kind == .mouse {
           self?.frameEventPending = true
         }
@@ -36,7 +51,15 @@ extension MacOSPlatform {
         handler()
       },
       frameHandler: { [weak self] element in
-        self?.refreshWindowBorderGeometry(for: element)
+        guard let self else { return }
+        self.refreshWindowBorderGeometry(for: element)
+        if let windowID = self.elements.first(where: {
+          CFEqual($0.value, element)
+        })?.key {
+          self.frameCoordinator.requestInitialSettlementVerification(
+            windowID: windowID
+          )
+        }
       },
       liveFrameHandler: { [weak self] in
         guard let self else { return }

@@ -34,6 +34,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
   private var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
   private var completedParkingChecks = 0
   private var repairedParkingDrifts = 0
+  private var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
+  private var pendingInitialSettlementEventChecks = Set<WindowID>()
+  private var completedInitialSettlementChecks = 0
+  private var repairedInitialSettlementDrifts = 0
   private var predictedProcessLatencyMS: [pid_t: Double] = [:]
   private var latencySensitiveProcessIDs = Set<pid_t>()
   private var processWriteQueues: [pid_t: DispatchQueue] = [:]
@@ -44,6 +48,42 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.unlock()
   }
 
+  func updateInitialSettlementTargets(
+    _ targets: [WindowID: AsyncPositionWrite]
+  ) {
+    lock.lock()
+    let changedWindowIDs = targets.compactMap { windowID, target -> WindowID? in
+      guard let previous = initialSettlementTargets[windowID] else {
+        return windowID
+      }
+      return sameFrameTarget(previous, target) ? nil : windowID
+    }
+    initialSettlementTargets = targets
+    lock.unlock()
+    for windowID in changedWindowIDs {
+      scheduleInitialSettlementVerification(windowID: windowID)
+    }
+  }
+
+  func requestInitialSettlementVerification(windowID: WindowID) {
+    lock.lock()
+    guard initialSettlementTargets[windowID] != nil,
+      pendingInitialSettlementEventChecks.insert(windowID).inserted
+    else {
+      lock.unlock()
+      return
+    }
+    lock.unlock()
+    queue.async { [weak self] in
+      guard let self else { return }
+      self.lock.lock()
+      self.pendingInitialSettlementEventChecks.remove(windowID)
+      self.lock.unlock()
+      self.recordTrace("initial-event-check wid=\(windowID.rawValue)")
+      self.verifyInitialSettlementTarget(windowID: windowID)
+    }
+  }
+
   func invalidate(reason: String) {
     lock.lock()
     nextGeneration &+= 1
@@ -52,6 +92,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     completedPositions.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
+    initialSettlementTargets.removeAll(keepingCapacity: true)
+    pendingInitialSettlementEventChecks.removeAll(keepingCapacity: true)
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
   }
@@ -177,6 +219,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return traceEntries.joined(separator: "\n")
   }
 
+  func recordTrace(_ event: String) {
+    lock.lock()
+    appendTraceLocked(event)
+    lock.unlock()
+  }
+
   func recordCommitObservation(
     deferred: Int,
     settled: Int,
@@ -214,6 +262,15 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return (completedParkingChecks, repairedParkingDrifts)
+  }
+
+  var initialSettlementPerformance: (checks: Int, repairs: Int) {
+    lock.lock()
+    defer { lock.unlock() }
+    return (
+      completedInitialSettlementChecks,
+      repairedInitialSettlementDrifts
+    )
   }
 
   var slowProcessIDs: Set<pid_t> {
@@ -849,6 +906,110 @@ final class AXFrameCoordinator: @unchecked Sendable {
         )
       }
     }
+  }
+
+  private func scheduleInitialSettlementVerification(
+    windowID: WindowID
+  ) {
+    for delay in [0.12, 0.25, 0.45, 0.75, 1.1, 1.5, 2.1] {
+      queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+        self?.verifyInitialSettlementTarget(windowID: windowID)
+      }
+    }
+  }
+
+  private func verifyInitialSettlementTarget(windowID: WindowID) {
+    lock.lock()
+    guard let write = initialSettlementTargets[windowID] else {
+      lock.unlock()
+      return
+    }
+    lock.unlock()
+
+    AXUIElementSetMessagingTimeout(write.application, 0.025)
+    AXUIElementSetMessagingTimeout(write.element, 0.025)
+    defer {
+      AXUIElementSetMessagingTimeout(write.element, 0)
+      AXUIElementSetMessagingTimeout(write.application, 0)
+    }
+    guard let actualPosition = accessibilityWriter.readPosition(write.element),
+      let actualSize = accessibilityWriter.readSize(write.element)
+    else {
+      return
+    }
+    let actual = Rect(
+      x: actualPosition.x,
+      y: actualPosition.y,
+      width: actualSize.width,
+      height: actualSize.height
+    )
+    let target = Rect(
+      x: write.point.x,
+      y: write.point.y,
+      width: write.size.width,
+      height: write.size.height
+    )
+    lock.lock()
+    completedInitialSettlementChecks += 1
+    lock.unlock()
+    guard initialFrameNeedsRepair(actual: actual, target: target) else {
+      clearInitialSettlementTarget(windowID: windowID, matching: write)
+      return
+    }
+    lock.lock()
+    let targetIsCurrent = initialSettlementTargets[windowID].map {
+      sameFrameTarget($0, write)
+    } ?? false
+    lock.unlock()
+    guard targetIsCurrent else { return }
+
+    let sizeChanged = abs(actual.width - target.width) > 1
+      || abs(actual.height - target.height) > 1
+    let positionChanged = abs(actual.x - target.x) > 1
+      || abs(actual.y - target.y) > 1
+    let sizeApplied = !sizeChanged
+      || accessibilityWriter.applySize(write, size: write.size)
+    let positionApplied = !positionChanged
+      || accessibilityWriter.applyPosition(write, point: write.point)
+    guard sizeApplied && positionApplied else { return }
+    if positionChanged {
+      recordCompletedPosition(write.point, windowID: windowID)
+    }
+    if sizeChanged {
+      recordCompletedSize(
+        write.size,
+        windowID: windowID,
+        incrementWriteCount: true
+      )
+    }
+    lock.lock()
+    repairedInitialSettlementDrifts += 1
+    appendTraceLocked(
+      "initial-repair wid=\(windowID.rawValue) dx=\(String(format: "%.1f", actual.x - target.x)) dy=\(String(format: "%.1f", actual.y - target.y)) dw=\(String(format: "%.1f", actual.width - target.width)) dh=\(String(format: "%.1f", actual.height - target.height))"
+    )
+    lock.unlock()
+  }
+
+  private func clearInitialSettlementTarget(
+    windowID: WindowID,
+    matching expected: AsyncPositionWrite
+  ) {
+    lock.lock()
+    if let current = initialSettlementTargets[windowID],
+      sameFrameTarget(current, expected)
+    {
+      initialSettlementTargets[windowID] = nil
+    }
+    lock.unlock()
+  }
+
+  private func sameFrameTarget(
+    _ lhs: AsyncPositionWrite,
+    _ rhs: AsyncPositionWrite
+  ) -> Bool {
+    accessibilityWriter.pointDistance(lhs.point, rhs.point) <= 0.1
+      && abs(lhs.size.width - rhs.size.width) <= 0.1
+      && abs(lhs.size.height - rhs.size.height) <= 0.1
   }
 
   private func verifyParkingTarget(

@@ -17,6 +17,10 @@ private let displayLogger = Logger(
 extension Daemon {
   func synchronizeDesktop() {
     let snapshot = platform.snapshot(config: config)
+    let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
+    if tracesWindowCreation {
+      platform.recordPerformanceTrace("sync-snapshot-return")
+    }
     let previousViewports = viewportsByMonitor
     let displayGeometryChanged = monitorGeometryChanged(
       from: latestMonitors,
@@ -107,6 +111,9 @@ extension Daemon {
       )
     }
     snapScrollOffsetsToTargets()
+    if tracesWindowCreation {
+      platform.recordPerformanceTrace("sync-before-layout")
+    }
     applyCurrentLayout(
       asynchronousPositions: true,
       updateVisibility: true,
@@ -306,6 +313,8 @@ extension Daemon {
     let selectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
+    let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
+    let borderStartedAt = ProcessInfo.processInfo.systemUptime
     platform.prepareWindowBorderSelection(selectedWindowID)
     platform.updateWindowBorders(
       frames: platformAssignments,
@@ -313,6 +322,13 @@ extension Daemon {
       liveWindowID: activelyResizedWindowID,
       config: config.decorations.borders
     )
+    if tracesWindowCreation {
+      let elapsedMS =
+        (ProcessInfo.processInfo.systemUptime - borderStartedAt) * 1_000
+      platform.recordPerformanceTrace(
+        "initial-border-prepare ms=\(String(format: "%.2f", elapsedMS))"
+      )
+    }
     platform.apply(
       platformAssignments,
       hiddenWindowIDs: hiddenWindowIDs,

@@ -98,11 +98,7 @@ final class WindowBorderManager {
       if let existing = overlays[windowID] {
         overlay = existing
       } else {
-        let created = BorderOverlay(
-          windowID: windowID
-        )
-        overlays[windowID] = created
-        overlay = created
+        overlay = reusableOrNewOverlay(for: windowID)
       }
       overlay.setFrontmost(activeWindowIsFrontmost)
       _ = overlay.syncGeometry(
@@ -162,9 +158,7 @@ final class WindowBorderManager {
     )
     let desiredAssignments = plan.inactive + [plan.active].compactMap { $0 }
     for assignment in desiredAssignments where overlays[assignment.windowID] == nil {
-      overlays[assignment.windowID] = BorderOverlay(
-        windowID: assignment.windowID
-      )
+      _ = reusableOrNewOverlay(for: assignment.windowID)
     }
 
     if let assignment = plan.active {
@@ -242,5 +236,19 @@ final class WindowBorderManager {
 
   private func radius(for windowID: WindowID) -> Double {
     radiusProvider.radius(for: windowID)
+  }
+
+  private func reusableOrNewOverlay(for windowID: WindowID) -> BorderOverlay {
+    if let (previousWindowID, overlay) = overlays.first(where: {
+      !$0.value.isVisible
+    }) {
+      overlays[previousWindowID] = nil
+      overlay.retarget(to: windowID)
+      overlays[windowID] = overlay
+      return overlay
+    }
+    let overlay = BorderOverlay(windowID: windowID)
+    overlays[windowID] = overlay
+    return overlay
   }
 }

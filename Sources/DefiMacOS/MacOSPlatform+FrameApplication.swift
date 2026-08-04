@@ -25,6 +25,13 @@ extension MacOSPlatform {
     source: String = "platform"
   ) {
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
+    let tracesInitialFrame = !newlyDiscoveredWindowIDs.isEmpty
+    if tracesInitialFrame {
+      let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
+        $0.rawValue < $1.rawValue
+      }.map { String($0.rawValue) }.joined(separator: ",")
+      frameCoordinator.recordTrace("initial-apply ids=[\(discoveredIDs)]")
+    }
     let previousTargetFrames = targetFrames
     let effectiveHiddenWindowIDs = hiddenWindowsPreservingSkippedWindows(
       previous: lastHiddenWindowIDs,
@@ -120,8 +127,18 @@ extension MacOSPlatform {
       )
       reenteringWindowIDs.insert(assignment.windowID)
     }
-    let commitDeadline =
-      now + max(animationDuration + 0.25, 0.8)
+    for assignment in assignments
+    where newlyDiscoveredWindowIDs.contains(assignment.windowID)
+      && previousTargetFrames[assignment.windowID] == nil
+      && !hiddenWindowIDs.contains(assignment.windowID)
+      && writeIntents[assignment.windowID] != nil
+      && !requiresVerifiedOffscreenWrite(
+        frame: assignment.frame,
+        monitorFrames: lastMonitorFrames
+      )
+    {
+      initialFrameSettlementDeadlines[assignment.windowID] = now + 2.5
+    }
     for assignment in assignments
     where !hiddenWindowIDs.contains(assignment.windowID)
       && writeIntents[assignment.windowID] != nil
@@ -135,6 +152,13 @@ extension MacOSPlatform {
       let startSize =
         animationStartSizes[assignment.windowID]
         ?? CGSize(width: reference.width, height: reference.height)
+      let initialFrameSettlement =
+        initialFrameSettlementDeadlines[assignment.windowID].map { $0 > now }
+        ?? false
+      let commitDeadline = now + frameCommitQuarantineDuration(
+        animationDuration: animationDuration,
+        initialFrameSettlement: initialFrameSettlement
+      )
       frameCommitExpectations[assignment.windowID] = FrameCommitExpectation(
         from: Rect(
           x: start.x,
@@ -165,6 +189,7 @@ extension MacOSPlatform {
     }
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
+    var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
     var animatedWindowIDs = Set<WindowID>()
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
@@ -224,6 +249,7 @@ extension MacOSPlatform {
       if intent?.size == true, !animatesSize,
         let sizeValue = AXValueCreate(.cgSize, &size)
       {
+        let sizeWriteStartedAt = ProcessInfo.processInfo.systemUptime
         let result = AXUIElementSetAttributeValue(
           element,
           kAXSizeAttribute as CFString,
@@ -236,9 +262,21 @@ extension MacOSPlatform {
           )
           sizeWriteCount += 1
         }
+        if newlyDiscoveredWindowIDs.contains(assignment.windowID) {
+          let elapsedMS =
+            (ProcessInfo.processInfo.systemUptime - sizeWriteStartedAt) * 1_000
+          frameCoordinator.recordTrace(
+            "initial-size wid=\(assignment.windowID.rawValue) result=\(result.rawValue) ms=\(String(format: "%.2f", elapsedMS))"
+          )
+        }
       }
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
+      }
+      if initialFrameSettlementDeadlines[assignment.windowID].map({ $0 > now })
+        == true
+      {
+        initialSettlementTargets[assignment.windowID] = write
       }
       if wantsFrameAnimation {
         asynchronousWrites[assignment.windowID] = write
@@ -258,6 +296,7 @@ extension MacOSPlatform {
       pendingFrameCorrections[assignment.windowID] = nil
     }
     frameCoordinator.updateParkingTargets(parkingTargets)
+    frameCoordinator.updateInitialSettlementTargets(initialSettlementTargets)
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty
     let frameCompletion: (@Sendable (Bool) -> Void)?
     if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil {
@@ -291,6 +330,13 @@ extension MacOSPlatform {
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       completion: frameCompletion
     )
+    if tracesInitialFrame {
+      let elapsedMS =
+        (ProcessInfo.processInfo.systemUptime - applyStartedAt) * 1_000
+      frameCoordinator.recordTrace(
+        "initial-apply-complete ms=\(String(format: "%.2f", elapsedMS))"
+      )
+    }
     if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit,
       shouldApplyDeferredFocus(
         targetWindowID: focusWindowIDAfterCommit,
@@ -343,8 +389,20 @@ extension MacOSPlatform {
     frameCoordinator.trace
   }
 
+  public var hasNewlyDiscoveredWindows: Bool {
+    !newlyDiscoveredWindowIDs.isEmpty
+  }
+
+  public func recordPerformanceTrace(_ event: String) {
+    frameCoordinator.recordTrace(event)
+  }
+
   public var parkingPerformance: (checks: Int, repairs: Int) {
     frameCoordinator.parkingPerformance
+  }
+
+  public var initialSettlementPerformance: (checks: Int, repairs: Int) {
+    frameCoordinator.initialSettlementPerformance
   }
 
   public var frameCommitPerformance:

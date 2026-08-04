@@ -32,6 +32,43 @@ struct FrameCommitExpectation: Equatable, Sendable {
   var observedAt: TimeInterval?
 }
 
+func frameCommitQuarantineDuration(
+  animationDuration: TimeInterval,
+  initialFrameSettlement: Bool
+) -> TimeInterval {
+  if initialFrameSettlement {
+    return max(animationDuration + 0.12, 0.18)
+  }
+  return max(animationDuration + 0.25, 0.8)
+}
+
+func initialFrameNeedsRepair(
+  actual: Rect,
+  target: Rect,
+  tolerance: Double = 1
+) -> Bool {
+  abs(actual.x - target.x) > tolerance
+    || abs(actual.y - target.y) > tolerance
+    || abs(actual.width - target.width) > tolerance
+    || abs(actual.height - target.height) > tolerance
+}
+
+func incrementalWindowRefreshProcessIDs(
+  hasCompletedSnapshot: Bool,
+  eventPending: Bool,
+  requiresFullSnapshot: Bool,
+  processIDs: Set<pid_t>
+) -> Set<pid_t>? {
+  guard hasCompletedSnapshot,
+    eventPending,
+    !requiresFullSnapshot,
+    !processIDs.isEmpty
+  else {
+    return nil
+  }
+  return processIDs
+}
+
 func frameIsOnExpectedCommitPath(
   actual: Rect,
   currentTarget: Rect,

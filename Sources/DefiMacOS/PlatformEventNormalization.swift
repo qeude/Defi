@@ -5,11 +5,32 @@ import DefiModel
 
 enum PlatformEventKind: Equatable {
   case application
+  case applicationTerminated
   case focus
   case frame
   case windows
   case mouse
   case screens
+}
+
+enum WindowSnapshotInvalidation: Equatable {
+  case none
+  case process(pid_t)
+  case full
+}
+
+func windowSnapshotInvalidation(
+  for kind: PlatformEventKind,
+  processID: pid_t?
+) -> WindowSnapshotInvalidation {
+  switch kind {
+  case .windows, .applicationTerminated:
+    return processID.map(WindowSnapshotInvalidation.process) ?? .full
+  case .application, .screens:
+    return .full
+  case .focus, .frame, .mouse:
+    return .none
+  }
 }
 
 struct MouseGestureEventNormalizer {

@@ -5,7 +5,7 @@ import DefiModel
 
 @MainActor
 final class PlatformEventMonitor {
-  private let handler: (PlatformEventKind) -> Void
+  private let handler: (PlatformEventKind, pid_t?) -> Void
   private let frameHandler: (AXUIElement) -> Void
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
@@ -19,7 +19,7 @@ final class PlatformEventMonitor {
   private var displayCallbackRegistered = false
 
   init(
-    handler: @escaping (PlatformEventKind) -> Void,
+    handler: @escaping (PlatformEventKind, pid_t?) -> Void,
     frameHandler: @escaping (AXUIElement) -> Void = { _ in },
     liveFrameHandler: @escaping () -> Void = {},
     borderStackingHandler: @escaping () -> Void = {}
@@ -39,13 +39,12 @@ final class PlatformEventMonitor {
         queue: .main
       ) { [weak self] _ in
         MainActor.assumeIsolated {
-          self?.handler(.focus)
+          self?.handler(.focus, nil)
         }
       }
     )
     for name in [
       NSWorkspace.didLaunchApplicationNotification,
-      NSWorkspace.didTerminateApplicationNotification,
       NSWorkspace.didHideApplicationNotification,
       NSWorkspace.didUnhideApplicationNotification,
     ] {
@@ -53,11 +52,25 @@ final class PlatformEventMonitor {
         center.addObserver(forName: name, object: nil, queue: .main) {
           [weak self] _ in
           MainActor.assumeIsolated {
-            self?.handler(.application)
+            self?.handler(.application, nil)
           }
         }
       )
     }
+    workspaceTokens.append(
+      center.addObserver(
+        forName: NSWorkspace.didTerminateApplicationNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] notification in
+        let processID = (notification.userInfo?[
+          NSWorkspace.applicationUserInfoKey
+        ] as? NSRunningApplication)?.processIdentifier
+        MainActor.assumeIsolated {
+          self?.handler(.applicationTerminated, processID)
+        }
+      }
+    )
     screenTokens.append(
       NotificationCenter.default.addObserver(
         forName: NSApplication.didChangeScreenParametersNotification,
@@ -65,7 +78,7 @@ final class PlatformEventMonitor {
         queue: .main
       ) { [weak self] _ in
         MainActor.assumeIsolated {
-          self?.handler(.screens)
+          self?.handler(.screens, nil)
         }
       }
     )
@@ -88,7 +101,7 @@ final class PlatformEventMonitor {
           self.borderStackingHandler()
         }
         if actions.synchronizeDesktop {
-          self.handler(.mouse)
+          self.handler(.mouse, nil)
         }
       }
     }
@@ -178,14 +191,19 @@ final class PlatformEventMonitor {
           .fromOpaque(context)
           .takeUnretainedValue()
         MainActor.assumeIsolated {
+          var processID: pid_t = 0
+          let normalizedProcessID =
+            AXUIElementGetPid(element, &processID) == .success
+            ? processID
+            : nil
           switch notification as String {
           case kAXFocusedWindowChangedNotification:
-            monitor.handler(.focus)
+            monitor.handler(.focus, normalizedProcessID)
           case kAXMovedNotification, kAXResizedNotification:
             monitor.frameHandler(element)
-            monitor.handler(.frame)
+            monitor.handler(.frame, normalizedProcessID)
           default:
-            monitor.handler(.windows)
+            monitor.handler(.windows, normalizedProcessID)
           }
         }
       },
@@ -263,6 +281,6 @@ extension PlatformEventMonitor {
     display _: CGDirectDisplayID,
     flags _: CGDisplayChangeSummaryFlags
   ) {
-    handler(.screens)
+    handler(.screens, nil)
   }
 }

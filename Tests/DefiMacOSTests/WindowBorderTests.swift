@@ -280,6 +280,34 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func activeSelectionReusesDormantBorderPanels() {
+    let manager = WindowBorderManager()
+    let first = WindowID(rawValue: 1)
+    let second = WindowID(rawValue: 2)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    let firstPlan = planWindowBorders(
+      frames: [FrameAssignment(windowID: first, frame: frame)],
+      selectedWindowID: first,
+      hiddenWindowIDs: [],
+      monitorFrames: [monitor],
+      style: style
+    )
+
+    manager.prepareForSelection(first, displayedFrame: frame)
+    manager.sync(
+      firstPlan,
+      displayedFrames: [first: frame],
+      activeWindowIsFrontmost: true
+    )
+    #expect(manager.performance.allocated == 1)
+
+    manager.prepareForSelection(second, displayedFrame: frame)
+
+    #expect(manager.activeWindowID == second)
+    #expect(manager.performance.allocated == 1)
+  }
+
+  @Test @MainActor
   func borderPanelsFloatOnlyWhileActiveWindowIsFrontmost() {
     let overlay = BorderOverlay(windowID: WindowID(rawValue: 1))
 

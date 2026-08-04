@@ -6,6 +6,43 @@ import Testing
 
 struct PlatformEventTests {
   @Test
+  func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
+    #expect(
+      windowSnapshotInvalidation(
+        for: .applicationTerminated,
+        processID: 42
+      ) == .process(42)
+    )
+  }
+
+  @Test
+  func terminatedApplicationWithoutPIDFallsBackToFullSnapshot() {
+    #expect(
+      windowSnapshotInvalidation(
+        for: .applicationTerminated,
+        processID: nil
+      ) == .full
+    )
+  }
+
+  @Test
+  func windowTopologyUsesPIDButGeneralApplicationEventsStayGlobal() {
+    #expect(
+      windowSnapshotInvalidation(for: .windows, processID: 7)
+        == .process(7)
+    )
+    #expect(
+      windowSnapshotInvalidation(for: .windows, processID: nil) == .full
+    )
+    #expect(
+      windowSnapshotInvalidation(for: .application, processID: 7) == .full
+    )
+    #expect(
+      windowSnapshotInvalidation(for: .focus, processID: 7) == .none
+    )
+  }
+
+  @Test
   func simpleClickDoesNotSynchronizeDesktop() {
     var normalizer = MouseGestureEventNormalizer()
     let mouseDown = normalizer.actions(
