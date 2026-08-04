@@ -62,6 +62,29 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testInitialSettlementStaysArmedAfterMatchingFrame() {
+    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
+
+    XCTAssertEqual(
+      initialSettlementObservation(
+        actual: target,
+        target: target,
+        now: 10,
+        deadline: 12.5
+      ),
+      .stable
+    )
+    XCTAssertEqual(
+      initialSettlementObservation(
+        actual: target,
+        target: target,
+        now: 12.5,
+        deadline: 12.5
+      ),
+      .expired
+    )
+  }
+
   func testInitialSettlementRepairRequiresCurrentGenerationAndIdleMouse() {
     XCTAssertTrue(
       initialSettlementRepairIsCurrent(

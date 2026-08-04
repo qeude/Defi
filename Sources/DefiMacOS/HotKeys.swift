@@ -1,5 +1,6 @@
 import ApplicationServices
 import DefiConfig
+import DefiModel
 import Foundation
 
 public enum HotKeyError: Error, CustomStringConvertible {
@@ -190,11 +191,24 @@ private final class HotKeyTapContext: @unchecked Sendable {
     if isKeyDown || type == .leftMouseDown {
       let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
       let commandPressed = event.flags.contains(.maskCommand)
+      let focusIntent: UserInputTracker.FocusIntentSource?
+      if type == .leftMouseDown {
+        let rawWindowID = event.getIntegerValueField(
+          .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+        )
+        focusIntent = .mouse(
+          windowID: rawWindowID > 0
+            ? WindowID(rawValue: UInt64(rawWindowID))
+            : nil
+        )
+      } else if commandPressed && code == Self.commandTabKeyCode {
+        focusIntent = .keyboard
+      } else {
+        focusIntent = nil
+      }
       userInputTracker.record(
         timestamp: Double(event.timestamp) / 1_000_000_000,
-        focusIntent: type == .leftMouseDown
-          || (isKeyDown && commandPressed
-            && code == Self.commandTabKeyCode),
+        focusIntent: focusIntent,
         closeIntent: isKeyDown && commandPressed
           && Self.closeWindowKeyCodes.contains(code)
       )

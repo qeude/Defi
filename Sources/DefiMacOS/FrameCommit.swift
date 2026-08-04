@@ -53,6 +53,24 @@ func initialFrameNeedsRepair(
     || abs(actual.height - target.height) > tolerance
 }
 
+enum InitialSettlementObservation: Equatable {
+  case expired
+  case stable
+  case drifted
+}
+
+func initialSettlementObservation(
+  actual: Rect,
+  target: Rect,
+  now: TimeInterval,
+  deadline: TimeInterval
+) -> InitialSettlementObservation {
+  guard now < deadline else { return .expired }
+  return initialFrameNeedsRepair(actual: actual, target: target)
+    ? .drifted
+    : .stable
+}
+
 func initialSettlementRepairIsCurrent(
   expectedGeneration: UInt64,
   currentGeneration: UInt64?,
@@ -225,6 +243,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
 struct InitialSettlementTarget: @unchecked Sendable {
   let generation: UInt64
   let write: AsyncPositionWrite
+  let deadline: TimeInterval
 }
 
 struct QueuedPositionFrame: @unchecked Sendable {

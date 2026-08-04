@@ -298,6 +298,7 @@ extension MacOSPlatform {
     frameCoordinator.updateParkingTargets(parkingTargets)
     frameCoordinator.updateInitialSettlementTargets(
       initialSettlementTargets,
+      deadlines: initialFrameSettlementDeadlines,
       repairsSuspended: isLeftMouseButtonDown
     )
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty

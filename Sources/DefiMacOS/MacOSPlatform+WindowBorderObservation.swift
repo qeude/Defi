@@ -56,6 +56,11 @@ extension MacOSPlatform {
           }
         }
         if kind == .focus {
+          self?.userInputTracker.recordObservedFocus(
+            windowID: nil,
+            processID: processID
+              ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+          )
           self?.nativeFocusEventPending = true
           self?.nativeFocusRetryCount = 3
         }

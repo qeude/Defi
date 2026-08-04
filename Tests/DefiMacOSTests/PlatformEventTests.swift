@@ -33,14 +33,14 @@ struct PlatformEventTests {
   func commandTabAfterCloseWinsBeforeTopologyNotification() {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 20, closeIntent: true)
-    tracker.record(timestamp: 21, focusIntent: true)
+    tracker.record(timestamp: 21, focusIntent: .keyboard)
     let input = tracker.snapshot
 
     #expect(
       userInputOccurredAfterWindowTopology(
         topologyInputTimestamp: input.latestEventTimestamp,
         latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntentTimestamp: input.latestFocusIntent,
+        latestFocusIntent: input.latestFocusIntent,
         latestCloseIntentTimestamp: input.latestCloseIntent
       )
     )
@@ -49,24 +49,50 @@ struct PlatformEventTests {
   @Test
   func mouseClickAfterCloseWinsBeforeTopologyNotification() {
     let tracker = UserInputTracker()
+    let clickedWindowID = WindowID(rawValue: 30)
     tracker.record(timestamp: 20, closeIntent: true)
-    tracker.record(timestamp: 21, focusIntent: true)
+    tracker.record(
+      timestamp: 21,
+      focusIntent: .mouse(windowID: clickedWindowID)
+    )
     let input = tracker.snapshot
 
     #expect(
       userInputOccurredAfterWindowTopology(
         topologyInputTimestamp: input.latestEventTimestamp,
         latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntentTimestamp: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [WindowID(rawValue: 10)]
       )
+    )
+  }
+
+  @Test
+  func closeButtonClickDoesNotMasqueradeAsFocusIntent() {
+    let tracker = UserInputTracker()
+    let closingWindowID = WindowID(rawValue: 10)
+    tracker.record(
+      timestamp: 20,
+      focusIntent: .mouse(windowID: closingWindowID)
+    )
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [closingWindowID]
+      ) == false
     )
   }
 
   @Test
   func closeIntentDoesNotMasqueradeAsExplicitFocus() {
     let tracker = UserInputTracker()
-    tracker.record(timestamp: 19, focusIntent: true)
+    tracker.record(timestamp: 19, focusIntent: .keyboard)
     tracker.record(timestamp: 20, closeIntent: true)
     let input = tracker.snapshot
 
@@ -74,7 +100,7 @@ struct PlatformEventTests {
       userInputOccurredAfterWindowTopology(
         topologyInputTimestamp: input.latestEventTimestamp,
         latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntentTimestamp: input.latestFocusIntent,
+        latestFocusIntent: input.latestFocusIntent,
         latestCloseIntentTimestamp: input.latestCloseIntent
       ) == false
     )
@@ -94,6 +120,55 @@ struct PlatformEventTests {
         maximumInputTimestamp: 10
       ) == false
     )
+  }
+
+  @Test
+  func guardedFocusMutationRecoversOnlyFromNewerInput() {
+    #expect(
+      guardedFocusMutationNeedsRecovery(
+        mutationApplied: true,
+        generationCurrent: true,
+        inputCurrent: false
+      )
+    )
+    #expect(
+      guardedFocusMutationNeedsRecovery(
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: false
+      ) == false
+    )
+    #expect(
+      guardedFocusMutationNeedsRecovery(
+        mutationApplied: true,
+        generationCurrent: false,
+        inputCurrent: false
+      ) == false
+    )
+  }
+
+  @Test
+  func focusRecoveryUsesLatestExplicitTarget() throws {
+    let tracker = UserInputTracker()
+    let clickedWindowID = WindowID(rawValue: 42)
+    tracker.record(
+      timestamp: 11,
+      focusIntent: .mouse(windowID: clickedWindowID)
+    )
+
+    let mouseTarget = try #require(
+      tracker.focusRecoveryTarget(after: 10)
+    )
+    #expect(mouseTarget.windowID == clickedWindowID)
+    #expect(mouseTarget.timestamp == 11)
+
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: nil, processID: 900)
+    let keyboardTarget = try #require(
+      tracker.focusRecoveryTarget(after: 11)
+    )
+    #expect(keyboardTarget.windowID == nil)
+    #expect(keyboardTarget.processID == 900)
   }
 
   @Test

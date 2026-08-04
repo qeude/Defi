@@ -20,33 +20,108 @@ enum WindowSnapshotInvalidation: Equatable {
 }
 
 public final class UserInputTracker: @unchecked Sendable {
+  public enum FocusIntentSource: Equatable, Sendable {
+    case keyboard
+    case mouse(windowID: WindowID?)
+  }
+
+  public struct FocusIntent: Equatable, Sendable {
+    public let timestamp: TimeInterval
+    public let source: FocusIntentSource
+  }
+
+  public struct FocusRecoveryTarget: Equatable, Sendable {
+    public let timestamp: TimeInterval
+    public let windowID: WindowID?
+    public let processID: pid_t?
+  }
+
   public struct Snapshot: Equatable, Sendable {
     public let latestEventTimestamp: TimeInterval
-    public let latestFocusIntent: TimeInterval
+    public let latestFocusIntent: FocusIntent?
     public let latestCloseIntent: TimeInterval
   }
 
   private let lock = NSLock()
   private var latestTimestamp: TimeInterval = 0
-  private var latestFocusIntentTimestamp: TimeInterval = 0
+  private var latestFocusIntent: FocusIntent?
   private var latestCloseIntentTimestamp: TimeInterval = 0
+  private var observedFocusIntentTimestamp: TimeInterval = 0
+  private var observedFocusWindowID: WindowID?
+  private var observedFocusProcessID: pid_t?
 
   public init() {}
 
   public func record(
     timestamp: TimeInterval,
-    focusIntent: Bool = false,
+    focusIntent: FocusIntentSource? = nil,
     closeIntent: Bool = false
   ) {
     lock.lock()
     latestTimestamp = max(latestTimestamp, timestamp)
-    if focusIntent {
-      latestFocusIntentTimestamp = max(latestFocusIntentTimestamp, timestamp)
+    if let focusIntent,
+      latestFocusIntent.map({ timestamp >= $0.timestamp }) ?? true
+    {
+      latestFocusIntent = FocusIntent(
+        timestamp: timestamp,
+        source: focusIntent
+      )
     }
     if closeIntent {
       latestCloseIntentTimestamp = max(latestCloseIntentTimestamp, timestamp)
     }
     lock.unlock()
+  }
+
+  public func recordObservedFocus(
+    windowID: WindowID?,
+    processID: pid_t?
+  ) {
+    lock.lock()
+    guard let focusIntent = latestFocusIntent,
+      focusIntent.timestamp > latestCloseIntentTimestamp,
+      focusIntent.timestamp > observedFocusIntentTimestamp
+        || (focusIntent.timestamp == observedFocusIntentTimestamp
+          && observedFocusWindowID == nil && windowID != nil)
+    else {
+      lock.unlock()
+      return
+    }
+    observedFocusIntentTimestamp = focusIntent.timestamp
+    observedFocusWindowID = windowID
+    observedFocusProcessID = processID
+    lock.unlock()
+  }
+
+  public func focusRecoveryTarget(
+    after timestamp: TimeInterval
+  ) -> FocusRecoveryTarget? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let focusIntent = latestFocusIntent,
+      focusIntent.timestamp > timestamp,
+      focusIntent.timestamp > latestCloseIntentTimestamp
+    else {
+      return nil
+    }
+    switch focusIntent.source {
+    case .keyboard:
+      guard observedFocusIntentTimestamp == focusIntent.timestamp else {
+        return nil
+      }
+      return FocusRecoveryTarget(
+        timestamp: focusIntent.timestamp,
+        windowID: observedFocusWindowID,
+        processID: observedFocusProcessID
+      )
+    case .mouse(let windowID):
+      guard let windowID else { return nil }
+      return FocusRecoveryTarget(
+        timestamp: focusIntent.timestamp,
+        windowID: windowID,
+        processID: nil
+      )
+    }
   }
 
   public var latestEventTimestamp: TimeInterval {
@@ -60,7 +135,7 @@ public final class UserInputTracker: @unchecked Sendable {
     defer { lock.unlock() }
     return Snapshot(
       latestEventTimestamp: latestTimestamp,
-      latestFocusIntent: latestFocusIntentTimestamp,
+      latestFocusIntent: latestFocusIntent,
       latestCloseIntent: latestCloseIntentTimestamp
     )
   }
@@ -69,13 +144,27 @@ public final class UserInputTracker: @unchecked Sendable {
 func userInputOccurredAfterWindowTopology(
   topologyInputTimestamp: TimeInterval?,
   latestInputTimestamp: TimeInterval,
-  latestFocusIntentTimestamp: TimeInterval = 0,
-  latestCloseIntentTimestamp: TimeInterval = 0
+  latestFocusIntent: UserInputTracker.FocusIntent? = nil,
+  latestCloseIntentTimestamp: TimeInterval = 0,
+  removedWindowIDs: Set<WindowID> = []
 ) -> Bool {
   guard let topologyInputTimestamp else { return false }
-  return latestInputTimestamp > topologyInputTimestamp
-    || (latestFocusIntentTimestamp >= topologyInputTimestamp
-      && latestFocusIntentTimestamp > latestCloseIntentTimestamp)
+  if latestInputTimestamp > topologyInputTimestamp {
+    return true
+  }
+  guard let latestFocusIntent,
+    latestFocusIntent.timestamp >= topologyInputTimestamp,
+    latestFocusIntent.timestamp > latestCloseIntentTimestamp
+  else {
+    return false
+  }
+  switch latestFocusIntent.source {
+  case .keyboard:
+    return true
+  case .mouse(let windowID):
+    guard let windowID else { return false }
+    return !removedWindowIDs.contains(windowID)
+  }
 }
 
 func guardedFocusIsCurrent(
@@ -83,6 +172,14 @@ func guardedFocusIsCurrent(
   maximumInputTimestamp: TimeInterval
 ) -> Bool {
   latestInputTimestamp <= maximumInputTimestamp
+}
+
+func guardedFocusMutationNeedsRecovery(
+  mutationApplied: Bool,
+  generationCurrent: Bool,
+  inputCurrent: Bool
+) -> Bool {
+  mutationApplied && generationCurrent && !inputCurrent
 }
 
 func windowSnapshotInvalidation(

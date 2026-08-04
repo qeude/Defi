@@ -223,7 +223,6 @@ extension MacOSPlatform {
       guard let target = targetFrames[window.id],
         !approximatelyEqual(window.frame, target)
       else {
-        initialFrameSettlementDeadlines[window.id] = nil
         continue
       }
       guard targetIntersectsAnyMonitor(target, monitors: monitors) else {
@@ -289,6 +288,13 @@ extension MacOSPlatform {
       nativeFocusEventPending = false
       nativeFocusRetryCount = 0
     }
+    if nativeFocusChanged {
+      userInputTracker.recordObservedFocus(
+        windowID: focusedWindowID,
+        processID: focusedWindowID.flatMap { nextProcessIDs[$0] }
+          ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+      )
+    }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
       let elapsedMS =
         (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
@@ -307,8 +313,9 @@ extension MacOSPlatform {
       userInputAfterWindowTopology: userInputOccurredAfterWindowTopology(
         topologyInputTimestamp: topologyInputTimestamp,
         latestInputTimestamp: userInput.latestEventTimestamp,
-        latestFocusIntentTimestamp: userInput.latestFocusIntent,
-        latestCloseIntentTimestamp: userInput.latestCloseIntent
+        latestFocusIntent: userInput.latestFocusIntent,
+        latestCloseIntentTimestamp: userInput.latestCloseIntent,
+        removedWindowIDs: removedWindowIDs
       ),
       externallyChangedFrames: externallyChangedFrames,
       leftMouseButtonDown: leftMouseButtonDown,

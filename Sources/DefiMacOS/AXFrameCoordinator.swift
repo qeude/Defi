@@ -52,37 +52,47 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   func updateInitialSettlementTargets(
     _ targets: [WindowID: AsyncPositionWrite],
+    deadlines: [WindowID: TimeInterval],
     repairsSuspended: Bool
   ) {
     lock.lock()
     let wasSuspended = initialSettlementRepairsSuspended
     initialSettlementRepairsSuspended = repairsSuspended
     var nextTargets: [WindowID: InitialSettlementTarget] = [:]
-    var changedWindowIDs = Set<WindowID>()
+    var changedTargets: [(WindowID, InitialSettlementTarget)] = []
     for (windowID, write) in targets {
+      guard let deadline = deadlines[windowID] else { continue }
       if let previous = initialSettlementTargets[windowID],
-        sameFrameTarget(previous.write, write)
+        sameFrameTarget(previous.write, write),
+        previous.deadline == deadline
       {
         nextTargets[windowID] = InitialSettlementTarget(
           generation: previous.generation,
-          write: write
+          write: write,
+          deadline: deadline
         )
       } else {
         nextInitialSettlementGeneration &+= 1
-        nextTargets[windowID] = InitialSettlementTarget(
+        let target = InitialSettlementTarget(
           generation: nextInitialSettlementGeneration,
-          write: write
+          write: write,
+          deadline: deadline
         )
-        changedWindowIDs.insert(windowID)
+        nextTargets[windowID] = target
+        changedTargets.append((windowID, target))
       }
     }
     initialSettlementTargets = nextTargets
     if wasSuspended && !repairsSuspended {
-      changedWindowIDs.formUnion(nextTargets.keys)
+      changedTargets = Array(nextTargets)
     }
     lock.unlock()
-    for windowID in changedWindowIDs {
-      scheduleInitialSettlementVerification(windowID: windowID)
+    for (windowID, target) in changedTargets {
+      scheduleInitialSettlementVerification(
+        windowID: windowID,
+        generation: target.generation,
+        deadline: target.deadline
+      )
     }
   }
 
@@ -938,12 +948,24 @@ final class AXFrameCoordinator: @unchecked Sendable {
   }
 
   private func scheduleInitialSettlementVerification(
-    windowID: WindowID
+    windowID: WindowID,
+    generation: UInt64,
+    deadline: TimeInterval
   ) {
     for delay in [0.12, 0.25, 0.45, 0.75, 1.1, 1.5, 2.1] {
       queue.asyncAfter(deadline: .now() + delay) { [weak self] in
         self?.verifyInitialSettlementTarget(windowID: windowID)
       }
+    }
+    let expirationDelay = max(
+      deadline - ProcessInfo.processInfo.systemUptime,
+      0
+    )
+    queue.asyncAfter(deadline: .now() + expirationDelay) { [weak self] in
+      self?.clearInitialSettlementTarget(
+        windowID: windowID,
+        matchingGeneration: generation
+      )
     }
   }
 
@@ -954,6 +976,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     )
     lock.lock()
     guard let settlementTarget = initialSettlementTargets[windowID],
+      ProcessInfo.processInfo.systemUptime < settlementTarget.deadline,
       initialSettlementRepairIsCurrent(
         expectedGeneration: settlementTarget.generation,
         currentGeneration: settlementTarget.generation,
@@ -993,12 +1016,22 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     completedInitialSettlementChecks += 1
     lock.unlock()
-    guard initialFrameNeedsRepair(actual: actual, target: target) else {
+    switch initialSettlementObservation(
+      actual: actual,
+      target: target,
+      now: ProcessInfo.processInfo.systemUptime,
+      deadline: settlementTarget.deadline
+    ) {
+    case .expired:
       clearInitialSettlementTarget(
         windowID: windowID,
         matchingGeneration: settlementTarget.generation
       )
       return
+    case .stable:
+      return
+    case .drifted:
+      break
     }
     guard isInitialSettlementTargetCurrent(
       windowID: windowID,
@@ -1069,9 +1102,14 @@ final class AXFrameCoordinator: @unchecked Sendable {
     )
     lock.lock()
     defer { lock.unlock() }
+    guard let currentTarget = initialSettlementTargets[windowID],
+      ProcessInfo.processInfo.systemUptime < currentTarget.deadline
+    else {
+      return false
+    }
     return initialSettlementRepairIsCurrent(
       expectedGeneration: generation,
-      currentGeneration: initialSettlementTargets[windowID]?.generation,
+      currentGeneration: currentTarget.generation,
       repairsSuspended: initialSettlementRepairsSuspended,
       leftMouseButtonDown: leftMouseButtonDown
     )
