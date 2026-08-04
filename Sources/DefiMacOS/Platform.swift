@@ -1728,6 +1728,9 @@ public final class MacOSPlatform {
   private var lastNativeFocusedWindowID: WindowID?
   private var borderHiddenWindowIDs = Set<WindowID>()
   private var borderLiveWindowID: WindowID?
+  private var frontmostNormalWindowID: WindowID?
+  private var borderStackingRefreshState = WindowBorderStackingRefreshState()
+  private var borderStackingRefreshTask: Task<Void, Never>?
   private var borderStyle = WindowBorderStyle(
     enabled: true,
     width: 4,
@@ -1773,6 +1776,9 @@ public final class MacOSPlatform {
         self.refreshWindowBorderGeometry(
           windowIDs: self.borderManager.liveGeometryWindowIDs
         )
+      },
+      borderStackingHandler: { [weak self] in
+        self?.scheduleWindowBorderStackingRefresh()
       }
     )
     monitor.start()
@@ -1786,6 +1792,39 @@ public final class MacOSPlatform {
       by: \.0
     ).mapValues { $0.map(\.1) }
     monitor.refresh(applications: windowsByProcess)
+  }
+
+  private func scheduleWindowBorderStackingRefresh() {
+    let request = borderStackingRefreshState.request(
+      for: borderManager.activeWindowID
+    )
+    borderStackingRefreshTask?.cancel()
+    guard let request else { return }
+    borderStackingRefreshTask = Task { @MainActor [weak self] in
+      await Task.yield()
+      self?.refreshWindowBorderStacking(request)
+      try? await Task.sleep(for: .milliseconds(4))
+      self?.refreshWindowBorderStacking(request)
+    }
+  }
+
+  private func refreshWindowBorderStacking(
+    _ request: WindowBorderStackingRefreshRequest
+  ) {
+    guard
+      borderStackingRefreshState.shouldApply(
+        request,
+        activeWindowID: borderManager.activeWindowID
+      )
+    else {
+      return
+    }
+    let frontmostWindowID = copyFrontmostNormalWindowID()
+    frontmostNormalWindowID = frontmostWindowID
+    borderManager.updateActiveStacking(
+      for: request.windowID,
+      isFrontmost: frontmostWindowID == request.windowID
+    )
   }
 
   public func invalidateFrameStateForDisplayChange() {
@@ -1842,12 +1881,14 @@ public final class MacOSPlatform {
 
   public func prepareWindowBorderSelection(_ selectedWindowID: WindowID?) {
     desiredSelectedWindowID = selectedWindowID
+    frontmostNormalWindowID = copyFrontmostNormalWindowID()
     let selectedFrame = selectedWindowID.flatMap { windowID in
       resolvedBorderFrame(for: windowID)
     }
     borderManager.prepareForSelection(
       selectedWindowID,
-      displayedFrame: selectedFrame
+      displayedFrame: selectedFrame,
+      activeWindowIsFrontmost: selectedWindowID == frontmostNormalWindowID
     )
     let freshFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
@@ -1913,7 +1954,8 @@ public final class MacOSPlatform {
     )
     borderManager.sync(
       plan,
-      displayedFrames: displayedFrames
+      displayedFrames: displayedFrames,
+      activeWindowIsFrontmost: plan.active?.windowID == frontmostNormalWindowID
     )
     let finalDisplayedFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
@@ -2024,6 +2066,7 @@ public final class MacOSPlatform {
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
     let cgWindows = copyCGWindows()
+    frontmostNormalWindowID = copyFrontmostNormalWindowID()
     let previousElements = elements
     let previousProcessIDs = processIDs
     var nextElements: [WindowID: AXUIElement] = [:]
@@ -2980,6 +3023,39 @@ private func copyCGWindows() -> [CGWindowRecord] {
       )
     )
   }
+}
+
+private func copyFrontmostNormalWindowID() -> WindowID? {
+  guard
+    let info = CGWindowListCopyWindowInfo(
+      [.optionOnScreenOnly, .excludeDesktopElements],
+      kCGNullWindowID
+    ) as? [[CFString: Any]]
+  else {
+    return nil
+  }
+  let ownProcessID = ProcessInfo.processInfo.processIdentifier
+  let entries = info.compactMap { item -> NormalWindowStackEntry? in
+    guard
+      (item[kCGWindowLayer] as? NSNumber)?.intValue == 0,
+      (item[kCGWindowOwnerPID] as? NSNumber)?.int32Value != ownProcessID,
+      let number = item[kCGWindowNumber] as? NSNumber,
+      let bounds = item[kCGWindowBounds] as? [String: Any],
+      let cgRect = CGRect(dictionaryRepresentation: bounds as CFDictionary)
+    else {
+      return nil
+    }
+    return NormalWindowStackEntry(
+      windowID: WindowID(rawValue: number.uint64Value),
+      frame: Rect(
+        x: cgRect.minX,
+        y: cgRect.minY,
+        width: cgRect.width,
+        height: cgRect.height
+      )
+    )
+  }
+  return frontmostBorderOccludingWindowID(in: entries)
 }
 
 func bestCGWindow(

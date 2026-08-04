@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import DefiCore
 import DefiModel
@@ -276,5 +277,28 @@ struct WindowBorderTests {
 
     manager.prepareForSelection(third, displayedFrame: nil)
     #expect(manager.activeWindowID == third)
+  }
+
+  @Test @MainActor
+  func borderPanelsFloatOnlyWhileActiveWindowIsFrontmost() {
+    let overlay = BorderOverlay(windowID: WindowID(rawValue: 1))
+
+    #expect(
+      overlay.windowLevelRawValues.allSatisfy {
+        $0 == NSWindow.Level.normal.rawValue
+      }
+    )
+    overlay.setFrontmost(true)
+    #expect(
+      overlay.windowLevelRawValues.allSatisfy {
+        $0 == NSWindow.Level.floating.rawValue
+      }
+    )
+    overlay.setFrontmost(false)
+    #expect(
+      overlay.windowLevelRawValues.allSatisfy {
+        $0 == NSWindow.Level.normal.rawValue
+      }
+    )
   }
 }
