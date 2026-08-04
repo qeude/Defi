@@ -2,6 +2,7 @@
 .swiftpm/
 .DS_Store
 dist/
+.env.local
 
 # gemini-cli settings
 .gemini/

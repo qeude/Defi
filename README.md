@@ -100,13 +100,25 @@ Defi restores parked windows before managed shutdown or service stop.
 
 ## Signing identity
 
-Local builds use the first available Apple Development identity. Select a team
-or exact identity when multiple identities are installed:
+Local builds use the only available Apple Development identity. When multiple
+identities are installed, copy `.env.example` to the ignored `.env.local` and
+select the local developer team:
 
 ```sh
-DEFI_DEVELOPMENT_TEAM=TEAMID ./script/build_and_run.sh
+cp .env.example .env.local
+# Edit .env.local: DEFI_DEVELOPMENT_TEAM=TEAMID
+./script/build_and_run.sh
+```
+
+Environment variables override `.env.local`. Select an exact identity when a
+team has multiple valid development certificates:
+
+```sh
 DEFI_CODESIGN_IDENTITY=SHA1 ./script/build_and_run.sh
 ```
+
+Team selection matches the certificate's Apple team identifier, not the suffix
+shown in its display name.
 
 Stable bundle ID and signing identity preserve Accessibility permission across builds.
 
