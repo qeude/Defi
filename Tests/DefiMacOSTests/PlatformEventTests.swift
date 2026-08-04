@@ -6,6 +6,80 @@ import Testing
 
 struct PlatformEventTests {
   @Test
+  func userInputTrackingStaysMonotonicAcrossDuplicateDelivery() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12)
+    tracker.record(timestamp: 8)
+    tracker.record(timestamp: 12)
+
+    #expect(tracker.latestEventTimestamp == 12)
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: 12,
+        latestInputTimestamp: tracker.latestEventTimestamp
+      ) == false
+    )
+
+    tracker.record(timestamp: 13)
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: 12,
+        latestInputTimestamp: tracker.latestEventTimestamp
+      )
+    )
+  }
+
+  @Test
+  func commandTabAfterCloseWinsBeforeTopologyNotification() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    tracker.record(timestamp: 21, focusIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntentTimestamp: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent
+      )
+    )
+  }
+
+  @Test
+  func closeIntentDoesNotMasqueradeAsExplicitFocus() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 19, focusIntent: true)
+    tracker.record(timestamp: 20, closeIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntentTimestamp: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent
+      ) == false
+    )
+  }
+
+  @Test
+  func guardedFocusCancelsOnlyForNewerInput() {
+    #expect(
+      guardedFocusIsCurrent(
+        latestInputTimestamp: 10,
+        maximumInputTimestamp: 10
+      )
+    )
+    #expect(
+      guardedFocusIsCurrent(
+        latestInputTimestamp: 11,
+        maximumInputTimestamp: 10
+      ) == false
+    )
+  }
+
+  @Test
   func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
     #expect(
       windowSnapshotInvalidation(

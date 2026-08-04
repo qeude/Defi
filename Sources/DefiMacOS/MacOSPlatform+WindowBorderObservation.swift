@@ -17,6 +17,12 @@ extension MacOSPlatform {
     guard eventMonitor == nil else { return }
     let monitor = PlatformEventMonitor(
       handler: { [weak self] kind, processID in
+        if (kind == .windows || kind == .applicationTerminated),
+          self?.windowTopologyEventPending == false
+        {
+          self?.pendingWindowTopologyInputTimestamp =
+            self?.userInputTracker.latestEventTimestamp
+        }
         switch windowSnapshotInvalidation(for: kind, processID: processID) {
         case .process(let processID):
           self?.windowTopologyEventPending = true
@@ -50,6 +56,7 @@ extension MacOSPlatform {
         }
         handler()
       },
+      userInputTracker: userInputTracker,
       frameHandler: { [weak self] element in
         guard let self else { return }
         self.refreshWindowBorderGeometry(for: element)

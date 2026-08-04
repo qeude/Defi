@@ -9,7 +9,10 @@ import OSLog
 @MainActor
 extension MacOSPlatform {
 
-  public func focus(_ windowID: WindowID) {
+  public func focus(
+    _ windowID: WindowID,
+    unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil
+  ) {
     guard let element = elements[windowID],
       let processID = processIDs[windowID],
       let application = applications[processID]
@@ -41,7 +44,13 @@ extension MacOSPlatform {
         processID: processID,
         selectsSpecificWindow: selectsSpecificWindow,
         validatesSpecificWindowFocus: !selectsSpecificWindow,
-        activatesApplication: activatesApplication
+        activatesApplication: activatesApplication,
+        inputGuard: maximumUserInputTimestamp.map {
+          FocusInputGuard(
+            tracker: userInputTracker,
+            maximumTimestamp: $0
+          )
+        }
       )
     ) { [weak self] completedLatest in
       guard completedLatest else { return }

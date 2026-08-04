@@ -6,6 +6,11 @@ import DefiCore
 import DefiModel
 import OSLog
 
+struct FocusInputGuard: @unchecked Sendable {
+  let tracker: UserInputTracker
+  let maximumTimestamp: TimeInterval
+}
+
 struct AsyncFocusRequest: @unchecked Sendable {
   let element: AXUIElement
   let application: AXUIElement
@@ -13,6 +18,7 @@ struct AsyncFocusRequest: @unchecked Sendable {
   let selectsSpecificWindow: Bool
   let validatesSpecificWindowFocus: Bool
   let activatesApplication: Bool
+  let inputGuard: FocusInputGuard?
 }
 
 private struct QueuedFocusRequest: @unchecked Sendable {
@@ -118,7 +124,7 @@ final class AXFocusWriter: @unchecked Sendable {
 
       let startedAt = ProcessInfo.processInfo.systemUptime
       let request = queued.request
-      guard isCurrent(queued.generation) else {
+      guard isCurrent(queued) else {
         lock.lock()
         activeProcessID = nil
         cancelledCount += 1
@@ -146,7 +152,7 @@ final class AXFocusWriter: @unchecked Sendable {
         )
         mainDurationMS =
           (ProcessInfo.processInfo.systemUptime - mainStartedAt) * 1_000
-        cancelled = !isCurrent(queued.generation)
+        cancelled = !isCurrent(queued)
         var raiseResult = AXError.cannotComplete
         if !cancelled, mainResult != .success {
           let raiseStartedAt = ProcessInfo.processInfo.systemUptime
@@ -157,7 +163,7 @@ final class AXFocusWriter: @unchecked Sendable {
           raiseDurationMS =
             (ProcessInfo.processInfo.systemUptime - raiseStartedAt) * 1_000
         }
-        cancelled = cancelled || !isCurrent(queued.generation)
+        cancelled = cancelled || !isCurrent(queued)
         if !cancelled,
           mainResult != .success && raiseResult != .success
         {
@@ -172,7 +178,7 @@ final class AXFocusWriter: @unchecked Sendable {
           )
           mainDurationMS +=
             (ProcessInfo.processInfo.systemUptime - retryMainStartedAt) * 1_000
-          if isCurrent(queued.generation), mainResult != .success {
+          if isCurrent(queued), mainResult != .success {
             let retryRaiseStartedAt = ProcessInfo.processInfo.systemUptime
             raiseResult = AXUIElementPerformAction(
               request.element,
@@ -181,7 +187,7 @@ final class AXFocusWriter: @unchecked Sendable {
             raiseDurationMS +=
               (ProcessInfo.processInfo.systemUptime - retryRaiseStartedAt) * 1_000
           }
-          cancelled = !isCurrent(queued.generation)
+          cancelled = !isCurrent(queued)
         }
         resetTimeouts(request)
       } else {
@@ -189,7 +195,7 @@ final class AXFocusWriter: @unchecked Sendable {
       }
       var activationAttempted = false
       let activationRequired =
-        cancelled
+        cancelled || !isCurrent(queued)
         ? nil
         : activationRequirement(
           requested: request.activatesApplication,
@@ -204,7 +210,7 @@ final class AXFocusWriter: @unchecked Sendable {
           kAXFocusedApplicationAttribute as CFString,
           request.application
         )
-        if activationResult != .success, isCurrent(queued.generation) {
+        if activationResult != .success, isCurrent(queued) {
           NSRunningApplication(processIdentifier: request.processID)?.activate()
         }
         activationDurationMS =
@@ -212,7 +218,7 @@ final class AXFocusWriter: @unchecked Sendable {
       } else if activationRequired == nil {
         cancelled = true
       }
-      if activationAttempted, !isCurrent(queued.generation) {
+      if activationAttempted, !isCurrent(queued) {
         markRecoveryActivationNeeded()
         cancelled = true
       }
@@ -228,7 +234,7 @@ final class AXFocusWriter: @unchecked Sendable {
       lastActivationDurationMS = activationDurationMS
       activeProcessID = nil
       lock.unlock()
-      queued.completion(!cancelled && isCurrent(queued.generation))
+      queued.completion(!cancelled && isCurrent(queued))
     }
   }
 
@@ -236,6 +242,15 @@ final class AXFocusWriter: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return latestGeneration == generation
+  }
+
+  private func isCurrent(_ queued: QueuedFocusRequest) -> Bool {
+    guard isCurrent(queued.generation) else { return false }
+    guard let inputGuard = queued.request.inputGuard else { return true }
+    return guardedFocusIsCurrent(
+      latestInputTimestamp: inputGuard.tracker.latestEventTimestamp,
+      maximumInputTimestamp: inputGuard.maximumTimestamp
+    )
   }
 
   private func activationRequirement(

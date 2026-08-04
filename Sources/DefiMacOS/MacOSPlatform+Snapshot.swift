@@ -25,6 +25,7 @@ extension MacOSPlatform {
   public func snapshot(config: Config) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
     let tracesWindowTopology = windowTopologyEventPending
+    let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
     let incrementalProcessIDs = incrementalWindowRefreshProcessIDs(
       hasCompletedSnapshot: hasCompletedWindowSnapshot,
       eventPending: tracesWindowTopology,
@@ -34,6 +35,7 @@ extension MacOSPlatform {
     windowTopologyEventPending = false
     pendingWindowTopologyProcessIDs.removeAll(keepingCapacity: true)
     windowTopologyRequiresFullSnapshot = false
+    pendingWindowTopologyInputTimestamp = nil
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
     let cgWindows = copyCGWindows()
@@ -136,6 +138,7 @@ extension MacOSPlatform {
     }
 
     let nextWindowIDs = Set(nextElements.keys)
+    let removedWindowIDs = Set(previousElements.keys).subtracting(nextWindowIDs)
     newlyDiscoveredWindowIDs = hasCompletedWindowSnapshot
       ? nextWindowIDs.subtracting(previousElements.keys)
       : []
@@ -289,11 +292,20 @@ extension MacOSPlatform {
         "window-snapshot-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
+    let userInput = userInputTracker.snapshot
     return DesktopSnapshot(
       monitors: monitors,
       windows: windows,
       focusedWindowID: focusedWindowID,
       nativeFocusChanged: nativeFocusChanged,
+      removedWindowIDs: removedWindowIDs,
+      latestUserInputTimestamp: userInput.latestEventTimestamp,
+      userInputAfterWindowTopology: userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: userInput.latestEventTimestamp,
+        latestFocusIntentTimestamp: userInput.latestFocusIntent,
+        latestCloseIntentTimestamp: userInput.latestCloseIntent
+      ),
       externallyChangedFrames: externallyChangedFrames,
       leftMouseButtonDown: leftMouseButtonDown,
       mouseResizeGestureObserved: mouseResizeGestureObserved,

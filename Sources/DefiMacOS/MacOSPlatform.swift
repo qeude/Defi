@@ -27,6 +27,7 @@ public final class MacOSPlatform {
   var windowTopologyEventPending = false
   var pendingWindowTopologyProcessIDs = Set<pid_t>()
   var windowTopologyRequiresFullSnapshot = false
+  var pendingWindowTopologyInputTimestamp: TimeInterval?
   var lastSnapshotWindows: [Window] = []
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
   var deferredFrameCommitMismatchCount = 0
@@ -61,6 +62,8 @@ public final class MacOSPlatform {
     inactiveColor: 0x66c0_99ff,
     captureEnabled: false
   )
+
+  public let userInputTracker = UserInputTracker()
 
   public init() {}
 

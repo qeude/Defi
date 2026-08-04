@@ -6,6 +6,7 @@ import DefiModel
 @MainActor
 final class PlatformEventMonitor {
   private let handler: (PlatformEventKind, pid_t?) -> Void
+  private let userInputTracker: UserInputTracker
   private let frameHandler: (AXUIElement) -> Void
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
@@ -20,11 +21,13 @@ final class PlatformEventMonitor {
 
   init(
     handler: @escaping (PlatformEventKind, pid_t?) -> Void,
+    userInputTracker: UserInputTracker = UserInputTracker(),
     frameHandler: @escaping (AXUIElement) -> Void = { _ in },
     liveFrameHandler: @escaping () -> Void = {},
     borderStackingHandler: @escaping () -> Void = {}
   ) {
     self.handler = handler
+    self.userInputTracker = userInputTracker
     self.frameHandler = frameHandler
     self.liveFrameHandler = liveFrameHandler
     self.borderStackingHandler = borderStackingHandler
@@ -93,6 +96,9 @@ final class PlatformEventMonitor {
     ) { [weak self] event in
       MainActor.assumeIsolated {
         guard let self else { return }
+        if event.type == .leftMouseDown {
+          self.userInputTracker.record(timestamp: event.timestamp)
+        }
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {
           self.liveFrameHandler()
         }

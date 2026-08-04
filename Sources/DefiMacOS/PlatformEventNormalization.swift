@@ -19,6 +19,72 @@ enum WindowSnapshotInvalidation: Equatable {
   case full
 }
 
+public final class UserInputTracker: @unchecked Sendable {
+  public struct Snapshot: Equatable, Sendable {
+    public let latestEventTimestamp: TimeInterval
+    public let latestFocusIntent: TimeInterval
+    public let latestCloseIntent: TimeInterval
+  }
+
+  private let lock = NSLock()
+  private var latestTimestamp: TimeInterval = 0
+  private var latestFocusIntentTimestamp: TimeInterval = 0
+  private var latestCloseIntentTimestamp: TimeInterval = 0
+
+  public init() {}
+
+  public func record(
+    timestamp: TimeInterval,
+    focusIntent: Bool = false,
+    closeIntent: Bool = false
+  ) {
+    lock.lock()
+    latestTimestamp = max(latestTimestamp, timestamp)
+    if focusIntent {
+      latestFocusIntentTimestamp = max(latestFocusIntentTimestamp, timestamp)
+    }
+    if closeIntent {
+      latestCloseIntentTimestamp = max(latestCloseIntentTimestamp, timestamp)
+    }
+    lock.unlock()
+  }
+
+  public var latestEventTimestamp: TimeInterval {
+    lock.lock()
+    defer { lock.unlock() }
+    return latestTimestamp
+  }
+
+  public var snapshot: Snapshot {
+    lock.lock()
+    defer { lock.unlock() }
+    return Snapshot(
+      latestEventTimestamp: latestTimestamp,
+      latestFocusIntent: latestFocusIntentTimestamp,
+      latestCloseIntent: latestCloseIntentTimestamp
+    )
+  }
+}
+
+func userInputOccurredAfterWindowTopology(
+  topologyInputTimestamp: TimeInterval?,
+  latestInputTimestamp: TimeInterval,
+  latestFocusIntentTimestamp: TimeInterval = 0,
+  latestCloseIntentTimestamp: TimeInterval = 0
+) -> Bool {
+  guard let topologyInputTimestamp else { return false }
+  return latestInputTimestamp > topologyInputTimestamp
+    || (latestFocusIntentTimestamp >= topologyInputTimestamp
+      && latestFocusIntentTimestamp > latestCloseIntentTimestamp)
+}
+
+func guardedFocusIsCurrent(
+  latestInputTimestamp: TimeInterval,
+  maximumInputTimestamp: TimeInterval
+) -> Bool {
+  latestInputTimestamp <= maximumInputTimestamp
+}
+
 func windowSnapshotInvalidation(
   for kind: PlatformEventKind,
   processID: pid_t?
