@@ -26,6 +26,19 @@ Keep Defi fast, deterministic, stable, and glitch-free.
 
 Never import AppKit, ApplicationServices, or CoreGraphics from pure modules.
 
+## Private platform API policy
+
+Use private macOS APIs only when public APIs have been demonstrated unable to
+meet a user-visible correctness, stability, or latency invariant.
+
+- isolate private API use inside `DefiMacOS` behind a narrow backend interface
+- resolve private symbols dynamically; missing or changed symbols must never prevent startup
+- always keep a fully functional, tested public-API fallback
+- probe private capabilities using Defi-owned surfaces, never by mutating user windows
+- downgrade to the public backend for the rest of the session after a private operation fails
+- expose the active backend and fallback count through status or telemetry
+- do not mutate third-party windows through private APIs without separate explicit approval
+
 ## Product shape
 
 Keep:
@@ -42,7 +55,6 @@ Exclude from MVP:
 - native macOS Spaces control
 - compositor replacement
 - mouse-first shell
-- private WindowServer mutation APIs
 
 ## Runtime rules
 

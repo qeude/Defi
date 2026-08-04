@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import DefiModel
 
 enum PlatformEventKind: Equatable {
   case application
@@ -12,34 +13,83 @@ enum PlatformEventKind: Equatable {
 }
 
 struct MouseGestureEventNormalizer {
+  struct Actions: Equatable {
+    var refreshBorderStacking = false
+    var synchronizeDesktop = false
+  }
+
   private var moved = false
   private var synchronizedDuringGesture = false
 
-  mutating func shouldSynchronizeDesktop(
+  mutating func actions(
     for eventType: NSEvent.EventType
-  ) -> Bool {
+  ) -> Actions {
     switch eventType {
     case .leftMouseDown:
       moved = false
       synchronizedDuringGesture = false
-      return false
+      return Actions(refreshBorderStacking: true)
     case .leftMouseDragged:
       moved = true
       guard synchronizedDuringGesture == false else {
-        return false
+        return Actions()
       }
       synchronizedDuringGesture = true
-      return true
+      return Actions(synchronizeDesktop: true)
     case .leftMouseUp:
       defer {
         moved = false
         synchronizedDuringGesture = false
       }
-      return moved
+      return Actions(synchronizeDesktop: moved)
     default:
-      return false
+      return Actions()
     }
   }
+}
+
+struct WindowBorderStackingRefreshRequest: Equatable, Sendable {
+  let generation: UInt64
+  let windowID: WindowID
+}
+
+struct WindowBorderStackingRefreshState {
+  private var generation: UInt64 = 0
+
+  mutating func request(
+    for windowID: WindowID?
+  ) -> WindowBorderStackingRefreshRequest? {
+    generation &+= 1
+    return windowID.map {
+      WindowBorderStackingRefreshRequest(
+        generation: generation,
+        windowID: $0
+      )
+    }
+  }
+
+  func shouldApply(
+    _ request: WindowBorderStackingRefreshRequest,
+    activeWindowID: WindowID?
+  ) -> Bool {
+    request.generation == generation && request.windowID == activeWindowID
+  }
+}
+
+struct NormalWindowStackEntry: Equatable {
+  let windowID: WindowID
+  let frame: Rect
+}
+
+private let minimumBorderOccludingWindowArea = 2_048.0
+
+func frontmostBorderOccludingWindowID(
+  in entries: [NormalWindowStackEntry]
+) -> WindowID? {
+  // AppKit and Electron can create tiny normal-level helper surfaces on mouse-down.
+  entries.first { entry in
+    entry.frame.width * entry.frame.height >= minimumBorderOccludingWindowArea
+  }?.windowID
 }
 
 @MainActor
@@ -47,6 +97,7 @@ final class PlatformEventMonitor {
   private let handler: (PlatformEventKind) -> Void
   private let frameHandler: (AXUIElement) -> Void
   private let liveFrameHandler: () -> Void
+  private let borderStackingHandler: () -> Void
   private var workspaceTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
@@ -59,11 +110,13 @@ final class PlatformEventMonitor {
   init(
     handler: @escaping (PlatformEventKind) -> Void,
     frameHandler: @escaping (AXUIElement) -> Void = { _ in },
-    liveFrameHandler: @escaping () -> Void = {}
+    liveFrameHandler: @escaping () -> Void = {},
+    borderStackingHandler: @escaping () -> Void = {}
   ) {
     self.handler = handler
     self.frameHandler = frameHandler
     self.liveFrameHandler = liveFrameHandler
+    self.borderStackingHandler = borderStackingHandler
   }
 
   func start() {
@@ -119,14 +172,13 @@ final class PlatformEventMonitor {
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {
           self.liveFrameHandler()
         }
-        guard
-          self.mouseGestureNormalizer.shouldSynchronizeDesktop(
-            for: event.type
-          )
-        else {
-          return
+        let actions = self.mouseGestureNormalizer.actions(for: event.type)
+        if actions.refreshBorderStacking {
+          self.borderStackingHandler()
         }
-        self.handler(.mouse)
+        if actions.synchronizeDesktop {
+          self.handler(.mouse)
+        }
       }
     }
   }

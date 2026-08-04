@@ -54,17 +54,6 @@ public final class MenuBarController: NSObject {
 
   private func rebuildMenu() {
     let menu = NSMenu()
-    let status = NSMenuItem(
-      title: activeWorkspace.isEmpty
-        ? "Defi"
-        : "Workspace: \(activeWorkspace)",
-      action: nil,
-      keyEquivalent: ""
-    )
-    status.isEnabled = false
-    menu.addItem(status)
-    menu.addItem(.separator())
-
     for workspace in workspaceNames {
       let item = commandItem(
         title: workspace == activeWorkspace ? "✓ \(workspace)" : workspace,
@@ -75,10 +64,6 @@ public final class MenuBarController: NSObject {
     if !workspaceNames.isEmpty {
       menu.addItem(.separator())
     }
-    menu.addItem(commandItem(title: "Focus Left", command: "focus-column left"))
-    menu.addItem(commandItem(title: "Focus Right", command: "focus-column right"))
-    menu.addItem(commandItem(title: "Toggle Full Width", command: "toggle-fullscreen"))
-    menu.addItem(.separator())
     menu.addItem(commandItem(title: "Quit Defi", command: "quit"))
     statusItem.menu = menu
   }

@@ -81,6 +81,10 @@ let package = Package(
       dependencies: ["DefiIPC", "DefiModel"]
     ),
     .testTarget(
+      name: "DefiCLITests",
+      dependencies: ["DefiCLI"]
+    ),
+    .testTarget(
       name: "DefiMacOSTests",
       dependencies: ["DefiMacOS", "DefiConfig", "DefiCore", "DefiModel"]
     ),
