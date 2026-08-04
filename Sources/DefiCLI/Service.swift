@@ -18,6 +18,8 @@ enum ServiceManager {
       }
       if !isLoaded() {
         try bootstrapWithRetry()
+      } else {
+        try launchctl(["kickstart", "\(domain)/\(label)"])
       }
       print("started")
     case "stop":
@@ -49,7 +51,7 @@ enum ServiceManager {
       "Label": label,
       "ProgramArguments": [daemonURL.path],
       "RunAtLoad": true,
-      "KeepAlive": true,
+      "KeepAlive": ["SuccessfulExit": false],
       "StandardOutPath": logURL.path,
       "StandardErrorPath": logURL.path,
     ]

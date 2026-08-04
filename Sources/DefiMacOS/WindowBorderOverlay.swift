@@ -283,7 +283,7 @@ private final class BorderSegment {
     panel.ignoresMouseEvents = true
     panel.hasShadow = false
     panel.sharingType = .none
-    panel.level = .normal
+    panel.level = .floating
     panel.collectionBehavior = [
       .canJoinAllSpaces,
       .stationary,

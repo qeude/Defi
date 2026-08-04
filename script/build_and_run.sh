@@ -111,6 +111,7 @@ open_app() {
 
 start_runtime() {
   if [[ "$SERVICE_WAS_LOADED" -eq 1 ]]; then
+    "$INSTALLED_CLI" service install
     "$INSTALLED_CLI" service start
     sleep 0.2
     if ! /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1; then
@@ -131,6 +132,7 @@ case "$MODE" in
       lldb -- "$INSTALLED_BINARY"
       DEBUG_STATUS=$?
       set -e
+      "$INSTALLED_CLI" service install
       "$INSTALLED_CLI" service start
       exit "$DEBUG_STATUS"
     fi
