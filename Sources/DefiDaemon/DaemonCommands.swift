@@ -123,7 +123,12 @@ extension Daemon {
       if !switchesWorkspace,
         let monitorID = activeMonitorID ?? state.monitors.first?.id,
         let selected = state.selectedWindowID(on: monitorID),
-        selected != previouslySelectedWindowID
+        commandShouldFocusWindow(
+          command,
+          previousSelectedWindowID: previouslySelectedWindowID,
+          selectedWindowID: selected,
+          selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID)
+        )
       {
         if scrollAnimations.isEmpty,
           !platform.hasPendingAnimatedFrameWrites,

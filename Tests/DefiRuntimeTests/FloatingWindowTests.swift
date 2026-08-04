@@ -1,0 +1,152 @@
+import DefiConfig
+import DefiModel
+import XCTest
+
+@testable import DefiRuntime
+
+final class FloatingWindowTests: XCTestCase {
+  private let monitorID = MonitorID(rawValue: 1)
+
+  func testFloatingLayerActivationAndCyclingWrap() throws {
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    let tiled = window(40)
+    let floaters = [window(41, floating: true), window(42, floating: true)]
+    try discoverWindow(tiled, decision: RuleDecision(), state: &state)
+    for floater in floaters {
+      try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    }
+
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), tiled.id)
+    try reduce(.activateFloating, on: monitorID, state: &state)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[0].id)
+    try reduce(.focusFloating(.previous), on: monitorID, state: &state)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[1].id)
+    try reduce(.focusFloating(.next), on: monitorID, state: &state)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[0].id)
+  }
+
+  func testTiledCommandsPreserveFocusedFloaterWithoutColumns() throws {
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    let floaters = [window(43, floating: true), window(44, floating: true)]
+    for floater in floaters {
+      try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    }
+    try reduce(.activateFloating, on: monitorID, state: &state)
+    try reduce(.focusFloating(.next), on: monitorID, state: &state)
+
+    for command in [
+      Command.focusColumn(.next),
+      .focusWindow(.next),
+      .cycleWidth(.next),
+      .toggleFullscreen,
+    ] {
+      try reduce(command, on: monitorID, state: &state)
+      XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[1].id)
+      XCTAssertEqual(state.monitors[0].workspaces[0].focusedLayer, .floating)
+    }
+  }
+
+  func testToggleFloatingUsesFallbackSelectedFloaterWithoutColumns() throws {
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    let floaters = [window(50, floating: true), window(51, floating: true)]
+    for floater in floaters {
+      try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].focusedLayer = .tiled
+    state.monitors[0].workspaces[0].focusedFloatingWindow = 1
+
+    try reduce(.toggleFloating, on: monitorID, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].floatingWindows, [floaters[0].id])
+    XCTAssertEqual(state.monitors[0].workspaces[0].columns[0].windows, [floaters[1].id])
+    XCTAssertEqual(state.windows[floaters[1].id]?.floatingOrigin, .user)
+  }
+
+  func testTilingLastFocusedFloaterClampsRemainingSelection() throws {
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    let floaters = [window(52, floating: true), window(53, floating: true)]
+    for floater in floaters {
+      try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    }
+    try reduce(.activateFloating, on: monitorID, state: &state)
+    try reduce(.focusFloating(.next), on: monitorID, state: &state)
+
+    try reduce(.toggleFloating, on: monitorID, state: &state)
+    try reduce(.activateFloating, on: monitorID, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].focusedFloatingWindow, 0)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[0].id)
+  }
+
+  func testFloatingFocusCommandRequiresValidFloatingSelection() {
+    let tiled = WindowID(rawValue: 70)
+    let floating = WindowID(rawValue: 71)
+
+    XCTAssertFalse(
+      commandShouldFocusWindow(
+        .activateFloating,
+        previousSelectedWindowID: tiled,
+        selectedWindowID: tiled,
+        selectedFloatingWindowID: nil
+      )
+    )
+    XCTAssertTrue(
+      commandShouldFocusWindow(
+        .focusFloating(.next),
+        previousSelectedWindowID: floating,
+        selectedWindowID: floating,
+        selectedFloatingWindowID: floating
+      )
+    )
+  }
+
+  func testNativeFloatingFocusActivatesItsWorkspace() throws {
+    let tools = WorkspaceID(rawValue: "tools")
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
+    )
+    state.attachMonitor(monitorID)
+    let floater = window(60, floating: true)
+    try discoverWindow(
+      floater,
+      decision: RuleDecision(workspace: tools),
+      state: &state
+    )
+
+    XCTAssertTrue(focusWindow(floater.id, state: &state))
+    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
+  }
+
+  func testMoveFocusedFloaterPreservesLayer() throws {
+    let tools = WorkspaceID(rawValue: "tools")
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
+    )
+    state.attachMonitor(monitorID)
+    let floater = window(61, floating: true)
+    try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    try reduce(.activateFloating, on: monitorID, state: &state)
+
+    try reduce(.moveWindowToWorkspace(tools), on: monitorID, state: &state)
+
+    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
+    XCTAssertEqual(state.monitors[0].workspaces[1].floatingWindows, [floater.id])
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
+  }
+
+  private func window(_ rawValue: UInt64, floating: Bool = false) -> Window {
+    Window(
+      id: WindowID(rawValue: rawValue),
+      appID: "app-\(rawValue)",
+      title: "Window \(rawValue)",
+      frame: Rect(x: 100, y: 100, width: 500, height: 300),
+      monitorID: monitorID,
+      floating: floating
+    )
+  }
+}

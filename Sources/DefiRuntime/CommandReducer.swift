@@ -47,6 +47,7 @@ public func reduce(
     case .focusColumn(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         try focusColumn(
           direction,
           in: &state.monitors[monitorIndex].workspaces[index],
@@ -56,6 +57,7 @@ public func reduce(
     case .moveColumn(let direction), .moveWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         try moveFocusedWindow(
           direction,
           in: &state.monitors[monitorIndex].workspaces[index],
@@ -65,12 +67,14 @@ public func reduce(
     case .focusWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         try focusWindow(direction, in: &state.monitors[monitorIndex].workspaces[index])
       }
     case .cycleWidth(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
       if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         cycleWidth(
           of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
           direction: direction,
@@ -85,6 +89,7 @@ public func reduce(
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
       if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         toggleFullscreen(
           of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
           defaultWidth: layout.defaultColumnWidth
@@ -116,22 +121,33 @@ public func reduce(
       )
     case .joinWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
-      try joinFocusedWindow(
-        direction,
-        in: &state.monitors[monitorIndex].workspaces[index],
-        settings: layout
-      )
+      if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+        try joinFocusedWindow(
+          direction,
+          in: &state.monitors[monitorIndex].workspaces[index],
+          settings: layout
+        )
+      }
     case .unjoinWindows:
       let index = try workspaceIndex(state.monitors[monitorIndex])
-      try unjoinFocusedWindow(
-        in: &state.monitors[monitorIndex].workspaces[index],
-        settings: layout
-      )
+      if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+        try unjoinFocusedWindow(
+          in: &state.monitors[monitorIndex].workspaces[index],
+          settings: layout
+        )
+      }
     case .toggleFloating:
       try toggleFocusedFloating(monitorIndex: monitorIndex, state: &state)
     case .focusFloating(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       focusFloating(direction, workspace: &state.monitors[monitorIndex].workspaces[index])
+    case .activateFloating:
+      let index = try workspaceIndex(state.monitors[monitorIndex])
+      if !state.monitors[monitorIndex].workspaces[index].floatingWindows.isEmpty {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .floating
+      }
     case .runStartupCommands:
       break
     }
@@ -156,6 +172,24 @@ private func moveFocusedWindow(
     throw ReducerError.unknownWorkspace(workspaceID)
   }
   let source = state.monitors[monitorIndex].workspaces[sourceIndex]
+  if source.focusedLayer == .floating,
+    source.floatingWindows.indices.contains(source.focusedFloatingWindow)
+  {
+    let windowID = source.floatingWindows[source.focusedFloatingWindow]
+    removeWindow(
+      windowID,
+      from: &state.monitors[monitorIndex].workspaces[sourceIndex],
+      settings: state.layout
+    )
+    state.monitors[monitorIndex].workspaces[targetIndex].floatingWindows.append(windowID)
+    state.monitors[monitorIndex].workspaces[targetIndex].focusedFloatingWindow =
+      state.monitors[monitorIndex].workspaces[targetIndex].floatingWindows.count - 1
+    state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .floating
+    if follow {
+      state.monitors[monitorIndex].activeWorkspace = workspaceID
+    }
+    return
+  }
   guard source.columns.indices.contains(source.focusedColumn) else {
     throw ReducerError.noFocusedWindow
   }
@@ -188,10 +222,19 @@ private func toggleFocusedFloating(
   )
   guard let workspaceIndex else { throw ReducerError.noMonitor }
   var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
-  if workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow) {
-    let windowID = workspace.floatingWindows.remove(at: workspace.focusedFloatingWindow)
+  let hasSelectedTiledWindow = workspace.columns.indices.contains(workspace.focusedColumn)
+    && workspace.columns[workspace.focusedColumn].windows.indices.contains(
+      workspace.columns[workspace.focusedColumn].focusedWindow
+    )
+  if (workspace.focusedLayer == .floating || !hasSelectedTiledWindow),
+    workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
+  {
+    let windowID = workspace.floatingWindows[workspace.focusedFloatingWindow]
+    removeWindow(windowID, from: &workspace, settings: state.layout)
     insertNewWindow(windowID, into: &workspace, settings: state.layout)
     state.windows[windowID]?.floating = false
+    state.windows[windowID]?.floatingOrigin = .user
+    workspace.focusedLayer = .tiled
   } else if workspace.columns.indices.contains(workspace.focusedColumn) {
     let column = workspace.columns[workspace.focusedColumn]
     guard column.windows.indices.contains(column.focusedWindow) else {
@@ -202,6 +245,8 @@ private func toggleFocusedFloating(
     workspace.floatingWindows.append(windowID)
     workspace.focusedFloatingWindow = workspace.floatingWindows.count - 1
     state.windows[windowID]?.floating = true
+    state.windows[windowID]?.floatingOrigin = .user
+    workspace.focusedLayer = .floating
   } else {
     throw ReducerError.noFocusedWindow
   }
@@ -210,14 +255,15 @@ private func toggleFocusedFloating(
 
 private func focusFloating(_ direction: Direction, workspace: inout Workspace) {
   guard !workspace.floatingWindows.isEmpty else { return }
+  workspace.focusedLayer = .floating
   switch direction {
   case .left, .up, .previous:
-    workspace.focusedFloatingWindow = max(workspace.focusedFloatingWindow - 1, 0)
+    workspace.focusedFloatingWindow =
+      (workspace.focusedFloatingWindow - 1 + workspace.floatingWindows.count)
+      % workspace.floatingWindows.count
   case .right, .down, .next:
-    workspace.focusedFloatingWindow = min(
-      workspace.focusedFloatingWindow + 1,
-      workspace.floatingWindows.count - 1
-    )
+    workspace.focusedFloatingWindow =
+      (workspace.focusedFloatingWindow + 1) % workspace.floatingWindows.count
   case .first:
     workspace.focusedFloatingWindow = 0
   case .last:

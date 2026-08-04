@@ -121,26 +121,93 @@ private func windowTitleMatchRank(_ cgTitle: String, _ accessibilityTitle: Strin
   return cgTitle == accessibilityTitle ? 0 : 2
 }
 
-func shouldManageWindow(
+enum WindowDisposition: Equatable {
+  case tiled
+  case floating
+  case ignored
+}
+
+func floatingOrigin(
+  for disposition: WindowDisposition,
+  configuredFloating: Bool
+) -> FloatingOrigin? {
+  guard disposition == .floating else { return nil }
+  return configuredFloating ? .configured : .automatic
+}
+
+private let ignoredWindowApplicationIDs: Set<String> = [
+  "com.apple.dock",
+  "com.apple.systemuiserver",
+  "com.raycast.macos",
+]
+
+func classifyWindow(
   role: String?,
   subrole: String?,
   appID: String,
   hasCloseButton: Bool,
+  canResize: Bool,
+  configuredFloating: Bool,
   forceTiling: Bool
+) -> WindowDisposition {
+  if forceTiling { return .tiled }
+  if configuredFloating { return .floating }
+  if ignoredWindowApplicationIDs.contains(appID.lowercased()) { return .ignored }
+  if role == kAXSheetRole { return .floating }
+  guard role == kAXWindowRole else { return .ignored }
+  if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {
+    return .tiled
+  }
+  switch subrole {
+  case kAXStandardWindowSubrole,
+    "AXDialog",
+    "AXFloatingWindow",
+    "AXSystemDialog",
+    "AXSystemFloatingWindow":
+    return .floating
+  default:
+    return .ignored
+  }
+}
+
+func shouldDeferStandardWindowClassification(
+  role: String?,
+  subrole: String?,
+  closeButtonError: AXError,
+  sizeSettableError: AXError,
+  wasPreviouslyTracked: Bool
 ) -> Bool {
-  if forceTiling { return true }
-  guard role == kAXWindowRole,
-    subrole == kAXStandardWindowSubrole,
-    hasCloseButton
+  guard !wasPreviouslyTracked,
+    role == kAXWindowRole,
+    subrole == kAXStandardWindowSubrole
   else {
     return false
   }
-  let ignoredApps = [
-    "com.apple.dock",
-    "com.apple.systemuiserver",
-    "com.raycast.macos",
-  ]
-  return !ignoredApps.contains(appID.lowercased())
+  return axMetadataErrorIsTransient(closeButtonError)
+    || axMetadataErrorIsTransient(sizeSettableError)
+}
+
+func windowCanResize(
+  sizeSettableError: AXError,
+  isSettable: Bool
+) -> Bool {
+  switch sizeSettableError {
+  case .success:
+    isSettable
+  case .attributeUnsupported:
+    false
+  default:
+    true
+  }
+}
+
+private func axMetadataErrorIsTransient(_ error: AXError) -> Bool {
+  switch error {
+  case .success, .attributeUnsupported, .noValue:
+    false
+  default:
+    true
+  }
 }
 
 func shouldTreatWindowAsClosable(

@@ -136,10 +136,15 @@ public func removeWindow(
 ) -> Bool {
   if let index = workspace.floatingWindows.firstIndex(of: windowID) {
     workspace.floatingWindows.remove(at: index)
-    workspace.focusedFloatingWindow =
-      workspace.floatingWindows.isEmpty
-      ? 0
-      : min(workspace.focusedFloatingWindow, workspace.floatingWindows.count - 1)
+    if workspace.floatingWindows.isEmpty {
+      workspace.focusedFloatingWindow = 0
+      workspace.focusedLayer = .tiled
+    } else {
+      workspace.focusedFloatingWindow = min(
+        workspace.focusedFloatingWindow,
+        workspace.floatingWindows.count - 1
+      )
+    }
     return true
   }
 

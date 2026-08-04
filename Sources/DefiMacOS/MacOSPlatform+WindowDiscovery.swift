@@ -98,27 +98,51 @@ extension MacOSPlatform {
     )
   }
 
-  func shouldManage(
+  func windowDisposition(
     _ window: Window,
     element: AXUIElement,
+    configuredFloating: Bool,
     forceTiling: Bool,
-    wasPreviouslyManaged: Bool
-  ) -> Bool {
+    wasPreviouslyTracked: Bool
+  ) -> WindowDisposition {
     var closeButton: CFTypeRef?
     let closeButtonError = AXUIElementCopyAttributeValue(
       element,
       kAXCloseButtonAttribute as CFString,
       &closeButton
     )
-    return shouldManageWindow(
+    var sizeSettable = DarwinBoolean(false)
+    let sizeSettableError = AXUIElementIsAttributeSettable(
+      element,
+      kAXSizeAttribute as CFString,
+      &sizeSettable
+    )
+    if !configuredFloating,
+      !forceTiling,
+      shouldDeferStandardWindowClassification(
+        role: window.role,
+        subrole: window.subrole,
+        closeButtonError: closeButtonError,
+        sizeSettableError: sizeSettableError,
+        wasPreviouslyTracked: wasPreviouslyTracked
+      )
+    {
+      return .ignored
+    }
+    return classifyWindow(
       role: window.role,
       subrole: window.subrole,
       appID: window.appID,
       hasCloseButton: shouldTreatWindowAsClosable(
         error: closeButtonError,
         hasValue: closeButton != nil,
-        wasPreviouslyManaged: wasPreviouslyManaged
+        wasPreviouslyManaged: wasPreviouslyTracked
       ),
+      canResize: windowCanResize(
+        sizeSettableError: sizeSettableError,
+        isSettable: sizeSettable.boolValue
+      ),
+      configuredFloating: configuredFloating,
       forceTiling: forceTiling
     )
   }

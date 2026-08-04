@@ -49,6 +49,9 @@ final class HotKeyTests: XCTestCase {
       ("hyper-equal", 24),
       ("hyper-minus", 27),
       ("hyper-f", 3),
+      ("hyper-backslash", 42),
+      ("hyper-comma", 43),
+      ("hyper-period", 47),
     ]
     for (accelerator, code) in cases {
       let key = try Key(accelerator: accelerator, aliases: aliases)

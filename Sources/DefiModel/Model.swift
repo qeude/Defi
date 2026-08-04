@@ -50,6 +50,7 @@ public struct Window: Equatable, Codable, Sendable {
   public var monitorID: MonitorID?
   public var frame: Rect
   public var floating: Bool
+  public var floatingOrigin: FloatingOrigin?
   public var forceTiling: Bool
   public var intrinsicSize: Bool
 
@@ -63,6 +64,7 @@ public struct Window: Equatable, Codable, Sendable {
     processID: Int32? = nil,
     monitorID: MonitorID? = nil,
     floating: Bool = false,
+    floatingOrigin: FloatingOrigin? = nil,
     forceTiling: Bool = false,
     intrinsicSize: Bool = false
   ) {
@@ -75,9 +77,16 @@ public struct Window: Equatable, Codable, Sendable {
     self.monitorID = monitorID
     self.frame = frame
     self.floating = floating
+    self.floatingOrigin = floatingOrigin
     self.forceTiling = forceTiling
     self.intrinsicSize = intrinsicSize
   }
+}
+
+public enum FloatingOrigin: String, Equatable, Codable, Sendable {
+  case automatic
+  case configured
+  case user
 }
 
 public enum ColumnWidth: Equatable, Codable, Sendable {
@@ -121,6 +130,7 @@ public struct Workspace: Equatable, Codable, Sendable {
   public var columns: [Column]
   public var floatingWindows: [WindowID]
   public var focusedFloatingWindow: Int
+  public var focusedLayer: WindowFocusLayer
   public var focusedColumn: Int
   public var scrollOffset: Double
   public var targetScrollOffset: Double
@@ -130,6 +140,7 @@ public struct Workspace: Equatable, Codable, Sendable {
     columns: [Column] = [],
     floatingWindows: [WindowID] = [],
     focusedFloatingWindow: Int = 0,
+    focusedLayer: WindowFocusLayer = .tiled,
     focusedColumn: Int = 0,
     scrollOffset: Double = 0,
     targetScrollOffset: Double = 0
@@ -138,10 +149,16 @@ public struct Workspace: Equatable, Codable, Sendable {
     self.columns = columns
     self.floatingWindows = floatingWindows
     self.focusedFloatingWindow = focusedFloatingWindow
+    self.focusedLayer = focusedLayer
     self.focusedColumn = focusedColumn
     self.scrollOffset = scrollOffset
     self.targetScrollOffset = targetScrollOffset
   }
+}
+
+public enum WindowFocusLayer: String, Equatable, Codable, Sendable {
+  case tiled
+  case floating
 }
 
 public struct Monitor: Equatable, Codable, Sendable {
@@ -179,6 +196,7 @@ public enum Command: Equatable, Codable, Sendable {
   case cycleWidth(Direction)
   case toggleFullscreen
   case toggleFloating
+  case activateFloating
   case joinWindow(Direction)
   case unjoinWindows
   case runStartupCommands
@@ -195,6 +213,15 @@ public enum Command: Equatable, Codable, Sendable {
   public var activatesWorkspace: Bool {
     switch self {
     case .switchWorkspace, .moveWindowToWorkspace:
+      true
+    default:
+      false
+    }
+  }
+
+  public var explicitlyFocusesFloating: Bool {
+    switch self {
+    case .activateFloating, .focusFloating:
       true
     default:
       false
@@ -263,6 +290,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .toggleFullscreen
   case "toggle-floating":
     return .toggleFloating
+  case "activate-floating":
+    return .activateFloating
   case "join-window":
     return .joinWindow(try parseDirection(argument("direction")))
   case "unjoin-windows":

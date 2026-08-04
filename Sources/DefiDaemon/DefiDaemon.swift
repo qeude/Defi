@@ -97,6 +97,7 @@ final class Daemon: NSObject {
   var targetMismatches: [FrameMismatch] = []
   var activelyResizedWindowID: WindowID?
   var persistentWidthDriftCounts: [WindowID: Int] = [:]
+  var floatingWindowFrames: [WindowID: Rect] = [:]
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
   var animationFrameCount = 0
   var currentAnimationFrameCount = 0

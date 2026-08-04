@@ -51,6 +51,7 @@ final class ModelTests: XCTestCase {
     )
     XCTAssertEqual(try parseCommand("toggle-fullscreen"), .toggleFullscreen)
     XCTAssertEqual(try parseCommand("toggle-floating"), .toggleFloating)
+    XCTAssertEqual(try parseCommand("activate-floating"), .activateFloating)
   }
 
   func testRejectsInvalidMoveDirection() {
@@ -64,5 +65,11 @@ final class ModelTests: XCTestCase {
     XCTAssertTrue(Command.toggleFullscreen.resizesManagedLayout)
     XCTAssertFalse(Command.focusColumn(.right).resizesManagedLayout)
     XCTAssertFalse(Command.toggleFloating.resizesManagedLayout)
+  }
+
+  func testFloatingFocusCommandsRequestExplicitFocus() {
+    XCTAssertTrue(Command.activateFloating.explicitlyFocusesFloating)
+    XCTAssertTrue(Command.focusFloating(.next).explicitlyFocusesFloating)
+    XCTAssertFalse(Command.toggleFloating.explicitlyFocusesFloating)
   }
 }

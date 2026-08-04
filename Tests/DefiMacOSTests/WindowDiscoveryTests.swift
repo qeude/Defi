@@ -84,27 +84,69 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
-  func testStandardClosableWindowIsManaged() {
-    XCTAssertTrue(
-      shouldManageWindow(
+  func testStandardClosableResizableWindowIsTiled() {
+    XCTAssertEqual(
+      classifyWindow(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
         appID: "net.imput.helium",
         hasCloseButton: true,
+        canResize: true,
+        configuredFloating: false,
         forceTiling: false
-      )
+      ),
+      .tiled
     )
   }
 
-  func testControlLessPictureInPictureWindowIsUnmanaged() {
-    XCTAssertFalse(
-      shouldManageWindow(
+  func testControlLessPictureInPictureWindowFloats() {
+    XCTAssertEqual(
+      classifyWindow(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
         appID: "net.imput.helium",
         hasCloseButton: false,
+        canResize: false,
+        configuredFloating: false,
         forceTiling: false
+      ),
+      .floating
+    )
+  }
+
+  func testSystemDialogsAndSheetsFloatByDefault() {
+    for (role, subrole) in [
+      (kAXWindowRole, "AXSystemDialog"),
+      (kAXWindowRole, "AXFloatingWindow"),
+      (kAXSheetRole, nil),
+    ] {
+      XCTAssertEqual(
+        classifyWindow(
+          role: role,
+          subrole: subrole,
+          appID: "com.example.app",
+          hasCloseButton: false,
+          canResize: false,
+          configuredFloating: false,
+          forceTiling: false
+        ),
+        .floating
       )
+    }
+  }
+
+  func testConfiguredFloatingTracksUnknownAuxiliaryWindow() {
+    XCTAssertEqual(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXUnknownSubrole,
+        appID: "com.example.app",
+        hasCloseButton: false,
+        canResize: false,
+        configuredFloating: true,
+        forceTiling: false
+      ),
+      .floating
     )
   }
 
@@ -125,6 +167,42 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testTransientMetadataFailureDefersNewStandardWindow() {
+    XCTAssertTrue(
+      shouldDeferStandardWindowClassification(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        closeButtonError: .cannotComplete,
+        sizeSettableError: .success,
+        wasPreviouslyTracked: false
+      )
+    )
+    XCTAssertFalse(
+      shouldDeferStandardWindowClassification(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        closeButtonError: .cannotComplete,
+        sizeSettableError: .success,
+        wasPreviouslyTracked: true
+      )
+    )
+  }
+
+  func testUnsupportedSizeAttributeMeansFixedSize() {
+    XCTAssertFalse(
+      windowCanResize(
+        sizeSettableError: .attributeUnsupported,
+        isSettable: false
+      )
+    )
+    XCTAssertTrue(
+      windowCanResize(
+        sizeSettableError: .cannotComplete,
+        isSettable: false
+      )
+    )
+  }
+
   func testMissingCloseButtonRemainsUnmanaged() {
     XCTAssertFalse(
       shouldTreatWindowAsClosable(
@@ -136,14 +214,17 @@ final class WindowDiscoveryTests: XCTestCase {
   }
 
   func testForceTilingOverridesWindowShapeFilter() {
-    XCTAssertTrue(
-      shouldManageWindow(
+    XCTAssertEqual(
+      classifyWindow(
         role: kAXWindowRole,
         subrole: kAXUnknownSubrole,
         appID: "net.imput.helium",
         hasCloseButton: false,
+        canResize: false,
+        configuredFloating: false,
         forceTiling: true
-      )
+      ),
+      .tiled
     )
   }
 

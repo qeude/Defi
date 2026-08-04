@@ -17,7 +17,12 @@ public func discoverWindow(
   }
 
   var window = original
-  window.floating = decision.floating
+  window.floating = (original.floating || decision.floating) && !decision.forceTiling
+  if decision.forceTiling {
+    window.floatingOrigin = nil
+  } else if decision.floating {
+    window.floatingOrigin = .configured
+  }
   window.forceTiling = decision.forceTiling
   window.intrinsicSize = decision.intrinsicSize
   let preferredMonitorID = placement?.monitorID.flatMap { preferred in
@@ -81,6 +86,7 @@ public func reconcileWindows(
       var updated = window
       if let existing = state.windows[window.id] {
         updated.floating = existing.floating
+        updated.floatingOrigin = existing.floatingOrigin
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
         if existing.intrinsicSize {

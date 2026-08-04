@@ -222,4 +222,39 @@ final class PlacementPreferencesTests: XCTestCase {
     )
   }
 
+  func testAutomaticFloatersDoNotAffectPlacementPreferences() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let normal = Window(
+      id: WindowID(rawValue: 10),
+      appID: "com.example.chat",
+      title: "Chat",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    let automatic = Window(
+      id: WindowID(rawValue: 11),
+      appID: normal.appID,
+      title: "Updating",
+      frame: Rect(x: 100, y: 100, width: 400, height: 300),
+      monitorID: monitorID,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    try discoverWindow(normal, decision: RuleDecision(), state: &state)
+    try discoverWindow(
+      automatic,
+      decision: RuleDecision(workspace: WorkspaceID(rawValue: "web")),
+      state: &state
+    )
+    var preferences = PlacementPreferences()
+
+    preferences.recordPlacements(from: state)
+
+    XCTAssertEqual(
+      preferences.applications[normal.appID]?.workspaceID,
+      WorkspaceID(rawValue: "dev")
+    )
+  }
 }
