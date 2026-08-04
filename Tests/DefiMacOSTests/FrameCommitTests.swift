@@ -91,7 +91,8 @@ final class FrameCommitTests: XCTestCase {
         expectedGeneration: 4,
         currentGeneration: 4,
         repairsSuspended: false,
-        leftMouseButtonDown: false
+        leftMouseButtonDown: false,
+        animationRunning: false
       )
     )
     XCTAssertFalse(
@@ -99,7 +100,8 @@ final class FrameCommitTests: XCTestCase {
         expectedGeneration: 4,
         currentGeneration: 5,
         repairsSuspended: false,
-        leftMouseButtonDown: false
+        leftMouseButtonDown: false,
+        animationRunning: false
       )
     )
     XCTAssertFalse(
@@ -107,7 +109,8 @@ final class FrameCommitTests: XCTestCase {
         expectedGeneration: 4,
         currentGeneration: 4,
         repairsSuspended: true,
-        leftMouseButtonDown: false
+        leftMouseButtonDown: false,
+        animationRunning: false
       )
     )
     XCTAssertFalse(
@@ -115,7 +118,17 @@ final class FrameCommitTests: XCTestCase {
         expectedGeneration: 4,
         currentGeneration: 4,
         repairsSuspended: false,
-        leftMouseButtonDown: true
+        leftMouseButtonDown: true,
+        animationRunning: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: false,
+        leftMouseButtonDown: false,
+        animationRunning: true
       )
     )
   }

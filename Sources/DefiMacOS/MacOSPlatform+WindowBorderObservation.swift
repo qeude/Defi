@@ -17,11 +17,13 @@ extension MacOSPlatform {
     guard eventMonitor == nil else { return }
     let monitor = PlatformEventMonitor(
       handler: { [weak self] kind, processID in
-        if (kind == .windows || kind == .applicationTerminated),
-          self?.windowTopologyEventPending == false
-        {
-          self?.pendingWindowTopologyInputTimestamp =
-            self?.userInputTracker.latestEventTimestamp
+        if let self {
+          pendingWindowTopologyInputTimestamp =
+            updatedWindowTopologyInputTimestamp(
+              for: kind,
+              latestInputTimestamp: userInputTracker.latestEventTimestamp,
+              previousTimestamp: pendingWindowTopologyInputTimestamp
+            )
         }
         switch windowSnapshotInvalidation(for: kind, processID: processID) {
         case .process(let processID):

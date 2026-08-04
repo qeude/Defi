@@ -75,10 +75,12 @@ func initialSettlementRepairIsCurrent(
   expectedGeneration: UInt64,
   currentGeneration: UInt64?,
   repairsSuspended: Bool,
-  leftMouseButtonDown: Bool
+  leftMouseButtonDown: Bool,
+  animationRunning: Bool
 ) -> Bool {
   !repairsSuspended
     && !leftMouseButtonDown
+    && !animationRunning
     && currentGeneration == expectedGeneration
 }
 

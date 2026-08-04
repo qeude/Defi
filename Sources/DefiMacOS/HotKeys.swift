@@ -197,9 +197,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
         )
         focusIntent = .mouse(
-          windowID: rawWindowID > 0
-            ? WindowID(rawValue: UInt64(rawWindowID))
-            : nil
+          windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
         )
       } else if commandPressed && code == Self.commandTabKeyCode {
         focusIntent = .keyboard

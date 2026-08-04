@@ -172,6 +172,69 @@ struct PlatformEventTests {
   }
 
   @Test
+  func focusRecoveryExcludesGuardedFallbackObservations() throws {
+    let tracker = UserInputTracker()
+    let fallbackWindowID = WindowID(rawValue: 40)
+    let intendedWindowID = WindowID(rawValue: 50)
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: intendedWindowID, processID: 400)
+    tracker.recordObservedFocus(windowID: fallbackWindowID, processID: 400)
+
+    let target = try #require(
+      tracker.focusRecoveryTarget(
+        after: 11,
+        excludingWindowID: fallbackWindowID,
+        excludingProcessID: 400
+      )
+    )
+    #expect(target.windowID == intendedWindowID)
+    #expect(target.processID == 400)
+  }
+
+  @Test
+  func focusRecoveryExcludesPidOnlyFallbackObservation() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: WindowID(rawValue: 50), processID: 500)
+    tracker.recordObservedFocus(windowID: nil, processID: 400)
+
+    let target = tracker.focusRecoveryTarget(
+      after: 11,
+      excludingWindowID: WindowID(rawValue: 40),
+      excludingProcessID: 400
+    )
+    #expect(target?.windowID == WindowID(rawValue: 50))
+    #expect(target?.processID == 500)
+  }
+
+  @Test
+  func globalMouseFallbackRetainsTargetWindowIdentity() {
+    #expect(
+      mouseFocusIntentWindowID(rawWindowID: 42)
+        == WindowID(rawValue: 42)
+    )
+    #expect(mouseFocusIntentWindowID(rawWindowID: 0) == nil)
+  }
+
+  @Test
+  func laterWindowTopologyEventRefreshesInputTimestamp() {
+    #expect(
+      updatedWindowTopologyInputTimestamp(
+        for: .windows,
+        latestInputTimestamp: 20,
+        previousTimestamp: 10
+      ) == 20
+    )
+    #expect(
+      updatedWindowTopologyInputTimestamp(
+        for: .focus,
+        latestInputTimestamp: 30,
+        previousTimestamp: 20
+      ) == 20
+    )
+  }
+
+  @Test
   func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
     #expect(
       windowSnapshotInvalidation(

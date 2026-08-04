@@ -42,13 +42,17 @@ public final class UserInputTracker: @unchecked Sendable {
     public let latestCloseIntent: TimeInterval
   }
 
+  private struct ObservedFocusTarget: Equatable {
+    let windowID: WindowID?
+    let processID: pid_t?
+  }
+
   private let lock = NSLock()
   private var latestTimestamp: TimeInterval = 0
   private var latestFocusIntent: FocusIntent?
   private var latestCloseIntentTimestamp: TimeInterval = 0
   private var observedFocusIntentTimestamp: TimeInterval = 0
-  private var observedFocusWindowID: WindowID?
-  private var observedFocusProcessID: pid_t?
+  private var observedFocusTargets: [ObservedFocusTarget] = []
 
   public init() {}
 
@@ -62,6 +66,10 @@ public final class UserInputTracker: @unchecked Sendable {
     if let focusIntent,
       latestFocusIntent.map({ timestamp >= $0.timestamp }) ?? true
     {
+      if latestFocusIntent.map({ timestamp > $0.timestamp }) ?? true {
+        observedFocusIntentTimestamp = 0
+        observedFocusTargets.removeAll(keepingCapacity: true)
+      }
       latestFocusIntent = FocusIntent(
         timestamp: timestamp,
         source: focusIntent
@@ -80,21 +88,41 @@ public final class UserInputTracker: @unchecked Sendable {
     lock.lock()
     guard let focusIntent = latestFocusIntent,
       focusIntent.timestamp > latestCloseIntentTimestamp,
-      focusIntent.timestamp > observedFocusIntentTimestamp
-        || (focusIntent.timestamp == observedFocusIntentTimestamp
-          && observedFocusWindowID == nil && windowID != nil)
+      windowID != nil || processID != nil
     else {
       lock.unlock()
       return
     }
-    observedFocusIntentTimestamp = focusIntent.timestamp
-    observedFocusWindowID = windowID
-    observedFocusProcessID = processID
+    if observedFocusIntentTimestamp != focusIntent.timestamp {
+      observedFocusIntentTimestamp = focusIntent.timestamp
+      observedFocusTargets.removeAll(keepingCapacity: true)
+    }
+    let target = ObservedFocusTarget(
+      windowID: windowID,
+      processID: processID
+    )
+    if let windowID,
+      let index = observedFocusTargets.lastIndex(where: {
+        $0.windowID == nil && $0.processID == processID
+      })
+    {
+      observedFocusTargets[index] = ObservedFocusTarget(
+        windowID: windowID,
+        processID: processID
+      )
+    } else if !observedFocusTargets.contains(target) {
+      observedFocusTargets.append(target)
+      if observedFocusTargets.count > 8 {
+        observedFocusTargets.removeFirst()
+      }
+    }
     lock.unlock()
   }
 
   public func focusRecoveryTarget(
-    after timestamp: TimeInterval
+    after timestamp: TimeInterval,
+    excludingWindowID: WindowID? = nil,
+    excludingProcessID: pid_t? = nil
   ) -> FocusRecoveryTarget? {
     lock.lock()
     defer { lock.unlock() }
@@ -109,10 +137,24 @@ public final class UserInputTracker: @unchecked Sendable {
       guard observedFocusIntentTimestamp == focusIntent.timestamp else {
         return nil
       }
+      guard let target = observedFocusTargets.reversed().first(where: {
+        if let excludingWindowID, $0.windowID == excludingWindowID {
+          return false
+        }
+        if $0.windowID == nil,
+          let excludingProcessID,
+          $0.processID == excludingProcessID
+        {
+          return false
+        }
+        return true
+      }) else {
+        return nil
+      }
       return FocusRecoveryTarget(
         timestamp: focusIntent.timestamp,
-        windowID: observedFocusWindowID,
-        processID: observedFocusProcessID
+        windowID: target.windowID,
+        processID: target.processID
       )
     case .mouse(let windowID):
       guard let windowID else { return nil }
@@ -138,6 +180,24 @@ public final class UserInputTracker: @unchecked Sendable {
       latestFocusIntent: latestFocusIntent,
       latestCloseIntent: latestCloseIntentTimestamp
     )
+  }
+}
+
+func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {
+  guard rawWindowID > 0 else { return nil }
+  return WindowID(rawValue: UInt64(rawWindowID))
+}
+
+func updatedWindowTopologyInputTimestamp(
+  for kind: PlatformEventKind,
+  latestInputTimestamp: TimeInterval,
+  previousTimestamp: TimeInterval?
+) -> TimeInterval? {
+  switch kind {
+  case .windows, .applicationTerminated:
+    return latestInputTimestamp
+  case .application, .focus, .frame, .mouse, .screens:
+    return previousTimestamp
   }
 }
 

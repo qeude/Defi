@@ -97,8 +97,14 @@ final class PlatformEventMonitor {
       MainActor.assumeIsolated {
         guard let self else { return }
         if event.type == .leftMouseDown {
+          let rawWindowID = event.cgEvent?.getIntegerValueField(
+            .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+          ) ?? Int64(event.windowNumber)
           self.userInputTracker.record(
-            timestamp: event.timestamp
+            timestamp: event.timestamp,
+            focusIntent: .mouse(
+              windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+            )
           )
         }
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {

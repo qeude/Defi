@@ -648,10 +648,14 @@ final class AXFrameCoordinator: @unchecked Sendable {
       (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
     lock.lock()
     activeAnimationRunning = false
+    let settlementWindowIDs = Array(initialSettlementTargets.keys)
     appendTraceLocked(
       "visual-complete g=\(generation) ms=\(String(format: "%.2f", elapsedMS))"
     )
     lock.unlock()
+    for windowID in settlementWindowIDs {
+      requestInitialSettlementVerification(windowID: windowID)
+    }
   }
 
   private func applyFrame(
@@ -981,7 +985,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
         expectedGeneration: settlementTarget.generation,
         currentGeneration: settlementTarget.generation,
         repairsSuspended: initialSettlementRepairsSuspended,
-        leftMouseButtonDown: leftMouseButtonDown
+        leftMouseButtonDown: leftMouseButtonDown,
+        animationRunning: activeAnimationRunning
+          || (pending?.animationDuration ?? 0) > 0
       )
     else {
       lock.unlock()
@@ -1111,7 +1117,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
       expectedGeneration: generation,
       currentGeneration: currentTarget.generation,
       repairsSuspended: initialSettlementRepairsSuspended,
-      leftMouseButtonDown: leftMouseButtonDown
+      leftMouseButtonDown: leftMouseButtonDown,
+      animationRunning: activeAnimationRunning
+        || (pending?.animationDuration ?? 0) > 0
     )
   }
 

@@ -75,14 +75,26 @@ extension MacOSPlatform {
           break
         case .cancelledAfterMutation:
           guard let maximumUserInputTimestamp else { return }
-          self?.recoverUserFocus(after: maximumUserInputTimestamp)
+          self?.recoverUserFocus(
+            after: maximumUserInputTimestamp,
+            excludingWindowID: windowID,
+            excludingProcessID: processID
+          )
         }
       }
     }
   }
 
-  private func recoverUserFocus(after timestamp: TimeInterval) {
-    guard let target = userInputTracker.focusRecoveryTarget(after: timestamp),
+  private func recoverUserFocus(
+    after timestamp: TimeInterval,
+    excludingWindowID: WindowID,
+    excludingProcessID: pid_t
+  ) {
+    guard let target = userInputTracker.focusRecoveryTarget(
+      after: timestamp,
+      excludingWindowID: excludingWindowID,
+      excludingProcessID: excludingProcessID
+    ),
       userInputTracker.latestEventTimestamp <= target.timestamp
     else {
       return
