@@ -13,13 +13,18 @@ enum ServiceManager {
       try? FileManager.default.removeItem(at: plistURL)
       print("uninstalled")
     case "start":
-      if !FileManager.default.fileExists(atPath: plistURL.path) {
-        try install()
-      }
-      if !isLoaded() {
-        try bootstrapWithRetry()
-      } else {
-        try launchctl(["kickstart", "\(domain)/\(label)"])
+      for action in serviceStartActions(
+        plistExists: FileManager.default.fileExists(atPath: plistURL.path),
+        isLoaded: isLoaded()
+      ) {
+        switch action {
+        case .install:
+          try install()
+        case .bootstrap:
+          try bootstrapWithRetry()
+        case .kickstart:
+          try launchctl(["kickstart", "\(domain)/\(label)"])
+        }
       }
       print("started")
     case "stop":
@@ -129,6 +134,19 @@ enum ServiceManager {
     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: "Library/Logs/Defi.log")
   }
+}
+
+enum ServiceStartAction: Equatable, Sendable {
+  case install
+  case bootstrap
+  case kickstart
+}
+
+func serviceStartActions(
+  plistExists _: Bool,
+  isLoaded: Bool
+) -> [ServiceStartAction] {
+  isLoaded ? [.kickstart] : [.install, .bootstrap]
 }
 
 enum ServiceError: Error, CustomStringConvertible {

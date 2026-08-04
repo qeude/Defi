@@ -108,6 +108,10 @@ final class BorderOverlay {
 
   var opacity: Double { Double(opacityValue) }
 
+  var windowLevelRawValues: [Int] {
+    segments.values.map(\.windowLevelRawValue)
+  }
+
   init(windowID: WindowID) {
     targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(
@@ -140,8 +144,9 @@ final class BorderOverlay {
     captureEnabled: Bool
   ) -> Bool {
     let radius = borderCornerRadius(windowRadius: windowRadius)
-    guard windowFrame != frame || self.width != width || self.radius != radius
-      || self.captureEnabled != captureEnabled
+    guard
+      windowFrame != frame || self.width != width || self.radius != radius
+        || self.captureEnabled != captureEnabled
     else {
       return false
     }
@@ -212,6 +217,12 @@ final class BorderOverlay {
     }
   }
 
+  func setFrontmost(_ frontmost: Bool) {
+    for segment in segments.values {
+      segment.setFrontmost(frontmost)
+    }
+  }
+
   private func updateColor(_ color: UInt32) {
     guard self.color != color else { return }
     for segment in segments.values {
@@ -261,6 +272,7 @@ private final class BorderSegment {
   private var orderedIn = false
 
   var windowNumber: Int { panel.windowNumber }
+  var windowLevelRawValue: Int { panel.level.rawValue }
 
   var estimatedSurfacePixels: Int {
     guard let frame else { return 0 }
@@ -283,7 +295,7 @@ private final class BorderSegment {
     panel.ignoresMouseEvents = true
     panel.hasShadow = false
     panel.sharingType = .none
-    panel.level = .floating
+    panel.level = .normal
     panel.collectionBehavior = [
       .canJoinAllSpaces,
       .stationary,
@@ -388,6 +400,15 @@ private final class BorderSegment {
     panel.alphaValue = 0
     panel.order(.above, relativeTo: targetWindowNumber)
     orderedIn = true
+  }
+
+  func setFrontmost(_ frontmost: Bool) {
+    let level: NSWindow.Level = frontmost ? .floating : .normal
+    guard panel.level != level else { return }
+    panel.level = level
+    if frontmost == false, orderedIn {
+      panel.order(.above, relativeTo: targetWindowNumber)
+    }
   }
 
   func applyCompositorFallback() {
