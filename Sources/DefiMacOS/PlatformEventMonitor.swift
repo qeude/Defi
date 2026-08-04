@@ -97,7 +97,10 @@ final class PlatformEventMonitor {
       MainActor.assumeIsolated {
         guard let self else { return }
         if event.type == .leftMouseDown {
-          self.userInputTracker.record(timestamp: event.timestamp)
+          self.userInputTracker.record(
+            timestamp: event.timestamp,
+            focusIntent: true
+          )
         }
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {
           self.liveFrameHandler()

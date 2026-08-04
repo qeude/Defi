@@ -41,8 +41,19 @@ extension MacOSPlatform {
         if kind == .frame || kind == .mouse {
           self?.frameEventPending = true
         }
+        if kind == .frame {
+          if let processID {
+            self?.pendingFrameProcessIDs.insert(processID)
+          } else {
+            self?.pendingFrameRequiresFullSnapshot = true
+          }
+        }
         if kind == .mouse {
           self?.mouseResizeGesturePending = true
+          self?.pendingFrameRequiresFullSnapshot = true
+          if self?.isLeftMouseButtonDown == true {
+            self?.frameCoordinator.suspendInitialSettlementRepairs()
+          }
         }
         if kind == .focus {
           self?.nativeFocusEventPending = true

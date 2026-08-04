@@ -53,20 +53,35 @@ func initialFrameNeedsRepair(
     || abs(actual.height - target.height) > tolerance
 }
 
+func initialSettlementRepairIsCurrent(
+  expectedGeneration: UInt64,
+  currentGeneration: UInt64?,
+  repairsSuspended: Bool,
+  leftMouseButtonDown: Bool
+) -> Bool {
+  !repairsSuspended
+    && !leftMouseButtonDown
+    && currentGeneration == expectedGeneration
+}
+
 func incrementalWindowRefreshProcessIDs(
   hasCompletedSnapshot: Bool,
   eventPending: Bool,
   requiresFullSnapshot: Bool,
-  processIDs: Set<pid_t>
+  processIDs: Set<pid_t>,
+  coalescedProcessIDs: Set<pid_t> = [],
+  coalescedEventRequiresFullSnapshot: Bool = false
 ) -> Set<pid_t>? {
+  let affectedProcessIDs = processIDs.union(coalescedProcessIDs)
   guard hasCompletedSnapshot,
     eventPending,
     !requiresFullSnapshot,
-    !processIDs.isEmpty
+    !coalescedEventRequiresFullSnapshot,
+    !affectedProcessIDs.isEmpty
   else {
     return nil
   }
-  return processIDs
+  return affectedProcessIDs
 }
 
 func frameIsOnExpectedCommitPath(
@@ -205,6 +220,11 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let isParked: Bool
   let isReentering: Bool
   let requiresVerifiedOffscreenWrite: Bool
+}
+
+struct InitialSettlementTarget: @unchecked Sendable {
+  let generation: UInt64
+  let write: AsyncPositionWrite
 }
 
 struct QueuedPositionFrame: @unchecked Sendable {

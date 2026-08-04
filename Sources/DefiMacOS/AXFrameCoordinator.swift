@@ -34,7 +34,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
   private var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
   private var completedParkingChecks = 0
   private var repairedParkingDrifts = 0
-  private var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
+  private var initialSettlementTargets: [WindowID: InitialSettlementTarget] = [:]
+  private var nextInitialSettlementGeneration: UInt64 = 0
+  private var initialSettlementRepairsSuspended = false
   private var pendingInitialSettlementEventChecks = Set<WindowID>()
   private var completedInitialSettlementChecks = 0
   private var repairedInitialSettlementDrifts = 0
@@ -49,25 +51,51 @@ final class AXFrameCoordinator: @unchecked Sendable {
   }
 
   func updateInitialSettlementTargets(
-    _ targets: [WindowID: AsyncPositionWrite]
+    _ targets: [WindowID: AsyncPositionWrite],
+    repairsSuspended: Bool
   ) {
     lock.lock()
-    let changedWindowIDs = targets.compactMap { windowID, target -> WindowID? in
-      guard let previous = initialSettlementTargets[windowID] else {
-        return windowID
+    let wasSuspended = initialSettlementRepairsSuspended
+    initialSettlementRepairsSuspended = repairsSuspended
+    var nextTargets: [WindowID: InitialSettlementTarget] = [:]
+    var changedWindowIDs = Set<WindowID>()
+    for (windowID, write) in targets {
+      if let previous = initialSettlementTargets[windowID],
+        sameFrameTarget(previous.write, write)
+      {
+        nextTargets[windowID] = InitialSettlementTarget(
+          generation: previous.generation,
+          write: write
+        )
+      } else {
+        nextInitialSettlementGeneration &+= 1
+        nextTargets[windowID] = InitialSettlementTarget(
+          generation: nextInitialSettlementGeneration,
+          write: write
+        )
+        changedWindowIDs.insert(windowID)
       }
-      return sameFrameTarget(previous, target) ? nil : windowID
     }
-    initialSettlementTargets = targets
+    initialSettlementTargets = nextTargets
+    if wasSuspended && !repairsSuspended {
+      changedWindowIDs.formUnion(nextTargets.keys)
+    }
     lock.unlock()
     for windowID in changedWindowIDs {
       scheduleInitialSettlementVerification(windowID: windowID)
     }
   }
 
+  func suspendInitialSettlementRepairs() {
+    lock.lock()
+    initialSettlementRepairsSuspended = true
+    lock.unlock()
+  }
+
   func requestInitialSettlementVerification(windowID: WindowID) {
     lock.lock()
-    guard initialSettlementTargets[windowID] != nil,
+    guard !initialSettlementRepairsSuspended,
+      initialSettlementTargets[windowID] != nil,
       pendingInitialSettlementEventChecks.insert(windowID).inserted
     else {
       lock.unlock()
@@ -93,6 +121,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     completedSizes.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
+    initialSettlementRepairsSuspended = false
     pendingInitialSettlementEventChecks.removeAll(keepingCapacity: true)
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
@@ -919,11 +948,23 @@ final class AXFrameCoordinator: @unchecked Sendable {
   }
 
   private func verifyInitialSettlementTarget(windowID: WindowID) {
+    let leftMouseButtonDown = CGEventSource.buttonState(
+      .combinedSessionState,
+      button: .left
+    )
     lock.lock()
-    guard let write = initialSettlementTargets[windowID] else {
+    guard let settlementTarget = initialSettlementTargets[windowID],
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: settlementTarget.generation,
+        currentGeneration: settlementTarget.generation,
+        repairsSuspended: initialSettlementRepairsSuspended,
+        leftMouseButtonDown: leftMouseButtonDown
+      )
+    else {
       lock.unlock()
       return
     }
+    let write = settlementTarget.write
     lock.unlock()
 
     AXUIElementSetMessagingTimeout(write.application, 0.025)
@@ -953,25 +994,42 @@ final class AXFrameCoordinator: @unchecked Sendable {
     completedInitialSettlementChecks += 1
     lock.unlock()
     guard initialFrameNeedsRepair(actual: actual, target: target) else {
-      clearInitialSettlementTarget(windowID: windowID, matching: write)
+      clearInitialSettlementTarget(
+        windowID: windowID,
+        matchingGeneration: settlementTarget.generation
+      )
       return
     }
-    lock.lock()
-    let targetIsCurrent = initialSettlementTargets[windowID].map {
-      sameFrameTarget($0, write)
-    } ?? false
-    lock.unlock()
-    guard targetIsCurrent else { return }
+    guard isInitialSettlementTargetCurrent(
+      windowID: windowID,
+      generation: settlementTarget.generation
+    ) else { return }
 
     let sizeChanged = abs(actual.width - target.width) > 1
       || abs(actual.height - target.height) > 1
     let positionChanged = abs(actual.x - target.x) > 1
       || abs(actual.y - target.y) > 1
-    let sizeApplied = !sizeChanged
-      || accessibilityWriter.applySize(write, size: write.size)
-    let positionApplied = !positionChanged
-      || accessibilityWriter.applyPosition(write, point: write.point)
-    guard sizeApplied && positionApplied else { return }
+    if sizeChanged {
+      guard isInitialSettlementTargetCurrent(
+        windowID: windowID,
+        generation: settlementTarget.generation
+      ), accessibilityWriter.applySize(write, size: write.size)
+      else { return }
+    }
+    if positionChanged {
+      guard isInitialSettlementTargetCurrent(
+        windowID: windowID,
+        generation: settlementTarget.generation
+      ), accessibilityWriter.applyPosition(write, point: write.point)
+      else { return }
+    }
+    guard isInitialSettlementTargetCurrent(
+      windowID: windowID,
+      generation: settlementTarget.generation
+    ) else {
+      requestInitialSettlementVerification(windowID: windowID)
+      return
+    }
     if positionChanged {
       recordCompletedPosition(write.point, windowID: windowID)
     }
@@ -992,15 +1050,31 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   private func clearInitialSettlementTarget(
     windowID: WindowID,
-    matching expected: AsyncPositionWrite
+    matchingGeneration expectedGeneration: UInt64
   ) {
     lock.lock()
-    if let current = initialSettlementTargets[windowID],
-      sameFrameTarget(current, expected)
-    {
+    if initialSettlementTargets[windowID]?.generation == expectedGeneration {
       initialSettlementTargets[windowID] = nil
     }
     lock.unlock()
+  }
+
+  private func isInitialSettlementTargetCurrent(
+    windowID: WindowID,
+    generation: UInt64
+  ) -> Bool {
+    let leftMouseButtonDown = CGEventSource.buttonState(
+      .combinedSessionState,
+      button: .left
+    )
+    lock.lock()
+    defer { lock.unlock() }
+    return initialSettlementRepairIsCurrent(
+      expectedGeneration: generation,
+      currentGeneration: initialSettlementTargets[windowID]?.generation,
+      repairsSuspended: initialSettlementRepairsSuspended,
+      leftMouseButtonDown: leftMouseButtonDown
+    )
   }
 
   private func sameFrameTarget(

@@ -28,6 +28,8 @@ public final class MacOSPlatform {
   var pendingWindowTopologyProcessIDs = Set<pid_t>()
   var windowTopologyRequiresFullSnapshot = false
   var pendingWindowTopologyInputTimestamp: TimeInterval?
+  var pendingFrameProcessIDs = Set<pid_t>()
+  var pendingFrameRequiresFullSnapshot = false
   var lastSnapshotWindows: [Window] = []
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
   var deferredFrameCommitMismatchCount = 0

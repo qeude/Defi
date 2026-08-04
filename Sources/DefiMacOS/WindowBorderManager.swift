@@ -157,8 +157,12 @@ final class WindowBorderManager {
       windowIDs: trackedWindowIDs.union(overlays.keys)
     )
     let desiredAssignments = plan.inactive + [plan.active].compactMap { $0 }
+    let desiredWindowIDs = Set(desiredAssignments.map(\.windowID))
     for assignment in desiredAssignments where overlays[assignment.windowID] == nil {
-      _ = reusableOrNewOverlay(for: assignment.windowID)
+      _ = reusableOrNewOverlay(
+        for: assignment.windowID,
+        excluding: desiredWindowIDs
+      )
     }
 
     if let assignment = plan.active {
@@ -186,7 +190,6 @@ final class WindowBorderManager {
       )
     }
 
-    let desiredWindowIDs = Set(desiredAssignments.map(\.windowID))
     var removedWindowIDs: [WindowID] = []
     for (windowID, overlay) in overlays
     where !desiredWindowIDs.contains(windowID) {
@@ -238,9 +241,12 @@ final class WindowBorderManager {
     radiusProvider.radius(for: windowID)
   }
 
-  private func reusableOrNewOverlay(for windowID: WindowID) -> BorderOverlay {
+  private func reusableOrNewOverlay(
+    for windowID: WindowID,
+    excluding reservedWindowIDs: Set<WindowID> = []
+  ) -> BorderOverlay {
     if let (previousWindowID, overlay) = overlays.first(where: {
-      !$0.value.isVisible
+      !$0.value.isVisible && !reservedWindowIDs.contains($0.key)
     }) {
       overlays[previousWindowID] = nil
       overlay.retarget(to: windowID)

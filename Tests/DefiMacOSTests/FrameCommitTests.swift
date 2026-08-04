@@ -62,6 +62,41 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testInitialSettlementRepairRequiresCurrentGenerationAndIdleMouse() {
+    XCTAssertTrue(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: false,
+        leftMouseButtonDown: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 5,
+        repairsSuspended: false,
+        leftMouseButtonDown: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: true,
+        leftMouseButtonDown: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: false,
+        leftMouseButtonDown: true
+      )
+    )
+  }
+
   func testWindowEventsUseIncrementalRefreshOnlyWithStablePIDContext() {
     let processIDs: Set<pid_t> = [101, 202]
 
@@ -96,6 +131,31 @@ final class FrameCommitTests: XCTestCase {
         eventPending: true,
         requiresFullSnapshot: false,
         processIDs: []
+      )
+    )
+  }
+
+  func testIncrementalRefreshIncludesCoalescedFrameProcess() {
+    XCTAssertEqual(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: true,
+        requiresFullSnapshot: false,
+        processIDs: [101],
+        coalescedProcessIDs: [202]
+      ),
+      [101, 202]
+    )
+  }
+
+  func testCoalescedMouseResizeForcesFullRefresh() {
+    XCTAssertNil(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: true,
+        requiresFullSnapshot: false,
+        processIDs: [101],
+        coalescedEventRequiresFullSnapshot: true
       )
     )
   }

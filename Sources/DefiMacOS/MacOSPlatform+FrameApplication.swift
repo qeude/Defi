@@ -296,7 +296,10 @@ extension MacOSPlatform {
       pendingFrameCorrections[assignment.windowID] = nil
     }
     frameCoordinator.updateParkingTargets(parkingTargets)
-    frameCoordinator.updateInitialSettlementTargets(initialSettlementTargets)
+    frameCoordinator.updateInitialSettlementTargets(
+      initialSettlementTargets,
+      repairsSuspended: isLeftMouseButtonDown
+    )
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty
     let frameCompletion: (@Sendable (Bool) -> Void)?
     if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil {

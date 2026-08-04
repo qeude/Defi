@@ -192,8 +192,9 @@ private final class HotKeyTapContext: @unchecked Sendable {
       let commandPressed = event.flags.contains(.maskCommand)
       userInputTracker.record(
         timestamp: Double(event.timestamp) / 1_000_000_000,
-        focusIntent: isKeyDown && commandPressed
-          && code == Self.commandTabKeyCode,
+        focusIntent: type == .leftMouseDown
+          || (isKeyDown && commandPressed
+            && code == Self.commandTabKeyCode),
         closeIntent: isKeyDown && commandPressed
           && Self.closeWindowKeyCodes.contains(code)
       )

@@ -47,6 +47,23 @@ struct PlatformEventTests {
   }
 
   @Test
+  func mouseClickAfterCloseWinsBeforeTopologyNotification() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    tracker.record(timestamp: 21, focusIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntentTimestamp: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent
+      )
+    )
+  }
+
+  @Test
   func closeIntentDoesNotMasqueradeAsExplicitFocus() {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 19, focusIntent: true)

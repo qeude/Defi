@@ -30,12 +30,16 @@ extension MacOSPlatform {
       hasCompletedSnapshot: hasCompletedWindowSnapshot,
       eventPending: tracesWindowTopology,
       requiresFullSnapshot: windowTopologyRequiresFullSnapshot,
-      processIDs: pendingWindowTopologyProcessIDs
+      processIDs: pendingWindowTopologyProcessIDs,
+      coalescedProcessIDs: pendingFrameProcessIDs,
+      coalescedEventRequiresFullSnapshot: pendingFrameRequiresFullSnapshot
     )
     windowTopologyEventPending = false
     pendingWindowTopologyProcessIDs.removeAll(keepingCapacity: true)
     windowTopologyRequiresFullSnapshot = false
     pendingWindowTopologyInputTimestamp = nil
+    pendingFrameProcessIDs.removeAll(keepingCapacity: true)
+    pendingFrameRequiresFullSnapshot = false
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
     let cgWindows = copyCGWindows()
