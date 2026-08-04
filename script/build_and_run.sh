@@ -36,27 +36,7 @@ cp "$BIN_DIR/defi" "$CLI_BINARY"
 cp "$INFO_PLIST_SOURCE" "$APP_CONTENTS/Info.plist"
 chmod +x "$APP_BINARY" "$CLI_BINARY"
 
-SIGNING_IDENTITY="${DEFI_CODESIGN_IDENTITY:-}"
-if [[ -z "$SIGNING_IDENTITY" ]]; then
-  DEVELOPMENT_TEAM="${DEFI_DEVELOPMENT_TEAM:-}"
-  if [[ -n "$DEVELOPMENT_TEAM" ]]; then
-    SIGNING_IDENTITY="$(
-      security find-identity -p codesigning -v |
-        awk -v team="($DEVELOPMENT_TEAM)" \
-          '$0 ~ /Apple Development:/ && index($0, team) { print $2; exit }'
-    )"
-  else
-    SIGNING_IDENTITY="$(
-      security find-identity -p codesigning -v |
-        awk '$0 ~ /Apple Development:/ { print $2; exit }'
-    )"
-  fi
-fi
-if [[ -z "$SIGNING_IDENTITY" ]]; then
-  echo "No Apple Development signing identity found." >&2
-  echo "Set DEFI_CODESIGN_IDENTITY or DEFI_DEVELOPMENT_TEAM." >&2
-  exit 1
-fi
+SIGNING_IDENTITY="$("$ROOT_DIR/script/resolve_signing_identity.sh")"
 
 codesign --force \
   --options runtime \
