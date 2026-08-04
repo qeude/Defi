@@ -1,0 +1,296 @@
+import AppKit
+import ApplicationServices
+import Darwin
+import DefiConfig
+import DefiCore
+import DefiModel
+import OSLog
+
+@MainActor
+extension MacOSPlatform {
+
+  public func startObserving(
+    _ handler: @escaping () -> Void,
+    displayConfigurationHandler: @escaping () -> Void = {},
+    mouseGestureHandler: @escaping () -> Void = {}
+  ) {
+    guard eventMonitor == nil else { return }
+    let monitor = PlatformEventMonitor(
+      handler: { [weak self] kind in
+        if kind == .frame || kind == .mouse {
+          self?.frameEventPending = true
+        }
+        if kind == .mouse {
+          self?.mouseResizeGesturePending = true
+        }
+        if kind == .focus {
+          self?.nativeFocusEventPending = true
+          self?.nativeFocusRetryCount = 3
+        }
+        if kind == .screens {
+          displayConfigurationHandler()
+        }
+        if kind == .mouse {
+          mouseGestureHandler()
+        }
+        handler()
+      },
+      frameHandler: { [weak self] element in
+        self?.refreshWindowBorderGeometry(for: element)
+      },
+      liveFrameHandler: { [weak self] in
+        guard let self else { return }
+        self.refreshWindowBorderGeometry(
+          windowIDs: self.borderManager.liveGeometryWindowIDs
+        )
+      },
+      borderStackingHandler: { [weak self] in
+        self?.scheduleWindowBorderStackingRefresh()
+      }
+    )
+    monitor.start()
+    eventMonitor = monitor
+    let windowsByProcess = Dictionary(
+      grouping:
+        elements
+        .compactMap { windowID, element in
+          processIDs[windowID].map { ($0, element) }
+        },
+      by: \.0
+    ).mapValues { $0.map(\.1) }
+    monitor.refresh(applications: windowsByProcess)
+  }
+
+  private func scheduleWindowBorderStackingRefresh() {
+    let request = borderStackingRefreshState.request(
+      for: borderManager.activeWindowID
+    )
+    borderStackingRefreshTask?.cancel()
+    guard let request else { return }
+    borderStackingRefreshTask = Task { @MainActor [weak self] in
+      await Task.yield()
+      self?.refreshWindowBorderStacking(request)
+      try? await Task.sleep(for: .milliseconds(4))
+      self?.refreshWindowBorderStacking(request)
+    }
+  }
+
+  private func refreshWindowBorderStacking(
+    _ request: WindowBorderStackingRefreshRequest
+  ) {
+    guard
+      borderStackingRefreshState.shouldApply(
+        request,
+        activeWindowID: borderManager.activeWindowID
+      )
+    else {
+      return
+    }
+    let frontmostWindowID = copyFrontmostNormalWindowID()
+    frontmostNormalWindowID = frontmostWindowID
+    borderManager.updateActiveStacking(
+      for: request.windowID,
+      isFrontmost: frontmostWindowID == request.windowID
+    )
+  }
+
+  public func updateWindowBorders(
+    frames: [FrameAssignment],
+    selectedWindowID: WindowID?,
+    liveWindowID: WindowID?,
+    config: BordersConfig
+  ) {
+    borderFrames = frames
+    borderSelectedWindowID = selectedWindowID
+    borderHiddenWindowIDs = lastHiddenWindowIDs
+    borderLiveWindowID = liveWindowID
+    borderStyle = WindowBorderStyle(
+      enabled: config.enabled,
+      width: config.width,
+      activeColor: parseBorderColor(config.color) ?? 0xffc0_99ff,
+      inactiveEnabled: config.inactiveEnabled,
+      inactiveColor: parseBorderColor(config.inactiveColor) ?? 0x66c0_99ff,
+      captureEnabled: config.captureEnabled
+    )
+    refreshWindowBorders()
+    if selectedWindowID == lastNativeFocusedWindowID {
+      borderManager.revealPendingBorders()
+    }
+  }
+
+  public func prepareWindowBorderSelection(_ selectedWindowID: WindowID?) {
+    desiredSelectedWindowID = selectedWindowID
+    frontmostNormalWindowID = copyFrontmostNormalWindowID()
+    let selectedFrame = selectedWindowID.flatMap { windowID in
+      resolvedBorderFrame(for: windowID)
+    }
+    borderManager.prepareForSelection(
+      selectedWindowID,
+      displayedFrame: selectedFrame,
+      activeWindowIsFrontmost: selectedWindowID == frontmostNormalWindowID
+    )
+    let freshFrames: [WindowID: Rect] = Dictionary(
+      uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
+        guard let frame = resolvedBorderFrame(for: windowID) else { return nil }
+        return (windowID, frame)
+      }
+    )
+    borderManager.updateGeometry(frames: freshFrames, style: borderStyle)
+  }
+
+  public func refreshWindowBorders() {
+    let liveGeometryWindowIDs = borderManager.liveGeometryWindowIDs
+    if isLeftMouseButtonDown {
+      refreshWindowBorderGeometry(windowIDs: liveGeometryWindowIDs)
+      return
+    }
+    if frameCoordinator.isBusy {
+      refreshWindowBorderGeometry(
+        windowIDs: frameCoordinator.animatedSizeWindowIDs
+          .intersection(liveGeometryWindowIDs)
+      )
+      return
+    }
+    let borderGeometryIsSettling = liveGeometryWindowIDs.contains { windowID in
+      guard let expectation = frameCommitExpectations[windowID] else {
+        return false
+      }
+      return expectation.observedAt == nil
+    }
+    guard !borderGeometryIsSettling else { return }
+    let plan = planWindowBorders(
+      frames: borderFrames,
+      selectedWindowID: borderSelectedWindowID,
+      hiddenWindowIDs: borderHiddenWindowIDs,
+      monitorFrames: lastMonitorFrames,
+      style: borderStyle
+    )
+    let planWindowIDs = Set(plan.tracked.map(\.windowID))
+    let retainedLiveWindowIDs =
+      liveGeometryWindowIDs
+      .subtracting(planWindowIDs)
+    let retainedLiveFrames = borderFrames.filter {
+      retainedLiveWindowIDs.contains($0.windowID)
+    }
+    let relevantFrames =
+      plan.tracked.map {
+        FrameAssignment(windowID: $0.windowID, frame: $0.frame)
+      } + retainedLiveFrames
+    let nativeFrames = windowBorderFrameSnapshot(
+      windowIDs: Set(relevantFrames.map(\.windowID)),
+      frameProvider: borderBoundsProvider.frame
+    )
+    let displayedFrames = Dictionary(
+      uniqueKeysWithValues: relevantFrames.map { assignment in
+        (
+          assignment.windowID,
+          displayedBorderFrame(
+            for: assignment,
+            nativeFrame: nativeFrames[assignment.windowID]
+          )
+        )
+      }
+    )
+    borderManager.sync(
+      plan,
+      displayedFrames: displayedFrames,
+      activeWindowIsFrontmost: plan.active?.windowID == frontmostNormalWindowID
+    )
+    let finalDisplayedFrames: [WindowID: Rect] = Dictionary(
+      uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
+        guard
+          let fallback = displayedFrames[windowID]
+            ?? relevantFrames.first(where: { $0.windowID == windowID })?.frame
+        else {
+          return nil
+        }
+        return (
+          windowID,
+          nativeFrames[windowID] ?? fallback
+        )
+      }
+    )
+    borderManager.updateGeometry(
+      frames: finalDisplayedFrames,
+      style: borderStyle
+    )
+  }
+
+  private func refreshWindowBorderGeometry(for element: AXUIElement) {
+    guard
+      let windowID = elements.first(where: { CFEqual($0.value, element) })?.key,
+      borderManager.liveGeometryWindowIDs.contains(windowID)
+    else {
+      return
+    }
+    refreshWindowBorderGeometry(windowIDs: [windowID])
+  }
+
+  private func refreshWindowBorderGeometry(
+    windowIDs: Set<WindowID>
+  ) {
+    guard !windowIDs.isEmpty else { return }
+    let frames = Dictionary(
+      uniqueKeysWithValues: windowIDs.compactMap { windowID in
+        resolvedBorderFrame(for: windowID).map { (windowID, $0) }
+      }
+    )
+    guard !frames.isEmpty,
+      borderManager.updateGeometry(frames: frames, style: borderStyle)
+    else {
+      return
+    }
+  }
+
+  public func hideWindowBorders() {
+    borderManager.hide()
+  }
+
+  public var windowBorderPerformance: WindowBorderPerformance {
+    borderManager.performance
+  }
+
+  private func displayedBorderFrame(
+    for assignment: FrameAssignment,
+    nativeFrame: Rect?
+  ) -> Rect {
+    if let nativeFrame {
+      return nativeFrame
+    }
+    if assignment.windowID == borderLiveWindowID,
+      let observed = latestObservedFrames[assignment.windowID]
+    {
+      return observed
+    }
+    let point = frameCoordinator.completedPosition(for: assignment.windowID)
+    let size = frameCoordinator.completedSize(for: assignment.windowID)
+    if point == nil, size == nil, frameCoordinator.isBusy,
+      let observed = latestObservedFrames[assignment.windowID]
+    {
+      return observed
+    }
+    return Rect(
+      x: point.map { Double($0.x) } ?? assignment.frame.x,
+      y: point.map { Double($0.y) } ?? assignment.frame.y,
+      width: size.map { Double($0.width) } ?? assignment.frame.width,
+      height: size.map { Double($0.height) } ?? assignment.frame.height
+    )
+  }
+
+  private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
+    resolvedWindowBorderFrame(
+      nativeFrame: borderBoundsProvider.frame(for: windowID),
+      observedFrame: latestObservedFrames[windowID],
+      plannedFrame: borderFrames.first(where: { $0.windowID == windowID })?.frame
+    )
+  }
+
+  public func setFrameNotificationsEnabled(_ enabled: Bool) {
+    eventMonitor?.setFrameNotificationsEnabled(enabled)
+  }
+
+  public var isLeftMouseButtonDown: Bool {
+    CGEventSource.buttonState(.combinedSessionState, button: .left)
+  }
+
+}

@@ -1,0 +1,117 @@
+import AppKit
+import ApplicationServices
+import Darwin
+import DefiConfig
+import DefiCore
+import DefiModel
+import OSLog
+
+public struct MonitorSnapshot: Equatable, Sendable {
+  public let id: MonitorID
+  public let frame: Rect
+  public let physicalFrame: Rect
+  public let refreshRateHz: Double
+
+  public init(
+    id: MonitorID,
+    frame: Rect,
+    physicalFrame: Rect? = nil,
+    refreshRateHz: Double = 60
+  ) {
+    self.id = id
+    self.frame = frame
+    self.physicalFrame = physicalFrame ?? frame
+    self.refreshRateHz = refreshRateHz
+  }
+}
+
+public func monitorGeometryChanged(
+  from previous: [MonitorSnapshot],
+  to next: [MonitorSnapshot],
+  tolerance: Double = 0.5
+) -> Bool {
+  guard previous.count == next.count else { return true }
+  let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
+  for monitor in next {
+    guard let old = previousByID[monitor.id] else { return true }
+    for (lhs, rhs) in [
+      (old.frame.x, monitor.frame.x),
+      (old.frame.y, monitor.frame.y),
+      (old.frame.width, monitor.frame.width),
+      (old.frame.height, monitor.frame.height),
+      (old.physicalFrame.x, monitor.physicalFrame.x),
+      (old.physicalFrame.y, monitor.physicalFrame.y),
+      (old.physicalFrame.width, monitor.physicalFrame.width),
+      (old.physicalFrame.height, monitor.physicalFrame.height),
+    ] where abs(lhs - rhs) > tolerance {
+      return true
+    }
+  }
+  return false
+}
+
+public struct DesktopSnapshot: Sendable {
+  public let monitors: [MonitorSnapshot]
+  public let windows: [Window]
+  public let focusedWindowID: WindowID?
+  public let nativeFocusChanged: Bool
+  public let externallyChangedFrames: [WindowID: Rect]
+  public let leftMouseButtonDown: Bool
+  public let mouseResizeGestureObserved: Bool
+  public let targetMismatchCount: Int
+  public let targetMismatches: [FrameMismatch]
+
+  public init(
+    monitors: [MonitorSnapshot],
+    windows: [Window],
+    focusedWindowID: WindowID?,
+    nativeFocusChanged: Bool = false,
+    externallyChangedFrames: [WindowID: Rect] = [:],
+    leftMouseButtonDown: Bool = false,
+    mouseResizeGestureObserved: Bool = false,
+    targetMismatchCount: Int = 0,
+    targetMismatches: [FrameMismatch] = []
+  ) {
+    self.monitors = monitors
+    self.windows = windows
+    self.focusedWindowID = focusedWindowID
+    self.nativeFocusChanged = nativeFocusChanged
+    self.externallyChangedFrames = externallyChangedFrames
+    self.leftMouseButtonDown = leftMouseButtonDown
+    self.mouseResizeGestureObserved = mouseResizeGestureObserved
+    self.targetMismatchCount = targetMismatchCount
+    self.targetMismatches = targetMismatches
+  }
+}
+
+public struct FrameMismatch: Equatable, Sendable {
+  public let windowID: WindowID
+  public let actual: Rect
+  public let target: Rect
+
+  public init(windowID: WindowID, actual: Rect, target: Rect) {
+    self.windowID = windowID
+    self.actual = actual
+    self.target = target
+  }
+}
+
+public enum PlatformError: Error, CustomStringConvertible {
+  case accessibilityPermissionMissing
+  case attribute(String, AXError)
+  case action(String, AXError)
+  case windowUnavailable(WindowID)
+
+  public var description: String {
+    switch self {
+    case .accessibilityPermissionMissing:
+      "Accessibility permission missing"
+    case .attribute(let name, let error):
+      "AX attribute \(name) failed: \(error.rawValue)"
+    case .action(let name, let error):
+      "AX action \(name) failed: \(error.rawValue)"
+    case .windowUnavailable(let id):
+      "window unavailable: \(id.rawValue)"
+    }
+  }
+}
