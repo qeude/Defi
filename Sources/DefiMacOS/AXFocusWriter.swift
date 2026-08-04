@@ -1,0 +1,289 @@
+import AppKit
+import ApplicationServices
+import Darwin
+import DefiConfig
+import DefiCore
+import DefiModel
+import OSLog
+
+struct AsyncFocusRequest: @unchecked Sendable {
+  let element: AXUIElement
+  let application: AXUIElement
+  let processID: pid_t
+  let selectsSpecificWindow: Bool
+  let validatesSpecificWindowFocus: Bool
+  let activatesApplication: Bool
+}
+
+private struct QueuedFocusRequest: @unchecked Sendable {
+  let generation: UInt64
+  let request: AsyncFocusRequest
+  let completion: @Sendable (Bool) -> Void
+}
+
+final class AXFocusWriter: @unchecked Sendable {
+  private let queue = DispatchQueue(
+    label: "com.quentin.defi.ax-focus",
+    qos: .userInitiated
+  )
+  private let lock = NSLock()
+  private var pending: QueuedFocusRequest?
+  private var activeProcessID: pid_t?
+  private var needsRecoveryActivation = false
+  private var latestGeneration: UInt64 = 0
+  private var running = false
+  private var lastDurationMS = 0.0
+  private var fastPathCount = 0
+  private var cancelledCount = 0
+  private var retryCount = 0
+  private var lastMainDurationMS = 0.0
+  private var lastRaiseDurationMS = 0.0
+  private var lastActivationDurationMS = 0.0
+
+  func submit(
+    _ request: AsyncFocusRequest,
+    completion: @escaping @Sendable (Bool) -> Void
+  ) {
+    lock.lock()
+    latestGeneration &+= 1
+    pending = QueuedFocusRequest(
+      generation: latestGeneration,
+      request: request,
+      completion: completion
+    )
+    let shouldStart = !running
+    if shouldStart {
+      running = true
+    }
+    lock.unlock()
+    if shouldStart {
+      queue.async { [self] in drain() }
+    }
+  }
+
+  var isBusy: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return running || pending != nil
+  }
+
+  func hasInFlightRequest(forDifferentProcess processID: pid_t) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return activeProcessID.map { $0 != processID } == true
+      || pending.map { $0.request.processID != processID } == true
+  }
+
+  var durationMS: Double {
+    lock.lock()
+    defer { lock.unlock() }
+    return lastDurationMS
+  }
+
+  var performance:
+    (
+      durationMS: Double,
+      fastPaths: Int,
+      cancelled: Int,
+      retries: Int,
+      mainDurationMS: Double,
+      raiseDurationMS: Double,
+      activationDurationMS: Double
+    )
+  {
+    lock.lock()
+    defer { lock.unlock() }
+    return (
+      lastDurationMS,
+      fastPathCount,
+      cancelledCount,
+      retryCount,
+      lastMainDurationMS,
+      lastRaiseDurationMS,
+      lastActivationDurationMS
+    )
+  }
+
+  private func drain() {
+    while true {
+      lock.lock()
+      guard let queued = pending else {
+        running = false
+        lock.unlock()
+        return
+      }
+      pending = nil
+      activeProcessID = queued.request.processID
+      lock.unlock()
+
+      let startedAt = ProcessInfo.processInfo.systemUptime
+      let request = queued.request
+      guard isCurrent(queued.generation) else {
+        lock.lock()
+        activeProcessID = nil
+        cancelledCount += 1
+        lock.unlock()
+        continue
+      }
+      var usedFastPath = false
+      var cancelled = false
+      var retried = false
+      var mainDurationMS = 0.0
+      var raiseDurationMS = 0.0
+      var activationDurationMS = 0.0
+      var selectsSpecificWindow = request.selectsSpecificWindow
+      if !selectsSpecificWindow, request.validatesSpecificWindowFocus {
+        selectsSpecificWindow = !isTargetFocused(request.element)
+      }
+      if selectsSpecificWindow {
+        AXUIElementSetMessagingTimeout(request.application, 0.016)
+        AXUIElementSetMessagingTimeout(request.element, 0.016)
+        let mainStartedAt = ProcessInfo.processInfo.systemUptime
+        var mainResult = AXUIElementSetAttributeValue(
+          request.element,
+          kAXMainAttribute as CFString,
+          kCFBooleanTrue
+        )
+        mainDurationMS =
+          (ProcessInfo.processInfo.systemUptime - mainStartedAt) * 1_000
+        cancelled = !isCurrent(queued.generation)
+        var raiseResult = AXError.cannotComplete
+        if !cancelled, mainResult != .success {
+          let raiseStartedAt = ProcessInfo.processInfo.systemUptime
+          raiseResult = AXUIElementPerformAction(
+            request.element,
+            kAXRaiseAction as CFString
+          )
+          raiseDurationMS =
+            (ProcessInfo.processInfo.systemUptime - raiseStartedAt) * 1_000
+        }
+        cancelled = cancelled || !isCurrent(queued.generation)
+        if !cancelled,
+          mainResult != .success && raiseResult != .success
+        {
+          retried = true
+          AXUIElementSetMessagingTimeout(request.application, 0.05)
+          AXUIElementSetMessagingTimeout(request.element, 0.05)
+          let retryMainStartedAt = ProcessInfo.processInfo.systemUptime
+          mainResult = AXUIElementSetAttributeValue(
+            request.element,
+            kAXMainAttribute as CFString,
+            kCFBooleanTrue
+          )
+          mainDurationMS +=
+            (ProcessInfo.processInfo.systemUptime - retryMainStartedAt) * 1_000
+          if isCurrent(queued.generation), mainResult != .success {
+            let retryRaiseStartedAt = ProcessInfo.processInfo.systemUptime
+            raiseResult = AXUIElementPerformAction(
+              request.element,
+              kAXRaiseAction as CFString
+            )
+            raiseDurationMS +=
+              (ProcessInfo.processInfo.systemUptime - retryRaiseStartedAt) * 1_000
+          }
+          cancelled = !isCurrent(queued.generation)
+        }
+        resetTimeouts(request)
+      } else {
+        usedFastPath = true
+      }
+      var activationAttempted = false
+      let activationRequired =
+        cancelled
+        ? nil
+        : activationRequirement(
+          requested: request.activatesApplication,
+          generation: queued.generation
+        )
+      if activationRequired == true {
+        activationAttempted = true
+        let activationStartedAt = ProcessInfo.processInfo.systemUptime
+        let system = AXUIElementCreateSystemWide()
+        let activationResult = AXUIElementSetAttributeValue(
+          system,
+          kAXFocusedApplicationAttribute as CFString,
+          request.application
+        )
+        if activationResult != .success, isCurrent(queued.generation) {
+          NSRunningApplication(processIdentifier: request.processID)?.activate()
+        }
+        activationDurationMS =
+          (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1_000
+      } else if activationRequired == nil {
+        cancelled = true
+      }
+      if activationAttempted, !isCurrent(queued.generation) {
+        markRecoveryActivationNeeded()
+        cancelled = true
+      }
+      let durationMS =
+        (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+      lock.lock()
+      lastDurationMS = durationMS
+      if usedFastPath { fastPathCount += 1 }
+      if cancelled { cancelledCount += 1 }
+      if retried { retryCount += 1 }
+      lastMainDurationMS = mainDurationMS
+      lastRaiseDurationMS = raiseDurationMS
+      lastActivationDurationMS = activationDurationMS
+      activeProcessID = nil
+      lock.unlock()
+      queued.completion(!cancelled && isCurrent(queued.generation))
+    }
+  }
+
+  private func isCurrent(_ generation: UInt64) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return latestGeneration == generation
+  }
+
+  private func activationRequirement(
+    requested: Bool,
+    generation: UInt64
+  ) -> Bool? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard latestGeneration == generation else { return nil }
+    let required = requested || needsRecoveryActivation
+    needsRecoveryActivation = false
+    return required
+  }
+
+  private func markRecoveryActivationNeeded() {
+    lock.lock()
+    needsRecoveryActivation = true
+    lock.unlock()
+  }
+
+  private func resetTimeouts(_ request: AsyncFocusRequest) {
+    AXUIElementSetMessagingTimeout(request.element, 0)
+    AXUIElementSetMessagingTimeout(request.application, 0)
+  }
+
+  private func isTargetFocused(_ element: AXUIElement) -> Bool {
+    AXUIElementSetMessagingTimeout(element, 0.016)
+    defer { AXUIElementSetMessagingTimeout(element, 0) }
+    return readBoolean(element, attribute: kAXFocusedAttribute) == true
+      || readBoolean(element, attribute: kAXMainAttribute) == true
+  }
+
+  private func readBoolean(
+    _ element: AXUIElement,
+    attribute: String
+  ) -> Bool? {
+    var rawValue: CFTypeRef?
+    guard
+      AXUIElementCopyAttributeValue(
+        element,
+        attribute as CFString,
+        &rawValue
+      ) == .success,
+      let rawValue,
+      CFGetTypeID(rawValue) == CFBooleanGetTypeID()
+    else {
+      return nil
+    }
+    return CFBooleanGetValue((rawValue as! CFBoolean))
+  }
+}

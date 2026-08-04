@@ -1,0 +1,101 @@
+import DefiConfig
+import DefiModel
+import DefiRuntime
+import XCTest
+
+final class RuntimeMonitorTests: XCTestCase {
+  private let monitorID = MonitorID(rawValue: 1)
+
+  func testDisplayResizeScalesPixelAndFullscreenPreviousWidths() {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: [WindowID(rawValue: 1)],
+        focusedWindow: 0,
+        width: .fraction(1),
+        fullscreenPreviousWidth: .pixels(800)
+      ),
+      Column(window: WindowID(rawValue: 2), width: .pixels(1_000)),
+    ]
+
+    state.retainMonitors(
+      [monitorID],
+      previousViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 2_000, height: 1_000)
+      ],
+      nextViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)
+      ]
+    )
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[0].fullscreenPreviousWidth,
+      .pixels(400)
+    )
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[1].width,
+      .pixels(500)
+    )
+  }
+
+  func testDisconnectedMonitorMergesAndScalesColumnsIntoRemainingDisplay() {
+    let externalID = MonitorID(rawValue: 2)
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalID)
+    state.monitors[1].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 9), width: .pixels(1_200))
+    ]
+
+    state.retainMonitors(
+      [monitorID],
+      previousViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900),
+        externalID: Rect(x: 1_500, y: 0, width: 3_000, height: 1_600),
+      ],
+      nextViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900)
+      ]
+    )
+
+    XCTAssertEqual(state.monitors.count, 1)
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[0].width,
+      .pixels(600)
+    )
+  }
+
+  func testEachMonitorOwnsIndependentNineWorkspaces() throws {
+    let externalID = MonitorID(rawValue: 2)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalID)
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces.map(\.id.rawValue),
+      (1...9).map(String.init)
+    )
+    XCTAssertEqual(
+      state.monitors[1].workspaces.map(\.id.rawValue),
+      (1...9).map(String.init)
+    )
+
+    try reduce(
+      .switchWorkspace(WorkspaceID(rawValue: "5")),
+      on: externalID,
+      state: &state
+    )
+
+    XCTAssertEqual(
+      state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace,
+      WorkspaceID(rawValue: "1")
+    )
+    XCTAssertEqual(
+      state.monitors.first(where: { $0.id == externalID })?.activeWorkspace,
+      WorkspaceID(rawValue: "5")
+    )
+  }
+}
