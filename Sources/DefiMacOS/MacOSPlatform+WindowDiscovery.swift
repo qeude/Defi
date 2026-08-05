@@ -44,11 +44,12 @@ extension MacOSPlatform {
     element: AXUIElement,
     processID: pid_t,
     appID: String,
+    config: Config,
     cgWindows: [CGWindowRecord],
     monitors: [MonitorSnapshot],
     preferredWindowID: WindowID?,
     excluding usedCGWindowIDs: Set<CGWindowID>
-  ) -> (Window, CGWindowID)? {
+  ) -> (Window, CGWindowID, RuleDecision)? {
     guard value(element, attribute: kAXMinimizedAttribute, as: Bool.self) != true,
       let frame = frame(of: element),
       frame.width >= 80,
@@ -59,9 +60,11 @@ extension MacOSPlatform {
     let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
     let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
+    let decision = config.decision(appID: appID, title: title, role: role)
     let eligibleCGWindows = eligibleCGWindowRecords(
       role: role,
       for: subrole,
+      allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
       in: cgWindows
     )
     let record =
@@ -99,7 +102,7 @@ extension MacOSPlatform {
         processID: processID,
         monitorID: monitorID,
         forceTiling: false
-      ), resolvedWindowID
+      ), resolvedWindowID, decision
     )
   }
 

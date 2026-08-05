@@ -129,6 +129,15 @@ final class WindowDiscoveryTests: XCTestCase {
       ).map(\.id),
       [normal.id]
     )
+    XCTAssertEqual(
+      eligibleCGWindowRecords(
+        role: kAXWindowRole,
+        for: kAXUnknownSubrole,
+        allowsConfiguredNonzeroLayer: true,
+        in: [normal, panel]
+      ).map(\.id),
+      [normal.id, panel.id]
+    )
   }
 
   func testWindowFrameSnapshotSelectsRequestedFloatingWindow() {

@@ -116,8 +116,16 @@ public struct Config: Equatable, Sendable {
   }
 
   public func decision(for window: Window) -> RuleDecision {
+    decision(appID: window.appID, title: window.title, role: window.role)
+  }
+
+  public func decision(
+    appID: String,
+    title: String,
+    role: String?
+  ) -> RuleDecision {
     var result = RuleDecision()
-    for rule in rules where rule.matches(window) {
+    for rule in rules where rule.matches(appID: appID, title: title, role: role) {
       if let workspace = rule.workspace {
         result.workspace = WorkspaceID(rawValue: workspace)
       }
@@ -418,10 +426,12 @@ public struct Rule: Codable, Equatable, Sendable {
     intrinsicSize = try values.decodeIfPresent(Bool.self, forKey: .intrinsicSize) ?? false
   }
 
-  func matches(_ window: Window) -> Bool {
+  func matches(appID actualAppID: String, title actualTitle: String, role actualRole: String?)
+    -> Bool
+  {
     if let appID {
       let candidate = appID.lowercased()
-      let actual = window.appID.lowercased()
+      let actual = actualAppID.lowercased()
       guard
         actual == candidate
           || actual.hasSuffix(candidate)
@@ -430,10 +440,10 @@ public struct Rule: Codable, Equatable, Sendable {
         return false
       }
     }
-    if let title, !window.title.localizedCaseInsensitiveContains(title) {
+    if let title, !actualTitle.localizedCaseInsensitiveContains(title) {
       return false
     }
-    if let role, window.role != role {
+    if let role, actualRole != role {
       return false
     }
     return appID != nil || title != nil || role != nil

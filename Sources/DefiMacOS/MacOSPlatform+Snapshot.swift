@@ -109,10 +109,11 @@ extension MacOSPlatform {
             && CFEqual(previousElement, element)
         }?.key
         guard
-          let (candidate, cgWindowID) = makeWindow(
+          let (candidate, cgWindowID, decision) = makeWindow(
             element: element,
             processID: application.processIdentifier,
             appID: appID,
+            config: config,
             cgWindows: cgWindows,
             monitors: monitors,
             preferredWindowID: previousWindowID,
@@ -121,7 +122,6 @@ extension MacOSPlatform {
         else {
           continue
         }
-        let decision = config.decision(for: candidate)
         let previousDisposition = previousWindowID.map {
           floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
         }

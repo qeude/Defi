@@ -61,10 +61,12 @@ func copyCGWindows() -> [CGWindowRecord] {
 func eligibleCGWindowRecords(
   role: String?,
   for subrole: String?,
+  allowsConfiguredNonzeroLayer: Bool = false,
   in records: [CGWindowRecord]
 ) -> [CGWindowRecord] {
   let acceptsFloatingLevel =
-    role == kAXSheetRole
+    allowsConfiguredNonzeroLayer
+    || role == kAXSheetRole
     || subrole.map(automaticFloatingWindowSubroles.contains) == true
   return records.filter { record in
     record.layer == 0 || (acceptsFloatingLevel && record.layer > 0)

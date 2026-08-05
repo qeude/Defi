@@ -122,8 +122,13 @@ final class ConfigTests: XCTestCase {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "web"]),
       rules: [
-        Rule(appID: "com.apple.dt.Xcode", workspace: "dev", followFocus: true),
-        Rule(title: "Preview", intrinsicSize: true),
+        Rule(
+          appID: "com.apple.dt.Xcode",
+          workspace: "dev",
+          followFocus: true,
+          floating: true
+        ),
+        Rule(title: "Preview", forceTiling: true, intrinsicSize: true),
       ]
     )
     let window = Window(
@@ -135,8 +140,14 @@ final class ConfigTests: XCTestCase {
 
     let decision = config.decision(for: window)
 
+    XCTAssertEqual(
+      decision,
+      config.decision(appID: window.appID, title: window.title, role: window.role)
+    )
     XCTAssertEqual(decision.workspace, WorkspaceID(rawValue: "dev"))
     XCTAssertTrue(decision.followFocus)
+    XCTAssertTrue(decision.floating)
+    XCTAssertTrue(decision.forceTiling)
     XCTAssertTrue(decision.intrinsicSize)
   }
 
