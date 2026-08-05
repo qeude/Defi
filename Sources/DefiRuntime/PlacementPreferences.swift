@@ -30,6 +30,7 @@ public struct PlacementPreferences: Codable, Equatable, Sendable {
   public mutating func recordPlacements(from state: RuntimeState) {
     var locationsByApplication: [String: Set<PlacementLocation>] = [:]
     for window in state.windows.values {
+      guard window.floatingOrigin != .automatic else { continue }
       guard let location = state.location(containing: window.id) else { continue }
       locationsByApplication[Self.applicationKey(window.appID), default: []].insert(
         PlacementLocation(

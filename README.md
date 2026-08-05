@@ -70,6 +70,9 @@ Default hotkeys:
 - `Option + Shift + 1...9`: move window and follow
 - `Option + -/=`: cycle width
 - `Option + F`: fullscreen column
+- `Option + \\`: toggle focused window tiled/floating
+- `Option + Shift + \\`: foreground selected floating window
+- `Option + ,/.`: cycle floating windows
 
 ## Config
 

@@ -10,6 +10,7 @@ import OSLog
 public final class MacOSPlatform {
   var elements: [WindowID: AXUIElement] = [:]
   var processIDs: [WindowID: pid_t] = [:]
+  var floatingWindowIDs = Set<WindowID>()
   var applications: [pid_t: AXUIElement] = [:]
   var applicationWindowCounts: [pid_t: Int] = [:]
   var enhancedUIByProcess: [pid_t: Bool] = [:]

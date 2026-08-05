@@ -29,6 +29,11 @@ extension Daemon {
     let previousSelectedWindowID = previousActiveMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
+    let previousFloatingMonitorIDs = Dictionary(
+      uniqueKeysWithValues: floatingWindowFrames.keys.compactMap { windowID in
+        state.monitorID(containing: windowID).map { (windowID, $0) }
+      }
+    )
     let displayGeometryChanged = monitorGeometryChanged(
       from: latestMonitors,
       to: snapshot.monitors
@@ -62,6 +67,30 @@ extension Daemon {
       placementPreferences: placementPreferences,
       state: &state
     )
+    if displayGeometryChanged {
+      rebaseFloatingWindowFrames(
+        previousViewports: previousViewports,
+        nextViewports: viewportsByMonitor,
+        previousMonitorIDs: previousFloatingMonitorIDs
+      )
+    }
+    let mouseResizeGestureActive =
+      snapshot.leftMouseButtonDown || snapshot.mouseResizeGestureObserved
+    let reassignedFloatingMonitorIDs = updateFloatingWindowFrames(
+      from: snapshot.windows,
+      externallyChangedFrames: snapshot.externallyChangedFrames,
+      displayGeometryChanged: displayGeometryChanged,
+      mouseResizeGestureActive: mouseResizeGestureActive
+    )
+    let reassignedMonitorID = snapshot.focusedWindowID.flatMap {
+      reassignedFloatingMonitorIDs[$0]
+    } ?? previousSelectedWindowID.flatMap {
+      reassignedFloatingMonitorIDs[$0]
+    }
+    if let reassignedMonitorID {
+      activeMonitorID = reassignedMonitorID
+      nativelyFocusedMonitorID = reassignedMonitorID
+    }
     let newRemovalFocusGuard: WindowRemovalFocusGuard?
     if displayGeometryChanged {
       newRemovalFocusGuard = nil
@@ -137,8 +166,6 @@ extension Daemon {
       ?? snapshot.focusedWindowID.flatMap { state.monitorID(containing: $0) }
       ?? state.monitors.first?.id
 
-    let mouseResizeGestureActive =
-      snapshot.leftMouseButtonDown || snapshot.mouseResizeGestureObserved
     if !displayGeometryChanged && mouseResizeGestureActive {
       if !snapshot.leftMouseButtonDown {
         activelyResizedWindowID = nil
@@ -158,7 +185,9 @@ extension Daemon {
       learnPersistentWidthConstraints(targetMismatches)
     }
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
-    if let nativelyFocusedMonitorID {
+    if let nativelyFocusedMonitorID,
+      snapshot.focusedWindowID.flatMap({ state.windows[$0]?.floating }) != true
+    {
       alignFocusedColumnLeft(
         on: nativelyFocusedMonitorID,
         state: &state,
@@ -174,6 +203,7 @@ extension Daemon {
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+      forceFloatingFrameWrites: displayGeometryChanged,
       source: nativelyActivatedWorkspace
         ? "native-workspace"
         : "desktop-sync"
@@ -310,9 +340,11 @@ extension Daemon {
     positionsOnly: Bool = false,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    forceFloatingFrameWrites: Bool = false,
     source: String = "layout"
   ) {
     var assignments: [FrameAssignment] = []
+    var borderAssignments: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
     let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
     for monitorIndex in state.monitors.indices {
@@ -349,18 +381,31 @@ extension Daemon {
             allMonitorFrames: allPhysicalMonitorFrames
           )
           assignments.append(contentsOf: strip.frames)
+          borderAssignments.append(contentsOf: strip.frames)
           hiddenWindowIDs.formUnion(strip.parkedWindowIDs)
+
+          for assignment in floatingAssignments(in: workspace) {
+            borderAssignments.append(assignment)
+            if forceFloatingFrameWrites
+              || platform.isWindowHidden(assignment.windowID)
+              || platform.hasPendingFrameTransition(assignment.windowID)
+            {
+              assignments.append(assignment)
+            }
+          }
         } else {
           hiddenWindowIDs.formUnion(sizedFrames.map(\.windowID))
-          assignments.append(
-            contentsOf: parkFramesInSafeCorner(
-              sizedFrames,
-              ownerFrame: physicalFrame,
-              parkingFrame: viewport,
-              allMonitorFrames: allPhysicalMonitorFrames,
-              preferredSide: workspaceIndex < activeWorkspaceIndex ? .left : .right
-            ).frames
+          let floatingFrames = floatingAssignments(in: workspace)
+          let parked = parkFramesInSafeCorner(
+            sizedFrames + floatingFrames,
+            ownerFrame: physicalFrame,
+            parkingFrame: viewport,
+            allMonitorFrames: allPhysicalMonitorFrames,
+            preferredSide: workspaceIndex < activeWorkspaceIndex ? .left : .right
           )
+          hiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
+          assignments.append(contentsOf: parked.frames)
+          borderAssignments.append(contentsOf: parked.frames)
         }
       }
     }
@@ -378,7 +423,7 @@ extension Daemon {
     let borderStartedAt = ProcessInfo.processInfo.systemUptime
     platform.prepareWindowBorderSelection(selectedWindowID)
     platform.updateWindowBorders(
-      frames: platformAssignments,
+      frames: borderAssignments,
       selectedWindowID: selectedWindowID,
       liveWindowID: activelyResizedWindowID,
       config: config.decorations.borders
@@ -406,11 +451,120 @@ extension Daemon {
       source: source
     )
     platform.updateWindowBorders(
-      frames: platformAssignments,
+      frames: borderAssignments,
       selectedWindowID: selectedWindowID,
       liveWindowID: activelyResizedWindowID,
       config: config.decorations.borders
     )
+  }
+
+  private func updateFloatingWindowFrames(
+    from windows: [Window],
+    externallyChangedFrames: [WindowID: Rect],
+    displayGeometryChanged: Bool,
+    mouseResizeGestureActive: Bool
+  ) -> [WindowID: MonitorID] {
+    var reassignedMonitorIDs: [WindowID: MonitorID] = [:]
+    let trackedFloatingIDs = Set(
+      state.monitors.flatMap(\.workspaces).flatMap(\.floatingWindows)
+    )
+    floatingWindowFrames = floatingWindowFrames.filter {
+      trackedFloatingIDs.contains($0.key)
+    }
+    for window in windows where trackedFloatingIDs.contains(window.id) {
+      if !displayGeometryChanged,
+        mouseResizeGestureActive,
+        !platform.isWindowHidden(window.id),
+        let targetMonitorID = window.monitorID,
+        moveFloatingWindow(window.id, to: targetMonitorID, state: &state)
+      {
+        reassignedMonitorIDs[window.id] = targetMonitorID
+      }
+      if displayGeometryChanged {
+        if floatingWindowFrames[window.id] == nil,
+          let monitorID = state.monitorID(containing: window.id),
+          let viewport = viewportsByMonitor[monitorID]
+        {
+          floatingWindowFrames[window.id] = constrainedFloatingFrame(
+            window.frame,
+            to: viewport
+          )
+        }
+        continue
+      }
+      if let externalFrame = externallyChangedFrames[window.id] {
+        floatingWindowFrames[window.id] = externalFrame
+        platform.acceptObservedFrame(externalFrame, for: window.id)
+        continue
+      }
+      guard floatingWindowFrames[window.id] != nil else {
+        floatingWindowFrames[window.id] = window.frame
+        continue
+      }
+      guard !platform.isWindowHidden(window.id),
+        !platform.hasPendingFrameTransition(window.id)
+      else {
+        continue
+      }
+      floatingWindowFrames[window.id] = window.frame
+    }
+    return reassignedMonitorIDs
+  }
+
+  private func rebaseFloatingWindowFrames(
+    previousViewports: [MonitorID: Rect],
+    nextViewports: [MonitorID: Rect],
+    previousMonitorIDs: [WindowID: MonitorID]
+  ) {
+    for (windowID, frame) in floatingWindowFrames {
+      guard let previousMonitorID = previousMonitorIDs[windowID],
+        let previousViewport = previousViewports[previousMonitorID],
+        let nextMonitorID = state.monitorID(containing: windowID),
+        let nextViewport = nextViewports[nextMonitorID]
+      else {
+        floatingWindowFrames[windowID] = nil
+        continue
+      }
+      floatingWindowFrames[windowID] = rebasedFloatingFrame(
+        frame,
+        from: previousViewport,
+        to: nextViewport
+      )
+    }
+  }
+
+  func floatingAssignments(in workspace: Workspace) -> [FrameAssignment] {
+    workspace.floatingWindows.compactMap { windowID in
+      guard let frame = floatingFrame(for: windowID) else { return nil }
+      return FrameAssignment(windowID: windowID, frame: frame)
+    }
+  }
+
+  func refreshFloatingWindowFramesBeforeWorkspaceMutation() {
+    guard
+      let monitorID = activeMonitorID ?? state.monitors.first?.id,
+      let monitor = state.monitors.first(where: { $0.id == monitorID }),
+      let workspace = monitor.workspaces.first(where: {
+        $0.id == monitor.activeWorkspace
+      })
+    else {
+      return
+    }
+    for (windowID, frame) in platform.userAdjustedFrames(
+      for: Set(workspace.floatingWindows)
+    ) {
+      floatingWindowFrames[windowID] = frame
+      platform.acceptObservedFrame(frame, for: windowID)
+    }
+  }
+
+  private func floatingFrame(for windowID: WindowID) -> Rect? {
+    if let frame = floatingWindowFrames[windowID] {
+      return frame
+    }
+    guard let frame = state.windows[windowID]?.frame else { return nil }
+    floatingWindowFrames[windowID] = frame
+    return frame
   }
 
   private func roundAnimatedPosition(
@@ -452,4 +606,40 @@ extension Daemon {
     )
   }
 
+}
+
+private func rebasedFloatingFrame(
+  _ frame: Rect,
+  from previousViewport: Rect,
+  to nextViewport: Rect
+) -> Rect {
+  let previousHorizontalRange = max(previousViewport.width - frame.width, 1)
+  let previousVerticalRange = max(previousViewport.height - frame.height, 1)
+  let horizontalProgress = min(
+    max((frame.x - previousViewport.x) / previousHorizontalRange, 0),
+    1
+  )
+  let verticalProgress = min(
+    max((frame.y - previousViewport.y) / previousVerticalRange, 0),
+    1
+  )
+  let nextHorizontalRange = max(nextViewport.width - frame.width, 0)
+  let nextVerticalRange = max(nextViewport.height - frame.height, 0)
+  return Rect(
+    x: nextViewport.x + horizontalProgress * nextHorizontalRange,
+    y: nextViewport.y + verticalProgress * nextVerticalRange,
+    width: min(frame.width, nextViewport.width),
+    height: min(frame.height, nextViewport.height)
+  )
+}
+
+private func constrainedFloatingFrame(_ frame: Rect, to viewport: Rect) -> Rect {
+  let width = min(frame.width, viewport.width)
+  let height = min(frame.height, viewport.height)
+  return Rect(
+    x: min(max(frame.x, viewport.x), viewport.x + viewport.width - width),
+    y: min(max(frame.y, viewport.y), viewport.y + viewport.height - height),
+    width: width,
+    height: height
+  )
 }

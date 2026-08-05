@@ -109,10 +109,11 @@ extension MacOSPlatform {
             && CFEqual(previousElement, element)
         }?.key
         guard
-          let (candidate, cgWindowID) = makeWindow(
+          let (candidate, cgWindowID, decision) = makeWindow(
             element: element,
             processID: application.processIdentifier,
             appID: appID,
+            config: config,
             cgWindows: cgWindows,
             monitors: monitors,
             preferredWindowID: previousWindowID,
@@ -121,23 +122,31 @@ extension MacOSPlatform {
         else {
           continue
         }
-        let decision = config.decision(for: candidate)
-        guard
-          shouldManage(
-            candidate,
-            element: element,
-            forceTiling: decision.forceTiling,
-            wasPreviouslyManaged: previousWindowID != nil
-          )
-        else {
+        let previousDisposition = previousWindowID.map {
+          floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
+        }
+        let disposition = windowDisposition(
+          candidate,
+          element: element,
+          configuredFloating: decision.floating,
+          forceTiling: decision.forceTiling,
+          previousDisposition: previousDisposition
+        )
+        guard disposition != .ignored else {
           continue
         }
         guard usedCGWindowIDs.insert(cgWindowID).inserted else {
           continue
         }
-        windows.append(candidate)
-        nextElements[candidate.id] = element
-        nextProcessIDs[candidate.id] = application.processIdentifier
+        var tracked = candidate
+        tracked.floating = disposition == .floating
+        tracked.floatingOrigin = floatingOrigin(
+          for: disposition,
+          configuredFloating: decision.floating
+        )
+        windows.append(tracked)
+        nextElements[tracked.id] = element
+        nextProcessIDs[tracked.id] = application.processIdentifier
       }
     }
 
@@ -160,6 +169,7 @@ extension MacOSPlatform {
     hasCompletedWindowSnapshot = true
     elements = nextElements
     processIDs = nextProcessIDs
+    floatingWindowIDs = Set(windows.lazy.filter(\.floating).map(\.id))
     applications = nextApplications
     applicationWindowCounts = applicationWindows.mapValues(\.count)
     lastSnapshotWindows = windows
