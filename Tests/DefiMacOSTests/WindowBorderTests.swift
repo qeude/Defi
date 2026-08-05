@@ -280,6 +280,75 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func activeSelectionReusesDormantBorderPanels() {
+    let manager = WindowBorderManager()
+    let first = WindowID(rawValue: 1)
+    let second = WindowID(rawValue: 2)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    let firstPlan = planWindowBorders(
+      frames: [FrameAssignment(windowID: first, frame: frame)],
+      selectedWindowID: first,
+      hiddenWindowIDs: [],
+      monitorFrames: [monitor],
+      style: style
+    )
+
+    manager.prepareForSelection(first, displayedFrame: frame)
+    manager.sync(
+      firstPlan,
+      displayedFrames: [first: frame],
+      activeWindowIsFrontmost: true
+    )
+    #expect(manager.performance.allocated == 1)
+
+    manager.prepareForSelection(second, displayedFrame: frame)
+
+    #expect(manager.activeWindowID == second)
+    #expect(manager.performance.allocated == 1)
+  }
+
+  @Test @MainActor
+  func initialInactiveBorderBatchReservesEveryAllocation() {
+    let manager = WindowBorderManager()
+    let windowIDs = (1...3).map { WindowID(rawValue: UInt64($0)) }
+    let frames = Dictionary(
+      uniqueKeysWithValues: windowIDs.enumerated().map { index, windowID in
+        let frame = Rect(
+          x: Double(index * 400),
+          y: 100,
+          width: 380,
+          height: 600
+        )
+        return (windowID, frame)
+      }
+    )
+    let inactiveStyle = WindowBorderStyle(
+      enabled: true,
+      width: 4,
+      activeColor: 0xffff_ffff,
+      inactiveEnabled: true,
+      inactiveColor: 0x66ff_ffff,
+      captureEnabled: false
+    )
+    let plan = planWindowBorders(
+      frames: frames.map { FrameAssignment(windowID: $0.key, frame: $0.value) },
+      selectedWindowID: windowIDs[0],
+      hiddenWindowIDs: [],
+      monitorFrames: [monitor],
+      style: inactiveStyle
+    )
+
+    manager.sync(
+      plan,
+      displayedFrames: frames,
+      activeWindowIsFrontmost: true
+    )
+
+    #expect(manager.performance.allocated == 3)
+    #expect(manager.performance.visible == 3)
+  }
+
+  @Test @MainActor
   func borderPanelsFloatOnlyWhileActiveWindowIsFrontmost() {
     let overlay = BorderOverlay(windowID: WindowID(rawValue: 1))
 

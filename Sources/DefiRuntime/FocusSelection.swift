@@ -43,3 +43,74 @@ public func nativeFocusChangesSelection(
   return activeMonitorID != focusedMonitorID
     || state.selectedWindowID(on: focusedMonitorID) != windowID
 }
+
+public struct WindowRemovalFocusGuard: Equatable, Sendable {
+  public let monitorID: MonitorID
+  public let workspaceID: WorkspaceID
+  public let inputTimestamp: Double
+
+  public init(
+    monitorID: MonitorID,
+    workspaceID: WorkspaceID,
+    inputTimestamp: Double
+  ) {
+    self.monitorID = monitorID
+    self.workspaceID = workspaceID
+    self.inputTimestamp = inputTimestamp
+  }
+}
+
+public enum WindowRemovalFocusDecision: Equatable, Sendable {
+  case accept
+  case wait(localFallback: WindowID?)
+  case preserve(localFallback: WindowID?)
+}
+
+public func windowRemovalFocusGuard(
+  previousMonitorID: MonitorID?,
+  previousWorkspaceID: WorkspaceID?,
+  previousSelectedWindowID: WindowID?,
+  removedWindowIDs: Set<WindowID>,
+  userInputAfterWindowTopology: Bool,
+  latestUserInputTimestamp: Double
+) -> WindowRemovalFocusGuard? {
+  guard let previousMonitorID,
+    let previousWorkspaceID,
+    let previousSelectedWindowID,
+    removedWindowIDs.contains(previousSelectedWindowID),
+    !userInputAfterWindowTopology
+  else {
+    return nil
+  }
+  return WindowRemovalFocusGuard(
+    monitorID: previousMonitorID,
+    workspaceID: previousWorkspaceID,
+    inputTimestamp: latestUserInputTimestamp
+  )
+}
+
+public func windowRemovalFocusDecision(
+  guard focusGuard: WindowRemovalFocusGuard,
+  nativeFocusedWindowID: WindowID?,
+  nativeFocusChanged: Bool,
+  latestUserInputTimestamp: Double,
+  state: RuntimeState
+) -> WindowRemovalFocusDecision {
+  guard latestUserInputTimestamp <= focusGuard.inputTimestamp,
+    let monitor = state.monitors.first(where: { $0.id == focusGuard.monitorID }),
+    monitor.activeWorkspace == focusGuard.workspaceID
+  else {
+    return .accept
+  }
+  let localFallback = state.selectedWindowID(on: focusGuard.monitorID)
+  guard nativeFocusChanged, let nativeFocusedWindowID else {
+    return .wait(localFallback: localFallback)
+  }
+  guard let location = state.location(containing: nativeFocusedWindowID),
+    location.monitorID == focusGuard.monitorID,
+    location.workspaceID == focusGuard.workspaceID
+  else {
+    return .preserve(localFallback: localFallback)
+  }
+  return .accept
+}

@@ -6,6 +6,272 @@ import Testing
 
 struct PlatformEventTests {
   @Test
+  func userInputTrackingStaysMonotonicAcrossDuplicateDelivery() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12)
+    tracker.record(timestamp: 8)
+    tracker.record(timestamp: 12)
+
+    #expect(tracker.latestEventTimestamp == 12)
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: 12,
+        latestInputTimestamp: tracker.latestEventTimestamp
+      ) == false
+    )
+
+    tracker.record(timestamp: 13)
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: 12,
+        latestInputTimestamp: tracker.latestEventTimestamp
+      )
+    )
+  }
+
+  @Test
+  func commandTabAfterCloseWinsBeforeTopologyNotification() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    tracker.record(timestamp: 21, focusIntent: .keyboard)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent
+      )
+    )
+  }
+
+  @Test
+  func mouseClickAfterCloseWinsBeforeTopologyNotification() {
+    let tracker = UserInputTracker()
+    let clickedWindowID = WindowID(rawValue: 30)
+    tracker.record(timestamp: 20, closeIntent: true)
+    tracker.record(
+      timestamp: 21,
+      focusIntent: .mouse(windowID: clickedWindowID)
+    )
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [WindowID(rawValue: 10)]
+      )
+    )
+  }
+
+  @Test
+  func closeButtonClickDoesNotMasqueradeAsFocusIntent() {
+    let tracker = UserInputTracker()
+    let closingWindowID = WindowID(rawValue: 10)
+    tracker.record(
+      timestamp: 20,
+      focusIntent: .mouse(windowID: closingWindowID)
+    )
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [closingWindowID]
+      ) == false
+    )
+  }
+
+  @Test
+  func closeIntentDoesNotMasqueradeAsExplicitFocus() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 19, focusIntent: .keyboard)
+    tracker.record(timestamp: 20, closeIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent
+      ) == false
+    )
+  }
+
+  @Test
+  func guardedFocusCancelsOnlyForNewerInput() {
+    #expect(
+      guardedFocusIsCurrent(
+        latestInputTimestamp: 10,
+        maximumInputTimestamp: 10
+      )
+    )
+    #expect(
+      guardedFocusIsCurrent(
+        latestInputTimestamp: 11,
+        maximumInputTimestamp: 10
+      ) == false
+    )
+  }
+
+  @Test
+  func guardedFocusMutationRecoversOnlyFromNewerInput() {
+    #expect(
+      guardedFocusMutationNeedsRecovery(
+        mutationApplied: true,
+        generationCurrent: true,
+        inputCurrent: false
+      )
+    )
+    #expect(
+      guardedFocusMutationNeedsRecovery(
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: false
+      ) == false
+    )
+    #expect(
+      guardedFocusMutationNeedsRecovery(
+        mutationApplied: true,
+        generationCurrent: false,
+        inputCurrent: false
+      ) == false
+    )
+  }
+
+  @Test
+  func focusRecoveryUsesLatestExplicitTarget() throws {
+    let tracker = UserInputTracker()
+    let clickedWindowID = WindowID(rawValue: 42)
+    tracker.record(
+      timestamp: 11,
+      focusIntent: .mouse(windowID: clickedWindowID)
+    )
+
+    let mouseTarget = try #require(
+      tracker.focusRecoveryTarget(after: 10)
+    )
+    #expect(mouseTarget.windowID == clickedWindowID)
+    #expect(mouseTarget.timestamp == 11)
+
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: nil, processID: 900)
+    let keyboardTarget = try #require(
+      tracker.focusRecoveryTarget(after: 11)
+    )
+    #expect(keyboardTarget.windowID == nil)
+    #expect(keyboardTarget.processID == 900)
+  }
+
+  @Test
+  func focusRecoveryExcludesGuardedFallbackObservations() throws {
+    let tracker = UserInputTracker()
+    let fallbackWindowID = WindowID(rawValue: 40)
+    let intendedWindowID = WindowID(rawValue: 50)
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: intendedWindowID, processID: 400)
+    tracker.recordObservedFocus(windowID: fallbackWindowID, processID: 400)
+
+    let target = try #require(
+      tracker.focusRecoveryTarget(
+        after: 11,
+        excludingWindowID: fallbackWindowID,
+        excludingProcessID: 400
+      )
+    )
+    #expect(target.windowID == intendedWindowID)
+    #expect(target.processID == 400)
+  }
+
+  @Test
+  func focusRecoveryExcludesPidOnlyFallbackObservation() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: WindowID(rawValue: 50), processID: 500)
+    tracker.recordObservedFocus(windowID: nil, processID: 400)
+
+    let target = tracker.focusRecoveryTarget(
+      after: 11,
+      excludingWindowID: WindowID(rawValue: 40),
+      excludingProcessID: 400
+    )
+    #expect(target?.windowID == WindowID(rawValue: 50))
+    #expect(target?.processID == 500)
+  }
+
+  @Test
+  func globalMouseFallbackRetainsTargetWindowIdentity() {
+    #expect(
+      mouseFocusIntentWindowID(rawWindowID: 42)
+        == WindowID(rawValue: 42)
+    )
+    #expect(mouseFocusIntentWindowID(rawWindowID: 0) == nil)
+  }
+
+  @Test
+  func laterWindowTopologyEventRefreshesInputTimestamp() {
+    #expect(
+      updatedWindowTopologyInputTimestamp(
+        for: .windows,
+        latestInputTimestamp: 20,
+        previousTimestamp: 10
+      ) == 20
+    )
+    #expect(
+      updatedWindowTopologyInputTimestamp(
+        for: .focus,
+        latestInputTimestamp: 30,
+        previousTimestamp: 20
+      ) == 20
+    )
+  }
+
+  @Test
+  func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
+    #expect(
+      windowSnapshotInvalidation(
+        for: .applicationTerminated,
+        processID: 42
+      ) == .process(42)
+    )
+  }
+
+  @Test
+  func terminatedApplicationWithoutPIDFallsBackToFullSnapshot() {
+    #expect(
+      windowSnapshotInvalidation(
+        for: .applicationTerminated,
+        processID: nil
+      ) == .full
+    )
+  }
+
+  @Test
+  func windowTopologyUsesPIDButGeneralApplicationEventsStayGlobal() {
+    #expect(
+      windowSnapshotInvalidation(for: .windows, processID: 7)
+        == .process(7)
+    )
+    #expect(
+      windowSnapshotInvalidation(for: .windows, processID: nil) == .full
+    )
+    #expect(
+      windowSnapshotInvalidation(for: .application, processID: 7) == .full
+    )
+    #expect(
+      windowSnapshotInvalidation(for: .focus, processID: 7) == .none
+    )
+  }
+
+  @Test
   func simpleClickDoesNotSynchronizeDesktop() {
     var normalizer = MouseGestureEventNormalizer()
     let mouseDown = normalizer.actions(

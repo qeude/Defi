@@ -1,5 +1,6 @@
 import ApplicationServices
 import DefiConfig
+import DefiModel
 import Foundation
 
 public enum HotKeyError: Error, CustomStringConvertible {
@@ -20,6 +21,7 @@ public final class HotKeyManager {
 
   private let bindings: [Key: String]
   private let handler: Handler
+  private let userInputTracker: UserInputTracker
   private var context: HotKeyTapContext?
   private var thread: Thread?
 
@@ -37,8 +39,13 @@ public final class HotKeyManager {
     context?.tapReenableCount ?? 0
   }
 
-  public init(config: Config, handler: @escaping Handler) throws {
+  public init(
+    config: Config,
+    userInputTracker: UserInputTracker = UserInputTracker(),
+    handler: @escaping Handler
+  ) throws {
     self.handler = handler
+    self.userInputTracker = userInputTracker
     var bindings: [Key: String] = [:]
     for (accelerator, command) in config.keys {
       let key = try Key(
@@ -52,7 +59,10 @@ public final class HotKeyManager {
 
   public func start() throws {
     guard context == nil else { return }
-    let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+    let mask = CGEventMask(
+      (1 << CGEventType.keyDown.rawValue)
+        | (1 << CGEventType.leftMouseDown.rawValue)
+    )
     let callback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else {
         return Unmanaged.passUnretained(event)
@@ -63,7 +73,10 @@ public final class HotKeyManager {
       return context.handle(type: type, event: event)
     }
     let handler = self.handler
-    let context = HotKeyTapContext(bindings: bindings) { command in
+    let context = HotKeyTapContext(
+      bindings: bindings,
+      userInputTracker: userInputTracker
+    ) { command in
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
           handler(command)
@@ -108,7 +121,11 @@ public final class HotKeyManager {
 }
 
 private final class HotKeyTapContext: @unchecked Sendable {
+  private static let commandTabKeyCode = CGKeyCode(48)
+  private static let closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
+
   private let bindings: [Key: String]
+  private let userInputTracker: UserInputTracker
   private let deliver: @Sendable (String) -> Void
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
@@ -120,9 +137,11 @@ private final class HotKeyTapContext: @unchecked Sendable {
 
   init(
     bindings: [Key: String],
+    userInputTracker: UserInputTracker,
     deliver: @escaping @Sendable (String) -> Void
   ) {
     self.bindings = bindings
+    self.userInputTracker = userInputTracker
     self.deliver = deliver
   }
 
@@ -168,7 +187,31 @@ private final class HotKeyTapContext: @unchecked Sendable {
       }
       return Unmanaged.passUnretained(event)
     }
-    guard type == .keyDown else {
+    let isKeyDown = type == .keyDown
+    if isKeyDown || type == .leftMouseDown {
+      let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+      let commandPressed = event.flags.contains(.maskCommand)
+      let focusIntent: UserInputTracker.FocusIntentSource?
+      if type == .leftMouseDown {
+        let rawWindowID = event.getIntegerValueField(
+          .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+        )
+        focusIntent = .mouse(
+          windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+        )
+      } else if commandPressed && code == Self.commandTabKeyCode {
+        focusIntent = .keyboard
+      } else {
+        focusIntent = nil
+      }
+      userInputTracker.record(
+        timestamp: Double(event.timestamp) / 1_000_000_000,
+        focusIntent: focusIntent,
+        closeIntent: isKeyDown && commandPressed
+          && Self.closeWindowKeyCodes.contains(code)
+      )
+    }
+    guard isKeyDown else {
       return Unmanaged.passUnretained(event)
     }
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))

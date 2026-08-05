@@ -87,6 +87,26 @@ final class AXFrameAccessibilityWriter {
     return point
   }
 
+  func readSize(_ element: AXUIElement) -> CGSize? {
+    var rawValue: CFTypeRef?
+    guard
+      AXUIElementCopyAttributeValue(
+        element,
+        kAXSizeAttribute as CFString,
+        &rawValue
+      ) == .success,
+      let rawValue,
+      CFGetTypeID(rawValue) == AXValueGetTypeID()
+    else {
+      return nil
+    }
+    var size = CGSize.zero
+    guard AXValueGetValue(rawValue as! AXValue, .cgSize, &size) else {
+      return nil
+    }
+    return size
+  }
+
   func pointDistance(_ lhs: CGPoint, _ rhs: CGPoint) -> Double {
     abs(lhs.x - rhs.x) + abs(lhs.y - rhs.y)
   }

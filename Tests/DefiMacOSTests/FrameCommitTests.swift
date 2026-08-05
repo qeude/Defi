@@ -1,5 +1,6 @@
 import DefiCore
 import DefiModel
+import Darwin
 import XCTest
 
 @testable import DefiMacOS
@@ -12,6 +13,188 @@ final class FrameCommitTests: XCTestCase {
     deadline: 10.65,
     observedAt: nil
   )
+
+  func testInitialWindowCommitUsesShortQuarantineForFastRetries() {
+    XCTAssertEqual(
+      frameCommitQuarantineDuration(
+        animationDuration: 0,
+        initialFrameSettlement: true
+      ),
+      0.18,
+      accuracy: 0.000_1
+    )
+    XCTAssertEqual(
+      frameCommitQuarantineDuration(
+        animationDuration: 0,
+        initialFrameSettlement: false
+      ),
+      0.8,
+      accuracy: 0.000_1
+    )
+  }
+
+  func testInitialWindowCommitStillCoversAnimation() {
+    XCTAssertEqual(
+      frameCommitQuarantineDuration(
+        animationDuration: 0.35,
+        initialFrameSettlement: true
+      ),
+      0.47,
+      accuracy: 0.000_1
+    )
+  }
+
+  func testInitialSettlementRepairsPositionOrSizeDrift() {
+    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
+
+    XCTAssertFalse(initialFrameNeedsRepair(actual: target, target: target))
+    XCTAssertTrue(
+      initialFrameNeedsRepair(
+        actual: Rect(x: 140, y: 40, width: 1_200, height: 900),
+        target: target
+      )
+    )
+    XCTAssertTrue(
+      initialFrameNeedsRepair(
+        actual: Rect(x: 100, y: 40, width: 900, height: 700),
+        target: target
+      )
+    )
+  }
+
+  func testInitialSettlementStaysArmedAfterMatchingFrame() {
+    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
+
+    XCTAssertEqual(
+      initialSettlementObservation(
+        actual: target,
+        target: target,
+        now: 10,
+        deadline: 12.5
+      ),
+      .stable
+    )
+    XCTAssertEqual(
+      initialSettlementObservation(
+        actual: target,
+        target: target,
+        now: 12.5,
+        deadline: 12.5
+      ),
+      .expired
+    )
+  }
+
+  func testInitialSettlementRepairRequiresCurrentGenerationAndIdleMouse() {
+    XCTAssertTrue(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: false,
+        leftMouseButtonDown: false,
+        animationRunning: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 5,
+        repairsSuspended: false,
+        leftMouseButtonDown: false,
+        animationRunning: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: true,
+        leftMouseButtonDown: false,
+        animationRunning: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: false,
+        leftMouseButtonDown: true,
+        animationRunning: false
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementRepairIsCurrent(
+        expectedGeneration: 4,
+        currentGeneration: 4,
+        repairsSuspended: false,
+        leftMouseButtonDown: false,
+        animationRunning: true
+      )
+    )
+  }
+
+  func testWindowEventsUseIncrementalRefreshOnlyWithStablePIDContext() {
+    let processIDs: Set<pid_t> = [101, 202]
+
+    XCTAssertEqual(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: true,
+        requiresFullSnapshot: false,
+        processIDs: processIDs
+      ),
+      processIDs
+    )
+    XCTAssertNil(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: false,
+        eventPending: true,
+        requiresFullSnapshot: false,
+        processIDs: processIDs
+      )
+    )
+    XCTAssertNil(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: true,
+        requiresFullSnapshot: true,
+        processIDs: processIDs
+      )
+    )
+    XCTAssertNil(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: true,
+        requiresFullSnapshot: false,
+        processIDs: []
+      )
+    )
+  }
+
+  func testIncrementalRefreshIncludesCoalescedFrameProcess() {
+    XCTAssertEqual(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: true,
+        requiresFullSnapshot: false,
+        processIDs: [101],
+        coalescedProcessIDs: [202]
+      ),
+      [101, 202]
+    )
+  }
+
+  func testCoalescedMouseResizeForcesFullRefresh() {
+    XCTAssertNil(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: true,
+        requiresFullSnapshot: false,
+        processIDs: [101],
+        coalescedEventRequiresFullSnapshot: true
+      )
+    )
+  }
 
   func testWorkspaceSwitchPlacesVisibleWindowsBeforeParkingOldWorkspace() {
     let visible = WindowID(rawValue: 1)

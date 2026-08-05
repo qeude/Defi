@@ -89,7 +89,6 @@ func windowBorderSegmentGeometries(
 
 @MainActor
 final class BorderOverlay {
-  private let targetWindowNumber: Int
   private let segments: [WindowBorderSegmentKind: BorderSegment]
   private var windowFrame: Rect?
   private var width = -1.0
@@ -113,12 +112,20 @@ final class BorderOverlay {
   }
 
   init(windowID: WindowID) {
-    targetWindowNumber = Int(windowID.rawValue)
+    let targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(
       uniqueKeysWithValues: WindowBorderSegmentKind.allCases.map {
-        ($0, BorderSegment(targetWindowNumber: Int(windowID.rawValue)))
+        ($0, BorderSegment(targetWindowNumber: targetWindowNumber))
       }
     )
+  }
+
+  func retarget(to windowID: WindowID) {
+    compactBacking()
+    let targetWindowNumber = Int(windowID.rawValue)
+    for segment in segments.values {
+      segment.retarget(to: targetWindowNumber)
+    }
   }
 
   func sync(
@@ -263,7 +270,7 @@ final class BorderOverlay {
 
 @MainActor
 private final class BorderSegment {
-  private let targetWindowNumber: Int
+  private var targetWindowNumber: Int
   private let panel: NSPanel
   private let rootView: NSView
   private let shapeLayer = CAShapeLayer()
@@ -314,6 +321,10 @@ private final class BorderSegment {
     shapeLayer.lineCap = .butt
     shapeLayer.lineJoin = .round
     panel.contentView = rootView
+  }
+
+  func retarget(to targetWindowNumber: Int) {
+    self.targetWindowNumber = targetWindowNumber
   }
 
   func syncGeometry(

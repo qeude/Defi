@@ -107,6 +107,8 @@ final class Daemon: NSObject {
   var lastCommandDurationMS = 0.0
   var suppressNativeFocusUntil: TimeInterval = 0
   var ignoredRedundantNativeFocusCount = 0
+  var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
+  var preservedWindowRemovalFocusCount = 0
   var pendingAnimatedFocusWindowID: WindowID?
   var deferredSlowWindowIDs = Set<WindowID>()
   var slowLaneSettlementDeadline: TimeInterval?
@@ -150,7 +152,10 @@ final class Daemon: NSObject {
     )
 
     do {
-      let manager = try HotKeyManager(config: config) { [weak self] command in
+      let manager = try HotKeyManager(
+        config: config,
+        userInputTracker: platform.userInputTracker
+      ) { [weak self] command in
         self?.enqueueHotKey(command)
       }
       try manager.start()
