@@ -60,6 +60,7 @@ extension MacOSPlatform {
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
     let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
     let eligibleCGWindows = eligibleCGWindowRecords(
+      role: role,
       for: subrole,
       in: cgWindows
     )
@@ -107,7 +108,7 @@ extension MacOSPlatform {
     element: AXUIElement,
     configuredFloating: Bool,
     forceTiling: Bool,
-    wasPreviouslyTracked: Bool
+    previousDisposition: WindowDisposition?
   ) -> WindowDisposition {
     var closeButton: CFTypeRef?
     let closeButtonError = AXUIElementCopyAttributeValue(
@@ -123,15 +124,15 @@ extension MacOSPlatform {
     )
     if !configuredFloating,
       !forceTiling,
-      shouldDeferStandardWindowClassification(
+      let fallbackDisposition = fallbackDispositionForTransientWindowMetadata(
         role: window.role,
         subrole: window.subrole,
         closeButtonError: closeButtonError,
         sizeSettableError: sizeSettableError,
-        wasPreviouslyTracked: wasPreviouslyTracked
+        previousDisposition: previousDisposition
       )
     {
-      return .ignored
+      return fallbackDisposition
     }
     return classifyWindow(
       role: window.role,
@@ -140,7 +141,7 @@ extension MacOSPlatform {
       hasCloseButton: shouldTreatWindowAsClosable(
         error: closeButtonError,
         hasValue: closeButton != nil,
-        wasPreviouslyManaged: wasPreviouslyTracked
+        wasPreviouslyManaged: previousDisposition != nil
       ),
       canResize: windowCanResize(
         sizeSettableError: sizeSettableError,

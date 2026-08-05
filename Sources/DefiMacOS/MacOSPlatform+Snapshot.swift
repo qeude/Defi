@@ -122,12 +122,15 @@ extension MacOSPlatform {
           continue
         }
         let decision = config.decision(for: candidate)
+        let previousDisposition = previousWindowID.map {
+          floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
+        }
         let disposition = windowDisposition(
           candidate,
           element: element,
           configuredFloating: decision.floating,
           forceTiling: decision.forceTiling,
-          wasPreviouslyTracked: previousWindowID != nil
+          previousDisposition: previousDisposition
         )
         guard disposition != .ignored else {
           continue

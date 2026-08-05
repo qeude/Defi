@@ -59,12 +59,13 @@ func copyCGWindows() -> [CGWindowRecord] {
 }
 
 func eligibleCGWindowRecords(
+  role: String?,
   for subrole: String?,
   in records: [CGWindowRecord]
 ) -> [CGWindowRecord] {
   let acceptsFloatingLevel =
-    subrole == "AXFloatingWindow"
-    || subrole == "AXSystemFloatingWindow"
+    role == kAXSheetRole
+    || subrole.map(automaticFloatingWindowSubroles.contains) == true
   return records.filter { record in
     record.layer == 0 || (acceptsFloatingLevel && record.layer > 0)
   }
@@ -167,6 +168,13 @@ private let ignoredWindowApplicationIDs: Set<String> = [
   "com.raycast.macos",
 ]
 
+private let automaticFloatingWindowSubroles: Set<String> = [
+  "AXDialog",
+  "AXFloatingWindow",
+  "AXSystemDialog",
+  "AXSystemFloatingWindow",
+]
+
 func classifyWindow(
   role: String?,
   subrole: String?,
@@ -184,33 +192,32 @@ func classifyWindow(
   if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {
     return .tiled
   }
-  switch subrole {
-  case kAXStandardWindowSubrole,
-    "AXDialog",
-    "AXFloatingWindow",
-    "AXSystemDialog",
-    "AXSystemFloatingWindow":
+  if subrole == kAXStandardWindowSubrole
+    || subrole.map(automaticFloatingWindowSubroles.contains) == true
+  {
     return .floating
-  default:
-    return .ignored
   }
+  return .ignored
 }
 
-func shouldDeferStandardWindowClassification(
+func fallbackDispositionForTransientWindowMetadata(
   role: String?,
   subrole: String?,
   closeButtonError: AXError,
   sizeSettableError: AXError,
-  wasPreviouslyTracked: Bool
-) -> Bool {
-  guard !wasPreviouslyTracked,
-    role == kAXWindowRole,
+  previousDisposition: WindowDisposition?
+) -> WindowDisposition? {
+  guard role == kAXWindowRole,
     subrole == kAXStandardWindowSubrole
   else {
-    return false
+    return nil
   }
-  return axMetadataErrorIsTransient(closeButtonError)
+  guard axMetadataErrorIsTransient(closeButtonError)
     || axMetadataErrorIsTransient(sizeSettableError)
+  else {
+    return nil
+  }
+  return previousDisposition ?? .ignored
 }
 
 func windowCanResize(

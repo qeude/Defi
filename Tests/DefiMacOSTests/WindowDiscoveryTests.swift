@@ -89,7 +89,7 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
-  func testFloatingSubrolesCanMatchFloatingLevelWindowRecords() {
+  func testAuxiliaryRolesCanMatchFloatingLevelWindowRecords() {
     let normal = CGWindowRecord(
       id: 1,
       processID: processID,
@@ -105,12 +105,28 @@ final class WindowDiscoveryTests: XCTestCase {
       frame: frame
     )
 
+    for (role, subrole) in [
+      (kAXWindowRole, "AXDialog"),
+      (kAXWindowRole, "AXFloatingWindow"),
+      (kAXWindowRole, "AXSystemDialog"),
+      (kAXWindowRole, "AXSystemFloatingWindow"),
+      (kAXSheetRole, nil),
+    ] {
+      XCTAssertEqual(
+        eligibleCGWindowRecords(
+          role: role,
+          for: subrole,
+          in: [normal, panel]
+        ).map(\.id),
+        [normal.id, panel.id]
+      )
+    }
     XCTAssertEqual(
-      eligibleCGWindowRecords(for: "AXFloatingWindow", in: [normal, panel]).map(\.id),
-      [normal.id, panel.id]
-    )
-    XCTAssertEqual(
-      eligibleCGWindowRecords(for: kAXStandardWindowSubrole, in: [normal, panel]).map(\.id),
+      eligibleCGWindowRecords(
+        role: kAXWindowRole,
+        for: kAXStandardWindowSubrole,
+        in: [normal, panel]
+      ).map(\.id),
       [normal.id]
     )
   }
@@ -223,23 +239,36 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
-  func testTransientMetadataFailureDefersNewStandardWindow() {
-    XCTAssertTrue(
-      shouldDeferStandardWindowClassification(
+  func testTransientMetadataFailurePreservesPreviousDisposition() {
+    let cases: [(WindowDisposition?, WindowDisposition)] = [
+      (nil, WindowDisposition.ignored),
+      (.tiled, .tiled),
+      (.floating, .floating),
+    ]
+    for (closeButtonError, sizeSettableError) in [
+      (AXError.cannotComplete, AXError.success),
+      (.success, .cannotComplete),
+    ] {
+      for (previous, expected) in cases {
+        XCTAssertEqual(
+          fallbackDispositionForTransientWindowMetadata(
+            role: kAXWindowRole,
+            subrole: kAXStandardWindowSubrole,
+            closeButtonError: closeButtonError,
+            sizeSettableError: sizeSettableError,
+            previousDisposition: previous
+          ),
+          expected
+        )
+      }
+    }
+    XCTAssertNil(
+      fallbackDispositionForTransientWindowMetadata(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
-        closeButtonError: .cannotComplete,
+        closeButtonError: .success,
         sizeSettableError: .success,
-        wasPreviouslyTracked: false
-      )
-    )
-    XCTAssertFalse(
-      shouldDeferStandardWindowClassification(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        closeButtonError: .cannotComplete,
-        sizeSettableError: .success,
-        wasPreviouslyTracked: true
+        previousDisposition: .floating
       )
     )
   }
