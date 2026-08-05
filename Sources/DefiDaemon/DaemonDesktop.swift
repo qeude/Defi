@@ -17,6 +17,7 @@ private let displayLogger = Logger(
 extension Daemon {
   func synchronizeDesktop() {
     let snapshot = platform.snapshot(config: config)
+    let previousObservedWindowFrames = state.windows.mapValues(\.frame)
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
     if tracesWindowCreation {
       platform.recordPerformanceTrace("sync-snapshot-return")
@@ -28,6 +29,11 @@ extension Daemon {
     }
     let previousSelectedWindowID = previousActiveMonitorID.flatMap {
       state.selectedWindowID(on: $0)
+    }
+    let mouseGestureEnded =
+      snapshot.mouseResizeGestureObserved && !snapshot.leftMouseButtonDown
+    let nativeFocusedScrollAnchor = snapshot.focusedWindowID.flatMap {
+      workspaceScrollAnchor(containing: $0, state: state)
     }
     let previousFloatingMonitorIDs = Dictionary(
       uniqueKeysWithValues: floatingWindowFrames.keys.compactMap { windowID in
@@ -82,11 +88,13 @@ extension Daemon {
       displayGeometryChanged: displayGeometryChanged,
       mouseResizeGestureActive: mouseResizeGestureActive
     )
-    let reassignedMonitorID = snapshot.focusedWindowID.flatMap {
-      reassignedFloatingMonitorIDs[$0]
-    } ?? previousSelectedWindowID.flatMap {
-      reassignedFloatingMonitorIDs[$0]
-    }
+    let reassignedMonitorID =
+      snapshot.focusedWindowID.flatMap {
+        reassignedFloatingMonitorIDs[$0]
+      }
+      ?? previousSelectedWindowID.flatMap {
+        reassignedFloatingMonitorIDs[$0]
+      }
     if let reassignedMonitorID {
       activeMonitorID = reassignedMonitorID
       nativelyFocusedMonitorID = reassignedMonitorID
@@ -137,21 +145,38 @@ extension Daemon {
     }
     if let focusedWindowID = snapshot.focusedWindowID {
       let nativeFocusAccepted =
-        snapshot.nativeFocusChanged
+        nativeFocusMutationIsReady(
+          nativeFocusChanged: snapshot.nativeFocusChanged,
+          mouseGestureEnded: mouseGestureEnded,
+          leftMouseButtonDown: snapshot.leftMouseButtonDown
+        )
         && !preservesWorkspaceAfterRemoval
-        && ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil
+        && (mouseGestureEnded
+          || ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil)
       let selectionChanged = nativeFocusChangesSelection(
         focusedWindowID,
         activeMonitorID: activeMonitorID,
         state: state
       )
-      if !preservesWorkspaceAfterRemoval
+      if snapshot.leftMouseButtonDown && snapshot.nativeFocusChanged
+        && selectionChanged
+      {
+        platform.recordPerformanceTrace(
+          "mouse-focus-deferred window=\(focusedWindowID.rawValue)"
+        )
+      }
+      if !preservesWorkspaceAfterRemoval && !snapshot.leftMouseButtonDown
         && (activeMonitorID == nil || (nativeFocusAccepted && selectionChanged))
       {
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
         activeMonitorID = state.monitorID(containing: focusedWindowID)
         nativelyFocusedMonitorID = activeMonitorID
+        if mouseGestureEnded {
+          platform.recordPerformanceTrace(
+            "mouse-focus-committed window=\(focusedWindowID.rawValue)"
+          )
+        }
       } else if nativeFocusAccepted {
         ignoredRedundantNativeFocusCount += 1
       }
@@ -166,11 +191,86 @@ extension Daemon {
       ?? snapshot.focusedWindowID.flatMap { state.monitorID(containing: $0) }
       ?? state.monitors.first?.id
 
+    var mouseReordered = false
     if !displayGeometryChanged && mouseResizeGestureActive {
-      if !snapshot.leftMouseButtonDown {
-        activelyResizedWindowID = nil
+      let translatedWindowID = mouseTranslatedTiledWindowID(
+        externallyChangedFrames: snapshot.externallyChangedFrames,
+        state: state,
+        viewports: viewportsByMonitor
+      )
+      let gestureWindowID = mouseGestureTiledWindowID(
+        translatedWindowID: translatedWindowID,
+        activeWindowID: activelyResizedWindowID,
+        focusedWindowID: snapshot.focusedWindowID,
+        state: state
+      )
+      let actualFrame = gestureWindowID.flatMap { windowID in
+        snapshot.windows.first(where: { $0.id == windowID })?.frame
       }
-      for (windowID, frame) in snapshot.externallyChangedFrames {
+      if snapshot.leftMouseButtonDown {
+        if gestureWindowID != activelyResizedWindowID {
+          mouseGestureInitialFrame = gestureWindowID.flatMap { windowID in
+            previousObservedWindowFrames[windowID] ?? actualFrame
+          }
+        }
+        activelyResizedWindowID = gestureWindowID
+        if let gestureWindowID,
+          let actualFrame,
+          let mouseGestureInitialFrame,
+          mouseFrameWasTranslated(
+            from: mouseGestureInitialFrame,
+            to: actualFrame
+          ),
+          reorderTiledWindowAfterMouseDrag(
+            gestureWindowID,
+            actualFrame: actualFrame,
+            initialFrame: mouseGestureInitialFrame,
+            state: &state,
+            viewports: viewportsByMonitor
+          )
+        {
+          mouseReordered = true
+          platform.recordPerformanceTrace(
+            "mouse-reorder-live window=\(gestureWindowID.rawValue)"
+          )
+        }
+      } else {
+        if let gestureWindowID,
+          let actualFrame,
+          let mouseGestureInitialFrame,
+          mouseFrameWasTranslated(
+            from: mouseGestureInitialFrame,
+            to: actualFrame
+          ),
+          reorderTiledWindowAfterMouseDrag(
+            gestureWindowID,
+            actualFrame: actualFrame,
+            initialFrame: mouseGestureInitialFrame,
+            state: &state,
+            viewports: viewportsByMonitor
+          )
+        {
+          mouseReordered = true
+          platform.recordPerformanceTrace(
+            "mouse-reorder window=\(gestureWindowID.rawValue)"
+          )
+        }
+        activelyResizedWindowID = nil
+        mouseGestureInitialFrame = nil
+      }
+      if !mouseReordered,
+        let gestureWindowID,
+        let actualFrame
+      {
+        _ = learnTiledWindowWidth(
+          gestureWindowID,
+          actualFrame: actualFrame,
+          state: &state,
+          viewports: viewportsByMonitor
+        )
+      }
+      for (windowID, frame) in snapshot.externallyChangedFrames
+      where windowID != gestureWindowID {
         if learnTiledWindowWidth(
           windowID,
           actualFrame: frame,
@@ -182,10 +282,15 @@ extension Daemon {
       }
     } else {
       activelyResizedWindowID = nil
+      mouseGestureInitialFrame = nil
       learnPersistentWidthConstraints(targetMismatches)
     }
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
-    if let nativelyFocusedMonitorID,
+    let preservesMouseViewport = mouseReordered && nativeFocusedScrollAnchor != nil
+    if preservesMouseViewport, let nativeFocusedScrollAnchor {
+      restoreWorkspaceScroll(nativeFocusedScrollAnchor, state: &state)
+    }
+    if !preservesMouseViewport, let nativelyFocusedMonitorID,
       snapshot.focusedWindowID.flatMap({ state.windows[$0]?.floating }) != true
     {
       alignFocusedColumnLeft(
@@ -198,15 +303,27 @@ extension Daemon {
     if tracesWindowCreation {
       platform.recordPerformanceTrace("sync-before-layout")
     }
+    let animatesMouseReorder =
+      mouseReordered
+      && snapshot.leftMouseButtonDown
+      && config.animation.enabled
+      && config.animation.durationMS > 0
+    if animatesMouseReorder {
+      beginFrameAnimationActivity()
+    }
     applyCurrentLayout(
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
+      animationDuration: animatesMouseReorder
+        ? TimeInterval(config.animation.durationMS) / 1_000
+        : 0,
+      positionsOnly: animatesMouseReorder,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
       forceFloatingFrameWrites: displayGeometryChanged,
       source: nativelyActivatedWorkspace
         ? "native-workspace"
-        : "desktop-sync"
+        : (animatesMouseReorder ? "mouse-reorder-animation" : "desktop-sync")
     )
     if let guardedRemovalFocus {
       platform.focus(

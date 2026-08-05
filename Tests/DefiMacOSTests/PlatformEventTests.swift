@@ -272,7 +272,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func simpleClickDoesNotSynchronizeDesktop() {
+  func simpleClickSynchronizesDesktopOnRelease() {
     var normalizer = MouseGestureEventNormalizer()
     let mouseDown = normalizer.actions(
       for: .leftMouseDown
@@ -285,7 +285,7 @@ struct PlatformEventTests {
           refreshBorderStacking: true
         )
     )
-    #expect(mouseUp == MouseGestureEventNormalizer.Actions())
+    #expect(mouseUp.synchronizeDesktop)
   }
 
   @Test

@@ -60,6 +60,14 @@ public func nativeFocusChangesSelection(
     || state.selectedWindowID(on: focusedMonitorID) != windowID
 }
 
+public func nativeFocusMutationIsReady(
+  nativeFocusChanged: Bool,
+  mouseGestureEnded: Bool,
+  leftMouseButtonDown: Bool
+) -> Bool {
+  !leftMouseButtonDown && (nativeFocusChanged || mouseGestureEnded)
+}
+
 public struct WindowRemovalFocusGuard: Equatable, Sendable {
   public let monitorID: MonitorID
   public let workspaceID: WorkspaceID

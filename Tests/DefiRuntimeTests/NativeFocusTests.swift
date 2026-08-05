@@ -44,6 +44,35 @@ struct NativeFocusTests {
   }
 
   @Test
+  func mouseDownDefersNativeFocusMutationUntilRelease() {
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseGestureEnded: false,
+        leftMouseButtonDown: true
+      ) == false
+    )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: false,
+        mouseGestureEnded: true,
+        leftMouseButtonDown: false
+      )
+    )
+  }
+
+  @Test
+  func nonMouseNativeFocusMutatesImmediately() {
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseGestureEnded: false,
+        leftMouseButtonDown: false
+      )
+    )
+  }
+
+  @Test
   func selectedWindowOnDifferentActiveMonitorChangesSelection() throws {
     var state = try makeState()
     let selected = WindowID(rawValue: 1)

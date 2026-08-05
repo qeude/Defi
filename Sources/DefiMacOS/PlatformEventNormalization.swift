@@ -262,7 +262,7 @@ struct MouseGestureEventNormalizer {
     var synchronizeDesktop = false
   }
 
-  private var moved = false
+  private var pressed = false
   private var synchronizedDuringGesture = false
 
   mutating func actions(
@@ -270,11 +270,10 @@ struct MouseGestureEventNormalizer {
   ) -> Actions {
     switch eventType {
     case .leftMouseDown:
-      moved = false
+      pressed = true
       synchronizedDuringGesture = false
       return Actions(refreshBorderStacking: true)
     case .leftMouseDragged:
-      moved = true
       guard synchronizedDuringGesture == false else {
         return Actions()
       }
@@ -282,10 +281,10 @@ struct MouseGestureEventNormalizer {
       return Actions(synchronizeDesktop: true)
     case .leftMouseUp:
       defer {
-        moved = false
+        pressed = false
         synchronizedDuringGesture = false
       }
-      return Actions(synchronizeDesktop: moved)
+      return Actions(synchronizeDesktop: pressed)
     default:
       return Actions()
     }

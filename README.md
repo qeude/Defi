@@ -15,6 +15,7 @@ Basic MVP includes:
 - `launchd` development service commands
 - native application/focus event synchronization
 - real frame/target reconciliation and mouse-resize width learning
+- title-bar drag reordering for columns and stacked windows
 - topology-aware parking lanes with one-pixel side anchors
 - delayed real-frame verification and automatic parking repair
 - continuous scrolling strip with bounded neighboring-column prefetch

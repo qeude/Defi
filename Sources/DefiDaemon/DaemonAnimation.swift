@@ -66,7 +66,7 @@ extension Daemon {
     }
   }
 
-  private func beginFrameAnimationActivity() {
+  func beginFrameAnimationActivity() {
     if animationActivity == nil {
       currentAnimationFrameCount = 0
       maximumAnimationStepDurationMS = 0
@@ -132,6 +132,9 @@ extension Daemon {
   }
 
   func cancelAnimationForMouseGesture() {
+    if activelyResizedWindowID != nil && platform.isLeftMouseButtonDown {
+      return
+    }
     guard !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites else {
       return
     }
