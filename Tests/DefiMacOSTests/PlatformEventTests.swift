@@ -289,7 +289,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func draggedGestureSynchronizesOnFirstMovementAndMouseUp() {
+  func draggedGestureKeepsSynchronizingUntilMouseUp() {
     var normalizer = MouseGestureEventNormalizer()
     let mouseDown = normalizer.actions(
       for: .leftMouseDown
@@ -310,7 +310,7 @@ struct PlatformEventTests {
     #expect(mouseDown.refreshBorderStacking)
     #expect(mouseDown.synchronization == nil)
     #expect(firstMouseDragged.synchronization == .gesture)
-    #expect(secondMouseDragged == MouseGestureEventNormalizer.Actions())
+    #expect(secondMouseDragged.synchronization == .gesture)
     #expect(firstMouseUp.synchronization == .gesture)
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
   }

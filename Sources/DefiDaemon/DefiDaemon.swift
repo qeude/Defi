@@ -88,7 +88,7 @@ final class Daemon: NSObject {
   private var tickCount = 0
   var shouldShutdown = false
   var signalSources: [DispatchSourceSignal] = []
-  var pendingHotKeyCommands: [String] = []
+  var pendingHotKeyCommands: [HotKeyInvocation] = []
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
@@ -158,8 +158,8 @@ final class Daemon: NSObject {
       let manager = try HotKeyManager(
         config: config,
         userInputTracker: platform.userInputTracker
-      ) { [weak self] command in
-        self?.enqueueHotKey(command)
+      ) { [weak self] invocation in
+        self?.enqueueHotKey(invocation)
       }
       try manager.start()
       hotKeys = manager

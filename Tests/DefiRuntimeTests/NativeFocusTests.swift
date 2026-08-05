@@ -111,6 +111,31 @@ struct NativeFocusTests {
   }
 
   @Test
+  func queuedHotKeyKeepsCapturedInputOrder() {
+    #expect(
+      resolvedLatestCommandInputTimestamp(
+        previousTimestamp: 0,
+        capturedInputTimestamp: 10,
+        commandHandledAt: 12
+      ) == 10
+    )
+    #expect(
+      resolvedLatestCommandInputTimestamp(
+        previousTimestamp: 11,
+        capturedInputTimestamp: 10,
+        commandHandledAt: 12
+      ) == 11
+    )
+    #expect(
+      resolvedLatestCommandInputTimestamp(
+        previousTimestamp: 11,
+        capturedInputTimestamp: nil,
+        commandHandledAt: 12
+      ) == 12
+    )
+  }
+
+  @Test
   func selectedWindowOnDifferentActiveMonitorChangesSelection() throws {
     var state = try makeState()
     let selected = WindowID(rawValue: 1)

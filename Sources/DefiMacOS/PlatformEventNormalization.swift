@@ -272,7 +272,6 @@ struct MouseGestureEventNormalizer {
 
   private var pressed = false
   private var dragged = false
-  private var synchronizedDuringGesture = false
 
   mutating func actions(
     for eventType: NSEvent.EventType
@@ -281,20 +280,16 @@ struct MouseGestureEventNormalizer {
     case .leftMouseDown:
       pressed = true
       dragged = false
-      synchronizedDuringGesture = false
       return Actions(refreshBorderStacking: true)
     case .leftMouseDragged:
       dragged = true
-      guard synchronizedDuringGesture == false else {
-        return Actions()
-      }
-      synchronizedDuringGesture = true
+      // Platform sync demand is a Boolean, so repeated drag events coalesce
+      // while still scheduling fresh snapshots after live reorder animations.
       return Actions(synchronization: .gesture)
     case .leftMouseUp:
       defer {
         pressed = false
         dragged = false
-        synchronizedDuringGesture = false
       }
       guard pressed else { return Actions() }
       return Actions(synchronization: dragged ? .gesture : .clickRelease)

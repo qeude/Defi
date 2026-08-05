@@ -15,9 +15,19 @@ public enum HotKeyError: Error, CustomStringConvertible {
   }
 }
 
+public struct HotKeyInvocation: Equatable, Sendable {
+  public let command: String
+  public let timestamp: TimeInterval
+
+  public init(command: String, timestamp: TimeInterval) {
+    self.command = command
+    self.timestamp = timestamp
+  }
+}
+
 @MainActor
 public final class HotKeyManager {
-  public typealias Handler = @MainActor @Sendable (String) -> Void
+  public typealias Handler = @MainActor @Sendable (HotKeyInvocation) -> Void
 
   private let bindings: [Key: String]
   private let handler: Handler
@@ -76,10 +86,10 @@ public final class HotKeyManager {
     let context = HotKeyTapContext(
       bindings: bindings,
       userInputTracker: userInputTracker
-    ) { command in
+    ) { invocation in
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
-          handler(command)
+          handler(invocation)
         }
       }
     }
@@ -126,7 +136,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
 
   private let bindings: [Key: String]
   private let userInputTracker: UserInputTracker
-  private let deliver: @Sendable (String) -> Void
+  private let deliver: @Sendable (HotKeyInvocation) -> Void
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
   private var tap: CFMachPort?
@@ -138,7 +148,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
   init(
     bindings: [Key: String],
     userInputTracker: UserInputTracker,
-    deliver: @escaping @Sendable (String) -> Void
+    deliver: @escaping @Sendable (HotKeyInvocation) -> Void
   ) {
     self.bindings = bindings
     self.userInputTracker = userInputTracker
@@ -187,6 +197,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
       }
       return Unmanaged.passUnretained(event)
     }
+    let timestamp = Double(event.timestamp) / 1_000_000_000
     let isKeyDown = type == .keyDown
     if isKeyDown || type == .leftMouseDown {
       let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
@@ -205,7 +216,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
         focusIntent = nil
       }
       userInputTracker.record(
-        timestamp: Double(event.timestamp) / 1_000_000_000,
+        timestamp: timestamp,
         focusIntent: focusIntent,
         closeIntent: isKeyDown && commandPressed
           && Self.closeWindowKeyCodes.contains(code)
@@ -222,7 +233,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
     lock.lock()
     captured += 1
     lock.unlock()
-    deliver(command)
+    deliver(HotKeyInvocation(command: command, timestamp: timestamp))
     return nil
   }
 

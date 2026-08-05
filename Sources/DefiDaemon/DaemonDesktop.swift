@@ -280,11 +280,13 @@ extension Daemon {
       }
       if !mouseReordered,
         let gestureWindowID,
-        let actualFrame
+        let externallyChangedFrame = snapshot.externallyChangedFrames[
+          gestureWindowID
+        ]
       {
         _ = learnTiledWindowWidth(
           gestureWindowID,
-          actualFrame: actualFrame,
+          actualFrame: externallyChangedFrame,
           state: &state,
           viewports: viewportsByMonitor
         )

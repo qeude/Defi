@@ -89,6 +89,14 @@ public func mouseReleaseFocusIntentIsCurrent(
     || (mouseFocusIntentWindowID == nil && nativeFocusChanged)
 }
 
+public func resolvedLatestCommandInputTimestamp(
+  previousTimestamp: Double,
+  capturedInputTimestamp: Double?,
+  commandHandledAt: Double
+) -> Double {
+  max(previousTimestamp, capturedInputTimestamp ?? commandHandledAt)
+}
+
 public struct WindowRemovalFocusGuard: Equatable, Sendable {
   public let monitorID: MonitorID
   public let workspaceID: WorkspaceID
