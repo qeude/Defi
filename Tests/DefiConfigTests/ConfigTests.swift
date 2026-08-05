@@ -18,6 +18,9 @@ final class ConfigTests: XCTestCase {
     XCTAssertEqual(config.decorations.borders.inactiveColor, "#66C099FF")
     XCTAssertFalse(config.decorations.borders.captureEnabled)
     XCTAssertEqual(config.keys["alt-left"], "focus-column left")
+    XCTAssertEqual(config.keys["alt-backslash"], "toggle-floating")
+    XCTAssertEqual(config.keys["alt-shift-backslash"], "activate-floating")
+    XCTAssertEqual(config.keys["alt-period"], "focus-floating next")
     XCTAssertEqual(config.keys["alt-shift-1"], "move-window-to-workspace 1")
   }
 
@@ -107,6 +110,10 @@ final class ConfigTests: XCTestCase {
     XCTAssertEqual(config.keys["hyper-minus"], "cycle-width previous")
     XCTAssertEqual(config.keys["hyper-equal"], "cycle-width next")
     XCTAssertEqual(config.keys["hyper-f"], "toggle-fullscreen")
+    XCTAssertEqual(config.keys["hyper-backslash"], "toggle-floating")
+    XCTAssertEqual(config.keys["hyper-shift-backslash"], "activate-floating")
+    XCTAssertEqual(config.keys["hyper-comma"], "focus-floating previous")
+    XCTAssertEqual(config.keys["hyper-period"], "focus-floating next")
     XCTAssertEqual(config.modifierCombinations["hyper"], "Alt + Cmd + Ctrl")
     XCTAssertEqual(config.rules.count, 1)
   }
@@ -115,8 +122,13 @@ final class ConfigTests: XCTestCase {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "web"]),
       rules: [
-        Rule(appID: "com.apple.dt.Xcode", workspace: "dev", followFocus: true),
-        Rule(title: "Preview", intrinsicSize: true),
+        Rule(
+          appID: "com.apple.dt.Xcode",
+          workspace: "dev",
+          followFocus: true,
+          floating: true
+        ),
+        Rule(title: "Preview", forceTiling: true, intrinsicSize: true),
       ]
     )
     let window = Window(
@@ -128,8 +140,14 @@ final class ConfigTests: XCTestCase {
 
     let decision = config.decision(for: window)
 
+    XCTAssertEqual(
+      decision,
+      config.decision(appID: window.appID, title: window.title, role: window.role)
+    )
     XCTAssertEqual(decision.workspace, WorkspaceID(rawValue: "dev"))
     XCTAssertTrue(decision.followFocus)
+    XCTAssertTrue(decision.floating)
+    XCTAssertTrue(decision.forceTiling)
     XCTAssertTrue(decision.intrinsicSize)
   }
 

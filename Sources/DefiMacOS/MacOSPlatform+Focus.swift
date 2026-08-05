@@ -39,11 +39,15 @@ extension MacOSPlatform {
     let activatesApplication =
       focusWriter.hasInFlightRequest(forDifferentProcess: processID)
       || NSWorkspace.shared.frontmostApplication?.processIdentifier != processID
-    let hasMultipleManagedWindows =
-      processIDs.values.lazy.filter { $0 == processID }.prefix(2).count > 1
+    let trackedWindowCount = processIDs.values.lazy.filter { $0 == processID }.count
+    let hasMultipleManagedWindows = trackedWindowCount > 1
+    let hasTrackedAuxiliaryWindows = floatingWindowIDs.contains {
+      processIDs[$0] == processID
+    }
     let hasUnmanagedAuxiliaryWindows =
       (applicationWindowCounts[processID] ?? 0)
-      > processIDs.values.lazy.filter { $0 == processID }.count
+      > trackedWindowCount
+      || hasTrackedAuxiliaryWindows
     let selectsSpecificWindow = shouldSelectSpecificWindow(
       activatesApplication: activatesApplication,
       hasUnmanagedAuxiliaryWindows: hasUnmanagedAuxiliaryWindows,

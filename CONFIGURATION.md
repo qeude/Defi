@@ -124,6 +124,9 @@ Supported commands:
 - `send-window-to-workspace <name>`
 - `cycle-width previous|next`
 - `toggle-fullscreen`
+- `toggle-floating`
+- `activate-floating`
+- `focus-floating previous|next|first|last`
 - `join-window left|right`
 - `unjoin-windows`
 
@@ -143,11 +146,20 @@ intrinsic_size = true
 - `role`: exact AX role
 - `workspace`: target workspace name
 - `follow_focus`: switch to target on discovery
-- `floating`: leave unmanaged
+- `floating`: keep in workspace floating layer
 - `force_tiling`: manage windows normally filtered by role/subrole
 - `intrinsic_size`: preserve observed window size inside column
 
 Matching rules combine. Later workspace wins. Boolean flags OR together.
+
+Defi automatically treats auxiliary and fixed-size macOS windows as floating:
+sheets, dialogs, system dialogs, native floating panels, and standard windows
+without resize or close controls. This covers common delete confirmations, copy
+progress, installers, and app update windows when their Accessibility metadata
+identifies them as auxiliary. `force_tiling = true` overrides this classification.
+
+Floating windows keep their observed size and position. They park with their
+workspace, restore on activation, and remain isolated per monitor.
 
 ## Built-in bindings
 
@@ -161,9 +173,12 @@ With default modifier `alt`:
 - `alt-shift-1...9`: move focused window and follow
 - `alt-minus/equal`: cycle width
 - `alt-f`: fullscreen column
+- `alt-backslash`: toggle focused window tiled/floating
+- `alt-shift-backslash`: activate floating layer and foreground selected window
+- `alt-comma/period`: cycle floating windows backward/forward
 - `alt-semicolon/quote`: join left/right
 - `alt-r`: unjoin
 
 ## Unsupported in basic MVP
 
-Dimming, startup commands, config hot reload, and floating-window management remain roadmap items.
+Dimming, startup commands, and config hot reload remain roadmap items.

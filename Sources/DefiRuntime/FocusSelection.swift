@@ -7,6 +7,21 @@ public func focusWindow(
 ) -> Bool {
   for monitorIndex in state.monitors.indices {
     for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+      if let floatingIndex = state.monitors[monitorIndex]
+        .workspaces[workspaceIndex]
+        .floatingWindows
+        .firstIndex(of: windowID)
+      {
+        let activatedWorkspace =
+          state.monitors[monitorIndex].activeWorkspace
+          != state.monitors[monitorIndex].workspaces[workspaceIndex].id
+        state.monitors[monitorIndex].workspaces[workspaceIndex].focusedFloatingWindow =
+          floatingIndex
+        state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .floating
+        state.monitors[monitorIndex].activeWorkspace =
+          state.monitors[monitorIndex].workspaces[workspaceIndex].id
+        return activatedWorkspace
+      }
       for columnIndex in state.monitors[monitorIndex].workspaces[workspaceIndex].columns.indices {
         if let windowIndex = state.monitors[monitorIndex]
           .workspaces[workspaceIndex]
@@ -18,6 +33,7 @@ public func focusWindow(
             state.monitors[monitorIndex].activeWorkspace
             != state.monitors[monitorIndex].workspaces[workspaceIndex].id
           state.monitors[monitorIndex].workspaces[workspaceIndex].focusedColumn = columnIndex
+          state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
           state.monitors[monitorIndex].activeWorkspace =
             state.monitors[monitorIndex].workspaces[workspaceIndex].id
           state.monitors[monitorIndex]

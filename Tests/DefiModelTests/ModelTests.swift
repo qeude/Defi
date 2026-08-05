@@ -36,6 +36,18 @@ final class ModelTests: XCTestCase {
     )
     XCTAssertFalse(Command.focusColumn(.right).activatesWorkspace)
     XCTAssertFalse(Command.cycleWidth(.next).activatesWorkspace)
+    XCTAssertTrue(
+      Command.moveWindowToWorkspace(WorkspaceID(rawValue: "web"))
+        .movesWindowBetweenWorkspaces
+    )
+    XCTAssertTrue(
+      Command.sendWindowToWorkspace(WorkspaceID(rawValue: "web"))
+        .movesWindowBetweenWorkspaces
+    )
+    XCTAssertFalse(
+      Command.switchWorkspace(WorkspaceID(rawValue: "web"))
+        .movesWindowBetweenWorkspaces
+    )
   }
 
   func testParsesSharedCommands() throws {
@@ -51,6 +63,7 @@ final class ModelTests: XCTestCase {
     )
     XCTAssertEqual(try parseCommand("toggle-fullscreen"), .toggleFullscreen)
     XCTAssertEqual(try parseCommand("toggle-floating"), .toggleFloating)
+    XCTAssertEqual(try parseCommand("activate-floating"), .activateFloating)
   }
 
   func testRejectsInvalidMoveDirection() {
@@ -64,5 +77,11 @@ final class ModelTests: XCTestCase {
     XCTAssertTrue(Command.toggleFullscreen.resizesManagedLayout)
     XCTAssertFalse(Command.focusColumn(.right).resizesManagedLayout)
     XCTAssertFalse(Command.toggleFloating.resizesManagedLayout)
+  }
+
+  func testFloatingFocusCommandsRequestExplicitFocus() {
+    XCTAssertTrue(Command.activateFloating.explicitlyFocusesFloating)
+    XCTAssertTrue(Command.focusFloating(.next).explicitlyFocusesFloating)
+    XCTAssertFalse(Command.toggleFloating.explicitlyFocusesFloating)
   }
 }

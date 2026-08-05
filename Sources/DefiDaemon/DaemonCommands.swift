@@ -64,6 +64,7 @@ extension Daemon {
       let command = try parseCommand(rawCommand)
       pendingWindowRemovalFocusGuard = nil
       let switchesWorkspace = command.activatesWorkspace
+      let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
       let animatedManagedResize =
         command.resizesManagedLayout
@@ -76,6 +77,9 @@ extension Daemon {
         activeMonitorID.flatMap { state.selectedWindowID(on: $0) }
       if !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites {
         rebaseActiveScrollOffsetToDisplayedFrames()
+      }
+      if switchesWorkspace || mutatesWorkspaceWindows {
+        refreshFloatingWindowFramesBeforeWorkspaceMutation()
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
@@ -123,7 +127,12 @@ extension Daemon {
       if !switchesWorkspace,
         let monitorID = activeMonitorID ?? state.monitors.first?.id,
         let selected = state.selectedWindowID(on: monitorID),
-        selected != previouslySelectedWindowID
+        commandShouldFocusWindow(
+          command,
+          previousSelectedWindowID: previouslySelectedWindowID,
+          selectedWindowID: selected,
+          selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID)
+        )
       {
         if scrollAnimations.isEmpty,
           !platform.hasPendingAnimatedFrameWrites,

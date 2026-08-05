@@ -360,6 +360,33 @@ extension MacOSPlatform {
     lastHiddenWindowIDs.count
   }
 
+  public func isWindowHidden(_ windowID: WindowID) -> Bool {
+    lastHiddenWindowIDs.contains(windowID)
+  }
+
+  public func hasPendingFrameTransition(_ windowID: WindowID) -> Bool {
+    guard let target = targetFrames[windowID],
+      let observed = latestObservedFrames[windowID]
+    else {
+      return false
+    }
+    return !approximatelyEqual(observed, target)
+  }
+
+  public func acceptObservedFrame(_ frame: Rect, for windowID: WindowID) {
+    targetFrames[windowID] = nil
+    pendingFrameCorrections[windowID] = nil
+    frameCommitExpectations[windowID] = nil
+    latestObservedFrames[windowID] = frame
+  }
+
+  public func userAdjustedFrames(
+    for windowIDs: Set<WindowID>
+  ) -> [WindowID: Rect] {
+    guard mouseResizeGesturePending, !windowIDs.isEmpty else { return [:] }
+    return framesByWindowID(for: windowIDs, in: copyCGWindows())
+  }
+
   public var latencySensitiveWindowIDs: Set<WindowID> {
     let processIDs = frameCoordinator.slowProcessIDs
     return Set(

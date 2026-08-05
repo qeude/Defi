@@ -111,11 +111,10 @@ public struct RuntimeState: Equatable, Sendable {
     else {
       return nil
     }
-    if workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow) {
-      return workspace.floatingWindows[workspace.focusedFloatingWindow]
-    }
+    let selectedFloatingWindowID = focusedFloatingWindowID(in: workspace)
+    if workspace.focusedLayer == .floating { return selectedFloatingWindowID }
     guard workspace.columns.indices.contains(workspace.focusedColumn) else {
-      return nil
+      return selectedFloatingWindowID
     }
     let column = workspace.columns[workspace.focusedColumn]
     guard column.windows.indices.contains(column.focusedWindow) else {
@@ -123,6 +122,33 @@ public struct RuntimeState: Equatable, Sendable {
     }
     return column.windows[column.focusedWindow]
   }
+
+  public func selectedFloatingWindowID(on monitorID: MonitorID) -> WindowID? {
+    guard let monitor = monitors.first(where: { $0.id == monitorID }),
+      let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
+    else {
+      return nil
+    }
+    return focusedFloatingWindowID(in: workspace)
+  }
+}
+
+private func focusedFloatingWindowID(in workspace: Workspace) -> WindowID? {
+  guard workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow) else {
+    return nil
+  }
+  return workspace.floatingWindows[workspace.focusedFloatingWindow]
+}
+
+public func commandShouldFocusWindow(
+  _ command: Command,
+  previousSelectedWindowID: WindowID?,
+  selectedWindowID: WindowID,
+  selectedFloatingWindowID: WindowID?
+) -> Bool {
+  selectedWindowID != previousSelectedWindowID
+    || (command.explicitlyFocusesFloating
+      && selectedWindowID == selectedFloatingWindowID)
 }
 
 private func scalePixelWidths(in monitor: inout Monitor, by scale: Double) {

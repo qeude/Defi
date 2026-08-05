@@ -9,6 +9,7 @@ import OSLog
 struct CGWindowRecord {
   let id: CGWindowID
   let processID: pid_t
+  let layer: Int
   let title: String
   let frame: Rect
 }
@@ -34,7 +35,7 @@ func copyCGWindows() -> [CGWindowRecord] {
     return []
   }
   return info.compactMap { item in
-    guard (item[kCGWindowLayer] as? NSNumber)?.intValue == 0,
+    guard let layer = item[kCGWindowLayer] as? NSNumber,
       let number = item[kCGWindowNumber] as? NSNumber,
       let ownerPID = item[kCGWindowOwnerPID] as? NSNumber,
       let bounds = item[kCGWindowBounds] as? NSDictionary,
@@ -45,6 +46,7 @@ func copyCGWindows() -> [CGWindowRecord] {
     return CGWindowRecord(
       id: number.uint32Value,
       processID: ownerPID.int32Value,
+      layer: layer.intValue,
       title: item[kCGWindowName] as? String ?? "",
       frame: Rect(
         x: cgRect.minX,
@@ -54,6 +56,33 @@ func copyCGWindows() -> [CGWindowRecord] {
       )
     )
   }
+}
+
+func eligibleCGWindowRecords(
+  role: String?,
+  for subrole: String?,
+  allowsConfiguredNonzeroLayer: Bool = false,
+  in records: [CGWindowRecord]
+) -> [CGWindowRecord] {
+  let acceptsFloatingLevel =
+    allowsConfiguredNonzeroLayer
+    || role == kAXSheetRole
+    || subrole.map(automaticFloatingWindowSubroles.contains) == true
+  return records.filter { record in
+    record.layer == 0 || (acceptsFloatingLevel && record.layer > 0)
+  }
+}
+
+func framesByWindowID(
+  for windowIDs: Set<WindowID>,
+  in records: [CGWindowRecord]
+) -> [WindowID: Rect] {
+  Dictionary(
+    uniqueKeysWithValues: records.compactMap { record in
+      let windowID = WindowID(rawValue: UInt64(record.id))
+      return windowIDs.contains(windowID) ? (windowID, record.frame) : nil
+    }
+  )
 }
 
 func copyFrontmostNormalWindowID() -> WindowID? {
@@ -121,26 +150,99 @@ private func windowTitleMatchRank(_ cgTitle: String, _ accessibilityTitle: Strin
   return cgTitle == accessibilityTitle ? 0 : 2
 }
 
-func shouldManageWindow(
+enum WindowDisposition: Equatable {
+  case tiled
+  case floating
+  case ignored
+}
+
+func floatingOrigin(
+  for disposition: WindowDisposition,
+  configuredFloating: Bool
+) -> FloatingOrigin? {
+  guard disposition == .floating else { return nil }
+  return configuredFloating ? .configured : .automatic
+}
+
+private let ignoredWindowApplicationIDs: Set<String> = [
+  "com.apple.dock",
+  "com.apple.systemuiserver",
+  "com.raycast.macos",
+]
+
+private let automaticFloatingWindowSubroles: Set<String> = [
+  "AXDialog",
+  "AXFloatingWindow",
+  "AXSystemDialog",
+  "AXSystemFloatingWindow",
+]
+
+func classifyWindow(
   role: String?,
   subrole: String?,
   appID: String,
   hasCloseButton: Bool,
+  canResize: Bool,
+  configuredFloating: Bool,
   forceTiling: Bool
-) -> Bool {
-  if forceTiling { return true }
-  guard role == kAXWindowRole,
-    subrole == kAXStandardWindowSubrole,
-    hasCloseButton
-  else {
-    return false
+) -> WindowDisposition {
+  if forceTiling { return .tiled }
+  if configuredFloating { return .floating }
+  if ignoredWindowApplicationIDs.contains(appID.lowercased()) { return .ignored }
+  if role == kAXSheetRole { return .floating }
+  guard role == kAXWindowRole else { return .ignored }
+  if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {
+    return .tiled
   }
-  let ignoredApps = [
-    "com.apple.dock",
-    "com.apple.systemuiserver",
-    "com.raycast.macos",
-  ]
-  return !ignoredApps.contains(appID.lowercased())
+  if subrole == kAXStandardWindowSubrole
+    || subrole.map(automaticFloatingWindowSubroles.contains) == true
+  {
+    return .floating
+  }
+  return .ignored
+}
+
+func fallbackDispositionForTransientWindowMetadata(
+  role: String?,
+  subrole: String?,
+  closeButtonError: AXError,
+  sizeSettableError: AXError,
+  previousDisposition: WindowDisposition?
+) -> WindowDisposition? {
+  guard role == kAXWindowRole,
+    subrole == kAXStandardWindowSubrole
+  else {
+    return nil
+  }
+  guard axMetadataErrorIsTransient(closeButtonError)
+    || axMetadataErrorIsTransient(sizeSettableError)
+  else {
+    return nil
+  }
+  return previousDisposition ?? .ignored
+}
+
+func windowCanResize(
+  sizeSettableError: AXError,
+  isSettable: Bool
+) -> Bool {
+  switch sizeSettableError {
+  case .success:
+    isSettable
+  case .attributeUnsupported:
+    false
+  default:
+    true
+  }
+}
+
+private func axMetadataErrorIsTransient(_ error: AXError) -> Bool {
+  switch error {
+  case .success, .attributeUnsupported, .noValue:
+    false
+  default:
+    true
+  }
 }
 
 func shouldTreatWindowAsClosable(

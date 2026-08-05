@@ -44,11 +44,12 @@ extension MacOSPlatform {
     element: AXUIElement,
     processID: pid_t,
     appID: String,
+    config: Config,
     cgWindows: [CGWindowRecord],
     monitors: [MonitorSnapshot],
     preferredWindowID: WindowID?,
     excluding usedCGWindowIDs: Set<CGWindowID>
-  ) -> (Window, CGWindowID)? {
+  ) -> (Window, CGWindowID, RuleDecision)? {
     guard value(element, attribute: kAXMinimizedAttribute, as: Bool.self) != true,
       let frame = frame(of: element),
       frame.width >= 80,
@@ -59,9 +60,16 @@ extension MacOSPlatform {
     let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
     let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
+    let decision = config.decision(appID: appID, title: title, role: role)
+    let eligibleCGWindows = eligibleCGWindowRecords(
+      role: role,
+      for: subrole,
+      allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
+      in: cgWindows
+    )
     let record =
       (preferredWindowID.flatMap { preferred in
-        cgWindows.first {
+        eligibleCGWindows.first {
           $0.id == CGWindowID(preferred.rawValue)
             && $0.processID == processID
             && !usedCGWindowIDs.contains($0.id)
@@ -71,7 +79,7 @@ extension MacOSPlatform {
           processID: processID,
           title: title,
           frame: frame,
-          records: cgWindows,
+          records: eligibleCGWindows,
           excluding: usedCGWindowIDs
         ))
     guard
@@ -94,31 +102,55 @@ extension MacOSPlatform {
         processID: processID,
         monitorID: monitorID,
         forceTiling: false
-      ), resolvedWindowID
+      ), resolvedWindowID, decision
     )
   }
 
-  func shouldManage(
+  func windowDisposition(
     _ window: Window,
     element: AXUIElement,
+    configuredFloating: Bool,
     forceTiling: Bool,
-    wasPreviouslyManaged: Bool
-  ) -> Bool {
+    previousDisposition: WindowDisposition?
+  ) -> WindowDisposition {
     var closeButton: CFTypeRef?
     let closeButtonError = AXUIElementCopyAttributeValue(
       element,
       kAXCloseButtonAttribute as CFString,
       &closeButton
     )
-    return shouldManageWindow(
+    var sizeSettable = DarwinBoolean(false)
+    let sizeSettableError = AXUIElementIsAttributeSettable(
+      element,
+      kAXSizeAttribute as CFString,
+      &sizeSettable
+    )
+    if !configuredFloating,
+      !forceTiling,
+      let fallbackDisposition = fallbackDispositionForTransientWindowMetadata(
+        role: window.role,
+        subrole: window.subrole,
+        closeButtonError: closeButtonError,
+        sizeSettableError: sizeSettableError,
+        previousDisposition: previousDisposition
+      )
+    {
+      return fallbackDisposition
+    }
+    return classifyWindow(
       role: window.role,
       subrole: window.subrole,
       appID: window.appID,
       hasCloseButton: shouldTreatWindowAsClosable(
         error: closeButtonError,
         hasValue: closeButton != nil,
-        wasPreviouslyManaged: wasPreviouslyManaged
+        wasPreviouslyManaged: previousDisposition != nil
       ),
+      canResize: windowCanResize(
+        sizeSettableError: sizeSettableError,
+        isSettable: sizeSettable.boolValue
+      ),
+      configuredFloating: configuredFloating,
       forceTiling: forceTiling
     )
   }
