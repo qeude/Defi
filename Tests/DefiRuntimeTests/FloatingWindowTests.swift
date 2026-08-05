@@ -230,6 +230,67 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.selectedWindowID(on: monitorID), followed.id)
   }
 
+  func testAutomaticFloaterReclassifiesAsTiledWithoutStealingFocus() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let selectedTile = window(72)
+    var automatic = window(73, floating: true)
+    automatic.floatingOrigin = .automatic
+    try discoverWindow(selectedTile, decision: RuleDecision(), state: &state)
+    try discoverWindow(automatic, decision: RuleDecision(), state: &state)
+    var observed = automatic
+    observed.floating = false
+    observed.floatingOrigin = nil
+
+    reconcileWindows([selectedTile, observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertTrue(workspace.floatingWindows.isEmpty)
+    XCTAssertEqual(workspace.columns.flatMap(\.windows), [selectedTile.id, automatic.id])
+    XCTAssertEqual(state.windows[automatic.id]?.floating, false)
+    XCTAssertNil(state.windows[automatic.id]?.floatingOrigin)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
+  }
+
+  func testFocusedAutomaticFloaterRemainsSelectedWhenReclassified() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let selectedTile = window(74)
+    var automatic = window(75, floating: true)
+    automatic.floatingOrigin = .automatic
+    try discoverWindow(selectedTile, decision: RuleDecision(), state: &state)
+    try discoverWindow(automatic, decision: RuleDecision(), state: &state)
+    focusWindow(automatic.id, state: &state)
+    var observed = automatic
+    observed.floating = false
+    observed.floatingOrigin = nil
+
+    reconcileWindows([selectedTile, observed], config: config, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].focusedLayer, .tiled)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), automatic.id)
+  }
+
+  func testUserFloatingOverrideSurvivesTiledObservation() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var userFloater = window(76, floating: true)
+    userFloater.floatingOrigin = .user
+    try discoverWindow(userFloater, decision: RuleDecision(), state: &state)
+    var observed = userFloater
+    observed.floating = false
+    observed.floatingOrigin = nil
+
+    reconcileWindows([observed], config: config, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].floatingWindows, [userFloater.id])
+    XCTAssertEqual(state.windows[userFloater.id]?.floating, true)
+    XCTAssertEqual(state.windows[userFloater.id]?.floatingOrigin, .user)
+  }
+
   func testDraggedFloaterMovesToTargetMonitorActiveWorkspace() throws {
     let externalMonitorID = MonitorID(rawValue: 2)
     let tools = WorkspaceID(rawValue: "tools")

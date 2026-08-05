@@ -74,6 +74,44 @@ final class PlacementPreferencesTests: XCTestCase {
     )
   }
 
+  func testAutomaticFloaterIgnoresPersistedApplicationPlacement() throws {
+    let externalMonitorID = MonitorID(rawValue: 2)
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalMonitorID)
+    let window = Window(
+      id: WindowID(rawValue: 2),
+      appID: "com.example.Chat",
+      title: "Updating",
+      frame: Rect(x: 100, y: 100, width: 400, height: 300),
+      monitorID: monitorID,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    let preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web"),
+          monitorID: externalMonitorID
+        )
+      ]
+    )
+
+    reconcileWindows(
+      [window],
+      config: config,
+      placementPreferences: preferences,
+      state: &state
+    )
+
+    XCTAssertEqual(state.location(containing: window.id)?.monitorID, monitorID)
+    XCTAssertEqual(
+      state.location(containing: window.id)?.workspaceID,
+      WorkspaceID(rawValue: "dev")
+    )
+  }
+
   func testRecordingPlacementsKeepsClosedApplicationPreferences() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
