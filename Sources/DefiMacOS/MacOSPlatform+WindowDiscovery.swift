@@ -59,9 +59,13 @@ extension MacOSPlatform {
     let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
     let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
+    let eligibleCGWindows = eligibleCGWindowRecords(
+      for: subrole,
+      in: cgWindows
+    )
     let record =
       (preferredWindowID.flatMap { preferred in
-        cgWindows.first {
+        eligibleCGWindows.first {
           $0.id == CGWindowID(preferred.rawValue)
             && $0.processID == processID
             && !usedCGWindowIDs.contains($0.id)
@@ -71,7 +75,7 @@ extension MacOSPlatform {
           processID: processID,
           title: title,
           frame: frame,
-          records: cgWindows,
+          records: eligibleCGWindows,
           excluding: usedCGWindowIDs
         ))
     guard

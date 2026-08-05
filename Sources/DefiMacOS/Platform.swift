@@ -9,6 +9,7 @@ import OSLog
 struct CGWindowRecord {
   let id: CGWindowID
   let processID: pid_t
+  let layer: Int
   let title: String
   let frame: Rect
 }
@@ -34,7 +35,7 @@ func copyCGWindows() -> [CGWindowRecord] {
     return []
   }
   return info.compactMap { item in
-    guard (item[kCGWindowLayer] as? NSNumber)?.intValue == 0,
+    guard let layer = item[kCGWindowLayer] as? NSNumber,
       let number = item[kCGWindowNumber] as? NSNumber,
       let ownerPID = item[kCGWindowOwnerPID] as? NSNumber,
       let bounds = item[kCGWindowBounds] as? NSDictionary,
@@ -45,6 +46,7 @@ func copyCGWindows() -> [CGWindowRecord] {
     return CGWindowRecord(
       id: number.uint32Value,
       processID: ownerPID.int32Value,
+      layer: layer.intValue,
       title: item[kCGWindowName] as? String ?? "",
       frame: Rect(
         x: cgRect.minX,
@@ -54,6 +56,30 @@ func copyCGWindows() -> [CGWindowRecord] {
       )
     )
   }
+}
+
+func eligibleCGWindowRecords(
+  for subrole: String?,
+  in records: [CGWindowRecord]
+) -> [CGWindowRecord] {
+  let acceptsFloatingLevel =
+    subrole == "AXFloatingWindow"
+    || subrole == "AXSystemFloatingWindow"
+  return records.filter { record in
+    record.layer == 0 || (acceptsFloatingLevel && record.layer > 0)
+  }
+}
+
+func framesByWindowID(
+  for windowIDs: Set<WindowID>,
+  in records: [CGWindowRecord]
+) -> [WindowID: Rect] {
+  Dictionary(
+    uniqueKeysWithValues: records.compactMap { record in
+      let windowID = WindowID(rawValue: UInt64(record.id))
+      return windowIDs.contains(windowID) ? (windowID, record.frame) : nil
+    }
+  )
 }
 
 func copyFrontmostNormalWindowID() -> WindowID? {

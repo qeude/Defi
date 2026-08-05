@@ -12,12 +12,14 @@ final class WindowDiscoveryTests: XCTestCase {
     let exactFrame = CGWindowRecord(
       id: 1,
       processID: processID,
+      layer: 0,
       title: "WhatsApp 🔊",
       frame: frame
     )
     let emptyTitleStrip = CGWindowRecord(
       id: 2,
       processID: processID,
+      layer: 0,
       title: "",
       frame: Rect(x: 0, y: 0, width: 2_560, height: 30)
     )
@@ -36,6 +38,7 @@ final class WindowDiscoveryTests: XCTestCase {
     let unrelated = CGWindowRecord(
       id: 1,
       processID: processID,
+      layer: 0,
       title: "",
       frame: Rect(x: 104, y: 34, width: 2_554, height: 1_354)
     )
@@ -54,12 +57,14 @@ final class WindowDiscoveryTests: XCTestCase {
     let wrongTitle = CGWindowRecord(
       id: 1,
       processID: processID,
+      layer: 0,
       title: "Other",
       frame: frame
     )
     let matchingTitle = CGWindowRecord(
       id: 2,
       processID: processID,
+      layer: 0,
       title: "Window",
       frame: frame
     )
@@ -81,6 +86,57 @@ final class WindowDiscoveryTests: XCTestCase {
         preferredWindowID: WindowID(rawValue: 42)
       ),
       42
+    )
+  }
+
+  func testFloatingSubrolesCanMatchFloatingLevelWindowRecords() {
+    let normal = CGWindowRecord(
+      id: 1,
+      processID: processID,
+      layer: 0,
+      title: "Main",
+      frame: frame
+    )
+    let panel = CGWindowRecord(
+      id: 2,
+      processID: processID,
+      layer: 3,
+      title: "Utility",
+      frame: frame
+    )
+
+    XCTAssertEqual(
+      eligibleCGWindowRecords(for: "AXFloatingWindow", in: [normal, panel]).map(\.id),
+      [normal.id, panel.id]
+    )
+    XCTAssertEqual(
+      eligibleCGWindowRecords(for: kAXStandardWindowSubrole, in: [normal, panel]).map(\.id),
+      [normal.id]
+    )
+  }
+
+  func testWindowFrameSnapshotSelectsRequestedFloatingWindow() {
+    let requested = CGWindowRecord(
+      id: 2,
+      processID: processID,
+      layer: 3,
+      title: "Utility",
+      frame: frame
+    )
+    let unrelated = CGWindowRecord(
+      id: 3,
+      processID: processID,
+      layer: 0,
+      title: "Main",
+      frame: Rect(x: 100, y: 100, width: 800, height: 600)
+    )
+
+    XCTAssertEqual(
+      framesByWindowID(
+        for: [WindowID(rawValue: UInt64(requested.id))],
+        in: [unrelated, requested]
+      ),
+      [WindowID(rawValue: UInt64(requested.id)): frame]
     )
   }
 

@@ -80,6 +80,7 @@ extension Daemon {
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
         pendingAnimatedFocusWindowID = nil
+        refreshFloatingWindowFramesBeforeWorkspaceSwitch()
       }
       try reduce(command, on: activeMonitorID, state: &state)
       persistPlacements()

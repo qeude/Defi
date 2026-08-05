@@ -519,6 +519,24 @@ extension Daemon {
     }
   }
 
+  func refreshFloatingWindowFramesBeforeWorkspaceSwitch() {
+    guard
+      let monitorID = activeMonitorID ?? state.monitors.first?.id,
+      let monitor = state.monitors.first(where: { $0.id == monitorID }),
+      let workspace = monitor.workspaces.first(where: {
+        $0.id == monitor.activeWorkspace
+      })
+    else {
+      return
+    }
+    for (windowID, frame) in platform.userAdjustedFrames(
+      for: Set(workspace.floatingWindows)
+    ) {
+      floatingWindowFrames[windowID] = frame
+      platform.acceptObservedFrame(frame, for: windowID)
+    }
+  }
+
   private func floatingFrame(for windowID: WindowID) -> Rect? {
     if let frame = floatingWindowFrames[windowID] {
       return frame

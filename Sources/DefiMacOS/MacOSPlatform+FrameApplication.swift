@@ -380,6 +380,13 @@ extension MacOSPlatform {
     latestObservedFrames[windowID] = frame
   }
 
+  public func userAdjustedFrames(
+    for windowIDs: Set<WindowID>
+  ) -> [WindowID: Rect] {
+    guard mouseResizeGesturePending, !windowIDs.isEmpty else { return [:] }
+    return framesByWindowID(for: windowIDs, in: copyCGWindows())
+  }
+
   public var latencySensitiveWindowIDs: Set<WindowID> {
     let processIDs = frameCoordinator.slowProcessIDs
     return Set(
