@@ -139,6 +139,29 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
   }
 
+  func testMoveFocusedTileSelectsTiledLayerInTargetWorkspace() throws {
+    let tools = WorkspaceID(rawValue: "tools")
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
+    )
+    state.attachMonitor(monitorID)
+    let tile = window(68)
+    let floater = window(69, floating: true)
+    try discoverWindow(tile, decision: RuleDecision(), state: &state)
+    try discoverWindow(
+      floater,
+      decision: RuleDecision(workspace: tools, followFocus: true),
+      state: &state
+    )
+    try reduce(.switchWorkspace(WorkspaceID(rawValue: "dev")), on: monitorID, state: &state)
+
+    try reduce(.moveWindowToWorkspace(tools), on: monitorID, state: &state)
+
+    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
+    XCTAssertEqual(state.monitors[0].workspaces[1].focusedLayer, .tiled)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), tile.id)
+  }
+
   func testMoveFallbackSelectedFloaterWithoutColumns() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(

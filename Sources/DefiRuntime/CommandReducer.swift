@@ -205,6 +205,7 @@ private func moveFocusedWindow(
     into: &state.monitors[monitorIndex].workspaces[targetIndex],
     settings: state.layout
   )
+  state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .tiled
   if follow {
     state.monitors[monitorIndex].activeWorkspace = workspaceID
   }
