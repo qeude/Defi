@@ -59,6 +59,112 @@ struct NativeFocusTests {
   }
 
   @Test
+  func selectedRemovalPreservesWorkspaceAgainstAutomaticExternalFocus() throws {
+    var fixture = try makeRemovalFixture()
+    let guardToken = try removeSelectedWindow(
+      keeping: [fixture.localFallback, fixture.external],
+      from: &fixture
+    )
+
+    #expect(
+      windowRemovalFocusDecision(
+        guard: guardToken,
+        nativeFocusedWindowID: fixture.external.id,
+        nativeFocusChanged: true,
+        latestUserInputTimestamp: 10,
+        state: fixture.state
+      ) == .preserve(localFallback: fixture.localFallback.id)
+    )
+  }
+
+  @Test
+  func inputAfterRemovalAcceptsImmediateExternalFocus() throws {
+    var fixture = try makeRemovalFixture()
+    let guardToken = try removeSelectedWindow(
+      keeping: [fixture.localFallback, fixture.external],
+      from: &fixture
+    )
+
+    #expect(
+      windowRemovalFocusDecision(
+        guard: guardToken,
+        nativeFocusedWindowID: fixture.external.id,
+        nativeFocusChanged: true,
+        latestUserInputTimestamp: 11,
+        state: fixture.state
+      ) == .accept
+    )
+    #expect(
+      windowRemovalFocusGuard(
+        previousMonitorID: monitorID,
+        previousWorkspaceID: fixture.devWorkspace,
+        previousSelectedWindowID: fixture.selected.id,
+        removedWindowIDs: [fixture.selected.id],
+        userInputAfterWindowTopology: true,
+        latestUserInputTimestamp: 11
+      ) == nil
+    )
+  }
+
+  @Test
+  func localNativeFallbackIsAccepted() throws {
+    var fixture = try makeRemovalFixture()
+    let guardToken = try removeSelectedWindow(
+      keeping: [fixture.localFallback, fixture.external],
+      from: &fixture
+    )
+
+    #expect(
+      windowRemovalFocusDecision(
+        guard: guardToken,
+        nativeFocusedWindowID: fixture.localFallback.id,
+        nativeFocusChanged: true,
+        latestUserInputTimestamp: 10,
+        state: fixture.state
+      ) == .accept
+    )
+  }
+
+  @Test
+  func nonSelectedRemovalDoesNotCreateFocusGuard() throws {
+    let fixture = try makeRemovalFixture()
+
+    #expect(
+      windowRemovalFocusGuard(
+        previousMonitorID: monitorID,
+        previousWorkspaceID: fixture.devWorkspace,
+        previousSelectedWindowID: fixture.selected.id,
+        removedWindowIDs: [fixture.localFallback.id],
+        userInputAfterWindowTopology: false,
+        latestUserInputTimestamp: 10
+      ) == nil
+    )
+  }
+
+  @Test
+  func emptyWorkspaceStaysActiveWithoutInventingFallback() throws {
+    var fixture = try makeRemovalFixture()
+    let guardToken = try removeSelectedWindow(
+      keeping: [fixture.external],
+      removedWindowIDs: [fixture.selected.id, fixture.localFallback.id],
+      from: &fixture
+    )
+
+    #expect(
+      windowRemovalFocusDecision(
+        guard: guardToken,
+        nativeFocusedWindowID: fixture.external.id,
+        nativeFocusChanged: true,
+        latestUserInputTimestamp: 10,
+        state: fixture.state
+      ) == .preserve(localFallback: nil)
+    )
+    #expect(
+      fixture.state.monitors[0].activeWorkspace == fixture.devWorkspace
+    )
+  }
+
+  @Test
   func nativeFocusPreservesTwoVisibleColumns() throws {
     var state = try makeState(windowCount: 2)
     setColumnWidths(.fraction(0.5), state: &state)
@@ -118,6 +224,80 @@ struct NativeFocusTests {
       try discoverWindow(window, decision: RuleDecision(), state: &state)
     }
     return state
+  }
+
+  private struct RemovalFixture {
+    var state: RuntimeState
+    let config: Config
+    let devWorkspace: WorkspaceID
+    let selected: Window
+    let localFallback: Window
+    let external: Window
+  }
+
+  private func makeRemovalFixture() throws -> RemovalFixture {
+    let devWorkspace = WorkspaceID(rawValue: "dev")
+    let webWorkspace = WorkspaceID(rawValue: "web")
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", "web"])
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let selected = Window(
+      id: WindowID(rawValue: 1),
+      appID: "selected",
+      title: "Selected",
+      frame: Rect(x: 0, y: 0, width: 800, height: 700),
+      monitorID: monitorID
+    )
+    let localFallback = Window(
+      id: WindowID(rawValue: 2),
+      appID: "fallback",
+      title: "Fallback",
+      frame: Rect(x: 0, y: 0, width: 800, height: 700),
+      monitorID: monitorID
+    )
+    let external = Window(
+      id: WindowID(rawValue: 3),
+      appID: "external",
+      title: "External",
+      frame: Rect(x: 0, y: 0, width: 800, height: 700),
+      monitorID: monitorID
+    )
+    try discoverWindow(selected, decision: RuleDecision(), state: &state)
+    try discoverWindow(localFallback, decision: RuleDecision(), state: &state)
+    try discoverWindow(
+      external,
+      decision: RuleDecision(workspace: webWorkspace),
+      state: &state
+    )
+    focusWindow(selected.id, state: &state)
+    return RemovalFixture(
+      state: state,
+      config: config,
+      devWorkspace: devWorkspace,
+      selected: selected,
+      localFallback: localFallback,
+      external: external
+    )
+  }
+
+  private func removeSelectedWindow(
+    keeping windows: [Window],
+    removedWindowIDs: Set<WindowID>? = nil,
+    from fixture: inout RemovalFixture
+  ) throws -> WindowRemovalFocusGuard {
+    reconcileWindows(windows, config: fixture.config, state: &fixture.state)
+    return try #require(
+      windowRemovalFocusGuard(
+        previousMonitorID: monitorID,
+        previousWorkspaceID: fixture.devWorkspace,
+        previousSelectedWindowID: fixture.selected.id,
+        removedWindowIDs: removedWindowIDs ?? [fixture.selected.id],
+        userInputAfterWindowTopology: false,
+        latestUserInputTimestamp: 10
+      )
+    )
   }
 
   private func setColumnWidths(_ width: ColumnWidth, state: inout RuntimeState) {

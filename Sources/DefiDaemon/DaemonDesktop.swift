@@ -17,7 +17,18 @@ private let displayLogger = Logger(
 extension Daemon {
   func synchronizeDesktop() {
     let snapshot = platform.snapshot(config: config)
+    let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
+    if tracesWindowCreation {
+      platform.recordPerformanceTrace("sync-snapshot-return")
+    }
     let previousViewports = viewportsByMonitor
+    let previousActiveMonitorID = activeMonitorID
+    let previousActiveWorkspaceID = previousActiveMonitorID.flatMap { monitorID in
+      state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
+    }
+    let previousSelectedWindowID = previousActiveMonitorID.flatMap {
+      state.selectedWindowID(on: $0)
+    }
     let displayGeometryChanged = monitorGeometryChanged(
       from: latestMonitors,
       to: snapshot.monitors
@@ -31,6 +42,7 @@ extension Daemon {
       platform.invalidateFrameStateForDisplayChange()
       scrollAnimations.removeAll(keepingCapacity: true)
       pendingAnimatedFocusWindowID = nil
+      pendingWindowRemovalFocusGuard = nil
       cancelDeferredSlowLane()
       persistentWidthDriftCounts.removeAll(keepingCapacity: true)
     }
@@ -50,16 +62,63 @@ extension Daemon {
       placementPreferences: placementPreferences,
       state: &state
     )
+    let newRemovalFocusGuard: WindowRemovalFocusGuard?
+    if displayGeometryChanged {
+      newRemovalFocusGuard = nil
+    } else {
+      newRemovalFocusGuard = windowRemovalFocusGuard(
+        previousMonitorID: previousActiveMonitorID,
+        previousWorkspaceID: previousActiveWorkspaceID,
+        previousSelectedWindowID: previousSelectedWindowID,
+        removedWindowIDs: snapshot.removedWindowIDs,
+        userInputAfterWindowTopology: snapshot.userInputAfterWindowTopology,
+        latestUserInputTimestamp: snapshot.latestUserInputTimestamp
+      )
+    }
+    if let newRemovalFocusGuard {
+      pendingWindowRemovalFocusGuard = newRemovalFocusGuard
+    }
+    var preservesWorkspaceAfterRemoval = false
+    var guardedRemovalFocus: (windowID: WindowID, inputTimestamp: TimeInterval)?
+    if let focusGuard = pendingWindowRemovalFocusGuard {
+      switch windowRemovalFocusDecision(
+        guard: focusGuard,
+        nativeFocusedWindowID: snapshot.focusedWindowID,
+        nativeFocusChanged: snapshot.nativeFocusChanged,
+        latestUserInputTimestamp: snapshot.latestUserInputTimestamp,
+        state: state
+      ) {
+      case .accept:
+        pendingWindowRemovalFocusGuard = nil
+      case .wait(let localFallback):
+        if newRemovalFocusGuard != nil, let localFallback {
+          guardedRemovalFocus = (localFallback, focusGuard.inputTimestamp)
+        }
+      case .preserve(let localFallback):
+        preservesWorkspaceAfterRemoval = true
+        if let localFallback {
+          guardedRemovalFocus = (localFallback, focusGuard.inputTimestamp)
+        }
+        pendingWindowRemovalFocusGuard = nil
+        preservedWindowRemovalFocusCount += 1
+        platform.recordPerformanceTrace(
+          "close-focus-preserved target=\(snapshot.focusedWindowID?.rawValue.description ?? "none") fallback=\(localFallback?.rawValue.description ?? "none")"
+        )
+      }
+    }
     if let focusedWindowID = snapshot.focusedWindowID {
       let nativeFocusAccepted =
         snapshot.nativeFocusChanged
+        && !preservesWorkspaceAfterRemoval
         && ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil
       let selectionChanged = nativeFocusChangesSelection(
         focusedWindowID,
         activeMonitorID: activeMonitorID,
         state: state
       )
-      if activeMonitorID == nil || (nativeFocusAccepted && selectionChanged) {
+      if !preservesWorkspaceAfterRemoval
+        && (activeMonitorID == nil || (nativeFocusAccepted && selectionChanged))
+      {
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
         activeMonitorID = state.monitorID(containing: focusedWindowID)
@@ -107,6 +166,9 @@ extension Daemon {
       )
     }
     snapScrollOffsetsToTargets()
+    if tracesWindowCreation {
+      platform.recordPerformanceTrace("sync-before-layout")
+    }
     applyCurrentLayout(
       asynchronousPositions: true,
       updateVisibility: true,
@@ -116,6 +178,12 @@ extension Daemon {
         ? "native-workspace"
         : "desktop-sync"
     )
+    if let guardedRemovalFocus {
+      platform.focus(
+        guardedRemovalFocus.windowID,
+        unlessUserInputAfter: guardedRemovalFocus.inputTimestamp
+      )
+    }
     persistPlacements()
     updateMenuBar()
   }
@@ -306,6 +374,8 @@ extension Daemon {
     let selectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
+    let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
+    let borderStartedAt = ProcessInfo.processInfo.systemUptime
     platform.prepareWindowBorderSelection(selectedWindowID)
     platform.updateWindowBorders(
       frames: platformAssignments,
@@ -313,6 +383,13 @@ extension Daemon {
       liveWindowID: activelyResizedWindowID,
       config: config.decorations.borders
     )
+    if tracesWindowCreation {
+      let elapsedMS =
+        (ProcessInfo.processInfo.systemUptime - borderStartedAt) * 1_000
+      platform.recordPerformanceTrace(
+        "initial-border-prepare ms=\(String(format: "%.2f", elapsedMS))"
+      )
+    }
     platform.apply(
       platformAssignments,
       hiddenWindowIDs: hiddenWindowIDs,

@@ -32,6 +32,78 @@ struct FrameCommitExpectation: Equatable, Sendable {
   var observedAt: TimeInterval?
 }
 
+func frameCommitQuarantineDuration(
+  animationDuration: TimeInterval,
+  initialFrameSettlement: Bool
+) -> TimeInterval {
+  if initialFrameSettlement {
+    return max(animationDuration + 0.12, 0.18)
+  }
+  return max(animationDuration + 0.25, 0.8)
+}
+
+func initialFrameNeedsRepair(
+  actual: Rect,
+  target: Rect,
+  tolerance: Double = 1
+) -> Bool {
+  abs(actual.x - target.x) > tolerance
+    || abs(actual.y - target.y) > tolerance
+    || abs(actual.width - target.width) > tolerance
+    || abs(actual.height - target.height) > tolerance
+}
+
+enum InitialSettlementObservation: Equatable {
+  case expired
+  case stable
+  case drifted
+}
+
+func initialSettlementObservation(
+  actual: Rect,
+  target: Rect,
+  now: TimeInterval,
+  deadline: TimeInterval
+) -> InitialSettlementObservation {
+  guard now < deadline else { return .expired }
+  return initialFrameNeedsRepair(actual: actual, target: target)
+    ? .drifted
+    : .stable
+}
+
+func initialSettlementRepairIsCurrent(
+  expectedGeneration: UInt64,
+  currentGeneration: UInt64?,
+  repairsSuspended: Bool,
+  leftMouseButtonDown: Bool,
+  animationRunning: Bool
+) -> Bool {
+  !repairsSuspended
+    && !leftMouseButtonDown
+    && !animationRunning
+    && currentGeneration == expectedGeneration
+}
+
+func incrementalWindowRefreshProcessIDs(
+  hasCompletedSnapshot: Bool,
+  eventPending: Bool,
+  requiresFullSnapshot: Bool,
+  processIDs: Set<pid_t>,
+  coalescedProcessIDs: Set<pid_t> = [],
+  coalescedEventRequiresFullSnapshot: Bool = false
+) -> Set<pid_t>? {
+  let affectedProcessIDs = processIDs.union(coalescedProcessIDs)
+  guard hasCompletedSnapshot,
+    eventPending,
+    !requiresFullSnapshot,
+    !coalescedEventRequiresFullSnapshot,
+    !affectedProcessIDs.isEmpty
+  else {
+    return nil
+  }
+  return affectedProcessIDs
+}
+
 func frameIsOnExpectedCommitPath(
   actual: Rect,
   currentTarget: Rect,
@@ -168,6 +240,12 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let isParked: Bool
   let isReentering: Bool
   let requiresVerifiedOffscreenWrite: Bool
+}
+
+struct InitialSettlementTarget: @unchecked Sendable {
+  let generation: UInt64
+  let write: AsyncPositionWrite
+  let deadline: TimeInterval
 }
 
 struct QueuedPositionFrame: @unchecked Sendable {

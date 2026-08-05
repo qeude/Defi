@@ -55,6 +55,9 @@ public struct DesktopSnapshot: Sendable {
   public let windows: [Window]
   public let focusedWindowID: WindowID?
   public let nativeFocusChanged: Bool
+  public let removedWindowIDs: Set<WindowID>
+  public let latestUserInputTimestamp: TimeInterval
+  public let userInputAfterWindowTopology: Bool
   public let externallyChangedFrames: [WindowID: Rect]
   public let leftMouseButtonDown: Bool
   public let mouseResizeGestureObserved: Bool
@@ -66,6 +69,9 @@ public struct DesktopSnapshot: Sendable {
     windows: [Window],
     focusedWindowID: WindowID?,
     nativeFocusChanged: Bool = false,
+    removedWindowIDs: Set<WindowID> = [],
+    latestUserInputTimestamp: TimeInterval = 0,
+    userInputAfterWindowTopology: Bool = false,
     externallyChangedFrames: [WindowID: Rect] = [:],
     leftMouseButtonDown: Bool = false,
     mouseResizeGestureObserved: Bool = false,
@@ -76,6 +82,9 @@ public struct DesktopSnapshot: Sendable {
     self.windows = windows
     self.focusedWindowID = focusedWindowID
     self.nativeFocusChanged = nativeFocusChanged
+    self.removedWindowIDs = removedWindowIDs
+    self.latestUserInputTimestamp = latestUserInputTimestamp
+    self.userInputAfterWindowTopology = userInputAfterWindowTopology
     self.externallyChangedFrames = externallyChangedFrames
     self.leftMouseButtonDown = leftMouseButtonDown
     self.mouseResizeGestureObserved = mouseResizeGestureObserved

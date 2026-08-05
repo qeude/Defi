@@ -70,7 +70,7 @@ final class MonitorTests: XCTestCase {
 
   func testScreenParameterNotificationIsClassifiedAsDisplayChange() {
     var receivedKinds: [PlatformEventKind] = []
-    let monitor = PlatformEventMonitor { receivedKinds.append($0) }
+    let monitor = PlatformEventMonitor { kind, _ in receivedKinds.append(kind) }
     monitor.start()
     defer { monitor.stop() }
 
@@ -80,5 +80,26 @@ final class MonitorTests: XCTestCase {
     )
 
     XCTAssertEqual(receivedKinds, [.screens])
+  }
+
+  func testTerminationNotificationIncludesApplicationProcessID() {
+    var receivedKind: PlatformEventKind?
+    var receivedProcessID: pid_t?
+    let monitor = PlatformEventMonitor { kind, processID in
+      receivedKind = kind
+      receivedProcessID = processID
+    }
+    monitor.start()
+    defer { monitor.stop() }
+
+    let application = NSRunningApplication.current
+    NSWorkspace.shared.notificationCenter.post(
+      name: NSWorkspace.didTerminateApplicationNotification,
+      object: NSWorkspace.shared,
+      userInfo: [NSWorkspace.applicationUserInfoKey: application]
+    )
+
+    XCTAssertEqual(receivedKind, .applicationTerminated)
+    XCTAssertEqual(receivedProcessID, application.processIdentifier)
   }
 }

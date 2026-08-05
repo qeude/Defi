@@ -21,6 +21,17 @@ public final class MacOSPlatform {
   var pendingFrameCorrections: [WindowID: Rect] = [:]
   var latestObservedFrames: [WindowID: Rect] = [:]
   var frameCommitExpectations: [WindowID: FrameCommitExpectation] = [:]
+  var initialFrameSettlementDeadlines: [WindowID: TimeInterval] = [:]
+  var newlyDiscoveredWindowIDs = Set<WindowID>()
+  var hasCompletedWindowSnapshot = false
+  var windowTopologyEventPending = false
+  var pendingWindowTopologyProcessIDs = Set<pid_t>()
+  var windowTopologyRequiresFullSnapshot = false
+  var pendingWindowTopologyInputTimestamp: TimeInterval?
+  var pendingFrameProcessIDs = Set<pid_t>()
+  var pendingFrameRequiresFullSnapshot = false
+  var lastSnapshotWindows: [Window] = []
+  var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0
   var maximumObservedFrameCommitLatencyMS = 0.0
@@ -53,6 +64,8 @@ public final class MacOSPlatform {
     inactiveColor: 0x66c0_99ff,
     captureEnabled: false
   )
+
+  public let userInputTracker = UserInputTracker()
 
   public init() {}
 

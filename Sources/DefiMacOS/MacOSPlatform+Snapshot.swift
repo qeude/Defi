@@ -23,12 +23,33 @@ extension MacOSPlatform {
   }
 
   public func snapshot(config: Config) -> DesktopSnapshot {
+    let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
+    let tracesWindowTopology = windowTopologyEventPending
+    let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
+    let incrementalProcessIDs = incrementalWindowRefreshProcessIDs(
+      hasCompletedSnapshot: hasCompletedWindowSnapshot,
+      eventPending: tracesWindowTopology,
+      requiresFullSnapshot: windowTopologyRequiresFullSnapshot,
+      processIDs: pendingWindowTopologyProcessIDs,
+      coalescedProcessIDs: pendingFrameProcessIDs,
+      coalescedEventRequiresFullSnapshot: pendingFrameRequiresFullSnapshot
+    )
+    windowTopologyEventPending = false
+    pendingWindowTopologyProcessIDs.removeAll(keepingCapacity: true)
+    windowTopologyRequiresFullSnapshot = false
+    pendingWindowTopologyInputTimestamp = nil
+    pendingFrameProcessIDs.removeAll(keepingCapacity: true)
+    pendingFrameRequiresFullSnapshot = false
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
     let cgWindows = copyCGWindows()
     frontmostNormalWindowID = copyFrontmostNormalWindowID()
     let previousElements = elements
     let previousProcessIDs = processIDs
+    let previousWindowsByProcess = Dictionary(
+      grouping: lastSnapshotWindows,
+      by: \.processID
+    )
     var nextElements: [WindowID: AXUIElement] = [:]
     var nextProcessIDs: [WindowID: pid_t] = [:]
     var nextApplications: [pid_t: AXUIElement] = [:]
@@ -53,6 +74,27 @@ extension MacOSPlatform {
             attribute: "AXEnhancedUserInterface",
             as: Bool.self
           ) ?? false
+      }
+      if let incrementalProcessIDs,
+        !incrementalProcessIDs.contains(application.processIdentifier),
+        let cachedApplicationWindows =
+          lastApplicationWindowElements[application.processIdentifier]
+      {
+        let cachedWindows =
+          previousWindowsByProcess[application.processIdentifier] ?? []
+        let cachedElements = cachedWindows.compactMap { window in
+          previousElements[window.id].map { (window.id, $0) }
+        }
+        if cachedElements.count == cachedWindows.count {
+          applicationWindows[application.processIdentifier] =
+            cachedApplicationWindows
+          windows.append(contentsOf: cachedWindows)
+          for (windowID, element) in cachedElements {
+            nextElements[windowID] = element
+            nextProcessIDs[windowID] = application.processIdentifier
+          }
+          continue
+        }
       }
       guard let appWindows = copyElements(appElement, attribute: kAXWindowsAttribute)
       else {
@@ -99,10 +141,29 @@ extension MacOSPlatform {
       }
     }
 
+    let nextWindowIDs = Set(nextElements.keys)
+    let removedWindowIDs = Set(previousElements.keys).subtracting(nextWindowIDs)
+    newlyDiscoveredWindowIDs = hasCompletedWindowSnapshot
+      ? nextWindowIDs.subtracting(previousElements.keys)
+      : []
+    if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
+      let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
+        $0.rawValue < $1.rawValue
+      }.map { String($0.rawValue) }.joined(separator: ",")
+      let elapsedMS =
+        (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+      let mode = incrementalProcessIDs == nil ? "full" : "incremental"
+      frameCoordinator.recordTrace(
+        "window-snapshot mode=\(mode) ms=\(String(format: "%.2f", elapsedMS)) discovered=\(newlyDiscoveredWindowIDs.count)[\(discoveredIDs)] total=\(windows.count)"
+      )
+    }
+    hasCompletedWindowSnapshot = true
     elements = nextElements
     processIDs = nextProcessIDs
     applications = nextApplications
     applicationWindowCounts = applicationWindows.mapValues(\.count)
+    lastSnapshotWindows = windows
+    lastApplicationWindowElements = applicationWindows
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
     eventMonitor?.refresh(applications: applicationWindows)
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
@@ -110,6 +171,10 @@ extension MacOSPlatform {
     latestObservedFrames = latestObservedFrames.filter { nextElements[$0.key] != nil }
     frameCommitExpectations = frameCommitExpectations.filter {
       nextElements[$0.key] != nil
+    }
+    let now = ProcessInfo.processInfo.systemUptime
+    initialFrameSettlementDeadlines = initialFrameSettlementDeadlines.filter {
+      nextElements[$0.key] != nil && $0.value > now
     }
     lastHiddenWindowIDs = lastHiddenWindowIDs.filter { nextElements[$0] != nil }
     let leftMouseButtonDown = CGEventSource.buttonState(
@@ -119,7 +184,6 @@ extension MacOSPlatform {
     let mouseResizeGestureObserved = mouseResizeGesturePending
     let externalResizeGestureActive =
       leftMouseButtonDown || mouseResizeGestureObserved
-    let now = ProcessInfo.processInfo.systemUptime
     var externallyChangedFrames: [WindowID: Rect] = [:]
     var targetMismatches: [FrameMismatch] = []
     var deferredMismatchCount = 0
@@ -224,11 +288,35 @@ extension MacOSPlatform {
       nativeFocusEventPending = false
       nativeFocusRetryCount = 0
     }
+    if nativeFocusChanged {
+      userInputTracker.recordObservedFocus(
+        windowID: focusedWindowID,
+        processID: focusedWindowID.flatMap { nextProcessIDs[$0] }
+          ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+      )
+    }
+    if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
+      let elapsedMS =
+        (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+      frameCoordinator.recordTrace(
+        "window-snapshot-complete ms=\(String(format: "%.2f", elapsedMS))"
+      )
+    }
+    let userInput = userInputTracker.snapshot
     return DesktopSnapshot(
       monitors: monitors,
       windows: windows,
       focusedWindowID: focusedWindowID,
       nativeFocusChanged: nativeFocusChanged,
+      removedWindowIDs: removedWindowIDs,
+      latestUserInputTimestamp: userInput.latestEventTimestamp,
+      userInputAfterWindowTopology: userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: userInput.latestEventTimestamp,
+        latestFocusIntent: userInput.latestFocusIntent,
+        latestCloseIntentTimestamp: userInput.latestCloseIntent,
+        removedWindowIDs: removedWindowIDs
+      ),
       externallyChangedFrames: externallyChangedFrames,
       leftMouseButtonDown: leftMouseButtonDown,
       mouseResizeGestureObserved: mouseResizeGestureObserved,

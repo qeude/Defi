@@ -28,6 +28,7 @@ extension MacOSPlatform {
     pendingFrameCorrections.removeAll(keepingCapacity: true)
     latestObservedFrames.removeAll(keepingCapacity: true)
     frameCommitExpectations.removeAll(keepingCapacity: true)
+    initialFrameSettlementDeadlines.removeAll(keepingCapacity: true)
     lastHiddenWindowIDs.removeAll(keepingCapacity: true)
     borderFrames.removeAll(keepingCapacity: true)
     desiredSelectedWindowID = nil
