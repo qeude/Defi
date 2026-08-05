@@ -152,7 +152,8 @@ extension MacOSPlatform {
 
     let nextWindowIDs = Set(nextElements.keys)
     let removedWindowIDs = Set(previousElements.keys).subtracting(nextWindowIDs)
-    newlyDiscoveredWindowIDs = hasCompletedWindowSnapshot
+    newlyDiscoveredWindowIDs =
+      hasCompletedWindowSnapshot
       ? nextWindowIDs.subtracting(previousElements.keys)
       : []
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
@@ -192,6 +193,7 @@ extension MacOSPlatform {
       button: .left
     )
     let mouseResizeGestureObserved = mouseResizeGesturePending
+    let mouseFocusReleaseObserved = mouseFocusReleasePending
     let externalResizeGestureActive =
       leftMouseButtonDown || mouseResizeGestureObserved
     var externallyChangedFrames: [WindowID: Rect] = [:]
@@ -260,6 +262,7 @@ extension MacOSPlatform {
     }
     frameEventPending = false
     mouseResizeGesturePending = false
+    mouseFocusReleasePending = false
     pendingFrameCorrections = Dictionary(
       uniqueKeysWithValues: targetMismatches.map { ($0.windowID, $0.actual) }
     )
@@ -313,6 +316,17 @@ extension MacOSPlatform {
       )
     }
     let userInput = userInputTracker.snapshot
+    let mouseFocusIntentWindowID: WindowID?
+    let mouseFocusIntentTimestamp: TimeInterval?
+    if let focusIntent = userInput.latestFocusIntent,
+      case .mouse(let windowID) = focusIntent.source
+    {
+      mouseFocusIntentWindowID = windowID
+      mouseFocusIntentTimestamp = focusIntent.timestamp
+    } else {
+      mouseFocusIntentWindowID = nil
+      mouseFocusIntentTimestamp = nil
+    }
     return DesktopSnapshot(
       monitors: monitors,
       windows: windows,
@@ -330,6 +344,9 @@ extension MacOSPlatform {
       externallyChangedFrames: externallyChangedFrames,
       leftMouseButtonDown: leftMouseButtonDown,
       mouseResizeGestureObserved: mouseResizeGestureObserved,
+      mouseFocusReleaseObserved: mouseFocusReleaseObserved,
+      mouseFocusIntentWindowID: mouseFocusIntentWindowID,
+      mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       targetMismatchCount: targetMismatches.count,
       targetMismatches: targetMismatches
     )

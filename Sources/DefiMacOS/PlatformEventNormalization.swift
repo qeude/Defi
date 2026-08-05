@@ -10,6 +10,7 @@ enum PlatformEventKind: Equatable {
   case frame
   case windows
   case mouse
+  case mouseRelease
   case screens
 }
 
@@ -137,18 +138,20 @@ public final class UserInputTracker: @unchecked Sendable {
       guard observedFocusIntentTimestamp == focusIntent.timestamp else {
         return nil
       }
-      guard let target = observedFocusTargets.reversed().first(where: {
-        if let excludingWindowID, $0.windowID == excludingWindowID {
-          return false
-        }
-        if $0.windowID == nil,
-          let excludingProcessID,
-          $0.processID == excludingProcessID
-        {
-          return false
-        }
-        return true
-      }) else {
+      guard
+        let target = observedFocusTargets.reversed().first(where: {
+          if let excludingWindowID, $0.windowID == excludingWindowID {
+            return false
+          }
+          if $0.windowID == nil,
+            let excludingProcessID,
+            $0.processID == excludingProcessID
+          {
+            return false
+          }
+          return true
+        })
+      else {
         return nil
       }
       return FocusRecoveryTarget(
@@ -196,7 +199,7 @@ func updatedWindowTopologyInputTimestamp(
   switch kind {
   case .windows, .applicationTerminated:
     return latestInputTimestamp
-  case .application, .focus, .frame, .mouse, .screens:
+  case .application, .focus, .frame, .mouse, .mouseRelease, .screens:
     return previousTimestamp
   }
 }
@@ -251,18 +254,24 @@ func windowSnapshotInvalidation(
     return processID.map(WindowSnapshotInvalidation.process) ?? .full
   case .application, .screens:
     return .full
-  case .focus, .frame, .mouse:
+  case .focus, .frame, .mouse, .mouseRelease:
     return .none
   }
 }
 
 struct MouseGestureEventNormalizer {
+  enum Synchronization: Equatable {
+    case gesture
+    case clickRelease
+  }
+
   struct Actions: Equatable {
     var refreshBorderStacking = false
-    var synchronizeDesktop = false
+    var synchronization: Synchronization?
   }
 
   private var pressed = false
+  private var dragged = false
   private var synchronizedDuringGesture = false
 
   mutating func actions(
@@ -271,20 +280,24 @@ struct MouseGestureEventNormalizer {
     switch eventType {
     case .leftMouseDown:
       pressed = true
+      dragged = false
       synchronizedDuringGesture = false
       return Actions(refreshBorderStacking: true)
     case .leftMouseDragged:
+      dragged = true
       guard synchronizedDuringGesture == false else {
         return Actions()
       }
       synchronizedDuringGesture = true
-      return Actions(synchronizeDesktop: true)
+      return Actions(synchronization: .gesture)
     case .leftMouseUp:
       defer {
         pressed = false
+        dragged = false
         synchronizedDuringGesture = false
       }
-      return Actions(synchronizeDesktop: pressed)
+      guard pressed else { return Actions() }
+      return Actions(synchronization: dragged ? .gesture : .clickRelease)
     default:
       return Actions()
     }

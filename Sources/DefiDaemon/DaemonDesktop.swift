@@ -32,6 +32,8 @@ extension Daemon {
     }
     let mouseGestureEnded =
       snapshot.mouseResizeGestureObserved && !snapshot.leftMouseButtonDown
+    let mouseInteractionEnded =
+      mouseGestureEnded || snapshot.mouseFocusReleaseObserved
     let nativeFocusedScrollAnchor = snapshot.focusedWindowID.flatMap {
       workspaceScrollAnchor(containing: $0, state: state)
     }
@@ -144,15 +146,22 @@ extension Daemon {
       }
     }
     if let focusedWindowID = snapshot.focusedWindowID {
+      let mouseReleaseFocusIntentCurrent = mouseReleaseFocusIntentIsCurrent(
+        focusedWindowID: focusedWindowID,
+        mouseFocusIntentWindowID: snapshot.mouseFocusIntentWindowID,
+        mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
+        latestCommandInputTimestamp: latestCommandInputTimestamp,
+        nativeFocusChanged: snapshot.nativeFocusChanged
+      )
       let nativeFocusAccepted =
         nativeFocusMutationIsReady(
           nativeFocusChanged: snapshot.nativeFocusChanged,
-          mouseGestureEnded: mouseGestureEnded,
-          leftMouseButtonDown: snapshot.leftMouseButtonDown
+          mouseInteractionEnded: mouseInteractionEnded,
+          leftMouseButtonDown: snapshot.leftMouseButtonDown,
+          mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent
         )
         && !preservesWorkspaceAfterRemoval
-        && (mouseGestureEnded
-          || ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil)
+        && ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil
       let selectionChanged = nativeFocusChangesSelection(
         focusedWindowID,
         activeMonitorID: activeMonitorID,
@@ -172,7 +181,7 @@ extension Daemon {
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
         activeMonitorID = state.monitorID(containing: focusedWindowID)
         nativelyFocusedMonitorID = activeMonitorID
-        if mouseGestureEnded {
+        if mouseInteractionEnded {
           platform.recordPerformanceTrace(
             "mouse-focus-committed window=\(focusedWindowID.rawValue)"
           )
@@ -193,7 +202,13 @@ extension Daemon {
 
     var mouseReordered = false
     if !displayGeometryChanged && mouseResizeGestureActive {
+      let mouseGestureCandidateWindowIDs = [
+        activelyResizedWindowID,
+        snapshot.mouseFocusIntentWindowID,
+        snapshot.focusedWindowID,
+      ].compactMap { $0 }
       let translatedWindowID = mouseTranslatedTiledWindowID(
+        candidateWindowIDs: mouseGestureCandidateWindowIDs,
         externallyChangedFrames: snapshot.externallyChangedFrames,
         state: state,
         viewports: viewportsByMonitor
@@ -201,18 +216,23 @@ extension Daemon {
       let gestureWindowID = mouseGestureTiledWindowID(
         translatedWindowID: translatedWindowID,
         activeWindowID: activelyResizedWindowID,
+        mouseFocusIntentWindowID: snapshot.mouseFocusIntentWindowID,
         focusedWindowID: snapshot.focusedWindowID,
         state: state
       )
       let actualFrame = gestureWindowID.flatMap { windowID in
         snapshot.windows.first(where: { $0.id == windowID })?.frame
       }
+      mouseGestureInitialFrame = resolvedMouseGestureInitialFrame(
+        currentInitialFrame: mouseGestureInitialFrame,
+        gestureWindowID: gestureWindowID,
+        activeWindowID: activelyResizedWindowID,
+        translatedWindowID: translatedWindowID,
+        leftMouseButtonDown: snapshot.leftMouseButtonDown,
+        previousObservedFrames: previousObservedWindowFrames,
+        actualFrame: actualFrame
+      )
       if snapshot.leftMouseButtonDown {
-        if gestureWindowID != activelyResizedWindowID {
-          mouseGestureInitialFrame = gestureWindowID.flatMap { windowID in
-            previousObservedWindowFrames[windowID] ?? actualFrame
-          }
-        }
         activelyResizedWindowID = gestureWindowID
         if let gestureWindowID,
           let actualFrame,
@@ -268,17 +288,6 @@ extension Daemon {
           state: &state,
           viewports: viewportsByMonitor
         )
-      }
-      for (windowID, frame) in snapshot.externallyChangedFrames
-      where windowID != gestureWindowID {
-        if learnTiledWindowWidth(
-          windowID,
-          actualFrame: frame,
-          state: &state,
-          viewports: viewportsByMonitor
-        ) {
-          activelyResizedWindowID = snapshot.leftMouseButtonDown ? windowID : nil
-        }
       }
     } else {
       activelyResizedWindowID = nil

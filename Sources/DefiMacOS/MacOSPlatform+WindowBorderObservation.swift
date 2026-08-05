@@ -57,6 +57,9 @@ extension MacOSPlatform {
             self?.frameCoordinator.suspendInitialSettlementRepairs()
           }
         }
+        if kind == .mouseRelease {
+          self?.mouseFocusReleasePending = true
+        }
         if kind == .focus {
           self?.userInputTracker.recordObservedFocus(
             windowID: nil,
@@ -69,7 +72,7 @@ extension MacOSPlatform {
         if kind == .screens {
           displayConfigurationHandler()
         }
-        if kind == .mouse {
+        if kind == .mouse || kind == .mouseRelease {
           mouseGestureHandler()
         }
         handler()

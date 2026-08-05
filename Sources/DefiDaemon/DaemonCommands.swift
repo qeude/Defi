@@ -62,6 +62,7 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      latestCommandInputTimestamp = commandStartedAt
       pendingWindowRemovalFocusGuard = nil
       let switchesWorkspace = command.activatesWorkspace
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces

@@ -107,6 +107,7 @@ final class Daemon: NSObject {
   var maximumAnimationStepDurationMS = 0.0
   var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
+  var latestCommandInputTimestamp: TimeInterval = 0
   var suppressNativeFocusUntil: TimeInterval = 0
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?

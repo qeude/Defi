@@ -48,15 +48,17 @@ struct NativeFocusTests {
     #expect(
       nativeFocusMutationIsReady(
         nativeFocusChanged: true,
-        mouseGestureEnded: false,
-        leftMouseButtonDown: true
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: true,
+        mouseReleaseFocusIntentCurrent: false
       ) == false
     )
     #expect(
       nativeFocusMutationIsReady(
         nativeFocusChanged: false,
-        mouseGestureEnded: true,
-        leftMouseButtonDown: false
+        mouseInteractionEnded: true,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: true
       )
     )
   }
@@ -66,8 +68,44 @@ struct NativeFocusTests {
     #expect(
       nativeFocusMutationIsReady(
         nativeFocusChanged: true,
-        mouseGestureEnded: false,
-        leftMouseButtonDown: false
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: false
+      )
+    )
+  }
+
+  @Test
+  func newerCommandRejectsDeferredMouseReleaseFocus() {
+    let focusedWindowID = WindowID(rawValue: 2)
+    #expect(
+      mouseReleaseFocusIntentIsCurrent(
+        focusedWindowID: focusedWindowID,
+        mouseFocusIntentWindowID: focusedWindowID,
+        mouseFocusIntentTimestamp: 10,
+        latestCommandInputTimestamp: 11,
+        nativeFocusChanged: true
+      ) == false
+    )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: true,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: false
+      ) == false
+    )
+  }
+
+  @Test
+  func currentMouseReleaseAcceptsObservedFocusWithoutWindowHint() {
+    #expect(
+      mouseReleaseFocusIntentIsCurrent(
+        focusedWindowID: WindowID(rawValue: 2),
+        mouseFocusIntentWindowID: nil,
+        mouseFocusIntentTimestamp: 12,
+        latestCommandInputTimestamp: 11,
+        nativeFocusChanged: true
       )
     )
   }

@@ -66,9 +66,10 @@ final class PlatformEventMonitor {
         object: nil,
         queue: .main
       ) { [weak self] notification in
-        let processID = (notification.userInfo?[
-          NSWorkspace.applicationUserInfoKey
-        ] as? NSRunningApplication)?.processIdentifier
+        let processID =
+          (notification.userInfo?[
+            NSWorkspace.applicationUserInfoKey
+          ] as? NSRunningApplication)?.processIdentifier
         MainActor.assumeIsolated {
           self?.handler(.applicationTerminated, processID)
         }
@@ -97,9 +98,10 @@ final class PlatformEventMonitor {
       MainActor.assumeIsolated {
         guard let self else { return }
         if event.type == .leftMouseDown {
-          let rawWindowID = event.cgEvent?.getIntegerValueField(
-            .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
-          ) ?? Int64(event.windowNumber)
+          let rawWindowID =
+            event.cgEvent?.getIntegerValueField(
+              .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+            ) ?? Int64(event.windowNumber)
           self.userInputTracker.record(
             timestamp: event.timestamp,
             focusIntent: .mouse(
@@ -114,8 +116,13 @@ final class PlatformEventMonitor {
         if actions.refreshBorderStacking {
           self.borderStackingHandler()
         }
-        if actions.synchronizeDesktop {
+        switch actions.synchronization {
+        case .gesture:
           self.handler(.mouse, nil)
+        case .clickRelease:
+          self.handler(.mouseRelease, nil)
+        case nil:
+          break
         }
       }
     }

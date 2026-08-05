@@ -62,10 +62,31 @@ public func nativeFocusChangesSelection(
 
 public func nativeFocusMutationIsReady(
   nativeFocusChanged: Bool,
-  mouseGestureEnded: Bool,
-  leftMouseButtonDown: Bool
+  mouseInteractionEnded: Bool,
+  leftMouseButtonDown: Bool,
+  mouseReleaseFocusIntentCurrent: Bool
 ) -> Bool {
-  !leftMouseButtonDown && (nativeFocusChanged || mouseGestureEnded)
+  guard !leftMouseButtonDown else { return false }
+  if mouseInteractionEnded {
+    return mouseReleaseFocusIntentCurrent
+  }
+  return nativeFocusChanged
+}
+
+public func mouseReleaseFocusIntentIsCurrent(
+  focusedWindowID: WindowID,
+  mouseFocusIntentWindowID: WindowID?,
+  mouseFocusIntentTimestamp: Double?,
+  latestCommandInputTimestamp: Double,
+  nativeFocusChanged: Bool
+) -> Bool {
+  guard let mouseFocusIntentTimestamp,
+    mouseFocusIntentTimestamp > latestCommandInputTimestamp
+  else {
+    return false
+  }
+  return mouseFocusIntentWindowID == focusedWindowID
+    || (mouseFocusIntentWindowID == nil && nativeFocusChanged)
 }
 
 public struct WindowRemovalFocusGuard: Equatable, Sendable {

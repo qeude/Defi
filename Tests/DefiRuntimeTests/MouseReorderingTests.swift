@@ -171,6 +171,7 @@ final class MouseReorderingTests: XCTestCase {
       mouseGestureTiledWindowID(
         translatedWindowID: nil,
         activeWindowID: nil,
+        mouseFocusIntentWindowID: focusedID,
         focusedWindowID: focusedID,
         state: state
       ),
@@ -178,18 +179,39 @@ final class MouseReorderingTests: XCTestCase {
     )
   }
 
-  func testTranslatedWindowReplacesStaleGestureCandidate() throws {
+  func testActiveGestureWindowRejectsUnrelatedTranslatedCandidate() throws {
     let state = try makeState(windowCount: 2)
     let translatedID = WindowID(rawValue: 2)
+    let activeID = WindowID(rawValue: 1)
 
     XCTAssertEqual(
       mouseGestureTiledWindowID(
         translatedWindowID: translatedID,
-        activeWindowID: WindowID(rawValue: 1),
-        focusedWindowID: WindowID(rawValue: 1),
+        activeWindowID: activeID,
+        mouseFocusIntentWindowID: activeID,
+        focusedWindowID: activeID,
         state: state
       ),
-      translatedID
+      activeID
+    )
+  }
+
+  func testReleaseOnlyGestureRecoversPreviousObservedFrame() {
+    let windowID = WindowID(rawValue: 2)
+    let previousFrame = Rect(x: 800, y: 0, width: 784, height: 684)
+    let releasedFrame = Rect(x: 200, y: 0, width: 784, height: 684)
+
+    XCTAssertEqual(
+      resolvedMouseGestureInitialFrame(
+        currentInitialFrame: nil,
+        gestureWindowID: windowID,
+        activeWindowID: nil,
+        translatedWindowID: windowID,
+        leftMouseButtonDown: false,
+        previousObservedFrames: [windowID: previousFrame],
+        actualFrame: releasedFrame
+      ),
+      previousFrame
     )
   }
 
@@ -239,6 +261,7 @@ final class MouseReorderingTests: XCTestCase {
 
     XCTAssertNil(
       mouseTranslatedTiledWindowID(
+        candidateWindowIDs: [windowID],
         externallyChangedFrames: [
           windowID: Rect(
             x: target.x,
@@ -284,6 +307,7 @@ final class MouseReorderingTests: XCTestCase {
 
     XCTAssertEqual(
       mouseTranslatedTiledWindowID(
+        candidateWindowIDs: [windowID],
         externallyChangedFrames: [
           windowID: Rect(
             x: target.x + 100,
@@ -299,6 +323,37 @@ final class MouseReorderingTests: XCTestCase {
     )
   }
 
+  func testTranslationCandidateIgnoresUnrelatedMismatch() throws {
+    let state = try makeState(windowCount: 2)
+    let firstID = WindowID(rawValue: 1)
+    let secondID = WindowID(rawValue: 2)
+    let firstTarget = try targetFrame(for: firstID, state: state)
+    let secondTarget = try targetFrame(for: secondID, state: state)
+
+    XCTAssertEqual(
+      mouseTranslatedTiledWindowID(
+        candidateWindowIDs: [secondID],
+        externallyChangedFrames: [
+          firstID: Rect(
+            x: firstTarget.x + 300,
+            y: firstTarget.y,
+            width: firstTarget.width,
+            height: firstTarget.height
+          ),
+          secondID: Rect(
+            x: secondTarget.x - 300,
+            y: secondTarget.y,
+            width: secondTarget.width,
+            height: secondTarget.height
+          ),
+        ],
+        state: state,
+        viewports: [monitorID: viewport]
+      ),
+      secondID
+    )
+  }
+
   func testTranslationCandidateIgnoresFloatingWindows() throws {
     var state = try makeState(windowCount: 1)
     try reduce(.toggleFloating, on: monitorID, state: &state)
@@ -306,6 +361,7 @@ final class MouseReorderingTests: XCTestCase {
 
     XCTAssertNil(
       mouseTranslatedTiledWindowID(
+        candidateWindowIDs: [windowID],
         externallyChangedFrames: [
           windowID: Rect(x: 200, y: 100, width: 600, height: 500)
         ],

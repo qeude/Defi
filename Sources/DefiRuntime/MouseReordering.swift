@@ -59,10 +59,16 @@ public func restoreWorkspaceScroll(
 public func mouseGestureTiledWindowID(
   translatedWindowID: WindowID?,
   activeWindowID: WindowID?,
+  mouseFocusIntentWindowID: WindowID?,
   focusedWindowID: WindowID?,
   state: RuntimeState
 ) -> WindowID? {
-  for candidate in [translatedWindowID, activeWindowID, focusedWindowID] {
+  for candidate in [
+    activeWindowID,
+    mouseFocusIntentWindowID,
+    translatedWindowID,
+    focusedWindowID,
+  ] {
     guard let candidate,
       state.windows[candidate]?.floating == false,
       let location = state.location(containing: candidate),
@@ -76,18 +82,46 @@ public func mouseGestureTiledWindowID(
   return nil
 }
 
+public func resolvedMouseGestureInitialFrame(
+  currentInitialFrame: Rect?,
+  gestureWindowID: WindowID?,
+  activeWindowID: WindowID?,
+  translatedWindowID: WindowID?,
+  leftMouseButtonDown: Bool,
+  previousObservedFrames: [WindowID: Rect],
+  actualFrame: Rect?
+) -> Rect? {
+  let startsMouseGesture =
+    leftMouseButtonDown
+    && gestureWindowID != activeWindowID
+  let recoversReleaseOnlyGesture =
+    currentInitialFrame == nil
+    && gestureWindowID == translatedWindowID
+  guard startsMouseGesture || recoversReleaseOnlyGesture,
+    let gestureWindowID
+  else {
+    return currentInitialFrame
+  }
+  return previousObservedFrames[gestureWindowID] ?? actualFrame
+}
+
 public func mouseTranslatedTiledWindowID(
+  candidateWindowIDs: [WindowID],
   externallyChangedFrames: [WindowID: Rect],
   state: RuntimeState,
   viewports: [MonitorID: Rect],
   sizeTolerance: Double = 2,
   positionTolerance: Double = 2
 ) -> WindowID? {
-  for monitor in state.monitors {
-    guard let viewport = viewports[monitor.id],
+  for windowID in candidateWindowIDs {
+    guard let location = state.location(containing: windowID),
+      let monitor = state.monitors.first(where: { $0.id == location.monitorID }),
+      location.workspaceID == monitor.activeWorkspace,
+      let viewport = viewports[monitor.id],
       let workspace = monitor.workspaces.first(where: {
-        $0.id == monitor.activeWorkspace
-      })
+        $0.id == location.workspaceID
+      }),
+      workspace.columns.contains(where: { $0.windows.contains(windowID) })
     else {
       continue
     }
@@ -102,20 +136,16 @@ public func mouseTranslatedTiledWindowID(
         settings: state.layout
       ).frames.map { ($0.windowID, $0.frame) }
     )
-    for column in workspace.columns {
-      for windowID in column.windows {
-        guard let actual = externallyChangedFrames[windowID],
-          let target = targets[windowID],
-          abs(actual.width - target.width) <= sizeTolerance,
-          abs(actual.height - target.height) <= sizeTolerance,
-          abs(actual.x - target.x) > positionTolerance
-            || abs(actual.y - target.y) > positionTolerance
-        else {
-          continue
-        }
-        return windowID
-      }
+    guard let actual = externallyChangedFrames[windowID],
+      let target = targets[windowID],
+      abs(actual.width - target.width) <= sizeTolerance,
+      abs(actual.height - target.height) <= sizeTolerance,
+      abs(actual.x - target.x) > positionTolerance
+        || abs(actual.y - target.y) > positionTolerance
+    else {
+      continue
     }
+    return windowID
   }
   return nil
 }

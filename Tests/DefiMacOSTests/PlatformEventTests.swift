@@ -285,7 +285,7 @@ struct PlatformEventTests {
           refreshBorderStacking: true
         )
     )
-    #expect(mouseUp.synchronizeDesktop)
+    #expect(mouseUp.synchronization == .clickRelease)
   }
 
   @Test
@@ -308,10 +308,10 @@ struct PlatformEventTests {
     )
 
     #expect(mouseDown.refreshBorderStacking)
-    #expect(mouseDown.synchronizeDesktop == false)
-    #expect(firstMouseDragged.synchronizeDesktop)
+    #expect(mouseDown.synchronization == nil)
+    #expect(firstMouseDragged.synchronization == .gesture)
     #expect(secondMouseDragged == MouseGestureEventNormalizer.Actions())
-    #expect(firstMouseUp.synchronizeDesktop)
+    #expect(firstMouseUp.synchronization == .gesture)
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
   }
 
