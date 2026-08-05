@@ -140,6 +140,56 @@ struct NativeFocusTests {
   }
 
   @Test
+  func dockClickWaitsForObservedManagedFocusAfterRelease() {
+    let focusedWindowID = WindowID(rawValue: 2)
+    let released = updatedDeferredMouseFocusIntent(
+      current: nil,
+      mouseFocusIntentWindowID: nil,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: WindowID(rawValue: 1),
+      nativeFocusChanged: false,
+      mouseInteractionEnded: true
+    )
+    #expect(released?.mouseInteractionEnded == true)
+    #expect(released?.focusObserved == false)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: released,
+      mouseFocusIntentWindowID: nil,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: focusedWindowID,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false
+    )
+    #expect(observed?.windowID == focusedWindowID)
+    #expect(observed?.focusObserved == true)
+    #expect(
+      mouseReleaseFocusIntentIsCurrent(
+        focusedWindowID: focusedWindowID,
+        mouseFocusIntentWindowID: observed?.windowID,
+        mouseFocusIntentTimestamp: observed?.timestamp,
+        latestCommandInputTimestamp: 11,
+        nativeFocusChanged: observed?.focusObserved == true
+      )
+    )
+  }
+
+  @Test
+  func delayedMouseFocusCannotBypassNewerCommandAfterReleaseMarker() {
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: false,
+        deferredMouseFocusPending: true,
+        deferredMouseFocusReady: true,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
+      ) == false
+    )
+  }
+
+  @Test
   func queuedHotKeyKeepsCapturedInputOrder() {
     #expect(
       resolvedLatestCommandInputTimestamp(

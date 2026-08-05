@@ -109,6 +109,7 @@ final class Daemon: NSObject {
   var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
+  var deferredMouseFocusIntent: DeferredMouseFocusIntent?
   var suppressNativeFocusUntil: TimeInterval = 0
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
@@ -189,8 +190,16 @@ final class Daemon: NSObject {
       needsDesktopSync = true
     }
     tickCount += 1
-    let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
     let liveBorderGesture = platform.isLeftMouseButtonDown
+    let mouseGestureSyncPending =
+      needsDesktopSync
+      && (liveBorderGesture || activelyResizedWindowID != nil)
+    if mouseGestureSyncPending
+      && (!scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites)
+    {
+      cancelAnimationForMouseGesture()
+    }
+    let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
@@ -206,10 +215,14 @@ final class Daemon: NSObject {
       }
       setTimerFrequency(60)
     }
-    if scrollAnimations.isEmpty && !animatedWritesPending
-      && deferredSlowWindowIDs.isEmpty
-      && (needsDesktopSync || tickCount.isMultiple(of: 18))
-    {
+    if desktopSynchronizationIsReady(
+      scrollAnimationActive: !scrollAnimations.isEmpty,
+      animatedWritesPending: animatedWritesPending,
+      slowLanePending: !deferredSlowWindowIDs.isEmpty,
+      mouseGestureSyncPending: mouseGestureSyncPending,
+      needsDesktopSync: needsDesktopSync,
+      periodicSyncDue: tickCount.isMultiple(of: 18)
+    ) {
       needsDesktopSync = false
       synchronizeDesktop()
     }

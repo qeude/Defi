@@ -108,14 +108,15 @@ public func resolvedMouseGestureInitialFrame(
 public func resolvedMouseGestureOriginFrame(
   observedFrame: Rect,
   displayedX: Double?,
-  displayedY: Double?
+  displayedY: Double?,
+  displayedWidth: Double? = nil,
+  displayedHeight: Double? = nil
 ) -> Rect {
-  guard let displayedX, let displayedY else { return observedFrame }
   return Rect(
-    x: displayedX,
-    y: displayedY,
-    width: observedFrame.width,
-    height: observedFrame.height
+    x: displayedX ?? observedFrame.x,
+    y: displayedY ?? observedFrame.y,
+    width: displayedWidth ?? observedFrame.width,
+    height: displayedHeight ?? observedFrame.height
   )
 }
 
@@ -287,6 +288,73 @@ public func reorderTiledWindowAfterMouseDrag(
   state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
   synchronizeScrollOffsets(state: &state, viewports: viewports)
   return true
+}
+
+@discardableResult
+public func reorderTiledWindowAfterCompletedMouseDrag(
+  _ windowID: WindowID,
+  actualFrame: Rect,
+  initialFrame: Rect? = nil,
+  state: inout RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> Bool {
+  let maximumReorders = state.monitors.lazy
+    .flatMap(\.workspaces)
+    .map(\.columns.count)
+    .max() ?? 0
+  var reordered = false
+  for _ in 0..<maximumReorders {
+    let sourceColumnIndex = activeColumnIndex(containing: windowID, state: state)
+    guard reorderTiledWindowAfterMouseDrag(
+      windowID,
+      actualFrame: actualFrame,
+      initialFrame: initialFrame,
+      state: &state,
+      viewports: viewports
+    ) else {
+      break
+    }
+    reordered = true
+    if activeColumnIndex(containing: windowID, state: state) == sourceColumnIndex {
+      break
+    }
+  }
+  return reordered
+}
+
+public func desktopSynchronizationIsReady(
+  scrollAnimationActive: Bool,
+  animatedWritesPending: Bool,
+  slowLanePending: Bool,
+  mouseGestureSyncPending: Bool,
+  needsDesktopSync: Bool,
+  periodicSyncDue: Bool
+) -> Bool {
+  guard !scrollAnimationActive, !slowLanePending,
+    needsDesktopSync || periodicSyncDue
+  else {
+    return false
+  }
+  return !animatedWritesPending || (mouseGestureSyncPending && needsDesktopSync)
+}
+
+private func activeColumnIndex(
+  containing windowID: WindowID,
+  state: RuntimeState
+) -> Int? {
+  for monitor in state.monitors {
+    guard let workspace = monitor.workspaces.first(where: {
+      $0.id == monitor.activeWorkspace
+    }) else {
+      continue
+    }
+    if let index = workspace.columns.firstIndex(where: {
+      $0.windows.contains(windowID)
+    }) {
+      return index
+    }
+  }
+  return nil
 }
 
 private func insertionIndex(coordinate: Double, centers: [Double]) -> Int {

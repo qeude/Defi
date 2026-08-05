@@ -236,6 +236,21 @@ final class MouseReorderingTests: XCTestCase {
     )
   }
 
+  func testMouseGestureOriginUsesDisplayedAnimationSize() {
+    let observedFrame = Rect(x: 0, y: 20, width: 784, height: 684)
+
+    XCTAssertEqual(
+      resolvedMouseGestureOriginFrame(
+        observedFrame: observedFrame,
+        displayedX: 320,
+        displayedY: 40,
+        displayedWidth: 640,
+        displayedHeight: 600
+      ),
+      Rect(x: 320, y: 40, width: 640, height: 600)
+    )
+  }
+
   func testLiveDragCanCrossMultipleColumnsAcrossUpdates() throws {
     var state = try makeState(windowCount: 3)
     let draggedID = WindowID(rawValue: 1)
@@ -272,6 +287,59 @@ final class MouseReorderingTests: XCTestCase {
         [WindowID(rawValue: 3)],
         [WindowID(rawValue: 1)],
       ]
+    )
+  }
+
+  func testReleaseOnlyDragCrossesMultipleColumnsInOneSync() throws {
+    var state = try makeState(windowCount: 4)
+    let draggedID = WindowID(rawValue: 1)
+    let target = try targetFrame(for: draggedID, state: state)
+
+    XCTAssertTrue(
+      reorderTiledWindowAfterCompletedMouseDrag(
+        draggedID,
+        actualFrame: Rect(
+          x: 2_500,
+          y: target.y,
+          width: target.width,
+          height: target.height
+        ),
+        initialFrame: target,
+        state: &state,
+        viewports: [monitorID: viewport]
+      )
+    )
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns.map(\.windows),
+      [
+        [WindowID(rawValue: 2)],
+        [WindowID(rawValue: 3)],
+        [WindowID(rawValue: 4)],
+        [WindowID(rawValue: 1)],
+      ]
+    )
+  }
+
+  func testLiveMouseSyncBypassesPendingReorderAnimation() {
+    XCTAssertTrue(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: false,
+        animatedWritesPending: true,
+        slowLanePending: false,
+        mouseGestureSyncPending: true,
+        needsDesktopSync: true,
+        periodicSyncDue: false
+      )
+    )
+    XCTAssertFalse(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: false,
+        animatedWritesPending: true,
+        slowLanePending: false,
+        mouseGestureSyncPending: false,
+        needsDesktopSync: true,
+        periodicSyncDue: false
+      )
     )
   }
 

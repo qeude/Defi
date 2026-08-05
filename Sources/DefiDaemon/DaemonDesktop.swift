@@ -81,6 +81,16 @@ extension Daemon {
       placementPreferences: placementPreferences,
       state: &state
     )
+    deferredMouseFocusIntent = updatedDeferredMouseFocusIntent(
+      current: deferredMouseFocusIntent,
+      mouseFocusIntentWindowID: snapshot.mouseFocusIntentWindowID.flatMap {
+        state.windows[$0] == nil ? nil : $0
+      },
+      mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
+      focusedWindowID: snapshot.focusedWindowID,
+      nativeFocusChanged: snapshot.nativeFocusChanged,
+      mouseInteractionEnded: mouseInteractionEnded
+    )
     if displayGeometryChanged {
       rebaseFloatingWindowFrames(
         previousViewports: previousViewports,
@@ -158,16 +168,23 @@ extension Daemon {
       )
       let mouseReleaseFocusIntentCurrent = mouseReleaseFocusIntentIsCurrent(
         focusedWindowID: focusedWindowID,
-        mouseFocusIntentWindowID: snapshot.mouseFocusIntentWindowID,
-        mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
+        mouseFocusIntentWindowID: deferredMouseFocusIntent?.windowID,
+        mouseFocusIntentTimestamp: deferredMouseFocusIntent?.timestamp,
         latestCommandInputTimestamp: latestCommandInputTimestamp,
-        nativeFocusChanged: snapshot.nativeFocusChanged
+        nativeFocusChanged: deferredMouseFocusIntent?.focusObserved == true
       )
+      let deferredMouseFocusPending = deferredMouseFocusIntent != nil
+      let deferredMouseFocusReady =
+        deferredMouseFocusIntent?.mouseInteractionEnded == true
+        && (deferredMouseFocusIntent?.focusObserved == true
+          || deferredMouseFocusIntent?.windowID == focusedWindowID)
       let nativeFocusAccepted =
         nativeFocusMutationIsReady(
           nativeFocusChanged: snapshot.nativeFocusChanged,
           mouseInteractionEnded: mouseInteractionEnded,
           leftMouseButtonDown: snapshot.leftMouseButtonDown,
+          deferredMouseFocusPending: deferredMouseFocusPending,
+          deferredMouseFocusReady: deferredMouseFocusReady,
           mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent,
           keyboardFocusIntentCurrent: keyboardFocusIntentCurrent
         )
@@ -201,6 +218,16 @@ extension Daemon {
         }
       } else if nativeFocusAccepted {
         ignoredRedundantNativeFocusCount += 1
+      }
+      if nativeFocusAccepted && deferredMouseFocusReady {
+        deferredMouseFocusIntent = nil
+      } else if deferredMouseFocusPending
+        && snapshot.nativeFocusChanged
+        && !snapshot.leftMouseButtonDown
+        && !keyboardFocusIntentCurrent
+        && !mouseReleaseFocusIntentCurrent
+      {
+        deferredMouseFocusIntent = nil
       }
     }
     if let activeMonitorID,
@@ -275,7 +302,7 @@ extension Daemon {
             from: mouseGestureInitialFrame,
             to: actualFrame
           ),
-          reorderTiledWindowAfterMouseDrag(
+          reorderTiledWindowAfterCompletedMouseDrag(
             gestureWindowID,
             actualFrame: actualFrame,
             initialFrame: mouseGestureInitialFrame,

@@ -132,25 +132,27 @@ extension Daemon {
   }
 
   func cancelAnimationForMouseGesture() {
-    if activelyResizedWindowID != nil && platform.isLeftMouseButtonDown {
-      return
-    }
     guard !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites else {
       return
     }
-    mouseGestureDisplayedOriginFrames = Dictionary(
-      uniqueKeysWithValues: state.windows.map { windowID, window in
-        let displayedPosition = platform.completedPosition(for: windowID)
-        return (
-          windowID,
-          resolvedMouseGestureOriginFrame(
-            observedFrame: window.frame,
-            displayedX: displayedPosition.map { Double($0.x) },
-            displayedY: displayedPosition.map { Double($0.y) }
+    if activelyResizedWindowID == nil {
+      mouseGestureDisplayedOriginFrames = Dictionary(
+        uniqueKeysWithValues: state.windows.map { windowID, window in
+          let displayedPosition = platform.completedPosition(for: windowID)
+          let displayedSize = platform.completedSize(for: windowID)
+          return (
+            windowID,
+            resolvedMouseGestureOriginFrame(
+              observedFrame: window.frame,
+              displayedX: displayedPosition.map { Double($0.x) },
+              displayedY: displayedPosition.map { Double($0.y) },
+              displayedWidth: displayedSize.map { Double($0.width) },
+              displayedHeight: displayedSize.map { Double($0.height) }
+            )
           )
-        )
-      }
-    )
+        }
+      )
+    }
     scrollAnimations.removeAll(keepingCapacity: true)
     pendingAnimatedFocusWindowID = nil
     cancelDeferredSlowLane()

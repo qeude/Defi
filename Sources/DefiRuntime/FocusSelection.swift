@@ -64,16 +64,70 @@ public func nativeFocusMutationIsReady(
   nativeFocusChanged: Bool,
   mouseInteractionEnded: Bool,
   leftMouseButtonDown: Bool,
+  deferredMouseFocusPending: Bool? = nil,
+  deferredMouseFocusReady: Bool? = nil,
   mouseReleaseFocusIntentCurrent: Bool,
   keyboardFocusIntentCurrent: Bool
 ) -> Bool {
   if leftMouseButtonDown {
     return nativeFocusChanged && keyboardFocusIntentCurrent
   }
-  if mouseInteractionEnded {
-    return mouseReleaseFocusIntentCurrent
+  if keyboardFocusIntentCurrent && nativeFocusChanged {
+    return true
+  }
+  if deferredMouseFocusPending ?? mouseInteractionEnded {
+    return (deferredMouseFocusReady ?? mouseInteractionEnded)
+      && mouseReleaseFocusIntentCurrent
   }
   return nativeFocusChanged
+}
+
+public struct DeferredMouseFocusIntent: Equatable, Sendable {
+  public var timestamp: Double
+  public var windowID: WindowID?
+  public var focusObserved: Bool
+  public var mouseInteractionEnded: Bool
+
+  public init(
+    timestamp: Double,
+    windowID: WindowID?,
+    focusObserved: Bool = false,
+    mouseInteractionEnded: Bool = false
+  ) {
+    self.timestamp = timestamp
+    self.windowID = windowID
+    self.focusObserved = focusObserved
+    self.mouseInteractionEnded = mouseInteractionEnded
+  }
+}
+
+public func updatedDeferredMouseFocusIntent(
+  current: DeferredMouseFocusIntent?,
+  mouseFocusIntentWindowID: WindowID?,
+  mouseFocusIntentTimestamp: Double?,
+  focusedWindowID: WindowID?,
+  nativeFocusChanged: Bool,
+  mouseInteractionEnded: Bool
+) -> DeferredMouseFocusIntent? {
+  var intent = current
+  if let timestamp = mouseFocusIntentTimestamp,
+    intent.map({ timestamp > $0.timestamp }) ?? true
+  {
+    intent = DeferredMouseFocusIntent(
+      timestamp: timestamp,
+      windowID: mouseFocusIntentWindowID
+    )
+  }
+  guard var intent else { return nil }
+  if nativeFocusChanged, let focusedWindowID {
+    if intent.windowID == nil {
+      intent.windowID = focusedWindowID
+    }
+    intent.focusObserved = intent.windowID == focusedWindowID
+  }
+  intent.mouseInteractionEnded =
+    intent.mouseInteractionEnded || mouseInteractionEnded
+  return intent
 }
 
 public func mouseReleaseFocusIntentIsCurrent(
