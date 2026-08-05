@@ -36,6 +36,18 @@ final class ModelTests: XCTestCase {
     )
     XCTAssertFalse(Command.focusColumn(.right).activatesWorkspace)
     XCTAssertFalse(Command.cycleWidth(.next).activatesWorkspace)
+    XCTAssertTrue(
+      Command.moveWindowToWorkspace(WorkspaceID(rawValue: "web"))
+        .movesWindowBetweenWorkspaces
+    )
+    XCTAssertTrue(
+      Command.sendWindowToWorkspace(WorkspaceID(rawValue: "web"))
+        .movesWindowBetweenWorkspaces
+    )
+    XCTAssertFalse(
+      Command.switchWorkspace(WorkspaceID(rawValue: "web"))
+        .movesWindowBetweenWorkspaces
+    )
   }
 
   func testParsesSharedCommands() throws {

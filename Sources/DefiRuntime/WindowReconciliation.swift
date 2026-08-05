@@ -60,11 +60,53 @@ public func discoverWindow(
       into: &state.monitors[monitorIndex].workspaces[workspaceIndex],
       settings: state.layout
     )
+    if decision.followFocus {
+      state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
+    }
   }
   if decision.followFocus {
     state.monitors[monitorIndex].activeWorkspace = workspaceID
   }
   state.windows[window.id] = window
+}
+
+@discardableResult
+public func moveFloatingWindow(
+  _ windowID: WindowID,
+  to targetMonitorID: MonitorID,
+  state: inout RuntimeState
+) -> Bool {
+  guard
+    let sourceMonitorIndex = state.monitors.firstIndex(where: { monitor in
+      monitor.workspaces.contains(where: { $0.floatingWindows.contains(windowID) })
+    }),
+    state.monitors[sourceMonitorIndex].id != targetMonitorID,
+    let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(
+      where: { $0.floatingWindows.contains(windowID) }
+    ),
+    let targetMonitorIndex = state.monitors.firstIndex(where: {
+      $0.id == targetMonitorID
+    }),
+    let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(
+      where: { $0.id == state.monitors[targetMonitorIndex].activeWorkspace }
+    )
+  else {
+    return false
+  }
+
+  removeWindow(
+    windowID,
+    from: &state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex],
+    settings: state.layout
+  )
+  state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].floatingWindows.append(
+    windowID
+  )
+  state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].focusedFloatingWindow =
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].floatingWindows.count - 1
+  state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].focusedLayer = .floating
+  state.windows[windowID]?.monitorID = targetMonitorID
+  return true
 }
 
 public func reconcileWindows(

@@ -182,6 +182,55 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.selectedWindowID(on: monitorID), followed.id)
   }
 
+  func testFollowFocusSelectsNewTiledWindowFromFloatingLayer() throws {
+    let tools = WorkspaceID(rawValue: "tools")
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
+    )
+    state.attachMonitor(monitorID)
+    let floater = window(65, floating: true)
+    try discoverWindow(
+      floater,
+      decision: RuleDecision(workspace: tools, followFocus: true),
+      state: &state
+    )
+
+    let followed = window(66)
+    try discoverWindow(
+      followed,
+      decision: RuleDecision(workspace: tools, followFocus: true),
+      state: &state
+    )
+
+    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
+    XCTAssertEqual(state.monitors[0].workspaces[1].focusedLayer, .tiled)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), followed.id)
+  }
+
+  func testDraggedFloaterMovesToTargetMonitorActiveWorkspace() throws {
+    let externalMonitorID = MonitorID(rawValue: 2)
+    let tools = WorkspaceID(rawValue: "tools")
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
+    )
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalMonitorID)
+    state.monitors[1].activeWorkspace = tools
+    let floater = window(67, floating: true)
+    try discoverWindow(floater, decision: RuleDecision(), state: &state)
+
+    XCTAssertTrue(
+      moveFloatingWindow(floater.id, to: externalMonitorID, state: &state)
+    )
+
+    XCTAssertTrue(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
+    XCTAssertEqual(state.monitors[0].workspaces[0].focusedLayer, .tiled)
+    XCTAssertEqual(state.monitors[1].workspaces[1].floatingWindows, [floater.id])
+    XCTAssertEqual(state.monitors[1].workspaces[1].focusedLayer, .floating)
+    XCTAssertEqual(state.selectedWindowID(on: externalMonitorID), floater.id)
+    XCTAssertEqual(state.windows[floater.id]?.monitorID, externalMonitorID)
+  }
+
   private func window(_ rawValue: UInt64, floating: Bool = false) -> Window {
     Window(
       id: WindowID(rawValue: rawValue),

@@ -219,6 +219,15 @@ public enum Command: Equatable, Codable, Sendable {
     }
   }
 
+  public var movesWindowBetweenWorkspaces: Bool {
+    switch self {
+    case .moveWindowToWorkspace, .sendWindowToWorkspace:
+      true
+    default:
+      false
+    }
+  }
+
   public var explicitlyFocusesFloating: Bool {
     switch self {
     case .activateFloating, .focusFloating:

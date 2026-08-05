@@ -74,11 +74,23 @@ extension Daemon {
         previousMonitorIDs: previousFloatingMonitorIDs
       )
     }
-    updateFloatingWindowFrames(
+    let mouseResizeGestureActive =
+      snapshot.leftMouseButtonDown || snapshot.mouseResizeGestureObserved
+    let reassignedFloatingMonitorIDs = updateFloatingWindowFrames(
       from: snapshot.windows,
       externallyChangedFrames: snapshot.externallyChangedFrames,
-      displayGeometryChanged: displayGeometryChanged
+      displayGeometryChanged: displayGeometryChanged,
+      mouseResizeGestureActive: mouseResizeGestureActive
     )
+    let reassignedMonitorID = snapshot.focusedWindowID.flatMap {
+      reassignedFloatingMonitorIDs[$0]
+    } ?? previousSelectedWindowID.flatMap {
+      reassignedFloatingMonitorIDs[$0]
+    }
+    if let reassignedMonitorID {
+      activeMonitorID = reassignedMonitorID
+      nativelyFocusedMonitorID = reassignedMonitorID
+    }
     let newRemovalFocusGuard: WindowRemovalFocusGuard?
     if displayGeometryChanged {
       newRemovalFocusGuard = nil
@@ -154,8 +166,6 @@ extension Daemon {
       ?? snapshot.focusedWindowID.flatMap { state.monitorID(containing: $0) }
       ?? state.monitors.first?.id
 
-    let mouseResizeGestureActive =
-      snapshot.leftMouseButtonDown || snapshot.mouseResizeGestureObserved
     if !displayGeometryChanged && mouseResizeGestureActive {
       if !snapshot.leftMouseButtonDown {
         activelyResizedWindowID = nil
@@ -451,8 +461,10 @@ extension Daemon {
   private func updateFloatingWindowFrames(
     from windows: [Window],
     externallyChangedFrames: [WindowID: Rect],
-    displayGeometryChanged: Bool
-  ) {
+    displayGeometryChanged: Bool,
+    mouseResizeGestureActive: Bool
+  ) -> [WindowID: MonitorID] {
+    var reassignedMonitorIDs: [WindowID: MonitorID] = [:]
     let trackedFloatingIDs = Set(
       state.monitors.flatMap(\.workspaces).flatMap(\.floatingWindows)
     )
@@ -460,6 +472,14 @@ extension Daemon {
       trackedFloatingIDs.contains($0.key)
     }
     for window in windows where trackedFloatingIDs.contains(window.id) {
+      if !displayGeometryChanged,
+        mouseResizeGestureActive,
+        !platform.isWindowHidden(window.id),
+        let targetMonitorID = window.monitorID,
+        moveFloatingWindow(window.id, to: targetMonitorID, state: &state)
+      {
+        reassignedMonitorIDs[window.id] = targetMonitorID
+      }
       if displayGeometryChanged {
         if floatingWindowFrames[window.id] == nil,
           let monitorID = state.monitorID(containing: window.id),
@@ -488,6 +508,7 @@ extension Daemon {
       }
       floatingWindowFrames[window.id] = window.frame
     }
+    return reassignedMonitorIDs
   }
 
   private func rebaseFloatingWindowFrames(
@@ -519,7 +540,7 @@ extension Daemon {
     }
   }
 
-  func refreshFloatingWindowFramesBeforeWorkspaceSwitch() {
+  func refreshFloatingWindowFramesBeforeWorkspaceMutation() {
     guard
       let monitorID = activeMonitorID ?? state.monitors.first?.id,
       let monitor = state.monitors.first(where: { $0.id == monitorID }),
