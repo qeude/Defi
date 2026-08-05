@@ -286,6 +286,8 @@ struct PlatformEventTests {
         )
     )
     #expect(mouseUp.synchronization == .clickRelease)
+    #expect(platformEventCancelsMouseAnimation(.mouseRelease) == false)
+    #expect(platformEventCancelsMouseAnimation(.mouse))
   }
 
   @Test

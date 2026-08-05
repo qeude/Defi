@@ -215,6 +215,27 @@ final class MouseReorderingTests: XCTestCase {
     )
   }
 
+  func testMouseGestureOriginUsesDisplayedAnimationPosition() {
+    let observedFrame = Rect(x: 0, y: 20, width: 784, height: 684)
+
+    XCTAssertEqual(
+      resolvedMouseGestureOriginFrame(
+        observedFrame: observedFrame,
+        displayedX: 320,
+        displayedY: 40
+      ),
+      Rect(x: 320, y: 40, width: 784, height: 684)
+    )
+    XCTAssertEqual(
+      resolvedMouseGestureOriginFrame(
+        observedFrame: observedFrame,
+        displayedX: nil,
+        displayedY: nil
+      ),
+      observedFrame
+    )
+  }
+
   func testLiveDragCanCrossMultipleColumnsAcrossUpdates() throws {
     var state = try makeState(windowCount: 3)
     let draggedID = WindowID(rawValue: 1)

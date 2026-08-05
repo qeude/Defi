@@ -105,6 +105,20 @@ public func resolvedMouseGestureInitialFrame(
   return previousObservedFrames[gestureWindowID] ?? actualFrame
 }
 
+public func resolvedMouseGestureOriginFrame(
+  observedFrame: Rect,
+  displayedX: Double?,
+  displayedY: Double?
+) -> Rect {
+  guard let displayedX, let displayedY else { return observedFrame }
+  return Rect(
+    x: displayedX,
+    y: displayedY,
+    width: observedFrame.width,
+    height: observedFrame.height
+  )
+}
+
 public func mouseTranslatedTiledWindowID(
   candidateWindowIDs: [WindowID],
   externallyChangedFrames: [WindowID: Rect],

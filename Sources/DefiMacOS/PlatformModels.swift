@@ -64,6 +64,7 @@ public struct DesktopSnapshot: Sendable {
   public let mouseFocusReleaseObserved: Bool
   public let mouseFocusIntentWindowID: WindowID?
   public let mouseFocusIntentTimestamp: TimeInterval?
+  public let keyboardFocusIntentTimestamp: TimeInterval?
   public let targetMismatchCount: Int
   public let targetMismatches: [FrameMismatch]
 
@@ -81,6 +82,7 @@ public struct DesktopSnapshot: Sendable {
     mouseFocusReleaseObserved: Bool = false,
     mouseFocusIntentWindowID: WindowID? = nil,
     mouseFocusIntentTimestamp: TimeInterval? = nil,
+    keyboardFocusIntentTimestamp: TimeInterval? = nil,
     targetMismatchCount: Int = 0,
     targetMismatches: [FrameMismatch] = []
   ) {
@@ -97,6 +99,7 @@ public struct DesktopSnapshot: Sendable {
     self.mouseFocusReleaseObserved = mouseFocusReleaseObserved
     self.mouseFocusIntentWindowID = mouseFocusIntentWindowID
     self.mouseFocusIntentTimestamp = mouseFocusIntentTimestamp
+    self.keyboardFocusIntentTimestamp = keyboardFocusIntentTimestamp
     self.targetMismatchCount = targetMismatchCount
     self.targetMismatches = targetMismatches
   }

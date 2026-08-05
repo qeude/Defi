@@ -18,6 +18,11 @@ extension Daemon {
   func synchronizeDesktop() {
     let snapshot = platform.snapshot(config: config)
     let previousObservedWindowFrames = state.windows.mapValues(\.frame)
+    let previousMouseGestureWindowFrames = previousObservedWindowFrames.merging(
+      mouseGestureDisplayedOriginFrames
+    ) { _, displayedFrame in
+      displayedFrame
+    }
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
     if tracesWindowCreation {
       platform.recordPerformanceTrace("sync-snapshot-return")
@@ -58,6 +63,7 @@ extension Daemon {
       pendingWindowRemovalFocusGuard = nil
       cancelDeferredSlowLane()
       persistentWidthDriftCounts.removeAll(keepingCapacity: true)
+      mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
     }
     latestMonitors = snapshot.monitors
     targetMismatchCount = displayGeometryChanged ? 0 : snapshot.targetMismatchCount
@@ -146,6 +152,10 @@ extension Daemon {
       }
     }
     if let focusedWindowID = snapshot.focusedWindowID {
+      let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
+        keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
+        latestCommandInputTimestamp: latestCommandInputTimestamp
+      )
       let mouseReleaseFocusIntentCurrent = mouseReleaseFocusIntentIsCurrent(
         focusedWindowID: focusedWindowID,
         mouseFocusIntentWindowID: snapshot.mouseFocusIntentWindowID,
@@ -158,23 +168,26 @@ extension Daemon {
           nativeFocusChanged: snapshot.nativeFocusChanged,
           mouseInteractionEnded: mouseInteractionEnded,
           leftMouseButtonDown: snapshot.leftMouseButtonDown,
-          mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent
+          mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent,
+          keyboardFocusIntentCurrent: keyboardFocusIntentCurrent
         )
         && !preservesWorkspaceAfterRemoval
-        && ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil
+        && (keyboardFocusIntentCurrent
+          || ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil)
       let selectionChanged = nativeFocusChangesSelection(
         focusedWindowID,
         activeMonitorID: activeMonitorID,
         state: state
       )
       if snapshot.leftMouseButtonDown && snapshot.nativeFocusChanged
-        && selectionChanged
+        && selectionChanged && !nativeFocusAccepted
       {
         platform.recordPerformanceTrace(
           "mouse-focus-deferred window=\(focusedWindowID.rawValue)"
         )
       }
-      if !preservesWorkspaceAfterRemoval && !snapshot.leftMouseButtonDown
+      if !preservesWorkspaceAfterRemoval
+        && (!snapshot.leftMouseButtonDown || nativeFocusAccepted)
         && (activeMonitorID == nil || (nativeFocusAccepted && selectionChanged))
       {
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
@@ -229,7 +242,7 @@ extension Daemon {
         activeWindowID: activelyResizedWindowID,
         translatedWindowID: translatedWindowID,
         leftMouseButtonDown: snapshot.leftMouseButtonDown,
-        previousObservedFrames: previousObservedWindowFrames,
+        previousObservedFrames: previousMouseGestureWindowFrames,
         actualFrame: actualFrame
       )
       if snapshot.leftMouseButtonDown {
@@ -277,6 +290,7 @@ extension Daemon {
         }
         activelyResizedWindowID = nil
         mouseGestureInitialFrame = nil
+        mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
       }
       if !mouseReordered,
         let gestureWindowID,
@@ -294,6 +308,7 @@ extension Daemon {
     } else {
       activelyResizedWindowID = nil
       mouseGestureInitialFrame = nil
+      mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
       learnPersistentWidthConstraints(targetMismatches)
     }
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)

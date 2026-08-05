@@ -50,7 +50,8 @@ struct NativeFocusTests {
         nativeFocusChanged: true,
         mouseInteractionEnded: false,
         leftMouseButtonDown: true,
-        mouseReleaseFocusIntentCurrent: false
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
       ) == false
     )
     #expect(
@@ -58,7 +59,8 @@ struct NativeFocusTests {
         nativeFocusChanged: false,
         mouseInteractionEnded: true,
         leftMouseButtonDown: false,
-        mouseReleaseFocusIntentCurrent: true
+        mouseReleaseFocusIntentCurrent: true,
+        keyboardFocusIntentCurrent: false
       )
     )
   }
@@ -70,7 +72,33 @@ struct NativeFocusTests {
         nativeFocusChanged: true,
         mouseInteractionEnded: false,
         leftMouseButtonDown: false,
-        mouseReleaseFocusIntentCurrent: false
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
+      )
+    )
+  }
+
+  @Test
+  func keyboardFocusMutatesWhileMouseIsHeld() {
+    #expect(
+      keyboardFocusIntentIsCurrent(
+        keyboardFocusIntentTimestamp: 12,
+        latestCommandInputTimestamp: 11
+      )
+    )
+    #expect(
+      keyboardFocusIntentIsCurrent(
+        keyboardFocusIntentTimestamp: 10,
+        latestCommandInputTimestamp: 11
+      ) == false
+    )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: true,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: true
       )
     )
   }
@@ -92,7 +120,8 @@ struct NativeFocusTests {
         nativeFocusChanged: true,
         mouseInteractionEnded: true,
         leftMouseButtonDown: false,
-        mouseReleaseFocusIntentCurrent: false
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
       ) == false
     )
   }

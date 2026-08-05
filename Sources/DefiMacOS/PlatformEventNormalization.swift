@@ -14,6 +14,10 @@ enum PlatformEventKind: Equatable {
   case screens
 }
 
+func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
+  kind == .mouse
+}
+
 enum WindowSnapshotInvalidation: Equatable {
   case none
   case process(pid_t)

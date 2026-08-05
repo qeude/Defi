@@ -138,6 +138,19 @@ extension Daemon {
     guard !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites else {
       return
     }
+    mouseGestureDisplayedOriginFrames = Dictionary(
+      uniqueKeysWithValues: state.windows.map { windowID, window in
+        let displayedPosition = platform.completedPosition(for: windowID)
+        return (
+          windowID,
+          resolvedMouseGestureOriginFrame(
+            observedFrame: window.frame,
+            displayedX: displayedPosition.map { Double($0.x) },
+            displayedY: displayedPosition.map { Double($0.y) }
+          )
+        )
+      }
+    )
     scrollAnimations.removeAll(keepingCapacity: true)
     pendingAnimatedFocusWindowID = nil
     cancelDeferredSlowLane()

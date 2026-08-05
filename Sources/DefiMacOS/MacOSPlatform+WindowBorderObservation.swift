@@ -72,7 +72,7 @@ extension MacOSPlatform {
         if kind == .screens {
           displayConfigurationHandler()
         }
-        if kind == .mouse || kind == .mouseRelease {
+        if platformEventCancelsMouseAnimation(kind) {
           mouseGestureHandler()
         }
         handler()

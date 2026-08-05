@@ -318,14 +318,23 @@ extension MacOSPlatform {
     let userInput = userInputTracker.snapshot
     let mouseFocusIntentWindowID: WindowID?
     let mouseFocusIntentTimestamp: TimeInterval?
+    let keyboardFocusIntentTimestamp: TimeInterval?
     if let focusIntent = userInput.latestFocusIntent,
       case .mouse(let windowID) = focusIntent.source
     {
       mouseFocusIntentWindowID = windowID
       mouseFocusIntentTimestamp = focusIntent.timestamp
+      keyboardFocusIntentTimestamp = nil
+    } else if let focusIntent = userInput.latestFocusIntent,
+      case .keyboard = focusIntent.source
+    {
+      mouseFocusIntentWindowID = nil
+      mouseFocusIntentTimestamp = nil
+      keyboardFocusIntentTimestamp = focusIntent.timestamp
     } else {
       mouseFocusIntentWindowID = nil
       mouseFocusIntentTimestamp = nil
+      keyboardFocusIntentTimestamp = nil
     }
     return DesktopSnapshot(
       monitors: monitors,
@@ -347,6 +356,7 @@ extension MacOSPlatform {
       mouseFocusReleaseObserved: mouseFocusReleaseObserved,
       mouseFocusIntentWindowID: mouseFocusIntentWindowID,
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
+      keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
       targetMismatchCount: targetMismatches.count,
       targetMismatches: targetMismatches
     )

@@ -64,9 +64,12 @@ public func nativeFocusMutationIsReady(
   nativeFocusChanged: Bool,
   mouseInteractionEnded: Bool,
   leftMouseButtonDown: Bool,
-  mouseReleaseFocusIntentCurrent: Bool
+  mouseReleaseFocusIntentCurrent: Bool,
+  keyboardFocusIntentCurrent: Bool
 ) -> Bool {
-  guard !leftMouseButtonDown else { return false }
+  if leftMouseButtonDown {
+    return nativeFocusChanged && keyboardFocusIntentCurrent
+  }
   if mouseInteractionEnded {
     return mouseReleaseFocusIntentCurrent
   }
@@ -87,6 +90,14 @@ public func mouseReleaseFocusIntentIsCurrent(
   }
   return mouseFocusIntentWindowID == focusedWindowID
     || (mouseFocusIntentWindowID == nil && nativeFocusChanged)
+}
+
+public func keyboardFocusIntentIsCurrent(
+  keyboardFocusIntentTimestamp: Double?,
+  latestCommandInputTimestamp: Double
+) -> Bool {
+  guard let keyboardFocusIntentTimestamp else { return false }
+  return keyboardFocusIntentTimestamp > latestCommandInputTimestamp
 }
 
 public func resolvedLatestCommandInputTimestamp(
