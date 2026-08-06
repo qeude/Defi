@@ -153,11 +153,14 @@ extension MacOSPlatform {
     else {
       return
     }
-    let frontmostWindowID = copyFrontmostNormalWindowID()
-    frontmostNormalWindowID = frontmostWindowID
+    let stacking = copyWindowBorderStacking(
+      targetWindowID: request.windowID,
+      monitorFrames: lastMonitorFrames
+    )
+    windowBorderStacking = stacking
     borderManager.updateActiveStacking(
       for: request.windowID,
-      isFrontmost: frontmostWindowID == request.windowID
+      stacking: stacking
     )
   }
 
@@ -187,14 +190,18 @@ extension MacOSPlatform {
 
   public func prepareWindowBorderSelection(_ selectedWindowID: WindowID?) {
     desiredSelectedWindowID = selectedWindowID
-    frontmostNormalWindowID = copyFrontmostNormalWindowID()
+    let stacking = copyWindowBorderStacking(
+      targetWindowID: selectedWindowID,
+      monitorFrames: lastMonitorFrames
+    )
+    windowBorderStacking = stacking
     let selectedFrame = selectedWindowID.flatMap { windowID in
       resolvedBorderFrame(for: windowID)
     }
     borderManager.prepareForSelection(
       selectedWindowID,
       displayedFrame: selectedFrame,
-      activeWindowIsFrontmost: selectedWindowID == frontmostNormalWindowID
+      stacking: stacking
     )
     let freshFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
@@ -261,7 +268,7 @@ extension MacOSPlatform {
     borderManager.sync(
       plan,
       displayedFrames: displayedFrames,
-      activeWindowIsFrontmost: plan.active?.windowID == frontmostNormalWindowID
+      stacking: resolvedWindowBorderStacking(for: plan.active?.windowID)
     )
     let finalDisplayedFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
@@ -281,6 +288,20 @@ extension MacOSPlatform {
       frames: finalDisplayedFrames,
       style: borderStyle
     )
+  }
+
+  private func resolvedWindowBorderStacking(
+    for targetWindowID: WindowID?
+  ) -> WindowBorderStacking {
+    if windowBorderStacking.targetWindowID == targetWindowID {
+      return windowBorderStacking
+    }
+    let stacking = copyWindowBorderStacking(
+      targetWindowID: targetWindowID,
+      monitorFrames: lastMonitorFrames
+    )
+    windowBorderStacking = stacking
+    return stacking
   }
 
   private func refreshWindowBorderGeometry(for element: AXUIElement) {

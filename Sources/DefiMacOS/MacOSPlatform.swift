@@ -56,7 +56,7 @@ public final class MacOSPlatform {
   var lastNativeFocusedWindowID: WindowID?
   var borderHiddenWindowIDs = Set<WindowID>()
   var borderLiveWindowID: WindowID?
-  var frontmostNormalWindowID: WindowID?
+  var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
   var borderStackingRefreshState = WindowBorderStackingRefreshState()
   var borderStackingRefreshTask: Task<Void, Never>?
   var borderStyle = WindowBorderStyle(

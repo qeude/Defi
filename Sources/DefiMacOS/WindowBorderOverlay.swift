@@ -111,6 +111,10 @@ final class BorderOverlay {
     segments.values.map(\.windowLevelRawValue)
   }
 
+  var upperBoundWindowNumbers: [Int?] {
+    segments.values.map(\.upperBoundWindowNumber)
+  }
+
   init(windowID: WindowID) {
     let targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(
@@ -224,9 +228,9 @@ final class BorderOverlay {
     }
   }
 
-  func setFrontmost(_ frontmost: Bool) {
+  func setStacking(_ stacking: WindowBorderStacking) {
     for segment in segments.values {
-      segment.setFrontmost(frontmost)
+      segment.setStacking(stacking)
     }
   }
 
@@ -277,6 +281,7 @@ private final class BorderSegment {
   private(set) var frame: Rect?
   private var backingScale = 1.0
   private var orderedIn = false
+  private(set) var upperBoundWindowNumber: Int?
 
   var windowNumber: Int { panel.windowNumber }
   var windowLevelRawValue: Int { panel.level.rawValue }
@@ -409,16 +414,25 @@ private final class BorderSegment {
   func ensureOrderedIn() {
     guard !orderedIn else { return }
     panel.alphaValue = 0
-    panel.order(.above, relativeTo: targetWindowNumber)
+    orderForCurrentStacking()
     orderedIn = true
   }
 
-  func setFrontmost(_ frontmost: Bool) {
-    let level: NSWindow.Level = frontmost ? .floating : .normal
-    guard panel.level != level else { return }
+  func setStacking(_ stacking: WindowBorderStacking) {
+    let level = resolvedBorderWindowLevel(for: stacking)
+    let upperBoundWindowNumber = stacking.upperBoundWindowID.flatMap {
+      Int(exactly: $0.rawValue)
+    }
+    guard
+      panel.level != level
+        || self.upperBoundWindowNumber != upperBoundWindowNumber
+    else {
+      return
+    }
     panel.level = level
-    if frontmost == false, orderedIn {
-      panel.order(.above, relativeTo: targetWindowNumber)
+    self.upperBoundWindowNumber = upperBoundWindowNumber
+    if orderedIn {
+      orderForCurrentStacking()
     }
   }
 
@@ -427,7 +441,7 @@ private final class BorderSegment {
     panel.setFrame(appKitRect(for: frame), display: false)
     ensureOrderedIn()
     panel.alphaValue = 1
-    panel.order(.above, relativeTo: targetWindowNumber)
+    orderForCurrentStacking()
   }
 
   func compactBacking() {
@@ -448,6 +462,14 @@ private final class BorderSegment {
     frame = nil
     backingScale = 1
     orderedIn = false
+  }
+
+  private func orderForCurrentStacking() {
+    if let upperBoundWindowNumber {
+      panel.order(.below, relativeTo: upperBoundWindowNumber)
+    } else {
+      panel.order(.above, relativeTo: targetWindowNumber)
+    }
   }
 
   private func appKitRect(for frame: Rect) -> CGRect {
@@ -471,4 +493,16 @@ private final class BorderSegment {
       $0.frame.contains(appKitCenter)
     }?.backingScaleFactor ?? 1
   }
+}
+
+private func resolvedBorderWindowLevel(
+  for stacking: WindowBorderStacking
+) -> NSWindow.Level {
+  guard stacking.activeWindowIsFrontmost else { return .normal }
+  return NSWindow.Level(
+    rawValue: min(
+      stacking.upperBoundLevel ?? NSWindow.Level.floating.rawValue,
+      NSWindow.Level.floating.rawValue
+    )
+  )
 }
