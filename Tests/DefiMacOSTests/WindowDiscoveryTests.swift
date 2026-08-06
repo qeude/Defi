@@ -8,21 +8,30 @@ final class WindowDiscoveryTests: XCTestCase {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
-  func testFrontmostApplicationWinsTransientAccessibilityDisagreement() {
-    XCTAssertEqual(
-      authoritativeFocusedProcessID(
+  func testTransientProcessDisagreementDefersFocusResolution() {
+    XCTAssertNil(
+      consistentFocusedProcessID(
         accessibilityProcessID: 42,
         frontmostProcessID: 7
-      ),
-      7
+      )
     )
   }
 
   func testAccessibilityProcessIsFallbackWithoutFrontmostApplication() {
     XCTAssertEqual(
-      authoritativeFocusedProcessID(
+      consistentFocusedProcessID(
         accessibilityProcessID: 42,
         frontmostProcessID: nil
+      ),
+      42
+    )
+  }
+
+  func testMatchingFrontmostAndAccessibilityProcessesResolveFocus() {
+    XCTAssertEqual(
+      consistentFocusedProcessID(
+        accessibilityProcessID: 42,
+        frontmostProcessID: 42
       ),
       42
     )

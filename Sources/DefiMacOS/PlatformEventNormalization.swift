@@ -278,8 +278,8 @@ func nativeFocusEventMatchesTarget(
   focusedProcessID: pid_t?
 ) -> Bool {
   guard eventPending else { return false }
-  if hasUnknownEventProcess { return true }
   guard let focusedProcessID else { return false }
+  if hasUnknownEventProcess { return true }
   return eventProcessIDs.contains(focusedProcessID)
 }
 

@@ -174,6 +174,14 @@ struct PlatformEventTests {
         eventPending: true,
         eventProcessIDs: [],
         hasUnknownEventProcess: true,
+        focusedProcessID: nil
+      ) == false
+    )
+    #expect(
+      nativeFocusEventMatchesTarget(
+        eventPending: true,
+        eventProcessIDs: [],
+        hasUnknownEventProcess: true,
         focusedProcessID: 7
       )
     )

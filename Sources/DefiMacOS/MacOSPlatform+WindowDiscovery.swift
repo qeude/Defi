@@ -180,12 +180,12 @@ extension MacOSPlatform {
     else {
       return stableWindowID(processID: frontmostProcessID, in: windows)
     }
-    let authoritativeProcessID = authoritativeFocusedProcessID(
+    let resolvedProcessID = consistentFocusedProcessID(
       accessibilityProcessID: focusedProcessID,
       frontmostProcessID: frontmostProcessID
     )
-    guard authoritativeProcessID == focusedProcessID else {
-      return stableWindowID(processID: authoritativeProcessID, in: windows)
+    guard resolvedProcessID == focusedProcessID else {
+      return nil
     }
     var focusedWindow: CFTypeRef?
     guard
@@ -209,7 +209,7 @@ extension MacOSPlatform {
       processID: focusedProcessID,
       focusedFrame: focusedFrame,
       windows: windows
-    ) ?? stableWindowID(processID: focusedProcessID, in: windows)
+    )
   }
 
   func stableWindowID(
@@ -265,11 +265,17 @@ extension MacOSPlatform {
   }
 }
 
-func authoritativeFocusedProcessID(
+func consistentFocusedProcessID(
   accessibilityProcessID: pid_t?,
   frontmostProcessID: pid_t?
 ) -> pid_t? {
-  frontmostProcessID ?? accessibilityProcessID
+  if let accessibilityProcessID,
+    let frontmostProcessID,
+    accessibilityProcessID != frontmostProcessID
+  {
+    return nil
+  }
+  return accessibilityProcessID ?? frontmostProcessID
 }
 
 func focusedWindowIDMatchingFrame(
