@@ -46,7 +46,8 @@ extension MacOSPlatform {
     let cgWindows = copyCGWindows()
     windowBorderStacking = copyWindowBorderStacking(
       targetWindowID: borderManager.activeWindowID,
-      monitorFrames: lastMonitorFrames
+      monitorFrames: lastMonitorFrames,
+      knownWindowIDs: Set(elements.keys)
     )
     let previousElements = elements
     let previousProcessIDs = processIDs

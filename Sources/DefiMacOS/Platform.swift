@@ -87,7 +87,8 @@ func framesByWindowID(
 
 func copyWindowBorderStacking(
   targetWindowID: WindowID?,
-  monitorFrames: [Rect]
+  monitorFrames: [Rect],
+  knownWindowIDs: Set<WindowID>
 ) -> WindowBorderStacking {
   guard
     let info = CGWindowListCopyWindowInfo(
@@ -125,7 +126,8 @@ func copyWindowBorderStacking(
     ownProcessID: ownProcessID,
     floatingLevel: NSWindow.Level.floating.rawValue,
     entries: entries,
-    monitorFrames: monitorFrames
+    monitorFrames: monitorFrames,
+    knownWindowIDs: knownWindowIDs
   )
 }
 

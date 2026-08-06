@@ -155,7 +155,8 @@ extension MacOSPlatform {
     }
     let stacking = copyWindowBorderStacking(
       targetWindowID: request.windowID,
-      monitorFrames: lastMonitorFrames
+      monitorFrames: lastMonitorFrames,
+      knownWindowIDs: Set(elements.keys)
     )
     windowBorderStacking = stacking
     borderManager.updateActiveStacking(
@@ -192,7 +193,8 @@ extension MacOSPlatform {
     desiredSelectedWindowID = selectedWindowID
     let stacking = copyWindowBorderStacking(
       targetWindowID: selectedWindowID,
-      monitorFrames: lastMonitorFrames
+      monitorFrames: lastMonitorFrames,
+      knownWindowIDs: Set(elements.keys)
     )
     windowBorderStacking = stacking
     let selectedFrame = selectedWindowID.flatMap { windowID in
@@ -298,7 +300,8 @@ extension MacOSPlatform {
     }
     let stacking = copyWindowBorderStacking(
       targetWindowID: targetWindowID,
-      monitorFrames: lastMonitorFrames
+      monitorFrames: lastMonitorFrames,
+      knownWindowIDs: Set(elements.keys)
     )
     windowBorderStacking = stacking
     return stacking

@@ -403,7 +403,8 @@ func windowBorderStacking(
   ownProcessID: pid_t,
   floatingLevel: Int,
   entries: [WindowStackEntry],
-  monitorFrames: [Rect] = []
+  monitorFrames: [Rect] = [],
+  knownWindowIDs: Set<WindowID> = []
 ) -> WindowBorderStacking {
   let externalEntries = entries.filter { $0.processID != ownProcessID }
   let targetMonitorFrames: [Rect]
@@ -425,12 +426,14 @@ func windowBorderStacking(
   let targetProcessID = relevantEntries.first(where: {
     $0.windowID == targetWindowID
   })?.processID
-  // Same-process normal-level helpers belong to the selected app's window group.
-  // Treating them as an occluder demotes the border during mouse-down and makes it blink.
+  // Untracked same-process helpers can appear during mouse-down. Known windows remain
+  // occluders so a selected window's border cannot cover its app's dialogs.
   let frontmostNormalWindowID = relevantEntries.first { entry in
     entry.layer == NSWindow.Level.normal.rawValue
       && entry.frame.width * entry.frame.height >= minimumBorderOccludingWindowArea
-      && (entry.windowID == targetWindowID || entry.processID != targetProcessID)
+      && (entry.windowID == targetWindowID
+        || entry.processID != targetProcessID
+        || knownWindowIDs.contains(entry.windowID))
   }?.windowID
   guard let targetWindowID,
     frontmostNormalWindowID == targetWindowID,

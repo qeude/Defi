@@ -652,7 +652,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func sameProcessAuxiliaryWindowCannotDemotePictureInPictureBorder() {
+  func untrackedSameProcessAuxiliaryCannotDemotePictureInPictureBorder() {
     let pictureInPicture = WindowID(rawValue: 1)
     let auxiliaryWindow = WindowID(rawValue: 2)
     let focusedWindow = WindowID(rawValue: 3)
@@ -688,6 +688,38 @@ struct PlatformEventTests {
     #expect(result.activeWindowIsFrontmost)
     #expect(result.upperBoundWindowID == pictureInPicture)
     #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
+  }
+
+  @Test
+  func trackedSameProcessDialogStaysAboveSelectedWindowBorder() {
+    let dialog = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: dialog,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 900, y: 400, width: 640, height: 480)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
+        ),
+      ],
+      monitorFrames: [monitor],
+      knownWindowIDs: [dialog, focusedWindow]
+    )
+
+    #expect(result.activeWindowIsFrontmost == false)
+    #expect(result.upperBoundWindowID == nil)
   }
 
   @Test
