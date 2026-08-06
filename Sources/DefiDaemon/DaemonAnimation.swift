@@ -168,11 +168,18 @@ extension Daemon {
   func beginMouseGesture() {
     mouseGestureGeneration &+= 1
     mouseGestureSettlement = nil
+    mouseGesturePreempted = false
     mouseReorderAnimationActive = false
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
     mouseGestureScrollAnchor = nil
     mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
+  }
+
+  func preemptMouseGesture() {
+    mouseGestureGeneration &+= 1
+    mouseGesturePreempted = true
+    finishMouseGestureTracking()
   }
 
   func finishMouseGestureTracking(

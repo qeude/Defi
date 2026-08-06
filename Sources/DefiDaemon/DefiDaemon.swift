@@ -101,6 +101,7 @@ final class Daemon: NSObject {
   var mouseGestureDisplayedOriginFrames: [WindowID: Rect] = [:]
   var mouseGestureGeneration: UInt64 = 0
   var mouseGestureSettlement: MouseGestureSettlement?
+  var mouseGesturePreempted = false
   var mouseReorderAnimationActive = false
   var persistentWidthDriftCounts: [WindowID: Int] = [:]
   var floatingWindowFrames: [WindowID: Rect] = [:]

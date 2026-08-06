@@ -75,6 +75,15 @@ public func mouseGestureSettlementMaximumDuration(
   latencySensitive ? 0.8 : 0.25
 }
 
+public func mouseGestureWidthLearningFrame(
+  externallyChangedFrame: Rect?,
+  actualFrame: Rect?,
+  postReleaseSettlementActive: Bool
+) -> Rect? {
+  externallyChangedFrame
+    ?? (postReleaseSettlementActive ? actualFrame : nil)
+}
+
 public func advanceMouseGestureSettlement(
   _ current: MouseGestureSettlement,
   actualFrame: Rect,

@@ -518,6 +518,35 @@ final class MouseReorderingTests: XCTestCase {
     XCTAssertEqual(mouseGestureSettlementMaximumDuration(latencySensitive: true), 0.8)
   }
 
+  func testPostReleaseSettlementUsesLateFrameForWidthLearning() {
+    let external = Rect(x: 0, y: 0, width: 600, height: 700)
+    let late = Rect(x: 0, y: 0, width: 800, height: 700)
+
+    XCTAssertEqual(
+      mouseGestureWidthLearningFrame(
+        externallyChangedFrame: external,
+        actualFrame: late,
+        postReleaseSettlementActive: true
+      ),
+      external
+    )
+    XCTAssertEqual(
+      mouseGestureWidthLearningFrame(
+        externallyChangedFrame: nil,
+        actualFrame: late,
+        postReleaseSettlementActive: true
+      ),
+      late
+    )
+    XCTAssertNil(
+      mouseGestureWidthLearningFrame(
+        externallyChangedFrame: nil,
+        actualFrame: late,
+        postReleaseSettlementActive: false
+      )
+    )
+  }
+
   func testResizeIsNotClassifiedAsTranslation() throws {
     let state = try makeState(windowCount: 1)
     let windowID = WindowID(rawValue: 1)

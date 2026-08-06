@@ -102,9 +102,10 @@ extension Daemon {
     }
     let postReleaseMouseGestureActive = mouseGestureSettlement != nil
     let mouseResizeGestureActive =
-      snapshot.leftMouseButtonDown
-      || snapshot.mouseResizeGestureObserved
-      || postReleaseMouseGestureActive
+      !mouseGesturePreempted
+      && (snapshot.leftMouseButtonDown
+        || snapshot.mouseResizeGestureObserved
+        || postReleaseMouseGestureActive)
     let reassignedFloatingMonitorIDs = updateFloatingWindowFrames(
       from: snapshot.windows,
       externallyChangedFrames: snapshot.externallyChangedFrames,
@@ -366,13 +367,17 @@ extension Daemon {
       }
       if !mouseReordered,
         let gestureWindowID,
-        let externallyChangedFrame = snapshot.externallyChangedFrames[
-          gestureWindowID
-        ]
+        let widthLearningFrame = mouseGestureWidthLearningFrame(
+          externallyChangedFrame: snapshot.externallyChangedFrames[
+            gestureWindowID
+          ],
+          actualFrame: actualFrame,
+          postReleaseSettlementActive: postReleaseMouseGestureActive
+        )
       {
         _ = learnTiledWindowWidth(
           gestureWindowID,
-          actualFrame: externallyChangedFrame,
+          actualFrame: widthLearningFrame,
           state: &state,
           viewports: viewportsByMonitor
         )
