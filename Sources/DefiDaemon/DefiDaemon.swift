@@ -249,6 +249,8 @@ final class Daemon: NSObject {
       needsDesktopSync = false
       synchronizeDesktop()
     }
-    platform.refreshWindowBorders()
+    if liveBorderGesture || animatedWritesPending {
+      platform.refreshWindowBorders()
+    }
   }
 }
