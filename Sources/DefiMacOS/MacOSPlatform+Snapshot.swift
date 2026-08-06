@@ -289,23 +289,32 @@ extension MacOSPlatform {
       nextProcessIDs[$0.value] == $0.key
     }
     internalFocusDeadlines = internalFocusDeadlines.filter { $0.value >= now }
-    var nativeFocusChanged = nativeFocusEventPending
+    let focusedProcessID = focusedWindowID.flatMap { nextProcessIDs[$0] }
+    let nativeFocusTargetMatched = nativeFocusEventMatchesTarget(
+      eventPending: nativeFocusEventPending,
+      eventProcessIDs: nativeFocusEventProcessIDs,
+      hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
+      focusedProcessID: focusedProcessID
+    )
+    var nativeFocusChanged = nativeFocusTargetMatched
     if nativeFocusChanged,
       let focusedWindowID,
       internalFocusDeadlines.removeValue(forKey: focusedWindowID) != nil
     {
       nativeFocusChanged = false
     }
-    if nativeFocusEventPending, focusedWindowID == nil, nativeFocusRetryCount > 0 {
-      nativeFocusRetryCount -= 1
-    } else {
+    if !nativeFocusEventShouldRemainPending(
+      eventPending: nativeFocusEventPending,
+      targetMatched: nativeFocusTargetMatched
+    ) {
       nativeFocusEventPending = false
-      nativeFocusRetryCount = 0
+      nativeFocusEventProcessIDs.removeAll(keepingCapacity: true)
+      nativeFocusEventHasUnknownProcess = false
     }
     if nativeFocusChanged {
       userInputTracker.recordObservedFocus(
         windowID: focusedWindowID,
-        processID: focusedWindowID.flatMap { nextProcessIDs[$0] }
+        processID: focusedProcessID
           ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
       )
     }

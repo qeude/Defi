@@ -78,7 +78,11 @@ extension MacOSPlatform {
               ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
           )
           self?.nativeFocusEventPending = true
-          self?.nativeFocusRetryCount = 3
+          if let processID {
+            self?.nativeFocusEventProcessIDs.insert(processID)
+          } else {
+            self?.nativeFocusEventHasUnknownProcess = true
+          }
         }
         if kind == .screens {
           displayConfigurationHandler()
