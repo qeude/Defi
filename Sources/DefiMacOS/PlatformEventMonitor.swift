@@ -10,6 +10,7 @@ final class PlatformEventMonitor {
   private let frameHandler: (AXUIElement) -> Void
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
+  private let mouseGestureStartedHandler: () -> Void
   private var workspaceTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
@@ -24,13 +25,15 @@ final class PlatformEventMonitor {
     userInputTracker: UserInputTracker = UserInputTracker(),
     frameHandler: @escaping (AXUIElement) -> Void = { _ in },
     liveFrameHandler: @escaping () -> Void = {},
-    borderStackingHandler: @escaping () -> Void = {}
+    borderStackingHandler: @escaping () -> Void = {},
+    mouseGestureStartedHandler: @escaping () -> Void = {}
   ) {
     self.handler = handler
     self.userInputTracker = userInputTracker
     self.frameHandler = frameHandler
     self.liveFrameHandler = liveFrameHandler
     self.borderStackingHandler = borderStackingHandler
+    self.mouseGestureStartedHandler = mouseGestureStartedHandler
   }
 
   func start() {
@@ -115,6 +118,9 @@ final class PlatformEventMonitor {
         let actions = self.mouseGestureNormalizer.actions(for: event.type)
         if actions.refreshBorderStacking {
           self.borderStackingHandler()
+        }
+        if actions.startsGesture {
+          self.mouseGestureStartedHandler()
         }
         switch actions.synchronization {
         case .gesture:

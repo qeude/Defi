@@ -56,6 +56,18 @@ public func restoreWorkspaceScroll(
     anchor.scrollOffset
 }
 
+public func resolvedMouseGestureScrollAnchor(
+  current: WorkspaceScrollAnchor?,
+  gestureWindowID: WindowID?,
+  mouseGestureActive: Bool,
+  state: RuntimeState
+) -> WorkspaceScrollAnchor? {
+  guard mouseGestureActive else { return nil }
+  return current ?? gestureWindowID.flatMap {
+    workspaceScrollAnchor(containing: $0, state: state)
+  }
+}
+
 public func mouseGestureTiledWindowID(
   translatedWindowID: WindowID?,
   activeWindowID: WindowID?,
@@ -329,7 +341,8 @@ public func desktopSynchronizationIsReady(
   needsDesktopSync: Bool,
   periodicSyncDue: Bool
 ) -> Bool {
-  guard !scrollAnimationActive, !slowLanePending,
+  guard !scrollAnimationActive,
+    !slowLanePending || mouseGestureSyncPending,
     needsDesktopSync || periodicSyncDue
   else {
     return false

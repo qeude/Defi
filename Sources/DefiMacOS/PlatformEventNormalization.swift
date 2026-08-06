@@ -271,6 +271,7 @@ struct MouseGestureEventNormalizer {
 
   struct Actions: Equatable {
     var refreshBorderStacking = false
+    var startsGesture = false
     var synchronization: Synchronization?
   }
 
@@ -284,7 +285,7 @@ struct MouseGestureEventNormalizer {
     case .leftMouseDown:
       pressed = true
       dragged = false
-      return Actions(refreshBorderStacking: true)
+      return Actions(refreshBorderStacking: true, startsGesture: true)
     case .leftMouseDragged:
       dragged = true
       // Platform sync demand is a Boolean, so repeated drag events coalesce

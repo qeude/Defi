@@ -282,7 +282,8 @@ struct PlatformEventTests {
     #expect(
       mouseDown
         == MouseGestureEventNormalizer.Actions(
-          refreshBorderStacking: true
+          refreshBorderStacking: true,
+          startsGesture: true
         )
     )
     #expect(mouseUp.synchronization == .clickRelease)
@@ -315,6 +316,19 @@ struct PlatformEventTests {
     #expect(secondMouseDragged.synchronization == .gesture)
     #expect(firstMouseUp.synchronization == .gesture)
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
+  }
+
+  @Test
+  func coalescedNextMouseDownStartsFreshGesture() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+    _ = normalizer.actions(for: .leftMouseDragged)
+    _ = normalizer.actions(for: .leftMouseUp)
+
+    let nextMouseDown = normalizer.actions(for: .leftMouseDown)
+
+    #expect(nextMouseDown.startsGesture)
+    #expect(nextMouseDown.synchronization == nil)
   }
 
   @Test

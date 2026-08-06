@@ -97,6 +97,7 @@ final class Daemon: NSObject {
   var targetMismatches: [FrameMismatch] = []
   var activelyResizedWindowID: WindowID?
   var mouseGestureInitialFrame: Rect?
+  var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
   var mouseGestureDisplayedOriginFrames: [WindowID: Rect] = [:]
   var persistentWidthDriftCounts: [WindowID: Int] = [:]
   var floatingWindowFrames: [WindowID: Rect] = [:]
@@ -152,6 +153,9 @@ final class Daemon: NSObject {
       displayConfigurationHandler: { [weak self] in
         self?.scheduleDisplayReconciliation()
       },
+      mouseGestureStartedHandler: { [weak self] in
+        self?.beginMouseGesture()
+      },
       mouseGestureHandler: { [weak self] in
         self?.cancelAnimationForMouseGesture()
       }
@@ -195,6 +199,9 @@ final class Daemon: NSObject {
     let mouseGestureSyncPending =
       needsDesktopSync
       && (liveBorderGesture || activelyResizedWindowID != nil)
+    if mouseGestureSyncPending && !deferredSlowWindowIDs.isEmpty {
+      cancelDeferredSlowLane()
+    }
     if mouseGestureSyncPending
       && (!scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites)
     {

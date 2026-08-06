@@ -132,6 +132,8 @@ extension Daemon {
   }
 
   func cancelAnimationForMouseGesture() {
+    cancelDeferredSlowLane()
+    needsDesktopSync = true
     guard !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites else {
       return
     }
@@ -155,9 +157,14 @@ extension Daemon {
     }
     scrollAnimations.removeAll(keepingCapacity: true)
     pendingAnimatedFocusWindowID = nil
-    cancelDeferredSlowLane()
     platform.cancelPendingFrameWrites()
-    needsDesktopSync = true
+  }
+
+  func beginMouseGesture() {
+    activelyResizedWindowID = nil
+    mouseGestureInitialFrame = nil
+    mouseGestureScrollAnchor = nil
+    mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
   }
 
   func finishPendingAnimatedFocusIfReady() {

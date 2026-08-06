@@ -200,6 +200,38 @@ final class MouseReorderingTests: XCTestCase {
     XCTAssertEqual(state.monitors[0].workspaces[0].targetScrollOffset, 0.25)
   }
 
+  func testMouseGestureScrollAnchorSurvivesNonCrossingUpdates() throws {
+    var state = try makeState(windowCount: 2)
+    let draggedID = WindowID(rawValue: 2)
+    state.monitors[0].workspaces[0].scrollOffset = 0.25
+    state.monitors[0].workspaces[0].targetScrollOffset = 0.25
+    let initialAnchor = resolvedMouseGestureScrollAnchor(
+      current: nil,
+      gestureWindowID: draggedID,
+      mouseGestureActive: true,
+      state: state
+    )
+
+    state.monitors[0].workspaces[0].scrollOffset = 0.8
+    state.monitors[0].workspaces[0].targetScrollOffset = 0.8
+    let preservedAnchor = resolvedMouseGestureScrollAnchor(
+      current: initialAnchor,
+      gestureWindowID: draggedID,
+      mouseGestureActive: true,
+      state: state
+    )
+
+    XCTAssertEqual(preservedAnchor?.scrollOffset, 0.25)
+    XCTAssertNil(
+      resolvedMouseGestureScrollAnchor(
+        current: preservedAnchor,
+        gestureWindowID: draggedID,
+        mouseGestureActive: false,
+        state: state
+      )
+    )
+  }
+
   func testFocusedTiledWindowStartsMouseGestureBeforeFrameMoves() throws {
     let state = try makeState(windowCount: 2)
     let focusedID = WindowID(rawValue: 2)
@@ -374,6 +406,16 @@ final class MouseReorderingTests: XCTestCase {
         animatedWritesPending: true,
         slowLanePending: false,
         mouseGestureSyncPending: false,
+        needsDesktopSync: true,
+        periodicSyncDue: false
+      )
+    )
+    XCTAssertTrue(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: false,
+        animatedWritesPending: false,
+        slowLanePending: true,
+        mouseGestureSyncPending: true,
         needsDesktopSync: true,
         periodicSyncDue: false
       )

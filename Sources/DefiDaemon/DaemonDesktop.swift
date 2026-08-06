@@ -39,9 +39,6 @@ extension Daemon {
       snapshot.mouseResizeGestureObserved && !snapshot.leftMouseButtonDown
     let mouseInteractionEnded =
       mouseGestureEnded || snapshot.mouseFocusReleaseObserved
-    let nativeFocusedScrollAnchor = snapshot.focusedWindowID.flatMap {
-      workspaceScrollAnchor(containing: $0, state: state)
-    }
     let previousFloatingMonitorIDs = Dictionary(
       uniqueKeysWithValues: floatingWindowFrames.keys.compactMap { windowID in
         state.monitorID(containing: windowID).map { (windowID, $0) }
@@ -64,6 +61,7 @@ extension Daemon {
       consumeDeferredMouseFocusIntent()
       cancelDeferredSlowLane()
       persistentWidthDriftCounts.removeAll(keepingCapacity: true)
+      mouseGestureScrollAnchor = nil
       mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
     }
     latestMonitors = snapshot.monitors
@@ -262,6 +260,12 @@ extension Daemon {
         focusedWindowID: snapshot.focusedWindowID,
         state: state
       )
+      mouseGestureScrollAnchor = resolvedMouseGestureScrollAnchor(
+        current: mouseGestureScrollAnchor,
+        gestureWindowID: gestureWindowID,
+        mouseGestureActive: mouseResizeGestureActive,
+        state: state
+      )
       let actualFrame = gestureWindowID.flatMap { windowID in
         snapshot.windows.first(where: { $0.id == windowID })?.frame
       }
@@ -337,13 +341,14 @@ extension Daemon {
     } else {
       activelyResizedWindowID = nil
       mouseGestureInitialFrame = nil
+      mouseGestureScrollAnchor = nil
       mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
       learnPersistentWidthConstraints(targetMismatches)
     }
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
-    let preservesMouseViewport = mouseReordered && nativeFocusedScrollAnchor != nil
-    if preservesMouseViewport, let nativeFocusedScrollAnchor {
-      restoreWorkspaceScroll(nativeFocusedScrollAnchor, state: &state)
+    let preservesMouseViewport = mouseGestureScrollAnchor != nil
+    if let mouseGestureScrollAnchor {
+      restoreWorkspaceScroll(mouseGestureScrollAnchor, state: &state)
     }
     if !preservesMouseViewport, let nativelyFocusedMonitorID,
       snapshot.focusedWindowID.flatMap({ state.windows[$0]?.floating }) != true
@@ -388,6 +393,9 @@ extension Daemon {
     }
     persistPlacements()
     updateMenuBar()
+    if !snapshot.leftMouseButtonDown {
+      mouseGestureScrollAnchor = nil
+    }
   }
 
   func persistPlacements() {

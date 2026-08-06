@@ -12,6 +12,7 @@ extension MacOSPlatform {
   public func startObserving(
     _ handler: @escaping () -> Void,
     displayConfigurationHandler: @escaping () -> Void = {},
+    mouseGestureStartedHandler: @escaping () -> Void = {},
     mouseGestureHandler: @escaping () -> Void = {}
   ) {
     guard eventMonitor == nil else { return }
@@ -97,7 +98,8 @@ extension MacOSPlatform {
       },
       borderStackingHandler: { [weak self] in
         self?.scheduleWindowBorderStackingRefresh()
-      }
+      },
+      mouseGestureStartedHandler: mouseGestureStartedHandler
     )
     monitor.start()
     eventMonitor = monitor
