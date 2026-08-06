@@ -43,9 +43,13 @@ final class PlatformEventMonitor {
         forName: NSWorkspace.didActivateApplicationNotification,
         object: nil,
         queue: .main
-      ) { [weak self] _ in
+      ) { [weak self] notification in
+        let processID =
+          (notification.userInfo?[
+            NSWorkspace.applicationUserInfoKey
+          ] as? NSRunningApplication)?.processIdentifier
         MainActor.assumeIsolated {
-          self?.handler(.focus, nil)
+          self?.handler(.focus, processID)
         }
       }
     )

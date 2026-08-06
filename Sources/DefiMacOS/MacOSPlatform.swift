@@ -42,7 +42,8 @@ public final class MacOSPlatform {
   var mouseResizeGesturePending = false
   var mouseFocusReleasePending = false
   var nativeFocusEventPending = false
-  var nativeFocusRetryCount = 0
+  var nativeFocusEventProcessIDs = Set<pid_t>()
+  var nativeFocusEventHasUnknownProcess = false
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
   var internalFocusDeadlines: [WindowID: TimeInterval] = [:]
   var positionWriteCount = 0

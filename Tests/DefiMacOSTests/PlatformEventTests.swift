@@ -148,6 +148,68 @@ struct PlatformEventTests {
   }
 
   @Test
+  func nativeFocusEventRequiresMatchingFocusedProcess() {
+    #expect(
+      nativeFocusEventMatchesTarget(
+        eventPending: true,
+        eventProcessIDs: [42],
+        hasUnknownEventProcess: false,
+        focusedProcessID: 42
+      )
+    )
+    #expect(
+      nativeFocusEventMatchesTarget(
+        eventPending: true,
+        eventProcessIDs: [42],
+        hasUnknownEventProcess: false,
+        focusedProcessID: 7
+      ) == false
+    )
+  }
+
+  @Test
+  func unresolvedNativeFocusEventRemainsPendingUntilTargetMatches() {
+    #expect(
+      nativeFocusEventShouldRemainPending(
+        eventPending: true,
+        targetMatched: false
+      )
+    )
+    #expect(
+      nativeFocusEventShouldRemainPending(
+        eventPending: true,
+        targetMatched: true
+      ) == false
+    )
+    #expect(
+      nativeFocusEventShouldRemainPending(
+        eventPending: false,
+        targetMatched: false
+      ) == false
+    )
+  }
+
+  @Test
+  func unknownNativeFocusSourceAllowsResolvedTarget() {
+    #expect(
+      nativeFocusEventMatchesTarget(
+        eventPending: true,
+        eventProcessIDs: [],
+        hasUnknownEventProcess: true,
+        focusedProcessID: nil
+      ) == false
+    )
+    #expect(
+      nativeFocusEventMatchesTarget(
+        eventPending: true,
+        eventProcessIDs: [],
+        hasUnknownEventProcess: true,
+        focusedProcessID: 7
+      )
+    )
+  }
+
+  @Test
   func focusRecoveryUsesLatestExplicitTarget() throws {
     let tracker = UserInputTracker()
     let clickedWindowID = WindowID(rawValue: 42)

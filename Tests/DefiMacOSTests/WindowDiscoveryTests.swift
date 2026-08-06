@@ -8,6 +8,79 @@ final class WindowDiscoveryTests: XCTestCase {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
+  func testTransientProcessDisagreementDefersFocusResolution() {
+    XCTAssertNil(
+      consistentFocusedProcessID(
+        accessibilityProcessID: 42,
+        frontmostProcessID: 7
+      )
+    )
+  }
+
+  func testAccessibilityProcessIsFallbackWithoutFrontmostApplication() {
+    XCTAssertEqual(
+      consistentFocusedProcessID(
+        accessibilityProcessID: 42,
+        frontmostProcessID: nil
+      ),
+      42
+    )
+  }
+
+  func testMatchingFrontmostAndAccessibilityProcessesResolveFocus() {
+    XCTAssertEqual(
+      consistentFocusedProcessID(
+        accessibilityProcessID: 42,
+        frontmostProcessID: 42
+      ),
+      42
+    )
+  }
+
+  func testFocusedAuxiliaryWindowDoesNotSelectDistantManagedWindow() {
+    let managed = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+
+    XCTAssertNil(
+      focusedWindowIDMatchingFrame(
+        processID: processID,
+        focusedFrame: Rect(x: 400, y: 300, width: 500, height: 300),
+        windows: [managed]
+      )
+    )
+  }
+
+  func testFocusedManagedWindowMatchesSmallSnapshotFrameDrift() {
+    let managed = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+
+    XCTAssertEqual(
+      focusedWindowIDMatchingFrame(
+        processID: processID,
+        focusedFrame: Rect(
+          x: frame.x + 2,
+          y: frame.y,
+          width: frame.width,
+          height: frame.height
+        ),
+        windows: [managed]
+      ),
+      managed.id
+    )
+  }
+
   func testWindowMatchingPrefersExactFrameOverEmptyTitle() {
     let exactFrame = CGWindowRecord(
       id: 1,
