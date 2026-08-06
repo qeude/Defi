@@ -95,6 +95,16 @@ Accessibility-frame and stable-radius fallbacks. Border surfaces ignore input.
 With `capture_enabled = false`, they use `NSWindowSharingNone` and require no
 Screen Recording permission.
 
+## Mouse reordering
+
+Drag a tiled window by its native title bar. Crossing a neighboring slot reorders
+the column live and animates the other columns while the dragged window stays
+under the pointer. Vertical dragging reorders windows inside the same stacked
+column. Resizing remains width learning and never changes order. Reordering stays
+inside the window's current monitor and active workspace. Mouse-down on an
+adjacent column defers scroll alignment until release, so the strip stays fixed
+under the pointer while deciding between a click and a drag.
+
 ## `[workspaces]`
 
 Defines stable workspace IDs and startup workspace.

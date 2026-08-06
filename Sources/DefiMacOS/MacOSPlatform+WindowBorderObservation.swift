@@ -12,6 +12,7 @@ extension MacOSPlatform {
   public func startObserving(
     _ handler: @escaping () -> Void,
     displayConfigurationHandler: @escaping () -> Void = {},
+    mouseGestureStartedHandler: @escaping () -> Void = {},
     mouseGestureHandler: @escaping () -> Void = {}
   ) {
     guard eventMonitor == nil else { return }
@@ -52,10 +53,23 @@ extension MacOSPlatform {
         }
         if kind == .mouse {
           self?.mouseResizeGesturePending = true
-          self?.pendingFrameRequiresFullSnapshot = true
+          if let self,
+            let processID = mouseGestureRefreshProcessID(
+              latestFocusIntent: userInputTracker.snapshot.latestFocusIntent,
+              focusedWindowID: lastNativeFocusedWindowID,
+              processIDs: processIDs
+            )
+          {
+            pendingFrameProcessIDs.insert(processID)
+          } else {
+            self?.pendingFrameRequiresFullSnapshot = true
+          }
           if self?.isLeftMouseButtonDown == true {
             self?.frameCoordinator.suspendInitialSettlementRepairs()
           }
+        }
+        if kind == .mouseRelease {
+          self?.mouseFocusReleasePending = true
         }
         if kind == .focus {
           self?.userInputTracker.recordObservedFocus(
@@ -69,7 +83,7 @@ extension MacOSPlatform {
         if kind == .screens {
           displayConfigurationHandler()
         }
-        if kind == .mouse {
+        if platformEventCancelsMouseAnimation(kind) {
           mouseGestureHandler()
         }
         handler()
@@ -94,7 +108,8 @@ extension MacOSPlatform {
       },
       borderStackingHandler: { [weak self] in
         self?.scheduleWindowBorderStackingRefresh()
-      }
+      },
+      mouseGestureStartedHandler: mouseGestureStartedHandler
     )
     monitor.start()
     eventMonitor = monitor

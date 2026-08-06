@@ -44,6 +44,192 @@ struct NativeFocusTests {
   }
 
   @Test
+  func mouseDownDefersNativeFocusMutationUntilRelease() {
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: true,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
+      ) == false
+    )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: false,
+        mouseInteractionEnded: true,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: true,
+        keyboardFocusIntentCurrent: false
+      )
+    )
+  }
+
+  @Test
+  func nonMouseNativeFocusMutatesImmediately() {
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
+      )
+    )
+  }
+
+  @Test
+  func keyboardFocusMutatesWhileMouseIsHeld() {
+    #expect(
+      keyboardFocusIntentIsCurrent(
+        keyboardFocusIntentTimestamp: 12,
+        latestCommandInputTimestamp: 11
+      )
+    )
+    #expect(
+      keyboardFocusIntentIsCurrent(
+        keyboardFocusIntentTimestamp: 10,
+        latestCommandInputTimestamp: 11
+      ) == false
+    )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: true,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: true
+      )
+    )
+  }
+
+  @Test
+  func newerCommandRejectsDeferredMouseReleaseFocus() {
+    let focusedWindowID = WindowID(rawValue: 2)
+    #expect(
+      mouseReleaseFocusIntentIsCurrent(
+        focusedWindowID: focusedWindowID,
+        mouseFocusIntentWindowID: focusedWindowID,
+        mouseFocusIntentTimestamp: 10,
+        latestCommandInputTimestamp: 11,
+        nativeFocusChanged: true
+      ) == false
+    )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: true,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
+      ) == false
+    )
+  }
+
+  @Test
+  func currentMouseReleaseAcceptsObservedFocusWithoutWindowHint() {
+    #expect(
+      mouseReleaseFocusIntentIsCurrent(
+        focusedWindowID: WindowID(rawValue: 2),
+        mouseFocusIntentWindowID: nil,
+        mouseFocusIntentTimestamp: 12,
+        latestCommandInputTimestamp: 11,
+        nativeFocusChanged: true
+      )
+    )
+  }
+
+  @Test
+  func dockClickWaitsForObservedManagedFocusAfterRelease() {
+    let focusedWindowID = WindowID(rawValue: 2)
+    let released = updatedDeferredMouseFocusIntent(
+      current: nil,
+      mouseFocusIntentWindowID: nil,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: WindowID(rawValue: 1),
+      nativeFocusChanged: false,
+      mouseInteractionEnded: true
+    )
+    #expect(released?.mouseInteractionEnded == true)
+    #expect(released?.focusObserved == false)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: released,
+      mouseFocusIntentWindowID: nil,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: focusedWindowID,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false
+    )
+    #expect(observed?.windowID == focusedWindowID)
+    #expect(observed?.focusObserved == true)
+    #expect(
+      mouseReleaseFocusIntentIsCurrent(
+        focusedWindowID: focusedWindowID,
+        mouseFocusIntentWindowID: observed?.windowID,
+        mouseFocusIntentTimestamp: observed?.timestamp,
+        latestCommandInputTimestamp: 11,
+        nativeFocusChanged: observed?.focusObserved == true
+      )
+    )
+  }
+
+  @Test
+  func consumedMouseFocusIntentIsNotRecreatedByPeriodicSnapshot() {
+    #expect(
+      updatedDeferredMouseFocusIntent(
+        current: nil,
+        consumedMouseFocusIntentTimestamp: 12,
+        mouseFocusIntentWindowID: WindowID(rawValue: 2),
+        mouseFocusIntentTimestamp: 12,
+        focusedWindowID: WindowID(rawValue: 2),
+        nativeFocusChanged: false,
+        mouseInteractionEnded: false
+      ) == nil
+    )
+  }
+
+  @Test
+  func delayedMouseFocusCannotBypassNewerCommandAfterReleaseMarker() {
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: false,
+        deferredMouseFocusPending: true,
+        deferredMouseFocusReady: true,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false
+      ) == false
+    )
+  }
+
+  @Test
+  func queuedHotKeyKeepsCapturedInputOrder() {
+    #expect(
+      resolvedLatestCommandInputTimestamp(
+        previousTimestamp: 0,
+        capturedInputTimestamp: 10,
+        commandHandledAt: 12
+      ) == 10
+    )
+    #expect(
+      resolvedLatestCommandInputTimestamp(
+        previousTimestamp: 11,
+        capturedInputTimestamp: 10,
+        commandHandledAt: 12
+      ) == 11
+    )
+    #expect(
+      resolvedLatestCommandInputTimestamp(
+        previousTimestamp: 11,
+        capturedInputTimestamp: nil,
+        commandHandledAt: 12
+      ) == 12
+    )
+  }
+
+  @Test
   func selectedWindowOnDifferentActiveMonitorChangesSelection() throws {
     var state = try makeState()
     let selected = WindowID(rawValue: 1)

@@ -40,6 +40,7 @@ public final class MacOSPlatform {
   var eventMonitor: PlatformEventMonitor?
   var frameEventPending = false
   var mouseResizeGesturePending = false
+  var mouseFocusReleasePending = false
   var nativeFocusEventPending = false
   var nativeFocusRetryCount = 0
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]

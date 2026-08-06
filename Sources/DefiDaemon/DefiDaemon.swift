@@ -88,7 +88,7 @@ final class Daemon: NSObject {
   private var tickCount = 0
   var shouldShutdown = false
   var signalSources: [DispatchSourceSignal] = []
-  var pendingHotKeyCommands: [String] = []
+  var pendingHotKeyCommands: [HotKeyInvocation] = []
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
@@ -96,6 +96,13 @@ final class Daemon: NSObject {
   var targetMismatchCount = 0
   var targetMismatches: [FrameMismatch] = []
   var activelyResizedWindowID: WindowID?
+  var mouseGestureInitialFrame: Rect?
+  var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
+  var mouseGestureDisplayedOriginFrames: [WindowID: Rect] = [:]
+  var mouseGestureGeneration: UInt64 = 0
+  var mouseGestureSettlement: MouseGestureSettlement?
+  var mouseGesturePreempted = false
+  var mouseReorderAnimationActive = false
   var persistentWidthDriftCounts: [WindowID: Int] = [:]
   var floatingWindowFrames: [WindowID: Rect] = [:]
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
@@ -106,6 +113,9 @@ final class Daemon: NSObject {
   var maximumAnimationStepDurationMS = 0.0
   var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
+  var latestCommandInputTimestamp: TimeInterval = 0
+  var deferredMouseFocusIntent: DeferredMouseFocusIntent?
+  var consumedMouseFocusIntentTimestamp: TimeInterval = 0
   var suppressNativeFocusUntil: TimeInterval = 0
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
@@ -147,6 +157,9 @@ final class Daemon: NSObject {
       displayConfigurationHandler: { [weak self] in
         self?.scheduleDisplayReconciliation()
       },
+      mouseGestureStartedHandler: { [weak self] in
+        self?.beginMouseGesture()
+      },
       mouseGestureHandler: { [weak self] in
         self?.cancelAnimationForMouseGesture()
       }
@@ -156,8 +169,8 @@ final class Daemon: NSObject {
       let manager = try HotKeyManager(
         config: config,
         userInputTracker: platform.userInputTracker
-      ) { [weak self] command in
-        self?.enqueueHotKey(command)
+      ) { [weak self] invocation in
+        self?.enqueueHotKey(invocation)
       }
       try manager.start()
       hotKeys = manager
@@ -186,8 +199,30 @@ final class Daemon: NSObject {
       needsDesktopSync = true
     }
     tickCount += 1
-    let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
+    let now = ProcessInfo.processInfo.systemUptime
+    if let mouseGestureSettlement,
+      now >= mouseGestureSettlement.nextCheckAt
+    {
+      needsDesktopSync = true
+    }
+    if mouseReorderAnimationActive
+      && !platform.hasPendingAnimatedFrameWrites
+    {
+      mouseReorderAnimationActive = false
+    }
     let liveBorderGesture = platform.isLeftMouseButtonDown
+    let mouseGestureSyncPending =
+      needsDesktopSync
+      && (liveBorderGesture || activelyResizedWindowID != nil)
+    if mouseGestureSyncPending && !deferredSlowWindowIDs.isEmpty {
+      cancelDeferredSlowLane()
+    }
+    if mouseGestureSyncPending
+      && (!scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites)
+    {
+      cancelAnimationForMouseGesture()
+    }
+    let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
@@ -203,10 +238,14 @@ final class Daemon: NSObject {
       }
       setTimerFrequency(60)
     }
-    if scrollAnimations.isEmpty && !animatedWritesPending
-      && deferredSlowWindowIDs.isEmpty
-      && (needsDesktopSync || tickCount.isMultiple(of: 18))
-    {
+    if desktopSynchronizationIsReady(
+      scrollAnimationActive: !scrollAnimations.isEmpty,
+      animatedWritesPending: animatedWritesPending,
+      slowLanePending: !deferredSlowWindowIDs.isEmpty,
+      mouseGestureSyncPending: mouseGestureSyncPending,
+      needsDesktopSync: needsDesktopSync,
+      periodicSyncDue: tickCount.isMultiple(of: 18)
+    ) {
       needsDesktopSync = false
       synchronizeDesktop()
     }
