@@ -90,11 +90,13 @@ func incrementalWindowRefreshProcessIDs(
   requiresFullSnapshot: Bool,
   processIDs: Set<pid_t>,
   coalescedProcessIDs: Set<pid_t> = [],
-  coalescedEventRequiresFullSnapshot: Bool = false
+  coalescedEventRequiresFullSnapshot: Bool = false,
+  allowsCoalescedProcessRefresh: Bool = false
 ) -> Set<pid_t>? {
   let affectedProcessIDs = processIDs.union(coalescedProcessIDs)
   guard hasCompletedSnapshot,
-    eventPending || !coalescedProcessIDs.isEmpty,
+    eventPending
+      || (allowsCoalescedProcessRefresh && !coalescedProcessIDs.isEmpty),
     !requiresFullSnapshot,
     !coalescedEventRequiresFullSnapshot,
     !affectedProcessIDs.isEmpty

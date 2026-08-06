@@ -184,16 +184,29 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
-  func testCoalescedFrameProcessDoesNotRequireTopologyEvent() {
+  func testCoalescedFrameProcessDuringGestureDoesNotRequireTopologyEvent() {
     XCTAssertEqual(
       incrementalWindowRefreshProcessIDs(
         hasCompletedSnapshot: true,
         eventPending: false,
         requiresFullSnapshot: false,
         processIDs: [],
-        coalescedProcessIDs: [202]
+        coalescedProcessIDs: [202],
+        allowsCoalescedProcessRefresh: true
       ),
       [202]
+    )
+  }
+
+  func testCoalescedFrameProcessOutsideGestureUsesFullRefresh() {
+    XCTAssertNil(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: false,
+        requiresFullSnapshot: false,
+        processIDs: [],
+        coalescedProcessIDs: [202]
+      )
     )
   }
 

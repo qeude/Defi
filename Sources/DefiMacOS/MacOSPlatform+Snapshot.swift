@@ -32,7 +32,8 @@ extension MacOSPlatform {
       requiresFullSnapshot: windowTopologyRequiresFullSnapshot,
       processIDs: pendingWindowTopologyProcessIDs,
       coalescedProcessIDs: pendingFrameProcessIDs,
-      coalescedEventRequiresFullSnapshot: pendingFrameRequiresFullSnapshot
+      coalescedEventRequiresFullSnapshot: pendingFrameRequiresFullSnapshot,
+      allowsCoalescedProcessRefresh: mouseResizeGesturePending
     )
     windowTopologyEventPending = false
     pendingWindowTopologyProcessIDs.removeAll(keepingCapacity: true)
