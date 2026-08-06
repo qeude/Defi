@@ -73,7 +73,7 @@ final class MouseReorderingTests: XCTestCase {
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: Rect(
-          x: target.x - 500,
+          x: target.x - 900,
           y: target.y,
           width: target.width,
           height: target.height
@@ -117,7 +117,7 @@ final class MouseReorderingTests: XCTestCase {
     let draggedID = WindowID(rawValue: 1)
     let target = try targetFrame(for: draggedID, state: state)
     let draggedFrame = Rect(
-      x: target.x + 500,
+      x: target.x + 900,
       y: target.y,
       width: target.width,
       height: target.height
@@ -137,6 +137,43 @@ final class MouseReorderingTests: XCTestCase {
         draggedID,
         actualFrame: draggedFrame,
         initialFrame: target,
+        state: &state,
+        viewports: [monitorID: viewport]
+      )
+    )
+  }
+
+  func testUnequalWidthColumnsDoNotOscillateAtSamePointerPosition() throws {
+    var state = try makeState(windowCount: 2)
+    state.monitors[0].workspaces[0].columns[0].width = .pixels(300)
+    state.monitors[0].workspaces[0].columns[1].width = .pixels(700)
+    let draggedID = WindowID(rawValue: 1)
+    let initialFrame = try targetFrame(for: draggedID, state: state)
+    let neighborFrame = try targetFrame(
+      for: WindowID(rawValue: 2),
+      state: state
+    )
+    let draggedFrame = Rect(
+      x: neighborFrame.x + neighborFrame.width / 2 - initialFrame.width / 2 + 1,
+      y: initialFrame.y,
+      width: initialFrame.width,
+      height: initialFrame.height
+    )
+
+    XCTAssertTrue(
+      reorderTiledWindowAfterMouseDrag(
+        draggedID,
+        actualFrame: draggedFrame,
+        initialFrame: initialFrame,
+        state: &state,
+        viewports: [monitorID: viewport]
+      )
+    )
+    XCTAssertFalse(
+      reorderTiledWindowAfterMouseDrag(
+        draggedID,
+        actualFrame: draggedFrame,
+        initialFrame: initialFrame,
         state: &state,
         viewports: [monitorID: viewport]
       )

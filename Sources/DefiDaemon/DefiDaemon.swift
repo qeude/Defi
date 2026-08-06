@@ -110,6 +110,7 @@ final class Daemon: NSObject {
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
   var deferredMouseFocusIntent: DeferredMouseFocusIntent?
+  var consumedMouseFocusIntentTimestamp: TimeInterval = 0
   var suppressNativeFocusUntil: TimeInterval = 0
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?

@@ -103,14 +103,18 @@ public struct DeferredMouseFocusIntent: Equatable, Sendable {
 
 public func updatedDeferredMouseFocusIntent(
   current: DeferredMouseFocusIntent?,
+  consumedMouseFocusIntentTimestamp: Double = 0,
   mouseFocusIntentWindowID: WindowID?,
   mouseFocusIntentTimestamp: Double?,
   focusedWindowID: WindowID?,
   nativeFocusChanged: Bool,
   mouseInteractionEnded: Bool
 ) -> DeferredMouseFocusIntent? {
-  var intent = current
+  var intent = current.flatMap {
+    $0.timestamp > consumedMouseFocusIntentTimestamp ? $0 : nil
+  }
   if let timestamp = mouseFocusIntentTimestamp,
+    timestamp > consumedMouseFocusIntentTimestamp,
     intent.map({ timestamp > $0.timestamp }) ?? true
   {
     intent = DeferredMouseFocusIntent(

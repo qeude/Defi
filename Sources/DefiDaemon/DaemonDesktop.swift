@@ -61,6 +61,7 @@ extension Daemon {
       scrollAnimations.removeAll(keepingCapacity: true)
       pendingAnimatedFocusWindowID = nil
       pendingWindowRemovalFocusGuard = nil
+      consumeDeferredMouseFocusIntent()
       cancelDeferredSlowLane()
       persistentWidthDriftCounts.removeAll(keepingCapacity: true)
       mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
@@ -83,6 +84,7 @@ extension Daemon {
     )
     deferredMouseFocusIntent = updatedDeferredMouseFocusIntent(
       current: deferredMouseFocusIntent,
+      consumedMouseFocusIntentTimestamp: consumedMouseFocusIntentTimestamp,
       mouseFocusIntentWindowID: snapshot.mouseFocusIntentWindowID.flatMap {
         state.windows[$0] == nil ? nil : $0
       },
@@ -220,14 +222,14 @@ extension Daemon {
         ignoredRedundantNativeFocusCount += 1
       }
       if nativeFocusAccepted && deferredMouseFocusReady {
-        deferredMouseFocusIntent = nil
+        consumeDeferredMouseFocusIntent()
       } else if deferredMouseFocusPending
         && snapshot.nativeFocusChanged
         && !snapshot.leftMouseButtonDown
         && !keyboardFocusIntentCurrent
         && !mouseReleaseFocusIntentCurrent
       {
-        deferredMouseFocusIntent = nil
+        consumeDeferredMouseFocusIntent()
       }
     }
     if let activeMonitorID,
@@ -398,6 +400,16 @@ extension Daemon {
     } catch {
       log("placement persistence failed: \(error)")
     }
+  }
+
+  private func consumeDeferredMouseFocusIntent() {
+    if let timestamp = deferredMouseFocusIntent?.timestamp {
+      consumedMouseFocusIntentTimestamp = max(
+        consumedMouseFocusIntentTimestamp,
+        timestamp
+      )
+    }
+    deferredMouseFocusIntent = nil
   }
 
   private func displayGeometryDescription(

@@ -225,7 +225,6 @@ public func reorderTiledWindowAfterMouseDrag(
   else {
     return false
   }
-  let sourceCenterX = sourceFrame.x + sourceFrame.width / 2
   let draggedCenterX = actualFrame.x + actualFrame.width / 2
   var horizontalTargetIndex = sourceColumnIndex
   if sourceColumnIndex + 1 < workspace.columns.count,
@@ -233,7 +232,7 @@ public func reorderTiledWindowAfterMouseDrag(
       for: workspace.columns[sourceColumnIndex + 1],
       frames: frames
     ),
-    draggedCenterX > (sourceCenterX + nextCenterX) / 2
+    draggedCenterX > nextCenterX
   {
     horizontalTargetIndex += 1
   } else if sourceColumnIndex > 0,
@@ -241,7 +240,7 @@ public func reorderTiledWindowAfterMouseDrag(
       for: workspace.columns[sourceColumnIndex - 1],
       frames: frames
     ),
-    draggedCenterX < (previousCenterX + sourceCenterX) / 2
+    draggedCenterX < previousCenterX
   {
     horizontalTargetIndex -= 1
   }

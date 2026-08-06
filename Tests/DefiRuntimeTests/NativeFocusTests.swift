@@ -175,6 +175,21 @@ struct NativeFocusTests {
   }
 
   @Test
+  func consumedMouseFocusIntentIsNotRecreatedByPeriodicSnapshot() {
+    #expect(
+      updatedDeferredMouseFocusIntent(
+        current: nil,
+        consumedMouseFocusIntentTimestamp: 12,
+        mouseFocusIntentWindowID: WindowID(rawValue: 2),
+        mouseFocusIntentTimestamp: 12,
+        focusedWindowID: WindowID(rawValue: 2),
+        nativeFocusChanged: false,
+        mouseInteractionEnded: false
+      ) == nil
+    )
+  }
+
+  @Test
   func delayedMouseFocusCannotBypassNewerCommandAfterReleaseMarker() {
     #expect(
       nativeFocusMutationIsReady(
