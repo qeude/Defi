@@ -78,10 +78,12 @@ extension Daemon {
       let switchesWorkspace = command.activatesWorkspace
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
       let resizesManagedLayout = command.resizesManagedLayout
-      if switchesWorkspace || mutatesWorkspaceWindows || resizesManagedLayout {
+      let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
+      if switchesWorkspace || mutatesWorkspaceWindows || resizesManagedLayout
+        || speculativeRibbonNavigation
+      {
         preemptMouseGesture()
       }
-      let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
       let animatedManagedResize =
         resizesManagedLayout
         && config.animation.enabled
