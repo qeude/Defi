@@ -77,12 +77,13 @@ extension Daemon {
       pendingWindowRemovalFocusGuard = nil
       let switchesWorkspace = command.activatesWorkspace
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
-      if switchesWorkspace || mutatesWorkspaceWindows {
+      let resizesManagedLayout = command.resizesManagedLayout
+      if switchesWorkspace || mutatesWorkspaceWindows || resizesManagedLayout {
         preemptMouseGesture()
       }
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
       let animatedManagedResize =
-        command.resizesManagedLayout
+        resizesManagedLayout
         && config.animation.enabled
         && config.animation.durationMS > 0
       if !speculativeRibbonNavigation {

@@ -53,7 +53,17 @@ extension MacOSPlatform {
         }
         if kind == .mouse {
           self?.mouseResizeGesturePending = true
-          self?.pendingFrameRequiresFullSnapshot = true
+          if let self,
+            let processID = mouseGestureRefreshProcessID(
+              latestFocusIntent: userInputTracker.snapshot.latestFocusIntent,
+              focusedWindowID: lastNativeFocusedWindowID,
+              processIDs: processIDs
+            )
+          {
+            pendingFrameProcessIDs.insert(processID)
+          } else {
+            self?.pendingFrameRequiresFullSnapshot = true
+          }
           if self?.isLeftMouseButtonDown == true {
             self?.frameCoordinator.suspendInitialSettlementRepairs()
           }

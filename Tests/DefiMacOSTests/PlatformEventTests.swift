@@ -332,6 +332,50 @@ struct PlatformEventTests {
   }
 
   @Test
+  func mouseGestureRefreshesClickedWindowProcess() {
+    let clickedWindowID = WindowID(rawValue: 10)
+    let focusedWindowID = WindowID(rawValue: 20)
+
+    #expect(
+      mouseGestureRefreshProcessID(
+        latestFocusIntent: .init(
+          timestamp: 1,
+          source: .mouse(windowID: clickedWindowID)
+        ),
+        focusedWindowID: focusedWindowID,
+        processIDs: [clickedWindowID: 100, focusedWindowID: 200]
+      ) == 100
+    )
+  }
+
+  @Test
+  func mouseGestureFallsBackToFocusedProcessWhenClickIsUnknown() {
+    let focusedWindowID = WindowID(rawValue: 20)
+
+    #expect(
+      mouseGestureRefreshProcessID(
+        latestFocusIntent: .init(
+          timestamp: 1,
+          source: .mouse(windowID: WindowID(rawValue: 10))
+        ),
+        focusedWindowID: focusedWindowID,
+        processIDs: [focusedWindowID: 200]
+      ) == 200
+    )
+  }
+
+  @Test
+  func mouseGestureRequiresFullRefreshWithoutKnownProcess() {
+    #expect(
+      mouseGestureRefreshProcessID(
+        latestFocusIntent: nil,
+        focusedWindowID: WindowID(rawValue: 20),
+        processIDs: [:]
+      ) == nil
+    )
+  }
+
+  @Test
   func borderStackingRefreshIsLatestSelectionWins() throws {
     var state = WindowBorderStackingRefreshState()
     let firstWindow = WindowID(rawValue: 1)

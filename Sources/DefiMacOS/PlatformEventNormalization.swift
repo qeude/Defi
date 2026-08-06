@@ -18,6 +18,28 @@ func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
   kind == .mouse
 }
 
+func mouseGestureRefreshProcessID(
+  latestFocusIntent: UserInputTracker.FocusIntent?,
+  focusedWindowID: WindowID?,
+  processIDs: [WindowID: pid_t]
+) -> pid_t? {
+  let mouseWindowID: WindowID?
+  if let latestFocusIntent,
+    case .mouse(let windowID) = latestFocusIntent.source
+  {
+    mouseWindowID = windowID
+  } else {
+    mouseWindowID = nil
+  }
+
+  for windowID in [mouseWindowID, focusedWindowID].compactMap({ $0 }) {
+    if let processID = processIDs[windowID] {
+      return processID
+    }
+  }
+  return nil
+}
+
 enum WindowSnapshotInvalidation: Equatable {
   case none
   case process(pid_t)
