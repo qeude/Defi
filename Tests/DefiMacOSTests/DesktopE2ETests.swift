@@ -176,8 +176,19 @@ final class DesktopE2ETests: XCTestCase {
       )
     )
 
-    let actual = platform.snapshot(config: Config()).windows
-      .first(where: { $0.id == window.id })?.frame
+    var actual: Rect?
+    let converged = pumpRunLoop(
+      until: {
+        actual = platform.snapshot(config: Config()).windows
+          .first(where: { $0.id == window.id })?.frame
+        return abs((actual?.width ?? .infinity) - target.width) <= 2
+      },
+      timeout: 1
+    )
+    XCTAssertTrue(
+      converged,
+      "resize animation did not converge; app=\(window.appID) target=\(target) actual=\(String(describing: actual)) trace=\(platform.frameCoordinatorTrace)"
+    )
     XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
     XCTAssertGreaterThanOrEqual(
       platform.successfulSizeWriteCount - sizeWrites,
@@ -356,6 +367,9 @@ final class DesktopE2ETests: XCTestCase {
       pumpRunLoop(for: 0.3)
     }
 
+    let competingPlatform = try makePlatform()
+    _ = competingPlatform.snapshot(config: Config())
+
     platform.apply(
       [FrameAssignment(windowID: window.id, frame: target)],
       asynchronousPositions: true,
@@ -370,8 +384,6 @@ final class DesktopE2ETests: XCTestCase {
       )
     )
 
-    let competingPlatform = try makePlatform()
-    _ = competingPlatform.snapshot(config: Config())
     var competingWriteConverged = false
     var lastCompetingFrame: Rect?
     for _ in 0..<10 where !competingWriteConverged {
@@ -393,6 +405,23 @@ final class DesktopE2ETests: XCTestCase {
       "test must force a delayed intermediate commit before checking quarantine; app=\(window.appID) original=\(original) target=\(target) intermediate=\(intermediate) actual=\(String(describing: lastCompetingFrame))"
     )
     guard competingWriteConverged else { return }
+
+    guard let expectation = platform.frameCommitExpectations[window.id] else {
+      XCTFail("animation must install a frame commit expectation")
+      return
+    }
+    let observationStartedAt = ProcessInfo.processInfo.systemUptime
+    platform.frameCommitExpectations[window.id] = FrameCommitExpectation(
+      from: expectation.from,
+      target: expectation.target,
+      issuedAt: observationStartedAt,
+      deadline: observationStartedAt
+        + frameCommitQuarantineDuration(
+          animationDuration: 0.05,
+          initialFrameSettlement: false
+        ),
+      observedAt: expectation.observedAt
+    )
 
     let writesBeforeDesktopSync = platform.successfulPositionWriteCount
     let delayedSnapshot = platform.snapshot(config: Config())

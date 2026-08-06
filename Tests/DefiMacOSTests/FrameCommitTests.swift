@@ -184,6 +184,19 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testCoalescedFrameProcessDoesNotRequireTopologyEvent() {
+    XCTAssertEqual(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: false,
+        requiresFullSnapshot: false,
+        processIDs: [],
+        coalescedProcessIDs: [202]
+      ),
+      [202]
+    )
+  }
+
   func testCoalescedMouseResizeForcesFullRefresh() {
     XCTAssertNil(
       incrementalWindowRefreshProcessIDs(

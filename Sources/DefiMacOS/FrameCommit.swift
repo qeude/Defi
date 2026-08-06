@@ -94,7 +94,7 @@ func incrementalWindowRefreshProcessIDs(
 ) -> Set<pid_t>? {
   let affectedProcessIDs = processIDs.union(coalescedProcessIDs)
   guard hasCompletedSnapshot,
-    eventPending,
+    eventPending || !coalescedProcessIDs.isEmpty,
     !requiresFullSnapshot,
     !coalescedEventRequiresFullSnapshot,
     !affectedProcessIDs.isEmpty
