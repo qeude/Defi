@@ -271,6 +271,18 @@ func guardedFocusMutationNeedsRecovery(
   mutationApplied && generationCurrent && !inputCurrent
 }
 
+func nativeFocusEventMatchesTarget(
+  eventPending: Bool,
+  eventProcessIDs: Set<pid_t>,
+  hasUnknownEventProcess: Bool,
+  focusedProcessID: pid_t?
+) -> Bool {
+  guard eventPending else { return false }
+  if hasUnknownEventProcess { return true }
+  guard let focusedProcessID else { return false }
+  return eventProcessIDs.contains(focusedProcessID)
+}
+
 func windowSnapshotInvalidation(
   for kind: PlatformEventKind,
   processID: pid_t?

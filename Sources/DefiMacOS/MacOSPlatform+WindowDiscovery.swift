@@ -180,6 +180,13 @@ extension MacOSPlatform {
     else {
       return stableWindowID(processID: frontmostProcessID, in: windows)
     }
+    let authoritativeProcessID = authoritativeFocusedProcessID(
+      accessibilityProcessID: focusedProcessID,
+      frontmostProcessID: frontmostProcessID
+    )
+    guard authoritativeProcessID == focusedProcessID else {
+      return stableWindowID(processID: authoritativeProcessID, in: windows)
+    }
     var focusedWindow: CFTypeRef?
     guard
       AXUIElementCopyAttributeValue(
@@ -198,21 +205,11 @@ extension MacOSPlatform {
     guard let focusedFrame = frame(of: focusedElement) else {
       return stableWindowID(processID: focusedProcessID, in: windows)
     }
-    let ranked = windows.filter {
-      $0.processID == focusedProcessID
-    }.sorted {
-      frameDistance($0.frame, focusedFrame) < frameDistance($1.frame, focusedFrame)
-    }
-    guard let closest = ranked.first else { return nil }
-    if ranked.count > 1,
-      abs(
-        frameDistance(closest.frame, focusedFrame)
-          - frameDistance(ranked[1].frame, focusedFrame)
-      ) < 0.5
-    {
-      return nil
-    }
-    return closest.id
+    return focusedWindowIDMatchingFrame(
+      processID: focusedProcessID,
+      focusedFrame: focusedFrame,
+      windows: windows
+    ) ?? stableWindowID(processID: focusedProcessID, in: windows)
   }
 
   func stableWindowID(
@@ -266,4 +263,38 @@ extension MacOSPlatform {
   func copyElements(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
     copyAttribute(element, name: attribute) as? [AXUIElement]
   }
+}
+
+func authoritativeFocusedProcessID(
+  accessibilityProcessID: pid_t?,
+  frontmostProcessID: pid_t?
+) -> pid_t? {
+  frontmostProcessID ?? accessibilityProcessID
+}
+
+func focusedWindowIDMatchingFrame(
+  processID: pid_t,
+  focusedFrame: Rect,
+  windows: [Window],
+  maximumDistance: Double = 80
+) -> WindowID? {
+  let ranked = windows.filter {
+    $0.processID == processID
+  }.sorted {
+    frameDistance($0.frame, focusedFrame) < frameDistance($1.frame, focusedFrame)
+  }
+  guard let closest = ranked.first,
+    frameDistance(closest.frame, focusedFrame) <= maximumDistance
+  else {
+    return nil
+  }
+  if ranked.count > 1,
+    abs(
+      frameDistance(closest.frame, focusedFrame)
+        - frameDistance(ranked[1].frame, focusedFrame)
+    ) < 0.5
+  {
+    return nil
+  }
+  return closest.id
 }
