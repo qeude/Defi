@@ -44,11 +44,6 @@ extension MacOSPlatform {
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
     let cgWindows = copyCGWindows()
-    windowBorderStacking = copyWindowBorderStacking(
-      targetWindowID: borderManager.activeWindowID,
-      monitorFrames: lastMonitorFrames,
-      knownWindowIDs: Set(elements.keys)
-    )
     let previousElements = elements
     let previousProcessIDs = processIDs
     let previousWindowsByProcess = Dictionary(
