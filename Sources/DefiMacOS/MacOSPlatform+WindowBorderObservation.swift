@@ -83,7 +83,6 @@ extension MacOSPlatform {
           } else {
             self?.nativeFocusEventHasUnknownProcess = true
           }
-          self?.nativeFocusRetryCount = 3
         }
         if kind == .screens {
           displayConfigurationHandler()

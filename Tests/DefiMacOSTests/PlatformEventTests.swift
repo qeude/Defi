@@ -168,6 +168,28 @@ struct PlatformEventTests {
   }
 
   @Test
+  func unresolvedNativeFocusEventRemainsPendingUntilTargetMatches() {
+    #expect(
+      nativeFocusEventShouldRemainPending(
+        eventPending: true,
+        targetMatched: false
+      )
+    )
+    #expect(
+      nativeFocusEventShouldRemainPending(
+        eventPending: true,
+        targetMatched: true
+      ) == false
+    )
+    #expect(
+      nativeFocusEventShouldRemainPending(
+        eventPending: false,
+        targetMatched: false
+      ) == false
+    )
+  }
+
+  @Test
   func unknownNativeFocusSourceAllowsResolvedTarget() {
     #expect(
       nativeFocusEventMatchesTarget(

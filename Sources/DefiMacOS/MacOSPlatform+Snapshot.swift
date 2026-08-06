@@ -302,13 +302,13 @@ extension MacOSPlatform {
     {
       nativeFocusChanged = false
     }
-    if nativeFocusEventPending, !nativeFocusTargetMatched, nativeFocusRetryCount > 0 {
-      nativeFocusRetryCount -= 1
-    } else {
+    if !nativeFocusEventShouldRemainPending(
+      eventPending: nativeFocusEventPending,
+      targetMatched: nativeFocusTargetMatched
+    ) {
       nativeFocusEventPending = false
       nativeFocusEventProcessIDs.removeAll(keepingCapacity: true)
       nativeFocusEventHasUnknownProcess = false
-      nativeFocusRetryCount = 0
     }
     if nativeFocusChanged {
       userInputTracker.recordObservedFocus(

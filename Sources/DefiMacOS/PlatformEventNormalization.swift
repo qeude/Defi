@@ -283,6 +283,13 @@ func nativeFocusEventMatchesTarget(
   return eventProcessIDs.contains(focusedProcessID)
 }
 
+func nativeFocusEventShouldRemainPending(
+  eventPending: Bool,
+  targetMatched: Bool
+) -> Bool {
+  eventPending && !targetMatched
+}
+
 func windowSnapshotInvalidation(
   for kind: PlatformEventKind,
   processID: pid_t?
