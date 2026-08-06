@@ -141,4 +141,6 @@ the installed build with Computer Use.
 
 ## Git
 
-Use conventional branch names and English commit/PR text. Preserve user changes. Never revert unrelated work.
+Use conventional branch names in `type/short-kebab-description` form. Prefer
+`feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, or `chore` as type.
+Use English commit and PR text. Preserve user changes. Never revert unrelated work.

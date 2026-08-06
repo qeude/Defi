@@ -143,4 +143,4 @@ the layout source; animation samples expose inter-app completion spread.
 `commit-observed` reports real-frame settling and deferred post-animation
 corrections without unbounded log growth.
 
-Metal animation, borders, dimming, and config hot reload remain later phases.
+Metal-backed animation, dimming, and config hot reload remain later phases.
