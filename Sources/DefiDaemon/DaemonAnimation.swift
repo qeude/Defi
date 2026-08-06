@@ -134,9 +134,14 @@ extension Daemon {
   func cancelAnimationForMouseGesture() {
     cancelDeferredSlowLane()
     needsDesktopSync = true
-    guard !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites else {
+    guard mouseGestureAnimationCancellationIsNeeded(
+      mouseReorderAnimationActive: mouseReorderAnimationActive,
+      scrollAnimationActive: !scrollAnimations.isEmpty,
+      animatedWritesPending: platform.hasPendingAnimatedFrameWrites
+    ) else {
       return
     }
+    rebaseActiveScrollOffsetToDisplayedFrames()
     if activelyResizedWindowID == nil {
       mouseGestureDisplayedOriginFrames = Dictionary(
         uniqueKeysWithValues: state.windows.map { windowID, window in
@@ -161,9 +166,24 @@ extension Daemon {
   }
 
   func beginMouseGesture() {
+    mouseGestureGeneration &+= 1
+    mouseGestureSettlement = nil
+    mouseReorderAnimationActive = false
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
     mouseGestureScrollAnchor = nil
+    mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
+  }
+
+  func finishMouseGestureTracking(
+    preservingScrollAnchor: Bool = false
+  ) {
+    mouseGestureSettlement = nil
+    activelyResizedWindowID = nil
+    mouseGestureInitialFrame = nil
+    if !preservingScrollAnchor {
+      mouseGestureScrollAnchor = nil
+    }
     mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
   }
 

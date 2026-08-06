@@ -99,6 +99,9 @@ final class Daemon: NSObject {
   var mouseGestureInitialFrame: Rect?
   var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
   var mouseGestureDisplayedOriginFrames: [WindowID: Rect] = [:]
+  var mouseGestureGeneration: UInt64 = 0
+  var mouseGestureSettlement: MouseGestureSettlement?
+  var mouseReorderAnimationActive = false
   var persistentWidthDriftCounts: [WindowID: Int] = [:]
   var floatingWindowFrames: [WindowID: Rect] = [:]
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
@@ -195,6 +198,17 @@ final class Daemon: NSObject {
       needsDesktopSync = true
     }
     tickCount += 1
+    let now = ProcessInfo.processInfo.systemUptime
+    if let mouseGestureSettlement,
+      now >= mouseGestureSettlement.nextCheckAt
+    {
+      needsDesktopSync = true
+    }
+    if mouseReorderAnimationActive
+      && !platform.hasPendingAnimatedFrameWrites
+    {
+      mouseReorderAnimationActive = false
+    }
     let liveBorderGesture = platform.isLeftMouseButtonDown
     let mouseGestureSyncPending =
       needsDesktopSync

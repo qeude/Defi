@@ -422,6 +422,102 @@ final class MouseReorderingTests: XCTestCase {
     )
   }
 
+  func testMouseReorderAnimationSurvivesLaterDragSamples() {
+    XCTAssertFalse(
+      mouseGestureAnimationCancellationIsNeeded(
+        mouseReorderAnimationActive: true,
+        scrollAnimationActive: false,
+        animatedWritesPending: true
+      )
+    )
+    XCTAssertTrue(
+      mouseGestureAnimationCancellationIsNeeded(
+        mouseReorderAnimationActive: false,
+        scrollAnimationActive: true,
+        animatedWritesPending: true
+      )
+    )
+  }
+
+  func testPostReleaseSettlementWaitsForStableLateFrame() {
+    let initial = Rect(x: 0, y: 0, width: 500, height: 700)
+    let released = Rect(x: 300, y: 0, width: 500, height: 700)
+    let late = Rect(x: 700, y: 0, width: 500, height: 700)
+    let settlement = MouseGestureSettlement(
+      generation: 4,
+      windowID: WindowID(rawValue: 1),
+      initialFrame: initial,
+      releasedFrame: released,
+      now: 10,
+      maximumDuration: 0.8
+    )
+
+    let changed = advanceMouseGestureSettlement(
+      settlement,
+      actualFrame: late,
+      now: 10.1,
+      animationPending: false
+    )
+    XCTAssertFalse(changed.shouldFinish)
+    XCTAssertTrue(changed.settlement.observedPostReleaseChange)
+
+    let stable = advanceMouseGestureSettlement(
+      changed.settlement,
+      actualFrame: late,
+      now: 10.16,
+      animationPending: false
+    )
+    XCTAssertTrue(stable.shouldFinish)
+  }
+
+  func testPostReleaseSettlementWaitsForReorderAnimation() {
+    let frame = Rect(x: 300, y: 0, width: 500, height: 700)
+    let settlement = MouseGestureSettlement(
+      generation: 4,
+      windowID: WindowID(rawValue: 1),
+      initialFrame: Rect(x: 0, y: 0, width: 500, height: 700),
+      releasedFrame: frame,
+      now: 10,
+      maximumDuration: 0.25
+    )
+
+    let update = advanceMouseGestureSettlement(
+      settlement,
+      actualFrame: frame,
+      now: 10.3,
+      animationPending: true
+    )
+
+    XCTAssertFalse(update.shouldFinish)
+    XCTAssertEqual(update.settlement.nextCheckAt, 10.35, accuracy: 0.000_1)
+  }
+
+  func testPostReleaseSettlementFinishesAtDeadlineWithoutLateFrame() {
+    let frame = Rect(x: 300, y: 0, width: 500, height: 700)
+    let settlement = MouseGestureSettlement(
+      generation: 4,
+      windowID: WindowID(rawValue: 1),
+      initialFrame: Rect(x: 0, y: 0, width: 500, height: 700),
+      releasedFrame: frame,
+      now: 10,
+      maximumDuration: 0.25
+    )
+
+    let update = advanceMouseGestureSettlement(
+      settlement,
+      actualFrame: frame,
+      now: 10.25,
+      animationPending: false
+    )
+
+    XCTAssertTrue(update.shouldFinish)
+  }
+
+  func testSlowPostReleaseSettlementGetsLongerDeadline() {
+    XCTAssertEqual(mouseGestureSettlementMaximumDuration(latencySensitive: false), 0.25)
+    XCTAssertEqual(mouseGestureSettlementMaximumDuration(latencySensitive: true), 0.8)
+  }
+
   func testResizeIsNotClassifiedAsTranslation() throws {
     let state = try makeState(windowCount: 1)
     let windowID = WindowID(rawValue: 1)

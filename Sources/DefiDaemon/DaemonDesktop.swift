@@ -61,8 +61,7 @@ extension Daemon {
       consumeDeferredMouseFocusIntent()
       cancelDeferredSlowLane()
       persistentWidthDriftCounts.removeAll(keepingCapacity: true)
-      mouseGestureScrollAnchor = nil
-      mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
+      finishMouseGestureTracking()
     }
     latestMonitors = snapshot.monitors
     targetMismatchCount = displayGeometryChanged ? 0 : snapshot.targetMismatchCount
@@ -98,8 +97,14 @@ extension Daemon {
         previousMonitorIDs: previousFloatingMonitorIDs
       )
     }
+    if mouseGestureSettlement?.generation != mouseGestureGeneration {
+      mouseGestureSettlement = nil
+    }
+    let postReleaseMouseGestureActive = mouseGestureSettlement != nil
     let mouseResizeGestureActive =
-      snapshot.leftMouseButtonDown || snapshot.mouseResizeGestureObserved
+      snapshot.leftMouseButtonDown
+      || snapshot.mouseResizeGestureObserved
+      || postReleaseMouseGestureActive
     let reassignedFloatingMonitorIDs = updateFloatingWindowFrames(
       from: snapshot.windows,
       externallyChangedFrames: snapshot.externallyChangedFrames,
@@ -321,9 +326,43 @@ extension Daemon {
             "mouse-reorder window=\(gestureWindowID.rawValue)"
           )
         }
-        activelyResizedWindowID = nil
-        mouseGestureInitialFrame = nil
-        mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
+        if mouseGestureEnded,
+          let gestureWindowID,
+          let mouseGestureInitialFrame,
+          let actualFrame
+        {
+          let now = ProcessInfo.processInfo.systemUptime
+          mouseGestureSettlement = MouseGestureSettlement(
+            generation: mouseGestureGeneration,
+            windowID: gestureWindowID,
+            initialFrame: mouseGestureInitialFrame,
+            releasedFrame: actualFrame,
+            now: now,
+            maximumDuration: mouseGestureSettlementMaximumDuration(
+              latencySensitive: platform.latencySensitiveWindowIDs.contains(
+                gestureWindowID
+              )
+            )
+          )
+          activelyResizedWindowID = gestureWindowID
+        } else if let settlement = mouseGestureSettlement,
+          settlement.generation == mouseGestureGeneration,
+          settlement.windowID == gestureWindowID,
+          let actualFrame
+        {
+          let update = advanceMouseGestureSettlement(
+            settlement,
+            actualFrame: actualFrame,
+            now: ProcessInfo.processInfo.systemUptime,
+            animationPending: platform.hasPendingAnimatedFrameWrites
+          )
+          mouseGestureSettlement = update.settlement
+          if update.shouldFinish {
+            finishMouseGestureTracking(preservingScrollAnchor: true)
+          }
+        } else {
+          finishMouseGestureTracking()
+        }
       }
       if !mouseReordered,
         let gestureWindowID,
@@ -339,10 +378,7 @@ extension Daemon {
         )
       }
     } else {
-      activelyResizedWindowID = nil
-      mouseGestureInitialFrame = nil
-      mouseGestureScrollAnchor = nil
-      mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
+      finishMouseGestureTracking()
       learnPersistentWidthConstraints(targetMismatches)
     }
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
@@ -369,6 +405,7 @@ extension Daemon {
       && config.animation.enabled
       && config.animation.durationMS > 0
     if animatesMouseReorder {
+      mouseReorderAnimationActive = true
       beginFrameAnimationActivity()
     }
     applyCurrentLayout(
@@ -393,7 +430,7 @@ extension Daemon {
     }
     persistPlacements()
     updateMenuBar()
-    if !snapshot.leftMouseButtonDown {
+    if !snapshot.leftMouseButtonDown && mouseGestureSettlement == nil {
       mouseGestureScrollAnchor = nil
     }
   }

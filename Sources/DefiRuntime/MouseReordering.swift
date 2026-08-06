@@ -17,6 +17,103 @@ public struct WorkspaceScrollAnchor: Equatable, Sendable {
   }
 }
 
+public struct MouseGestureSettlement: Equatable, Sendable {
+  public let generation: UInt64
+  public let windowID: WindowID
+  public let initialFrame: Rect
+  public var lastObservedFrame: Rect
+  public var observedPostReleaseChange: Bool
+  public var stableSince: Double?
+  public var nextCheckAt: Double
+  public let expiresAt: Double
+
+  public init(
+    generation: UInt64,
+    windowID: WindowID,
+    initialFrame: Rect,
+    releasedFrame: Rect,
+    now: Double,
+    maximumDuration: Double,
+    pollInterval: Double = 0.05
+  ) {
+    self.generation = generation
+    self.windowID = windowID
+    self.initialFrame = initialFrame
+    lastObservedFrame = releasedFrame
+    observedPostReleaseChange = false
+    stableSince = nil
+    nextCheckAt = now + pollInterval
+    expiresAt = now + maximumDuration
+  }
+}
+
+public struct MouseGestureSettlementUpdate: Equatable, Sendable {
+  public let settlement: MouseGestureSettlement
+  public let shouldFinish: Bool
+
+  public init(
+    settlement: MouseGestureSettlement,
+    shouldFinish: Bool
+  ) {
+    self.settlement = settlement
+    self.shouldFinish = shouldFinish
+  }
+}
+
+public func mouseGestureAnimationCancellationIsNeeded(
+  mouseReorderAnimationActive: Bool,
+  scrollAnimationActive: Bool,
+  animatedWritesPending: Bool
+) -> Bool {
+  !mouseReorderAnimationActive
+    && (scrollAnimationActive || animatedWritesPending)
+}
+
+public func mouseGestureSettlementMaximumDuration(
+  latencySensitive: Bool
+) -> Double {
+  latencySensitive ? 0.8 : 0.25
+}
+
+public func advanceMouseGestureSettlement(
+  _ current: MouseGestureSettlement,
+  actualFrame: Rect,
+  now: Double,
+  animationPending: Bool,
+  frameTolerance: Double = 1,
+  pollInterval: Double = 0.05,
+  quietDuration: Double = 0.05
+) -> MouseGestureSettlementUpdate {
+  var next = current
+  let frameChanged =
+    abs(actualFrame.x - current.lastObservedFrame.x) > frameTolerance
+    || abs(actualFrame.y - current.lastObservedFrame.y) > frameTolerance
+    || abs(actualFrame.width - current.lastObservedFrame.width) > frameTolerance
+    || abs(actualFrame.height - current.lastObservedFrame.height) > frameTolerance
+  if frameChanged {
+    next.lastObservedFrame = actualFrame
+    next.observedPostReleaseChange = true
+    next.stableSince = now
+  }
+  let converged = next.observedPostReleaseChange
+    && now >= (next.stableSince ?? now) + quietDuration
+  let timedOut = now >= next.expiresAt
+  let shouldFinish = (converged || timedOut) && !animationPending
+  if shouldFinish {
+    next.nextCheckAt = now
+  } else if animationPending && (converged || timedOut) {
+    next.nextCheckAt = now + pollInterval
+  } else if let stableSince = next.stableSince {
+    next.nextCheckAt = min(stableSince + quietDuration, next.expiresAt)
+  } else {
+    next.nextCheckAt = min(now + pollInterval, next.expiresAt)
+  }
+  return MouseGestureSettlementUpdate(
+    settlement: next,
+    shouldFinish: shouldFinish
+  )
+}
+
 public func workspaceScrollAnchor(
   containing windowID: WindowID,
   state: RuntimeState

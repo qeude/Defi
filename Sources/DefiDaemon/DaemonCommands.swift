@@ -68,6 +68,7 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      mouseReorderAnimationActive = false
       latestCommandInputTimestamp = resolvedLatestCommandInputTimestamp(
         previousTimestamp: latestCommandInputTimestamp,
         capturedInputTimestamp: inputTimestamp,
