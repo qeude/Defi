@@ -66,7 +66,7 @@ extension Daemon {
     }
   }
 
-  private func beginFrameAnimationActivity() {
+  func beginFrameAnimationActivity() {
     if animationActivity == nil {
       currentAnimationFrameCount = 0
       maximumAnimationStepDurationMS = 0
@@ -132,14 +132,66 @@ extension Daemon {
   }
 
   func cancelAnimationForMouseGesture() {
-    guard !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites else {
+    cancelDeferredSlowLane()
+    needsDesktopSync = true
+    guard mouseGestureAnimationCancellationIsNeeded(
+      mouseReorderAnimationActive: mouseReorderAnimationActive,
+      scrollAnimationActive: !scrollAnimations.isEmpty,
+      animatedWritesPending: platform.hasPendingAnimatedFrameWrites
+    ) else {
       return
+    }
+    rebaseActiveScrollOffsetToDisplayedFrames()
+    if activelyResizedWindowID == nil {
+      mouseGestureDisplayedOriginFrames = Dictionary(
+        uniqueKeysWithValues: state.windows.map { windowID, window in
+          let displayedPosition = platform.completedPosition(for: windowID)
+          let displayedSize = platform.completedSize(for: windowID)
+          return (
+            windowID,
+            resolvedMouseGestureOriginFrame(
+              observedFrame: window.frame,
+              displayedX: displayedPosition.map { Double($0.x) },
+              displayedY: displayedPosition.map { Double($0.y) },
+              displayedWidth: displayedSize.map { Double($0.width) },
+              displayedHeight: displayedSize.map { Double($0.height) }
+            )
+          )
+        }
+      )
     }
     scrollAnimations.removeAll(keepingCapacity: true)
     pendingAnimatedFocusWindowID = nil
-    cancelDeferredSlowLane()
     platform.cancelPendingFrameWrites()
-    needsDesktopSync = true
+  }
+
+  func beginMouseGesture() {
+    mouseGestureGeneration &+= 1
+    mouseGestureSettlement = nil
+    mouseGesturePreempted = false
+    mouseReorderAnimationActive = false
+    activelyResizedWindowID = nil
+    mouseGestureInitialFrame = nil
+    mouseGestureScrollAnchor = nil
+    mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
+  }
+
+  func preemptMouseGesture() {
+    mouseGestureGeneration &+= 1
+    mouseGesturePreempted = true
+    finishMouseGestureTracking()
+  }
+
+  func finishMouseGestureTracking(
+    preservingScrollAnchor: Bool = false
+  ) {
+    mouseGestureSettlement = nil
+    activelyResizedWindowID = nil
+    mouseGestureInitialFrame = nil
+    if !preservingScrollAnchor {
+      mouseGestureScrollAnchor = nil
+    }
+    mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
   }
 
   func finishPendingAnimatedFocusIfReady() {

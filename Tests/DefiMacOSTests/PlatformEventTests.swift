@@ -272,7 +272,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func simpleClickDoesNotSynchronizeDesktop() {
+  func simpleClickSynchronizesDesktopOnRelease() {
     var normalizer = MouseGestureEventNormalizer()
     let mouseDown = normalizer.actions(
       for: .leftMouseDown
@@ -282,14 +282,17 @@ struct PlatformEventTests {
     #expect(
       mouseDown
         == MouseGestureEventNormalizer.Actions(
-          refreshBorderStacking: true
+          refreshBorderStacking: true,
+          startsGesture: true
         )
     )
-    #expect(mouseUp == MouseGestureEventNormalizer.Actions())
+    #expect(mouseUp.synchronization == .clickRelease)
+    #expect(platformEventCancelsMouseAnimation(.mouseRelease) == false)
+    #expect(platformEventCancelsMouseAnimation(.mouse))
   }
 
   @Test
-  func draggedGestureSynchronizesOnFirstMovementAndMouseUp() {
+  func draggedGestureKeepsSynchronizingUntilMouseUp() {
     var normalizer = MouseGestureEventNormalizer()
     let mouseDown = normalizer.actions(
       for: .leftMouseDown
@@ -308,11 +311,68 @@ struct PlatformEventTests {
     )
 
     #expect(mouseDown.refreshBorderStacking)
-    #expect(mouseDown.synchronizeDesktop == false)
-    #expect(firstMouseDragged.synchronizeDesktop)
-    #expect(secondMouseDragged == MouseGestureEventNormalizer.Actions())
-    #expect(firstMouseUp.synchronizeDesktop)
+    #expect(mouseDown.synchronization == nil)
+    #expect(firstMouseDragged.synchronization == .gesture)
+    #expect(secondMouseDragged.synchronization == .gesture)
+    #expect(firstMouseUp.synchronization == .gesture)
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
+  }
+
+  @Test
+  func coalescedNextMouseDownStartsFreshGesture() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+    _ = normalizer.actions(for: .leftMouseDragged)
+    _ = normalizer.actions(for: .leftMouseUp)
+
+    let nextMouseDown = normalizer.actions(for: .leftMouseDown)
+
+    #expect(nextMouseDown.startsGesture)
+    #expect(nextMouseDown.synchronization == nil)
+  }
+
+  @Test
+  func mouseGestureRefreshesClickedWindowProcess() {
+    let clickedWindowID = WindowID(rawValue: 10)
+    let focusedWindowID = WindowID(rawValue: 20)
+
+    #expect(
+      mouseGestureRefreshProcessID(
+        latestFocusIntent: .init(
+          timestamp: 1,
+          source: .mouse(windowID: clickedWindowID)
+        ),
+        focusedWindowID: focusedWindowID,
+        processIDs: [clickedWindowID: 100, focusedWindowID: 200]
+      ) == 100
+    )
+  }
+
+  @Test
+  func mouseGestureFallsBackToFocusedProcessWhenClickIsUnknown() {
+    let focusedWindowID = WindowID(rawValue: 20)
+
+    #expect(
+      mouseGestureRefreshProcessID(
+        latestFocusIntent: .init(
+          timestamp: 1,
+          source: .mouse(windowID: WindowID(rawValue: 10))
+        ),
+        focusedWindowID: focusedWindowID,
+        processIDs: [focusedWindowID: 200]
+      ) == 200
+    )
+  }
+
+  @Test
+  func mouseGestureRequiresFullRefreshWithoutKnownProcess() {
+    #expect(
+      mouseGestureRefreshProcessID(
+        latestFocusIntent: nil,
+        focusedWindowID: WindowID(rawValue: 20),
+        processIDs: [:]
+      ) == nil
+    )
   }
 
   @Test

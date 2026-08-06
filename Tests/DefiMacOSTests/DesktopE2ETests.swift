@@ -456,9 +456,9 @@ final class DesktopE2ETests: XCTestCase {
       modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
       keys: ["hyper-left": "focus-column left"]
     )
-    var received: [String] = []
-    let manager = try HotKeyManager(config: config) { command in
-      received.append(command)
+    var received: [HotKeyInvocation] = []
+    let manager = try HotKeyManager(config: config) { invocation in
+      received.append(invocation)
     }
     try manager.start()
     let eventCount = 8
@@ -495,6 +495,8 @@ final class DesktopE2ETests: XCTestCase {
     )
     pumpRunLoop(for: 0.2)
     XCTAssertEqual(received.count, eventCount)
+    XCTAssertTrue(received.allSatisfy { $0.command == "focus-column left" })
+    XCTAssertTrue(received.allSatisfy { $0.timestamp > 0 })
     XCTAssertEqual(manager.tapReenableCount, 0)
   }
 

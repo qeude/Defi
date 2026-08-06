@@ -10,9 +10,9 @@ import OSLog
 
 @MainActor
 extension Daemon {
-  func enqueueHotKey(_ command: String) {
+  func enqueueHotKey(_ invocation: HotKeyInvocation) {
     guard pendingHotKeyCommands.count < 64 else { return }
-    pendingHotKeyCommands.append(command)
+    pendingHotKeyCommands.append(invocation)
     processPendingHotKeys()
   }
 
@@ -21,8 +21,11 @@ extension Daemon {
     processingHotKeyCommands = true
     defer { processingHotKeyCommands = false }
     for _ in 0..<min(pendingHotKeyCommands.count, 8) {
-      let command = pendingHotKeyCommands.removeFirst()
-      _ = handle(command)
+      let invocation = pendingHotKeyCommands.removeFirst()
+      _ = handle(
+        invocation.command,
+        inputTimestamp: invocation.timestamp
+      )
       processedHotKeyCount += 1
     }
   }
@@ -44,7 +47,10 @@ extension Daemon {
   }
 
   @discardableResult
-  func handle(_ rawCommand: String) -> CommandResponse {
+  func handle(
+    _ rawCommand: String,
+    inputTimestamp: TimeInterval? = nil
+  ) -> CommandResponse {
     if rawCommand == "status" {
       return .success(status())
     }
@@ -62,12 +68,24 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      mouseReorderAnimationActive = false
+      latestCommandInputTimestamp = resolvedLatestCommandInputTimestamp(
+        previousTimestamp: latestCommandInputTimestamp,
+        capturedInputTimestamp: inputTimestamp,
+        commandHandledAt: commandStartedAt
+      )
       pendingWindowRemovalFocusGuard = nil
       let switchesWorkspace = command.activatesWorkspace
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
+      let resizesManagedLayout = command.resizesManagedLayout
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
+      if switchesWorkspace || mutatesWorkspaceWindows || resizesManagedLayout
+        || speculativeRibbonNavigation
+      {
+        preemptMouseGesture()
+      }
       let animatedManagedResize =
-        command.resizesManagedLayout
+        resizesManagedLayout
         && config.animation.enabled
         && config.animation.durationMS > 0
       if !speculativeRibbonNavigation {

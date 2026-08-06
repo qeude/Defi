@@ -60,6 +60,112 @@ public func nativeFocusChangesSelection(
     || state.selectedWindowID(on: focusedMonitorID) != windowID
 }
 
+public func nativeFocusMutationIsReady(
+  nativeFocusChanged: Bool,
+  mouseInteractionEnded: Bool,
+  leftMouseButtonDown: Bool,
+  deferredMouseFocusPending: Bool? = nil,
+  deferredMouseFocusReady: Bool? = nil,
+  mouseReleaseFocusIntentCurrent: Bool,
+  keyboardFocusIntentCurrent: Bool
+) -> Bool {
+  if leftMouseButtonDown {
+    return nativeFocusChanged && keyboardFocusIntentCurrent
+  }
+  if keyboardFocusIntentCurrent && nativeFocusChanged {
+    return true
+  }
+  if deferredMouseFocusPending ?? mouseInteractionEnded {
+    return (deferredMouseFocusReady ?? mouseInteractionEnded)
+      && mouseReleaseFocusIntentCurrent
+  }
+  return nativeFocusChanged
+}
+
+public struct DeferredMouseFocusIntent: Equatable, Sendable {
+  public var timestamp: Double
+  public var windowID: WindowID?
+  public var focusObserved: Bool
+  public var mouseInteractionEnded: Bool
+
+  public init(
+    timestamp: Double,
+    windowID: WindowID?,
+    focusObserved: Bool = false,
+    mouseInteractionEnded: Bool = false
+  ) {
+    self.timestamp = timestamp
+    self.windowID = windowID
+    self.focusObserved = focusObserved
+    self.mouseInteractionEnded = mouseInteractionEnded
+  }
+}
+
+public func updatedDeferredMouseFocusIntent(
+  current: DeferredMouseFocusIntent?,
+  consumedMouseFocusIntentTimestamp: Double = 0,
+  mouseFocusIntentWindowID: WindowID?,
+  mouseFocusIntentTimestamp: Double?,
+  focusedWindowID: WindowID?,
+  nativeFocusChanged: Bool,
+  mouseInteractionEnded: Bool
+) -> DeferredMouseFocusIntent? {
+  var intent = current.flatMap {
+    $0.timestamp > consumedMouseFocusIntentTimestamp ? $0 : nil
+  }
+  if let timestamp = mouseFocusIntentTimestamp,
+    timestamp > consumedMouseFocusIntentTimestamp,
+    intent.map({ timestamp > $0.timestamp }) ?? true
+  {
+    intent = DeferredMouseFocusIntent(
+      timestamp: timestamp,
+      windowID: mouseFocusIntentWindowID
+    )
+  }
+  guard var intent else { return nil }
+  if nativeFocusChanged, let focusedWindowID {
+    if intent.windowID == nil {
+      intent.windowID = focusedWindowID
+    }
+    intent.focusObserved = intent.windowID == focusedWindowID
+  }
+  intent.mouseInteractionEnded =
+    intent.mouseInteractionEnded || mouseInteractionEnded
+  return intent
+}
+
+public func mouseReleaseFocusIntentIsCurrent(
+  focusedWindowID: WindowID,
+  mouseFocusIntentWindowID: WindowID?,
+  mouseFocusIntentTimestamp: Double?,
+  latestCommandInputTimestamp: Double,
+  nativeFocusChanged: Bool
+) -> Bool {
+  guard let mouseFocusIntentTimestamp,
+    mouseFocusIntentTimestamp > latestCommandInputTimestamp
+  else {
+    return false
+  }
+  return mouseFocusIntentWindowID == focusedWindowID
+    || (mouseFocusIntentWindowID == nil && nativeFocusChanged)
+}
+
+public func keyboardFocusIntentIsCurrent(
+  keyboardFocusIntentTimestamp: Double?,
+  latestCommandInputTimestamp: Double
+) -> Bool {
+  guard let keyboardFocusIntentTimestamp else { return false }
+  return keyboardFocusIntentTimestamp > latestCommandInputTimestamp
+}
+
+public func resolvedLatestCommandInputTimestamp(
+  previousTimestamp: Double,
+  capturedInputTimestamp: Double?,
+  commandHandledAt: Double
+) -> Double {
+  max(previousTimestamp, capturedInputTimestamp ?? commandHandledAt)
+}
+
 public struct WindowRemovalFocusGuard: Equatable, Sendable {
   public let monitorID: MonitorID
   public let workspaceID: WorkspaceID

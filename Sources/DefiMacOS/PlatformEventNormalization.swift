@@ -10,7 +10,34 @@ enum PlatformEventKind: Equatable {
   case frame
   case windows
   case mouse
+  case mouseRelease
   case screens
+}
+
+func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
+  kind == .mouse
+}
+
+func mouseGestureRefreshProcessID(
+  latestFocusIntent: UserInputTracker.FocusIntent?,
+  focusedWindowID: WindowID?,
+  processIDs: [WindowID: pid_t]
+) -> pid_t? {
+  let mouseWindowID: WindowID?
+  if let latestFocusIntent,
+    case .mouse(let windowID) = latestFocusIntent.source
+  {
+    mouseWindowID = windowID
+  } else {
+    mouseWindowID = nil
+  }
+
+  for windowID in [mouseWindowID, focusedWindowID].compactMap({ $0 }) {
+    if let processID = processIDs[windowID] {
+      return processID
+    }
+  }
+  return nil
 }
 
 enum WindowSnapshotInvalidation: Equatable {
@@ -137,18 +164,20 @@ public final class UserInputTracker: @unchecked Sendable {
       guard observedFocusIntentTimestamp == focusIntent.timestamp else {
         return nil
       }
-      guard let target = observedFocusTargets.reversed().first(where: {
-        if let excludingWindowID, $0.windowID == excludingWindowID {
-          return false
-        }
-        if $0.windowID == nil,
-          let excludingProcessID,
-          $0.processID == excludingProcessID
-        {
-          return false
-        }
-        return true
-      }) else {
+      guard
+        let target = observedFocusTargets.reversed().first(where: {
+          if let excludingWindowID, $0.windowID == excludingWindowID {
+            return false
+          }
+          if $0.windowID == nil,
+            let excludingProcessID,
+            $0.processID == excludingProcessID
+          {
+            return false
+          }
+          return true
+        })
+      else {
         return nil
       }
       return FocusRecoveryTarget(
@@ -196,7 +225,7 @@ func updatedWindowTopologyInputTimestamp(
   switch kind {
   case .windows, .applicationTerminated:
     return latestInputTimestamp
-  case .application, .focus, .frame, .mouse, .screens:
+  case .application, .focus, .frame, .mouse, .mouseRelease, .screens:
     return previousTimestamp
   }
 }
@@ -251,41 +280,46 @@ func windowSnapshotInvalidation(
     return processID.map(WindowSnapshotInvalidation.process) ?? .full
   case .application, .screens:
     return .full
-  case .focus, .frame, .mouse:
+  case .focus, .frame, .mouse, .mouseRelease:
     return .none
   }
 }
 
 struct MouseGestureEventNormalizer {
-  struct Actions: Equatable {
-    var refreshBorderStacking = false
-    var synchronizeDesktop = false
+  enum Synchronization: Equatable {
+    case gesture
+    case clickRelease
   }
 
-  private var moved = false
-  private var synchronizedDuringGesture = false
+  struct Actions: Equatable {
+    var refreshBorderStacking = false
+    var startsGesture = false
+    var synchronization: Synchronization?
+  }
+
+  private var pressed = false
+  private var dragged = false
 
   mutating func actions(
     for eventType: NSEvent.EventType
   ) -> Actions {
     switch eventType {
     case .leftMouseDown:
-      moved = false
-      synchronizedDuringGesture = false
-      return Actions(refreshBorderStacking: true)
+      pressed = true
+      dragged = false
+      return Actions(refreshBorderStacking: true, startsGesture: true)
     case .leftMouseDragged:
-      moved = true
-      guard synchronizedDuringGesture == false else {
-        return Actions()
-      }
-      synchronizedDuringGesture = true
-      return Actions(synchronizeDesktop: true)
+      dragged = true
+      // Platform sync demand is a Boolean, so repeated drag events coalesce
+      // while still scheduling fresh snapshots after live reorder animations.
+      return Actions(synchronization: .gesture)
     case .leftMouseUp:
       defer {
-        moved = false
-        synchronizedDuringGesture = false
+        pressed = false
+        dragged = false
       }
-      return Actions(synchronizeDesktop: moved)
+      guard pressed else { return Actions() }
+      return Actions(synchronization: dragged ? .gesture : .clickRelease)
     default:
       return Actions()
     }

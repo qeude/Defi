@@ -9,6 +9,10 @@ import OSLog
 @MainActor
 extension MacOSPlatform {
 
+  public func completedSize(for windowID: WindowID) -> CGSize? {
+    frameCoordinator.completedSize(for: windowID)
+  }
+
   public func apply(
     _ assignments: [FrameAssignment],
     hiddenWindowIDs: Set<WindowID> = [],
