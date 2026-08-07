@@ -171,16 +171,22 @@ extension MacOSPlatform {
       }
 
       let previousWindows = previousWindowsByProcess[application.processIdentifier] ?? []
+      let cachedMinimizedState: ((WindowID) -> Bool?)?
+      if appWindows == nil {
+        cachedMinimizedState = nil
+      } else {
+        cachedMinimizedState = { windowID in
+          guard let element = previousElements[windowID] else { return nil }
+          return self.value(element, attribute: kAXMinimizedAttribute, as: Bool.self)
+        }
+      }
       let processRetainedWindowIDs = cachedWindowIDsToRetain(
         processID: application.processIdentifier,
         previousWindows: previousWindows,
         discoveredWindowIDs: Set(nextElements.keys),
         ignoredWindowIDs: ignoredPreviousWindowIDs,
         cgWindows: cgWindows,
-        cachedMinimizedState: { windowID in
-          guard let element = previousElements[windowID] else { return nil }
-          return value(element, attribute: kAXMinimizedAttribute, as: Bool.self)
-        }
+        cachedMinimizedState: cachedMinimizedState
       )
       retainedWindowIDs.formUnion(processRetainedWindowIDs)
       if !processRetainedWindowIDs.isEmpty {

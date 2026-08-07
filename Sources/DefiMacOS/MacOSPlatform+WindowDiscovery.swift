@@ -64,7 +64,7 @@ extension MacOSPlatform {
   ) -> WindowDiscoveryResult {
     let geometry = windowGeometryDiscovery(
       minimized: value(element, attribute: kAXMinimizedAttribute, as: Bool.self),
-      frame: frame(of: element)
+      frame: { self.frame(of: element) }
     )
     let frame: Rect
     switch geometry {
@@ -285,12 +285,12 @@ extension MacOSPlatform {
 
 func windowGeometryDiscovery(
   minimized: Bool?,
-  frame: Rect?
+  frame: () -> Rect?
 ) -> WindowGeometryDiscovery {
   if minimized == true {
     return .ignored
   }
-  guard let frame else {
+  guard let frame = frame() else {
     return .unavailable
   }
   guard frame.width >= 80, frame.height >= 60 else {
@@ -305,7 +305,7 @@ func cachedWindowIDsToRetain(
   discoveredWindowIDs: Set<WindowID>,
   ignoredWindowIDs: Set<WindowID>,
   cgWindows: [CGWindowRecord],
-  cachedMinimizedState: (WindowID) -> Bool?
+  cachedMinimizedState: ((WindowID) -> Bool?)?
 ) -> Set<WindowID> {
   let liveWindowIDs = Set(
     cgWindows.lazy
@@ -316,6 +316,7 @@ func cachedWindowIDsToRetain(
     .intersection(liveWindowIDs)
     .subtracting(discoveredWindowIDs)
     .subtracting(ignoredWindowIDs)
+  guard let cachedMinimizedState else { return retainedWindowIDs }
   return Set(retainedWindowIDs.filter { cachedMinimizedState($0) != true })
 }
 

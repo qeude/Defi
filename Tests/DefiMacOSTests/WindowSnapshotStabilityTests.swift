@@ -10,25 +10,37 @@ struct WindowSnapshotStabilityTests {
 
   @Test func transientGeometryFailureRemainsUnavailable() {
     #expect(
-      windowGeometryDiscovery(minimized: false, frame: nil) == .unavailable
+      windowGeometryDiscovery(minimized: false, frame: { nil }) == .unavailable
     )
   }
 
   @Test func minimizedAndAuxiliarySizedWindowsRemainIgnored() {
     #expect(
-      windowGeometryDiscovery(minimized: true, frame: frame) == .ignored
+      windowGeometryDiscovery(minimized: true, frame: { frame }) == .ignored
     )
     #expect(
       windowGeometryDiscovery(
         minimized: false,
-        frame: Rect(x: 0, y: 0, width: 79, height: 60)
+        frame: { Rect(x: 0, y: 0, width: 79, height: 60) }
       ) == .ignored
     )
   }
 
+  @Test func minimizedWindowDoesNotReadGeometry() {
+    var geometryReadCount = 0
+
+    let discovery = windowGeometryDiscovery(minimized: true) {
+      geometryReadCount += 1
+      return frame
+    }
+
+    #expect(discovery == .ignored)
+    #expect(geometryReadCount == 0)
+  }
+
   @Test func usableWindowGeometryRemainsDiscoverable() {
     #expect(
-      windowGeometryDiscovery(minimized: false, frame: frame) == .usable(frame)
+      windowGeometryDiscovery(minimized: false, frame: { frame }) == .usable(frame)
     )
   }
 
@@ -71,6 +83,21 @@ struct WindowSnapshotStabilityTests {
         cgWindows: [makeCGWindow(id: 42)],
         cachedMinimizedState: { _ in true }
       ).isEmpty
+    )
+  }
+
+  @Test func applicationAccessibilityFailureDoesNotProbeCachedWindows() {
+    let window = makeWindow(id: 42)
+
+    #expect(
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [],
+        ignoredWindowIDs: [],
+        cgWindows: [makeCGWindow(id: 42)],
+        cachedMinimizedState: nil
+      ) == [window.id]
     )
   }
 

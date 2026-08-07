@@ -369,12 +369,10 @@ extension MacOSPlatform {
   }
 
   public func hasPendingFrameTransition(_ windowID: WindowID) -> Bool {
-    guard let target = targetFrames[windowID],
-      let observed = latestObservedFrames[windowID]
-    else {
-      return false
-    }
-    return !approximatelyEqual(observed, target)
+    frameTransitionIsPending(
+      target: targetFrames[windowID],
+      observed: latestObservedFrames[windowID]
+    )
   }
 
   public func acceptObservedFrame(_ frame: Rect, for windowID: WindowID) {
@@ -534,4 +532,10 @@ extension MacOSPlatform {
     )
   }
 
+}
+
+func frameTransitionIsPending(target: Rect?, observed: Rect?) -> Bool {
+  guard let target else { return false }
+  guard let observed else { return true }
+  return !approximatelyEqual(observed, target)
 }
