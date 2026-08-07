@@ -261,6 +261,32 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let completion: (@Sendable (Bool) -> Void)?
 }
 
+struct FrameAnimationLanePlan: Equatable, Sendable {
+  let interpolatedWindowIDs: Set<WindowID>
+  let finalOnlyWindowIDs: Set<WindowID>
+  let stagedFinalOnlyReentryWindowIDs: Set<WindowID>
+}
+
+func frameAnimationLanePlan(
+  animatedWindowIDs: Set<WindowID>,
+  processIDs: [WindowID: pid_t],
+  reenteringWindowIDs: Set<WindowID>,
+  finalOnlyProcessIDs: Set<pid_t>
+) -> FrameAnimationLanePlan {
+  let finalOnlyWindowIDs = Set(
+    animatedWindowIDs.filter { windowID in
+      processIDs[windowID].map(finalOnlyProcessIDs.contains) ?? false
+    }
+  )
+  return FrameAnimationLanePlan(
+    interpolatedWindowIDs: animatedWindowIDs.subtracting(finalOnlyWindowIDs),
+    finalOnlyWindowIDs: finalOnlyWindowIDs,
+    stagedFinalOnlyReentryWindowIDs: finalOnlyWindowIDs.intersection(
+      reenteringWindowIDs
+    )
+  )
+}
+
 func positionWritePhases(
   windowIDs: Set<WindowID>,
   parkedWindowIDs: Set<WindowID>,
@@ -342,5 +368,29 @@ final class FrameResultAccumulator: @unchecked Sendable {
       processLatencySamplesMS,
       spread
     )
+  }
+}
+
+struct ConcurrentFrameResult: Sendable {
+  let applied: Int
+  let stale: Int
+  let completionSpreadMS: Double
+  let frames: Int
+}
+
+final class ConcurrentFrameResultStore: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedResult: ConcurrentFrameResult?
+
+  func store(_ result: ConcurrentFrameResult) {
+    lock.lock()
+    storedResult = result
+    lock.unlock()
+  }
+
+  var result: ConcurrentFrameResult? {
+    lock.lock()
+    defer { lock.unlock() }
+    return storedResult
   }
 }

@@ -412,6 +412,40 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testAnimationLanesKeepFastProcessesInterpolated() {
+    let fast = WindowID(rawValue: 1)
+    let slow = WindowID(rawValue: 2)
+
+    XCTAssertEqual(
+      frameAnimationLanePlan(
+        animatedWindowIDs: [fast, slow],
+        processIDs: [fast: 101, slow: 202],
+        reenteringWindowIDs: [],
+        finalOnlyProcessIDs: [202]
+      ),
+      FrameAnimationLanePlan(
+        interpolatedWindowIDs: [fast],
+        finalOnlyWindowIDs: [slow],
+        stagedFinalOnlyReentryWindowIDs: []
+      )
+    )
+  }
+
+  func testFinalOnlyReentryKeepsVerifiedStagingWrite() {
+    let fast = WindowID(rawValue: 1)
+    let slowReentry = WindowID(rawValue: 2)
+
+    XCTAssertEqual(
+      frameAnimationLanePlan(
+        animatedWindowIDs: [fast, slowReentry],
+        processIDs: [fast: 101, slowReentry: 202],
+        reenteringWindowIDs: [slowReentry],
+        finalOnlyProcessIDs: [202]
+      ).stagedFinalOnlyReentryWindowIDs,
+      [slowReentry]
+    )
+  }
+
   func testSkippedWindowKeepsPreviousTargetUntilSettlement() {
     let skipped = WindowID(rawValue: 1)
     let fast = WindowID(rawValue: 2)

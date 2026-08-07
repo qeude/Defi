@@ -91,7 +91,7 @@ public func adaptiveIntermediateFrameLimit(
   guard availableIntermediateFrames > 0 else { return 0 }
   let latency = max(predictedFrameLatency, 0)
   if latency >= 0.025 {
-    return 1
+    return 0
   }
   let refreshRate = min(max(refreshRateHz, 30), 120)
   if latency >= 1 / refreshRate {
