@@ -41,8 +41,36 @@ struct WindowSnapshotStabilityTests {
         previousWindows: [window],
         discoveredWindowIDs: [],
         ignoredWindowIDs: [],
-        cgWindows: [makeCGWindow(id: 42)]
+        cgWindows: [makeCGWindow(id: 42)],
+        cachedMinimizedState: { _ in nil }
       ) == [window.id]
+    )
+  }
+
+  @Test func retainedWindowDoesNotProvideFreshFrameObservation() {
+    let retainedWindow = makeWindow(id: 42)
+    let observedWindow = makeWindow(id: 43)
+
+    #expect(
+      freshWindowObservationIDs(
+        windows: [retainedWindow, observedWindow],
+        retainedWindowIDs: [retainedWindow.id]
+      ) == [observedWindow.id]
+    )
+  }
+
+  @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
+    let window = makeWindow(id: 42)
+
+    #expect(
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [],
+        ignoredWindowIDs: [],
+        cgWindows: [makeCGWindow(id: 42)],
+        cachedMinimizedState: { _ in true }
+      ).isEmpty
     )
   }
 
@@ -56,7 +84,8 @@ struct WindowSnapshotStabilityTests {
         previousWindows: [window],
         discoveredWindowIDs: [window.id],
         ignoredWindowIDs: [],
-        cgWindows: cgWindows
+        cgWindows: cgWindows,
+        cachedMinimizedState: { _ in nil }
       ).isEmpty
     )
     #expect(
@@ -65,7 +94,8 @@ struct WindowSnapshotStabilityTests {
         previousWindows: [window],
         discoveredWindowIDs: [],
         ignoredWindowIDs: [window.id],
-        cgWindows: cgWindows
+        cgWindows: cgWindows,
+        cachedMinimizedState: { _ in nil }
       ).isEmpty
     )
     #expect(
@@ -74,7 +104,8 @@ struct WindowSnapshotStabilityTests {
         previousWindows: [window],
         discoveredWindowIDs: [],
         ignoredWindowIDs: [],
-        cgWindows: []
+        cgWindows: [],
+        cachedMinimizedState: { _ in nil }
       ).isEmpty
     )
   }

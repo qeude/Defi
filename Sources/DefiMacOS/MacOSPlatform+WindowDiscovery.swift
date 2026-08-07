@@ -304,17 +304,19 @@ func cachedWindowIDsToRetain(
   previousWindows: [Window],
   discoveredWindowIDs: Set<WindowID>,
   ignoredWindowIDs: Set<WindowID>,
-  cgWindows: [CGWindowRecord]
+  cgWindows: [CGWindowRecord],
+  cachedMinimizedState: (WindowID) -> Bool?
 ) -> Set<WindowID> {
   let liveWindowIDs = Set(
     cgWindows.lazy
       .filter { $0.processID == processID }
       .map { WindowID(rawValue: UInt64($0.id)) }
   )
-  return Set(previousWindows.map(\.id))
+  let retainedWindowIDs = Set(previousWindows.map(\.id))
     .intersection(liveWindowIDs)
     .subtracting(discoveredWindowIDs)
     .subtracting(ignoredWindowIDs)
+  return Set(retainedWindowIDs.filter { cachedMinimizedState($0) != true })
 }
 
 func consistentFocusedProcessID(
