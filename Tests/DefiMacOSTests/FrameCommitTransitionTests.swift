@@ -50,4 +50,15 @@ struct FrameCommitTransitionTests {
       ) == false
     )
   }
+
+  @Test
+  func targetWithoutFreshObservationRemainsPending() {
+    #expect(frameTransitionIsPending(target: expectation.target, observed: nil))
+    #expect(
+      frameTransitionIsPending(
+        target: expectation.target,
+        observed: expectation.target
+      ) == false
+    )
+  }
 }
