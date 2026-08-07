@@ -48,26 +48,28 @@ final class WindowBorderManager {
 
   func updateActiveStacking(
     for expectedActiveWindowID: WindowID,
-    isFrontmost: Bool
+    stacking: WindowBorderStacking
   ) {
     guard activeWindowID == expectedActiveWindowID,
+      stacking.targetWindowID == expectedActiveWindowID,
       let overlay = overlays[expectedActiveWindowID]
     else {
       return
     }
-    overlay.setFrontmost(isFrontmost)
+    overlay.setStacking(stacking)
   }
 
   func prepareForSelection(
     _ windowID: WindowID?,
     displayedFrame: Rect?,
-    activeWindowIsFrontmost: Bool = false
+    stacking: WindowBorderStacking? = nil
   ) {
+    let activeStacking = stacking ?? .inactive(for: windowID)
     if activeWindowID == windowID {
       if let windowID {
         updateActiveStacking(
           for: windowID,
-          isFrontmost: activeWindowIsFrontmost
+          stacking: activeStacking
         )
       }
       return
@@ -81,7 +83,7 @@ final class WindowBorderManager {
       let overlay = overlays[previousActiveWindowID],
       overlay.isVisible
     {
-      overlay.setFrontmost(false)
+      overlay.setStacking(.inactive(for: previousActiveWindowID))
       if style.inactiveEnabled {
         overlay.updateAppearance(to: style.inactiveColor)
       } else {
@@ -100,7 +102,7 @@ final class WindowBorderManager {
       } else {
         overlay = reusableOrNewOverlay(for: windowID)
       }
-      overlay.setFrontmost(activeWindowIsFrontmost)
+      overlay.setStacking(activeStacking)
       _ = overlay.syncGeometry(
         frame: displayedFrame,
         width: style.width,
@@ -140,11 +142,15 @@ final class WindowBorderManager {
   func sync(
     _ plan: WindowBorderRenderPlan,
     displayedFrames: [WindowID: Rect],
-    activeWindowIsFrontmost: Bool
+    stacking: WindowBorderStacking
   ) {
     let trackedWindowIDs = Set(plan.tracked.map(\.windowID))
     if let activeWindowID = plan.active?.windowID {
-      overlays[activeWindowID]?.setFrontmost(activeWindowIsFrontmost)
+      overlays[activeWindowID]?.setStacking(
+        stacking.targetWindowID == activeWindowID
+          ? stacking
+          : .inactive(for: activeWindowID)
+      )
     }
     guard plan != lastPlan || displayedFrames != lastDisplayedFrames else {
       skippedPlans += 1
@@ -167,7 +173,11 @@ final class WindowBorderManager {
 
     if let assignment = plan.active {
       if let overlay = overlays[assignment.windowID] {
-        overlay.setFrontmost(activeWindowIsFrontmost)
+        overlay.setStacking(
+          stacking.targetWindowID == assignment.windowID
+            ? stacking
+            : .inactive(for: assignment.windowID)
+        )
         overlay.sync(
           frame: displayedFrames[assignment.windowID] ?? assignment.frame,
           width: plan.style.width,
@@ -180,7 +190,7 @@ final class WindowBorderManager {
 
     for assignment in plan.inactive {
       guard let overlay = overlays[assignment.windowID] else { continue }
-      overlay.setFrontmost(false)
+      overlay.setStacking(.inactive(for: assignment.windowID))
       overlay.sync(
         frame: displayedFrames[assignment.windowID] ?? assignment.frame,
         width: plan.style.width,

@@ -457,20 +457,28 @@ struct PlatformEventTests {
     let auxiliaryWindow = WindowID(rawValue: 1)
     let focusedWindow = WindowID(rawValue: 2)
 
-    let result = frontmostBorderOccludingWindowID(
-      in: [
-        NormalWindowStackEntry(
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
           windowID: auxiliaryWindow,
+          processID: 7,
+          layer: NSWindow.Level.normal.rawValue,
           frame: Rect(x: 8, y: 40, width: 66, height: 20)
         ),
-        NormalWindowStackEntry(
+        WindowStackEntry(
           windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
           frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
         ),
       ]
     )
 
-    #expect(result == focusedWindow)
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == nil)
   }
 
   @Test
@@ -478,19 +486,271 @@ struct PlatformEventTests {
     let dialog = WindowID(rawValue: 1)
     let focusedWindow = WindowID(rawValue: 2)
 
-    let result = frontmostBorderOccludingWindowID(
-      in: [
-        NormalWindowStackEntry(
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
           windowID: dialog,
+          processID: 7,
+          layer: NSWindow.Level.normal.rawValue,
           frame: Rect(x: 400, y: 300, width: 640, height: 480)
         ),
-        NormalWindowStackEntry(
+        WindowStackEntry(
           windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
           frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
         ),
       ]
     )
 
-    #expect(result == dialog)
+    #expect(result.activeWindowIsFrontmost == false)
+    #expect(result.upperBoundWindowID == nil)
+  }
+
+  @Test
+  func floatingPictureInPictureBoundsFrontmostBorder() {
+    let pictureInPicture = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: pictureInPicture,
+          processID: 7,
+          layer: NSWindow.Level.floating.rawValue,
+          frame: Rect(x: 1_400, y: 700, width: 420, height: 390)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 7,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
+        ),
+      ]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == pictureInPicture)
+    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
+  }
+
+  @Test
+  func backmostFloatingOccluderBoundsBorderBelowEveryFloatingWindow() {
+    let frontPictureInPicture = WindowID(rawValue: 1)
+    let backPictureInPicture = WindowID(rawValue: 2)
+    let ownBorderSurface = WindowID(rawValue: 3)
+    let focusedWindow = WindowID(rawValue: 4)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: frontPictureInPicture,
+          processID: 7,
+          layer: NSWindow.Level.floating.rawValue,
+          frame: Rect(x: 200, y: 200, width: 400, height: 300)
+        ),
+        WindowStackEntry(
+          windowID: backPictureInPicture,
+          processID: 8,
+          layer: NSWindow.Level.floating.rawValue,
+          frame: Rect(x: 900, y: 600, width: 400, height: 300)
+        ),
+        WindowStackEntry(
+          windowID: ownBorderSurface,
+          processID: 99,
+          layer: NSWindow.Level.floating.rawValue,
+          frame: Rect(x: 2, y: 34, width: 20, height: 1_354)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 7,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
+        ),
+      ]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == backPictureInPicture)
+  }
+
+  @Test
+  func higherLevelWindowNeedsNoExplicitFloatingUpperBound() {
+    let systemWindow = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: systemWindow,
+          processID: 7,
+          layer: NSWindow.Level.statusBar.rawValue,
+          frame: Rect(x: 0, y: 0, width: 2_560, height: 30)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
+        ),
+      ]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == nil)
+  }
+
+  @Test
+  func offscreenAuxiliaryWindowCannotDemotePictureInPictureBorder() {
+    let pictureInPicture = WindowID(rawValue: 1)
+    let parkedAuxiliaryWindow = WindowID(rawValue: 2)
+    let focusedWindow = WindowID(rawValue: 3)
+    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: pictureInPicture,
+          processID: 7,
+          layer: NSWindow.Level.floating.rawValue,
+          frame: Rect(x: 1_819, y: 981, width: 418, height: 390)
+        ),
+        WindowStackEntry(
+          windowID: parkedAuxiliaryWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 4_283, y: 469, width: 360, height: 287)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
+        ),
+      ],
+      monitorFrames: [monitor]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == pictureInPicture)
+    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
+  }
+
+  @Test
+  func untrackedSameProcessAuxiliaryCannotDemotePictureInPictureBorder() {
+    let pictureInPicture = WindowID(rawValue: 1)
+    let auxiliaryWindow = WindowID(rawValue: 2)
+    let focusedWindow = WindowID(rawValue: 3)
+    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: pictureInPicture,
+          processID: 8,
+          layer: NSWindow.Level.floating.rawValue,
+          frame: Rect(x: 357, y: 730, width: 418, height: 390)
+        ),
+        WindowStackEntry(
+          windowID: auxiliaryWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2_200, y: 469, width: 360, height: 287)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
+        ),
+      ],
+      monitorFrames: [monitor]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == pictureInPicture)
+    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
+  }
+
+  @Test
+  func trackedSameProcessDialogStaysAboveSelectedWindowBorder() {
+    let dialog = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: dialog,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 900, y: 400, width: 640, height: 480)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
+        ),
+      ],
+      monitorFrames: [monitor],
+      knownWindowIDs: [dialog, focusedWindow]
+    )
+
+    #expect(result.activeWindowIsFrontmost == false)
+    #expect(result.upperBoundWindowID == nil)
+  }
+
+  @Test
+  func normalWindowOnAnotherMonitorCannotDemoteBorder() {
+    let otherMonitorWindow = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+    let firstMonitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
+    let secondMonitor = Rect(x: 2_560, y: 0, width: 1_920, height: 1_080)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: otherMonitorWindow,
+          processID: 7,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2_600, y: 40, width: 1_800, height: 1_000)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
+        ),
+      ],
+      monitorFrames: [firstMonitor, secondMonitor]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == nil)
   }
 }

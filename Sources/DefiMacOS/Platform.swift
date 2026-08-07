@@ -85,28 +85,34 @@ func framesByWindowID(
   )
 }
 
-func copyFrontmostNormalWindowID() -> WindowID? {
+func copyWindowBorderStacking(
+  targetWindowID: WindowID?,
+  monitorFrames: [Rect],
+  knownWindowIDs: Set<WindowID>
+) -> WindowBorderStacking {
   guard
     let info = CGWindowListCopyWindowInfo(
       [.optionOnScreenOnly, .excludeDesktopElements],
       kCGNullWindowID
     ) as? [[CFString: Any]]
   else {
-    return nil
+    return .inactive(for: targetWindowID)
   }
   let ownProcessID = ProcessInfo.processInfo.processIdentifier
-  let entries = info.compactMap { item -> NormalWindowStackEntry? in
+  let entries = info.compactMap { item -> WindowStackEntry? in
     guard
-      (item[kCGWindowLayer] as? NSNumber)?.intValue == 0,
-      (item[kCGWindowOwnerPID] as? NSNumber)?.int32Value != ownProcessID,
+      let layer = item[kCGWindowLayer] as? NSNumber,
+      let processID = item[kCGWindowOwnerPID] as? NSNumber,
       let number = item[kCGWindowNumber] as? NSNumber,
       let bounds = item[kCGWindowBounds] as? [String: Any],
       let cgRect = CGRect(dictionaryRepresentation: bounds as CFDictionary)
     else {
       return nil
     }
-    return NormalWindowStackEntry(
+    return WindowStackEntry(
       windowID: WindowID(rawValue: number.uint64Value),
+      processID: processID.int32Value,
+      layer: layer.intValue,
       frame: Rect(
         x: cgRect.minX,
         y: cgRect.minY,
@@ -115,7 +121,14 @@ func copyFrontmostNormalWindowID() -> WindowID? {
       )
     )
   }
-  return frontmostBorderOccludingWindowID(in: entries)
+  return windowBorderStacking(
+    targetWindowID: targetWindowID,
+    ownProcessID: ownProcessID,
+    floatingLevel: NSWindow.Level.floating.rawValue,
+    entries: entries,
+    monitorFrames: monitorFrames,
+    knownWindowIDs: knownWindowIDs
+  )
 }
 
 func bestCGWindow(
