@@ -87,7 +87,7 @@ final class AnimationTests: XCTestCase {
         refreshRateHz: 120,
         availableIntermediateFrames: 4
       ),
-      1
+      0
     )
   }
 
