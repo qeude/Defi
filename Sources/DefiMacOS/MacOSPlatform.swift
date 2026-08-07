@@ -33,6 +33,7 @@ public final class MacOSPlatform {
   var pendingFrameRequiresFullSnapshot = false
   var lastSnapshotWindows: [Window] = []
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
+  var retainedWindowIDs = Set<WindowID>()
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0
   var maximumObservedFrameCommitLatencyMS = 0.0

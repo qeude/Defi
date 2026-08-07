@@ -71,6 +71,25 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func incrementalSnapshotCarriesOnlyLiveRetainedWindowStatus() {
+    let retainedWindow = makeWindow(id: 42)
+    let observedWindow = makeWindow(id: 43)
+    let closedRetainedWindowID = WindowID(rawValue: 44)
+
+    let carriedRetainedWindowIDs = retainedWindowIDsForCachedWindows(
+      [retainedWindow, observedWindow],
+      previousRetainedWindowIDs: [retainedWindow.id, closedRetainedWindowID]
+    )
+
+    #expect(carriedRetainedWindowIDs == [retainedWindow.id])
+    #expect(
+      freshWindowObservationIDs(
+        windows: [retainedWindow, observedWindow],
+        retainedWindowIDs: carriedRetainedWindowIDs
+      ) == [observedWindow.id]
+    )
+  }
+
   @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
     let window = makeWindow(id: 42)
 

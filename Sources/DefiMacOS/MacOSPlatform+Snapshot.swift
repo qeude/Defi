@@ -56,7 +56,7 @@ extension MacOSPlatform {
     var nextApplications: [pid_t: AXUIElement] = [:]
     var applicationWindows: [pid_t: [AXUIElement]] = [:]
     var windows: [Window] = []
-    var retainedWindowIDs = Set<WindowID>()
+    var nextRetainedWindowIDs = Set<WindowID>()
 
     for application in NSWorkspace.shared.runningApplications
     where application.processIdentifier != ProcessInfo.processInfo.processIdentifier
@@ -91,6 +91,12 @@ extension MacOSPlatform {
           applicationWindows[application.processIdentifier] =
             cachedApplicationWindows
           windows.append(contentsOf: cachedWindows)
+          nextRetainedWindowIDs.formUnion(
+            retainedWindowIDsForCachedWindows(
+              cachedWindows,
+              previousRetainedWindowIDs: retainedWindowIDs
+            )
+          )
           for (windowID, element) in cachedElements {
             nextElements[windowID] = element
             nextProcessIDs[windowID] = application.processIdentifier
@@ -188,7 +194,7 @@ extension MacOSPlatform {
         cgWindows: cgWindows,
         cachedMinimizedState: cachedMinimizedState
       )
-      retainedWindowIDs.formUnion(processRetainedWindowIDs)
+      nextRetainedWindowIDs.formUnion(processRetainedWindowIDs)
       if !processRetainedWindowIDs.isEmpty {
         let retainedIDs = processRetainedWindowIDs.sorted {
           $0.rawValue < $1.rawValue
@@ -216,7 +222,7 @@ extension MacOSPlatform {
     let nextWindowIDs = Set(nextElements.keys)
     let freshObservationIDs = freshWindowObservationIDs(
       windows: windows,
-      retainedWindowIDs: retainedWindowIDs
+      retainedWindowIDs: nextRetainedWindowIDs
     )
     let removedWindowIDs = Set(previousElements.keys).subtracting(nextWindowIDs)
     newlyDiscoveredWindowIDs =
@@ -242,6 +248,7 @@ extension MacOSPlatform {
     applicationWindowCounts = applicationWindows.mapValues(\.count)
     lastSnapshotWindows = windows
     lastApplicationWindowElements = applicationWindows
+    retainedWindowIDs = nextRetainedWindowIDs
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
     eventMonitor?.refresh(applications: applicationWindows)
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
@@ -447,4 +454,11 @@ func freshWindowObservationIDs(
   retainedWindowIDs: Set<WindowID>
 ) -> Set<WindowID> {
   Set(windows.lazy.map(\.id)).subtracting(retainedWindowIDs)
+}
+
+func retainedWindowIDsForCachedWindows(
+  _ windows: [Window],
+  previousRetainedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  previousRetainedWindowIDs.intersection(windows.lazy.map(\.id))
 }
