@@ -6,6 +6,18 @@ import DefiCore
 import DefiModel
 import OSLog
 
+enum WindowGeometryDiscovery: Equatable {
+  case unavailable
+  case ignored
+  case usable(Rect)
+}
+
+enum WindowDiscoveryResult {
+  case unavailable
+  case ignored
+  case discovered(Window, CGWindowID, RuleDecision)
+}
+
 @MainActor
 extension MacOSPlatform {
 
@@ -49,13 +61,19 @@ extension MacOSPlatform {
     monitors: [MonitorSnapshot],
     preferredWindowID: WindowID?,
     excluding usedCGWindowIDs: Set<CGWindowID>
-  ) -> (Window, CGWindowID, RuleDecision)? {
-    guard value(element, attribute: kAXMinimizedAttribute, as: Bool.self) != true,
-      let frame = frame(of: element),
-      frame.width >= 80,
-      frame.height >= 60
-    else {
-      return nil
+  ) -> WindowDiscoveryResult {
+    let geometry = windowGeometryDiscovery(
+      minimized: value(element, attribute: kAXMinimizedAttribute, as: Bool.self),
+      frame: frame(of: element)
+    )
+    let frame: Rect
+    switch geometry {
+    case .unavailable:
+      return .unavailable
+    case .ignored:
+      return .ignored
+    case .usable(let usableFrame):
+      frame = usableFrame
     }
     let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
     let role = value(element, attribute: kAXRoleAttribute, as: String.self)
@@ -88,10 +106,10 @@ extension MacOSPlatform {
         preferredWindowID: preferredWindowID
       )
     else {
-      return nil
+      return .ignored
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
-    return (
+    return .discovered(
       Window(
         id: WindowID(rawValue: UInt64(resolvedWindowID)),
         appID: appID,
@@ -263,6 +281,40 @@ extension MacOSPlatform {
   func copyElements(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
     copyAttribute(element, name: attribute) as? [AXUIElement]
   }
+}
+
+func windowGeometryDiscovery(
+  minimized: Bool?,
+  frame: Rect?
+) -> WindowGeometryDiscovery {
+  if minimized == true {
+    return .ignored
+  }
+  guard let frame else {
+    return .unavailable
+  }
+  guard frame.width >= 80, frame.height >= 60 else {
+    return .ignored
+  }
+  return .usable(frame)
+}
+
+func cachedWindowIDsToRetain(
+  processID: pid_t,
+  previousWindows: [Window],
+  discoveredWindowIDs: Set<WindowID>,
+  ignoredWindowIDs: Set<WindowID>,
+  cgWindows: [CGWindowRecord]
+) -> Set<WindowID> {
+  let liveWindowIDs = Set(
+    cgWindows.lazy
+      .filter { $0.processID == processID }
+      .map { WindowID(rawValue: UInt64($0.id)) }
+  )
+  return Set(previousWindows.map(\.id))
+    .intersection(liveWindowIDs)
+    .subtracting(discoveredWindowIDs)
+    .subtracting(ignoredWindowIDs)
 }
 
 func consistentFocusedProcessID(

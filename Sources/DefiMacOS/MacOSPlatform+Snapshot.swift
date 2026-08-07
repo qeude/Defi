@@ -97,31 +97,47 @@ extension MacOSPlatform {
           continue
         }
       }
-      guard let appWindows = copyElements(appElement, attribute: kAXWindowsAttribute)
-      else {
-        continue
+      let appWindows = copyElements(appElement, attribute: kAXWindowsAttribute)
+      if let appWindows {
+        applicationWindows[application.processIdentifier] = appWindows
+      } else if let cachedApplicationWindows =
+        lastApplicationWindowElements[application.processIdentifier]
+      {
+        applicationWindows[application.processIdentifier] = cachedApplicationWindows
       }
-      applicationWindows[application.processIdentifier] = appWindows
       var usedCGWindowIDs = Set<CGWindowID>()
+      var ignoredPreviousWindowIDs = Set<WindowID>()
 
-      for element in appWindows {
+      for element in appWindows ?? [] {
         let previousWindowID = previousElements.first { windowID, previousElement in
           previousProcessIDs[windowID] == application.processIdentifier
             && CFEqual(previousElement, element)
         }?.key
-        guard
-          let (candidate, cgWindowID, decision) = makeWindow(
-            element: element,
-            processID: application.processIdentifier,
-            appID: appID,
-            config: config,
-            cgWindows: cgWindows,
-            monitors: monitors,
-            preferredWindowID: previousWindowID,
-            excluding: usedCGWindowIDs
-          )
-        else {
+        let discovery = makeWindow(
+          element: element,
+          processID: application.processIdentifier,
+          appID: appID,
+          config: config,
+          cgWindows: cgWindows,
+          monitors: monitors,
+          preferredWindowID: previousWindowID,
+          excluding: usedCGWindowIDs
+        )
+        let candidate: Window
+        let cgWindowID: CGWindowID
+        let decision: RuleDecision
+        switch discovery {
+        case .unavailable:
           continue
+        case .ignored:
+          if let previousWindowID {
+            ignoredPreviousWindowIDs.insert(previousWindowID)
+          }
+          continue
+        case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
+          candidate = discovered
+          cgWindowID = discoveredCGWindowID
+          decision = ruleDecision
         }
         let previousDisposition = previousWindowID.map {
           floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
@@ -148,6 +164,36 @@ extension MacOSPlatform {
         windows.append(tracked)
         nextElements[tracked.id] = element
         nextProcessIDs[tracked.id] = application.processIdentifier
+      }
+
+      let previousWindows = previousWindowsByProcess[application.processIdentifier] ?? []
+      let retainedWindowIDs = cachedWindowIDsToRetain(
+        processID: application.processIdentifier,
+        previousWindows: previousWindows,
+        discoveredWindowIDs: Set(nextElements.keys),
+        ignoredWindowIDs: ignoredPreviousWindowIDs,
+        cgWindows: cgWindows
+      )
+      if !retainedWindowIDs.isEmpty {
+        let retainedIDs = retainedWindowIDs.sorted {
+          $0.rawValue < $1.rawValue
+        }.map { String($0.rawValue) }.joined(separator: ",")
+        frameCoordinator.recordTrace(
+          "window-cache-retained pid=\(application.processIdentifier) windows=[\(retainedIDs)]"
+        )
+      }
+      for previousWindow in previousWindows where retainedWindowIDs.contains(previousWindow.id) {
+        guard let previousElement = previousElements[previousWindow.id] else {
+          continue
+        }
+        windows.append(previousWindow)
+        nextElements[previousWindow.id] = previousElement
+        nextProcessIDs[previousWindow.id] = application.processIdentifier
+        if applicationWindows[application.processIdentifier]?.contains(where: {
+          CFEqual($0, previousElement)
+        }) != true {
+          applicationWindows[application.processIdentifier, default: []].append(previousElement)
+        }
       }
     }
 
