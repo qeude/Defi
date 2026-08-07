@@ -25,6 +25,22 @@ struct PointerFocusTests {
   }
 
   @Test
+  func pointerFocusPreviewDoesNotMutateSelection() throws {
+    let state = try makeState(columnWidths: [0.4, 0.4])
+    let original = state
+
+    let focusedMonitor = pointerFocusMonitorWithoutScrolling(
+      WindowID(rawValue: 2),
+      activeMonitorID: monitorID,
+      state: state,
+      viewports: [monitorID: viewport]
+    )
+
+    #expect(focusedMonitor == monitorID)
+    #expect(state == original)
+  }
+
+  @Test
   func pointerFocusRejectsTargetThatWouldScrollStrip() throws {
     var state = try makeState(columnWidths: [0.5, 0.5, 0.5])
     let original = state

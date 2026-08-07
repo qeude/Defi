@@ -107,7 +107,14 @@ public final class HotKeyManager {
         | (1 << CGEventType.leftMouseDown.rawValue)
     )
     if tracksPointerMotion {
-      mask |= CGEventMask(1 << CGEventType.mouseMoved.rawValue)
+      for eventType in [
+        CGEventType.mouseMoved,
+        .leftMouseDragged,
+        .rightMouseDragged,
+        .otherMouseDragged,
+      ] {
+        mask |= CGEventMask(1 << eventType.rawValue)
+      }
     }
     let callback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else {
@@ -255,9 +262,9 @@ private final class HotKeyTapContext: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let timestamp = Double(event.timestamp) / 1_000_000_000
-    if type == .mouseMoved {
+    if eventTracksPhysicalPointerMotion(type) {
       pointerMotionTracker.record(timestamp: timestamp)
-      if tracksPointerWindowTransitions {
+      if type == .mouseMoved, tracksPointerWindowTransitions {
         let rawWindowID = event.getIntegerValueField(
           .mouseEventWindowUnderMousePointer
         )

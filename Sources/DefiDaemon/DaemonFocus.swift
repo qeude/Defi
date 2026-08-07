@@ -36,28 +36,7 @@ extension Daemon {
     }
 
     pendingPointerFocus = nil
-    guard
-      let monitorID = focusWindowFromPointerWithoutScrolling(
-        windowID,
-        activeMonitorID: activeMonitorID,
-        state: &state,
-        viewports: viewportsByMonitor
-      )
-    else {
-      pointerFocusIgnoredCount += 1
-      return
-    }
-
-    pendingAnimatedFocus = nil
-    pendingWindowRemovalFocusGuard = nil
-    activeMonitorID = monitorID
-    platform.focus(
-      windowID,
-      unlessUserInputAfter: invocation.timestamp
-    )
-    pointerFocusAppliedCount += 1
-    needsDesktopSync = true
-    updateMenuBar()
+    submitPointerFocus(windowID, timestamp: invocation.timestamp)
   }
 
   func finishPendingPointerFocusIfReady() {
@@ -77,9 +56,61 @@ extension Daemon {
       return
     }
 
+    submitPointerFocus(
+      pendingPointerFocus.windowID,
+      timestamp: pendingPointerFocus.timestamp
+    )
+  }
+
+  private func submitPointerFocus(
+    _ windowID: WindowID,
+    timestamp: TimeInterval
+  ) {
+    guard pointerFocusMonitorWithoutScrolling(
+      windowID,
+      activeMonitorID: activeMonitorID,
+      state: state,
+      viewports: viewportsByMonitor
+    ) != nil else {
+      pointerFocusIgnoredCount += 1
+      return
+    }
+
+    pendingAnimatedFocus = nil
+    pendingWindowRemovalFocusGuard = nil
+    platform.focus(
+      windowID,
+      unlessUserInputAfter: timestamp
+    ) { [weak self] result in
+      guard let self else { return }
+      guard result == .completed else {
+        self.pointerFocusIgnoredCount += 1
+        return
+      }
+      self.commitCompletedPointerFocus(windowID, timestamp: timestamp)
+    }
+  }
+
+  private func commitCompletedPointerFocus(
+    _ windowID: WindowID,
+    timestamp: TimeInterval
+  ) {
+    let windowUnderPointerID = platform.managedWindowIDUnderPointer(
+      retaining: windowID
+    )
+    guard pointerFocusRetryIsCurrent(
+      pendingWindowID: windowID,
+      windowUnderPointerID: windowUnderPointerID,
+      pointerTimestamp: timestamp,
+      latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
+    ) else {
+      lastPointerWindowID = windowUnderPointerID
+      return
+    }
+
     guard
       let monitorID = focusWindowFromPointerWithoutScrolling(
-        pendingPointerFocus.windowID,
+        windowID,
         activeMonitorID: activeMonitorID,
         state: &state,
         viewports: viewportsByMonitor
@@ -88,13 +119,7 @@ extension Daemon {
       return
     }
 
-    pendingAnimatedFocus = nil
-    pendingWindowRemovalFocusGuard = nil
     activeMonitorID = monitorID
-    platform.focus(
-      pendingPointerFocus.windowID,
-      unlessUserInputAfter: pendingPointerFocus.timestamp
-    )
     pointerFocusAppliedCount += 1
     needsDesktopSync = true
     updateMenuBar()
@@ -110,12 +135,9 @@ extension Daemon {
     _ windowID: WindowID,
     cursorWarpInputTimestamp: TimeInterval?
   ) {
-    platform.focus(windowID)
-    if let cursorWarpInputTimestamp {
-      platform.warpCursor(
-        to: windowID,
-        unlessPointerMovedAfter: cursorWarpInputTimestamp
-      )
-    }
+    platform.focus(
+      windowID,
+      cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
+    )
   }
 }

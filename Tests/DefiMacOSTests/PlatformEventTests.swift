@@ -6,6 +6,64 @@ import Testing
 
 struct PlatformEventTests {
   @Test
+  func physicalPointerTrackingIncludesDragEvents() {
+    #expect(eventTracksPhysicalPointerMotion(.mouseMoved))
+    #expect(eventTracksPhysicalPointerMotion(.leftMouseDragged))
+    #expect(eventTracksPhysicalPointerMotion(.rightMouseDragged))
+    #expect(eventTracksPhysicalPointerMotion(.otherMouseDragged))
+    #expect(!eventTracksPhysicalPointerMotion(.scrollWheel))
+    #expect(!eventTracksPhysicalPointerMotion(.keyDown))
+  }
+
+  @Test
+  func nativeFocusResultRequiresCurrentSuccessfulRequest() {
+    #expect(
+      resolvedNativeFocusResult(
+        hasInputGuard: true,
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: true
+      ) == .completed
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        hasInputGuard: true,
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: false
+      ) == .failed
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        hasInputGuard: true,
+        mutationApplied: false,
+        generationCurrent: false,
+        inputCurrent: true,
+        cancelled: true,
+        focusSucceeded: true
+      ) == .cancelled
+    )
+  }
+
+  @Test
+  func staleGuardedFocusReportsMutationForRecovery() {
+    #expect(
+      resolvedNativeFocusResult(
+        hasInputGuard: true,
+        mutationApplied: true,
+        generationCurrent: true,
+        inputCurrent: false,
+        cancelled: true,
+        focusSucceeded: true
+      ) == .cancelledAfterMutation
+    )
+  }
+
+  @Test
   func userInputTrackingStaysMonotonicAcrossDuplicateDelivery() {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 12)

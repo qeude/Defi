@@ -258,6 +258,15 @@ func pointerMotionDeliveryDelay(
   return max(0, minimumInterval - elapsed)
 }
 
+func eventTracksPhysicalPointerMotion(_ type: CGEventType) -> Bool {
+  switch type {
+  case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+    true
+  default:
+    false
+  }
+}
+
 func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {
   guard rawWindowID > 0 else { return nil }
   return WindowID(rawValue: UInt64(rawWindowID))

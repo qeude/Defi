@@ -68,6 +68,10 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      platform.userInputTracker.record(
+        timestamp: inputTimestamp ?? commandStartedAt
+      )
+      pendingPointerFocus = nil
       let cursorWarpInputTimestamp = keyboardCursorWarpTimestamp(
         mouseFollowsFocus: config.input.mouseFollowsFocus,
         capturedInputTimestamp: inputTimestamp

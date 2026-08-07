@@ -11,24 +11,31 @@ extension MacOSPlatform {
 
   public func focus(
     _ windowID: WindowID,
-    unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil
+    unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil,
+    cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
+    completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) {
     submitFocus(
       windowID,
       unlessUserInputAfter: maximumUserInputTimestamp,
-      suppressesNativeFocusEvent: true
+      suppressesNativeFocusEvent: true,
+      cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp,
+      completion: completion
     )
   }
 
   private func submitFocus(
     _ windowID: WindowID,
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval?,
-    suppressesNativeFocusEvent: Bool
+    suppressesNativeFocusEvent: Bool,
+    cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
+    completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) {
     guard let element = elements[windowID],
       let processID = processIDs[windowID],
       let application = applications[processID]
     else {
+      completion?(.failed)
       return
     }
     if suppressesNativeFocusEvent {
@@ -75,6 +82,15 @@ extension MacOSPlatform {
         switch result {
         case .completed:
           self?.borderManager.revealPendingBorders()
+          if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(
+            result: result,
+            requestedTimestamp: cursorWarpInputTimestamp
+          ) {
+            self?.warpCursor(
+              to: windowID,
+              unlessPointerMovedAfter: cursorWarpInputTimestamp
+            )
+          }
         case .cancelled:
           break
         case .cancelledAfterMutation:
@@ -84,7 +100,10 @@ extension MacOSPlatform {
             excludingWindowID: windowID,
             excludingProcessID: processID
           )
+        case .failed:
+          break
         }
+        completion?(result)
       }
     }
   }

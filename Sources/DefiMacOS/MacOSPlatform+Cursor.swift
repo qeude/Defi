@@ -26,6 +26,46 @@ func cursorWarpIsCurrent(
   latestPointerMotionTimestamp <= maximumPointerMotionTimestamp
 }
 
+func cursorWarpTimestampAfterNativeFocus(
+  result: NativeFocusResult,
+  requestedTimestamp: TimeInterval?
+) -> TimeInterval? {
+  guard result == .completed else { return nil }
+  return requestedTimestamp
+}
+
+enum ManagedPointerHit: Equatable {
+  case managed(WindowID)
+  case blocked
+  case none
+}
+
+func managedPointerHitTest(
+  at location: CGPoint,
+  records: [CGWindowRecord],
+  managedWindowIDs: Set<WindowID>,
+  managedProcessIDs: Set<pid_t>,
+  excludingProcessID: pid_t
+) -> ManagedPointerHit {
+  for record in records
+  where record.layer == 0
+    && record.processID != excludingProcessID
+    && location.x >= record.frame.x
+    && location.x <= record.frame.x + record.frame.width
+    && location.y >= record.frame.y
+    && location.y <= record.frame.y + record.frame.height
+  {
+    let windowID = WindowID(rawValue: UInt64(record.id))
+    if managedWindowIDs.contains(windowID) {
+      return .managed(windowID)
+    }
+    if !managedProcessIDs.contains(record.processID) {
+      return .blocked
+    }
+  }
+  return .none
+}
+
 @MainActor
 extension MacOSPlatform {
   public func managedWindowIDUnderPointer(
@@ -39,6 +79,24 @@ extension MacOSPlatform {
     at location: CGPoint,
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
+    let hit = managedPointerHitTest(
+      at: location,
+      records: copyCGWindows(
+        options: [.optionOnScreenOnly, .excludeDesktopElements]
+      ),
+      managedWindowIDs: lastSnapshotWindowIDs,
+      managedProcessIDs: lastSnapshotProcessIDs,
+      excludingProcessID: ProcessInfo.processInfo.processIdentifier
+    )
+    switch hit {
+    case .managed(let windowID):
+      return windowID
+    case .blocked:
+      return nil
+    case .none:
+      break
+    }
+
     if let previousWindowID,
       !floatingWindowIDs.contains(previousWindowID),
       !lastHiddenWindowIDs.contains(previousWindowID),
@@ -49,26 +107,6 @@ extension MacOSPlatform {
       location.y <= frame.y + frame.height
     {
       return previousWindowID
-    }
-
-    let ownProcessID = ProcessInfo.processInfo.processIdentifier
-    for record in copyCGWindows(
-      options: [.optionOnScreenOnly, .excludeDesktopElements]
-    )
-    where record.layer == 0
-      && record.processID != ownProcessID
-      && location.x >= record.frame.x
-      && location.x <= record.frame.x + record.frame.width
-      && location.y >= record.frame.y
-      && location.y <= record.frame.y + record.frame.height
-    {
-      let windowID = WindowID(rawValue: UInt64(record.id))
-      if lastSnapshotWindowIDs.contains(windowID) {
-        return windowID
-      }
-      if !lastSnapshotProcessIDs.contains(record.processID) {
-        return nil
-      }
     }
     return nil
   }

@@ -70,6 +70,24 @@ public func focusWindowFromPointerWithoutScrolling(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> MonitorID? {
+  guard let monitorID = pointerFocusMonitorWithoutScrolling(
+    windowID,
+    activeMonitorID: activeMonitorID,
+    state: state,
+    viewports: viewports
+  ) else {
+    return nil
+  }
+  _ = focusWindow(windowID, state: &state)
+  return monitorID
+}
+
+public func pointerFocusMonitorWithoutScrolling(
+  _ windowID: WindowID,
+  activeMonitorID: MonitorID?,
+  state: RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> MonitorID? {
   guard nativeFocusChangesSelection(
     windowID,
     activeMonitorID: activeMonitorID,
@@ -104,7 +122,6 @@ public func focusWindowFromPointerWithoutScrolling(
     }
   }
 
-  _ = focusWindow(windowID, state: &state)
   return location.monitorID
 }
 

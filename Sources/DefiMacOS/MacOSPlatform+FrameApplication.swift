@@ -324,13 +324,11 @@ extension MacOSPlatform {
               selectedWindowID: self.desiredSelectedWindowID
             )
           {
-            self.focus(focusWindowIDAfterCommit)
-            if let cursorWarpInputTimestampAfterCommit {
-              self.warpCursor(
-                to: focusWindowIDAfterCommit,
-                unlessPointerMovedAfter: cursorWarpInputTimestampAfterCommit
-              )
-            }
+            self.focus(
+              focusWindowIDAfterCommit,
+              cursorWarpUnlessPointerMovedAfter:
+                cursorWarpInputTimestampAfterCommit
+            )
           }
         }
       }
@@ -358,13 +356,11 @@ extension MacOSPlatform {
         selectedWindowID: desiredSelectedWindowID
       )
     {
-      focus(focusWindowIDAfterCommit)
-      if let cursorWarpInputTimestampAfterCommit {
-        warpCursor(
-          to: focusWindowIDAfterCommit,
-          unlessPointerMovedAfter: cursorWarpInputTimestampAfterCommit
-        )
-      }
+      focus(
+        focusWindowIDAfterCommit,
+        cursorWarpUnlessPointerMovedAfter:
+          cursorWarpInputTimestampAfterCommit
+      )
     }
     if updateVisibility {
       lastHiddenWindowIDs = effectiveHiddenWindowIDs
