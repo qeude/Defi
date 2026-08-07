@@ -26,27 +26,24 @@ public enum NativeFocusResult: Equatable, Sendable {
   case cancelled
   case cancelledAfterMutation
   case failed
+  case failedAfterMutation
 }
 
 func resolvedNativeFocusResult(
-  hasInputGuard: Bool,
   mutationApplied: Bool,
   generationCurrent: Bool,
   inputCurrent: Bool,
   cancelled: Bool,
   focusSucceeded: Bool
 ) -> NativeFocusResult {
-  if hasInputGuard,
-    guardedFocusMutationNeedsRecovery(
-      mutationApplied: mutationApplied,
-      generationCurrent: generationCurrent,
-      inputCurrent: inputCurrent
-    )
-  {
+  if mutationApplied && (cancelled || !generationCurrent || !inputCurrent) {
     return .cancelledAfterMutation
   }
   if !cancelled && generationCurrent && inputCurrent {
-    return focusSucceeded ? .completed : .failed
+    if focusSucceeded {
+      return .completed
+    }
+    return mutationApplied ? .failedAfterMutation : .failed
   }
   return .cancelled
 }
@@ -81,6 +78,10 @@ final class AXFocusWriter: @unchecked Sendable {
     completion: @escaping @Sendable (NativeFocusResult) -> Void
   ) {
     lock.lock()
+    let replaced = pending
+    if replaced != nil {
+      cancelledCount += 1
+    }
     latestGeneration &+= 1
     pending = QueuedFocusRequest(
       generation: latestGeneration,
@@ -92,6 +93,7 @@ final class AXFocusWriter: @unchecked Sendable {
       running = true
     }
     lock.unlock()
+    replaced?.completion(.cancelled)
     if shouldStart {
       queue.async { [self] in drain() }
     }
@@ -159,6 +161,7 @@ final class AXFocusWriter: @unchecked Sendable {
         activeProcessID = nil
         cancelledCount += 1
         lock.unlock()
+        queued.completion(.cancelled)
         continue
       }
       var usedFastPath = false
@@ -300,7 +303,6 @@ final class AXFocusWriter: @unchecked Sendable {
         windowSelectionSucceeded && activationSucceeded
       queued.completion(
         resolvedNativeFocusResult(
-          hasInputGuard: request.inputGuard != nil,
           mutationApplied: focusMutationApplied,
           generationCurrent: generationCurrent,
           inputCurrent: inputCurrent,

@@ -18,7 +18,9 @@ extension Daemon {
       .flatMap { id in state.monitors.first(where: { $0.id == id }) }
       .map(\.activeWorkspace.rawValue)
       ?? "none"
-    let hotKeyState = hotKeys?.isEnabled == true ? "enabled" : "disabled"
+    let hotKeyState = hotKeys?.isHotKeyCaptureEnabled == true
+      ? "enabled"
+      : "disabled"
     let bindingCount = hotKeys?.bindingCount ?? 0
     let capturedHotKeyCount = hotKeys?.capturedKeyCount ?? 0
     let tapReenableCount = hotKeys?.tapReenableCount ?? 0

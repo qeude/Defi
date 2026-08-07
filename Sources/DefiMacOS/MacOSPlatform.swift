@@ -48,7 +48,8 @@ public final class MacOSPlatform {
   var nativeFocusEventProcessIDs = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess = false
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
-  var internalFocusDeadlines: [WindowID: TimeInterval] = [:]
+  var internalFocusSuppressions: [WindowID: InternalFocusSuppression] = [:]
+  var nextInternalFocusRequestID: UInt64 = 0
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0

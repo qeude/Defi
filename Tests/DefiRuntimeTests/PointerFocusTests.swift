@@ -90,6 +90,23 @@ struct PointerFocusTests {
   }
 
   @Test
+  func alreadySelectedPointerTargetCanRestoreNativeFocus() throws {
+    var state = try makeState(columnWidths: [0.4, 0.4])
+    let original = state
+
+    let focusedMonitor = focusWindowFromPointerWithoutScrolling(
+      WindowID(rawValue: 1),
+      activeMonitorID: monitorID,
+      state: &state,
+      viewports: [monitorID: viewport],
+      acceptsAlreadySelectedWindow: true
+    )
+
+    #expect(focusedMonitor == monitorID)
+    #expect(state == original)
+  }
+
+  @Test
   func cursorWarpRequiresEnabledKeyboardInput() {
     #expect(
       keyboardCursorWarpTimestamp(

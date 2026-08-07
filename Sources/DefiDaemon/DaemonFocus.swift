@@ -66,11 +66,13 @@ extension Daemon {
     _ windowID: WindowID,
     timestamp: TimeInterval
   ) {
+    let restoresNativeFocus = !platform.isWindowNativelyFocused(windowID)
     guard pointerFocusMonitorWithoutScrolling(
       windowID,
       activeMonitorID: activeMonitorID,
       state: state,
-      viewports: viewportsByMonitor
+      viewports: viewportsByMonitor,
+      acceptsAlreadySelectedWindow: restoresNativeFocus
     ) != nil else {
       pointerFocusIgnoredCount += 1
       return
@@ -87,13 +89,18 @@ extension Daemon {
         self.pointerFocusIgnoredCount += 1
         return
       }
-      self.commitCompletedPointerFocus(windowID, timestamp: timestamp)
+      self.commitCompletedPointerFocus(
+        windowID,
+        timestamp: timestamp,
+        acceptsAlreadySelectedWindow: restoresNativeFocus
+      )
     }
   }
 
   private func commitCompletedPointerFocus(
     _ windowID: WindowID,
-    timestamp: TimeInterval
+    timestamp: TimeInterval,
+    acceptsAlreadySelectedWindow: Bool
   ) {
     let windowUnderPointerID = platform.managedWindowIDUnderPointer(
       retaining: windowID
@@ -113,7 +120,8 @@ extension Daemon {
         windowID,
         activeMonitorID: activeMonitorID,
         state: &state,
-        viewports: viewportsByMonitor
+        viewports: viewportsByMonitor,
+        acceptsAlreadySelectedWindow: acceptsAlreadySelectedWindow
       )
     else {
       return

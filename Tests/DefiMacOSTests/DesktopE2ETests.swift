@@ -486,7 +486,7 @@ final class DesktopE2ETests: XCTestCase {
       keys: ["hyper-left": "focus-column left"]
     )
     var received: [HotKeyInvocation] = []
-    let manager = try HotKeyManager(config: config) { invocation in
+    let manager = HotKeyManager(config: config) { invocation in
       received.append(invocation)
     }
     try manager.start()
@@ -569,7 +569,7 @@ final class DesktopE2ETests: XCTestCase {
       )
     )
     var received: [PointerMotionInvocation] = []
-    let manager = try HotKeyManager(
+    let manager = HotKeyManager(
       config: config,
       pointerMotionTracker: platform.pointerMotionTracker,
       pointerMotionHandler: { invocation in
@@ -620,6 +620,43 @@ final class DesktopE2ETests: XCTestCase {
       manager.pointerTransitionCount,
       transitionsBeforeWarp,
       "programmatic cursor warp must not emit pointer transitions"
+    )
+  }
+
+  func testPointerTrackingStartsWhenHotKeyParsingFails() throws {
+    _ = try makePlatform()
+    let config = Config(
+      input: InputConfig(focusFollowsMouse: true),
+      keys: ["unknown-no-such-key": "focus-column left"]
+    )
+    var received: [PointerMotionInvocation] = []
+    let manager = HotKeyManager(
+      config: config,
+      pointerMotionHandler: { invocation in
+        received.append(invocation)
+      }
+    ) { _ in }
+    XCTAssertNotNil(manager.bindingError)
+    XCTAssertEqual(manager.bindingCount, 0)
+    try manager.start()
+
+    guard let location = CGEvent(source: nil)?.location,
+      let source = CGEventSource(stateID: .hidSystemState),
+      let movement = CGEvent(
+        mouseEventSource: source,
+        mouseType: .mouseMoved,
+        mouseCursorPosition: location,
+        mouseButton: .left
+      )
+    else {
+      XCTFail("Could not create mouse movement event")
+      return
+    }
+    movement.post(tap: .cghidEventTap)
+
+    XCTAssertTrue(
+      pumpRunLoop(until: { !received.isEmpty }, timeout: 0.5),
+      "pointer movement did not survive invalid hotkey parsing"
     )
   }
 

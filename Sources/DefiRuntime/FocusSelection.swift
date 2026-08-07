@@ -68,13 +68,15 @@ public func focusWindowFromPointerWithoutScrolling(
   _ windowID: WindowID,
   activeMonitorID: MonitorID?,
   state: inout RuntimeState,
-  viewports: [MonitorID: Rect]
+  viewports: [MonitorID: Rect],
+  acceptsAlreadySelectedWindow: Bool = false
 ) -> MonitorID? {
   guard let monitorID = pointerFocusMonitorWithoutScrolling(
     windowID,
     activeMonitorID: activeMonitorID,
     state: state,
-    viewports: viewports
+    viewports: viewports,
+    acceptsAlreadySelectedWindow: acceptsAlreadySelectedWindow
   ) else {
     return nil
   }
@@ -86,13 +88,15 @@ public func pointerFocusMonitorWithoutScrolling(
   _ windowID: WindowID,
   activeMonitorID: MonitorID?,
   state: RuntimeState,
-  viewports: [MonitorID: Rect]
+  viewports: [MonitorID: Rect],
+  acceptsAlreadySelectedWindow: Bool = false
 ) -> MonitorID? {
-  guard nativeFocusChangesSelection(
+  let changesSelection = nativeFocusChangesSelection(
     windowID,
     activeMonitorID: activeMonitorID,
     state: state
-  ),
+  )
+  guard (changesSelection || acceptsAlreadySelectedWindow),
     let location = state.location(containing: windowID),
     let monitorIndex = state.monitors.firstIndex(where: {
       $0.id == location.monitorID
@@ -101,6 +105,10 @@ public func pointerFocusMonitorWithoutScrolling(
     let viewport = viewports[location.monitorID]
   else {
     return nil
+  }
+
+  guard changesSelection else {
+    return location.monitorID
   }
 
   var preview = state

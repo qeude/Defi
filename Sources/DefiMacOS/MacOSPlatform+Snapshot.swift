@@ -364,7 +364,9 @@ extension MacOSPlatform {
     lastFocusedWindowByProcess = lastFocusedWindowByProcess.filter {
       nextProcessIDs[$0.value] == $0.key
     }
-    internalFocusDeadlines = internalFocusDeadlines.filter { $0.value >= now }
+    internalFocusSuppressions = internalFocusSuppressions.filter {
+      $0.value.deadline >= now
+    }
     let focusedProcessID = focusedWindowID.flatMap { nextProcessIDs[$0] }
     let nativeFocusTargetMatched = nativeFocusEventMatchesTarget(
       eventPending: nativeFocusEventPending,
@@ -375,7 +377,7 @@ extension MacOSPlatform {
     var nativeFocusChanged = nativeFocusTargetMatched
     if nativeFocusChanged,
       let focusedWindowID,
-      internalFocusDeadlines.removeValue(forKey: focusedWindowID) != nil
+      internalFocusSuppressions.removeValue(forKey: focusedWindowID) != nil
     {
       nativeFocusChanged = false
     }

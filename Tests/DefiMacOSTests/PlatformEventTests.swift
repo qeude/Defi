@@ -19,7 +19,6 @@ struct PlatformEventTests {
   func nativeFocusResultRequiresCurrentSuccessfulRequest() {
     #expect(
       resolvedNativeFocusResult(
-        hasInputGuard: true,
         mutationApplied: false,
         generationCurrent: true,
         inputCurrent: true,
@@ -29,7 +28,6 @@ struct PlatformEventTests {
     )
     #expect(
       resolvedNativeFocusResult(
-        hasInputGuard: true,
         mutationApplied: false,
         generationCurrent: true,
         inputCurrent: true,
@@ -39,7 +37,6 @@ struct PlatformEventTests {
     )
     #expect(
       resolvedNativeFocusResult(
-        hasInputGuard: true,
         mutationApplied: false,
         generationCurrent: false,
         inputCurrent: true,
@@ -53,13 +50,68 @@ struct PlatformEventTests {
   func staleGuardedFocusReportsMutationForRecovery() {
     #expect(
       resolvedNativeFocusResult(
-        hasInputGuard: true,
         mutationApplied: true,
         generationCurrent: true,
         inputCurrent: false,
         cancelled: true,
         focusSucceeded: true
       ) == .cancelledAfterMutation
+    )
+  }
+
+  @Test
+  func failedFocusPreservesWhetherMutationWasApplied() {
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: false
+      ) == .failed
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: true,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: false
+      ) == .failedAfterMutation
+    )
+  }
+
+  @Test
+  func abandonedFocusClearsOnlyItsOwnUnmutatedSuppression() {
+    let current = InternalFocusSuppression(requestID: 7, deadline: 20)
+
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .cancelled
+      ) == nil
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 6,
+        result: .cancelled
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .cancelledAfterMutation
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .failedAfterMutation
+      ) == current
     )
   }
 

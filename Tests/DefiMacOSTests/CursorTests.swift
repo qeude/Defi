@@ -69,6 +69,12 @@ struct CursorTests {
         requestedTimestamp: 12
       ) == nil
     )
+    #expect(
+      cursorWarpTimestampAfterNativeFocus(
+        result: .failedAfterMutation,
+        requestedTimestamp: 12
+      ) == nil
+    )
   }
 
   @Test

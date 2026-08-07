@@ -175,21 +175,28 @@ final class Daemon: NSObject {
       }
     )
 
-    do {
-      let manager = try HotKeyManager(
-        config: config,
-        userInputTracker: platform.userInputTracker,
-        pointerMotionTracker: platform.pointerMotionTracker,
-        pointerMotionHandler: { [weak self] invocation in
-          self?.handlePointerMotion(invocation)
-        }
-      ) { [weak self] invocation in
-        self?.enqueueHotKey(invocation)
+    let manager = HotKeyManager(
+      config: config,
+      userInputTracker: platform.userInputTracker,
+      pointerMotionTracker: platform.pointerMotionTracker,
+      pointerMotionHandler: { [weak self] invocation in
+        self?.handlePointerMotion(invocation)
       }
+    ) { [weak self] invocation in
+      self?.enqueueHotKey(invocation)
+    }
+    do {
       try manager.start()
       hotKeys = manager
+      if let bindingError = manager.bindingError {
+        if manager.tracksPointerMotion {
+          log("hotkeys unavailable: \(bindingError); pointer tracking remains enabled")
+        } else {
+          log("hotkeys unavailable: \(bindingError)")
+        }
+      }
     } catch {
-      log("hotkeys unavailable: \(error)")
+      log("input event tap unavailable: \(error)")
     }
     menuBar = MenuBarController { [weak self] command in
       _ = self?.handle(command)

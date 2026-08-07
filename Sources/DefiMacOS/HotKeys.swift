@@ -3,7 +3,7 @@ import DefiConfig
 import DefiModel
 import Foundation
 
-public enum HotKeyError: Error, CustomStringConvertible {
+public enum HotKeyError: Error, CustomStringConvertible, Equatable {
   case invalidAccelerator(String)
   case eventTapUnavailable
 
@@ -49,7 +49,8 @@ public final class HotKeyManager {
 
   private let bindings: [Key: String]
   private let handler: Handler
-  private let tracksPointerMotion: Bool
+  public let tracksPointerMotion: Bool
+  public let bindingError: HotKeyError?
   private let pointerMotionHandler: PointerMotionHandler?
   private let userInputTracker: UserInputTracker
   private let pointerMotionTracker: PointerMotionTracker
@@ -57,6 +58,10 @@ public final class HotKeyManager {
   private var thread: Thread?
 
   public var bindingCount: Int { bindings.count }
+
+  public var isHotKeyCaptureEnabled: Bool {
+    bindingError == nil && isEnabled
+  }
 
   public var isEnabled: Bool {
     context?.isEnabled ?? false
@@ -80,7 +85,7 @@ public final class HotKeyManager {
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
     handler: @escaping Handler
-  ) throws {
+  ) {
     self.handler = handler
     tracksPointerMotion =
       config.input.focusFollowsMouse || config.input.mouseFollowsFocus
@@ -90,14 +95,21 @@ public final class HotKeyManager {
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     var bindings: [Key: String] = [:]
-    for (accelerator, command) in config.keys {
-      let key = try Key(
-        accelerator: accelerator,
-        aliases: config.modifierCombinations
-      )
-      bindings[key] = command
+    var bindingError: HotKeyError?
+    do {
+      for (accelerator, command) in config.keys {
+        let key = try Key(
+          accelerator: accelerator,
+          aliases: config.modifierCombinations
+        )
+        bindings[key] = command
+      }
+    } catch let error {
+      bindings.removeAll(keepingCapacity: false)
+      bindingError = error
     }
     self.bindings = bindings
+    self.bindingError = bindingError
   }
 
   public func start() throws {
@@ -420,7 +432,10 @@ struct Key: Hashable, Sendable {
     modifierBits = flags & Self.modifierMask.rawValue
   }
 
-  init(accelerator: String, aliases: [String: String]) throws {
+  init(
+    accelerator: String,
+    aliases: [String: String]
+  ) throws(HotKeyError) {
     var parts = accelerator.lowercased().split(separator: "-").map(String.init)
     guard let keyName = parts.popLast(), let code = Self.keyCodes[keyName] else {
       throw HotKeyError.invalidAccelerator(accelerator)

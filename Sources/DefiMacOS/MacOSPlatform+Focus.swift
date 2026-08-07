@@ -6,8 +6,33 @@ import DefiCore
 import DefiModel
 import OSLog
 
+struct InternalFocusSuppression: Equatable, Sendable {
+  let requestID: UInt64
+  let deadline: TimeInterval
+}
+
+func internalFocusSuppressionAfterCompletion(
+  _ suppression: InternalFocusSuppression?,
+  requestID: UInt64,
+  result: NativeFocusResult
+) -> InternalFocusSuppression? {
+  guard suppression?.requestID == requestID else { return suppression }
+  switch result {
+  case .cancelled, .failed:
+    return nil
+  case .completed, .cancelledAfterMutation, .failedAfterMutation:
+    return suppression
+  }
+}
+
 @MainActor
 extension MacOSPlatform {
+
+  public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {
+    guard let processID = processIDs[windowID] else { return false }
+    return lastNativeFocusedWindowID == windowID
+      && NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
+  }
 
   public func focus(
     _ windowID: WindowID,
@@ -38,9 +63,16 @@ extension MacOSPlatform {
       completion?(.failed)
       return
     }
+    let internalFocusRequestID: UInt64?
     if suppressesNativeFocusEvent {
-      internalFocusDeadlines[windowID] =
-        ProcessInfo.processInfo.systemUptime + 2
+      nextInternalFocusRequestID &+= 1
+      internalFocusRequestID = nextInternalFocusRequestID
+      internalFocusSuppressions[windowID] = InternalFocusSuppression(
+        requestID: nextInternalFocusRequestID,
+        deadline: ProcessInfo.processInfo.systemUptime + 2
+      )
+    } else {
+      internalFocusRequestID = nil
     }
     let focusWritePending = focusWriter.isBusy
     let activatesApplication =
@@ -79,6 +111,14 @@ extension MacOSPlatform {
       )
     ) { [weak self] result in
       Task { @MainActor [weak self] in
+        if let internalFocusRequestID, let self {
+          self.internalFocusSuppressions[windowID] =
+            internalFocusSuppressionAfterCompletion(
+              self.internalFocusSuppressions[windowID],
+              requestID: internalFocusRequestID,
+              result: result
+            )
+        }
         switch result {
         case .completed:
           self?.borderManager.revealPendingBorders()
@@ -94,13 +134,16 @@ extension MacOSPlatform {
         case .cancelled:
           break
         case .cancelledAfterMutation:
-          guard let maximumUserInputTimestamp else { return }
-          self?.recoverUserFocus(
-            after: maximumUserInputTimestamp,
-            excludingWindowID: windowID,
-            excludingProcessID: processID
-          )
+          if let maximumUserInputTimestamp {
+            self?.recoverUserFocus(
+              after: maximumUserInputTimestamp,
+              excludingWindowID: windowID,
+              excludingProcessID: processID
+            )
+          }
         case .failed:
+          break
+        case .failedAfterMutation:
           break
         }
         completion?(result)

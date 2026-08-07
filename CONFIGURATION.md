@@ -24,7 +24,8 @@ editing the default file:
 Invalid TOML, invalid values, unknown workspaces in rules or commands, and
 invalid command strings stop config loading. An invalid accelerator or modifier
 alias disables hotkeys for that daemon run and writes an error to
-`~/Library/Logs/Defi.log` when using the installed service.
+`~/Library/Logs/Defi.log` when using the installed service. Configured mouse
+focus and cursor-motion tracking remain active.
 
 ## `[layout]`
 

@@ -59,4 +59,21 @@ final class HotKeyTests: XCTestCase {
       XCTAssertEqual(key.modifierBits, expectedModifierBits)
     }
   }
+
+  @MainActor
+  func testInvalidBindingDisablesHotKeysButKeepsPointerTrackingConfigured() {
+    let config = Config(
+      input: InputConfig(focusFollowsMouse: true),
+      keys: ["unknown-no-such-key": "focus-column left"]
+    )
+
+    let manager = HotKeyManager(config: config) { _ in }
+
+    XCTAssertEqual(manager.bindingCount, 0)
+    XCTAssertEqual(
+      manager.bindingError,
+      .invalidAccelerator("unknown-no-such-key")
+    )
+    XCTAssertTrue(manager.tracksPointerMotion)
+  }
 }
