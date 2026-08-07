@@ -56,6 +56,7 @@ extension MacOSPlatform {
     var nextApplications: [pid_t: AXUIElement] = [:]
     var applicationWindows: [pid_t: [AXUIElement]] = [:]
     var windows: [Window] = []
+    var nextRetainedWindowIDs = Set<WindowID>()
 
     for application in NSWorkspace.shared.runningApplications
     where application.processIdentifier != ProcessInfo.processInfo.processIdentifier
@@ -90,6 +91,12 @@ extension MacOSPlatform {
           applicationWindows[application.processIdentifier] =
             cachedApplicationWindows
           windows.append(contentsOf: cachedWindows)
+          nextRetainedWindowIDs.formUnion(
+            retainedWindowIDsForCachedWindows(
+              cachedWindows,
+              previousRetainedWindowIDs: retainedWindowIDs
+            )
+          )
           for (windowID, element) in cachedElements {
             nextElements[windowID] = element
             nextProcessIDs[windowID] = application.processIdentifier
@@ -97,31 +104,47 @@ extension MacOSPlatform {
           continue
         }
       }
-      guard let appWindows = copyElements(appElement, attribute: kAXWindowsAttribute)
-      else {
-        continue
+      let appWindows = copyElements(appElement, attribute: kAXWindowsAttribute)
+      if let appWindows {
+        applicationWindows[application.processIdentifier] = appWindows
+      } else if let cachedApplicationWindows =
+        lastApplicationWindowElements[application.processIdentifier]
+      {
+        applicationWindows[application.processIdentifier] = cachedApplicationWindows
       }
-      applicationWindows[application.processIdentifier] = appWindows
       var usedCGWindowIDs = Set<CGWindowID>()
+      var ignoredPreviousWindowIDs = Set<WindowID>()
 
-      for element in appWindows {
+      for element in appWindows ?? [] {
         let previousWindowID = previousElements.first { windowID, previousElement in
           previousProcessIDs[windowID] == application.processIdentifier
             && CFEqual(previousElement, element)
         }?.key
-        guard
-          let (candidate, cgWindowID, decision) = makeWindow(
-            element: element,
-            processID: application.processIdentifier,
-            appID: appID,
-            config: config,
-            cgWindows: cgWindows,
-            monitors: monitors,
-            preferredWindowID: previousWindowID,
-            excluding: usedCGWindowIDs
-          )
-        else {
+        let discovery = makeWindow(
+          element: element,
+          processID: application.processIdentifier,
+          appID: appID,
+          config: config,
+          cgWindows: cgWindows,
+          monitors: monitors,
+          preferredWindowID: previousWindowID,
+          excluding: usedCGWindowIDs
+        )
+        let candidate: Window
+        let cgWindowID: CGWindowID
+        let decision: RuleDecision
+        switch discovery {
+        case .unavailable:
           continue
+        case .ignored:
+          if let previousWindowID {
+            ignoredPreviousWindowIDs.insert(previousWindowID)
+          }
+          continue
+        case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
+          candidate = discovered
+          cgWindowID = discoveredCGWindowID
+          decision = ruleDecision
         }
         let previousDisposition = previousWindowID.map {
           floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
@@ -134,6 +157,9 @@ extension MacOSPlatform {
           previousDisposition: previousDisposition
         )
         guard disposition != .ignored else {
+          if let previousWindowID {
+            ignoredPreviousWindowIDs.insert(previousWindowID)
+          }
           continue
         }
         guard usedCGWindowIDs.insert(cgWindowID).inserted else {
@@ -149,9 +175,55 @@ extension MacOSPlatform {
         nextElements[tracked.id] = element
         nextProcessIDs[tracked.id] = application.processIdentifier
       }
+
+      let previousWindows = previousWindowsByProcess[application.processIdentifier] ?? []
+      let cachedMinimizedState: ((WindowID) -> Bool?)?
+      if appWindows == nil {
+        cachedMinimizedState = nil
+      } else {
+        cachedMinimizedState = { windowID in
+          guard let element = previousElements[windowID] else { return nil }
+          return self.value(element, attribute: kAXMinimizedAttribute, as: Bool.self)
+        }
+      }
+      let processRetainedWindowIDs = cachedWindowIDsToRetain(
+        processID: application.processIdentifier,
+        previousWindows: previousWindows,
+        discoveredWindowIDs: Set(nextElements.keys),
+        ignoredWindowIDs: ignoredPreviousWindowIDs,
+        cgWindows: cgWindows,
+        cachedMinimizedState: cachedMinimizedState
+      )
+      nextRetainedWindowIDs.formUnion(processRetainedWindowIDs)
+      if !processRetainedWindowIDs.isEmpty {
+        let retainedIDs = processRetainedWindowIDs.sorted {
+          $0.rawValue < $1.rawValue
+        }.map { String($0.rawValue) }.joined(separator: ",")
+        frameCoordinator.recordTrace(
+          "window-cache-retained pid=\(application.processIdentifier) windows=[\(retainedIDs)]"
+        )
+      }
+      for previousWindow in previousWindows
+      where processRetainedWindowIDs.contains(previousWindow.id) {
+        guard let previousElement = previousElements[previousWindow.id] else {
+          continue
+        }
+        windows.append(previousWindow)
+        nextElements[previousWindow.id] = previousElement
+        nextProcessIDs[previousWindow.id] = application.processIdentifier
+        if applicationWindows[application.processIdentifier]?.contains(where: {
+          CFEqual($0, previousElement)
+        }) != true {
+          applicationWindows[application.processIdentifier, default: []].append(previousElement)
+        }
+      }
     }
 
     let nextWindowIDs = Set(nextElements.keys)
+    let freshObservationIDs = freshWindowObservationIDs(
+      windows: windows,
+      retainedWindowIDs: nextRetainedWindowIDs
+    )
     let removedWindowIDs = Set(previousElements.keys).subtracting(nextWindowIDs)
     newlyDiscoveredWindowIDs =
       hasCompletedWindowSnapshot
@@ -176,11 +248,14 @@ extension MacOSPlatform {
     applicationWindowCounts = applicationWindows.mapValues(\.count)
     lastSnapshotWindows = windows
     lastApplicationWindowElements = applicationWindows
+    retainedWindowIDs = nextRetainedWindowIDs
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
     eventMonitor?.refresh(applications: applicationWindows)
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
     pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }
-    latestObservedFrames = latestObservedFrames.filter { nextElements[$0.key] != nil }
+    latestObservedFrames = latestObservedFrames.filter {
+      freshObservationIDs.contains($0.key)
+    }
     frameCommitExpectations = frameCommitExpectations.filter {
       nextElements[$0.key] != nil
     }
@@ -201,7 +276,7 @@ extension MacOSPlatform {
     var targetMismatches: [FrameMismatch] = []
     var deferredMismatchCount = 0
     var settledCommitLatenciesMS: [Double] = []
-    for window in windows {
+    for window in windows where freshObservationIDs.contains(window.id) {
       latestObservedFrames[window.id] = window.frame
       if var expectation = frameCommitExpectations[window.id],
         let target = targetFrames[window.id]
@@ -372,4 +447,18 @@ extension MacOSPlatform {
     )
   }
 
+}
+
+func freshWindowObservationIDs(
+  windows: [Window],
+  retainedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  Set(windows.lazy.map(\.id)).subtracting(retainedWindowIDs)
+}
+
+func retainedWindowIDsForCachedWindows(
+  _ windows: [Window],
+  previousRetainedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  previousRetainedWindowIDs.intersection(windows.lazy.map(\.id))
 }
