@@ -11,6 +11,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
     label: "com.quentin.defi.ax-frame-coordinator",
     qos: .userInitiated
   )
+  private let finalOnlyAnimationQueue = DispatchQueue(
+    label: "com.quentin.defi.ax-final-only-animation",
+    qos: .userInitiated
+  )
   private let lock = NSLock()
   private let accessibilityWriter = AXFrameAccessibilityWriter()
   private var pending: QueuedPositionFrame?
@@ -444,11 +448,41 @@ final class AXFrameCoordinator: @unchecked Sendable {
     let staticWrites = frame.writes.filter {
       !animatedWrites.keys.contains($0.key)
     }
+    let finalOnlyProcessIDs = finalOnlyAnimationProcessIDs(
+      for: animatedWrites,
+      refreshRateHz: frame.refreshRateHz
+    )
+    let lanePlan = frameAnimationLanePlan(
+      animatedWindowIDs: Set(animatedWrites.keys),
+      processIDs: animatedWrites.mapValues(\.processID),
+      reenteringWindowIDs: Set(
+        animatedWrites.compactMap { windowID, write in
+          write.isReentering ? windowID : nil
+        }
+      ),
+      finalOnlyProcessIDs: finalOnlyProcessIDs
+    )
+    let interpolatedWrites = animatedWrites.filter {
+      lanePlan.interpolatedWindowIDs.contains($0.key)
+    }
+    let finalOnlyWrites = animatedWrites.filter {
+      lanePlan.finalOnlyWindowIDs.contains($0.key)
+    }
     let animatedFrame = QueuedPositionFrame(
       generation: frame.generation,
       source: frame.source,
-      writes: animatedWrites,
-      animatedWindowIDs: frame.animatedWindowIDs,
+      writes: interpolatedWrites,
+      animatedWindowIDs: lanePlan.interpolatedWindowIDs,
+      animationDuration: frame.animationDuration,
+      refreshRateHz: frame.refreshRateHz,
+      stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+      completion: nil
+    )
+    let finalOnlyFrame = QueuedPositionFrame(
+      generation: frame.generation,
+      source: frame.source,
+      writes: finalOnlyWrites,
+      animatedWindowIDs: lanePlan.finalOnlyWindowIDs,
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
@@ -468,13 +502,20 @@ final class AXFrameCoordinator: @unchecked Sendable {
       availableIntermediateProgresses.count,
       3
     )
-    let initialPredictedLatency = predictedFrameLatency(for: animatedWrites)
-    var intermediateFrameLimit = adaptiveIntermediateFrameLimit(
-      predictedFrameLatency: initialPredictedLatency,
-      refreshRateHz: frame.refreshRateHz,
-      availableIntermediateFrames: maximumIntermediateFrames
+    let initialPredictedLatency = predictedFrameLatency(
+      for: interpolatedWrites
     )
-    if intermediateFrameLimit < maximumIntermediateFrames {
+    var intermediateFrameLimit =
+      interpolatedWrites.isEmpty
+      ? 0
+      : adaptiveIntermediateFrameLimit(
+        predictedFrameLatency: initialPredictedLatency,
+        refreshRateHz: frame.refreshRateHz,
+        availableIntermediateFrames: maximumIntermediateFrames
+      )
+    if !interpolatedWrites.isEmpty,
+      intermediateFrameLimit < maximumIntermediateFrames
+    {
       lock.lock()
       appendTraceLocked(
         "quality g=\(frame.generation) predictedMs=\(String(format: "%.2f", initialPredictedLatency * 1_000)) intermediates=\(intermediateFrameLimit)"
@@ -488,7 +529,35 @@ final class AXFrameCoordinator: @unchecked Sendable {
     var nextProgressIndex = 0
     var lastCompletedFrameDuration = 0.0
 
-    let reentryWrites = animatedWrites.filter { $0.value.isReentering }
+    let finalOnlyGroup = DispatchGroup()
+    let finalOnlyResultStore = ConcurrentFrameResultStore()
+    if !finalOnlyWrites.isEmpty {
+      finalOnlyGroup.enter()
+      finalOnlyAnimationQueue.async { [self] in
+        defer { finalOnlyGroup.leave() }
+        let result = applyFrame(
+          finalOnlyFrame,
+          progress: 1,
+          skippedProcesses: [],
+          stagingReentry: !lanePlan.stagedFinalOnlyReentryWindowIDs.isEmpty
+        )
+        finalOnlyResultStore.store(
+          ConcurrentFrameResult(
+            applied: result.applied,
+            stale: result.stale,
+            completionSpreadMS: result.completionSpreadMS,
+            frames: result.frames
+          )
+        )
+      }
+      lock.lock()
+      appendTraceLocked(
+        "final-only-start g=\(frame.generation) processes=\(finalOnlyProcessIDs.count) windows=\(finalOnlyWrites.count) reentry=\(lanePlan.stagedFinalOnlyReentryWindowIDs.count)"
+      )
+      lock.unlock()
+    }
+
+    let reentryWrites = interpolatedWrites.filter { $0.value.isReentering }
     while frames < intermediateFrameLimit
       && nextProgressIndex < availableIntermediateProgresses.count
       && isCurrent(generation: frame.generation)
@@ -499,7 +568,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       }
       let now = ProcessInfo.processInfo.systemUptime
       let elapsed = now - startedAt
-      let predictedLatency = predictedFrameLatency(for: animatedWrites)
+      let predictedLatency = predictedFrameLatency(for: interpolatedWrites)
       if frames > 0,
         !completedFrameSupportsAnotherSample(
           duration: lastCompletedFrameDuration,
@@ -570,6 +639,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     }
 
     guard isCurrent(generation: frame.generation) else {
+      finalOnlyGroup.wait()
       markAnimationFinished(
         generation: frame.generation,
         startedAt: startedAt
@@ -581,7 +651,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       ? 0
       : anticipatedFinalFrameDispatchDelay(
         animationDuration: frame.animationDuration,
-        predictedFrameLatency: predictedFrameLatency(for: animatedWrites)
+        predictedFrameLatency: predictedFrameLatency(for: interpolatedWrites)
       )
     let finalDeadline = max(
       startedAt + finalDispatchDelay,
@@ -593,27 +663,41 @@ final class AXFrameCoordinator: @unchecked Sendable {
       spinWaitPrecisely(for: finalRemaining)
     }
     guard isCurrent(generation: frame.generation) else {
+      finalOnlyGroup.wait()
       markAnimationFinished(
         generation: frame.generation,
         startedAt: startedAt
       )
       return (applied, stale + animatedWrites.count, frames)
     }
-    let finalStartedAt = ProcessInfo.processInfo.systemUptime
-    let final = applyFrame(
-      animatedFrame,
-      progress: 1,
-      skippedProcesses: []
-    )
-    applied += final.applied
-    stale += final.stale
-    let finalDurationMS =
-      (ProcessInfo.processInfo.systemUptime - finalStartedAt) * 1_000
-    lock.lock()
-    appendTraceLocked(
-      "sample g=\(frame.generation) i=final p=1.000 applied=\(final.applied) spread=\(String(format: "%.2f", final.completionSpreadMS)) ms=\(String(format: "%.2f", finalDurationMS)) reentry=0"
-    )
-    lock.unlock()
+    if !interpolatedWrites.isEmpty {
+      let finalStartedAt = ProcessInfo.processInfo.systemUptime
+      let final = applyFrame(
+        animatedFrame,
+        progress: 1,
+        skippedProcesses: []
+      )
+      applied += final.applied
+      stale += final.stale
+      let finalDurationMS =
+        (ProcessInfo.processInfo.systemUptime - finalStartedAt) * 1_000
+      lock.lock()
+      appendTraceLocked(
+        "sample g=\(frame.generation) i=final p=1.000 applied=\(final.applied) spread=\(String(format: "%.2f", final.completionSpreadMS)) ms=\(String(format: "%.2f", finalDurationMS)) reentry=0"
+      )
+      lock.unlock()
+    }
+    finalOnlyGroup.wait()
+    let finalOnlyResult = finalOnlyResultStore.result
+    if let finalOnlyResult {
+      applied += finalOnlyResult.applied
+      stale += finalOnlyResult.stale
+      lock.lock()
+      appendTraceLocked(
+        "final-only-complete g=\(frame.generation) applied=\(finalOnlyResult.applied) spread=\(String(format: "%.2f", finalOnlyResult.completionSpreadMS)) reentry=\(lanePlan.stagedFinalOnlyReentryWindowIDs.count)"
+      )
+      lock.unlock()
+    }
     markAnimationFinished(
       generation: frame.generation,
       startedAt: startedAt
@@ -637,7 +721,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
       applied += result.applied
       stale += result.stale
     }
-    return (applied, stale, frames + 1)
+    let interpolatedFrameCount = frames + (interpolatedWrites.isEmpty ? 0 : 1)
+    return (
+      applied,
+      stale,
+      max(interpolatedFrameCount, finalOnlyResult?.frames ?? 0)
+    )
   }
 
   private func markAnimationFinished(
@@ -773,6 +862,31 @@ final class AXFrameCoordinator: @unchecked Sendable {
       }.max() ?? 0
     lock.unlock()
     return maximumMS / 1_000
+  }
+
+  private func finalOnlyAnimationProcessIDs(
+    for writes: [WindowID: AsyncPositionWrite],
+    refreshRateHz: Double
+  ) -> Set<pid_t> {
+    let processIDs = Set(writes.values.map(\.processID))
+    lock.lock()
+    let predictions = Dictionary(
+      uniqueKeysWithValues: processIDs.map { processID in
+        (processID, (predictedProcessLatencyMS[processID] ?? 0) / 1_000)
+      }
+    )
+    lock.unlock()
+    return Set(
+      predictions.compactMap { processID, latency in
+        adaptiveIntermediateFrameLimit(
+          predictedFrameLatency: latency,
+          refreshRateHz: refreshRateHz,
+          availableIntermediateFrames: 1
+        ) == 0
+          ? processID
+          : nil
+      }
+    )
   }
 
   private func recordProcessLatencySamples(
