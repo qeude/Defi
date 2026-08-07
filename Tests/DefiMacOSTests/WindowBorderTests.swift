@@ -297,7 +297,7 @@ struct WindowBorderTests {
     manager.sync(
       firstPlan,
       displayedFrames: [first: frame],
-      activeWindowIsFrontmost: true
+      stacking: frontmostStacking(for: first)
     )
     #expect(manager.performance.allocated == 1)
 
@@ -341,7 +341,7 @@ struct WindowBorderTests {
     manager.sync(
       plan,
       displayedFrames: frames,
-      activeWindowIsFrontmost: true
+      stacking: frontmostStacking(for: windowIDs[0])
     )
 
     #expect(manager.performance.allocated == 3)
@@ -350,24 +350,66 @@ struct WindowBorderTests {
 
   @Test @MainActor
   func borderPanelsFloatOnlyWhileActiveWindowIsFrontmost() {
-    let overlay = BorderOverlay(windowID: WindowID(rawValue: 1))
+    let target = WindowID(rawValue: 1)
+    let pictureInPicture = WindowID(rawValue: 2)
+    let overlay = BorderOverlay(windowID: target)
 
     #expect(
       overlay.windowLevelRawValues.allSatisfy {
         $0 == NSWindow.Level.normal.rawValue
       }
     )
-    overlay.setFrontmost(true)
+    overlay.setStacking(frontmostStacking(for: target))
     #expect(
       overlay.windowLevelRawValues.allSatisfy {
         $0 == NSWindow.Level.floating.rawValue
       }
     )
-    overlay.setFrontmost(false)
+    overlay.setStacking(.inactive(for: target))
     #expect(
       overlay.windowLevelRawValues.allSatisfy {
         $0 == NSWindow.Level.normal.rawValue
       }
+    )
+
+    overlay.setStacking(
+      WindowBorderStacking(
+        targetWindowID: target,
+        activeWindowIsFrontmost: true,
+        upperBoundWindowID: pictureInPicture,
+        upperBoundLevel: NSWindow.Level.floating.rawValue
+      )
+    )
+    #expect(
+      overlay.windowLevelRawValues.allSatisfy {
+        $0 == NSWindow.Level.floating.rawValue
+      }
+    )
+    #expect(
+      overlay.upperBoundWindowNumbers.allSatisfy {
+        $0 == Int(pictureInPicture.rawValue)
+      }
+    )
+
+    overlay.setStacking(frontmostStacking(for: target))
+    #expect(
+      overlay.windowLevelRawValues.allSatisfy {
+        $0 == NSWindow.Level.floating.rawValue
+      }
+    )
+    #expect(
+      overlay.upperBoundWindowNumbers.allSatisfy { $0 == nil }
+    )
+  }
+
+  private func frontmostStacking(
+    for windowID: WindowID
+  ) -> WindowBorderStacking {
+    WindowBorderStacking(
+      targetWindowID: windowID,
+      activeWindowIsFrontmost: true,
+      upperBoundWindowID: nil,
+      upperBoundLevel: nil
     )
   }
 }
