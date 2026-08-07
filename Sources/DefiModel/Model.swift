@@ -203,7 +203,7 @@ public enum Command: Equatable, Codable, Sendable {
 
   public var resizesManagedLayout: Bool {
     switch self {
-    case .cycleWidth, .toggleFullscreen:
+    case .cycleWidth, .toggleFullscreen, .joinWindow, .unjoinWindows:
       true
     default:
       false

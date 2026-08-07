@@ -75,6 +75,8 @@ final class ModelTests: XCTestCase {
   func testManagedLayoutResizeCommandsAreExplicit() {
     XCTAssertTrue(Command.cycleWidth(.next).resizesManagedLayout)
     XCTAssertTrue(Command.toggleFullscreen.resizesManagedLayout)
+    XCTAssertTrue(Command.joinWindow(.left).resizesManagedLayout)
+    XCTAssertTrue(Command.unjoinWindows.resizesManagedLayout)
     XCTAssertFalse(Command.focusColumn(.right).resizesManagedLayout)
     XCTAssertFalse(Command.toggleFloating.resizesManagedLayout)
   }
