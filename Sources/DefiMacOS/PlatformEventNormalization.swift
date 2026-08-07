@@ -239,6 +239,10 @@ struct PointerWindowTransitionState {
     previousRawWindowID = rawWindowID
     return true
   }
+
+  mutating func reset() {
+    previousRawWindowID = nil
+  }
 }
 
 func pointerMotionDeliveryDelay(

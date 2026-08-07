@@ -151,6 +151,22 @@ public func pointerFocusRetryIsCurrent(
     && latestUserInputTimestamp <= pointerTimestamp
 }
 
+public func completedPointerFocusIsCurrent(
+  pointerTimestamp: TimeInterval,
+  latestUserInputTimestamp: TimeInterval
+) -> Bool {
+  latestUserInputTimestamp <= pointerTimestamp
+}
+
+public func nextPointerFocusRetryCount(
+  currentRetryCount: Int,
+  maximumRetryCount: Int,
+  intentCurrent: Bool
+) -> Int? {
+  guard intentCurrent, currentRetryCount < maximumRetryCount else { return nil }
+  return currentRetryCount + 1
+}
+
 public func nativeFocusMutationIsReady(
   nativeFocusChanged: Bool,
   mouseInteractionEnded: Bool,

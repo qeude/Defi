@@ -158,6 +158,47 @@ struct PointerFocusTests {
     )
   }
 
+  @Test
+  func completedPointerFocusOnlyYieldsToNewerInput() {
+    #expect(
+      completedPointerFocusIsCurrent(
+        pointerTimestamp: 12,
+        latestUserInputTimestamp: 12
+      )
+    )
+    #expect(
+      !completedPointerFocusIsCurrent(
+        pointerTimestamp: 12,
+        latestUserInputTimestamp: 13
+      )
+    )
+  }
+
+  @Test
+  func pointerFocusRetryIsBoundedAndRequiresCurrentIntent() {
+    #expect(
+      nextPointerFocusRetryCount(
+        currentRetryCount: 0,
+        maximumRetryCount: 1,
+        intentCurrent: true
+      ) == 1
+    )
+    #expect(
+      nextPointerFocusRetryCount(
+        currentRetryCount: 1,
+        maximumRetryCount: 1,
+        intentCurrent: true
+      ) == nil
+    )
+    #expect(
+      nextPointerFocusRetryCount(
+        currentRetryCount: 0,
+        maximumRetryCount: 1,
+        intentCurrent: false
+      ) == nil
+    )
+  }
+
   private func makeState(
     columnWidths: [Double],
     centerFocusedColumn: CenterFocusedColumnConfig = .never

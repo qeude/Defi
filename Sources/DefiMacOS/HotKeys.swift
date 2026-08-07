@@ -187,6 +187,10 @@ public final class HotKeyManager {
     }
   }
 
+  public func resetPointerWindowTransition() {
+    context?.resetPointerWindowTransition()
+  }
+
   isolated deinit {
     context?.stop()
   }
@@ -353,6 +357,12 @@ private final class HotKeyTapContext: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return pointerTransitions
+  }
+
+  func resetPointerWindowTransition() {
+    lock.lock()
+    pointerTransitionState.reset()
+    lock.unlock()
   }
 
   private func enqueuePointerMotionIfNeeded(

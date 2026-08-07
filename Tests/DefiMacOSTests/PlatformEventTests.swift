@@ -111,7 +111,7 @@ struct PlatformEventTests {
         current,
         requestID: 7,
         result: .failedAfterMutation
-      ) == current
+      ) == nil
     )
   }
 
@@ -413,6 +413,20 @@ struct PlatformEventTests {
     #expect(leavesWindow)
     #expect(staysOutside == false)
     #expect(reentersWindow)
+  }
+
+  @Test
+  func pointerWindowTransitionCanBeRearmedInsideSameWindow() {
+    var state = PointerWindowTransitionState()
+
+    let entersWindow = state.changed(to: 42)
+    let staysInWindow = state.changed(to: 42)
+    state.reset()
+    let retriesInsideWindow = state.changed(to: 42)
+
+    #expect(entersWindow)
+    #expect(staysInWindow == false)
+    #expect(retriesInsideWindow)
   }
 
   @Test

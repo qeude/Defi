@@ -6,6 +6,17 @@ import Foundation
 struct PendingPointerFocus {
   let windowID: WindowID
   let timestamp: TimeInterval
+  let retryCount: Int
+
+  init(
+    windowID: WindowID,
+    timestamp: TimeInterval,
+    retryCount: Int = 0
+  ) {
+    self.windowID = windowID
+    self.timestamp = timestamp
+    self.retryCount = retryCount
+  }
 }
 
 @MainActor
@@ -58,13 +69,15 @@ extension Daemon {
 
     submitPointerFocus(
       pendingPointerFocus.windowID,
-      timestamp: pendingPointerFocus.timestamp
+      timestamp: pendingPointerFocus.timestamp,
+      retryCount: pendingPointerFocus.retryCount
     )
   }
 
   private func submitPointerFocus(
     _ windowID: WindowID,
-    timestamp: TimeInterval
+    timestamp: TimeInterval,
+    retryCount: Int = 0
   ) {
     let restoresNativeFocus = !platform.isWindowNativelyFocused(windowID)
     guard pointerFocusMonitorWithoutScrolling(
@@ -87,6 +100,18 @@ extension Daemon {
       guard let self else { return }
       guard result == .completed else {
         self.pointerFocusIgnoredCount += 1
+        switch result {
+        case .failed, .failedAfterMutation:
+          self.retryPointerFocusIfCurrent(
+            windowID,
+            timestamp: timestamp,
+            retryCount: retryCount
+          )
+        case .cancelled, .cancelledAfterMutation:
+          self.rearmPointerFocusTransition()
+        case .completed:
+          break
+        }
         return
       }
       self.commitCompletedPointerFocus(
@@ -102,16 +127,10 @@ extension Daemon {
     timestamp: TimeInterval,
     acceptsAlreadySelectedWindow: Bool
   ) {
-    let windowUnderPointerID = platform.managedWindowIDUnderPointer(
-      retaining: windowID
-    )
-    guard pointerFocusRetryIsCurrent(
-      pendingWindowID: windowID,
-      windowUnderPointerID: windowUnderPointerID,
+    guard completedPointerFocusIsCurrent(
       pointerTimestamp: timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     ) else {
-      lastPointerWindowID = windowUnderPointerID
       return
     }
 
@@ -131,6 +150,44 @@ extension Daemon {
     pointerFocusAppliedCount += 1
     needsDesktopSync = true
     updateMenuBar()
+  }
+
+  private func retryPointerFocusIfCurrent(
+    _ windowID: WindowID,
+    timestamp: TimeInterval,
+    retryCount: Int
+  ) {
+    let windowUnderPointerID = platform.managedWindowIDUnderPointer(
+      retaining: windowID
+    )
+    let intentCurrent = pointerFocusRetryIsCurrent(
+      pendingWindowID: windowID,
+      windowUnderPointerID: windowUnderPointerID,
+      pointerTimestamp: timestamp,
+      latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
+    )
+    guard
+      let nextRetryCount = nextPointerFocusRetryCount(
+        currentRetryCount: retryCount,
+        maximumRetryCount: 1,
+        intentCurrent: intentCurrent
+      )
+    else {
+      needsDesktopSync = true
+      rearmPointerFocusTransition()
+      return
+    }
+
+    pendingPointerFocus = PendingPointerFocus(
+      windowID: windowID,
+      timestamp: timestamp,
+      retryCount: nextRetryCount
+    )
+  }
+
+  private func rearmPointerFocusTransition() {
+    lastPointerWindowID = nil
+    hotKeys?.resetPointerWindowTransition()
   }
 
   private var pointerFocusIsReady: Bool {
