@@ -48,6 +48,27 @@ gaps = 8
 Widths are monitor-relative fractions. Existing pixel widths learned from
 manual resize remain pixel-based and scale when monitor geometry changes.
 
+## `[input]`
+
+Controls focus transfer between managed windows and pointer.
+
+```toml
+[input]
+focus_follows_mouse = false
+mouse_follows_focus = false
+```
+
+| Setting | Default | Values/type | Description |
+| --- | --- | --- | --- |
+| `focus_follows_mouse` | `false` | boolean | Focuses a fully reachable managed window when physical pointer enters it. Never scrolls strip. |
+| `mouse_follows_focus` | `false` | boolean | Warps pointer to focused window center after keyboard focus changes, unless pointer is already inside it. |
+
+Both can run together. Pointer-driven focus never triggers cursor warp.
+Programmatic cursor warp uses a CoreGraphics API that emits no mouse-moved
+event. Defi also discards delayed warp when physical pointer moved after
+initiating keyboard command. These boundaries prevent feedback loops and stale
+cursor movement. CLI commands and native app focus changes never warp pointer.
+
 ## `[animation]`
 
 Controls scrolling-column focus and managed column-resize animation.

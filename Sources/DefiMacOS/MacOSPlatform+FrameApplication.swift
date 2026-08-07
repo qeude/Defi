@@ -26,6 +26,7 @@ extension MacOSPlatform {
     updateVisibility: Bool = true,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     source: String = "platform"
   ) {
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
@@ -324,6 +325,12 @@ extension MacOSPlatform {
             )
           {
             self.focus(focusWindowIDAfterCommit)
+            if let cursorWarpInputTimestampAfterCommit {
+              self.warpCursor(
+                to: focusWindowIDAfterCommit,
+                unlessPointerMovedAfter: cursorWarpInputTimestampAfterCommit
+              )
+            }
           }
         }
       }
@@ -352,6 +359,12 @@ extension MacOSPlatform {
       )
     {
       focus(focusWindowIDAfterCommit)
+      if let cursorWarpInputTimestampAfterCommit {
+        warpCursor(
+          to: focusWindowIDAfterCommit,
+          unlessPointerMovedAfter: cursorWarpInputTimestampAfterCommit
+        )
+      }
     }
     if updateVisibility {
       lastHiddenWindowIDs = effectiveHiddenWindowIDs

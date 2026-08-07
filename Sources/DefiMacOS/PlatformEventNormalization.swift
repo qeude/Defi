@@ -212,6 +212,52 @@ public final class UserInputTracker: @unchecked Sendable {
   }
 }
 
+public final class PointerMotionTracker: @unchecked Sendable {
+  private let lock = NSLock()
+  private var timestamp: TimeInterval = 0
+
+  public init() {}
+
+  public func record(timestamp: TimeInterval) {
+    lock.lock()
+    self.timestamp = max(self.timestamp, timestamp)
+    lock.unlock()
+  }
+
+  public var latestTimestamp: TimeInterval {
+    lock.lock()
+    defer { lock.unlock() }
+    return timestamp
+  }
+}
+
+struct PointerWindowTransitionState {
+  private var previousRawWindowID: Int64?
+
+  mutating func changed(to rawWindowID: Int64) -> Bool {
+    guard previousRawWindowID != rawWindowID else { return false }
+    previousRawWindowID = rawWindowID
+    return true
+  }
+}
+
+func pointerMotionDeliveryDelay(
+  rawWindowID: Int64,
+  eventTimestamp: TimeInterval,
+  lastDeliveryTimestamp: TimeInterval?,
+  maximumFrequencyHz: Double = 120
+) -> TimeInterval {
+  guard rawWindowID <= 0,
+    maximumFrequencyHz > 0,
+    let lastDeliveryTimestamp
+  else {
+    return 0
+  }
+  let minimumInterval = 1 / maximumFrequencyHz
+  let elapsed = max(0, eventTimestamp - lastDeliveryTimestamp)
+  return max(0, minimumInterval - elapsed)
+}
+
 func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {
   guard rawWindowID > 0 else { return nil }
   return WindowID(rawValue: UInt64(rawWindowID))

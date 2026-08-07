@@ -56,7 +56,7 @@ extension Daemon {
       )
       platform.invalidateFrameStateForDisplayChange()
       scrollAnimations.removeAll(keepingCapacity: true)
-      pendingAnimatedFocusWindowID = nil
+      pendingAnimatedFocus = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
       cancelDeferredSlowLane()
@@ -572,6 +572,7 @@ extension Daemon {
     positionsOnly: Bool = false,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     forceFloatingFrameWrites: Bool = false,
     source: String = "layout"
   ) {
@@ -680,6 +681,8 @@ extension Daemon {
       updateVisibility: updateVisibility ?? !asynchronousPositions,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+      cursorWarpInputTimestampAfterCommit:
+        cursorWarpInputTimestampAfterCommit,
       source: source
     )
     platform.updateWindowBorders(

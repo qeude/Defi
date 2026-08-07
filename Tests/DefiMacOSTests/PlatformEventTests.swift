@@ -279,6 +279,65 @@ struct PlatformEventTests {
   }
 
   @Test
+  func pointerMotionTimestampStaysMonotonic() {
+    let tracker = PointerMotionTracker()
+
+    tracker.record(timestamp: 12)
+    tracker.record(timestamp: 10)
+
+    #expect(tracker.latestTimestamp == 12)
+  }
+
+  @Test
+  func pointerWindowTransitionsDeduplicateSameWindow() {
+    var state = PointerWindowTransitionState()
+
+    let entersWindow = state.changed(to: 42)
+    let staysInWindow = state.changed(to: 42)
+    let leavesWindow = state.changed(to: 0)
+    let staysOutside = state.changed(to: 0)
+    let reentersWindow = state.changed(to: 42)
+
+    #expect(entersWindow)
+    #expect(staysInWindow == false)
+    #expect(leavesWindow)
+    #expect(staysOutside == false)
+    #expect(reentersWindow)
+  }
+
+  @Test
+  func unresolvedPointerMotionDeliveryIsRefreshBounded() {
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 0,
+        eventTimestamp: 12,
+        lastDeliveryTimestamp: nil
+      ) == 0
+    )
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 42,
+        eventTimestamp: 12.001,
+        lastDeliveryTimestamp: 12
+      ) == 0
+    )
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 0,
+        eventTimestamp: 12.001,
+        lastDeliveryTimestamp: 12
+      ) > 0.007
+    )
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 0,
+        eventTimestamp: 12.01,
+        lastDeliveryTimestamp: 12
+      ) == 0
+    )
+  }
+
+  @Test
   func laterWindowTopologyEventRefreshesInputTimestamp() {
     #expect(
       updatedWindowTopologyInputTimestamp(

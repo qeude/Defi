@@ -25,10 +25,12 @@ func resolvedCGWindowID(
   return CGWindowID(exactly: preferredWindowID.rawValue)
 }
 
-func copyCGWindows() -> [CGWindowRecord] {
+func copyCGWindows(
+  options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+) -> [CGWindowRecord] {
   guard
     let info = CGWindowListCopyWindowInfo(
-      [.optionAll, .excludeDesktopElements],
+      options,
       kCGNullWindowID
     ) as? [[CFString: Any]]
   else {

@@ -68,6 +68,10 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      let cursorWarpInputTimestamp = keyboardCursorWarpTimestamp(
+        mouseFollowsFocus: config.input.mouseFollowsFocus,
+        capturedInputTimestamp: inputTimestamp
+      )
       mouseReorderAnimationActive = false
       latestCommandInputTimestamp = resolvedLatestCommandInputTimestamp(
         previousTimestamp: latestCommandInputTimestamp,
@@ -101,7 +105,7 @@ extension Daemon {
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
-        pendingAnimatedFocusWindowID = nil
+        pendingAnimatedFocus = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)
       persistPlacements()
@@ -139,6 +143,9 @@ extension Daemon {
           positionsOnly: speculativeRibbonNavigation,
           stagesVisibleBeforeParking: switchesWorkspace,
           focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+          cursorWarpInputTimestampAfterCommit: switchesWorkspace
+            ? cursorWarpInputTimestamp
+            : nil,
           source: switchesWorkspace ? "workspace-command" : "command"
         )
       }
@@ -156,9 +163,15 @@ extension Daemon {
           !platform.hasPendingAnimatedFrameWrites,
           !deferredSlowWindowIDs.contains(selected)
         {
-          platform.focus(selected)
+          commitCommandFocus(
+            selected,
+            cursorWarpInputTimestamp: cursorWarpInputTimestamp
+          )
         } else {
-          pendingAnimatedFocusWindowID = selected
+          pendingAnimatedFocus = PendingAnimatedFocus(
+            windowID: selected,
+            cursorWarpInputTimestamp: cursorWarpInputTimestamp
+          )
         }
       }
       lastCommandDurationMS =

@@ -1,4 +1,5 @@
 import DefiModel
+import Foundation
 
 @discardableResult
 public func focusWindow(
@@ -58,6 +59,71 @@ public func nativeFocusChangesSelection(
   }
   return activeMonitorID != focusedMonitorID
     || state.selectedWindowID(on: focusedMonitorID) != windowID
+}
+
+/// Focuses a pointer target only when doing so preserves every scroll offset.
+/// This matches niri's `focus-follows-mouse max-scroll-amount="0%"` behavior
+/// and prevents a moving strip from putting another window under the pointer.
+public func focusWindowFromPointerWithoutScrolling(
+  _ windowID: WindowID,
+  activeMonitorID: MonitorID?,
+  state: inout RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> MonitorID? {
+  guard nativeFocusChangesSelection(
+    windowID,
+    activeMonitorID: activeMonitorID,
+    state: state
+  ),
+    let location = state.location(containing: windowID),
+    let monitorIndex = state.monitors.firstIndex(where: {
+      $0.id == location.monitorID
+    }),
+    state.monitors[monitorIndex].activeWorkspace == location.workspaceID,
+    let viewport = viewports[location.monitorID]
+  else {
+    return nil
+  }
+
+  var preview = state
+  _ = focusWindow(windowID, state: &preview)
+  synchronizeScrollOffsets(
+    state: &preview,
+    viewports: [location.monitorID: viewport]
+  )
+
+  for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+    let current = state.monitors[monitorIndex]
+      .workspaces[workspaceIndex]
+      .targetScrollOffset
+    let candidate = preview.monitors[monitorIndex]
+      .workspaces[workspaceIndex]
+      .targetScrollOffset
+    guard abs(current - candidate) <= 0.000_001 else {
+      return nil
+    }
+  }
+
+  _ = focusWindow(windowID, state: &state)
+  return location.monitorID
+}
+
+public func keyboardCursorWarpTimestamp(
+  mouseFollowsFocus: Bool,
+  capturedInputTimestamp: TimeInterval?
+) -> TimeInterval? {
+  guard mouseFollowsFocus else { return nil }
+  return capturedInputTimestamp
+}
+
+public func pointerFocusRetryIsCurrent(
+  pendingWindowID: WindowID,
+  windowUnderPointerID: WindowID?,
+  pointerTimestamp: TimeInterval,
+  latestUserInputTimestamp: TimeInterval
+) -> Bool {
+  pendingWindowID == windowUnderPointerID
+    && latestUserInputTimestamp <= pointerTimestamp
 }
 
 public func nativeFocusMutationIsReady(

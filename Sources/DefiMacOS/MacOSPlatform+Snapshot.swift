@@ -246,6 +246,8 @@ extension MacOSPlatform {
     applications = nextApplications
     applicationWindowCounts = applicationWindows.mapValues(\.count)
     lastSnapshotWindows = windows
+    lastSnapshotWindowIDs = Set(windows.lazy.map(\.id))
+    lastSnapshotProcessIDs = Set(windows.lazy.compactMap(\.processID))
     lastApplicationWindowElements = applicationWindows
     retainedWindowIDs = nextRetainedWindowIDs
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }

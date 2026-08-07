@@ -25,13 +25,34 @@ public struct HotKeyInvocation: Equatable, Sendable {
   }
 }
 
+public struct PointerMotionInvocation: Equatable, Sendable {
+  public let windowID: WindowID?
+  public let location: CGPoint
+  public let timestamp: TimeInterval
+
+  public init(
+    windowID: WindowID?,
+    location: CGPoint = .zero,
+    timestamp: TimeInterval
+  ) {
+    self.windowID = windowID
+    self.location = location
+    self.timestamp = timestamp
+  }
+}
+
 @MainActor
 public final class HotKeyManager {
   public typealias Handler = @MainActor @Sendable (HotKeyInvocation) -> Void
+  public typealias PointerMotionHandler =
+    @MainActor @Sendable (PointerMotionInvocation) -> Void
 
   private let bindings: [Key: String]
   private let handler: Handler
+  private let tracksPointerMotion: Bool
+  private let pointerMotionHandler: PointerMotionHandler?
   private let userInputTracker: UserInputTracker
+  private let pointerMotionTracker: PointerMotionTracker
   private var context: HotKeyTapContext?
   private var thread: Thread?
 
@@ -49,13 +70,25 @@ public final class HotKeyManager {
     context?.tapReenableCount ?? 0
   }
 
+  public var pointerTransitionCount: Int {
+    context?.pointerTransitionCount ?? 0
+  }
+
   public init(
     config: Config,
     userInputTracker: UserInputTracker = UserInputTracker(),
+    pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
+    pointerMotionHandler: PointerMotionHandler? = nil,
     handler: @escaping Handler
   ) throws {
     self.handler = handler
+    tracksPointerMotion =
+      config.input.focusFollowsMouse || config.input.mouseFollowsFocus
+    self.pointerMotionHandler = config.input.focusFollowsMouse
+      ? pointerMotionHandler
+      : nil
     self.userInputTracker = userInputTracker
+    self.pointerMotionTracker = pointerMotionTracker
     var bindings: [Key: String] = [:]
     for (accelerator, command) in config.keys {
       let key = try Key(
@@ -69,10 +102,13 @@ public final class HotKeyManager {
 
   public func start() throws {
     guard context == nil else { return }
-    let mask = CGEventMask(
+    var mask = CGEventMask(
       (1 << CGEventType.keyDown.rawValue)
         | (1 << CGEventType.leftMouseDown.rawValue)
     )
+    if tracksPointerMotion {
+      mask |= CGEventMask(1 << CGEventType.mouseMoved.rawValue)
+    }
     let callback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else {
         return Unmanaged.passUnretained(event)
@@ -83,14 +119,21 @@ public final class HotKeyManager {
       return context.handle(type: type, event: event)
     }
     let handler = self.handler
+    let pointerMotionHandler = self.pointerMotionHandler
     let context = HotKeyTapContext(
       bindings: bindings,
-      userInputTracker: userInputTracker
+      userInputTracker: userInputTracker,
+      pointerMotionTracker: pointerMotionTracker,
+      tracksPointerWindowTransitions: pointerMotionHandler != nil
     ) { invocation in
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
           handler(invocation)
         }
+      }
+    } deliverPointerMotion: { invocation in
+      MainActor.assumeIsolated {
+        pointerMotionHandler?(invocation)
       }
     }
     guard
@@ -136,7 +179,10 @@ private final class HotKeyTapContext: @unchecked Sendable {
 
   private let bindings: [Key: String]
   private let userInputTracker: UserInputTracker
+  private let pointerMotionTracker: PointerMotionTracker
+  private let tracksPointerWindowTransitions: Bool
   private let deliver: @Sendable (HotKeyInvocation) -> Void
+  private let deliverPointerMotion: @Sendable (PointerMotionInvocation) -> Void
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
   private var tap: CFMachPort?
@@ -144,15 +190,26 @@ private final class HotKeyTapContext: @unchecked Sendable {
   private var runLoop: CFRunLoop?
   private var captured = 0
   private var reenables = 0
+  private var pointerTransitions = 0
+  private var pointerTransitionState = PointerWindowTransitionState()
+  private var pendingPointerMotion: PointerMotionInvocation?
+  private var pointerDeliveryScheduled = false
+  private var lastPointerDeliveryTimestamp: TimeInterval?
 
   init(
     bindings: [Key: String],
     userInputTracker: UserInputTracker,
-    deliver: @escaping @Sendable (HotKeyInvocation) -> Void
+    pointerMotionTracker: PointerMotionTracker,
+    tracksPointerWindowTransitions: Bool,
+    deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
+    deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void
   ) {
     self.bindings = bindings
     self.userInputTracker = userInputTracker
+    self.pointerMotionTracker = pointerMotionTracker
+    self.tracksPointerWindowTransitions = tracksPointerWindowTransitions
     self.deliver = deliver
+    self.deliverPointerMotion = deliverPointerMotion
   }
 
   func install(tap: CFMachPort, source: CFRunLoopSource) {
@@ -198,6 +255,23 @@ private final class HotKeyTapContext: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let timestamp = Double(event.timestamp) / 1_000_000_000
+    if type == .mouseMoved {
+      pointerMotionTracker.record(timestamp: timestamp)
+      if tracksPointerWindowTransitions {
+        let rawWindowID = event.getIntegerValueField(
+          .mouseEventWindowUnderMousePointer
+        )
+        enqueuePointerMotionIfNeeded(
+          PointerMotionInvocation(
+            windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID),
+            location: event.location,
+            timestamp: timestamp
+          ),
+          rawWindowID: rawWindowID
+        )
+      }
+      return Unmanaged.passUnretained(event)
+    }
     let isKeyDown = type == .keyDown
     if isKeyDown || type == .leftMouseDown {
       let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
@@ -254,6 +328,55 @@ private final class HotKeyTapContext: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return reenables
+  }
+
+  var pointerTransitionCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return pointerTransitions
+  }
+
+  private func enqueuePointerMotionIfNeeded(
+    _ invocation: PointerMotionInvocation,
+    rawWindowID: Int64
+  ) {
+    lock.lock()
+    let rawWindowChanged = pointerTransitionState.changed(to: rawWindowID)
+    guard rawWindowID <= 0 || rawWindowChanged
+    else {
+      lock.unlock()
+      return
+    }
+    pendingPointerMotion = invocation
+    let schedulesDelivery = !pointerDeliveryScheduled
+    let deliveryDelay = pointerMotionDeliveryDelay(
+      rawWindowID: rawWindowID,
+      eventTimestamp: invocation.timestamp,
+      lastDeliveryTimestamp: lastPointerDeliveryTimestamp
+    )
+    pointerDeliveryScheduled = true
+    lock.unlock()
+
+    guard schedulesDelivery else { return }
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + deliveryDelay
+    ) { [weak self] in self?.flushPointerMotion() }
+  }
+
+  private func flushPointerMotion() {
+    lock.lock()
+    let invocation = pendingPointerMotion
+    pendingPointerMotion = nil
+    pointerDeliveryScheduled = false
+    if let invocation {
+      lastPointerDeliveryTimestamp = invocation.timestamp
+      pointerTransitions += 1
+    }
+    lock.unlock()
+
+    if let invocation {
+      deliverPointerMotion(invocation)
+    }
   }
 
   func stop() {

@@ -161,7 +161,7 @@ extension Daemon {
       )
     }
     scrollAnimations.removeAll(keepingCapacity: true)
-    pendingAnimatedFocusWindowID = nil
+    pendingAnimatedFocus = nil
     platform.cancelPendingFrameWrites()
   }
 
@@ -197,11 +197,14 @@ extension Daemon {
   func finishPendingAnimatedFocusIfReady() {
     if scrollAnimations.isEmpty,
       !platform.hasPendingAnimatedFrameWrites,
-      let pendingAnimatedFocusWindowID,
-      !deferredSlowWindowIDs.contains(pendingAnimatedFocusWindowID)
+      let pendingAnimatedFocus,
+      !deferredSlowWindowIDs.contains(pendingAnimatedFocus.windowID)
     {
-      self.pendingAnimatedFocusWindowID = nil
-      platform.focus(pendingAnimatedFocusWindowID)
+      self.pendingAnimatedFocus = nil
+      commitCommandFocus(
+        pendingAnimatedFocus.windowID,
+        cursorWarpInputTimestamp: pendingAnimatedFocus.cursorWarpInputTimestamp
+      )
     }
   }
 

@@ -71,6 +71,11 @@ private enum DaemonError: Error, CustomStringConvertible {
   }
 }
 
+struct PendingAnimatedFocus: Equatable {
+  let windowID: WindowID
+  let cursorWarpInputTimestamp: TimeInterval?
+}
+
 @MainActor
 final class Daemon: NSObject {
   let config: Config
@@ -120,7 +125,12 @@ final class Daemon: NSObject {
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
   var preservedWindowRemovalFocusCount = 0
-  var pendingAnimatedFocusWindowID: WindowID?
+  var pendingAnimatedFocus: PendingAnimatedFocus?
+  var lastPointerWindowID: WindowID?
+  var pendingPointerFocus: PendingPointerFocus?
+  var pointerFocusObservedCount = 0
+  var pointerFocusAppliedCount = 0
+  var pointerFocusIgnoredCount = 0
   var deferredSlowWindowIDs = Set<WindowID>()
   var slowLaneSettlementDeadline: TimeInterval?
   var slowLaneDeferralCount = 0
@@ -168,7 +178,11 @@ final class Daemon: NSObject {
     do {
       let manager = try HotKeyManager(
         config: config,
-        userInputTracker: platform.userInputTracker
+        userInputTracker: platform.userInputTracker,
+        pointerMotionTracker: platform.pointerMotionTracker,
+        pointerMotionHandler: { [weak self] invocation in
+          self?.handlePointerMotion(invocation)
+        }
       ) { [weak self] invocation in
         self?.enqueueHotKey(invocation)
       }
@@ -192,6 +206,7 @@ final class Daemon: NSObject {
     pollIPC()
     finishDeferredSlowLaneIfReady()
     finishPendingAnimatedFocusIfReady()
+    finishPendingPointerFocusIfReady()
     if let deadline = pendingDisplaySyncDeadlines.first,
       ProcessInfo.processInfo.systemUptime >= deadline
     {

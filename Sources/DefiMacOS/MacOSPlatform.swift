@@ -32,6 +32,8 @@ public final class MacOSPlatform {
   var pendingFrameProcessIDs = Set<pid_t>()
   var pendingFrameRequiresFullSnapshot = false
   var lastSnapshotWindows: [Window] = []
+  var lastSnapshotWindowIDs = Set<WindowID>()
+  var lastSnapshotProcessIDs = Set<pid_t>()
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
   var retainedWindowIDs = Set<WindowID>()
   var deferredFrameCommitMismatchCount = 0
@@ -68,8 +70,12 @@ public final class MacOSPlatform {
     inactiveColor: 0x66c0_99ff,
     captureEnabled: false
   )
+  var cursorWarpAppliedCount = 0
+  var cursorWarpSkippedCount = 0
+  var cursorWarpFailedCount = 0
 
   public let userInputTracker = UserInputTracker()
+  public let pointerMotionTracker = PointerMotionTracker()
 
   public init() {}
 
