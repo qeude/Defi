@@ -64,6 +64,27 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testDeferredFrameFocusRejectsNewerInputBeforeSubmission() {
+    XCTAssertTrue(
+      deferredFocusInputIsCurrent(
+        requestedTimestamp: 10,
+        latestUserInputTimestamp: 10
+      )
+    )
+    XCTAssertFalse(
+      deferredFocusInputIsCurrent(
+        requestedTimestamp: 10,
+        latestUserInputTimestamp: 11
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusInputIsCurrent(
+        requestedTimestamp: nil,
+        latestUserInputTimestamp: 11
+      )
+    )
+  }
+
   func testDisplacedQueuedFrameCompletesAsSuperseded() {
     let completion = expectation(description: "superseded completion")
     let frame = QueuedPositionFrame(

@@ -32,6 +32,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   private var nextGeneration: UInt64 = 0
   private var latestGeneration: UInt64 = 0
   private var running = false
+  private var activeWindowIDs = Set<WindowID>()
   private var activeAnimationRunning = false
   private var activeAnimatedWindowIDs = Set<WindowID>()
   private var activeAnimatedSizeWindowIDs = Set<WindowID>()
@@ -250,6 +251,16 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return windowIDs
   }
 
+  var pendingWindowIDs: Set<WindowID> {
+    lock.lock()
+    defer { lock.unlock() }
+    var windowIDs = activeWindowIDs
+    if let pending {
+      windowIDs.formUnion(pending.writes.keys)
+    }
+    return windowIDs
+  }
+
   var writeCount: Int {
     lock.lock()
     defer { lock.unlock() }
@@ -377,6 +388,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
         rebaseFrameToCompletedPositionsLocked(queuedFrame)
       let applicationCount = Set(frame.writes.values.map(\.processID)).count
       activeAnimationRunning = frame.animationDuration > 0
+      activeWindowIDs = Set(frame.writes.keys)
       activeAnimatedWindowIDs = frame.animatedWindowIDs
       activeAnimatedSizeWindowIDs = Set(
         frame.writes.compactMap { windowID, write in
@@ -434,6 +446,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       }
       activeAnimatedSizeWindowIDs.removeAll(keepingCapacity: true)
       activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
+      activeWindowIDs.removeAll(keepingCapacity: true)
       lock.unlock()
       frame.completion?(
         FrameWriteCompletion(

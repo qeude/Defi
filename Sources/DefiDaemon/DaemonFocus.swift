@@ -5,15 +5,18 @@ import Foundation
 
 struct PendingPointerFocus {
   let windowID: WindowID
+  let generation: UInt64
   let timestamp: TimeInterval
   let retryCount: Int
 
   init(
     windowID: WindowID,
+    generation: UInt64,
     timestamp: TimeInterval,
     retryCount: Int = 0
   ) {
     self.windowID = windowID
+    self.generation = generation
     self.timestamp = timestamp
     self.retryCount = retryCount
   }
@@ -37,15 +40,17 @@ extension Daemon {
     )
     guard lastPointerWindowID != pointerWindowID else { return }
     lastPointerWindowID = pointerWindowID
+    invalidatePointerFocusIntent()
+    let pointerGeneration = pointerFocusGeneration
 
     guard config.input.focusFollowsMouse, let windowID = pointerWindowID else {
-      pendingPointerFocus = nil
       pointerFocusIgnoredCount += 1
       return
     }
     guard pointerFocusIsReady(for: windowID) else {
       pendingPointerFocus = PendingPointerFocus(
         windowID: windowID,
+        generation: pointerGeneration,
         timestamp: invocation.timestamp
       )
       pointerFocusIgnoredCount += 1
@@ -53,13 +58,27 @@ extension Daemon {
     }
 
     pendingPointerFocus = nil
-    submitPointerFocus(windowID, timestamp: invocation.timestamp)
+    submitPointerFocus(
+      windowID,
+      generation: pointerGeneration,
+      timestamp: invocation.timestamp
+    )
   }
 
   func finishPendingPointerFocusIfReady() {
-    guard let pendingPointerFocus,
-      pointerFocusIsReady(for: pendingPointerFocus.windowID)
-    else { return }
+    guard let pendingPointerFocus else { return }
+    guard pointerFocusRequestIsCurrent(
+      requestGeneration: pendingPointerFocus.generation,
+      currentGeneration: pointerFocusGeneration,
+      pointerTimestamp: pendingPointerFocus.timestamp,
+      latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
+    ) else {
+      self.pendingPointerFocus = nil
+      return
+    }
+    guard pointerFocusIsReady(for: pendingPointerFocus.windowID) else {
+      return
+    }
     self.pendingPointerFocus = nil
 
     let windowUnderPointerID = platform.managedWindowIDUnderPointer(
@@ -68,6 +87,8 @@ extension Daemon {
     guard pointerFocusRetryIsCurrent(
       pendingWindowID: pendingPointerFocus.windowID,
       windowUnderPointerID: windowUnderPointerID,
+      requestGeneration: pendingPointerFocus.generation,
+      currentGeneration: pointerFocusGeneration,
       pointerTimestamp: pendingPointerFocus.timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     ) else {
@@ -77,6 +98,7 @@ extension Daemon {
 
     submitPointerFocus(
       pendingPointerFocus.windowID,
+      generation: pendingPointerFocus.generation,
       timestamp: pendingPointerFocus.timestamp,
       retryCount: pendingPointerFocus.retryCount
     )
@@ -84,6 +106,7 @@ extension Daemon {
 
   private func submitPointerFocus(
     _ windowID: WindowID,
+    generation: UInt64,
     timestamp: TimeInterval,
     retryCount: Int = 0
   ) {
@@ -109,17 +132,29 @@ extension Daemon {
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     pendingWindowRemovalFocusGuard = nil
-    platform.focus(
+    submittedPointerFocusRequestID = platform.focus(
       windowID,
       unlessUserInputAfter: timestamp
     ) { [weak self] result in
       guard let self else { return }
+      guard pointerFocusRequestIsCurrent(
+        requestGeneration: generation,
+        currentGeneration: self.pointerFocusGeneration,
+        pointerTimestamp: timestamp,
+        latestUserInputTimestamp:
+          self.platform.userInputTracker.latestEventTimestamp
+      ) else {
+        self.pointerFocusIgnoredCount += 1
+        return
+      }
+      self.submittedPointerFocusRequestID = nil
       guard result == .completed || result == .completedWithoutMutation else {
         self.pointerFocusIgnoredCount += 1
         switch result {
         case .failed, .failedAfterMutation:
           self.retryPointerFocusIfCurrent(
             windowID,
+            generation: generation,
             timestamp: timestamp,
             retryCount: retryCount
           )
@@ -141,6 +176,7 @@ extension Daemon {
       }
       self.commitCompletedPointerFocus(
         windowID,
+        generation: generation,
         timestamp: timestamp,
         acceptsAlreadySelectedWindow: restoresNativeFocus
       )
@@ -149,10 +185,13 @@ extension Daemon {
 
   private func commitCompletedPointerFocus(
     _ windowID: WindowID,
+    generation: UInt64,
     timestamp: TimeInterval,
     acceptsAlreadySelectedWindow: Bool
   ) {
-    guard pointerFocusIntentIsCurrent(
+    guard pointerFocusRequestIsCurrent(
+      requestGeneration: generation,
+      currentGeneration: pointerFocusGeneration,
       pointerTimestamp: timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     ) else {
@@ -179,6 +218,7 @@ extension Daemon {
 
   private func retryPointerFocusIfCurrent(
     _ windowID: WindowID,
+    generation: UInt64,
     timestamp: TimeInterval,
     retryCount: Int
   ) {
@@ -188,6 +228,8 @@ extension Daemon {
     let intentCurrent = pointerFocusRetryIsCurrent(
       pendingWindowID: windowID,
       windowUnderPointerID: windowUnderPointerID,
+      requestGeneration: generation,
+      currentGeneration: pointerFocusGeneration,
       pointerTimestamp: timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     )
@@ -204,6 +246,7 @@ extension Daemon {
 
     pendingPointerFocus = PendingPointerFocus(
       windowID: windowID,
+      generation: generation,
       timestamp: timestamp,
       retryCount: nextRetryCount
     )
@@ -214,15 +257,24 @@ extension Daemon {
     hotKeys?.resetPointerWindowTransition()
   }
 
+  func invalidatePointerFocusIntent() {
+    pointerFocusGeneration &+= 1
+    pendingPointerFocus = nil
+    if let submittedPointerFocusRequestID {
+      platform.cancelFocus(submittedPointerFocusRequestID)
+      self.submittedPointerFocusRequestID = nil
+    }
+  }
+
   private func pointerFocusIsReady(for windowID: WindowID) -> Bool {
     guard let targetMonitorID = state.monitorID(containing: windowID) else {
       return false
     }
-    return pointerFocusMonitorIsReady(
+    return focusMonitorIsReady(
       targetMonitorID: targetMonitorID,
       scrollingMonitorIDs: Set(scrollAnimations.keys.map(\.monitorID)),
-      animatedFrameMonitorIDs: Set(
-        platform.pendingAnimatedFrameWindowIDs.compactMap {
+      pendingFrameMonitorIDs: Set(
+        platform.pendingFrameWindowIDs.compactMap {
           state.monitorID(containing: $0)
         }
       ),

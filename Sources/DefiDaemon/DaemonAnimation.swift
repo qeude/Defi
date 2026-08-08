@@ -198,10 +198,8 @@ extension Daemon {
   }
 
   func finishPendingAnimatedFocusIfReady() {
-    if scrollAnimations.isEmpty,
-      !platform.hasPendingFrameWrites,
-      let pendingAnimatedFocus,
-      !deferredSlowWindowIDs.contains(pendingAnimatedFocus.windowID)
+    if let pendingAnimatedFocus,
+      focusIsReady(on: pendingAnimatedFocus.monitorID)
     {
       self.pendingAnimatedFocus = nil
       commitCommandFocus(
@@ -219,11 +217,9 @@ extension Daemon {
   }
 
   func finishPendingWorkspaceFocusIfReady() {
-    guard scrollAnimations.isEmpty,
-      !platform.hasPendingFrameWrites,
-      let request = pendingWorkspaceFocus,
+    guard let request = pendingWorkspaceFocus,
       submittedWorkspaceFocusGeneration != request.commandGeneration,
-      !deferredSlowWindowIDs.contains(request.requestedWindowID)
+      focusIsReady(on: request.monitorID)
     else { return }
 
     submittedWorkspaceFocusGeneration = request.commandGeneration
@@ -234,6 +230,23 @@ extension Daemon {
     ) { [weak self] result in
       self?.commitWorkspaceCommandFocus(result: result, request: request)
     }
+  }
+
+  func focusIsReady(on monitorID: MonitorID) -> Bool {
+    focusMonitorIsReady(
+      targetMonitorID: monitorID,
+      scrollingMonitorIDs: Set(scrollAnimations.keys.map(\.monitorID)),
+      pendingFrameMonitorIDs: Set(
+        platform.pendingFrameWindowIDs.compactMap {
+          state.monitorID(containing: $0)
+        }
+      ),
+      deferredSlowMonitorIDs: Set(
+        deferredSlowWindowIDs.compactMap {
+          state.monitorID(containing: $0)
+        }
+      )
+    )
   }
 
   func isSpeculativeRibbonNavigation(_ command: Command) -> Bool {

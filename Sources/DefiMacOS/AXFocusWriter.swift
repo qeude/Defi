@@ -35,6 +35,21 @@ public enum NativeFocusResult: Equatable, Sendable {
   case failedAfterMutation
 }
 
+public struct NativeFocusRequestID: Equatable, Sendable {
+  fileprivate let rawValue: UInt64
+}
+
+func focusRequestCanBeCancelled(
+  requestGeneration: UInt64,
+  latestGeneration: UInt64,
+  pendingGeneration: UInt64?,
+  activeGeneration: UInt64?
+) -> Bool {
+  requestGeneration == latestGeneration
+    && (pendingGeneration == requestGeneration
+      || activeGeneration == requestGeneration)
+}
+
 struct NativeFocusRecoveryFallback: Equatable, Sendable {
   let windowID: WindowID?
   let processID: pid_t?
@@ -147,7 +162,9 @@ final class AXFocusWriter: @unchecked Sendable {
   )
   private let lock = NSLock()
   private var pending: QueuedFocusRequest?
+  private var explicitlyCancelledGenerations = Set<UInt64>()
   private var activeProcessID: pid_t?
+  private var activeGeneration: UInt64?
   private var needsRecoveryActivation = false
   private var carriedFocusRecovery: NativeFocusRecoveryRequest?
   private var latestGeneration: UInt64 = 0
@@ -162,18 +179,20 @@ final class AXFocusWriter: @unchecked Sendable {
   private var lastRaiseDurationMS = 0.0
   private var lastActivationDurationMS = 0.0
 
+  @discardableResult
   func submit(
     _ request: AsyncFocusRequest,
     completion: @escaping @Sendable (NativeFocusCompletion) -> Void
-  ) {
+  ) -> NativeFocusRequestID {
     lock.lock()
     let replaced = pending
     if replaced != nil {
       cancelledCount += 1
     }
     latestGeneration &+= 1
+    let generation = latestGeneration
     pending = QueuedFocusRequest(
-      generation: latestGeneration,
+      generation: generation,
       request: request,
       completion: completion
     )
@@ -188,6 +207,33 @@ final class AXFocusWriter: @unchecked Sendable {
     if shouldStart {
       queue.async { [self] in drain() }
     }
+    return NativeFocusRequestID(rawValue: generation)
+  }
+
+  @discardableResult
+  func cancel(_ requestID: NativeFocusRequestID) -> Bool {
+    lock.lock()
+    guard focusRequestCanBeCancelled(
+      requestGeneration: requestID.rawValue,
+      latestGeneration: latestGeneration,
+      pendingGeneration: pending?.generation,
+      activeGeneration: activeGeneration
+    ) else {
+      lock.unlock()
+      return false
+    }
+    explicitlyCancelledGenerations.insert(requestID.rawValue)
+    let replaced = pending?.generation == requestID.rawValue ? pending : nil
+    if replaced != nil {
+      pending = nil
+      explicitlyCancelledGenerations.remove(requestID.rawValue)
+      cancelledCount += 1
+    }
+    lock.unlock()
+    replaced?.completion(
+      NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)
+    )
+    return true
   }
 
   func invalidate() {
@@ -258,6 +304,7 @@ final class AXFocusWriter: @unchecked Sendable {
       }
       pending = nil
       activeProcessID = queued.request.processID
+      activeGeneration = queued.generation
       lock.unlock()
 
       let startedAt = ProcessInfo.processInfo.systemUptime
@@ -266,6 +313,7 @@ final class AXFocusWriter: @unchecked Sendable {
         let generationCurrent = isCurrent(queued.generation)
         lock.lock()
         activeProcessID = nil
+        activeGeneration = nil
         cancelledCount += 1
         lock.unlock()
         complete(
@@ -414,9 +462,11 @@ final class AXFocusWriter: @unchecked Sendable {
       lastRaiseDurationMS = raiseDurationMS
       lastActivationDurationMS = activationDurationMS
       activeProcessID = nil
+      activeGeneration = nil
       lock.unlock()
       let generationCurrent = isCurrent(queued.generation)
       let inputCurrent = inputGuardIsCurrent(request)
+        && !isExplicitlyCancelled(queued.generation)
       let focusSucceeded =
         windowSelectionSucceeded && activationSucceeded
       let result = resolvedNativeFocusResult(
@@ -440,6 +490,7 @@ final class AXFocusWriter: @unchecked Sendable {
     generationCurrent: Bool
   ) {
     lock.lock()
+    explicitlyCancelledGenerations.remove(queued.generation)
     let recoveryResetGeneration = minimumRecoveryGeneration
     lock.unlock()
     if appliedRecoveryResetGeneration < recoveryResetGeneration {
@@ -476,8 +527,21 @@ final class AXFocusWriter: @unchecked Sendable {
   }
 
   private func isCurrent(_ queued: QueuedFocusRequest) -> Bool {
-    guard isCurrent(queued.generation) else { return false }
+    lock.lock()
+    let explicitlyCancelled = explicitlyCancelledGenerations.contains(
+      queued.generation
+    )
+    lock.unlock()
+    guard !explicitlyCancelled, isCurrent(queued.generation) else {
+      return false
+    }
     return inputGuardIsCurrent(queued.request)
+  }
+
+  private func isExplicitlyCancelled(_ generation: UInt64) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return explicitlyCancelledGenerations.contains(generation)
   }
 
   private func inputGuardIsCurrent(_ request: AsyncFocusRequest) -> Bool {

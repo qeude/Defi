@@ -75,7 +75,7 @@ extension Daemon {
       platform.userInputTracker.record(
         timestamp: inputTimestamp ?? commandStartedAt
       )
-      pendingPointerFocus = nil
+      invalidatePointerFocusIntent()
       let focusInputTimestamp = commandFocusInputTimestamp(
         capturedInputTimestamp: inputTimestamp,
         commandHandledAt: commandStartedAt
@@ -241,10 +241,7 @@ extension Daemon {
           selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID)
         )
       {
-        if scrollAnimations.isEmpty,
-          !platform.hasPendingFrameWrites,
-          !deferredSlowWindowIDs.contains(selected)
-        {
+        if focusIsReady(on: monitorID) {
           commitCommandFocus(
             selected,
             previousSelectedWindowID: previouslySelectedWindowID,

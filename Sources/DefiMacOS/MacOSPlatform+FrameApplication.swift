@@ -324,7 +324,12 @@ extension MacOSPlatform {
             self.refreshWindowBorders()
           }
           if let focusWindowIDAfterCommit {
-            guard shouldApplyDeferredFocus(
+            guard deferredFocusInputIsCurrent(
+              requestedTimestamp: focusInputTimestampAfterCommit,
+              latestUserInputTimestamp:
+                self.userInputTracker.latestEventTimestamp
+            ),
+              shouldApplyDeferredFocus(
               targetWindowID: focusWindowIDAfterCommit,
               selectedWindowID: self.desiredSelectedWindowID
             ) else {
@@ -365,7 +370,11 @@ extension MacOSPlatform {
       )
     }
     if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit {
-      if shouldApplyDeferredFocus(
+      if deferredFocusInputIsCurrent(
+        requestedTimestamp: focusInputTimestampAfterCommit,
+        latestUserInputTimestamp: userInputTracker.latestEventTimestamp
+      ),
+        shouldApplyDeferredFocus(
         targetWindowID: focusWindowIDAfterCommit,
         selectedWindowID: desiredSelectedWindowID
       ) {
@@ -540,6 +549,10 @@ extension MacOSPlatform {
 
   public var pendingAnimatedFrameWindowIDs: Set<WindowID> {
     frameCoordinator.pendingAnimatedWindowIDs
+  }
+
+  public var pendingFrameWindowIDs: Set<WindowID> {
+    frameCoordinator.pendingWindowIDs
   }
 
   public var hasPendingFocusWrite: Bool {

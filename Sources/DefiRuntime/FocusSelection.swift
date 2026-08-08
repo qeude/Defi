@@ -219,10 +219,13 @@ public func pendingWorkspaceFocusIsPreserved(
 public func pointerFocusRetryIsCurrent(
   pendingWindowID: WindowID,
   windowUnderPointerID: WindowID?,
+  requestGeneration: UInt64,
+  currentGeneration: UInt64,
   pointerTimestamp: TimeInterval,
   latestUserInputTimestamp: TimeInterval
 ) -> Bool {
   pendingWindowID == windowUnderPointerID
+    && requestGeneration == currentGeneration
     && latestUserInputTimestamp <= pointerTimestamp
 }
 
@@ -231,6 +234,19 @@ public func pointerFocusIntentIsCurrent(
   latestUserInputTimestamp: TimeInterval
 ) -> Bool {
   latestUserInputTimestamp <= pointerTimestamp
+}
+
+public func pointerFocusRequestIsCurrent(
+  requestGeneration: UInt64,
+  currentGeneration: UInt64,
+  pointerTimestamp: TimeInterval,
+  latestUserInputTimestamp: TimeInterval
+) -> Bool {
+  requestGeneration == currentGeneration
+    && pointerFocusIntentIsCurrent(
+      pointerTimestamp: pointerTimestamp,
+      latestUserInputTimestamp: latestUserInputTimestamp
+    )
 }
 
 public func pointerFocusGuardTimestamp(
@@ -294,14 +310,14 @@ public func nextCommandFocusRetryCount(
   return currentRetryCount + 1
 }
 
-public func pointerFocusMonitorIsReady(
+public func focusMonitorIsReady(
   targetMonitorID: MonitorID,
   scrollingMonitorIDs: Set<MonitorID>,
-  animatedFrameMonitorIDs: Set<MonitorID>,
+  pendingFrameMonitorIDs: Set<MonitorID>,
   deferredSlowMonitorIDs: Set<MonitorID>
 ) -> Bool {
   !scrollingMonitorIDs.contains(targetMonitorID)
-    && !animatedFrameMonitorIDs.contains(targetMonitorID)
+    && !pendingFrameMonitorIDs.contains(targetMonitorID)
     && !deferredSlowMonitorIDs.contains(targetMonitorID)
 }
 

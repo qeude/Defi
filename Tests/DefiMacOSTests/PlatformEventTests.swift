@@ -213,6 +213,34 @@ struct PlatformEventTests {
   }
 
   @Test
+  func pointerCancellationCannotCancelANewerFocusRequest() {
+    #expect(
+      focusRequestCanBeCancelled(
+        requestGeneration: 4,
+        latestGeneration: 4,
+        pendingGeneration: nil,
+        activeGeneration: 4
+      )
+    )
+    #expect(
+      focusRequestCanBeCancelled(
+        requestGeneration: 4,
+        latestGeneration: 4,
+        pendingGeneration: 4,
+        activeGeneration: nil
+      )
+    )
+    #expect(
+      !focusRequestCanBeCancelled(
+        requestGeneration: 4,
+        latestGeneration: 5,
+        pendingGeneration: nil,
+        activeGeneration: 5
+      )
+    )
+  }
+
+  @Test
   func abandonedFocusClearsOnlyItsOwnUnmutatedSuppression() {
     let current = InternalFocusSuppression(
       requestID: 7,

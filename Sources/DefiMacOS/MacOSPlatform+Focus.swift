@@ -65,13 +65,14 @@ extension MacOSPlatform {
       && NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
   }
 
+  @discardableResult
   public func focus(
     _ windowID: WindowID,
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
-  ) {
+  ) -> NativeFocusRequestID? {
     submitFocus(
       windowID,
       unlessUserInputAfter: maximumUserInputTimestamp,
@@ -82,6 +83,7 @@ extension MacOSPlatform {
     )
   }
 
+  @discardableResult
   private func submitFocus(
     _ windowID: WindowID,
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval?,
@@ -91,13 +93,13 @@ extension MacOSPlatform {
     focusRecoveryFallback providedFocusRecoveryFallback:
       NativeFocusRecoveryFallback? = nil,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
-  ) {
+  ) -> NativeFocusRequestID? {
     guard let element = elements[windowID],
       let processID = processIDs[windowID],
       let application = applications[processID]
     else {
       completion?(.failed)
-      return
+      return nil
     }
     let focusRecoveryFallback = maximumUserInputTimestamp.flatMap { _ in
       providedFocusRecoveryFallback ?? capturedNativeFocusRecoveryFallback()
@@ -154,7 +156,7 @@ extension MacOSPlatform {
       focusWritePending: focusWritePending,
       targetWasLastFocused: lastFocusedWindowByProcess[processID] == windowID
     )
-    focusWriter.submit(
+    return focusWriter.submit(
       AsyncFocusRequest(
         element: element,
         application: application,
@@ -212,6 +214,11 @@ extension MacOSPlatform {
         completion?(result)
       }
     }
+  }
+
+  @discardableResult
+  public func cancelFocus(_ requestID: NativeFocusRequestID) -> Bool {
+    focusWriter.cancel(requestID)
   }
 
   private func recoverUserFocus(_ request: NativeFocusRecoveryRequest) {

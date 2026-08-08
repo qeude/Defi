@@ -281,6 +281,14 @@ func cursorWarpTimestampAfterFrameCompletion(
   return requestedTimestamp
 }
 
+func deferredFocusInputIsCurrent(
+  requestedTimestamp: TimeInterval?,
+  latestUserInputTimestamp: TimeInterval
+) -> Bool {
+  guard let requestedTimestamp else { return true }
+  return latestUserInputTimestamp <= requestedTimestamp
+}
+
 func cursorWarpFrameReadiness(
   latestWriteSucceeded: Bool?,
   observedFrame: Rect?,
