@@ -73,6 +73,8 @@ private enum DaemonError: Error, CustomStringConvertible {
 
 struct PendingAnimatedFocus: Equatable {
   let windowID: WindowID
+  let previousSelectedWindowID: WindowID?
+  let commandGeneration: UInt64
   let focusInputTimestamp: TimeInterval
   let cursorWarpInputTimestamp: TimeInterval?
 }
@@ -120,6 +122,7 @@ final class Daemon: NSObject {
   var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
+  var commandGeneration: UInt64 = 0
   var deferredMouseFocusIntent: DeferredMouseFocusIntent?
   var consumedMouseFocusIntentTimestamp: TimeInterval = 0
   var suppressNativeFocusUntil: TimeInterval = 0

@@ -68,6 +68,8 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      commandGeneration &+= 1
+      let currentCommandGeneration = commandGeneration
       platform.userInputTracker.record(
         timestamp: inputTimestamp ?? commandStartedAt
       )
@@ -176,12 +178,16 @@ extension Daemon {
         {
           commitCommandFocus(
             selected,
+            previousSelectedWindowID: previouslySelectedWindowID,
+            commandGeneration: currentCommandGeneration,
             focusInputTimestamp: focusInputTimestamp,
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
           )
         } else {
           pendingAnimatedFocus = PendingAnimatedFocus(
             windowID: selected,
+            previousSelectedWindowID: previouslySelectedWindowID,
+            commandGeneration: currentCommandGeneration,
             focusInputTimestamp: focusInputTimestamp,
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
           )
@@ -194,8 +200,12 @@ extension Daemon {
           selectedWindowID: selected
         )
       {
+        let previousPendingAnimatedFocus = pendingAnimatedFocus
         pendingAnimatedFocus = PendingAnimatedFocus(
           windowID: selected,
+          previousSelectedWindowID:
+            previousPendingAnimatedFocus?.previousSelectedWindowID,
+          commandGeneration: currentCommandGeneration,
           focusInputTimestamp: focusInputTimestamp,
           cursorWarpInputTimestamp: cursorWarpInputTimestamp
         )

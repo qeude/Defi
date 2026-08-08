@@ -45,7 +45,7 @@ struct PlatformEventTests {
         inputCurrent: true,
         cancelled: false,
         focusSucceeded: true
-      ) == .completed
+      ) == .completedWithoutMutation
     )
     #expect(
       resolvedNativeFocusResult(
@@ -90,6 +90,41 @@ struct PlatformEventTests {
   }
 
   @Test
+  func supersededMutationTransfersRecoveryToUnmutatedReplacement() throws {
+    let originalRecovery = NativeFocusRecoveryRequest(
+      timestamp: 10,
+      excludingWindowID: WindowID(rawValue: 2),
+      excludingProcessID: 20,
+      fallback: NativeFocusRecoveryFallback(
+        windowID: WindowID(rawValue: 1),
+        processID: 10
+      )
+    )
+    let transferred = transferredNativeFocusRecovery(
+      carried: nil,
+      request: originalRecovery,
+      result: .cancelledAfterMutation,
+      generationCurrent: false
+    )
+    #expect(transferred.carried == originalRecovery)
+    #expect(transferred.recovery == nil)
+
+    let replacement = transferredNativeFocusRecovery(
+      carried: transferred.carried,
+      request: NativeFocusRecoveryRequest(
+        timestamp: 11,
+        excludingWindowID: WindowID(rawValue: 3),
+        excludingProcessID: 30,
+        fallback: nil
+      ),
+      result: .cancelled,
+      generationCurrent: true
+    )
+    #expect(replacement.carried == nil)
+    #expect(replacement.recovery == originalRecovery)
+  }
+
+  @Test
   func failedFocusPreservesWhetherMutationWasApplied() {
     #expect(
       resolvedNativeFocusResult(
@@ -115,6 +150,13 @@ struct PlatformEventTests {
   func abandonedFocusClearsOnlyItsOwnUnmutatedSuppression() {
     let current = InternalFocusSuppression(requestID: 7, deadline: 20)
 
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .completedWithoutMutation
+      ) == nil
+    )
     #expect(
       internalFocusSuppressionAfterCompletion(
         current,

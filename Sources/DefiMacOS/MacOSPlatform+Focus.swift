@@ -11,11 +11,6 @@ struct InternalFocusSuppression: Equatable, Sendable {
   let deadline: TimeInterval
 }
 
-struct NativeFocusRecoveryFallback: Equatable, Sendable {
-  let windowID: WindowID?
-  let processID: pid_t?
-}
-
 func internalFocusSuppressionAfterCompletion(
   _ suppression: InternalFocusSuppression?,
   requestID: UInt64,
@@ -23,7 +18,7 @@ func internalFocusSuppressionAfterCompletion(
 ) -> InternalFocusSuppression? {
   guard suppression?.requestID == requestID else { return suppression }
   switch result {
-  case .cancelled, .failed, .failedAfterMutation:
+  case .completedWithoutMutation, .cancelled, .failed, .failedAfterMutation:
     return nil
   case .completed, .cancelledAfterMutation, .cancelledAfterInputMutation:
     return suppression
@@ -76,6 +71,14 @@ extension MacOSPlatform {
     let focusRecoveryFallback = maximumUserInputTimestamp.flatMap { _ in
       providedFocusRecoveryFallback ?? capturedNativeFocusRecoveryFallback()
     }
+    let focusRecoveryRequest = maximumUserInputTimestamp.map {
+      NativeFocusRecoveryRequest(
+        timestamp: $0,
+        excludingWindowID: windowID,
+        excludingProcessID: processID,
+        fallback: focusRecoveryFallback
+      )
+    }
     let internalFocusRequestID: UInt64?
     if suppressesNativeFocusEvent {
       nextInternalFocusRequestID &+= 1
@@ -120,10 +123,12 @@ extension MacOSPlatform {
             tracker: userInputTracker,
             maximumTimestamp: $0
           )
-        }
+        },
+        recoveryRequest: focusRecoveryRequest
       )
-    ) { [weak self] result in
+    ) { [weak self] nativeCompletion in
       Task { @MainActor [weak self] in
+        let result = nativeCompletion.result
         if let internalFocusRequestID, let self {
           self.internalFocusSuppressions[windowID] =
             internalFocusSuppressionAfterCompletion(
@@ -132,8 +137,11 @@ extension MacOSPlatform {
               result: result
             )
         }
+        if let recoveryRequest = nativeCompletion.recoveryRequest {
+          self?.recoverUserFocus(recoveryRequest)
+        }
         switch result {
-        case .completed:
+        case .completed, .completedWithoutMutation:
           self?.borderManager.revealPendingBorders()
           if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(
             result: result,
@@ -150,14 +158,7 @@ extension MacOSPlatform {
         case .cancelledAfterMutation:
           break
         case .cancelledAfterInputMutation:
-          if let maximumUserInputTimestamp {
-            self?.recoverUserFocus(
-              after: maximumUserInputTimestamp,
-              excludingWindowID: windowID,
-              excludingProcessID: processID,
-              fallback: focusRecoveryFallback
-            )
-          }
+          break
         case .failed:
           break
         case .failedAfterMutation:
@@ -168,18 +169,13 @@ extension MacOSPlatform {
     }
   }
 
-  private func recoverUserFocus(
-    after timestamp: TimeInterval,
-    excludingWindowID: WindowID,
-    excludingProcessID: pid_t,
-    fallback: NativeFocusRecoveryFallback?
-  ) {
+  private func recoverUserFocus(_ request: NativeFocusRecoveryRequest) {
     guard let target = userInputTracker.focusRecoveryTarget(
-      after: timestamp,
-      excludingWindowID: excludingWindowID,
-      excludingProcessID: excludingProcessID,
-      fallbackWindowID: fallback?.windowID,
-      fallbackProcessID: fallback?.processID
+      after: request.timestamp,
+      excludingWindowID: request.excludingWindowID,
+      excludingProcessID: request.excludingProcessID,
+      fallbackWindowID: request.fallback?.windowID,
+      fallbackProcessID: request.fallback?.processID
     ),
       userInputTracker.latestEventTimestamp <= target.timestamp
     else {

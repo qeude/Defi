@@ -107,7 +107,7 @@ extension Daemon {
       unlessUserInputAfter: timestamp
     ) { [weak self] result in
       guard let self else { return }
-      guard result == .completed else {
+      guard result == .completed || result == .completedWithoutMutation else {
         self.pointerFocusIgnoredCount += 1
         switch result {
         case .failed, .failedAfterMutation:
@@ -125,7 +125,7 @@ extension Daemon {
           ) {
             self.rearmPointerFocusTransition()
           }
-        case .completed:
+        case .completed, .completedWithoutMutation:
           break
         }
         return
@@ -228,6 +228,8 @@ extension Daemon {
 
   func commitCommandFocus(
     _ windowID: WindowID,
+    previousSelectedWindowID: WindowID?,
+    commandGeneration: UInt64,
     focusInputTimestamp: TimeInterval,
     cursorWarpInputTimestamp: TimeInterval?
   ) {
@@ -235,6 +237,26 @@ extension Daemon {
       windowID,
       unlessUserInputAfter: focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
-    )
+    ) { [weak self] result in
+      guard let self, let monitorID = self.activeMonitorID,
+        let fallbackWindowID = commandFocusCancellationFallback(
+          cancelledBeforeMutation: result == .cancelled,
+          requestGeneration: commandGeneration,
+          currentGeneration: self.commandGeneration,
+          requestedWindowID: windowID,
+          selectedWindowID: self.state.selectedWindowID(on: monitorID),
+          previousSelectedWindowID: previousSelectedWindowID
+        ),
+        self.state.windows[fallbackWindowID] != nil
+      else {
+        return
+      }
+      _ = focusWindow(fallbackWindowID, state: &self.state)
+      self.activeMonitorID = self.state.monitorID(
+        containing: fallbackWindowID
+      )
+      self.needsDesktopSync = true
+      self.updateMenuBar()
+    }
   }
 }

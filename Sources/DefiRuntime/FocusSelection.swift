@@ -148,6 +148,25 @@ public func commandFocusInputTimestamp(
   capturedInputTimestamp ?? commandHandledAt
 }
 
+public func commandFocusCancellationFallback(
+  cancelledBeforeMutation: Bool,
+  requestGeneration: UInt64,
+  currentGeneration: UInt64,
+  requestedWindowID: WindowID,
+  selectedWindowID: WindowID?,
+  previousSelectedWindowID: WindowID?
+) -> WindowID? {
+  guard cancelledBeforeMutation,
+    requestGeneration == currentGeneration,
+    selectedWindowID == requestedWindowID,
+    let previousSelectedWindowID,
+    previousSelectedWindowID != requestedWindowID
+  else {
+    return nil
+  }
+  return previousSelectedWindowID
+}
+
 public func pointerFocusRetryIsCurrent(
   pendingWindowID: WindowID,
   windowUnderPointerID: WindowID?,

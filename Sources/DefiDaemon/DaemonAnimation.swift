@@ -203,6 +203,9 @@ extension Daemon {
       self.pendingAnimatedFocus = nil
       commitCommandFocus(
         pendingAnimatedFocus.windowID,
+        previousSelectedWindowID:
+          pendingAnimatedFocus.previousSelectedWindowID,
+        commandGeneration: pendingAnimatedFocus.commandGeneration,
         focusInputTimestamp: pendingAnimatedFocus.focusInputTimestamp,
         cursorWarpInputTimestamp: pendingAnimatedFocus.cursorWarpInputTimestamp
       )

@@ -71,6 +71,12 @@ struct CursorTests {
   func cursorWarpWaitsForConfirmedNativeFocus() {
     #expect(
       cursorWarpTimestampAfterNativeFocus(
+        result: .completedWithoutMutation,
+        requestedTimestamp: 12
+      ) == 12
+    )
+    #expect(
+      cursorWarpTimestampAfterNativeFocus(
         result: .completed,
         requestedTimestamp: 12
       ) == 12
@@ -220,7 +226,7 @@ struct CursorTests {
         id: 9,
         processID: 90,
         layer: 20,
-        title: "Dock",
+        title: "",
         frame: physicalFrame
       ),
       record(

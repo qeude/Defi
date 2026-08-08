@@ -19,15 +19,72 @@ struct AsyncFocusRequest: @unchecked Sendable {
   let validatesSpecificWindowFocus: Bool
   let activatesApplication: Bool
   let inputGuard: FocusInputGuard?
+  let recoveryRequest: NativeFocusRecoveryRequest?
 }
 
 public enum NativeFocusResult: Equatable, Sendable {
   case completed
+  case completedWithoutMutation
   case cancelled
   case cancelledAfterMutation
   case cancelledAfterInputMutation
   case failed
   case failedAfterMutation
+}
+
+struct NativeFocusRecoveryFallback: Equatable, Sendable {
+  let windowID: WindowID?
+  let processID: pid_t?
+}
+
+struct NativeFocusRecoveryRequest: Equatable, Sendable {
+  let timestamp: TimeInterval
+  let excludingWindowID: WindowID
+  let excludingProcessID: pid_t
+  let fallback: NativeFocusRecoveryFallback?
+}
+
+struct NativeFocusCompletion: Equatable, Sendable {
+  let result: NativeFocusResult
+  let recoveryRequest: NativeFocusRecoveryRequest?
+}
+
+struct NativeFocusRecoveryTransfer: Equatable, Sendable {
+  let carried: NativeFocusRecoveryRequest?
+  let recovery: NativeFocusRecoveryRequest?
+}
+
+func transferredNativeFocusRecovery(
+  carried: NativeFocusRecoveryRequest?,
+  request: NativeFocusRecoveryRequest?,
+  result: NativeFocusResult,
+  generationCurrent: Bool
+) -> NativeFocusRecoveryTransfer {
+  switch result {
+  case .cancelledAfterMutation:
+    return NativeFocusRecoveryTransfer(
+      carried: carried ?? request,
+      recovery: nil
+    )
+  case .cancelledAfterInputMutation:
+    guard generationCurrent else {
+      return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
+    }
+    return NativeFocusRecoveryTransfer(
+      carried: nil,
+      recovery: carried ?? request
+    )
+  case .cancelled, .failed:
+    guard generationCurrent else {
+      return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
+    }
+    return NativeFocusRecoveryTransfer(carried: nil, recovery: carried)
+  case .completed, .completedWithoutMutation, .failedAfterMutation:
+    guard generationCurrent else {
+      return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
+    }
+    return NativeFocusRecoveryTransfer(carried: nil, recovery: nil)
+  }
 }
 
 func resolvedNativeFocusResult(
@@ -45,7 +102,7 @@ func resolvedNativeFocusResult(
   }
   if !cancelled && generationCurrent && inputCurrent {
     if focusSucceeded {
-      return .completed
+      return mutationApplied ? .completed : .completedWithoutMutation
     }
     return mutationApplied ? .failedAfterMutation : .failed
   }
@@ -55,7 +112,7 @@ func resolvedNativeFocusResult(
 private struct QueuedFocusRequest: @unchecked Sendable {
   let generation: UInt64
   let request: AsyncFocusRequest
-  let completion: @Sendable (NativeFocusResult) -> Void
+  let completion: @Sendable (NativeFocusCompletion) -> Void
 }
 
 final class AXFocusWriter: @unchecked Sendable {
@@ -67,6 +124,7 @@ final class AXFocusWriter: @unchecked Sendable {
   private var pending: QueuedFocusRequest?
   private var activeProcessID: pid_t?
   private var needsRecoveryActivation = false
+  private var carriedFocusRecovery: NativeFocusRecoveryRequest?
   private var latestGeneration: UInt64 = 0
   private var running = false
   private var lastDurationMS = 0.0
@@ -79,7 +137,7 @@ final class AXFocusWriter: @unchecked Sendable {
 
   func submit(
     _ request: AsyncFocusRequest,
-    completion: @escaping @Sendable (NativeFocusResult) -> Void
+    completion: @escaping @Sendable (NativeFocusCompletion) -> Void
   ) {
     lock.lock()
     let replaced = pending
@@ -97,7 +155,9 @@ final class AXFocusWriter: @unchecked Sendable {
       running = true
     }
     lock.unlock()
-    replaced?.completion(.cancelled)
+    replaced?.completion(
+      NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)
+    )
     if shouldStart {
       queue.async { [self] in drain() }
     }
@@ -165,7 +225,9 @@ final class AXFocusWriter: @unchecked Sendable {
         activeProcessID = nil
         cancelledCount += 1
         lock.unlock()
-        queued.completion(.cancelled)
+        queued.completion(
+          NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)
+        )
         continue
       }
       var usedFastPath = false
@@ -305,13 +367,24 @@ final class AXFocusWriter: @unchecked Sendable {
       let inputCurrent = inputGuardIsCurrent(request)
       let focusSucceeded =
         windowSelectionSucceeded && activationSucceeded
+      let result = resolvedNativeFocusResult(
+        mutationApplied: focusMutationApplied,
+        generationCurrent: generationCurrent,
+        inputCurrent: inputCurrent,
+        cancelled: cancelled,
+        focusSucceeded: focusSucceeded
+      )
+      let recoveryTransfer = transferredNativeFocusRecovery(
+        carried: carriedFocusRecovery,
+        request: request.recoveryRequest,
+        result: result,
+        generationCurrent: generationCurrent
+      )
+      carriedFocusRecovery = recoveryTransfer.carried
       queued.completion(
-        resolvedNativeFocusResult(
-          mutationApplied: focusMutationApplied,
-          generationCurrent: generationCurrent,
-          inputCurrent: inputCurrent,
-          cancelled: cancelled,
-          focusSucceeded: focusSucceeded
+        NativeFocusCompletion(
+          result: result,
+          recoveryRequest: recoveryTransfer.recovery
         )
       )
     }

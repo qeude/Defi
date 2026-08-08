@@ -35,7 +35,9 @@ func cursorWarpTimestampAfterNativeFocus(
   result: NativeFocusResult,
   requestedTimestamp: TimeInterval?
 ) -> TimeInterval? {
-  guard result == .completed else { return nil }
+  guard result == .completed || result == .completedWithoutMutation else {
+    return nil
+  }
   return requestedTimestamp
 }
 
@@ -94,7 +96,6 @@ func transparentDockOverlayWindowIDs(
 ) -> Set<CGWindowID> {
   Set(records.compactMap { record in
     guard record.layer > 0,
-      record.title == "Dock",
       dockProcessIDs.contains(record.processID),
       monitorFrames.contains(where: { monitorFrame in
         record.frame.x <= monitorFrame.x + 1
