@@ -98,30 +98,30 @@ public struct Column: Equatable, Codable, Sendable {
   public var windows: [WindowID]
   public var focusedWindow: Int
   public var width: ColumnWidth
-  public var fullscreenPreviousWidth: ColumnWidth?
+  public var preMaximizedWidth: ColumnWidth?
 
   public init(
     window: WindowID,
     width: ColumnWidth,
     focusedWindow: Int = 0,
-    fullscreenPreviousWidth: ColumnWidth? = nil
+    preMaximizedWidth: ColumnWidth? = nil
   ) {
     self.windows = [window]
     self.focusedWindow = focusedWindow
     self.width = width
-    self.fullscreenPreviousWidth = fullscreenPreviousWidth
+    self.preMaximizedWidth = preMaximizedWidth
   }
 
   public init(
     windows: [WindowID],
     focusedWindow: Int,
     width: ColumnWidth,
-    fullscreenPreviousWidth: ColumnWidth? = nil
+    preMaximizedWidth: ColumnWidth? = nil
   ) {
     self.windows = windows
     self.focusedWindow = focusedWindow
     self.width = width
-    self.fullscreenPreviousWidth = fullscreenPreviousWidth
+    self.preMaximizedWidth = preMaximizedWidth
   }
 }
 
@@ -194,7 +194,7 @@ public enum Command: Equatable, Codable, Sendable {
   case sendWindowToWorkspace(WorkspaceID)
   case switchWorkspace(WorkspaceID)
   case cycleWidth(Direction)
-  case toggleFullscreen
+  case maximizeColumn
   case toggleFloating
   case activateFloating
   case joinWindow(Direction)
@@ -203,7 +203,7 @@ public enum Command: Equatable, Codable, Sendable {
 
   public var resizesManagedLayout: Bool {
     switch self {
-    case .cycleWidth, .toggleFullscreen, .joinWindow, .unjoinWindows:
+    case .cycleWidth, .maximizeColumn, .joinWindow, .unjoinWindows:
       true
     default:
       false
@@ -295,8 +295,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .switchWorkspace(WorkspaceID(rawValue: try argument("workspace")))
   case "cycle-width":
     return .cycleWidth(try parseDirection(argument("direction")))
-  case "toggle-fullscreen":
-    return .toggleFullscreen
+  case "maximize-column":
+    return .maximizeColumn
   case "toggle-floating":
     return .toggleFloating
   case "activate-floating":

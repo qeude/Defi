@@ -61,7 +61,7 @@ final class RuntimeWidthLearningTests: XCTestCase {
     )
   }
 
-  func testFullscreenWidthCannotBeLearnedFromAXDrift() throws {
+  func testMaximizedWidthCannotBeLearnedFromAXDrift() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -73,7 +73,7 @@ final class RuntimeWidthLearningTests: XCTestCase {
       monitorID: monitorID
     )
     try discoverWindow(window, decision: RuleDecision(), state: &state)
-    try reduce(.toggleFullscreen, on: monitorID, state: &state)
+    try reduce(.maximizeColumn, on: monitorID, state: &state)
 
     XCTAssertFalse(
       learnTiledWindowWidth(
@@ -88,7 +88,7 @@ final class RuntimeWidthLearningTests: XCTestCase {
       .fraction(1)
     )
     XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].fullscreenPreviousWidth,
+      state.monitors[0].workspaces[0].columns[0].preMaximizedWidth,
       .fraction(0.8)
     )
   }

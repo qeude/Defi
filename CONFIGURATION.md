@@ -236,7 +236,7 @@ an entry from `[workspaces].names`.
 | `send-window-to-workspace <name>` | Move focused window without switching workspace. | unset |
 | `cycle-width previous` | Select previous width preset, wrapping. | `<mod>-minus` |
 | `cycle-width next` | Select next width preset, wrapping. | `<mod>-equal` |
-| `toggle-fullscreen` | Toggle focused column between full width and previous width. | `<mod>-f` |
+| `maximize-column` | Toggle focused column between full width and previous width. | `<mod>-f` |
 | `toggle-floating` | Toggle focused window between tiled and floating layers. | `<mod>-backslash` |
 | `activate-floating` | Select floating layer and foreground its selected window. | `<mod>-shift-backslash` |
 | `focus-floating previous` | Focus previous floating window, wrapping. | `<mod>-comma` |
@@ -254,6 +254,26 @@ accepts `left`/`right` and `up`/`down` as previous/next aliases.
 Commands are validated when config loads. Direction compatibility can still be
 validated at execution for commands implemented by the layout engine; use forms
 listed above for deterministic behavior.
+
+### Native macOS fullscreen
+
+`maximize-column` changes only Defi's logical column width. It does not enter
+native macOS fullscreen or create a macOS Space.
+
+Native fullscreen lifecycle support is not implemented yet. Its required policy
+is:
+
+- macOS or the application owns fullscreen entry and exit; Defi passes those
+  actions through and never substitutes `maximize-column`
+- while macOS reports a window in native fullscreen, Defi temporarily unmanages
+  it and performs no layout, parking, frame, or focus writes for that window
+- Defi preserves the window's logical column slot, width, monitor, workspace,
+  and focus selection while it is unmanaged
+- on exit, Defi restores the window to that slot and reconciles once against
+  current monitor topology; normal deterministic monitor fallback applies when
+  the original monitor no longer exists
+- stale fullscreen events cannot restore older layout, visibility, or focus
+  state; latest transition wins
 
 ## `[[rules]]`
 
@@ -369,7 +389,7 @@ default = "1"
 
 "alt-minus" = "cycle-width previous"
 "alt-equal" = "cycle-width next"
-"alt-f" = "toggle-fullscreen"
+"alt-f" = "maximize-column"
 "alt-backslash" = "toggle-floating"
 "alt-shift-backslash" = "activate-floating"
 "alt-comma" = "focus-floating previous"

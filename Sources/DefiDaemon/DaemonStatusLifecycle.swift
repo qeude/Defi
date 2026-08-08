@@ -93,7 +93,7 @@ extension Daemon {
       }
       let column = workspace.columns[workspace.focusedColumn]
       return
-        "\(columnWidthStatus(column.width))/prev:\(column.fullscreenPreviousWidth.map(columnWidthStatus) ?? "none")"
+        "\(columnWidthStatus(column.width))/pre-max:\(column.preMaximizedWidth.map(columnWidthStatus) ?? "none")"
     }()
     let displaySizes = latestMonitors.map {
       "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
