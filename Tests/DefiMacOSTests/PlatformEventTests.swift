@@ -26,6 +26,17 @@ struct PlatformEventTests {
   }
 
   @Test
+  func generalInputTrackingIncludesScrollWheel() {
+    #expect(eventTracksGeneralUserInput(.keyDown))
+    #expect(eventTracksGeneralUserInput(.leftMouseDown))
+    #expect(eventTracksGeneralUserInput(.rightMouseDown))
+    #expect(eventTracksGeneralUserInput(.otherMouseDown))
+    #expect(eventTracksGeneralUserInput(.scrollWheel))
+    #expect(!eventTracksGeneralUserInput(.mouseMoved))
+    #expect(!eventTracksGeneralUserInput(.leftMouseUp))
+  }
+
+  @Test
   func nativeFocusResultRequiresCurrentSuccessfulRequest() {
     #expect(
       resolvedNativeFocusResult(

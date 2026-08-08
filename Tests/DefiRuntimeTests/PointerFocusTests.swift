@@ -175,6 +175,46 @@ struct PointerFocusTests {
   }
 
   @Test
+  func stalePointerCancellationDoesNotRearmTransition() {
+    #expect(
+      cancelledPointerFocusShouldRearm(
+        pointerTimestamp: 12,
+        latestUserInputTimestamp: 12
+      )
+    )
+    #expect(
+      !cancelledPointerFocusShouldRearm(
+        pointerTimestamp: 12,
+        latestUserInputTimestamp: 13
+      )
+    )
+  }
+
+  @Test
+  func pendingCommandFocusRefreshesOnlyForPreservedTarget() {
+    let windowID = WindowID(rawValue: 42)
+
+    #expect(
+      pendingCommandFocusIsPreserved(
+        pendingWindowID: windowID,
+        selectedWindowID: windowID
+      )
+    )
+    #expect(
+      !pendingCommandFocusIsPreserved(
+        pendingWindowID: WindowID(rawValue: 43),
+        selectedWindowID: windowID
+      )
+    )
+    #expect(
+      !pendingCommandFocusIsPreserved(
+        pendingWindowID: nil,
+        selectedWindowID: windowID
+      )
+    )
+  }
+
+  @Test
   func pointerFocusRetryIsBoundedAndRequiresCurrentIntent() {
     #expect(
       nextPointerFocusRetryCount(

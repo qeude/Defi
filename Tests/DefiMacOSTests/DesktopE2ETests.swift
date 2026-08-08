@@ -529,6 +529,40 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(manager.tapReenableCount, 0)
   }
 
+  func testScrollWheelAdvancesUserInputTracker() throws {
+    _ = try makePlatform()
+    let tracker = UserInputTracker()
+    let manager = HotKeyManager(
+      config: Config(),
+      userInputTracker: tracker
+    ) { _ in }
+    try manager.start()
+    let previousTimestamp = tracker.latestEventTimestamp
+
+    guard let source = CGEventSource(stateID: .hidSystemState),
+      let scroll = CGEvent(
+        scrollWheelEvent2Source: source,
+        units: .pixel,
+        wheelCount: 1,
+        wheel1: 1,
+        wheel2: 0,
+        wheel3: 0
+      )
+    else {
+      XCTFail("Could not create scroll-wheel event")
+      return
+    }
+    scroll.post(tap: .cghidEventTap)
+
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { tracker.latestEventTimestamp > previousTimestamp },
+        timeout: 0.5
+      ),
+      "scroll-wheel input did not reach UserInputTracker"
+    )
+  }
+
   func testPointerTransitionsUseWindowUnderPointerAndWarpDoesNotLoop() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())

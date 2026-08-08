@@ -177,6 +177,18 @@ extension Daemon {
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
           )
         }
+      } else if !switchesWorkspace,
+        let monitorID = activeMonitorID ?? state.monitors.first?.id,
+        let selected = state.selectedWindowID(on: monitorID),
+        pendingCommandFocusIsPreserved(
+          pendingWindowID: pendingAnimatedFocus?.windowID,
+          selectedWindowID: selected
+        )
+      {
+        pendingAnimatedFocus = PendingAnimatedFocus(
+          windowID: selected,
+          cursorWarpInputTimestamp: cursorWarpInputTimestamp
+        )
       }
       lastCommandDurationMS =
         (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000

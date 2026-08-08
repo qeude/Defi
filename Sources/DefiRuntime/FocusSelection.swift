@@ -158,6 +158,23 @@ public func pointerFocusIntentIsCurrent(
   latestUserInputTimestamp <= pointerTimestamp
 }
 
+public func cancelledPointerFocusShouldRearm(
+  pointerTimestamp: TimeInterval,
+  latestUserInputTimestamp: TimeInterval
+) -> Bool {
+  pointerFocusIntentIsCurrent(
+    pointerTimestamp: pointerTimestamp,
+    latestUserInputTimestamp: latestUserInputTimestamp
+  )
+}
+
+public func pendingCommandFocusIsPreserved(
+  pendingWindowID: WindowID?,
+  selectedWindowID: WindowID
+) -> Bool {
+  pendingWindowID == selectedWindowID
+}
+
 public func nextPointerFocusRetryCount(
   currentRetryCount: Int,
   maximumRetryCount: Int,

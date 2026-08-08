@@ -117,7 +117,13 @@ extension Daemon {
             retryCount: retryCount
           )
         case .cancelled, .cancelledAfterMutation:
-          self.rearmPointerFocusTransition()
+          if cancelledPointerFocusShouldRearm(
+            pointerTimestamp: timestamp,
+            latestUserInputTimestamp:
+              self.platform.userInputTracker.latestEventTimestamp
+          ) {
+            self.rearmPointerFocusTransition()
+          }
         case .completed:
           break
         }
