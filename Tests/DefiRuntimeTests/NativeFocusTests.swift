@@ -8,6 +8,32 @@ struct NativeFocusTests {
   private let monitorID = MonitorID(rawValue: 1)
 
   @Test
+  func currentCommandFocusRetriesOnceWhileSelectionMatches() {
+    let windowID = WindowID(rawValue: 2)
+
+    #expect(
+      nextCommandFocusRetryCount(
+        currentRetryCount: 0,
+        maximumRetryCount: 1,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: windowID,
+        selectedWindowID: windowID
+      ) == 1
+    )
+    #expect(
+      nextCommandFocusRetryCount(
+        currentRetryCount: 1,
+        maximumRetryCount: 1,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: windowID,
+        selectedWindowID: windowID
+      ) == nil
+    )
+  }
+
+  @Test
   func alreadySelectedWindowDoesNotChangeNativeFocusSelection() throws {
     var state = try makeState()
     let selected = WindowID(rawValue: 1)

@@ -14,6 +14,56 @@ final class FrameCommitTests: XCTestCase {
     observedAt: nil
   )
 
+  func testCursorWarpRequiresSuccessfulTargetFrameWrite() {
+    let target = WindowID(rawValue: 2)
+    let sibling = WindowID(rawValue: 3)
+    let failed = FrameWriteCompletion(
+      completedLatest: true,
+      attemptedWindowIDs: [target, sibling],
+      successfulWindowIDs: [sibling]
+    )
+    let succeeded = FrameWriteCompletion(
+      completedLatest: true,
+      attemptedWindowIDs: [target, sibling],
+      successfulWindowIDs: [target, sibling]
+    )
+
+    XCTAssertNil(
+      cursorWarpTimestampAfterFrameCompletion(
+        requestedTimestamp: 10,
+        targetWindowID: target,
+        completion: failed
+      )
+    )
+    XCTAssertEqual(
+      cursorWarpTimestampAfterFrameCompletion(
+        requestedTimestamp: 10,
+        targetWindowID: target,
+        completion: succeeded
+      ),
+      10
+    )
+  }
+
+  func testCursorWarpAllowsObservedConvergenceAfterFailedWrite() {
+    let target = Rect(x: 100, y: 40, width: 800, height: 700)
+
+    XCTAssertFalse(
+      cursorWarpFrameReadiness(
+        latestWriteSucceeded: false,
+        observedFrame: Rect(x: 900, y: 40, width: 800, height: 700),
+        targetFrame: target
+      )
+    )
+    XCTAssertTrue(
+      cursorWarpFrameReadiness(
+        latestWriteSucceeded: false,
+        observedFrame: target,
+        targetFrame: target
+      )
+    )
+  }
+
   func testDisplacedQueuedFrameCompletesAsSuperseded() {
     let completion = expectation(description: "superseded completion")
     let frame = QueuedPositionFrame(
@@ -24,8 +74,9 @@ final class FrameCommitTests: XCTestCase {
       animationDuration: 0,
       refreshRateHz: 60,
       stagesVisibleBeforeParking: false
-    ) { completedLatest in
-      XCTAssertFalse(completedLatest)
+    ) { result in
+      XCTAssertFalse(result.completedLatest)
+      XCTAssertTrue(result.successfulWindowIDs.isEmpty)
       completion.fulfill()
     }
 

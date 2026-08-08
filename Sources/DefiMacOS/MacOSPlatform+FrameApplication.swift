@@ -310,13 +310,13 @@ extension MacOSPlatform {
       repairsSuspended: isLeftMouseButtonDown
     )
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty
-    let frameCompletion: (@Sendable (Bool) -> Void)?
+    let frameCompletion: (@Sendable (FrameWriteCompletion) -> Void)?
     if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil {
       frameCompletion = nil
     } else {
-      frameCompletion = { [weak self] completedLatest in
+      frameCompletion = { [weak self] result in
         DispatchQueue.main.async {
-          guard completedLatest, let self else {
+          guard result.completedLatest, let self else {
             focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
@@ -335,7 +335,11 @@ extension MacOSPlatform {
               focusWindowIDAfterCommit,
               unlessUserInputAfter: focusInputTimestampAfterCommit,
               cursorWarpUnlessPointerMovedAfter:
-                cursorWarpInputTimestampAfterCommit,
+                cursorWarpTimestampAfterFrameCompletion(
+                  requestedTimestamp: cursorWarpInputTimestampAfterCommit,
+                  targetWindowID: focusWindowIDAfterCommit,
+                  completion: result
+                ),
               cursorWarpPrefersTargetFrame: true,
               completion: focusCompletionAfterCommit
             )
@@ -522,6 +526,16 @@ extension MacOSPlatform {
 
   public var hasPendingFrameWrites: Bool {
     frameCoordinator.isBusy
+  }
+
+  public func cursorWarpFrameIsReady(for windowID: WindowID) -> Bool {
+    cursorWarpFrameReadiness(
+      latestWriteSucceeded: frameCoordinator.latestWriteSucceeded(
+        for: windowID
+      ),
+      observedFrame: latestObservedFrames[windowID],
+      targetFrame: targetFrames[windowID]
+    )
   }
 
   public var pendingAnimatedFrameWindowIDs: Set<WindowID> {

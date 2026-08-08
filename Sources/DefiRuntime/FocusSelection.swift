@@ -233,6 +233,13 @@ public func pointerFocusIntentIsCurrent(
   latestUserInputTimestamp <= pointerTimestamp
 }
 
+public func pointerFocusGuardTimestamp(
+  pointerTimestamp: TimeInterval,
+  targetAccepted: Bool
+) -> TimeInterval? {
+  targetAccepted ? pointerTimestamp : nil
+}
+
 public func cancelledPointerFocusShouldRearm(
   pointerTimestamp: TimeInterval,
   latestUserInputTimestamp: TimeInterval
@@ -267,6 +274,23 @@ public func nextPointerFocusRetryCount(
   intentCurrent: Bool
 ) -> Int? {
   guard intentCurrent, currentRetryCount < maximumRetryCount else { return nil }
+  return currentRetryCount + 1
+}
+
+public func nextCommandFocusRetryCount(
+  currentRetryCount: Int,
+  maximumRetryCount: Int,
+  requestGeneration: UInt64,
+  currentGeneration: UInt64,
+  requestedWindowID: WindowID,
+  selectedWindowID: WindowID?
+) -> Int? {
+  guard requestGeneration == currentGeneration,
+    requestedWindowID == selectedWindowID,
+    currentRetryCount < maximumRetryCount
+  else {
+    return nil
+  }
   return currentRetryCount + 1
 }
 

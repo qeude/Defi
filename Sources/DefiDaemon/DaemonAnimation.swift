@@ -212,7 +212,8 @@ extension Daemon {
         sourceWorkspaceID: pendingAnimatedFocus.sourceWorkspaceID,
         commandGeneration: pendingAnimatedFocus.commandGeneration,
         focusInputTimestamp: pendingAnimatedFocus.focusInputTimestamp,
-        cursorWarpInputTimestamp: pendingAnimatedFocus.cursorWarpInputTimestamp
+        cursorWarpInputTimestamp: pendingAnimatedFocus.cursorWarpInputTimestamp,
+        retryCount: pendingAnimatedFocus.retryCount
       )
     }
   }

@@ -4,6 +4,22 @@ import DefiRuntime
 import Testing
 
 struct PointerFocusTests {
+  @Test
+  func rejectedPointerTargetDoesNotAdvanceFocusGuard() {
+    #expect(
+      pointerFocusGuardTimestamp(
+        pointerTimestamp: 12,
+        targetAccepted: false
+      ) == nil
+    )
+    #expect(
+      pointerFocusGuardTimestamp(
+        pointerTimestamp: 12,
+        targetAccepted: true
+      ) == 12
+    )
+  }
+
   private let monitorID = MonitorID(rawValue: 1)
   private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 800)
 

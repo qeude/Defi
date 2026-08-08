@@ -7,7 +7,14 @@ import DefiModel
 import OSLog
 
 func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
-  frame?.completion?(false)
+  guard let frame else { return }
+  frame.completion?(
+    FrameWriteCompletion(
+      completedLatest: false,
+      attemptedWindowIDs: Set(frame.writes.keys),
+      successfulWindowIDs: []
+    )
+  )
 }
 
 final class AXFrameCoordinator: @unchecked Sendable {
@@ -34,6 +41,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   private var droppedFrameCount = 0
   private var completedPositions: [WindowID: CGPoint] = [:]
   private var completedSizes: [WindowID: CGSize] = [:]
+  private var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
+  private var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   private var traceEntries: [String] = []
   private var lastFrameDurationMS = 0.0
   private var maximumFrameDurationMS = 0.0
@@ -139,6 +148,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     pending = nil
     completedPositions.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
+    successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
+    latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
     initialSettlementRepairsSuspended = false
@@ -160,7 +171,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     refreshRateHz: Double = 60,
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
-    completion: (@Sendable (Bool) -> Void)? = nil
+    completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
   ) {
     guard !writes.isEmpty else { return }
     lock.lock()
@@ -180,6 +191,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       completion: completion
     )
+    successfulFinalWritesByGeneration[nextGeneration] = []
+    if let displacedFrame {
+      successfulFinalWritesByGeneration[displacedFrame.generation] = nil
+    }
     let animatedIDs = animatedWindowIDs.sorted {
       $0.rawValue < $1.rawValue
     }.map { String($0.rawValue) }.joined(separator: ",")
@@ -269,6 +284,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return completedSizes[windowID]
+  }
+
+  func latestWriteSucceeded(for windowID: WindowID) -> Bool? {
+    lock.lock()
+    defer { lock.unlock() }
+    return latestWriteSucceededByWindowID[windowID]
   }
 
   func alignCompletedSize(windowID: WindowID, size: CGSize) {
@@ -401,10 +422,26 @@ final class AXFrameCoordinator: @unchecked Sendable {
       appendTraceLocked(
         "\(aborted ? "abort" : "complete") g=\(frame.generation) applied=\(result.applied) frames=\(result.frames) ms=\(String(format: "%.2f", elapsedMS))"
       )
+      let successfulWindowIDs =
+        successfulFinalWritesByGeneration.removeValue(
+          forKey: frame.generation
+        ) ?? []
+      if !aborted {
+        for windowID in frame.writes.keys {
+          latestWriteSucceededByWindowID[windowID] =
+            successfulWindowIDs.contains(windowID)
+        }
+      }
       activeAnimatedSizeWindowIDs.removeAll(keepingCapacity: true)
       activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
       lock.unlock()
-      frame.completion?(!aborted)
+      frame.completion?(
+        FrameWriteCompletion(
+          completedLatest: !aborted,
+          attemptedWindowIDs: Set(frame.writes.keys),
+          successfulWindowIDs: successfulWindowIDs
+        )
+      )
     }
   }
 
@@ -1023,6 +1060,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
         )
         lock.unlock()
         continue
+      }
+      if !intermediate, progress >= 1, appliedWrite {
+        lock.lock()
+        successfulFinalWritesByGeneration[frame.generation, default: []]
+          .insert(item.key)
+        lock.unlock()
       }
       let requiresReadback =
         item.value.isParked

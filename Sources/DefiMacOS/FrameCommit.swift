@@ -258,7 +258,39 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let animationDuration: TimeInterval
   let refreshRateHz: Double
   let stagesVisibleBeforeParking: Bool
-  let completion: (@Sendable (Bool) -> Void)?
+  let completion: (@Sendable (FrameWriteCompletion) -> Void)?
+}
+
+struct FrameWriteCompletion: Equatable, Sendable {
+  let completedLatest: Bool
+  let attemptedWindowIDs: Set<WindowID>
+  let successfulWindowIDs: Set<WindowID>
+}
+
+func cursorWarpTimestampAfterFrameCompletion(
+  requestedTimestamp: TimeInterval?,
+  targetWindowID: WindowID,
+  completion: FrameWriteCompletion
+) -> TimeInterval? {
+  guard completion.completedLatest,
+    !completion.attemptedWindowIDs.contains(targetWindowID)
+      || completion.successfulWindowIDs.contains(targetWindowID)
+  else {
+    return nil
+  }
+  return requestedTimestamp
+}
+
+func cursorWarpFrameReadiness(
+  latestWriteSucceeded: Bool?,
+  observedFrame: Rect?,
+  targetFrame: Rect?
+) -> Bool {
+  if latestWriteSucceeded != false {
+    return true
+  }
+  guard let observedFrame, let targetFrame else { return false }
+  return frameDistance(observedFrame, targetFrame) <= 1
 }
 
 struct FrameAnimationLanePlan: Equatable, Sendable {

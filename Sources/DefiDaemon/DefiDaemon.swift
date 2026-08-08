@@ -79,6 +79,27 @@ struct PendingAnimatedFocus: Equatable {
   let commandGeneration: UInt64
   let focusInputTimestamp: TimeInterval
   let cursorWarpInputTimestamp: TimeInterval?
+  let retryCount: Int
+
+  init(
+    windowID: WindowID,
+    previousSelectedWindowID: WindowID?,
+    monitorID: MonitorID,
+    sourceWorkspaceID: WorkspaceID,
+    commandGeneration: UInt64,
+    focusInputTimestamp: TimeInterval,
+    cursorWarpInputTimestamp: TimeInterval?,
+    retryCount: Int = 0
+  ) {
+    self.windowID = windowID
+    self.previousSelectedWindowID = previousSelectedWindowID
+    self.monitorID = monitorID
+    self.sourceWorkspaceID = sourceWorkspaceID
+    self.commandGeneration = commandGeneration
+    self.focusInputTimestamp = focusInputTimestamp
+    self.cursorWarpInputTimestamp = cursorWarpInputTimestamp
+    self.retryCount = retryCount
+  }
 }
 
 struct PendingWorkspaceFocus: Equatable {
@@ -90,6 +111,30 @@ struct PendingWorkspaceFocus: Equatable {
   let commandGeneration: UInt64
   let focusInputTimestamp: TimeInterval
   let cursorWarpInputTimestamp: TimeInterval?
+  let retryCount: Int
+
+  init(
+    monitorID: MonitorID,
+    requestedWorkspaceID: WorkspaceID,
+    previousWorkspaceID: WorkspaceID?,
+    requestedWindowID: WindowID,
+    restoresPreviousWorkspaceOnCancellation: Bool,
+    commandGeneration: UInt64,
+    focusInputTimestamp: TimeInterval,
+    cursorWarpInputTimestamp: TimeInterval?,
+    retryCount: Int = 0
+  ) {
+    self.monitorID = monitorID
+    self.requestedWorkspaceID = requestedWorkspaceID
+    self.previousWorkspaceID = previousWorkspaceID
+    self.requestedWindowID = requestedWindowID
+    self.restoresPreviousWorkspaceOnCancellation =
+      restoresPreviousWorkspaceOnCancellation
+    self.commandGeneration = commandGeneration
+    self.focusInputTimestamp = focusInputTimestamp
+    self.cursorWarpInputTimestamp = cursorWarpInputTimestamp
+    self.retryCount = retryCount
+  }
 }
 
 @MainActor
