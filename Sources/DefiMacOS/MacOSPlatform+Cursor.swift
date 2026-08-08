@@ -64,12 +64,10 @@ func managedPointerHitTest(
   at location: CGPoint,
   records: [CGWindowRecord],
   managedWindowIDs: Set<WindowID>,
-  excludingProcessID: pid_t,
-  nonblockingElevatedWindowIDs: Set<CGWindowID> = []
+  nonblockingWindowIDs: Set<CGWindowID> = []
 ) -> ManagedPointerHit {
   for record in records
-  where record.processID != excludingProcessID
-    && location.x >= record.frame.x
+  where location.x >= record.frame.x
     && location.x <= record.frame.x + record.frame.width
     && location.y >= record.frame.y
     && location.y <= record.frame.y + record.frame.height
@@ -78,7 +76,7 @@ func managedPointerHitTest(
     if managedWindowIDs.contains(windowID) {
       return .managed(windowID)
     }
-    if record.layer > 0, nonblockingElevatedWindowIDs.contains(record.id) {
+    if nonblockingWindowIDs.contains(record.id) {
       continue
     }
     return .blocked
@@ -149,12 +147,13 @@ extension MacOSPlatform {
       at: location,
       records: records,
       managedWindowIDs: lastSnapshotWindowIDs,
-      excludingProcessID: ProcessInfo.processInfo.processIdentifier,
-      nonblockingElevatedWindowIDs: transparentDockOverlayWindowIDs(
+      nonblockingWindowIDs: transparentDockOverlayWindowIDs(
         records: records,
         dockProcessIDs: dockProcessIDs,
         monitorFrames: lastMonitorFrames
-      ).union(transparentPointerOverlayWindowIDs(records: records))
+      )
+        .union(transparentPointerOverlayWindowIDs(records: records))
+        .union(borderManager.transparentSurfaceWindowIDs)
     )
     switch hit {
     case .managed(let windowID):

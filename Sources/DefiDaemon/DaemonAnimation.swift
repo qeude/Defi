@@ -218,7 +218,7 @@ extension Daemon {
 
   func finishPendingWorkspaceFocusIfReady() {
     guard scrollAnimations.isEmpty,
-      !platform.hasPendingAnimatedFrameWrites,
+      !platform.hasPendingFrameWrites,
       let request = pendingWorkspaceFocus,
       submittedWorkspaceFocusGeneration != request.commandGeneration,
       !deferredSlowWindowIDs.contains(request.requestedWindowID)

@@ -42,10 +42,10 @@ func internalFocusSuppressionAfterCompletion(
   guard suppression?.requestID == requestID else { return suppression }
   switch result {
   case .completedWithoutMutation, .frameSuperseded, .superseded, .cancelled,
-    .failed, .failedAfterMutation:
+    .failed:
     return nil
   case .completed, .supersededAfterMutation, .cancelledAfterMutation,
-    .cancelledAfterInputMutation:
+    .cancelledAfterInputMutation, .failedAfterMutation:
     return suppression
   }
 }

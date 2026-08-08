@@ -77,12 +77,13 @@ func transferredNativeFocusRecovery(
       carried: nil,
       recovery: carried ?? request
     )
-  case .frameSuperseded, .superseded, .cancelled, .failed:
+  case .frameSuperseded, .superseded, .cancelled, .failed,
+    .failedAfterMutation:
     guard generationCurrent else {
       return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
     }
     return NativeFocusRecoveryTransfer(carried: nil, recovery: carried)
-  case .completed, .completedWithoutMutation, .failedAfterMutation:
+  case .completed, .completedWithoutMutation:
     guard generationCurrent else {
       return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
     }

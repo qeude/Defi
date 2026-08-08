@@ -152,8 +152,7 @@ struct CursorTests {
       managedPointerHitTest(
         at: CGPoint(x: 300, y: 500),
         records: records,
-        managedWindowIDs: [tiledWindowID, floatingWindowID],
-        excludingProcessID: 999
+        managedWindowIDs: [tiledWindowID, floatingWindowID]
       ) == .managed(floatingWindowID)
     )
   }
@@ -171,8 +170,7 @@ struct CursorTests {
       managedPointerHitTest(
         at: CGPoint(x: 300, y: 500),
         records: records,
-        managedWindowIDs: [tiledWindowID, sheetWindowID],
-        excludingProcessID: 999
+        managedWindowIDs: [tiledWindowID, sheetWindowID]
       ) == .managed(sheetWindowID)
     )
   }
@@ -188,8 +186,7 @@ struct CursorTests {
       managedPointerHitTest(
         at: CGPoint(x: 300, y: 500),
         records: records,
-        managedWindowIDs: [WindowID(rawValue: 1)],
-        excludingProcessID: 999
+        managedWindowIDs: [WindowID(rawValue: 1)]
       ) == .blocked
     )
   }
@@ -207,8 +204,7 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [managedWindowID],
-        excludingProcessID: 999,
-        nonblockingElevatedWindowIDs: [9]
+        nonblockingWindowIDs: [9]
       ) == .managed(managedWindowID)
     )
   }
@@ -255,8 +251,7 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [WindowID(rawValue: 1)],
-        excludingProcessID: 999,
-        nonblockingElevatedWindowIDs: []
+        nonblockingWindowIDs: []
       ) == .blocked
     )
   }
@@ -283,8 +278,7 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [WindowID(rawValue: 1)],
-        excludingProcessID: 999,
-        nonblockingElevatedWindowIDs: transparentWindowIDs
+        nonblockingWindowIDs: transparentWindowIDs
       ) == .managed(WindowID(rawValue: 1))
     )
   }
@@ -300,8 +294,7 @@ struct CursorTests {
       managedPointerHitTest(
         at: CGPoint(x: 300, y: 500),
         records: records,
-        managedWindowIDs: [WindowID(rawValue: 1)],
-        excludingProcessID: 999
+        managedWindowIDs: [WindowID(rawValue: 1)]
       ) == .blocked
     )
   }
@@ -318,9 +311,26 @@ struct CursorTests {
       managedPointerHitTest(
         at: CGPoint(x: 300, y: 500),
         records: records,
-        managedWindowIDs: [managedWindowID],
-        excludingProcessID: 999
+        managedWindowIDs: [managedWindowID]
       ) == .blocked
+    )
+  }
+
+  @Test
+  func knownTransparentNormalSurfaceAllowsManagedWindowBehindIt() {
+    let managedWindowID = WindowID(rawValue: 1)
+    let records = [
+      record(id: 9, processID: 999),
+      record(id: 1, processID: 10),
+    ]
+
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [managedWindowID],
+        nonblockingWindowIDs: [9]
+      ) == .managed(managedWindowID)
     )
   }
 

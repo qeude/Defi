@@ -520,6 +520,10 @@ extension MacOSPlatform {
     frameCoordinator.isAnimating
   }
 
+  public var hasPendingFrameWrites: Bool {
+    frameCoordinator.isBusy
+  }
+
   public var pendingAnimatedFrameWindowIDs: Set<WindowID> {
     frameCoordinator.pendingAnimatedWindowIDs
   }

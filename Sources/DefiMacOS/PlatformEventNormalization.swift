@@ -197,6 +197,13 @@ public final class UserInputTracker: @unchecked Sendable {
           processID: target.processID
         )
       case .mouse(let windowID):
+        if let target = observedTarget(), target.windowID != windowID {
+          return FocusRecoveryTarget(
+            timestamp: latestTimestamp,
+            windowID: target.windowID,
+            processID: target.processID
+          )
+        }
         if let windowID {
           return FocusRecoveryTarget(
             timestamp: latestTimestamp,

@@ -141,6 +141,15 @@ struct PlatformEventTests {
     )
     #expect(replacement.carried == nil)
     #expect(replacement.recovery == originalRecovery)
+
+    let failedReplacement = transferredNativeFocusRecovery(
+      carried: originalRecovery,
+      request: nil,
+      result: .failedAfterMutation,
+      generationCurrent: true
+    )
+    #expect(failedReplacement.carried == nil)
+    #expect(failedReplacement.recovery == originalRecovery)
   }
 
   @Test
@@ -220,7 +229,7 @@ struct PlatformEventTests {
         current,
         requestID: 7,
         result: .failedAfterMutation
-      ) == nil
+      ) == current
     )
   }
 
@@ -496,6 +505,23 @@ struct PlatformEventTests {
     let target = try #require(tracker.focusRecoveryTarget(after: 10))
     #expect(target.timestamp == 11)
     #expect(target.windowID == nil)
+    #expect(target.processID == 900)
+  }
+
+  @Test
+  func mouseFocusRecoveryPrefersObservedTargetOverSystemSurface() throws {
+    let tracker = UserInputTracker()
+    tracker.record(
+      timestamp: 11,
+      focusIntent: .mouse(windowID: WindowID(rawValue: 42))
+    )
+    tracker.recordObservedFocus(
+      windowID: WindowID(rawValue: 99),
+      processID: 900
+    )
+
+    let target = try #require(tracker.focusRecoveryTarget(after: 10))
+    #expect(target.windowID == WindowID(rawValue: 99))
     #expect(target.processID == 900)
   }
 
