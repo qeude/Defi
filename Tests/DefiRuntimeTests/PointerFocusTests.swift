@@ -22,7 +22,7 @@ struct PointerFocusTests {
         pointerWindowIsReady: false,
         targetAccepted: false,
         logicalFocusWindowID: logicalWindowID
-      ) == nil
+      ) == logicalWindowID
     )
   }
   @Test

@@ -39,10 +39,12 @@ extension Daemon {
       return
     }
     pointerFocusObservedCount += 1
-    let pointerWindowID = invocation.windowID
-      ?? platform.managedWindowID(
+    let pointerWindowID = normalizedPointerWindowID(
+      rawWindowID: invocation.windowID,
+      hitTestedWindowID: platform.managedWindowID(
         at: invocation.location,
         retaining: lastPointerWindowID
+      )
     )
     guard lastPointerWindowID != pointerWindowID else { return }
     lastPointerWindowID = pointerWindowID

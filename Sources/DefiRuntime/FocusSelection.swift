@@ -140,7 +140,10 @@ public func pointerFocusRecoveryWindowID(
   logicalFocusWindowID: WindowID?
 ) -> WindowID? {
   guard pointerWindowIsManaged else { return logicalFocusWindowID }
-  guard pointerWindowIsReady else { return nil }
+  // A managed target that is not ready still cancels an in-flight pointer
+  // request. Keep the logical target available so a mutated native focus can
+  // be reconciled while the new target waits for its frame work to settle.
+  guard pointerWindowIsReady else { return logicalFocusWindowID }
   return targetAccepted ? nil : logicalFocusWindowID
 }
 

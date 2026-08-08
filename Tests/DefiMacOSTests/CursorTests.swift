@@ -28,6 +28,53 @@ struct CursorTests {
   }
 
   @Test
+  func hitTestedManagedWindowOverridesTransparentRawPointerID() {
+    let rawOverlayID = WindowID(rawValue: 9)
+    let managedWindowID = WindowID(rawValue: 1)
+    let records = [
+      CGWindowRecord(
+        id: CGWindowID(rawOverlayID.rawValue),
+        processID: 90,
+        layer: 8,
+        title: "Defi Border",
+        frame: frame
+      ),
+      CGWindowRecord(
+        id: CGWindowID(managedWindowID.rawValue),
+        processID: 10,
+        layer: 0,
+        title: "Managed",
+        frame: frame
+      ),
+    ]
+    let hit = managedPointerHitTest(
+      at: CGPoint(x: 300, y: 500),
+      records: records,
+      managedWindowIDs: [managedWindowID],
+      nonblockingWindowIDs: [CGWindowID(rawOverlayID.rawValue)]
+    )
+    let hitTestedWindowID: WindowID?
+    if case .managed(let windowID) = hit {
+      hitTestedWindowID = windowID
+    } else {
+      hitTestedWindowID = nil
+    }
+
+    #expect(
+      normalizedPointerWindowID(
+        rawWindowID: rawOverlayID,
+        hitTestedWindowID: hitTestedWindowID
+      ) == managedWindowID
+    )
+    #expect(
+      normalizedPointerWindowID(
+        rawWindowID: rawOverlayID,
+        hitTestedWindowID: nil
+      ) == rawOverlayID
+    )
+  }
+
+  @Test
   func newerPhysicalMotionRejectsStaleWarp() {
     #expect(
       cursorWarpIsCurrent(

@@ -71,6 +71,13 @@ enum ManagedPointerHit: Equatable {
   case none
 }
 
+public func normalizedPointerWindowID(
+  rawWindowID: WindowID?,
+  hitTestedWindowID: WindowID?
+) -> WindowID? {
+  hitTestedWindowID ?? rawWindowID
+}
+
 func managedPointerHitTest(
   at location: CGPoint,
   records: [CGWindowRecord],
