@@ -127,7 +127,10 @@ final class PlatformEventMonitor {
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {
           self.liveFrameHandler()
         }
-        let actions = self.mouseGestureNormalizer.actions(for: event.type)
+        let actions = self.mouseGestureNormalizer.actions(
+          for: event.type,
+          buttonNumber: event.buttonNumber
+        )
         if actions.refreshBorderStacking {
           self.borderStackingHandler()
         }
@@ -140,11 +143,15 @@ final class PlatformEventMonitor {
         case nil:
           break
         }
-        if eventEndsMouseFocusInteraction(event.type) {
+        if actions.endsFocusInteraction {
           self.handler(.mouseRelease, nil)
         }
       }
     }
+  }
+
+  func resetMouseGestureState() {
+    mouseGestureNormalizer.reset()
   }
 
   func refresh(applications: [pid_t: [AXUIElement]]) {

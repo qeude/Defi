@@ -563,6 +563,49 @@ struct PlatformEventTests {
   }
 
   @Test
+  func explicitCancellationFallbackRequiresNoNewerInput() {
+    let request = NativeFocusRecoveryRequest(
+      timestamp: 10,
+      excludingWindowID: WindowID(rawValue: 2),
+      excludingProcessID: 20,
+      fallback: NativeFocusRecoveryFallback(
+        windowID: WindowID(rawValue: 1),
+        processID: 10
+      ),
+      fallbackOnlyIfNoNewerInput: true
+    )
+
+    #expect(
+      nativeFocusRecoveryFallbackTarget(
+        request,
+        latestEventTimestamp: 10
+      )?.windowID == WindowID(rawValue: 1)
+    )
+    #expect(
+      nativeFocusRecoveryFallbackTarget(
+        request,
+        latestEventTimestamp: 11
+      ) == nil
+    )
+  }
+
+  @Test
+  func eventTapReenableInvalidatesGuardedInput() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 10, focusIntent: .keyboard)
+    tracker.invalidate(at: 10)
+
+    #expect(tracker.latestEventTimestamp > 10)
+    #expect(tracker.snapshot.latestFocusIntent == nil)
+    #expect(tracker.focusRecoveryTarget(after: 10) == nil)
+
+    let pointerTracker = PointerMotionTracker()
+    pointerTracker.record(timestamp: 10)
+    pointerTracker.invalidate(at: 10)
+    #expect(pointerTracker.latestTimestamp > 10)
+  }
+
+  @Test
   func mouseFocusRecoveryUsesObservedTargetWithoutEventWindowID() throws {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 11, focusIntent: .mouse(windowID: nil))
@@ -906,6 +949,34 @@ struct PlatformEventTests {
     #expect(firstMouseUp.synchronization == .gesture)
     #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
+  }
+
+  @Test
+  func mouseReleaseWaitsForEveryHeldButton() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+    _ = normalizer.actions(for: .rightMouseDown, buttonNumber: 1)
+
+    let leftUp = normalizer.actions(for: .leftMouseUp)
+    #expect(!leftUp.endsFocusInteraction)
+
+    let rightUp = normalizer.actions(for: .rightMouseUp, buttonNumber: 1)
+    #expect(rightUp.endsFocusInteraction)
+  }
+
+  @Test
+  func mouseReleaseMustMatchInitiatingButton() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+
+    let unrelatedRelease = normalizer.actions(
+      for: .otherMouseUp,
+      buttonNumber: 2
+    )
+    #expect(unrelatedRelease == MouseGestureEventNormalizer.Actions())
+    #expect(
+      normalizer.actions(for: .leftMouseUp).endsFocusInteraction
+    )
   }
 
   @Test

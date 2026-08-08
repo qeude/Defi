@@ -115,6 +115,15 @@ public final class UserInputTracker: @unchecked Sendable {
     lock.unlock()
   }
 
+  public func invalidate(at timestamp: TimeInterval) {
+    lock.lock()
+    latestTimestamp = max(latestTimestamp, timestamp).nextUp
+    latestFocusIntent = nil
+    observedFocusIntentTimestamp = 0
+    observedFocusTargets.removeAll(keepingCapacity: true)
+    lock.unlock()
+  }
+
   public func recordObservedFocus(
     windowID: WindowID?,
     processID: pid_t?
@@ -265,6 +274,12 @@ public final class PointerMotionTracker: @unchecked Sendable {
   public func record(timestamp: TimeInterval) {
     lock.lock()
     self.timestamp = max(self.timestamp, timestamp)
+    lock.unlock()
+  }
+
+  public func invalidate(at timestamp: TimeInterval) {
+    lock.lock()
+    self.timestamp = max(self.timestamp, timestamp).nextUp
     lock.unlock()
   }
 
@@ -448,6 +463,23 @@ func windowSnapshotInvalidation(
 }
 
 struct MouseGestureEventNormalizer {
+  private enum Button: Hashable {
+    case left
+    case right
+    case other(Int)
+
+    init(eventType: NSEvent.EventType, buttonNumber: Int) {
+      switch eventType {
+      case .leftMouseDown, .leftMouseUp:
+        self = .left
+      case .rightMouseDown, .rightMouseUp:
+        self = .right
+      default:
+        self = .other(buttonNumber)
+      }
+    }
+  }
+
   enum Synchronization: Equatable {
     case gesture
   }
@@ -456,34 +488,51 @@ struct MouseGestureEventNormalizer {
     var refreshBorderStacking = false
     var startsGesture = false
     var synchronization: Synchronization?
+    var endsFocusInteraction = false
   }
 
-  private var pressed = false
+  private var heldButtons = Set<Button>()
   private var dragged = false
 
   mutating func actions(
-    for eventType: NSEvent.EventType
+    for eventType: NSEvent.EventType,
+    buttonNumber: Int = 0
   ) -> Actions {
     switch eventType {
     case .leftMouseDown:
-      pressed = true
+      heldButtons.insert(.left)
       dragged = false
       return Actions(refreshBorderStacking: true, startsGesture: true)
+    case .rightMouseDown, .otherMouseDown:
+      heldButtons.insert(
+        Button(eventType: eventType, buttonNumber: buttonNumber)
+      )
+      return Actions()
     case .leftMouseDragged:
+      guard heldButtons.contains(.left) else { return Actions() }
       dragged = true
       // Platform sync demand is a Boolean, so repeated drag events coalesce
       // while still scheduling fresh snapshots after live reorder animations.
       return Actions(synchronization: .gesture)
-    case .leftMouseUp:
-      defer {
-        pressed = false
+    case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+      let button = Button(eventType: eventType, buttonNumber: buttonNumber)
+      guard heldButtons.remove(button) != nil else { return Actions() }
+      let wasDragged = button == .left && dragged
+      if button == .left {
         dragged = false
       }
-      guard pressed else { return Actions() }
-      return Actions(synchronization: dragged ? .gesture : nil)
+      return Actions(
+        synchronization: wasDragged ? .gesture : nil,
+        endsFocusInteraction: heldButtons.isEmpty
+      )
     default:
       return Actions()
     }
+  }
+
+  mutating func reset() {
+    heldButtons.removeAll(keepingCapacity: true)
+    dragged = false
   }
 }
 

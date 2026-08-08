@@ -248,6 +248,9 @@ final class Daemon: NSObject {
       pointerMotionTracker: platform.pointerMotionTracker,
       pointerMotionHandler: { [weak self] invocation in
         self?.handlePointerMotion(invocation)
+      },
+      tapReenabledHandler: { [weak self] timestamp in
+        self?.handleEventTapReenabled(at: timestamp)
       }
     ) { [weak self] invocation in
       self?.enqueueHotKey(invocation)

@@ -9,6 +9,14 @@ import OSLog
 @MainActor
 extension MacOSPlatform {
 
+  public func invalidateInputAfterEventTapReenabled(
+    at timestamp: TimeInterval
+  ) {
+    userInputTracker.invalidate(at: timestamp)
+    pointerMotionTracker.invalidate(at: timestamp)
+    eventMonitor?.resetMouseGestureState()
+  }
+
   public func startObserving(
     _ handler: @escaping () -> Void,
     displayConfigurationHandler: @escaping () -> Void = {},

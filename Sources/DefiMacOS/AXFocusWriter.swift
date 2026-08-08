@@ -60,6 +60,38 @@ struct NativeFocusRecoveryRequest: Equatable, Sendable {
   let excludingWindowID: WindowID
   let excludingProcessID: pid_t
   let fallback: NativeFocusRecoveryFallback?
+  let fallbackOnlyIfNoNewerInput: Bool
+
+  init(
+    timestamp: TimeInterval,
+    excludingWindowID: WindowID,
+    excludingProcessID: pid_t,
+    fallback: NativeFocusRecoveryFallback?,
+    fallbackOnlyIfNoNewerInput: Bool = false
+  ) {
+    self.timestamp = timestamp
+    self.excludingWindowID = excludingWindowID
+    self.excludingProcessID = excludingProcessID
+    self.fallback = fallback
+    self.fallbackOnlyIfNoNewerInput = fallbackOnlyIfNoNewerInput
+  }
+}
+
+func nativeFocusRecoveryFallbackTarget(
+  _ request: NativeFocusRecoveryRequest,
+  latestEventTimestamp: TimeInterval
+) -> UserInputTracker.FocusRecoveryTarget? {
+  guard request.fallbackOnlyIfNoNewerInput,
+    let fallback = request.fallback,
+    latestEventTimestamp <= request.timestamp
+  else {
+    return nil
+  }
+  return UserInputTracker.FocusRecoveryTarget(
+    timestamp: request.timestamp,
+    windowID: fallback.windowID,
+    processID: fallback.processID
+  )
 }
 
 struct NativeFocusCompletion: Equatable, Sendable {
@@ -163,6 +195,8 @@ final class AXFocusWriter: @unchecked Sendable {
   private let lock = NSLock()
   private var pending: QueuedFocusRequest?
   private var explicitlyCancelledGenerations = Set<UInt64>()
+  private var explicitCancellationFallbacks:
+    [UInt64: NativeFocusRecoveryFallback] = [:]
   private var activeProcessID: pid_t?
   private var activeGeneration: UInt64?
   private var needsRecoveryActivation = false
@@ -211,7 +245,10 @@ final class AXFocusWriter: @unchecked Sendable {
   }
 
   @discardableResult
-  func cancel(_ requestID: NativeFocusRequestID) -> Bool {
+  func cancel(
+    _ requestID: NativeFocusRequestID,
+    recoveryFallback: NativeFocusRecoveryFallback? = nil
+  ) -> Bool {
     lock.lock()
     guard focusRequestCanBeCancelled(
       requestGeneration: requestID.rawValue,
@@ -223,10 +260,14 @@ final class AXFocusWriter: @unchecked Sendable {
       return false
     }
     explicitlyCancelledGenerations.insert(requestID.rawValue)
+    if let recoveryFallback {
+      explicitCancellationFallbacks[requestID.rawValue] = recoveryFallback
+    }
     let replaced = pending?.generation == requestID.rawValue ? pending : nil
     if replaced != nil {
       pending = nil
       explicitlyCancelledGenerations.remove(requestID.rawValue)
+      explicitCancellationFallbacks.removeValue(forKey: requestID.rawValue)
       cancelledCount += 1
     }
     lock.unlock()
@@ -491,6 +532,9 @@ final class AXFocusWriter: @unchecked Sendable {
   ) {
     lock.lock()
     explicitlyCancelledGenerations.remove(queued.generation)
+    let explicitCancellationFallback = explicitCancellationFallbacks.removeValue(
+      forKey: queued.generation
+    )
     let recoveryResetGeneration = minimumRecoveryGeneration
     lock.unlock()
     if appliedRecoveryResetGeneration < recoveryResetGeneration {
@@ -505,9 +549,19 @@ final class AXFocusWriter: @unchecked Sendable {
       )
       return
     }
+    let recoveryRequest = queued.request.recoveryRequest.map { request in
+      guard let explicitCancellationFallback else { return request }
+      return NativeFocusRecoveryRequest(
+        timestamp: request.timestamp,
+        excludingWindowID: request.excludingWindowID,
+        excludingProcessID: request.excludingProcessID,
+        fallback: explicitCancellationFallback,
+        fallbackOnlyIfNoNewerInput: true
+      )
+    }
     let recoveryTransfer = transferredNativeFocusRecovery(
       carried: carriedFocusRecovery,
-      request: queued.request.recoveryRequest,
+      request: recoveryRequest,
       result: result,
       generationCurrent: generationCurrent
     )

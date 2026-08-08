@@ -81,12 +81,15 @@ public final class HotKeyManager {
   public typealias Handler = @MainActor @Sendable (HotKeyInvocation) -> Void
   public typealias PointerMotionHandler =
     @MainActor @Sendable (PointerMotionInvocation) -> Void
+  public typealias TapReenabledHandler =
+    @MainActor @Sendable (TimeInterval) -> Void
 
   private let bindings: [Key: String]
   private let handler: Handler
   public let tracksPointerMotion: Bool
   public let bindingError: HotKeyError?
   private let pointerMotionHandler: PointerMotionHandler?
+  private let tapReenabledHandler: TapReenabledHandler
   private let userInputTracker: UserInputTracker
   private let pointerMotionTracker: PointerMotionTracker
   private var context: HotKeyTapContext?
@@ -119,6 +122,7 @@ public final class HotKeyManager {
     userInputTracker: UserInputTracker = UserInputTracker(),
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
+    tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
     handler: @escaping Handler
   ) {
     self.handler = handler
@@ -127,6 +131,7 @@ public final class HotKeyManager {
     self.pointerMotionHandler = config.input.focusFollowsMouse
       ? pointerMotionHandler
       : nil
+    self.tapReenabledHandler = tapReenabledHandler
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     var bindings: [Key: String] = [:]
@@ -178,6 +183,7 @@ public final class HotKeyManager {
     }
     let handler = self.handler
     let pointerMotionHandler = self.pointerMotionHandler
+    let tapReenabledHandler = self.tapReenabledHandler
     let context = HotKeyTapContext(
       bindings: bindings,
       userInputTracker: userInputTracker,
@@ -192,6 +198,12 @@ public final class HotKeyManager {
     } deliverPointerMotion: { invocation in
       MainActor.assumeIsolated {
         pointerMotionHandler?(invocation)
+      }
+    } tapReenabled: { timestamp in
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          tapReenabledHandler(timestamp)
+        }
       }
     }
     guard
@@ -245,6 +257,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
   private let tracksPointerWindowTransitions: Bool
   private let deliver: @Sendable (HotKeyInvocation) -> Void
   private let deliverPointerMotion: @Sendable (PointerMotionInvocation) -> Void
+  private let tapReenabled: @Sendable (TimeInterval) -> Void
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
   private var tap: CFMachPort?
@@ -256,6 +269,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
   private var pointerTransitionState = PointerWindowTransitionState()
   private var pendingPointerMotion: PointerMotionInvocation?
   private var pointerDeliveryScheduled = false
+  private var pointerDeliveryGeneration: UInt64 = 0
   private var lastPointerDeliveryTimestamp: TimeInterval?
   private var capturedModifierReleaseState = CapturedHotKeyModifierReleaseState()
 
@@ -265,7 +279,8 @@ private final class HotKeyTapContext: @unchecked Sendable {
     pointerMotionTracker: PointerMotionTracker,
     tracksPointerWindowTransitions: Bool,
     deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
-    deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void
+    deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
+    tapReenabled: @escaping @Sendable (TimeInterval) -> Void
   ) {
     self.bindings = bindings
     self.userInputTracker = userInputTracker
@@ -273,6 +288,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
     self.tracksPointerWindowTransitions = tracksPointerWindowTransitions
     self.deliver = deliver
     self.deliverPointerMotion = deliverPointerMotion
+    self.tapReenabled = tapReenabled
   }
 
   func install(tap: CFMachPort, source: CFRunLoopSource) {
@@ -308,13 +324,23 @@ private final class HotKeyTapContext: @unchecked Sendable {
     event: CGEvent
   ) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+      let timestamp = Double(event.timestamp) / 1_000_000_000
       lock.lock()
       let tap = tap
       reenables += 1
+      pointerTransitionState.reset()
+      pendingPointerMotion = nil
+      pointerDeliveryGeneration &+= 1
+      pointerDeliveryScheduled = false
+      lastPointerDeliveryTimestamp = nil
+      capturedModifierReleaseState.reset()
       lock.unlock()
+      userInputTracker.invalidate(at: timestamp)
+      pointerMotionTracker.invalidate(at: timestamp)
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: true)
       }
+      tapReenabled(timestamp)
       return Unmanaged.passUnretained(event)
     }
     let timestamp = Double(event.timestamp) / 1_000_000_000
@@ -437,16 +463,23 @@ private final class HotKeyTapContext: @unchecked Sendable {
       lastDeliveryTimestamp: lastPointerDeliveryTimestamp
     )
     pointerDeliveryScheduled = true
+    let deliveryGeneration = pointerDeliveryGeneration
     lock.unlock()
 
     guard schedulesDelivery else { return }
     DispatchQueue.main.asyncAfter(
       deadline: .now() + deliveryDelay
-    ) { [weak self] in self?.flushPointerMotion() }
+    ) { [weak self] in
+      self?.flushPointerMotion(generation: deliveryGeneration)
+    }
   }
 
-  private func flushPointerMotion() {
+  private func flushPointerMotion(generation: UInt64) {
     lock.lock()
+    guard generation == pointerDeliveryGeneration else {
+      lock.unlock()
+      return
+    }
     let invocation = pendingPointerMotion
     pendingPointerMotion = nil
     pointerDeliveryScheduled = false

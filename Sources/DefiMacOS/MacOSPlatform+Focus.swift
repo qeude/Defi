@@ -69,6 +69,7 @@ extension MacOSPlatform {
   public func focus(
     _ windowID: WindowID,
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil,
+    focusRecoveryFallbackWindowID: WindowID? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
@@ -77,6 +78,7 @@ extension MacOSPlatform {
       windowID,
       unlessUserInputAfter: maximumUserInputTimestamp,
       suppressesNativeFocusEvent: true,
+      focusRecoveryFallbackWindowID: focusRecoveryFallbackWindowID,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp,
       cursorWarpPrefersTargetFrame: cursorWarpPrefersTargetFrame,
       completion: completion
@@ -88,6 +90,7 @@ extension MacOSPlatform {
     _ windowID: WindowID,
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval?,
     suppressesNativeFocusEvent: Bool,
+    focusRecoveryFallbackWindowID: WindowID? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
     focusRecoveryFallback providedFocusRecoveryFallback:
@@ -102,7 +105,16 @@ extension MacOSPlatform {
       return nil
     }
     let focusRecoveryFallback = maximumUserInputTimestamp.flatMap { _ in
-      providedFocusRecoveryFallback ?? capturedNativeFocusRecoveryFallback()
+      providedFocusRecoveryFallback
+        ?? focusRecoveryFallbackWindowID.flatMap { fallbackWindowID in
+          processIDs[fallbackWindowID].map {
+            NativeFocusRecoveryFallback(
+              windowID: fallbackWindowID,
+              processID: $0
+            )
+          }
+        }
+        ?? capturedNativeFocusRecoveryFallback()
     }
     let focusRecoveryRequest = maximumUserInputTimestamp.map {
       NativeFocusRecoveryRequest(
@@ -217,22 +229,35 @@ extension MacOSPlatform {
   }
 
   @discardableResult
-  public func cancelFocus(_ requestID: NativeFocusRequestID) -> Bool {
-    focusWriter.cancel(requestID)
+  public func cancelFocus(
+    _ requestID: NativeFocusRequestID,
+    recoveringTo windowID: WindowID? = nil
+  ) -> Bool {
+    let fallback = windowID.flatMap { fallbackWindowID in
+      processIDs[fallbackWindowID].map {
+        NativeFocusRecoveryFallback(
+          windowID: fallbackWindowID,
+          processID: $0
+        )
+      }
+    }
+    return focusWriter.cancel(requestID, recoveryFallback: fallback)
   }
 
   private func recoverUserFocus(_ request: NativeFocusRecoveryRequest) {
-    guard let target = userInputTracker.focusRecoveryTarget(
+    let target = userInputTracker.focusRecoveryTarget(
       after: request.timestamp,
       excludingWindowID: request.excludingWindowID,
       excludingProcessID: request.excludingProcessID,
       fallbackWindowID: request.fallback?.windowID,
       fallbackProcessID: request.fallback?.processID
-    ),
+    ) ?? nativeFocusRecoveryFallbackTarget(
+      request,
+      latestEventTimestamp: userInputTracker.latestEventTimestamp
+    )
+    guard let target,
       userInputTracker.latestEventTimestamp <= target.timestamp
-    else {
-      return
-    }
+    else { return }
     if let windowID = target.windowID, elements[windowID] != nil {
       frameCoordinator.recordTrace(
         "focus-recovery window=\(windowID.rawValue)"

@@ -24,6 +24,12 @@ struct PendingPointerFocus {
 
 @MainActor
 extension Daemon {
+  func handleEventTapReenabled(at timestamp: TimeInterval) {
+    platform.invalidateInputAfterEventTapReenabled(at: timestamp)
+    invalidatePointerFocusIntent()
+    rearmPointerFocusTransition()
+  }
+
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
     guard pointerFocusIntentIsCurrent(
       pointerTimestamp: invocation.timestamp,
@@ -40,7 +46,31 @@ extension Daemon {
     )
     guard lastPointerWindowID != pointerWindowID else { return }
     lastPointerWindowID = pointerWindowID
-    invalidatePointerFocusIntent()
+    let logicalFocusWindowID = activeMonitorID.flatMap {
+      state.selectedWindowID(on: $0)
+    }
+    let recoveryWindowID: WindowID?
+    if !config.input.focusFollowsMouse {
+      recoveryWindowID = logicalFocusWindowID
+    } else if let pointerWindowID,
+      state.monitorID(containing: pointerWindowID) != nil,
+      pointerFocusIsReady(for: pointerWindowID)
+    {
+      let restoresNativeFocus = !platform.isWindowNativelyFocused(
+        pointerWindowID
+      )
+      let targetAccepted = pointerFocusMonitorWithoutScrolling(
+        pointerWindowID,
+        activeMonitorID: activeMonitorID,
+        state: state,
+        viewports: viewportsByMonitor,
+        acceptsAlreadySelectedWindow: restoresNativeFocus
+      ) != nil
+      recoveryWindowID = targetAccepted ? nil : logicalFocusWindowID
+    } else {
+      recoveryWindowID = nil
+    }
+    invalidatePointerFocusIntent(recoveringTo: recoveryWindowID)
     let pointerGeneration = pointerFocusGeneration
 
     guard config.input.focusFollowsMouse, let windowID = pointerWindowID else {
@@ -134,7 +164,10 @@ extension Daemon {
     pendingWindowRemovalFocusGuard = nil
     submittedPointerFocusRequestID = platform.focus(
       windowID,
-      unlessUserInputAfter: timestamp
+      unlessUserInputAfter: timestamp,
+      focusRecoveryFallbackWindowID: activeMonitorID.flatMap {
+        state.selectedWindowID(on: $0)
+      }
     ) { [weak self] result in
       guard let self else { return }
       guard pointerFocusRequestIsCurrent(
@@ -257,11 +290,14 @@ extension Daemon {
     hotKeys?.resetPointerWindowTransition()
   }
 
-  func invalidatePointerFocusIntent() {
+  func invalidatePointerFocusIntent(recoveringTo windowID: WindowID? = nil) {
     pointerFocusGeneration &+= 1
     pendingPointerFocus = nil
     if let submittedPointerFocusRequestID {
-      platform.cancelFocus(submittedPointerFocusRequestID)
+      platform.cancelFocus(
+        submittedPointerFocusRequestID,
+        recoveringTo: windowID
+      )
       self.submittedPointerFocusRequestID = nil
     }
   }
