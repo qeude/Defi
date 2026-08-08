@@ -102,6 +102,38 @@ struct CursorTests {
   }
 
   @Test
+  func committedFloatingTransitionWarpsToTargetFrame() {
+    let target = Rect(x: 500, y: 200, width: 400, height: 600)
+    let observed = Rect(x: -10_000, y: 200, width: 400, height: 600)
+
+    #expect(
+      resolvedCursorWarpFrame(
+        isFloating: true,
+        prefersTargetFrame: true,
+        targetFrame: target,
+        observedFrame: observed,
+        snapshotFrame: observed
+      ) == target
+    )
+  }
+
+  @Test
+  func ordinaryFloatingWarpPrefersObservedFrame() {
+    let target = Rect(x: 500, y: 200, width: 400, height: 600)
+    let observed = Rect(x: 100, y: 200, width: 400, height: 600)
+
+    #expect(
+      resolvedCursorWarpFrame(
+        isFloating: true,
+        prefersTargetFrame: false,
+        targetFrame: target,
+        observedFrame: observed,
+        snapshotFrame: nil
+      ) == observed
+    )
+  }
+
+  @Test
   func frontmostManagedWindowWinsOverRetainedTiledWindow() {
     let tiledWindowID = WindowID(rawValue: 1)
     let floatingWindowID = WindowID(rawValue: 2)
@@ -174,8 +206,57 @@ struct CursorTests {
         managedWindowIDs: [managedWindowID],
         managedProcessIDs: [10],
         excludingProcessID: 999,
-        nonblockingElevatedProcessIDs: [90]
+        nonblockingElevatedWindowIDs: [9]
       ) == .managed(managedWindowID)
+    )
+  }
+
+  @Test
+  func onlyFullDisplayDockSurfaceIsTransparentToHitTesting() {
+    let physicalFrame = Rect(x: 0, y: 0, width: 1512, height: 982)
+    let visibleFrame = Rect(x: 0, y: 37, width: 1512, height: 901)
+    let records = [
+      record(
+        id: 9,
+        processID: 90,
+        layer: 20,
+        title: "Dock",
+        frame: physicalFrame
+      ),
+      record(
+        id: 8,
+        processID: 90,
+        layer: 20,
+        title: "Dock",
+        frame: Rect(x: 0, y: 930, width: 1512, height: 52)
+      ),
+    ]
+
+    #expect(
+      transparentDockOverlayWindowIDs(
+        records: records,
+        dockProcessIDs: [90],
+        monitorFrames: [visibleFrame]
+      ) == [9]
+    )
+  }
+
+  @Test
+  func visibleDockSurfaceStillBlocksManagedWindow() {
+    let records = [
+      record(id: 9, processID: 90, layer: 20, title: "Dock"),
+      record(id: 1, processID: 10),
+    ]
+
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [WindowID(rawValue: 1)],
+        managedProcessIDs: [10],
+        excludingProcessID: 999,
+        nonblockingElevatedWindowIDs: []
+      ) == .blocked
     )
   }
 
@@ -219,14 +300,16 @@ struct CursorTests {
   private func record(
     id: CGWindowID,
     processID: pid_t,
-    layer: Int = 0
+    layer: Int = 0,
+    title: String? = nil,
+    frame: Rect? = nil
   ) -> CGWindowRecord {
     CGWindowRecord(
       id: id,
       processID: processID,
       layer: layer,
-      title: "Window \(id)",
-      frame: frame
+      title: title ?? "Window \(id)",
+      frame: frame ?? self.frame
     )
   }
 }

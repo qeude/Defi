@@ -39,6 +39,19 @@ func cursorWarpTimestampAfterNativeFocus(
   return requestedTimestamp
 }
 
+func resolvedCursorWarpFrame(
+  isFloating: Bool,
+  prefersTargetFrame: Bool,
+  targetFrame: Rect?,
+  observedFrame: Rect?,
+  snapshotFrame: Rect?
+) -> Rect? {
+  if isFloating, !prefersTargetFrame {
+    return observedFrame ?? snapshotFrame ?? targetFrame
+  }
+  return targetFrame ?? observedFrame ?? snapshotFrame
+}
+
 enum ManagedPointerHit: Equatable {
   case managed(WindowID)
   case blocked
@@ -51,7 +64,7 @@ func managedPointerHitTest(
   managedWindowIDs: Set<WindowID>,
   managedProcessIDs: Set<pid_t>,
   excludingProcessID: pid_t,
-  nonblockingElevatedProcessIDs: Set<pid_t> = []
+  nonblockingElevatedWindowIDs: Set<CGWindowID> = []
 ) -> ManagedPointerHit {
   for record in records
   where record.processID != excludingProcessID
@@ -64,9 +77,7 @@ func managedPointerHitTest(
     if managedWindowIDs.contains(windowID) {
       return .managed(windowID)
     }
-    if record.layer > 0,
-      nonblockingElevatedProcessIDs.contains(record.processID)
-    {
+    if record.layer > 0, nonblockingElevatedWindowIDs.contains(record.id) {
       continue
     }
     if record.layer > 0 || !managedProcessIDs.contains(record.processID) {
@@ -74,6 +85,30 @@ func managedPointerHitTest(
     }
   }
   return .none
+}
+
+func transparentDockOverlayWindowIDs(
+  records: [CGWindowRecord],
+  dockProcessIDs: Set<pid_t>,
+  monitorFrames: [Rect]
+) -> Set<CGWindowID> {
+  Set(records.compactMap { record in
+    guard record.layer > 0,
+      record.title == "Dock",
+      dockProcessIDs.contains(record.processID),
+      monitorFrames.contains(where: { monitorFrame in
+        record.frame.x <= monitorFrame.x + 1
+          && record.frame.y <= monitorFrame.y + 1
+          && record.frame.x + record.frame.width
+            >= monitorFrame.x + monitorFrame.width - 1
+          && record.frame.y + record.frame.height
+            >= monitorFrame.y + monitorFrame.height - 1
+      })
+    else {
+      return nil
+    }
+    return record.id
+  })
 }
 
 @MainActor
@@ -89,19 +124,24 @@ extension MacOSPlatform {
     at location: CGPoint,
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
+    let records = copyCGWindows(
+      options: [.optionOnScreenOnly, .excludeDesktopElements]
+    )
+    let dockProcessIDs = Set(
+      NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.apple.dock"
+      ).map(\.processIdentifier)
+    )
     let hit = managedPointerHitTest(
       at: location,
-      records: copyCGWindows(
-        options: [.optionOnScreenOnly, .excludeDesktopElements]
-      ),
+      records: records,
       managedWindowIDs: lastSnapshotWindowIDs,
       managedProcessIDs: lastSnapshotProcessIDs,
       excludingProcessID: ProcessInfo.processInfo.processIdentifier,
-      nonblockingElevatedProcessIDs: Set(
-        // Dock owns a transparent full-screen layer-20 surface.
-        NSRunningApplication.runningApplications(
-          withBundleIdentifier: "com.apple.dock"
-        ).map(\.processIdentifier)
+      nonblockingElevatedWindowIDs: transparentDockOverlayWindowIDs(
+        records: records,
+        dockProcessIDs: dockProcessIDs,
+        monitorFrames: lastMonitorFrames
       )
     )
     switch hit {
@@ -130,7 +170,8 @@ extension MacOSPlatform {
   @discardableResult
   public func warpCursor(
     to windowID: WindowID,
-    unlessUserInputAfter maximumInputTimestamp: TimeInterval
+    unlessUserInputAfter maximumInputTimestamp: TimeInterval,
+    preferringTargetFrame: Bool = false
   ) -> Bool {
     guard cursorWarpIsCurrent(
       latestPointerMotionTimestamp: pointerMotionTracker.latestTimestamp,
@@ -142,7 +183,10 @@ extension MacOSPlatform {
         || CGEventSource.buttonState(.combinedSessionState, button: .center)
     ),
       !lastHiddenWindowIDs.contains(windowID),
-      let frame = cursorWarpFrame(for: windowID),
+      let frame = cursorWarpFrame(
+        for: windowID,
+        preferringTargetFrame: preferringTargetFrame
+      ),
       let currentLocation = CGEvent(source: nil)?.location,
       let destination = cursorWarpDestination(
         frame: frame,
@@ -171,14 +215,18 @@ extension MacOSPlatform {
     )
   }
 
-  private func cursorWarpFrame(for windowID: WindowID) -> Rect? {
-    if floatingWindowIDs.contains(windowID) {
-      return latestObservedFrames[windowID]
-        ?? lastSnapshotWindows.first(where: { $0.id == windowID })?.frame
-        ?? targetFrames[windowID]
-    }
-    return targetFrames[windowID]
-      ?? latestObservedFrames[windowID]
-      ?? lastSnapshotWindows.first(where: { $0.id == windowID })?.frame
+  private func cursorWarpFrame(
+    for windowID: WindowID,
+    preferringTargetFrame: Bool = false
+  ) -> Rect? {
+    resolvedCursorWarpFrame(
+      isFloating: floatingWindowIDs.contains(windowID),
+      prefersTargetFrame: preferringTargetFrame,
+      targetFrame: targetFrames[windowID],
+      observedFrame: latestObservedFrames[windowID],
+      snapshotFrame: lastSnapshotWindows.first {
+        $0.id == windowID
+      }?.frame
+    )
   }
 }

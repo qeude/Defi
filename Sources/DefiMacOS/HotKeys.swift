@@ -117,6 +117,8 @@ public final class HotKeyManager {
     var mask = CGEventMask(
       (1 << CGEventType.keyDown.rawValue)
         | (1 << CGEventType.leftMouseDown.rawValue)
+        | (1 << CGEventType.rightMouseDown.rawValue)
+        | (1 << CGEventType.otherMouseDown.rawValue)
     )
     if tracksPointerMotion {
       for eventType in [
@@ -296,7 +298,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let isKeyDown = type == .keyDown
-    if isKeyDown || type == .leftMouseDown {
+    if isKeyDown || eventIsMouseButtonDown(type) {
       let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
       let commandPressed = event.flags.contains(.maskCommand)
       let focusIntent: UserInputTracker.FocusIntentSource?

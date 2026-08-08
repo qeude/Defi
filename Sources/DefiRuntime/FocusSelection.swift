@@ -151,7 +151,7 @@ public func pointerFocusRetryIsCurrent(
     && latestUserInputTimestamp <= pointerTimestamp
 }
 
-public func completedPointerFocusIsCurrent(
+public func pointerFocusIntentIsCurrent(
   pointerTimestamp: TimeInterval,
   latestUserInputTimestamp: TimeInterval
 ) -> Bool {

@@ -271,6 +271,15 @@ func eventTracksPhysicalPointerMotion(_ type: CGEventType) -> Bool {
   }
 }
 
+func eventIsMouseButtonDown(_ type: CGEventType) -> Bool {
+  switch type {
+  case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+    true
+  default:
+    false
+  }
+}
+
 func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {
   guard rawWindowID > 0 else { return nil }
   return WindowID(rawValue: UInt64(rawWindowID))

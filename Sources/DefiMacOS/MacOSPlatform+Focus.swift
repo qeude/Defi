@@ -38,6 +38,7 @@ extension MacOSPlatform {
     _ windowID: WindowID,
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
+    cursorWarpPrefersTargetFrame: Bool = false,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) {
     submitFocus(
@@ -45,6 +46,7 @@ extension MacOSPlatform {
       unlessUserInputAfter: maximumUserInputTimestamp,
       suppressesNativeFocusEvent: true,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp,
+      cursorWarpPrefersTargetFrame: cursorWarpPrefersTargetFrame,
       completion: completion
     )
   }
@@ -54,6 +56,7 @@ extension MacOSPlatform {
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval?,
     suppressesNativeFocusEvent: Bool,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
+    cursorWarpPrefersTargetFrame: Bool = false,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) {
     guard let element = elements[windowID],
@@ -128,7 +131,8 @@ extension MacOSPlatform {
           ) {
             self?.warpCursor(
               to: windowID,
-              unlessUserInputAfter: cursorWarpInputTimestamp
+              unlessUserInputAfter: cursorWarpInputTimestamp,
+              preferringTargetFrame: cursorWarpPrefersTargetFrame
             )
           }
         case .cancelled:

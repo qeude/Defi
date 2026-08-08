@@ -16,6 +16,16 @@ struct PlatformEventTests {
   }
 
   @Test
+  func generalInputTrackingIncludesEveryMouseButtonDown() {
+    #expect(eventIsMouseButtonDown(.leftMouseDown))
+    #expect(eventIsMouseButtonDown(.rightMouseDown))
+    #expect(eventIsMouseButtonDown(.otherMouseDown))
+    #expect(!eventIsMouseButtonDown(.leftMouseUp))
+    #expect(!eventIsMouseButtonDown(.mouseMoved))
+    #expect(!eventIsMouseButtonDown(.keyDown))
+  }
+
+  @Test
   func nativeFocusResultRequiresCurrentSuccessfulRequest() {
     #expect(
       resolvedNativeFocusResult(

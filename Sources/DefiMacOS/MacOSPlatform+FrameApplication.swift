@@ -328,7 +328,8 @@ extension MacOSPlatform {
               focusWindowIDAfterCommit,
               unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
               cursorWarpUnlessPointerMovedAfter:
-                cursorWarpInputTimestampAfterCommit
+                cursorWarpInputTimestampAfterCommit,
+              cursorWarpPrefersTargetFrame: true
             )
           }
         }
@@ -361,7 +362,8 @@ extension MacOSPlatform {
         focusWindowIDAfterCommit,
         unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
         cursorWarpUnlessPointerMovedAfter:
-          cursorWarpInputTimestampAfterCommit
+          cursorWarpInputTimestampAfterCommit,
+        cursorWarpPrefersTargetFrame: true
       )
     }
     if updateVisibility {

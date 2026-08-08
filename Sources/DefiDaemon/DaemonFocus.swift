@@ -22,6 +22,13 @@ struct PendingPointerFocus {
 @MainActor
 extension Daemon {
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
+    guard pointerFocusIntentIsCurrent(
+      pointerTimestamp: invocation.timestamp,
+      latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
+    ) else {
+      pointerFocusIgnoredCount += 1
+      return
+    }
     pointerFocusObservedCount += 1
     let pointerWindowID = invocation.windowID
       ?? platform.managedWindowID(
@@ -129,7 +136,7 @@ extension Daemon {
     timestamp: TimeInterval,
     acceptsAlreadySelectedWindow: Bool
   ) {
-    guard completedPointerFocusIsCurrent(
+    guard pointerFocusIntentIsCurrent(
       pointerTimestamp: timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     ) else {
