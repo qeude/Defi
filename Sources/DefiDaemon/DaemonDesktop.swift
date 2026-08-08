@@ -572,6 +572,7 @@ extension Daemon {
     positionsOnly: Bool = false,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    focusInputTimestampAfterCommit: TimeInterval? = nil,
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     forceFloatingFrameWrites: Bool = false,
     source: String = "layout"
@@ -681,6 +682,7 @@ extension Daemon {
       updateVisibility: updateVisibility ?? !asynchronousPositions,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+      focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
       cursorWarpInputTimestampAfterCommit:
         cursorWarpInputTimestampAfterCommit,
       source: source

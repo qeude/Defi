@@ -141,6 +141,13 @@ public func keyboardCursorWarpTimestamp(
   return capturedInputTimestamp
 }
 
+public func commandFocusInputTimestamp(
+  capturedInputTimestamp: TimeInterval?,
+  commandHandledAt: TimeInterval
+) -> TimeInterval {
+  capturedInputTimestamp ?? commandHandledAt
+}
+
 public func pointerFocusRetryIsCurrent(
   pendingWindowID: WindowID,
   windowUnderPointerID: WindowID?,

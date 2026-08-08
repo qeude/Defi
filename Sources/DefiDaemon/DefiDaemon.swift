@@ -73,6 +73,7 @@ private enum DaemonError: Error, CustomStringConvertible {
 
 struct PendingAnimatedFocus: Equatable {
   let windowID: WindowID
+  let focusInputTimestamp: TimeInterval
   let cursorWarpInputTimestamp: TimeInterval?
 }
 

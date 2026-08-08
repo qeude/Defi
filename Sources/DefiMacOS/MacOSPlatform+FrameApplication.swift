@@ -26,6 +26,7 @@ extension MacOSPlatform {
     updateVisibility: Bool = true,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    focusInputTimestampAfterCommit: TimeInterval? = nil,
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     source: String = "platform"
   ) {
@@ -326,7 +327,7 @@ extension MacOSPlatform {
           {
             self.focus(
               focusWindowIDAfterCommit,
-              unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
+              unlessUserInputAfter: focusInputTimestampAfterCommit,
               cursorWarpUnlessPointerMovedAfter:
                 cursorWarpInputTimestampAfterCommit,
               cursorWarpPrefersTargetFrame: true
@@ -360,7 +361,7 @@ extension MacOSPlatform {
     {
       focus(
         focusWindowIDAfterCommit,
-        unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
+        unlessUserInputAfter: focusInputTimestampAfterCommit,
         cursorWarpUnlessPointerMovedAfter:
           cursorWarpInputTimestampAfterCommit,
         cursorWarpPrefersTargetFrame: true

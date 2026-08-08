@@ -227,11 +227,12 @@ extension Daemon {
 
   func commitCommandFocus(
     _ windowID: WindowID,
+    focusInputTimestamp: TimeInterval,
     cursorWarpInputTimestamp: TimeInterval?
   ) {
     platform.focus(
       windowID,
-      unlessUserInputAfter: cursorWarpInputTimestamp,
+      unlessUserInputAfter: focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
     )
   }

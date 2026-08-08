@@ -501,6 +501,24 @@ struct PlatformEventTests {
   }
 
   @Test
+  func nativeFocusEventInvalidatesCachedFocusedWindow() {
+    let windowID = WindowID(rawValue: 42)
+
+    #expect(
+      nativeFocusedWindowIDAfterEvent(
+        .focus,
+        cachedWindowID: windowID
+      ) == nil
+    )
+    #expect(
+      nativeFocusedWindowIDAfterEvent(
+        .frame,
+        cachedWindowID: windowID
+      ) == windowID
+    )
+  }
+
+  @Test
   func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
     #expect(
       windowSnapshotInvalidation(

@@ -18,6 +18,13 @@ func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
   kind == .mouse
 }
 
+func nativeFocusedWindowIDAfterEvent(
+  _ kind: PlatformEventKind,
+  cachedWindowID: WindowID?
+) -> WindowID? {
+  kind == .focus ? nil : cachedWindowID
+}
+
 func mouseGestureRefreshProcessID(
   latestFocusIntent: UserInputTracker.FocusIntent?,
   focusedWindowID: WindowID?,

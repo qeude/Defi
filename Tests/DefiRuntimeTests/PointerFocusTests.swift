@@ -129,6 +129,22 @@ struct PointerFocusTests {
   }
 
   @Test
+  func commandFocusAlwaysKeepsAnInputGuard() {
+    #expect(
+      commandFocusInputTimestamp(
+        capturedInputTimestamp: 12,
+        commandHandledAt: 14
+      ) == 12
+    )
+    #expect(
+      commandFocusInputTimestamp(
+        capturedInputTimestamp: nil,
+        commandHandledAt: 14
+      ) == 14
+    )
+  }
+
+  @Test
   func pendingPointerFocusRequiresSameWindowAndNoNewerInput() {
     let windowID = WindowID(rawValue: 42)
 

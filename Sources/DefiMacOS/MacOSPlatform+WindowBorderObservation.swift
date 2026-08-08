@@ -72,6 +72,10 @@ extension MacOSPlatform {
           self?.mouseFocusReleasePending = true
         }
         if kind == .focus {
+          self?.lastNativeFocusedWindowID = nativeFocusedWindowIDAfterEvent(
+            kind,
+            cachedWindowID: self?.lastNativeFocusedWindowID
+          )
           self?.userInputTracker.recordObservedFocus(
             windowID: nil,
             processID: processID

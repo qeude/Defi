@@ -72,6 +72,10 @@ extension Daemon {
         timestamp: inputTimestamp ?? commandStartedAt
       )
       pendingPointerFocus = nil
+      let focusInputTimestamp = commandFocusInputTimestamp(
+        capturedInputTimestamp: inputTimestamp,
+        commandHandledAt: commandStartedAt
+      )
       let cursorWarpInputTimestamp = keyboardCursorWarpTimestamp(
         mouseFollowsFocus: config.input.mouseFollowsFocus,
         capturedInputTimestamp: inputTimestamp
@@ -147,6 +151,9 @@ extension Daemon {
           positionsOnly: speculativeRibbonNavigation,
           stagesVisibleBeforeParking: switchesWorkspace,
           focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+          focusInputTimestampAfterCommit: switchesWorkspace
+            ? focusInputTimestamp
+            : nil,
           cursorWarpInputTimestampAfterCommit: switchesWorkspace
             ? cursorWarpInputTimestamp
             : nil,
@@ -169,11 +176,13 @@ extension Daemon {
         {
           commitCommandFocus(
             selected,
+            focusInputTimestamp: focusInputTimestamp,
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
           )
         } else {
           pendingAnimatedFocus = PendingAnimatedFocus(
             windowID: selected,
+            focusInputTimestamp: focusInputTimestamp,
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
           )
         }
@@ -187,6 +196,7 @@ extension Daemon {
       {
         pendingAnimatedFocus = PendingAnimatedFocus(
           windowID: selected,
+          focusInputTimestamp: focusInputTimestamp,
           cursorWarpInputTimestamp: cursorWarpInputTimestamp
         )
       }
