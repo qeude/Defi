@@ -167,6 +167,17 @@ public func nextPointerFocusRetryCount(
   return currentRetryCount + 1
 }
 
+public func pointerFocusMonitorIsReady(
+  targetMonitorID: MonitorID,
+  scrollingMonitorIDs: Set<MonitorID>,
+  animatedFrameMonitorIDs: Set<MonitorID>,
+  deferredSlowMonitorIDs: Set<MonitorID>
+) -> Bool {
+  !scrollingMonitorIDs.contains(targetMonitorID)
+    && !animatedFrameMonitorIDs.contains(targetMonitorID)
+    && !deferredSlowMonitorIDs.contains(targetMonitorID)
+}
+
 public func nativeFocusMutationIsReady(
   nativeFocusChanged: Bool,
   mouseInteractionEnded: Bool,

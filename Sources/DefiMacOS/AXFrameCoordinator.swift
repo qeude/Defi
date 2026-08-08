@@ -22,6 +22,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   private var latestGeneration: UInt64 = 0
   private var running = false
   private var activeAnimationRunning = false
+  private var activeAnimatedWindowIDs = Set<WindowID>()
   private var activeAnimatedSizeWindowIDs = Set<WindowID>()
   private var completedWrites = 0
   private var completedAnimatedSizeWrites = 0
@@ -214,6 +215,18 @@ final class AXFrameCoordinator: @unchecked Sendable {
       || (pending?.animationDuration ?? 0) > 0
   }
 
+  var pendingAnimatedWindowIDs: Set<WindowID> {
+    lock.lock()
+    defer { lock.unlock() }
+    var windowIDs = activeAnimationRunning
+      ? activeAnimatedWindowIDs
+      : []
+    if let pending, pending.animationDuration > 0 {
+      windowIDs.formUnion(pending.animatedWindowIDs)
+    }
+    return windowIDs
+  }
+
   var writeCount: Int {
     lock.lock()
     defer { lock.unlock() }
@@ -335,6 +348,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
         rebaseFrameToCompletedPositionsLocked(queuedFrame)
       let applicationCount = Set(frame.writes.values.map(\.processID)).count
       activeAnimationRunning = frame.animationDuration > 0
+      activeAnimatedWindowIDs = frame.animatedWindowIDs
       activeAnimatedSizeWindowIDs = Set(
         frame.writes.compactMap { windowID, write in
           frame.animatedWindowIDs.contains(windowID) && write.animatesSize
@@ -380,6 +394,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
         "\(aborted ? "abort" : "complete") g=\(frame.generation) applied=\(result.applied) frames=\(result.frames) ms=\(String(format: "%.2f", elapsedMS))"
       )
       activeAnimatedSizeWindowIDs.removeAll(keepingCapacity: true)
+      activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
       lock.unlock()
       frame.completion?(!aborted)
     }
@@ -737,6 +752,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
     lock.lock()
     activeAnimationRunning = false
+    activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
     let settlementWindowIDs = Array(initialSettlementTargets.keys)
     appendTraceLocked(
       "visual-complete g=\(generation) ms=\(String(format: "%.2f", elapsedMS))"

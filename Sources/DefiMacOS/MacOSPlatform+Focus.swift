@@ -128,7 +128,7 @@ extension MacOSPlatform {
           ) {
             self?.warpCursor(
               to: windowID,
-              unlessPointerMovedAfter: cursorWarpInputTimestamp
+              unlessUserInputAfter: cursorWarpInputTimestamp
             )
           }
         case .cancelled:

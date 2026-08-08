@@ -199,6 +199,44 @@ struct PointerFocusTests {
     )
   }
 
+  @Test
+  func pointerFocusReadinessIsIsolatedPerMonitor() {
+    let otherMonitorID = MonitorID(rawValue: 2)
+
+    #expect(
+      pointerFocusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [otherMonitorID],
+        animatedFrameMonitorIDs: [otherMonitorID],
+        deferredSlowMonitorIDs: [otherMonitorID]
+      )
+    )
+    #expect(
+      !pointerFocusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [monitorID],
+        animatedFrameMonitorIDs: [],
+        deferredSlowMonitorIDs: []
+      )
+    )
+    #expect(
+      !pointerFocusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [],
+        animatedFrameMonitorIDs: [monitorID],
+        deferredSlowMonitorIDs: []
+      )
+    )
+    #expect(
+      !pointerFocusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [],
+        animatedFrameMonitorIDs: [],
+        deferredSlowMonitorIDs: [monitorID]
+      )
+    )
+  }
+
   private func makeState(
     columnWidths: [Double],
     centerFocusedColumn: CenterFocusedColumnConfig = .never

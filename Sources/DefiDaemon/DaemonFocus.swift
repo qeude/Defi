@@ -37,7 +37,7 @@ extension Daemon {
       pointerFocusIgnoredCount += 1
       return
     }
-    guard pointerFocusIsReady else {
+    guard pointerFocusIsReady(for: windowID) else {
       pendingPointerFocus = PendingPointerFocus(
         windowID: windowID,
         timestamp: invocation.timestamp
@@ -51,7 +51,9 @@ extension Daemon {
   }
 
   func finishPendingPointerFocusIfReady() {
-    guard pointerFocusIsReady, let pendingPointerFocus else { return }
+    guard let pendingPointerFocus,
+      pointerFocusIsReady(for: pendingPointerFocus.windowID)
+    else { return }
     self.pendingPointerFocus = nil
 
     let windowUnderPointerID = platform.managedWindowIDUnderPointer(
@@ -190,10 +192,24 @@ extension Daemon {
     hotKeys?.resetPointerWindowTransition()
   }
 
-  private var pointerFocusIsReady: Bool {
-    scrollAnimations.isEmpty
-      && !platform.hasPendingAnimatedFrameWrites
-      && deferredSlowWindowIDs.isEmpty
+  private func pointerFocusIsReady(for windowID: WindowID) -> Bool {
+    guard let targetMonitorID = state.monitorID(containing: windowID) else {
+      return false
+    }
+    return pointerFocusMonitorIsReady(
+      targetMonitorID: targetMonitorID,
+      scrollingMonitorIDs: Set(scrollAnimations.keys.map(\.monitorID)),
+      animatedFrameMonitorIDs: Set(
+        platform.pendingAnimatedFrameWindowIDs.compactMap {
+          state.monitorID(containing: $0)
+        }
+      ),
+      deferredSlowMonitorIDs: Set(
+        deferredSlowWindowIDs.compactMap {
+          state.monitorID(containing: $0)
+        }
+      )
+    )
   }
 
   func commitCommandFocus(
@@ -202,6 +218,7 @@ extension Daemon {
   ) {
     platform.focus(
       windowID,
+      unlessUserInputAfter: cursorWarpInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
     )
   }

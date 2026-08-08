@@ -326,6 +326,7 @@ extension MacOSPlatform {
           {
             self.focus(
               focusWindowIDAfterCommit,
+              unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
               cursorWarpUnlessPointerMovedAfter:
                 cursorWarpInputTimestampAfterCommit
             )
@@ -358,6 +359,7 @@ extension MacOSPlatform {
     {
       focus(
         focusWindowIDAfterCommit,
+        unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
         cursorWarpUnlessPointerMovedAfter:
           cursorWarpInputTimestampAfterCommit
       )
@@ -503,6 +505,10 @@ extension MacOSPlatform {
 
   public var hasPendingAnimatedFrameWrites: Bool {
     frameCoordinator.isAnimating
+  }
+
+  public var pendingAnimatedFrameWindowIDs: Set<WindowID> {
+    frameCoordinator.pendingAnimatedWindowIDs
   }
 
   public var hasPendingFocusWrite: Bool {

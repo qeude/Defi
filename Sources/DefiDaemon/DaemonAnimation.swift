@@ -218,7 +218,11 @@ extension Daemon {
   func scheduleSlowLaneDeferral(
     at commandStartedAt: TimeInterval
   ) -> Set<WindowID> {
-    let candidates = platform.latencySensitiveWindowIDs
+    let commandMonitorID = activeMonitorID ?? state.monitors.first?.id
+    let newCandidates = platform.latencySensitiveWindowIDs.filter {
+      state.monitorID(containing: $0) == commandMonitorID
+    }
+    let candidates = newCandidates
       .union(deferredSlowWindowIDs)
     guard !candidates.isEmpty else { return [] }
     deferredSlowWindowIDs = candidates

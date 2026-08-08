@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import DefiModel
 import Foundation
@@ -21,9 +22,13 @@ func cursorWarpDestination(
 
 func cursorWarpIsCurrent(
   latestPointerMotionTimestamp: TimeInterval,
-  maximumPointerMotionTimestamp: TimeInterval
+  latestUserInputTimestamp: TimeInterval,
+  maximumInputTimestamp: TimeInterval,
+  mouseButtonDown: Bool
 ) -> Bool {
-  latestPointerMotionTimestamp <= maximumPointerMotionTimestamp
+  !mouseButtonDown
+    && latestPointerMotionTimestamp <= maximumInputTimestamp
+    && latestUserInputTimestamp <= maximumInputTimestamp
 }
 
 func cursorWarpTimestampAfterNativeFocus(
@@ -45,11 +50,11 @@ func managedPointerHitTest(
   records: [CGWindowRecord],
   managedWindowIDs: Set<WindowID>,
   managedProcessIDs: Set<pid_t>,
-  excludingProcessID: pid_t
+  excludingProcessID: pid_t,
+  nonblockingElevatedProcessIDs: Set<pid_t> = []
 ) -> ManagedPointerHit {
   for record in records
-  where record.layer == 0
-    && record.processID != excludingProcessID
+  where record.processID != excludingProcessID
     && location.x >= record.frame.x
     && location.x <= record.frame.x + record.frame.width
     && location.y >= record.frame.y
@@ -59,7 +64,12 @@ func managedPointerHitTest(
     if managedWindowIDs.contains(windowID) {
       return .managed(windowID)
     }
-    if !managedProcessIDs.contains(record.processID) {
+    if record.layer > 0,
+      nonblockingElevatedProcessIDs.contains(record.processID)
+    {
+      continue
+    }
+    if record.layer > 0 || !managedProcessIDs.contains(record.processID) {
       return .blocked
     }
   }
@@ -86,7 +96,13 @@ extension MacOSPlatform {
       ),
       managedWindowIDs: lastSnapshotWindowIDs,
       managedProcessIDs: lastSnapshotProcessIDs,
-      excludingProcessID: ProcessInfo.processInfo.processIdentifier
+      excludingProcessID: ProcessInfo.processInfo.processIdentifier,
+      nonblockingElevatedProcessIDs: Set(
+        // Dock owns a transparent full-screen layer-20 surface.
+        NSRunningApplication.runningApplications(
+          withBundleIdentifier: "com.apple.dock"
+        ).map(\.processIdentifier)
+      )
     )
     switch hit {
     case .managed(let windowID):
@@ -114,11 +130,16 @@ extension MacOSPlatform {
   @discardableResult
   public func warpCursor(
     to windowID: WindowID,
-    unlessPointerMovedAfter maximumPointerMotionTimestamp: TimeInterval
+    unlessUserInputAfter maximumInputTimestamp: TimeInterval
   ) -> Bool {
     guard cursorWarpIsCurrent(
       latestPointerMotionTimestamp: pointerMotionTracker.latestTimestamp,
-      maximumPointerMotionTimestamp: maximumPointerMotionTimestamp
+      latestUserInputTimestamp: userInputTracker.latestEventTimestamp,
+      maximumInputTimestamp: maximumInputTimestamp,
+      mouseButtonDown:
+        CGEventSource.buttonState(.combinedSessionState, button: .left)
+        || CGEventSource.buttonState(.combinedSessionState, button: .right)
+        || CGEventSource.buttonState(.combinedSessionState, button: .center)
     ),
       !lastHiddenWindowIDs.contains(windowID),
       let frame = cursorWarpFrame(for: windowID),

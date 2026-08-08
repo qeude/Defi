@@ -610,7 +610,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(
       platform.warpCursor(
         to: otherWindow.id,
-        unlessPointerMovedAfter: .greatestFiniteMagnitude
+        unlessUserInputAfter: .greatestFiniteMagnitude
       )
     )
     pumpRunLoop(for: 0.2)

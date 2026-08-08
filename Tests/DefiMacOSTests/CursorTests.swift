@@ -32,13 +32,37 @@ struct CursorTests {
     #expect(
       cursorWarpIsCurrent(
         latestPointerMotionTimestamp: 12,
-        maximumPointerMotionTimestamp: 11
+        latestUserInputTimestamp: 10,
+        maximumInputTimestamp: 11,
+        mouseButtonDown: false
       ) == false
     )
     #expect(
       cursorWarpIsCurrent(
         latestPointerMotionTimestamp: 11,
-        maximumPointerMotionTimestamp: 11
+        latestUserInputTimestamp: 10,
+        maximumInputTimestamp: 11,
+        mouseButtonDown: false
+      )
+    )
+  }
+
+  @Test
+  func newerGeneralInputOrHeldButtonRejectsWarp() {
+    #expect(
+      !cursorWarpIsCurrent(
+        latestPointerMotionTimestamp: 10,
+        latestUserInputTimestamp: 12,
+        maximumInputTimestamp: 11,
+        mouseButtonDown: false
+      )
+    )
+    #expect(
+      !cursorWarpIsCurrent(
+        latestPointerMotionTimestamp: 10,
+        latestUserInputTimestamp: 10,
+        maximumInputTimestamp: 11,
+        mouseButtonDown: true
       )
     )
   }
@@ -98,6 +122,64 @@ struct CursorTests {
   }
 
   @Test
+  func elevatedManagedWindowWinsOverTiledWindow() {
+    let tiledWindowID = WindowID(rawValue: 1)
+    let sheetWindowID = WindowID(rawValue: 2)
+    let records = [
+      record(id: 2, processID: 10, layer: 8),
+      record(id: 1, processID: 10),
+    ]
+
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [tiledWindowID, sheetWindowID],
+        managedProcessIDs: [10],
+        excludingProcessID: 999
+      ) == .managed(sheetWindowID)
+    )
+  }
+
+  @Test
+  func elevatedAuxiliaryWindowBlocksManagedWindowBehindIt() {
+    let records = [
+      record(id: 9, processID: 10, layer: 8),
+      record(id: 1, processID: 10),
+    ]
+
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [WindowID(rawValue: 1)],
+        managedProcessIDs: [10],
+        excludingProcessID: 999
+      ) == .blocked
+    )
+  }
+
+  @Test
+  func transparentSystemOverlayDoesNotBlockManagedWindow() {
+    let managedWindowID = WindowID(rawValue: 1)
+    let records = [
+      record(id: 9, processID: 90, layer: 20),
+      record(id: 1, processID: 10),
+    ]
+
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [managedWindowID],
+        managedProcessIDs: [10],
+        excludingProcessID: 999,
+        nonblockingElevatedProcessIDs: [90]
+      ) == .managed(managedWindowID)
+    )
+  }
+
+  @Test
   func unmanagedFrontWindowBlocksManagedWindowBehindIt() {
     let records = [
       record(id: 9, processID: 90),
@@ -134,11 +216,15 @@ struct CursorTests {
     )
   }
 
-  private func record(id: CGWindowID, processID: pid_t) -> CGWindowRecord {
+  private func record(
+    id: CGWindowID,
+    processID: pid_t,
+    layer: Int = 0
+  ) -> CGWindowRecord {
     CGWindowRecord(
       id: id,
       processID: processID,
-      layer: 0,
+      layer: layer,
       title: "Window \(id)",
       frame: frame
     )
