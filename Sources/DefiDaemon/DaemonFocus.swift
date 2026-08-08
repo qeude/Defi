@@ -229,6 +229,19 @@ extension Daemon {
     )
   }
 
+  private func cancellationKeepsRequestedWindow(
+    _ windowID: WindowID,
+    requestInputTimestamp: TimeInterval
+  ) -> Bool {
+    return cancelledFocusTargetsRequestedWindow(
+      requestedWindowID: windowID,
+      requestedWindowIsNativelyFocused:
+        platform.isWindowNativelyFocused(windowID),
+      cancellingFocusTargetWindowID: platform.userInputTracker
+        .focusRecoveryTarget(after: requestInputTimestamp)?.windowID
+    )
+  }
+
   func commitCommandFocus(
     _ windowID: WindowID,
     previousSelectedWindowID: WindowID?,
@@ -243,7 +256,11 @@ extension Daemon {
       unlessUserInputAfter: focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
     ) { [weak self] result in
-      guard let self,
+      guard let self else { return }
+      guard !self.cancellationKeepsRequestedWindow(
+        windowID,
+        requestInputTimestamp: focusInputTimestamp
+      ),
         let fallbackWindowID = commandFocusCancellationFallback(
           cancelledBeforeMutation: result == .cancelled,
           requestGeneration: commandGeneration,
@@ -282,6 +299,10 @@ extension Daemon {
     }
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
+    guard !cancellationKeepsRequestedWindow(
+      request.requestedWindowID,
+      requestInputTimestamp: request.focusInputTimestamp
+    ) else { return }
     guard let monitor = state.monitors.first(where: { $0.id == request.monitorID }),
       let fallbackWorkspaceID = workspaceFocusCancellationFallback(
         cancelledBeforeMutation: result == .cancelled,

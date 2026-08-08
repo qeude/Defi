@@ -246,6 +246,33 @@ struct NativeFocusTests {
   }
 
   @Test
+  func newerClickOnRequestedWindowPreventsCancellationRollback() {
+    let requestedWindowID = WindowID(rawValue: 2)
+
+    #expect(
+      cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: requestedWindowID,
+        requestedWindowIsNativelyFocused: false,
+        cancellingFocusTargetWindowID: requestedWindowID
+      )
+    )
+    #expect(
+      cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: requestedWindowID,
+        requestedWindowIsNativelyFocused: true,
+        cancellingFocusTargetWindowID: nil
+      )
+    )
+    #expect(
+      !cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: requestedWindowID,
+        requestedWindowIsNativelyFocused: false,
+        cancellingFocusTargetWindowID: WindowID(rawValue: 3)
+      )
+    )
+  }
+
+  @Test
   func staleOrMutatedCancellationCannotRestoreOldSelection() {
     #expect(
       commandFocusCancellationFallback(

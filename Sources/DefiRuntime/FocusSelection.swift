@@ -170,6 +170,15 @@ public func commandFocusCancellationFallback(
   return previousSelectedWindowID
 }
 
+public func cancelledFocusTargetsRequestedWindow(
+  requestedWindowID: WindowID,
+  requestedWindowIsNativelyFocused: Bool,
+  cancellingFocusTargetWindowID: WindowID?
+) -> Bool {
+  requestedWindowIsNativelyFocused
+    || cancellingFocusTargetWindowID == requestedWindowID
+}
+
 public func workspaceFocusCancellationFallback(
   cancelledBeforeMutation: Bool,
   requestGeneration: UInt64,
