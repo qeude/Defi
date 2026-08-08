@@ -6,6 +6,10 @@ import DefiCore
 import DefiModel
 import OSLog
 
+func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
+  frame?.completion?(false)
+}
+
 final class AXFrameCoordinator: @unchecked Sendable {
   private let queue = DispatchQueue(
     label: "com.quentin.defi.ax-frame-coordinator",
@@ -129,6 +133,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   func invalidate(reason: String) {
     lock.lock()
+    let displacedFrame = pending
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     pending = nil
@@ -140,6 +145,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     pendingInitialSettlementEventChecks.removeAll(keepingCapacity: true)
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
+    completeSupersededFrame(displacedFrame)
   }
 
   func invalidateAndWaitForWrites() {
@@ -158,6 +164,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   ) {
     guard !writes.isEmpty else { return }
     lock.lock()
+    let displacedFrame = pending
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     if pending != nil {
@@ -189,6 +196,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       running = true
     }
     lock.unlock()
+    completeSupersededFrame(displacedFrame)
     if shouldStart {
       queue.async { [self] in
         drain()

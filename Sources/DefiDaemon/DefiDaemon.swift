@@ -143,6 +143,7 @@ final class Daemon: NSObject {
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
   var preservedWindowRemovalFocusCount = 0
   var pendingAnimatedFocus: PendingAnimatedFocus?
+  var submittedCommandFocus: PendingAnimatedFocus?
   var pendingWorkspaceFocus: PendingWorkspaceFocus?
   var submittedWorkspaceFocusGeneration: UInt64?
   var lastPointerWindowID: WindowID?

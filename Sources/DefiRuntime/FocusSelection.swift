@@ -243,11 +243,12 @@ public func cancelledPointerFocusShouldRearm(
   )
 }
 
-public func pendingCommandFocusIsPreserved(
+public func commandFocusIsPreserved(
   pendingWindowID: WindowID?,
+  submittedWindowID: WindowID?,
   selectedWindowID: WindowID
 ) -> Bool {
-  pendingWindowID == selectedWindowID
+  (pendingWindowID ?? submittedWindowID) == selectedWindowID
 }
 
 public func nextPointerFocusRetryCount(

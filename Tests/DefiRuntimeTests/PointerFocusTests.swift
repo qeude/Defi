@@ -207,24 +207,34 @@ struct PointerFocusTests {
   }
 
   @Test
-  func pendingCommandFocusRefreshesOnlyForPreservedTarget() {
+  func commandFocusRefreshesPendingOrSubmittedPreservedTarget() {
     let windowID = WindowID(rawValue: 42)
 
     #expect(
-      pendingCommandFocusIsPreserved(
+      commandFocusIsPreserved(
         pendingWindowID: windowID,
+        submittedWindowID: nil,
         selectedWindowID: windowID
       )
     )
     #expect(
-      !pendingCommandFocusIsPreserved(
-        pendingWindowID: WindowID(rawValue: 43),
-        selectedWindowID: windowID
-      )
-    )
-    #expect(
-      !pendingCommandFocusIsPreserved(
+      commandFocusIsPreserved(
         pendingWindowID: nil,
+        submittedWindowID: windowID,
+        selectedWindowID: windowID
+      )
+    )
+    #expect(
+      !commandFocusIsPreserved(
+        pendingWindowID: WindowID(rawValue: 43),
+        submittedWindowID: nil,
+        selectedWindowID: windowID
+      )
+    )
+    #expect(
+      !commandFocusIsPreserved(
+        pendingWindowID: nil,
+        submittedWindowID: nil,
         selectedWindowID: windowID
       )
     )

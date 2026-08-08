@@ -120,6 +120,7 @@ extension Daemon {
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
         pendingAnimatedFocus = nil
+        submittedCommandFocus = nil
         pendingWorkspaceFocus = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)
@@ -265,18 +266,21 @@ extension Daemon {
       } else if !switchesWorkspace,
         let monitorID = activeMonitorID ?? state.monitors.first?.id,
         let sourceWorkspaceID = pendingAnimatedFocus?.sourceWorkspaceID
+          ?? submittedCommandFocus?.sourceWorkspaceID
           ?? previousWorkspaceID,
         let selected = state.selectedWindowID(on: monitorID),
-        pendingCommandFocusIsPreserved(
+        commandFocusIsPreserved(
           pendingWindowID: pendingAnimatedFocus?.windowID,
+          submittedWindowID: submittedCommandFocus?.windowID,
           selectedWindowID: selected
         )
       {
-        let previousPendingAnimatedFocus = pendingAnimatedFocus
+        let previousCommandFocus = pendingAnimatedFocus
+          ?? submittedCommandFocus
         pendingAnimatedFocus = PendingAnimatedFocus(
           windowID: selected,
           previousSelectedWindowID:
-            previousPendingAnimatedFocus?.previousSelectedWindowID,
+            previousCommandFocus?.previousSelectedWindowID,
           monitorID: monitorID,
           sourceWorkspaceID: sourceWorkspaceID,
           commandGeneration: currentCommandGeneration,

@@ -14,6 +14,26 @@ final class FrameCommitTests: XCTestCase {
     observedAt: nil
   )
 
+  func testDisplacedQueuedFrameCompletesAsSuperseded() {
+    let completion = expectation(description: "superseded completion")
+    let frame = QueuedPositionFrame(
+      generation: 1,
+      source: "test",
+      writes: [:],
+      animatedWindowIDs: [],
+      animationDuration: 0,
+      refreshRateHz: 60,
+      stagesVisibleBeforeParking: false
+    ) { completedLatest in
+      XCTAssertFalse(completedLatest)
+      completion.fulfill()
+    }
+
+    completeSupersededFrame(frame)
+
+    wait(for: [completion], timeout: 0.1)
+  }
+
   func testInitialWindowCommitUsesShortQuarantineForFastRetries() {
     XCTAssertEqual(
       frameCommitQuarantineDuration(

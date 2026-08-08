@@ -101,6 +101,7 @@ extension Daemon {
     }
 
     pendingAnimatedFocus = nil
+    submittedCommandFocus = nil
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     pendingWindowRemovalFocusGuard = nil
@@ -251,12 +252,25 @@ extension Daemon {
     focusInputTimestamp: TimeInterval,
     cursorWarpInputTimestamp: TimeInterval?
   ) {
+    let request = PendingAnimatedFocus(
+      windowID: windowID,
+      previousSelectedWindowID: previousSelectedWindowID,
+      monitorID: monitorID,
+      sourceWorkspaceID: sourceWorkspaceID,
+      commandGeneration: commandGeneration,
+      focusInputTimestamp: focusInputTimestamp,
+      cursorWarpInputTimestamp: cursorWarpInputTimestamp
+    )
+    submittedCommandFocus = request
     platform.focus(
       windowID,
       unlessUserInputAfter: focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
     ) { [weak self] result in
       guard let self else { return }
+      if self.submittedCommandFocus?.commandGeneration == commandGeneration {
+        self.submittedCommandFocus = nil
+      }
       guard !self.cancellationKeepsRequestedWindow(
         windowID,
         requestInputTimestamp: focusInputTimestamp

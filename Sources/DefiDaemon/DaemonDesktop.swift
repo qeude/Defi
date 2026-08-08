@@ -58,6 +58,7 @@ extension Daemon {
       platform.invalidateFocusStateForDisplayChange()
       scrollAnimations.removeAll(keepingCapacity: true)
       pendingAnimatedFocus = nil
+      submittedCommandFocus = nil
       pendingWorkspaceFocus = nil
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
@@ -206,6 +207,7 @@ extension Daemon {
         state: state
       )
       if nativeFocusAccepted {
+        submittedCommandFocus = nil
         pendingWorkspaceFocus = nil
         submittedWorkspaceFocusGeneration = nil
       }
