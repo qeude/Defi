@@ -171,7 +171,7 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-shift-rightbracket": "move-column last",
       "\(modifier)-minus": "cycle-width previous",
       "\(modifier)-equal": "cycle-width next",
-      "\(modifier)-f": "toggle-fullscreen",
+      "\(modifier)-f": "maximize-column",
       "\(modifier)-backslash": "toggle-floating",
       "\(modifier)-shift-backslash": "activate-floating",
       "\(modifier)-comma": "focus-floating previous",

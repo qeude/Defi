@@ -64,48 +64,48 @@ final class WorkspaceTests: XCTestCase {
     XCTAssertEqual(workspace.focusedColumn, 1)
   }
 
-  func testFullscreenRestoresPixelWidth() {
+  func testMaximizedColumnRestoresPixelWidth() {
     var column = Column(window: WindowID(rawValue: 1), width: .pixels(420))
 
-    toggleFullscreen(of: &column, defaultWidth: 0.8)
+    maximizeColumn(&column, defaultWidth: 0.8)
     XCTAssertEqual(column.width, .fraction(1))
-    XCTAssertEqual(column.fullscreenPreviousWidth, .pixels(420))
+    XCTAssertEqual(column.preMaximizedWidth, .pixels(420))
 
-    toggleFullscreen(of: &column, defaultWidth: 0.8)
+    maximizeColumn(&column, defaultWidth: 0.8)
     XCTAssertEqual(column.width, .pixels(420))
-    XCTAssertNil(column.fullscreenPreviousWidth)
+    XCTAssertNil(column.preMaximizedWidth)
   }
 
-  func testCyclingForwardFromFullscreenUsesFirstPreset() {
+  func testCyclingForwardFromMaximizedUsesFirstPreset() {
     var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
     let presets = [1.0, 0.33, 0.5, 0.66, 0.8]
 
-    toggleFullscreen(of: &column, defaultWidth: 0.8)
+    maximizeColumn(&column, defaultWidth: 0.8)
     cycleWidth(of: &column, direction: .next, presets: presets)
 
     XCTAssertEqual(column.width, .fraction(0.33))
-    XCTAssertNil(column.fullscreenPreviousWidth)
+    XCTAssertNil(column.preMaximizedWidth)
   }
 
-  func testCyclingBackwardFromFullscreenUsesLastPreset() {
+  func testCyclingBackwardFromMaximizedUsesLastPreset() {
     var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
     let presets = [0.33, 0.5, 0.66, 0.8, 1.0]
 
-    toggleFullscreen(of: &column, defaultWidth: 0.8)
+    maximizeColumn(&column, defaultWidth: 0.8)
     cycleWidth(of: &column, direction: .previous, presets: presets)
 
     XCTAssertEqual(column.width, .fraction(0.8))
-    XCTAssertNil(column.fullscreenPreviousWidth)
+    XCTAssertNil(column.preMaximizedWidth)
   }
 
-  func testCyclingFromFullscreenWithOnlyFullWidthPresetDoesNothing() {
+  func testCyclingFromMaximizedWithOnlyFullWidthPresetDoesNothing() {
     var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
 
-    toggleFullscreen(of: &column, defaultWidth: 0.8)
+    maximizeColumn(&column, defaultWidth: 0.8)
     cycleWidth(of: &column, direction: .previous, presets: [1.0])
 
     XCTAssertEqual(column.width, .fraction(1))
-    XCTAssertEqual(column.fullscreenPreviousWidth, .fraction(0.5))
+    XCTAssertEqual(column.preMaximizedWidth, .fraction(0.5))
   }
 
 }

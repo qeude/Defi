@@ -162,12 +162,12 @@ private func scalePixelWidths(in monitor: inout Monitor, by scale: Double) {
       if var previous =
         monitor.workspaces[workspaceIndex]
         .columns[columnIndex]
-        .fullscreenPreviousWidth
+        .preMaximizedWidth
       {
         scalePixelWidth(&previous, by: scale)
         monitor.workspaces[workspaceIndex]
           .columns[columnIndex]
-          .fullscreenPreviousWidth = previous
+          .preMaximizedWidth = previous
       }
     }
   }

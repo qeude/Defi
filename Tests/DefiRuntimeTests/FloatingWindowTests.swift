@@ -40,7 +40,7 @@ final class FloatingWindowTests: XCTestCase {
       Command.focusColumn(.next),
       .focusWindow(.next),
       .cycleWidth(.next),
-      .toggleFullscreen,
+      .maximizeColumn,
     ] {
       try reduce(command, on: monitorID, state: &state)
       XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[1].id)

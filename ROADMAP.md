@@ -5,7 +5,7 @@
 - [x] SwiftPM package boundaries
 - [x] Pure model types and command parsing
 - [x] Scrolling-column layout engine
-- [x] Focus, move, stack, width, fullscreen, parking, and frame-diff primitives
+- [x] Focus, move, stack, width, column maximization, parking, and frame-diff primitives
 - [x] Initial deterministic unit tests
 - [x] Reducer and runtime state
 - [x] TOML configuration and application rules

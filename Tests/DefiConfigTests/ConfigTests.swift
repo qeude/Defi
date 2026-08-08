@@ -109,7 +109,7 @@ final class ConfigTests: XCTestCase {
     XCTAssertEqual(config.keys["hyper-1"], "workspace dev")
     XCTAssertEqual(config.keys["hyper-minus"], "cycle-width previous")
     XCTAssertEqual(config.keys["hyper-equal"], "cycle-width next")
-    XCTAssertEqual(config.keys["hyper-f"], "toggle-fullscreen")
+    XCTAssertEqual(config.keys["hyper-f"], "maximize-column")
     XCTAssertEqual(config.keys["hyper-backslash"], "toggle-floating")
     XCTAssertEqual(config.keys["hyper-shift-backslash"], "activate-floating")
     XCTAssertEqual(config.keys["hyper-comma"], "focus-floating previous")

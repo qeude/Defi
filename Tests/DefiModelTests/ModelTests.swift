@@ -18,7 +18,7 @@ final class ModelTests: XCTestCase {
     XCTAssertFalse(window.forceTiling)
     XCTAssertFalse(window.intrinsicSize)
     XCTAssertEqual(column.focusedWindow, 0)
-    XCTAssertNil(column.fullscreenPreviousWidth)
+    XCTAssertNil(column.preMaximizedWidth)
     XCTAssertEqual(workspace.focusedColumn, 0)
     XCTAssertTrue(workspace.columns.isEmpty)
     XCTAssertTrue(workspace.floatingWindows.isEmpty)
@@ -61,7 +61,7 @@ final class ModelTests: XCTestCase {
       try parseCommand("workspace sim"),
       .switchWorkspace(WorkspaceID(rawValue: "sim"))
     )
-    XCTAssertEqual(try parseCommand("toggle-fullscreen"), .toggleFullscreen)
+    XCTAssertEqual(try parseCommand("maximize-column"), .maximizeColumn)
     XCTAssertEqual(try parseCommand("toggle-floating"), .toggleFloating)
     XCTAssertEqual(try parseCommand("activate-floating"), .activateFloating)
   }
@@ -72,9 +72,18 @@ final class ModelTests: XCTestCase {
     }
   }
 
+  func testRejectsObsoleteFullscreenCommandName() {
+    XCTAssertThrowsError(try parseCommand("toggle-fullscreen")) { error in
+      XCTAssertEqual(
+        error as? CommandParseError,
+        .unknownCommand("toggle-fullscreen")
+      )
+    }
+  }
+
   func testManagedLayoutResizeCommandsAreExplicit() {
     XCTAssertTrue(Command.cycleWidth(.next).resizesManagedLayout)
-    XCTAssertTrue(Command.toggleFullscreen.resizesManagedLayout)
+    XCTAssertTrue(Command.maximizeColumn.resizesManagedLayout)
     XCTAssertTrue(Command.joinWindow(.left).resizesManagedLayout)
     XCTAssertTrue(Command.unjoinWindows.resizesManagedLayout)
     XCTAssertFalse(Command.focusColumn(.right).resizesManagedLayout)

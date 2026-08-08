@@ -177,7 +177,7 @@ public func cycleWidth(
   presets: [Double]
 ) {
   guard !presets.isEmpty else { return }
-  if column.fullscreenPreviousWidth != nil {
+  if column.preMaximizedWidth != nil {
     let boundaryIndex: Int?
     switch direction {
     case .next, .right, .first:
@@ -193,12 +193,12 @@ public func cycleWidth(
     }
     guard let boundaryIndex else { return }
     column.width = .fraction(presets[boundaryIndex])
-    column.fullscreenPreviousWidth = nil
+    column.preMaximizedWidth = nil
     return
   }
   guard case .fraction(let current) = column.width else {
     column.width = .fraction(presets[0])
-    column.fullscreenPreviousWidth = nil
+    column.preMaximizedWidth = nil
     return
   }
 
@@ -219,15 +219,15 @@ public func cycleWidth(
     nextIndex = currentIndex
   }
   column.width = .fraction(presets[nextIndex])
-  column.fullscreenPreviousWidth = nil
+  column.preMaximizedWidth = nil
 }
 
-public func toggleFullscreen(of column: inout Column, defaultWidth: Double) {
+public func maximizeColumn(_ column: inout Column, defaultWidth: Double) {
   if case .fraction(let value) = column.width, abs(value - 1) < .ulpOfOne {
-    column.width = column.fullscreenPreviousWidth ?? .fraction(defaultWidth)
-    column.fullscreenPreviousWidth = nil
+    column.width = column.preMaximizedWidth ?? .fraction(defaultWidth)
+    column.preMaximizedWidth = nil
   } else {
-    column.fullscreenPreviousWidth = column.width
+    column.preMaximizedWidth = column.width
     column.width = .fraction(1)
   }
 }

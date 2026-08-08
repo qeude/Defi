@@ -70,10 +70,14 @@ Default hotkeys:
 - `Option + 1...9`: switch workspace
 - `Option + Shift + 1...9`: move window and follow
 - `Option + -/=`: cycle width
-- `Option + F`: fullscreen column
+- `Option + F`: maximize column
 - `Option + \\`: toggle focused window tiled/floating
 - `Option + Shift + \\`: foreground selected floating window
 - `Option + ,/.`: cycle floating windows
+
+`maximize-column` fills Defi's monitor work area; it is not native macOS
+fullscreen. Native fullscreen lifecycle policy is documented in
+[CONFIGURATION.md](CONFIGURATION.md#native-macos-fullscreen).
 
 ## Config
 
