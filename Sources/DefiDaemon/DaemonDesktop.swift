@@ -55,6 +55,7 @@ extension Daemon {
         "geometry changed previous=\(previous, privacy: .public) next=\(next, privacy: .public)"
       )
       platform.invalidateFrameStateForDisplayChange()
+      platform.invalidateFocusStateForDisplayChange()
       scrollAnimations.removeAll(keepingCapacity: true)
       pendingAnimatedFocus = nil
       pendingWorkspaceFocus = nil

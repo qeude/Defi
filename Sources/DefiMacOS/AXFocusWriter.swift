@@ -26,6 +26,7 @@ public enum NativeFocusResult: Equatable, Sendable {
   case completed
   case completedWithoutMutation
   case superseded
+  case supersededAfterMutation
   case cancelled
   case cancelledAfterMutation
   case cancelledAfterInputMutation
@@ -62,7 +63,7 @@ func transferredNativeFocusRecovery(
   generationCurrent: Bool
 ) -> NativeFocusRecoveryTransfer {
   switch result {
-  case .cancelledAfterMutation:
+  case .supersededAfterMutation, .cancelledAfterMutation:
     return NativeFocusRecoveryTransfer(
       carried: carried ?? request,
       recovery: nil
@@ -97,6 +98,9 @@ func resolvedNativeFocusResult(
 ) -> NativeFocusResult {
   if mutationApplied && generationCurrent && !inputCurrent {
     return .cancelledAfterInputMutation
+  }
+  if mutationApplied && !generationCurrent {
+    return .supersededAfterMutation
   }
   if mutationApplied && (cancelled || !generationCurrent || !inputCurrent) {
     return .cancelledAfterMutation
@@ -138,6 +142,8 @@ final class AXFocusWriter: @unchecked Sendable {
   private var needsRecoveryActivation = false
   private var carriedFocusRecovery: NativeFocusRecoveryRequest?
   private var latestGeneration: UInt64 = 0
+  private var minimumRecoveryGeneration: UInt64 = 0
+  private var appliedRecoveryResetGeneration: UInt64 = 0
   private var running = false
   private var lastDurationMS = 0.0
   private var fastPathCount = 0
@@ -173,6 +179,21 @@ final class AXFocusWriter: @unchecked Sendable {
     if shouldStart {
       queue.async { [self] in drain() }
     }
+  }
+
+  func invalidate() {
+    lock.lock()
+    let replaced = pending
+    pending = nil
+    latestGeneration &+= 1
+    minimumRecoveryGeneration = latestGeneration
+    if replaced != nil {
+      cancelledCount += 1
+    }
+    lock.unlock()
+    replaced?.completion(
+      NativeFocusCompletion(result: .superseded, recoveryRequest: nil)
+    )
   }
 
   var isBusy: Bool {
@@ -406,6 +427,21 @@ final class AXFocusWriter: @unchecked Sendable {
     result: NativeFocusResult,
     generationCurrent: Bool
   ) {
+    lock.lock()
+    let recoveryResetGeneration = minimumRecoveryGeneration
+    lock.unlock()
+    if appliedRecoveryResetGeneration < recoveryResetGeneration {
+      carriedFocusRecovery = nil
+      appliedRecoveryResetGeneration = recoveryResetGeneration
+    }
+    let discardsRecovery = queued.generation < recoveryResetGeneration
+    if discardsRecovery {
+      carriedFocusRecovery = nil
+      queued.completion(
+        NativeFocusCompletion(result: result, recoveryRequest: nil)
+      )
+      return
+    }
     let recoveryTransfer = transferredNativeFocusRecovery(
       carried: carriedFocusRecovery,
       request: queued.request.recoveryRequest,

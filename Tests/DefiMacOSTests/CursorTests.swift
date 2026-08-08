@@ -153,7 +153,6 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [tiledWindowID, floatingWindowID],
-        managedProcessIDs: [10, 20],
         excludingProcessID: 999
       ) == .managed(floatingWindowID)
     )
@@ -173,7 +172,6 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [tiledWindowID, sheetWindowID],
-        managedProcessIDs: [10],
         excludingProcessID: 999
       ) == .managed(sheetWindowID)
     )
@@ -191,7 +189,6 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [WindowID(rawValue: 1)],
-        managedProcessIDs: [10],
         excludingProcessID: 999
       ) == .blocked
     )
@@ -210,7 +207,6 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [managedWindowID],
-        managedProcessIDs: [10],
         excludingProcessID: 999,
         nonblockingElevatedWindowIDs: [9]
       ) == .managed(managedWindowID)
@@ -259,10 +255,37 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [WindowID(rawValue: 1)],
-        managedProcessIDs: [10],
         excludingProcessID: 999,
         nonblockingElevatedWindowIDs: []
       ) == .blocked
+    )
+  }
+
+  @Test
+  func cursorSurfaceIsTransparentToHitTesting() {
+    let records = [
+      record(
+        id: 9,
+        processID: 90,
+        layer: 2_147_483_630,
+        title: "Cursor",
+        frame: Rect(x: 300, y: 500, width: 28, height: 40)
+      ),
+      record(id: 1, processID: 10),
+    ]
+
+    let transparentWindowIDs = transparentPointerOverlayWindowIDs(
+      records: records
+    )
+    #expect(transparentWindowIDs == [9])
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [WindowID(rawValue: 1)],
+        excludingProcessID: 999,
+        nonblockingElevatedWindowIDs: transparentWindowIDs
+      ) == .managed(WindowID(rawValue: 1))
     )
   }
 
@@ -278,14 +301,13 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [WindowID(rawValue: 1)],
-        managedProcessIDs: [10],
         excludingProcessID: 999
       ) == .blocked
     )
   }
 
   @Test
-  func managedProcessAuxiliaryWindowAllowsManagedWindowBehindIt() {
+  func managedProcessAuxiliaryWindowBlocksManagedWindowBehindIt() {
     let managedWindowID = WindowID(rawValue: 1)
     let records = [
       record(id: 9, processID: 10),
@@ -297,9 +319,8 @@ struct CursorTests {
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [managedWindowID],
-        managedProcessIDs: [10],
         excludingProcessID: 999
-      ) == .managed(managedWindowID)
+      ) == .blocked
     )
   }
 

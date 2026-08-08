@@ -104,7 +104,7 @@ struct PlatformEventTests {
         inputCurrent: false,
         cancelled: true,
         focusSucceeded: true
-      ) == .cancelledAfterMutation
+      ) == .supersededAfterMutation
     )
   }
 
@@ -122,7 +122,7 @@ struct PlatformEventTests {
     let transferred = transferredNativeFocusRecovery(
       carried: nil,
       request: originalRecovery,
-      result: .cancelledAfterMutation,
+      result: .supersededAfterMutation,
       generationCurrent: false
     )
     #expect(transferred.carried == originalRecovery)
@@ -189,6 +189,13 @@ struct PlatformEventTests {
         requestID: 6,
         result: .cancelled
       ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .supersededAfterMutation
+      ) == nil
     )
     #expect(
       internalFocusSuppressionAfterCompletion(

@@ -18,8 +18,8 @@ func internalFocusSuppressionAfterCompletion(
 ) -> InternalFocusSuppression? {
   guard suppression?.requestID == requestID else { return suppression }
   switch result {
-  case .completedWithoutMutation, .superseded, .cancelled, .failed,
-    .failedAfterMutation:
+  case .completedWithoutMutation, .superseded, .supersededAfterMutation,
+    .cancelled, .failed, .failedAfterMutation:
     return nil
   case .completed, .cancelledAfterMutation, .cancelledAfterInputMutation:
     return suppression
@@ -28,6 +28,11 @@ func internalFocusSuppressionAfterCompletion(
 
 @MainActor
 extension MacOSPlatform {
+
+  public func invalidateFocusStateForDisplayChange() {
+    focusWriter.invalidate()
+    internalFocusSuppressions.removeAll(keepingCapacity: true)
+  }
 
   public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {
     guard let processID = processIDs[windowID] else { return false }
@@ -154,7 +159,7 @@ extension MacOSPlatform {
               preferringTargetFrame: cursorWarpPrefersTargetFrame
             )
           }
-        case .superseded, .cancelled:
+        case .superseded, .supersededAfterMutation, .cancelled:
           break
         case .cancelledAfterMutation:
           break

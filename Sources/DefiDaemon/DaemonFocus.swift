@@ -118,7 +118,8 @@ extension Daemon {
             timestamp: timestamp,
             retryCount: retryCount
           )
-        case .superseded, .cancelled, .cancelledAfterMutation,
+        case .superseded, .supersededAfterMutation, .cancelled,
+          .cancelledAfterMutation,
           .cancelledAfterInputMutation:
           if cancelledPointerFocusShouldRearm(
             pointerTimestamp: timestamp,
@@ -192,7 +193,9 @@ extension Daemon {
       )
     else {
       needsDesktopSync = true
-      rearmPointerFocusTransition()
+      if intentCurrent {
+        rearmPointerFocusTransition()
+      }
       return
     }
 
