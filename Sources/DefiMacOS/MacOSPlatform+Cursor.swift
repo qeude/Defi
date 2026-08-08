@@ -110,8 +110,9 @@ func transparentDockOverlayWindowIDs(
 func transparentPointerOverlayWindowIDs(
   records: [CGWindowRecord]
 ) -> Set<CGWindowID> {
-  Set(records.compactMap { record in
-    guard record.layer > 0,
+  let cursorWindowLevel = Int(CGWindowLevelForKey(.cursorWindow))
+  return Set(records.compactMap { record in
+    guard record.layer >= cursorWindowLevel,
       record.title == "Cursor",
       record.frame.width <= 64,
       record.frame.height <= 64

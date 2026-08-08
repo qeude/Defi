@@ -284,6 +284,33 @@ struct CursorTests {
   }
 
   @Test
+  func thirdPartyCursorPaletteBlocksManagedWindow() {
+    let records = [
+      record(
+        id: 9,
+        processID: 90,
+        layer: 8,
+        title: "Cursor",
+        frame: Rect(x: 300, y: 500, width: 28, height: 40)
+      ),
+      record(id: 1, processID: 10),
+    ]
+
+    let transparentWindowIDs = transparentPointerOverlayWindowIDs(
+      records: records
+    )
+    #expect(transparentWindowIDs.isEmpty)
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [WindowID(rawValue: 1)],
+        nonblockingWindowIDs: transparentWindowIDs
+      ) == .blocked
+    )
+  }
+
+  @Test
   func unmanagedFrontWindowBlocksManagedWindowBehindIt() {
     let records = [
       record(id: 9, processID: 90),
