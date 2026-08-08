@@ -55,6 +55,7 @@ extension MacOSPlatform {
 
   public func invalidateFocusStateForDisplayChange() {
     focusWriter.invalidate()
+    focusRecoveryResolver.invalidate()
     internalFocusSuppressions.removeAll(keepingCapacity: true)
   }
 
@@ -252,78 +253,77 @@ extension MacOSPlatform {
     else {
       return
     }
-    if let windowID = target.windowID,
-      let element = focusRecoveryElement(
+    if let windowID = target.windowID {
+      focusRecoveryResolver.resolve(
         windowID: windowID,
         processID: processID
-      ),
-      let application = applications[processID]
-    {
-      frameCoordinator.recordTrace(
-        "focus-recovery auxiliary-window=\(windowID.rawValue)"
-      )
-      focusWriter.submit(
-        AsyncFocusRequest(
-          element: element,
-          application: application,
-          processID: processID,
-          selectsSpecificWindow: true,
-          validatesSpecificWindowFocus: false,
-          activatesApplication:
-            NSWorkspace.shared.frontmostApplication?.processIdentifier
-            != processID,
-          inputGuard: FocusInputGuard(
-            tracker: userInputTracker,
-            maximumTimestamp: target.timestamp
-          ),
-          recoveryRequest: NativeFocusRecoveryRequest(
-            timestamp: target.timestamp,
-            excludingWindowID: windowID,
-            excludingProcessID: processID,
-            fallback: nil
-          )
-        )
-      ) { [weak self] completion in
-        guard let recoveryRequest = completion.recoveryRequest else { return }
+      ) { [weak self] resolution in
         Task { @MainActor [weak self] in
-          self?.recoverUserFocus(recoveryRequest)
+          guard let self,
+            self.userInputTracker.latestEventTimestamp <= target.timestamp
+          else {
+            return
+          }
+          guard let resolution else {
+            self.activateFocusRecoveryProcess(processID)
+            return
+          }
+          self.submitAuxiliaryFocusRecovery(
+            element: resolution.element,
+            windowID: windowID,
+            processID: processID,
+            application: resolution.application,
+            timestamp: target.timestamp
+          )
         }
       }
       return
     }
-    frameCoordinator.recordTrace("focus-recovery pid=\(processID)")
-    NSRunningApplication(processIdentifier: processID)?.activate()
+    activateFocusRecoveryProcess(processID)
   }
 
-  private func focusRecoveryElement(
+  private func submitAuxiliaryFocusRecovery(
+    element: AXUIElement,
     windowID: WindowID,
-    processID: pid_t
-  ) -> AXUIElement? {
-    guard let targetCGWindowID = CGWindowID(exactly: windowID.rawValue),
-      let target = copyCGWindows().first(where: {
-        $0.id == targetCGWindowID && $0.processID == processID
-      }),
-      let application = applications[processID],
-      let windows = copyElements(application, attribute: kAXWindowsAttribute)
-    else {
-      return nil
-    }
-    let candidates = windows.compactMap { element in
-      frame(of: element).map {
-        (
-          element,
-          $0,
-          value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
+    processID: pid_t,
+    application: AXUIElement,
+    timestamp: TimeInterval
+  ) {
+    frameCoordinator.recordTrace(
+      "focus-recovery auxiliary-window=\(windowID.rawValue)"
+    )
+    focusWriter.submit(
+      AsyncFocusRequest(
+        element: element,
+        application: application,
+        processID: processID,
+        selectsSpecificWindow: true,
+        validatesSpecificWindowFocus: false,
+        activatesApplication:
+          NSWorkspace.shared.frontmostApplication?.processIdentifier
+          != processID,
+        inputGuard: FocusInputGuard(
+          tracker: userInputTracker,
+          maximumTimestamp: timestamp
+        ),
+        recoveryRequest: NativeFocusRecoveryRequest(
+          timestamp: timestamp,
+          excludingWindowID: windowID,
+          excludingProcessID: processID,
+          fallback: nil
         )
+      )
+    ) { [weak self] completion in
+      guard let recoveryRequest = completion.recoveryRequest else { return }
+      Task { @MainActor [weak self] in
+        self?.recoverUserFocus(recoveryRequest)
       }
     }
-    guard let index = closestFocusRecoveryWindowIndex(
-      target: (target.frame, target.title),
-      candidates: candidates.map { ($0.1, $0.2) }
-    ) else {
-      return nil
-    }
-    return candidates[index].0
+  }
+
+  private func activateFocusRecoveryProcess(_ processID: pid_t) {
+    frameCoordinator.recordTrace("focus-recovery pid=\(processID)")
+    NSRunningApplication(processIdentifier: processID)?.activate()
   }
 
   private func capturedNativeFocusRecoveryFallback()

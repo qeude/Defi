@@ -6,6 +6,22 @@ import Testing
 
 struct PlatformEventTests {
   @Test
+  func auxiliaryFocusRecoveryLookupIsLatestWins() {
+    #expect(
+      focusRecoveryResolutionIsCurrent(
+        requestGeneration: 4,
+        currentGeneration: 4
+      )
+    )
+    #expect(
+      !focusRecoveryResolutionIsCurrent(
+        requestGeneration: 3,
+        currentGeneration: 4
+      )
+    )
+  }
+
+  @Test
   func physicalPointerTrackingIncludesDragEvents() {
     #expect(eventTracksPhysicalPointerMotion(.mouseMoved))
     #expect(eventTracksPhysicalPointerMotion(.leftMouseDragged))

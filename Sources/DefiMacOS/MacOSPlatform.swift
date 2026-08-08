@@ -16,6 +16,7 @@ public final class MacOSPlatform {
   var enhancedUIByProcess: [pid_t: Bool] = [:]
   let frameCoordinator = AXFrameCoordinator()
   let focusWriter = AXFocusWriter()
+  let focusRecoveryResolver = AXFocusRecoveryResolver()
   let borderManager = WindowBorderManager()
   let borderBoundsProvider = WindowServerBoundsProvider()
   var targetFrames: [WindowID: Rect] = [:]
