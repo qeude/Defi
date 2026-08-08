@@ -25,6 +25,7 @@ struct AsyncFocusRequest: @unchecked Sendable {
 public enum NativeFocusResult: Equatable, Sendable {
   case completed
   case completedWithoutMutation
+  case frameSuperseded
   case superseded
   case supersededAfterMutation
   case cancelled
@@ -76,7 +77,7 @@ func transferredNativeFocusRecovery(
       carried: nil,
       recovery: carried ?? request
     )
-  case .superseded, .cancelled, .failed:
+  case .frameSuperseded, .superseded, .cancelled, .failed:
     guard generationCurrent else {
       return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
     }

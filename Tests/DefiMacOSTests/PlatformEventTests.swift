@@ -167,7 +167,11 @@ struct PlatformEventTests {
 
   @Test
   func abandonedFocusClearsOnlyItsOwnUnmutatedSuppression() {
-    let current = InternalFocusSuppression(requestID: 7, deadline: 20)
+    let current = InternalFocusSuppression(
+      requestID: 7,
+      deadline: 20,
+      maximumInputTimestamp: 10
+    )
 
     #expect(
       internalFocusSuppressionAfterCompletion(
@@ -195,7 +199,7 @@ struct PlatformEventTests {
         current,
         requestID: 7,
         result: .supersededAfterMutation
-      ) == nil
+      ) == current
     )
     #expect(
       internalFocusSuppressionAfterCompletion(
@@ -217,6 +221,35 @@ struct PlatformEventTests {
         requestID: 7,
         result: .failedAfterMutation
       ) == nil
+    )
+  }
+
+  @Test
+  func supersededSuppressionConsumesOnlyThroughReplacementInput() {
+    let original = InternalFocusSuppression(
+      requestID: 7,
+      deadline: 20,
+      maximumInputTimestamp: 10
+    )
+    let extended = extendingInternalFocusSuppression(
+      original,
+      through: 12,
+      deadline: 22
+    )
+
+    #expect(extended.maximumInputTimestamp == 12)
+    #expect(extended.deadline == 22)
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        latestInputTimestamp: 12
+      )
+    )
+    #expect(
+      !internalFocusSuppressionConsumesEvent(
+        extended,
+        latestInputTimestamp: 13
+      )
     )
   }
 

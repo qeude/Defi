@@ -317,7 +317,7 @@ extension MacOSPlatform {
       frameCompletion = { [weak self] completedLatest in
         DispatchQueue.main.async {
           guard completedLatest, let self else {
-            focusCompletionAfterCommit?(.superseded)
+            focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
           if refreshesBordersAfterCommit {

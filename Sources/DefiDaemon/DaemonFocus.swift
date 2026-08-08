@@ -118,7 +118,8 @@ extension Daemon {
             timestamp: timestamp,
             retryCount: retryCount
           )
-        case .superseded, .supersededAfterMutation, .cancelled,
+        case .frameSuperseded, .superseded, .supersededAfterMutation,
+          .cancelled,
           .cancelledAfterMutation,
           .cancelledAfterInputMutation:
           if cancelledPointerFocusShouldRearm(
@@ -193,9 +194,6 @@ extension Daemon {
       )
     else {
       needsDesktopSync = true
-      if intentCurrent {
-        rearmPointerFocusTransition()
-      }
       return
     }
 
@@ -278,6 +276,10 @@ extension Daemon {
   ) {
     guard pendingWorkspaceFocus?.commandGeneration == request.commandGeneration
     else { return }
+    if result == .frameSuperseded {
+      submittedWorkspaceFocusGeneration = nil
+      return
+    }
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     guard let monitor = state.monitors.first(where: { $0.id == request.monitorID }),

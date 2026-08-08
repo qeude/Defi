@@ -377,7 +377,13 @@ extension MacOSPlatform {
     var nativeFocusChanged = nativeFocusTargetMatched
     if nativeFocusChanged,
       let focusedWindowID,
-      internalFocusSuppressions.removeValue(forKey: focusedWindowID) != nil
+      let suppression = internalFocusSuppressions.removeValue(
+        forKey: focusedWindowID
+      ),
+      internalFocusSuppressionConsumesEvent(
+        suppression,
+        latestInputTimestamp: userInputTracker.latestEventTimestamp
+      )
     {
       nativeFocusChanged = false
     }

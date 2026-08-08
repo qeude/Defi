@@ -9,6 +9,29 @@ import OSLog
 struct InternalFocusSuppression: Equatable, Sendable {
   let requestID: UInt64
   let deadline: TimeInterval
+  let maximumInputTimestamp: TimeInterval
+}
+
+func internalFocusSuppressionConsumesEvent(
+  _ suppression: InternalFocusSuppression,
+  latestInputTimestamp: TimeInterval
+) -> Bool {
+  latestInputTimestamp <= suppression.maximumInputTimestamp
+}
+
+func extendingInternalFocusSuppression(
+  _ suppression: InternalFocusSuppression,
+  through inputTimestamp: TimeInterval,
+  deadline: TimeInterval
+) -> InternalFocusSuppression {
+  InternalFocusSuppression(
+    requestID: suppression.requestID,
+    deadline: max(suppression.deadline, deadline),
+    maximumInputTimestamp: max(
+      suppression.maximumInputTimestamp,
+      inputTimestamp
+    )
+  )
 }
 
 func internalFocusSuppressionAfterCompletion(
@@ -18,10 +41,11 @@ func internalFocusSuppressionAfterCompletion(
 ) -> InternalFocusSuppression? {
   guard suppression?.requestID == requestID else { return suppression }
   switch result {
-  case .completedWithoutMutation, .superseded, .supersededAfterMutation,
-    .cancelled, .failed, .failedAfterMutation:
+  case .completedWithoutMutation, .frameSuperseded, .superseded, .cancelled,
+    .failed, .failedAfterMutation:
     return nil
-  case .completed, .cancelledAfterMutation, .cancelledAfterInputMutation:
+  case .completed, .supersededAfterMutation, .cancelledAfterMutation,
+    .cancelledAfterInputMutation:
     return suppression
   }
 }
@@ -87,11 +111,24 @@ extension MacOSPlatform {
     }
     let internalFocusRequestID: UInt64?
     if suppressesNativeFocusEvent {
+      let requestInputTimestamp = maximumUserInputTimestamp
+        ?? userInputTracker.latestEventTimestamp
+      let suppressionDeadline = ProcessInfo.processInfo.systemUptime + 2
+      if focusWriter.isBusy {
+        internalFocusSuppressions = internalFocusSuppressions.mapValues {
+          extendingInternalFocusSuppression(
+            $0,
+            through: requestInputTimestamp,
+            deadline: suppressionDeadline
+          )
+        }
+      }
       nextInternalFocusRequestID &+= 1
       internalFocusRequestID = nextInternalFocusRequestID
       internalFocusSuppressions[windowID] = InternalFocusSuppression(
         requestID: nextInternalFocusRequestID,
-        deadline: ProcessInfo.processInfo.systemUptime + 2
+        deadline: suppressionDeadline,
+        maximumInputTimestamp: requestInputTimestamp
       )
     } else {
       internalFocusRequestID = nil
@@ -159,7 +196,8 @@ extension MacOSPlatform {
               preferringTargetFrame: cursorWarpPrefersTargetFrame
             )
           }
-        case .superseded, .supersededAfterMutation, .cancelled:
+        case .frameSuperseded, .superseded, .supersededAfterMutation,
+          .cancelled:
           break
         case .cancelledAfterMutation:
           break
