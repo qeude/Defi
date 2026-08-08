@@ -237,6 +237,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let positionChanged: Bool
   let sizeChanged: Bool
   let animatesSize: Bool
+  let synchronousSizeWriteSucceeded: Bool
   let enhancedUIWasEnabled: Bool
   let timeoutSeconds: Float
   let isParked: Bool
@@ -299,6 +300,15 @@ func cursorWarpFrameReadiness(
   }
   guard let observedFrame, let targetFrame else { return false }
   return frameDistance(observedFrame, targetFrame) <= 1
+}
+
+func frameSizeWriteSucceeded(
+  synchronousWriteSucceeded: Bool,
+  animatesSize: Bool,
+  asynchronousWriteSucceeded: Bool
+) -> Bool {
+  synchronousWriteSucceeded
+    && (!animatesSize || asynchronousWriteSucceeded)
 }
 
 struct FrameAnimationLanePlan: Equatable, Sendable {

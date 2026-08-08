@@ -64,6 +64,30 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testSynchronousSizeFailureBlocksWarpReadiness() {
+    XCTAssertFalse(
+      frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: false,
+        animatesSize: false,
+        asynchronousWriteSucceeded: true
+      )
+    )
+    XCTAssertTrue(
+      frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: true,
+        animatesSize: false,
+        asynchronousWriteSucceeded: false
+      )
+    )
+    XCTAssertFalse(
+      frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: true,
+        animatesSize: true,
+        asynchronousWriteSucceeded: false
+      )
+    )
+  }
+
   func testDeferredFrameFocusRejectsNewerInputBeforeSubmission() {
     XCTAssertTrue(
       deferredFocusInputIsCurrent(

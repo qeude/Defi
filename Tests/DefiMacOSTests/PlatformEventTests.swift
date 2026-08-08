@@ -296,6 +296,13 @@ struct PlatformEventTests {
     #expect(
       internalFocusSuppressionAfterCompletion(
         current,
+        requestID: 7,
+        result: .failed
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
         requestID: 6,
         result: .cancelled
       ) == current

@@ -488,6 +488,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
         positionChanged: write.positionChanged,
         sizeChanged: write.sizeChanged,
         animatesSize: write.animatesSize,
+        synchronousSizeWriteSucceeded: write.synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: write.enhancedUIWasEnabled,
         timeoutSeconds: write.timeoutSeconds,
         isParked: write.isParked,
@@ -1042,9 +1043,14 @@ final class AXFrameCoordinator: @unchecked Sendable {
       AXUIElementSetMessagingTimeout(item.value.application, timeout)
       AXUIElementSetMessagingTimeout(item.value.element, timeout)
       let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
-      let sizeApplied =
+      let asynchronousSizeWriteSucceeded =
         !item.value.animatesSize
         || accessibilityWriter.applySize(item.value, size: size)
+      let sizeApplied = frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
+        animatesSize: item.value.animatesSize,
+        asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
+      )
       let positionApplied =
         !item.value.positionChanged
         || accessibilityWriter.applyPosition(

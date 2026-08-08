@@ -237,6 +237,34 @@ extension MacOSPlatform {
         wantsFrameAnimation
         && animateSizeChanges
         && intent?.size == true
+      var synchronousSizeWriteSucceeded = true
+      if intent?.size == true, !animatesSize {
+        if let sizeValue = AXValueCreate(.cgSize, &size) {
+          let sizeWriteStartedAt = ProcessInfo.processInfo.systemUptime
+          let result = AXUIElementSetAttributeValue(
+            element,
+            kAXSizeAttribute as CFString,
+            sizeValue
+          )
+          synchronousSizeWriteSucceeded = result == .success
+          if result == .success {
+            frameCoordinator.alignCompletedSize(
+              windowID: assignment.windowID,
+              size: size
+            )
+            sizeWriteCount += 1
+          }
+          if newlyDiscoveredWindowIDs.contains(assignment.windowID) {
+            let elapsedMS =
+              (ProcessInfo.processInfo.systemUptime - sizeWriteStartedAt) * 1_000
+            frameCoordinator.recordTrace(
+              "initial-size wid=\(assignment.windowID.rawValue) result=\(result.rawValue) ms=\(String(format: "%.2f", elapsedMS))"
+            )
+          }
+        } else {
+          synchronousSizeWriteSucceeded = false
+        }
+      }
       let write = AsyncPositionWrite(
         element: element,
         application: application,
@@ -248,36 +276,13 @@ extension MacOSPlatform {
         positionChanged: intent?.position == true,
         sizeChanged: intent?.size == true,
         animatesSize: animatesSize,
+        synchronousSizeWriteSucceeded: synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: enhancedUIByProcess[processID] == true,
         timeoutSeconds: asynchronousPositionTimeoutSeconds,
         isParked: isParked,
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite
       )
-      if intent?.size == true, !animatesSize,
-        let sizeValue = AXValueCreate(.cgSize, &size)
-      {
-        let sizeWriteStartedAt = ProcessInfo.processInfo.systemUptime
-        let result = AXUIElementSetAttributeValue(
-          element,
-          kAXSizeAttribute as CFString,
-          sizeValue
-        )
-        if result == .success {
-          frameCoordinator.alignCompletedSize(
-            windowID: assignment.windowID,
-            size: size
-          )
-          sizeWriteCount += 1
-        }
-        if newlyDiscoveredWindowIDs.contains(assignment.windowID) {
-          let elapsedMS =
-            (ProcessInfo.processInfo.systemUptime - sizeWriteStartedAt) * 1_000
-          frameCoordinator.recordTrace(
-            "initial-size wid=\(assignment.windowID.rawValue) result=\(result.rawValue) ms=\(String(format: "%.2f", elapsedMS))"
-          )
-        }
-      }
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
       }
