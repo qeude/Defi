@@ -55,6 +55,9 @@ public final class MacOSPlatform {
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
   var lastMonitorFrames: [Rect] = []
+  var pointerHitTestRecords: [CGWindowRecord] = []
+  var pointerHitTestDockProcessIDs = Set<pid_t>()
+  var pointerHitTestSnapshotTimestamp: TimeInterval?
   var borderFrames: [FrameAssignment] = []
   var borderSelectedWindowID: WindowID?
   var desiredSelectedWindowID: WindowID?

@@ -75,6 +75,34 @@ struct CursorTests {
   }
 
   @Test
+  func pointerHitTestCacheExpiresAndRejectsClockRollback() {
+    #expect(
+      pointerHitTestCacheIsFresh(
+        cachedAt: nil,
+        now: 10
+      ) == false
+    )
+    #expect(
+      pointerHitTestCacheIsFresh(
+        cachedAt: 10,
+        now: 10.049
+      )
+    )
+    #expect(
+      pointerHitTestCacheIsFresh(
+        cachedAt: 10,
+        now: 10.05
+      ) == false
+    )
+    #expect(
+      pointerHitTestCacheIsFresh(
+        cachedAt: 10,
+        now: 9
+      ) == false
+    )
+  }
+
+  @Test
   func newerPhysicalMotionRejectsStaleWarp() {
     #expect(
       cursorWarpIsCurrent(

@@ -78,6 +78,17 @@ public func normalizedPointerWindowID(
   hitTestedWindowID ?? rawWindowID
 }
 
+let pointerHitTestCacheMaximumAge: TimeInterval = 0.05
+
+func pointerHitTestCacheIsFresh(
+  cachedAt: TimeInterval?,
+  now: TimeInterval,
+  maximumAge: TimeInterval = pointerHitTestCacheMaximumAge
+) -> Bool {
+  guard let cachedAt, now >= cachedAt else { return false }
+  return now - cachedAt < maximumAge
+}
+
 func managedPointerHitTest(
   at location: CGPoint,
   records: [CGWindowRecord],
@@ -144,6 +155,34 @@ func transparentPointerOverlayWindowIDs(
 
 @MainActor
 extension MacOSPlatform {
+  private func pointerHitTestSnapshot() -> (
+    records: [CGWindowRecord],
+    dockProcessIDs: Set<pid_t>
+  ) {
+    // Unresolved pointer motion can arrive at 120 Hz. Keep WindowServer and
+    // Dock enumeration out of the hot path while retaining a bounded staleness.
+    let now = ProcessInfo.processInfo.systemUptime
+    if pointerHitTestCacheIsFresh(
+      cachedAt: pointerHitTestSnapshotTimestamp,
+      now: now
+    ) {
+      return (pointerHitTestRecords, pointerHitTestDockProcessIDs)
+    }
+
+    let records = copyCGWindows(
+      options: [.optionOnScreenOnly, .excludeDesktopElements]
+    )
+    let dockProcessIDs = Set(
+      NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.apple.dock"
+      ).map(\.processIdentifier)
+    )
+    pointerHitTestRecords = records
+    pointerHitTestDockProcessIDs = dockProcessIDs
+    pointerHitTestSnapshotTimestamp = now
+    return (records, dockProcessIDs)
+  }
+
   public func managedWindowIDUnderPointer(
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
@@ -155,24 +194,17 @@ extension MacOSPlatform {
     at location: CGPoint,
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
-    let records = copyCGWindows(
-      options: [.optionOnScreenOnly, .excludeDesktopElements]
-    )
-    let dockProcessIDs = Set(
-      NSRunningApplication.runningApplications(
-        withBundleIdentifier: "com.apple.dock"
-      ).map(\.processIdentifier)
-    )
+    let snapshot = pointerHitTestSnapshot()
     let hit = managedPointerHitTest(
       at: location,
-      records: records,
+      records: snapshot.records,
       managedWindowIDs: lastSnapshotWindowIDs,
       nonblockingWindowIDs: transparentDockOverlayWindowIDs(
-        records: records,
-        dockProcessIDs: dockProcessIDs,
+        records: snapshot.records,
+        dockProcessIDs: snapshot.dockProcessIDs,
         monitorFrames: lastMonitorFrames
       )
-        .union(transparentPointerOverlayWindowIDs(records: records))
+        .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
         .union(borderManager.transparentSurfaceWindowIDs)
     )
     switch hit {
