@@ -66,9 +66,21 @@ extension Daemon {
         viewports: viewportsByMonitor,
         acceptsAlreadySelectedWindow: restoresNativeFocus
       ) != nil
-      recoveryWindowID = targetAccepted ? nil : logicalFocusWindowID
+      recoveryWindowID = pointerFocusRecoveryWindowID(
+        pointerWindowIsManaged: true,
+        pointerWindowIsReady: true,
+        targetAccepted: targetAccepted,
+        logicalFocusWindowID: logicalFocusWindowID
+      )
     } else {
-      recoveryWindowID = nil
+      recoveryWindowID = pointerFocusRecoveryWindowID(
+        pointerWindowIsManaged: pointerWindowID.flatMap {
+          state.monitorID(containing: $0)
+        } != nil,
+        pointerWindowIsReady: pointerWindowID.map(pointerFocusIsReady) ?? false,
+        targetAccepted: false,
+        logicalFocusWindowID: logicalFocusWindowID
+      )
     }
     invalidatePointerFocusIntent(recoveringTo: recoveryWindowID)
     let pointerGeneration = pointerFocusGeneration
@@ -403,6 +415,7 @@ extension Daemon {
         let fallbackWindowID = commandFocusCancellationFallback(
           cancelledBeforeMutation:
             result == .cancelled || result == .failed,
+          rollbackAfterMutation: result == .failedAfterMutation,
           requestGeneration: commandGeneration,
           currentGeneration: self.commandGeneration,
           requestedWindowID: windowID,
@@ -472,6 +485,7 @@ extension Daemon {
       let fallbackWorkspaceID = workspaceFocusCancellationFallback(
         cancelledBeforeMutation:
           result == .cancelled || result == .failed,
+        rollbackAfterMutation: result == .failedAfterMutation,
         requestGeneration: request.commandGeneration,
         currentGeneration: self.commandGeneration,
         requestedWorkspaceID: request.requestedWorkspaceID,

@@ -272,6 +272,23 @@ struct NativeFocusTests {
   }
 
   @Test
+  func exhaustedMutatedFailureRestoresPreviousSelection() {
+    #expect(
+      commandFocusCancellationFallback(
+        cancelledBeforeMutation: false,
+        rollbackAfterMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: WindowID(rawValue: 2),
+        selectedWindowID: WindowID(rawValue: 2),
+        previousSelectedWindowID: WindowID(rawValue: 1),
+        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
+        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
+      ) == WindowID(rawValue: 1)
+    )
+  }
+
+  @Test
   func newerClickOnRequestedWindowPreventsCancellationRollback() {
     let requestedWindowID = WindowID(rawValue: 2)
 

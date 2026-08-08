@@ -5,6 +5,27 @@ import Testing
 
 struct PointerFocusTests {
   @Test
+  func pointerFocusRecoveryTargetsLogicalWindowAfterUnmanagedExit() {
+    let logicalWindowID = WindowID(rawValue: 1)
+
+    #expect(
+      pointerFocusRecoveryWindowID(
+        pointerWindowIsManaged: false,
+        pointerWindowIsReady: false,
+        targetAccepted: false,
+        logicalFocusWindowID: logicalWindowID
+      ) == logicalWindowID
+    )
+    #expect(
+      pointerFocusRecoveryWindowID(
+        pointerWindowIsManaged: true,
+        pointerWindowIsReady: false,
+        targetAccepted: false,
+        logicalFocusWindowID: logicalWindowID
+      ) == nil
+    )
+  }
+  @Test
   func rejectedPointerTargetDoesNotAdvanceFocusGuard() {
     #expect(
       pointerFocusGuardTimestamp(

@@ -133,6 +133,17 @@ public func pointerFocusMonitorWithoutScrolling(
   return location.monitorID
 }
 
+public func pointerFocusRecoveryWindowID(
+  pointerWindowIsManaged: Bool,
+  pointerWindowIsReady: Bool,
+  targetAccepted: Bool,
+  logicalFocusWindowID: WindowID?
+) -> WindowID? {
+  guard pointerWindowIsManaged else { return logicalFocusWindowID }
+  guard pointerWindowIsReady else { return nil }
+  return targetAccepted ? nil : logicalFocusWindowID
+}
+
 public func keyboardCursorWarpTimestamp(
   mouseFollowsFocus: Bool,
   capturedInputTimestamp: TimeInterval?
@@ -150,6 +161,7 @@ public func commandFocusInputTimestamp(
 
 public func commandFocusCancellationFallback(
   cancelledBeforeMutation: Bool,
+  rollbackAfterMutation: Bool = false,
   requestGeneration: UInt64,
   currentGeneration: UInt64,
   requestedWindowID: WindowID,
@@ -158,7 +170,7 @@ public func commandFocusCancellationFallback(
   sourceWorkspaceID: WorkspaceID,
   previousSelectedWindowWorkspaceID: WorkspaceID?
 ) -> WindowID? {
-  guard cancelledBeforeMutation,
+  guard (cancelledBeforeMutation || rollbackAfterMutation),
     requestGeneration == currentGeneration,
     selectedWindowID == requestedWindowID,
     let previousSelectedWindowID,
@@ -181,6 +193,7 @@ public func cancelledFocusTargetsRequestedWindow(
 
 public func workspaceFocusCancellationFallback(
   cancelledBeforeMutation: Bool,
+  rollbackAfterMutation: Bool = false,
   requestGeneration: UInt64,
   currentGeneration: UInt64,
   requestedWorkspaceID: WorkspaceID,
@@ -191,7 +204,7 @@ public func workspaceFocusCancellationFallback(
   restoresPreviousWorkspace: Bool = true
 ) -> WorkspaceID? {
   guard restoresPreviousWorkspace,
-    cancelledBeforeMutation,
+    (cancelledBeforeMutation || rollbackAfterMutation),
     requestGeneration == currentGeneration,
     activeWorkspaceID == requestedWorkspaceID,
     selectedWindowID == requestedWindowID,
