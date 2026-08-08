@@ -485,8 +485,12 @@ final class DesktopE2ETests: XCTestCase {
       modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
       keys: ["hyper-left": "focus-column left"]
     )
+    let tracker = UserInputTracker()
     var received: [HotKeyInvocation] = []
-    let manager = HotKeyManager(config: config) { invocation in
+    let manager = HotKeyManager(
+      config: config,
+      userInputTracker: tracker
+    ) { invocation in
       received.append(invocation)
     }
     try manager.start()
@@ -512,6 +516,15 @@ final class DesktopE2ETests: XCTestCase {
         }
         event.flags = flags
         event.post(tap: .cghidEventTap)
+        if let modifierRelease = CGEvent(
+          keyboardEventSource: source,
+          virtualKey: 59,
+          keyDown: false
+        ) {
+          modifierRelease.type = .flagsChanged
+          modifierRelease.flags = []
+          modifierRelease.post(tap: .cghidEventTap)
+        }
         Thread.sleep(forTimeInterval: 0.01)
       }
     }
@@ -526,6 +539,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(received.count, eventCount)
     XCTAssertTrue(received.allSatisfy { $0.command == "focus-column left" })
     XCTAssertTrue(received.allSatisfy { $0.timestamp > 0 })
+    XCTAssertEqual(tracker.latestEventTimestamp, received.last?.timestamp)
     XCTAssertEqual(manager.tapReenableCount, 0)
   }
 

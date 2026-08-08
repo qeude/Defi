@@ -41,6 +41,41 @@ public struct PointerMotionInvocation: Equatable, Sendable {
   }
 }
 
+private let hotKeyModifierMask: CGEventFlags = [
+  .maskCommand,
+  .maskAlternate,
+  .maskControl,
+  .maskShift,
+]
+
+func hotKeyModifierBits(_ flags: CGEventFlags) -> UInt64 {
+  flags.rawValue & hotKeyModifierMask.rawValue
+}
+
+struct CapturedHotKeyModifierReleaseState: Equatable, Sendable {
+  private(set) var heldModifierBits: UInt64 = 0
+
+  mutating func capture(modifierBits: UInt64) {
+    heldModifierBits = modifierBits
+  }
+
+  mutating func shouldRecord(flagsChangedTo currentModifierBits: UInt64) -> Bool {
+    guard heldModifierBits != 0 else { return true }
+    let newlyPressed = currentModifierBits & ~heldModifierBits
+    let released = heldModifierBits & ~currentModifierBits
+    guard newlyPressed == 0, released != 0 else {
+      heldModifierBits = 0
+      return true
+    }
+    heldModifierBits = currentModifierBits
+    return false
+  }
+
+  mutating func reset() {
+    heldModifierBits = 0
+  }
+}
+
 @MainActor
 public final class HotKeyManager {
   public typealias Handler = @MainActor @Sendable (HotKeyInvocation) -> Void
@@ -222,6 +257,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
   private var pendingPointerMotion: PointerMotionInvocation?
   private var pointerDeliveryScheduled = false
   private var lastPointerDeliveryTimestamp: TimeInterval?
+  private var capturedModifierReleaseState = CapturedHotKeyModifierReleaseState()
 
   init(
     bindings: [Key: String],
@@ -300,7 +336,18 @@ private final class HotKeyTapContext: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let isKeyDown = type == .keyDown
-    if eventTracksGeneralUserInput(type) {
+    let tracksGeneralUserInput: Bool
+    if type == .flagsChanged {
+      tracksGeneralUserInput = capturedModifierReleaseState.shouldRecord(
+        flagsChangedTo: hotKeyModifierBits(event.flags)
+      )
+    } else {
+      tracksGeneralUserInput = eventTracksGeneralUserInput(type)
+      if tracksGeneralUserInput {
+        capturedModifierReleaseState.reset()
+      }
+    }
+    if tracksGeneralUserInput {
       let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
       let commandPressed = event.flags.contains(.maskCommand)
       let focusIntent: UserInputTracker.FocusIntentSource?
@@ -334,6 +381,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
     lock.lock()
     captured += 1
     lock.unlock()
+    capturedModifierReleaseState.capture(modifierBits: key.modifierBits)
     deliver(HotKeyInvocation(command: command, timestamp: timestamp))
     return nil
   }
@@ -443,7 +491,7 @@ struct Key: Hashable, Sendable {
 
   init(code: CGKeyCode, flags: UInt64) {
     self.code = code
-    modifierBits = flags & Self.modifierMask.rawValue
+    modifierBits = hotKeyModifierBits(CGEventFlags(rawValue: flags))
   }
 
   init(
@@ -486,13 +534,6 @@ struct Key: Hashable, Sendable {
     self.code = code
     modifierBits = modifiers.rawValue
   }
-
-  private static let modifierMask: CGEventFlags = [
-    .maskCommand,
-    .maskAlternate,
-    .maskControl,
-    .maskShift,
-  ]
 
   private static let keyCodes: [String: CGKeyCode] = [
     "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5,
