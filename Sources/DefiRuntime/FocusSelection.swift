@@ -147,6 +147,13 @@ public func pointerFocusRecoveryWindowID(
   return targetAccepted ? nil : logicalFocusWindowID
 }
 
+public func pointerFocusRecoveryTargetAfterCancellation(
+  cancellationSucceeded: Bool,
+  logicalFocusWindowID: WindowID?
+) -> WindowID? {
+  cancellationSucceeded ? nil : logicalFocusWindowID
+}
+
 public func keyboardCursorWarpTimestamp(
   mouseFollowsFocus: Bool,
   capturedInputTimestamp: TimeInterval?

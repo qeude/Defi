@@ -176,7 +176,7 @@ extension Daemon {
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     pendingWindowRemovalFocusGuard = nil
-    submittedPointerFocusRequestID = platform.focus(
+    let requestID = platform.focus(
       windowID,
       unlessUserInputAfter: timestamp,
       focusRecoveryFallbackWindowID: activeMonitorID.flatMap {
@@ -195,6 +195,7 @@ extension Daemon {
         return
       }
       self.submittedPointerFocusRequestID = nil
+      self.submittedPointerFocusTimestamp = nil
       guard result == .completed || result == .completedWithoutMutation else {
         self.pointerFocusIgnoredCount += 1
         switch result {
@@ -228,6 +229,8 @@ extension Daemon {
         acceptsAlreadySelectedWindow: restoresNativeFocus
       )
     }
+    submittedPointerFocusRequestID = requestID
+    submittedPointerFocusTimestamp = requestID == nil ? nil : timestamp
   }
 
   private func commitCompletedPointerFocus(
@@ -245,6 +248,9 @@ extension Daemon {
       return
     }
 
+    let logicalFocusWindowID = activeMonitorID.flatMap {
+      state.selectedWindowID(on: $0)
+    }
     guard
       let monitorID = focusWindowFromPointerWithoutScrolling(
         windowID,
@@ -254,6 +260,10 @@ extension Daemon {
         acceptsAlreadySelectedWindow: acceptsAlreadySelectedWindow
       )
     else {
+      recoverPointerFocus(
+        to: logicalFocusWindowID,
+        unlessUserInputAfter: timestamp
+      )
       return
     }
 
@@ -308,12 +318,35 @@ extension Daemon {
     pointerFocusGeneration &+= 1
     pendingPointerFocus = nil
     if let submittedPointerFocusRequestID {
-      platform.cancelFocus(
+      let timestamp = submittedPointerFocusTimestamp
+      let cancelled = platform.cancelFocus(
         submittedPointerFocusRequestID,
         recoveringTo: windowID
       )
+      if let recoveryWindowID = pointerFocusRecoveryTargetAfterCancellation(
+        cancellationSucceeded: cancelled,
+        logicalFocusWindowID: windowID
+      ), let timestamp
+      {
+        recoverPointerFocus(
+          to: recoveryWindowID,
+          unlessUserInputAfter: timestamp
+        )
+      }
       self.submittedPointerFocusRequestID = nil
+      self.submittedPointerFocusTimestamp = nil
     }
+  }
+
+  private func recoverPointerFocus(
+    to windowID: WindowID?,
+    unlessUserInputAfter timestamp: TimeInterval
+  ) {
+    guard let windowID else { return }
+    platform.focus(
+      windowID,
+      unlessUserInputAfter: timestamp
+    )
   }
 
   private func pointerFocusIsReady(for windowID: WindowID) -> Bool {

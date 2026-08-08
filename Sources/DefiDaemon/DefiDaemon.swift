@@ -195,6 +195,7 @@ final class Daemon: NSObject {
   var pendingPointerFocus: PendingPointerFocus?
   var pointerFocusGeneration: UInt64 = 0
   var submittedPointerFocusRequestID: NativeFocusRequestID?
+  var submittedPointerFocusTimestamp: TimeInterval?
   var pointerFocusObservedCount = 0
   var pointerFocusAppliedCount = 0
   var pointerFocusIgnoredCount = 0

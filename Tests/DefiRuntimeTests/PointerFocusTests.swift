@@ -22,7 +22,25 @@ struct PointerFocusTests {
         pointerWindowIsReady: false,
         targetAccepted: false,
         logicalFocusWindowID: logicalWindowID
+    ) == logicalWindowID
+    )
+  }
+
+  @Test
+  func completedPointerFocusRecoveryKeepsLogicalTargetAfterCancellationRace() {
+    let logicalWindowID = WindowID(rawValue: 1)
+
+    #expect(
+      pointerFocusRecoveryTargetAfterCancellation(
+        cancellationSucceeded: false,
+        logicalFocusWindowID: logicalWindowID
       ) == logicalWindowID
+    )
+    #expect(
+      pointerFocusRecoveryTargetAfterCancellation(
+        cancellationSucceeded: true,
+        logicalFocusWindowID: logicalWindowID
+      ) == nil
     )
   }
   @Test
