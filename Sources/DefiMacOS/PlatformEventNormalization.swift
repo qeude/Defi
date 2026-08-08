@@ -171,38 +171,44 @@ public final class UserInputTracker: @unchecked Sendable {
       guard focusIntent.timestamp > latestCloseIntentTimestamp else {
         return nil
       }
+      let observedTarget = {
+        guard self.observedFocusIntentTimestamp == focusIntent.timestamp else {
+          return nil as ObservedFocusTarget?
+        }
+        return self.observedFocusTargets.reversed().first(where: {
+          if let excludingWindowID, $0.windowID == excludingWindowID {
+            return false
+          }
+          if $0.windowID == nil,
+            let excludingProcessID,
+            $0.processID == excludingProcessID
+          {
+            return false
+          }
+          return true
+        })
+      }
       switch focusIntent.source {
       case .keyboard:
-        guard observedFocusIntentTimestamp == focusIntent.timestamp else {
-          return nil
-        }
-        guard
-          let target = observedFocusTargets.reversed().first(where: {
-            if let excludingWindowID, $0.windowID == excludingWindowID {
-              return false
-            }
-            if $0.windowID == nil,
-              let excludingProcessID,
-              $0.processID == excludingProcessID
-            {
-              return false
-            }
-            return true
-          })
-        else {
-          return nil
-        }
+        guard let target = observedTarget() else { return nil }
         return FocusRecoveryTarget(
           timestamp: latestTimestamp,
           windowID: target.windowID,
           processID: target.processID
         )
       case .mouse(let windowID):
-        guard let windowID else { return nil }
+        if let windowID {
+          return FocusRecoveryTarget(
+            timestamp: latestTimestamp,
+            windowID: windowID,
+            processID: nil
+          )
+        }
+        guard let target = observedTarget() else { return nil }
         return FocusRecoveryTarget(
           timestamp: latestTimestamp,
-          windowID: windowID,
-          processID: nil
+          windowID: target.windowID,
+          processID: target.processID
         )
       }
     }
@@ -312,7 +318,8 @@ func eventIsMouseButtonDown(_ type: CGEventType) -> Bool {
 }
 
 func eventTracksGeneralUserInput(_ type: CGEventType) -> Bool {
-  type == .keyDown || type == .scrollWheel || eventIsMouseButtonDown(type)
+  type == .keyDown || type == .flagsChanged || type == .scrollWheel
+    || eventIsMouseButtonDown(type)
 }
 
 func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {

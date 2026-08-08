@@ -28,6 +28,8 @@ extension MacOSPlatform {
     focusWindowIDAfterCommit: WindowID? = nil,
     focusInputTimestampAfterCommit: TimeInterval? = nil,
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
+    focusCompletionAfterCommit:
+      (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
     source: String = "platform"
   ) {
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
@@ -313,24 +315,29 @@ extension MacOSPlatform {
       frameCompletion = nil
     } else {
       frameCompletion = { [weak self] completedLatest in
-        guard completedLatest else { return }
         DispatchQueue.main.async {
-          guard let self else { return }
+          guard completedLatest, let self else {
+            focusCompletionAfterCommit?(.cancelled)
+            return
+          }
           if refreshesBordersAfterCommit {
             self.refreshWindowBorders()
           }
-          if let focusWindowIDAfterCommit,
-            shouldApplyDeferredFocus(
+          if let focusWindowIDAfterCommit {
+            guard shouldApplyDeferredFocus(
               targetWindowID: focusWindowIDAfterCommit,
               selectedWindowID: self.desiredSelectedWindowID
-            )
-          {
+            ) else {
+              focusCompletionAfterCommit?(.cancelled)
+              return
+            }
             self.focus(
               focusWindowIDAfterCommit,
               unlessUserInputAfter: focusInputTimestampAfterCommit,
               cursorWarpUnlessPointerMovedAfter:
                 cursorWarpInputTimestampAfterCommit,
-              cursorWarpPrefersTargetFrame: true
+              cursorWarpPrefersTargetFrame: true,
+              completion: focusCompletionAfterCommit
             )
           }
         }
@@ -353,19 +360,22 @@ extension MacOSPlatform {
         "initial-apply-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
-    if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit,
-      shouldApplyDeferredFocus(
+    if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit {
+      if shouldApplyDeferredFocus(
         targetWindowID: focusWindowIDAfterCommit,
         selectedWindowID: desiredSelectedWindowID
-      )
-    {
-      focus(
-        focusWindowIDAfterCommit,
-        unlessUserInputAfter: focusInputTimestampAfterCommit,
-        cursorWarpUnlessPointerMovedAfter:
-          cursorWarpInputTimestampAfterCommit,
-        cursorWarpPrefersTargetFrame: true
-      )
+      ) {
+        focus(
+          focusWindowIDAfterCommit,
+          unlessUserInputAfter: focusInputTimestampAfterCommit,
+          cursorWarpUnlessPointerMovedAfter:
+            cursorWarpInputTimestampAfterCommit,
+          cursorWarpPrefersTargetFrame: true,
+          completion: focusCompletionAfterCommit
+        )
+      } else {
+        focusCompletionAfterCommit?(.cancelled)
+      }
     }
     if updateVisibility {
       lastHiddenWindowIDs = effectiveHiddenWindowIDs

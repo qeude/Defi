@@ -107,6 +107,10 @@ extension Daemon {
       }
       let previouslySelectedWindowID =
         activeMonitorID.flatMap { state.selectedWindowID(on: $0) }
+      let commandMonitorID = activeMonitorID ?? state.monitors.first?.id
+      let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
+        state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
+      }
       if !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites {
         rebaseActiveScrollOffsetToDisplayedFrames()
       }
@@ -141,10 +145,32 @@ extension Daemon {
       if switchesWorkspace || !dispatchedAnimation {
         let focusWindowIDAfterCommit =
           switchesWorkspace
-          ? (activeMonitorID ?? state.monitors.first?.id).flatMap {
+          ? commandMonitorID.flatMap {
             state.selectedWindowID(on: $0)
           }
           : nil
+        let requestedWorkspaceID = commandMonitorID.flatMap { monitorID in
+          state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
+        }
+        let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?
+        if switchesWorkspace,
+          let commandMonitorID,
+          let requestedWorkspaceID,
+          let focusWindowIDAfterCommit
+        {
+          focusCompletionAfterCommit = { [weak self] result in
+            self?.commitWorkspaceCommandFocus(
+              result: result,
+              monitorID: commandMonitorID,
+              requestedWorkspaceID: requestedWorkspaceID,
+              previousWorkspaceID: previousWorkspaceID,
+              requestedWindowID: focusWindowIDAfterCommit,
+              commandGeneration: currentCommandGeneration
+            )
+          }
+        } else {
+          focusCompletionAfterCommit = nil
+        }
         applyCurrentLayout(
           asynchronousPositions: true,
           updateVisibility: scrollAnimations.isEmpty,
@@ -159,6 +185,7 @@ extension Daemon {
           cursorWarpInputTimestampAfterCommit: switchesWorkspace
             ? cursorWarpInputTimestamp
             : nil,
+          focusCompletionAfterCommit: focusCompletionAfterCommit,
           source: switchesWorkspace ? "workspace-command" : "command"
         )
       }

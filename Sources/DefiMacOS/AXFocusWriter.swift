@@ -109,6 +109,14 @@ func resolvedNativeFocusResult(
   return .cancelled
 }
 
+func specificWindowFocusWriteIsRequired(
+  requested: Bool,
+  validatesCurrentFocus: Bool,
+  targetIsFocused: Bool
+) -> Bool {
+  (requested || validatesCurrentFocus) && !targetIsFocused
+}
+
 private struct QueuedFocusRequest: @unchecked Sendable {
   let generation: UInt64
   let request: AsyncFocusRequest
@@ -221,12 +229,15 @@ final class AXFocusWriter: @unchecked Sendable {
       let startedAt = ProcessInfo.processInfo.systemUptime
       let request = queued.request
       guard isCurrent(queued) else {
+        let generationCurrent = isCurrent(queued.generation)
         lock.lock()
         activeProcessID = nil
         cancelledCount += 1
         lock.unlock()
-        queued.completion(
-          NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)
+        complete(
+          queued,
+          result: .cancelled,
+          generationCurrent: generationCurrent
         )
         continue
       }
@@ -239,8 +250,12 @@ final class AXFocusWriter: @unchecked Sendable {
       var focusMutationApplied = false
       var windowSelectionSucceeded = false
       var selectsSpecificWindow = request.selectsSpecificWindow
-      if !selectsSpecificWindow, request.validatesSpecificWindowFocus {
-        selectsSpecificWindow = !isTargetFocused(request.element)
+      if selectsSpecificWindow || request.validatesSpecificWindowFocus {
+        selectsSpecificWindow = specificWindowFocusWriteIsRequired(
+          requested: selectsSpecificWindow,
+          validatesCurrentFocus: request.validatesSpecificWindowFocus,
+          targetIsFocused: isTargetFocused(request.element)
+        )
       }
       if selectsSpecificWindow {
         AXUIElementSetMessagingTimeout(request.application, 0.016)
@@ -374,20 +389,32 @@ final class AXFocusWriter: @unchecked Sendable {
         cancelled: cancelled,
         focusSucceeded: focusSucceeded
       )
-      let recoveryTransfer = transferredNativeFocusRecovery(
-        carried: carriedFocusRecovery,
-        request: request.recoveryRequest,
+      complete(
+        queued,
         result: result,
         generationCurrent: generationCurrent
       )
-      carriedFocusRecovery = recoveryTransfer.carried
-      queued.completion(
-        NativeFocusCompletion(
-          result: result,
-          recoveryRequest: recoveryTransfer.recovery
-        )
-      )
     }
+  }
+
+  private func complete(
+    _ queued: QueuedFocusRequest,
+    result: NativeFocusResult,
+    generationCurrent: Bool
+  ) {
+    let recoveryTransfer = transferredNativeFocusRecovery(
+      carried: carriedFocusRecovery,
+      request: queued.request.recoveryRequest,
+      result: result,
+      generationCurrent: generationCurrent
+    )
+    carriedFocusRecovery = recoveryTransfer.carried
+    queued.completion(
+      NativeFocusCompletion(
+        result: result,
+        recoveryRequest: recoveryTransfer.recovery
+      )
+    )
   }
 
   private func isCurrent(_ generation: UInt64) -> Bool {

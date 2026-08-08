@@ -259,4 +259,51 @@ extension Daemon {
       self.updateMenuBar()
     }
   }
+
+  func commitWorkspaceCommandFocus(
+    result: NativeFocusResult,
+    monitorID: MonitorID,
+    requestedWorkspaceID: WorkspaceID,
+    previousWorkspaceID: WorkspaceID?,
+    requestedWindowID: WindowID,
+    commandGeneration: UInt64
+  ) {
+    guard let monitor = state.monitors.first(where: { $0.id == monitorID }),
+      let fallbackWorkspaceID = workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: result == .cancelled,
+        requestGeneration: commandGeneration,
+        currentGeneration: self.commandGeneration,
+        requestedWorkspaceID: requestedWorkspaceID,
+        activeWorkspaceID: monitor.activeWorkspace,
+        previousWorkspaceID: previousWorkspaceID,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: state.selectedWindowID(on: monitorID)
+      )
+    else {
+      return
+    }
+    do {
+      try reduce(
+        .switchWorkspace(fallbackWorkspaceID),
+        on: monitorID,
+        state: &state
+      )
+    } catch {
+      return
+    }
+
+    activeMonitorID = monitorID
+    persistPlacements()
+    updateMenuBar()
+    synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
+    snapScrollOffsetsToTargets()
+    applyCurrentLayout(
+      asynchronousPositions: true,
+      updateVisibility: true,
+      positionTimeoutSeconds: 0.05,
+      stagesVisibleBeforeParking: true,
+      source: "workspace-focus-cancel"
+    )
+    needsDesktopSync = true
+  }
 }

@@ -28,6 +28,7 @@ struct PlatformEventTests {
   @Test
   func generalInputTrackingIncludesScrollWheel() {
     #expect(eventTracksGeneralUserInput(.keyDown))
+    #expect(eventTracksGeneralUserInput(.flagsChanged))
     #expect(eventTracksGeneralUserInput(.leftMouseDown))
     #expect(eventTracksGeneralUserInput(.rightMouseDown))
     #expect(eventTracksGeneralUserInput(.otherMouseDown))
@@ -64,6 +65,24 @@ struct PlatformEventTests {
         cancelled: true,
         focusSucceeded: true
       ) == .cancelled
+    )
+  }
+
+  @Test
+  func focusedExplicitTargetSkipsNoOpNativeWrite() {
+    #expect(
+      specificWindowFocusWriteIsRequired(
+        requested: true,
+        validatesCurrentFocus: false,
+        targetIsFocused: true
+      ) == false
+    )
+    #expect(
+      specificWindowFocusWriteIsRequired(
+        requested: true,
+        validatesCurrentFocus: false,
+        targetIsFocused: false
+      )
     )
   }
 
@@ -426,6 +445,18 @@ struct PlatformEventTests {
     #expect(
       tracker.focusRecoveryTarget(after: 11)?.timestamp == 13
     )
+  }
+
+  @Test
+  func mouseFocusRecoveryUsesObservedTargetWithoutEventWindowID() throws {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 11, focusIntent: .mouse(windowID: nil))
+    tracker.recordObservedFocus(windowID: nil, processID: 900)
+
+    let target = try #require(tracker.focusRecoveryTarget(after: 10))
+    #expect(target.timestamp == 11)
+    #expect(target.windowID == nil)
+    #expect(target.processID == 900)
   }
 
   @Test

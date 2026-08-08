@@ -268,6 +268,58 @@ struct NativeFocusTests {
   }
 
   @Test
+  func currentWorkspaceFocusCancellationRestoresPreviousWorkspace() {
+    let requestedWindowID = WindowID(rawValue: 2)
+    let dev = WorkspaceID(rawValue: "dev")
+    let web = WorkspaceID(rawValue: "web")
+
+    #expect(
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWorkspaceID: web,
+        activeWorkspaceID: web,
+        previousWorkspaceID: dev,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID
+      ) == dev
+    )
+  }
+
+  @Test
+  func staleWorkspaceFocusCancellationCannotRollbackNewerState() {
+    let requestedWindowID = WindowID(rawValue: 2)
+    let dev = WorkspaceID(rawValue: "dev")
+    let web = WorkspaceID(rawValue: "web")
+
+    #expect(
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 3,
+        currentGeneration: 4,
+        requestedWorkspaceID: web,
+        activeWorkspaceID: web,
+        previousWorkspaceID: dev,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID
+      ) == nil
+    )
+    #expect(
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWorkspaceID: web,
+        activeWorkspaceID: dev,
+        previousWorkspaceID: dev,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID
+      ) == nil
+    )
+  }
+
+  @Test
   func selectedWindowOnDifferentActiveMonitorChangesSelection() throws {
     var state = try makeState()
     let selected = WindowID(rawValue: 1)

@@ -121,6 +121,7 @@ public final class HotKeyManager {
         | (1 << CGEventType.otherMouseDown.rawValue)
         | (1 << CGEventType.scrollWheel.rawValue)
     )
+    mask |= CGEventMask(1 << CGEventType.flagsChanged.rawValue)
     if tracksPointerMotion {
       for eventType in [
         CGEventType.mouseMoved,
