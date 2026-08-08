@@ -101,6 +101,8 @@ extension Daemon {
     }
 
     pendingAnimatedFocus = nil
+    pendingWorkspaceFocus = nil
+    submittedWorkspaceFocusGeneration = nil
     pendingWindowRemovalFocusGuard = nil
     platform.focus(
       windowID,
@@ -116,7 +118,7 @@ extension Daemon {
             timestamp: timestamp,
             retryCount: retryCount
           )
-        case .cancelled, .cancelledAfterMutation,
+        case .superseded, .cancelled, .cancelledAfterMutation,
           .cancelledAfterInputMutation:
           if cancelledPointerFocusShouldRearm(
             pointerTimestamp: timestamp,
@@ -229,6 +231,8 @@ extension Daemon {
   func commitCommandFocus(
     _ windowID: WindowID,
     previousSelectedWindowID: WindowID?,
+    monitorID: MonitorID,
+    sourceWorkspaceID: WorkspaceID,
     commandGeneration: UInt64,
     focusInputTimestamp: TimeInterval,
     cursorWarpInputTimestamp: TimeInterval?
@@ -238,16 +242,21 @@ extension Daemon {
       unlessUserInputAfter: focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
     ) { [weak self] result in
-      guard let self, let monitorID = self.activeMonitorID,
+      guard let self,
         let fallbackWindowID = commandFocusCancellationFallback(
           cancelledBeforeMutation: result == .cancelled,
           requestGeneration: commandGeneration,
           currentGeneration: self.commandGeneration,
           requestedWindowID: windowID,
           selectedWindowID: self.state.selectedWindowID(on: monitorID),
-          previousSelectedWindowID: previousSelectedWindowID
+          previousSelectedWindowID: previousSelectedWindowID,
+          sourceWorkspaceID: sourceWorkspaceID,
+          previousSelectedWindowWorkspaceID:
+            previousSelectedWindowID.flatMap {
+              self.state.location(containing: $0)?.workspaceID
+            }
         ),
-        self.state.windows[fallbackWindowID] != nil
+        self.state.location(containing: fallbackWindowID)?.monitorID == monitorID
       else {
         return
       }
@@ -262,22 +271,24 @@ extension Daemon {
 
   func commitWorkspaceCommandFocus(
     result: NativeFocusResult,
-    monitorID: MonitorID,
-    requestedWorkspaceID: WorkspaceID,
-    previousWorkspaceID: WorkspaceID?,
-    requestedWindowID: WindowID,
-    commandGeneration: UInt64
+    request: PendingWorkspaceFocus
   ) {
-    guard let monitor = state.monitors.first(where: { $0.id == monitorID }),
+    guard pendingWorkspaceFocus?.commandGeneration == request.commandGeneration
+    else { return }
+    pendingWorkspaceFocus = nil
+    submittedWorkspaceFocusGeneration = nil
+    guard let monitor = state.monitors.first(where: { $0.id == request.monitorID }),
       let fallbackWorkspaceID = workspaceFocusCancellationFallback(
         cancelledBeforeMutation: result == .cancelled,
-        requestGeneration: commandGeneration,
+        requestGeneration: request.commandGeneration,
         currentGeneration: self.commandGeneration,
-        requestedWorkspaceID: requestedWorkspaceID,
+        requestedWorkspaceID: request.requestedWorkspaceID,
         activeWorkspaceID: monitor.activeWorkspace,
-        previousWorkspaceID: previousWorkspaceID,
-        requestedWindowID: requestedWindowID,
-        selectedWindowID: state.selectedWindowID(on: monitorID)
+        previousWorkspaceID: request.previousWorkspaceID,
+        requestedWindowID: request.requestedWindowID,
+        selectedWindowID: state.selectedWindowID(on: request.monitorID),
+        restoresPreviousWorkspace:
+          request.restoresPreviousWorkspaceOnCancellation
       )
     else {
       return
@@ -285,14 +296,14 @@ extension Daemon {
     do {
       try reduce(
         .switchWorkspace(fallbackWorkspaceID),
-        on: monitorID,
+        on: request.monitorID,
         state: &state
       )
     } catch {
       return
     }
 
-    activeMonitorID = monitorID
+    activeMonitorID = request.monitorID
     persistPlacements()
     updateMenuBar()
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)

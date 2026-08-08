@@ -57,6 +57,8 @@ extension Daemon {
       platform.invalidateFrameStateForDisplayChange()
       scrollAnimations.removeAll(keepingCapacity: true)
       pendingAnimatedFocus = nil
+      pendingWorkspaceFocus = nil
+      submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
       cancelDeferredSlowLane()
@@ -202,6 +204,10 @@ extension Daemon {
         activeMonitorID: activeMonitorID,
         state: state
       )
+      if nativeFocusAccepted {
+        pendingWorkspaceFocus = nil
+        submittedWorkspaceFocusGeneration = nil
+      }
       if snapshot.leftMouseButtonDown && snapshot.nativeFocusChanged
         && selectionChanged && !nativeFocusAccepted
       {

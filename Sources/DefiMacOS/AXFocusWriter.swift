@@ -25,6 +25,7 @@ struct AsyncFocusRequest: @unchecked Sendable {
 public enum NativeFocusResult: Equatable, Sendable {
   case completed
   case completedWithoutMutation
+  case superseded
   case cancelled
   case cancelledAfterMutation
   case cancelledAfterInputMutation
@@ -74,7 +75,7 @@ func transferredNativeFocusRecovery(
       carried: nil,
       recovery: carried ?? request
     )
-  case .cancelled, .failed:
+  case .superseded, .cancelled, .failed:
     guard generationCurrent else {
       return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
     }
@@ -99,6 +100,9 @@ func resolvedNativeFocusResult(
   }
   if mutationApplied && (cancelled || !generationCurrent || !inputCurrent) {
     return .cancelledAfterMutation
+  }
+  if !generationCurrent {
+    return .superseded
   }
   if !cancelled && generationCurrent && inputCurrent {
     if focusSucceeded {
@@ -164,7 +168,7 @@ final class AXFocusWriter: @unchecked Sendable {
     }
     lock.unlock()
     replaced?.completion(
-      NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)
+      NativeFocusCompletion(result: .superseded, recoveryRequest: nil)
     )
     if shouldStart {
       queue.async { [self] in drain() }
@@ -236,7 +240,7 @@ final class AXFocusWriter: @unchecked Sendable {
         lock.unlock()
         complete(
           queued,
-          result: .cancelled,
+          result: generationCurrent ? .cancelled : .superseded,
           generationCurrent: generationCurrent
         )
         continue

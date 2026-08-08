@@ -162,6 +162,8 @@ extension Daemon {
     }
     scrollAnimations.removeAll(keepingCapacity: true)
     pendingAnimatedFocus = nil
+    pendingWorkspaceFocus = nil
+    submittedWorkspaceFocusGeneration = nil
     platform.cancelPendingFrameWrites()
   }
 
@@ -205,10 +207,30 @@ extension Daemon {
         pendingAnimatedFocus.windowID,
         previousSelectedWindowID:
           pendingAnimatedFocus.previousSelectedWindowID,
+        monitorID: pendingAnimatedFocus.monitorID,
+        sourceWorkspaceID: pendingAnimatedFocus.sourceWorkspaceID,
         commandGeneration: pendingAnimatedFocus.commandGeneration,
         focusInputTimestamp: pendingAnimatedFocus.focusInputTimestamp,
         cursorWarpInputTimestamp: pendingAnimatedFocus.cursorWarpInputTimestamp
       )
+    }
+  }
+
+  func finishPendingWorkspaceFocusIfReady() {
+    guard scrollAnimations.isEmpty,
+      !platform.hasPendingAnimatedFrameWrites,
+      let request = pendingWorkspaceFocus,
+      submittedWorkspaceFocusGeneration != request.commandGeneration,
+      !deferredSlowWindowIDs.contains(request.requestedWindowID)
+    else { return }
+
+    submittedWorkspaceFocusGeneration = request.commandGeneration
+    platform.focus(
+      request.requestedWindowID,
+      unlessUserInputAfter: request.focusInputTimestamp,
+      cursorWarpUnlessPointerMovedAfter: request.cursorWarpInputTimestamp
+    ) { [weak self] result in
+      self?.commitWorkspaceCommandFocus(result: result, request: request)
     }
   }
 

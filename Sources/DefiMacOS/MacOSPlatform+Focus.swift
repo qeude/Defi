@@ -18,7 +18,8 @@ func internalFocusSuppressionAfterCompletion(
 ) -> InternalFocusSuppression? {
   guard suppression?.requestID == requestID else { return suppression }
   switch result {
-  case .completedWithoutMutation, .cancelled, .failed, .failedAfterMutation:
+  case .completedWithoutMutation, .superseded, .cancelled, .failed,
+    .failedAfterMutation:
     return nil
   case .completed, .cancelledAfterMutation, .cancelledAfterInputMutation:
     return suppression
@@ -153,7 +154,7 @@ extension MacOSPlatform {
               preferringTargetFrame: cursorWarpPrefersTargetFrame
             )
           }
-        case .cancelled:
+        case .superseded, .cancelled:
           break
         case .cancelledAfterMutation:
           break

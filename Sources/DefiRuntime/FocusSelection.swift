@@ -154,13 +154,16 @@ public func commandFocusCancellationFallback(
   currentGeneration: UInt64,
   requestedWindowID: WindowID,
   selectedWindowID: WindowID?,
-  previousSelectedWindowID: WindowID?
+  previousSelectedWindowID: WindowID?,
+  sourceWorkspaceID: WorkspaceID,
+  previousSelectedWindowWorkspaceID: WorkspaceID?
 ) -> WindowID? {
   guard cancelledBeforeMutation,
     requestGeneration == currentGeneration,
     selectedWindowID == requestedWindowID,
     let previousSelectedWindowID,
-    previousSelectedWindowID != requestedWindowID
+    previousSelectedWindowID != requestedWindowID,
+    previousSelectedWindowWorkspaceID == sourceWorkspaceID
   else {
     return nil
   }
@@ -175,9 +178,11 @@ public func workspaceFocusCancellationFallback(
   activeWorkspaceID: WorkspaceID,
   previousWorkspaceID: WorkspaceID?,
   requestedWindowID: WindowID,
-  selectedWindowID: WindowID?
+  selectedWindowID: WindowID?,
+  restoresPreviousWorkspace: Bool = true
 ) -> WorkspaceID? {
-  guard cancelledBeforeMutation,
+  guard restoresPreviousWorkspace,
+    cancelledBeforeMutation,
     requestGeneration == currentGeneration,
     activeWorkspaceID == requestedWorkspaceID,
     selectedWindowID == requestedWindowID,
@@ -187,6 +192,19 @@ public func workspaceFocusCancellationFallback(
     return nil
   }
   return previousWorkspaceID
+}
+
+public func pendingWorkspaceFocusIsPreserved(
+  pendingMonitorID: MonitorID,
+  commandMonitorID: MonitorID?,
+  requestedWorkspaceID: WorkspaceID,
+  activeWorkspaceID: WorkspaceID?,
+  requestedWindowID: WindowID,
+  selectedWindowID: WindowID?
+) -> Bool {
+  commandMonitorID == pendingMonitorID
+    && activeWorkspaceID == requestedWorkspaceID
+    && selectedWindowID == requestedWindowID
 }
 
 public func pointerFocusRetryIsCurrent(

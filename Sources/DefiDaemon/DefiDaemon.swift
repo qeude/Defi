@@ -74,6 +74,19 @@ private enum DaemonError: Error, CustomStringConvertible {
 struct PendingAnimatedFocus: Equatable {
   let windowID: WindowID
   let previousSelectedWindowID: WindowID?
+  let monitorID: MonitorID
+  let sourceWorkspaceID: WorkspaceID
+  let commandGeneration: UInt64
+  let focusInputTimestamp: TimeInterval
+  let cursorWarpInputTimestamp: TimeInterval?
+}
+
+struct PendingWorkspaceFocus: Equatable {
+  let monitorID: MonitorID
+  let requestedWorkspaceID: WorkspaceID
+  let previousWorkspaceID: WorkspaceID?
+  let requestedWindowID: WindowID
+  let restoresPreviousWorkspaceOnCancellation: Bool
   let commandGeneration: UInt64
   let focusInputTimestamp: TimeInterval
   let cursorWarpInputTimestamp: TimeInterval?
@@ -130,6 +143,8 @@ final class Daemon: NSObject {
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
   var preservedWindowRemovalFocusCount = 0
   var pendingAnimatedFocus: PendingAnimatedFocus?
+  var pendingWorkspaceFocus: PendingWorkspaceFocus?
+  var submittedWorkspaceFocusGeneration: UInt64?
   var lastPointerWindowID: WindowID?
   var pendingPointerFocus: PendingPointerFocus?
   var pointerFocusObservedCount = 0
@@ -217,6 +232,7 @@ final class Daemon: NSObject {
     pollIPC()
     finishDeferredSlowLaneIfReady()
     finishPendingAnimatedFocusIfReady()
+    finishPendingWorkspaceFocusIfReady()
     finishPendingPointerFocusIfReady()
     if let deadline = pendingDisplaySyncDeadlines.first,
       ProcessInfo.processInfo.systemUptime >= deadline

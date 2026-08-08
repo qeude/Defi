@@ -64,7 +64,7 @@ struct PlatformEventTests {
         inputCurrent: true,
         cancelled: true,
         focusSucceeded: true
-      ) == .cancelled
+      ) == .superseded
     )
   }
 

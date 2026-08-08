@@ -120,6 +120,7 @@ extension Daemon {
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
         pendingAnimatedFocus = nil
+        pendingWorkspaceFocus = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)
       persistPlacements()
@@ -142,30 +143,69 @@ extension Daemon {
         animatedManagedResize
         ? dispatchManagedResizeAnimation(skipping: deferredWindowIDs)
         : dispatchScrollAnimationIfNeeded(skipping: deferredWindowIDs)
-      if switchesWorkspace || !dispatchedAnimation {
-        let focusWindowIDAfterCommit =
-          switchesWorkspace
-          ? commandMonitorID.flatMap {
-            state.selectedWindowID(on: $0)
-          }
-          : nil
-        let requestedWorkspaceID = commandMonitorID.flatMap { monitorID in
-          state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
+      let workspaceFocusRequest: PendingWorkspaceFocus?
+      if switchesWorkspace,
+        let commandMonitorID,
+        let requestedWorkspaceID = state.monitors.first(where: {
+          $0.id == commandMonitorID
+        })?.activeWorkspace,
+        let requestedWindowID = state.selectedWindowID(on: commandMonitorID)
+      {
+        let restoresPreviousWorkspaceOnCancellation: Bool
+        if case .switchWorkspace = command {
+          restoresPreviousWorkspaceOnCancellation = true
+        } else {
+          restoresPreviousWorkspaceOnCancellation = false
         }
+        workspaceFocusRequest = PendingWorkspaceFocus(
+          monitorID: commandMonitorID,
+          requestedWorkspaceID: requestedWorkspaceID,
+          previousWorkspaceID: previousWorkspaceID,
+          requestedWindowID: requestedWindowID,
+          restoresPreviousWorkspaceOnCancellation:
+            restoresPreviousWorkspaceOnCancellation,
+          commandGeneration: currentCommandGeneration,
+          focusInputTimestamp: focusInputTimestamp,
+          cursorWarpInputTimestamp: cursorWarpInputTimestamp
+        )
+      } else if let pending = pendingWorkspaceFocus,
+        pendingWorkspaceFocusIsPreserved(
+          pendingMonitorID: pending.monitorID,
+          commandMonitorID: commandMonitorID,
+          requestedWorkspaceID: pending.requestedWorkspaceID,
+          activeWorkspaceID: state.monitors.first(where: {
+            $0.id == pending.monitorID
+          })?.activeWorkspace,
+          requestedWindowID: pending.requestedWindowID,
+          selectedWindowID: state.selectedWindowID(on: pending.monitorID)
+        )
+      {
+        workspaceFocusRequest = PendingWorkspaceFocus(
+          monitorID: pending.monitorID,
+          requestedWorkspaceID: pending.requestedWorkspaceID,
+          previousWorkspaceID: pending.previousWorkspaceID,
+          requestedWindowID: pending.requestedWindowID,
+          restoresPreviousWorkspaceOnCancellation:
+            pending.restoresPreviousWorkspaceOnCancellation,
+          commandGeneration: currentCommandGeneration,
+          focusInputTimestamp: focusInputTimestamp,
+          cursorWarpInputTimestamp: cursorWarpInputTimestamp
+        )
+      } else {
+        workspaceFocusRequest = nil
+      }
+      pendingWorkspaceFocus = workspaceFocusRequest
+      submittedWorkspaceFocusGeneration = nil
+      if switchesWorkspace || !dispatchedAnimation {
+        let focusWindowIDAfterCommit = workspaceFocusRequest?.requestedWindowID
         let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?
-        if switchesWorkspace,
-          let commandMonitorID,
-          let requestedWorkspaceID,
-          let focusWindowIDAfterCommit
-        {
+        if let workspaceFocusRequest {
+          submittedWorkspaceFocusGeneration =
+            workspaceFocusRequest.commandGeneration
           focusCompletionAfterCommit = { [weak self] result in
             self?.commitWorkspaceCommandFocus(
               result: result,
-              monitorID: commandMonitorID,
-              requestedWorkspaceID: requestedWorkspaceID,
-              previousWorkspaceID: previousWorkspaceID,
-              requestedWindowID: focusWindowIDAfterCommit,
-              commandGeneration: currentCommandGeneration
+              request: workspaceFocusRequest
             )
           }
         } else {
@@ -179,18 +219,17 @@ extension Daemon {
           positionsOnly: speculativeRibbonNavigation,
           stagesVisibleBeforeParking: switchesWorkspace,
           focusWindowIDAfterCommit: focusWindowIDAfterCommit,
-          focusInputTimestampAfterCommit: switchesWorkspace
-            ? focusInputTimestamp
-            : nil,
-          cursorWarpInputTimestampAfterCommit: switchesWorkspace
-            ? cursorWarpInputTimestamp
-            : nil,
+          focusInputTimestampAfterCommit:
+            workspaceFocusRequest?.focusInputTimestamp,
+          cursorWarpInputTimestampAfterCommit:
+            workspaceFocusRequest?.cursorWarpInputTimestamp,
           focusCompletionAfterCommit: focusCompletionAfterCommit,
           source: switchesWorkspace ? "workspace-command" : "command"
         )
       }
       if !switchesWorkspace,
         let monitorID = activeMonitorID ?? state.monitors.first?.id,
+        let sourceWorkspaceID = previousWorkspaceID,
         let selected = state.selectedWindowID(on: monitorID),
         commandShouldFocusWindow(
           command,
@@ -206,6 +245,8 @@ extension Daemon {
           commitCommandFocus(
             selected,
             previousSelectedWindowID: previouslySelectedWindowID,
+            monitorID: monitorID,
+            sourceWorkspaceID: sourceWorkspaceID,
             commandGeneration: currentCommandGeneration,
             focusInputTimestamp: focusInputTimestamp,
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
@@ -214,6 +255,8 @@ extension Daemon {
           pendingAnimatedFocus = PendingAnimatedFocus(
             windowID: selected,
             previousSelectedWindowID: previouslySelectedWindowID,
+            monitorID: monitorID,
+            sourceWorkspaceID: sourceWorkspaceID,
             commandGeneration: currentCommandGeneration,
             focusInputTimestamp: focusInputTimestamp,
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
@@ -221,6 +264,8 @@ extension Daemon {
         }
       } else if !switchesWorkspace,
         let monitorID = activeMonitorID ?? state.monitors.first?.id,
+        let sourceWorkspaceID = pendingAnimatedFocus?.sourceWorkspaceID
+          ?? previousWorkspaceID,
         let selected = state.selectedWindowID(on: monitorID),
         pendingCommandFocusIsPreserved(
           pendingWindowID: pendingAnimatedFocus?.windowID,
@@ -232,6 +277,8 @@ extension Daemon {
           windowID: selected,
           previousSelectedWindowID:
             previousPendingAnimatedFocus?.previousSelectedWindowID,
+          monitorID: monitorID,
+          sourceWorkspaceID: sourceWorkspaceID,
           commandGeneration: currentCommandGeneration,
           focusInputTimestamp: focusInputTimestamp,
           cursorWarpInputTimestamp: cursorWarpInputTimestamp
