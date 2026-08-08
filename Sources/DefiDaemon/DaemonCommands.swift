@@ -68,6 +68,8 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      var validationState = state
+      try reduce(command, on: activeMonitorID, state: &validationState)
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
       platform.userInputTracker.record(
@@ -240,7 +242,7 @@ extension Daemon {
         )
       {
         if scrollAnimations.isEmpty,
-          !platform.hasPendingAnimatedFrameWrites,
+          !platform.hasPendingFrameWrites,
           !deferredSlowWindowIDs.contains(selected)
         {
           commitCommandFocus(

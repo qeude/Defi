@@ -160,6 +160,27 @@ func bestCGWindow(
   return closest
 }
 
+func closestFocusRecoveryWindowIndex(
+  target: (frame: Rect, title: String),
+  candidates: [(frame: Rect, title: String)],
+  maximumDistance: Double = 80
+) -> Int? {
+  guard let index = candidates.indices.min(by: {
+    let lhsDistance = frameDistance(candidates[$0].frame, target.frame)
+    let rhsDistance = frameDistance(candidates[$1].frame, target.frame)
+    if abs(lhsDistance - rhsDistance) > 0.5 {
+      return lhsDistance < rhsDistance
+    }
+    return windowTitleMatchRank(candidates[$0].title, target.title)
+      < windowTitleMatchRank(candidates[$1].title, target.title)
+  }),
+    frameDistance(candidates[index].frame, target.frame) <= maximumDistance
+  else {
+    return nil
+  }
+  return index
+}
+
 private func windowTitleMatchRank(_ cgTitle: String, _ accessibilityTitle: String) -> Int {
   guard !cgTitle.isEmpty, !accessibilityTitle.isEmpty else { return 1 }
   return cgTitle == accessibilityTitle ? 0 : 2

@@ -252,8 +252,78 @@ extension MacOSPlatform {
     else {
       return
     }
+    if let windowID = target.windowID,
+      let element = focusRecoveryElement(
+        windowID: windowID,
+        processID: processID
+      ),
+      let application = applications[processID]
+    {
+      frameCoordinator.recordTrace(
+        "focus-recovery auxiliary-window=\(windowID.rawValue)"
+      )
+      focusWriter.submit(
+        AsyncFocusRequest(
+          element: element,
+          application: application,
+          processID: processID,
+          selectsSpecificWindow: true,
+          validatesSpecificWindowFocus: false,
+          activatesApplication:
+            NSWorkspace.shared.frontmostApplication?.processIdentifier
+            != processID,
+          inputGuard: FocusInputGuard(
+            tracker: userInputTracker,
+            maximumTimestamp: target.timestamp
+          ),
+          recoveryRequest: NativeFocusRecoveryRequest(
+            timestamp: target.timestamp,
+            excludingWindowID: windowID,
+            excludingProcessID: processID,
+            fallback: nil
+          )
+        )
+      ) { [weak self] completion in
+        guard let recoveryRequest = completion.recoveryRequest else { return }
+        Task { @MainActor [weak self] in
+          self?.recoverUserFocus(recoveryRequest)
+        }
+      }
+      return
+    }
     frameCoordinator.recordTrace("focus-recovery pid=\(processID)")
     NSRunningApplication(processIdentifier: processID)?.activate()
+  }
+
+  private func focusRecoveryElement(
+    windowID: WindowID,
+    processID: pid_t
+  ) -> AXUIElement? {
+    guard let targetCGWindowID = CGWindowID(exactly: windowID.rawValue),
+      let target = copyCGWindows().first(where: {
+        $0.id == targetCGWindowID && $0.processID == processID
+      }),
+      let application = applications[processID],
+      let windows = copyElements(application, attribute: kAXWindowsAttribute)
+    else {
+      return nil
+    }
+    let candidates = windows.compactMap { element in
+      frame(of: element).map {
+        (
+          element,
+          $0,
+          value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
+        )
+      }
+    }
+    guard let index = closestFocusRecoveryWindowIndex(
+      target: (target.frame, target.title),
+      candidates: candidates.map { ($0.1, $0.2) }
+    ) else {
+      return nil
+    }
+    return candidates[index].0
   }
 
   private func capturedNativeFocusRecoveryFallback()

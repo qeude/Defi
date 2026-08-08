@@ -199,7 +199,7 @@ extension Daemon {
 
   func finishPendingAnimatedFocusIfReady() {
     if scrollAnimations.isEmpty,
-      !platform.hasPendingAnimatedFrameWrites,
+      !platform.hasPendingFrameWrites,
       let pendingAnimatedFocus,
       !deferredSlowWindowIDs.contains(pendingAnimatedFocus.windowID)
     {

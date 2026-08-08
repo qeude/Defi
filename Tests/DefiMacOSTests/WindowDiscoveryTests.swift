@@ -126,6 +126,45 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testFocusRecoveryMatchesUnmanagedAuxiliaryWindowByFrame() {
+    let auxiliaryFrame = Rect(x: 400, y: 300, width: 500, height: 300)
+
+    XCTAssertEqual(
+      closestFocusRecoveryWindowIndex(
+        target: (auxiliaryFrame, "Preferences"),
+        candidates: [(frame, "Main"), (auxiliaryFrame, "Preferences")]
+      ),
+      1
+    )
+  }
+
+  func testFocusRecoveryRejectsDistantAccessibilityWindow() {
+    XCTAssertNil(
+      closestFocusRecoveryWindowIndex(
+        target: (
+          Rect(x: 400, y: 300, width: 500, height: 300),
+          "Preferences"
+        ),
+        candidates: [(frame, "Main")]
+      )
+    )
+  }
+
+  func testFocusRecoveryUsesTitleToBreakGeometryTie() {
+    let auxiliaryFrame = Rect(x: 400, y: 300, width: 500, height: 300)
+
+    XCTAssertEqual(
+      closestFocusRecoveryWindowIndex(
+        target: (auxiliaryFrame, "Preferences"),
+        candidates: [
+          (auxiliaryFrame, "Main"),
+          (auxiliaryFrame, "Preferences"),
+        ]
+      ),
+      1
+    )
+  }
+
   func testWindowMatchingUsesTitleToBreakGeometryTie() {
     let wrongTitle = CGWindowRecord(
       id: 1,
