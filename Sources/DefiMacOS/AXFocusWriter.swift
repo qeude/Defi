@@ -119,6 +119,13 @@ func resolvedNativeFocusResult(
   return .cancelled
 }
 
+func focusMutationStateAfterActivation(
+  priorMutationApplied: Bool,
+  activationSucceeded: Bool
+) -> Bool {
+  priorMutationApplied || activationSucceeded
+}
+
 func specificWindowFocusWriteIsRequired(
   requested: Bool,
   validatesCurrentFocus: Bool,
@@ -383,7 +390,10 @@ final class AXFocusWriter: @unchecked Sendable {
             NSRunningApplication(processIdentifier: request.processID)?
             .activate() == true
         }
-        focusMutationApplied = true
+        focusMutationApplied = focusMutationStateAfterActivation(
+          priorMutationApplied: focusMutationApplied,
+          activationSucceeded: activationSucceeded
+        )
         activationDurationMS =
           (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1_000
       } else if activationRequired == nil {

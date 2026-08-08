@@ -68,6 +68,18 @@ struct CursorTests {
   }
 
   @Test
+  func everySupportedHeldMouseButtonRejectsWarp() {
+    for heldRawValue in 0..<32 {
+      #expect(
+        anyMouseButtonIsDown { button in
+          button.rawValue == heldRawValue
+        }
+      )
+    }
+    #expect(!anyMouseButtonIsDown { _ in false })
+  }
+
+  @Test
   func cursorWarpWaitsForConfirmedNativeFocus() {
     #expect(
       cursorWarpTimestampAfterNativeFocus(
@@ -218,7 +230,7 @@ struct CursorTests {
         id: 9,
         processID: 90,
         layer: 20,
-        title: "",
+        title: "Dock",
         frame: physicalFrame
       ),
       record(
@@ -236,6 +248,37 @@ struct CursorTests {
         dockProcessIDs: [90],
         monitorFrames: [visibleFrame]
       ) == [9]
+    )
+  }
+
+  @Test
+  func fullDisplayMissionControlSurfaceBlocksManagedWindow() {
+    let physicalFrame = Rect(x: 0, y: 0, width: 1512, height: 982)
+    let visibleFrame = Rect(x: 0, y: 37, width: 1512, height: 901)
+    let records = [
+      record(
+        id: 9,
+        processID: 90,
+        layer: 20,
+        title: "",
+        frame: physicalFrame
+      ),
+      record(id: 1, processID: 10, frame: physicalFrame),
+    ]
+    let transparentWindowIDs = transparentDockOverlayWindowIDs(
+      records: records,
+      dockProcessIDs: [90],
+      monitorFrames: [visibleFrame]
+    )
+
+    #expect(transparentWindowIDs.isEmpty)
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: records,
+        managedWindowIDs: [WindowID(rawValue: 1)],
+        nonblockingWindowIDs: transparentWindowIDs
+      ) == .blocked
     )
   }
 

@@ -191,6 +191,28 @@ struct PlatformEventTests {
   }
 
   @Test
+  func failedActivationDoesNotReportAnUnappliedMutation() {
+    #expect(
+      !focusMutationStateAfterActivation(
+        priorMutationApplied: false,
+        activationSucceeded: false
+      )
+    )
+    #expect(
+      focusMutationStateAfterActivation(
+        priorMutationApplied: true,
+        activationSucceeded: false
+      )
+    )
+    #expect(
+      focusMutationStateAfterActivation(
+        priorMutationApplied: false,
+        activationSucceeded: true
+      )
+    )
+  }
+
+  @Test
   func abandonedFocusClearsOnlyItsOwnUnmutatedSuppression() {
     let current = InternalFocusSuppression(
       requestID: 7,

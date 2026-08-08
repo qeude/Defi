@@ -31,6 +31,17 @@ func cursorWarpIsCurrent(
     && latestUserInputTimestamp <= maximumInputTimestamp
 }
 
+func anyMouseButtonIsDown(
+  buttonState: (CGMouseButton) -> Bool
+) -> Bool {
+  (0..<32).contains { rawValue in
+    guard let button = CGMouseButton(rawValue: UInt32(rawValue)) else {
+      return false
+    }
+    return buttonState(button)
+  }
+}
+
 func cursorWarpTimestampAfterNativeFocus(
   result: NativeFocusResult,
   requestedTimestamp: TimeInterval?
@@ -92,6 +103,7 @@ func transparentDockOverlayWindowIDs(
   Set(records.compactMap { record in
     guard record.layer > 0,
       dockProcessIDs.contains(record.processID),
+      record.title == "Dock",
       monitorFrames.contains(where: { monitorFrame in
         record.frame.x <= monitorFrame.x + 1
           && record.frame.y <= monitorFrame.y + 1
@@ -189,10 +201,9 @@ extension MacOSPlatform {
       latestPointerMotionTimestamp: pointerMotionTracker.latestTimestamp,
       latestUserInputTimestamp: userInputTracker.latestEventTimestamp,
       maximumInputTimestamp: maximumInputTimestamp,
-      mouseButtonDown:
-        CGEventSource.buttonState(.combinedSessionState, button: .left)
-        || CGEventSource.buttonState(.combinedSessionState, button: .right)
-        || CGEventSource.buttonState(.combinedSessionState, button: .center)
+      mouseButtonDown: anyMouseButtonIsDown { button in
+        CGEventSource.buttonState(.combinedSessionState, button: button)
+      }
     ),
       !lastHiddenWindowIDs.contains(windowID),
       let frame = cursorWarpFrame(
