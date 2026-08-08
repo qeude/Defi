@@ -76,6 +76,15 @@ struct PlatformEventTests {
         inputCurrent: false,
         cancelled: true,
         focusSucceeded: true
+      ) == .cancelledAfterInputMutation
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: true,
+        generationCurrent: false,
+        inputCurrent: false,
+        cancelled: true,
+        focusSucceeded: true
       ) == .cancelledAfterMutation
     )
   }
@@ -125,6 +134,13 @@ struct PlatformEventTests {
         current,
         requestID: 7,
         result: .cancelledAfterMutation
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .cancelledAfterInputMutation
       ) == current
     )
     #expect(
@@ -360,8 +376,74 @@ struct PlatformEventTests {
     let keyboardTarget = try #require(
       tracker.focusRecoveryTarget(after: 11)
     )
+    #expect(keyboardTarget.timestamp == 12)
     #expect(keyboardTarget.windowID == nil)
     #expect(keyboardTarget.processID == 900)
+
+    tracker.record(timestamp: 13)
+    #expect(
+      tracker.focusRecoveryTarget(after: 11)?.timestamp == 13
+    )
+  }
+
+  @Test
+  func ordinaryInputRecoversCapturedNativeFocus() throws {
+    let tracker = UserInputTracker()
+    let fallbackWindowID = WindowID(rawValue: 42)
+    tracker.record(timestamp: 12)
+
+    let target = try #require(
+      tracker.focusRecoveryTarget(
+        after: 10,
+        excludingWindowID: WindowID(rawValue: 50),
+        excludingProcessID: 500,
+        fallbackWindowID: fallbackWindowID,
+        fallbackProcessID: 400
+      )
+    )
+    #expect(target.timestamp == 12)
+    #expect(target.windowID == fallbackWindowID)
+    #expect(target.processID == 400)
+  }
+
+  @Test
+  func unresolvedExplicitFocusDoesNotFallBack() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+
+    #expect(
+      tracker.focusRecoveryTarget(
+        after: 10,
+        fallbackWindowID: WindowID(rawValue: 42),
+        fallbackProcessID: 400
+      ) == nil
+    )
+  }
+
+  @Test
+  func fallbackRecoveryRejectsTargetAndCloseIntent() {
+    let requestedWindowID = WindowID(rawValue: 42)
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12)
+
+    #expect(
+      tracker.focusRecoveryTarget(
+        after: 10,
+        excludingWindowID: requestedWindowID,
+        fallbackWindowID: requestedWindowID,
+        fallbackProcessID: 400
+      ) == nil
+    )
+
+    let closingTracker = UserInputTracker()
+    closingTracker.record(timestamp: 12, closeIntent: true)
+    #expect(
+      closingTracker.focusRecoveryTarget(
+        after: 10,
+        fallbackWindowID: requestedWindowID,
+        fallbackProcessID: 400
+      ) == nil
+    )
   }
 
   @Test

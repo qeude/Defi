@@ -116,7 +116,8 @@ extension Daemon {
             timestamp: timestamp,
             retryCount: retryCount
           )
-        case .cancelled, .cancelledAfterMutation:
+        case .cancelled, .cancelledAfterMutation,
+          .cancelledAfterInputMutation:
           if cancelledPointerFocusShouldRearm(
             pointerTimestamp: timestamp,
             latestUserInputTimestamp:

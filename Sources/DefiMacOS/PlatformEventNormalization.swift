@@ -156,50 +156,74 @@ public final class UserInputTracker: @unchecked Sendable {
   public func focusRecoveryTarget(
     after timestamp: TimeInterval,
     excludingWindowID: WindowID? = nil,
-    excludingProcessID: pid_t? = nil
+    excludingProcessID: pid_t? = nil,
+    fallbackWindowID: WindowID? = nil,
+    fallbackProcessID: pid_t? = nil
   ) -> FocusRecoveryTarget? {
     lock.lock()
     defer { lock.unlock() }
-    guard let focusIntent = latestFocusIntent,
-      focusIntent.timestamp > timestamp,
-      focusIntent.timestamp > latestCloseIntentTimestamp
-    else {
+    guard latestTimestamp > timestamp else {
       return nil
     }
-    switch focusIntent.source {
-    case .keyboard:
-      guard observedFocusIntentTimestamp == focusIntent.timestamp else {
+    if let focusIntent = latestFocusIntent,
+      focusIntent.timestamp > timestamp
+    {
+      guard focusIntent.timestamp > latestCloseIntentTimestamp else {
         return nil
       }
-      guard
-        let target = observedFocusTargets.reversed().first(where: {
-          if let excludingWindowID, $0.windowID == excludingWindowID {
-            return false
-          }
-          if $0.windowID == nil,
-            let excludingProcessID,
-            $0.processID == excludingProcessID
-          {
-            return false
-          }
-          return true
-        })
-      else {
-        return nil
+      switch focusIntent.source {
+      case .keyboard:
+        guard observedFocusIntentTimestamp == focusIntent.timestamp else {
+          return nil
+        }
+        guard
+          let target = observedFocusTargets.reversed().first(where: {
+            if let excludingWindowID, $0.windowID == excludingWindowID {
+              return false
+            }
+            if $0.windowID == nil,
+              let excludingProcessID,
+              $0.processID == excludingProcessID
+            {
+              return false
+            }
+            return true
+          })
+        else {
+          return nil
+        }
+        return FocusRecoveryTarget(
+          timestamp: latestTimestamp,
+          windowID: target.windowID,
+          processID: target.processID
+        )
+      case .mouse(let windowID):
+        guard let windowID else { return nil }
+        return FocusRecoveryTarget(
+          timestamp: latestTimestamp,
+          windowID: windowID,
+          processID: nil
+        )
       }
-      return FocusRecoveryTarget(
-        timestamp: focusIntent.timestamp,
-        windowID: target.windowID,
-        processID: target.processID
-      )
-    case .mouse(let windowID):
-      guard let windowID else { return nil }
-      return FocusRecoveryTarget(
-        timestamp: focusIntent.timestamp,
-        windowID: windowID,
-        processID: nil
-      )
     }
+    guard latestCloseIntentTimestamp <= timestamp else { return nil }
+    if let fallbackWindowID, fallbackWindowID == excludingWindowID {
+      return nil
+    }
+    if fallbackWindowID == nil,
+      let fallbackProcessID,
+      fallbackProcessID == excludingProcessID
+    {
+      return nil
+    }
+    guard fallbackWindowID != nil || fallbackProcessID != nil else {
+      return nil
+    }
+    return FocusRecoveryTarget(
+      timestamp: latestTimestamp,
+      windowID: fallbackWindowID,
+      processID: fallbackProcessID
+    )
   }
 
   public var latestEventTimestamp: TimeInterval {

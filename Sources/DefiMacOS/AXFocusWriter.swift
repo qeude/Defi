@@ -25,6 +25,7 @@ public enum NativeFocusResult: Equatable, Sendable {
   case completed
   case cancelled
   case cancelledAfterMutation
+  case cancelledAfterInputMutation
   case failed
   case failedAfterMutation
 }
@@ -36,6 +37,9 @@ func resolvedNativeFocusResult(
   cancelled: Bool,
   focusSucceeded: Bool
 ) -> NativeFocusResult {
+  if mutationApplied && generationCurrent && !inputCurrent {
+    return .cancelledAfterInputMutation
+  }
   if mutationApplied && (cancelled || !generationCurrent || !inputCurrent) {
     return .cancelledAfterMutation
   }
