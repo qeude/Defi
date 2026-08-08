@@ -129,7 +129,12 @@ func transferredNativeFocusRecovery(
     guard generationCurrent else {
       return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
     }
-    return NativeFocusRecoveryTransfer(carried: nil, recovery: carried)
+    return NativeFocusRecoveryTransfer(
+      carried: nil,
+      recovery: result == .failedAfterMutation
+        ? carried ?? request
+        : carried
+    )
   case .completed, .completedWithoutMutation:
     guard generationCurrent else {
       return NativeFocusRecoveryTransfer(carried: carried, recovery: nil)
@@ -164,6 +169,25 @@ func resolvedNativeFocusResult(
     return mutationApplied ? .failedAfterMutation : .failed
   }
   return .cancelled
+}
+
+func nativeFocusRecoveryRequestForCompletion(
+  _ request: NativeFocusRecoveryRequest?,
+  result: NativeFocusResult,
+  explicitFallback: NativeFocusRecoveryFallback?
+) -> NativeFocusRecoveryRequest? {
+  guard let request else { return nil }
+  let fallback = explicitFallback ?? request.fallback
+  return NativeFocusRecoveryRequest(
+    timestamp: request.timestamp,
+    excludingWindowID: request.excludingWindowID,
+    excludingProcessID: request.excludingProcessID,
+    fallback: fallback,
+    fallbackOnlyIfNoNewerInput:
+      request.fallbackOnlyIfNoNewerInput
+      || explicitFallback != nil
+      || result == .failedAfterMutation
+  )
 }
 
 func focusMutationStateAfterActivation(
@@ -549,16 +573,11 @@ final class AXFocusWriter: @unchecked Sendable {
       )
       return
     }
-    let recoveryRequest = queued.request.recoveryRequest.map { request in
-      guard let explicitCancellationFallback else { return request }
-      return NativeFocusRecoveryRequest(
-        timestamp: request.timestamp,
-        excludingWindowID: request.excludingWindowID,
-        excludingProcessID: request.excludingProcessID,
-        fallback: explicitCancellationFallback,
-        fallbackOnlyIfNoNewerInput: true
-      )
-    }
+    let recoveryRequest = nativeFocusRecoveryRequestForCompletion(
+      queued.request.recoveryRequest,
+      result: result,
+      explicitFallback: explicitCancellationFallback
+    )
     let recoveryTransfer = transferredNativeFocusRecovery(
       carried: carriedFocusRecovery,
       request: recoveryRequest,

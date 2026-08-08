@@ -169,6 +169,37 @@ struct PlatformEventTests {
   }
 
   @Test
+  func failedMutationRecoveryUsesFallbackWithoutNewerInput() throws {
+    let original = NativeFocusRecoveryRequest(
+      timestamp: 10,
+      excludingWindowID: WindowID(rawValue: 2),
+      excludingProcessID: 20,
+      fallback: NativeFocusRecoveryFallback(
+        windowID: WindowID(rawValue: 1),
+        processID: 10
+      )
+    )
+    let request = try #require(
+      nativeFocusRecoveryRequestForCompletion(
+        original,
+        result: .failedAfterMutation,
+        explicitFallback: nil
+      )
+    )
+
+    #expect(request.fallback == original.fallback)
+    #expect(request.fallbackOnlyIfNoNewerInput)
+    #expect(
+      transferredNativeFocusRecovery(
+        carried: nil,
+        request: request,
+        result: .failedAfterMutation,
+        generationCurrent: true
+      ).recovery == request
+    )
+  }
+
+  @Test
   func failedFocusPreservesWhetherMutationWasApplied() {
     #expect(
       resolvedNativeFocusResult(

@@ -347,6 +347,19 @@ extension Daemon {
     )
   }
 
+  private func focusCompletionRequiresLogicalRollback(
+    _ result: NativeFocusResult
+  ) -> Bool {
+    switch result {
+    case .failedAfterMutation, .cancelledAfterInputMutation:
+      true
+    case .completed, .completedWithoutMutation, .frameSuperseded,
+      .superseded, .supersededAfterMutation, .cancelled,
+      .cancelledAfterMutation, .failed:
+      false
+    }
+  }
+
   func commitCommandFocus(
     _ windowID: WindowID,
     previousSelectedWindowID: WindowID?,
@@ -415,7 +428,8 @@ extension Daemon {
         let fallbackWindowID = commandFocusCancellationFallback(
           cancelledBeforeMutation:
             result == .cancelled || result == .failed,
-          rollbackAfterMutation: result == .failedAfterMutation,
+          rollbackAfterMutation:
+            self.focusCompletionRequiresLogicalRollback(result),
           requestGeneration: commandGeneration,
           currentGeneration: self.commandGeneration,
           requestedWindowID: windowID,
@@ -485,7 +499,8 @@ extension Daemon {
       let fallbackWorkspaceID = workspaceFocusCancellationFallback(
         cancelledBeforeMutation:
           result == .cancelled || result == .failed,
-        rollbackAfterMutation: result == .failedAfterMutation,
+        rollbackAfterMutation:
+          focusCompletionRequiresLogicalRollback(result),
         requestGeneration: request.commandGeneration,
         currentGeneration: self.commandGeneration,
         requestedWorkspaceID: request.requestedWorkspaceID,
