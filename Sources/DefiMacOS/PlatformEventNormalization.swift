@@ -329,6 +329,24 @@ func eventTracksGeneralUserInput(_ type: CGEventType) -> Bool {
     || eventIsMouseButtonDown(type)
 }
 
+func eventEndsMouseFocusInteraction(_ type: NSEvent.EventType) -> Bool {
+  switch type {
+  case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+    true
+  default:
+    false
+  }
+}
+
+func eventStartsMouseFocusInteraction(_ type: NSEvent.EventType) -> Bool {
+  switch type {
+  case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+    true
+  default:
+    false
+  }
+}
+
 func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {
   guard rawWindowID > 0 else { return nil }
   return WindowID(rawValue: UInt64(rawWindowID))
@@ -432,7 +450,6 @@ func windowSnapshotInvalidation(
 struct MouseGestureEventNormalizer {
   enum Synchronization: Equatable {
     case gesture
-    case clickRelease
   }
 
   struct Actions: Equatable {
@@ -463,7 +480,7 @@ struct MouseGestureEventNormalizer {
         dragged = false
       }
       guard pressed else { return Actions() }
-      return Actions(synchronization: dragged ? .gesture : .clickRelease)
+      return Actions(synchronization: dragged ? .gesture : nil)
     default:
       return Actions()
     }

@@ -100,11 +100,19 @@ final class PlatformEventMonitor {
     displayCallbackRegistered = displayResult == .success
 
     mouseMonitor = NSEvent.addGlobalMonitorForEvents(
-      matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+      matching: [
+        .leftMouseDown,
+        .leftMouseDragged,
+        .leftMouseUp,
+        .rightMouseDown,
+        .rightMouseUp,
+        .otherMouseDown,
+        .otherMouseUp,
+      ]
     ) { [weak self] event in
       MainActor.assumeIsolated {
         guard let self else { return }
-        if event.type == .leftMouseDown {
+        if eventStartsMouseFocusInteraction(event.type) {
           let rawWindowID =
             event.cgEvent?.getIntegerValueField(
               .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
@@ -129,10 +137,11 @@ final class PlatformEventMonitor {
         switch actions.synchronization {
         case .gesture:
           self.handler(.mouse, nil)
-        case .clickRelease:
-          self.handler(.mouseRelease, nil)
         case nil:
           break
+        }
+        if eventEndsMouseFocusInteraction(event.type) {
+          self.handler(.mouseRelease, nil)
         }
       }
     }

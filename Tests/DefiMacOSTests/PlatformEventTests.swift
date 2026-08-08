@@ -808,7 +808,8 @@ struct PlatformEventTests {
           startsGesture: true
         )
     )
-    #expect(mouseUp.synchronization == .clickRelease)
+    #expect(mouseUp.synchronization == nil)
+    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
     #expect(platformEventCancelsMouseAnimation(.mouseRelease) == false)
     #expect(platformEventCancelsMouseAnimation(.mouse))
   }
@@ -837,7 +838,28 @@ struct PlatformEventTests {
     #expect(firstMouseDragged.synchronization == .gesture)
     #expect(secondMouseDragged.synchronization == .gesture)
     #expect(firstMouseUp.synchronization == .gesture)
+    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
+  }
+
+  @Test
+  func everyMouseButtonReleaseEndsFocusInteraction() {
+    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
+    #expect(eventEndsMouseFocusInteraction(.rightMouseUp))
+    #expect(eventEndsMouseFocusInteraction(.otherMouseUp))
+    #expect(!eventEndsMouseFocusInteraction(.leftMouseDown))
+    #expect(!eventEndsMouseFocusInteraction(.rightMouseDown))
+    #expect(!eventEndsMouseFocusInteraction(.otherMouseDown))
+  }
+
+  @Test
+  func everyMouseButtonDownStartsFocusInteraction() {
+    #expect(eventStartsMouseFocusInteraction(.leftMouseDown))
+    #expect(eventStartsMouseFocusInteraction(.rightMouseDown))
+    #expect(eventStartsMouseFocusInteraction(.otherMouseDown))
+    #expect(!eventStartsMouseFocusInteraction(.leftMouseUp))
+    #expect(!eventStartsMouseFocusInteraction(.rightMouseUp))
+    #expect(!eventStartsMouseFocusInteraction(.otherMouseUp))
   }
 
   @Test
