@@ -71,7 +71,7 @@ public func learnTiledWindowWidth(
         continue
       }
       guard workspace.id == state.monitors[monitorIndex].activeWorkspace,
-        workspace.columns[columnIndex].fullscreenPreviousWidth == nil
+        workspace.columns[columnIndex].preMaximizedWidth == nil
       else {
         return false
       }

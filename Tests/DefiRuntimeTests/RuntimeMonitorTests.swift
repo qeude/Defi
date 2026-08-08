@@ -6,7 +6,7 @@ import XCTest
 final class RuntimeMonitorTests: XCTestCase {
   private let monitorID = MonitorID(rawValue: 1)
 
-  func testDisplayResizeScalesPixelAndFullscreenPreviousWidths() {
+  func testDisplayResizeScalesPixelAndPreMaximizedWidths() {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -15,7 +15,7 @@ final class RuntimeMonitorTests: XCTestCase {
         windows: [WindowID(rawValue: 1)],
         focusedWindow: 0,
         width: .fraction(1),
-        fullscreenPreviousWidth: .pixels(800)
+        preMaximizedWidth: .pixels(800)
       ),
       Column(window: WindowID(rawValue: 2), width: .pixels(1_000)),
     ]
@@ -31,7 +31,7 @@ final class RuntimeMonitorTests: XCTestCase {
     )
 
     XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].fullscreenPreviousWidth,
+      state.monitors[0].workspaces[0].columns[0].preMaximizedWidth,
       .pixels(400)
     )
     XCTAssertEqual(

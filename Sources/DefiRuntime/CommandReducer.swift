@@ -85,13 +85,13 @@ public func reduce(
             workspace: state.monitors[monitorIndex].workspaces[index]
           )
       }
-    case .toggleFullscreen:
+    case .maximizeColumn:
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
       if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
-        toggleFullscreen(
-          of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
+        maximizeColumn(
+          &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
           defaultWidth: layout.defaultColumnWidth
         )
         state.monitors[monitorIndex].workspaces[index].targetScrollOffset =
