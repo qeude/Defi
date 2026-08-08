@@ -251,6 +251,16 @@ public func commandFocusIsPreserved(
   (pendingWindowID ?? submittedWindowID) == selectedWindowID
 }
 
+public func commandFocusCompletionIsCurrent(
+  submittedWindowID: WindowID?,
+  submittedGeneration: UInt64?,
+  completedWindowID: WindowID,
+  completedGeneration: UInt64
+) -> Bool {
+  submittedWindowID == completedWindowID
+    && submittedGeneration == completedGeneration
+}
+
 public func nextPointerFocusRetryCount(
   currentRetryCount: Int,
   maximumRetryCount: Int,

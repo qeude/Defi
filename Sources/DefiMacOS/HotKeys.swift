@@ -351,12 +351,13 @@ private final class HotKeyTapContext: @unchecked Sendable {
       let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
       let commandPressed = event.flags.contains(.maskCommand)
       let focusIntent: UserInputTracker.FocusIntentSource?
-      if type == .leftMouseDown {
+      if eventIsMouseButtonDown(type) {
         let rawWindowID = event.getIntegerValueField(
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
         )
-        focusIntent = .mouse(
-          windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+        focusIntent = mouseFocusIntent(
+          eventType: type,
+          rawWindowID: rawWindowID
         )
       } else if commandPressed && code == Self.commandTabKeyCode {
         focusIntent = .keyboard

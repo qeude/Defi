@@ -631,6 +631,23 @@ struct PlatformEventTests {
   }
 
   @Test
+  func everyMouseButtonDownCreatesFocusIntent() {
+    let windowID = WindowID(rawValue: 42)
+
+    for eventType in [
+      CGEventType.leftMouseDown,
+      .rightMouseDown,
+      .otherMouseDown,
+    ] {
+      #expect(
+        mouseFocusIntent(eventType: eventType, rawWindowID: 42)
+          == .mouse(windowID: windowID)
+      )
+    }
+    #expect(mouseFocusIntent(eventType: .scrollWheel, rawWindowID: 42) == nil)
+  }
+
+  @Test
   func pointerMotionTimestampStaysMonotonic() {
     let tracker = PointerMotionTracker()
 

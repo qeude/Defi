@@ -268,9 +268,14 @@ extension Daemon {
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp
     ) { [weak self] result in
       guard let self else { return }
-      if self.submittedCommandFocus?.commandGeneration == commandGeneration {
-        self.submittedCommandFocus = nil
-      }
+      guard commandFocusCompletionIsCurrent(
+        submittedWindowID: self.submittedCommandFocus?.windowID,
+        submittedGeneration:
+          self.submittedCommandFocus?.commandGeneration,
+        completedWindowID: request.windowID,
+        completedGeneration: request.commandGeneration
+      ) else { return }
+      self.submittedCommandFocus = nil
       guard !self.cancellationKeepsRequestedWindow(
         windowID,
         requestInputTimestamp: focusInputTimestamp

@@ -334,6 +334,14 @@ func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {
   return WindowID(rawValue: UInt64(rawWindowID))
 }
 
+func mouseFocusIntent(
+  eventType: CGEventType,
+  rawWindowID: Int64
+) -> UserInputTracker.FocusIntentSource? {
+  guard eventIsMouseButtonDown(eventType) else { return nil }
+  return .mouse(windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID))
+}
+
 func updatedWindowTopologyInputTimestamp(
   for kind: PlatformEventKind,
   latestInputTimestamp: TimeInterval,
