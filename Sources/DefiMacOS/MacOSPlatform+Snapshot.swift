@@ -228,6 +228,12 @@ extension MacOSPlatform {
       hasCompletedWindowSnapshot
       ? nextWindowIDs.subtracting(previousElements.keys)
       : []
+    if tracesWindowTopology
+      || !newlyDiscoveredWindowIDs.isEmpty
+      || !removedWindowIDs.isEmpty
+    {
+      invalidatePointerHitTestCache()
+    }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
       let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
         $0.rawValue < $1.rawValue

@@ -66,7 +66,10 @@ extension MacOSPlatform {
   public func invalidateFocusStateForDisplayChange() {
     focusWriter.invalidate()
     focusRecoveryResolver.invalidate()
-    internalFocusSuppressions.removeAll(keepingCapacity: true)
+    let now = ProcessInfo.processInfo.systemUptime
+    internalFocusSuppressions = internalFocusSuppressions.filter {
+      $0.value.deadline >= now
+    }
   }
 
   public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {

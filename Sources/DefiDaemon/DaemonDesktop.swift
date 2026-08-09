@@ -227,6 +227,7 @@ extension Daemon {
       )
       if nativeFocusAccepted {
         invalidatePointerFocusIntent(recoveringTo: focusedWindowID)
+        rearmPointerFocusTransition()
         pendingAnimatedFocus = nil
         submittedCommandFocus = nil
         pendingWorkspaceFocus = nil
