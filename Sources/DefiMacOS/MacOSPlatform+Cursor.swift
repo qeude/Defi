@@ -126,9 +126,14 @@ func transparentDockOverlayWindowIDs(
   monitorFrames: [Rect]
 ) -> Set<CGWindowID> {
   Set(records.compactMap { record in
+    let maximumTransparentBackingBytes =
+      max(4_096, Int(record.frame.width * record.frame.height / 16))
+    let hasTransparentBacking = record.memoryUsage.map {
+      $0 <= maximumTransparentBackingBytes
+    } ?? false
     guard record.layer > 0,
       dockProcessIDs.contains(record.processID),
-      record.title == "Dock",
+      record.title == "Dock" || hasTransparentBacking,
       monitorFrames.contains(where: { monitorFrame in
         record.frame.x <= monitorFrame.x + 1
           && record.frame.y <= monitorFrame.y + 1
@@ -149,8 +154,8 @@ func transparentPointerOverlayWindowIDs(
 ) -> Set<CGWindowID> {
   let cursorWindowLevel = Int(CGWindowLevelForKey(.cursorWindow))
   return Set(records.compactMap { record in
-    guard record.layer >= cursorWindowLevel,
-      record.title == "Cursor",
+    guard record.layer == cursorWindowLevel,
+      record.title == "Cursor" || record.title.isEmpty,
       record.frame.width <= 64,
       record.frame.height <= 64
     else {
@@ -206,17 +211,18 @@ extension MacOSPlatform {
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
     let snapshot = pointerHitTestSnapshot()
+    let nonblockingWindowIDs = transparentDockOverlayWindowIDs(
+      records: snapshot.records,
+      dockProcessIDs: snapshot.dockProcessIDs,
+      monitorFrames: lastMonitorFrames
+    )
+      .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
+      .union(borderManager.transparentSurfaceWindowIDs)
     let hit = managedPointerHitTest(
       at: location,
       records: snapshot.records,
       managedWindowIDs: lastSnapshotWindowIDs,
-      nonblockingWindowIDs: transparentDockOverlayWindowIDs(
-        records: snapshot.records,
-        dockProcessIDs: snapshot.dockProcessIDs,
-        monitorFrames: lastMonitorFrames
-      )
-        .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
-        .union(borderManager.transparentSurfaceWindowIDs)
+      nonblockingWindowIDs: nonblockingWindowIDs
     )
     switch hit {
     case .managed(let windowID):

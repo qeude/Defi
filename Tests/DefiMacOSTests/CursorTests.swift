@@ -1,11 +1,35 @@
 import CoreGraphics
 import DefiModel
+import Foundation
 import Testing
 
 @testable import DefiMacOS
 
 struct CursorTests {
   private let frame = Rect(x: 100, y: 200, width: 400, height: 600)
+
+  @Test
+  func windowServerRecordPreservesOptionalWindowName() throws {
+    let bounds = CGRect(x: 10, y: 20, width: 30, height: 40)
+      .dictionaryRepresentation
+    let parsed = try #require(
+      cgWindowRecord([
+        kCGWindowLayer as String: NSNumber(value: 20),
+        kCGWindowNumber as String: NSNumber(value: 42),
+        kCGWindowOwnerPID as String: NSNumber(value: 90),
+        kCGWindowBounds as String: bounds,
+        kCGWindowName as String: "Dock",
+        kCGWindowMemoryUsage as String: NSNumber(value: 2_368),
+      ])
+    )
+
+    #expect(parsed.id == 42)
+    #expect(parsed.processID == 90)
+    #expect(parsed.layer == 20)
+    #expect(parsed.title == "Dock")
+    #expect(parsed.frame == Rect(x: 10, y: 20, width: 30, height: 40))
+    #expect(parsed.memoryUsage == 2_368)
+  }
 
   @Test
   func cursorOutsideWindowWarpsToCenter() {
@@ -349,6 +373,31 @@ struct CursorTests {
   }
 
   @Test
+  func namelessLightweightDockSurfaceIsTransparentWithoutCapturePermission() {
+    let physicalFrame = Rect(x: 0, y: 0, width: 1512, height: 982)
+    let visibleFrame = Rect(x: 0, y: 37, width: 1512, height: 901)
+    let records = [
+      record(
+        id: 9,
+        processID: 90,
+        layer: 20,
+        title: "",
+        frame: physicalFrame,
+        memoryUsage: 2_368
+      ),
+      record(id: 1, processID: 10, frame: physicalFrame),
+    ]
+
+    #expect(
+      transparentDockOverlayWindowIDs(
+        records: records,
+        dockProcessIDs: [90],
+        monitorFrames: [visibleFrame]
+      ) == [9]
+    )
+  }
+
+  @Test
   func fullDisplayMissionControlSurfaceBlocksManagedWindow() {
     let physicalFrame = Rect(x: 0, y: 0, width: 1512, height: 982)
     let visibleFrame = Rect(x: 0, y: 37, width: 1512, height: 901)
@@ -421,6 +470,22 @@ struct CursorTests {
         nonblockingWindowIDs: transparentWindowIDs
       ) == .managed(WindowID(rawValue: 1))
     )
+  }
+
+  @Test
+  func namelessSystemCursorIsTransparentWithoutCapturePermission() {
+    let records = [
+      record(
+        id: 9,
+        processID: 90,
+        layer: Int(CGWindowLevelForKey(.cursorWindow)),
+        title: "",
+        frame: Rect(x: 300, y: 500, width: 28, height: 40)
+      ),
+      record(id: 1, processID: 10),
+    ]
+
+    #expect(transparentPointerOverlayWindowIDs(records: records) == [9])
   }
 
   @Test
@@ -506,14 +571,16 @@ struct CursorTests {
     processID: pid_t,
     layer: Int = 0,
     title: String? = nil,
-    frame: Rect? = nil
+    frame: Rect? = nil,
+    memoryUsage: Int? = nil
   ) -> CGWindowRecord {
     CGWindowRecord(
       id: id,
       processID: processID,
       layer: layer,
       title: title ?? "Window \(id)",
-      frame: frame ?? self.frame
+      frame: frame ?? self.frame,
+      memoryUsage: memoryUsage
     )
   }
 }

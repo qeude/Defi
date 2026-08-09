@@ -12,6 +12,23 @@ struct CGWindowRecord {
   let layer: Int
   let title: String
   let frame: Rect
+  let memoryUsage: Int?
+
+  init(
+    id: CGWindowID,
+    processID: pid_t,
+    layer: Int,
+    title: String,
+    frame: Rect,
+    memoryUsage: Int? = nil
+  ) {
+    self.id = id
+    self.processID = processID
+    self.layer = layer
+    self.title = title
+    self.frame = frame
+    self.memoryUsage = memoryUsage
+  }
 }
 
 func resolvedCGWindowID(
@@ -32,32 +49,35 @@ func copyCGWindows(
     let info = CGWindowListCopyWindowInfo(
       options,
       kCGNullWindowID
-    ) as? [[CFString: Any]]
+    ) as? [[String: Any]]
   else {
     return []
   }
-  return info.compactMap { item in
-    guard let layer = item[kCGWindowLayer] as? NSNumber,
-      let number = item[kCGWindowNumber] as? NSNumber,
-      let ownerPID = item[kCGWindowOwnerPID] as? NSNumber,
-      let bounds = item[kCGWindowBounds] as? NSDictionary,
+  return info.compactMap(cgWindowRecord)
+}
+
+func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {
+  guard let layer = item[kCGWindowLayer as String] as? NSNumber,
+      let number = item[kCGWindowNumber as String] as? NSNumber,
+      let ownerPID = item[kCGWindowOwnerPID as String] as? NSNumber,
+      let bounds = item[kCGWindowBounds as String] as? NSDictionary,
       let cgRect = CGRect(dictionaryRepresentation: bounds)
-    else {
-      return nil
-    }
-    return CGWindowRecord(
-      id: number.uint32Value,
-      processID: ownerPID.int32Value,
-      layer: layer.intValue,
-      title: item[kCGWindowName] as? String ?? "",
-      frame: Rect(
-        x: cgRect.minX,
-        y: cgRect.minY,
-        width: cgRect.width,
-        height: cgRect.height
-      )
-    )
+  else {
+    return nil
   }
+  return CGWindowRecord(
+    id: number.uint32Value,
+    processID: ownerPID.int32Value,
+    layer: layer.intValue,
+    title: item[kCGWindowName as String] as? String ?? "",
+    frame: Rect(
+      x: cgRect.minX,
+      y: cgRect.minY,
+      width: cgRect.width,
+      height: cgRect.height
+    ),
+    memoryUsage: (item[kCGWindowMemoryUsage as String] as? NSNumber)?.intValue
+  )
 }
 
 func eligibleCGWindowRecords(
