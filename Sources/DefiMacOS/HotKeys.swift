@@ -368,7 +368,12 @@ private final class HotKeyTapContext: @unchecked Sendable {
         flagsChangedTo: hotKeyModifierBits(event.flags)
       )
     } else {
-      tracksGeneralUserInput = eventTracksGeneralUserInput(type)
+      tracksGeneralUserInput = eventTracksGeneralUserInput(
+        type,
+        scrollMomentumPhase: type == .scrollWheel
+          ? event.getIntegerValueField(.scrollWheelEventMomentumPhase)
+          : nil
+      )
       if tracksGeneralUserInput {
         capturedModifierReleaseState.reset()
       }

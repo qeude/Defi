@@ -80,6 +80,7 @@ extension MacOSPlatform {
 
   public func invalidateFocusRecovery(recoveringTo windowID: WindowID?) {
     focusRecoveryResolver.invalidate()
+    internalFocusSuppressions.removeAll(keepingCapacity: true)
     let fallback = windowID.flatMap { fallbackWindowID in
       processIDs[fallbackWindowID].map {
         NativeFocusRecoveryFallback(

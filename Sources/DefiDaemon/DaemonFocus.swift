@@ -601,6 +601,11 @@ extension Daemon {
   func invalidatePointerFocusIntent(recoveringTo windowID: WindowID? = nil) {
     pointerFocusGeneration &+= 1
     pendingPointerFocus = nil
+    if let recoveryRequestID = submittedPointerFocusRecoveryRequestID {
+      _ = platform.cancelFocus(recoveryRequestID, recoveringTo: windowID)
+      submittedPointerFocusRecoveryRequestID = nil
+      submittedPointerFocusRecoveryGeneration = nil
+    }
     if let submittedPointerFocusRequestID {
       let timestamp = submittedPointerFocusTimestamp
       let cancelled = platform.cancelFocus(
@@ -628,10 +633,22 @@ extension Daemon {
     unlessUserInputAfter timestamp: TimeInterval
   ) {
     guard let windowID else { return }
-    platform.focus(
+    nextPointerFocusRecoveryGeneration &+= 1
+    let recoveryGeneration = nextPointerFocusRecoveryGeneration
+    let recoveryID = platform.focus(
       windowID,
-      unlessUserInputAfter: timestamp
+      unlessUserInputAfter: timestamp,
+      completion: { [weak self] _ in
+        guard let self,
+          self.submittedPointerFocusRecoveryGeneration == recoveryGeneration
+        else { return }
+        self.submittedPointerFocusRecoveryRequestID = nil
+        self.submittedPointerFocusRecoveryGeneration = nil
+      }
     )
+    submittedPointerFocusRecoveryRequestID = recoveryID
+    submittedPointerFocusRecoveryGeneration =
+      recoveryID == nil ? nil : recoveryGeneration
   }
 
   private func pointerFocusIsReady(for windowID: WindowID) -> Bool {

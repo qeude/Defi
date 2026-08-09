@@ -207,6 +207,9 @@ final class Daemon: NSObject {
   var submittedPointerFocusRequestID: NativeFocusRequestID?
   var submittedPointerFocusTimestamp: TimeInterval?
   var submittedPointerFocusGeneration: UInt64?
+  var submittedPointerFocusRecoveryRequestID: NativeFocusRequestID?
+  var submittedPointerFocusRecoveryGeneration: UInt64?
+  var nextPointerFocusRecoveryGeneration: UInt64 = 0
   var submittedCommandFocusRequestID: NativeFocusRequestID?
   var submittedCommandFocusRequestTimestamp: TimeInterval?
   var submittedCommandFocusRecoveryGeneration: UInt64?

@@ -119,9 +119,11 @@ final class PlatformEventMonitor {
             ) ?? Int64(event.windowNumber)
           self.userInputTracker.record(
             timestamp: event.timestamp,
-            focusIntent: .mouse(
-              windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
-            )
+            focusIntent: event.type == .leftMouseDown
+              ? .mouse(
+                windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+              )
+              : nil
           )
         }
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {

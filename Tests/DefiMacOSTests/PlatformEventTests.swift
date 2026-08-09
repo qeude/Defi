@@ -800,20 +800,23 @@ struct PlatformEventTests {
   }
 
   @Test
-  func everyMouseButtonDownCreatesFocusIntent() {
+  func primaryMouseButtonDownCreatesFocusIntent() {
     let windowID = WindowID(rawValue: 42)
 
-    for eventType in [
-      CGEventType.leftMouseDown,
-      .rightMouseDown,
-      .otherMouseDown,
-    ] {
-      #expect(
-        mouseFocusIntent(eventType: eventType, rawWindowID: 42)
-          == .mouse(windowID: windowID)
-      )
-    }
+    #expect(
+      mouseFocusIntent(eventType: .leftMouseDown, rawWindowID: 42)
+        == .mouse(windowID: windowID)
+    )
+    #expect(mouseFocusIntent(eventType: .rightMouseDown, rawWindowID: 42) == nil)
+    #expect(mouseFocusIntent(eventType: .otherMouseDown, rawWindowID: 42) == nil)
     #expect(mouseFocusIntent(eventType: .scrollWheel, rawWindowID: 42) == nil)
+  }
+
+  @Test
+  func momentumScrollDoesNotSupersedeKeyboardFocus() {
+    #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 0))
+    #expect(!eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 1))
+    #expect(!eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 2))
   }
 
   @Test

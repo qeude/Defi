@@ -354,8 +354,12 @@ func eventIsMouseButtonDown(_ type: CGEventType) -> Bool {
   }
 }
 
-func eventTracksGeneralUserInput(_ type: CGEventType) -> Bool {
-  type == .keyDown || type == .flagsChanged || type == .scrollWheel
+func eventTracksGeneralUserInput(
+  _ type: CGEventType,
+  scrollMomentumPhase: Int64? = nil
+) -> Bool {
+  type == .keyDown || type == .flagsChanged
+    || (type == .scrollWheel && (scrollMomentumPhase ?? 0) == 0)
     || eventIsMouseButtonDown(type)
 }
 
@@ -386,7 +390,7 @@ func mouseFocusIntent(
   eventType: CGEventType,
   rawWindowID: Int64
 ) -> UserInputTracker.FocusIntentSource? {
-  guard eventIsMouseButtonDown(eventType) else { return nil }
+  guard eventType == .leftMouseDown else { return nil }
   return .mouse(windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID))
 }
 
