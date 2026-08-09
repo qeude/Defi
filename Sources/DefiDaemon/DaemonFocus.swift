@@ -601,11 +601,7 @@ extension Daemon {
   func invalidatePointerFocusIntent(recoveringTo windowID: WindowID? = nil) {
     pointerFocusGeneration &+= 1
     pendingPointerFocus = nil
-    if let recoveryRequestID = submittedPointerFocusRecoveryRequestID {
-      _ = platform.cancelFocus(recoveryRequestID, recoveringTo: windowID)
-      submittedPointerFocusRecoveryRequestID = nil
-      submittedPointerFocusRecoveryGeneration = nil
-    }
+    invalidateSubmittedPointerFocusRecovery(recoveringTo: windowID)
     if let submittedPointerFocusRequestID {
       let timestamp = submittedPointerFocusTimestamp
       let cancelled = platform.cancelFocus(
@@ -643,12 +639,43 @@ extension Daemon {
           self.submittedPointerFocusRecoveryGeneration == recoveryGeneration
         else { return }
         self.submittedPointerFocusRecoveryRequestID = nil
+        self.submittedPointerFocusRecoveryTimestamp = nil
         self.submittedPointerFocusRecoveryGeneration = nil
       }
     )
     submittedPointerFocusRecoveryRequestID = recoveryID
+    submittedPointerFocusRecoveryTimestamp =
+      recoveryID == nil ? nil : timestamp
     submittedPointerFocusRecoveryGeneration =
       recoveryID == nil ? nil : recoveryGeneration
+  }
+
+  private func invalidateSubmittedPointerFocusRecovery(
+    recoveringTo windowID: WindowID?
+  ) {
+    guard let recoveryRequestID = submittedPointerFocusRecoveryRequestID else {
+      submittedPointerFocusRecoveryTimestamp = nil
+      submittedPointerFocusRecoveryGeneration = nil
+      return
+    }
+    let timestamp = submittedPointerFocusRecoveryTimestamp
+    let recoveryGeneration = submittedPointerFocusRecoveryGeneration
+    let cancelled = platform.cancelFocus(
+      recoveryRequestID,
+      recoveringTo: windowID
+    )
+    if !cancelled, let windowID, let timestamp {
+      recoverPointerFocus(
+        to: windowID,
+        unlessUserInputAfter: timestamp
+      )
+    }
+    guard submittedPointerFocusRecoveryGeneration == recoveryGeneration else {
+      return
+    }
+    submittedPointerFocusRecoveryRequestID = nil
+    submittedPointerFocusRecoveryTimestamp = nil
+    submittedPointerFocusRecoveryGeneration = nil
   }
 
   private func pointerFocusIsReady(for windowID: WindowID) -> Bool {

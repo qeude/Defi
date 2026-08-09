@@ -10,6 +10,19 @@ struct InternalFocusSuppression: Equatable, Sendable {
   let requestID: UInt64
   let deadline: TimeInterval
   let maximumInputTimestamp: TimeInterval
+  let isInFlight: Bool
+
+  init(
+    requestID: UInt64,
+    deadline: TimeInterval,
+    maximumInputTimestamp: TimeInterval,
+    isInFlight: Bool = true
+  ) {
+    self.requestID = requestID
+    self.deadline = deadline
+    self.maximumInputTimestamp = maximumInputTimestamp
+    self.isInFlight = isInFlight
+  }
 }
 
 func internalFocusSuppressionConsumesEvent(
@@ -41,7 +54,8 @@ func extendingInternalFocusSuppression(
     maximumInputTimestamp: max(
       suppression.maximumInputTimestamp,
       inputTimestamp
-    )
+    ),
+    isInFlight: suppression.isInFlight
   )
 }
 
@@ -50,11 +64,20 @@ func internalFocusSuppressionAfterCompletion(
   requestID: UInt64,
   result: NativeFocusResult
 ) -> InternalFocusSuppression? {
-  guard suppression?.requestID == requestID else { return suppression }
+  guard let suppression, suppression.requestID == requestID else {
+    return suppression
+  }
   switch result {
   case .completedWithoutMutation, .frameSuperseded, .superseded, .cancelled:
     return nil
-  case .completed, .supersededAfterMutation, .cancelledAfterMutation,
+  case .completed:
+    return InternalFocusSuppression(
+      requestID: suppression.requestID,
+      deadline: suppression.deadline,
+      maximumInputTimestamp: suppression.maximumInputTimestamp,
+      isInFlight: false
+    )
+  case .supersededAfterMutation, .cancelledAfterMutation,
     .cancelledAfterInputMutation, .failed, .failedAfterMutation:
     return suppression
   }
@@ -67,6 +90,7 @@ extension MacOSPlatform {
     focusWriter.invalidate()
     focusRecoveryResolver.invalidate()
     submittedFocusRecoveryRequestID = nil
+    submittedFocusRecoveryTimestamp = nil
     submittedFocusRecoveryGeneration = nil
     let now = ProcessInfo.processInfo.systemUptime
     internalFocusSuppressions = internalFocusSuppressions.filter {
@@ -80,7 +104,10 @@ extension MacOSPlatform {
 
   public func invalidateFocusRecovery(recoveringTo windowID: WindowID?) {
     focusRecoveryResolver.invalidate()
-    internalFocusSuppressions.removeAll(keepingCapacity: true)
+    let now = ProcessInfo.processInfo.systemUptime
+    internalFocusSuppressions = internalFocusSuppressions.filter {
+      $0.value.isInFlight && $0.value.deadline >= now
+    }
     let fallback = windowID.flatMap { fallbackWindowID in
       processIDs[fallbackWindowID].map {
         NativeFocusRecoveryFallback(
@@ -90,9 +117,23 @@ extension MacOSPlatform {
       }
     }
     if let requestID = submittedFocusRecoveryRequestID {
-      _ = focusWriter.cancel(requestID, recoveryFallback: fallback)
+      let cancelled = focusWriter.cancel(
+        requestID,
+        recoveryFallback: fallback
+      )
+      if !cancelled,
+        let fallback,
+        let timestamp = submittedFocusRecoveryTimestamp
+      {
+        submitFocusRecoveryFallback(
+          fallback,
+          timestamp: timestamp
+        )
+        return
+      }
     }
     submittedFocusRecoveryRequestID = nil
+    submittedFocusRecoveryTimestamp = nil
     submittedFocusRecoveryGeneration = nil
   }
 
@@ -314,10 +355,13 @@ extension MacOSPlatform {
             self.submittedFocusRecoveryGeneration == recoveryGeneration
           else { return }
           self.submittedFocusRecoveryRequestID = nil
+          self.submittedFocusRecoveryTimestamp = nil
           self.submittedFocusRecoveryGeneration = nil
         }
       )
       submittedFocusRecoveryRequestID = requestID
+      submittedFocusRecoveryTimestamp =
+        requestID == nil ? nil : target.timestamp
       submittedFocusRecoveryGeneration =
         requestID == nil ? nil : recoveryGeneration
       return
@@ -402,6 +446,7 @@ extension MacOSPlatform {
         guard let self else { return }
         if self.submittedFocusRecoveryGeneration == recoveryGeneration {
           self.submittedFocusRecoveryRequestID = nil
+          self.submittedFocusRecoveryTimestamp = nil
           self.submittedFocusRecoveryGeneration = nil
         }
         if let recoveryRequest = completion.recoveryRequest {
@@ -410,7 +455,41 @@ extension MacOSPlatform {
       }
     }
     submittedFocusRecoveryRequestID = requestID
+    submittedFocusRecoveryTimestamp = timestamp
     submittedFocusRecoveryGeneration = recoveryGeneration
+  }
+
+  private func submitFocusRecoveryFallback(
+    _ fallback: NativeFocusRecoveryFallback,
+    timestamp: TimeInterval
+  ) {
+    guard let windowID = fallback.windowID else {
+      submittedFocusRecoveryRequestID = nil
+      submittedFocusRecoveryTimestamp = nil
+      submittedFocusRecoveryGeneration = nil
+      return
+    }
+    nextFocusRecoveryGeneration &+= 1
+    let recoveryGeneration = nextFocusRecoveryGeneration
+    let requestID = submitFocus(
+      windowID,
+      unlessUserInputAfter: timestamp,
+      suppressesNativeFocusEvent: false,
+      focusRecoveryFallback: fallback,
+      createsRecoveryRequest: false,
+      completion: { [weak self] _ in
+        guard let self,
+          self.submittedFocusRecoveryGeneration == recoveryGeneration
+        else { return }
+        self.submittedFocusRecoveryRequestID = nil
+        self.submittedFocusRecoveryTimestamp = nil
+        self.submittedFocusRecoveryGeneration = nil
+      }
+    )
+    submittedFocusRecoveryRequestID = requestID
+    submittedFocusRecoveryTimestamp = requestID == nil ? nil : timestamp
+    submittedFocusRecoveryGeneration =
+      requestID == nil ? nil : recoveryGeneration
   }
 
   private func activateFocusRecoveryProcess(_ processID: pid_t) {
