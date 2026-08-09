@@ -56,15 +56,23 @@ extension Daemon {
       )
       let preservedCommandFocus = pendingAnimatedFocus ?? submittedCommandFocus
       let preservedWorkspaceFocus = pendingWorkspaceFocus
+      let preservedDisplacedFocus = displacedPointerFocusRecovery
       pendingAnimatedFocus = nil
       submittedCommandFocus = nil
       pendingWorkspaceFocus = nil
       submittedWorkspaceFocusGeneration = nil
+      displacedPointerFocusRecovery = nil
       platform.invalidateFrameStateForDisplayChange()
       platform.invalidateFocusStateForDisplayChange()
       scrollAnimations.removeAll(keepingCapacity: true)
-      pendingAnimatedFocus = preservedCommandFocus
-      pendingWorkspaceFocus = preservedWorkspaceFocus
+      if let preservedDisplacedFocus {
+        requeueDisplacedPointerFocusAfterDisplayChange(
+          preservedDisplacedFocus
+        )
+      } else {
+        pendingAnimatedFocus = preservedCommandFocus
+        pendingWorkspaceFocus = preservedWorkspaceFocus
+      }
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()

@@ -169,6 +169,15 @@ public func commandFocusInputTimestamp(
   capturedInputTimestamp ?? commandHandledAt
 }
 
+/// Keeps a focus request requeued after display reconciliation behind the
+/// pointer input that displaced it.
+public func pointerDisplacedFocusInputTimestamp(
+  commandInputTimestamp: TimeInterval,
+  pointerInputTimestamp: TimeInterval
+) -> TimeInterval {
+  max(commandInputTimestamp, pointerInputTimestamp)
+}
+
 public func commandFocusCancellationFallback(
   cancelledBeforeMutation: Bool,
   rollbackAfterMutation: Bool = false,

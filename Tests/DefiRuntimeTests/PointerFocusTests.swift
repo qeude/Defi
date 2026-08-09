@@ -200,6 +200,22 @@ struct PointerFocusTests {
   }
 
   @Test
+  func displayChangeRequeueKeepsPointerInputGuard() {
+    #expect(
+      pointerDisplacedFocusInputTimestamp(
+        commandInputTimestamp: 12,
+        pointerInputTimestamp: 18
+      ) == 18
+    )
+    #expect(
+      pointerDisplacedFocusInputTimestamp(
+        commandInputTimestamp: 18,
+        pointerInputTimestamp: 12
+      ) == 18
+    )
+  }
+
+  @Test
   func pendingPointerFocusRequiresSameWindowAndNoNewerInput() {
     let windowID = WindowID(rawValue: 42)
 

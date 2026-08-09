@@ -138,8 +138,8 @@ struct PendingWorkspaceFocus: Equatable {
 }
 
 enum DisplacedPointerFocusRecovery: Equatable {
-  case command(PendingAnimatedFocus)
-  case workspace(PendingWorkspaceFocus)
+  case command(PendingAnimatedFocus, timestamp: TimeInterval)
+  case workspace(PendingWorkspaceFocus, timestamp: TimeInterval)
 }
 
 @MainActor

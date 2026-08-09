@@ -173,13 +173,13 @@ extension Daemon {
     platform.userInputTracker.record(timestamp: focusGuardTimestamp)
 
     if let displaced = pendingAnimatedFocus.map({
-      DisplacedPointerFocusRecovery.command($0)
+      DisplacedPointerFocusRecovery.command($0, timestamp: timestamp)
     })
       ?? submittedCommandFocus.map({
-        DisplacedPointerFocusRecovery.command($0)
+        DisplacedPointerFocusRecovery.command($0, timestamp: timestamp)
       })
       ?? pendingWorkspaceFocus.map({
-        DisplacedPointerFocusRecovery.workspace($0)
+        DisplacedPointerFocusRecovery.workspace($0, timestamp: timestamp)
       })
     {
       displacedPointerFocusRecovery = displaced
@@ -335,7 +335,7 @@ extension Daemon {
     displacedPointerFocusRecovery = nil
 
     switch recovery {
-    case .command(let request):
+    case .command(let request, _):
       guard commandGeneration == request.commandGeneration,
         state.selectedWindowID(on: request.monitorID) == request.windowID
       else { return }
@@ -364,7 +364,7 @@ extension Daemon {
         retryCount: restored.retryCount
       )
 
-    case .workspace(let request):
+    case .workspace(let request, _):
       guard commandGeneration == request.commandGeneration,
         state.monitors.first(where: { $0.id == request.monitorID })?.activeWorkspace
           == request.requestedWorkspaceID,
@@ -386,6 +386,44 @@ extension Daemon {
       if focusIsReady(on: request.monitorID) {
         finishPendingWorkspaceFocusIfReady()
       }
+    }
+  }
+
+  func requeueDisplacedPointerFocusAfterDisplayChange(
+    _ recovery: DisplacedPointerFocusRecovery
+  ) {
+    switch recovery {
+    case .command(let request, let timestamp):
+      pendingAnimatedFocus = PendingAnimatedFocus(
+        windowID: request.windowID,
+        previousSelectedWindowID: request.previousSelectedWindowID,
+        monitorID: request.monitorID,
+        sourceWorkspaceID: request.sourceWorkspaceID,
+        commandGeneration: request.commandGeneration,
+        focusInputTimestamp: pointerDisplacedFocusInputTimestamp(
+          commandInputTimestamp: request.focusInputTimestamp,
+          pointerInputTimestamp: timestamp
+        ),
+        cursorWarpInputTimestamp: nil,
+        retryCount: request.retryCount
+      )
+    case .workspace(let request, let timestamp):
+      pendingWorkspaceFocus = PendingWorkspaceFocus(
+        monitorID: request.monitorID,
+        requestedWorkspaceID: request.requestedWorkspaceID,
+        previousWorkspaceID: request.previousWorkspaceID,
+        requestedWindowID: request.requestedWindowID,
+        restoresPreviousWorkspaceOnCancellation:
+          request.restoresPreviousWorkspaceOnCancellation,
+        commandGeneration: request.commandGeneration,
+        focusInputTimestamp: pointerDisplacedFocusInputTimestamp(
+          commandInputTimestamp: request.focusInputTimestamp,
+          pointerInputTimestamp: timestamp
+        ),
+        cursorWarpInputTimestamp: nil,
+        retryCount: request.retryCount
+      )
+      submittedWorkspaceFocusGeneration = nil
     }
   }
 
