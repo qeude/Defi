@@ -228,6 +228,7 @@ extension Daemon {
         state: state
       )
       if nativeFocusAccepted {
+        platform.invalidateFocusRecovery()
         invalidateSubmittedCommandFocus(recoveringTo: focusedWindowID)
         invalidateSubmittedWorkspaceFocus(recoveringTo: focusedWindowID)
         invalidatePointerFocusIntent(recoveringTo: focusedWindowID)

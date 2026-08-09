@@ -229,6 +229,13 @@ extension Daemon {
       request.requestedWindowID,
       unlessUserInputAfter: request.focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: request.cursorWarpInputTimestamp,
+      cursorWarpIsCurrent: { [weak self] in
+        guard let self else { return false }
+        return self.pendingWorkspaceFocus?.commandGeneration
+            == request.commandGeneration
+          && self.submittedWorkspaceFocusGeneration
+            == request.commandGeneration
+      },
       completion: { [weak self] result in
         self?.commitWorkspaceCommandFocus(result: result, request: request)
       }

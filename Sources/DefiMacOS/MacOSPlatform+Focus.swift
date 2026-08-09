@@ -72,6 +72,10 @@ extension MacOSPlatform {
     }
   }
 
+  public func invalidateFocusRecovery() {
+    focusRecoveryResolver.invalidate()
+  }
+
   public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {
     guard let processID = processIDs[windowID] else { return false }
     return lastNativeFocusedWindowID == windowID
