@@ -196,6 +196,7 @@ final class Daemon: NSObject {
   var submittedCommandFocus: PendingAnimatedFocus?
   var pendingWorkspaceFocus: PendingWorkspaceFocus?
   var submittedWorkspaceFocusGeneration: UInt64?
+  var submittedWorkspaceFocusRequestID: NativeFocusRequestID?
   var displacedPointerFocusRecovery: DisplacedPointerFocusRecovery?
   var lastPointerWindowID: WindowID?
   var pendingPointerFocus: PendingPointerFocus?

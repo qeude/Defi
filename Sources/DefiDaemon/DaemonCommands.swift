@@ -130,6 +130,7 @@ extension Daemon {
         suppressNativeFocusUntil = commandStartedAt + 0.25
         pendingAnimatedFocus = nil
         invalidateSubmittedCommandFocus()
+        invalidateSubmittedWorkspaceFocus()
         pendingWorkspaceFocus = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)
@@ -204,8 +205,8 @@ extension Daemon {
       } else {
         workspaceFocusRequest = nil
       }
+      invalidateSubmittedWorkspaceFocus()
       pendingWorkspaceFocus = workspaceFocusRequest
-      submittedWorkspaceFocusGeneration = nil
       if switchesWorkspace || !dispatchedAnimation {
         let focusWindowIDAfterCommit = workspaceFocusRequest?.requestedWindowID
         let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?

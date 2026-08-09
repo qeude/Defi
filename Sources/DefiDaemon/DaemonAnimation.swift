@@ -163,6 +163,7 @@ extension Daemon {
     scrollAnimations.removeAll(keepingCapacity: true)
     pendingAnimatedFocus = nil
     invalidateSubmittedCommandFocus()
+    invalidateSubmittedWorkspaceFocus()
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     platform.cancelPendingFrameWrites()
@@ -223,7 +224,7 @@ extension Daemon {
     else { return }
 
     submittedWorkspaceFocusGeneration = request.commandGeneration
-    platform.focus(
+    submittedWorkspaceFocusRequestID = platform.focus(
       request.requestedWindowID,
       unlessUserInputAfter: request.focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: request.cursorWarpInputTimestamp

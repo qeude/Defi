@@ -65,6 +65,7 @@ extension Daemon {
       }
       pendingAnimatedFocus = nil
       invalidateSubmittedCommandFocus()
+      invalidateSubmittedWorkspaceFocus()
       pendingWorkspaceFocus = nil
       submittedWorkspaceFocusGeneration = nil
       displacedPointerFocusRecovery = nil
@@ -228,6 +229,7 @@ extension Daemon {
       )
       if nativeFocusAccepted {
         invalidateSubmittedCommandFocus(recoveringTo: focusedWindowID)
+        invalidateSubmittedWorkspaceFocus(recoveringTo: focusedWindowID)
         invalidatePointerFocusIntent(recoveringTo: focusedWindowID)
         rearmPointerFocusTransition()
         pendingAnimatedFocus = nil

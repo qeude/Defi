@@ -197,6 +197,7 @@ extension Daemon {
     }
     pendingAnimatedFocus = nil
     invalidateSubmittedCommandFocus()
+    invalidateSubmittedWorkspaceFocus()
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     pendingWindowRemovalFocusGuard = nil
@@ -511,6 +512,16 @@ extension Daemon {
     submittedCommandFocus = nil
   }
 
+  func invalidateSubmittedWorkspaceFocus(
+    recoveringTo windowID: WindowID? = nil
+  ) {
+    if let requestID = submittedWorkspaceFocusRequestID {
+      _ = platform.cancelFocus(requestID, recoveringTo: windowID)
+    }
+    submittedWorkspaceFocusRequestID = nil
+    submittedWorkspaceFocusGeneration = nil
+  }
+
   func invalidatePointerFocusIntent(recoveringTo windowID: WindowID? = nil) {
     pointerFocusGeneration &+= 1
     pendingPointerFocus = nil
@@ -540,7 +551,7 @@ extension Daemon {
     unlessUserInputAfter timestamp: TimeInterval
   ) {
     guard let windowID else { return }
-    submittedCommandFocusRequestID = platform.focus(
+    platform.focus(
       windowID,
       unlessUserInputAfter: timestamp
     )
@@ -617,7 +628,7 @@ extension Daemon {
       platform.cursorWarpFrameIsReady(for: windowID)
       ? cursorWarpInputTimestamp
       : nil
-    platform.focus(
+    submittedCommandFocusRequestID = platform.focus(
       windowID,
       unlessUserInputAfter: focusInputTimestamp,
       cursorWarpUnlessPointerMovedAfter: committedCursorWarpInputTimestamp
@@ -693,6 +704,7 @@ extension Daemon {
   ) {
     guard pendingWorkspaceFocus?.commandGeneration == request.commandGeneration
     else { return }
+    submittedWorkspaceFocusRequestID = nil
     if result == .frameSuperseded {
       submittedWorkspaceFocusGeneration = nil
       return
