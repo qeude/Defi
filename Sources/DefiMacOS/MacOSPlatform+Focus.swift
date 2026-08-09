@@ -75,9 +75,21 @@ extension MacOSPlatform {
   }
 
   public func invalidateFocusRecovery() {
+    invalidateFocusRecovery(recoveringTo: nil)
+  }
+
+  public func invalidateFocusRecovery(recoveringTo windowID: WindowID?) {
     focusRecoveryResolver.invalidate()
+    let fallback = windowID.flatMap { fallbackWindowID in
+      processIDs[fallbackWindowID].map {
+        NativeFocusRecoveryFallback(
+          windowID: fallbackWindowID,
+          processID: $0
+        )
+      }
+    }
     if let requestID = submittedFocusRecoveryRequestID {
-      _ = focusWriter.cancel(requestID)
+      _ = focusWriter.cancel(requestID, recoveryFallback: fallback)
     }
     submittedFocusRecoveryRequestID = nil
     submittedFocusRecoveryGeneration = nil
@@ -296,7 +308,6 @@ extension MacOSPlatform {
         windowID,
         unlessUserInputAfter: target.timestamp,
         suppressesNativeFocusEvent: false,
-        createsRecoveryRequest: false,
         completion: { [weak self] _ in
           guard let self,
             self.submittedFocusRecoveryGeneration == recoveryGeneration
@@ -363,6 +374,12 @@ extension MacOSPlatform {
     )
     nextFocusRecoveryGeneration &+= 1
     let recoveryGeneration = nextFocusRecoveryGeneration
+    let recoveryRequest = NativeFocusRecoveryRequest(
+      timestamp: timestamp,
+      excludingWindowID: windowID,
+      excludingProcessID: processID,
+      fallback: nil
+    )
     let requestID = focusWriter.submit(
       AsyncFocusRequest(
         element: element,
@@ -377,19 +394,18 @@ extension MacOSPlatform {
           tracker: userInputTracker,
           maximumTimestamp: timestamp
         ),
-        recoveryRequest: nil
+        recoveryRequest: recoveryRequest
       )
     ) { [weak self] completion in
       Task { @MainActor [weak self] in
-        guard let self,
-          self.submittedFocusRecoveryGeneration == recoveryGeneration
-        else { return }
-        self.submittedFocusRecoveryRequestID = nil
-        self.submittedFocusRecoveryGeneration = nil
-        guard let recoveryRequest = completion.recoveryRequest else {
-          return
+        guard let self else { return }
+        if self.submittedFocusRecoveryGeneration == recoveryGeneration {
+          self.submittedFocusRecoveryRequestID = nil
+          self.submittedFocusRecoveryGeneration = nil
         }
-        self.recoverUserFocus(recoveryRequest)
+        if let recoveryRequest = completion.recoveryRequest {
+          self.recoverUserFocus(recoveryRequest)
+        }
       }
     }
     submittedFocusRecoveryRequestID = requestID

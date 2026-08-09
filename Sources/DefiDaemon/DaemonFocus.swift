@@ -219,14 +219,20 @@ extension Daemon {
           latestUserInputTimestamp:
             self.platform.userInputTracker.latestEventTimestamp
         ) else {
+          guard self.submittedPointerFocusGeneration == generation else {
+            self.pointerFocusIgnoredCount += 1
+            return
+          }
           self.submittedPointerFocusRequestID = nil
           self.submittedPointerFocusTimestamp = nil
+          self.submittedPointerFocusGeneration = nil
           self.rearmPointerFocusTransition()
           self.pointerFocusIgnoredCount += 1
           return
         }
         self.submittedPointerFocusRequestID = nil
         self.submittedPointerFocusTimestamp = nil
+        self.submittedPointerFocusGeneration = nil
         guard result == .completed || result == .completedWithoutMutation else {
           self.pointerFocusIgnoredCount += 1
           switch result {
@@ -264,6 +270,7 @@ extension Daemon {
     )
     submittedPointerFocusRequestID = requestID
     submittedPointerFocusTimestamp = requestID == nil ? nil : timestamp
+    submittedPointerFocusGeneration = requestID == nil ? nil : generation
   }
 
   private func commitCompletedPointerFocus(
@@ -612,6 +619,7 @@ extension Daemon {
       }
       self.submittedPointerFocusRequestID = nil
       self.submittedPointerFocusTimestamp = nil
+      self.submittedPointerFocusGeneration = nil
     }
   }
 
