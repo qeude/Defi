@@ -48,15 +48,21 @@ extension Daemon {
       from: latestMonitors,
       to: snapshot.monitors
     )
+    var preservedCommandFocus: PendingAnimatedFocus?
+    var preservedWorkspaceFocus: PendingWorkspaceFocus?
+    var preservedDisplacedFocus: DisplacedPointerFocusRecovery?
     if displayGeometryChanged {
       let previous = displayGeometryDescription(latestMonitors)
       let next = displayGeometryDescription(snapshot.monitors)
       displayLogger.info(
         "geometry changed previous=\(previous, privacy: .public) next=\(next, privacy: .public)"
       )
-      let preservedCommandFocus = pendingAnimatedFocus ?? submittedCommandFocus
-      let preservedWorkspaceFocus = pendingWorkspaceFocus
-      let preservedDisplacedFocus = displacedPointerFocusRecovery
+      preservedCommandFocus = pendingAnimatedFocus ?? submittedCommandFocus
+      preservedWorkspaceFocus = pendingWorkspaceFocus
+      preservedDisplacedFocus = displacedPointerFocusRecovery
+      let preservedLogicalFocusWindowID = activeMonitorID.flatMap {
+        state.selectedWindowID(on: $0)
+      }
       pendingAnimatedFocus = nil
       submittedCommandFocus = nil
       pendingWorkspaceFocus = nil
@@ -64,15 +70,8 @@ extension Daemon {
       displacedPointerFocusRecovery = nil
       platform.invalidateFrameStateForDisplayChange()
       platform.invalidateFocusStateForDisplayChange()
+      invalidatePointerFocusIntent(recoveringTo: preservedLogicalFocusWindowID)
       scrollAnimations.removeAll(keepingCapacity: true)
-      if let preservedDisplacedFocus {
-        requeueDisplacedPointerFocusAfterDisplayChange(
-          preservedDisplacedFocus
-        )
-      } else {
-        pendingAnimatedFocus = preservedCommandFocus
-        pendingWorkspaceFocus = preservedWorkspaceFocus
-      }
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
@@ -88,6 +87,13 @@ extension Daemon {
       previousViewports: previousViewports,
       nextViewports: viewportsByMonitor
     )
+    if displayGeometryChanged {
+      requeuePreservedFocusAfterMonitorRetention(
+        command: preservedCommandFocus,
+        workspace: preservedWorkspaceFocus,
+        displaced: preservedDisplacedFocus
+      )
+    }
     var nativelyFocusedMonitorID: MonitorID?
     var nativelyActivatedWorkspace = false
     reconcileWindows(
@@ -220,6 +226,7 @@ extension Daemon {
         state: state
       )
       if nativeFocusAccepted {
+        pendingAnimatedFocus = nil
         submittedCommandFocus = nil
         pendingWorkspaceFocus = nil
         submittedWorkspaceFocusGeneration = nil

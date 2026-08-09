@@ -382,7 +382,8 @@ extension MacOSPlatform {
       ),
       internalFocusSuppressionConsumesEvent(
         suppression,
-        latestInputTimestamp: userInputTracker.latestEventTimestamp
+        latestFocusIntentTimestamp:
+          userInputTracker.snapshot.latestFocusIntent?.timestamp
       )
     {
       nativeFocusChanged = false

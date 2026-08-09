@@ -150,7 +150,7 @@ final class PlatformEventMonitor {
     }
   }
 
-  func resetMouseGestureState() {
+  func resetMouseGestureState() -> Bool {
     mouseGestureNormalizer.reset()
   }
 

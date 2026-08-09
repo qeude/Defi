@@ -131,6 +131,23 @@ public struct RuntimeState: Equatable, Sendable {
     }
     return focusedFloatingWindowID(in: workspace)
   }
+
+  public func reboundFocusMonitorID(
+    for windowID: WindowID,
+    requestedWorkspaceID: WorkspaceID? = nil
+  ) -> MonitorID? {
+    guard let location = location(containing: windowID),
+      requestedWorkspaceID.map({ $0 == location.workspaceID }) ?? true,
+      monitors.contains(where: {
+        $0.id == location.monitorID
+          && $0.activeWorkspace == location.workspaceID
+      }),
+      selectedWindowID(on: location.monitorID) == windowID
+    else {
+      return nil
+    }
+    return location.monitorID
+  }
 }
 
 private func focusedFloatingWindowID(in workspace: Workspace) -> WindowID? {

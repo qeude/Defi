@@ -14,7 +14,9 @@ extension MacOSPlatform {
   ) {
     userInputTracker.invalidate(at: timestamp)
     pointerMotionTracker.invalidate(at: timestamp)
-    eventMonitor?.resetMouseGestureState()
+    if eventMonitor?.resetMouseGestureState() == true {
+      mouseFocusReleasePending = true
+    }
   }
 
   public func startObserving(

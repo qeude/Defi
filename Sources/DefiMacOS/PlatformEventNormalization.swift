@@ -545,9 +545,11 @@ struct MouseGestureEventNormalizer {
     }
   }
 
-  mutating func reset() {
+  mutating func reset() -> Bool {
+    let hadHeldButtons = !heldButtons.isEmpty
     heldButtons.removeAll(keepingCapacity: true)
     dragged = false
+    return hadHeldButtons
   }
 }
 

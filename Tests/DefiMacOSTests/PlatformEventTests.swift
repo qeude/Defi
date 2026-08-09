@@ -355,13 +355,19 @@ struct PlatformEventTests {
     #expect(
       internalFocusSuppressionConsumesEvent(
         extended,
-        latestInputTimestamp: 12
+        latestFocusIntentTimestamp: 12
       )
     )
     #expect(
       !internalFocusSuppressionConsumesEvent(
         extended,
-        latestInputTimestamp: 13
+        latestFocusIntentTimestamp: 13
+      )
+    )
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        latestFocusIntentTimestamp: nil
       )
     )
   }
@@ -1072,6 +1078,21 @@ struct PlatformEventTests {
 
     #expect(nextMouseDown.startsGesture)
     #expect(nextMouseDown.synchronization == nil)
+  }
+
+  @Test
+  func resettingHeldMouseGestureRequestsSyntheticRelease() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+
+    let resetHeldButtons = normalizer.reset()
+    let resetEmptyGesture = normalizer.reset()
+    #expect(resetHeldButtons)
+    #expect(!resetEmptyGesture)
+    #expect(
+      normalizer.actions(for: .leftMouseUp)
+        == MouseGestureEventNormalizer.Actions()
+    )
   }
 
   @Test

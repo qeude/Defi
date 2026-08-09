@@ -14,9 +14,11 @@ struct InternalFocusSuppression: Equatable, Sendable {
 
 func internalFocusSuppressionConsumesEvent(
   _ suppression: InternalFocusSuppression,
-  latestInputTimestamp: TimeInterval
+  latestFocusIntentTimestamp: TimeInterval?
 ) -> Bool {
-  latestInputTimestamp <= suppression.maximumInputTimestamp
+  latestFocusIntentTimestamp.map {
+    $0 <= suppression.maximumInputTimestamp
+  } ?? true
 }
 
 func extendingInternalFocusSuppression(
