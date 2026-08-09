@@ -6,6 +6,389 @@ import Testing
 
 struct PlatformEventTests {
   @Test
+  func auxiliaryFocusRecoveryLookupIsLatestWins() {
+    #expect(
+      focusRecoveryResolutionIsCurrent(
+        requestGeneration: 4,
+        currentGeneration: 4
+      )
+    )
+    #expect(
+      !focusRecoveryResolutionIsCurrent(
+        requestGeneration: 3,
+        currentGeneration: 4
+      )
+    )
+  }
+
+  @Test
+  func physicalPointerTrackingIncludesDragEvents() {
+    #expect(eventTracksPhysicalPointerMotion(.mouseMoved))
+    #expect(eventTracksPhysicalPointerMotion(.leftMouseDragged))
+    #expect(eventTracksPhysicalPointerMotion(.rightMouseDragged))
+    #expect(eventTracksPhysicalPointerMotion(.otherMouseDragged))
+    #expect(!eventTracksPhysicalPointerMotion(.scrollWheel))
+    #expect(!eventTracksPhysicalPointerMotion(.keyDown))
+  }
+
+  @Test
+  func generalInputTrackingIncludesEveryMouseButtonDown() {
+    #expect(eventIsMouseButtonDown(.leftMouseDown))
+    #expect(eventIsMouseButtonDown(.rightMouseDown))
+    #expect(eventIsMouseButtonDown(.otherMouseDown))
+    #expect(!eventIsMouseButtonDown(.leftMouseUp))
+    #expect(!eventIsMouseButtonDown(.mouseMoved))
+    #expect(!eventIsMouseButtonDown(.keyDown))
+  }
+
+  @Test
+  func generalInputTrackingIncludesScrollWheel() {
+    #expect(eventTracksGeneralUserInput(.keyDown))
+    #expect(eventTracksGeneralUserInput(.flagsChanged))
+    #expect(eventTracksGeneralUserInput(.leftMouseDown))
+    #expect(eventTracksGeneralUserInput(.rightMouseDown))
+    #expect(eventTracksGeneralUserInput(.otherMouseDown))
+    #expect(eventTracksGeneralUserInput(.scrollWheel))
+    #expect(!eventTracksGeneralUserInput(.mouseMoved))
+    #expect(!eventTracksGeneralUserInput(.leftMouseUp))
+  }
+
+  @Test
+  func nativeFocusResultRequiresCurrentSuccessfulRequest() {
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: true
+      ) == .completedWithoutMutation
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: false
+      ) == .failed
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: false,
+        generationCurrent: false,
+        inputCurrent: true,
+        cancelled: true,
+        focusSucceeded: true
+      ) == .superseded
+    )
+  }
+
+  @Test
+  func focusedExplicitTargetSkipsNoOpNativeWrite() {
+    #expect(
+      specificWindowFocusWriteIsRequired(
+        requested: true,
+        validatesCurrentFocus: false,
+        targetIsFocused: true
+      ) == false
+    )
+    #expect(
+      specificWindowFocusWriteIsRequired(
+        requested: true,
+        validatesCurrentFocus: false,
+        targetIsFocused: false
+      )
+    )
+  }
+
+  @Test
+  func staleGuardedFocusReportsMutationForRecovery() {
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: true,
+        generationCurrent: true,
+        inputCurrent: false,
+        cancelled: true,
+        focusSucceeded: true
+      ) == .cancelledAfterInputMutation
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: true,
+        generationCurrent: false,
+        inputCurrent: false,
+        cancelled: true,
+        focusSucceeded: true
+      ) == .supersededAfterMutation
+    )
+  }
+
+  @Test
+  func supersededMutationTransfersRecoveryToUnmutatedReplacement() throws {
+    let originalRecovery = NativeFocusRecoveryRequest(
+      timestamp: 10,
+      excludingWindowID: WindowID(rawValue: 2),
+      excludingProcessID: 20,
+      fallback: NativeFocusRecoveryFallback(
+        windowID: WindowID(rawValue: 1),
+        processID: 10
+      )
+    )
+    let transferred = transferredNativeFocusRecovery(
+      carried: nil,
+      request: originalRecovery,
+      result: .supersededAfterMutation,
+      generationCurrent: false
+    )
+    #expect(transferred.carried == originalRecovery)
+    #expect(transferred.recovery == nil)
+
+    let replacement = transferredNativeFocusRecovery(
+      carried: transferred.carried,
+      request: NativeFocusRecoveryRequest(
+        timestamp: 11,
+        excludingWindowID: WindowID(rawValue: 3),
+        excludingProcessID: 30,
+        fallback: nil
+      ),
+      result: .cancelled,
+      generationCurrent: true
+    )
+    #expect(replacement.carried == nil)
+    #expect(replacement.recovery == originalRecovery)
+
+    let failedReplacement = transferredNativeFocusRecovery(
+      carried: originalRecovery,
+      request: nil,
+      result: .failedAfterMutation,
+      generationCurrent: true
+    )
+    #expect(failedReplacement.carried == nil)
+    #expect(failedReplacement.recovery == originalRecovery)
+  }
+
+  @Test
+  func failedMutationRecoveryUsesFallbackWithoutNewerInput() throws {
+    let original = NativeFocusRecoveryRequest(
+      timestamp: 10,
+      excludingWindowID: WindowID(rawValue: 2),
+      excludingProcessID: 20,
+      fallback: NativeFocusRecoveryFallback(
+        windowID: WindowID(rawValue: 1),
+        processID: 10
+      )
+    )
+    let request = try #require(
+      nativeFocusRecoveryRequestForCompletion(
+        original,
+        result: .failedAfterMutation,
+        explicitFallback: nil
+      )
+    )
+
+    #expect(request.fallback == original.fallback)
+    #expect(request.fallbackOnlyIfNoNewerInput)
+    #expect(
+      transferredNativeFocusRecovery(
+        carried: nil,
+        request: request,
+        result: .failedAfterMutation,
+        generationCurrent: true
+      ).recovery == request
+    )
+  }
+
+  @Test
+  func failedFocusPreservesWhetherMutationWasApplied() {
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: false,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: false
+      ) == .failed
+    )
+    #expect(
+      resolvedNativeFocusResult(
+        mutationApplied: true,
+        generationCurrent: true,
+        inputCurrent: true,
+        cancelled: false,
+        focusSucceeded: false
+      ) == .failedAfterMutation
+    )
+  }
+
+  @Test
+  func failedActivationDoesNotReportAnUnappliedMutation() {
+    #expect(
+      !focusMutationStateAfterActivation(
+        priorMutationApplied: false,
+        activationSucceeded: false
+      )
+    )
+    #expect(
+      focusMutationStateAfterActivation(
+        priorMutationApplied: true,
+        activationSucceeded: false
+      )
+    )
+    #expect(
+      focusMutationStateAfterActivation(
+        priorMutationApplied: false,
+        activationSucceeded: true
+      )
+    )
+  }
+
+  @Test
+  func pointerCancellationCannotCancelANewerFocusRequest() {
+    #expect(
+      focusRequestCanBeCancelled(
+        requestGeneration: 4,
+        latestGeneration: 4,
+        pendingGeneration: nil,
+        activeGeneration: 4
+      )
+    )
+    #expect(
+      focusRequestCanBeCancelled(
+        requestGeneration: 4,
+        latestGeneration: 4,
+        pendingGeneration: 4,
+        activeGeneration: nil
+      )
+    )
+    #expect(
+      !focusRequestCanBeCancelled(
+        requestGeneration: 4,
+        latestGeneration: 5,
+        pendingGeneration: nil,
+        activeGeneration: 5
+      )
+    )
+  }
+
+  @Test
+  func abandonedFocusClearsOnlyItsOwnUnmutatedSuppression() {
+    let current = InternalFocusSuppression(
+      requestID: 7,
+      deadline: 20,
+      maximumInputTimestamp: 10
+    )
+
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .completedWithoutMutation
+      ) == nil
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .cancelled
+      ) == nil
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .failed
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 6,
+        result: .cancelled
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .supersededAfterMutation
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .cancelledAfterMutation
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .cancelledAfterInputMutation
+      ) == current
+    )
+    #expect(
+      internalFocusSuppressionAfterCompletion(
+        current,
+        requestID: 7,
+        result: .failedAfterMutation
+      ) == current
+    )
+  }
+
+  @Test
+  func supersededSuppressionConsumesOnlyThroughReplacementInput() {
+    let original = InternalFocusSuppression(
+      requestID: 7,
+      deadline: 20,
+      maximumInputTimestamp: 10
+    )
+    let extended = extendingInternalFocusSuppression(
+      original,
+      through: 12,
+      deadline: 22
+    )
+
+    #expect(extended.maximumInputTimestamp == 12)
+    #expect(extended.deadline == 22)
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: .init(
+          timestamp: 12,
+          source: .mouse(windowID: WindowID(rawValue: 3))
+        )
+      ) == true
+    )
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: .init(
+          timestamp: 13,
+          source: .mouse(windowID: WindowID(rawValue: 2))
+        )
+      ) == false
+    )
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: nil
+      ) == true
+    )
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: .init(timestamp: 13, source: .keyboard)
+      ) == false
+    )
+  }
+
+  @Test
   func userInputTrackingStaysMonotonicAcrossDuplicateDelivery() {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 12)
@@ -229,8 +612,146 @@ struct PlatformEventTests {
     let keyboardTarget = try #require(
       tracker.focusRecoveryTarget(after: 11)
     )
+    #expect(keyboardTarget.timestamp == 12)
     #expect(keyboardTarget.windowID == nil)
     #expect(keyboardTarget.processID == 900)
+
+    tracker.record(timestamp: 13)
+    #expect(
+      tracker.focusRecoveryTarget(after: 11)?.timestamp == 13
+    )
+  }
+
+  @Test
+  func explicitCancellationFallbackRequiresNoNewerInput() {
+    let request = NativeFocusRecoveryRequest(
+      timestamp: 10,
+      excludingWindowID: WindowID(rawValue: 2),
+      excludingProcessID: 20,
+      fallback: NativeFocusRecoveryFallback(
+        windowID: WindowID(rawValue: 1),
+        processID: 10
+      ),
+      fallbackOnlyIfNoNewerInput: true
+    )
+
+    #expect(
+      nativeFocusRecoveryFallbackTarget(
+        request,
+        latestEventTimestamp: 10
+      )?.windowID == WindowID(rawValue: 1)
+    )
+    #expect(
+      nativeFocusRecoveryFallbackTarget(
+        request,
+        latestEventTimestamp: 11
+      ) == nil
+    )
+  }
+
+  @Test
+  func eventTapReenableInvalidatesGuardedInput() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 10, focusIntent: .keyboard)
+    tracker.invalidate(at: 10)
+
+    #expect(tracker.latestEventTimestamp > 10)
+    #expect(tracker.snapshot.latestFocusIntent == nil)
+    #expect(tracker.focusRecoveryTarget(after: 10) == nil)
+
+    let pointerTracker = PointerMotionTracker()
+    pointerTracker.record(timestamp: 10)
+    pointerTracker.invalidate(at: 10)
+    #expect(pointerTracker.latestTimestamp > 10)
+  }
+
+  @Test
+  func mouseFocusRecoveryUsesObservedTargetWithoutEventWindowID() throws {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 11, focusIntent: .mouse(windowID: nil))
+    tracker.recordObservedFocus(windowID: nil, processID: 900)
+
+    let target = try #require(tracker.focusRecoveryTarget(after: 10))
+    #expect(target.timestamp == 11)
+    #expect(target.windowID == nil)
+    #expect(target.processID == 900)
+  }
+
+  @Test
+  func mouseFocusRecoveryPrefersObservedTargetOverSystemSurface() throws {
+    let tracker = UserInputTracker()
+    tracker.record(
+      timestamp: 11,
+      focusIntent: .mouse(windowID: WindowID(rawValue: 42))
+    )
+    tracker.recordObservedFocus(
+      windowID: WindowID(rawValue: 99),
+      processID: 900
+    )
+
+    let target = try #require(tracker.focusRecoveryTarget(after: 10))
+    #expect(target.windowID == WindowID(rawValue: 99))
+    #expect(target.processID == 900)
+  }
+
+  @Test
+  func ordinaryInputRecoversCapturedNativeFocus() throws {
+    let tracker = UserInputTracker()
+    let fallbackWindowID = WindowID(rawValue: 42)
+    tracker.record(timestamp: 12)
+
+    let target = try #require(
+      tracker.focusRecoveryTarget(
+        after: 10,
+        excludingWindowID: WindowID(rawValue: 50),
+        excludingProcessID: 500,
+        fallbackWindowID: fallbackWindowID,
+        fallbackProcessID: 400
+      )
+    )
+    #expect(target.timestamp == 12)
+    #expect(target.windowID == fallbackWindowID)
+    #expect(target.processID == 400)
+  }
+
+  @Test
+  func unresolvedExplicitFocusDoesNotFallBack() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12, focusIntent: .keyboard)
+
+    #expect(
+      tracker.focusRecoveryTarget(
+        after: 10,
+        fallbackWindowID: WindowID(rawValue: 42),
+        fallbackProcessID: 400
+      ) == nil
+    )
+  }
+
+  @Test
+  func fallbackRecoveryRejectsTargetAndCloseIntent() {
+    let requestedWindowID = WindowID(rawValue: 42)
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 12)
+
+    #expect(
+      tracker.focusRecoveryTarget(
+        after: 10,
+        excludingWindowID: requestedWindowID,
+        fallbackWindowID: requestedWindowID,
+        fallbackProcessID: 400
+      ) == nil
+    )
+
+    let closingTracker = UserInputTracker()
+    closingTracker.record(timestamp: 12, closeIntent: true)
+    #expect(
+      closingTracker.focusRecoveryTarget(
+        after: 10,
+        fallbackWindowID: requestedWindowID,
+        fallbackProcessID: 400
+      ) == nil
+    )
   }
 
   @Test
@@ -279,6 +800,123 @@ struct PlatformEventTests {
   }
 
   @Test
+  func primaryMouseButtonDownCreatesFocusIntent() {
+    let windowID = WindowID(rawValue: 42)
+
+    #expect(
+      mouseFocusIntent(eventType: .leftMouseDown, rawWindowID: 42)
+        == .mouse(windowID: windowID)
+    )
+    #expect(mouseFocusIntent(eventType: .rightMouseDown, rawWindowID: 42) == nil)
+    #expect(mouseFocusIntent(eventType: .otherMouseDown, rawWindowID: 42) == nil)
+    #expect(mouseFocusIntent(eventType: .scrollWheel, rawWindowID: 42) == nil)
+  }
+
+  @Test
+  func momentumScrollDoesNotSupersedeKeyboardFocus() {
+    #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 0))
+    #expect(!eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 1))
+    #expect(!eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 2))
+  }
+
+  @Test
+  func pointerMotionTimestampStaysMonotonic() {
+    let tracker = PointerMotionTracker()
+
+    tracker.record(timestamp: 12)
+    tracker.record(timestamp: 10)
+
+    #expect(tracker.latestTimestamp == 12)
+  }
+
+  @Test
+  func pointerWindowTransitionsDeduplicateSameWindow() {
+    var state = PointerWindowTransitionState()
+
+    let entersWindow = state.changed(to: 42)
+    let staysInWindow = state.changed(to: 42)
+    let leavesWindow = state.changed(to: 0)
+    let staysOutside = state.changed(to: 0)
+    let reentersWindow = state.changed(to: 42)
+
+    #expect(entersWindow)
+    #expect(staysInWindow == false)
+    #expect(leavesWindow)
+    #expect(staysOutside == false)
+    #expect(reentersWindow)
+  }
+
+  @Test
+  func pointerWindowTransitionCanBeRearmedInsideSameWindow() {
+    var state = PointerWindowTransitionState()
+
+    let entersWindow = state.changed(to: 42)
+    let staysInWindow = state.changed(to: 42)
+    state.reset()
+    let retriesInsideWindow = state.changed(to: 42)
+
+    #expect(entersWindow)
+    #expect(staysInWindow == false)
+    #expect(retriesInsideWindow)
+  }
+
+  @Test
+  func unresolvedPointerMotionDeliveryIsRefreshBounded() {
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 0,
+        eventTimestamp: 12,
+        lastDeliveryTimestamp: nil
+      ) == 0
+    )
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 42,
+        eventTimestamp: 12.001,
+        lastDeliveryTimestamp: 12
+      ) > 0.007
+    )
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 0,
+        eventTimestamp: 12.001,
+        lastDeliveryTimestamp: 12
+      ) > 0.007
+    )
+    #expect(
+      pointerMotionDeliveryDelay(
+        rawWindowID: 0,
+        eventTimestamp: 12.01,
+        lastDeliveryTimestamp: 12
+      ) == 0
+    )
+  }
+
+  @Test
+  func throttledPointerMotionStillHasTrailingDelivery() {
+    #expect(
+      pointerMotionDeliveryPlan(
+        rawWindowChanged: false,
+        refreshDelay: 0.007,
+        deliveryScheduled: false
+      ) == PointerMotionDeliveryPlan(
+        shouldSchedule: true,
+        delay: 0.007
+      )
+    )
+    #expect(
+      pointerMotionDeliveryPlan(
+        rawWindowChanged: false,
+        refreshDelay: 0.007,
+        deliveryScheduled: true
+      ) == PointerMotionDeliveryPlan(
+        shouldSchedule: false,
+        delay: 0.007
+      )
+    )
+  }
+
+  @Test
   func laterWindowTopologyEventRefreshesInputTimestamp() {
     #expect(
       updatedWindowTopologyInputTimestamp(
@@ -293,6 +931,24 @@ struct PlatformEventTests {
         latestInputTimestamp: 30,
         previousTimestamp: 20
       ) == 20
+    )
+  }
+
+  @Test
+  func nativeFocusEventInvalidatesCachedFocusedWindow() {
+    let windowID = WindowID(rawValue: 42)
+
+    #expect(
+      nativeFocusedWindowIDAfterEvent(
+        .focus,
+        cachedWindowID: windowID
+      ) == nil
+    )
+    #expect(
+      nativeFocusedWindowIDAfterEvent(
+        .frame,
+        cachedWindowID: windowID
+      ) == windowID
     )
   }
 
@@ -348,7 +1004,8 @@ struct PlatformEventTests {
           startsGesture: true
         )
     )
-    #expect(mouseUp.synchronization == .clickRelease)
+    #expect(mouseUp.synchronization == nil)
+    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
     #expect(platformEventCancelsMouseAnimation(.mouseRelease) == false)
     #expect(platformEventCancelsMouseAnimation(.mouse))
   }
@@ -377,7 +1034,56 @@ struct PlatformEventTests {
     #expect(firstMouseDragged.synchronization == .gesture)
     #expect(secondMouseDragged.synchronization == .gesture)
     #expect(firstMouseUp.synchronization == .gesture)
+    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
+  }
+
+  @Test
+  func mouseReleaseWaitsForEveryHeldButton() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+    _ = normalizer.actions(for: .rightMouseDown, buttonNumber: 1)
+
+    let leftUp = normalizer.actions(for: .leftMouseUp)
+    #expect(!leftUp.endsFocusInteraction)
+
+    let rightUp = normalizer.actions(for: .rightMouseUp, buttonNumber: 1)
+    #expect(rightUp.endsFocusInteraction)
+  }
+
+  @Test
+  func mouseReleaseMustMatchInitiatingButton() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+
+    let unrelatedRelease = normalizer.actions(
+      for: .otherMouseUp,
+      buttonNumber: 2
+    )
+    #expect(unrelatedRelease == MouseGestureEventNormalizer.Actions())
+    #expect(
+      normalizer.actions(for: .leftMouseUp).endsFocusInteraction
+    )
+  }
+
+  @Test
+  func everyMouseButtonReleaseEndsFocusInteraction() {
+    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
+    #expect(eventEndsMouseFocusInteraction(.rightMouseUp))
+    #expect(eventEndsMouseFocusInteraction(.otherMouseUp))
+    #expect(!eventEndsMouseFocusInteraction(.leftMouseDown))
+    #expect(!eventEndsMouseFocusInteraction(.rightMouseDown))
+    #expect(!eventEndsMouseFocusInteraction(.otherMouseDown))
+  }
+
+  @Test
+  func everyMouseButtonDownStartsFocusInteraction() {
+    #expect(eventStartsMouseFocusInteraction(.leftMouseDown))
+    #expect(eventStartsMouseFocusInteraction(.rightMouseDown))
+    #expect(eventStartsMouseFocusInteraction(.otherMouseDown))
+    #expect(!eventStartsMouseFocusInteraction(.leftMouseUp))
+    #expect(!eventStartsMouseFocusInteraction(.rightMouseUp))
+    #expect(!eventStartsMouseFocusInteraction(.otherMouseUp))
   }
 
   @Test
@@ -391,6 +1097,21 @@ struct PlatformEventTests {
 
     #expect(nextMouseDown.startsGesture)
     #expect(nextMouseDown.synchronization == nil)
+  }
+
+  @Test
+  func resettingHeldMouseGestureRequestsSyntheticRelease() {
+    var normalizer = MouseGestureEventNormalizer()
+    _ = normalizer.actions(for: .leftMouseDown)
+
+    let resetHeldButtons = normalizer.reset()
+    let resetEmptyGesture = normalizer.reset()
+    #expect(resetHeldButtons)
+    #expect(!resetEmptyGesture)
+    #expect(
+      normalizer.actions(for: .leftMouseUp)
+        == MouseGestureEventNormalizer.Actions()
+    )
   }
 
   @Test

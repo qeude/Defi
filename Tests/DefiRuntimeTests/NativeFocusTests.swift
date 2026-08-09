@@ -8,6 +8,32 @@ struct NativeFocusTests {
   private let monitorID = MonitorID(rawValue: 1)
 
   @Test
+  func currentCommandFocusRetriesOnceWhileSelectionMatches() {
+    let windowID = WindowID(rawValue: 2)
+
+    #expect(
+      nextCommandFocusRetryCount(
+        currentRetryCount: 0,
+        maximumRetryCount: 1,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: windowID,
+        selectedWindowID: windowID
+      ) == 1
+    )
+    #expect(
+      nextCommandFocusRetryCount(
+        currentRetryCount: 1,
+        maximumRetryCount: 1,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: windowID,
+        selectedWindowID: windowID
+      ) == nil
+    )
+  }
+
+  @Test
   func alreadySelectedWindowDoesNotChangeNativeFocusSelection() throws {
     var state = try makeState()
     let selected = WindowID(rawValue: 1)
@@ -226,6 +252,241 @@ struct NativeFocusTests {
         capturedInputTimestamp: nil,
         commandHandledAt: 12
       ) == 12
+    )
+  }
+
+  @Test
+  func currentUnmutatedCancellationRestoresPreviousSelection() {
+    #expect(
+      commandFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: WindowID(rawValue: 2),
+        selectedWindowID: WindowID(rawValue: 2),
+        previousSelectedWindowID: WindowID(rawValue: 1),
+        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
+        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
+      ) == WindowID(rawValue: 1)
+    )
+  }
+
+  @Test
+  func exhaustedMutatedFailureRestoresPreviousSelection() {
+    #expect(
+      commandFocusCancellationFallback(
+        cancelledBeforeMutation: false,
+        rollbackAfterMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: WindowID(rawValue: 2),
+        selectedWindowID: WindowID(rawValue: 2),
+        previousSelectedWindowID: WindowID(rawValue: 1),
+        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
+        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
+      ) == WindowID(rawValue: 1)
+    )
+  }
+
+  @Test
+  func inputCancelledMutationRestoresPreviousSelectionUnlessClickedAgain() {
+    #expect(
+      commandFocusCancellationFallback(
+        cancelledBeforeMutation: false,
+        rollbackAfterMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: WindowID(rawValue: 2),
+        selectedWindowID: WindowID(rawValue: 2),
+        previousSelectedWindowID: WindowID(rawValue: 1),
+        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
+        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
+      ) == WindowID(rawValue: 1)
+    )
+    #expect(
+      cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: WindowID(rawValue: 2),
+        requestedWindowIsNativelyFocused: false,
+        cancellingFocusTargetWindowID: WindowID(rawValue: 2)
+      )
+    )
+  }
+
+  @Test
+  func newerClickOnRequestedWindowPreventsCancellationRollback() {
+    let requestedWindowID = WindowID(rawValue: 2)
+
+    #expect(
+      cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: requestedWindowID,
+        requestedWindowIsNativelyFocused: false,
+        cancellingFocusTargetWindowID: requestedWindowID
+      )
+    )
+    #expect(
+      cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: requestedWindowID,
+        requestedWindowIsNativelyFocused: true,
+        cancellingFocusTargetWindowID: nil
+      )
+    )
+    #expect(
+      !cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: requestedWindowID,
+        requestedWindowIsNativelyFocused: false,
+        cancellingFocusTargetWindowID: WindowID(rawValue: 3)
+      )
+    )
+  }
+
+  @Test
+  func staleOrMutatedCancellationCannotRestoreOldSelection() {
+    #expect(
+      commandFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 3,
+        currentGeneration: 4,
+        requestedWindowID: WindowID(rawValue: 2),
+        selectedWindowID: WindowID(rawValue: 2),
+        previousSelectedWindowID: WindowID(rawValue: 1),
+        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
+        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
+      ) == nil
+    )
+    #expect(
+      commandFocusCancellationFallback(
+        cancelledBeforeMutation: false,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: WindowID(rawValue: 2),
+        selectedWindowID: WindowID(rawValue: 2),
+        previousSelectedWindowID: WindowID(rawValue: 1),
+        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
+        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
+      ) == nil
+    )
+    #expect(
+      commandFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWindowID: WindowID(rawValue: 2),
+        selectedWindowID: WindowID(rawValue: 2),
+        previousSelectedWindowID: WindowID(rawValue: 1),
+        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
+        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "web")
+      ) == nil
+    )
+  }
+
+  @Test
+  func currentWorkspaceFocusCancellationRestoresPreviousWorkspace() {
+    let requestedWindowID = WindowID(rawValue: 2)
+    let dev = WorkspaceID(rawValue: "dev")
+    let web = WorkspaceID(rawValue: "web")
+
+    #expect(
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWorkspaceID: web,
+        activeWorkspaceID: web,
+        previousWorkspaceID: dev,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID
+      ) == dev
+    )
+  }
+
+  @Test
+  func staleWorkspaceFocusCancellationCannotRollbackNewerState() {
+    let requestedWindowID = WindowID(rawValue: 2)
+    let dev = WorkspaceID(rawValue: "dev")
+    let web = WorkspaceID(rawValue: "web")
+
+    #expect(
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 3,
+        currentGeneration: 4,
+        requestedWorkspaceID: web,
+        activeWorkspaceID: web,
+        previousWorkspaceID: dev,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID
+      ) == nil
+    )
+    #expect(
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWorkspaceID: web,
+        activeWorkspaceID: dev,
+        previousWorkspaceID: dev,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID
+      ) == nil
+    )
+  }
+
+  @Test
+  func movedWindowWorkspaceFocusCancellationKeepsCommandAtomic() {
+    let requestedWindowID = WindowID(rawValue: 2)
+    let dev = WorkspaceID(rawValue: "dev")
+    let web = WorkspaceID(rawValue: "web")
+
+    #expect(
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: true,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWorkspaceID: web,
+        activeWorkspaceID: web,
+        previousWorkspaceID: dev,
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID,
+        restoresPreviousWorkspace: false
+      ) == nil
+    )
+  }
+
+  @Test
+  func pendingWorkspaceFocusRefreshRequiresSameMonitorWorkspaceAndSelection() {
+    let monitor = MonitorID(rawValue: 1)
+    let workspace = WorkspaceID(rawValue: "web")
+    let window = WindowID(rawValue: 2)
+
+    #expect(
+      pendingWorkspaceFocusIsPreserved(
+        pendingMonitorID: monitor,
+        commandMonitorID: monitor,
+        requestedWorkspaceID: workspace,
+        activeWorkspaceID: workspace,
+        requestedWindowID: window,
+        selectedWindowID: window
+      )
+    )
+    #expect(
+      !pendingWorkspaceFocusIsPreserved(
+        pendingMonitorID: monitor,
+        commandMonitorID: MonitorID(rawValue: 2),
+        requestedWorkspaceID: workspace,
+        activeWorkspaceID: workspace,
+        requestedWindowID: window,
+        selectedWindowID: window
+      )
+    )
+    #expect(
+      !pendingWorkspaceFocusIsPreserved(
+        pendingMonitorID: monitor,
+        commandMonitorID: monitor,
+        requestedWorkspaceID: workspace,
+        activeWorkspaceID: workspace,
+        requestedWindowID: window,
+        selectedWindowID: WindowID(rawValue: 3)
+      )
     )
   }
 

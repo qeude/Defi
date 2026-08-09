@@ -228,6 +228,12 @@ extension MacOSPlatform {
       hasCompletedWindowSnapshot
       ? nextWindowIDs.subtracting(previousElements.keys)
       : []
+    if tracesWindowTopology
+      || !newlyDiscoveredWindowIDs.isEmpty
+      || !removedWindowIDs.isEmpty
+    {
+      invalidatePointerHitTestCache()
+    }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
       let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
         $0.rawValue < $1.rawValue
@@ -246,6 +252,8 @@ extension MacOSPlatform {
     applications = nextApplications
     applicationWindowCounts = applicationWindows.mapValues(\.count)
     lastSnapshotWindows = windows
+    lastSnapshotWindowIDs = Set(windows.lazy.map(\.id))
+    lastSnapshotProcessIDs = Set(windows.lazy.compactMap(\.processID))
     lastApplicationWindowElements = applicationWindows
     retainedWindowIDs = nextRetainedWindowIDs
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
@@ -335,6 +343,12 @@ extension MacOSPlatform {
         externallyChangedFrames[window.id] = window.frame
       }
     }
+    pendingFrameDebtWindowIDs = prunedFrameDebtWindowIDs(
+      debtWindowIDs: pendingFrameDebtWindowIDs,
+      liveWindowIDs: Set(nextElements.keys),
+      targetFrames: targetFrames,
+      observedFrames: latestObservedFrames
+    )
     frameEventPending = false
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
@@ -362,7 +376,9 @@ extension MacOSPlatform {
     lastFocusedWindowByProcess = lastFocusedWindowByProcess.filter {
       nextProcessIDs[$0.value] == $0.key
     }
-    internalFocusDeadlines = internalFocusDeadlines.filter { $0.value >= now }
+    internalFocusSuppressions = internalFocusSuppressions.filter {
+      $0.value.deadline >= now
+    }
     let focusedProcessID = focusedWindowID.flatMap { nextProcessIDs[$0] }
     let nativeFocusTargetMatched = nativeFocusEventMatchesTarget(
       eventPending: nativeFocusEventPending,
@@ -370,12 +386,21 @@ extension MacOSPlatform {
       hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
       focusedProcessID: focusedProcessID
     )
+    let userInput = userInputTracker.snapshot
     var nativeFocusChanged = nativeFocusTargetMatched
     if nativeFocusChanged,
       let focusedWindowID,
-      internalFocusDeadlines.removeValue(forKey: focusedWindowID) != nil
+      let suppression = internalFocusSuppressions[focusedWindowID]
     {
-      nativeFocusChanged = false
+      if internalFocusSuppressionConsumesEvent(
+        suppression,
+        suppressedWindowID: focusedWindowID,
+        latestFocusIntent: userInput.latestFocusIntent
+      ) {
+        nativeFocusChanged = false
+      } else {
+        internalFocusSuppressions.removeValue(forKey: focusedWindowID)
+      }
     }
     if !nativeFocusEventShouldRemainPending(
       eventPending: nativeFocusEventPending,
@@ -399,7 +424,6 @@ extension MacOSPlatform {
         "window-snapshot-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
-    let userInput = userInputTracker.snapshot
     let mouseFocusIntentWindowID: WindowID?
     let mouseFocusIntentTimestamp: TimeInterval?
     let keyboardFocusIntentTimestamp: TimeInterval?

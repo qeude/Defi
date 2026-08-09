@@ -184,6 +184,40 @@ func frameTargetsPreservingSkippedWindows(
   return next
 }
 
+func unresolvedFrameDebtWindowIDs(
+  pendingWindowIDs: Set<WindowID>,
+  debtWindowIDs: Set<WindowID>,
+  targetFrames: [WindowID: Rect],
+  observedFrames: [WindowID: Rect],
+  tolerance: Double = 1
+) -> Set<WindowID> {
+  pendingWindowIDs.union(
+    debtWindowIDs.filter { windowID in
+      guard let target = targetFrames[windowID] else { return false }
+      guard let observed = observedFrames[windowID] else { return true }
+      return frameDistance(observed, target) > tolerance
+    }
+  )
+}
+
+func prunedFrameDebtWindowIDs(
+  debtWindowIDs: Set<WindowID>,
+  liveWindowIDs: Set<WindowID>,
+  targetFrames: [WindowID: Rect],
+  observedFrames: [WindowID: Rect],
+  tolerance: Double = 1
+) -> Set<WindowID> {
+  debtWindowIDs.filter { windowID in
+    guard liveWindowIDs.contains(windowID),
+      let target = targetFrames[windowID]
+    else {
+      return false
+    }
+    guard let observed = observedFrames[windowID] else { return true }
+    return frameDistance(observed, target) > tolerance
+  }
+}
+
 func hiddenWindowsPreservingSkippedWindows(
   previous: Set<WindowID>,
   desired: Set<WindowID>,
@@ -237,6 +271,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let positionChanged: Bool
   let sizeChanged: Bool
   let animatesSize: Bool
+  let synchronousSizeWriteSucceeded: Bool
   let enhancedUIWasEnabled: Bool
   let timeoutSeconds: Float
   let isParked: Bool
@@ -258,7 +293,76 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let animationDuration: TimeInterval
   let refreshRateHz: Double
   let stagesVisibleBeforeParking: Bool
-  let completion: (@Sendable (Bool) -> Void)?
+  let completion: (@Sendable (FrameWriteCompletion) -> Void)?
+}
+
+struct FrameWriteCompletion: Equatable, Sendable {
+  let completedLatest: Bool
+  let attemptedWindowIDs: Set<WindowID>
+  let successfulWindowIDs: Set<WindowID>
+}
+
+func cursorWarpTimestampAfterFrameCompletion(
+  requestedTimestamp: TimeInterval?,
+  targetWindowID: WindowID,
+  completion: FrameWriteCompletion
+) -> TimeInterval? {
+  guard completion.completedLatest,
+    !completion.attemptedWindowIDs.contains(targetWindowID)
+      || completion.successfulWindowIDs.contains(targetWindowID)
+  else {
+    return nil
+  }
+  return requestedTimestamp
+}
+
+func deferredFocusInputIsCurrent(
+  requestedTimestamp: TimeInterval?,
+  latestUserInputTimestamp: TimeInterval
+) -> Bool {
+  guard let requestedTimestamp else { return true }
+  return latestUserInputTimestamp <= requestedTimestamp
+}
+
+func deferredFocusFrameIsReady(
+  targetWindowID: WindowID,
+  pendingFrameWindowIDs: Set<WindowID>
+) -> Bool {
+  !pendingFrameWindowIDs.contains(targetWindowID)
+}
+
+func deferredFocusFrameCommitIsReady(
+  targetWindowID: WindowID,
+  pendingFrameWindowIDs: Set<WindowID>,
+  successfulWindowIDs: Set<WindowID>,
+  observedFrame: Rect?,
+  targetFrame: Rect?
+) -> Bool {
+  guard !pendingFrameWindowIDs.contains(targetWindowID) else { return false }
+  if successfulWindowIDs.contains(targetWindowID) { return true }
+  guard let observedFrame, let targetFrame else { return false }
+  return frameDistance(observedFrame, targetFrame) <= 1
+}
+
+func cursorWarpFrameReadiness(
+  latestWriteSucceeded: Bool?,
+  observedFrame: Rect?,
+  targetFrame: Rect?
+) -> Bool {
+  if latestWriteSucceeded != false {
+    return true
+  }
+  guard let observedFrame, let targetFrame else { return false }
+  return frameDistance(observedFrame, targetFrame) <= 1
+}
+
+func frameSizeWriteSucceeded(
+  synchronousWriteSucceeded: Bool,
+  animatesSize: Bool,
+  asynchronousWriteSucceeded: Bool
+) -> Bool {
+  synchronousWriteSucceeded
+    && (!animatesSize || asynchronousWriteSucceeded)
 }
 
 struct FrameAnimationLanePlan: Equatable, Sendable {

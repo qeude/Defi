@@ -115,6 +115,13 @@ final class BorderOverlay {
     segments.values.map(\.upperBoundWindowNumber)
   }
 
+  var windowIDs: Set<CGWindowID> {
+    Set(segments.values.compactMap { panel in
+      guard panel.windowNumber > 0 else { return nil }
+      return CGWindowID(panel.windowNumber)
+    })
+  }
+
   init(windowID: WindowID) {
     let targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(

@@ -24,7 +24,8 @@ editing the default file:
 Invalid TOML, invalid values, unknown workspaces in rules or commands, and
 invalid command strings stop config loading. An invalid accelerator or modifier
 alias disables hotkeys for that daemon run and writes an error to
-`~/Library/Logs/Defi.log` when using the installed service.
+`~/Library/Logs/Defi.log` when using the installed service. Configured mouse
+focus and cursor-motion tracking remain active.
 
 ## `[layout]`
 
@@ -47,6 +48,31 @@ gaps = 8
 
 Widths are monitor-relative fractions. Existing pixel widths learned from
 manual resize remain pixel-based and scale when monitor geometry changes.
+
+## `[input]`
+
+Controls focus transfer between managed windows and pointer.
+
+```toml
+[input]
+focus_follows_mouse = false
+focus_follows_mouse_max_scroll_amount = 0.0
+mouse_follows_focus = false
+```
+
+| Setting | Default | Values/type | Description |
+| --- | --- | --- | --- |
+| `focus_follows_mouse` | `false` | boolean | Focuses managed window under physical pointer and scrolls strip minimally when needed. |
+| `focus_follows_mouse_max_scroll_amount` | `0` | number from `0` to `1` | Maximum scroll as fraction of monitor width. `0` accepts only targets needing no scroll; `0.1` permits up to 10%. |
+| `mouse_follows_focus` | `false` | boolean | Warps pointer to focused window center after keyboard focus changes, unless pointer is already inside it. |
+
+This follows niri semantics: bare `focus_follows_mouse = true` never scrolls.
+Raise `focus_follows_mouse_max_scroll_amount` to allow bounded scrolling. Both
+options can run together. Pointer-driven focus never triggers cursor warp.
+Programmatic cursor warp uses a CoreGraphics API that emits no mouse-moved
+event. Defi also discards delayed warp when physical pointer moved after
+initiating keyboard command. These boundaries prevent feedback loops and stale
+cursor movement. CLI commands and native app focus changes never warp pointer.
 
 ## `[animation]`
 

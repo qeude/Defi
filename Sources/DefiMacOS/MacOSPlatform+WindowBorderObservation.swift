@@ -9,6 +9,17 @@ import OSLog
 @MainActor
 extension MacOSPlatform {
 
+  public func invalidateInputAfterEventTapReenabled(
+    at timestamp: TimeInterval
+  ) {
+    userInputTracker.invalidate(at: timestamp)
+    pointerMotionTracker.invalidate(at: timestamp)
+    invalidatePointerHitTestCache()
+    if eventMonitor?.resetMouseGestureState() == true {
+      mouseFocusReleasePending = true
+    }
+  }
+
   public func startObserving(
     _ handler: @escaping () -> Void,
     displayConfigurationHandler: @escaping () -> Void = {},
@@ -72,6 +83,10 @@ extension MacOSPlatform {
           self?.mouseFocusReleasePending = true
         }
         if kind == .focus {
+          self?.lastNativeFocusedWindowID = nativeFocusedWindowIDAfterEvent(
+            kind,
+            cachedWindowID: self?.lastNativeFocusedWindowID
+          )
           self?.userInputTracker.recordObservedFocus(
             windowID: nil,
             processID: processID
@@ -214,6 +229,11 @@ extension MacOSPlatform {
     borderManager.updateGeometry(frames: freshFrames, style: borderStyle)
   }
 
+  public func commitWindowBorderSelection(_ selectedWindowID: WindowID?) {
+    prepareWindowBorderSelection(selectedWindowID)
+    borderManager.revealPendingBorders()
+  }
+
   public func refreshWindowBorders() {
     let liveGeometryWindowIDs = borderManager.liveGeometryWindowIDs
     if isLeftMouseButtonDown {
@@ -326,10 +346,15 @@ extension MacOSPlatform {
         resolvedBorderFrame(for: windowID).map { (windowID, $0) }
       }
     )
-    guard !frames.isEmpty,
-      borderManager.updateGeometry(frames: frames, style: borderStyle)
-    else {
+    guard !frames.isEmpty else {
       return
+    }
+    let geometryChanged = borderManager.updateGeometry(
+      frames: frames,
+      style: borderStyle
+    )
+    if geometryChanged {
+      invalidatePointerHitTestCache()
     }
   }
 

@@ -71,6 +71,77 @@ private enum DaemonError: Error, CustomStringConvertible {
   }
 }
 
+struct PendingAnimatedFocus: Equatable {
+  let windowID: WindowID
+  let previousSelectedWindowID: WindowID?
+  let monitorID: MonitorID
+  let sourceWorkspaceID: WorkspaceID
+  let commandGeneration: UInt64
+  let focusInputTimestamp: TimeInterval
+  let cursorWarpInputTimestamp: TimeInterval?
+  let retryCount: Int
+
+  init(
+    windowID: WindowID,
+    previousSelectedWindowID: WindowID?,
+    monitorID: MonitorID,
+    sourceWorkspaceID: WorkspaceID,
+    commandGeneration: UInt64,
+    focusInputTimestamp: TimeInterval,
+    cursorWarpInputTimestamp: TimeInterval?,
+    retryCount: Int = 0
+  ) {
+    self.windowID = windowID
+    self.previousSelectedWindowID = previousSelectedWindowID
+    self.monitorID = monitorID
+    self.sourceWorkspaceID = sourceWorkspaceID
+    self.commandGeneration = commandGeneration
+    self.focusInputTimestamp = focusInputTimestamp
+    self.cursorWarpInputTimestamp = cursorWarpInputTimestamp
+    self.retryCount = retryCount
+  }
+}
+
+struct PendingWorkspaceFocus: Equatable {
+  let monitorID: MonitorID
+  let requestedWorkspaceID: WorkspaceID
+  let previousWorkspaceID: WorkspaceID?
+  let requestedWindowID: WindowID
+  let restoresPreviousWorkspaceOnCancellation: Bool
+  let commandGeneration: UInt64
+  let focusInputTimestamp: TimeInterval
+  let cursorWarpInputTimestamp: TimeInterval?
+  let retryCount: Int
+
+  init(
+    monitorID: MonitorID,
+    requestedWorkspaceID: WorkspaceID,
+    previousWorkspaceID: WorkspaceID?,
+    requestedWindowID: WindowID,
+    restoresPreviousWorkspaceOnCancellation: Bool,
+    commandGeneration: UInt64,
+    focusInputTimestamp: TimeInterval,
+    cursorWarpInputTimestamp: TimeInterval?,
+    retryCount: Int = 0
+  ) {
+    self.monitorID = monitorID
+    self.requestedWorkspaceID = requestedWorkspaceID
+    self.previousWorkspaceID = previousWorkspaceID
+    self.requestedWindowID = requestedWindowID
+    self.restoresPreviousWorkspaceOnCancellation =
+      restoresPreviousWorkspaceOnCancellation
+    self.commandGeneration = commandGeneration
+    self.focusInputTimestamp = focusInputTimestamp
+    self.cursorWarpInputTimestamp = cursorWarpInputTimestamp
+    self.retryCount = retryCount
+  }
+}
+
+enum DisplacedPointerFocusRecovery: Equatable {
+  case command(PendingAnimatedFocus, timestamp: TimeInterval)
+  case workspace(PendingWorkspaceFocus, timestamp: TimeInterval)
+}
+
 @MainActor
 final class Daemon: NSObject {
   let config: Config
@@ -114,13 +185,40 @@ final class Daemon: NSObject {
   var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
+  var commandGeneration: UInt64 = 0
   var deferredMouseFocusIntent: DeferredMouseFocusIntent?
   var consumedMouseFocusIntentTimestamp: TimeInterval = 0
   var suppressNativeFocusUntil: TimeInterval = 0
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
   var preservedWindowRemovalFocusCount = 0
-  var pendingAnimatedFocusWindowID: WindowID?
+  var pendingAnimatedFocus: PendingAnimatedFocus?
+  var submittedCommandFocus: PendingAnimatedFocus?
+  var pendingWorkspaceFocus: PendingWorkspaceFocus?
+  var submittedWorkspaceFocusGeneration: UInt64?
+  var submittedWorkspaceFocusRequestID: NativeFocusRequestID?
+  var submittedWorkspaceFocusRequestTimestamp: TimeInterval?
+  var submittedWorkspaceFocusRecoveryGeneration: UInt64?
+  var nextWorkspaceFocusRecoveryGeneration: UInt64 = 0
+  var displacedPointerFocusRecovery: DisplacedPointerFocusRecovery?
+  var lastPointerWindowID: WindowID?
+  var pendingPointerFocus: PendingPointerFocus?
+  var pointerFocusGeneration: UInt64 = 0
+  var submittedPointerFocusRequestID: NativeFocusRequestID?
+  var submittedPointerFocusTimestamp: TimeInterval?
+  var submittedPointerFocusGeneration: UInt64?
+  var submittedPointerFocusRecoveryRequestID: NativeFocusRequestID?
+  var submittedPointerFocusRecoveryTimestamp: TimeInterval?
+  var submittedPointerFocusRecoveryGeneration: UInt64?
+  var nextPointerFocusRecoveryGeneration: UInt64 = 0
+  var submittedCommandFocusRequestID: NativeFocusRequestID?
+  var submittedCommandFocusRequestTimestamp: TimeInterval?
+  var submittedCommandFocusRecoveryGeneration: UInt64?
+  var nextCommandFocusRecoveryGeneration: UInt64 = 0
+  var lastRawPointerWindowID: WindowID?
+  var pointerFocusObservedCount = 0
+  var pointerFocusAppliedCount = 0
+  var pointerFocusIgnoredCount = 0
   var deferredSlowWindowIDs = Set<WindowID>()
   var slowLaneSettlementDeadline: TimeInterval?
   var slowLaneDeferralCount = 0
@@ -165,17 +263,31 @@ final class Daemon: NSObject {
       }
     )
 
-    do {
-      let manager = try HotKeyManager(
-        config: config,
-        userInputTracker: platform.userInputTracker
-      ) { [weak self] invocation in
-        self?.enqueueHotKey(invocation)
+    let manager = HotKeyManager(
+      config: config,
+      userInputTracker: platform.userInputTracker,
+      pointerMotionTracker: platform.pointerMotionTracker,
+      pointerMotionHandler: { [weak self] invocation in
+        self?.handlePointerMotion(invocation)
+      },
+      tapReenabledHandler: { [weak self] timestamp in
+        self?.handleEventTapReenabled(at: timestamp)
       }
+    ) { [weak self] invocation in
+      self?.enqueueHotKey(invocation)
+    }
+    do {
       try manager.start()
       hotKeys = manager
+      if let bindingError = manager.bindingError {
+        if manager.tracksPointerMotion {
+          log("hotkeys unavailable: \(bindingError); pointer tracking remains enabled")
+        } else {
+          log("hotkeys unavailable: \(bindingError)")
+        }
+      }
     } catch {
-      log("hotkeys unavailable: \(error)")
+      log("input event tap unavailable: \(error)")
     }
     menuBar = MenuBarController { [weak self] command in
       _ = self?.handle(command)
@@ -192,6 +304,8 @@ final class Daemon: NSObject {
     pollIPC()
     finishDeferredSlowLaneIfReady()
     finishPendingAnimatedFocusIfReady()
+    finishPendingWorkspaceFocusIfReady()
+    finishPendingPointerFocusIfReady()
     if let deadline = pendingDisplaySyncDeadlines.first,
       ProcessInfo.processInfo.systemUptime >= deadline
     {

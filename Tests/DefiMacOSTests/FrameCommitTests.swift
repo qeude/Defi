@@ -14,6 +14,181 @@ final class FrameCommitTests: XCTestCase {
     observedAt: nil
   )
 
+  func testCursorWarpRequiresSuccessfulTargetFrameWrite() {
+    let target = WindowID(rawValue: 2)
+    let sibling = WindowID(rawValue: 3)
+    let failed = FrameWriteCompletion(
+      completedLatest: true,
+      attemptedWindowIDs: [target, sibling],
+      successfulWindowIDs: [sibling]
+    )
+    let succeeded = FrameWriteCompletion(
+      completedLatest: true,
+      attemptedWindowIDs: [target, sibling],
+      successfulWindowIDs: [target, sibling]
+    )
+
+    XCTAssertNil(
+      cursorWarpTimestampAfterFrameCompletion(
+        requestedTimestamp: 10,
+        targetWindowID: target,
+        completion: failed
+      )
+    )
+    XCTAssertEqual(
+      cursorWarpTimestampAfterFrameCompletion(
+        requestedTimestamp: 10,
+        targetWindowID: target,
+        completion: succeeded
+      ),
+      10
+    )
+  }
+
+  func testCursorWarpAllowsObservedConvergenceAfterFailedWrite() {
+    let target = Rect(x: 100, y: 40, width: 800, height: 700)
+
+    XCTAssertFalse(
+      cursorWarpFrameReadiness(
+        latestWriteSucceeded: false,
+        observedFrame: Rect(x: 900, y: 40, width: 800, height: 700),
+        targetFrame: target
+      )
+    )
+    XCTAssertTrue(
+      cursorWarpFrameReadiness(
+        latestWriteSucceeded: false,
+        observedFrame: target,
+        targetFrame: target
+      )
+    )
+  }
+
+  func testSynchronousSizeFailureBlocksWarpReadiness() {
+    XCTAssertFalse(
+      frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: false,
+        animatesSize: false,
+        asynchronousWriteSucceeded: true
+      )
+    )
+    XCTAssertTrue(
+      frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: true,
+        animatesSize: false,
+        asynchronousWriteSucceeded: false
+      )
+    )
+    XCTAssertFalse(
+      frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: true,
+        animatesSize: true,
+        asynchronousWriteSucceeded: false
+      )
+    )
+  }
+
+  func testDeferredFrameFocusRejectsNewerInputBeforeSubmission() {
+    XCTAssertTrue(
+      deferredFocusInputIsCurrent(
+        requestedTimestamp: 10,
+        latestUserInputTimestamp: 10
+      )
+    )
+    XCTAssertFalse(
+      deferredFocusInputIsCurrent(
+        requestedTimestamp: 10,
+        latestUserInputTimestamp: 11
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusInputIsCurrent(
+        requestedTimestamp: nil,
+        latestUserInputTimestamp: 11
+      )
+    )
+  }
+
+  func testDeferredFrameFocusWaitsForPendingFrameDebt() {
+    let target = WindowID(rawValue: 42)
+
+    XCTAssertFalse(
+      deferredFocusFrameIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [target]
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusFrameIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: []
+      )
+    )
+  }
+
+  func testDeferredFrameFocusRequiresTargetWriteOrObservedConvergence() {
+    let target = WindowID(rawValue: 42)
+    let frame = Rect(x: 10, y: 20, width: 300, height: 400)
+
+    XCTAssertFalse(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [],
+        successfulWindowIDs: [],
+        observedFrame: nil,
+        targetFrame: frame
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [],
+        successfulWindowIDs: [target],
+        observedFrame: nil,
+        targetFrame: frame
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [],
+        successfulWindowIDs: [],
+        observedFrame: frame,
+        targetFrame: frame
+      )
+    )
+    XCTAssertFalse(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [target],
+        successfulWindowIDs: [target],
+        observedFrame: frame,
+        targetFrame: frame
+      )
+    )
+  }
+
+  func testDisplacedQueuedFrameCompletesAsSuperseded() {
+    let completion = expectation(description: "superseded completion")
+    let frame = QueuedPositionFrame(
+      generation: 1,
+      source: "test",
+      writes: [:],
+      animatedWindowIDs: [],
+      animationDuration: 0,
+      refreshRateHz: 60,
+      stagesVisibleBeforeParking: false
+    ) { result in
+      XCTAssertFalse(result.completedLatest)
+      XCTAssertTrue(result.successfulWindowIDs.isEmpty)
+      completion.fulfill()
+    }
+
+    completeSupersededFrame(frame)
+
+    wait(for: [completion], timeout: 0.1)
+  }
+
   func testInitialWindowCommitUsesShortQuarantineForFastRetries() {
     XCTAssertEqual(
       frameCommitQuarantineDuration(

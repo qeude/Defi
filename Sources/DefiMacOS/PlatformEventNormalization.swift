@@ -18,6 +18,13 @@ func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
   kind == .mouse
 }
 
+func nativeFocusedWindowIDAfterEvent(
+  _ kind: PlatformEventKind,
+  cachedWindowID: WindowID?
+) -> WindowID? {
+  kind == .focus ? nil : cachedWindowID
+}
+
 func mouseGestureRefreshProcessID(
   latestFocusIntent: UserInputTracker.FocusIntent?,
   focusedWindowID: WindowID?,
@@ -108,6 +115,15 @@ public final class UserInputTracker: @unchecked Sendable {
     lock.unlock()
   }
 
+  public func invalidate(at timestamp: TimeInterval) {
+    lock.lock()
+    latestTimestamp = max(latestTimestamp, timestamp).nextUp
+    latestFocusIntent = nil
+    observedFocusIntentTimestamp = 0
+    observedFocusTargets.removeAll(keepingCapacity: true)
+    lock.unlock()
+  }
+
   public func recordObservedFocus(
     windowID: WindowID?,
     processID: pid_t?
@@ -149,23 +165,26 @@ public final class UserInputTracker: @unchecked Sendable {
   public func focusRecoveryTarget(
     after timestamp: TimeInterval,
     excludingWindowID: WindowID? = nil,
-    excludingProcessID: pid_t? = nil
+    excludingProcessID: pid_t? = nil,
+    fallbackWindowID: WindowID? = nil,
+    fallbackProcessID: pid_t? = nil
   ) -> FocusRecoveryTarget? {
     lock.lock()
     defer { lock.unlock() }
-    guard let focusIntent = latestFocusIntent,
-      focusIntent.timestamp > timestamp,
-      focusIntent.timestamp > latestCloseIntentTimestamp
-    else {
+    guard latestTimestamp > timestamp else {
       return nil
     }
-    switch focusIntent.source {
-    case .keyboard:
-      guard observedFocusIntentTimestamp == focusIntent.timestamp else {
+    if let focusIntent = latestFocusIntent,
+      focusIntent.timestamp > timestamp
+    {
+      guard focusIntent.timestamp > latestCloseIntentTimestamp else {
         return nil
       }
-      guard
-        let target = observedFocusTargets.reversed().first(where: {
+      let observedTarget = {
+        guard self.observedFocusIntentTimestamp == focusIntent.timestamp else {
+          return nil as ObservedFocusTarget?
+        }
+        return self.observedFocusTargets.reversed().first(where: {
           if let excludingWindowID, $0.windowID == excludingWindowID {
             return false
           }
@@ -177,22 +196,56 @@ public final class UserInputTracker: @unchecked Sendable {
           }
           return true
         })
-      else {
-        return nil
       }
-      return FocusRecoveryTarget(
-        timestamp: focusIntent.timestamp,
-        windowID: target.windowID,
-        processID: target.processID
-      )
-    case .mouse(let windowID):
-      guard let windowID else { return nil }
-      return FocusRecoveryTarget(
-        timestamp: focusIntent.timestamp,
-        windowID: windowID,
-        processID: nil
-      )
+      switch focusIntent.source {
+      case .keyboard:
+        guard let target = observedTarget() else { return nil }
+        return FocusRecoveryTarget(
+          timestamp: latestTimestamp,
+          windowID: target.windowID,
+          processID: target.processID
+        )
+      case .mouse(let windowID):
+        if let target = observedTarget(), target.windowID != windowID {
+          return FocusRecoveryTarget(
+            timestamp: latestTimestamp,
+            windowID: target.windowID,
+            processID: target.processID
+          )
+        }
+        if let windowID {
+          return FocusRecoveryTarget(
+            timestamp: latestTimestamp,
+            windowID: windowID,
+            processID: nil
+          )
+        }
+        guard let target = observedTarget() else { return nil }
+        return FocusRecoveryTarget(
+          timestamp: latestTimestamp,
+          windowID: target.windowID,
+          processID: target.processID
+        )
+      }
     }
+    guard latestCloseIntentTimestamp <= timestamp else { return nil }
+    if let fallbackWindowID, fallbackWindowID == excludingWindowID {
+      return nil
+    }
+    if fallbackWindowID == nil,
+      let fallbackProcessID,
+      fallbackProcessID == excludingProcessID
+    {
+      return nil
+    }
+    guard fallbackWindowID != nil || fallbackProcessID != nil else {
+      return nil
+    }
+    return FocusRecoveryTarget(
+      timestamp: latestTimestamp,
+      windowID: fallbackWindowID,
+      processID: fallbackProcessID
+    )
   }
 
   public var latestEventTimestamp: TimeInterval {
@@ -212,9 +265,133 @@ public final class UserInputTracker: @unchecked Sendable {
   }
 }
 
+public final class PointerMotionTracker: @unchecked Sendable {
+  private let lock = NSLock()
+  private var timestamp: TimeInterval = 0
+
+  public init() {}
+
+  public func record(timestamp: TimeInterval) {
+    lock.lock()
+    self.timestamp = max(self.timestamp, timestamp)
+    lock.unlock()
+  }
+
+  public func invalidate(at timestamp: TimeInterval) {
+    lock.lock()
+    self.timestamp = max(self.timestamp, timestamp).nextUp
+    lock.unlock()
+  }
+
+  public var latestTimestamp: TimeInterval {
+    lock.lock()
+    defer { lock.unlock() }
+    return timestamp
+  }
+}
+
+struct PointerWindowTransitionState {
+  private var previousRawWindowID: Int64?
+
+  mutating func changed(to rawWindowID: Int64) -> Bool {
+    guard previousRawWindowID != rawWindowID else { return false }
+    previousRawWindowID = rawWindowID
+    return true
+  }
+
+  mutating func reset() {
+    previousRawWindowID = nil
+  }
+}
+
+func pointerMotionDeliveryDelay(
+  rawWindowID: Int64,
+  eventTimestamp: TimeInterval,
+  lastDeliveryTimestamp: TimeInterval?,
+  maximumFrequencyHz: Double = 120
+) -> TimeInterval {
+  guard maximumFrequencyHz > 0,
+    let lastDeliveryTimestamp
+  else {
+    return 0
+  }
+  let minimumInterval = 1 / maximumFrequencyHz
+  let elapsed = max(0, eventTimestamp - lastDeliveryTimestamp)
+  return max(0, minimumInterval - elapsed)
+}
+
+struct PointerMotionDeliveryPlan: Equatable {
+  let shouldSchedule: Bool
+  let delay: TimeInterval
+}
+
+func pointerMotionDeliveryPlan(
+  rawWindowChanged: Bool,
+  refreshDelay: TimeInterval,
+  deliveryScheduled: Bool
+) -> PointerMotionDeliveryPlan {
+  PointerMotionDeliveryPlan(
+    shouldSchedule: !deliveryScheduled,
+    delay: rawWindowChanged ? 0 : refreshDelay
+  )
+}
+
+func eventTracksPhysicalPointerMotion(_ type: CGEventType) -> Bool {
+  switch type {
+  case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+    true
+  default:
+    false
+  }
+}
+
+func eventIsMouseButtonDown(_ type: CGEventType) -> Bool {
+  switch type {
+  case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+    true
+  default:
+    false
+  }
+}
+
+func eventTracksGeneralUserInput(
+  _ type: CGEventType,
+  scrollMomentumPhase: Int64? = nil
+) -> Bool {
+  type == .keyDown || type == .flagsChanged
+    || (type == .scrollWheel && (scrollMomentumPhase ?? 0) == 0)
+    || eventIsMouseButtonDown(type)
+}
+
+func eventEndsMouseFocusInteraction(_ type: NSEvent.EventType) -> Bool {
+  switch type {
+  case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+    true
+  default:
+    false
+  }
+}
+
+func eventStartsMouseFocusInteraction(_ type: NSEvent.EventType) -> Bool {
+  switch type {
+  case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+    true
+  default:
+    false
+  }
+}
+
 func mouseFocusIntentWindowID(rawWindowID: Int64) -> WindowID? {
   guard rawWindowID > 0 else { return nil }
   return WindowID(rawValue: UInt64(rawWindowID))
+}
+
+func mouseFocusIntent(
+  eventType: CGEventType,
+  rawWindowID: Int64
+) -> UserInputTracker.FocusIntentSource? {
+  guard eventType == .leftMouseDown else { return nil }
+  return .mouse(windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID))
 }
 
 func updatedWindowTopologyInputTimestamp(
@@ -305,43 +482,78 @@ func windowSnapshotInvalidation(
 }
 
 struct MouseGestureEventNormalizer {
+  private enum Button: Hashable {
+    case left
+    case right
+    case other(Int)
+
+    init(eventType: NSEvent.EventType, buttonNumber: Int) {
+      switch eventType {
+      case .leftMouseDown, .leftMouseUp:
+        self = .left
+      case .rightMouseDown, .rightMouseUp:
+        self = .right
+      default:
+        self = .other(buttonNumber)
+      }
+    }
+  }
+
   enum Synchronization: Equatable {
     case gesture
-    case clickRelease
   }
 
   struct Actions: Equatable {
     var refreshBorderStacking = false
     var startsGesture = false
     var synchronization: Synchronization?
+    var endsFocusInteraction = false
   }
 
-  private var pressed = false
+  private var heldButtons = Set<Button>()
   private var dragged = false
 
   mutating func actions(
-    for eventType: NSEvent.EventType
+    for eventType: NSEvent.EventType,
+    buttonNumber: Int = 0
   ) -> Actions {
     switch eventType {
     case .leftMouseDown:
-      pressed = true
+      heldButtons.insert(.left)
       dragged = false
       return Actions(refreshBorderStacking: true, startsGesture: true)
+    case .rightMouseDown, .otherMouseDown:
+      heldButtons.insert(
+        Button(eventType: eventType, buttonNumber: buttonNumber)
+      )
+      return Actions()
     case .leftMouseDragged:
+      guard heldButtons.contains(.left) else { return Actions() }
       dragged = true
       // Platform sync demand is a Boolean, so repeated drag events coalesce
       // while still scheduling fresh snapshots after live reorder animations.
       return Actions(synchronization: .gesture)
-    case .leftMouseUp:
-      defer {
-        pressed = false
+    case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+      let button = Button(eventType: eventType, buttonNumber: buttonNumber)
+      guard heldButtons.remove(button) != nil else { return Actions() }
+      let wasDragged = button == .left && dragged
+      if button == .left {
         dragged = false
       }
-      guard pressed else { return Actions() }
-      return Actions(synchronization: dragged ? .gesture : .clickRelease)
+      return Actions(
+        synchronization: wasDragged ? .gesture : nil,
+        endsFocusInteraction: heldButtons.isEmpty
+      )
     default:
       return Actions()
     }
+  }
+
+  mutating func reset() -> Bool {
+    let hadHeldButtons = !heldButtons.isEmpty
+    heldButtons.removeAll(keepingCapacity: true)
+    dragged = false
+    return hadHeldButtons
   }
 }
 

@@ -61,4 +61,48 @@ struct FrameCommitTransitionTests {
       ) == false
     )
   }
+
+  @Test
+  func supersededFrameDebtStaysUntilTargetIsObserved() {
+    let displaced = WindowID(rawValue: 1)
+    let replacement = WindowID(rawValue: 2)
+    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
+    let observedElsewhere = Rect(x: 900, y: 40, width: 1_200, height: 900)
+
+    let pending = unresolvedFrameDebtWindowIDs(
+      pendingWindowIDs: [replacement],
+      debtWindowIDs: [displaced],
+      targetFrames: [displaced: target],
+      observedFrames: [displaced: observedElsewhere]
+    )
+    #expect(pending == [displaced, replacement])
+
+    let observed = unresolvedFrameDebtWindowIDs(
+      pendingWindowIDs: [replacement],
+      debtWindowIDs: [displaced],
+      targetFrames: [displaced: target],
+      observedFrames: [displaced: target]
+    )
+    #expect(observed == [replacement])
+  }
+
+  @Test
+  func frameDebtPrunesConvergedAndRemovedWindows() {
+    let converged = WindowID(rawValue: 1)
+    let drifting = WindowID(rawValue: 2)
+    let removed = WindowID(rawValue: 3)
+    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
+
+    #expect(
+      prunedFrameDebtWindowIDs(
+        debtWindowIDs: [converged, drifting, removed],
+        liveWindowIDs: [converged, drifting],
+        targetFrames: [converged: target, drifting: target],
+        observedFrames: [
+          converged: target,
+          drifting: Rect(x: 900, y: 40, width: 1_200, height: 900),
+        ]
+      ) == [drifting]
+    )
+  }
 }

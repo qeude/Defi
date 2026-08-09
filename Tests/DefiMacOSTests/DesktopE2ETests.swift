@@ -485,8 +485,12 @@ final class DesktopE2ETests: XCTestCase {
       modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
       keys: ["hyper-left": "focus-column left"]
     )
+    let tracker = UserInputTracker()
     var received: [HotKeyInvocation] = []
-    let manager = try HotKeyManager(config: config) { invocation in
+    let manager = HotKeyManager(
+      config: config,
+      userInputTracker: tracker
+    ) { invocation in
       received.append(invocation)
     }
     try manager.start()
@@ -512,6 +516,15 @@ final class DesktopE2ETests: XCTestCase {
         }
         event.flags = flags
         event.post(tap: .cghidEventTap)
+        if let modifierRelease = CGEvent(
+          keyboardEventSource: source,
+          virtualKey: 59,
+          keyDown: false
+        ) {
+          modifierRelease.type = .flagsChanged
+          modifierRelease.flags = []
+          modifierRelease.post(tap: .cghidEventTap)
+        }
         Thread.sleep(forTimeInterval: 0.01)
       }
     }
@@ -526,7 +539,173 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(received.count, eventCount)
     XCTAssertTrue(received.allSatisfy { $0.command == "focus-column left" })
     XCTAssertTrue(received.allSatisfy { $0.timestamp > 0 })
+    XCTAssertEqual(tracker.latestEventTimestamp, received.last?.timestamp)
     XCTAssertEqual(manager.tapReenableCount, 0)
+  }
+
+  func testScrollWheelAdvancesUserInputTracker() throws {
+    _ = try makePlatform()
+    let tracker = UserInputTracker()
+    let manager = HotKeyManager(
+      config: Config(),
+      userInputTracker: tracker
+    ) { _ in }
+    try manager.start()
+    let previousTimestamp = tracker.latestEventTimestamp
+
+    guard let source = CGEventSource(stateID: .hidSystemState),
+      let scroll = CGEvent(
+        scrollWheelEvent2Source: source,
+        units: .pixel,
+        wheelCount: 1,
+        wheel1: 1,
+        wheel2: 0,
+        wheel3: 0
+      )
+    else {
+      XCTFail("Could not create scroll-wheel event")
+      return
+    }
+    scroll.post(tap: .cghidEventTap)
+
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { tracker.latestEventTimestamp > previousTimestamp },
+        timeout: 0.5
+      ),
+      "scroll-wheel input did not reach UserInputTracker"
+    )
+  }
+
+  func testPointerTransitionsUseWindowUnderPointerAndWarpDoesNotLoop() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    guard let monitor = snapshot.monitors.first,
+      let focusedWindowID = snapshot.focusedWindowID,
+      let focusedWindow = snapshot.windows.first(where: {
+        $0.id == focusedWindowID
+      }),
+      let otherWindow = snapshot.windows.first(where: { window in
+        window.id != focusedWindowID
+          && window.frame.x + window.frame.width / 2 >= monitor.frame.x
+          && window.frame.y + window.frame.height / 2 >= monitor.frame.y
+          && window.frame.x + window.frame.width / 2
+            <= monitor.frame.x + monitor.frame.width
+          && window.frame.y + window.frame.height / 2
+            <= monitor.frame.y + monitor.frame.height
+          && !(focusedWindow.frame.x + focusedWindow.frame.width / 2
+            >= window.frame.x
+            && focusedWindow.frame.x + focusedWindow.frame.width / 2
+              <= window.frame.x + window.frame.width
+            && focusedWindow.frame.y + min(20, focusedWindow.frame.height / 2)
+              >= window.frame.y
+            && focusedWindow.frame.y + min(20, focusedWindow.frame.height / 2)
+              <= window.frame.y + window.frame.height)
+      }),
+      let originalCursorLocation = CGEvent(source: nil)?.location
+    else {
+      throw XCTSkip("Two on-screen managed window centers required")
+    }
+    defer {
+      CGWarpMouseCursorPosition(originalCursorLocation)
+    }
+
+    let config = Config(
+      input: InputConfig(
+        focusFollowsMouse: true,
+        mouseFollowsFocus: true
+      )
+    )
+    var received: [PointerMotionInvocation] = []
+    let manager = HotKeyManager(
+      config: config,
+      pointerMotionTracker: platform.pointerMotionTracker,
+      pointerMotionHandler: { invocation in
+        received.append(invocation)
+      }
+    ) { _ in }
+    try manager.start()
+
+    let focusedCenter = CGPoint(
+      x: focusedWindow.frame.x + focusedWindow.frame.width / 2,
+      y: focusedWindow.frame.y + min(20, focusedWindow.frame.height / 2)
+    )
+    XCTAssertEqual(CGWarpMouseCursorPosition(focusedCenter), .success)
+    guard
+      let source = CGEventSource(stateID: .hidSystemState),
+      let movement = CGEvent(
+        mouseEventSource: source,
+        mouseType: .mouseMoved,
+        mouseCursorPosition: focusedCenter,
+        mouseButton: .left
+      )
+    else {
+      XCTFail("Could not create mouse movement event")
+      return
+    }
+    movement.post(tap: .cghidEventTap)
+
+    XCTAssertTrue(
+      pumpRunLoop(until: { !received.isEmpty }, timeout: 0.5),
+      "mouse movement did not reach event tap"
+    )
+    let resolvedPointerWindowID = received.last.flatMap {
+      $0.windowID ?? platform.managedWindowID(at: $0.location)
+    }
+    XCTAssertEqual(resolvedPointerWindowID, focusedWindowID)
+    let transitionsBeforeWarp = manager.pointerTransitionCount
+
+    XCTAssertTrue(
+      platform.warpCursor(
+        to: otherWindow.id,
+        unlessUserInputAfter: .greatestFiniteMagnitude
+      )
+    )
+    pumpRunLoop(for: 0.2)
+
+    XCTAssertEqual(platform.cursorWarpPerformance.applied, 1)
+    XCTAssertEqual(
+      manager.pointerTransitionCount,
+      transitionsBeforeWarp,
+      "programmatic cursor warp must not emit pointer transitions"
+    )
+  }
+
+  func testPointerTrackingStartsWhenHotKeyParsingFails() throws {
+    _ = try makePlatform()
+    let config = Config(
+      input: InputConfig(focusFollowsMouse: true),
+      keys: ["unknown-no-such-key": "focus-column left"]
+    )
+    var received: [PointerMotionInvocation] = []
+    let manager = HotKeyManager(
+      config: config,
+      pointerMotionHandler: { invocation in
+        received.append(invocation)
+      }
+    ) { _ in }
+    XCTAssertNotNil(manager.bindingError)
+    XCTAssertEqual(manager.bindingCount, 0)
+    try manager.start()
+
+    guard let location = CGEvent(source: nil)?.location,
+      let source = CGEventSource(stateID: .hidSystemState),
+      let movement = CGEvent(
+        mouseEventSource: source,
+        mouseType: .mouseMoved,
+        mouseCursorPosition: location,
+        mouseButton: .left
+      )
+    else {
+      XCTFail("Could not create mouse movement event")
+      return
+    }
+    movement.post(tap: .cghidEventTap)
+
+    XCTAssertTrue(
+      pumpRunLoop(until: { !received.isEmpty }, timeout: 0.5),
+      "pointer movement did not survive invalid hotkey parsing"
+    )
   }
 
   func testCornerParkingConvergesWithRealWindowFrame() throws {

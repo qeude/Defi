@@ -40,6 +40,12 @@ final class WindowBorderManager {
       })
   }
 
+  var transparentSurfaceWindowIDs: Set<CGWindowID> {
+    overlays.values.reduce(into: Set<CGWindowID>()) {
+      $0.formUnion($1.windowIDs)
+    }
+  }
+
   func revealPendingBorders() {
     compositorCommitPending = true
     commitVisibleOverlays()

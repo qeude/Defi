@@ -26,6 +26,14 @@ extension MacOSPlatform {
     updateVisibility: Bool = true,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    focusInputTimestampAfterCommit: TimeInterval? = nil,
+    cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
+    focusCompletionAfterCommit:
+      (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+    cursorWarpIsCurrentAfterCommit:
+      (@MainActor @Sendable () -> Bool)? = nil,
+    focusRequestIDAfterCommit:
+      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     source: String = "platform"
   ) {
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
@@ -83,6 +91,9 @@ extension MacOSPlatform {
           y: reference.y
         )
       }
+    }
+    if !writeIntents.isEmpty {
+      invalidatePointerHitTestCache()
     }
     targetFrames = frameTargetsPreservingSkippedWindows(
       previous: previousTargetFrames,
@@ -233,6 +244,34 @@ extension MacOSPlatform {
         wantsFrameAnimation
         && animateSizeChanges
         && intent?.size == true
+      var synchronousSizeWriteSucceeded = true
+      if intent?.size == true, !animatesSize {
+        if let sizeValue = AXValueCreate(.cgSize, &size) {
+          let sizeWriteStartedAt = ProcessInfo.processInfo.systemUptime
+          let result = AXUIElementSetAttributeValue(
+            element,
+            kAXSizeAttribute as CFString,
+            sizeValue
+          )
+          synchronousSizeWriteSucceeded = result == .success
+          if result == .success {
+            frameCoordinator.alignCompletedSize(
+              windowID: assignment.windowID,
+              size: size
+            )
+            sizeWriteCount += 1
+          }
+          if newlyDiscoveredWindowIDs.contains(assignment.windowID) {
+            let elapsedMS =
+              (ProcessInfo.processInfo.systemUptime - sizeWriteStartedAt) * 1_000
+            frameCoordinator.recordTrace(
+              "initial-size wid=\(assignment.windowID.rawValue) result=\(result.rawValue) ms=\(String(format: "%.2f", elapsedMS))"
+            )
+          }
+        } else {
+          synchronousSizeWriteSucceeded = false
+        }
+      }
       let write = AsyncPositionWrite(
         element: element,
         application: application,
@@ -244,36 +283,13 @@ extension MacOSPlatform {
         positionChanged: intent?.position == true,
         sizeChanged: intent?.size == true,
         animatesSize: animatesSize,
+        synchronousSizeWriteSucceeded: synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: enhancedUIByProcess[processID] == true,
         timeoutSeconds: asynchronousPositionTimeoutSeconds,
         isParked: isParked,
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite
       )
-      if intent?.size == true, !animatesSize,
-        let sizeValue = AXValueCreate(.cgSize, &size)
-      {
-        let sizeWriteStartedAt = ProcessInfo.processInfo.systemUptime
-        let result = AXUIElementSetAttributeValue(
-          element,
-          kAXSizeAttribute as CFString,
-          sizeValue
-        )
-        if result == .success {
-          frameCoordinator.alignCompletedSize(
-            windowID: assignment.windowID,
-            size: size
-          )
-          sizeWriteCount += 1
-        }
-        if newlyDiscoveredWindowIDs.contains(assignment.windowID) {
-          let elapsedMS =
-            (ProcessInfo.processInfo.systemUptime - sizeWriteStartedAt) * 1_000
-          frameCoordinator.recordTrace(
-            "initial-size wid=\(assignment.windowID.rawValue) result=\(result.rawValue) ms=\(String(format: "%.2f", elapsedMS))"
-          )
-        }
-      }
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
       }
@@ -306,27 +322,72 @@ extension MacOSPlatform {
       repairsSuspended: isLeftMouseButtonDown
     )
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty
-    let frameCompletion: (@Sendable (Bool) -> Void)?
+    let frameCompletion: (@Sendable (FrameWriteCompletion) -> Void)?
     if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil {
       frameCompletion = nil
     } else {
-      frameCompletion = { [weak self] completedLatest in
-        guard completedLatest else { return }
+      frameCompletion = { [weak self] result in
         DispatchQueue.main.async {
-          guard let self else { return }
+          guard let self else {
+            focusCompletionAfterCommit?(.frameSuperseded)
+            return
+          }
+          guard result.completedLatest else {
+            if let focusWindowIDAfterCommit {
+              self.pendingFrameDebtWindowIDs.insert(focusWindowIDAfterCommit)
+            }
+            focusCompletionAfterCommit?(.frameSuperseded)
+            return
+          }
           if refreshesBordersAfterCommit {
             self.refreshWindowBorders()
           }
-          if let focusWindowIDAfterCommit,
-            shouldApplyDeferredFocus(
+          if let focusWindowIDAfterCommit {
+            guard deferredFocusFrameCommitIsReady(
+              targetWindowID: focusWindowIDAfterCommit,
+              pendingFrameWindowIDs: self.pendingFrameWindowIDs,
+              successfulWindowIDs: result.successfulWindowIDs,
+              observedFrame: self.latestObservedFrames[focusWindowIDAfterCommit],
+              targetFrame: self.targetFrames[focusWindowIDAfterCommit]
+            ) else {
+              self.pendingFrameDebtWindowIDs.insert(focusWindowIDAfterCommit)
+              focusCompletionAfterCommit?(.frameSuperseded)
+              return
+            }
+            guard deferredFocusInputIsCurrent(
+              requestedTimestamp: focusInputTimestampAfterCommit,
+              latestUserInputTimestamp:
+                self.userInputTracker.latestEventTimestamp
+            ),
+              shouldApplyDeferredFocus(
               targetWindowID: focusWindowIDAfterCommit,
               selectedWindowID: self.desiredSelectedWindowID
+            ) else {
+              focusCompletionAfterCommit?(.cancelled)
+              return
+            }
+            let requestID = self.focus(
+              focusWindowIDAfterCommit,
+              unlessUserInputAfter: focusInputTimestampAfterCommit,
+              cursorWarpUnlessPointerMovedAfter:
+                cursorWarpTimestampAfterFrameCompletion(
+                  requestedTimestamp: cursorWarpInputTimestampAfterCommit,
+                  targetWindowID: focusWindowIDAfterCommit,
+                  completion: result
+                ),
+              cursorWarpPrefersTargetFrame: true,
+              cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
+              completion: focusCompletionAfterCommit
             )
-          {
-            self.focus(focusWindowIDAfterCommit)
+            focusRequestIDAfterCommit?(requestID)
           }
         }
       }
+    }
+    if coordinatorWasBusy {
+      // Keep superseded writes as readiness debt until fresh observations
+      // confirm their targets; the next layout may omit equal optimistic frames.
+      pendingFrameDebtWindowIDs.formUnion(frameCoordinator.pendingWindowIDs)
     }
     frameCoordinator.submit(
       asynchronousWrites,
@@ -345,13 +406,34 @@ extension MacOSPlatform {
         "initial-apply-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
-    if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit,
-      shouldApplyDeferredFocus(
+    if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit {
+      let frameReady = deferredFocusFrameIsReady(
+        targetWindowID: focusWindowIDAfterCommit,
+        pendingFrameWindowIDs: pendingFrameWindowIDs
+      )
+      if frameReady, deferredFocusInputIsCurrent(
+        requestedTimestamp: focusInputTimestampAfterCommit,
+        latestUserInputTimestamp: userInputTracker.latestEventTimestamp
+      ),
+        shouldApplyDeferredFocus(
         targetWindowID: focusWindowIDAfterCommit,
         selectedWindowID: desiredSelectedWindowID
-      )
-    {
-      focus(focusWindowIDAfterCommit)
+      ) {
+        let requestID = focus(
+          focusWindowIDAfterCommit,
+          unlessUserInputAfter: focusInputTimestampAfterCommit,
+          cursorWarpUnlessPointerMovedAfter:
+          cursorWarpInputTimestampAfterCommit,
+          cursorWarpPrefersTargetFrame: true,
+          cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
+          completion: focusCompletionAfterCommit
+        )
+        focusRequestIDAfterCommit?(requestID)
+      } else if !frameReady {
+        focusCompletionAfterCommit?(.frameSuperseded)
+      } else {
+        focusCompletionAfterCommit?(.cancelled)
+      }
     }
     if updateVisibility {
       lastHiddenWindowIDs = effectiveHiddenWindowIDs
@@ -494,6 +576,33 @@ extension MacOSPlatform {
 
   public var hasPendingAnimatedFrameWrites: Bool {
     frameCoordinator.isAnimating
+  }
+
+  public var hasPendingFrameWrites: Bool {
+    frameCoordinator.isBusy
+  }
+
+  public func cursorWarpFrameIsReady(for windowID: WindowID) -> Bool {
+    cursorWarpFrameReadiness(
+      latestWriteSucceeded: frameCoordinator.latestWriteSucceeded(
+        for: windowID
+      ),
+      observedFrame: latestObservedFrames[windowID],
+      targetFrame: targetFrames[windowID]
+    )
+  }
+
+  public var pendingAnimatedFrameWindowIDs: Set<WindowID> {
+    frameCoordinator.pendingAnimatedWindowIDs
+  }
+
+  public var pendingFrameWindowIDs: Set<WindowID> {
+    unresolvedFrameDebtWindowIDs(
+      pendingWindowIDs: frameCoordinator.pendingWindowIDs,
+      debtWindowIDs: pendingFrameDebtWindowIDs,
+      targetFrames: targetFrames,
+      observedFrames: latestObservedFrames
+    )
   }
 
   public var hasPendingFocusWrite: Bool {

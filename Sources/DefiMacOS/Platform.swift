@@ -9,9 +9,29 @@ import OSLog
 struct CGWindowRecord {
   let id: CGWindowID
   let processID: pid_t
+  let ownerName: String
   let layer: Int
   let title: String
   let frame: Rect
+  let memoryUsage: Int?
+
+  init(
+    id: CGWindowID,
+    processID: pid_t,
+    ownerName: String = "",
+    layer: Int,
+    title: String,
+    frame: Rect,
+    memoryUsage: Int? = nil
+  ) {
+    self.id = id
+    self.processID = processID
+    self.ownerName = ownerName
+    self.layer = layer
+    self.title = title
+    self.frame = frame
+    self.memoryUsage = memoryUsage
+  }
 }
 
 func resolvedCGWindowID(
@@ -25,37 +45,43 @@ func resolvedCGWindowID(
   return CGWindowID(exactly: preferredWindowID.rawValue)
 }
 
-func copyCGWindows() -> [CGWindowRecord] {
+func copyCGWindows(
+  options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+) -> [CGWindowRecord] {
   guard
     let info = CGWindowListCopyWindowInfo(
-      [.optionAll, .excludeDesktopElements],
+      options,
       kCGNullWindowID
-    ) as? [[CFString: Any]]
+    ) as? [[String: Any]]
   else {
     return []
   }
-  return info.compactMap { item in
-    guard let layer = item[kCGWindowLayer] as? NSNumber,
-      let number = item[kCGWindowNumber] as? NSNumber,
-      let ownerPID = item[kCGWindowOwnerPID] as? NSNumber,
-      let bounds = item[kCGWindowBounds] as? NSDictionary,
+  return info.compactMap(cgWindowRecord)
+}
+
+func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {
+  guard let layer = item[kCGWindowLayer as String] as? NSNumber,
+      let number = item[kCGWindowNumber as String] as? NSNumber,
+      let ownerPID = item[kCGWindowOwnerPID as String] as? NSNumber,
+      let bounds = item[kCGWindowBounds as String] as? NSDictionary,
       let cgRect = CGRect(dictionaryRepresentation: bounds)
-    else {
-      return nil
-    }
-    return CGWindowRecord(
-      id: number.uint32Value,
-      processID: ownerPID.int32Value,
-      layer: layer.intValue,
-      title: item[kCGWindowName] as? String ?? "",
-      frame: Rect(
-        x: cgRect.minX,
-        y: cgRect.minY,
-        width: cgRect.width,
-        height: cgRect.height
-      )
-    )
+  else {
+    return nil
   }
+  return CGWindowRecord(
+    id: number.uint32Value,
+    processID: ownerPID.int32Value,
+    ownerName: item[kCGWindowOwnerName as String] as? String ?? "",
+    layer: layer.intValue,
+    title: item[kCGWindowName as String] as? String ?? "",
+    frame: Rect(
+      x: cgRect.minX,
+      y: cgRect.minY,
+      width: cgRect.width,
+      height: cgRect.height
+    ),
+    memoryUsage: (item[kCGWindowMemoryUsage as String] as? NSNumber)?.intValue
+  )
 }
 
 func eligibleCGWindowRecords(
@@ -156,6 +182,27 @@ func bestCGWindow(
     return nil
   }
   return closest
+}
+
+func closestFocusRecoveryWindowIndex(
+  target: (frame: Rect, title: String),
+  candidates: [(frame: Rect, title: String)],
+  maximumDistance: Double = 80
+) -> Int? {
+  guard let index = candidates.indices.min(by: {
+    let lhsDistance = frameDistance(candidates[$0].frame, target.frame)
+    let rhsDistance = frameDistance(candidates[$1].frame, target.frame)
+    if abs(lhsDistance - rhsDistance) > 0.5 {
+      return lhsDistance < rhsDistance
+    }
+    return windowTitleMatchRank(candidates[$0].title, target.title)
+      < windowTitleMatchRank(candidates[$1].title, target.title)
+  }),
+    frameDistance(candidates[index].frame, target.frame) <= maximumDistance
+  else {
+    return nil
+  }
+  return index
 }
 
 private func windowTitleMatchRank(_ cgTitle: String, _ accessibilityTitle: String) -> Int {
