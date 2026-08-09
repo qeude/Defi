@@ -154,3 +154,16 @@ the layout source; animation samples expose inter-app completion spread.
 corrections without unbounded log growth.
 
 Metal-backed animation, dimming, and config hot reload remain later phases.
+
+## Release artifact
+
+Alpha DMGs are attached to [GitHub Releases](https://github.com/qeude/Defi/releases).
+Build a local signed DMG with:
+
+```sh
+./script/package_dmg.sh
+```
+
+The alpha DMG uses an Apple Development signature and is not notarized. macOS
+may require opening it manually from Finder or approving Defi in Privacy &
+Security settings.
