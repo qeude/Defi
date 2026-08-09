@@ -224,13 +224,15 @@ extension Daemon {
     else { return }
 
     submittedWorkspaceFocusGeneration = request.commandGeneration
+    submittedWorkspaceFocusRecoveryGeneration = nil
     submittedWorkspaceFocusRequestID = platform.focus(
       request.requestedWindowID,
       unlessUserInputAfter: request.focusInputTimestamp,
-      cursorWarpUnlessPointerMovedAfter: request.cursorWarpInputTimestamp
-    ) { [weak self] result in
-      self?.commitWorkspaceCommandFocus(result: result, request: request)
-    }
+      cursorWarpUnlessPointerMovedAfter: request.cursorWarpInputTimestamp,
+      completion: { [weak self] result in
+        self?.commitWorkspaceCommandFocus(result: result, request: request)
+      }
+    )
     submittedWorkspaceFocusRequestTimestamp =
       submittedWorkspaceFocusRequestID == nil
         ? nil

@@ -610,6 +610,8 @@ extension Daemon {
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
       (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+    cursorWarpIsCurrentAfterCommit:
+      (@MainActor @Sendable () -> Bool)? = nil,
     focusRequestIDAfterCommit:
       (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     forceFloatingFrameWrites: Bool = false,
@@ -724,6 +726,7 @@ extension Daemon {
       cursorWarpInputTimestampAfterCommit:
         cursorWarpInputTimestampAfterCommit,
       focusCompletionAfterCommit: focusCompletionAfterCommit,
+      cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
       focusRequestIDAfterCommit: focusRequestIDAfterCommit,
       source: source
     )

@@ -85,6 +85,7 @@ extension MacOSPlatform {
     focusRecoveryFallbackWindowID: WindowID? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
+    cursorWarpIsCurrent: (@MainActor @Sendable () -> Bool)? = nil,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
     submitFocus(
@@ -94,6 +95,7 @@ extension MacOSPlatform {
       focusRecoveryFallbackWindowID: focusRecoveryFallbackWindowID,
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp,
       cursorWarpPrefersTargetFrame: cursorWarpPrefersTargetFrame,
+      cursorWarpIsCurrent: cursorWarpIsCurrent,
       completion: completion
     )
   }
@@ -106,6 +108,7 @@ extension MacOSPlatform {
     focusRecoveryFallbackWindowID: WindowID? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
+    cursorWarpIsCurrent: (@MainActor @Sendable () -> Bool)? = nil,
     focusRecoveryFallback providedFocusRecoveryFallback:
       NativeFocusRecoveryFallback? = nil,
     createsRecoveryRequest: Bool = true,
@@ -218,7 +221,7 @@ extension MacOSPlatform {
           if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(
             result: result,
             requestedTimestamp: cursorWarpInputTimestamp
-          ) {
+          ), cursorWarpIsCurrent?() ?? true {
             self?.warpCursor(
               to: windowID,
               unlessUserInputAfter: cursorWarpInputTimestamp,

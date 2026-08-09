@@ -30,6 +30,8 @@ extension MacOSPlatform {
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
       (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+    cursorWarpIsCurrentAfterCommit:
+      (@MainActor @Sendable () -> Bool)? = nil,
     focusRequestIDAfterCommit:
       (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     source: String = "platform"
@@ -326,7 +328,14 @@ extension MacOSPlatform {
     } else {
       frameCompletion = { [weak self] result in
         DispatchQueue.main.async {
-          guard result.completedLatest, let self else {
+          guard let self else {
+            focusCompletionAfterCommit?(.frameSuperseded)
+            return
+          }
+          guard result.completedLatest else {
+            if let focusWindowIDAfterCommit {
+              self.pendingFrameDebtWindowIDs.insert(focusWindowIDAfterCommit)
+            }
             focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
@@ -341,6 +350,7 @@ extension MacOSPlatform {
               observedFrame: self.latestObservedFrames[focusWindowIDAfterCommit],
               targetFrame: self.targetFrames[focusWindowIDAfterCommit]
             ) else {
+              self.pendingFrameDebtWindowIDs.insert(focusWindowIDAfterCommit)
               focusCompletionAfterCommit?(.frameSuperseded)
               return
             }
@@ -366,6 +376,7 @@ extension MacOSPlatform {
                   completion: result
                 ),
               cursorWarpPrefersTargetFrame: true,
+              cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
               completion: focusCompletionAfterCommit
             )
             focusRequestIDAfterCommit?(requestID)
@@ -412,8 +423,9 @@ extension MacOSPlatform {
           focusWindowIDAfterCommit,
           unlessUserInputAfter: focusInputTimestampAfterCommit,
           cursorWarpUnlessPointerMovedAfter:
-            cursorWarpInputTimestampAfterCommit,
+          cursorWarpInputTimestampAfterCommit,
           cursorWarpPrefersTargetFrame: true,
+          cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
           completion: focusCompletionAfterCommit
         )
         focusRequestIDAfterCommit?(requestID)

@@ -206,55 +206,56 @@ extension Daemon {
       unlessUserInputAfter: timestamp,
       focusRecoveryFallbackWindowID: activeMonitorID.flatMap {
         state.selectedWindowID(on: $0)
-      }
-    ) { [weak self] result in
-      guard let self else { return }
-      guard pointerFocusRequestIsCurrent(
-        requestGeneration: generation,
-        currentGeneration: self.pointerFocusGeneration,
-        pointerTimestamp: timestamp,
-        latestUserInputTimestamp:
-          self.platform.userInputTracker.latestEventTimestamp
-      ) else {
-        self.pointerFocusIgnoredCount += 1
-        return
-      }
-      self.submittedPointerFocusRequestID = nil
-      self.submittedPointerFocusTimestamp = nil
-      guard result == .completed || result == .completedWithoutMutation else {
-        self.pointerFocusIgnoredCount += 1
-        switch result {
-        case .failed, .failedAfterMutation:
-          self.retryPointerFocusIfCurrent(
-            windowID,
-            generation: generation,
-            timestamp: timestamp,
-            retryCount: retryCount,
-            restoresDisplacedFocus: result == .failed
-          )
-        case .frameSuperseded, .superseded, .supersededAfterMutation,
-          .cancelled,
-          .cancelledAfterMutation,
-          .cancelledAfterInputMutation:
-          if cancelledPointerFocusShouldRearm(
-            pointerTimestamp: timestamp,
-            latestUserInputTimestamp:
-              self.platform.userInputTracker.latestEventTimestamp
-          ) {
-            self.rearmPointerFocusTransition()
-          }
-        case .completed, .completedWithoutMutation:
-          break
+      },
+      completion: { [weak self] result in
+        guard let self else { return }
+        guard pointerFocusRequestIsCurrent(
+          requestGeneration: generation,
+          currentGeneration: self.pointerFocusGeneration,
+          pointerTimestamp: timestamp,
+          latestUserInputTimestamp:
+            self.platform.userInputTracker.latestEventTimestamp
+        ) else {
+          self.pointerFocusIgnoredCount += 1
+          return
         }
-        return
+        self.submittedPointerFocusRequestID = nil
+        self.submittedPointerFocusTimestamp = nil
+        guard result == .completed || result == .completedWithoutMutation else {
+          self.pointerFocusIgnoredCount += 1
+          switch result {
+          case .failed, .failedAfterMutation:
+            self.retryPointerFocusIfCurrent(
+              windowID,
+              generation: generation,
+              timestamp: timestamp,
+              retryCount: retryCount,
+              restoresDisplacedFocus: result == .failed
+            )
+          case .frameSuperseded, .superseded, .supersededAfterMutation,
+            .cancelled,
+            .cancelledAfterMutation,
+            .cancelledAfterInputMutation:
+            if cancelledPointerFocusShouldRearm(
+              pointerTimestamp: timestamp,
+              latestUserInputTimestamp:
+                self.platform.userInputTracker.latestEventTimestamp
+            ) {
+              self.rearmPointerFocusTransition()
+            }
+          case .completed, .completedWithoutMutation:
+            break
+          }
+          return
+        }
+        self.commitCompletedPointerFocus(
+          windowID,
+          generation: generation,
+          timestamp: timestamp,
+          acceptsAlreadySelectedWindow: restoresNativeFocus
+        )
       }
-      self.commitCompletedPointerFocus(
-        windowID,
-        generation: generation,
-        timestamp: timestamp,
-        acceptsAlreadySelectedWindow: restoresNativeFocus
-      )
-    }
+    )
     submittedPointerFocusRequestID = requestID
     submittedPointerFocusTimestamp = requestID == nil ? nil : timestamp
   }
@@ -507,6 +508,7 @@ extension Daemon {
   ) {
     guard let requestID = submittedCommandFocusRequestID else {
       submittedCommandFocusRequestTimestamp = nil
+      submittedCommandFocusRecoveryGeneration = nil
       submittedCommandFocus = nil
       return
     }
@@ -514,16 +516,30 @@ extension Daemon {
       ?? submittedCommandFocusRequestTimestamp
     let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
     if !cancelled, let windowID, let timestamp {
+      nextCommandFocusRecoveryGeneration &+= 1
+      let recoveryGeneration = nextCommandFocusRecoveryGeneration
       let recoveryID = platform.focus(
         windowID,
-        unlessUserInputAfter: timestamp
+        unlessUserInputAfter: timestamp,
+        completion: { [weak self] _ in
+          guard let self,
+            self.submittedCommandFocusRecoveryGeneration
+              == recoveryGeneration
+          else { return }
+          self.submittedCommandFocusRequestID = nil
+          self.submittedCommandFocusRequestTimestamp = nil
+          self.submittedCommandFocusRecoveryGeneration = nil
+        }
       )
       submittedCommandFocusRequestID = recoveryID
       submittedCommandFocusRequestTimestamp =
         recoveryID == nil ? nil : timestamp
+      submittedCommandFocusRecoveryGeneration =
+        recoveryID == nil ? nil : recoveryGeneration
     } else {
       submittedCommandFocusRequestID = nil
       submittedCommandFocusRequestTimestamp = nil
+      submittedCommandFocusRecoveryGeneration = nil
     }
     submittedCommandFocus = nil
   }
@@ -534,22 +550,37 @@ extension Daemon {
     guard let requestID = submittedWorkspaceFocusRequestID else {
       submittedWorkspaceFocusRequestTimestamp = nil
       submittedWorkspaceFocusGeneration = nil
+      submittedWorkspaceFocusRecoveryGeneration = nil
       return
     }
     let timestamp = pendingWorkspaceFocus?.focusInputTimestamp
       ?? submittedWorkspaceFocusRequestTimestamp
     let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
     if !cancelled, let windowID, let timestamp {
+      nextWorkspaceFocusRecoveryGeneration &+= 1
+      let recoveryGeneration = nextWorkspaceFocusRecoveryGeneration
       let recoveryID = platform.focus(
         windowID,
-        unlessUserInputAfter: timestamp
+        unlessUserInputAfter: timestamp,
+        completion: { [weak self] _ in
+          guard let self,
+            self.submittedWorkspaceFocusRecoveryGeneration
+              == recoveryGeneration
+          else { return }
+          self.submittedWorkspaceFocusRequestID = nil
+          self.submittedWorkspaceFocusRequestTimestamp = nil
+          self.submittedWorkspaceFocusRecoveryGeneration = nil
+        }
       )
       submittedWorkspaceFocusRequestID = recoveryID
       submittedWorkspaceFocusRequestTimestamp =
         recoveryID == nil ? nil : timestamp
+      submittedWorkspaceFocusRecoveryGeneration =
+        recoveryID == nil ? nil : recoveryGeneration
     } else {
       submittedWorkspaceFocusRequestID = nil
       submittedWorkspaceFocusRequestTimestamp = nil
+      submittedWorkspaceFocusRecoveryGeneration = nil
     }
     submittedWorkspaceFocusGeneration = nil
   }
@@ -664,74 +695,83 @@ extension Daemon {
     submittedCommandFocusRequestID = platform.focus(
       windowID,
       unlessUserInputAfter: focusInputTimestamp,
-      cursorWarpUnlessPointerMovedAfter: committedCursorWarpInputTimestamp
-    ) { [weak self] result in
-      guard let self else { return }
-      guard commandFocusCompletionIsCurrent(
-        submittedWindowID: self.submittedCommandFocus?.windowID,
-        submittedGeneration:
-          self.submittedCommandFocus?.commandGeneration,
-        completedWindowID: request.windowID,
-        completedGeneration: request.commandGeneration
-      ) else { return }
-      self.submittedCommandFocus = nil
-      self.submittedCommandFocusRequestID = nil
-      self.submittedCommandFocusRequestTimestamp = nil
-      if result == .failed || result == .failedAfterMutation,
-        let nextRetryCount = nextCommandFocusRetryCount(
-          currentRetryCount: request.retryCount,
-          maximumRetryCount: 1,
-          requestGeneration: request.commandGeneration,
-          currentGeneration: self.commandGeneration,
-          requestedWindowID: request.windowID,
-          selectedWindowID: self.state.selectedWindowID(on: request.monitorID)
-        )
-      {
-        self.pendingAnimatedFocus = PendingAnimatedFocus(
-          windowID: request.windowID,
-          previousSelectedWindowID: request.previousSelectedWindowID,
-          monitorID: request.monitorID,
-          sourceWorkspaceID: request.sourceWorkspaceID,
-          commandGeneration: request.commandGeneration,
-          focusInputTimestamp: request.focusInputTimestamp,
-          cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
-          retryCount: nextRetryCount
-        )
-        return
-      }
-      guard !self.cancellationKeepsRequestedWindow(
-        windowID,
-        requestInputTimestamp: focusInputTimestamp
-      ),
-        let fallbackWindowID = commandFocusCancellationFallback(
-          cancelledBeforeMutation:
-            result == .cancelled || result == .failed,
-          rollbackAfterMutation:
-            self.focusCompletionRequiresLogicalRollback(result),
-          requestGeneration: commandGeneration,
-          currentGeneration: self.commandGeneration,
-          requestedWindowID: windowID,
-          selectedWindowID: self.state.selectedWindowID(on: monitorID),
-          previousSelectedWindowID: previousSelectedWindowID,
-          sourceWorkspaceID: sourceWorkspaceID,
-          previousSelectedWindowWorkspaceID:
-            previousSelectedWindowID.flatMap {
-              self.state.location(containing: $0)?.workspaceID
-            }
+      cursorWarpUnlessPointerMovedAfter: committedCursorWarpInputTimestamp,
+      cursorWarpIsCurrent: { [weak self] in
+        guard let self else { return false }
+        return self.submittedCommandFocus?.windowID == request.windowID
+          && self.submittedCommandFocus?.commandGeneration
+            == request.commandGeneration
+      },
+      completion: { [weak self] result in
+        guard let self else { return }
+        guard commandFocusCompletionIsCurrent(
+          submittedWindowID: self.submittedCommandFocus?.windowID,
+          submittedGeneration:
+            self.submittedCommandFocus?.commandGeneration,
+          completedWindowID: request.windowID,
+          completedGeneration: request.commandGeneration
+        ) else { return }
+        self.submittedCommandFocus = nil
+        self.submittedCommandFocusRequestID = nil
+        self.submittedCommandFocusRequestTimestamp = nil
+        self.submittedCommandFocusRecoveryGeneration = nil
+        if result == .failed || result == .failedAfterMutation,
+          let nextRetryCount = nextCommandFocusRetryCount(
+            currentRetryCount: request.retryCount,
+            maximumRetryCount: 1,
+            requestGeneration: request.commandGeneration,
+            currentGeneration: self.commandGeneration,
+            requestedWindowID: request.windowID,
+            selectedWindowID: self.state.selectedWindowID(on: request.monitorID)
+          )
+        {
+          self.pendingAnimatedFocus = PendingAnimatedFocus(
+            windowID: request.windowID,
+            previousSelectedWindowID: request.previousSelectedWindowID,
+            monitorID: request.monitorID,
+            sourceWorkspaceID: request.sourceWorkspaceID,
+            commandGeneration: request.commandGeneration,
+            focusInputTimestamp: request.focusInputTimestamp,
+            cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
+            retryCount: nextRetryCount
+          )
+          return
+        }
+        guard !self.cancellationKeepsRequestedWindow(
+          windowID,
+          requestInputTimestamp: focusInputTimestamp
         ),
-        self.state.location(containing: fallbackWindowID)?.monitorID == monitorID
-      else {
-        return
+          let fallbackWindowID = commandFocusCancellationFallback(
+            cancelledBeforeMutation:
+              result == .cancelled || result == .failed,
+            rollbackAfterMutation:
+              self.focusCompletionRequiresLogicalRollback(result),
+            requestGeneration: commandGeneration,
+            currentGeneration: self.commandGeneration,
+            requestedWindowID: windowID,
+            selectedWindowID: self.state.selectedWindowID(on: monitorID),
+            previousSelectedWindowID: previousSelectedWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            previousSelectedWindowWorkspaceID:
+              previousSelectedWindowID.flatMap {
+                self.state.location(containing: $0)?.workspaceID
+              }
+          ),
+          self.state.location(containing: fallbackWindowID)?.monitorID == monitorID
+        else {
+          return
+        }
+        _ = focusWindow(fallbackWindowID, state: &self.state)
+        self.activeMonitorID = self.state.monitorID(
+          containing: fallbackWindowID
+        )
+        self.needsDesktopSync = true
+        self.updateMenuBar()
       }
-      _ = focusWindow(fallbackWindowID, state: &self.state)
-      self.activeMonitorID = self.state.monitorID(
-        containing: fallbackWindowID
-      )
-      self.needsDesktopSync = true
-      self.updateMenuBar()
-    }
+    )
     submittedCommandFocusRequestTimestamp =
       submittedCommandFocusRequestID == nil ? nil : focusInputTimestamp
+    submittedCommandFocusRecoveryGeneration = nil
   }
 
   func commitWorkspaceCommandFocus(
@@ -742,6 +782,7 @@ extension Daemon {
     else { return }
     submittedWorkspaceFocusRequestID = nil
     submittedWorkspaceFocusRequestTimestamp = nil
+    submittedWorkspaceFocusRecoveryGeneration = nil
     if result == .frameSuperseded {
       submittedWorkspaceFocusGeneration = nil
       return
