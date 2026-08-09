@@ -3,6 +3,7 @@ import Foundation
 import TOMLDecoder
 
 public struct Config: Equatable, Sendable {
+  public var input: InputConfig
   public var layout: LayoutConfig
   public var animation: AnimationConfig
   public var decorations: DecorationsConfig
@@ -13,6 +14,7 @@ public struct Config: Equatable, Sendable {
   public var rules: [Rule]
 
   public init(
+    input: InputConfig = InputConfig(),
     layout: LayoutConfig = LayoutConfig(),
     animation: AnimationConfig = AnimationConfig(),
     decorations: DecorationsConfig = DecorationsConfig(),
@@ -22,6 +24,7 @@ public struct Config: Equatable, Sendable {
     keys: [String: String]? = nil,
     rules: [Rule] = []
   ) {
+    self.input = input
     self.layout = layout
     self.animation = animation
     self.decorations = decorations
@@ -40,6 +43,7 @@ public struct Config: Equatable, Sendable {
     let workspaces = raw.workspaces ?? WorkspacesConfig()
     let modifier = raw.defaultKeyModifier ?? "alt"
     let config = Config(
+      input: raw.input ?? InputConfig(),
       layout: raw.layout ?? LayoutConfig(),
       animation: raw.animation ?? AnimationConfig(),
       decorations: raw.decorations ?? DecorationsConfig(),
@@ -67,6 +71,15 @@ public struct Config: Equatable, Sendable {
   }
 
   public func validate() throws {
+    if let maximumScrollAmount = input.focusFollowsMouseMaxScrollAmount {
+      guard maximumScrollAmount.isFinite,
+        (0...1).contains(maximumScrollAmount)
+      else {
+        throw ConfigError.invalidValue(
+          "input.focus_follows_mouse_max_scroll_amount"
+        )
+      }
+    }
     guard (0.05...1).contains(layout.defaultColumnWidth) else {
       throw ConfigError.invalidValue("layout.default_column_width")
     }
@@ -186,6 +199,41 @@ public struct Config: Equatable, Sendable {
       result["\(modifier)-shift-\(number)"] = "move-window-to-workspace \(workspace)"
     }
     return result
+  }
+}
+
+public struct InputConfig: Codable, Equatable, Sendable {
+  public var focusFollowsMouse: Bool
+  public var focusFollowsMouseMaxScrollAmount: Double?
+  public var mouseFollowsFocus: Bool
+
+  public init(
+    focusFollowsMouse: Bool = false,
+    focusFollowsMouseMaxScrollAmount: Double? = 0,
+    mouseFollowsFocus: Bool = false
+  ) {
+    self.focusFollowsMouse = focusFollowsMouse
+    self.focusFollowsMouseMaxScrollAmount = focusFollowsMouseMaxScrollAmount
+    self.mouseFollowsFocus = mouseFollowsFocus
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case focusFollowsMouse = "focus_follows_mouse"
+    case focusFollowsMouseMaxScrollAmount =
+      "focus_follows_mouse_max_scroll_amount"
+    case mouseFollowsFocus = "mouse_follows_focus"
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    focusFollowsMouse =
+      try values.decodeIfPresent(Bool.self, forKey: .focusFollowsMouse) ?? false
+    focusFollowsMouseMaxScrollAmount = try values.decodeIfPresent(
+      Double.self,
+      forKey: .focusFollowsMouseMaxScrollAmount
+    ) ?? 0
+    mouseFollowsFocus =
+      try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? false
   }
 }
 
@@ -489,6 +537,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
 }
 
 private struct RawConfig: Decodable {
+  var input: InputConfig?
   var layout: LayoutConfig?
   var animation: AnimationConfig?
   var decorations: DecorationsConfig?
@@ -499,6 +548,7 @@ private struct RawConfig: Decodable {
   var rules: [Rule]?
 
   enum CodingKeys: String, CodingKey {
+    case input
     case layout
     case animation
     case decorations

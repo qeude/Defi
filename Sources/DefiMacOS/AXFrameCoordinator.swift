@@ -6,6 +6,17 @@ import DefiCore
 import DefiModel
 import OSLog
 
+func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
+  guard let frame else { return }
+  frame.completion?(
+    FrameWriteCompletion(
+      completedLatest: false,
+      attemptedWindowIDs: Set(frame.writes.keys),
+      successfulWindowIDs: []
+    )
+  )
+}
+
 final class AXFrameCoordinator: @unchecked Sendable {
   private let queue = DispatchQueue(
     label: "com.quentin.defi.ax-frame-coordinator",
@@ -21,7 +32,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
   private var nextGeneration: UInt64 = 0
   private var latestGeneration: UInt64 = 0
   private var running = false
+  private var activeWindowIDs = Set<WindowID>()
   private var activeAnimationRunning = false
+  private var activeAnimatedWindowIDs = Set<WindowID>()
   private var activeAnimatedSizeWindowIDs = Set<WindowID>()
   private var completedWrites = 0
   private var completedAnimatedSizeWrites = 0
@@ -29,6 +42,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   private var droppedFrameCount = 0
   private var completedPositions: [WindowID: CGPoint] = [:]
   private var completedSizes: [WindowID: CGSize] = [:]
+  private var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
+  private var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   private var traceEntries: [String] = []
   private var lastFrameDurationMS = 0.0
   private var maximumFrameDurationMS = 0.0
@@ -128,17 +143,21 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   func invalidate(reason: String) {
     lock.lock()
+    let displacedFrame = pending
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     pending = nil
     completedPositions.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
+    successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
+    latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
     initialSettlementRepairsSuspended = false
     pendingInitialSettlementEventChecks.removeAll(keepingCapacity: true)
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
+    completeSupersededFrame(displacedFrame)
   }
 
   func invalidateAndWaitForWrites() {
@@ -153,10 +172,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
     refreshRateHz: Double = 60,
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
-    completion: (@Sendable (Bool) -> Void)? = nil
+    completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
   ) {
     guard !writes.isEmpty else { return }
     lock.lock()
+    let displacedFrame = pending
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     if pending != nil {
@@ -172,6 +192,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       completion: completion
     )
+    successfulFinalWritesByGeneration[nextGeneration] = []
+    if let displacedFrame {
+      successfulFinalWritesByGeneration[displacedFrame.generation] = nil
+    }
     let animatedIDs = animatedWindowIDs.sorted {
       $0.rawValue < $1.rawValue
     }.map { String($0.rawValue) }.joined(separator: ",")
@@ -188,6 +212,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       running = true
     }
     lock.unlock()
+    completeSupersededFrame(displacedFrame)
     if shouldStart {
       queue.async { [self] in
         drain()
@@ -212,6 +237,28 @@ final class AXFrameCoordinator: @unchecked Sendable {
     defer { lock.unlock() }
     return activeAnimationRunning
       || (pending?.animationDuration ?? 0) > 0
+  }
+
+  var pendingAnimatedWindowIDs: Set<WindowID> {
+    lock.lock()
+    defer { lock.unlock() }
+    var windowIDs = activeAnimationRunning
+      ? activeAnimatedWindowIDs
+      : []
+    if let pending, pending.animationDuration > 0 {
+      windowIDs.formUnion(pending.animatedWindowIDs)
+    }
+    return windowIDs
+  }
+
+  var pendingWindowIDs: Set<WindowID> {
+    lock.lock()
+    defer { lock.unlock() }
+    var windowIDs = activeWindowIDs
+    if let pending {
+      windowIDs.formUnion(pending.writes.keys)
+    }
+    return windowIDs
   }
 
   var writeCount: Int {
@@ -248,6 +295,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return completedSizes[windowID]
+  }
+
+  func latestWriteSucceeded(for windowID: WindowID) -> Bool? {
+    lock.lock()
+    defer { lock.unlock() }
+    return latestWriteSucceededByWindowID[windowID]
   }
 
   func alignCompletedSize(windowID: WindowID, size: CGSize) {
@@ -335,6 +388,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
         rebaseFrameToCompletedPositionsLocked(queuedFrame)
       let applicationCount = Set(frame.writes.values.map(\.processID)).count
       activeAnimationRunning = frame.animationDuration > 0
+      activeWindowIDs = Set(frame.writes.keys)
+      activeAnimatedWindowIDs = frame.animatedWindowIDs
       activeAnimatedSizeWindowIDs = Set(
         frame.writes.compactMap { windowID, write in
           frame.animatedWindowIDs.contains(windowID) && write.animatesSize
@@ -379,9 +434,27 @@ final class AXFrameCoordinator: @unchecked Sendable {
       appendTraceLocked(
         "\(aborted ? "abort" : "complete") g=\(frame.generation) applied=\(result.applied) frames=\(result.frames) ms=\(String(format: "%.2f", elapsedMS))"
       )
+      let successfulWindowIDs =
+        successfulFinalWritesByGeneration.removeValue(
+          forKey: frame.generation
+        ) ?? []
+      if !aborted {
+        for windowID in frame.writes.keys {
+          latestWriteSucceededByWindowID[windowID] =
+            successfulWindowIDs.contains(windowID)
+        }
+      }
       activeAnimatedSizeWindowIDs.removeAll(keepingCapacity: true)
+      activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
+      activeWindowIDs.removeAll(keepingCapacity: true)
       lock.unlock()
-      frame.completion?(!aborted)
+      frame.completion?(
+        FrameWriteCompletion(
+          completedLatest: !aborted,
+          attemptedWindowIDs: Set(frame.writes.keys),
+          successfulWindowIDs: successfulWindowIDs
+        )
+      )
     }
   }
 
@@ -415,6 +488,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
         positionChanged: write.positionChanged,
         sizeChanged: write.sizeChanged,
         animatesSize: write.animatesSize,
+        synchronousSizeWriteSucceeded: write.synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: write.enhancedUIWasEnabled,
         timeoutSeconds: write.timeoutSeconds,
         isParked: write.isParked,
@@ -737,6 +811,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
     lock.lock()
     activeAnimationRunning = false
+    activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
     let settlementWindowIDs = Array(initialSettlementTargets.keys)
     appendTraceLocked(
       "visual-complete g=\(generation) ms=\(String(format: "%.2f", elapsedMS))"
@@ -968,9 +1043,14 @@ final class AXFrameCoordinator: @unchecked Sendable {
       AXUIElementSetMessagingTimeout(item.value.application, timeout)
       AXUIElementSetMessagingTimeout(item.value.element, timeout)
       let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
-      let sizeApplied =
+      let asynchronousSizeWriteSucceeded =
         !item.value.animatesSize
         || accessibilityWriter.applySize(item.value, size: size)
+      let sizeApplied = frameSizeWriteSucceeded(
+        synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
+        animatesSize: item.value.animatesSize,
+        asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
+      )
       let positionApplied =
         !item.value.positionChanged
         || accessibilityWriter.applyPosition(
@@ -999,6 +1079,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
         )
         lock.unlock()
         continue
+      }
+      if !intermediate, progress >= 1, appliedWrite {
+        lock.lock()
+        successfulFinalWritesByGeneration[frame.generation, default: []]
+          .insert(item.key)
+        lock.unlock()
       }
       let requiresReadback =
         item.value.isParked

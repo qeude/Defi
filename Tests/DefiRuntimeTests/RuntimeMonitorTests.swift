@@ -68,6 +68,46 @@ final class RuntimeMonitorTests: XCTestCase {
     )
   }
 
+  func testReboundFocusMonitorRequiresMigratedWindowToRemainSelected() {
+    let externalID = MonitorID(rawValue: 2)
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
+    ]
+    state.monitors[1].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 9), width: .fraction(0.5))
+    ]
+
+    state.retainMonitors(
+      [monitorID],
+      previousViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        externalID: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+      ],
+      nextViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800)
+      ]
+    )
+
+    XCTAssertNil(
+      state.reboundFocusMonitorID(
+        for: WindowID(rawValue: 9),
+        requestedWorkspaceID: WorkspaceID(rawValue: "dev")
+      )
+    )
+    state.monitors[0].workspaces[0].focusedColumn = 1
+    XCTAssertEqual(
+      state.reboundFocusMonitorID(
+        for: WindowID(rawValue: 9),
+        requestedWorkspaceID: WorkspaceID(rawValue: "dev")
+      ),
+      monitorID
+    )
+  }
+
   func testEachMonitorOwnsIndependentNineWorkspaces() throws {
     let externalID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: Config())

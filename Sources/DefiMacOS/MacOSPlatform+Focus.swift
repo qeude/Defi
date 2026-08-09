@@ -6,34 +6,229 @@ import DefiCore
 import DefiModel
 import OSLog
 
+struct InternalFocusSuppression: Equatable, Sendable {
+  let requestID: UInt64
+  let deadline: TimeInterval
+  let maximumInputTimestamp: TimeInterval
+  let isInFlight: Bool
+
+  init(
+    requestID: UInt64,
+    deadline: TimeInterval,
+    maximumInputTimestamp: TimeInterval,
+    isInFlight: Bool = true
+  ) {
+    self.requestID = requestID
+    self.deadline = deadline
+    self.maximumInputTimestamp = maximumInputTimestamp
+    self.isInFlight = isInFlight
+  }
+}
+
+func internalFocusSuppressionConsumesEvent(
+  _ suppression: InternalFocusSuppression,
+  suppressedWindowID: WindowID,
+  latestFocusIntent: UserInputTracker.FocusIntent?
+) -> Bool {
+  guard let latestFocusIntent,
+    latestFocusIntent.timestamp > suppression.maximumInputTimestamp
+  else {
+    return true
+  }
+  switch latestFocusIntent.source {
+  case .keyboard:
+    return false
+  case .mouse(let windowID):
+    return windowID != suppressedWindowID
+  }
+}
+
+func extendingInternalFocusSuppression(
+  _ suppression: InternalFocusSuppression,
+  through inputTimestamp: TimeInterval,
+  deadline: TimeInterval
+) -> InternalFocusSuppression {
+  InternalFocusSuppression(
+    requestID: suppression.requestID,
+    deadline: max(suppression.deadline, deadline),
+    maximumInputTimestamp: max(
+      suppression.maximumInputTimestamp,
+      inputTimestamp
+    ),
+    isInFlight: suppression.isInFlight
+  )
+}
+
+func internalFocusSuppressionAfterCompletion(
+  _ suppression: InternalFocusSuppression?,
+  requestID: UInt64,
+  result: NativeFocusResult
+) -> InternalFocusSuppression? {
+  guard let suppression, suppression.requestID == requestID else {
+    return suppression
+  }
+  switch result {
+  case .completedWithoutMutation, .frameSuperseded, .superseded, .cancelled:
+    return nil
+  case .completed:
+    return InternalFocusSuppression(
+      requestID: suppression.requestID,
+      deadline: suppression.deadline,
+      maximumInputTimestamp: suppression.maximumInputTimestamp,
+      isInFlight: false
+    )
+  case .supersededAfterMutation, .cancelledAfterMutation,
+    .cancelledAfterInputMutation, .failed, .failedAfterMutation:
+    return suppression
+  }
+}
+
 @MainActor
 extension MacOSPlatform {
 
+  public func invalidateFocusStateForDisplayChange() {
+    focusWriter.invalidate()
+    focusRecoveryResolver.invalidate()
+    submittedFocusRecoveryRequestID = nil
+    submittedFocusRecoveryTimestamp = nil
+    submittedFocusRecoveryGeneration = nil
+    let now = ProcessInfo.processInfo.systemUptime
+    internalFocusSuppressions = internalFocusSuppressions.filter {
+      $0.value.deadline >= now
+    }
+  }
+
+  public func invalidateFocusRecovery() {
+    invalidateFocusRecovery(recoveringTo: nil)
+  }
+
+  public func invalidateFocusRecovery(recoveringTo windowID: WindowID?) {
+    focusRecoveryResolver.invalidate()
+    let now = ProcessInfo.processInfo.systemUptime
+    internalFocusSuppressions = internalFocusSuppressions.filter {
+      $0.value.isInFlight && $0.value.deadline >= now
+    }
+    let fallback = windowID.flatMap { fallbackWindowID in
+      processIDs[fallbackWindowID].map {
+        NativeFocusRecoveryFallback(
+          windowID: fallbackWindowID,
+          processID: $0
+        )
+      }
+    }
+    if let requestID = submittedFocusRecoveryRequestID {
+      let cancelled = focusWriter.cancel(
+        requestID,
+        recoveryFallback: fallback
+      )
+      if !cancelled,
+        let fallback,
+        let timestamp = submittedFocusRecoveryTimestamp
+      {
+        submitFocusRecoveryFallback(
+          fallback,
+          timestamp: timestamp
+        )
+        return
+      }
+    }
+    submittedFocusRecoveryRequestID = nil
+    submittedFocusRecoveryTimestamp = nil
+    submittedFocusRecoveryGeneration = nil
+  }
+
+  public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {
+    guard let processID = processIDs[windowID] else { return false }
+    return lastNativeFocusedWindowID == windowID
+      && NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
+  }
+
+  @discardableResult
   public func focus(
     _ windowID: WindowID,
-    unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil
-  ) {
+    unlessUserInputAfter maximumUserInputTimestamp: TimeInterval? = nil,
+    focusRecoveryFallbackWindowID: WindowID? = nil,
+    cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
+    cursorWarpPrefersTargetFrame: Bool = false,
+    cursorWarpIsCurrent: (@MainActor @Sendable () -> Bool)? = nil,
+    completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
+  ) -> NativeFocusRequestID? {
     submitFocus(
       windowID,
       unlessUserInputAfter: maximumUserInputTimestamp,
-      suppressesNativeFocusEvent: true
+      suppressesNativeFocusEvent: true,
+      focusRecoveryFallbackWindowID: focusRecoveryFallbackWindowID,
+      cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp,
+      cursorWarpPrefersTargetFrame: cursorWarpPrefersTargetFrame,
+      cursorWarpIsCurrent: cursorWarpIsCurrent,
+      completion: completion
     )
   }
 
+  @discardableResult
   private func submitFocus(
     _ windowID: WindowID,
     unlessUserInputAfter maximumUserInputTimestamp: TimeInterval?,
-    suppressesNativeFocusEvent: Bool
-  ) {
+    suppressesNativeFocusEvent: Bool,
+    focusRecoveryFallbackWindowID: WindowID? = nil,
+    cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
+    cursorWarpPrefersTargetFrame: Bool = false,
+    cursorWarpIsCurrent: (@MainActor @Sendable () -> Bool)? = nil,
+    focusRecoveryFallback providedFocusRecoveryFallback:
+      NativeFocusRecoveryFallback? = nil,
+    createsRecoveryRequest: Bool = true,
+    completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
+  ) -> NativeFocusRequestID? {
     guard let element = elements[windowID],
       let processID = processIDs[windowID],
       let application = applications[processID]
     else {
-      return
+      completion?(.failed)
+      return nil
     }
+    let focusRecoveryFallback = maximumUserInputTimestamp.flatMap { _ in
+      providedFocusRecoveryFallback
+        ?? focusRecoveryFallbackWindowID.flatMap { fallbackWindowID in
+          processIDs[fallbackWindowID].map {
+            NativeFocusRecoveryFallback(
+              windowID: fallbackWindowID,
+              processID: $0
+            )
+          }
+        }
+        ?? capturedNativeFocusRecoveryFallback()
+    }
+    let focusRecoveryRequest = createsRecoveryRequest ? maximumUserInputTimestamp.map {
+      NativeFocusRecoveryRequest(
+        timestamp: $0,
+        excludingWindowID: windowID,
+        excludingProcessID: processID,
+        fallback: focusRecoveryFallback
+      )
+    } : nil
+    let internalFocusRequestID: UInt64?
     if suppressesNativeFocusEvent {
-      internalFocusDeadlines[windowID] =
-        ProcessInfo.processInfo.systemUptime + 2
+      let requestInputTimestamp = maximumUserInputTimestamp
+        ?? userInputTracker.latestEventTimestamp
+      let suppressionDeadline = ProcessInfo.processInfo.systemUptime + 2
+      if focusWriter.isBusy {
+        internalFocusSuppressions = internalFocusSuppressions.mapValues {
+          extendingInternalFocusSuppression(
+            $0,
+            through: requestInputTimestamp,
+            deadline: suppressionDeadline
+          )
+        }
+      }
+      nextInternalFocusRequestID &+= 1
+      internalFocusRequestID = nextInternalFocusRequestID
+      internalFocusSuppressions[windowID] = InternalFocusSuppression(
+        requestID: nextInternalFocusRequestID,
+        deadline: suppressionDeadline,
+        maximumInputTimestamp: requestInputTimestamp
+      )
+    } else {
+      internalFocusRequestID = nil
     }
     let focusWritePending = focusWriter.isBusy
     let activatesApplication =
@@ -55,7 +250,7 @@ extension MacOSPlatform {
       focusWritePending: focusWritePending,
       targetWasLastFocused: lastFocusedWindowByProcess[processID] == windowID
     )
-    focusWriter.submit(
+    return focusWriter.submit(
       AsyncFocusRequest(
         element: element,
         application: application,
@@ -68,50 +263,107 @@ extension MacOSPlatform {
             tracker: userInputTracker,
             maximumTimestamp: $0
           )
-        }
+        },
+        recoveryRequest: focusRecoveryRequest
       )
-    ) { [weak self] result in
+    ) { [weak self] nativeCompletion in
       Task { @MainActor [weak self] in
+        let result = nativeCompletion.result
+        if let internalFocusRequestID, let self {
+          self.internalFocusSuppressions[windowID] =
+            internalFocusSuppressionAfterCompletion(
+              self.internalFocusSuppressions[windowID],
+              requestID: internalFocusRequestID,
+              result: result
+            )
+        }
+        if let recoveryRequest = nativeCompletion.recoveryRequest {
+          self?.recoverUserFocus(recoveryRequest)
+        }
         switch result {
-        case .completed:
+        case .completed, .completedWithoutMutation:
           self?.borderManager.revealPendingBorders()
-        case .cancelled:
+          if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(
+            result: result,
+            requestedTimestamp: cursorWarpInputTimestamp
+          ), cursorWarpIsCurrent?() ?? true {
+            self?.warpCursor(
+              to: windowID,
+              unlessUserInputAfter: cursorWarpInputTimestamp,
+              preferringTargetFrame: cursorWarpPrefersTargetFrame
+            )
+          }
+        case .frameSuperseded, .superseded, .supersededAfterMutation,
+          .cancelled:
           break
         case .cancelledAfterMutation:
-          guard let maximumUserInputTimestamp else { return }
-          self?.recoverUserFocus(
-            after: maximumUserInputTimestamp,
-            excludingWindowID: windowID,
-            excludingProcessID: processID
-          )
+          break
+        case .cancelledAfterInputMutation:
+          break
+        case .failed:
+          break
+        case .failedAfterMutation:
+          break
         }
+        completion?(result)
       }
     }
   }
 
-  private func recoverUserFocus(
-    after timestamp: TimeInterval,
-    excludingWindowID: WindowID,
-    excludingProcessID: pid_t
-  ) {
-    guard let target = userInputTracker.focusRecoveryTarget(
-      after: timestamp,
-      excludingWindowID: excludingWindowID,
-      excludingProcessID: excludingProcessID
-    ),
-      userInputTracker.latestEventTimestamp <= target.timestamp
-    else {
-      return
+  @discardableResult
+  public func cancelFocus(
+    _ requestID: NativeFocusRequestID,
+    recoveringTo windowID: WindowID? = nil
+  ) -> Bool {
+    let fallback = windowID.flatMap { fallbackWindowID in
+      processIDs[fallbackWindowID].map {
+        NativeFocusRecoveryFallback(
+          windowID: fallbackWindowID,
+          processID: $0
+        )
+      }
     }
+    return focusWriter.cancel(requestID, recoveryFallback: fallback)
+  }
+
+  private func recoverUserFocus(_ request: NativeFocusRecoveryRequest) {
+    let target = userInputTracker.focusRecoveryTarget(
+      after: request.timestamp,
+      excludingWindowID: request.excludingWindowID,
+      excludingProcessID: request.excludingProcessID,
+      fallbackWindowID: request.fallback?.windowID,
+      fallbackProcessID: request.fallback?.processID
+    ) ?? nativeFocusRecoveryFallbackTarget(
+      request,
+      latestEventTimestamp: userInputTracker.latestEventTimestamp
+    )
+    guard let target,
+      userInputTracker.latestEventTimestamp <= target.timestamp
+    else { return }
     if let windowID = target.windowID, elements[windowID] != nil {
       frameCoordinator.recordTrace(
         "focus-recovery window=\(windowID.rawValue)"
       )
-      submitFocus(
+      nextFocusRecoveryGeneration &+= 1
+      let recoveryGeneration = nextFocusRecoveryGeneration
+      let requestID = submitFocus(
         windowID,
         unlessUserInputAfter: target.timestamp,
-        suppressesNativeFocusEvent: false
+        suppressesNativeFocusEvent: false,
+        completion: { [weak self] _ in
+          guard let self,
+            self.submittedFocusRecoveryGeneration == recoveryGeneration
+          else { return }
+          self.submittedFocusRecoveryRequestID = nil
+          self.submittedFocusRecoveryTimestamp = nil
+          self.submittedFocusRecoveryGeneration = nil
+        }
       )
+      submittedFocusRecoveryRequestID = requestID
+      submittedFocusRecoveryTimestamp =
+        requestID == nil ? nil : target.timestamp
+      submittedFocusRecoveryGeneration =
+        requestID == nil ? nil : recoveryGeneration
       return
     }
     let processID =
@@ -126,8 +378,137 @@ extension MacOSPlatform {
     else {
       return
     }
+    if let windowID = target.windowID {
+      focusRecoveryResolver.resolve(
+        windowID: windowID,
+        processID: processID
+      ) { [weak self] resolution in
+        Task { @MainActor [weak self] in
+          guard let self,
+            self.userInputTracker.latestEventTimestamp <= target.timestamp
+          else {
+            return
+          }
+          guard let resolution else {
+            self.activateFocusRecoveryProcess(processID)
+            return
+          }
+          self.submitAuxiliaryFocusRecovery(
+            element: resolution.element,
+            windowID: windowID,
+            processID: processID,
+            application: resolution.application,
+            timestamp: target.timestamp
+          )
+        }
+      }
+      return
+    }
+    activateFocusRecoveryProcess(processID)
+  }
+
+  private func submitAuxiliaryFocusRecovery(
+    element: AXUIElement,
+    windowID: WindowID,
+    processID: pid_t,
+    application: AXUIElement,
+    timestamp: TimeInterval
+  ) {
+    frameCoordinator.recordTrace(
+      "focus-recovery auxiliary-window=\(windowID.rawValue)"
+    )
+    nextFocusRecoveryGeneration &+= 1
+    let recoveryGeneration = nextFocusRecoveryGeneration
+    let recoveryRequest = NativeFocusRecoveryRequest(
+      timestamp: timestamp,
+      excludingWindowID: windowID,
+      excludingProcessID: processID,
+      fallback: nil
+    )
+    let requestID = focusWriter.submit(
+      AsyncFocusRequest(
+        element: element,
+        application: application,
+        processID: processID,
+        selectsSpecificWindow: true,
+        validatesSpecificWindowFocus: false,
+        activatesApplication:
+          NSWorkspace.shared.frontmostApplication?.processIdentifier
+          != processID,
+        inputGuard: FocusInputGuard(
+          tracker: userInputTracker,
+          maximumTimestamp: timestamp
+        ),
+        recoveryRequest: recoveryRequest
+      )
+    ) { [weak self] completion in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        if self.submittedFocusRecoveryGeneration == recoveryGeneration {
+          self.submittedFocusRecoveryRequestID = nil
+          self.submittedFocusRecoveryTimestamp = nil
+          self.submittedFocusRecoveryGeneration = nil
+        }
+        if let recoveryRequest = completion.recoveryRequest {
+          self.recoverUserFocus(recoveryRequest)
+        }
+      }
+    }
+    submittedFocusRecoveryRequestID = requestID
+    submittedFocusRecoveryTimestamp = timestamp
+    submittedFocusRecoveryGeneration = recoveryGeneration
+  }
+
+  private func submitFocusRecoveryFallback(
+    _ fallback: NativeFocusRecoveryFallback,
+    timestamp: TimeInterval
+  ) {
+    guard let windowID = fallback.windowID else {
+      submittedFocusRecoveryRequestID = nil
+      submittedFocusRecoveryTimestamp = nil
+      submittedFocusRecoveryGeneration = nil
+      return
+    }
+    nextFocusRecoveryGeneration &+= 1
+    let recoveryGeneration = nextFocusRecoveryGeneration
+    let requestID = submitFocus(
+      windowID,
+      unlessUserInputAfter: timestamp,
+      suppressesNativeFocusEvent: false,
+      focusRecoveryFallback: fallback,
+      createsRecoveryRequest: false,
+      completion: { [weak self] _ in
+        guard let self,
+          self.submittedFocusRecoveryGeneration == recoveryGeneration
+        else { return }
+        self.submittedFocusRecoveryRequestID = nil
+        self.submittedFocusRecoveryTimestamp = nil
+        self.submittedFocusRecoveryGeneration = nil
+      }
+    )
+    submittedFocusRecoveryRequestID = requestID
+    submittedFocusRecoveryTimestamp = requestID == nil ? nil : timestamp
+    submittedFocusRecoveryGeneration =
+      requestID == nil ? nil : recoveryGeneration
+  }
+
+  private func activateFocusRecoveryProcess(_ processID: pid_t) {
     frameCoordinator.recordTrace("focus-recovery pid=\(processID)")
     NSRunningApplication(processIdentifier: processID)?.activate()
+  }
+
+  private func capturedNativeFocusRecoveryFallback()
+    -> NativeFocusRecoveryFallback?
+  {
+    let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let windowID = lastNativeFocusedWindowID.flatMap { windowID in
+      processIDs[windowID] == processID ? windowID : nil
+    }
+    guard windowID != nil || processID != nil else { return nil }
+    return NativeFocusRecoveryFallback(
+      windowID: windowID,
+      processID: processID
+    )
   }
 
 }

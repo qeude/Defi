@@ -48,15 +48,33 @@ extension Daemon {
       from: latestMonitors,
       to: snapshot.monitors
     )
+    var preservedCommandFocus: PendingAnimatedFocus?
+    var preservedWorkspaceFocus: PendingWorkspaceFocus?
+    var preservedDisplacedFocus: DisplacedPointerFocusRecovery?
     if displayGeometryChanged {
       let previous = displayGeometryDescription(latestMonitors)
       let next = displayGeometryDescription(snapshot.monitors)
       displayLogger.info(
         "geometry changed previous=\(previous, privacy: .public) next=\(next, privacy: .public)"
       )
+      preservedCommandFocus = pendingAnimatedFocus ?? submittedCommandFocus
+      preservedWorkspaceFocus = pendingWorkspaceFocus
+      preservedDisplacedFocus = displacedPointerFocusRecovery
+      let preservedLogicalFocusWindowID = activeMonitorID.flatMap {
+        state.selectedWindowID(on: $0)
+      }
+      pendingAnimatedFocus = nil
+      invalidateSubmittedCommandFocus()
+      invalidateSubmittedWorkspaceFocus()
+      pendingWorkspaceFocus = nil
+      submittedWorkspaceFocusGeneration = nil
+      displacedPointerFocusRecovery = nil
       platform.invalidateFrameStateForDisplayChange()
+      platform.invalidateFocusStateForDisplayChange()
+      invalidatePointerFocusIntent(recoveringTo: preservedLogicalFocusWindowID)
+      rearmPointerFocusTransition()
       scrollAnimations.removeAll(keepingCapacity: true)
-      pendingAnimatedFocusWindowID = nil
+      submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
       cancelDeferredSlowLane()
@@ -71,6 +89,13 @@ extension Daemon {
       previousViewports: previousViewports,
       nextViewports: viewportsByMonitor
     )
+    if displayGeometryChanged {
+      requeuePreservedFocusAfterMonitorRetention(
+        command: preservedCommandFocus,
+        workspace: preservedWorkspaceFocus,
+        displaced: preservedDisplacedFocus
+      )
+    }
     var nativelyFocusedMonitorID: MonitorID?
     var nativelyActivatedWorkspace = false
     reconcileWindows(
@@ -202,6 +227,16 @@ extension Daemon {
         activeMonitorID: activeMonitorID,
         state: state
       )
+      if nativeFocusAccepted {
+        platform.invalidateFocusRecovery(recoveringTo: focusedWindowID)
+        invalidateSubmittedCommandFocus(recoveringTo: focusedWindowID)
+        invalidateSubmittedWorkspaceFocus(recoveringTo: focusedWindowID)
+        invalidatePointerFocusIntent(recoveringTo: focusedWindowID)
+        rearmPointerFocusTransition()
+        pendingAnimatedFocus = nil
+        pendingWorkspaceFocus = nil
+        submittedWorkspaceFocusGeneration = nil
+      }
       if snapshot.leftMouseButtonDown && snapshot.nativeFocusChanged
         && selectionChanged && !nativeFocusAccepted
       {
@@ -572,6 +607,14 @@ extension Daemon {
     positionsOnly: Bool = false,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
+    focusInputTimestampAfterCommit: TimeInterval? = nil,
+    cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
+    focusCompletionAfterCommit:
+      (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+    cursorWarpIsCurrentAfterCommit:
+      (@MainActor @Sendable () -> Bool)? = nil,
+    focusRequestIDAfterCommit:
+      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     forceFloatingFrameWrites: Bool = false,
     source: String = "layout"
   ) {
@@ -680,6 +723,12 @@ extension Daemon {
       updateVisibility: updateVisibility ?? !asynchronousPositions,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+      focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
+      cursorWarpInputTimestampAfterCommit:
+        cursorWarpInputTimestampAfterCommit,
+      focusCompletionAfterCommit: focusCompletionAfterCommit,
+      cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
+      focusRequestIDAfterCommit: focusRequestIDAfterCommit,
       source: source
     )
     platform.updateWindowBorders(

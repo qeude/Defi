@@ -100,26 +100,39 @@ final class PlatformEventMonitor {
     displayCallbackRegistered = displayResult == .success
 
     mouseMonitor = NSEvent.addGlobalMonitorForEvents(
-      matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+      matching: [
+        .leftMouseDown,
+        .leftMouseDragged,
+        .leftMouseUp,
+        .rightMouseDown,
+        .rightMouseUp,
+        .otherMouseDown,
+        .otherMouseUp,
+      ]
     ) { [weak self] event in
       MainActor.assumeIsolated {
         guard let self else { return }
-        if event.type == .leftMouseDown {
+        if eventStartsMouseFocusInteraction(event.type) {
           let rawWindowID =
             event.cgEvent?.getIntegerValueField(
               .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
             ) ?? Int64(event.windowNumber)
           self.userInputTracker.record(
             timestamp: event.timestamp,
-            focusIntent: .mouse(
-              windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
-            )
+            focusIntent: event.type == .leftMouseDown
+              ? .mouse(
+                windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+              )
+              : nil
           )
         }
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {
           self.liveFrameHandler()
         }
-        let actions = self.mouseGestureNormalizer.actions(for: event.type)
+        let actions = self.mouseGestureNormalizer.actions(
+          for: event.type,
+          buttonNumber: event.buttonNumber
+        )
         if actions.refreshBorderStacking {
           self.borderStackingHandler()
         }
@@ -129,13 +142,18 @@ final class PlatformEventMonitor {
         switch actions.synchronization {
         case .gesture:
           self.handler(.mouse, nil)
-        case .clickRelease:
-          self.handler(.mouseRelease, nil)
         case nil:
           break
         }
+        if actions.endsFocusInteraction {
+          self.handler(.mouseRelease, nil)
+        }
       }
     }
+  }
+
+  func resetMouseGestureState() -> Bool {
+    mouseGestureNormalizer.reset()
   }
 
   func refresh(applications: [pid_t: [AXUIElement]]) {

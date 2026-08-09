@@ -16,9 +16,11 @@ public final class MacOSPlatform {
   var enhancedUIByProcess: [pid_t: Bool] = [:]
   let frameCoordinator = AXFrameCoordinator()
   let focusWriter = AXFocusWriter()
+  let focusRecoveryResolver = AXFocusRecoveryResolver()
   let borderManager = WindowBorderManager()
   let borderBoundsProvider = WindowServerBoundsProvider()
   var targetFrames: [WindowID: Rect] = [:]
+  var pendingFrameDebtWindowIDs = Set<WindowID>()
   var pendingFrameCorrections: [WindowID: Rect] = [:]
   var latestObservedFrames: [WindowID: Rect] = [:]
   var frameCommitExpectations: [WindowID: FrameCommitExpectation] = [:]
@@ -32,6 +34,8 @@ public final class MacOSPlatform {
   var pendingFrameProcessIDs = Set<pid_t>()
   var pendingFrameRequiresFullSnapshot = false
   var lastSnapshotWindows: [Window] = []
+  var lastSnapshotWindowIDs = Set<WindowID>()
+  var lastSnapshotProcessIDs = Set<pid_t>()
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
   var retainedWindowIDs = Set<WindowID>()
   var deferredFrameCommitMismatchCount = 0
@@ -46,11 +50,19 @@ public final class MacOSPlatform {
   var nativeFocusEventProcessIDs = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess = false
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
-  var internalFocusDeadlines: [WindowID: TimeInterval] = [:]
+  var internalFocusSuppressions: [WindowID: InternalFocusSuppression] = [:]
+  var nextInternalFocusRequestID: UInt64 = 0
+  var submittedFocusRecoveryRequestID: NativeFocusRequestID?
+  var submittedFocusRecoveryTimestamp: TimeInterval?
+  var submittedFocusRecoveryGeneration: UInt64?
+  var nextFocusRecoveryGeneration: UInt64 = 0
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
   var lastMonitorFrames: [Rect] = []
+  var pointerHitTestRecords: [CGWindowRecord] = []
+  var pointerHitTestDockProcessIDs = Set<pid_t>()
+  var pointerHitTestSnapshotTimestamp: TimeInterval?
   var borderFrames: [FrameAssignment] = []
   var borderSelectedWindowID: WindowID?
   var desiredSelectedWindowID: WindowID?
@@ -68,8 +80,12 @@ public final class MacOSPlatform {
     inactiveColor: 0x66c0_99ff,
     captureEnabled: false
   )
+  var cursorWarpAppliedCount = 0
+  var cursorWarpSkippedCount = 0
+  var cursorWarpFailedCount = 0
 
   public let userInputTracker = UserInputTracker()
+  public let pointerMotionTracker = PointerMotionTracker()
 
   public init() {}
 
