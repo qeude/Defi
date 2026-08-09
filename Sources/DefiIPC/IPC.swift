@@ -32,6 +32,7 @@ public enum IPCError: Error, CustomStringConvertible, Sendable {
   case systemCall(String, Int32)
   case invalidResponse
   case requestTooLarge
+  case readTimeout
 
   public var description: String {
     switch self {
@@ -43,6 +44,8 @@ public enum IPCError: Error, CustomStringConvertible, Sendable {
       "invalid daemon response"
     case .requestTooLarge:
       "IPC request too large"
+    case .readTimeout:
+      "IPC request read timed out"
     }
   }
 }
@@ -111,6 +114,7 @@ public final class UnixSocketServer {
     do {
       try configureNoSigPipe(client)
       try configureBlocking(client)
+      try configureReadTimeout(client)
       let requestData = try readLine(from: client)
       let request = try JSONDecoder().decode(CommandRequest.self, from: requestData)
       let response = handler(request.command)
@@ -140,8 +144,9 @@ public func sendCommand(
   try withSocketAddress(path: url.path) { address, length in
     guard connect(descriptor, address, length) == 0 else {
       throw IPCError.systemCall("connect", errno)
-    }
+      }
   }
+  try configureReadTimeout(descriptor)
   var request = try JSONEncoder().encode(CommandRequest(command: command))
   request.append(0x0A)
   try writeAll(request, to: descriptor)
@@ -181,6 +186,9 @@ private func readLine(from descriptor: Int32) throws -> Data {
     let count = Darwin.read(descriptor, &buffer, buffer.count)
     if count < 0 {
       if errno == EINTR { continue }
+      if errno == EAGAIN || errno == EWOULDBLOCK {
+        throw IPCError.readTimeout
+      }
       throw IPCError.systemCall("read", errno)
     }
     if count == 0 { break }
@@ -215,6 +223,21 @@ func configureBlocking(_ descriptor: Int32) throws {
   let flags = fcntl(descriptor, F_GETFL)
   guard flags >= 0, fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
     throw IPCError.systemCall("fcntl", errno)
+  }
+}
+
+func configureReadTimeout(_ descriptor: Int32) throws {
+  var timeout = timeval(tv_sec: 2, tv_usec: 0)
+  guard
+    setsockopt(
+      descriptor,
+      SOL_SOCKET,
+      SO_RCVTIMEO,
+      &timeout,
+      socklen_t(MemoryLayout<timeval>.size)
+    ) == 0
+  else {
+    throw IPCError.systemCall("setsockopt", errno)
   }
 }
 

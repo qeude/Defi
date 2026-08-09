@@ -4,6 +4,9 @@
 
 macOS-native scrolling-column window manager inspired by Niri.
 
+Status: `0.1.0-alpha`. Experimental software; behavior and configuration may
+change before the first stable release.
+
 Basic MVP includes:
 
 - multiple visible scrolling columns
@@ -134,13 +137,15 @@ Stable bundle ID and signing identity preserve Accessibility permission across b
 
 ```sh
 swift build
-swift test
+swift test --skip DesktopE2ETests
 ./script/test_desktop.sh
 ```
 
-Desktop tests temporarily stop the installed LaunchAgent, exercise native
-focus, offscreen workspace parking, and real frame convergence, restore changed
-windows, then restart the service.
+CI runs deterministic tests only. Desktop tests require an interactive macOS
+session, installed windows, and Accessibility permission. Run them locally with
+`./script/test_desktop.sh`; the script temporarily stops the installed
+LaunchAgent, exercises native focus, offscreen workspace parking, and real
+frame convergence, restores changed windows, then restarts the service.
 
 `defi trace` prints the bounded AX frame-coordinator history. `submit` includes
 the layout source; animation samples expose inter-app completion spread.

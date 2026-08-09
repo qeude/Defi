@@ -3,6 +3,8 @@
 .DS_Store
 dist/
 .env.local
+.vscode/
+.codex/
 
 # gemini-cli settings
 .gemini/
