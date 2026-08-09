@@ -506,7 +506,11 @@ extension Daemon {
     recoveringTo windowID: WindowID? = nil
   ) {
     if let requestID = submittedCommandFocusRequestID {
-      _ = platform.cancelFocus(requestID, recoveringTo: windowID)
+      let timestamp = submittedCommandFocus?.focusInputTimestamp
+      let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
+      if !cancelled, let windowID, let timestamp {
+        platform.focus(windowID, unlessUserInputAfter: timestamp)
+      }
     }
     submittedCommandFocusRequestID = nil
     submittedCommandFocus = nil
@@ -516,7 +520,11 @@ extension Daemon {
     recoveringTo windowID: WindowID? = nil
   ) {
     if let requestID = submittedWorkspaceFocusRequestID {
-      _ = platform.cancelFocus(requestID, recoveringTo: windowID)
+      let timestamp = pendingWorkspaceFocus?.focusInputTimestamp
+      let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
+      if !cancelled, let windowID, let timestamp {
+        platform.focus(windowID, unlessUserInputAfter: timestamp)
+      }
     }
     submittedWorkspaceFocusRequestID = nil
     submittedWorkspaceFocusGeneration = nil
