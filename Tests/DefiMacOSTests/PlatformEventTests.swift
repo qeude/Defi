@@ -868,6 +868,30 @@ struct PlatformEventTests {
   }
 
   @Test
+  func throttledPointerMotionStillHasTrailingDelivery() {
+    #expect(
+      pointerMotionDeliveryPlan(
+        rawWindowChanged: false,
+        refreshDelay: 0.007,
+        deliveryScheduled: false
+      ) == PointerMotionDeliveryPlan(
+        shouldSchedule: true,
+        delay: 0.007
+      )
+    )
+    #expect(
+      pointerMotionDeliveryPlan(
+        rawWindowChanged: false,
+        refreshDelay: 0.007,
+        deliveryScheduled: true
+      ) == PointerMotionDeliveryPlan(
+        shouldSchedule: false,
+        delay: 0.007
+      )
+    )
+  }
+
+  @Test
   func laterWindowTopologyEventRefreshesInputTimestamp() {
     #expect(
       updatedWindowTopologyInputTimestamp(

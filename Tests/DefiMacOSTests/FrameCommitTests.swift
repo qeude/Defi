@@ -109,6 +109,23 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testDeferredFrameFocusWaitsForPendingFrameDebt() {
+    let target = WindowID(rawValue: 42)
+
+    XCTAssertFalse(
+      deferredFocusFrameIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [target]
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusFrameIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: []
+      )
+    )
+  }
+
   func testDisplacedQueuedFrameCompletesAsSuperseded() {
     let completion = expectation(description: "superseded completion")
     let frame = QueuedPositionFrame(

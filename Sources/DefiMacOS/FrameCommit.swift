@@ -306,6 +306,13 @@ func deferredFocusInputIsCurrent(
   return latestUserInputTimestamp <= requestedTimestamp
 }
 
+func deferredFocusFrameIsReady(
+  targetWindowID: WindowID,
+  pendingFrameWindowIDs: Set<WindowID>
+) -> Bool {
+  !pendingFrameWindowIDs.contains(targetWindowID)
+}
+
 func cursorWarpFrameReadiness(
   latestWriteSucceeded: Bool?,
   observedFrame: Rect?,

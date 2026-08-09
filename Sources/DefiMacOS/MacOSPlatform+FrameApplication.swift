@@ -329,6 +329,13 @@ extension MacOSPlatform {
             self.refreshWindowBorders()
           }
           if let focusWindowIDAfterCommit {
+            guard deferredFocusFrameIsReady(
+              targetWindowID: focusWindowIDAfterCommit,
+              pendingFrameWindowIDs: self.pendingFrameWindowIDs
+            ) else {
+              focusCompletionAfterCommit?(.frameSuperseded)
+              return
+            }
             guard deferredFocusInputIsCurrent(
               requestedTimestamp: focusInputTimestampAfterCommit,
               latestUserInputTimestamp:
@@ -380,7 +387,11 @@ extension MacOSPlatform {
       )
     }
     if asynchronousWrites.isEmpty, let focusWindowIDAfterCommit {
-      if deferredFocusInputIsCurrent(
+      let frameReady = deferredFocusFrameIsReady(
+        targetWindowID: focusWindowIDAfterCommit,
+        pendingFrameWindowIDs: pendingFrameWindowIDs
+      )
+      if frameReady, deferredFocusInputIsCurrent(
         requestedTimestamp: focusInputTimestampAfterCommit,
         latestUserInputTimestamp: userInputTracker.latestEventTimestamp
       ),
@@ -396,6 +407,8 @@ extension MacOSPlatform {
           cursorWarpPrefersTargetFrame: true,
           completion: focusCompletionAfterCommit
         )
+      } else if !frameReady {
+        focusCompletionAfterCommit?(.frameSuperseded)
       } else {
         focusCompletionAfterCommit?(.cancelled)
       }

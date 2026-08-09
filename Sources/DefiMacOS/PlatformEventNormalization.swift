@@ -320,6 +320,22 @@ func pointerMotionDeliveryDelay(
   return max(0, minimumInterval - elapsed)
 }
 
+struct PointerMotionDeliveryPlan: Equatable {
+  let shouldSchedule: Bool
+  let delay: TimeInterval
+}
+
+func pointerMotionDeliveryPlan(
+  rawWindowChanged: Bool,
+  refreshDelay: TimeInterval,
+  deliveryScheduled: Bool
+) -> PointerMotionDeliveryPlan {
+  PointerMotionDeliveryPlan(
+    shouldSchedule: !deliveryScheduled,
+    delay: rawWindowChanged ? 0 : refreshDelay
+  )
+}
+
 func eventTracksPhysicalPointerMotion(_ type: CGEventType) -> Bool {
   switch type {
   case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
