@@ -1,4 +1,4 @@
-.PHONY: build test run verify
+.PHONY: build test run verify package-dmg
 
 build:
 	swift build
@@ -11,3 +11,6 @@ run:
 
 verify:
 	./script/build_and_run.sh --verify
+
+package-dmg:
+	./script/package_dmg.sh

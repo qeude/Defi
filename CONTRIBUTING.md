@@ -42,3 +42,14 @@ installed service, but do not run them while important unsaved work is exposed.
 Describe the user-visible change, tests run, and known limitations. Use a
 focused branch and conventional prefix such as `feat/`, `fix/`, `docs/`, or
 `refactor/`. Keep alpha-scope changes small and reversible.
+
+## Release packaging
+
+Create the signed alpha DMG locally with:
+
+```sh
+./script/package_dmg.sh
+```
+
+The script requires an Apple Development signing identity. It creates a
+non-notarized artifact under `dist/` and does not install or launch Defi.
