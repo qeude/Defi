@@ -450,18 +450,18 @@ private final class HotKeyTapContext: @unchecked Sendable {
   ) {
     lock.lock()
     let rawWindowChanged = pointerTransitionState.changed(to: rawWindowID)
-    guard rawWindowID <= 0 || rawWindowChanged
-    else {
+    let refreshDelay = pointerMotionDeliveryDelay(
+      rawWindowID: rawWindowID,
+      eventTimestamp: invocation.timestamp,
+      lastDeliveryTimestamp: lastPointerDeliveryTimestamp
+    )
+    if rawWindowID > 0, !rawWindowChanged, refreshDelay > 0 {
       lock.unlock()
       return
     }
     pendingPointerMotion = invocation
     let schedulesDelivery = !pointerDeliveryScheduled
-    let deliveryDelay = pointerMotionDeliveryDelay(
-      rawWindowID: rawWindowID,
-      eventTimestamp: invocation.timestamp,
-      lastDeliveryTimestamp: lastPointerDeliveryTimestamp
-    )
+    let deliveryDelay = rawWindowChanged ? 0 : refreshDelay
     pointerDeliveryScheduled = true
     let deliveryGeneration = pointerDeliveryGeneration
     lock.unlock()

@@ -25,6 +25,7 @@ extension MacOSPlatform {
 
   private func clearFrameState() {
     targetFrames.removeAll(keepingCapacity: true)
+    pendingFrameDebtWindowIDs.removeAll(keepingCapacity: true)
     pendingFrameCorrections.removeAll(keepingCapacity: true)
     latestObservedFrames.removeAll(keepingCapacity: true)
     frameCommitExpectations.removeAll(keepingCapacity: true)

@@ -310,8 +310,7 @@ func pointerMotionDeliveryDelay(
   lastDeliveryTimestamp: TimeInterval?,
   maximumFrequencyHz: Double = 120
 ) -> TimeInterval {
-  guard rawWindowID <= 0,
-    maximumFrequencyHz > 0,
+  guard maximumFrequencyHz > 0,
     let lastDeliveryTimestamp
   else {
     return 0

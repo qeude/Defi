@@ -26,6 +26,7 @@ struct PendingPointerFocus {
 extension Daemon {
   func handleEventTapReenabled(at timestamp: TimeInterval) {
     platform.invalidateInputAfterEventTapReenabled(at: timestamp)
+    displacedPointerFocusRecovery = nil
     invalidatePointerFocusIntent()
     rearmPointerFocusTransition()
   }
@@ -171,6 +172,18 @@ extension Daemon {
     }
     platform.userInputTracker.record(timestamp: focusGuardTimestamp)
 
+    if let displaced = pendingAnimatedFocus.map({
+      DisplacedPointerFocusRecovery.command($0)
+    })
+      ?? submittedCommandFocus.map({
+        DisplacedPointerFocusRecovery.command($0)
+      })
+      ?? pendingWorkspaceFocus.map({
+        DisplacedPointerFocusRecovery.workspace($0)
+      })
+    {
+      displacedPointerFocusRecovery = displaced
+    }
     pendingAnimatedFocus = nil
     submittedCommandFocus = nil
     pendingWorkspaceFocus = nil
@@ -204,7 +217,8 @@ extension Daemon {
             windowID,
             generation: generation,
             timestamp: timestamp,
-            retryCount: retryCount
+            retryCount: retryCount,
+            restoresDisplacedFocus: result == .failed
           )
         case .frameSuperseded, .superseded, .supersededAfterMutation,
           .cancelled,
@@ -267,6 +281,7 @@ extension Daemon {
       return
     }
 
+    displacedPointerFocusRecovery = nil
     activeMonitorID = monitorID
     pointerFocusAppliedCount += 1
     needsDesktopSync = true
@@ -277,7 +292,8 @@ extension Daemon {
     _ windowID: WindowID,
     generation: UInt64,
     timestamp: TimeInterval,
-    retryCount: Int
+    retryCount: Int,
+    restoresDisplacedFocus: Bool
   ) {
     let windowUnderPointerID = platform.managedWindowIDUnderPointer(
       retaining: windowID
@@ -298,6 +314,11 @@ extension Daemon {
       )
     else {
       needsDesktopSync = true
+      if restoresDisplacedFocus, intentCurrent {
+        restoreDisplacedPointerFocus(at: timestamp)
+      } else {
+        displacedPointerFocusRecovery = nil
+      }
       return
     }
 
@@ -307,6 +328,65 @@ extension Daemon {
       timestamp: timestamp,
       retryCount: nextRetryCount
     )
+  }
+
+  private func restoreDisplacedPointerFocus(at timestamp: TimeInterval) {
+    guard let recovery = displacedPointerFocusRecovery else { return }
+    displacedPointerFocusRecovery = nil
+
+    switch recovery {
+    case .command(let request):
+      guard commandGeneration == request.commandGeneration,
+        state.selectedWindowID(on: request.monitorID) == request.windowID
+      else { return }
+      let restored = PendingAnimatedFocus(
+        windowID: request.windowID,
+        previousSelectedWindowID: request.previousSelectedWindowID,
+        monitorID: request.monitorID,
+        sourceWorkspaceID: request.sourceWorkspaceID,
+        commandGeneration: commandGeneration,
+        focusInputTimestamp: timestamp,
+        cursorWarpInputTimestamp: nil,
+        retryCount: request.retryCount
+      )
+      guard focusIsReady(on: request.monitorID) else {
+        pendingAnimatedFocus = restored
+        return
+      }
+      commitCommandFocus(
+        restored.windowID,
+        previousSelectedWindowID: restored.previousSelectedWindowID,
+        monitorID: restored.monitorID,
+        sourceWorkspaceID: restored.sourceWorkspaceID,
+        commandGeneration: restored.commandGeneration,
+        focusInputTimestamp: restored.focusInputTimestamp,
+        cursorWarpInputTimestamp: restored.cursorWarpInputTimestamp,
+        retryCount: restored.retryCount
+      )
+
+    case .workspace(let request):
+      guard commandGeneration == request.commandGeneration,
+        state.monitors.first(where: { $0.id == request.monitorID })?.activeWorkspace
+          == request.requestedWorkspaceID,
+        state.selectedWindowID(on: request.monitorID) == request.requestedWindowID
+      else { return }
+      pendingWorkspaceFocus = PendingWorkspaceFocus(
+        monitorID: request.monitorID,
+        requestedWorkspaceID: request.requestedWorkspaceID,
+        previousWorkspaceID: request.previousWorkspaceID,
+        requestedWindowID: request.requestedWindowID,
+        restoresPreviousWorkspaceOnCancellation:
+          request.restoresPreviousWorkspaceOnCancellation,
+        commandGeneration: commandGeneration,
+        focusInputTimestamp: timestamp,
+        cursorWarpInputTimestamp: nil,
+        retryCount: request.retryCount
+      )
+      submittedWorkspaceFocusGeneration = nil
+      if focusIsReady(on: request.monitorID) {
+        finishPendingWorkspaceFocusIfReady()
+      }
+    }
   }
 
   private func rearmPointerFocusTransition() {

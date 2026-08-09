@@ -357,6 +357,11 @@ extension MacOSPlatform {
         }
       }
     }
+    if coordinatorWasBusy {
+      // Keep superseded writes as readiness debt until fresh observations
+      // confirm their targets; the next layout may omit equal optimistic frames.
+      pendingFrameDebtWindowIDs.formUnion(frameCoordinator.pendingWindowIDs)
+    }
     frameCoordinator.submit(
       asynchronousWrites,
       source: source,
@@ -557,7 +562,12 @@ extension MacOSPlatform {
   }
 
   public var pendingFrameWindowIDs: Set<WindowID> {
-    frameCoordinator.pendingWindowIDs
+    unresolvedFrameDebtWindowIDs(
+      pendingWindowIDs: frameCoordinator.pendingWindowIDs,
+      debtWindowIDs: pendingFrameDebtWindowIDs,
+      targetFrames: targetFrames,
+      observedFrames: latestObservedFrames
+    )
   }
 
   public var hasPendingFocusWrite: Bool {

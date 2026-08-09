@@ -184,6 +184,22 @@ func frameTargetsPreservingSkippedWindows(
   return next
 }
 
+func unresolvedFrameDebtWindowIDs(
+  pendingWindowIDs: Set<WindowID>,
+  debtWindowIDs: Set<WindowID>,
+  targetFrames: [WindowID: Rect],
+  observedFrames: [WindowID: Rect],
+  tolerance: Double = 1
+) -> Set<WindowID> {
+  pendingWindowIDs.union(
+    debtWindowIDs.filter { windowID in
+      guard let target = targetFrames[windowID] else { return false }
+      guard let observed = observedFrames[windowID] else { return true }
+      return frameDistance(observed, target) > tolerance
+    }
+  )
+}
+
 func hiddenWindowsPreservingSkippedWindows(
   previous: Set<WindowID>,
   desired: Set<WindowID>,

@@ -137,6 +137,11 @@ struct PendingWorkspaceFocus: Equatable {
   }
 }
 
+enum DisplacedPointerFocusRecovery: Equatable {
+  case command(PendingAnimatedFocus)
+  case workspace(PendingWorkspaceFocus)
+}
+
 @MainActor
 final class Daemon: NSObject {
   let config: Config
@@ -191,6 +196,7 @@ final class Daemon: NSObject {
   var submittedCommandFocus: PendingAnimatedFocus?
   var pendingWorkspaceFocus: PendingWorkspaceFocus?
   var submittedWorkspaceFocusGeneration: UInt64?
+  var displacedPointerFocusRecovery: DisplacedPointerFocusRecovery?
   var lastPointerWindowID: WindowID?
   var pendingPointerFocus: PendingPointerFocus?
   var pointerFocusGeneration: UInt64 = 0

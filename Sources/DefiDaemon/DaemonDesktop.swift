@@ -54,12 +54,17 @@ extension Daemon {
       displayLogger.info(
         "geometry changed previous=\(previous, privacy: .public) next=\(next, privacy: .public)"
       )
-      platform.invalidateFrameStateForDisplayChange()
-      platform.invalidateFocusStateForDisplayChange()
-      scrollAnimations.removeAll(keepingCapacity: true)
+      let preservedCommandFocus = pendingAnimatedFocus ?? submittedCommandFocus
+      let preservedWorkspaceFocus = pendingWorkspaceFocus
       pendingAnimatedFocus = nil
       submittedCommandFocus = nil
       pendingWorkspaceFocus = nil
+      submittedWorkspaceFocusGeneration = nil
+      platform.invalidateFrameStateForDisplayChange()
+      platform.invalidateFocusStateForDisplayChange()
+      scrollAnimations.removeAll(keepingCapacity: true)
+      pendingAnimatedFocus = preservedCommandFocus
+      pendingWorkspaceFocus = preservedWorkspaceFocus
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()

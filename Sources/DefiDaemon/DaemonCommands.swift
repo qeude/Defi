@@ -75,6 +75,7 @@ extension Daemon {
       platform.userInputTracker.record(
         timestamp: inputTimestamp ?? commandStartedAt
       )
+      displacedPointerFocusRecovery = nil
       invalidatePointerFocusIntent()
       let focusInputTimestamp = commandFocusInputTimestamp(
         capturedInputTimestamp: inputTimestamp,

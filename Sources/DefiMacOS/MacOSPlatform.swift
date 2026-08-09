@@ -20,6 +20,7 @@ public final class MacOSPlatform {
   let borderManager = WindowBorderManager()
   let borderBoundsProvider = WindowServerBoundsProvider()
   var targetFrames: [WindowID: Rect] = [:]
+  var pendingFrameDebtWindowIDs = Set<WindowID>()
   var pendingFrameCorrections: [WindowID: Rect] = [:]
   var latestObservedFrames: [WindowID: Rect] = [:]
   var frameCommitExpectations: [WindowID: FrameCommitExpectation] = [:]

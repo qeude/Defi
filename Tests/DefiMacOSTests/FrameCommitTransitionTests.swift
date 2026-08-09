@@ -61,4 +61,28 @@ struct FrameCommitTransitionTests {
       ) == false
     )
   }
+
+  @Test
+  func supersededFrameDebtStaysUntilTargetIsObserved() {
+    let displaced = WindowID(rawValue: 1)
+    let replacement = WindowID(rawValue: 2)
+    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
+    let observedElsewhere = Rect(x: 900, y: 40, width: 1_200, height: 900)
+
+    let pending = unresolvedFrameDebtWindowIDs(
+      pendingWindowIDs: [replacement],
+      debtWindowIDs: [displaced],
+      targetFrames: [displaced: target],
+      observedFrames: [displaced: observedElsewhere]
+    )
+    #expect(pending == [displaced, replacement])
+
+    let observed = unresolvedFrameDebtWindowIDs(
+      pendingWindowIDs: [replacement],
+      debtWindowIDs: [displaced],
+      targetFrames: [displaced: target],
+      observedFrames: [displaced: target]
+    )
+    #expect(observed == [replacement])
+  }
 }

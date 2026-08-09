@@ -849,7 +849,7 @@ struct PlatformEventTests {
         rawWindowID: 42,
         eventTimestamp: 12.001,
         lastDeliveryTimestamp: 12
-      ) == 0
+      ) > 0.007
     )
     #expect(
       pointerMotionDeliveryDelay(
