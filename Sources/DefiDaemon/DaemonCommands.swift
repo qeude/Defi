@@ -210,6 +210,8 @@ extension Daemon {
       if switchesWorkspace || !dispatchedAnimation {
         let focusWindowIDAfterCommit = workspaceFocusRequest?.requestedWindowID
         let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?
+        let focusRequestIDAfterCommit:
+          (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?
         if let workspaceFocusRequest {
           submittedWorkspaceFocusGeneration =
             workspaceFocusRequest.commandGeneration
@@ -219,8 +221,18 @@ extension Daemon {
               request: workspaceFocusRequest
             )
           }
+          focusRequestIDAfterCommit = { [weak self] requestID in
+            guard let self,
+              self.pendingWorkspaceFocus?.commandGeneration
+                == workspaceFocusRequest.commandGeneration,
+              self.submittedWorkspaceFocusGeneration
+                == workspaceFocusRequest.commandGeneration
+            else { return }
+            self.submittedWorkspaceFocusRequestID = requestID
+          }
         } else {
           focusCompletionAfterCommit = nil
+          focusRequestIDAfterCommit = nil
         }
         applyCurrentLayout(
           asynchronousPositions: true,
@@ -235,6 +247,7 @@ extension Daemon {
           cursorWarpInputTimestampAfterCommit:
             workspaceFocusRequest?.cursorWarpInputTimestamp,
           focusCompletionAfterCommit: focusCompletionAfterCommit,
+          focusRequestIDAfterCommit: focusRequestIDAfterCommit,
           source: switchesWorkspace ? "workspace-command" : "command"
         )
       }

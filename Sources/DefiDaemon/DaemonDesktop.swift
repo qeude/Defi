@@ -610,6 +610,8 @@ extension Daemon {
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
       (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+    focusRequestIDAfterCommit:
+      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     forceFloatingFrameWrites: Bool = false,
     source: String = "layout"
   ) {
@@ -722,6 +724,7 @@ extension Daemon {
       cursorWarpInputTimestampAfterCommit:
         cursorWarpInputTimestampAfterCommit,
       focusCompletionAfterCommit: focusCompletionAfterCommit,
+      focusRequestIDAfterCommit: focusRequestIDAfterCommit,
       source: source
     )
     platform.updateWindowBorders(

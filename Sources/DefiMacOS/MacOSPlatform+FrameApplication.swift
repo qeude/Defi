@@ -30,6 +30,8 @@ extension MacOSPlatform {
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
       (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+    focusRequestIDAfterCommit:
+      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     source: String = "platform"
   ) {
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
@@ -351,7 +353,7 @@ extension MacOSPlatform {
               focusCompletionAfterCommit?(.cancelled)
               return
             }
-            self.focus(
+            let requestID = self.focus(
               focusWindowIDAfterCommit,
               unlessUserInputAfter: focusInputTimestampAfterCommit,
               cursorWarpUnlessPointerMovedAfter:
@@ -363,6 +365,7 @@ extension MacOSPlatform {
               cursorWarpPrefersTargetFrame: true,
               completion: focusCompletionAfterCommit
             )
+            focusRequestIDAfterCommit?(requestID)
           }
         }
       }
@@ -402,7 +405,7 @@ extension MacOSPlatform {
         targetWindowID: focusWindowIDAfterCommit,
         selectedWindowID: desiredSelectedWindowID
       ) {
-        focus(
+        let requestID = focus(
           focusWindowIDAfterCommit,
           unlessUserInputAfter: focusInputTimestampAfterCommit,
           cursorWarpUnlessPointerMovedAfter:
@@ -410,6 +413,7 @@ extension MacOSPlatform {
           cursorWarpPrefersTargetFrame: true,
           completion: focusCompletionAfterCommit
         )
+        focusRequestIDAfterCommit?(requestID)
       } else if !frameReady {
         focusCompletionAfterCommit?(.frameSuperseded)
       } else {
