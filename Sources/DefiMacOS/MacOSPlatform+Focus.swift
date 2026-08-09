@@ -66,6 +66,8 @@ extension MacOSPlatform {
   public func invalidateFocusStateForDisplayChange() {
     focusWriter.invalidate()
     focusRecoveryResolver.invalidate()
+    submittedFocusRecoveryRequestID = nil
+    submittedFocusRecoveryGeneration = nil
     let now = ProcessInfo.processInfo.systemUptime
     internalFocusSuppressions = internalFocusSuppressions.filter {
       $0.value.deadline >= now
@@ -74,6 +76,11 @@ extension MacOSPlatform {
 
   public func invalidateFocusRecovery() {
     focusRecoveryResolver.invalidate()
+    if let requestID = submittedFocusRecoveryRequestID {
+      _ = focusWriter.cancel(requestID)
+    }
+    submittedFocusRecoveryRequestID = nil
+    submittedFocusRecoveryGeneration = nil
   }
 
   public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {
@@ -283,12 +290,24 @@ extension MacOSPlatform {
       frameCoordinator.recordTrace(
         "focus-recovery window=\(windowID.rawValue)"
       )
-      submitFocus(
+      nextFocusRecoveryGeneration &+= 1
+      let recoveryGeneration = nextFocusRecoveryGeneration
+      let requestID = submitFocus(
         windowID,
         unlessUserInputAfter: target.timestamp,
         suppressesNativeFocusEvent: false,
-        createsRecoveryRequest: false
+        createsRecoveryRequest: false,
+        completion: { [weak self] _ in
+          guard let self,
+            self.submittedFocusRecoveryGeneration == recoveryGeneration
+          else { return }
+          self.submittedFocusRecoveryRequestID = nil
+          self.submittedFocusRecoveryGeneration = nil
+        }
       )
+      submittedFocusRecoveryRequestID = requestID
+      submittedFocusRecoveryGeneration =
+        requestID == nil ? nil : recoveryGeneration
       return
     }
     let processID =
@@ -342,7 +361,9 @@ extension MacOSPlatform {
     frameCoordinator.recordTrace(
       "focus-recovery auxiliary-window=\(windowID.rawValue)"
     )
-    focusWriter.submit(
+    nextFocusRecoveryGeneration &+= 1
+    let recoveryGeneration = nextFocusRecoveryGeneration
+    let requestID = focusWriter.submit(
       AsyncFocusRequest(
         element: element,
         application: application,
@@ -359,11 +380,20 @@ extension MacOSPlatform {
         recoveryRequest: nil
       )
     ) { [weak self] completion in
-      guard let recoveryRequest = completion.recoveryRequest else { return }
       Task { @MainActor [weak self] in
-        self?.recoverUserFocus(recoveryRequest)
+        guard let self,
+          self.submittedFocusRecoveryGeneration == recoveryGeneration
+        else { return }
+        self.submittedFocusRecoveryRequestID = nil
+        self.submittedFocusRecoveryGeneration = nil
+        guard let recoveryRequest = completion.recoveryRequest else {
+          return
+        }
+        self.recoverUserFocus(recoveryRequest)
       }
     }
+    submittedFocusRecoveryRequestID = requestID
+    submittedFocusRecoveryGeneration = recoveryGeneration
   }
 
   private func activateFocusRecoveryProcess(_ processID: pid_t) {

@@ -52,6 +52,9 @@ public final class MacOSPlatform {
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
   var internalFocusSuppressions: [WindowID: InternalFocusSuppression] = [:]
   var nextInternalFocusRequestID: UInt64 = 0
+  var submittedFocusRecoveryRequestID: NativeFocusRequestID?
+  var submittedFocusRecoveryGeneration: UInt64?
+  var nextFocusRecoveryGeneration: UInt64 = 0
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0

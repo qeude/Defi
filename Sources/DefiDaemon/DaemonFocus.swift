@@ -44,6 +44,8 @@ extension Daemon {
       pointerTimestamp: invocation.timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     ) else {
+      invalidatePointerFocusIntent()
+      rearmPointerFocusTransition()
       pointerFocusIgnoredCount += 1
       return
     }
@@ -128,7 +130,8 @@ extension Daemon {
       pointerTimestamp: pendingPointerFocus.timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     ) else {
-      self.pendingPointerFocus = nil
+      invalidatePointerFocusIntent()
+      rearmPointerFocusTransition()
       return
     }
     guard pointerFocusIsReady(for: pendingPointerFocus.windowID) else {
@@ -147,7 +150,7 @@ extension Daemon {
       pointerTimestamp: pendingPointerFocus.timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
     ) else {
-      lastPointerWindowID = windowUnderPointerID
+      rearmPointerFocusTransition()
       return
     }
 
@@ -216,6 +219,9 @@ extension Daemon {
           latestUserInputTimestamp:
             self.platform.userInputTracker.latestEventTimestamp
         ) else {
+          self.submittedPointerFocusRequestID = nil
+          self.submittedPointerFocusTimestamp = nil
+          self.rearmPointerFocusTransition()
           self.pointerFocusIgnoredCount += 1
           return
         }
