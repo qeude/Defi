@@ -71,6 +71,7 @@ extension Daemon {
       platform.invalidateFrameStateForDisplayChange()
       platform.invalidateFocusStateForDisplayChange()
       invalidatePointerFocusIntent(recoveringTo: preservedLogicalFocusWindowID)
+      rearmPointerFocusTransition()
       scrollAnimations.removeAll(keepingCapacity: true)
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil

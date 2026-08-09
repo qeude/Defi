@@ -441,6 +441,9 @@ private final class HotKeyTapContext: @unchecked Sendable {
   func resetPointerWindowTransition() {
     lock.lock()
     pointerTransitionState.reset()
+    pendingPointerMotion = nil
+    pointerDeliveryGeneration &+= 1
+    pointerDeliveryScheduled = false
     lock.unlock()
   }
 

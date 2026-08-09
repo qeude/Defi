@@ -343,6 +343,12 @@ extension MacOSPlatform {
         externallyChangedFrames[window.id] = window.frame
       }
     }
+    pendingFrameDebtWindowIDs = prunedFrameDebtWindowIDs(
+      debtWindowIDs: pendingFrameDebtWindowIDs,
+      liveWindowIDs: Set(nextElements.keys),
+      targetFrames: targetFrames,
+      observedFrames: latestObservedFrames
+    )
     frameEventPending = false
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false

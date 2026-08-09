@@ -200,6 +200,24 @@ func unresolvedFrameDebtWindowIDs(
   )
 }
 
+func prunedFrameDebtWindowIDs(
+  debtWindowIDs: Set<WindowID>,
+  liveWindowIDs: Set<WindowID>,
+  targetFrames: [WindowID: Rect],
+  observedFrames: [WindowID: Rect],
+  tolerance: Double = 1
+) -> Set<WindowID> {
+  debtWindowIDs.filter { windowID in
+    guard liveWindowIDs.contains(windowID),
+      let target = targetFrames[windowID]
+    else {
+      return false
+    }
+    guard let observed = observedFrames[windowID] else { return true }
+    return frameDistance(observed, target) > tolerance
+  }
+}
+
 func hiddenWindowsPreservingSkippedWindows(
   previous: Set<WindowID>,
   desired: Set<WindowID>,

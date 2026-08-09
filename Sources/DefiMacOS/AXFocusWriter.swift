@@ -258,6 +258,10 @@ final class AXFocusWriter: @unchecked Sendable {
     if shouldStart {
       running = true
     }
+    if let replaced {
+      explicitlyCancelledGenerations.remove(replaced.generation)
+      explicitCancellationFallbacks.removeValue(forKey: replaced.generation)
+    }
     lock.unlock()
     replaced?.completion(
       NativeFocusCompletion(result: .superseded, recoveryRequest: nil)
@@ -301,6 +305,10 @@ final class AXFocusWriter: @unchecked Sendable {
     pending = nil
     latestGeneration &+= 1
     minimumRecoveryGeneration = latestGeneration
+    if let replaced {
+      explicitlyCancelledGenerations.remove(replaced.generation)
+      explicitCancellationFallbacks.removeValue(forKey: replaced.generation)
+    }
     if replaced != nil {
       cancelledCount += 1
     }
