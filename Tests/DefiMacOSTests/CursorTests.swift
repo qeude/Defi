@@ -103,6 +103,28 @@ struct CursorTests {
   }
 
   @Test
+  func rawPointerWindowTransitionsInvalidateHitTestCache() {
+    #expect(
+      !pointerRawWindowTransitionRequiresRefresh(
+        previousRawWindowID: nil,
+        currentRawWindowID: nil
+      )
+    )
+    #expect(
+      pointerRawWindowTransitionRequiresRefresh(
+        previousRawWindowID: WindowID(rawValue: 1),
+        currentRawWindowID: WindowID(rawValue: 2)
+      )
+    )
+    #expect(
+      pointerRawWindowTransitionRequiresRefresh(
+        previousRawWindowID: WindowID(rawValue: 2),
+        currentRawWindowID: nil
+      )
+    )
+  }
+
+  @Test
   func newerPhysicalMotionRejectsStaleWarp() {
     #expect(
       cursorWarpIsCurrent(

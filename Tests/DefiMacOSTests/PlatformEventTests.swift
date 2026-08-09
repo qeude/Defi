@@ -355,20 +355,36 @@ struct PlatformEventTests {
     #expect(
       internalFocusSuppressionConsumesEvent(
         extended,
-        latestFocusIntentTimestamp: 12
-      )
-    )
-    #expect(
-      !internalFocusSuppressionConsumesEvent(
-        extended,
-        latestFocusIntentTimestamp: 13
-      )
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: .init(
+          timestamp: 12,
+          source: .mouse(windowID: WindowID(rawValue: 3))
+        )
+      ) == true
     )
     #expect(
       internalFocusSuppressionConsumesEvent(
         extended,
-        latestFocusIntentTimestamp: nil
-      )
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: .init(
+          timestamp: 13,
+          source: .mouse(windowID: WindowID(rawValue: 2))
+        )
+      ) == false
+    )
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: nil
+      ) == true
+    )
+    #expect(
+      internalFocusSuppressionConsumesEvent(
+        extended,
+        suppressedWindowID: WindowID(rawValue: 2),
+        latestFocusIntent: .init(timestamp: 13, source: .keyboard)
+      ) == false
     )
   }
 

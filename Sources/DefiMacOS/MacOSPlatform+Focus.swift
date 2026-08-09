@@ -14,11 +14,20 @@ struct InternalFocusSuppression: Equatable, Sendable {
 
 func internalFocusSuppressionConsumesEvent(
   _ suppression: InternalFocusSuppression,
-  latestFocusIntentTimestamp: TimeInterval?
+  suppressedWindowID: WindowID,
+  latestFocusIntent: UserInputTracker.FocusIntent?
 ) -> Bool {
-  latestFocusIntentTimestamp.map {
-    $0 <= suppression.maximumInputTimestamp
-  } ?? true
+  guard let latestFocusIntent,
+    latestFocusIntent.timestamp > suppression.maximumInputTimestamp
+  else {
+    return true
+  }
+  switch latestFocusIntent.source {
+  case .keyboard:
+    return false
+  case .mouse(let windowID):
+    return windowID != suppressedWindowID
+  }
 }
 
 func extendingInternalFocusSuppression(

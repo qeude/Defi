@@ -14,6 +14,7 @@ extension MacOSPlatform {
   ) {
     userInputTracker.invalidate(at: timestamp)
     pointerMotionTracker.invalidate(at: timestamp)
+    invalidatePointerHitTestCache()
     if eventMonitor?.resetMouseGestureState() == true {
       mouseFocusReleasePending = true
     }

@@ -33,6 +33,13 @@ extension Daemon {
   }
 
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
+    if pointerRawWindowTransitionRequiresRefresh(
+      previousRawWindowID: lastRawPointerWindowID,
+      currentRawWindowID: invocation.windowID
+    ) {
+      platform.invalidatePointerHitTestCache()
+    }
+    lastRawPointerWindowID = invocation.windowID
     guard pointerFocusIntentIsCurrent(
       pointerTimestamp: invocation.timestamp,
       latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
@@ -482,6 +489,7 @@ extension Daemon {
 
   private func rearmPointerFocusTransition() {
     lastPointerWindowID = nil
+    lastRawPointerWindowID = nil
     hotKeys?.resetPointerWindowTransition()
   }
 

@@ -374,6 +374,7 @@ extension MacOSPlatform {
       hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
       focusedProcessID: focusedProcessID
     )
+    let userInput = userInputTracker.snapshot
     var nativeFocusChanged = nativeFocusTargetMatched
     if nativeFocusChanged,
       let focusedWindowID,
@@ -382,8 +383,8 @@ extension MacOSPlatform {
       ),
       internalFocusSuppressionConsumesEvent(
         suppression,
-        latestFocusIntentTimestamp:
-          userInputTracker.snapshot.latestFocusIntent?.timestamp
+        suppressedWindowID: focusedWindowID,
+        latestFocusIntent: userInput.latestFocusIntent
       )
     {
       nativeFocusChanged = false
@@ -410,7 +411,6 @@ extension MacOSPlatform {
         "window-snapshot-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
-    let userInput = userInputTracker.snapshot
     let mouseFocusIntentWindowID: WindowID?
     let mouseFocusIntentTimestamp: TimeInterval?
     let keyboardFocusIntentTimestamp: TimeInterval?

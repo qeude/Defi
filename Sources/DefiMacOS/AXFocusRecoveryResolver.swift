@@ -87,7 +87,7 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
     ) else {
       return nil
     }
-    let candidates = windows.prefix(32).compactMap { element in
+    let candidates = windows.compactMap { element in
       boundedWindowDescription(element).map {
         (element, $0.frame, $0.title)
       }

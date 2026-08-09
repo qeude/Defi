@@ -138,6 +138,23 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testFocusRecoverySearchesBeyondFirst32Candidates() {
+    let targetFrame = Rect(x: 400, y: 300, width: 500, height: 300)
+    var candidates = Array(
+      repeating: (Rect(x: 0, y: 0, width: 100, height: 100), "Other"),
+      count: 32
+    )
+    candidates.append((targetFrame, "Preferences"))
+
+    XCTAssertEqual(
+      closestFocusRecoveryWindowIndex(
+        target: (targetFrame, "Preferences"),
+        candidates: candidates
+      ),
+      32
+    )
+  }
+
   func testFocusRecoveryRejectsDistantAccessibilityWindow() {
     XCTAssertNil(
       closestFocusRecoveryWindowIndex(

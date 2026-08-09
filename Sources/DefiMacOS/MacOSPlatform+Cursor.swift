@@ -80,6 +80,13 @@ public func normalizedPointerWindowID(
 
 let pointerHitTestCacheMaximumAge: TimeInterval = 0.05
 
+public func pointerRawWindowTransitionRequiresRefresh(
+  previousRawWindowID: WindowID?,
+  currentRawWindowID: WindowID?
+) -> Bool {
+  previousRawWindowID != currentRawWindowID
+}
+
 func pointerHitTestCacheIsFresh(
   cachedAt: TimeInterval?,
   now: TimeInterval,
@@ -155,6 +162,10 @@ func transparentPointerOverlayWindowIDs(
 
 @MainActor
 extension MacOSPlatform {
+  public func invalidatePointerHitTestCache() {
+    pointerHitTestSnapshotTimestamp = nil
+  }
+
   private func pointerHitTestSnapshot() -> (
     records: [CGWindowRecord],
     dockProcessIDs: Set<pid_t>
