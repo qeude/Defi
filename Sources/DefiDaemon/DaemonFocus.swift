@@ -495,7 +495,7 @@ extension Daemon {
     }
   }
 
-  private func rearmPointerFocusTransition() {
+  func rearmPointerFocusTransition() {
     lastPointerWindowID = nil
     lastRawPointerWindowID = nil
     hotKeys?.resetPointerWindowTransition()

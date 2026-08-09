@@ -88,6 +88,9 @@ extension MacOSPlatform {
         )
       }
     }
+    if !writeIntents.isEmpty {
+      invalidatePointerHitTestCache()
+    }
     targetFrames = frameTargetsPreservingSkippedWindows(
       previous: previousTargetFrames,
       assignments: assignments,

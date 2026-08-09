@@ -70,13 +70,16 @@ extension Daemon {
       let command = try parseCommand(rawCommand)
       var validationState = state
       try reduce(command, on: activeMonitorID, state: &validationState)
+      let previouslySelectedWindowID = activeMonitorID.flatMap {
+        state.selectedWindowID(on: $0)
+      }
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
       platform.userInputTracker.record(
         timestamp: inputTimestamp ?? commandStartedAt
       )
       displacedPointerFocusRecovery = nil
-      invalidatePointerFocusIntent()
+      invalidatePointerFocusIntent(recoveringTo: previouslySelectedWindowID)
       let focusInputTimestamp = commandFocusInputTimestamp(
         capturedInputTimestamp: inputTimestamp,
         commandHandledAt: commandStartedAt
@@ -96,6 +99,11 @@ extension Daemon {
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
       let resizesManagedLayout = command.resizesManagedLayout
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
+      if switchesWorkspace || mutatesWorkspaceWindows
+        || resizesManagedLayout || speculativeRibbonNavigation
+      {
+        rearmPointerFocusTransition()
+      }
       if switchesWorkspace || mutatesWorkspaceWindows || resizesManagedLayout
         || speculativeRibbonNavigation
       {
@@ -108,8 +116,6 @@ extension Daemon {
       if !speculativeRibbonNavigation {
         cancelDeferredSlowLane()
       }
-      let previouslySelectedWindowID =
-        activeMonitorID.flatMap { state.selectedWindowID(on: $0) }
       let commandMonitorID = activeMonitorID ?? state.monitors.first?.id
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace

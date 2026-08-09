@@ -346,10 +346,15 @@ extension MacOSPlatform {
         resolvedBorderFrame(for: windowID).map { (windowID, $0) }
       }
     )
-    guard !frames.isEmpty,
-      borderManager.updateGeometry(frames: frames, style: borderStyle)
-    else {
+    guard !frames.isEmpty else {
       return
+    }
+    let geometryChanged = borderManager.updateGeometry(
+      frames: frames,
+      style: borderStyle
+    )
+    if geometryChanged {
+      invalidatePointerHitTestCache()
     }
   }
 
