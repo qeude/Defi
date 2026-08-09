@@ -129,7 +129,7 @@ extension Daemon {
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
         pendingAnimatedFocus = nil
-        submittedCommandFocus = nil
+        invalidateSubmittedCommandFocus()
         pendingWorkspaceFocus = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)

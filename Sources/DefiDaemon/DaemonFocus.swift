@@ -196,7 +196,7 @@ extension Daemon {
       displacedPointerFocusRecovery = displaced
     }
     pendingAnimatedFocus = nil
-    submittedCommandFocus = nil
+    invalidateSubmittedCommandFocus()
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     pendingWindowRemovalFocusGuard = nil
@@ -501,6 +501,16 @@ extension Daemon {
     hotKeys?.resetPointerWindowTransition()
   }
 
+  func invalidateSubmittedCommandFocus(
+    recoveringTo windowID: WindowID? = nil
+  ) {
+    if let requestID = submittedCommandFocusRequestID {
+      _ = platform.cancelFocus(requestID, recoveringTo: windowID)
+    }
+    submittedCommandFocusRequestID = nil
+    submittedCommandFocus = nil
+  }
+
   func invalidatePointerFocusIntent(recoveringTo windowID: WindowID? = nil) {
     pointerFocusGeneration &+= 1
     pendingPointerFocus = nil
@@ -530,7 +540,7 @@ extension Daemon {
     unlessUserInputAfter timestamp: TimeInterval
   ) {
     guard let windowID else { return }
-    platform.focus(
+    submittedCommandFocusRequestID = platform.focus(
       windowID,
       unlessUserInputAfter: timestamp
     )
@@ -621,6 +631,7 @@ extension Daemon {
         completedGeneration: request.commandGeneration
       ) else { return }
       self.submittedCommandFocus = nil
+      self.submittedCommandFocusRequestID = nil
       if result == .failed || result == .failedAfterMutation,
         let nextRetryCount = nextCommandFocusRetryCount(
           currentRetryCount: request.retryCount,

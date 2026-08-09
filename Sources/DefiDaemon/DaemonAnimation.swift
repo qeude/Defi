@@ -162,7 +162,7 @@ extension Daemon {
     }
     scrollAnimations.removeAll(keepingCapacity: true)
     pendingAnimatedFocus = nil
-    submittedCommandFocus = nil
+    invalidateSubmittedCommandFocus()
     pendingWorkspaceFocus = nil
     submittedWorkspaceFocusGeneration = nil
     platform.cancelPendingFrameWrites()
