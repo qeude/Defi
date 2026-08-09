@@ -71,6 +71,15 @@ public struct Config: Equatable, Sendable {
   }
 
   public func validate() throws {
+    if let maximumScrollAmount = input.focusFollowsMouseMaxScrollAmount {
+      guard maximumScrollAmount.isFinite,
+        (0...1).contains(maximumScrollAmount)
+      else {
+        throw ConfigError.invalidValue(
+          "input.focus_follows_mouse_max_scroll_amount"
+        )
+      }
+    }
     guard (0.05...1).contains(layout.defaultColumnWidth) else {
       throw ConfigError.invalidValue("layout.default_column_width")
     }
@@ -195,18 +204,23 @@ public struct Config: Equatable, Sendable {
 
 public struct InputConfig: Codable, Equatable, Sendable {
   public var focusFollowsMouse: Bool
+  public var focusFollowsMouseMaxScrollAmount: Double?
   public var mouseFollowsFocus: Bool
 
   public init(
     focusFollowsMouse: Bool = false,
+    focusFollowsMouseMaxScrollAmount: Double? = nil,
     mouseFollowsFocus: Bool = false
   ) {
     self.focusFollowsMouse = focusFollowsMouse
+    self.focusFollowsMouseMaxScrollAmount = focusFollowsMouseMaxScrollAmount
     self.mouseFollowsFocus = mouseFollowsFocus
   }
 
   enum CodingKeys: String, CodingKey {
     case focusFollowsMouse = "focus_follows_mouse"
+    case focusFollowsMouseMaxScrollAmount =
+      "focus_follows_mouse_max_scroll_amount"
     case mouseFollowsFocus = "mouse_follows_focus"
   }
 
@@ -214,6 +228,10 @@ public struct InputConfig: Codable, Equatable, Sendable {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     focusFollowsMouse =
       try values.decodeIfPresent(Bool.self, forKey: .focusFollowsMouse) ?? false
+    focusFollowsMouseMaxScrollAmount = try values.decodeIfPresent(
+      Double.self,
+      forKey: .focusFollowsMouseMaxScrollAmount
+    )
     mouseFollowsFocus =
       try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? false
   }

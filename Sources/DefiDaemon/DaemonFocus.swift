@@ -70,11 +70,13 @@ extension Daemon {
       let restoresNativeFocus = !platform.isWindowNativelyFocused(
         pointerWindowID
       )
-      let targetAccepted = pointerFocusMonitorWithoutScrolling(
+      let targetAccepted = pointerFocusMonitor(
         pointerWindowID,
         activeMonitorID: activeMonitorID,
         state: state,
         viewports: viewportsByMonitor,
+        maximumScrollAmount:
+          config.input.focusFollowsMouseMaxScrollAmount,
         acceptsAlreadySelectedWindow: restoresNativeFocus
       ) != nil
       recoveryWindowID = pointerFocusRecoveryWindowID(
@@ -164,11 +166,12 @@ extension Daemon {
     retryCount: Int = 0
   ) {
     let restoresNativeFocus = !platform.isWindowNativelyFocused(windowID)
-    let acceptedMonitorID = pointerFocusMonitorWithoutScrolling(
+    let acceptedMonitorID = pointerFocusMonitor(
       windowID,
       activeMonitorID: activeMonitorID,
       state: state,
       viewports: viewportsByMonitor,
+      maximumScrollAmount: config.input.focusFollowsMouseMaxScrollAmount,
       acceptsAlreadySelectedWindow: restoresNativeFocus
     )
     guard let focusGuardTimestamp = pointerFocusGuardTimestamp(
@@ -274,11 +277,13 @@ extension Daemon {
       state.selectedWindowID(on: $0)
     }
     guard
-      let monitorID = focusWindowFromPointerWithoutScrolling(
+      let monitorID = focusWindowFromPointer(
         windowID,
         activeMonitorID: activeMonitorID,
         state: &state,
         viewports: viewportsByMonitor,
+        maximumScrollAmount:
+          config.input.focusFollowsMouseMaxScrollAmount,
         acceptsAlreadySelectedWindow: acceptsAlreadySelectedWindow
       )
     else {
@@ -292,6 +297,8 @@ extension Daemon {
     displacedPointerFocusRecovery = nil
     activeMonitorID = monitorID
     pointerFocusAppliedCount += 1
+    startScrollAnimationsIfNeeded()
+    _ = dispatchScrollAnimationIfNeeded()
     needsDesktopSync = true
     updateMenuBar()
   }

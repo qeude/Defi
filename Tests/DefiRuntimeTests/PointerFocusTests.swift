@@ -67,11 +67,12 @@ struct PointerFocusTests {
     var state = try makeState(columnWidths: [0.4, 0.4])
     let originalOffset = state.monitors[0].workspaces[0].targetScrollOffset
 
-    let focusedMonitor = focusWindowFromPointerWithoutScrolling(
+    let focusedMonitor = focusWindowFromPointer(
       WindowID(rawValue: 2),
       activeMonitorID: monitorID,
       state: &state,
-      viewports: [monitorID: viewport]
+      viewports: [monitorID: viewport],
+      maximumScrollAmount: 0
     )
 
     #expect(focusedMonitor == monitorID)
@@ -84,11 +85,12 @@ struct PointerFocusTests {
     let state = try makeState(columnWidths: [0.4, 0.4])
     let original = state
 
-    let focusedMonitor = pointerFocusMonitorWithoutScrolling(
+    let focusedMonitor = pointerFocusMonitor(
       WindowID(rawValue: 2),
       activeMonitorID: monitorID,
       state: state,
-      viewports: [monitorID: viewport]
+      viewports: [monitorID: viewport],
+      maximumScrollAmount: 0
     )
 
     #expect(focusedMonitor == monitorID)
@@ -100,11 +102,12 @@ struct PointerFocusTests {
     var state = try makeState(columnWidths: [0.5, 0.5, 0.5])
     let original = state
 
-    let focusedMonitor = focusWindowFromPointerWithoutScrolling(
+    let focusedMonitor = focusWindowFromPointer(
       WindowID(rawValue: 3),
       activeMonitorID: monitorID,
       state: &state,
-      viewports: [monitorID: viewport]
+      viewports: [monitorID: viewport],
+      maximumScrollAmount: 0
     )
 
     #expect(focusedMonitor == nil)
@@ -119,11 +122,12 @@ struct PointerFocusTests {
     )
     let original = state
 
-    let focusedMonitor = focusWindowFromPointerWithoutScrolling(
+    let focusedMonitor = focusWindowFromPointer(
       WindowID(rawValue: 2),
       activeMonitorID: monitorID,
       state: &state,
-      viewports: [monitorID: viewport]
+      viewports: [monitorID: viewport],
+      maximumScrollAmount: 0
     )
 
     #expect(focusedMonitor == nil)
@@ -134,7 +138,7 @@ struct PointerFocusTests {
   func repeatedPointerFocusDoesNothing() throws {
     var state = try makeState(columnWidths: [0.4, 0.4])
 
-    let focusedMonitor = focusWindowFromPointerWithoutScrolling(
+    let focusedMonitor = focusWindowFromPointer(
       WindowID(rawValue: 1),
       activeMonitorID: monitorID,
       state: &state,
@@ -149,7 +153,7 @@ struct PointerFocusTests {
     var state = try makeState(columnWidths: [0.4, 0.4])
     let original = state
 
-    let focusedMonitor = focusWindowFromPointerWithoutScrolling(
+    let focusedMonitor = focusWindowFromPointer(
       WindowID(rawValue: 1),
       activeMonitorID: monitorID,
       state: &state,
@@ -159,6 +163,67 @@ struct PointerFocusTests {
 
     #expect(focusedMonitor == monitorID)
     #expect(state == original)
+  }
+
+  @Test
+  func barePointerFocusScrollsMinimallyToRevealTarget() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5, 0.5])
+    let originalOffset = state.monitors[0].workspaces[0].targetScrollOffset
+
+    let focusedMonitor = focusWindowFromPointer(
+      WindowID(rawValue: 3),
+      activeMonitorID: monitorID,
+      state: &state,
+      viewports: [monitorID: viewport]
+    )
+
+    #expect(focusedMonitor == monitorID)
+    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
+    #expect(
+      state.monitors[0].workspaces[0].targetScrollOffset > originalOffset
+    )
+  }
+
+  @Test
+  func pointerFocusHonorsViewportFractionScrollLimit() throws {
+    let original = try makeState(columnWidths: [0.5, 0.5, 0.5])
+    var unrestricted = original
+    #expect(
+      focusWindowFromPointer(
+        WindowID(rawValue: 3),
+        activeMonitorID: monitorID,
+        state: &unrestricted,
+        viewports: [monitorID: viewport]
+      ) == monitorID
+    )
+    let requiredAmount =
+      abs(
+        unrestricted.monitors[0].workspaces[0].targetScrollOffset
+          - original.monitors[0].workspaces[0].targetScrollOffset
+      ) / viewport.width
+
+    var rejected = original
+    #expect(
+      focusWindowFromPointer(
+        WindowID(rawValue: 3),
+        activeMonitorID: monitorID,
+        state: &rejected,
+        viewports: [monitorID: viewport],
+        maximumScrollAmount: requiredAmount / 2
+      ) == nil
+    )
+    #expect(rejected == original)
+
+    var accepted = original
+    #expect(
+      focusWindowFromPointer(
+        WindowID(rawValue: 3),
+        activeMonitorID: monitorID,
+        state: &accepted,
+        viewports: [monitorID: viewport],
+        maximumScrollAmount: requiredAmount
+      ) == monitorID
+    )
   }
 
   @Test

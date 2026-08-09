@@ -61,34 +61,42 @@ public func nativeFocusChangesSelection(
     || state.selectedWindowID(on: focusedMonitorID) != windowID
 }
 
-/// Focuses a pointer target only when doing so preserves every scroll offset.
-/// This matches niri's `focus-follows-mouse max-scroll-amount="0%"` behavior
-/// and prevents a moving strip from putting another window under the pointer.
-public func focusWindowFromPointerWithoutScrolling(
+/// Focuses a pointer target when its required horizontal movement is within
+/// the configured fraction of the viewport. `nil` permits any movement, while
+/// zero matches niri's `max-scroll-amount="0%"` behavior.
+public func focusWindowFromPointer(
   _ windowID: WindowID,
   activeMonitorID: MonitorID?,
   state: inout RuntimeState,
   viewports: [MonitorID: Rect],
+  maximumScrollAmount: Double? = nil,
   acceptsAlreadySelectedWindow: Bool = false
 ) -> MonitorID? {
-  guard let monitorID = pointerFocusMonitorWithoutScrolling(
+  guard let monitorID = pointerFocusMonitor(
     windowID,
     activeMonitorID: activeMonitorID,
     state: state,
     viewports: viewports,
+    maximumScrollAmount: maximumScrollAmount,
     acceptsAlreadySelectedWindow: acceptsAlreadySelectedWindow
   ) else {
     return nil
   }
+  guard let viewport = viewports[monitorID] else { return nil }
   _ = focusWindow(windowID, state: &state)
+  synchronizeScrollOffsets(
+    state: &state,
+    viewports: [monitorID: viewport]
+  )
   return monitorID
 }
 
-public func pointerFocusMonitorWithoutScrolling(
+public func pointerFocusMonitor(
   _ windowID: WindowID,
   activeMonitorID: MonitorID?,
   state: RuntimeState,
   viewports: [MonitorID: Rect],
+  maximumScrollAmount: Double? = nil,
   acceptsAlreadySelectedWindow: Bool = false
 ) -> MonitorID? {
   let changesSelection = nativeFocusChangesSelection(
@@ -118,16 +126,22 @@ public func pointerFocusMonitorWithoutScrolling(
     viewports: [location.monitorID: viewport]
   )
 
-  for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
-    let current = state.monitors[monitorIndex]
-      .workspaces[workspaceIndex]
-      .targetScrollOffset
-    let candidate = preview.monitors[monitorIndex]
-      .workspaces[workspaceIndex]
-      .targetScrollOffset
-    guard abs(current - candidate) <= 0.000_001 else {
-      return nil
-    }
+  guard let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+    where: { $0.id == location.workspaceID }
+  ) else {
+    return nil
+  }
+  let current = state.monitors[monitorIndex]
+    .workspaces[workspaceIndex]
+    .targetScrollOffset
+  let candidate = preview.monitors[monitorIndex]
+    .workspaces[workspaceIndex]
+    .targetScrollOffset
+  let scrollAmount = abs(current - candidate) / max(viewport.width, 1)
+  if let maximumScrollAmount,
+    scrollAmount > maximumScrollAmount + 0.000_001
+  {
+    return nil
   }
 
   return location.monitorID
