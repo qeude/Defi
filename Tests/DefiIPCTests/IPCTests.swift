@@ -51,4 +51,29 @@ final class IPCTests: XCTestCase {
 
     XCTAssertEqual(fcntl(descriptor, F_GETFL) & O_NONBLOCK, 0)
   }
+
+  func testReadTimeoutIsConfigured() throws {
+    var descriptors = [Int32](repeating: -1, count: 2)
+    XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+    defer {
+      if descriptors[0] >= 0 { Darwin.close(descriptors[0]) }
+      if descriptors[1] >= 0 { Darwin.close(descriptors[1]) }
+    }
+
+    try configureReadTimeout(descriptors[0])
+
+    var timeout = timeval(tv_sec: 0, tv_usec: 0)
+    var length = socklen_t(MemoryLayout<timeval>.size)
+    XCTAssertEqual(
+      getsockopt(
+        descriptors[0],
+        SOL_SOCKET,
+        SO_RCVTIMEO,
+        &timeout,
+        &length
+      ),
+      0
+    )
+    XCTAssertGreaterThan(timeout.tv_sec, 0)
+  }
 }

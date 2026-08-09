@@ -35,5 +35,6 @@ jobs:
       - name: Build
         run: swift build
 
-      - name: Test
-        run: swift test
+      - name: Deterministic tests
+        # DesktopE2ETests require a real interactive session and Accessibility permission.
+        run: swift test --skip DesktopE2ETests
