@@ -209,7 +209,7 @@ public struct InputConfig: Codable, Equatable, Sendable {
 
   public init(
     focusFollowsMouse: Bool = false,
-    focusFollowsMouseMaxScrollAmount: Double? = nil,
+    focusFollowsMouseMaxScrollAmount: Double? = 0,
     mouseFollowsFocus: Bool = false
   ) {
     self.focusFollowsMouse = focusFollowsMouse
@@ -231,7 +231,7 @@ public struct InputConfig: Codable, Equatable, Sendable {
     focusFollowsMouseMaxScrollAmount = try values.decodeIfPresent(
       Double.self,
       forKey: .focusFollowsMouseMaxScrollAmount
-    )
+    ) ?? 0
     mouseFollowsFocus =
       try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? false
   }

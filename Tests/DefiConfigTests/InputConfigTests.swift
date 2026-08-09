@@ -8,7 +8,7 @@ struct InputConfigTests {
     let config = try Config.decode(Data())
 
     #expect(config.input.focusFollowsMouse == false)
-    #expect(config.input.focusFollowsMouseMaxScrollAmount == nil)
+    #expect(config.input.focusFollowsMouseMaxScrollAmount == 0)
     #expect(config.input.mouseFollowsFocus == false)
   }
 

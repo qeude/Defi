@@ -56,20 +56,19 @@ Controls focus transfer between managed windows and pointer.
 ```toml
 [input]
 focus_follows_mouse = false
-# focus_follows_mouse_max_scroll_amount = 0.0
+focus_follows_mouse_max_scroll_amount = 0.0
 mouse_follows_focus = false
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `focus_follows_mouse` | `false` | boolean | Focuses managed window under physical pointer and scrolls strip minimally when needed. |
-| `focus_follows_mouse_max_scroll_amount` | unset | number from `0` to `1` | Optional maximum scroll as fraction of monitor width. `0` accepts only targets needing no scroll; unset permits any required scroll. |
+| `focus_follows_mouse_max_scroll_amount` | `0` | number from `0` to `1` | Maximum scroll as fraction of monitor width. `0` accepts only targets needing no scroll; `0.1` permits up to 10%. |
 | `mouse_follows_focus` | `false` | boolean | Warps pointer to focused window center after keyboard focus changes, unless pointer is already inside it. |
 
-This follows niri semantics: bare `focus_follows_mouse = true` may scroll;
-setting `focus_follows_mouse_max_scroll_amount = 0` restricts focus to fully
-reachable windows. Both options can run together. Pointer-driven focus never
-triggers cursor warp.
+This follows niri semantics: bare `focus_follows_mouse = true` never scrolls.
+Raise `focus_follows_mouse_max_scroll_amount` to allow bounded scrolling. Both
+options can run together. Pointer-driven focus never triggers cursor warp.
 Programmatic cursor warp uses a CoreGraphics API that emits no mouse-moved
 event. Defi also discards delayed warp when physical pointer moved after
 initiating keyboard command. These boundaries prevent feedback loops and stale
