@@ -289,15 +289,9 @@ final class AXFocusWriter: @unchecked Sendable {
     }
     let replaced = pending?.generation == requestID.rawValue ? pending : nil
     if replaced != nil {
-      pending = nil
-      explicitlyCancelledGenerations.remove(requestID.rawValue)
-      explicitCancellationFallbacks.removeValue(forKey: requestID.rawValue)
       cancelledCount += 1
     }
     lock.unlock()
-    replaced?.completion(
-      NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)
-    )
     return true
   }
 

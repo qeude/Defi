@@ -478,6 +478,7 @@ struct CursorTests {
       record(
         id: 9,
         processID: 90,
+        ownerName: "Window Server",
         layer: Int(CGWindowLevelForKey(.cursorWindow)),
         title: "",
         frame: Rect(x: 300, y: 500, width: 28, height: 40)
@@ -513,6 +514,22 @@ struct CursorTests {
         nonblockingWindowIDs: transparentWindowIDs
       ) == .blocked
     )
+  }
+
+  @Test
+  func namelessThirdPartyCursorLevelWindowBlocksManagedWindow() {
+    let records = [
+      record(
+        id: 9,
+        processID: 90,
+        layer: Int(CGWindowLevelForKey(.cursorWindow)),
+        title: "",
+        frame: Rect(x: 300, y: 500, width: 28, height: 40)
+      ),
+      record(id: 1, processID: 10),
+    ]
+
+    #expect(transparentPointerOverlayWindowIDs(records: records).isEmpty)
   }
 
   @Test
@@ -569,6 +586,7 @@ struct CursorTests {
   private func record(
     id: CGWindowID,
     processID: pid_t,
+    ownerName: String = "",
     layer: Int = 0,
     title: String? = nil,
     frame: Rect? = nil,
@@ -577,6 +595,7 @@ struct CursorTests {
     CGWindowRecord(
       id: id,
       processID: processID,
+      ownerName: ownerName,
       layer: layer,
       title: title ?? "Window \(id)",
       frame: frame ?? self.frame,

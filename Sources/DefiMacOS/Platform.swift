@@ -9,6 +9,7 @@ import OSLog
 struct CGWindowRecord {
   let id: CGWindowID
   let processID: pid_t
+  let ownerName: String
   let layer: Int
   let title: String
   let frame: Rect
@@ -17,6 +18,7 @@ struct CGWindowRecord {
   init(
     id: CGWindowID,
     processID: pid_t,
+    ownerName: String = "",
     layer: Int,
     title: String,
     frame: Rect,
@@ -24,6 +26,7 @@ struct CGWindowRecord {
   ) {
     self.id = id
     self.processID = processID
+    self.ownerName = ownerName
     self.layer = layer
     self.title = title
     self.frame = frame
@@ -68,6 +71,7 @@ func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {
   return CGWindowRecord(
     id: number.uint32Value,
     processID: ownerPID.int32Value,
+    ownerName: item[kCGWindowOwnerName as String] as? String ?? "",
     layer: layer.intValue,
     title: item[kCGWindowName as String] as? String ?? "",
     frame: Rect(

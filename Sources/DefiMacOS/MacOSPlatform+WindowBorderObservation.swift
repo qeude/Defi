@@ -229,6 +229,11 @@ extension MacOSPlatform {
     borderManager.updateGeometry(frames: freshFrames, style: borderStyle)
   }
 
+  public func commitWindowBorderSelection(_ selectedWindowID: WindowID?) {
+    prepareWindowBorderSelection(selectedWindowID)
+    borderManager.revealPendingBorders()
+  }
+
   public func refreshWindowBorders() {
     let liveGeometryWindowIDs = borderManager.liveGeometryWindowIDs
     if isLeftMouseButtonDown {

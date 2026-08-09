@@ -297,6 +297,7 @@ extension Daemon {
     displacedPointerFocusRecovery = nil
     activeMonitorID = monitorID
     pointerFocusAppliedCount += 1
+    platform.commitWindowBorderSelection(windowID)
     startScrollAnimationsIfNeeded()
     _ = dispatchScrollAnimationIfNeeded()
     needsDesktopSync = true

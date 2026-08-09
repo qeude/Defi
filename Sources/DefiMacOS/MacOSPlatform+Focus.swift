@@ -105,6 +105,7 @@ extension MacOSPlatform {
     cursorWarpPrefersTargetFrame: Bool = false,
     focusRecoveryFallback providedFocusRecoveryFallback:
       NativeFocusRecoveryFallback? = nil,
+    createsRecoveryRequest: Bool = true,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
     guard let element = elements[windowID],
@@ -126,14 +127,14 @@ extension MacOSPlatform {
         }
         ?? capturedNativeFocusRecoveryFallback()
     }
-    let focusRecoveryRequest = maximumUserInputTimestamp.map {
+    let focusRecoveryRequest = createsRecoveryRequest ? maximumUserInputTimestamp.map {
       NativeFocusRecoveryRequest(
         timestamp: $0,
         excludingWindowID: windowID,
         excludingProcessID: processID,
         fallback: focusRecoveryFallback
       )
-    }
+    } : nil
     let internalFocusRequestID: UInt64?
     if suppressesNativeFocusEvent {
       let requestInputTimestamp = maximumUserInputTimestamp
@@ -276,10 +277,7 @@ extension MacOSPlatform {
         windowID,
         unlessUserInputAfter: target.timestamp,
         suppressesNativeFocusEvent: false,
-        focusRecoveryFallback: NativeFocusRecoveryFallback(
-          windowID: windowID,
-          processID: processIDs[windowID] ?? target.processID
-        )
+        createsRecoveryRequest: false
       )
       return
     }
@@ -348,12 +346,7 @@ extension MacOSPlatform {
           tracker: userInputTracker,
           maximumTimestamp: timestamp
         ),
-        recoveryRequest: NativeFocusRecoveryRequest(
-          timestamp: timestamp,
-          excludingWindowID: windowID,
-          excludingProcessID: processID,
-          fallback: nil
-        )
+        recoveryRequest: nil
       )
     ) { [weak self] completion in
       guard let recoveryRequest = completion.recoveryRequest else { return }

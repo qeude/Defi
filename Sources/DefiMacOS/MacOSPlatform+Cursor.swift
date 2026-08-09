@@ -155,7 +155,8 @@ func transparentPointerOverlayWindowIDs(
   let cursorWindowLevel = Int(CGWindowLevelForKey(.cursorWindow))
   return Set(records.compactMap { record in
     guard record.layer == cursorWindowLevel,
-      record.title == "Cursor" || record.title.isEmpty,
+      record.title == "Cursor"
+        || (record.title.isEmpty && record.ownerName == "Window Server"),
       record.frame.width <= 64,
       record.frame.height <= 64
     else {
