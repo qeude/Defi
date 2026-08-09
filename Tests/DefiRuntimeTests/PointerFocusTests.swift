@@ -200,7 +200,7 @@ struct PointerFocusTests {
       abs(
         unrestricted.monitors[0].workspaces[0].targetScrollOffset
           - original.monitors[0].workspaces[0].targetScrollOffset
-      ) / viewport.width
+      )
 
     var rejected = original
     #expect(

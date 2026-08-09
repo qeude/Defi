@@ -505,28 +505,52 @@ extension Daemon {
   func invalidateSubmittedCommandFocus(
     recoveringTo windowID: WindowID? = nil
   ) {
-    if let requestID = submittedCommandFocusRequestID {
-      let timestamp = submittedCommandFocus?.focusInputTimestamp
-      let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
-      if !cancelled, let windowID, let timestamp {
-        platform.focus(windowID, unlessUserInputAfter: timestamp)
-      }
+    guard let requestID = submittedCommandFocusRequestID else {
+      submittedCommandFocusRequestTimestamp = nil
+      submittedCommandFocus = nil
+      return
     }
-    submittedCommandFocusRequestID = nil
+    let timestamp = submittedCommandFocus?.focusInputTimestamp
+      ?? submittedCommandFocusRequestTimestamp
+    let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
+    if !cancelled, let windowID, let timestamp {
+      let recoveryID = platform.focus(
+        windowID,
+        unlessUserInputAfter: timestamp
+      )
+      submittedCommandFocusRequestID = recoveryID
+      submittedCommandFocusRequestTimestamp =
+        recoveryID == nil ? nil : timestamp
+    } else {
+      submittedCommandFocusRequestID = nil
+      submittedCommandFocusRequestTimestamp = nil
+    }
     submittedCommandFocus = nil
   }
 
   func invalidateSubmittedWorkspaceFocus(
     recoveringTo windowID: WindowID? = nil
   ) {
-    if let requestID = submittedWorkspaceFocusRequestID {
-      let timestamp = pendingWorkspaceFocus?.focusInputTimestamp
-      let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
-      if !cancelled, let windowID, let timestamp {
-        platform.focus(windowID, unlessUserInputAfter: timestamp)
-      }
+    guard let requestID = submittedWorkspaceFocusRequestID else {
+      submittedWorkspaceFocusRequestTimestamp = nil
+      submittedWorkspaceFocusGeneration = nil
+      return
     }
-    submittedWorkspaceFocusRequestID = nil
+    let timestamp = pendingWorkspaceFocus?.focusInputTimestamp
+      ?? submittedWorkspaceFocusRequestTimestamp
+    let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
+    if !cancelled, let windowID, let timestamp {
+      let recoveryID = platform.focus(
+        windowID,
+        unlessUserInputAfter: timestamp
+      )
+      submittedWorkspaceFocusRequestID = recoveryID
+      submittedWorkspaceFocusRequestTimestamp =
+        recoveryID == nil ? nil : timestamp
+    } else {
+      submittedWorkspaceFocusRequestID = nil
+      submittedWorkspaceFocusRequestTimestamp = nil
+    }
     submittedWorkspaceFocusGeneration = nil
   }
 
@@ -621,6 +645,7 @@ extension Daemon {
     cursorWarpInputTimestamp: TimeInterval?,
     retryCount: Int = 0
   ) {
+    invalidateSubmittedCommandFocus()
     let request = PendingAnimatedFocus(
       windowID: windowID,
       previousSelectedWindowID: previousSelectedWindowID,
@@ -651,6 +676,7 @@ extension Daemon {
       ) else { return }
       self.submittedCommandFocus = nil
       self.submittedCommandFocusRequestID = nil
+      self.submittedCommandFocusRequestTimestamp = nil
       if result == .failed || result == .failedAfterMutation,
         let nextRetryCount = nextCommandFocusRetryCount(
           currentRetryCount: request.retryCount,
@@ -704,6 +730,8 @@ extension Daemon {
       self.needsDesktopSync = true
       self.updateMenuBar()
     }
+    submittedCommandFocusRequestTimestamp =
+      submittedCommandFocusRequestID == nil ? nil : focusInputTimestamp
   }
 
   func commitWorkspaceCommandFocus(
@@ -713,6 +741,7 @@ extension Daemon {
     guard pendingWorkspaceFocus?.commandGeneration == request.commandGeneration
     else { return }
     submittedWorkspaceFocusRequestID = nil
+    submittedWorkspaceFocusRequestTimestamp = nil
     if result == .frameSuperseded {
       submittedWorkspaceFocusGeneration = nil
       return

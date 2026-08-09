@@ -334,9 +334,12 @@ extension MacOSPlatform {
             self.refreshWindowBorders()
           }
           if let focusWindowIDAfterCommit {
-            guard deferredFocusFrameIsReady(
+            guard deferredFocusFrameCommitIsReady(
               targetWindowID: focusWindowIDAfterCommit,
-              pendingFrameWindowIDs: self.pendingFrameWindowIDs
+              pendingFrameWindowIDs: self.pendingFrameWindowIDs,
+              successfulWindowIDs: result.successfulWindowIDs,
+              observedFrame: self.latestObservedFrames[focusWindowIDAfterCommit],
+              targetFrame: self.targetFrames[focusWindowIDAfterCommit]
             ) else {
               focusCompletionAfterCommit?(.frameSuperseded)
               return

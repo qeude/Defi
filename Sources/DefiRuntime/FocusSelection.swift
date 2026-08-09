@@ -137,7 +137,8 @@ public func pointerFocusMonitor(
   let candidate = preview.monitors[monitorIndex]
     .workspaces[workspaceIndex]
     .targetScrollOffset
-  let scrollAmount = abs(current - candidate) / max(viewport.width, 1)
+  // targetScrollOffset is already normalized to viewport widths.
+  let scrollAmount = abs(current - candidate)
   if let maximumScrollAmount,
     scrollAmount > maximumScrollAmount + 0.000_001
   {

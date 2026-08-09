@@ -231,6 +231,10 @@ extension Daemon {
     ) { [weak self] result in
       self?.commitWorkspaceCommandFocus(result: result, request: request)
     }
+    submittedWorkspaceFocusRequestTimestamp =
+      submittedWorkspaceFocusRequestID == nil
+        ? nil
+        : request.focusInputTimestamp
   }
 
   func focusIsReady(on monitorID: MonitorID) -> Bool {

@@ -229,6 +229,10 @@ extension Daemon {
                 == workspaceFocusRequest.commandGeneration
             else { return }
             self.submittedWorkspaceFocusRequestID = requestID
+            self.submittedWorkspaceFocusRequestTimestamp =
+              requestID == nil
+                ? nil
+                : workspaceFocusRequest.focusInputTimestamp
           }
         } else {
           focusCompletionAfterCommit = nil

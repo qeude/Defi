@@ -331,6 +331,19 @@ func deferredFocusFrameIsReady(
   !pendingFrameWindowIDs.contains(targetWindowID)
 }
 
+func deferredFocusFrameCommitIsReady(
+  targetWindowID: WindowID,
+  pendingFrameWindowIDs: Set<WindowID>,
+  successfulWindowIDs: Set<WindowID>,
+  observedFrame: Rect?,
+  targetFrame: Rect?
+) -> Bool {
+  guard !pendingFrameWindowIDs.contains(targetWindowID) else { return false }
+  if successfulWindowIDs.contains(targetWindowID) { return true }
+  guard let observedFrame, let targetFrame else { return false }
+  return frameDistance(observedFrame, targetFrame) <= 1
+}
+
 func cursorWarpFrameReadiness(
   latestWriteSucceeded: Bool?,
   observedFrame: Rect?,

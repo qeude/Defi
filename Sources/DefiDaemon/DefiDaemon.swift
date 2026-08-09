@@ -197,6 +197,7 @@ final class Daemon: NSObject {
   var pendingWorkspaceFocus: PendingWorkspaceFocus?
   var submittedWorkspaceFocusGeneration: UInt64?
   var submittedWorkspaceFocusRequestID: NativeFocusRequestID?
+  var submittedWorkspaceFocusRequestTimestamp: TimeInterval?
   var displacedPointerFocusRecovery: DisplacedPointerFocusRecovery?
   var lastPointerWindowID: WindowID?
   var pendingPointerFocus: PendingPointerFocus?
@@ -204,6 +205,7 @@ final class Daemon: NSObject {
   var submittedPointerFocusRequestID: NativeFocusRequestID?
   var submittedPointerFocusTimestamp: TimeInterval?
   var submittedCommandFocusRequestID: NativeFocusRequestID?
+  var submittedCommandFocusRequestTimestamp: TimeInterval?
   var lastRawPointerWindowID: WindowID?
   var pointerFocusObservedCount = 0
   var pointerFocusAppliedCount = 0

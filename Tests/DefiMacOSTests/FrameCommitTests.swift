@@ -126,6 +126,48 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testDeferredFrameFocusRequiresTargetWriteOrObservedConvergence() {
+    let target = WindowID(rawValue: 42)
+    let frame = Rect(x: 10, y: 20, width: 300, height: 400)
+
+    XCTAssertFalse(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [],
+        successfulWindowIDs: [],
+        observedFrame: nil,
+        targetFrame: frame
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [],
+        successfulWindowIDs: [target],
+        observedFrame: nil,
+        targetFrame: frame
+      )
+    )
+    XCTAssertTrue(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [],
+        successfulWindowIDs: [],
+        observedFrame: frame,
+        targetFrame: frame
+      )
+    )
+    XCTAssertFalse(
+      deferredFocusFrameCommitIsReady(
+        targetWindowID: target,
+        pendingFrameWindowIDs: [target],
+        successfulWindowIDs: [target],
+        observedFrame: frame,
+        targetFrame: frame
+      )
+    )
+  }
+
   func testDisplacedQueuedFrameCompletesAsSuperseded() {
     let completion = expectation(description: "superseded completion")
     let frame = QueuedPositionFrame(
