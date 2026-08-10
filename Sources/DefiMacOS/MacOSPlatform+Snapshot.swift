@@ -39,13 +39,14 @@ extension MacOSPlatform {
   ) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
     let tracesWindowTopology = windowTopologyEventPending
-    let topologyRequiresFullSnapshot = windowTopologyRequiresFullSnapshot
+    let capturedTopologyRequiresFullSnapshot =
+      windowTopologyRequiresFullSnapshot
     let topologyProcessIDs = pendingWindowTopologyProcessIDs
     let frameRequiresFullSnapshot = pendingFrameRequiresFullSnapshot
     let frameProcessIDs = pendingFrameProcessIDs
     let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
     let eventRequiresFullSnapshot =
-      topologyRequiresFullSnapshot || frameRequiresFullSnapshot
+      capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
     let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
         eventRequiresFullSnapshot,
@@ -72,7 +73,7 @@ extension MacOSPlatform {
       : incrementalWindowRefreshProcessIDs(
         hasCompletedSnapshot: hasCompletedWindowSnapshot,
         eventPending: tracesWindowTopology,
-        requiresFullSnapshot: topologyRequiresFullSnapshot,
+        requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         processIDs: pendingWindowTopologyProcessIDs,
         coalescedProcessIDs: frameProcessIDs,
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
@@ -99,11 +100,12 @@ extension MacOSPlatform {
     pendingFrameRequiresFullSnapshot = false
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
+    var hasCopiedCGWindows = false
     var cachedCGWindows: [CGWindowRecord]?
-    func publicCGWindows() -> [CGWindowRecord] {
-      if let cachedCGWindows { return cachedCGWindows }
+    func publicCGWindows() -> [CGWindowRecord]? {
+      if hasCopiedCGWindows { return cachedCGWindows }
       let copyStartedAt = ProcessInfo.processInfo.systemUptime
-      let copied = copyCGWindows()
+      let copied = copyCGWindowsIfAvailable()
       let copyDurationMS =
         (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
       snapshotCGWindowCopyCount += 1
@@ -112,7 +114,13 @@ extension MacOSPlatform {
         maximumSnapshotCGWindowCopyDurationMS,
         copyDurationMS
       )
+      hasCopiedCGWindows = true
       cachedCGWindows = copied
+      cgWindowInventoryRetryAttempts =
+        updatedWindowListReadRetryAttempts(
+          previousAttempts: cgWindowInventoryRetryAttempts,
+          readSucceeded: copied != nil
+        )
       return copied
     }
     let previousElements = elements
@@ -178,7 +186,7 @@ extension MacOSPlatform {
 
     let refreshesApplicationInventory = applicationInventoryRefreshIsRequired(
       hasCompletedSnapshot: hasCompletedWindowSnapshot,
-      topologyRequiresFullSnapshot: topologyRequiresFullSnapshot,
+      topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       forced: forceApplicationInventoryRefresh
     )
     let runningApplications: [(processID: pid_t, application: NSRunningApplication?)]
@@ -238,7 +246,7 @@ extension MacOSPlatform {
         hasCachedWindows: cachedApplicationWindows != nil,
         refreshesAllWindowLists:
           refreshesApplicationInventory
-          || topologyRequiresFullSnapshot
+          || capturedTopologyRequiresFullSnapshot
           || forceWindowListRefresh,
         topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
       )

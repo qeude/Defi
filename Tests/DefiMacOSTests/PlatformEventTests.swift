@@ -1083,6 +1083,28 @@ struct PlatformEventTests {
     #expect(platform.recommendedWindowListRefreshInterval == 0.1)
   }
 
+  @Test @MainActor
+  func failedCGWindowInventorySchedulesShortRetry() {
+    let platform = MacOSPlatform()
+    platform.cgWindowInventoryRetryAttempts = 0
+
+    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
+  }
+
+  @Test
+  func partialNotificationBatchRollsBackSuccessfulRegistrations() {
+    var removed: [String] = []
+
+    let registered = registerNotificationBatch(
+      notifications: ["moved", "resized"],
+      add: { $0 == "moved" ? .success : .cannotComplete },
+      remove: { removed.append($0) }
+    )
+
+    #expect(registered == false)
+    #expect(removed == ["moved"])
+  }
+
   @Test
   func applicationObserverIsPreparedBeforeInitialWindowDiscovery() {
     var actions: [String] = []

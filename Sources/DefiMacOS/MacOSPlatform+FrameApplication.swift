@@ -623,10 +623,16 @@ extension MacOSPlatform {
     let hasPendingWindowListReadRetry =
       windowListReadRetryAttemptsByProcess.values.contains {
         unmatchedWindowRetryIsPending(attempts: $0)
-    }
+      }
+    let hasPendingCGWindowInventoryRetry =
+      cgWindowInventoryRetryAttempts.map {
+        unmatchedWindowRetryIsPending(attempts: $0)
+      } == true
     return windowListRefreshInterval(
       hasPendingShortRetry:
-        hasPendingUnmatchedRetry || hasPendingWindowListReadRetry,
+        hasPendingUnmatchedRetry
+        || hasPendingWindowListReadRetry
+        || hasPendingCGWindowInventoryRetry,
       reliableTopologyObservation: hasReliableWindowTopologyObservation
     )
   }

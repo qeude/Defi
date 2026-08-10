@@ -71,7 +71,7 @@ extension MacOSPlatform {
     processID: pid_t,
     appID: String,
     config: Config,
-    publicCGWindows: () -> [CGWindowRecord],
+    publicCGWindows: () -> [CGWindowRecord]?,
     monitors: [MonitorSnapshot],
     preferredWindowID: WindowID?,
     excluding usedCGWindowIDs: Set<CGWindowID>
@@ -94,11 +94,14 @@ extension MacOSPlatform {
     let role = attributes.role
     let subrole = attributes.subrole
     let decision = config.decision(appID: appID, title: title, role: role)
+    guard let publicCGWindows = publicCGWindows() else {
+      return .unavailable
+    }
     let eligibleCGWindows = eligibleCGWindowRecords(
       role: role,
       for: subrole,
       allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
-      in: publicCGWindows()
+      in: publicCGWindows
     )
     let record = cgWindowRecordForDiscovery(
       preferredWindowID: preferredWindowID,
@@ -454,18 +457,20 @@ func cachedWindowIDsToRetain(
   previousWindows: [Window],
   discoveredWindowIDs: Set<WindowID>,
   ignoredWindowIDs: Set<WindowID>,
-  cgWindows: [CGWindowRecord],
+  cgWindows: [CGWindowRecord]?,
   cachedMinimizedState: ((WindowID) -> Bool?)?
 ) -> Set<WindowID> {
-  let liveWindowIDs = Set(
-    cgWindows.lazy
-      .filter { $0.processID == processID }
-      .map { WindowID(rawValue: UInt64($0.id)) }
-  )
-  let retainedWindowIDs = Set(previousWindows.map(\.id))
-    .intersection(liveWindowIDs)
+  var retainedWindowIDs = Set(previousWindows.map(\.id))
     .subtracting(discoveredWindowIDs)
     .subtracting(ignoredWindowIDs)
+  if let cgWindows {
+    let liveWindowIDs = Set(
+      cgWindows.lazy
+        .filter { $0.processID == processID }
+        .map { WindowID(rawValue: UInt64($0.id)) }
+    )
+    retainedWindowIDs.formIntersection(liveWindowIDs)
+  }
   guard let cachedMinimizedState else { return retainedWindowIDs }
   return Set(retainedWindowIDs.filter { cachedMinimizedState($0) != true })
 }

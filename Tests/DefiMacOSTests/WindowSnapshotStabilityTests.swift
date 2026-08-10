@@ -162,6 +162,21 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func unavailableCGInventoryPreservesCachedWindow() {
+    let window = makeWindow(id: 42)
+
+    #expect(
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [],
+        ignoredWindowIDs: [],
+        cgWindows: nil,
+        cachedMinimizedState: { _ in nil }
+      ) == [window.id]
+    )
+  }
+
   @Test func retainedWindowDoesNotProvideFreshFrameObservation() {
     let retainedWindow = makeWindow(id: 42)
     let observedWindow = makeWindow(id: 43)

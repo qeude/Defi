@@ -321,7 +321,7 @@ final class PlatformEventMonitor {
   func setFrameNotificationsEnabled(_ enabled: Bool) {
     guard frameNotificationsEnabled != enabled else { return }
     frameNotificationsEnabled = enabled
-    let windowsByProcess = enabled ? frameRequiredWindows : frameObservedWindows
+    let windowsByProcess = frameRequiredWindows
     for (processID, windows) in windowsByProcess {
       guard let observer = observers[processID] else { continue }
       if enabled {
@@ -419,19 +419,24 @@ final class PlatformEventMonitor {
     notifications: [String]
   ) -> Bool {
     let context = Unmanaged.passUnretained(self).toOpaque()
-    var allRegistered = true
-    for notification in notifications {
-      let result = AXObserverAddNotification(
-        observer,
-        element,
-        notification as CFString,
-        context
-      )
-      if result != .success && result != .notificationAlreadyRegistered {
-        allRegistered = false
+    return registerNotificationBatch(
+      notifications: notifications,
+      add: { notification in
+        AXObserverAddNotification(
+          observer,
+          element,
+          notification as CFString,
+          context
+        )
+      },
+      remove: { notification in
+        AXObserverRemoveNotification(
+          observer,
+          element,
+          notification as CFString
+        )
       }
-    }
-    return allRegistered
+    )
   }
 
   func stop() {
@@ -456,6 +461,25 @@ final class PlatformEventMonitor {
       self.mouseMonitor = nil
     }
   }
+}
+
+func registerNotificationBatch(
+  notifications: [String],
+  add: (String) -> AXError,
+  remove: (String) -> Void
+) -> Bool {
+  var registered: [String] = []
+  for notification in notifications {
+    let result = add(notification)
+    guard result == .success || result == .notificationAlreadyRegistered else {
+      for registeredNotification in registered {
+        remove(registeredNotification)
+      }
+      return false
+    }
+    registered.append(notification)
+  }
+  return true
 }
 
 private func observedWindowCount(

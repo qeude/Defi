@@ -37,13 +37,19 @@ struct CGWindowRecord {
 func copyCGWindows(
   options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
 ) -> [CGWindowRecord] {
+  copyCGWindowsIfAvailable(options: options) ?? []
+}
+
+func copyCGWindowsIfAvailable(
+  options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+) -> [CGWindowRecord]? {
   guard
     let info = CGWindowListCopyWindowInfo(
       options,
       kCGNullWindowID
     ) as? [[String: Any]]
   else {
-    return []
+    return nil
   }
   return info.compactMap(cgWindowRecord)
 }
