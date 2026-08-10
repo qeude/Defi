@@ -31,10 +31,20 @@ enum ServiceManager {
       try stop(ignoreFailure: false)
       print("stopped")
     case "restart":
-      if !FileManager.default.fileExists(atPath: plistURL.path) {
-        try install()
+      for action in serviceRestartActions() {
+        switch action {
+        case .stop:
+          try stop(ignoreFailure: true)
+        case .quit:
+          _ = try? sendCommand("quit")
+        case .waitForStop:
+          try waitForDaemonToStop()
+        case .install:
+          try install()
+        case .bootstrap:
+          try bootstrapWithRetry()
+        }
       }
-      try launchctl(["kickstart", "-k", "\(domain)/\(label)"])
       print("restarted")
     case "status":
       try launchctl(["print", "\(domain)/\(label)"])
@@ -92,6 +102,19 @@ enum ServiceManager {
     throw lastError ?? ServiceError.launchctl(-1)
   }
 
+  private static func waitForDaemonToStop() throws {
+    let deadline = Date().addingTimeInterval(5)
+    while Date() < deadline {
+      do {
+        _ = try sendCommand("status")
+        Thread.sleep(forTimeInterval: 0.1)
+      } catch {
+        return
+      }
+    }
+    throw ServiceError.daemonDidNotStop
+  }
+
   private static func isLoaded() -> Bool {
     let process = Process()
     process.executableURL = URL(filePath: "/bin/launchctl")
@@ -121,7 +144,23 @@ enum ServiceManager {
   private static var domain: String { "gui/\(getuid())" }
 
   private static var installedAppURL: URL {
-    FileManager.default.homeDirectoryForCurrentUser
+    if let executableURL = Bundle.main.executableURL,
+      let appURL = appBundleURL(from: executableURL)
+    {
+      return appURL
+    }
+
+    let candidates = [
+      FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Applications/Defi.app"),
+      URL(filePath: "/Applications/Defi.app"),
+    ]
+    if let existing = candidates.first(where: {
+      FileManager.default.fileExists(atPath: $0.path)
+    }) {
+      return existing
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
       .appending(path: "Applications/Defi.app")
   }
 
@@ -134,6 +173,39 @@ enum ServiceManager {
     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: "Library/Logs/Defi.log")
   }
+}
+
+func appBundleURL(from executableURL: URL) -> URL? {
+  let executableURL = executableURL.resolvingSymlinksInPath().standardizedFileURL
+  let appURL = executableURL
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+  guard appURL.pathExtension == "app" else {
+    return nil
+  }
+  let expectedExecutableDirectory = appURL
+    .appending(path: "Contents/MacOS")
+    .standardizedFileURL
+  guard
+    executableURL.deletingLastPathComponent().path
+      == expectedExecutableDirectory.path
+  else {
+    return nil
+  }
+  return appURL
+}
+
+enum ServiceRestartAction: Equatable, Sendable {
+  case stop
+  case quit
+  case waitForStop
+  case install
+  case bootstrap
+}
+
+func serviceRestartActions() -> [ServiceRestartAction] {
+  [.stop, .quit, .waitForStop, .install, .bootstrap]
 }
 
 enum ServiceStartAction: Equatable, Sendable {
@@ -152,12 +224,14 @@ func serviceStartActions(
 enum ServiceError: Error, CustomStringConvertible {
   case invalidCommand(String)
   case daemonMissing(String)
+  case daemonDidNotStop
   case launchctl(Int32)
 
   var description: String {
     switch self {
     case .invalidCommand(let command): "unknown service command: \(command)"
     case .daemonMissing(let path): "defi-daemon missing beside CLI: \(path)"
+    case .daemonDidNotStop: "defi-daemon did not stop before restart"
     case .launchctl(let status): "launchctl exited with status \(status)"
     }
   }
