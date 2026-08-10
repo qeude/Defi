@@ -111,6 +111,12 @@ func framesByWindowID(
   )
 }
 
+func applicationInventoryRefreshInterval(
+  reliableLifecycleObservation: Bool
+) -> TimeInterval {
+  reliableLifecycleObservation ? 5 : 0.3
+}
+
 func copyWindowBorderStacking(
   targetWindowID: WindowID?,
   monitorFrames: [Rect],

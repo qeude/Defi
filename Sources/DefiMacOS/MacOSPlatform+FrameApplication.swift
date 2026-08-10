@@ -556,6 +556,90 @@ extension MacOSPlatform {
     lastFrameApplyDurationMS
   }
 
+  public var windowSnapshotPerformance:
+    (
+      lastDurationMS: Double,
+      maximumDurationMS: Double,
+      p50DurationMS: Double,
+      p95DurationMS: Double,
+      full: Int,
+      incremental: Int,
+      cached: Int,
+      applicationInventories: Int,
+      applicationWindowListReads: Int,
+      applicationInventoryP50MS: Double,
+      applicationInventoryP95MS: Double,
+      applicationWindowListP50MS: Double,
+      applicationWindowListP95MS: Double,
+      cgCopies: Int,
+      lastCGCopyDurationMS: Double,
+      maximumCGCopyDurationMS: Double
+    )
+  {
+    (
+      lastWindowSnapshotDurationMS,
+      maximumWindowSnapshotDurationMS,
+      durationPercentile(0.50, samples: windowSnapshotDurationSamplesMS),
+      durationPercentile(0.95, samples: windowSnapshotDurationSamplesMS),
+      fullWindowSnapshotCount,
+      incrementalWindowSnapshotCount,
+      cachedWindowSnapshotCount,
+      applicationInventorySnapshotCount,
+      applicationWindowListReadCount,
+      durationPercentile(0.50, samples: applicationInventoryDurationSamplesMS),
+      durationPercentile(0.95, samples: applicationInventoryDurationSamplesMS),
+      durationPercentile(0.50, samples: applicationWindowListDurationSamplesMS),
+      durationPercentile(0.95, samples: applicationWindowListDurationSamplesMS),
+      snapshotCGWindowCopyCount,
+      lastSnapshotCGWindowCopyDurationMS,
+      maximumSnapshotCGWindowCopyDurationMS
+    )
+  }
+
+  public var hasReliableWindowTopologyObservation: Bool {
+    eventMonitor?.hasReliableWindowTopologyCoverage(
+      for: Set(applications.keys)
+    ) == true
+  }
+
+  public var hasReliableApplicationLifecycleObservation: Bool {
+    eventMonitor?.hasReliableApplicationLifecycleObservation == true
+  }
+
+  public var recommendedApplicationInventoryRefreshInterval: TimeInterval {
+    applicationInventoryRefreshInterval(
+      reliableLifecycleObservation: hasReliableApplicationLifecycleObservation
+    )
+  }
+
+  public var hasReliableDesktopObservation: Bool {
+    hasReliableWindowTopologyObservation
+      && eventMonitor?.hasReliableFrameCoverage() == true
+  }
+
+  public var desktopObservationCoverage:
+    (
+      applicationObservers: Int,
+      applications: Int,
+      topologyWindows: Int,
+      frameWindows: Int,
+      windows: Int
+    )
+  {
+    eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0)
+  }
+
+  public var windowAttributeReadPerformance:
+    (batched: Int, fallback: Int, metadata: Int, metadataReuses: Int)
+  {
+    (
+      batchedWindowAttributeReadCount,
+      fallbackWindowAttributeReadCount,
+      windowManagementMetadataReadCount,
+      windowManagementMetadataReuseCount
+    )
+  }
+
   public var focusDurationMS: Double {
     focusWriter.durationMS
   }

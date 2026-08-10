@@ -953,6 +953,20 @@ struct PlatformEventTests {
   }
 
   @Test
+  func applicationInventoryWatchdogPreservesPollingFallback() {
+    #expect(
+      applicationInventoryRefreshInterval(
+        reliableLifecycleObservation: true
+      ) == 5
+    )
+    #expect(
+      applicationInventoryRefreshInterval(
+        reliableLifecycleObservation: false
+      ) == 0.3
+    )
+  }
+
+  @Test
   func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
     #expect(
       windowSnapshotInvalidation(

@@ -15,7 +15,21 @@ enum WindowGeometryDiscovery: Equatable {
 enum WindowDiscoveryResult {
   case unavailable
   case ignored
+  case unmatched
   case discovered(Window, CGWindowID, RuleDecision)
+}
+
+struct AXWindowAttributes {
+  let minimized: Bool?
+  let frame: Rect?
+  let title: String
+  let role: String?
+  let subrole: String?
+}
+
+struct WindowManagementCapabilities: Equatable {
+  let hasCloseButton: Bool
+  let canResize: Bool
 }
 
 @MainActor
@@ -57,14 +71,15 @@ extension MacOSPlatform {
     processID: pid_t,
     appID: String,
     config: Config,
-    cgWindows: [CGWindowRecord],
+    publicCGWindows: () -> [CGWindowRecord],
     monitors: [MonitorSnapshot],
     preferredWindowID: WindowID?,
     excluding usedCGWindowIDs: Set<CGWindowID>
   ) -> WindowDiscoveryResult {
+    let attributes = windowAttributes(element, processID: processID)
     let geometry = windowGeometryDiscovery(
-      minimized: value(element, attribute: kAXMinimizedAttribute, as: Bool.self),
-      frame: { self.frame(of: element) }
+      minimized: attributes.minimized,
+      frame: { attributes.frame }
     )
     let frame: Rect
     switch geometry {
@@ -75,38 +90,45 @@ extension MacOSPlatform {
     case .usable(let usableFrame):
       frame = usableFrame
     }
-    let title = value(element, attribute: kAXTitleAttribute, as: String.self) ?? ""
-    let role = value(element, attribute: kAXRoleAttribute, as: String.self)
-    let subrole = value(element, attribute: kAXSubroleAttribute, as: String.self)
+    let title = attributes.title
+    let role = attributes.role
+    let subrole = attributes.subrole
     let decision = config.decision(appID: appID, title: title, role: role)
-    let eligibleCGWindows = eligibleCGWindowRecords(
-      role: role,
-      for: subrole,
-      allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
-      in: cgWindows
-    )
-    let record =
-      (preferredWindowID.flatMap { preferred in
-        eligibleCGWindows.first {
-          $0.id == CGWindowID(preferred.rawValue)
-            && $0.processID == processID
-            && !usedCGWindowIDs.contains($0.id)
+    let resolvedWindowID: CGWindowID
+    if let reusableWindowID = reusableCGWindowID(
+      preferredWindowID,
+      excluding: usedCGWindowIDs
+    ) {
+      resolvedWindowID = reusableWindowID
+    } else {
+      let eligibleCGWindows = eligibleCGWindowRecords(
+        role: role,
+        for: subrole,
+        allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
+        in: publicCGWindows()
+      )
+      let record =
+        (preferredWindowID.flatMap { preferred in
+          eligibleCGWindows.first {
+            $0.id == CGWindowID(preferred.rawValue)
+              && $0.processID == processID
+              && !usedCGWindowIDs.contains($0.id)
+          }
         }
-      }
-        ?? bestCGWindow(
-          processID: processID,
-          title: title,
-          frame: frame,
-          records: eligibleCGWindows,
-          excluding: usedCGWindowIDs
-        ))
-    guard
-      let resolvedWindowID = resolvedCGWindowID(
+          ?? bestCGWindow(
+            processID: processID,
+            title: title,
+            frame: frame,
+            records: eligibleCGWindows,
+            excluding: usedCGWindowIDs
+          ))
+      guard let matchedWindowID = resolvedCGWindowID(
         matchedRecord: record,
         preferredWindowID: preferredWindowID
-      )
-    else {
-      return .ignored
+      ) else {
+        return .unmatched
+      }
+      resolvedWindowID = matchedWindowID
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
     return .discovered(
@@ -129,8 +151,38 @@ extension MacOSPlatform {
     element: AXUIElement,
     configuredFloating: Bool,
     forceTiling: Bool,
-    previousDisposition: WindowDisposition?
+    previousDisposition: WindowDisposition?,
+    reuseCachedCapabilities: Bool
   ) -> WindowDisposition {
+    if forceTiling || configuredFloating
+      || window.role != kAXWindowRole
+      || window.subrole != kAXStandardWindowSubrole
+    {
+      return classifyWindow(
+        role: window.role,
+        subrole: window.subrole,
+        appID: window.appID,
+        hasCloseButton: false,
+        canResize: false,
+        configuredFloating: configuredFloating,
+        forceTiling: forceTiling
+      )
+    }
+    if reuseCachedCapabilities,
+      let capabilities = windowManagementCapabilities[window.id]
+    {
+      windowManagementMetadataReuseCount += 1
+      return classifyWindow(
+        role: window.role,
+        subrole: window.subrole,
+        appID: window.appID,
+        hasCloseButton: capabilities.hasCloseButton,
+        canResize: capabilities.canResize,
+        configuredFloating: false,
+        forceTiling: false
+      )
+    }
+    windowManagementMetadataReadCount += 1
     var closeButton: CFTypeRef?
     let closeButtonError = AXUIElementCopyAttributeValue(
       element,
@@ -155,10 +207,7 @@ extension MacOSPlatform {
     {
       return fallbackDisposition
     }
-    return classifyWindow(
-      role: window.role,
-      subrole: window.subrole,
-      appID: window.appID,
+    let capabilities = WindowManagementCapabilities(
       hasCloseButton: shouldTreatWindowAsClosable(
         error: closeButtonError,
         hasValue: closeButton != nil,
@@ -167,7 +216,15 @@ extension MacOSPlatform {
       canResize: windowCanResize(
         sizeSettableError: sizeSettableError,
         isSettable: sizeSettable.boolValue
-      ),
+      )
+    )
+    windowManagementCapabilities[window.id] = capabilities
+    return classifyWindow(
+      role: window.role,
+      subrole: window.subrole,
+      appID: window.appID,
+      hasCloseButton: capabilities.hasCloseButton,
+      canResize: capabilities.canResize,
       configuredFloating: configuredFloating,
       forceTiling: forceTiling
     )
@@ -262,6 +319,107 @@ extension MacOSPlatform {
     return Rect(x: position.x, y: position.y, width: size.width, height: size.height)
   }
 
+  func windowAttributes(
+    _ element: AXUIElement,
+    processID: pid_t
+  ) -> AXWindowAttributes {
+    if multipleAttributeReadsSupportedByProcess[processID] != false,
+      let attributes = batchedWindowAttributes(element)
+    {
+      multipleAttributeReadsSupportedByProcess[processID] = true
+      batchedWindowAttributeReadCount += 1
+      return attributes
+    }
+    fallbackWindowAttributeReadCount += 1
+    return AXWindowAttributes(
+      minimized: value(
+        element,
+        attribute: kAXMinimizedAttribute,
+        as: Bool.self
+      ),
+      frame: frame(of: element),
+      title: value(
+        element,
+        attribute: kAXTitleAttribute,
+        as: String.self
+      ) ?? "",
+      role: value(element, attribute: kAXRoleAttribute, as: String.self),
+      subrole: value(
+        element,
+        attribute: kAXSubroleAttribute,
+        as: String.self
+      )
+    )
+  }
+
+  private func batchedWindowAttributes(
+    _ element: AXUIElement
+  ) -> AXWindowAttributes? {
+    let names = [
+      kAXMinimizedAttribute,
+      kAXPositionAttribute,
+      kAXSizeAttribute,
+      kAXTitleAttribute,
+      kAXRoleAttribute,
+      kAXSubroleAttribute,
+    ]
+    var copiedValues: CFArray?
+    let result = AXUIElementCopyMultipleAttributeValues(
+      element,
+      names as CFArray,
+      AXCopyMultipleAttributeOptions(rawValue: 0),
+      &copiedValues
+    )
+    guard result == .success,
+      let values = copiedValues as? [AnyObject],
+      values.count == names.count
+    else {
+      if result == .notImplemented || result == .attributeUnsupported {
+        var processID: pid_t = 0
+        if AXUIElementGetPid(element, &processID) == .success {
+          multipleAttributeReadsSupportedByProcess[processID] = false
+        }
+      }
+      return nil
+    }
+    return AXWindowAttributes(
+      minimized: axAttributeValue(values[0]) as? Bool,
+      frame: frame(
+        positionValue: axAttributeValue(values[1]),
+        sizeValue: axAttributeValue(values[2])
+      ),
+      title: axAttributeValue(values[3]) as? String ?? "",
+      role: axAttributeValue(values[4]) as? String,
+      subrole: axAttributeValue(values[5]) as? String
+    )
+  }
+
+  private func frame(
+    positionValue: CFTypeRef?,
+    sizeValue: CFTypeRef?
+  ) -> Rect? {
+    guard let positionValue,
+      let sizeValue,
+      CFGetTypeID(positionValue) == AXValueGetTypeID(),
+      CFGetTypeID(sizeValue) == AXValueGetTypeID()
+    else {
+      return nil
+    }
+    var position = CGPoint.zero
+    var size = CGSize.zero
+    guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+      AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+    else {
+      return nil
+    }
+    return Rect(
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height
+    )
+  }
+
   func copyAttribute(_ element: AXUIElement, name: String) -> CFTypeRef? {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
@@ -281,6 +439,30 @@ extension MacOSPlatform {
   func copyElements(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
     copyAttribute(element, name: attribute) as? [AXUIElement]
   }
+}
+
+func reusableCGWindowID(
+  _ preferredWindowID: WindowID?,
+  excluding usedWindowIDs: Set<CGWindowID>
+) -> CGWindowID? {
+  guard let preferredWindowID,
+    let windowID = CGWindowID(exactly: preferredWindowID.rawValue),
+    !usedWindowIDs.contains(windowID)
+  else {
+    return nil
+  }
+  return windowID
+}
+
+func axAttributeValue(_ value: AnyObject) -> CFTypeRef? {
+  let rawValue = value as CFTypeRef
+  guard rawValue !== kCFNull else { return nil }
+  if CFGetTypeID(rawValue) == AXValueGetTypeID(),
+    AXValueGetType(rawValue as! AXValue) == .axError
+  {
+    return nil
+  }
+  return rawValue
 }
 
 func windowGeometryDiscovery(

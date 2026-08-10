@@ -218,6 +218,17 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testKnownWindowIDCanSkipGlobalCGSnapshot() {
+    XCTAssertEqual(
+      reusableCGWindowID(WindowID(rawValue: 42), excluding: []),
+      42
+    )
+    XCTAssertNil(
+      reusableCGWindowID(WindowID(rawValue: 42), excluding: [42])
+    )
+    XCTAssertNil(reusableCGWindowID(nil, excluding: []))
+  }
+
   func testAuxiliaryRolesCanMatchFloatingLevelWindowRecords() {
     let normal = CGWindowRecord(
       id: 1,
