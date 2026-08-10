@@ -22,9 +22,18 @@ extension MacOSPlatform {
     return AXIsProcessTrustedWithOptions(options)
   }
 
+  public func snapshot(config: Config) -> DesktopSnapshot {
+    snapshot(
+      config: config,
+      forceFullWindowRefresh: true,
+      forceWindowListRefresh: true,
+      forceApplicationInventoryRefresh: true
+    )
+  }
+
   public func snapshot(
     config: Config,
-    forceFullWindowRefresh: Bool = true,
+    forceFullWindowRefresh: Bool,
     forceWindowListRefresh: Bool = false,
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
@@ -35,16 +44,27 @@ extension MacOSPlatform {
     let frameRequiresFullSnapshot = pendingFrameRequiresFullSnapshot
     let frameProcessIDs = pendingFrameProcessIDs
     let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
-    if unmatchedWindowCacheRequiresFullRetry(
+    let eventRequiresFullSnapshot =
+      topologyRequiresFullSnapshot || frameRequiresFullSnapshot
+    let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
-        topologyRequiresFullSnapshot || frameRequiresFullSnapshot,
+        eventRequiresFullSnapshot,
       forceFullWindowRefresh: forceFullWindowRefresh,
       forceWindowListRefresh: forceWindowListRefresh
-    ) {
+    )
+    if eventRequiresFullSnapshot {
       unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
+      unmatchedWindowRetryAttemptsByProcess.removeAll(keepingCapacity: true)
     } else {
       for processID in topologyProcessIDs.union(frameProcessIDs) {
         unmatchedWindowElementsByProcess[processID] = nil
+        unmatchedWindowRetryAttemptsByProcess[processID] = nil
+      }
+      if retriesAllUnmatchedWindows {
+        for processID in unmatchedWindowElementsByProcess.keys {
+          unmatchedWindowRetryAttemptsByProcess[processID, default: 0] += 1
+        }
+        unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
       }
     }
     let incrementalProcessIDs = forceFullWindowRefresh
@@ -99,6 +119,12 @@ extension MacOSPlatform {
     let previousProcessIDs = processIDs
     let previousApplications = applications
     let previousApplicationIDs = applicationIDsByProcess
+    var previouslyManagedApplicationWindows: [pid_t: [AXUIElement]] = [:]
+    for (windowID, element) in previousElements {
+      if let processID = previousProcessIDs[windowID] {
+        previouslyManagedApplicationWindows[processID, default: []].append(element)
+      }
+    }
     let previousWindowsByProcess = Dictionary(
       grouping: lastSnapshotWindows,
       by: \.processID
@@ -275,8 +301,15 @@ extension MacOSPlatform {
           if let previousWindowID {
             ignoredPreviousWindowIDs.insert(previousWindowID)
           } else {
-            unmatchedWindowElementsByProcess[processID, default: []]
-              .append(element)
+            if unmatchedWindowElementsByProcess[processID]?.contains(where: {
+              CFEqual($0, element)
+            }) != true {
+              unmatchedWindowElementsByProcess[processID, default: []]
+                .append(element)
+            }
+            if unmatchedWindowRetryAttemptsByProcess[processID] == nil {
+              unmatchedWindowRetryAttemptsByProcess[processID] = 0
+            }
           }
           continue
         case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
@@ -414,22 +447,33 @@ extension MacOSPlatform {
       unmatchedWindowElementsByProcess.filter {
         nextApplications[$0.key] != nil
       }
+    unmatchedWindowRetryAttemptsByProcess =
+      unmatchedWindowRetryAttemptsByProcess.filter {
+        nextApplications[$0.key] != nil
+          && unmatchedWindowElementsByProcess[$0.key]?.isEmpty == false
+      }
     let observedApplicationWindows = Dictionary(
       uniqueKeysWithValues: nextApplications.keys.map {
         ($0, applicationWindows[$0] ?? [])
       }
     )
-    var requiredApplicationWindows = Dictionary(
+    var requiredFrameWindows = Dictionary(
       uniqueKeysWithValues: nextApplications.keys.map { ($0, [AXUIElement]()) }
     )
     for (windowID, element) in nextElements {
       if let processID = nextProcessIDs[windowID] {
-        requiredApplicationWindows[processID, default: []].append(element)
+        requiredFrameWindows[processID, default: []].append(element)
       }
     }
+    let topologyWindowsRequiredForObservation = requiredTopologyWindows(
+      applicationWindows: observedApplicationWindows,
+      managedWindows: requiredFrameWindows,
+      previouslyManagedWindows: previouslyManagedApplicationWindows
+    )
     eventMonitor?.refresh(
       applications: observedApplicationWindows,
-      requiredWindows: requiredApplicationWindows
+      requiredTopologyWindows: topologyWindowsRequiredForObservation,
+      requiredFrameWindows: requiredFrameWindows
     )
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
     pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }

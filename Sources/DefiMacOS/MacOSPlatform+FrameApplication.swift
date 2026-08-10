@@ -612,6 +612,20 @@ extension MacOSPlatform {
     )
   }
 
+  public var recommendedWindowListRefreshInterval: TimeInterval {
+    let hasPendingUnmatchedRetry = unmatchedWindowElementsByProcess.contains {
+      processID, elements in
+      elements.isEmpty == false
+        && unmatchedWindowRetryIsPending(
+          attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0
+        )
+    }
+    return windowListRefreshInterval(
+      hasPendingUnmatchedRetry: hasPendingUnmatchedRetry,
+      reliableTopologyObservation: hasReliableWindowTopologyObservation
+    )
+  }
+
   public var hasReliableDesktopObservation: Bool {
     hasReliableWindowTopologyObservation
       && eventMonitor?.hasReliableFrameCoverage() == true
@@ -622,11 +636,12 @@ extension MacOSPlatform {
       applicationObservers: Int,
       applications: Int,
       topologyWindows: Int,
+      requiredTopologyWindows: Int,
       frameWindows: Int,
-      windows: Int
+      requiredFrameWindows: Int
     )
   {
-    eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0)
+    eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0, 0)
   }
 
   public var windowAttributeReadPerformance:

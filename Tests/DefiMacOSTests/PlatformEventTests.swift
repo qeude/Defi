@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import DefiModel
 import Testing
 
@@ -104,9 +105,20 @@ struct PlatformEventTests {
 
   @Test
   func nativeFocusFastPathRequiresKeyboardFocus() {
-    #expect(targetWindowFocusIsConfirmed(true))
-    #expect(targetWindowFocusIsConfirmed(false) == false)
-    #expect(targetWindowFocusIsConfirmed(nil) == false)
+    var consultedApplication = false
+    #expect(
+      targetWindowFocusIsConfirmed(true) {
+        consultedApplication = true
+        return false
+      }
+    )
+    #expect(consultedApplication == false)
+    #expect(
+      targetWindowFocusIsConfirmed(false) { true }
+    )
+    #expect(
+      targetWindowFocusIsConfirmed(nil) { false } == false
+    )
   }
 
   @Test
@@ -979,7 +991,7 @@ struct PlatformEventTests {
       boundedSnapshotRefreshDeadline(
         current: 15,
         now: 10,
-        reliableObservation: false,
+        interval: 0.3,
         reset: false
       ) == 10.3
     )
@@ -987,7 +999,7 @@ struct PlatformEventTests {
       boundedSnapshotRefreshDeadline(
         current: 10.1,
         now: 10,
-        reliableObservation: false,
+        interval: 0.3,
         reset: false
       ) == 10.1
     )
@@ -995,9 +1007,54 @@ struct PlatformEventTests {
       boundedSnapshotRefreshDeadline(
         current: 10.1,
         now: 10,
-        reliableObservation: true,
+        interval: 5,
         reset: true
       ) == 15
+    )
+  }
+
+  @Test
+  func unmatchedWindowsGetThreeShortRetriesThenUseWatchdog() {
+    #expect(unmatchedWindowRetryIsPending(attempts: 0))
+    #expect(unmatchedWindowRetryIsPending(attempts: 2))
+    #expect(unmatchedWindowRetryIsPending(attempts: 3) == false)
+    #expect(
+      windowListRefreshInterval(
+        hasPendingUnmatchedRetry: true,
+        reliableTopologyObservation: true
+      ) == 0.1
+    )
+    #expect(
+      windowListRefreshInterval(
+        hasPendingUnmatchedRetry: false,
+        reliableTopologyObservation: true
+      ) == 5
+    )
+    #expect(
+      windowListRefreshInterval(
+        hasPendingUnmatchedRetry: false,
+        reliableTopologyObservation: false
+      ) == 0.3
+    )
+  }
+
+  @Test
+  func topologyCoverageKeepsPreviouslyManagedWindowsOnly() {
+    let current = AXUIElementCreateApplication(101)
+    let minimized = AXUIElementCreateApplication(202)
+    let unmanagedAuxiliary = AXUIElementCreateApplication(303)
+
+    let required = requiredTopologyWindows(
+      applicationWindows: [7: [current, minimized, unmanagedAuxiliary]],
+      managedWindows: [7: [current]],
+      previouslyManagedWindows: [7: [current, minimized]]
+    )[7] ?? []
+
+    #expect(required.count == 2)
+    #expect(required.contains(where: { CFEqual($0, current) }))
+    #expect(required.contains(where: { CFEqual($0, minimized) }))
+    #expect(
+      required.contains(where: { CFEqual($0, unmanagedAuxiliary) }) == false
     )
   }
 

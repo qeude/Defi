@@ -30,13 +30,13 @@ extension Daemon {
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextPeriodicWindowRefreshAt,
       now: snapshotCompletedAt,
-      reliableObservation: platform.hasReliableDesktopObservation,
+      interval: platform.hasReliableDesktopObservation ? 5 : 0.3,
       reset: forceFullWindowRefresh
     )
     nextWindowListRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextWindowListRefreshAt,
       now: snapshotCompletedAt,
-      reliableObservation: platform.hasReliableWindowTopologyObservation,
+      interval: platform.recommendedWindowListRefreshInterval,
       reset: forceWindowListRefresh
     )
     let applicationInventoryInterval =

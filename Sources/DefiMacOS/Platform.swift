@@ -120,15 +120,52 @@ func applicationInventoryRefreshInterval(
 public func boundedSnapshotRefreshDeadline(
   current: TimeInterval,
   now: TimeInterval,
-  reliableObservation: Bool,
+  interval: TimeInterval,
   reset: Bool
 ) -> TimeInterval {
-  let candidate = now + (reliableObservation ? 5 : 0.3)
+  let candidate = now + interval
   return reset ? candidate : min(current, candidate)
 }
 
-func targetWindowFocusIsConfirmed(_ focusedAttribute: Bool?) -> Bool {
-  focusedAttribute == true
+func windowListRefreshInterval(
+  hasPendingUnmatchedRetry: Bool,
+  reliableTopologyObservation: Bool
+) -> TimeInterval {
+  if hasPendingUnmatchedRetry { return 0.1 }
+  return reliableTopologyObservation ? 5 : 0.3
+}
+
+func unmatchedWindowRetryIsPending(
+  attempts: Int,
+  maximumAttempts: Int = 3
+) -> Bool {
+  attempts < maximumAttempts
+}
+
+func targetWindowFocusIsConfirmed(
+  _ focusedAttribute: Bool?,
+  applicationFocusedWindowMatches: () -> Bool
+) -> Bool {
+  if focusedAttribute == true { return true }
+  return applicationFocusedWindowMatches()
+}
+
+func requiredTopologyWindows(
+  applicationWindows: [pid_t: [AXUIElement]],
+  managedWindows: [pid_t: [AXUIElement]],
+  previouslyManagedWindows: [pid_t: [AXUIElement]]
+) -> [pid_t: [AXUIElement]] {
+  Dictionary(
+    uniqueKeysWithValues: applicationWindows.map { processID, windows in
+      let candidates =
+        (managedWindows[processID] ?? [])
+        + (previouslyManagedWindows[processID] ?? [])
+      let required = windows.filter { window in
+        candidates.contains(where: { CFEqual($0, window) })
+      }
+      return (processID, required)
+    }
+  )
 }
 
 func copyWindowBorderStacking(
