@@ -191,6 +191,22 @@ func applicationWindowsAfterPreparingTopologyObservation(
   return copyWindows()
 }
 
+func cacheWindowElementForShortRetry(
+  _ element: AXUIElement,
+  processID: pid_t,
+  elementsByProcess: inout [pid_t: [AXUIElement]],
+  attemptsByProcess: inout [pid_t: Int]
+) {
+  if elementsByProcess[processID]?.contains(where: {
+    CFEqual($0, element)
+  }) != true {
+    elementsByProcess[processID, default: []].append(element)
+  }
+  if attemptsByProcess[processID] == nil {
+    attemptsByProcess[processID] = 0
+  }
+}
+
 func targetWindowFocusIsConfirmed(
   _ focusedAttribute: Bool?,
   applicationFocusedWindowMatches: () -> Bool

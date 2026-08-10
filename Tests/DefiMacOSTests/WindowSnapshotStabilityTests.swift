@@ -101,6 +101,33 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func unavailableNewWindowUsesDeduplicatedShortRetry() {
+    let element = AXUIElementCreateApplication(processID)
+    var elementsByProcess: [pid_t: [AXUIElement]] = [:]
+    var attemptsByProcess: [pid_t: Int] = [:]
+
+    cacheWindowElementForShortRetry(
+      element,
+      processID: processID,
+      elementsByProcess: &elementsByProcess,
+      attemptsByProcess: &attemptsByProcess
+    )
+    cacheWindowElementForShortRetry(
+      element,
+      processID: processID,
+      elementsByProcess: &elementsByProcess,
+      attemptsByProcess: &attemptsByProcess
+    )
+
+    #expect(elementsByProcess[processID]?.count == 1)
+    #expect(attemptsByProcess[processID] == 0)
+    #expect(
+      unmatchedWindowRetryIsPending(
+        attempts: attemptsByProcess[processID] ?? 3
+      )
+    )
+  }
+
   @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {
     #expect(
       cgWindowInventoryRetryIsRequired(

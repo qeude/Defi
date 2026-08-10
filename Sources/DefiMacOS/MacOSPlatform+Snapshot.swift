@@ -324,6 +324,14 @@ extension MacOSPlatform {
         let decision: RuleDecision
         switch discovery {
         case .unavailable:
+          if previousWindowID == nil {
+            cacheWindowElementForShortRetry(
+              element,
+              processID: processID,
+              elementsByProcess: &unmatchedWindowElementsByProcess,
+              attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+            )
+          }
           continue
         case .ignored:
           minimizedWindows[processID, default: []].append(element)
@@ -341,15 +349,12 @@ extension MacOSPlatform {
           if let previousWindowID {
             ignoredPreviousWindowIDs.insert(previousWindowID)
           } else {
-            if unmatchedWindowElementsByProcess[processID]?.contains(where: {
-              CFEqual($0, element)
-            }) != true {
-              unmatchedWindowElementsByProcess[processID, default: []]
-                .append(element)
-            }
-            if unmatchedWindowRetryAttemptsByProcess[processID] == nil {
-              unmatchedWindowRetryAttemptsByProcess[processID] = 0
-            }
+            cacheWindowElementForShortRetry(
+              element,
+              processID: processID,
+              elementsByProcess: &unmatchedWindowElementsByProcess,
+              attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+            )
           }
           continue
         case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
