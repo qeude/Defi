@@ -107,7 +107,11 @@ Local development build:
 ```
 
 This builds, signs, and installs `~/Applications/Defi.app`. When no config
-exists, it installs `defi.example.toml` as the initial user config.
+exists, it installs `defi.example.toml` as the initial user config. This
+example intentionally overrides the built-in defaults: it uses the Hyper
+modifier and named workspaces such as `dev`, `web`, and `tools`. Remove or
+edit `~/.config/defi/config.toml` if you want to use the built-in Option
+bindings and workspaces `1` through `9` instead.
 
 The script uses an Apple Development identity. If multiple identities exist,
 copy `.env.example` to the ignored `.env.local` and select the development
@@ -126,6 +130,7 @@ The artifact is written to `dist/`.
 ```sh
 swift build
 swift test --skip DesktopE2ETests
+./script/build_and_run.sh --verify
 ./script/test_desktop.sh
 ```
 
