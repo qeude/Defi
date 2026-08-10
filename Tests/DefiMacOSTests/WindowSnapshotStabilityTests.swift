@@ -141,6 +141,29 @@ struct WindowSnapshotStabilityTests {
     #expect(geometryReadCount == 0)
   }
 
+  @Test func minimizedFallbackWindowSkipsRemainingAttributeReads() {
+    var remainingReadCount = 0
+    func recordRead<Value>(_ value: Value) -> Value {
+      remainingReadCount += 1
+      return value
+    }
+
+    let attributes = fallbackWindowAttributes(
+      minimized: { true },
+      frame: { recordRead(frame) },
+      title: { recordRead("Window") },
+      role: { recordRead(kAXWindowRole) },
+      subrole: { recordRead(kAXStandardWindowSubrole) }
+    )
+
+    #expect(attributes.minimized == true)
+    #expect(attributes.frame == nil)
+    #expect(attributes.title.isEmpty)
+    #expect(attributes.role == nil)
+    #expect(attributes.subrole == nil)
+    #expect(remainingReadCount == 0)
+  }
+
   @Test func usableWindowGeometryRemainsDiscoverable() {
     #expect(
       windowGeometryDiscovery(minimized: false, frame: { frame }) == .usable(frame)

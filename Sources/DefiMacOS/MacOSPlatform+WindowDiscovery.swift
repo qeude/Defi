@@ -315,24 +315,32 @@ extension MacOSPlatform {
       return attributes
     }
     fallbackWindowAttributeReadCount += 1
-    return AXWindowAttributes(
-      minimized: value(
-        element,
-        attribute: kAXMinimizedAttribute,
-        as: Bool.self
-      ),
-      frame: frame(of: element),
-      title: value(
-        element,
-        attribute: kAXTitleAttribute,
-        as: String.self
-      ) ?? "",
-      role: value(element, attribute: kAXRoleAttribute, as: String.self),
-      subrole: value(
-        element,
-        attribute: kAXSubroleAttribute,
-        as: String.self
-      )
+    return fallbackWindowAttributes(
+      minimized: {
+        value(
+          element,
+          attribute: kAXMinimizedAttribute,
+          as: Bool.self
+        )
+      },
+      frame: { self.frame(of: element) },
+      title: {
+        value(
+          element,
+          attribute: kAXTitleAttribute,
+          as: String.self
+        )
+      },
+      role: {
+        value(element, attribute: kAXRoleAttribute, as: String.self)
+      },
+      subrole: {
+        value(
+          element,
+          attribute: kAXSubroleAttribute,
+          as: String.self
+        )
+      }
     )
   }
 
@@ -423,6 +431,32 @@ extension MacOSPlatform {
   func copyElements(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
     copyAttribute(element, name: attribute) as? [AXUIElement]
   }
+}
+
+func fallbackWindowAttributes(
+  minimized: () -> Bool?,
+  frame: () -> Rect?,
+  title: () -> String?,
+  role: () -> String?,
+  subrole: () -> String?
+) -> AXWindowAttributes {
+  let minimizedValue = minimized()
+  guard minimizedValue != true else {
+    return AXWindowAttributes(
+      minimized: true,
+      frame: nil,
+      title: "",
+      role: nil,
+      subrole: nil
+    )
+  }
+  return AXWindowAttributes(
+    minimized: minimizedValue,
+    frame: frame(),
+    title: title() ?? "",
+    role: role(),
+    subrole: subrole()
+  )
 }
 
 func axAttributeValue(_ value: AnyObject) -> CFTypeRef? {
