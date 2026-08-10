@@ -142,6 +142,14 @@ func unmatchedWindowRetryIsPending(
   attempts < maximumAttempts
 }
 
+func applicationWindowsAfterPreparingTopologyObservation(
+  prepareObservation: () -> Void,
+  copyWindows: () -> [AXUIElement]?
+) -> [AXUIElement]? {
+  prepareObservation()
+  return copyWindows()
+}
+
 func targetWindowFocusIsConfirmed(
   _ focusedAttribute: Bool?,
   applicationFocusedWindowMatches: () -> Bool
@@ -166,6 +174,25 @@ func requiredTopologyWindows(
       return (processID, required)
     }
   )
+}
+
+func topologyWindowsRequiringCoverage(
+  requested: [AXUIElement],
+  previouslyRequired: [AXUIElement],
+  observed: [AXUIElement],
+  applicationWindows: [AXUIElement]
+) -> [AXUIElement] {
+  var required = requested.filter { candidate in
+    applicationWindows.contains(where: { CFEqual($0, candidate) })
+  }
+  for candidate in previouslyRequired
+  where applicationWindows.contains(where: { CFEqual($0, candidate) })
+    && !observed.contains(where: { CFEqual($0, candidate) })
+    && !required.contains(where: { CFEqual($0, candidate) })
+  {
+    required.append(candidate)
+  }
+  return required
 }
 
 func copyWindowBorderStacking(

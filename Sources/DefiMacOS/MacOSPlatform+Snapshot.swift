@@ -246,9 +246,19 @@ extension MacOSPlatform {
       if refreshesWindowList {
         applicationWindowListReadCount += 1
         let windowListStartedAt = ProcessInfo.processInfo.systemUptime
-        let copiedWindows = copyElements(
-          appElement,
-          attribute: kAXWindowsAttribute
+        let copiedWindows = applicationWindowsAfterPreparingTopologyObservation(
+          prepareObservation: {
+            eventMonitor?.prepareForWindowDiscovery(
+              processID: processID,
+              application: appElement
+            )
+          },
+          copyWindows: {
+            copyElements(
+              appElement,
+              attribute: kAXWindowsAttribute
+            )
+          }
         )
         recordDurationSample(
           (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,

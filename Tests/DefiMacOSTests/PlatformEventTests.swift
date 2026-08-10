@@ -1039,6 +1039,22 @@ struct PlatformEventTests {
   }
 
   @Test
+  func applicationObserverIsPreparedBeforeInitialWindowDiscovery() {
+    var actions: [String] = []
+
+    let windows = applicationWindowsAfterPreparingTopologyObservation(
+      prepareObservation: { actions.append("observe") },
+      copyWindows: {
+        actions.append("copy")
+        return []
+      }
+    )
+
+    #expect(actions == ["observe", "copy"])
+    #expect(windows?.isEmpty == true)
+  }
+
+  @Test
   func topologyCoverageKeepsPreviouslyManagedWindowsOnly() {
     let current = AXUIElementCreateApplication(101)
     let minimized = AXUIElementCreateApplication(202)
@@ -1056,6 +1072,39 @@ struct PlatformEventTests {
     #expect(
       required.contains(where: { CFEqual($0, unmanagedAuxiliary) }) == false
     )
+  }
+
+  @Test
+  func topologyCoverageRetainsUnobservedWindowUntilResolvedOrRemoved() {
+    let current = AXUIElementCreateApplication(101)
+    let minimized = AXUIElementCreateApplication(202)
+
+    let unresolved = topologyWindowsRequiringCoverage(
+      requested: [current],
+      previouslyRequired: [current, minimized],
+      observed: [current],
+      applicationWindows: [current, minimized]
+    )
+    #expect(unresolved.count == 2)
+    #expect(unresolved.contains(where: { CFEqual($0, minimized) }))
+
+    let resolved = topologyWindowsRequiringCoverage(
+      requested: [current],
+      previouslyRequired: unresolved,
+      observed: [current, minimized],
+      applicationWindows: [current, minimized]
+    )
+    #expect(resolved.count == 1)
+    #expect(resolved.contains(where: { CFEqual($0, current) }))
+
+    let removed = topologyWindowsRequiringCoverage(
+      requested: [current],
+      previouslyRequired: unresolved,
+      observed: [current],
+      applicationWindows: [current]
+    )
+    #expect(removed.count == 1)
+    #expect(removed.contains(where: { CFEqual($0, current) }))
   }
 
   @Test @MainActor

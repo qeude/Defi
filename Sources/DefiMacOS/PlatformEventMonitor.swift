@@ -179,24 +179,21 @@ final class PlatformEventMonitor {
 
     for (processID, windows) in applications {
       guard let observer = observer(for: processID) else { continue }
-      if !topologyObservedProcessIDs.contains(processID) {
-        let application = AXUIElementCreateApplication(processID)
-        if subscribe(
-          observer,
-          element: application,
-          notifications: [
-            kAXFocusedWindowChangedNotification,
-            kAXWindowCreatedNotification,
-          ]
-        ) {
-          topologyObservedProcessIDs.insert(processID)
-        }
-      }
+      prepareForWindowDiscovery(
+        processID: processID,
+        application: AXUIElementCreateApplication(processID),
+        observer: observer
+      )
 
       var known = observedWindows[processID] ?? []
       var topologyObserved = topologyObservedWindows[processID] ?? []
       var frameObserved = frameObservedWindows[processID] ?? []
-      let requiredTopology = requiredTopologyWindows?[processID] ?? windows
+      let requiredTopology = topologyWindowsRequiringCoverage(
+        requested: requiredTopologyWindows?[processID] ?? windows,
+        previouslyRequired: topologyRequiredWindows[processID] ?? [],
+        observed: topologyObserved,
+        applicationWindows: windows
+      )
       let requiredFrames = requiredFrameWindows?[processID] ?? windows
       for window in windows {
         if !topologyObserved.contains(where: { CFEqual($0, window) }),
@@ -251,6 +248,18 @@ final class PlatformEventMonitor {
         requiredFrames.contains(where: { CFEqual($0, candidate) })
       }
     }
+  }
+
+  func prepareForWindowDiscovery(
+    processID: pid_t,
+    application: AXUIElement
+  ) {
+    guard let observer = observer(for: processID) else { return }
+    prepareForWindowDiscovery(
+      processID: processID,
+      application: application,
+      observer: observer
+    )
   }
 
   func hasReliableWindowTopologyCoverage(
@@ -381,6 +390,24 @@ final class PlatformEventMonitor {
     )
     observers[processID] = observer
     return observer
+  }
+
+  private func prepareForWindowDiscovery(
+    processID: pid_t,
+    application: AXUIElement,
+    observer: AXObserver
+  ) {
+    guard !topologyObservedProcessIDs.contains(processID) else { return }
+    if subscribe(
+      observer,
+      element: application,
+      notifications: [
+        kAXFocusedWindowChangedNotification,
+        kAXWindowCreatedNotification,
+      ]
+    ) {
+      topologyObservedProcessIDs.insert(processID)
+    }
   }
 
   @discardableResult
