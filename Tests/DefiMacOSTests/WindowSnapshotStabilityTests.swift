@@ -8,6 +8,163 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func applicationInventoryUsesEventsAndBoundedWatchdog() {
+    #expect(
+      applicationInventoryRefreshIsRequired(
+        hasCompletedSnapshot: false,
+        topologyRequiresFullSnapshot: false,
+        forced: false
+      )
+    )
+    #expect(
+      applicationInventoryRefreshIsRequired(
+        hasCompletedSnapshot: true,
+        topologyRequiresFullSnapshot: true,
+        forced: false
+      )
+    )
+    #expect(
+      applicationInventoryRefreshIsRequired(
+        hasCompletedSnapshot: true,
+        topologyRequiresFullSnapshot: false,
+        forced: true
+      )
+    )
+    #expect(
+      !applicationInventoryRefreshIsRequired(
+        hasCompletedSnapshot: true,
+        topologyRequiresFullSnapshot: false,
+        forced: false
+      )
+    )
+  }
+
+  @Test func windowListUsesCacheUntilTopologyOrWatchdogInvalidation() {
+    #expect(
+      applicationWindowListRefreshIsRequired(
+        hasCachedWindows: false,
+        refreshesAllWindowLists: false,
+        topologyProcessWasInvalidated: false
+      )
+    )
+    #expect(
+      applicationWindowListRefreshIsRequired(
+        hasCachedWindows: true,
+        refreshesAllWindowLists: true,
+        topologyProcessWasInvalidated: false
+      )
+    )
+    #expect(
+      applicationWindowListRefreshIsRequired(
+        hasCachedWindows: true,
+        refreshesAllWindowLists: false,
+        topologyProcessWasInvalidated: true
+      )
+    )
+    #expect(
+      !applicationWindowListRefreshIsRequired(
+        hasCachedWindows: true,
+        refreshesAllWindowLists: false,
+        topologyProcessWasInvalidated: false
+      )
+    )
+  }
+
+  @Test func windowListWatchdogRetriesPreviouslyUnmatchedWindows() {
+    #expect(
+      unmatchedWindowCacheRequiresFullRetry(
+        eventRequiresFullSnapshot: false,
+        forceFullWindowRefresh: false,
+        forceWindowListRefresh: true
+      )
+    )
+    #expect(
+      unmatchedWindowCacheRequiresFullRetry(
+        eventRequiresFullSnapshot: true,
+        forceFullWindowRefresh: false,
+        forceWindowListRefresh: false
+      )
+    )
+    #expect(
+      unmatchedWindowCacheRequiresFullRetry(
+        eventRequiresFullSnapshot: false,
+        forceFullWindowRefresh: true,
+        forceWindowListRefresh: false
+      )
+    )
+    #expect(
+      !unmatchedWindowCacheRequiresFullRetry(
+        eventRequiresFullSnapshot: false,
+        forceFullWindowRefresh: false,
+        forceWindowListRefresh: false
+      )
+    )
+  }
+
+  @Test func unavailableNewWindowUsesDeduplicatedShortRetry() {
+    let element = AXUIElementCreateApplication(processID)
+    var elementsByProcess: [pid_t: [AXUIElement]] = [:]
+    var attemptsByProcess: [pid_t: Int] = [:]
+
+    cacheWindowElementForShortRetry(
+      element,
+      processID: processID,
+      elementsByProcess: &elementsByProcess,
+      attemptsByProcess: &attemptsByProcess
+    )
+    cacheWindowElementForShortRetry(
+      element,
+      processID: processID,
+      elementsByProcess: &elementsByProcess,
+      attemptsByProcess: &attemptsByProcess
+    )
+
+    #expect(elementsByProcess[processID]?.count == 1)
+    #expect(attemptsByProcess[processID] == 0)
+    #expect(
+      unmatchedWindowRetryIsPending(
+        attempts: attemptsByProcess[processID] ?? 3
+      )
+    )
+  }
+
+  @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {
+    #expect(
+      cgWindowInventoryRetryIsRequired(
+        attempts: 0,
+        forceWindowListRefresh: true
+      )
+    )
+    #expect(
+      !cgWindowInventoryRetryIsRequired(
+        attempts: nil,
+        forceWindowListRefresh: true
+      )
+    )
+    #expect(
+      !cgWindowInventoryRetryIsRequired(
+        attempts: 3,
+        forceWindowListRefresh: true
+      )
+    )
+    #expect(
+      !cgWindowInventoryRetryIsRequired(
+        attempts: 0,
+        forceWindowListRefresh: false
+      )
+    )
+  }
+
+  @Test func snapshotDurationPercentilesAreBoundedAndDeterministic() {
+    let samples = [1.0, 5.0, 2.0, 4.0, 3.0]
+
+    #expect(durationPercentile(0.5, samples: samples) == 3)
+    #expect(durationPercentile(0.95, samples: samples) == 5)
+    #expect(durationPercentile(-1, samples: samples) == 1)
+    #expect(durationPercentile(2, samples: samples) == 5)
+    #expect(durationPercentile(0.5, samples: []) == 0)
+  }
+
   @Test func transientGeometryFailureRemainsUnavailable() {
     #expect(
       windowGeometryDiscovery(minimized: false, frame: { nil }) == .unavailable
@@ -38,6 +195,29 @@ struct WindowSnapshotStabilityTests {
     #expect(geometryReadCount == 0)
   }
 
+  @Test func minimizedFallbackWindowSkipsRemainingAttributeReads() {
+    var remainingReadCount = 0
+    func recordRead<Value>(_ value: Value) -> Value {
+      remainingReadCount += 1
+      return value
+    }
+
+    let attributes = fallbackWindowAttributes(
+      minimized: { true },
+      frame: { recordRead(frame) },
+      title: { recordRead("Window") },
+      role: { recordRead(kAXWindowRole) },
+      subrole: { recordRead(kAXStandardWindowSubrole) }
+    )
+
+    #expect(attributes.minimized == true)
+    #expect(attributes.frame == nil)
+    #expect(attributes.title.isEmpty)
+    #expect(attributes.role == nil)
+    #expect(attributes.subrole == nil)
+    #expect(remainingReadCount == 0)
+  }
+
   @Test func usableWindowGeometryRemainsDiscoverable() {
     #expect(
       windowGeometryDiscovery(minimized: false, frame: { frame }) == .usable(frame)
@@ -59,6 +239,21 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func unavailableCGInventoryPreservesCachedWindow() {
+    let window = makeWindow(id: 42)
+
+    #expect(
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [],
+        ignoredWindowIDs: [],
+        cgWindows: nil,
+        cachedMinimizedState: { _ in nil }
+      ) == [window.id]
+    )
+  }
+
   @Test func retainedWindowDoesNotProvideFreshFrameObservation() {
     let retainedWindow = makeWindow(id: 42)
     let observedWindow = makeWindow(id: 43)
@@ -67,6 +262,19 @@ struct WindowSnapshotStabilityTests {
       freshWindowObservationIDs(
         windows: [retainedWindow, observedWindow],
         retainedWindowIDs: [retainedWindow.id]
+      ) == [observedWindow.id]
+    )
+  }
+
+  @Test func cachedWindowDoesNotProvideFreshFrameObservation() {
+    let cachedWindow = makeWindow(id: 42)
+    let observedWindow = makeWindow(id: 43)
+
+    #expect(
+      freshWindowObservationIDs(
+        windows: [cachedWindow, observedWindow],
+        retainedWindowIDs: [],
+        cachedWindowIDs: [cachedWindow.id]
       ) == [observedWindow.id]
     )
   }

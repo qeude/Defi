@@ -403,6 +403,11 @@ extension MacOSPlatform {
 
   public func setFrameNotificationsEnabled(_ enabled: Bool) {
     eventMonitor?.setFrameNotificationsEnabled(enabled)
+    guard enabled else { return }
+    // Notifications were absent while animated writes ran. Force fresh reads
+    // before trusting the final committed frames.
+    frameEventPending = true
+    pendingFrameProcessIDs.formUnion(lastSnapshotProcessIDs)
   }
 
   public var isLeftMouseButtonDown: Bool {

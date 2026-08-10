@@ -345,70 +345,99 @@ final class DesktopE2ETests: XCTestCase {
       return !window.intrinsicSize
         && intersectionWidth >= window.frame.width * 0.5
     }
-    guard let window = candidates.first else {
+    guard !candidates.isEmpty else {
       throw XCTSkip("No manageable desktop window")
-    }
-    let original = window.frame
-    let animatedWidth = max(original.width - 160, 200)
-    let target = Rect(
-      x: original.x + 80,
-      y: original.y,
-      width: animatedWidth,
-      height: original.height
-    )
-    let intermediate = Rect(
-      x: original.x + 40,
-      y: original.y,
-      width: animatedWidth,
-      height: original.height
-    )
-    defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
-      pumpRunLoop(for: 0.3)
     }
 
     let competingPlatform = try makePlatform()
     _ = competingPlatform.snapshot(config: Config())
-
-    platform.apply(
-      [FrameAssignment(windowID: window.id, frame: target)],
-      asynchronousPositions: true,
-      animationDuration: 0.05,
-      animationRefreshRateHz: 120,
-      source: "test-animation"
-    )
-    XCTAssertTrue(
-      pumpRunLoop(
+    var selected:
+      (
+        window: Window,
+        original: Rect,
+        target: Rect,
+        expectation: FrameCommitExpectation
+      )?
+    var failedPreconditions: [String] = []
+    for window in candidates.sorted(by: { $0.frame.width > $1.frame.width }) {
+      let original = window.frame
+      let animatedWidth = max(original.width - 160, 200)
+      let target = Rect(
+        x: original.x + 80,
+        y: original.y,
+        width: animatedWidth,
+        height: original.height
+      )
+      let intermediate = Rect(
+        x: original.x + 40,
+        y: original.y,
+        width: animatedWidth,
+        height: original.height
+      )
+      platform.apply(
+        [FrameAssignment(windowID: window.id, frame: target)],
+        asynchronousPositions: true,
+        animationDuration: 0.05,
+        animationRefreshRateHz: 120,
+        source: "test-animation"
+      )
+      guard pumpRunLoop(
         until: { !platform.hasPendingAnimatedFrameWrites },
         timeout: 0.5
-      )
-    )
+      ) else {
+        failedPreconditions.append("\(window.appID):animation")
+        competingPlatform.apply([
+          FrameAssignment(windowID: window.id, frame: original)
+        ])
+        pumpRunLoop(for: 0.15)
+        platform.acceptObservedFrame(original, for: window.id)
+        continue
+      }
 
-    var competingWriteConverged = false
-    var lastCompetingFrame: Rect?
-    for _ in 0..<10 where !competingWriteConverged {
+      var competingWriteConverged = false
+      var lastCompetingFrame: Rect?
+      for _ in 0..<10 where !competingWriteConverged {
+        competingPlatform.apply([
+          FrameAssignment(windowID: window.id, frame: intermediate)
+        ])
+        competingWriteConverged = pumpRunLoop(
+          until: {
+            let actual = competingPlatform.snapshot(config: Config()).windows
+              .first(where: { $0.id == window.id })?.frame
+            lastCompetingFrame = actual
+            return abs((actual?.x ?? .infinity) - intermediate.x) <= 2
+          },
+          timeout: 0.03
+        )
+      }
+      if competingWriteConverged,
+        let expectation = platform.frameCommitExpectations[window.id]
+      {
+        selected = (window, original, target, expectation)
+        break
+      }
+      failedPreconditions.append(
+        "\(window.appID):\(String(describing: lastCompetingFrame))"
+      )
       competingPlatform.apply([
-        FrameAssignment(windowID: window.id, frame: intermediate)
+        FrameAssignment(windowID: window.id, frame: original)
       ])
-      competingWriteConverged = pumpRunLoop(
-        until: {
-          let actual = competingPlatform.snapshot(config: Config()).windows
-            .first(where: { $0.id == window.id })?.frame
-          lastCompetingFrame = actual
-          return abs((actual?.x ?? .infinity) - intermediate.x) <= 2
-        },
-        timeout: 0.03
-      )
+      pumpRunLoop(for: 0.15)
+      platform.acceptObservedFrame(original, for: window.id)
     }
-    XCTAssertTrue(
-      competingWriteConverged,
-      "test must force a delayed intermediate commit before checking quarantine; app=\(window.appID) original=\(original) target=\(target) intermediate=\(intermediate) actual=\(String(describing: lastCompetingFrame))"
-    )
-    guard competingWriteConverged else { return }
-
-    guard let expectation = platform.frameCommitExpectations[window.id] else {
-      XCTFail("animation must install a frame commit expectation")
+    guard let selected else {
+      XCTFail(
+        "test must force a delayed intermediate commit before checking quarantine; attempts=\(failedPreconditions)"
+      )
       return
+    }
+    let window = selected.window
+    let original = selected.original
+    let target = selected.target
+    let expectation = selected.expectation
+    defer {
+      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
+      pumpRunLoop(for: 0.3)
     }
     let observationStartedAt = ProcessInfo.processInfo.systemUptime
     platform.frameCommitExpectations[window.id] = FrameCommitExpectation(
@@ -585,26 +614,9 @@ final class DesktopE2ETests: XCTestCase {
       let focusedWindow = snapshot.windows.first(where: {
         $0.id == focusedWindowID
       }),
-      let otherWindow = snapshot.windows.first(where: { window in
-        window.id != focusedWindowID
-          && window.frame.x + window.frame.width / 2 >= monitor.frame.x
-          && window.frame.y + window.frame.height / 2 >= monitor.frame.y
-          && window.frame.x + window.frame.width / 2
-            <= monitor.frame.x + monitor.frame.width
-          && window.frame.y + window.frame.height / 2
-            <= monitor.frame.y + monitor.frame.height
-          && !(focusedWindow.frame.x + focusedWindow.frame.width / 2
-            >= window.frame.x
-            && focusedWindow.frame.x + focusedWindow.frame.width / 2
-              <= window.frame.x + window.frame.width
-            && focusedWindow.frame.y + min(20, focusedWindow.frame.height / 2)
-              >= window.frame.y
-            && focusedWindow.frame.y + min(20, focusedWindow.frame.height / 2)
-              <= window.frame.y + window.frame.height)
-      }),
       let originalCursorLocation = CGEvent(source: nil)?.location
     else {
-      throw XCTSkip("Two on-screen managed window centers required")
+      throw XCTSkip("Focused on-screen managed window required")
     }
     defer {
       CGWarpMouseCursorPosition(originalCursorLocation)
@@ -649,10 +661,28 @@ final class DesktopE2ETests: XCTestCase {
       pumpRunLoop(until: { !received.isEmpty }, timeout: 0.5),
       "mouse movement did not reach event tap"
     )
+    pumpRunLoop(for: 0.1)
     let resolvedPointerWindowID = received.last.flatMap {
       $0.windowID ?? platform.managedWindowID(at: $0.location)
     }
     XCTAssertEqual(resolvedPointerWindowID, focusedWindowID)
+    guard let currentCursorLocation = CGEvent(source: nil)?.location,
+      let otherWindow = snapshot.windows.first(where: { window in
+        window.id != focusedWindowID
+          && window.frame.x + window.frame.width / 2 >= monitor.frame.x
+          && window.frame.y + window.frame.height / 2 >= monitor.frame.y
+          && window.frame.x + window.frame.width / 2
+            <= monitor.frame.x + monitor.frame.width
+          && window.frame.y + window.frame.height / 2
+            <= monitor.frame.y + monitor.frame.height
+          && cursorWarpDestination(
+            frame: window.frame,
+            currentLocation: currentCursorLocation
+          ) != nil
+      })
+    else {
+      throw XCTSkip("Second on-screen managed window required")
+    }
     let transitionsBeforeWarp = manager.pointerTransitionCount
 
     XCTAssertTrue(

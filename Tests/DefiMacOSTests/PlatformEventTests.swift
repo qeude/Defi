@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import DefiModel
 import Testing
 
@@ -99,6 +100,24 @@ struct PlatformEventTests {
         validatesCurrentFocus: false,
         targetIsFocused: false
       )
+    )
+  }
+
+  @Test
+  func nativeFocusFastPathRequiresKeyboardFocus() {
+    var consultedApplication = false
+    #expect(
+      targetWindowFocusIsConfirmed(true) {
+        consultedApplication = true
+        return false
+      }
+    )
+    #expect(consultedApplication == false)
+    #expect(
+      targetWindowFocusIsConfirmed(false) { true }
+    )
+    #expect(
+      targetWindowFocusIsConfirmed(nil) { false } == false
     )
   }
 
@@ -953,12 +972,280 @@ struct PlatformEventTests {
   }
 
   @Test
-  func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
+  func applicationInventoryWatchdogPreservesPollingFallback() {
+    #expect(
+      applicationInventoryRefreshInterval(
+        reliableLifecycleObservation: true
+      ) == 5
+    )
+    #expect(
+      applicationInventoryRefreshInterval(
+        reliableLifecycleObservation: false
+      ) == 0.3
+    )
+  }
+
+  @Test
+  func unreliableCoverageImmediatelyClampsSnapshotWatchdogs() {
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 15,
+        now: 10,
+        interval: 0.3,
+        reset: false
+      ) == 10.3
+    )
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 10.1,
+        now: 10,
+        interval: 0.3,
+        reset: false
+      ) == 10.1
+    )
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 10.1,
+        now: 10,
+        interval: 5,
+        reset: true
+      ) == 15
+    )
+  }
+
+  @Test
+  func unmatchedWindowsGetThreeShortRetriesThenUseWatchdog() {
+    #expect(unmatchedWindowRetryIsPending(attempts: 0))
+    #expect(unmatchedWindowRetryIsPending(attempts: 2))
+    #expect(unmatchedWindowRetryIsPending(attempts: 3) == false)
+    #expect(
+      windowListRefreshInterval(
+        hasPendingShortRetry: true,
+        reliableTopologyObservation: true
+      ) == 0.1
+    )
+    #expect(
+      windowListRefreshInterval(
+        hasPendingShortRetry: false,
+        reliableTopologyObservation: true
+      ) == 5
+    )
+    #expect(
+      windowListRefreshInterval(
+        hasPendingShortRetry: false,
+        reliableTopologyObservation: false
+      ) == 0.3
+    )
+  }
+
+  @Test
+  func failedWindowListReadsGetThreeShortRetriesThenClearOnSuccess() {
+    let initialFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: nil,
+      readSucceeded: false
+    )
+    let firstRetryFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: initialFailure,
+      readSucceeded: false
+    )
+    let secondRetryFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: firstRetryFailure,
+      readSucceeded: false
+    )
+    let thirdRetryFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: secondRetryFailure,
+      readSucceeded: false
+    )
+
+    #expect(initialFailure == 0)
+    #expect(firstRetryFailure == 1)
+    #expect(secondRetryFailure == 2)
+    #expect(thirdRetryFailure == 3)
+    #expect(
+      updatedWindowListReadRetryAttempts(
+        previousAttempts: thirdRetryFailure,
+        readSucceeded: false
+      ) == 3
+    )
+    #expect(
+      updatedWindowListReadRetryAttempts(
+        previousAttempts: thirdRetryFailure,
+        readSucceeded: true
+      ) == nil
+    )
+  }
+
+  @Test @MainActor
+  func failedWindowListReadSchedulesShortRetry() {
+    let platform = MacOSPlatform()
+    platform.windowListReadRetryAttemptsByProcess[101] = 0
+
+    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
+  }
+
+  @Test @MainActor
+  func failedCGWindowInventorySchedulesShortRetry() {
+    let platform = MacOSPlatform()
+    platform.cgWindowInventoryRetryAttempts = 0
+
+    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
+  }
+
+  @Test
+  func partialNotificationBatchRollsBackSuccessfulRegistrations() {
+    var removed: [String] = []
+
+    let registered = registerNotificationBatch(
+      notifications: ["moved", "resized"],
+      add: { $0 == "moved" ? .success : .cannotComplete },
+      remove: { removed.append($0) }
+    )
+
+    #expect(registered == false)
+    #expect(removed == ["moved"])
+  }
+
+  @Test
+  func applicationObserverIsPreparedBeforeInitialWindowDiscovery() {
+    var actions: [String] = []
+
+    let windows = applicationWindowsAfterPreparingTopologyObservation(
+      prepareObservation: { actions.append("observe") },
+      copyWindows: {
+        actions.append("copy")
+        return []
+      }
+    )
+
+    #expect(actions == ["observe", "copy"])
+    #expect(windows?.isEmpty == true)
+  }
+
+  @Test
+  func topologyCoverageIncludesFirstSeenMinimizedWindows() {
+    let current = AXUIElementCreateApplication(101)
+    let minimized = AXUIElementCreateApplication(202)
+    let firstSeenMinimized = AXUIElementCreateApplication(303)
+    let unmanagedAuxiliary = AXUIElementCreateApplication(404)
+
+    let required = requiredTopologyWindows(
+      applicationWindows: [
+        7: [current, minimized, firstSeenMinimized, unmanagedAuxiliary]
+      ],
+      managedWindows: [7: [current]],
+      previouslyManagedWindows: [7: [current, minimized]],
+      minimizedWindows: [7: [minimized, firstSeenMinimized]]
+    )[7] ?? []
+
+    #expect(required.count == 3)
+    #expect(required.contains(where: { CFEqual($0, current) }))
+    #expect(required.contains(where: { CFEqual($0, minimized) }))
+    #expect(required.contains(where: { CFEqual($0, firstSeenMinimized) }))
+    #expect(
+      required.contains(where: { CFEqual($0, unmanagedAuxiliary) }) == false
+    )
+  }
+
+  @Test
+  func topologyCoverageRetainsUnobservedWindowUntilResolvedOrRemoved() {
+    let current = AXUIElementCreateApplication(101)
+    let minimized = AXUIElementCreateApplication(202)
+
+    let unresolved = topologyWindowsRequiringCoverage(
+      requested: [current],
+      previouslyRequired: [current, minimized],
+      observed: [current],
+      applicationWindows: [current, minimized]
+    )
+    #expect(unresolved.count == 2)
+    #expect(unresolved.contains(where: { CFEqual($0, minimized) }))
+
+    let resolved = topologyWindowsRequiringCoverage(
+      requested: [current],
+      previouslyRequired: unresolved,
+      observed: [current, minimized],
+      applicationWindows: [current, minimized]
+    )
+    #expect(resolved.count == 1)
+    #expect(resolved.contains(where: { CFEqual($0, current) }))
+
+    let removed = topologyWindowsRequiringCoverage(
+      requested: [current],
+      previouslyRequired: unresolved,
+      observed: [current],
+      applicationWindows: [current]
+    )
+    #expect(removed.count == 1)
+    #expect(removed.contains(where: { CFEqual($0, current) }))
+  }
+
+  @Test
+  func frameCoverageIncludesFirstSeenTransientGeometry() {
+    let current = AXUIElementCreateApplication(101)
+    let transient = AXUIElementCreateApplication(202)
+    let neverManaged = AXUIElementCreateApplication(303)
+
+    let required = frameWindowsRequiringCoverage(
+      requested: [current],
+      transientGeometry: [transient, neverManaged],
+      applicationWindows: [current, transient, neverManaged]
+    )
+    #expect(required.count == 3)
+    #expect(required.contains(where: { CFEqual($0, current) }))
+    #expect(required.contains(where: { CFEqual($0, transient) }))
+    #expect(required.contains(where: { CFEqual($0, neverManaged) }))
+
+    let noLongerTransient = frameWindowsRequiringCoverage(
+      requested: [current],
+      transientGeometry: [],
+      applicationWindows: [current, transient, neverManaged]
+    )
+    #expect(noLongerTransient.count == 1)
+    #expect(noLongerTransient.contains(where: { CFEqual($0, current) }))
+  }
+
+  @Test @MainActor
+  func explicitWindowFrameRefreshTargetsOwningProcess() {
+    let platform = MacOSPlatform()
+    let windowID = WindowID(rawValue: 42)
+    platform.processIDs[windowID] = 101
+
+    platform.requestFrameRefresh(for: windowID)
+
+    #expect(platform.frameEventPending)
+    #expect(platform.pendingFrameProcessIDs == [101])
+    #expect(!platform.pendingFrameRequiresFullSnapshot)
+  }
+
+  @Test @MainActor
+  func unknownWindowFrameRefreshFallsBackToFullSnapshot() {
+    let platform = MacOSPlatform()
+
+    platform.requestFrameRefresh(for: WindowID(rawValue: 42))
+
+    #expect(platform.frameEventPending)
+    #expect(platform.pendingFrameProcessIDs.isEmpty)
+    #expect(platform.pendingFrameRequiresFullSnapshot)
+  }
+
+  @Test @MainActor
+  func resumingFrameNotificationsForcesFreshProcessReads() {
+    let platform = MacOSPlatform()
+    platform.lastSnapshotProcessIDs = [101, 202]
+
+    platform.setFrameNotificationsEnabled(true)
+
+    #expect(platform.frameEventPending)
+    #expect(platform.pendingFrameProcessIDs == [101, 202])
+  }
+
+  @Test
+  func terminatedApplicationForcesInventoryRefreshEvenWithPID() {
     #expect(
       windowSnapshotInvalidation(
         for: .applicationTerminated,
         processID: 42
-      ) == .process(42)
+      ) == .full
     )
   }
 

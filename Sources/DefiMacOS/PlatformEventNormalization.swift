@@ -472,9 +472,9 @@ func windowSnapshotInvalidation(
   processID: pid_t?
 ) -> WindowSnapshotInvalidation {
   switch kind {
-  case .windows, .applicationTerminated:
+  case .windows:
     return processID.map(WindowSnapshotInvalidation.process) ?? .full
-  case .application, .screens:
+  case .application, .applicationTerminated, .screens:
     return .full
   case .focus, .frame, .mouse, .mouseRelease:
     return .none

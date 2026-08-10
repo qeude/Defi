@@ -34,27 +34,22 @@ struct CGWindowRecord {
   }
 }
 
-func resolvedCGWindowID(
-  matchedRecord: CGWindowRecord?,
-  preferredWindowID: WindowID?
-) -> CGWindowID? {
-  if let matchedRecord {
-    return matchedRecord.id
-  }
-  guard let preferredWindowID else { return nil }
-  return CGWindowID(exactly: preferredWindowID.rawValue)
-}
-
 func copyCGWindows(
   options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
 ) -> [CGWindowRecord] {
+  copyCGWindowsIfAvailable(options: options) ?? []
+}
+
+func copyCGWindowsIfAvailable(
+  options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+) -> [CGWindowRecord]? {
   guard
     let info = CGWindowListCopyWindowInfo(
       options,
       kCGNullWindowID
     ) as? [[String: Any]]
   else {
-    return []
+    return nil
   }
   return info.compactMap(cgWindowRecord)
 }
@@ -99,6 +94,33 @@ func eligibleCGWindowRecords(
   }
 }
 
+func cgWindowRecordForDiscovery(
+  preferredWindowID: WindowID?,
+  processID: pid_t,
+  title: String,
+  frame: Rect,
+  records: [CGWindowRecord],
+  excluding usedWindowIDs: Set<CGWindowID>
+) -> CGWindowRecord? {
+  if let preferredWindowID {
+    guard let windowID = CGWindowID(exactly: preferredWindowID.rawValue),
+      !usedWindowIDs.contains(windowID)
+    else {
+      return nil
+    }
+    return records.first {
+      $0.id == windowID && $0.processID == processID
+    }
+  }
+  return bestCGWindow(
+    processID: processID,
+    title: title,
+    frame: frame,
+    records: records,
+    excluding: usedWindowIDs
+  )
+}
+
 func framesByWindowID(
   for windowIDs: Set<WindowID>,
   in records: [CGWindowRecord]
@@ -109,6 +131,144 @@ func framesByWindowID(
       return windowIDs.contains(windowID) ? (windowID, record.frame) : nil
     }
   )
+}
+
+func applicationInventoryRefreshInterval(
+  reliableLifecycleObservation: Bool
+) -> TimeInterval {
+  reliableLifecycleObservation ? 5 : 0.3
+}
+
+public func boundedSnapshotRefreshDeadline(
+  current: TimeInterval,
+  now: TimeInterval,
+  interval: TimeInterval,
+  reset: Bool
+) -> TimeInterval {
+  let candidate = now + interval
+  return reset ? candidate : min(current, candidate)
+}
+
+func windowListRefreshInterval(
+  hasPendingShortRetry: Bool,
+  reliableTopologyObservation: Bool
+) -> TimeInterval {
+  if hasPendingShortRetry { return 0.1 }
+  return reliableTopologyObservation ? 5 : 0.3
+}
+
+func unmatchedWindowRetryIsPending(
+  attempts: Int,
+  maximumAttempts: Int = 3
+) -> Bool {
+  attempts < maximumAttempts
+}
+
+func updatedWindowListReadRetryAttempts(
+  previousAttempts: Int?,
+  readSucceeded: Bool,
+  maximumAttempts: Int = 3
+) -> Int? {
+  guard !readSucceeded else { return nil }
+  guard let previousAttempts else { return 0 }
+  guard previousAttempts < maximumAttempts else { return maximumAttempts }
+  return previousAttempts + 1
+}
+
+func cgWindowInventoryRetryIsRequired(
+  attempts: Int?,
+  forceWindowListRefresh: Bool
+) -> Bool {
+  guard forceWindowListRefresh, let attempts else { return false }
+  return unmatchedWindowRetryIsPending(attempts: attempts)
+}
+
+func applicationWindowsAfterPreparingTopologyObservation(
+  prepareObservation: () -> Void,
+  copyWindows: () -> [AXUIElement]?
+) -> [AXUIElement]? {
+  prepareObservation()
+  return copyWindows()
+}
+
+func cacheWindowElementForShortRetry(
+  _ element: AXUIElement,
+  processID: pid_t,
+  elementsByProcess: inout [pid_t: [AXUIElement]],
+  attemptsByProcess: inout [pid_t: Int]
+) {
+  if elementsByProcess[processID]?.contains(where: {
+    CFEqual($0, element)
+  }) != true {
+    elementsByProcess[processID, default: []].append(element)
+  }
+  if attemptsByProcess[processID] == nil {
+    attemptsByProcess[processID] = 0
+  }
+}
+
+func targetWindowFocusIsConfirmed(
+  _ focusedAttribute: Bool?,
+  applicationFocusedWindowMatches: () -> Bool
+) -> Bool {
+  if focusedAttribute == true { return true }
+  return applicationFocusedWindowMatches()
+}
+
+func requiredTopologyWindows(
+  applicationWindows: [pid_t: [AXUIElement]],
+  managedWindows: [pid_t: [AXUIElement]],
+  previouslyManagedWindows: [pid_t: [AXUIElement]],
+  minimizedWindows: [pid_t: [AXUIElement]] = [:]
+) -> [pid_t: [AXUIElement]] {
+  Dictionary(
+    uniqueKeysWithValues: applicationWindows.map { processID, windows in
+      let candidates =
+        (managedWindows[processID] ?? [])
+        + (previouslyManagedWindows[processID] ?? [])
+        + (minimizedWindows[processID] ?? [])
+      let required = windows.filter { window in
+        candidates.contains(where: { CFEqual($0, window) })
+      }
+      return (processID, required)
+    }
+  )
+}
+
+func topologyWindowsRequiringCoverage(
+  requested: [AXUIElement],
+  previouslyRequired: [AXUIElement],
+  observed: [AXUIElement],
+  applicationWindows: [AXUIElement]
+) -> [AXUIElement] {
+  var required = requested.filter { candidate in
+    applicationWindows.contains(where: { CFEqual($0, candidate) })
+  }
+  for candidate in previouslyRequired
+  where applicationWindows.contains(where: { CFEqual($0, candidate) })
+    && !observed.contains(where: { CFEqual($0, candidate) })
+    && !required.contains(where: { CFEqual($0, candidate) })
+  {
+    required.append(candidate)
+  }
+  return required
+}
+
+func frameWindowsRequiringCoverage(
+  requested: [AXUIElement],
+  transientGeometry: [AXUIElement],
+  applicationWindows: [AXUIElement]
+) -> [AXUIElement] {
+  var required = requested.filter { candidate in
+    applicationWindows.contains(where: { CFEqual($0, candidate) })
+  }
+  for candidate in transientGeometry
+  where applicationWindows.contains(where: { CFEqual($0, candidate) })
+    && !required.contains(where: { CFEqual($0, candidate) })
+  {
+    required.append(candidate)
+  }
+  return required
 }
 
 func copyWindowBorderStacking(
@@ -214,6 +374,7 @@ enum WindowDisposition: Equatable {
   case tiled
   case floating
   case ignored
+  case unavailable
 }
 
 func floatingOrigin(
@@ -279,7 +440,7 @@ func fallbackDispositionForTransientWindowMetadata(
   else {
     return nil
   }
-  return previousDisposition ?? .ignored
+  return previousDisposition ?? .unavailable
 }
 
 func windowCanResize(
