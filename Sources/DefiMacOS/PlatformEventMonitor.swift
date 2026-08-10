@@ -164,7 +164,8 @@ final class PlatformEventMonitor {
   func refresh(
     applications: [pid_t: [AXUIElement]],
     requiredTopologyWindows: [pid_t: [AXUIElement]]? = nil,
-    requiredFrameWindows: [pid_t: [AXUIElement]]? = nil
+    requiredFrameWindows: [pid_t: [AXUIElement]]? = nil,
+    transientGeometryWindows: [pid_t: [AXUIElement]] = [:]
   ) {
     let activeProcessIDs = Set(applications.keys)
     for processID in observers.keys where !activeProcessIDs.contains(processID) {
@@ -194,7 +195,12 @@ final class PlatformEventMonitor {
         observed: topologyObserved,
         applicationWindows: windows
       )
-      let requiredFrames = requiredFrameWindows?[processID] ?? windows
+      let requiredFrames = frameWindowsRequiringCoverage(
+        requested: requiredFrameWindows?[processID] ?? windows,
+        transientGeometry: transientGeometryWindows[processID] ?? [],
+        previouslyRequired: frameRequiredWindows[processID] ?? [],
+        applicationWindows: windows
+      )
       for window in requiredTopology {
         if !topologyObserved.contains(where: { CFEqual($0, window) }),
           subscribe(

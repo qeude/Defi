@@ -322,6 +322,7 @@ final class Daemon: NSObject {
     if let mouseGestureSettlement,
       now >= mouseGestureSettlement.nextCheckAt
     {
+      platform.requestFrameRefresh(for: mouseGestureSettlement.windowID)
       needsDesktopSync = true
     }
     if mouseReorderAnimationActive

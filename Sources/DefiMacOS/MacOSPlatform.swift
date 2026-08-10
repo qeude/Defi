@@ -44,6 +44,7 @@ public final class MacOSPlatform {
   var lastSnapshotWindowIDs = Set<WindowID>()
   var lastSnapshotProcessIDs = Set<pid_t>()
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
+  var transientGeometryWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]
   var unmatchedWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]
   var unmatchedWindowRetryAttemptsByProcess: [pid_t: Int] = [:]
   var windowListReadRetryAttemptsByProcess: [pid_t: Int] = [:]
@@ -112,5 +113,14 @@ public final class MacOSPlatform {
   public let pointerMotionTracker = PointerMotionTracker()
 
   public init() {}
+
+  public func requestFrameRefresh(for windowID: WindowID) {
+    frameEventPending = true
+    guard let processID = processIDs[windowID] else {
+      pendingFrameRequiresFullSnapshot = true
+      return
+    }
+    pendingFrameProcessIDs.insert(processID)
+  }
 
 }

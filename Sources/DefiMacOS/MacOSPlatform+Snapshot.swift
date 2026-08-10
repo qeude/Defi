@@ -142,6 +142,7 @@ extension MacOSPlatform {
     var nextApplications: [pid_t: AXUIElement] = [:]
     var nextApplicationIDs: [pid_t: String] = [:]
     var applicationWindows: [pid_t: [AXUIElement]] = [:]
+    var transientGeometryWindows = transientGeometryWindowElementsByProcess
     var windows: [Window] = []
     var nextRetainedWindowIDs = Set<WindowID>()
     var cachedSnapshotWindowIDs = Set<WindowID>()
@@ -213,6 +214,7 @@ extension MacOSPlatform {
     for runningApplication in runningApplications {
       let processID = runningApplication.processID
       guard processID != ownProcessID else { continue }
+      transientGeometryWindows[processID] = []
       let appID: String
       if let application = runningApplication.application {
         guard !application.isTerminated,
@@ -316,6 +318,12 @@ extension MacOSPlatform {
         case .unavailable:
           continue
         case .ignored:
+          if let previousWindowID {
+            ignoredPreviousWindowIDs.insert(previousWindowID)
+          }
+          continue
+        case .transientGeometry:
+          transientGeometryWindows[processID, default: []].append(element)
           if let previousWindowID {
             ignoredPreviousWindowIDs.insert(previousWindowID)
           }
@@ -460,6 +468,8 @@ extension MacOSPlatform {
     lastSnapshotWindowIDs = Set(windows.lazy.map(\.id))
     lastSnapshotProcessIDs = Set(windows.lazy.compactMap(\.processID))
     lastApplicationWindowElements = applicationWindows
+    transientGeometryWindowElementsByProcess =
+      transientGeometryWindows.filter { nextApplications[$0.key] != nil }
     retainedWindowIDs = nextRetainedWindowIDs
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
     multipleAttributeReadsSupportedByProcess =
@@ -500,7 +510,8 @@ extension MacOSPlatform {
     eventMonitor?.refresh(
       applications: observedApplicationWindows,
       requiredTopologyWindows: topologyWindowsRequiredForObservation,
-      requiredFrameWindows: requiredFrameWindows
+      requiredFrameWindows: requiredFrameWindows,
+      transientGeometryWindows: transientGeometryWindows
     )
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
     pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }

@@ -15,6 +15,7 @@ enum WindowGeometryDiscovery: Equatable {
 enum WindowDiscoveryResult {
   case unavailable
   case ignored
+  case transientGeometry
   case unmatched
   case discovered(Window, CGWindowID, RuleDecision)
 }
@@ -86,7 +87,7 @@ extension MacOSPlatform {
     case .unavailable:
       return .unavailable
     case .ignored:
-      return .ignored
+      return attributes.minimized == true ? .ignored : .transientGeometry
     case .usable(let usableFrame):
       frame = usableFrame
     }

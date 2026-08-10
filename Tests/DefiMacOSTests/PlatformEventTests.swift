@@ -1174,6 +1174,57 @@ struct PlatformEventTests {
     #expect(removed.contains(where: { CFEqual($0, current) }))
   }
 
+  @Test
+  func frameCoverageRetainsOnlyPreviouslyManagedTransientGeometry() {
+    let current = AXUIElementCreateApplication(101)
+    let transient = AXUIElementCreateApplication(202)
+    let neverManaged = AXUIElementCreateApplication(303)
+
+    let required = frameWindowsRequiringCoverage(
+      requested: [current],
+      transientGeometry: [transient, neverManaged],
+      previouslyRequired: [current, transient],
+      applicationWindows: [current, transient, neverManaged]
+    )
+    #expect(required.count == 2)
+    #expect(required.contains(where: { CFEqual($0, current) }))
+    #expect(required.contains(where: { CFEqual($0, transient) }))
+    #expect(!required.contains(where: { CFEqual($0, neverManaged) }))
+
+    let noLongerTransient = frameWindowsRequiringCoverage(
+      requested: [current],
+      transientGeometry: [],
+      previouslyRequired: required,
+      applicationWindows: [current, transient, neverManaged]
+    )
+    #expect(noLongerTransient.count == 1)
+    #expect(noLongerTransient.contains(where: { CFEqual($0, current) }))
+  }
+
+  @Test @MainActor
+  func explicitWindowFrameRefreshTargetsOwningProcess() {
+    let platform = MacOSPlatform()
+    let windowID = WindowID(rawValue: 42)
+    platform.processIDs[windowID] = 101
+
+    platform.requestFrameRefresh(for: windowID)
+
+    #expect(platform.frameEventPending)
+    #expect(platform.pendingFrameProcessIDs == [101])
+    #expect(!platform.pendingFrameRequiresFullSnapshot)
+  }
+
+  @Test @MainActor
+  func unknownWindowFrameRefreshFallsBackToFullSnapshot() {
+    let platform = MacOSPlatform()
+
+    platform.requestFrameRefresh(for: WindowID(rawValue: 42))
+
+    #expect(platform.frameEventPending)
+    #expect(platform.pendingFrameProcessIDs.isEmpty)
+    #expect(platform.pendingFrameRequiresFullSnapshot)
+  }
+
   @Test @MainActor
   func resumingFrameNotificationsForcesFreshProcessReads() {
     let platform = MacOSPlatform()

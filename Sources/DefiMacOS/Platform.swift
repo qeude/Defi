@@ -228,6 +228,25 @@ func topologyWindowsRequiringCoverage(
   return required
 }
 
+func frameWindowsRequiringCoverage(
+  requested: [AXUIElement],
+  transientGeometry: [AXUIElement],
+  previouslyRequired: [AXUIElement],
+  applicationWindows: [AXUIElement]
+) -> [AXUIElement] {
+  var required = requested.filter { candidate in
+    applicationWindows.contains(where: { CFEqual($0, candidate) })
+  }
+  for candidate in previouslyRequired
+  where applicationWindows.contains(where: { CFEqual($0, candidate) })
+    && transientGeometry.contains(where: { CFEqual($0, candidate) })
+    && !required.contains(where: { CFEqual($0, candidate) })
+  {
+    required.append(candidate)
+  }
+  return required
+}
+
 func copyWindowBorderStacking(
   targetWindowID: WindowID?,
   monitorFrames: [Rect],
