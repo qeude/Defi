@@ -154,9 +154,11 @@ final class Daemon: NSObject {
   var menuBar: MenuBarController?
   var timer: DispatchSourceTimer?
   var timerFrequencyHz = 60.0
+  var nextPeriodicWindowRefreshAt: TimeInterval = 0
+  var nextWindowListRefreshAt: TimeInterval = 0
+  var nextApplicationInventoryRefreshAt: TimeInterval = 0
   var activeMonitorID: MonitorID?
   var latestMonitors: [MonitorSnapshot] = []
-  private var tickCount = 0
   var shouldShutdown = false
   var signalSources: [DispatchSourceSignal] = []
   var pendingHotKeyCommands: [HotKeyInvocation] = []
@@ -293,7 +295,11 @@ final class Daemon: NSObject {
       _ = self?.handle(command)
     }
 
-    synchronizeDesktop()
+    synchronizeDesktop(
+      forceFullWindowRefresh: true,
+      forceWindowListRefresh: true,
+      forceApplicationInventoryRefresh: true
+    )
     replaceTimer(frequencyHz: 60)
     log("running; socket=\(server.url.path)")
     NSApplication.shared.run()
@@ -312,11 +318,11 @@ final class Daemon: NSObject {
       pendingDisplaySyncDeadlines.removeFirst()
       needsDesktopSync = true
     }
-    tickCount += 1
     let now = ProcessInfo.processInfo.systemUptime
     if let mouseGestureSettlement,
       now >= mouseGestureSettlement.nextCheckAt
     {
+      platform.requestFrameRefresh(for: mouseGestureSettlement.windowID)
       needsDesktopSync = true
     }
     if mouseReorderAnimationActive
@@ -352,16 +358,31 @@ final class Daemon: NSObject {
       }
       setTimerFrequency(60)
     }
+    let periodicWindowRefreshDue = now >= nextPeriodicWindowRefreshAt
+    let windowListRefreshDue = now >= nextWindowListRefreshAt
+    let applicationInventoryRefreshDue =
+      now >= nextApplicationInventoryRefreshAt
     if desktopSynchronizationIsReady(
       scrollAnimationActive: !scrollAnimations.isEmpty,
       animatedWritesPending: animatedWritesPending,
       slowLanePending: !deferredSlowWindowIDs.isEmpty,
       mouseGestureSyncPending: mouseGestureSyncPending,
       needsDesktopSync: needsDesktopSync,
-      periodicSyncDue: tickCount.isMultiple(of: 18)
+      periodicSyncDue:
+        periodicWindowRefreshDue
+        || windowListRefreshDue
+        || applicationInventoryRefreshDue
     ) {
       needsDesktopSync = false
-      synchronizeDesktop()
+      synchronizeDesktop(
+        forceFullWindowRefresh:
+          periodicWindowRefreshDue
+          || windowListRefreshDue
+          || applicationInventoryRefreshDue,
+        forceWindowListRefresh:
+          windowListRefreshDue || applicationInventoryRefreshDue,
+        forceApplicationInventoryRefresh: applicationInventoryRefreshDue
+      )
     }
     if liveBorderGesture || animatedWritesPending {
       platform.refreshWindowBorders()

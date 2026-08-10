@@ -403,7 +403,10 @@ final class AXFocusWriter: @unchecked Sendable {
         selectsSpecificWindow = specificWindowFocusWriteIsRequired(
           requested: selectsSpecificWindow,
           validatesCurrentFocus: request.validatesSpecificWindowFocus,
-          targetIsFocused: isTargetFocused(request.element)
+          targetIsFocused: isTargetFocused(
+            request.element,
+            application: request.application
+          )
         )
       }
       if selectsSpecificWindow {
@@ -650,11 +653,34 @@ final class AXFocusWriter: @unchecked Sendable {
     AXUIElementSetMessagingTimeout(request.application, 0)
   }
 
-  private func isTargetFocused(_ element: AXUIElement) -> Bool {
+  private func isTargetFocused(
+    _ element: AXUIElement,
+    application: AXUIElement
+  ) -> Bool {
+    AXUIElementSetMessagingTimeout(application, 0.016)
     AXUIElementSetMessagingTimeout(element, 0.016)
-    defer { AXUIElementSetMessagingTimeout(element, 0) }
-    return readBoolean(element, attribute: kAXFocusedAttribute) == true
-      || readBoolean(element, attribute: kAXMainAttribute) == true
+    defer {
+      AXUIElementSetMessagingTimeout(element, 0)
+      AXUIElementSetMessagingTimeout(application, 0)
+    }
+    // AXMain is structural app state, not proof of keyboard focus. Apps such as
+    // Kaku can leave a non-focused window main during rapid intra-app navigation.
+    return targetWindowFocusIsConfirmed(
+      readBoolean(element, attribute: kAXFocusedAttribute)
+    ) {
+      var focusedWindow: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(
+        application,
+        kAXFocusedWindowAttribute as CFString,
+        &focusedWindow
+      ) == .success,
+        let focusedWindow,
+        CFGetTypeID(focusedWindow) == AXUIElementGetTypeID()
+      else {
+        return false
+      }
+      return CFEqual(focusedWindow, element)
+    }
   }
 
   private func readBoolean(

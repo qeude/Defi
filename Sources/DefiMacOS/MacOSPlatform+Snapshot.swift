@@ -23,18 +23,75 @@ extension MacOSPlatform {
   }
 
   public func snapshot(config: Config) -> DesktopSnapshot {
+    snapshot(
+      config: config,
+      forceFullWindowRefresh: true,
+      forceWindowListRefresh: true,
+      forceApplicationInventoryRefresh: true
+    )
+  }
+
+  public func snapshot(
+    config: Config,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool = false,
+    forceApplicationInventoryRefresh: Bool = false
+  ) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
     let tracesWindowTopology = windowTopologyEventPending
+    let capturedTopologyRequiresFullSnapshot =
+      windowTopologyRequiresFullSnapshot
+    let topologyProcessIDs = pendingWindowTopologyProcessIDs
+    let frameRequiresFullSnapshot = pendingFrameRequiresFullSnapshot
+    let frameProcessIDs = pendingFrameProcessIDs
     let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
-    let incrementalProcessIDs = incrementalWindowRefreshProcessIDs(
-      hasCompletedSnapshot: hasCompletedWindowSnapshot,
-      eventPending: tracesWindowTopology,
-      requiresFullSnapshot: windowTopologyRequiresFullSnapshot,
-      processIDs: pendingWindowTopologyProcessIDs,
-      coalescedProcessIDs: pendingFrameProcessIDs,
-      coalescedEventRequiresFullSnapshot: pendingFrameRequiresFullSnapshot,
-      allowsCoalescedProcessRefresh: mouseResizeGesturePending
+    let eventRequiresFullSnapshot =
+      capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
+    let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
+      eventRequiresFullSnapshot:
+        eventRequiresFullSnapshot,
+      forceFullWindowRefresh: forceFullWindowRefresh,
+      forceWindowListRefresh: forceWindowListRefresh
     )
+    if eventRequiresFullSnapshot {
+      unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
+      unmatchedWindowRetryAttemptsByProcess.removeAll(keepingCapacity: true)
+    } else {
+      for processID in topologyProcessIDs.union(frameProcessIDs) {
+        unmatchedWindowElementsByProcess[processID] = nil
+        unmatchedWindowRetryAttemptsByProcess[processID] = nil
+      }
+      if retriesAllUnmatchedWindows {
+        for processID in unmatchedWindowElementsByProcess.keys {
+          unmatchedWindowRetryAttemptsByProcess[processID, default: 0] += 1
+        }
+        unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
+      }
+    }
+    let incrementalProcessIDs = forceFullWindowRefresh
+      ? nil
+      : incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: hasCompletedWindowSnapshot,
+        eventPending: tracesWindowTopology,
+        requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
+        processIDs: pendingWindowTopologyProcessIDs,
+        coalescedProcessIDs: frameProcessIDs,
+        coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
+        allowsCoalescedProcessRefresh:
+          frameEventPending || mouseResizeGesturePending,
+        allowsCachedRefresh: true
+      )
+    let snapshotMode: String
+    if incrementalProcessIDs == nil {
+      snapshotMode = "full"
+      fullWindowSnapshotCount += 1
+    } else if incrementalProcessIDs?.isEmpty == true {
+      snapshotMode = "cached"
+      cachedWindowSnapshotCount += 1
+    } else {
+      snapshotMode = "incremental"
+      incrementalWindowSnapshotCount += 1
+    }
     windowTopologyEventPending = false
     pendingWindowTopologyProcessIDs.removeAll(keepingCapacity: true)
     windowTopologyRequiresFullSnapshot = false
@@ -43,9 +100,45 @@ extension MacOSPlatform {
     pendingFrameRequiresFullSnapshot = false
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
-    let cgWindows = copyCGWindows()
+    var hasCopiedCGWindows = false
+    var cachedCGWindows: [CGWindowRecord]?
+    func publicCGWindows() -> [CGWindowRecord]? {
+      if hasCopiedCGWindows { return cachedCGWindows }
+      let copyStartedAt = ProcessInfo.processInfo.systemUptime
+      let copied = copyCGWindowsIfAvailable()
+      let copyDurationMS =
+        (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
+      snapshotCGWindowCopyCount += 1
+      lastSnapshotCGWindowCopyDurationMS = copyDurationMS
+      maximumSnapshotCGWindowCopyDurationMS = max(
+        maximumSnapshotCGWindowCopyDurationMS,
+        copyDurationMS
+      )
+      hasCopiedCGWindows = true
+      cachedCGWindows = copied
+      cgWindowInventoryRetryAttempts =
+        updatedWindowListReadRetryAttempts(
+          previousAttempts: cgWindowInventoryRetryAttempts,
+          readSucceeded: copied != nil
+      )
+      return copied
+    }
+    if cgWindowInventoryRetryIsRequired(
+      attempts: cgWindowInventoryRetryAttempts,
+      forceWindowListRefresh: forceWindowListRefresh
+    ) {
+      _ = publicCGWindows()
+    }
     let previousElements = elements
     let previousProcessIDs = processIDs
+    let previousApplications = applications
+    let previousApplicationIDs = applicationIDsByProcess
+    var previouslyManagedApplicationWindows: [pid_t: [AXUIElement]] = [:]
+    for (windowID, element) in previousElements {
+      if let processID = previousProcessIDs[windowID] {
+        previouslyManagedApplicationWindows[processID, default: []].append(element)
+      }
+    }
     let previousWindowsByProcess = Dictionary(
       grouping: lastSnapshotWindows,
       by: \.processID
@@ -53,78 +146,175 @@ extension MacOSPlatform {
     var nextElements: [WindowID: AXUIElement] = [:]
     var nextProcessIDs: [WindowID: pid_t] = [:]
     var nextApplications: [pid_t: AXUIElement] = [:]
+    var nextApplicationIDs: [pid_t: String] = [:]
     var applicationWindows: [pid_t: [AXUIElement]] = [:]
+    var minimizedWindows = minimizedWindowElementsByProcess
+    var transientGeometryWindows = transientGeometryWindowElementsByProcess
     var windows: [Window] = []
     var nextRetainedWindowIDs = Set<WindowID>()
+    var cachedSnapshotWindowIDs = Set<WindowID>()
 
-    for application in NSWorkspace.shared.runningApplications
-    where application.processIdentifier != ProcessInfo.processInfo.processIdentifier
-      && !application.isTerminated
-      && application.activationPolicy == .regular
-    {
-      let appID =
-        application.bundleIdentifier
-        ?? application.localizedName
-        ?? "pid-\(application.processIdentifier)"
-      let appElement = AXUIElementCreateApplication(application.processIdentifier)
-      nextApplications[application.processIdentifier] = appElement
-      if enhancedUIByProcess[application.processIdentifier] == nil {
-        enhancedUIByProcess[application.processIdentifier] =
+    var processIDsToRefresh = incrementalProcessIDs
+    if var requestedProcessIDs = processIDsToRefresh {
+      for (processID, cachedApplication) in previousApplications {
+        guard !requestedProcessIDs.contains(processID) else {
+          continue
+        }
+        let cachedWindows = previousWindowsByProcess[processID] ?? []
+        let cachedElements = cachedWindows.compactMap { window in
+          previousElements[window.id].map { (window.id, $0) }
+        }
+        guard let cachedApplicationWindows =
+            lastApplicationWindowElements[processID],
+          cachedElements.count == cachedWindows.count
+        else {
+          requestedProcessIDs.insert(processID)
+          continue
+        }
+        nextApplications[processID] = cachedApplication
+        if let appID = previousApplicationIDs[processID] {
+          nextApplicationIDs[processID] = appID
+        }
+        applicationWindows[processID] = cachedApplicationWindows
+        windows.append(contentsOf: cachedWindows)
+        nextRetainedWindowIDs.formUnion(
+          retainedWindowIDsForCachedWindows(
+            cachedWindows,
+            previousRetainedWindowIDs: retainedWindowIDs
+          )
+        )
+        cachedSnapshotWindowIDs.formUnion(cachedWindows.lazy.map(\.id))
+        for (windowID, element) in cachedElements {
+          nextElements[windowID] = element
+          nextProcessIDs[windowID] = processID
+        }
+      }
+      processIDsToRefresh = requestedProcessIDs
+    }
+
+    let refreshesApplicationInventory = applicationInventoryRefreshIsRequired(
+      hasCompletedSnapshot: hasCompletedWindowSnapshot,
+      topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
+      forced: forceApplicationInventoryRefresh
+    )
+    let runningApplications: [(processID: pid_t, application: NSRunningApplication?)]
+    if refreshesApplicationInventory {
+      applicationInventorySnapshotCount += 1
+      let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
+      runningApplications = NSWorkspace.shared.runningApplications.map {
+        ($0.processIdentifier, $0)
+      }
+      recordDurationSample(
+        (ProcessInfo.processInfo.systemUptime - inventoryStartedAt) * 1_000,
+        in: &applicationInventoryDurationSamplesMS
+      )
+    } else if let processIDsToRefresh {
+      runningApplications = processIDsToRefresh.sorted().map {
+        ($0, previousApplications[$0] == nil
+          ? NSRunningApplication(processIdentifier: $0)
+          : nil)
+      }
+    } else {
+      runningApplications = previousApplications.keys.sorted().map { ($0, nil) }
+    }
+    let ownProcessID = ProcessInfo.processInfo.processIdentifier
+    for runningApplication in runningApplications {
+      let processID = runningApplication.processID
+      guard processID != ownProcessID else { continue }
+      minimizedWindows[processID] = []
+      transientGeometryWindows[processID] = []
+      let appID: String
+      if let application = runningApplication.application {
+        guard !application.isTerminated,
+          application.activationPolicy == .regular
+        else {
+          continue
+        }
+        appID =
+          application.bundleIdentifier
+          ?? application.localizedName
+          ?? "pid-\(processID)"
+      } else if let cachedAppID = previousApplicationIDs[processID] {
+        appID = cachedAppID
+      } else {
+        continue
+      }
+      let appElement = previousApplications[processID]
+        ?? AXUIElementCreateApplication(processID)
+      nextApplications[processID] = appElement
+      nextApplicationIDs[processID] = appID
+      if enhancedUIByProcess[processID] == nil {
+        enhancedUIByProcess[processID] =
           value(
             appElement,
             attribute: "AXEnhancedUserInterface",
             as: Bool.self
           ) ?? false
       }
-      if let incrementalProcessIDs,
-        !incrementalProcessIDs.contains(application.processIdentifier),
-        let cachedApplicationWindows =
-          lastApplicationWindowElements[application.processIdentifier]
-      {
-        let cachedWindows =
-          previousWindowsByProcess[application.processIdentifier] ?? []
-        let cachedElements = cachedWindows.compactMap { window in
-          previousElements[window.id].map { (window.id, $0) }
-        }
-        if cachedElements.count == cachedWindows.count {
-          applicationWindows[application.processIdentifier] =
-            cachedApplicationWindows
-          windows.append(contentsOf: cachedWindows)
-          nextRetainedWindowIDs.formUnion(
-            retainedWindowIDsForCachedWindows(
-              cachedWindows,
-              previousRetainedWindowIDs: retainedWindowIDs
+      let cachedApplicationWindows = lastApplicationWindowElements[processID]
+      let refreshesWindowList = applicationWindowListRefreshIsRequired(
+        hasCachedWindows: cachedApplicationWindows != nil,
+        refreshesAllWindowLists:
+          refreshesApplicationInventory
+          || capturedTopologyRequiresFullSnapshot
+          || forceWindowListRefresh,
+        topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
+      )
+      let appWindows: [AXUIElement]?
+      if refreshesWindowList {
+        applicationWindowListReadCount += 1
+        let windowListStartedAt = ProcessInfo.processInfo.systemUptime
+        let copiedWindows = applicationWindowsAfterPreparingTopologyObservation(
+          prepareObservation: {
+            eventMonitor?.prepareForWindowDiscovery(
+              processID: processID,
+              application: appElement
             )
-          )
-          for (windowID, element) in cachedElements {
-            nextElements[windowID] = element
-            nextProcessIDs[windowID] = application.processIdentifier
+          },
+          copyWindows: {
+            copyElements(
+              appElement,
+              attribute: kAXWindowsAttribute
+            )
           }
-          continue
-        }
+        )
+        recordDurationSample(
+          (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
+          in: &applicationWindowListDurationSamplesMS
+        )
+        windowListReadRetryAttemptsByProcess[processID] =
+          updatedWindowListReadRetryAttempts(
+            previousAttempts: windowListReadRetryAttemptsByProcess[processID],
+            readSucceeded: copiedWindows != nil
+          )
+        appWindows = copiedWindows ?? cachedApplicationWindows
+      } else {
+        appWindows = cachedApplicationWindows
       }
-      let appWindows = copyElements(appElement, attribute: kAXWindowsAttribute)
       if let appWindows {
-        applicationWindows[application.processIdentifier] = appWindows
-      } else if let cachedApplicationWindows =
-        lastApplicationWindowElements[application.processIdentifier]
-      {
-        applicationWindows[application.processIdentifier] = cachedApplicationWindows
+        applicationWindows[processID] = appWindows
       }
       var usedCGWindowIDs = Set<CGWindowID>()
       var ignoredPreviousWindowIDs = Set<WindowID>()
 
       for element in appWindows ?? [] {
         let previousWindowID = previousElements.first { windowID, previousElement in
-          previousProcessIDs[windowID] == application.processIdentifier
+          previousProcessIDs[windowID] == processID
             && CFEqual(previousElement, element)
         }?.key
+        if previousWindowID == nil,
+          unmatchedWindowElementsByProcess[processID]?.contains(where: {
+            CFEqual($0, element)
+          }) == true
+        {
+          continue
+        }
         let discovery = makeWindow(
           element: element,
-          processID: application.processIdentifier,
+          processID: processID,
           appID: appID,
           config: config,
-          cgWindows: cgWindows,
+          publicCGWindows: publicCGWindows,
           monitors: monitors,
           preferredWindowID: previousWindowID,
           excluding: usedCGWindowIDs
@@ -134,10 +324,37 @@ extension MacOSPlatform {
         let decision: RuleDecision
         switch discovery {
         case .unavailable:
+          if previousWindowID == nil {
+            cacheWindowElementForShortRetry(
+              element,
+              processID: processID,
+              elementsByProcess: &unmatchedWindowElementsByProcess,
+              attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+            )
+          }
           continue
         case .ignored:
+          minimizedWindows[processID, default: []].append(element)
           if let previousWindowID {
             ignoredPreviousWindowIDs.insert(previousWindowID)
+          }
+          continue
+        case .transientGeometry:
+          transientGeometryWindows[processID, default: []].append(element)
+          if let previousWindowID {
+            ignoredPreviousWindowIDs.insert(previousWindowID)
+          }
+          continue
+        case .unmatched:
+          if let previousWindowID {
+            ignoredPreviousWindowIDs.insert(previousWindowID)
+          } else {
+            cacheWindowElementForShortRetry(
+              element,
+              processID: processID,
+              elementsByProcess: &unmatchedWindowElementsByProcess,
+              attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+            )
           }
           continue
         case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
@@ -153,13 +370,25 @@ extension MacOSPlatform {
           element: element,
           configuredFloating: decision.floating,
           forceTiling: decision.forceTiling,
-          previousDisposition: previousDisposition
+          previousDisposition: previousDisposition,
+          reuseCachedCapabilities: !refreshesWindowList
         )
-        guard disposition != .ignored else {
+        switch disposition {
+        case .unavailable:
+          cacheWindowElementForShortRetry(
+            element,
+            processID: processID,
+            elementsByProcess: &unmatchedWindowElementsByProcess,
+            attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+          )
+          continue
+        case .ignored:
           if let previousWindowID {
             ignoredPreviousWindowIDs.insert(previousWindowID)
           }
           continue
+        case .tiled, .floating:
+          break
         }
         guard usedCGWindowIDs.insert(cgWindowID).inserted else {
           continue
@@ -172,10 +401,15 @@ extension MacOSPlatform {
         )
         windows.append(tracked)
         nextElements[tracked.id] = element
-        nextProcessIDs[tracked.id] = application.processIdentifier
+        nextProcessIDs[tracked.id] = processID
       }
 
-      let previousWindows = previousWindowsByProcess[application.processIdentifier] ?? []
+      let previousWindows = previousWindowsByProcess[processID] ?? []
+      let discoveredWindowIDs = Set(nextElements.keys)
+      let needsCachedWindowValidation = previousWindows.contains {
+        !discoveredWindowIDs.contains($0.id)
+          && !ignoredPreviousWindowIDs.contains($0.id)
+      }
       let cachedMinimizedState: ((WindowID) -> Bool?)?
       if appWindows == nil {
         cachedMinimizedState = nil
@@ -186,11 +420,11 @@ extension MacOSPlatform {
         }
       }
       let processRetainedWindowIDs = cachedWindowIDsToRetain(
-        processID: application.processIdentifier,
+        processID: processID,
         previousWindows: previousWindows,
-        discoveredWindowIDs: Set(nextElements.keys),
+        discoveredWindowIDs: discoveredWindowIDs,
         ignoredWindowIDs: ignoredPreviousWindowIDs,
-        cgWindows: cgWindows,
+        cgWindows: needsCachedWindowValidation ? publicCGWindows() : [],
         cachedMinimizedState: cachedMinimizedState
       )
       nextRetainedWindowIDs.formUnion(processRetainedWindowIDs)
@@ -199,7 +433,7 @@ extension MacOSPlatform {
           $0.rawValue < $1.rawValue
         }.map { String($0.rawValue) }.joined(separator: ",")
         frameCoordinator.recordTrace(
-          "window-cache-retained pid=\(application.processIdentifier) windows=[\(retainedIDs)]"
+          "window-cache-retained pid=\(processID) windows=[\(retainedIDs)]"
         )
       }
       for previousWindow in previousWindows
@@ -209,11 +443,11 @@ extension MacOSPlatform {
         }
         windows.append(previousWindow)
         nextElements[previousWindow.id] = previousElement
-        nextProcessIDs[previousWindow.id] = application.processIdentifier
-        if applicationWindows[application.processIdentifier]?.contains(where: {
+        nextProcessIDs[previousWindow.id] = processID
+        if applicationWindows[processID]?.contains(where: {
           CFEqual($0, previousElement)
         }) != true {
-          applicationWindows[application.processIdentifier, default: []].append(previousElement)
+          applicationWindows[processID, default: []].append(previousElement)
         }
       }
     }
@@ -221,7 +455,8 @@ extension MacOSPlatform {
     let nextWindowIDs = Set(nextElements.keys)
     let freshObservationIDs = freshWindowObservationIDs(
       windows: windows,
-      retainedWindowIDs: nextRetainedWindowIDs
+      retainedWindowIDs: nextRetainedWindowIDs,
+      cachedWindowIDs: cachedSnapshotWindowIDs
     )
     let removedWindowIDs = Set(previousElements.keys).subtracting(nextWindowIDs)
     newlyDiscoveredWindowIDs =
@@ -240,28 +475,77 @@ extension MacOSPlatform {
       }.map { String($0.rawValue) }.joined(separator: ",")
       let elapsedMS =
         (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
-      let mode = incrementalProcessIDs == nil ? "full" : "incremental"
       frameCoordinator.recordTrace(
-        "window-snapshot mode=\(mode) ms=\(String(format: "%.2f", elapsedMS)) discovered=\(newlyDiscoveredWindowIDs.count)[\(discoveredIDs)] total=\(windows.count)"
+        "window-snapshot mode=\(snapshotMode) ms=\(String(format: "%.2f", elapsedMS)) discovered=\(newlyDiscoveredWindowIDs.count)[\(discoveredIDs)] total=\(windows.count)"
       )
     }
     hasCompletedWindowSnapshot = true
     elements = nextElements
     processIDs = nextProcessIDs
     floatingWindowIDs = Set(windows.lazy.filter(\.floating).map(\.id))
+    windowManagementCapabilities = windowManagementCapabilities.filter {
+      nextElements[$0.key] != nil
+    }
     applications = nextApplications
+    applicationIDsByProcess = nextApplicationIDs
     applicationWindowCounts = applicationWindows.mapValues(\.count)
     lastSnapshotWindows = windows
     lastSnapshotWindowIDs = Set(windows.lazy.map(\.id))
     lastSnapshotProcessIDs = Set(windows.lazy.compactMap(\.processID))
     lastApplicationWindowElements = applicationWindows
+    minimizedWindowElementsByProcess =
+      minimizedWindows.filter { nextApplications[$0.key] != nil }
+    transientGeometryWindowElementsByProcess =
+      transientGeometryWindows.filter { nextApplications[$0.key] != nil }
     retainedWindowIDs = nextRetainedWindowIDs
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
-    eventMonitor?.refresh(applications: applicationWindows)
+    multipleAttributeReadsSupportedByProcess =
+      multipleAttributeReadsSupportedByProcess.filter {
+        nextApplications[$0.key] != nil
+      }
+    unmatchedWindowElementsByProcess =
+      unmatchedWindowElementsByProcess.filter {
+        nextApplications[$0.key] != nil
+      }
+    unmatchedWindowRetryAttemptsByProcess =
+      unmatchedWindowRetryAttemptsByProcess.filter {
+        nextApplications[$0.key] != nil
+          && unmatchedWindowElementsByProcess[$0.key]?.isEmpty == false
+      }
+    windowListReadRetryAttemptsByProcess =
+      windowListReadRetryAttemptsByProcess.filter {
+        nextApplications[$0.key] != nil
+      }
+    let observedApplicationWindows = Dictionary(
+      uniqueKeysWithValues: nextApplications.keys.map {
+        ($0, applicationWindows[$0] ?? [])
+      }
+    )
+    var requiredFrameWindows = Dictionary(
+      uniqueKeysWithValues: nextApplications.keys.map { ($0, [AXUIElement]()) }
+    )
+    for (windowID, element) in nextElements {
+      if let processID = nextProcessIDs[windowID] {
+        requiredFrameWindows[processID, default: []].append(element)
+      }
+    }
+    let topologyWindowsRequiredForObservation = requiredTopologyWindows(
+      applicationWindows: observedApplicationWindows,
+      managedWindows: requiredFrameWindows,
+      previouslyManagedWindows: previouslyManagedApplicationWindows,
+      minimizedWindows: minimizedWindows
+    )
+    eventMonitor?.refresh(
+      applications: observedApplicationWindows,
+      requiredTopologyWindows: topologyWindowsRequiredForObservation,
+      requiredFrameWindows: requiredFrameWindows,
+      transientGeometryWindows: transientGeometryWindows
+    )
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
     pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }
     latestObservedFrames = latestObservedFrames.filter {
       freshObservationIDs.contains($0.key)
+        || cachedSnapshotWindowIDs.contains($0.key)
     }
     frameCommitExpectations = frameCommitExpectations.filter {
       nextElements[$0.key] != nil
@@ -424,6 +708,17 @@ extension MacOSPlatform {
         "window-snapshot-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
+    let snapshotDurationMS =
+      (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+    lastWindowSnapshotDurationMS = snapshotDurationMS
+    maximumWindowSnapshotDurationMS = max(
+      maximumWindowSnapshotDurationMS,
+      snapshotDurationMS
+    )
+    recordDurationSample(
+      snapshotDurationMS,
+      in: &windowSnapshotDurationSamplesMS
+    )
     let mouseFocusIntentWindowID: WindowID?
     let mouseFocusIntentTimestamp: TimeInterval?
     let keyboardFocusIntentTimestamp: TimeInterval?
@@ -472,11 +767,66 @@ extension MacOSPlatform {
 
 }
 
+func applicationInventoryRefreshIsRequired(
+  hasCompletedSnapshot: Bool,
+  topologyRequiresFullSnapshot: Bool,
+  forced: Bool
+) -> Bool {
+  !hasCompletedSnapshot || topologyRequiresFullSnapshot || forced
+}
+
+func durationPercentile(
+  _ percentile: Double,
+  samples: [Double]
+) -> Double {
+  guard !samples.isEmpty else { return 0 }
+  let sorted = samples.sorted()
+  let boundedPercentile = min(max(percentile, 0), 1)
+  let index = Int(
+    (Double(sorted.count - 1) * boundedPercentile).rounded(.up)
+  )
+  return sorted[index]
+}
+
+func recordDurationSample(
+  _ durationMS: Double,
+  in samples: inout [Double],
+  limit: Int = 120
+) {
+  samples.append(durationMS)
+  if samples.count > limit {
+    samples.removeFirst(samples.count - limit)
+  }
+}
+
+func applicationWindowListRefreshIsRequired(
+  hasCachedWindows: Bool,
+  refreshesAllWindowLists: Bool,
+  topologyProcessWasInvalidated: Bool
+) -> Bool {
+  !hasCachedWindows
+    || refreshesAllWindowLists
+    || topologyProcessWasInvalidated
+}
+
+func unmatchedWindowCacheRequiresFullRetry(
+  eventRequiresFullSnapshot: Bool,
+  forceFullWindowRefresh: Bool,
+  forceWindowListRefresh: Bool
+) -> Bool {
+  eventRequiresFullSnapshot
+    || forceFullWindowRefresh
+    || forceWindowListRefresh
+}
+
 func freshWindowObservationIDs(
   windows: [Window],
-  retainedWindowIDs: Set<WindowID>
+  retainedWindowIDs: Set<WindowID>,
+  cachedWindowIDs: Set<WindowID> = []
 ) -> Set<WindowID> {
-  Set(windows.lazy.map(\.id)).subtracting(retainedWindowIDs)
+  Set(windows.lazy.map(\.id))
+    .subtracting(retainedWindowIDs)
+    .subtracting(cachedWindowIDs)
 }
 
 func retainedWindowIDsForCachedWindows(

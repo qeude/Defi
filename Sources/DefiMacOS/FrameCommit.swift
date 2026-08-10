@@ -91,19 +91,23 @@ func incrementalWindowRefreshProcessIDs(
   processIDs: Set<pid_t>,
   coalescedProcessIDs: Set<pid_t> = [],
   coalescedEventRequiresFullSnapshot: Bool = false,
-  allowsCoalescedProcessRefresh: Bool = false
+  allowsCoalescedProcessRefresh: Bool = false,
+  allowsCachedRefresh: Bool = false
 ) -> Set<pid_t>? {
   let affectedProcessIDs = processIDs.union(coalescedProcessIDs)
   guard hasCompletedSnapshot,
-    eventPending
-      || (allowsCoalescedProcessRefresh && !coalescedProcessIDs.isEmpty),
     !requiresFullSnapshot,
-    !coalescedEventRequiresFullSnapshot,
-    !affectedProcessIDs.isEmpty
+    !coalescedEventRequiresFullSnapshot
   else {
     return nil
   }
-  return affectedProcessIDs
+  if eventPending && !affectedProcessIDs.isEmpty {
+    return affectedProcessIDs
+  }
+  if allowsCoalescedProcessRefresh && !coalescedProcessIDs.isEmpty {
+    return coalescedProcessIDs
+  }
+  return allowsCachedRefresh ? [] : nil
 }
 
 func frameIsOnExpectedCommitPath(

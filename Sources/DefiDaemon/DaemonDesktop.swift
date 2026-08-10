@@ -15,8 +15,41 @@ private let displayLogger = Logger(
 
 @MainActor
 extension Daemon {
-  func synchronizeDesktop() {
-    let snapshot = platform.snapshot(config: config)
+  func synchronizeDesktop(
+    forceFullWindowRefresh: Bool = false,
+    forceWindowListRefresh: Bool = false,
+    forceApplicationInventoryRefresh: Bool = false
+  ) {
+    let snapshot = platform.snapshot(
+      config: config,
+      forceFullWindowRefresh: forceFullWindowRefresh,
+      forceWindowListRefresh: forceWindowListRefresh,
+      forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
+    )
+    let snapshotCompletedAt = ProcessInfo.processInfo.systemUptime
+    nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
+      current: nextPeriodicWindowRefreshAt,
+      now: snapshotCompletedAt,
+      interval: platform.hasReliableDesktopObservation ? 5 : 0.3,
+      reset: forceFullWindowRefresh
+    )
+    nextWindowListRefreshAt = boundedSnapshotRefreshDeadline(
+      current: nextWindowListRefreshAt,
+      now: snapshotCompletedAt,
+      interval: platform.recommendedWindowListRefreshInterval,
+      reset: forceWindowListRefresh
+    )
+    let applicationInventoryInterval =
+      platform.recommendedApplicationInventoryRefreshInterval
+    if forceApplicationInventoryRefresh {
+      nextApplicationInventoryRefreshAt =
+        snapshotCompletedAt + applicationInventoryInterval
+    } else {
+      nextApplicationInventoryRefreshAt = min(
+        nextApplicationInventoryRefreshAt,
+        snapshotCompletedAt + applicationInventoryInterval
+      )
+    }
     let previousObservedWindowFrames = state.windows.mapValues(\.frame)
     let previousMouseGestureWindowFrames = previousObservedWindowFrames.merging(
       mouseGestureDisplayedOriginFrames

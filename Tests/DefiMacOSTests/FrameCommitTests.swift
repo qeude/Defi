@@ -385,6 +385,34 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testFocusOnlySynchronizationReusesCachedWindows() {
+    XCTAssertEqual(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: false,
+        requiresFullSnapshot: false,
+        processIDs: [],
+        allowsCachedRefresh: true
+      ),
+      []
+    )
+  }
+
+  func testFrameNotificationRefreshesOnlyAffectedProcess() {
+    XCTAssertEqual(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: false,
+        requiresFullSnapshot: false,
+        processIDs: [],
+        coalescedProcessIDs: [202],
+        allowsCoalescedProcessRefresh: true,
+        allowsCachedRefresh: true
+      ),
+      [202]
+    )
+  }
+
   func testCoalescedMouseResizeForcesFullRefresh() {
     XCTAssertNil(
       incrementalWindowRefreshProcessIDs(

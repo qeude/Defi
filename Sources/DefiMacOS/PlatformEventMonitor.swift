@@ -16,7 +16,12 @@ final class PlatformEventMonitor {
   private var mouseMonitor: Any?
   private var mouseGestureNormalizer = MouseGestureEventNormalizer()
   private var observers: [pid_t: AXObserver] = [:]
+  private var topologyObservedProcessIDs = Set<pid_t>()
   private var observedWindows: [pid_t: [AXUIElement]] = [:]
+  private var topologyRequiredWindows: [pid_t: [AXUIElement]] = [:]
+  private var frameRequiredWindows: [pid_t: [AXUIElement]] = [:]
+  private var topologyObservedWindows: [pid_t: [AXUIElement]] = [:]
+  private var frameObservedWindows: [pid_t: [AXUIElement]] = [:]
   private var frameNotificationsEnabled = true
   private var displayCallbackRegistered = false
 
@@ -156,65 +161,190 @@ final class PlatformEventMonitor {
     mouseGestureNormalizer.reset()
   }
 
-  func refresh(applications: [pid_t: [AXUIElement]]) {
+  func refresh(
+    applications: [pid_t: [AXUIElement]],
+    requiredTopologyWindows: [pid_t: [AXUIElement]]? = nil,
+    requiredFrameWindows: [pid_t: [AXUIElement]]? = nil,
+    transientGeometryWindows: [pid_t: [AXUIElement]] = [:]
+  ) {
     let activeProcessIDs = Set(applications.keys)
     for processID in observers.keys where !activeProcessIDs.contains(processID) {
       observers[processID] = nil
+      topologyObservedProcessIDs.remove(processID)
       observedWindows[processID] = nil
+      topologyRequiredWindows[processID] = nil
+      frameRequiredWindows[processID] = nil
+      topologyObservedWindows[processID] = nil
+      frameObservedWindows[processID] = nil
     }
 
     for (processID, windows) in applications {
       guard let observer = observer(for: processID) else { continue }
-      let application = AXUIElementCreateApplication(processID)
-      subscribe(
-        observer,
-        element: application,
-        notifications: [
-          kAXFocusedWindowChangedNotification,
-          kAXWindowCreatedNotification,
-        ]
+      prepareForWindowDiscovery(
+        processID: processID,
+        application: AXUIElementCreateApplication(processID),
+        observer: observer
       )
 
       var known = observedWindows[processID] ?? []
-      for window in windows where !known.contains(where: { CFEqual($0, window) }) {
-        var notifications = [
-          kAXUIElementDestroyedNotification,
-          kAXWindowMiniaturizedNotification,
-          kAXWindowDeminiaturizedNotification,
-        ]
-        if frameNotificationsEnabled {
-          notifications.append(contentsOf: [
-            kAXMovedNotification,
-            kAXResizedNotification,
-          ])
+      var topologyObserved = topologyObservedWindows[processID] ?? []
+      var frameObserved = frameObservedWindows[processID] ?? []
+      let requiredTopology = topologyWindowsRequiringCoverage(
+        requested: requiredTopologyWindows?[processID] ?? windows,
+        previouslyRequired: topologyRequiredWindows[processID] ?? [],
+        observed: topologyObserved,
+        applicationWindows: windows
+      )
+      let requiredFrames = frameWindowsRequiringCoverage(
+        requested: requiredFrameWindows?[processID] ?? windows,
+        transientGeometry: transientGeometryWindows[processID] ?? [],
+        applicationWindows: windows
+      )
+      for window in requiredTopology {
+        if !topologyObserved.contains(where: { CFEqual($0, window) }),
+          subscribe(
+            observer,
+            element: window,
+            notifications: [
+              kAXUIElementDestroyedNotification,
+              kAXWindowMiniaturizedNotification,
+              kAXWindowDeminiaturizedNotification,
+            ]
+          )
+        {
+          topologyObserved.append(window)
         }
-        subscribe(
-          observer,
-          element: window,
-          notifications: notifications
-        )
-        known.append(window)
+      }
+      for window in windows {
+        if frameNotificationsEnabled,
+          requiredFrames.contains(where: { CFEqual($0, window) }),
+          !frameObserved.contains(where: { CFEqual($0, window) }),
+          subscribe(
+            observer,
+            element: window,
+            notifications: [kAXMovedNotification, kAXResizedNotification]
+          )
+        {
+          frameObserved.append(window)
+        }
+        if !known.contains(where: { CFEqual($0, window) }) {
+          known.append(window)
+        }
+      }
+      let obsoleteFrameWindows = frameObserved.filter { candidate in
+        !requiredFrames.contains(where: { CFEqual($0, candidate) })
+      }
+      for window in obsoleteFrameWindows {
+        for notification in [kAXMovedNotification, kAXResizedNotification] {
+          AXObserverRemoveNotification(
+            observer,
+            window,
+            notification as CFString
+          )
+        }
       }
       observedWindows[processID] = known.filter { candidate in
         windows.contains(where: { CFEqual($0, candidate) })
       }
+      topologyRequiredWindows[processID] = requiredTopology
+      frameRequiredWindows[processID] = requiredFrames
+      topologyObservedWindows[processID] = topologyObserved.filter { candidate in
+        windows.contains(where: { CFEqual($0, candidate) })
+      }
+      frameObservedWindows[processID] = frameObserved.filter { candidate in
+        requiredFrames.contains(where: { CFEqual($0, candidate) })
+      }
     }
+  }
+
+  func prepareForWindowDiscovery(
+    processID: pid_t,
+    application: AXUIElement
+  ) {
+    guard let observer = observer(for: processID) else { return }
+    prepareForWindowDiscovery(
+      processID: processID,
+      application: application,
+      observer: observer
+    )
+  }
+
+  func hasReliableWindowTopologyCoverage(
+    for processIDs: Set<pid_t>
+  ) -> Bool {
+    guard processIDs.isSubset(of: topologyObservedProcessIDs) else {
+      return false
+    }
+    return topologyRequiredWindows.allSatisfy { processID, windows in
+      let topologyObserved = topologyObservedWindows[processID] ?? []
+      return windows.allSatisfy { window in
+        topologyObserved.contains(where: { CFEqual($0, window) })
+      }
+    }
+  }
+
+  func hasReliableFrameCoverage() -> Bool {
+    guard frameNotificationsEnabled else { return false }
+    return frameRequiredWindows.allSatisfy { processID, windows in
+      let frameObserved = frameObservedWindows[processID] ?? []
+      return windows.allSatisfy { window in
+        frameObserved.contains(where: { CFEqual($0, window) })
+      }
+    }
+  }
+
+  var observationCoverage:
+    (
+      applicationObservers: Int,
+      applications: Int,
+      topologyWindows: Int,
+      requiredTopologyWindows: Int,
+      frameWindows: Int,
+      requiredFrameWindows: Int
+    )
+  {
+    (
+      topologyObservedProcessIDs.count,
+      observers.count,
+      observedWindowCount(
+        topologyRequiredWindows,
+        coveredBy: topologyObservedWindows
+      ),
+      topologyRequiredWindows.values.reduce(0) { $0 + $1.count },
+      observedWindowCount(
+        frameRequiredWindows,
+        coveredBy: frameObservedWindows
+      ),
+      frameRequiredWindows.values.reduce(0) { $0 + $1.count }
+    )
+  }
+
+  var hasReliableApplicationLifecycleObservation: Bool {
+    workspaceTokens.count == 5
   }
 
   func setFrameNotificationsEnabled(_ enabled: Bool) {
     guard frameNotificationsEnabled != enabled else { return }
     frameNotificationsEnabled = enabled
-    for (processID, windows) in observedWindows {
+    let windowsByProcess = frameRequiredWindows
+    for (processID, windows) in windowsByProcess {
       guard let observer = observers[processID] else { continue }
-      for window in windows {
-        for notification in [kAXMovedNotification, kAXResizedNotification] {
-          if enabled {
-            subscribe(
-              observer,
-              element: window,
-              notifications: [notification]
-            )
-          } else {
+      if enabled {
+        for window in windows
+        where !((frameObservedWindows[processID] ?? []).contains {
+          CFEqual($0, window)
+        }) {
+          if subscribe(
+            observer,
+            element: window,
+            notifications: [kAXMovedNotification, kAXResizedNotification]
+          ) {
+            frameObservedWindows[processID, default: []].append(window)
+          }
+        }
+      } else {
+        for window in windows {
+          for notification in [kAXMovedNotification, kAXResizedNotification] {
             AXObserverRemoveNotification(
               observer,
               window,
@@ -222,6 +352,7 @@ final class PlatformEventMonitor {
             )
           }
         }
+        frameObservedWindows[processID] = []
       }
     }
   }
@@ -268,23 +399,49 @@ final class PlatformEventMonitor {
     return observer
   }
 
+  private func prepareForWindowDiscovery(
+    processID: pid_t,
+    application: AXUIElement,
+    observer: AXObserver
+  ) {
+    guard !topologyObservedProcessIDs.contains(processID) else { return }
+    if subscribe(
+      observer,
+      element: application,
+      notifications: [
+        kAXFocusedWindowChangedNotification,
+        kAXWindowCreatedNotification,
+      ]
+    ) {
+      topologyObservedProcessIDs.insert(processID)
+    }
+  }
+
+  @discardableResult
   private func subscribe(
     _ observer: AXObserver,
     element: AXUIElement,
     notifications: [String]
-  ) {
+  ) -> Bool {
     let context = Unmanaged.passUnretained(self).toOpaque()
-    for notification in notifications {
-      let result = AXObserverAddNotification(
-        observer,
-        element,
-        notification as CFString,
-        context
-      )
-      if result != .success && result != .notificationAlreadyRegistered {
-        continue
+    return registerNotificationBatch(
+      notifications: notifications,
+      add: { notification in
+        AXObserverAddNotification(
+          observer,
+          element,
+          notification as CFString,
+          context
+        )
+      },
+      remove: { notification in
+        AXObserverRemoveNotification(
+          observer,
+          element,
+          notification as CFString
+        )
       }
-    }
+    )
   }
 
   func stop() {
@@ -308,6 +465,37 @@ final class PlatformEventMonitor {
       NSEvent.removeMonitor(mouseMonitor)
       self.mouseMonitor = nil
     }
+  }
+}
+
+func registerNotificationBatch(
+  notifications: [String],
+  add: (String) -> AXError,
+  remove: (String) -> Void
+) -> Bool {
+  var registered: [String] = []
+  for notification in notifications {
+    let result = add(notification)
+    guard result == .success || result == .notificationAlreadyRegistered else {
+      for registeredNotification in registered {
+        remove(registeredNotification)
+      }
+      return false
+    }
+    registered.append(notification)
+  }
+  return true
+}
+
+private func observedWindowCount(
+  _ required: [pid_t: [AXUIElement]],
+  coveredBy observed: [pid_t: [AXUIElement]]
+) -> Int {
+  required.reduce(into: 0) { count, entry in
+    let observedWindows = observed[entry.key] ?? []
+    count += entry.value.filter { requiredWindow in
+      observedWindows.contains(where: { CFEqual($0, requiredWindow) })
+    }.count
   }
 }
 
