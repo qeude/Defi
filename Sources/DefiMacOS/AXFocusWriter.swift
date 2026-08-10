@@ -653,8 +653,11 @@ final class AXFocusWriter: @unchecked Sendable {
   private func isTargetFocused(_ element: AXUIElement) -> Bool {
     AXUIElementSetMessagingTimeout(element, 0.016)
     defer { AXUIElementSetMessagingTimeout(element, 0) }
-    return readBoolean(element, attribute: kAXFocusedAttribute) == true
-      || readBoolean(element, attribute: kAXMainAttribute) == true
+    // AXMain is structural app state, not proof of keyboard focus. Apps such as
+    // Kaku can leave a non-focused window main during rapid intra-app navigation.
+    return targetWindowFocusIsConfirmed(
+      readBoolean(element, attribute: kAXFocusedAttribute)
+    )
   }
 
   private func readBoolean(

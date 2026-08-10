@@ -103,6 +103,13 @@ struct PlatformEventTests {
   }
 
   @Test
+  func nativeFocusFastPathRequiresKeyboardFocus() {
+    #expect(targetWindowFocusIsConfirmed(true))
+    #expect(targetWindowFocusIsConfirmed(false) == false)
+    #expect(targetWindowFocusIsConfirmed(nil) == false)
+  }
+
+  @Test
   func staleGuardedFocusReportsMutationForRecovery() {
     #expect(
       resolvedNativeFocusResult(
@@ -967,12 +974,51 @@ struct PlatformEventTests {
   }
 
   @Test
-  func terminatedApplicationWithPIDInvalidatesOnlyItsSnapshot() {
+  func unreliableCoverageImmediatelyClampsSnapshotWatchdogs() {
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 15,
+        now: 10,
+        reliableObservation: false,
+        reset: false
+      ) == 10.3
+    )
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 10.1,
+        now: 10,
+        reliableObservation: false,
+        reset: false
+      ) == 10.1
+    )
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 10.1,
+        now: 10,
+        reliableObservation: true,
+        reset: true
+      ) == 15
+    )
+  }
+
+  @Test @MainActor
+  func resumingFrameNotificationsForcesFreshProcessReads() {
+    let platform = MacOSPlatform()
+    platform.lastSnapshotProcessIDs = [101, 202]
+
+    platform.setFrameNotificationsEnabled(true)
+
+    #expect(platform.frameEventPending)
+    #expect(platform.pendingFrameProcessIDs == [101, 202])
+  }
+
+  @Test
+  func terminatedApplicationForcesInventoryRefreshEvenWithPID() {
     #expect(
       windowSnapshotInvalidation(
         for: .applicationTerminated,
         processID: 42
-      ) == .process(42)
+      ) == .full
     )
   }
 

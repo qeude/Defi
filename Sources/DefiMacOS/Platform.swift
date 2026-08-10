@@ -117,6 +117,20 @@ func applicationInventoryRefreshInterval(
   reliableLifecycleObservation ? 5 : 0.3
 }
 
+public func boundedSnapshotRefreshDeadline(
+  current: TimeInterval,
+  now: TimeInterval,
+  reliableObservation: Bool,
+  reset: Bool
+) -> TimeInterval {
+  let candidate = now + (reliableObservation ? 5 : 0.3)
+  return reset ? candidate : min(current, candidate)
+}
+
+func targetWindowFocusIsConfirmed(_ focusedAttribute: Bool?) -> Bool {
+  focusedAttribute == true
+}
+
 func copyWindowBorderStacking(
   targetWindowID: WindowID?,
   monitorFrames: [Rect],

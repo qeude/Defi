@@ -26,25 +26,28 @@ extension Daemon {
       forceWindowListRefresh: forceWindowListRefresh,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
     )
-    if forceFullWindowRefresh {
-      nextPeriodicWindowRefreshAt =
-        ProcessInfo.processInfo.systemUptime
-        + (platform.hasReliableDesktopObservation ? 5 : 0.3)
-    }
-    if forceWindowListRefresh {
-      nextWindowListRefreshAt =
-        ProcessInfo.processInfo.systemUptime
-        + (platform.hasReliableWindowTopologyObservation ? 5 : 0.3)
-    }
+    let snapshotCompletedAt = ProcessInfo.processInfo.systemUptime
+    nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
+      current: nextPeriodicWindowRefreshAt,
+      now: snapshotCompletedAt,
+      reliableObservation: platform.hasReliableDesktopObservation,
+      reset: forceFullWindowRefresh
+    )
+    nextWindowListRefreshAt = boundedSnapshotRefreshDeadline(
+      current: nextWindowListRefreshAt,
+      now: snapshotCompletedAt,
+      reliableObservation: platform.hasReliableWindowTopologyObservation,
+      reset: forceWindowListRefresh
+    )
     let applicationInventoryInterval =
       platform.recommendedApplicationInventoryRefreshInterval
     if forceApplicationInventoryRefresh {
       nextApplicationInventoryRefreshAt =
-        ProcessInfo.processInfo.systemUptime + applicationInventoryInterval
+        snapshotCompletedAt + applicationInventoryInterval
     } else {
       nextApplicationInventoryRefreshAt = min(
         nextApplicationInventoryRefreshAt,
-        ProcessInfo.processInfo.systemUptime + applicationInventoryInterval
+        snapshotCompletedAt + applicationInventoryInterval
       )
     }
     let previousObservedWindowFrames = state.windows.mapValues(\.frame)
