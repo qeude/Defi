@@ -120,8 +120,14 @@ extension MacOSPlatform {
         updatedWindowListReadRetryAttempts(
           previousAttempts: cgWindowInventoryRetryAttempts,
           readSucceeded: copied != nil
-        )
+      )
       return copied
+    }
+    if cgWindowInventoryRetryIsRequired(
+      attempts: cgWindowInventoryRetryAttempts,
+      forceWindowListRefresh: forceWindowListRefresh
+    ) {
+      _ = publicCGWindows()
     }
     let previousElements = elements
     let previousProcessIDs = processIDs

@@ -175,6 +175,14 @@ func updatedWindowListReadRetryAttempts(
   return previousAttempts + 1
 }
 
+func cgWindowInventoryRetryIsRequired(
+  attempts: Int?,
+  forceWindowListRefresh: Bool
+) -> Bool {
+  guard forceWindowListRefresh, let attempts else { return false }
+  return unmatchedWindowRetryIsPending(attempts: attempts)
+}
+
 func applicationWindowsAfterPreparingTopologyObservation(
   prepareObservation: () -> Void,
   copyWindows: () -> [AXUIElement]?

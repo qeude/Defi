@@ -101,6 +101,33 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {
+    #expect(
+      cgWindowInventoryRetryIsRequired(
+        attempts: 0,
+        forceWindowListRefresh: true
+      )
+    )
+    #expect(
+      !cgWindowInventoryRetryIsRequired(
+        attempts: nil,
+        forceWindowListRefresh: true
+      )
+    )
+    #expect(
+      !cgWindowInventoryRetryIsRequired(
+        attempts: 3,
+        forceWindowListRefresh: true
+      )
+    )
+    #expect(
+      !cgWindowInventoryRetryIsRequired(
+        attempts: 0,
+        forceWindowListRefresh: false
+      )
+    )
+  }
+
   @Test func snapshotDurationPercentilesAreBoundedAndDeterministic() {
     let samples = [1.0, 5.0, 2.0, 4.0, 3.0]
 
