@@ -373,11 +373,22 @@ extension MacOSPlatform {
           previousDisposition: previousDisposition,
           reuseCachedCapabilities: !refreshesWindowList
         )
-        guard disposition != .ignored else {
+        switch disposition {
+        case .unavailable:
+          cacheWindowElementForShortRetry(
+            element,
+            processID: processID,
+            elementsByProcess: &unmatchedWindowElementsByProcess,
+            attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+          )
+          continue
+        case .ignored:
           if let previousWindowID {
             ignoredPreviousWindowIDs.insert(previousWindowID)
           }
           continue
+        case .tiled, .floating:
+          break
         }
         guard usedCGWindowIDs.insert(cgWindowID).inserted else {
           continue

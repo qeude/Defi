@@ -374,6 +374,7 @@ enum WindowDisposition: Equatable {
   case tiled
   case floating
   case ignored
+  case unavailable
 }
 
 func floatingOrigin(
@@ -439,7 +440,7 @@ func fallbackDispositionForTransientWindowMetadata(
   else {
     return nil
   }
-  return previousDisposition ?? .ignored
+  return previousDisposition ?? .unavailable
 }
 
 func windowCanResize(

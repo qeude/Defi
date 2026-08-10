@@ -460,7 +460,7 @@ final class WindowDiscoveryTests: XCTestCase {
 
   func testTransientMetadataFailurePreservesPreviousDisposition() {
     let cases: [(WindowDisposition?, WindowDisposition)] = [
-      (nil, WindowDisposition.ignored),
+      (nil, WindowDisposition.unavailable),
       (.tiled, .tiled),
       (.floating, .floating),
     ]
