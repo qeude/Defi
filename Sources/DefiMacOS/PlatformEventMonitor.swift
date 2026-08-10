@@ -195,7 +195,7 @@ final class PlatformEventMonitor {
         applicationWindows: windows
       )
       let requiredFrames = requiredFrameWindows?[processID] ?? windows
-      for window in windows {
+      for window in requiredTopology {
         if !topologyObserved.contains(where: { CFEqual($0, window) }),
           subscribe(
             observer,
@@ -209,6 +209,8 @@ final class PlatformEventMonitor {
         {
           topologyObserved.append(window)
         }
+      }
+      for window in windows {
         if frameNotificationsEnabled,
           requiredFrames.contains(where: { CFEqual($0, window) }),
           !frameObserved.contains(where: { CFEqual($0, window) }),

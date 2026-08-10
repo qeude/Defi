@@ -208,25 +208,95 @@ final class WindowDiscoveryTests: XCTestCase {
     XCTAssertEqual(match?.id, matchingTitle.id)
   }
 
-  func testPreviousWindowIDSurvivesMissingCGSnapshotRecord() {
-    XCTAssertEqual(
-      resolvedCGWindowID(
-        matchedRecord: nil,
-        preferredWindowID: WindowID(rawValue: 42)
-      ),
-      42
+  func testPreferredWindowIDRequiresLiveCGRecordFromSameProcess() {
+    let live = CGWindowRecord(
+      id: 42,
+      processID: processID,
+      layer: 0,
+      title: "Window",
+      frame: frame
     )
-  }
+    let recycledByAnotherProcess = CGWindowRecord(
+      id: 42,
+      processID: 7,
+      layer: 0,
+      title: "Other",
+      frame: frame
+    )
 
-  func testKnownWindowIDCanSkipGlobalCGSnapshot() {
     XCTAssertEqual(
-      reusableCGWindowID(WindowID(rawValue: 42), excluding: []),
+      cgWindowRecordForDiscovery(
+        preferredWindowID: WindowID(rawValue: 42),
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [live],
+        excluding: []
+      )?.id,
       42
     )
     XCTAssertNil(
-      reusableCGWindowID(WindowID(rawValue: 42), excluding: [42])
+      cgWindowRecordForDiscovery(
+        preferredWindowID: WindowID(rawValue: 42),
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [],
+        excluding: []
+      )
     )
-    XCTAssertNil(reusableCGWindowID(nil, excluding: []))
+    XCTAssertNil(
+      cgWindowRecordForDiscovery(
+        preferredWindowID: WindowID(rawValue: 42),
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [recycledByAnotherProcess],
+        excluding: []
+      )
+    )
+    XCTAssertNil(
+      cgWindowRecordForDiscovery(
+        preferredWindowID: WindowID(rawValue: 42),
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [live],
+        excluding: [42]
+      )
+    )
+  }
+
+  func testMissingPreferredWindowRecordDoesNotRematchUnrelatedLiveWindow() {
+    let otherLiveWindow = CGWindowRecord(
+      id: 43,
+      processID: processID,
+      layer: 0,
+      title: "Window",
+      frame: frame
+    )
+
+    XCTAssertNil(
+      cgWindowRecordForDiscovery(
+        preferredWindowID: WindowID(rawValue: 42),
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [otherLiveWindow],
+        excluding: []
+      )
+    )
+    XCTAssertEqual(
+      cgWindowRecordForDiscovery(
+        preferredWindowID: nil,
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [otherLiveWindow],
+        excluding: []
+      )?.id,
+      43
+    )
   }
 
   func testAuxiliaryRolesCanMatchFloatingLevelWindowRecords() {

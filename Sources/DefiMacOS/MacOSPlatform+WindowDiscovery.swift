@@ -94,41 +94,22 @@ extension MacOSPlatform {
     let role = attributes.role
     let subrole = attributes.subrole
     let decision = config.decision(appID: appID, title: title, role: role)
-    let resolvedWindowID: CGWindowID
-    if let reusableWindowID = reusableCGWindowID(
-      preferredWindowID,
+    let eligibleCGWindows = eligibleCGWindowRecords(
+      role: role,
+      for: subrole,
+      allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
+      in: publicCGWindows()
+    )
+    let record = cgWindowRecordForDiscovery(
+      preferredWindowID: preferredWindowID,
+      processID: processID,
+      title: title,
+      frame: frame,
+      records: eligibleCGWindows,
       excluding: usedCGWindowIDs
-    ) {
-      resolvedWindowID = reusableWindowID
-    } else {
-      let eligibleCGWindows = eligibleCGWindowRecords(
-        role: role,
-        for: subrole,
-        allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
-        in: publicCGWindows()
-      )
-      let record =
-        (preferredWindowID.flatMap { preferred in
-          eligibleCGWindows.first {
-            $0.id == CGWindowID(preferred.rawValue)
-              && $0.processID == processID
-              && !usedCGWindowIDs.contains($0.id)
-          }
-        }
-          ?? bestCGWindow(
-            processID: processID,
-            title: title,
-            frame: frame,
-            records: eligibleCGWindows,
-            excluding: usedCGWindowIDs
-          ))
-      guard let matchedWindowID = resolvedCGWindowID(
-        matchedRecord: record,
-        preferredWindowID: preferredWindowID
-      ) else {
-        return .unmatched
-      }
-      resolvedWindowID = matchedWindowID
+    )
+    guard let resolvedWindowID = record?.id else {
+      return .unmatched
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
     return .discovered(
@@ -439,19 +420,6 @@ extension MacOSPlatform {
   func copyElements(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
     copyAttribute(element, name: attribute) as? [AXUIElement]
   }
-}
-
-func reusableCGWindowID(
-  _ preferredWindowID: WindowID?,
-  excluding usedWindowIDs: Set<CGWindowID>
-) -> CGWindowID? {
-  guard let preferredWindowID,
-    let windowID = CGWindowID(exactly: preferredWindowID.rawValue),
-    !usedWindowIDs.contains(windowID)
-  else {
-    return nil
-  }
-  return windowID
 }
 
 func axAttributeValue(_ value: AnyObject) -> CFTypeRef? {

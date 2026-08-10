@@ -34,17 +34,6 @@ struct CGWindowRecord {
   }
 }
 
-func resolvedCGWindowID(
-  matchedRecord: CGWindowRecord?,
-  preferredWindowID: WindowID?
-) -> CGWindowID? {
-  if let matchedRecord {
-    return matchedRecord.id
-  }
-  guard let preferredWindowID else { return nil }
-  return CGWindowID(exactly: preferredWindowID.rawValue)
-}
-
 func copyCGWindows(
   options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
 ) -> [CGWindowRecord] {
@@ -97,6 +86,33 @@ func eligibleCGWindowRecords(
   return records.filter { record in
     record.layer == 0 || (acceptsFloatingLevel && record.layer > 0)
   }
+}
+
+func cgWindowRecordForDiscovery(
+  preferredWindowID: WindowID?,
+  processID: pid_t,
+  title: String,
+  frame: Rect,
+  records: [CGWindowRecord],
+  excluding usedWindowIDs: Set<CGWindowID>
+) -> CGWindowRecord? {
+  if let preferredWindowID {
+    guard let windowID = CGWindowID(exactly: preferredWindowID.rawValue),
+      !usedWindowIDs.contains(windowID)
+    else {
+      return nil
+    }
+    return records.first {
+      $0.id == windowID && $0.processID == processID
+    }
+  }
+  return bestCGWindow(
+    processID: processID,
+    title: title,
+    frame: frame,
+    records: records,
+    excluding: usedWindowIDs
+  )
 }
 
 func framesByWindowID(
