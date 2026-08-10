@@ -1122,20 +1122,25 @@ struct PlatformEventTests {
   }
 
   @Test
-  func topologyCoverageKeepsPreviouslyManagedWindowsOnly() {
+  func topologyCoverageIncludesFirstSeenMinimizedWindows() {
     let current = AXUIElementCreateApplication(101)
     let minimized = AXUIElementCreateApplication(202)
-    let unmanagedAuxiliary = AXUIElementCreateApplication(303)
+    let firstSeenMinimized = AXUIElementCreateApplication(303)
+    let unmanagedAuxiliary = AXUIElementCreateApplication(404)
 
     let required = requiredTopologyWindows(
-      applicationWindows: [7: [current, minimized, unmanagedAuxiliary]],
+      applicationWindows: [
+        7: [current, minimized, firstSeenMinimized, unmanagedAuxiliary]
+      ],
       managedWindows: [7: [current]],
-      previouslyManagedWindows: [7: [current, minimized]]
+      previouslyManagedWindows: [7: [current, minimized]],
+      minimizedWindows: [7: [minimized, firstSeenMinimized]]
     )[7] ?? []
 
-    #expect(required.count == 2)
+    #expect(required.count == 3)
     #expect(required.contains(where: { CFEqual($0, current) }))
     #expect(required.contains(where: { CFEqual($0, minimized) }))
+    #expect(required.contains(where: { CFEqual($0, firstSeenMinimized) }))
     #expect(
       required.contains(where: { CFEqual($0, unmanagedAuxiliary) }) == false
     )
@@ -1175,7 +1180,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func frameCoverageRetainsOnlyPreviouslyManagedTransientGeometry() {
+  func frameCoverageIncludesFirstSeenTransientGeometry() {
     let current = AXUIElementCreateApplication(101)
     let transient = AXUIElementCreateApplication(202)
     let neverManaged = AXUIElementCreateApplication(303)
@@ -1183,18 +1188,16 @@ struct PlatformEventTests {
     let required = frameWindowsRequiringCoverage(
       requested: [current],
       transientGeometry: [transient, neverManaged],
-      previouslyRequired: [current, transient],
       applicationWindows: [current, transient, neverManaged]
     )
-    #expect(required.count == 2)
+    #expect(required.count == 3)
     #expect(required.contains(where: { CFEqual($0, current) }))
     #expect(required.contains(where: { CFEqual($0, transient) }))
-    #expect(!required.contains(where: { CFEqual($0, neverManaged) }))
+    #expect(required.contains(where: { CFEqual($0, neverManaged) }))
 
     let noLongerTransient = frameWindowsRequiringCoverage(
       requested: [current],
       transientGeometry: [],
-      previouslyRequired: required,
       applicationWindows: [current, transient, neverManaged]
     )
     #expect(noLongerTransient.count == 1)

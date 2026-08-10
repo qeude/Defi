@@ -44,6 +44,7 @@ public final class MacOSPlatform {
   var lastSnapshotWindowIDs = Set<WindowID>()
   var lastSnapshotProcessIDs = Set<pid_t>()
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
+  var minimizedWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]
   var transientGeometryWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]
   var unmatchedWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]
   var unmatchedWindowRetryAttemptsByProcess: [pid_t: Int] = [:]

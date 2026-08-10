@@ -198,7 +198,6 @@ final class PlatformEventMonitor {
       let requiredFrames = frameWindowsRequiringCoverage(
         requested: requiredFrameWindows?[processID] ?? windows,
         transientGeometry: transientGeometryWindows[processID] ?? [],
-        previouslyRequired: frameRequiredWindows[processID] ?? [],
         applicationWindows: windows
       )
       for window in requiredTopology {

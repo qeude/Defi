@@ -202,13 +202,15 @@ func targetWindowFocusIsConfirmed(
 func requiredTopologyWindows(
   applicationWindows: [pid_t: [AXUIElement]],
   managedWindows: [pid_t: [AXUIElement]],
-  previouslyManagedWindows: [pid_t: [AXUIElement]]
+  previouslyManagedWindows: [pid_t: [AXUIElement]],
+  minimizedWindows: [pid_t: [AXUIElement]] = [:]
 ) -> [pid_t: [AXUIElement]] {
   Dictionary(
     uniqueKeysWithValues: applicationWindows.map { processID, windows in
       let candidates =
         (managedWindows[processID] ?? [])
         + (previouslyManagedWindows[processID] ?? [])
+        + (minimizedWindows[processID] ?? [])
       let required = windows.filter { window in
         candidates.contains(where: { CFEqual($0, window) })
       }
@@ -239,15 +241,13 @@ func topologyWindowsRequiringCoverage(
 func frameWindowsRequiringCoverage(
   requested: [AXUIElement],
   transientGeometry: [AXUIElement],
-  previouslyRequired: [AXUIElement],
   applicationWindows: [AXUIElement]
 ) -> [AXUIElement] {
   var required = requested.filter { candidate in
     applicationWindows.contains(where: { CFEqual($0, candidate) })
   }
-  for candidate in previouslyRequired
+  for candidate in transientGeometry
   where applicationWindows.contains(where: { CFEqual($0, candidate) })
-    && transientGeometry.contains(where: { CFEqual($0, candidate) })
     && !required.contains(where: { CFEqual($0, candidate) })
   {
     required.append(candidate)

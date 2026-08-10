@@ -148,6 +148,7 @@ extension MacOSPlatform {
     var nextApplications: [pid_t: AXUIElement] = [:]
     var nextApplicationIDs: [pid_t: String] = [:]
     var applicationWindows: [pid_t: [AXUIElement]] = [:]
+    var minimizedWindows = minimizedWindowElementsByProcess
     var transientGeometryWindows = transientGeometryWindowElementsByProcess
     var windows: [Window] = []
     var nextRetainedWindowIDs = Set<WindowID>()
@@ -220,6 +221,7 @@ extension MacOSPlatform {
     for runningApplication in runningApplications {
       let processID = runningApplication.processID
       guard processID != ownProcessID else { continue }
+      minimizedWindows[processID] = []
       transientGeometryWindows[processID] = []
       let appID: String
       if let application = runningApplication.application {
@@ -324,6 +326,7 @@ extension MacOSPlatform {
         case .unavailable:
           continue
         case .ignored:
+          minimizedWindows[processID, default: []].append(element)
           if let previousWindowID {
             ignoredPreviousWindowIDs.insert(previousWindowID)
           }
@@ -474,6 +477,8 @@ extension MacOSPlatform {
     lastSnapshotWindowIDs = Set(windows.lazy.map(\.id))
     lastSnapshotProcessIDs = Set(windows.lazy.compactMap(\.processID))
     lastApplicationWindowElements = applicationWindows
+    minimizedWindowElementsByProcess =
+      minimizedWindows.filter { nextApplications[$0.key] != nil }
     transientGeometryWindowElementsByProcess =
       transientGeometryWindows.filter { nextApplications[$0.key] != nil }
     retainedWindowIDs = nextRetainedWindowIDs
@@ -511,7 +516,8 @@ extension MacOSPlatform {
     let topologyWindowsRequiredForObservation = requiredTopologyWindows(
       applicationWindows: observedApplicationWindows,
       managedWindows: requiredFrameWindows,
-      previouslyManagedWindows: previouslyManagedApplicationWindows
+      previouslyManagedWindows: previouslyManagedApplicationWindows,
+      minimizedWindows: minimizedWindows
     )
     eventMonitor?.refresh(
       applications: observedApplicationWindows,
