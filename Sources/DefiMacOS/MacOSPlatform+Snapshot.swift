@@ -264,6 +264,11 @@ extension MacOSPlatform {
           (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
           in: &applicationWindowListDurationSamplesMS
         )
+        windowListReadRetryAttemptsByProcess[processID] =
+          updatedWindowListReadRetryAttempts(
+            previousAttempts: windowListReadRetryAttemptsByProcess[processID],
+            readSucceeded: copiedWindows != nil
+          )
         appWindows = copiedWindows ?? cachedApplicationWindows
       } else {
         appWindows = cachedApplicationWindows
@@ -461,6 +466,10 @@ extension MacOSPlatform {
       unmatchedWindowRetryAttemptsByProcess.filter {
         nextApplications[$0.key] != nil
           && unmatchedWindowElementsByProcess[$0.key]?.isEmpty == false
+      }
+    windowListReadRetryAttemptsByProcess =
+      windowListReadRetryAttemptsByProcess.filter {
+        nextApplications[$0.key] != nil
       }
     let observedApplicationWindows = Dictionary(
       uniqueKeysWithValues: nextApplications.keys.map {

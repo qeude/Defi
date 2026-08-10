@@ -46,6 +46,7 @@ public final class MacOSPlatform {
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
   var unmatchedWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]
   var unmatchedWindowRetryAttemptsByProcess: [pid_t: Int] = [:]
+  var windowListReadRetryAttemptsByProcess: [pid_t: Int] = [:]
   var retainedWindowIDs = Set<WindowID>()
   var lastWindowSnapshotDurationMS = 0.0
   var maximumWindowSnapshotDurationMS = 0.0

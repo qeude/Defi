@@ -620,8 +620,13 @@ extension MacOSPlatform {
           attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0
         )
     }
+    let hasPendingWindowListReadRetry =
+      windowListReadRetryAttemptsByProcess.values.contains {
+        unmatchedWindowRetryIsPending(attempts: $0)
+    }
     return windowListRefreshInterval(
-      hasPendingUnmatchedRetry: hasPendingUnmatchedRetry,
+      hasPendingShortRetry:
+        hasPendingUnmatchedRetry || hasPendingWindowListReadRetry,
       reliableTopologyObservation: hasReliableWindowTopologyObservation
     )
   }

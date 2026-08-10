@@ -128,10 +128,10 @@ public func boundedSnapshotRefreshDeadline(
 }
 
 func windowListRefreshInterval(
-  hasPendingUnmatchedRetry: Bool,
+  hasPendingShortRetry: Bool,
   reliableTopologyObservation: Bool
 ) -> TimeInterval {
-  if hasPendingUnmatchedRetry { return 0.1 }
+  if hasPendingShortRetry { return 0.1 }
   return reliableTopologyObservation ? 5 : 0.3
 }
 
@@ -140,6 +140,17 @@ func unmatchedWindowRetryIsPending(
   maximumAttempts: Int = 3
 ) -> Bool {
   attempts < maximumAttempts
+}
+
+func updatedWindowListReadRetryAttempts(
+  previousAttempts: Int?,
+  readSucceeded: Bool,
+  maximumAttempts: Int = 3
+) -> Int? {
+  guard !readSucceeded else { return nil }
+  guard let previousAttempts else { return 0 }
+  guard previousAttempts < maximumAttempts else { return maximumAttempts }
+  return previousAttempts + 1
 }
 
 func applicationWindowsAfterPreparingTopologyObservation(

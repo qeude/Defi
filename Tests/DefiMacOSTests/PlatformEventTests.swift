@@ -1020,22 +1020,67 @@ struct PlatformEventTests {
     #expect(unmatchedWindowRetryIsPending(attempts: 3) == false)
     #expect(
       windowListRefreshInterval(
-        hasPendingUnmatchedRetry: true,
+        hasPendingShortRetry: true,
         reliableTopologyObservation: true
       ) == 0.1
     )
     #expect(
       windowListRefreshInterval(
-        hasPendingUnmatchedRetry: false,
+        hasPendingShortRetry: false,
         reliableTopologyObservation: true
       ) == 5
     )
     #expect(
       windowListRefreshInterval(
-        hasPendingUnmatchedRetry: false,
+        hasPendingShortRetry: false,
         reliableTopologyObservation: false
       ) == 0.3
     )
+  }
+
+  @Test
+  func failedWindowListReadsGetThreeShortRetriesThenClearOnSuccess() {
+    let initialFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: nil,
+      readSucceeded: false
+    )
+    let firstRetryFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: initialFailure,
+      readSucceeded: false
+    )
+    let secondRetryFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: firstRetryFailure,
+      readSucceeded: false
+    )
+    let thirdRetryFailure = updatedWindowListReadRetryAttempts(
+      previousAttempts: secondRetryFailure,
+      readSucceeded: false
+    )
+
+    #expect(initialFailure == 0)
+    #expect(firstRetryFailure == 1)
+    #expect(secondRetryFailure == 2)
+    #expect(thirdRetryFailure == 3)
+    #expect(
+      updatedWindowListReadRetryAttempts(
+        previousAttempts: thirdRetryFailure,
+        readSucceeded: false
+      ) == 3
+    )
+    #expect(
+      updatedWindowListReadRetryAttempts(
+        previousAttempts: thirdRetryFailure,
+        readSucceeded: true
+      ) == nil
+    )
+  }
+
+  @Test @MainActor
+  func failedWindowListReadSchedulesShortRetry() {
+    let platform = MacOSPlatform()
+    platform.windowListReadRetryAttemptsByProcess[101] = 0
+
+    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
   }
 
   @Test
