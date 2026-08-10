@@ -121,7 +121,23 @@ enum ServiceManager {
   private static var domain: String { "gui/\(getuid())" }
 
   private static var installedAppURL: URL {
-    FileManager.default.homeDirectoryForCurrentUser
+    if let executableURL = Bundle.main.executableURL,
+      let appURL = appBundleURL(from: executableURL)
+    {
+      return appURL
+    }
+
+    let candidates = [
+      FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Applications/Defi.app"),
+      URL(filePath: "/Applications/Defi.app"),
+    ]
+    if let existing = candidates.first(where: {
+      FileManager.default.fileExists(atPath: $0.path)
+    }) {
+      return existing
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
       .appending(path: "Applications/Defi.app")
   }
 
@@ -134,6 +150,20 @@ enum ServiceManager {
     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: "Library/Logs/Defi.log")
   }
+}
+
+func appBundleURL(from executableURL: URL) -> URL? {
+  let executableURL = executableURL.resolvingSymlinksInPath().standardizedFileURL
+  let appURL = executableURL
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+  guard appURL.pathExtension == "app",
+    appURL.lastPathComponent == "Defi.app"
+  else {
+    return nil
+  }
+  return appURL
 }
 
 enum ServiceStartAction: Equatable, Sendable {

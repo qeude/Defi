@@ -81,21 +81,21 @@ overrides. Full reference lives in [CONFIGURATION.md](CONFIGURATION.md).
 Configuration loads when the daemon starts. Restart the service after editing:
 
 ```sh
-~/Applications/Defi.app/Contents/MacOS/defi service restart
+/Applications/Defi.app/Contents/MacOS/defi service restart
 ```
 
 ## CLI
 
-The installed CLI lives at `~/Applications/Defi.app/Contents/MacOS/defi`.
+The installed alpha CLI lives at `/Applications/Defi.app/Contents/MacOS/defi`.
 Examples:
 
 ```sh
-~/Applications/Defi.app/Contents/MacOS/defi status
-~/Applications/Defi.app/Contents/MacOS/defi trace
-~/Applications/Defi.app/Contents/MacOS/defi focus-column left
-~/Applications/Defi.app/Contents/MacOS/defi workspace 2
-~/Applications/Defi.app/Contents/MacOS/defi move-window-to-workspace 3
-~/Applications/Defi.app/Contents/MacOS/defi quit
+/Applications/Defi.app/Contents/MacOS/defi status
+/Applications/Defi.app/Contents/MacOS/defi trace
+/Applications/Defi.app/Contents/MacOS/defi focus-column left
+/Applications/Defi.app/Contents/MacOS/defi workspace 2
+/Applications/Defi.app/Contents/MacOS/defi move-window-to-workspace 3
+/Applications/Defi.app/Contents/MacOS/defi quit
 ```
 
 ## Build from source
