@@ -357,15 +357,21 @@ public func nextCommandFocusRetryCount(
   return currentRetryCount + 1
 }
 
-public func focusMonitorIsReady(
+/// Returns whether focus can proceed for one target window.
+///
+/// Frame debt from sibling windows must not block focus. A slow or delayed
+/// Accessibility response elsewhere on the monitor cannot make keyboard
+/// focus unresponsive for the selected window.
+public func focusTargetIsReady(
   targetMonitorID: MonitorID,
+  targetWindowID: WindowID,
   scrollingMonitorIDs: Set<MonitorID>,
-  pendingFrameMonitorIDs: Set<MonitorID>,
-  deferredSlowMonitorIDs: Set<MonitorID>
+  pendingFrameWindowIDs: Set<WindowID>,
+  deferredSlowWindowIDs: Set<WindowID>
 ) -> Bool {
   !scrollingMonitorIDs.contains(targetMonitorID)
-    && !pendingFrameMonitorIDs.contains(targetMonitorID)
-    && !deferredSlowMonitorIDs.contains(targetMonitorID)
+    && !pendingFrameWindowIDs.contains(targetWindowID)
+    && !deferredSlowWindowIDs.contains(targetWindowID)
 }
 
 public func nativeFocusMutationIsReady(

@@ -460,39 +460,54 @@ struct PointerFocusTests {
   }
 
   @Test
-  func focusReadinessIsIsolatedPerMonitorAndIncludesAllFrameWrites() {
+  func focusReadinessIsIsolatedPerMonitorAndTargetWindow() {
     let otherMonitorID = MonitorID(rawValue: 2)
+    let targetWindowID = WindowID(rawValue: 1)
+    let otherWindowID = WindowID(rawValue: 2)
 
     #expect(
-      focusMonitorIsReady(
+      focusTargetIsReady(
         targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
         scrollingMonitorIDs: [otherMonitorID],
-        pendingFrameMonitorIDs: [otherMonitorID],
-        deferredSlowMonitorIDs: [otherMonitorID]
+        pendingFrameWindowIDs: [otherWindowID],
+        deferredSlowWindowIDs: [otherWindowID]
       )
     )
     #expect(
-      !focusMonitorIsReady(
+      !focusTargetIsReady(
         targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
         scrollingMonitorIDs: [monitorID],
-        pendingFrameMonitorIDs: [],
-        deferredSlowMonitorIDs: []
+        pendingFrameWindowIDs: [],
+        deferredSlowWindowIDs: []
       )
     )
     #expect(
-      !focusMonitorIsReady(
+      !focusTargetIsReady(
         targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
         scrollingMonitorIDs: [],
-        pendingFrameMonitorIDs: [monitorID],
-        deferredSlowMonitorIDs: []
+        pendingFrameWindowIDs: [targetWindowID],
+        deferredSlowWindowIDs: []
       )
     )
     #expect(
-      !focusMonitorIsReady(
+      !focusTargetIsReady(
         targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
         scrollingMonitorIDs: [],
-        pendingFrameMonitorIDs: [],
-        deferredSlowMonitorIDs: [monitorID]
+        pendingFrameWindowIDs: [],
+        deferredSlowWindowIDs: [targetWindowID]
+      )
+    )
+    #expect(
+      focusTargetIsReady(
+        targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
+        scrollingMonitorIDs: [],
+        pendingFrameWindowIDs: [otherWindowID],
+        deferredSlowWindowIDs: [otherWindowID]
       )
     )
   }

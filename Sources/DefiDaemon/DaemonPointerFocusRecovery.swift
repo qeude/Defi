@@ -267,19 +267,12 @@ extension Daemon {
     guard let targetMonitorID = state.monitorID(containing: windowID) else {
       return false
     }
-    return focusMonitorIsReady(
+    return focusTargetIsReady(
       targetMonitorID: targetMonitorID,
+      targetWindowID: windowID,
       scrollingMonitorIDs: Set(scrollAnimations.keys.map(\.monitorID)),
-      pendingFrameMonitorIDs: Set(
-        platform.pendingFrameWindowIDs.compactMap {
-          state.monitorID(containing: $0)
-        }
-      ),
-      deferredSlowMonitorIDs: Set(
-        deferredSlowWindowIDs.compactMap {
-          state.monitorID(containing: $0)
-        }
-      )
+      pendingFrameWindowIDs: platform.pendingFrameWindowIDs,
+      deferredSlowWindowIDs: deferredSlowWindowIDs
     )
   }
 

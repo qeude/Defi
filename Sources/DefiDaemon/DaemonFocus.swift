@@ -380,7 +380,7 @@ extension Daemon {
         cursorWarpInputTimestamp: nil,
         retryCount: request.retryCount
       )
-      guard focusIsReady(on: request.monitorID) else {
+      guard focusIsReady(on: request.monitorID, targetWindowID: restored.windowID) else {
         pendingAnimatedFocus = restored
         return
       }
@@ -414,7 +414,10 @@ extension Daemon {
         retryCount: request.retryCount
       )
       submittedWorkspaceFocusGeneration = nil
-      if focusIsReady(on: request.monitorID) {
+      if focusIsReady(
+        on: request.monitorID,
+        targetWindowID: request.requestedWindowID
+      ) {
         finishPendingWorkspaceFocusIfReady()
       }
     }
