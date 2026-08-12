@@ -75,3 +75,16 @@ func retainedWindowIDsForCachedWindows(
   previousRetainedWindowIDs.intersection(windows.lazy.map(\.id))
 }
 
+func retainedWindowRefreshProcessIDs(
+  retainedWindowIDs: Set<WindowID>,
+  processIDs: [WindowID: pid_t]
+) -> Set<pid_t> {
+  Set(retainedWindowIDs.compactMap { processIDs[$0] })
+}
+
+func windowHasExternalFrameChange(
+  _ windowID: WindowID,
+  pendingFrameWindowIDs: Set<WindowID>
+) -> Bool {
+  pendingFrameWindowIDs.contains(windowID)
+}

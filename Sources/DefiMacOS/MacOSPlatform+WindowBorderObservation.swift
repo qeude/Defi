@@ -114,6 +114,7 @@ extension MacOSPlatform {
         if let windowID = self.elements.first(where: {
           CFEqual($0.value, element)
         })?.key {
+          self.observedFrameEventWindowIDs.insert(windowID)
           self.frameCoordinator.requestInitialSettlementVerification(
             windowID: windowID
           )

@@ -202,36 +202,39 @@ extension MacOSPlatform {
     in windows: [Window]
   ) -> WindowID? {
     let frontmostProcessID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-    var focusedApplication: CFTypeRef?
     let system = AXUIElementCreateSystemWide()
-    AXUIElementSetMessagingTimeout(
-      system,
-      focusSnapshotAccessibilityTimeoutSeconds
-    )
-    defer { AXUIElementSetMessagingTimeout(system, 0) }
+    let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
+      .withTimeout(
+        focusSnapshotAccessibilityTimeoutSeconds,
+        elements: [system]
+      ) {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+          system,
+          kAXFocusedApplicationAttribute as CFString,
+          &value
+        ) == .success else {
+          return nil
+        }
+        return value
+      }
     guard
-      AXUIElementCopyAttributeValue(
-        system,
-        kAXFocusedApplicationAttribute as CFString,
-        &focusedApplication
-      ) == .success,
       let focusedApplication
     else {
       return stableWindowID(processID: frontmostProcessID, in: windows)
     }
     var focusedProcessID: pid_t = 0
     let focusedApplicationElement = focusedApplication as! AXUIElement
-    AXUIElementSetMessagingTimeout(
-      focusedApplicationElement,
-      focusSnapshotAccessibilityTimeoutSeconds
-    )
-    defer { AXUIElementSetMessagingTimeout(focusedApplicationElement, 0) }
-    guard
+    let readFocusedProcessID = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds,
+      elements: [focusedApplicationElement]
+    ) {
       AXUIElementGetPid(
         focusedApplicationElement,
         &focusedProcessID
       ) == .success
-    else {
+    }
+    guard readFocusedProcessID else {
       return stableWindowID(processID: frontmostProcessID, in: windows)
     }
     let resolvedProcessID = consistentFocusedProcessID(
@@ -241,27 +244,32 @@ extension MacOSPlatform {
     guard resolvedProcessID == focusedProcessID else {
       return nil
     }
-    var focusedWindow: CFTypeRef?
-    guard
-      AXUIElementCopyAttributeValue(
+    let focusedWindow: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds,
+      elements: [focusedApplicationElement]
+    ) {
+      var value: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(
         focusedApplicationElement,
         kAXFocusedWindowAttribute as CFString,
-        &focusedWindow
-      ) == .success,
-      let focusedWindow
-    else {
+        &value
+      ) == .success else {
+        return nil
+      }
+      return value
+    }
+    guard let focusedWindow else {
       return stableWindowID(processID: focusedProcessID, in: windows)
     }
     let focusedElement = focusedWindow as! AXUIElement
-    AXUIElementSetMessagingTimeout(
-      focusedElement,
-      focusSnapshotAccessibilityTimeoutSeconds
-    )
-    defer { AXUIElementSetMessagingTimeout(focusedElement, 0) }
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
       return exact.key
     }
-    guard let focusedFrame = frame(of: focusedElement) else {
+    guard let focusedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds,
+      elements: [focusedElement],
+      perform: { frame(of: focusedElement) }
+    ) else {
       return stableWindowID(processID: focusedProcessID, in: windows)
     }
     return focusedWindowIDMatchingFrame(

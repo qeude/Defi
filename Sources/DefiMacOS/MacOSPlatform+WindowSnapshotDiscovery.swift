@@ -146,20 +146,20 @@ extension MacOSPlatform {
         }
         let appElement = previousApplications[processID]
           ?? AXUIElementCreateApplication(processID)
-        AXUIElementSetMessagingTimeout(
-          appElement,
-          snapshotAccessibilityTimeoutSeconds
-        )
-        defer { AXUIElementSetMessagingTimeout(appElement, 0) }
         nextApplications[processID] = appElement
         nextApplicationIDs[processID] = appID
         if enhancedUIByProcess[processID] == nil {
-          enhancedUIByProcess[processID] =
-            value(
+          enhancedUIByProcess[processID] = AXMessagingTimeoutAccess.shared
+            .withTimeout(
+              snapshotAccessibilityTimeoutSeconds,
+              elements: [appElement]
+            ) {
+              value(
               appElement,
               attribute: "AXEnhancedUserInterface",
               as: Bool.self
-            ) ?? false
+              ) ?? false
+            }
         }
         let cachedApplicationWindows = lastApplicationWindowElements[processID]
         let refreshesWindowList = applicationWindowListRefreshIsRequired(
@@ -174,20 +174,25 @@ extension MacOSPlatform {
         if refreshesWindowList {
           applicationWindowListReadCount += 1
           let windowListStartedAt = ProcessInfo.processInfo.systemUptime
-          let copiedWindows = applicationWindowsAfterPreparingTopologyObservation(
-            prepareObservation: {
-              eventMonitor?.prepareForWindowDiscovery(
-                processID: processID,
-                application: appElement
-              )
-            },
-            copyWindows: {
-              copyElements(
-                appElement,
-                attribute: kAXWindowsAttribute
-              )
-            }
-          )
+          let copiedWindows = AXMessagingTimeoutAccess.shared.withTimeout(
+            snapshotAccessibilityTimeoutSeconds,
+            elements: [appElement]
+          ) {
+            applicationWindowsAfterPreparingTopologyObservation(
+              prepareObservation: {
+                eventMonitor?.prepareForWindowDiscovery(
+                  processID: processID,
+                  application: appElement
+                )
+              },
+              copyWindows: {
+                copyElements(
+                  appElement,
+                  attribute: kAXWindowsAttribute
+                )
+              }
+            )
+          }
           recordDurationSample(
             (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
             in: &applicationWindowListDurationSamplesMS
@@ -212,11 +217,6 @@ extension MacOSPlatform {
         )
   
         for element in appWindows ?? [] {
-          AXUIElementSetMessagingTimeout(
-            element,
-            snapshotAccessibilityTimeoutSeconds
-          )
-          defer { AXUIElementSetMessagingTimeout(element, 0) }
           let previousWindowID = previousElements.first { windowID, previousElement in
             previousProcessIDs[windowID] == processID
               && CFEqual(previousElement, element)
@@ -231,16 +231,21 @@ extension MacOSPlatform {
           {
             continue
           }
-          let discovery = makeWindow(
-            element: element,
-            processID: processID,
-            appID: appID,
-            config: config,
-            publicCGWindows: publicCGWindows,
-            monitors: monitors,
-            preferredWindowID: previousWindowID,
-            excluding: usedCGWindowIDs
-          )
+          let discovery = AXMessagingTimeoutAccess.shared.withTimeout(
+            snapshotAccessibilityTimeoutSeconds,
+            elements: [element]
+          ) {
+            makeWindow(
+              element: element,
+              processID: processID,
+              appID: appID,
+              config: config,
+              publicCGWindows: publicCGWindows,
+              monitors: monitors,
+              preferredWindowID: previousWindowID,
+              excluding: usedCGWindowIDs
+            )
+          }
           let candidate: Window
           let cgWindowID: CGWindowID
           let decision: RuleDecision
@@ -287,14 +292,19 @@ extension MacOSPlatform {
           let previousDisposition = previousWindowID.map {
             floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
           }
-          let disposition = windowDisposition(
-            candidate,
-            element: element,
-            configuredFloating: decision.floating,
-            forceTiling: decision.forceTiling,
-            previousDisposition: previousDisposition,
-            reuseCachedCapabilities: !refreshesWindowList
-          )
+          let disposition = AXMessagingTimeoutAccess.shared.withTimeout(
+            snapshotAccessibilityTimeoutSeconds,
+            elements: [element]
+          ) {
+            windowDisposition(
+              candidate,
+              element: element,
+              configuredFloating: decision.floating,
+              forceTiling: decision.forceTiling,
+              previousDisposition: previousDisposition,
+              reuseCachedCapabilities: !refreshesWindowList
+            )
+          }
           switch disposition {
           case .unavailable:
             cacheWindowElementForShortRetry(
@@ -338,7 +348,16 @@ extension MacOSPlatform {
         } else {
           cachedMinimizedState = { windowID in
             guard let element = previousElements[windowID] else { return nil }
-            return self.value(element, attribute: kAXMinimizedAttribute, as: Bool.self)
+            return AXMessagingTimeoutAccess.shared.withTimeout(
+              snapshotAccessibilityTimeoutSeconds,
+              elements: [element]
+            ) {
+              self.value(
+                element,
+                attribute: kAXMinimizedAttribute,
+                as: Bool.self
+              )
+            }
           }
         }
         let retainableWindowIDs = cachedWindowIDsToRetain(

@@ -67,23 +67,26 @@ extension AXFrameCoordinator {
     let write = settlementTarget.write
     lock.unlock()
 
-    AXUIElementSetMessagingTimeout(write.application, 0.025)
-    AXUIElementSetMessagingTimeout(write.element, 0.025)
-    defer {
-      AXUIElementSetMessagingTimeout(write.element, 0)
-      AXUIElementSetMessagingTimeout(write.application, 0)
+    let observedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
+      0.025,
+      elements: [write.application, write.element]
+    ) {
+      guard let actualPosition = accessibilityWriter.readPosition(write.element),
+        let actualSize = accessibilityWriter.readSize(write.element)
+      else {
+        return nil as Rect?
+      }
+      return Rect(
+        x: actualPosition.x,
+        y: actualPosition.y,
+        width: actualSize.width,
+        height: actualSize.height
+      )
     }
-    guard let actualPosition = accessibilityWriter.readPosition(write.element),
-      let actualSize = accessibilityWriter.readSize(write.element)
+    guard let actual = observedFrame
     else {
       return
     }
-    let actual = Rect(
-      x: actualPosition.x,
-      y: actualPosition.y,
-      width: actualSize.width,
-      height: actualSize.height
-    )
     let target = Rect(
       x: write.point.x,
       y: write.point.y,

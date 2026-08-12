@@ -1,5 +1,6 @@
 import ApplicationServices
 import DefiModel
+import Testing
 import XCTest
 
 @testable import DefiMacOS
@@ -625,6 +626,33 @@ final class WindowDiscoveryTests: XCTestCase {
         focusWritePending: false,
         targetWasLastFocused: true
       )
+    )
+  }
+}
+
+struct WindowClassificationReviewFeedbackTests {
+  @Test func quickLookRuleMatchesOnlyAppleServiceBundleID() {
+    #expect(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE",
+        hasCloseButton: true,
+        canResize: true,
+        configuredFloating: false,
+        forceTiling: false
+      ) == .floating
+    )
+    #expect(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "com.example.quicklook.editor",
+        hasCloseButton: true,
+        canResize: true,
+        configuredFloating: false,
+        forceTiling: false
+      ) == .tiled
     )
   }
 }

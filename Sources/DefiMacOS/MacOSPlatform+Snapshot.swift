@@ -44,6 +44,11 @@ extension MacOSPlatform {
     let topologyProcessIDs = pendingWindowTopologyProcessIDs
     let frameRequiresFullSnapshot = pendingFrameRequiresFullSnapshot
     let frameProcessIDs = pendingFrameProcessIDs
+    let frameWindowIDs = observedFrameEventWindowIDs
+    let retainedProcessIDs = retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: retainedWindowIDs,
+      processIDs: processIDs
+    )
     let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
@@ -78,11 +83,14 @@ extension MacOSPlatform {
         eventPending: tracesWindowTopology,
         requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         processIDs: pendingWindowTopologyProcessIDs,
-        coalescedProcessIDs: frameProcessIDs.union(fallbackFrameProcessIDs),
+        coalescedProcessIDs: frameProcessIDs
+          .union(fallbackFrameProcessIDs)
+          .union(retainedProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
           frameEventPending || mouseResizeGesturePending
-            || !fallbackFrameProcessIDs.isEmpty,
+            || !fallbackFrameProcessIDs.isEmpty
+            || !retainedProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )
     let snapshotMode: String
@@ -101,6 +109,7 @@ extension MacOSPlatform {
     windowTopologyRequiresFullSnapshot = false
     pendingWindowTopologyInputTimestamp = nil
     pendingFrameProcessIDs.removeAll(keepingCapacity: true)
+    observedFrameEventWindowIDs.removeAll(keepingCapacity: true)
     pendingFrameRequiresFullSnapshot = false
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
@@ -331,10 +340,10 @@ extension MacOSPlatform {
       targetMismatches.append(
         FrameMismatch(windowID: window.id, actual: window.frame, target: target)
       )
-      let frameEventTargetsWindow = frameEventPending
-        && (frameRequiresFullSnapshot
-          || nextProcessIDs[window.id].map(frameProcessIDs.contains) == true)
-      if frameEventTargetsWindow {
+      if windowHasExternalFrameChange(
+        window.id,
+        pendingFrameWindowIDs: frameWindowIDs
+      ) {
         externallyChangedFrames[window.id] = window.frame
       }
     }

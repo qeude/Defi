@@ -39,6 +39,7 @@ public final class MacOSPlatform {
   var windowTopologyRequiresFullSnapshot = false
   var pendingWindowTopologyInputTimestamp: TimeInterval?
   var pendingFrameProcessIDs = Set<pid_t>()
+  var observedFrameEventWindowIDs = Set<WindowID>()
   var pendingFrameRequiresFullSnapshot = false
   var lastSnapshotWindows: [Window] = []
   var lastSnapshotWindowIDs = Set<WindowID>()
@@ -119,6 +120,7 @@ public final class MacOSPlatform {
 
   public func requestFrameRefresh(for windowID: WindowID) {
     frameEventPending = true
+    observedFrameEventWindowIDs.insert(windowID)
     guard let processID = processIDs[windowID] else {
       pendingFrameRequiresFullSnapshot = true
       return
