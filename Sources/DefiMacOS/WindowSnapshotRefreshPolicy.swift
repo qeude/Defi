@@ -89,3 +89,15 @@ func windowHasExternalFrameChange(
 ) -> Bool {
   pendingFrameWindowIDs.contains(windowID) && !matchesRecentInternalWrite
 }
+
+func windowIsMouseResizeFallbackCandidate(
+  _ windowID: WindowID,
+  mouseGestureWindowID: WindowID?,
+  processID: pid_t?,
+  processIDsWithoutReliableFrameCoverage: Set<pid_t>,
+  mouseResizeGestureObserved: Bool
+) -> Bool {
+  mouseResizeGestureObserved
+    && mouseGestureWindowID == windowID
+    && processID.map(processIDsWithoutReliableFrameCoverage.contains) == true
+}

@@ -52,9 +52,11 @@ extension MacOSPlatform {
     let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
+    let processIDsWithoutReliableFrameCoverage =
+      eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
     let fallbackFrameProcessIDs = forceFullWindowRefresh
       ? []
-      : eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
+      : processIDsWithoutReliableFrameCoverage
     let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
         eventRequiresFullSnapshot,
@@ -278,6 +280,25 @@ extension MacOSPlatform {
     )
     let mouseResizeGestureObserved = mouseResizeGesturePending
     let mouseFocusReleaseObserved = mouseFocusReleasePending
+    let userInput = userInputTracker.snapshot
+    let mouseGestureWindowID = mouseResizeGestureObserved
+      ? mouseGestureRefreshProcessID(
+        latestFocusIntent: userInput.latestFocusIntent,
+        focusedWindowID: lastNativeFocusedWindowID,
+        processIDs: processIDs
+      ).flatMap { processID in
+        if let focusIntent = userInput.latestFocusIntent,
+          case .mouse(let windowID) = focusIntent.source,
+          let windowID,
+          processIDs[windowID] == processID
+        {
+          return windowID
+        }
+        return lastNativeFocusedWindowID.flatMap {
+          processIDs[$0] == processID ? $0 : nil
+        }
+      }
+      : nil
     let externalResizeGestureActive =
       leftMouseButtonDown || mouseResizeGestureObserved
     var externallyChangedFrames: [WindowID: Rect] = [:]
@@ -349,6 +370,13 @@ extension MacOSPlatform {
             actual: window.frame,
             now: now
           )
+      ) || windowIsMouseResizeFallbackCandidate(
+        window.id,
+        mouseGestureWindowID: mouseGestureWindowID,
+        processID: nextProcessIDs[window.id],
+        processIDsWithoutReliableFrameCoverage:
+          processIDsWithoutReliableFrameCoverage,
+        mouseResizeGestureObserved: mouseResizeGestureObserved
       ) {
         externallyChangedFrames[window.id] = window.frame
       }
@@ -396,7 +424,6 @@ extension MacOSPlatform {
       hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
       focusedProcessID: focusedProcessID
     )
-    let userInput = userInputTracker.snapshot
     var nativeFocusChanged = nativeFocusTargetMatched
     if nativeFocusChanged,
       let focusedWindowID,

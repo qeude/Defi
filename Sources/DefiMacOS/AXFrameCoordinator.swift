@@ -43,7 +43,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var droppedFrameCount = 0
   var completedPositions: [WindowID: CGPoint] = [:]
   var completedSizes: [WindowID: CGSize] = [:]
-  var recentInternalFrameWrites: [WindowID: RecentInternalFrameWrite] = [:]
+  var recentInternalFrameWrites: [WindowID: [RecentInternalFrameWrite]] = [:]
   var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
   var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   var traceEntries: [String] = []
@@ -330,11 +330,13 @@ final class AXFrameCoordinator: @unchecked Sendable {
   ) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    recentInternalFrameWrites = recentInternalFrameWrites.filter {
-      $0.value.deadline >= now
+    recentInternalFrameWrites = recentInternalFrameWrites.compactMapValues {
+      let live = $0.filter { $0.deadline >= now }
+      return live.isEmpty ? nil : live
     }
-    guard let write = recentInternalFrameWrites[windowID] else { return false }
-    return frameDistance(write.frame, actual) <= 3
+    return recentInternalFrameWrites[windowID]?.contains {
+      DefiMacOS.frameMatchesRecentInternalWrite(actual: actual, write: $0)
+    } == true
   }
 
   var trace: String {

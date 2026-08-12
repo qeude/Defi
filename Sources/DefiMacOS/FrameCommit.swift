@@ -127,7 +127,23 @@ func frameWritesPreservingSupersededAsyncSizes(
 
 struct RecentInternalFrameWrite: Equatable, Sendable {
   let frame: Rect
+  let positionChanged: Bool
+  let sizeChanged: Bool
   let deadline: TimeInterval
+}
+
+func frameMatchesRecentInternalWrite(
+  actual: Rect,
+  write: RecentInternalFrameWrite,
+  tolerance: Double = 3
+) -> Bool {
+  let positionMatches = !write.positionChanged
+    || (abs(actual.x - write.frame.x) <= tolerance
+      && abs(actual.y - write.frame.y) <= tolerance)
+  let sizeMatches = !write.sizeChanged
+    || (abs(actual.width - write.frame.width) <= tolerance
+      && abs(actual.height - write.frame.height) <= tolerance)
+  return positionMatches && sizeMatches
 }
 
 struct InitialSettlementTarget: @unchecked Sendable {

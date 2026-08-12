@@ -348,6 +348,39 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func mouseResizeFallsBackOnlyForUnobservedGestureWindow() {
+    let resizedWindowID = WindowID(rawValue: 42)
+    let siblingWindowID = WindowID(rawValue: 43)
+
+    #expect(
+      windowIsMouseResizeFallbackCandidate(
+        resizedWindowID,
+        mouseGestureWindowID: resizedWindowID,
+        processID: 101,
+        processIDsWithoutReliableFrameCoverage: [101],
+        mouseResizeGestureObserved: true
+      )
+    )
+    #expect(
+      windowIsMouseResizeFallbackCandidate(
+        siblingWindowID,
+        mouseGestureWindowID: resizedWindowID,
+        processID: 101,
+        processIDsWithoutReliableFrameCoverage: [101],
+        mouseResizeGestureObserved: true
+      ) == false
+    )
+    #expect(
+      windowIsMouseResizeFallbackCandidate(
+        resizedWindowID,
+        mouseGestureWindowID: resizedWindowID,
+        processID: 101,
+        processIDsWithoutReliableFrameCoverage: [],
+        mouseResizeGestureObserved: true
+      ) == false
+    )
+  }
+
   @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
     let window = makeWindow(id: 42)
 

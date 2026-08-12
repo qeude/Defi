@@ -53,12 +53,8 @@ extension MacOSPlatform {
       }
     }
     if let requestID = submittedFocusRecoveryRequestID {
-      let cancelled = focusWriter.cancel(
-        requestID,
-        recoveryFallback: fallback
-      )
-      if !cancelled,
-        let fallback,
+      _ = focusWriter.cancel(requestID)
+      if let fallback,
         let timestamp = submittedFocusRecoveryTimestamp
       {
         submitFocusRecoveryFallback(
