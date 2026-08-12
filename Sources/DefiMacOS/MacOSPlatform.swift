@@ -85,6 +85,7 @@ public final class MacOSPlatform {
   var submittedFocusRecoveryTimestamp: TimeInterval?
   var submittedFocusRecoveryGeneration: UInt64?
   var nextFocusRecoveryGeneration: UInt64 = 0
+  var focusRecoveryIntentGeneration: UInt64 = 0
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0

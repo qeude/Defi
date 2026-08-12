@@ -512,6 +512,38 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
   }
 
+  func testRapidNativeFocusKeepsLatestIntent() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    let windows = Array(testWindows(in: snapshot).prefix(2))
+    guard windows.count == 2 else {
+      throw XCTSkip("Need two manageable windows")
+    }
+    let originalFocusedWindowID = snapshot.focusedWindowID
+    defer {
+      if let originalFocusedWindowID {
+        platform.focus(originalFocusedWindowID)
+        pumpRunLoop(for: 0.5)
+      }
+    }
+
+    for windowID in [windows[0].id, windows[1].id, windows[0].id, windows[1].id] {
+      platform.focus(windowID)
+    }
+
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: {
+          !platform.hasPendingFocusWrite
+            && platform.snapshot(config: Config()).focusedWindowID
+              == windows[1].id
+        },
+        timeout: 2
+      ),
+      "stale focus recovery overrode latest rapid focus intent"
+    )
+  }
+
   func testSnapshotUsesUniqueWindowIDsPerProcess() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())

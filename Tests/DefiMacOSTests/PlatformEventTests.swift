@@ -7,6 +7,22 @@ import Testing
 
 struct PlatformEventTests {
   @Test
+  func staleFocusRecoveryCannotOverrideNewFocusIntent() {
+    #expect(
+      focusRecoveryIntentIsCurrent(
+        requestGeneration: 8,
+        currentGeneration: 8
+      )
+    )
+    #expect(
+      !focusRecoveryIntentIsCurrent(
+        requestGeneration: 8,
+        currentGeneration: 9
+      )
+    )
+  }
+
+  @Test
   func auxiliaryFocusRecoveryLookupIsLatestWins() {
     #expect(
       focusRecoveryResolutionIsCurrent(
