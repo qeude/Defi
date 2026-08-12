@@ -357,7 +357,22 @@ public func nextCommandFocusRetryCount(
   return currentRetryCount + 1
 }
 
-/// Returns whether focus can proceed for one target window.
+/// Pointer focus waits until all geometry writes on target monitor settle.
+///
+/// Hit-test geometry can become stale while any sibling is moving, and no new
+/// pointer event is guaranteed after that sibling moves under the cursor.
+public func focusMonitorIsReady(
+  targetMonitorID: MonitorID,
+  scrollingMonitorIDs: Set<MonitorID>,
+  pendingFrameMonitorIDs: Set<MonitorID>,
+  deferredSlowMonitorIDs: Set<MonitorID>
+) -> Bool {
+  !scrollingMonitorIDs.contains(targetMonitorID)
+    && !pendingFrameMonitorIDs.contains(targetMonitorID)
+    && !deferredSlowMonitorIDs.contains(targetMonitorID)
+}
+
+/// Keyboard focus can proceed when target window is ready.
 ///
 /// Frame debt from sibling windows must not block focus. A slow or delayed
 /// Accessibility response elsewhere on the monitor cannot make keyboard

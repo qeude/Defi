@@ -512,6 +512,36 @@ struct PointerFocusTests {
     )
   }
 
+  @Test
+  func pointerFocusReadinessRemainsMonitorWide() {
+    let otherMonitorID = MonitorID(rawValue: 2)
+
+    #expect(
+      !focusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [],
+        pendingFrameMonitorIDs: [monitorID],
+        deferredSlowMonitorIDs: []
+      )
+    )
+    #expect(
+      !focusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [],
+        pendingFrameMonitorIDs: [],
+        deferredSlowMonitorIDs: [monitorID]
+      )
+    )
+    #expect(
+      focusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [otherMonitorID],
+        pendingFrameMonitorIDs: [otherMonitorID],
+        deferredSlowMonitorIDs: [otherMonitorID]
+      )
+    )
+  }
+
   private func makeState(
     columnWidths: [Double],
     centerFocusedColumn: CenterFocusedColumnConfig = .never
