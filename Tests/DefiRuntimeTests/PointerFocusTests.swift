@@ -460,25 +460,62 @@ struct PointerFocusTests {
   }
 
   @Test
-  func focusReadinessIsIsolatedPerMonitorAndIncludesAllFrameWrites() {
+  func focusReadinessIsIsolatedPerMonitorAndTargetWindow() {
     let otherMonitorID = MonitorID(rawValue: 2)
+    let targetWindowID = WindowID(rawValue: 1)
+    let otherWindowID = WindowID(rawValue: 2)
 
     #expect(
-      focusMonitorIsReady(
+      focusTargetIsReady(
         targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
         scrollingMonitorIDs: [otherMonitorID],
-        pendingFrameMonitorIDs: [otherMonitorID],
-        deferredSlowMonitorIDs: [otherMonitorID]
+        pendingFrameWindowIDs: [otherWindowID],
+        deferredSlowWindowIDs: [otherWindowID]
       )
     )
     #expect(
-      !focusMonitorIsReady(
+      !focusTargetIsReady(
         targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
         scrollingMonitorIDs: [monitorID],
-        pendingFrameMonitorIDs: [],
-        deferredSlowMonitorIDs: []
+        pendingFrameWindowIDs: [],
+        deferredSlowWindowIDs: []
       )
     )
+    #expect(
+      !focusTargetIsReady(
+        targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
+        scrollingMonitorIDs: [],
+        pendingFrameWindowIDs: [targetWindowID],
+        deferredSlowWindowIDs: []
+      )
+    )
+    #expect(
+      !focusTargetIsReady(
+        targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
+        scrollingMonitorIDs: [],
+        pendingFrameWindowIDs: [],
+        deferredSlowWindowIDs: [targetWindowID]
+      )
+    )
+    #expect(
+      focusTargetIsReady(
+        targetMonitorID: monitorID,
+        targetWindowID: targetWindowID,
+        scrollingMonitorIDs: [],
+        pendingFrameWindowIDs: [otherWindowID],
+        deferredSlowWindowIDs: [otherWindowID]
+      )
+    )
+  }
+
+  @Test
+  func pointerFocusReadinessRemainsMonitorWide() {
+    let otherMonitorID = MonitorID(rawValue: 2)
+
     #expect(
       !focusMonitorIsReady(
         targetMonitorID: monitorID,
@@ -493,6 +530,14 @@ struct PointerFocusTests {
         scrollingMonitorIDs: [],
         pendingFrameMonitorIDs: [],
         deferredSlowMonitorIDs: [monitorID]
+      )
+    )
+    #expect(
+      focusMonitorIsReady(
+        targetMonitorID: monitorID,
+        scrollingMonitorIDs: [otherMonitorID],
+        pendingFrameMonitorIDs: [otherMonitorID],
+        deferredSlowMonitorIDs: [otherMonitorID]
       )
     )
   }
