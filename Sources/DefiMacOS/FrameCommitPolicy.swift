@@ -47,6 +47,26 @@ struct InitialSettlementDriftSample: Equatable, Sendable {
   let observedAt: TimeInterval
 }
 
+func updatedInitialSettlementDriftSample(
+  previous: InitialSettlementDriftSample?,
+  generation: UInt64,
+  actual: Rect,
+  now: TimeInterval,
+  tolerance: Double = 2
+) -> InitialSettlementDriftSample {
+  let preservesFirstObservation = previous.map {
+    $0.generation == generation
+      && frameDistance($0.frame, actual) <= tolerance
+  } ?? false
+  return InitialSettlementDriftSample(
+    generation: generation,
+    frame: actual,
+    observedAt: preservesFirstObservation
+      ? previous?.observedAt ?? now
+      : now
+  )
+}
+
 func initialSettlementDriftIsStable(
   previous: InitialSettlementDriftSample?,
   generation: UInt64,

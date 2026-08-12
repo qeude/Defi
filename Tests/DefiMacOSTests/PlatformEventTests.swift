@@ -1117,6 +1117,14 @@ struct PlatformEventTests {
         reset: true
       ) == 15
     )
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 9.9,
+        now: 10,
+        interval: 0.3,
+        reset: true
+      ) == 10.3
+    )
   }
 
   @Test

@@ -228,7 +228,13 @@ final class FrameCommitTests: XCTestCase {
 
   func testReplacementFramePreservesSupersededAsyncSizeWrite() {
     let element = AXUIElementCreateSystemWide()
-    func write(size: CGSize, synchronousSizeWriteSucceeded: Bool = false)
+    func write(
+      size: CGSize,
+      point: CGPoint = .zero,
+      positionChanged: Bool = false,
+      sizeChanged: Bool = true,
+      synchronousSizeWriteSucceeded: Bool = false
+    )
       -> AsyncPositionWrite
     {
       AsyncPositionWrite(
@@ -236,11 +242,11 @@ final class FrameCommitTests: XCTestCase {
         application: element,
         processID: 42,
         fromPoint: .zero,
-        point: .zero,
+        point: point,
         fromSize: CGSize(width: 800, height: 600),
         size: size,
-        positionChanged: false,
-        sizeChanged: true,
+        positionChanged: positionChanged,
+        sizeChanged: sizeChanged,
         animatesSize: false,
         synchronousSizeWriteSucceeded: synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: false,
@@ -262,6 +268,61 @@ final class FrameCommitTests: XCTestCase {
 
     XCTAssertEqual(result[carriedWindowID]?.size.width, 900)
     XCTAssertEqual(result[replacementWindowID]?.size.width, 1_000)
+  }
+
+  func testPositionOnlyReplacementKeepsSameWindowAsyncSizeDebt() {
+    let element = AXUIElementCreateSystemWide()
+    func write(
+      point: CGPoint,
+      size: CGSize,
+      positionChanged: Bool,
+      sizeChanged: Bool
+    ) -> AsyncPositionWrite {
+      AsyncPositionWrite(
+        element: element,
+        application: element,
+        processID: 42,
+        fromPoint: .zero,
+        point: point,
+        fromSize: CGSize(width: 800, height: 600),
+        size: size,
+        positionChanged: positionChanged,
+        sizeChanged: sizeChanged,
+        animatesSize: false,
+        synchronousSizeWriteSucceeded: !sizeChanged,
+        enhancedUIWasEnabled: false,
+        timeoutSeconds: 0.016,
+        isParked: false,
+        isReentering: false,
+        requiresVerifiedOffscreenWrite: false
+      )
+    }
+    let windowID = WindowID(rawValue: 1)
+    let result = frameWritesPreservingSupersededAsyncSizes(
+      active: [
+        windowID: write(
+          point: .zero,
+          size: CGSize(width: 900, height: 700),
+          positionChanged: false,
+          sizeChanged: true
+        )
+      ],
+      pending: [:],
+      replacement: [
+        windowID: write(
+          point: CGPoint(x: 100, y: 40),
+          size: CGSize(width: 800, height: 600),
+          positionChanged: true,
+          sizeChanged: false
+        )
+      ]
+    )
+
+    XCTAssertEqual(result[windowID]?.point, CGPoint(x: 100, y: 40))
+    XCTAssertEqual(result[windowID]?.size, CGSize(width: 900, height: 700))
+    XCTAssertTrue(result[windowID]?.positionChanged == true)
+    XCTAssertTrue(result[windowID]?.sizeChanged == true)
+    XCTAssertFalse(result[windowID]?.synchronousSizeWriteSucceeded == true)
   }
 
   func testInitialWindowCommitUsesShortQuarantineForFastRetries() {
@@ -367,6 +428,29 @@ final class FrameCommitTests: XCTestCase {
         now: 10.08
       )
     )
+  }
+
+  func testUnchangedSettlementDriftPreservesFirstObservationTime() {
+    let first = InitialSettlementDriftSample(
+      generation: 4,
+      frame: Rect(x: 100, y: 40, width: 900, height: 700),
+      observedAt: 10
+    )
+    let unchanged = updatedInitialSettlementDriftSample(
+      previous: first,
+      generation: 4,
+      actual: Rect(x: 101, y: 40, width: 900, height: 700),
+      now: 10.03
+    )
+    let changed = updatedInitialSettlementDriftSample(
+      previous: unchanged,
+      generation: 4,
+      actual: Rect(x: 100, y: 40, width: 1_000, height: 700),
+      now: 10.04
+    )
+
+    XCTAssertEqual(unchanged.observedAt, 10)
+    XCTAssertEqual(changed.observedAt, 10.04)
   }
 
   func testInitialSettlementSchedulesStableFollowUpBeforeExpiration() {

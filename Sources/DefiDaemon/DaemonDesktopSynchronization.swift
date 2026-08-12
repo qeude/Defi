@@ -12,7 +12,8 @@ extension Daemon {
   func synchronizeDesktop(
     forceFullWindowRefresh: Bool = false,
     forceWindowListRefresh: Bool = false,
-    forceApplicationInventoryRefresh: Bool = false
+    forceApplicationInventoryRefresh: Bool = false,
+    consumePeriodicWindowRefresh: Bool = false
   ) {
     let snapshot = platform.snapshot(
       config: config,
@@ -25,7 +26,7 @@ extension Daemon {
       current: nextPeriodicWindowRefreshAt,
       now: snapshotCompletedAt,
       interval: platform.hasReliableDesktopObservation ? 5 : 0.3,
-      reset: forceFullWindowRefresh
+      reset: forceFullWindowRefresh || consumePeriodicWindowRefresh
     )
     nextWindowListRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextWindowListRefreshAt,

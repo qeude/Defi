@@ -382,7 +382,8 @@ final class Daemon: NSObject {
             && !platform.hasReliableWindowTopologyObservation),
         forceWindowListRefresh:
           windowListRefreshDue || applicationInventoryRefreshDue,
-        forceApplicationInventoryRefresh: applicationInventoryRefreshDue
+        forceApplicationInventoryRefresh: applicationInventoryRefreshDue,
+        consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
     }
     if liveBorderGesture || animatedWritesPending {

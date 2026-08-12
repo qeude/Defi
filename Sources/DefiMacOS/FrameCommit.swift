@@ -82,22 +82,46 @@ func frameWritesPreservingSupersededAsyncSizes(
   pending: [WindowID: AsyncPositionWrite],
   replacement: [WindowID: AsyncPositionWrite]
 ) -> [WindowID: AsyncPositionWrite] {
-  var result = active.filter { _, write in
+  var sizeDebt = active.filter { _, write in
     asynchronousSizeWriteIsRequired(
       sizeChanged: write.sizeChanged,
       synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
       animatesSize: write.animatesSize
     )
   }
-  for (windowID, write) in pending where replacement[windowID] == nil {
+  for (windowID, write) in pending {
     guard asynchronousSizeWriteIsRequired(
       sizeChanged: write.sizeChanged,
       synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
       animatesSize: write.animatesSize
     ) else { continue }
-    result[windowID] = write
+    sizeDebt[windowID] = write
   }
-  result.merge(replacement) { _, newer in newer }
+  var result = sizeDebt
+  for (windowID, newer) in replacement {
+    if let debt = sizeDebt[windowID], !newer.sizeChanged {
+      result[windowID] = AsyncPositionWrite(
+        element: newer.element,
+        application: newer.application,
+        processID: newer.processID,
+        fromPoint: newer.fromPoint,
+        point: newer.point,
+        fromSize: newer.fromSize,
+        size: debt.size,
+        positionChanged: newer.positionChanged,
+        sizeChanged: true,
+        animatesSize: debt.animatesSize,
+        synchronousSizeWriteSucceeded: debt.synchronousSizeWriteSucceeded,
+        enhancedUIWasEnabled: newer.enhancedUIWasEnabled,
+        timeoutSeconds: newer.timeoutSeconds,
+        isParked: newer.isParked,
+        isReentering: newer.isReentering,
+        requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite
+      )
+    } else {
+      result[windowID] = newer
+    }
+  }
   return result
 }
 
