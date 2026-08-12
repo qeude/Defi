@@ -278,7 +278,7 @@ extension Daemon {
           selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID)
         )
       {
-        if focusIsReady(on: monitorID) {
+        if focusIsReady(on: monitorID, targetWindowID: selected) {
           commitCommandFocus(
             selected,
             previousSelectedWindowID: previouslySelectedWindowID,
