@@ -93,7 +93,9 @@ func userInputOccurredAfterWindowTopology(
     return true
   case .mouse(let windowID):
     guard let windowID else { return true }
-    return !removedWindowIDs.contains(windowID)
+    guard removedWindowIDs.contains(windowID) else { return true }
+    return latestInputTimestamp > latestFocusIntent.timestamp
+      && latestInputTimestamp > latestCloseIntentTimestamp
   }
 }
 

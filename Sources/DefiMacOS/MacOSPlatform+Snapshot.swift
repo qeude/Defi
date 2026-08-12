@@ -370,12 +370,9 @@ extension MacOSPlatform {
             actual: window.frame,
             now: now
           )
-      ) || windowIsMouseResizeFallbackCandidate(
+      ) || windowIsMouseResizeGestureCandidate(
         window.id,
         mouseGestureWindowID: mouseGestureWindowID,
-        processID: nextProcessIDs[window.id],
-        processIDsWithoutReliableFrameCoverage:
-          processIDsWithoutReliableFrameCoverage,
         mouseResizeGestureObserved: mouseResizeGestureObserved
       ) {
         externallyChangedFrames[window.id] = window.frame

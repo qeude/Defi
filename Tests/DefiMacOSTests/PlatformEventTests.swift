@@ -571,6 +571,29 @@ struct PlatformEventTests {
   }
 
   @Test
+  func inputAfterRemovedWindowClickCancelsRemovalFocusRecovery() {
+    let tracker = UserInputTracker()
+    let closingWindowID = WindowID(rawValue: 10)
+    tracker.record(
+      timestamp: 20,
+      focusIntent: .mouse(windowID: closingWindowID)
+    )
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(timestamp: 21)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [closingWindowID]
+      )
+    )
+  }
+
+  @Test
   func closeIntentDoesNotMasqueradeAsExplicitFocus() {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 19, focusIntent: .keyboard)

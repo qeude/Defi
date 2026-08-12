@@ -348,35 +348,29 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
-  @Test func mouseResizeFallsBackOnlyForUnobservedGestureWindow() {
+  @Test func mouseResizeAlwaysAdoptsTheGestureWindow() {
     let resizedWindowID = WindowID(rawValue: 42)
     let siblingWindowID = WindowID(rawValue: 43)
 
     #expect(
-      windowIsMouseResizeFallbackCandidate(
+      windowIsMouseResizeGestureCandidate(
         resizedWindowID,
         mouseGestureWindowID: resizedWindowID,
-        processID: 101,
-        processIDsWithoutReliableFrameCoverage: [101],
         mouseResizeGestureObserved: true
       )
     )
     #expect(
-      windowIsMouseResizeFallbackCandidate(
+      windowIsMouseResizeGestureCandidate(
         siblingWindowID,
         mouseGestureWindowID: resizedWindowID,
-        processID: 101,
-        processIDsWithoutReliableFrameCoverage: [101],
         mouseResizeGestureObserved: true
       ) == false
     )
     #expect(
-      windowIsMouseResizeFallbackCandidate(
+      windowIsMouseResizeGestureCandidate(
         resizedWindowID,
         mouseGestureWindowID: resizedWindowID,
-        processID: 101,
-        processIDsWithoutReliableFrameCoverage: [],
-        mouseResizeGestureObserved: true
+        mouseResizeGestureObserved: false
       ) == false
     )
   }

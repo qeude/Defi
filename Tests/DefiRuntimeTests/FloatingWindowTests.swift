@@ -253,6 +253,90 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
   }
 
+  func testExistingTileBecomingModalReclassifiesAsAutomaticFloater() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let selectedTile = window(77)
+    let modalTile = window(78)
+    try discoverWindow(selectedTile, decision: RuleDecision(), state: &state)
+    try discoverWindow(modalTile, decision: RuleDecision(), state: &state)
+    focusWindow(selectedTile.id, state: &state)
+    var observed = modalTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([selectedTile, observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertEqual(workspace.floatingWindows, [modalTile.id])
+    XCTAssertEqual(workspace.columns.flatMap(\.windows), [selectedTile.id])
+    XCTAssertEqual(state.windows[modalTile.id]?.floating, true)
+    XCTAssertEqual(state.windows[modalTile.id]?.floatingOrigin, .automatic)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
+  }
+
+  func testFocusedTileBecomingModalRemainsSelectedAsFloater() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let modalTile = window(79)
+    try discoverWindow(modalTile, decision: RuleDecision(), state: &state)
+    var observed = modalTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertEqual(workspace.focusedLayer, .floating)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), modalTile.id)
+  }
+
+  func testManualTileOverrideSurvivesAutomaticFloatingObservation() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var manualTile = window(80)
+    manualTile.floatingOrigin = .user
+    try discoverWindow(manualTile, decision: RuleDecision(), state: &state)
+    var observed = manualTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertTrue(workspace.floatingWindows.isEmpty)
+    XCTAssertEqual(workspace.columns.flatMap(\.windows), [manualTile.id])
+    XCTAssertEqual(state.windows[manualTile.id]?.floating, false)
+    XCTAssertEqual(state.windows[manualTile.id]?.floatingOrigin, .user)
+  }
+
+  func testForcedTileSurvivesAutomaticFloatingObservation() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var forcedTile = window(81)
+    forcedTile.forceTiling = true
+    try discoverWindow(
+      forcedTile,
+      decision: RuleDecision(forceTiling: true),
+      state: &state
+    )
+    var observed = forcedTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertTrue(workspace.floatingWindows.isEmpty)
+    XCTAssertEqual(workspace.columns.flatMap(\.windows), [forcedTile.id])
+    XCTAssertEqual(state.windows[forcedTile.id]?.floating, false)
+    XCTAssertEqual(state.windows[forcedTile.id]?.forceTiling, true)
+  }
+
   func testFocusedAutomaticFloaterRemainsSelectedWhenReclassified() throws {
     let config = Config()
     var state = RuntimeState(config: config)

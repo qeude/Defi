@@ -140,6 +140,15 @@ public func reconcileWindows(
             observedFloating: updated.floating,
             state: &state
           )
+        } else if existing.floatingOrigin == nil,
+          !existing.forceTiling,
+          updated.floatingOrigin == .automatic,
+          updated.floating
+        {
+          reclassifyTiledWindowAsAutomaticFloater(
+            window.id,
+            state: &state
+          )
         } else {
           updated.floating = existing.floating
           updated.floatingOrigin = existing.floatingOrigin
@@ -156,6 +165,51 @@ public func reconcileWindows(
       state.windows[window.id] = updated
     }
   }
+}
+
+private func reclassifyTiledWindowAsAutomaticFloater(
+  _ windowID: WindowID,
+  state: inout RuntimeState
+) {
+  guard let location = state.location(containing: windowID),
+    let monitorIndex = state.monitors.firstIndex(where: { $0.id == location.monitorID }),
+    let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+      where: { $0.id == location.workspaceID }
+    )
+  else {
+    return
+  }
+
+  var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+  let selectedTiledWindowID = workspace.columns.indices.contains(workspace.focusedColumn)
+    && workspace.columns[workspace.focusedColumn].windows.indices.contains(
+      workspace.columns[workspace.focusedColumn].focusedWindow
+    )
+    ? workspace.columns[workspace.focusedColumn].windows[
+      workspace.columns[workspace.focusedColumn].focusedWindow
+    ]
+    : nil
+  let wasFocused = workspace.focusedLayer == .tiled
+    && selectedTiledWindowID == windowID
+  let previousTargetScrollOffset = workspace.targetScrollOffset
+  removeWindow(windowID, from: &workspace, settings: state.layout)
+  workspace.floatingWindows.append(windowID)
+  if wasFocused {
+    workspace.focusedFloatingWindow = workspace.floatingWindows.count - 1
+    workspace.focusedLayer = .floating
+  } else if let selectedTiledWindowID,
+    let columnIndex = workspace.columns.firstIndex(where: {
+      $0.windows.contains(selectedTiledWindowID)
+    }),
+    let windowIndex = workspace.columns[columnIndex].windows.firstIndex(
+      of: selectedTiledWindowID
+    )
+  {
+    workspace.focusedColumn = columnIndex
+    workspace.columns[columnIndex].focusedWindow = windowIndex
+    workspace.targetScrollOffset = previousTargetScrollOffset
+  }
+  state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
 }
 
 private func reclassifyAutomaticWindow(
