@@ -324,6 +324,10 @@ private let automaticFloatingWindowSubroles: Set<String> = [
   "AXSystemFloatingWindow",
 ]
 
+private let automaticFloatingWindowApplicationIDs: Set<String> = [
+  "com.apple.quicklook.quicklookuiservice"
+]
+
 func classifyWindow(
   role: String?,
   subrole: String?,
@@ -339,7 +343,9 @@ func classifyWindow(
   if ignoredWindowApplicationIDs.contains(appID.lowercased()) { return .ignored }
   if role == kAXSheetRole { return .floating }
   guard role == kAXWindowRole else { return .ignored }
-  if isModal || appID.lowercased().contains("quicklook") {
+  if isModal
+    || automaticFloatingWindowApplicationIDs.contains(appID.lowercased())
+  {
     return .floating
   }
   if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {

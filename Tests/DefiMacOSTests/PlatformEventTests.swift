@@ -1260,6 +1260,7 @@ struct PlatformEventTests {
 
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs == [101])
+    #expect(platform.observedFrameEventWindowIDs == [windowID])
     #expect(!platform.pendingFrameRequiresFullSnapshot)
   }
 
@@ -1271,6 +1272,7 @@ struct PlatformEventTests {
 
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs.isEmpty)
+    #expect(platform.observedFrameEventWindowIDs == [WindowID(rawValue: 42)])
     #expect(platform.pendingFrameRequiresFullSnapshot)
   }
 
@@ -1283,6 +1285,7 @@ struct PlatformEventTests {
 
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs == [101, 202])
+    #expect(platform.observedFrameEventWindowIDs.isEmpty)
   }
 
   @Test

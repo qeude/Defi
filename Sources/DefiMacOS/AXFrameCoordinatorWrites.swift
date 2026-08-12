@@ -226,40 +226,50 @@ extension AXFrameCoordinator {
         intermediate
         ? min(item.value.timeoutSeconds, intermediateTimeout)
         : max(item.value.timeoutSeconds, 0.016)
-      AXUIElementSetMessagingTimeout(item.value.application, timeout)
-      AXUIElementSetMessagingTimeout(item.value.element, timeout)
-      let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
       let requiresAsynchronousSizeWrite = asynchronousSizeWriteIsRequired(
         sizeChanged: item.value.sizeChanged,
         synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
         animatesSize: item.value.animatesSize
       )
-      let asynchronousSizeWriteSucceeded =
-        !requiresAsynchronousSizeWrite
-        || accessibilityWriter.applySize(item.value, size: size)
-      let sizeApplied = frameSizeWriteSucceeded(
-        sizeChanged: item.value.sizeChanged,
-        synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
-        animatesSize: item.value.animatesSize,
-        asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
-      )
-      let positionApplied =
-        !item.value.positionChanged
-        || accessibilityWriter.applyPosition(
-          item.value,
-          point: point,
-          forceOffscreenAccess: (stagingReentry && item.value.isReentering)
-            || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
-          suppressNativeAnimation: suppressesNativePositionAnimation(
-            stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-            isParked: item.value.isParked,
-            isIntermediate: intermediate
-          )
+      let writeResult = AXMessagingTimeoutAccess.shared.withTimeout(
+        timeout,
+        elements: [item.value.application, item.value.element]
+      ) {
+        let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
+        let asynchronousSizeWriteSucceeded =
+          !requiresAsynchronousSizeWrite
+          || accessibilityWriter.applySize(item.value, size: size)
+        let sizeApplied = frameSizeWriteSucceeded(
+          sizeChanged: item.value.sizeChanged,
+          synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
+          animatesSize: item.value.animatesSize,
+          asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
+        let positionApplied =
+          !item.value.positionChanged
+          || accessibilityWriter.applyPosition(
+            item.value,
+            point: point,
+            forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+              || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+            suppressNativeAnimation: suppressesNativePositionAnimation(
+              stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+              isParked: item.value.isParked,
+              isIntermediate: intermediate
+            )
+          )
+        return (
+          sizeApplied: sizeApplied,
+          positionApplied: positionApplied,
+          timeoutConfiguredAt: timeoutConfiguredAt,
+          positionAppliedAt: ProcessInfo.processInfo.systemUptime
+        )
+      }
+      let sizeApplied = writeResult.sizeApplied
+      let positionApplied = writeResult.positionApplied
       let appliedWrite = sizeApplied && positionApplied
-      let positionAppliedAt = ProcessInfo.processInfo.systemUptime
-      AXUIElementSetMessagingTimeout(item.value.element, 0)
-      AXUIElementSetMessagingTimeout(item.value.application, 0)
+      let timeoutConfiguredAt = writeResult.timeoutConfiguredAt
+      let positionAppliedAt = writeResult.positionAppliedAt
       let timeoutResetAt = ProcessInfo.processInfo.systemUptime
       let writeElapsedMS =
         (timeoutResetAt - writeStartedAt) * 1_000

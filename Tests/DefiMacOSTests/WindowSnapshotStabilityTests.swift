@@ -298,6 +298,49 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func retainedWindowSchedulesImmediateProcessRefresh() {
+    let retainedWindowID = WindowID(rawValue: 42)
+    let unrelatedWindowID = WindowID(rawValue: 43)
+    let retryProcessIDs = retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: [retainedWindowID],
+      processIDs: [
+        retainedWindowID: 101,
+        unrelatedWindowID: 202,
+      ]
+    )
+
+    #expect(retryProcessIDs == [101])
+    #expect(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: false,
+        requiresFullSnapshot: false,
+        processIDs: [],
+        coalescedProcessIDs: retryProcessIDs,
+        allowsCoalescedProcessRefresh: true,
+        allowsCachedRefresh: true
+      ) == [101]
+    )
+  }
+
+  @Test func externalFrameChangeTargetsOnlyEmittingWindow() {
+    let emittedWindowID = WindowID(rawValue: 42)
+    let siblingWindowID = WindowID(rawValue: 43)
+
+    #expect(
+      windowHasExternalFrameChange(
+        emittedWindowID,
+        pendingFrameWindowIDs: [emittedWindowID]
+      )
+    )
+    #expect(
+      windowHasExternalFrameChange(
+        siblingWindowID,
+        pendingFrameWindowIDs: [emittedWindowID]
+      ) == false
+    )
+  }
+
   @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
     let window = makeWindow(id: 42)
 
