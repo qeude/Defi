@@ -47,6 +47,9 @@ extension MacOSPlatform {
     let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
+    let fallbackFrameProcessIDs = forceFullWindowRefresh
+      ? []
+      : eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
     let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
         eventRequiresFullSnapshot,
@@ -75,10 +78,11 @@ extension MacOSPlatform {
         eventPending: tracesWindowTopology,
         requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         processIDs: pendingWindowTopologyProcessIDs,
-        coalescedProcessIDs: frameProcessIDs,
+        coalescedProcessIDs: frameProcessIDs.union(fallbackFrameProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
-          frameEventPending || mouseResizeGesturePending,
+          frameEventPending || mouseResizeGesturePending
+            || !fallbackFrameProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )
     let snapshotMode: String
@@ -140,6 +144,7 @@ extension MacOSPlatform {
       topologyProcessIDs: topologyProcessIDs,
       publicCGWindows: publicCGWindows
     )
+    explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
     let nextElements = discovery.nextElements
     let nextProcessIDs = discovery.nextProcessIDs
     let nextApplications = discovery.nextApplications
@@ -198,6 +203,9 @@ extension MacOSPlatform {
     transientGeometryWindowElementsByProcess =
       transientGeometryWindows.filter { nextApplications[$0.key] != nil }
     retainedWindowIDs = nextRetainedWindowIDs
+    retainedWindowDeadlines = retainedWindowDeadlines.filter {
+      nextRetainedWindowIDs.contains($0.key)
+    }
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
     multipleAttributeReadsSupportedByProcess =
       multipleAttributeReadsSupportedByProcess.filter {
@@ -323,7 +331,10 @@ extension MacOSPlatform {
       targetMismatches.append(
         FrameMismatch(windowID: window.id, actual: window.frame, target: target)
       )
-      if externalResizeGestureActive && frameEventPending {
+      let frameEventTargetsWindow = frameEventPending
+        && (frameRequiresFullSnapshot
+          || nextProcessIDs[window.id].map(frameProcessIDs.contains) == true)
+      if frameEventTargetsWindow {
         externallyChangedFrames[window.id] = window.frame
       }
     }

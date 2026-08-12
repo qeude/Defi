@@ -106,10 +106,31 @@ extension AXFrameCoordinator {
       )
       return
     case .stable:
+      lock.lock()
+      initialSettlementDriftSamples[windowID] = nil
+      lock.unlock()
       return
     case .drifted:
       break
     }
+    let observationTime = ProcessInfo.processInfo.systemUptime
+    lock.lock()
+    let previousDrift = initialSettlementDriftSamples[windowID]
+    let driftIsStable = initialSettlementDriftIsStable(
+      previous: previousDrift,
+      generation: settlementTarget.generation,
+      actual: actual,
+      now: observationTime
+    )
+    initialSettlementDriftSamples[windowID] = InitialSettlementDriftSample(
+      generation: settlementTarget.generation,
+      frame: actual,
+      observedAt: driftIsStable
+        ? previousDrift?.observedAt ?? observationTime
+        : observationTime
+    )
+    lock.unlock()
+    guard driftIsStable else { return }
     guard isInitialSettlementTargetCurrent(
       windowID: windowID,
       generation: settlementTarget.generation
@@ -151,6 +172,7 @@ extension AXFrameCoordinator {
       )
     }
     lock.lock()
+    initialSettlementDriftSamples[windowID] = nil
     repairedInitialSettlementDrifts += 1
     appendTraceLocked(
       "initial-repair wid=\(windowID.rawValue) dx=\(String(format: "%.1f", actual.x - target.x)) dy=\(String(format: "%.1f", actual.y - target.y)) dw=\(String(format: "%.1f", actual.width - target.width)) dh=\(String(format: "%.1f", actual.height - target.height))"
@@ -165,6 +187,7 @@ extension AXFrameCoordinator {
     lock.lock()
     if initialSettlementTargets[windowID]?.generation == expectedGeneration {
       initialSettlementTargets[windowID] = nil
+      initialSettlementDriftSamples[windowID] = nil
     }
     lock.unlock()
   }

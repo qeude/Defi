@@ -41,6 +41,29 @@ enum InitialSettlementObservation: Equatable {
   case drifted
 }
 
+struct InitialSettlementDriftSample: Equatable, Sendable {
+  let generation: UInt64
+  let frame: Rect
+  let observedAt: TimeInterval
+}
+
+func initialSettlementDriftIsStable(
+  previous: InitialSettlementDriftSample?,
+  generation: UInt64,
+  actual: Rect,
+  now: TimeInterval,
+  minimumStableDuration: TimeInterval = 0.06,
+  tolerance: Double = 2
+) -> Bool {
+  guard let previous,
+    previous.generation == generation,
+    now - previous.observedAt >= minimumStableDuration
+  else {
+    return false
+  }
+  return frameDistance(previous.frame, actual) <= tolerance
+}
+
 func initialSettlementObservation(
   actual: Rect,
   target: Rect,
@@ -212,4 +235,3 @@ func hiddenWindowsPreservingSkippedWindows(
   desired.subtracting(skippedWindowIDs)
     .union(previous.intersection(skippedWindowIDs))
 }
-

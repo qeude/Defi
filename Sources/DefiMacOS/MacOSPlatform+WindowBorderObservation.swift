@@ -128,7 +128,17 @@ extension MacOSPlatform {
       borderStackingHandler: { [weak self] in
         self?.scheduleWindowBorderStackingRefresh()
       },
-      mouseGestureStartedHandler: mouseGestureStartedHandler
+      mouseGestureStartedHandler: mouseGestureStartedHandler,
+      windowDestroyedHandler: { [weak self] element in
+        guard let self,
+          let windowID = self.elements.first(where: {
+            CFEqual($0.value, element)
+          })?.key
+        else {
+          return
+        }
+        self.explicitlyDestroyedWindowIDs.insert(windowID)
+      }
     )
     monitor.start()
     eventMonitor = monitor

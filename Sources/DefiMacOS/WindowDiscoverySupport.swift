@@ -31,6 +31,7 @@ struct AXWindowAttributes {
 struct WindowManagementCapabilities: Equatable {
   let hasCloseButton: Bool
   let canResize: Bool
+  let isModal: Bool
 }
 
 func fallbackWindowAttributes(
@@ -107,6 +108,23 @@ func cachedWindowIDsToRetain(
   }
   guard let cachedMinimizedState else { return retainedWindowIDs }
   return Set(retainedWindowIDs.filter { cachedMinimizedState($0) != true })
+}
+
+func retainedWindowIDsWithinGracePeriod(
+  _ candidates: Set<WindowID>,
+  previousDeadlines: [WindowID: TimeInterval],
+  now: TimeInterval,
+  gracePeriod: TimeInterval = 0.75
+) -> (windowIDs: Set<WindowID>, deadlines: [WindowID: TimeInterval]) {
+  var retained = Set<WindowID>()
+  var deadlines: [WindowID: TimeInterval] = [:]
+  for windowID in candidates {
+    let deadline = previousDeadlines[windowID] ?? now + gracePeriod
+    guard now < deadline else { continue }
+    retained.insert(windowID)
+    deadlines[windowID] = deadline
+  }
+  return (retained, deadlines)
 }
 
 func consistentFocusedProcessID(

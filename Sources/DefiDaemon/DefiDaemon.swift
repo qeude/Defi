@@ -376,9 +376,10 @@ final class Daemon: NSObject {
       needsDesktopSync = false
       synchronizeDesktop(
         forceFullWindowRefresh:
-          periodicWindowRefreshDue
-          || windowListRefreshDue
-          || applicationInventoryRefreshDue,
+          windowListRefreshDue
+          || applicationInventoryRefreshDue
+          || (periodicWindowRefreshDue
+            && !platform.hasReliableWindowTopologyObservation),
         forceWindowListRefresh:
           windowListRefreshDue || applicationInventoryRefreshDue,
         forceApplicationInventoryRefresh: applicationInventoryRefreshDue

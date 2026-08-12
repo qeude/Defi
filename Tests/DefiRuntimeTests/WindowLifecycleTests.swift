@@ -101,4 +101,40 @@ final class WindowLifecycleTests: XCTestCase {
     XCTAssertEqual(state.windows[initial.id]?.frame.height, 640)
   }
 
+  func testReconcileAdoptsExternalIntrinsicResize() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let initial = Window(
+      id: WindowID(rawValue: 1),
+      appID: "simulator",
+      title: "Phone",
+      frame: Rect(x: 0, y: 0, width: 320, height: 640),
+      monitorID: monitorID,
+      intrinsicSize: true
+    )
+    try discoverWindow(
+      initial,
+      decision: RuleDecision(intrinsicSize: true),
+      state: &state
+    )
+    let resized = Window(
+      id: initial.id,
+      appID: initial.appID,
+      title: initial.title,
+      frame: Rect(x: 0, y: 0, width: 430, height: 860),
+      monitorID: monitorID
+    )
+
+    reconcileWindows(
+      [resized],
+      config: config,
+      externallyChangedWindowIDs: [initial.id],
+      state: &state
+    )
+
+    XCTAssertEqual(state.windows[initial.id]?.frame.width, 430)
+    XCTAssertEqual(state.windows[initial.id]?.frame.height, 860)
+  }
+
 }

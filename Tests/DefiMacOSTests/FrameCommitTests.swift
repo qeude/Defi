@@ -67,13 +67,15 @@ final class FrameCommitTests: XCTestCase {
   func testSynchronousSizeFailureBlocksWarpReadiness() {
     XCTAssertFalse(
       frameSizeWriteSucceeded(
+        sizeChanged: true,
         synchronousWriteSucceeded: false,
         animatesSize: false,
-        asynchronousWriteSucceeded: true
+        asynchronousWriteSucceeded: false
       )
     )
     XCTAssertTrue(
       frameSizeWriteSucceeded(
+        sizeChanged: true,
         synchronousWriteSucceeded: true,
         animatesSize: false,
         asynchronousWriteSucceeded: false
@@ -81,9 +83,43 @@ final class FrameCommitTests: XCTestCase {
     )
     XCTAssertFalse(
       frameSizeWriteSucceeded(
+        sizeChanged: true,
         synchronousWriteSucceeded: true,
         animatesSize: true,
         asynchronousWriteSucceeded: false
+      )
+    )
+    XCTAssertTrue(
+      frameSizeWriteSucceeded(
+        sizeChanged: true,
+        synchronousWriteSucceeded: false,
+        animatesSize: false,
+        asynchronousWriteSucceeded: true
+      )
+    )
+    XCTAssertTrue(
+      frameSizeWriteSucceeded(
+        sizeChanged: false,
+        synchronousWriteSucceeded: false,
+        animatesSize: false,
+        asynchronousWriteSucceeded: false
+      )
+    )
+  }
+
+  func testAsynchronousLayoutRoutesNonAnimatedSizeWritesToCoordinator() {
+    XCTAssertTrue(
+      asynchronousSizeWriteIsRequired(
+        sizeChanged: true,
+        synchronousWriteSucceeded: false,
+        animatesSize: false
+      )
+    )
+    XCTAssertFalse(
+      asynchronousSizeWriteIsRequired(
+        sizeChanged: true,
+        synchronousWriteSucceeded: true,
+        animatesSize: false
       )
     )
   }
@@ -257,6 +293,40 @@ final class FrameCommitTests: XCTestCase {
         deadline: 12.5
       ),
       .expired
+    )
+  }
+
+  func testInitialSettlementRepairsOnlyStableDrift() {
+    let generation: UInt64 = 4
+    let first = InitialSettlementDriftSample(
+      generation: generation,
+      frame: Rect(x: 100, y: 40, width: 900, height: 700),
+      observedAt: 10
+    )
+
+    XCTAssertFalse(
+      initialSettlementDriftIsStable(
+        previous: first,
+        generation: generation,
+        actual: Rect(x: 100, y: 40, width: 1_000, height: 760),
+        now: 10.1
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementDriftIsStable(
+        previous: first,
+        generation: generation,
+        actual: first.frame,
+        now: 10.04
+      )
+    )
+    XCTAssertTrue(
+      initialSettlementDriftIsStable(
+        previous: first,
+        generation: generation,
+        actual: Rect(x: 101, y: 40, width: 900, height: 700),
+        now: 10.08
+      )
     )
   }
 

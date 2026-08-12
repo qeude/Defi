@@ -8,6 +8,35 @@ final class WindowDiscoveryTests: XCTestCase {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
+  func testTransientWindowOmissionExpiresAfterGracePeriod() {
+    let windowID = WindowID(rawValue: 42)
+    let first = retainedWindowIDsWithinGracePeriod(
+      [windowID],
+      previousDeadlines: [:],
+      now: 10,
+      gracePeriod: 0.75
+    )
+    XCTAssertEqual(first.windowIDs, [windowID])
+    XCTAssertEqual(first.deadlines[windowID], 10.75)
+
+    let pending = retainedWindowIDsWithinGracePeriod(
+      [windowID],
+      previousDeadlines: first.deadlines,
+      now: 10.7,
+      gracePeriod: 0.75
+    )
+    XCTAssertEqual(pending.windowIDs, [windowID])
+
+    let expired = retainedWindowIDsWithinGracePeriod(
+      [windowID],
+      previousDeadlines: first.deadlines,
+      now: 10.75,
+      gracePeriod: 0.75
+    )
+    XCTAssertTrue(expired.windowIDs.isEmpty)
+    XCTAssertTrue(expired.deadlines.isEmpty)
+  }
+
   func testTransientProcessDisagreementDefersFocusResolution() {
     XCTAssertNil(
       consistentFocusedProcessID(
@@ -424,6 +453,37 @@ final class WindowDiscoveryTests: XCTestCase {
         .floating
       )
     }
+  }
+
+  func testModalStandardWindowFloatsEvenWhenResizable() {
+    XCTAssertEqual(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "com.example.app",
+        hasCloseButton: true,
+        canResize: true,
+        isModal: true,
+        configuredFloating: false,
+        forceTiling: false
+      ),
+      .floating
+    )
+  }
+
+  func testQuickLookServiceWindowFloatsEvenWhenStandard() {
+    XCTAssertEqual(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "com.apple.quicklook.QuickLookUIService",
+        hasCloseButton: true,
+        canResize: true,
+        configuredFloating: false,
+        forceTiling: false
+      ),
+      .floating
+    )
   }
 
   func testConfiguredFloatingTracksUnknownAuxiliaryWindow() {

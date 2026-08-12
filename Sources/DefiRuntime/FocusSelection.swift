@@ -410,3 +410,11 @@ public func nativeFocusMutationIsReady(
   }
   return nativeFocusChanged
 }
+
+public func keyboardFocusPreemptsMouseGesture(
+  nativeFocusAccepted: Bool,
+  keyboardFocusIntentCurrent: Bool,
+  leftMouseButtonDown: Bool
+) -> Bool {
+  nativeFocusAccepted && keyboardFocusIntentCurrent && leftMouseButtonDown
+}

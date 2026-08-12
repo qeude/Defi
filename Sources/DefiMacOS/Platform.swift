@@ -330,6 +330,7 @@ func classifyWindow(
   appID: String,
   hasCloseButton: Bool,
   canResize: Bool,
+  isModal: Bool = false,
   configuredFloating: Bool,
   forceTiling: Bool
 ) -> WindowDisposition {
@@ -338,6 +339,9 @@ func classifyWindow(
   if ignoredWindowApplicationIDs.contains(appID.lowercased()) { return .ignored }
   if role == kAXSheetRole { return .floating }
   guard role == kAXWindowRole else { return .ignored }
+  if isModal || appID.lowercased().contains("quicklook") {
+    return .floating
+  }
   if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {
     return .tiled
   }

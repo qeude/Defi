@@ -6,6 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
+private let snapshotAccessibilityTimeoutSeconds: Float = 0.05
 
 struct SnapshotWindowDiscoveryResult {
   let nextElements: [WindowID: AXUIElement]
@@ -145,6 +146,11 @@ extension MacOSPlatform {
         }
         let appElement = previousApplications[processID]
           ?? AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(
+          appElement,
+          snapshotAccessibilityTimeoutSeconds
+        )
+        defer { AXUIElementSetMessagingTimeout(appElement, 0) }
         nextApplications[processID] = appElement
         nextApplicationIDs[processID] = appID
         if enhancedUIByProcess[processID] == nil {
@@ -199,13 +205,25 @@ extension MacOSPlatform {
           applicationWindows[processID] = appWindows
         }
         var usedCGWindowIDs = Set<CGWindowID>()
-        var ignoredPreviousWindowIDs = Set<WindowID>()
+        var ignoredPreviousWindowIDs = Set(
+          explicitlyDestroyedWindowIDs.filter {
+            previousProcessIDs[$0] == processID
+          }
+        )
   
         for element in appWindows ?? [] {
+          AXUIElementSetMessagingTimeout(
+            element,
+            snapshotAccessibilityTimeoutSeconds
+          )
+          defer { AXUIElementSetMessagingTimeout(element, 0) }
           let previousWindowID = previousElements.first { windowID, previousElement in
             previousProcessIDs[windowID] == processID
               && CFEqual(previousElement, element)
           }?.key
+          if previousWindowID.map(explicitlyDestroyedWindowIDs.contains) == true {
+            continue
+          }
           if previousWindowID == nil,
             unmatchedWindowElementsByProcess[processID]?.contains(where: {
               CFEqual($0, element)
@@ -323,7 +341,7 @@ extension MacOSPlatform {
             return self.value(element, attribute: kAXMinimizedAttribute, as: Bool.self)
           }
         }
-        let processRetainedWindowIDs = cachedWindowIDsToRetain(
+        let retainableWindowIDs = cachedWindowIDsToRetain(
           processID: processID,
           previousWindows: previousWindows,
           discoveredWindowIDs: discoveredWindowIDs,
@@ -331,6 +349,15 @@ extension MacOSPlatform {
           cgWindows: needsCachedWindowValidation ? publicCGWindows() : [],
           cachedMinimizedState: cachedMinimizedState
         )
+        let retention = retainedWindowIDsWithinGracePeriod(
+          retainableWindowIDs,
+          previousDeadlines: retainedWindowDeadlines,
+          now: ProcessInfo.processInfo.systemUptime
+        )
+        let processRetainedWindowIDs = retention.windowIDs
+        for windowID in previousWindows.map(\.id) {
+          retainedWindowDeadlines[windowID] = retention.deadlines[windowID]
+        }
         nextRetainedWindowIDs.formUnion(processRetainedWindowIDs)
         if !processRetainedWindowIDs.isEmpty {
           let retainedIDs = processRetainedWindowIDs.sorted {
