@@ -203,10 +203,10 @@ extension LayoutSettings {
       centerFocusedColumn: config.centerFocusedColumn == .always ? .always : .never,
       innerHorizontalGap: config.gaps / 2,
       innerVerticalGap: config.gaps / 2,
-      outerTopGap: config.gaps,
-      outerRightGap: config.gaps,
-      outerBottomGap: config.gaps,
-      outerLeftGap: config.gaps
+      outerTopGap: config.outerTopGap ?? config.gaps,
+      outerRightGap: config.outerRightGap ?? config.gaps,
+      outerBottomGap: config.outerBottomGap ?? config.gaps,
+      outerLeftGap: config.outerLeftGap ?? config.gaps
     )
   }
 }

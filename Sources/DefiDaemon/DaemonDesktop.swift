@@ -10,7 +10,7 @@ import OSLog
 
 @MainActor
 extension Daemon {
-func applyCurrentLayout(
+  func applyCurrentLayout(
     asynchronousPositions: Bool = false,
     updateVisibility: Bool? = nil,
     positionTimeoutSeconds: Float = 0.016,
@@ -42,7 +42,7 @@ func applyCurrentLayout(
       else {
         continue
       }
-      let viewport = monitorSnapshot.frame
+      guard let viewport = viewportsByMonitor[monitor.id] else { continue }
       let physicalFrame = monitorSnapshot.physicalFrame
       let activeWorkspaceIndex =
         monitor.workspaces.firstIndex {

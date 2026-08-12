@@ -152,6 +152,8 @@ final class Daemon: NSObject {
   var placementPreferences: PlacementPreferences
   var hotKeys: HotKeyManager?
   var menuBar: MenuBarController?
+  var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
+  var reservedEdgesByMonitor: [MonitorID: ReservedEdges] = [:]
   var timer: DispatchSourceTimer?
   var timerFrequencyHz = 60.0
   var nextPeriodicWindowRefreshAt: TimeInterval = 0
@@ -291,8 +293,10 @@ final class Daemon: NSObject {
     } catch {
       log("input event tap unavailable: \(error)")
     }
-    menuBar = MenuBarController { [weak self] command in
-      _ = self?.handle(command)
+    if config.menuBar.enabled {
+      menuBar = MenuBarController { [weak self] command in
+        _ = self?.handle(command)
+      }
     }
 
     synchronizeDesktop(

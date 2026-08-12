@@ -56,14 +56,24 @@ extension Daemon {
   }
 
   var viewportsByMonitor: [MonitorID: Rect] {
-    Dictionary(uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.frame) })
+    Dictionary(
+      uniqueKeysWithValues: latestMonitors.map { monitor in
+        (
+          monitor.id,
+          viewportByApplyingReservedEdges(
+            monitor.frame,
+            edges: effectiveReservedEdges(for: monitor.id)
+          )
+        )
+      }
+    )
   }
 
   func rebaseActiveScrollOffsetToDisplayedFrames() {
     guard
       let monitorID = activeMonitorID,
       let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }),
-      let viewport = latestMonitors.first(where: { $0.id == monitorID })?.frame,
+      let viewport = viewportsByMonitor[monitorID],
       let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
         where: { $0.id == state.monitors[monitorIndex].activeWorkspace }
       )

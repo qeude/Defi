@@ -18,7 +18,8 @@ extension Daemon {
       .flatMap { id in state.monitors.first(where: { $0.id == id }) }
       .map(\.activeWorkspace.rawValue)
       ?? "none"
-    let hotKeyState = hotKeys?.isHotKeyCaptureEnabled == true
+    let hotKeyState =
+      hotKeys?.isHotKeyCaptureEnabled == true
       ? "enabled"
       : "disabled"
     let bindingCount = hotKeys?.bindingCount ?? 0
@@ -176,6 +177,7 @@ extension Daemon {
       activeWorkspace: workspace,
       workspaceNames: state.workspaceNames.map(\.rawValue)
     )
+    publishWorkspaceStateIfNeeded()
   }
 
   var activeDisplayRefreshRate: Double {

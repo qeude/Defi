@@ -33,8 +33,11 @@ extension Daemon {
   func pollIPC() {
     do {
       for _ in 0..<16 {
-        let handled = try server.poll { [weak self] command in
-          self?.handle(command) ?? .failure("daemon unavailable")
+        let handled = try server.poll { [weak self] request in
+          self?.handle(
+            request.command,
+            monitorIndex: request.monitorIndex
+          ) ?? .failure("daemon unavailable")
         }
         if !handled { break }
       }
@@ -49,8 +52,25 @@ extension Daemon {
   @discardableResult
   func handle(
     _ rawCommand: String,
+    monitorIndex: Int? = nil,
     inputTimestamp: TimeInterval? = nil
   ) -> CommandResponse {
+    if rawCommand == "list-workspaces" {
+      return .success(state.workspaceNames.map(\.rawValue).joined(separator: "\n"))
+    }
+    if rawCommand == "list-workspaces --json" {
+      do {
+        return .success(try workspaceStateJSON())
+      } catch {
+        return .failure(String(describing: error))
+      }
+    }
+    if let response = handleReservedAreaCommand(
+      rawCommand,
+      monitorIndex: monitorIndex
+    ) {
+      return response
+    }
     if rawCommand == "status" {
       return .success(status())
     }
@@ -68,11 +88,21 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      let commandMonitorID: MonitorID?
+      if let monitorIndex {
+        guard let monitorID = monitorID(atAppKitIndex: monitorIndex) else {
+          return .failure("unknown monitor index: \(monitorIndex)")
+        }
+        commandMonitorID = monitorID
+      } else {
+        commandMonitorID = activeMonitorID ?? state.monitors.first?.id
+      }
       var validationState = state
-      try reduce(command, on: activeMonitorID, state: &validationState)
-      let previouslySelectedWindowID = activeMonitorID.flatMap {
+      try reduce(command, on: commandMonitorID, state: &validationState)
+      let previouslySelectedWindowID = commandMonitorID.flatMap {
         state.selectedWindowID(on: $0)
       }
+      activeMonitorID = commandMonitorID
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
       platform.userInputTracker.record(
@@ -116,7 +146,6 @@ extension Daemon {
       if !speculativeRibbonNavigation {
         cancelDeferredSlowLane()
       }
-      let commandMonitorID = activeMonitorID ?? state.monitors.first?.id
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
       }
@@ -133,7 +162,7 @@ extension Daemon {
         invalidateSubmittedWorkspaceFocus()
         pendingWorkspaceFocus = nil
       }
-      try reduce(command, on: activeMonitorID, state: &state)
+      try reduce(command, on: commandMonitorID, state: &state)
       persistPlacements()
       updateMenuBar()
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
@@ -210,10 +239,8 @@ extension Daemon {
       if switchesWorkspace || !dispatchedAnimation {
         let focusWindowIDAfterCommit = workspaceFocusRequest?.requestedWindowID
         let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?
-        let cursorWarpIsCurrentAfterCommit:
-          (@MainActor @Sendable () -> Bool)?
-        let focusRequestIDAfterCommit:
-          (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?
+        let cursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?
+        let focusRequestIDAfterCommit: (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?
         if let workspaceFocusRequest {
           submittedWorkspaceFocusGeneration =
             workspaceFocusRequest.commandGeneration
@@ -226,7 +253,7 @@ extension Daemon {
           cursorWarpIsCurrentAfterCommit = { [weak self] in
             guard let self else { return false }
             return self.pendingWorkspaceFocus?.commandGeneration
-                == workspaceFocusRequest.commandGeneration
+              == workspaceFocusRequest.commandGeneration
               && self.submittedWorkspaceFocusGeneration
                 == workspaceFocusRequest.commandGeneration
           }
@@ -240,8 +267,8 @@ extension Daemon {
             self.submittedWorkspaceFocusRequestID = requestID
             self.submittedWorkspaceFocusRequestTimestamp =
               requestID == nil
-                ? nil
-                : workspaceFocusRequest.focusInputTimestamp
+              ? nil
+              : workspaceFocusRequest.focusInputTimestamp
           }
         } else {
           focusCompletionAfterCommit = nil
@@ -311,7 +338,8 @@ extension Daemon {
           selectedWindowID: selected
         )
       {
-        let previousCommandFocus = pendingAnimatedFocus
+        let previousCommandFocus =
+          pendingAnimatedFocus
           ?? submittedCommandFocus
         pendingAnimatedFocus = PendingAnimatedFocus(
           windowID: selected,

@@ -28,10 +28,11 @@ public struct InputConfig: Codable, Equatable, Sendable {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     focusFollowsMouse =
       try values.decodeIfPresent(Bool.self, forKey: .focusFollowsMouse) ?? false
-    focusFollowsMouseMaxScrollAmount = try values.decodeIfPresent(
-      Double.self,
-      forKey: .focusFollowsMouseMaxScrollAmount
-    ) ?? 0
+    focusFollowsMouseMaxScrollAmount =
+      try values.decodeIfPresent(
+        Double.self,
+        forKey: .focusFollowsMouseMaxScrollAmount
+      ) ?? 0
     mouseFollowsFocus =
       try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? false
   }
@@ -151,17 +152,35 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   public var presetColumnWidths: [Double]
   public var centerFocusedColumn: CenterFocusedColumnConfig
   public var gaps: Double
+  public var outerTopGap: Double?
+  public var outerRightGap: Double?
+  public var outerBottomGap: Double?
+  public var outerLeftGap: Double?
+  public var reservedTop: Double
+  public var reservedBottom: Double
 
   public init(
     defaultColumnWidth: Double = 0.80,
     presetColumnWidths: [Double] = [0.33, 0.50, 0.66, 0.80],
     centerFocusedColumn: CenterFocusedColumnConfig = .never,
-    gaps: Double = 8
+    gaps: Double = 8,
+    outerTopGap: Double? = nil,
+    outerRightGap: Double? = nil,
+    outerBottomGap: Double? = nil,
+    outerLeftGap: Double? = nil,
+    reservedTop: Double = 0,
+    reservedBottom: Double = 0
   ) {
     self.defaultColumnWidth = defaultColumnWidth
     self.presetColumnWidths = presetColumnWidths
     self.centerFocusedColumn = centerFocusedColumn
     self.gaps = gaps
+    self.outerTopGap = outerTopGap
+    self.outerRightGap = outerRightGap
+    self.outerBottomGap = outerBottomGap
+    self.outerLeftGap = outerLeftGap
+    self.reservedTop = reservedTop
+    self.reservedBottom = reservedBottom
   }
 
   enum CodingKeys: String, CodingKey {
@@ -169,6 +188,12 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     case presetColumnWidths = "preset_column_widths"
     case centerFocusedColumn = "center_focused_column"
     case gaps
+    case outerTopGap = "outer_top_gap"
+    case outerRightGap = "outer_right_gap"
+    case outerBottomGap = "outer_bottom_gap"
+    case outerLeftGap = "outer_left_gap"
+    case reservedTop = "reserved_top"
+    case reservedBottom = "reserved_bottom"
   }
 
   public init(from decoder: Decoder) throws {
@@ -184,6 +209,29 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
         forKey: .centerFocusedColumn
       ) ?? .never
     gaps = try values.decodeIfPresent(Double.self, forKey: .gaps) ?? 8
+    outerTopGap = try values.decodeIfPresent(Double.self, forKey: .outerTopGap)
+    outerRightGap = try values.decodeIfPresent(Double.self, forKey: .outerRightGap)
+    outerBottomGap = try values.decodeIfPresent(Double.self, forKey: .outerBottomGap)
+    outerLeftGap = try values.decodeIfPresent(Double.self, forKey: .outerLeftGap)
+    reservedTop = try values.decodeIfPresent(Double.self, forKey: .reservedTop) ?? 0
+    reservedBottom = try values.decodeIfPresent(Double.self, forKey: .reservedBottom) ?? 0
+  }
+}
+
+public struct MenuBarConfig: Codable, Equatable, Sendable {
+  public var enabled: Bool
+
+  public init(enabled: Bool = true) {
+    self.enabled = enabled
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case enabled
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
   }
 }
 
@@ -319,4 +367,3 @@ public struct RuleDecision: Equatable, Sendable {
     self.intrinsicSize = intrinsicSize
   }
 }
-
