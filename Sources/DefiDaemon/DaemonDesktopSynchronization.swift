@@ -276,7 +276,8 @@ extension Daemon {
       if keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: nativeFocusAccepted,
         keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
-        leftMouseButtonDown: snapshot.leftMouseButtonDown
+        leftMouseButtonDown: snapshot.leftMouseButtonDown,
+        postReleaseSettlementActive: postReleaseMouseGestureActive
       ) {
         preemptMouseGesture()
         mouseResizeGestureActive = false

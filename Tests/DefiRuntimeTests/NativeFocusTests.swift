@@ -131,14 +131,36 @@ struct NativeFocusTests {
       keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: true,
         keyboardFocusIntentCurrent: true,
-        leftMouseButtonDown: true
+        leftMouseButtonDown: true,
+        postReleaseSettlementActive: false
       )
     )
     #expect(
       keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: false,
         keyboardFocusIntentCurrent: true,
-        leftMouseButtonDown: true
+        leftMouseButtonDown: true,
+        postReleaseSettlementActive: false
+      ) == false
+    )
+  }
+
+  @Test
+  func keyboardFocusPreemptsPostReleaseMouseSettlement() {
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: false,
+        postReleaseSettlementActive: true
+      )
+    )
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: false,
+        postReleaseSettlementActive: false
       ) == false
     )
   }
