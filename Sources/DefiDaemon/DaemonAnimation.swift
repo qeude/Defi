@@ -200,7 +200,10 @@ extension Daemon {
 
   func finishPendingAnimatedFocusIfReady() {
     if let pendingAnimatedFocus,
-      focusIsReady(on: pendingAnimatedFocus.monitorID)
+      focusIsReady(
+        on: pendingAnimatedFocus.monitorID,
+        targetWindowID: pendingAnimatedFocus.windowID
+      )
     {
       self.pendingAnimatedFocus = nil
       commitCommandFocus(
@@ -220,7 +223,10 @@ extension Daemon {
   func finishPendingWorkspaceFocusIfReady() {
     guard let request = pendingWorkspaceFocus,
       submittedWorkspaceFocusGeneration != request.commandGeneration,
-      focusIsReady(on: request.monitorID)
+      focusIsReady(
+        on: request.monitorID,
+        targetWindowID: request.requestedWindowID
+      )
     else { return }
 
     submittedWorkspaceFocusGeneration = request.commandGeneration
@@ -246,20 +252,16 @@ extension Daemon {
         : request.focusInputTimestamp
   }
 
-  func focusIsReady(on monitorID: MonitorID) -> Bool {
-    focusMonitorIsReady(
+  func focusIsReady(
+    on monitorID: MonitorID,
+    targetWindowID: WindowID
+  ) -> Bool {
+    focusTargetIsReady(
       targetMonitorID: monitorID,
+      targetWindowID: targetWindowID,
       scrollingMonitorIDs: Set(scrollAnimations.keys.map(\.monitorID)),
-      pendingFrameMonitorIDs: Set(
-        platform.pendingFrameWindowIDs.compactMap {
-          state.monitorID(containing: $0)
-        }
-      ),
-      deferredSlowMonitorIDs: Set(
-        deferredSlowWindowIDs.compactMap {
-          state.monitorID(containing: $0)
-        }
-      )
+      pendingFrameWindowIDs: platform.pendingFrameWindowIDs,
+      deferredSlowWindowIDs: deferredSlowWindowIDs
     )
   }
 
