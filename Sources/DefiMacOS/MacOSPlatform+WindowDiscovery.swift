@@ -6,6 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
+private let focusSnapshotAccessibilityTimeoutSeconds: Float = 0.05
 @MainActor
 extension MacOSPlatform {
 
@@ -122,6 +123,7 @@ extension MacOSPlatform {
         appID: window.appID,
         hasCloseButton: false,
         canResize: false,
+        isModal: false,
         configuredFloating: configuredFloating,
         forceTiling: forceTiling
       )
@@ -136,6 +138,7 @@ extension MacOSPlatform {
         appID: window.appID,
         hasCloseButton: capabilities.hasCloseButton,
         canResize: capabilities.canResize,
+        isModal: capabilities.isModal,
         configuredFloating: false,
         forceTiling: false
       )
@@ -153,6 +156,11 @@ extension MacOSPlatform {
       kAXSizeAttribute as CFString,
       &sizeSettable
     )
+    let isModal = value(
+      element,
+      attribute: kAXModalAttribute,
+      as: Bool.self
+    ) ?? false
     if !configuredFloating,
       !forceTiling,
       let fallbackDisposition = fallbackDispositionForTransientWindowMetadata(
@@ -174,7 +182,8 @@ extension MacOSPlatform {
       canResize: windowCanResize(
         sizeSettableError: sizeSettableError,
         isSettable: sizeSettable.boolValue
-      )
+      ),
+      isModal: isModal
     )
     windowManagementCapabilities[window.id] = capabilities
     return classifyWindow(
@@ -183,6 +192,7 @@ extension MacOSPlatform {
       appID: window.appID,
       hasCloseButton: capabilities.hasCloseButton,
       canResize: capabilities.canResize,
+      isModal: capabilities.isModal,
       configuredFloating: configuredFloating,
       forceTiling: forceTiling
     )
@@ -194,6 +204,11 @@ extension MacOSPlatform {
     let frontmostProcessID = NSWorkspace.shared.frontmostApplication?.processIdentifier
     var focusedApplication: CFTypeRef?
     let system = AXUIElementCreateSystemWide()
+    AXUIElementSetMessagingTimeout(
+      system,
+      focusSnapshotAccessibilityTimeoutSeconds
+    )
+    defer { AXUIElementSetMessagingTimeout(system, 0) }
     guard
       AXUIElementCopyAttributeValue(
         system,
@@ -205,9 +220,15 @@ extension MacOSPlatform {
       return stableWindowID(processID: frontmostProcessID, in: windows)
     }
     var focusedProcessID: pid_t = 0
+    let focusedApplicationElement = focusedApplication as! AXUIElement
+    AXUIElementSetMessagingTimeout(
+      focusedApplicationElement,
+      focusSnapshotAccessibilityTimeoutSeconds
+    )
+    defer { AXUIElementSetMessagingTimeout(focusedApplicationElement, 0) }
     guard
       AXUIElementGetPid(
-        focusedApplication as! AXUIElement,
+        focusedApplicationElement,
         &focusedProcessID
       ) == .success
     else {
@@ -223,7 +244,7 @@ extension MacOSPlatform {
     var focusedWindow: CFTypeRef?
     guard
       AXUIElementCopyAttributeValue(
-        focusedApplication as! AXUIElement,
+        focusedApplicationElement,
         kAXFocusedWindowAttribute as CFString,
         &focusedWindow
       ) == .success,
@@ -232,6 +253,11 @@ extension MacOSPlatform {
       return stableWindowID(processID: focusedProcessID, in: windows)
     }
     let focusedElement = focusedWindow as! AXUIElement
+    AXUIElementSetMessagingTimeout(
+      focusedElement,
+      focusSnapshotAccessibilityTimeoutSeconds
+    )
+    defer { AXUIElementSetMessagingTimeout(focusedElement, 0) }
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
       return exact.key
     }
@@ -287,6 +313,15 @@ extension MacOSPlatform {
       multipleAttributeReadsSupportedByProcess[processID] = true
       batchedWindowAttributeReadCount += 1
       return attributes
+    }
+    if multipleAttributeReadsSupportedByProcess[processID] != false {
+      return AXWindowAttributes(
+        minimized: nil,
+        frame: nil,
+        title: "",
+        role: nil,
+        subrole: nil
+      )
     }
     fallbackWindowAttributeReadCount += 1
     return fallbackWindowAttributes(

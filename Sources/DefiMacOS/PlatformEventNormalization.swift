@@ -82,14 +82,13 @@ func userInputOccurredAfterWindowTopology(
   removedWindowIDs: Set<WindowID> = []
 ) -> Bool {
   guard let topologyInputTimestamp else { return false }
-  if latestInputTimestamp > topologyInputTimestamp {
-    return true
-  }
   guard let latestFocusIntent,
     latestFocusIntent.timestamp >= topologyInputTimestamp,
+    latestFocusIntent.timestamp >= latestInputTimestamp,
     latestFocusIntent.timestamp > latestCloseIntentTimestamp
   else {
-    return false
+    return latestInputTimestamp > topologyInputTimestamp
+      && latestInputTimestamp > latestCloseIntentTimestamp
   }
   switch latestFocusIntent.source {
   case .keyboard:

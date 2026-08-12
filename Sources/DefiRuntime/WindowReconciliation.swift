@@ -114,6 +114,7 @@ public func reconcileWindows(
   _ discovered: [Window],
   config: Config,
   placementPreferences: PlacementPreferences = PlacementPreferences(),
+  externallyChangedWindowIDs: Set<WindowID> = [],
   state: inout RuntimeState
 ) {
   let discoveredIDs = Set(discovered.map(\.id))
@@ -145,7 +146,9 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
-        if existing.intrinsicSize {
+        if existing.intrinsicSize,
+          !externallyChangedWindowIDs.contains(window.id)
+        {
           updated.frame.width = existing.frame.width
           updated.frame.height = existing.frame.height
         }

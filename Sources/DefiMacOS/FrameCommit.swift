@@ -155,12 +155,22 @@ func cursorWarpFrameReadiness(
 }
 
 func frameSizeWriteSucceeded(
+  sizeChanged: Bool,
   synchronousWriteSucceeded: Bool,
   animatesSize: Bool,
   asynchronousWriteSucceeded: Bool
 ) -> Bool {
-  synchronousWriteSucceeded
-    && (!animatesSize || asynchronousWriteSucceeded)
+  !sizeChanged
+    || (synchronousWriteSucceeded && !animatesSize)
+    || asynchronousWriteSucceeded
+}
+
+func asynchronousSizeWriteIsRequired(
+  sizeChanged: Bool,
+  synchronousWriteSucceeded: Bool,
+  animatesSize: Bool
+) -> Bool {
+  sizeChanged && (animatesSize || !synchronousWriteSucceeded)
 }
 
 struct FrameAnimationLanePlan: Equatable, Sendable {

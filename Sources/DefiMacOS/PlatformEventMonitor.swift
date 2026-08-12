@@ -11,6 +11,7 @@ final class PlatformEventMonitor {
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
   private let mouseGestureStartedHandler: () -> Void
+  private let windowDestroyedHandler: (AXUIElement) -> Void
   private var workspaceTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
@@ -31,7 +32,8 @@ final class PlatformEventMonitor {
     frameHandler: @escaping (AXUIElement) -> Void = { _ in },
     liveFrameHandler: @escaping () -> Void = {},
     borderStackingHandler: @escaping () -> Void = {},
-    mouseGestureStartedHandler: @escaping () -> Void = {}
+    mouseGestureStartedHandler: @escaping () -> Void = {},
+    windowDestroyedHandler: @escaping (AXUIElement) -> Void = { _ in }
   ) {
     self.handler = handler
     self.userInputTracker = userInputTracker
@@ -39,6 +41,7 @@ final class PlatformEventMonitor {
     self.liveFrameHandler = liveFrameHandler
     self.borderStackingHandler = borderStackingHandler
     self.mouseGestureStartedHandler = mouseGestureStartedHandler
+    self.windowDestroyedHandler = windowDestroyedHandler
   }
 
   func start() {
@@ -293,6 +296,15 @@ final class PlatformEventMonitor {
     }
   }
 
+  var processIDsWithoutReliableFrameCoverage: Set<pid_t> {
+    Set(frameRequiredWindows.compactMap { processID, windows in
+      let observed = frameObservedWindows[processID] ?? []
+      return windows.allSatisfy { window in
+        observed.contains(where: { CFEqual($0, window) })
+      } ? nil : processID
+    })
+  }
+
   var observationCoverage:
     (
       applicationObservers: Int,
@@ -382,6 +394,9 @@ final class PlatformEventMonitor {
           case kAXMovedNotification, kAXResizedNotification:
             monitor.frameHandler(element)
             monitor.handler(.frame, normalizedProcessID)
+          case kAXUIElementDestroyedNotification:
+            monitor.windowDestroyedHandler(element)
+            monitor.handler(.windows, normalizedProcessID)
           default:
             monitor.handler(.windows, normalizedProcessID)
           }

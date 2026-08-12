@@ -54,6 +54,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedParkingChecks = 0
   var repairedParkingDrifts = 0
   var initialSettlementTargets: [WindowID: InitialSettlementTarget] = [:]
+  var initialSettlementDriftSamples: [WindowID: InitialSettlementDriftSample] = [:]
   var nextInitialSettlementGeneration: UInt64 = 0
   var initialSettlementRepairsSuspended = false
   var pendingInitialSettlementEventChecks = Set<WindowID>()
@@ -102,6 +103,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
       }
     }
     initialSettlementTargets = nextTargets
+    initialSettlementDriftSamples = initialSettlementDriftSamples.filter {
+      windowID, sample in
+      nextTargets[windowID]?.generation == sample.generation
+    }
     if wasSuspended && !repairsSuspended {
       changedTargets = Array(nextTargets)
     }
@@ -153,6 +158,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
+    initialSettlementDriftSamples.removeAll(keepingCapacity: true)
     initialSettlementRepairsSuspended = false
     pendingInitialSettlementEventChecks.removeAll(keepingCapacity: true)
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")

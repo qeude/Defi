@@ -509,6 +509,52 @@ struct PlatformEventTests {
   }
 
   @Test
+  func consecutiveCloseIntentsRemainOneRemovalTransaction() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(timestamp: 21, closeIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [WindowID(rawValue: 10), WindowID(rawValue: 11)]
+      ) == false
+    )
+  }
+
+  @Test
+  func consecutiveCloseButtonClicksOnRemovedWindowsRemainOneTransaction() {
+    let tracker = UserInputTracker()
+    let firstWindowID = WindowID(rawValue: 10)
+    let secondWindowID = WindowID(rawValue: 11)
+    tracker.record(
+      timestamp: 20,
+      focusIntent: .mouse(windowID: firstWindowID)
+    )
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(
+      timestamp: 21,
+      focusIntent: .mouse(windowID: secondWindowID)
+    )
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [firstWindowID, secondWindowID]
+      ) == false
+    )
+  }
+
+  @Test
   func guardedFocusCancelsOnlyForNewerInput() {
     #expect(
       guardedFocusIsCurrent(

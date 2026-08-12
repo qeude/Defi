@@ -229,10 +229,16 @@ extension AXFrameCoordinator {
       AXUIElementSetMessagingTimeout(item.value.application, timeout)
       AXUIElementSetMessagingTimeout(item.value.element, timeout)
       let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
+      let requiresAsynchronousSizeWrite = asynchronousSizeWriteIsRequired(
+        sizeChanged: item.value.sizeChanged,
+        synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
+        animatesSize: item.value.animatesSize
+      )
       let asynchronousSizeWriteSucceeded =
-        !item.value.animatesSize
+        !requiresAsynchronousSizeWrite
         || accessibilityWriter.applySize(item.value, size: size)
       let sizeApplied = frameSizeWriteSucceeded(
+        sizeChanged: item.value.sizeChanged,
         synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
         animatesSize: item.value.animatesSize,
         asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
@@ -283,7 +289,7 @@ extension AXFrameCoordinator {
           : point
         recordCompletedPosition(completedPoint, windowID: item.key)
       }
-      if sizeApplied, item.value.animatesSize {
+      if sizeApplied, requiresAsynchronousSizeWrite {
         recordCompletedSize(
           size,
           windowID: item.key,

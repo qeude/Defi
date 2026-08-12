@@ -322,12 +322,18 @@ private final class HotKeyTapContext: @unchecked Sendable {
       } else {
         focusIntent = nil
       }
+      let closeIntent = isKeyDown && commandPressed
+        && Self.closeWindowKeyCodes.contains(code)
       userInputTracker.record(
         timestamp: timestamp,
         focusIntent: focusIntent,
-        closeIntent: isKeyDown && commandPressed
-          && Self.closeWindowKeyCodes.contains(code)
+        closeIntent: closeIntent
       )
+      if closeIntent {
+        capturedModifierReleaseState.capture(
+          modifierBits: hotKeyModifierBits(event.flags)
+        )
+      }
     }
     guard isKeyDown else {
       return Unmanaged.passUnretained(event)

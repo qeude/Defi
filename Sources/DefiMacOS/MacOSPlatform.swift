@@ -51,6 +51,8 @@ public final class MacOSPlatform {
   var windowListReadRetryAttemptsByProcess: [pid_t: Int] = [:]
   var cgWindowInventoryRetryAttempts: Int?
   var retainedWindowIDs = Set<WindowID>()
+  var retainedWindowDeadlines: [WindowID: TimeInterval] = [:]
+  var explicitlyDestroyedWindowIDs = Set<WindowID>()
   var lastWindowSnapshotDurationMS = 0.0
   var maximumWindowSnapshotDurationMS = 0.0
   var windowSnapshotDurationSamplesMS: [Double] = []

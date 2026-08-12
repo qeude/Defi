@@ -107,6 +107,45 @@ public enum WindowRemovalFocusDecision: Equatable, Sendable {
   case preserve(localFallback: WindowID?)
 }
 
+public struct GuardedWindowRemovalFocusAction: Equatable, Sendable {
+  public let windowID: WindowID
+  public let monitorID: MonitorID
+  public let inputTimestamp: Double
+
+  public init(
+    windowID: WindowID,
+    monitorID: MonitorID,
+    inputTimestamp: Double
+  ) {
+    self.windowID = windowID
+    self.monitorID = monitorID
+    self.inputTimestamp = inputTimestamp
+  }
+}
+
+public func guardedWindowRemovalFocusAction(
+  decision: WindowRemovalFocusDecision,
+  focusGuard: WindowRemovalFocusGuard,
+  newlyCreated: Bool
+) -> GuardedWindowRemovalFocusAction? {
+  let localFallback: WindowID?
+  switch decision {
+  case .accept:
+    return nil
+  case .wait(let fallback):
+    guard newlyCreated else { return nil }
+    localFallback = fallback
+  case .preserve(let fallback):
+    localFallback = fallback
+  }
+  guard let localFallback else { return nil }
+  return GuardedWindowRemovalFocusAction(
+    windowID: localFallback,
+    monitorID: focusGuard.monitorID,
+    inputTimestamp: focusGuard.inputTimestamp
+  )
+}
+
 public func windowRemovalFocusGuard(
   previousMonitorID: MonitorID?,
   previousWorkspaceID: WorkspaceID?,
@@ -155,4 +194,3 @@ public func windowRemovalFocusDecision(
   }
   return .accept
 }
-

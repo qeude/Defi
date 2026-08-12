@@ -129,6 +129,7 @@ extension Daemon {
       snapshot.windows,
       config: config,
       placementPreferences: placementPreferences,
+      externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       state: &state
     )
     deferredMouseFocusIntent = updatedDeferredMouseFocusIntent(
@@ -153,7 +154,7 @@ extension Daemon {
       mouseGestureSettlement = nil
     }
     let postReleaseMouseGestureActive = mouseGestureSettlement != nil
-    let mouseResizeGestureActive =
+    var mouseResizeGestureActive =
       !mouseGesturePreempted
       && (snapshot.leftMouseButtonDown
         || snapshot.mouseResizeGestureObserved
@@ -192,26 +193,33 @@ extension Daemon {
       pendingWindowRemovalFocusGuard = newRemovalFocusGuard
     }
     var preservesWorkspaceAfterRemoval = false
-    var guardedRemovalFocus: (windowID: WindowID, inputTimestamp: TimeInterval)?
+    var guardedRemovalFocus: GuardedWindowRemovalFocusAction?
     if let focusGuard = pendingWindowRemovalFocusGuard {
-      switch windowRemovalFocusDecision(
+      let decision = windowRemovalFocusDecision(
         guard: focusGuard,
         nativeFocusedWindowID: snapshot.focusedWindowID,
         nativeFocusChanged: snapshot.nativeFocusChanged,
         latestUserInputTimestamp: snapshot.latestUserInputTimestamp,
         state: state
-      ) {
+      )
+      guardedRemovalFocus = guardedWindowRemovalFocusAction(
+        decision: decision,
+        focusGuard: focusGuard,
+        newlyCreated: newRemovalFocusGuard != nil
+      )
+      if let guardedRemovalFocus {
+        nativelyFocusedMonitorID = guardedRemovalFocus.monitorID
+        platform.recordPerformanceTrace(
+          "close-focus-reveal window=\(guardedRemovalFocus.windowID.rawValue) monitor=\(guardedRemovalFocus.monitorID.rawValue)"
+        )
+      }
+      switch decision {
       case .accept:
         pendingWindowRemovalFocusGuard = nil
-      case .wait(let localFallback):
-        if newRemovalFocusGuard != nil, let localFallback {
-          guardedRemovalFocus = (localFallback, focusGuard.inputTimestamp)
-        }
+      case .wait:
+        break
       case .preserve(let localFallback):
         preservesWorkspaceAfterRemoval = true
-        if let localFallback {
-          guardedRemovalFocus = (localFallback, focusGuard.inputTimestamp)
-        }
         pendingWindowRemovalFocusGuard = nil
         preservedWindowRemovalFocusCount += 1
         platform.recordPerformanceTrace(
@@ -263,6 +271,17 @@ extension Daemon {
         pendingAnimatedFocus = nil
         pendingWorkspaceFocus = nil
         submittedWorkspaceFocusGeneration = nil
+      }
+      if keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: nativeFocusAccepted,
+        keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
+        leftMouseButtonDown: snapshot.leftMouseButtonDown
+      ) {
+        preemptMouseGesture()
+        mouseResizeGestureActive = false
+        platform.recordPerformanceTrace(
+          "mouse-gesture-preempted-by-keyboard-focus window=\(focusedWindowID.rawValue)"
+        )
       }
       if snapshot.leftMouseButtonDown && snapshot.nativeFocusChanged
         && selectionChanged && !nativeFocusAccepted
@@ -453,8 +472,10 @@ extension Daemon {
     if let mouseGestureScrollAnchor {
       restoreWorkspaceScroll(mouseGestureScrollAnchor, state: &state)
     }
+    let focusedWindowIDForAlignment =
+      guardedRemovalFocus?.windowID ?? snapshot.focusedWindowID
     if !preservesMouseViewport, let nativelyFocusedMonitorID,
-      snapshot.focusedWindowID.flatMap({ state.windows[$0]?.floating }) != true
+      focusedWindowIDForAlignment.flatMap({ state.windows[$0]?.floating }) != true
     {
       alignFocusedColumnLeft(
         on: nativelyFocusedMonitorID,
