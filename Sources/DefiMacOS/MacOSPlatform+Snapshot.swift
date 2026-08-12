@@ -342,7 +342,13 @@ extension MacOSPlatform {
       )
       if windowHasExternalFrameChange(
         window.id,
-        pendingFrameWindowIDs: frameWindowIDs
+        pendingFrameWindowIDs: frameWindowIDs,
+        matchesRecentInternalWrite: frameWindowIDs.contains(window.id)
+          && frameCoordinator.frameMatchesRecentInternalWrite(
+            windowID: window.id,
+            actual: window.frame,
+            now: now
+          )
       ) {
         externallyChangedFrames[window.id] = window.frame
       }

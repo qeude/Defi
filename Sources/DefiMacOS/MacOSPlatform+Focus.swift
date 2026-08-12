@@ -26,12 +26,24 @@ extension MacOSPlatform {
   }
 
   public func invalidateFocusRecovery(recoveringTo windowID: WindowID?) {
+    invalidateFocusRecovery(
+      recoveringTo: windowID,
+      preservingCompletedSuppressions: false
+    )
+  }
+
+  private func invalidateFocusRecovery(
+    recoveringTo windowID: WindowID?,
+    preservingCompletedSuppressions: Bool
+  ) {
     focusRecoveryIntentGeneration &+= 1
     focusRecoveryResolver.invalidate()
     let now = ProcessInfo.processInfo.systemUptime
-    internalFocusSuppressions = internalFocusSuppressions.filter {
-      $0.value.isInFlight && $0.value.deadline >= now
-    }
+    internalFocusSuppressions = focusSuppressionsAfterRecoveryInvalidation(
+      internalFocusSuppressions,
+      now: now,
+      preservingCompleted: preservingCompletedSuppressions
+    )
     let fallback = windowID.flatMap { fallbackWindowID in
       processIDs[fallbackWindowID].map {
         NativeFocusRecoveryFallback(
@@ -80,7 +92,10 @@ extension MacOSPlatform {
     // A direct focus request is the new source of truth. Any asynchronous
     // recovery started by an older request must not be allowed to submit a
     // focus write after this one.
-    invalidateFocusRecovery()
+    invalidateFocusRecovery(
+      recoveringTo: nil,
+      preservingCompletedSuppressions: true
+    )
     return submitFocus(
       windowID,
       unlessUserInputAfter: maximumUserInputTimestamp,

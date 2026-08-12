@@ -273,6 +273,18 @@ extension AXFrameCoordinator {
       let timeoutResetAt = ProcessInfo.processInfo.systemUptime
       let writeElapsedMS =
         (timeoutResetAt - writeStartedAt) * 1_000
+      if appliedWrite {
+        recordInternalFrameWrite(
+          Rect(
+            x: point.x,
+            y: point.y,
+            width: size.width,
+            height: size.height
+          ),
+          windowID: item.key,
+          now: timeoutResetAt
+        )
+      }
       guard isCurrent(generation: frame.generation) else {
         stale += 1
         lock.lock()
@@ -336,6 +348,19 @@ extension AXFrameCoordinator {
     if incrementWriteCount {
       completedAnimatedSizeWrites += 1
     }
+    lock.unlock()
+  }
+
+  func recordInternalFrameWrite(
+    _ frame: Rect,
+    windowID: WindowID,
+    now: TimeInterval
+  ) {
+    lock.lock()
+    recentInternalFrameWrites[windowID] = RecentInternalFrameWrite(
+      frame: frame,
+      deadline: now + 2.5
+    )
     lock.unlock()
   }
 }

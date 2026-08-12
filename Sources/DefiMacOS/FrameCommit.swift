@@ -77,6 +77,35 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let requiresVerifiedOffscreenWrite: Bool
 }
 
+func frameWritesPreservingSupersededAsyncSizes(
+  active: [WindowID: AsyncPositionWrite],
+  pending: [WindowID: AsyncPositionWrite],
+  replacement: [WindowID: AsyncPositionWrite]
+) -> [WindowID: AsyncPositionWrite] {
+  var result = active.filter { _, write in
+    asynchronousSizeWriteIsRequired(
+      sizeChanged: write.sizeChanged,
+      synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+      animatesSize: write.animatesSize
+    )
+  }
+  for (windowID, write) in pending where replacement[windowID] == nil {
+    guard asynchronousSizeWriteIsRequired(
+      sizeChanged: write.sizeChanged,
+      synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+      animatesSize: write.animatesSize
+    ) else { continue }
+    result[windowID] = write
+  }
+  result.merge(replacement) { _, newer in newer }
+  return result
+}
+
+struct RecentInternalFrameWrite: Equatable, Sendable {
+  let frame: Rect
+  let deadline: TimeInterval
+}
+
 struct InitialSettlementTarget: @unchecked Sendable {
   let generation: UInt64
   let write: AsyncPositionWrite

@@ -84,7 +84,8 @@ func retainedWindowRefreshProcessIDs(
 
 func windowHasExternalFrameChange(
   _ windowID: WindowID,
-  pendingFrameWindowIDs: Set<WindowID>
+  pendingFrameWindowIDs: Set<WindowID>,
+  matchesRecentInternalWrite: Bool = false
 ) -> Bool {
-  pendingFrameWindowIDs.contains(windowID)
+  pendingFrameWindowIDs.contains(windowID) && !matchesRecentInternalWrite
 }

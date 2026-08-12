@@ -1,6 +1,7 @@
 import DefiCore
 import DefiModel
 import Darwin
+import ApplicationServices
 import XCTest
 
 @testable import DefiMacOS
@@ -225,6 +226,44 @@ final class FrameCommitTests: XCTestCase {
     wait(for: [completion], timeout: 0.1)
   }
 
+  func testReplacementFramePreservesSupersededAsyncSizeWrite() {
+    let element = AXUIElementCreateSystemWide()
+    func write(size: CGSize, synchronousSizeWriteSucceeded: Bool = false)
+      -> AsyncPositionWrite
+    {
+      AsyncPositionWrite(
+        element: element,
+        application: element,
+        processID: 42,
+        fromPoint: .zero,
+        point: .zero,
+        fromSize: CGSize(width: 800, height: 600),
+        size: size,
+        positionChanged: false,
+        sizeChanged: true,
+        animatesSize: false,
+        synchronousSizeWriteSucceeded: synchronousSizeWriteSucceeded,
+        enhancedUIWasEnabled: false,
+        timeoutSeconds: 0.016,
+        isParked: false,
+        isReentering: false,
+        requiresVerifiedOffscreenWrite: false
+      )
+    }
+    let carriedWindowID = WindowID(rawValue: 1)
+    let replacementWindowID = WindowID(rawValue: 2)
+    let result = frameWritesPreservingSupersededAsyncSizes(
+      active: [carriedWindowID: write(size: CGSize(width: 900, height: 700))],
+      pending: [:],
+      replacement: [
+        replacementWindowID: write(size: CGSize(width: 1_000, height: 700))
+      ]
+    )
+
+    XCTAssertEqual(result[carriedWindowID]?.size.width, 900)
+    XCTAssertEqual(result[replacementWindowID]?.size.width, 1_000)
+  }
+
   func testInitialWindowCommitUsesShortQuarantineForFastRetries() {
     XCTAssertEqual(
       frameCommitQuarantineDuration(
@@ -328,6 +367,16 @@ final class FrameCommitTests: XCTestCase {
         now: 10.08
       )
     )
+  }
+
+  func testInitialSettlementSchedulesStableFollowUpBeforeExpiration() {
+    XCTAssertEqual(
+      initialSettlementFollowUpDelay(now: 12.1, deadline: 12.5)!,
+      0.06,
+      accuracy: 0.000_1
+    )
+    XCTAssertNil(initialSettlementFollowUpDelay(now: 12.48, deadline: 12.5))
+    XCTAssertNil(initialSettlementFollowUpDelay(now: 12.5, deadline: 12.5))
   }
 
   func testInitialSettlementRepairRequiresCurrentGenerationAndIdleMouse() {

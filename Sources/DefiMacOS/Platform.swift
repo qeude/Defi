@@ -393,6 +393,21 @@ func windowCanResize(
   }
 }
 
+func resolvedWindowModalState(
+  error: AXError,
+  observedValue: Bool?,
+  cachedValue: Bool?
+) -> Bool? {
+  switch error {
+  case .success:
+    observedValue ?? false
+  case .attributeUnsupported, .noValue:
+    false
+  default:
+    cachedValue
+  }
+}
+
 private func axMetadataErrorIsTransient(_ error: AXError) -> Bool {
   switch error {
   case .success, .attributeUnsupported, .noValue:

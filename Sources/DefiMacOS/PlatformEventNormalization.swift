@@ -94,7 +94,7 @@ func userInputOccurredAfterWindowTopology(
   case .keyboard:
     return true
   case .mouse(let windowID):
-    guard let windowID else { return false }
+    guard let windowID else { return true }
     return !removedWindowIDs.contains(windowID)
   }
 }

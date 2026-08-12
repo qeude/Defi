@@ -339,6 +339,13 @@ struct WindowSnapshotStabilityTests {
         pendingFrameWindowIDs: [emittedWindowID]
       ) == false
     )
+    #expect(
+      windowHasExternalFrameChange(
+        emittedWindowID,
+        pendingFrameWindowIDs: [emittedWindowID],
+        matchesRecentInternalWrite: true
+      ) == false
+    )
   }
 
   @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {

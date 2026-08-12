@@ -487,6 +487,50 @@ struct PlatformEventTests {
   }
 
   @Test
+  func unresolvedBackgroundClickAfterCloseWinsBeforeTopologyNotification() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    tracker.record(timestamp: 21, focusIntent: .mouse(windowID: nil))
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [WindowID(rawValue: 10)]
+      )
+    )
+  }
+
+  @Test
+  func newFocusPreservesCompletedSuppressionUntilItsDelayedEventArrives() {
+    let windowID = WindowID(rawValue: 1)
+    let completed = InternalFocusSuppression(
+      requestID: 7,
+      deadline: 20,
+      maximumInputTimestamp: 10,
+      isInFlight: false
+    )
+
+    #expect(
+      focusSuppressionsAfterRecoveryInvalidation(
+        [windowID: completed],
+        now: 12,
+        preservingCompleted: true
+      )[windowID] == completed
+    )
+    #expect(
+      focusSuppressionsAfterRecoveryInvalidation(
+        [windowID: completed],
+        now: 12,
+        preservingCompleted: false
+      ).isEmpty
+    )
+  }
+
+  @Test
   func closeButtonClickDoesNotMasqueradeAsFocusIntent() {
     let tracker = UserInputTracker()
     let closingWindowID = WindowID(rawValue: 10)

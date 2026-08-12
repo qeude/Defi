@@ -33,6 +33,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var latestGeneration: UInt64 = 0
   var running = false
   var activeWindowIDs = Set<WindowID>()
+  var activeWrites: [WindowID: AsyncPositionWrite] = [:]
   var activeAnimationRunning = false
   var activeAnimatedWindowIDs = Set<WindowID>()
   var activeAnimatedSizeWindowIDs = Set<WindowID>()
@@ -42,6 +43,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var droppedFrameCount = 0
   var completedPositions: [WindowID: CGPoint] = [:]
   var completedSizes: [WindowID: CGSize] = [:]
+  var recentInternalFrameWrites: [WindowID: RecentInternalFrameWrite] = [:]
   var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
   var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   var traceEntries: [String] = []
@@ -154,6 +156,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     pending = nil
     completedPositions.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
+    recentInternalFrameWrites.removeAll(keepingCapacity: true)
     successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
@@ -188,10 +191,15 @@ final class AXFrameCoordinator: @unchecked Sendable {
     if pending != nil {
       droppedFrameCount += 1
     }
+    let preservedWrites = frameWritesPreservingSupersededAsyncSizes(
+      active: activeWrites,
+      pending: displacedFrame?.writes ?? [:],
+      replacement: writes
+    )
     pending = QueuedPositionFrame(
       generation: nextGeneration,
       source: source,
-      writes: writes,
+      writes: preservedWrites,
       animatedWindowIDs: animatedWindowIDs,
       animationDuration: max(animationDuration, 0),
       refreshRateHz: min(max(refreshRateHz, 30), 120),
@@ -205,13 +213,13 @@ final class AXFrameCoordinator: @unchecked Sendable {
     let animatedIDs = animatedWindowIDs.sorted {
       $0.rawValue < $1.rawValue
     }.map { String($0.rawValue) }.joined(separator: ",")
-    let writeIDs = writes.keys.sorted {
+    let writeIDs = preservedWrites.keys.sorted {
       $0.rawValue < $1.rawValue
     }.map { String($0.rawValue) }.joined(separator: ",")
-    let parkedCount = writes.values.filter(\.isParked).count
+    let parkedCount = preservedWrites.values.filter(\.isParked).count
     let durationMS = Int((animationDuration * 1_000).rounded())
     appendTraceLocked(
-      "submit g=\(nextGeneration) source=\(source) windows=\(writes.count)[\(writeIDs)] animated=\(animatedWindowIDs.count)[\(animatedIDs)] parked=\(parkedCount) springMs=\(durationMS)"
+      "submit g=\(nextGeneration) source=\(source) windows=\(preservedWrites.count)[\(writeIDs)] animated=\(animatedWindowIDs.count)[\(animatedIDs)] parked=\(parkedCount) springMs=\(durationMS)"
     )
     let shouldStart = !running
     if shouldStart {
@@ -313,6 +321,20 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     completedSizes[windowID] = size
     lock.unlock()
+  }
+
+  func frameMatchesRecentInternalWrite(
+    windowID: WindowID,
+    actual: Rect,
+    now: TimeInterval
+  ) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    recentInternalFrameWrites = recentInternalFrameWrites.filter {
+      $0.value.deadline >= now
+    }
+    guard let write = recentInternalFrameWrites[windowID] else { return false }
+    return frameDistance(write.frame, actual) <= 3
   }
 
   var trace: String {

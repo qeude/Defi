@@ -133,7 +133,17 @@ extension AXFrameCoordinator {
         : observationTime
     )
     lock.unlock()
-    guard driftIsStable else { return }
+    guard driftIsStable else {
+      if let delay = initialSettlementFollowUpDelay(
+        now: observationTime,
+        deadline: settlementTarget.deadline
+      ) {
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+          self?.verifyInitialSettlementTarget(windowID: windowID)
+        }
+      }
+      return
+    }
     guard isInitialSettlementTargetCurrent(
       windowID: windowID,
       generation: settlementTarget.generation

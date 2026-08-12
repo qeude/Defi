@@ -568,6 +568,32 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testTransientModalReadPreservesCachedValue() {
+    XCTAssertEqual(
+      resolvedWindowModalState(
+        error: .cannotComplete,
+        observedValue: nil,
+        cachedValue: true
+      ),
+      true
+    )
+    XCTAssertNil(
+      resolvedWindowModalState(
+        error: .cannotComplete,
+        observedValue: nil,
+        cachedValue: nil
+      )
+    )
+    XCTAssertEqual(
+      resolvedWindowModalState(
+        error: .attributeUnsupported,
+        observedValue: nil,
+        cachedValue: true
+      ),
+      false
+    )
+  }
+
   func testMissingCloseButtonRemainsUnmanaged() {
     XCTAssertFalse(
       shouldTreatWindowAsClosable(

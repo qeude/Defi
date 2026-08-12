@@ -64,6 +64,16 @@ func initialSettlementDriftIsStable(
   return frameDistance(previous.frame, actual) <= tolerance
 }
 
+func initialSettlementFollowUpDelay(
+  now: TimeInterval,
+  deadline: TimeInterval,
+  minimumStableDuration: TimeInterval = 0.06
+) -> TimeInterval? {
+  let remaining = deadline - now
+  guard remaining > minimumStableDuration else { return nil }
+  return minimumStableDuration
+}
+
 func initialSettlementObservation(
   actual: Rect,
   target: Rect,

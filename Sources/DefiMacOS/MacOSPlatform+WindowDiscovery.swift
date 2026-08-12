@@ -156,11 +156,19 @@ extension MacOSPlatform {
       kAXSizeAttribute as CFString,
       &sizeSettable
     )
-    let isModal = value(
+    var modalValue: CFTypeRef?
+    let modalError = AXUIElementCopyAttributeValue(
       element,
-      attribute: kAXModalAttribute,
-      as: Bool.self
-    ) ?? false
+      kAXModalAttribute as CFString,
+      &modalValue
+    )
+    guard let isModal = resolvedWindowModalState(
+      error: modalError,
+      observedValue: modalValue as? Bool,
+      cachedValue: windowManagementCapabilities[window.id]?.isModal
+    ) else {
+      return previousDisposition ?? .unavailable
+    }
     if !configuredFloating,
       !forceTiling,
       let fallbackDisposition = fallbackDispositionForTransientWindowMetadata(

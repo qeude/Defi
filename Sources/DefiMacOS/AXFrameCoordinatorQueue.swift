@@ -22,6 +22,7 @@ extension AXFrameCoordinator {
       let applicationCount = Set(frame.writes.values.map(\.processID)).count
       activeAnimationRunning = frame.animationDuration > 0
       activeWindowIDs = Set(frame.writes.keys)
+      activeWrites = frame.writes
       activeAnimatedWindowIDs = frame.animatedWindowIDs
       activeAnimatedSizeWindowIDs = Set(
         frame.writes.compactMap { windowID, write in
@@ -80,6 +81,7 @@ extension AXFrameCoordinator {
       activeAnimatedSizeWindowIDs.removeAll(keepingCapacity: true)
       activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
       activeWindowIDs.removeAll(keepingCapacity: true)
+      activeWrites.removeAll(keepingCapacity: true)
       lock.unlock()
       frame.completion?(
         FrameWriteCompletion(
