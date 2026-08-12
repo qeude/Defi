@@ -465,6 +465,25 @@ struct PlatformEventTests {
   }
 
   @Test
+  func commandTabBetweenTwoClosesStillWinsFirstRemovalReconciliation() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(timestamp: 21, focusIntent: .keyboard)
+    tracker.record(timestamp: 22, closeIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent
+      )
+    )
+  }
+
+  @Test
   func mouseClickAfterCloseWinsBeforeTopologyNotification() {
     let tracker = UserInputTracker()
     let clickedWindowID = WindowID(rawValue: 30)
@@ -1201,6 +1220,14 @@ struct PlatformEventTests {
   func failedCGWindowInventorySchedulesShortRetry() {
     let platform = MacOSPlatform()
     platform.cgWindowInventoryRetryAttempts = 0
+
+    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
+  }
+
+  @Test @MainActor
+  func retainedWindowSchedulesShortRetryBeforeGraceExpires() {
+    let platform = MacOSPlatform()
+    platform.retainedWindowIDs = [WindowID(rawValue: 42)]
 
     #expect(platform.recommendedWindowListRefreshInterval == 0.1)
   }

@@ -83,9 +83,7 @@ func userInputOccurredAfterWindowTopology(
 ) -> Bool {
   guard let topologyInputTimestamp else { return false }
   guard let latestFocusIntent,
-    latestFocusIntent.timestamp >= topologyInputTimestamp,
-    latestFocusIntent.timestamp >= latestInputTimestamp,
-    latestFocusIntent.timestamp > latestCloseIntentTimestamp
+    latestFocusIntent.timestamp >= topologyInputTimestamp
   else {
     return latestInputTimestamp > topologyInputTimestamp
       && latestInputTimestamp > latestCloseIntentTimestamp
