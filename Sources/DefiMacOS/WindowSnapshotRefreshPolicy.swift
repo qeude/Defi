@@ -98,3 +98,10 @@ func windowIsMouseResizeGestureCandidate(
   mouseResizeGestureObserved
     && mouseGestureWindowID == windowID
 }
+
+func retainedFrameEventWindowIDs(
+  observedFrameEventWindowIDs: Set<WindowID>,
+  retainedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  observedFrameEventWindowIDs.intersection(retainedWindowIDs)
+}

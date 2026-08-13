@@ -311,6 +311,61 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(restored.columns[0].preMaximizedWidth, .fraction(0.7))
   }
 
+  func testTemporaryModalPreservesSiblingWidthEdits() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let sibling = window(84)
+    let modal = window(85)
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: [sibling.id, modal.id],
+        focusedWindow: 0,
+        width: .pixels(700)
+      )
+    ]
+    var observedModal = modal
+    observedModal.floating = true
+    observedModal.floatingOrigin = .automatic
+    reconcileWindows([sibling, observedModal], config: config, state: &state)
+    state.monitors[0].workspaces[0].columns[0].width = .pixels(950)
+    var observedTiled = modal
+    observedTiled.floating = false
+    observedTiled.floatingOrigin = nil
+
+    reconcileWindows([sibling, observedTiled], config: config, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].columns[0].width, .pixels(950))
+  }
+
+  func testRestoredModalKeepsFocusedWindowIdentityAfterColumnShift() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let modal = window(86)
+    let selected = window(87)
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    try discoverWindow(selected, decision: RuleDecision(), state: &state)
+    focusWindow(selected.id, state: &state)
+    var observedModal = modal
+    observedModal.floating = true
+    observedModal.floatingOrigin = .automatic
+    reconcileWindows([modal, selected].map { $0.id == modal.id ? observedModal : $0 }, config: config, state: &state)
+    var observedTiled = modal
+    observedTiled.floating = false
+    observedTiled.floatingOrigin = nil
+
+    reconcileWindows([observedTiled, selected], config: config, state: &state)
+
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), selected.id)
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns.flatMap(\.windows),
+      [modal.id, selected.id]
+    )
+  }
+
   func testFocusedTileBecomingModalRemainsSelectedAsFloater() throws {
     let config = Config()
     var state = RuntimeState(config: config)

@@ -375,6 +375,18 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func frameEventRemainsPendingOnlyForRetainedWindow() {
+    let retained = WindowID(rawValue: 42)
+    let observed = WindowID(rawValue: 43)
+
+    #expect(
+      retainedFrameEventWindowIDs(
+        observedFrameEventWindowIDs: [retained, observed],
+        retainedWindowIDs: [retained]
+      ) == Set([retained])
+    )
+  }
+
   @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
     let window = makeWindow(id: 42)
 

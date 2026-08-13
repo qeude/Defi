@@ -214,6 +214,15 @@ extension MacOSPlatform {
     transientGeometryWindowElementsByProcess =
       transientGeometryWindows.filter { nextApplications[$0.key] != nil }
     retainedWindowIDs = nextRetainedWindowIDs
+    let deferredFrameEventWindowIDs = retainedFrameEventWindowIDs(
+      observedFrameEventWindowIDs: frameWindowIDs,
+      retainedWindowIDs: nextRetainedWindowIDs
+    )
+    observedFrameEventWindowIDs.formUnion(deferredFrameEventWindowIDs)
+    pendingFrameProcessIDs.formUnion(
+      deferredFrameEventWindowIDs.compactMap { nextProcessIDs[$0] }
+    )
+    frameEventPending = !observedFrameEventWindowIDs.isEmpty
     retainedWindowDeadlines = retainedWindowDeadlines.filter {
       nextRetainedWindowIDs.contains($0.key)
     }
@@ -388,7 +397,7 @@ extension MacOSPlatform {
       targetFrames: targetFrames,
       observedFrames: latestObservedFrames
     )
-    frameEventPending = false
+    frameEventPending = !observedFrameEventWindowIDs.isEmpty
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
     pendingFrameCorrections = Dictionary(

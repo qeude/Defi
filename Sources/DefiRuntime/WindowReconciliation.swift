@@ -244,8 +244,14 @@ private func reclassifyAutomaticWindow(
   let wasFocused = workspace.focusedLayer == .floating
     && workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
     && workspace.floatingWindows[workspace.focusedFloatingWindow] == windowID
-  let previousFocusedColumn = workspace.columns.indices.contains(workspace.focusedColumn)
-    ? workspace.focusedColumn
+  let previouslySelectedTiledWindowID = workspace.columns.indices.contains(
+    workspace.focusedColumn
+  ) && workspace.columns[workspace.focusedColumn].windows.indices.contains(
+    workspace.columns[workspace.focusedColumn].focusedWindow
+  )
+    ? workspace.columns[workspace.focusedColumn].windows[
+      workspace.columns[workspace.focusedColumn].focusedWindow
+    ]
     : nil
   let previousTargetScrollOffset = workspace.targetScrollOffset
   removeWindow(windowID, from: &workspace, settings: state.layout)
@@ -261,8 +267,6 @@ private func reclassifyAutomaticWindow(
         windowID,
         at: min(placement.windowIndex, workspace.columns[columnIndex].windows.count)
       )
-      workspace.columns[columnIndex].width = placement.column.width
-      workspace.columns[columnIndex].preMaximizedWidth = placement.column.preMaximizedWidth
     } else {
       var column = placement.column
       column.windows = [windowID]
@@ -285,8 +289,16 @@ private func reclassifyAutomaticWindow(
       workspace.focusedColumn = columnIndex
       workspace.columns[columnIndex].focusedWindow = windowIndex
     }
-  } else if let previousFocusedColumn {
-    workspace.focusedColumn = previousFocusedColumn
+  } else if let previouslySelectedTiledWindowID,
+    let columnIndex = workspace.columns.firstIndex(where: {
+      $0.windows.contains(previouslySelectedTiledWindowID)
+    }),
+    let windowIndex = workspace.columns[columnIndex].windows.firstIndex(
+      of: previouslySelectedTiledWindowID
+    )
+  {
+    workspace.focusedColumn = columnIndex
+    workspace.columns[columnIndex].focusedWindow = windowIndex
     workspace.targetScrollOffset = previousTargetScrollOffset
   }
   state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
