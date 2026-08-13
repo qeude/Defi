@@ -221,6 +221,7 @@ private func toggleFocusedFloating(
   guard let workspaceIndex else { throw ReducerError.noMonitor }
   var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
   if let windowID = effectiveSelectedFloatingWindowID(in: workspace) {
+    state.suspendedTiledPlacements[windowID] = nil
     removeWindow(windowID, from: &workspace, settings: state.layout)
     insertNewWindow(windowID, into: &workspace, settings: state.layout)
     state.windows[windowID]?.floating = false
@@ -232,6 +233,7 @@ private func toggleFocusedFloating(
       throw ReducerError.noFocusedWindow
     }
     let windowID = column.windows[column.focusedWindow]
+    state.suspendedTiledPlacements[windowID] = nil
     removeWindow(windowID, from: &workspace, settings: state.layout)
     workspace.floatingWindows.append(windowID)
     workspace.focusedFloatingWindow = workspace.floatingWindows.count - 1

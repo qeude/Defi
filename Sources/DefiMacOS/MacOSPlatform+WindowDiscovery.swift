@@ -291,6 +291,7 @@ extension MacOSPlatform {
     processID: pid_t?,
     in windows: [Window]
   ) -> WindowID? {
+    guard !nativeFocusEventPending else { return nil }
     guard let processID else { return nil }
     let candidates = windows.filter { $0.processID == processID }
     if let previous = lastFocusedWindowByProcess[processID],

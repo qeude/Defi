@@ -231,9 +231,12 @@ extension MacOSPlatform {
       multipleAttributeReadsSupportedByProcess.filter {
         nextApplications[$0.key] != nil
       }
+    let liveWindowElements = Set(applicationWindows.flatMap { processID, elements in
+      elements.map { AXWindowElementIdentity(processID: processID, element: $0) }
+    })
     failedBatchedWindowAttributeReadsByElement =
       failedBatchedWindowAttributeReadsByElement.filter {
-        nextApplications[$0.key.processID] != nil
+        liveWindowElements.contains($0.key)
       }
     unmatchedWindowElementsByProcess =
       unmatchedWindowElementsByProcess.filter {

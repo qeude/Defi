@@ -149,17 +149,18 @@ extension MacOSPlatform {
         nextApplications[processID] = appElement
         nextApplicationIDs[processID] = appID
         if enhancedUIByProcess[processID] == nil {
-          enhancedUIByProcess[processID] = AXMessagingTimeoutAccess.shared
+          let observedEnhancedUI = AXMessagingTimeoutAccess.shared
             .withTimeout(
               snapshotAccessibilityTimeoutSeconds,
               elements: [appElement]
             ) {
               value(
-              appElement,
-              attribute: "AXEnhancedUserInterface",
-              as: Bool.self
-              ) ?? false
+                appElement,
+                attribute: "AXEnhancedUserInterface",
+                as: Bool.self
+              )
             }
+          enhancedUIByProcess[processID] = observedEnhancedUI
         }
         let cachedApplicationWindows = lastApplicationWindowElements[processID]
         let refreshesWindowList = applicationWindowListRefreshIsRequired(

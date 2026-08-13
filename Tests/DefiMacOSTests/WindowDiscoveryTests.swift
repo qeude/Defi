@@ -67,6 +67,25 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  @MainActor
+  func testPendingNativeFocusDoesNotReuseStableWindow() {
+    let platform = MacOSPlatform()
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+    platform.lastFocusedWindowByProcess[processID] = window.id
+
+    XCTAssertEqual(platform.stableWindowID(processID: processID, in: [window]), window.id)
+
+    platform.nativeFocusEventPending = true
+    XCTAssertNil(platform.stableWindowID(processID: processID, in: [window]))
+  }
+
   func testFocusedAuxiliaryWindowDoesNotSelectDistantManagedWindow() {
     let managed = Window(
       id: WindowID(rawValue: 1),
@@ -672,6 +691,23 @@ struct WindowClassificationReviewFeedbackTests {
     failures[successful] = nil
 
     #expect(failures[failing] == 2)
+  }
+
+  @Test func vanishedWindowRetryIdentityIsRemoved() {
+    let processID: pid_t = 42
+    let vanished = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateApplication(processID)
+    )
+    let live = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateSystemWide()
+    )
+
+    let failures = [vanished: 2, live: 1].filter { [live].contains($0.key) }
+
+    #expect(failures[vanished] == nil)
+    #expect(failures[live] == 1)
   }
 
   @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {

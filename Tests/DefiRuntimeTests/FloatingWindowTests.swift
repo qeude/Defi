@@ -378,6 +378,27 @@ final class FloatingWindowTests: XCTestCase {
     )
   }
 
+  func testManualTilingClearsSuspendedModalPlacement() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var modal = window(93, floating: true)
+    modal.floatingOrigin = .automatic
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    state.suspendedTiledPlacements[modal.id] = SuspendedTiledPlacement(
+      monitorID: monitorID,
+      workspaceID: state.monitors[0].activeWorkspace,
+      columnIndex: 0,
+      windowIndex: 0,
+      column: Column(window: modal.id, width: .pixels(900))
+    )
+
+    try reduce(.toggleFloating, on: monitorID, state: &state)
+
+    XCTAssertNil(state.suspendedTiledPlacements[modal.id])
+    XCTAssertEqual(state.windows[modal.id]?.floatingOrigin, .user)
+  }
+
   func testRestoredModalKeepsFocusedWindowIdentityAfterColumnShift() throws {
     let config = Config()
     var state = RuntimeState(config: config)
