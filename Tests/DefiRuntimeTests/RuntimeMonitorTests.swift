@@ -1,7 +1,8 @@
 import DefiConfig
 import DefiModel
-import DefiRuntime
 import XCTest
+
+@testable import DefiRuntime
 
 final class RuntimeMonitorTests: XCTestCase {
   private let monitorID = MonitorID(rawValue: 1)
@@ -65,6 +66,61 @@ final class RuntimeMonitorTests: XCTestCase {
     XCTAssertEqual(
       state.monitors[0].workspaces[0].columns[0].width,
       .pixels(600)
+    )
+  }
+
+  func testDisconnectedMonitorMigratesAndScalesSuspendedPlacement() {
+    let externalID = MonitorID(rawValue: 2)
+    let workspaceID = WorkspaceID(rawValue: "dev")
+    let modalID = WindowID(rawValue: 10)
+    let config = Config(workspaces: WorkspacesConfig(names: [workspaceID.rawValue]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
+    ]
+    state.monitors[1].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 9), width: .pixels(1_000))
+    ]
+    state.suspendedTiledPlacements[modalID] = SuspendedTiledPlacement(
+      monitorID: externalID,
+      workspaceID: workspaceID,
+      columnIndex: 1,
+      windowIndex: 0,
+      column: Column(
+        windows: [modalID],
+        focusedWindow: 0,
+        width: .pixels(1_200),
+        preMaximizedWidth: .pixels(800)
+      )
+    )
+
+    state.retainMonitors(
+      [monitorID],
+      previousViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900),
+        externalID: Rect(x: 1_500, y: 0, width: 3_000, height: 1_600),
+      ],
+      nextViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900)
+      ]
+    )
+
+    XCTAssertEqual(
+      state.suspendedTiledPlacements[modalID],
+      SuspendedTiledPlacement(
+        monitorID: monitorID,
+        workspaceID: workspaceID,
+        columnIndex: 2,
+        windowIndex: 0,
+        column: Column(
+          windows: [modalID],
+          focusedWindow: 0,
+          width: .pixels(600),
+          preMaximizedWidth: .pixels(400)
+        )
+      )
     )
   }
 
