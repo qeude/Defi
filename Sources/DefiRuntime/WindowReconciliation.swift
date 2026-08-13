@@ -59,7 +59,8 @@ public func discoverWindow(
     insertNewWindow(
       window.id,
       into: &state.monitors[monitorIndex].workspaces[workspaceIndex],
-      settings: state.layout
+      settings: state.layout,
+      focusInsertedWindow: decision.followFocus
     )
     if decision.followFocus {
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
