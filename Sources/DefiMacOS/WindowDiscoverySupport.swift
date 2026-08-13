@@ -34,6 +34,10 @@ struct WindowManagementCapabilities: Equatable {
   let isModal: Bool
 }
 
+func shouldDisableBatchedWindowAttributeReads(failureCount: Int) -> Bool {
+  failureCount >= 3
+}
+
 func fallbackWindowAttributes(
   minimized: () -> Bool?,
   frame: () -> Rect?,

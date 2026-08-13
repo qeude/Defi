@@ -8,6 +8,7 @@ public struct RuntimeState: Equatable, Sendable {
   public var layout: LayoutSettings
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID
+  public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
@@ -16,6 +17,7 @@ public struct RuntimeState: Equatable, Sendable {
     self.layout = LayoutSettings(config: config.layout)
     self.workspaceNames = names
     self.defaultWorkspace = WorkspaceID(rawValue: config.workspaces.defaultName)
+    self.suspendedTiledPlacements = [:]
   }
 
   public mutating func attachMonitor(_ monitorID: MonitorID) {
@@ -148,6 +150,14 @@ public struct RuntimeState: Equatable, Sendable {
     }
     return location.monitorID
   }
+}
+
+public struct SuspendedTiledPlacement: Equatable, Sendable {
+  public let monitorID: MonitorID
+  public let workspaceID: WorkspaceID
+  public let columnIndex: Int
+  public let windowIndex: Int
+  public let column: Column
 }
 
 private func focusedFloatingWindowID(in workspace: Workspace) -> WindowID? {

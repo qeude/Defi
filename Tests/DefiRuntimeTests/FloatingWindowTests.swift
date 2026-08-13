@@ -276,6 +276,41 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
   }
 
+  func testTemporaryModalRestoresStackAndColumnWidth() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let sibling = window(82)
+    let modal = window(83)
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    var workspace = state.monitors[0].workspaces[0]
+    workspace.columns = [
+      Column(
+        windows: [sibling.id, modal.id],
+        focusedWindow: 0,
+        width: .pixels(913),
+        preMaximizedWidth: .fraction(0.7)
+      )
+    ]
+    state.monitors[0].workspaces[0] = workspace
+    var observedModal = modal
+    observedModal.floating = true
+    observedModal.floatingOrigin = .automatic
+    reconcileWindows([sibling, observedModal], config: config, state: &state)
+    var observedTiled = modal
+    observedTiled.floating = false
+    observedTiled.floatingOrigin = nil
+
+    reconcileWindows([sibling, observedTiled], config: config, state: &state)
+
+    let restored = state.monitors[0].workspaces[0]
+    XCTAssertEqual(restored.columns.count, 1)
+    XCTAssertEqual(restored.columns[0].windows, [sibling.id, modal.id])
+    XCTAssertEqual(restored.columns[0].width, .pixels(913))
+    XCTAssertEqual(restored.columns[0].preMaximizedWidth, .fraction(0.7))
+  }
+
   func testFocusedTileBecomingModalRemainsSelectedAsFloater() throws {
     let config = Config()
     var state = RuntimeState(config: config)

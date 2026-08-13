@@ -121,6 +121,7 @@ public func reconcileWindows(
   for existingID in Array(state.windows.keys) where !discoveredIDs.contains(existingID) {
     removeWindowEverywhere(existingID, state: &state)
     state.windows[existingID] = nil
+    state.suspendedTiledPlacements[existingID] = nil
   }
 
   for window in discovered {
@@ -181,6 +182,18 @@ private func reclassifyTiledWindowAsAutomaticFloater(
   }
 
   var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+  guard let columnIndex = workspace.columns.firstIndex(where: {
+    $0.windows.contains(windowID)
+  }),
+    let windowIndex = workspace.columns[columnIndex].windows.firstIndex(of: windowID)
+  else { return }
+  state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+    monitorID: location.monitorID,
+    workspaceID: location.workspaceID,
+    columnIndex: columnIndex,
+    windowIndex: windowIndex,
+    column: workspace.columns[columnIndex]
+  )
   let selectedTiledWindowID = workspace.columns.indices.contains(workspace.focusedColumn)
     && workspace.columns[workspace.focusedColumn].windows.indices.contains(
       workspace.columns[workspace.focusedColumn].focusedWindow
@@ -236,9 +249,42 @@ private func reclassifyAutomaticWindow(
     : nil
   let previousTargetScrollOffset = workspace.targetScrollOffset
   removeWindow(windowID, from: &workspace, settings: state.layout)
-  insertNewWindow(windowID, into: &workspace, settings: state.layout)
+  if let placement = state.suspendedTiledPlacements.removeValue(forKey: windowID),
+    placement.monitorID == location.monitorID,
+    placement.workspaceID == location.workspaceID
+  {
+    let siblings = Set(placement.column.windows.filter { $0 != windowID })
+    if let columnIndex = workspace.columns.firstIndex(where: {
+      !$0.windows.allSatisfy { !siblings.contains($0) }
+    }) {
+      workspace.columns[columnIndex].windows.insert(
+        windowID,
+        at: min(placement.windowIndex, workspace.columns[columnIndex].windows.count)
+      )
+      workspace.columns[columnIndex].width = placement.column.width
+      workspace.columns[columnIndex].preMaximizedWidth = placement.column.preMaximizedWidth
+    } else {
+      var column = placement.column
+      column.windows = [windowID]
+      column.focusedWindow = 0
+      workspace.columns.insert(
+        column,
+        at: min(placement.columnIndex, workspace.columns.count)
+      )
+    }
+  } else {
+    insertNewWindow(windowID, into: &workspace, settings: state.layout)
+  }
   if wasFocused {
     workspace.focusedLayer = .tiled
+    if let columnIndex = workspace.columns.firstIndex(where: {
+      $0.windows.contains(windowID)
+    }),
+      let windowIndex = workspace.columns[columnIndex].windows.firstIndex(of: windowID)
+    {
+      workspace.focusedColumn = columnIndex
+      workspace.columns[columnIndex].focusedWindow = windowIndex
+    }
   } else if let previousFocusedColumn {
     workspace.focusedColumn = previousFocusedColumn
     workspace.targetScrollOffset = previousTargetScrollOffset

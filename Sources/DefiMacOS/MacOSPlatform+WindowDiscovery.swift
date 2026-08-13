@@ -327,10 +327,18 @@ extension MacOSPlatform {
       let attributes = batchedWindowAttributes(element)
     {
       multipleAttributeReadsSupportedByProcess[processID] = true
+      failedBatchedWindowAttributeReadsByProcess[processID] = nil
       batchedWindowAttributeReadCount += 1
       return attributes
     }
     if multipleAttributeReadsSupportedByProcess[processID] != false {
+      let failures = failedBatchedWindowAttributeReadsByProcess[processID, default: 0] + 1
+      failedBatchedWindowAttributeReadsByProcess[processID] = failures
+      if shouldDisableBatchedWindowAttributeReads(failureCount: failures) {
+        multipleAttributeReadsSupportedByProcess[processID] = false
+        failedBatchedWindowAttributeReadsByProcess[processID] = nil
+        return windowAttributes(element, processID: processID)
+      }
       return AXWindowAttributes(
         minimized: nil,
         frame: nil,

@@ -16,6 +16,7 @@ public final class MacOSPlatform {
   var applicationWindowCounts: [pid_t: Int] = [:]
   var enhancedUIByProcess: [pid_t: Bool] = [:]
   var multipleAttributeReadsSupportedByProcess: [pid_t: Bool] = [:]
+  var failedBatchedWindowAttributeReadsByProcess: [pid_t: Int] = [:]
   var batchedWindowAttributeReadCount = 0
   var fallbackWindowAttributeReadCount = 0
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] = [:]

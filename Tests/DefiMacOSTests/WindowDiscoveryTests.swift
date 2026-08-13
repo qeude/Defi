@@ -657,6 +657,12 @@ final class WindowDiscoveryTests: XCTestCase {
 }
 
 struct WindowClassificationReviewFeedbackTests {
+  @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {
+    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 1))
+    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 2))
+    #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 3))
+  }
+
   @Test func quickLookRuleMatchesOnlyAppleServiceBundleID() {
     #expect(
       classifyWindow(
