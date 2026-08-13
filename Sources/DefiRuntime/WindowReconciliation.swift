@@ -194,10 +194,22 @@ private func reclassifyTiledWindowAsAutomaticFloater(
       && $0.column.windows.contains(windowID)
   }
   let originalColumn = priorPlacement?.column ?? workspace.columns[columnIndex]
+  let removedColumnIndices = Set<Int>(state.suspendedTiledPlacements.values.compactMap { placement in
+    guard placement.monitorID == location.monitorID,
+      placement.workspaceID == location.workspaceID,
+      !workspace.columns.contains(where: { column in
+        column.windows.contains(where: placement.column.windows.contains)
+      })
+    else { return nil }
+    return placement.columnIndex
+  })
+  let originalColumnIndex = removedColumnIndices.sorted().reduce(columnIndex) { index, removed in
+    removed <= index ? index + 1 : index
+  }
   state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
     monitorID: location.monitorID,
     workspaceID: location.workspaceID,
-    columnIndex: priorPlacement?.columnIndex ?? columnIndex,
+    columnIndex: priorPlacement?.columnIndex ?? originalColumnIndex,
     windowIndex: originalColumn.windows.firstIndex(of: windowID) ?? windowIndex,
     column: originalColumn
   )
@@ -270,6 +282,9 @@ private func reclassifyAutomaticWindow(
     if let columnIndex = workspace.columns.firstIndex(where: {
       !$0.windows.allSatisfy { !siblings.contains($0) }
     }) {
+      let focusedWindowID = placement.column.windows.indices.contains(
+        placement.column.focusedWindow
+      ) ? placement.column.windows[placement.column.focusedWindow] : nil
       let insertionIndex = workspace.columns[columnIndex].windows.firstIndex { siblingID in
         guard let siblingIndex = placement.column.windows.firstIndex(of: siblingID) else {
           return false
@@ -280,6 +295,13 @@ private func reclassifyAutomaticWindow(
         windowID,
         at: insertionIndex
       )
+      if let focusedWindowID,
+        let focusedWindow = workspace.columns[columnIndex].windows.firstIndex(
+          of: focusedWindowID
+        )
+      {
+        workspace.columns[columnIndex].focusedWindow = focusedWindow
+      }
     } else {
       var column = placement.column
       column.windows = [windowID]

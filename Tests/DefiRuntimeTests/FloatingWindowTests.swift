@@ -364,7 +364,6 @@ final class FloatingWindowTests: XCTestCase {
     secondModal.floating = true
     secondModal.floatingOrigin = .automatic
     reconcileWindows([firstModal, secondModal, windows[2]], config: config, state: &state)
-
     var firstTiled = windows[0]
     firstTiled.floating = false
     reconcileWindows([firstTiled, secondModal, windows[2]], config: config, state: &state)
@@ -376,6 +375,68 @@ final class FloatingWindowTests: XCTestCase {
       state.monitors[0].workspaces[0].columns[0].windows,
       windows.map(\.id)
     )
+  }
+
+  func testConcurrentStandaloneModalsRestoreOriginalColumnOrder() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(94), window(95), window(96)]
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = windows.map {
+      Column(window: $0.id, width: .pixels(900))
+    }
+
+    var firstModal = windows[0]
+    firstModal.floating = true
+    firstModal.floatingOrigin = .automatic
+    var secondModal = windows[1]
+    secondModal.floating = true
+    secondModal.floatingOrigin = .automatic
+    reconcileWindows([firstModal, secondModal, windows[2]], config: config, state: &state)
+
+    var firstTiled = windows[0]
+    firstTiled.floating = false
+    reconcileWindows([firstTiled, secondModal, windows[2]], config: config, state: &state)
+    var secondTiled = windows[1]
+    secondTiled.floating = false
+    reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns.map(\.windows),
+      windows.map { [$0.id] }
+    )
+  }
+
+  func testRestoredModalRestoresInactiveColumnFocus() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(97), window(98), window(99)]
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: windows[0].id, width: .pixels(900)),
+      Column(
+        windows: [windows[1].id, windows[2].id],
+        focusedWindow: 1,
+        width: .pixels(900)
+      ),
+    ]
+    state.monitors[0].workspaces[0].focusedColumn = 0
+
+    var modal = windows[2]
+    modal.floating = true
+    modal.floatingOrigin = .automatic
+    reconcileWindows([windows[0], windows[1], modal], config: config, state: &state)
+    modal.floating = false
+    reconcileWindows([windows[0], windows[1], modal], config: config, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].columns[1].focusedWindow, 1)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), windows[0].id)
   }
 
   func testManualTilingClearsSuspendedModalPlacement() throws {
