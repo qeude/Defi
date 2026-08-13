@@ -268,6 +268,12 @@ extension AXFrameCoordinator {
       let sizeApplied = writeResult.sizeApplied
       let positionApplied = writeResult.positionApplied
       let appliedWrite = sizeApplied && positionApplied
+      let successfulWrite = successfulFrameWriteIntent(
+        positionChanged: item.value.positionChanged,
+        positionApplied: positionApplied,
+        sizeChanged: requiresAsynchronousSizeWrite,
+        sizeApplied: sizeApplied
+      )
       let timeoutConfiguredAt = writeResult.timeoutConfiguredAt
       let positionAppliedAt = writeResult.positionAppliedAt
       let timeoutResetAt = ProcessInfo.processInfo.systemUptime
@@ -278,7 +284,7 @@ extension AXFrameCoordinator {
       {
         recordCompletedActiveSizeWrite(windowID: item.key)
       }
-      if appliedWrite {
+      if successfulWrite.position || successfulWrite.size {
         recordInternalFrameWrite(
           Rect(
             x: point.x,
@@ -287,8 +293,8 @@ extension AXFrameCoordinator {
             height: size.height
           ),
           windowID: item.key,
-          positionChanged: item.value.positionChanged && positionApplied,
-          sizeChanged: requiresAsynchronousSizeWrite && sizeApplied,
+          positionChanged: successfulWrite.position,
+          sizeChanged: successfulWrite.size,
           now: timeoutResetAt
         )
       }

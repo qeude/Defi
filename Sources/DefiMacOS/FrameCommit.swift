@@ -44,6 +44,18 @@ func frameWriteIntent(
   )
 }
 
+func successfulFrameWriteIntent(
+  positionChanged: Bool,
+  positionApplied: Bool,
+  sizeChanged: Bool,
+  sizeApplied: Bool
+) -> FrameWriteIntent {
+  FrameWriteIntent(
+    position: positionChanged && positionApplied,
+    size: sizeChanged && sizeApplied
+  )
+}
+
 func interpolatedFrame(
   from: Rect,
   to: Rect,

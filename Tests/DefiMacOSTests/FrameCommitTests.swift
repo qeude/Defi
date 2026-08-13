@@ -396,6 +396,18 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testSuccessfulFrameWriteIntentKeepsPartialPositionWrite() {
+    XCTAssertEqual(
+      successfulFrameWriteIntent(
+        positionChanged: true,
+        positionApplied: true,
+        sizeChanged: true,
+        sizeApplied: false
+      ),
+      FrameWriteIntent(position: true, size: false)
+    )
+  }
+
   func testCompletedActiveSizeWriteIsNotCarriedIntoReplacement() {
     let coordinator = AXFrameCoordinator()
     let element = AXUIElementCreateSystemWide()
