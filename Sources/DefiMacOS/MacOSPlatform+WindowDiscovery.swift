@@ -323,20 +323,25 @@ extension MacOSPlatform {
     _ element: AXUIElement,
     processID: pid_t
   ) -> AXWindowAttributes {
+    let elementIdentity = AXWindowElementIdentity(
+      processID: processID,
+      element: element
+    )
     if multipleAttributeReadsSupportedByProcess[processID] != false,
       let attributes = batchedWindowAttributes(element)
     {
       multipleAttributeReadsSupportedByProcess[processID] = true
-      failedBatchedWindowAttributeReadsByProcess[processID] = nil
+      failedBatchedWindowAttributeReadsByElement[elementIdentity] = nil
       batchedWindowAttributeReadCount += 1
       return attributes
     }
     if multipleAttributeReadsSupportedByProcess[processID] != false {
-      let failures = failedBatchedWindowAttributeReadsByProcess[processID, default: 0] + 1
-      failedBatchedWindowAttributeReadsByProcess[processID] = failures
+      let failures = failedBatchedWindowAttributeReadsByElement[elementIdentity, default: 0] + 1
+      failedBatchedWindowAttributeReadsByElement[elementIdentity] = failures
       if shouldDisableBatchedWindowAttributeReads(failureCount: failures) {
         multipleAttributeReadsSupportedByProcess[processID] = false
-        failedBatchedWindowAttributeReadsByProcess[processID] = nil
+        failedBatchedWindowAttributeReadsByElement =
+          failedBatchedWindowAttributeReadsByElement.filter { $0.key.processID != processID }
         return windowAttributes(element, processID: processID)
       }
       return AXWindowAttributes(
@@ -464,4 +469,9 @@ extension MacOSPlatform {
   func copyElements(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
     copyAttribute(element, name: attribute) as? [AXUIElement]
   }
+}
+
+struct AXWindowElementIdentity: Hashable {
+  let processID: pid_t
+  let element: AXUIElement
 }

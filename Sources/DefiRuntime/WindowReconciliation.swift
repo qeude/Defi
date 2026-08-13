@@ -188,12 +188,18 @@ private func reclassifyTiledWindowAsAutomaticFloater(
   }),
     let windowIndex = workspace.columns[columnIndex].windows.firstIndex(of: windowID)
   else { return }
+  let priorPlacement = state.suspendedTiledPlacements.values.first {
+    $0.monitorID == location.monitorID
+      && $0.workspaceID == location.workspaceID
+      && $0.column.windows.contains(windowID)
+  }
+  let originalColumn = priorPlacement?.column ?? workspace.columns[columnIndex]
   state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
     monitorID: location.monitorID,
     workspaceID: location.workspaceID,
-    columnIndex: columnIndex,
-    windowIndex: windowIndex,
-    column: workspace.columns[columnIndex]
+    columnIndex: priorPlacement?.columnIndex ?? columnIndex,
+    windowIndex: originalColumn.windows.firstIndex(of: windowID) ?? windowIndex,
+    column: originalColumn
   )
   let selectedTiledWindowID = workspace.columns.indices.contains(workspace.focusedColumn)
     && workspace.columns[workspace.focusedColumn].windows.indices.contains(
@@ -264,9 +270,15 @@ private func reclassifyAutomaticWindow(
     if let columnIndex = workspace.columns.firstIndex(where: {
       !$0.windows.allSatisfy { !siblings.contains($0) }
     }) {
+      let insertionIndex = workspace.columns[columnIndex].windows.firstIndex { siblingID in
+        guard let siblingIndex = placement.column.windows.firstIndex(of: siblingID) else {
+          return false
+        }
+        return siblingIndex > placement.windowIndex
+      } ?? workspace.columns[columnIndex].windows.count
       workspace.columns[columnIndex].windows.insert(
         windowID,
-        at: min(placement.windowIndex, workspace.columns[columnIndex].windows.count)
+        at: insertionIndex
       )
     } else {
       var column = placement.column

@@ -340,6 +340,44 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.monitors[0].workspaces[0].columns[0].width, .pixels(950))
   }
 
+  func testConcurrentTemporaryModalsRestoreOriginalStackOrder() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(90), window(91), window(92)]
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: windows.map(\.id),
+        focusedWindow: 0,
+        width: .fraction(state.layout.defaultColumnWidth)
+      )
+    ]
+
+    var firstModal = windows[0]
+    firstModal.floating = true
+    firstModal.floatingOrigin = .automatic
+    reconcileWindows([firstModal, windows[1], windows[2]], config: config, state: &state)
+    var secondModal = windows[1]
+    secondModal.floating = true
+    secondModal.floatingOrigin = .automatic
+    reconcileWindows([firstModal, secondModal, windows[2]], config: config, state: &state)
+
+    var firstTiled = windows[0]
+    firstTiled.floating = false
+    reconcileWindows([firstTiled, secondModal, windows[2]], config: config, state: &state)
+    var secondTiled = windows[1]
+    secondTiled.floating = false
+    reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[0].windows,
+      windows.map(\.id)
+    )
+  }
+
   func testRestoredModalKeepsFocusedWindowIdentityAfterColumnShift() throws {
     let config = Config()
     var state = RuntimeState(config: config)

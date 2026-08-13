@@ -657,6 +657,23 @@ final class WindowDiscoveryTests: XCTestCase {
 }
 
 struct WindowClassificationReviewFeedbackTests {
+  @Test func successfulSiblingDoesNotClearFailingElementRetries() {
+    let processID: pid_t = 42
+    let failing = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateApplication(processID)
+    )
+    let successful = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateSystemWide()
+    )
+    var failures = [failing: 2]
+
+    failures[successful] = nil
+
+    #expect(failures[failing] == 2)
+  }
+
   @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {
     #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 1))
     #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 2))

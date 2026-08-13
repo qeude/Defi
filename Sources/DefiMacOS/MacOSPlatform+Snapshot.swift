@@ -231,9 +231,9 @@ extension MacOSPlatform {
       multipleAttributeReadsSupportedByProcess.filter {
         nextApplications[$0.key] != nil
       }
-    failedBatchedWindowAttributeReadsByProcess =
-      failedBatchedWindowAttributeReadsByProcess.filter {
-        nextApplications[$0.key] != nil
+    failedBatchedWindowAttributeReadsByElement =
+      failedBatchedWindowAttributeReadsByElement.filter {
+        nextApplications[$0.key.processID] != nil
       }
     unmatchedWindowElementsByProcess =
       unmatchedWindowElementsByProcess.filter {
