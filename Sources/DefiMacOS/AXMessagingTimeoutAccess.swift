@@ -17,7 +17,11 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     elements: [AXUIElement],
     perform: () throws -> Result
   ) rethrows -> Result {
-    let locks = acquireLocks(for: elements)
+    guard let locks = acquireLocks(for: elements) else {
+      // A slow writer already owns the element timeout. Do not block the
+      // main actor waiting for it; run under that existing timeout instead.
+      return try perform()
+    }
     defer { releaseLocks(locks) }
     for element in elements {
       AXUIElementSetMessagingTimeout(element, timeout)
@@ -32,7 +36,7 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
 
   private func acquireLocks(
     for elements: [AXUIElement]
-  ) -> [(key: UInt, lock: NSRecursiveLock)] {
+  ) -> [(key: UInt, lock: NSRecursiveLock)]? {
     let keys = Set(elements.map(elementIdentity)).sorted()
     registryLock.lock()
     let locks = keys.map { key in
@@ -46,10 +50,28 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
       return (key: key, lock: entry.lock)
     }
     registryLock.unlock()
+    var acquired: [(key: UInt, lock: NSRecursiveLock)] = []
     for item in locks {
-      item.lock.lock()
+      guard item.lock.try() else {
+        for acquiredItem in acquired.reversed() {
+          acquiredItem.lock.unlock()
+        }
+        registryLock.lock()
+        for registeredItem in locks {
+          guard var entry = entries[registeredItem.key] else { continue }
+          entry.users -= 1
+          if entry.users == 0 {
+            entries[registeredItem.key] = nil
+          } else {
+            entries[registeredItem.key] = entry
+          }
+        }
+        registryLock.unlock()
+        return nil
+      }
+      acquired.append(item)
     }
-    return locks
+    return acquired
   }
 
   private func releaseLocks(

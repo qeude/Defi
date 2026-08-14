@@ -1,11 +1,52 @@
 import AppKit
 import ApplicationServices
 import DefiModel
+import Foundation
 import Testing
 
 @testable import DefiMacOS
 
+private final class TestAXElement: @unchecked Sendable {
+  let value: AXUIElement
+
+  init(_ value: AXUIElement) {
+    self.value = value
+  }
+}
+
 struct PlatformEventTests {
+  @Test
+  func contendedAXTimeoutAccessDoesNotWaitForTheOwner() throws {
+    let element = TestAXElement(AXUIElementCreateSystemWide())
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+      _ = AXMessagingTimeoutAccess.shared.withTimeout(
+        0.05,
+        elements: [element.value]
+      ) {
+        entered.signal()
+        release.wait()
+        return true
+      }
+    }
+    DispatchQueue.global(qos: .userInitiated).asyncAfter(
+      deadline: .now() + 0.15
+    ) {
+      release.signal()
+    }
+    #expect(entered.wait(timeout: .now() + 1) == .success)
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    _ = AXMessagingTimeoutAccess.shared.withTimeout(
+      0.05,
+      elements: [element.value]
+    ) {
+      true
+    }
+    let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+    #expect(elapsed < 0.1)
+  }
+
   @Test
   func staleFocusRecoveryCannotOverrideNewFocusIntent() {
     #expect(

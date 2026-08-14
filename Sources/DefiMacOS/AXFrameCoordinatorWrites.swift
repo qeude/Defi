@@ -246,18 +246,21 @@ extension AXFrameCoordinator {
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
         let positionApplied =
-          !item.value.positionChanged
-          || accessibilityWriter.applyPosition(
-            item.value,
-            point: point,
-            forceOffscreenAccess: (stagingReentry && item.value.isReentering)
-              || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
-            suppressNativeAnimation: suppressesNativePositionAnimation(
-              stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-              isParked: item.value.isParked,
-              isIntermediate: intermediate
+          isCurrent(generation: frame.generation)
+          && (
+            !item.value.positionChanged
+              || accessibilityWriter.applyPosition(
+                item.value,
+                point: point,
+                forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+                  || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+                suppressNativeAnimation: suppressesNativePositionAnimation(
+                  stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+                  isParked: item.value.isParked,
+                  isIntermediate: intermediate
+                )
+              )
             )
-          )
         return (
           sizeApplied: sizeApplied,
           positionApplied: positionApplied,

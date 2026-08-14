@@ -59,7 +59,10 @@ extension MacOSPlatform {
       {
         submitFocusRecoveryFallback(
           fallback,
-          timestamp: timestamp
+          timestamp: max(
+            timestamp,
+            userInputTracker.latestEventTimestamp
+          )
         )
         return
       }
