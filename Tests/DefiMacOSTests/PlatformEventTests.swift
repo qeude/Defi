@@ -18,6 +18,9 @@ struct PlatformEventTests {
   @Test
   func contendedAXTimeoutAccessDoesNotWaitForTheOwner() throws {
     let element = TestAXElement(AXUIElementCreateSystemWide())
+    let secondary = TestAXElement(
+      AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+    )
     let entered = DispatchSemaphore(value: 0)
     let release = DispatchSemaphore(value: 0)
     DispatchQueue.global(qos: .userInitiated).async {
@@ -39,7 +42,7 @@ struct PlatformEventTests {
     let startedAt = ProcessInfo.processInfo.systemUptime
     _ = AXMessagingTimeoutAccess.shared.withTimeout(
       0.05,
-      elements: [element.value]
+      elements: [element.value, secondary.value]
     ) {
       true
     }

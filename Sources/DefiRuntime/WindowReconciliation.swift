@@ -248,6 +248,24 @@ private func reclassifyTiledWindowAsAutomaticFloater(
   state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
 }
 
+private func focusedWindowAfterSuspension(
+  _ placement: SuspendedTiledPlacement,
+  windowID: WindowID
+) -> WindowID? {
+  let survivingWindows = placement.column.windows.filter { $0 != windowID }
+  guard !survivingWindows.isEmpty else { return nil }
+  guard placement.column.windows.indices.contains(placement.column.focusedWindow) else {
+    return survivingWindows[0]
+  }
+  let savedFocusedWindowID = placement.column.windows[placement.column.focusedWindow]
+  guard savedFocusedWindowID == windowID else {
+    return savedFocusedWindowID
+  }
+  return survivingWindows[
+    min(placement.column.focusedWindow, survivingWindows.count - 1)
+  ]
+}
+
 private func reclassifyAutomaticWindow(
   _ windowID: WindowID,
   observedFloating: Bool,
@@ -291,6 +309,15 @@ private func reclassifyAutomaticWindow(
       let focusedWindowID = placement.column.windows.indices.contains(
         placement.column.focusedWindow
       ) ? placement.column.windows[placement.column.focusedWindow] : nil
+      let expectedFocusedWindowID = focusedWindowAfterSuspension(
+        placement,
+        windowID: windowID
+      )
+      let currentFocusedWindowID = workspace.columns[columnIndex].windows.indices.contains(
+        workspace.columns[columnIndex].focusedWindow
+      ) ? workspace.columns[columnIndex].windows[
+        workspace.columns[columnIndex].focusedWindow
+      ] : nil
       let insertionIndex = workspace.columns[columnIndex].windows.firstIndex { siblingID in
         guard let siblingIndex = placement.column.windows.firstIndex(of: siblingID) else {
           return false
@@ -301,7 +328,21 @@ private func reclassifyAutomaticWindow(
         windowID,
         at: insertionIndex
       )
-      if let focusedWindowID,
+      if let currentFocusedWindowID,
+        let currentFocusedWindow = workspace.columns[columnIndex].windows.firstIndex(
+          of: currentFocusedWindowID
+        )
+      {
+        workspace.columns[columnIndex].focusedWindow = currentFocusedWindow
+        if currentFocusedWindowID == expectedFocusedWindowID,
+          let focusedWindowID,
+          let focusedWindow = workspace.columns[columnIndex].windows.firstIndex(
+            of: focusedWindowID
+          )
+        {
+          workspace.columns[columnIndex].focusedWindow = focusedWindow
+        }
+      } else if let focusedWindowID,
         let focusedWindow = workspace.columns[columnIndex].windows.firstIndex(
           of: focusedWindowID
         )

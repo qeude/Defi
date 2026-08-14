@@ -9,6 +9,11 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     var users: Int
   }
 
+  private struct LockAcquisition {
+    let locks: [(key: UInt, lock: NSRecursiveLock)]
+    let ownedKeys: Set<UInt>
+  }
+
   private let registryLock = NSLock()
   private var entries: [UInt: LockEntry] = [:]
 
@@ -17,26 +22,22 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     elements: [AXUIElement],
     perform: () throws -> Result
   ) rethrows -> Result {
-    guard let locks = acquireLocks(for: elements) else {
-      // A slow writer already owns the element timeout. Do not block the
-      // main actor waiting for it; run under that existing timeout instead.
-      return try perform()
+    let acquisition = acquireLocks(for: elements)
+    defer {
+      releaseLocks(acquisition, elements: elements)
     }
-    defer { releaseLocks(locks) }
+    // Keep each operation bounded even when another caller owns one of the
+    // shared elements. Timeout writes are cheap and the reset is deferred
+    // until the last user releases the entry.
     for element in elements {
       AXUIElementSetMessagingTimeout(element, timeout)
-    }
-    defer {
-      for element in elements.reversed() {
-        AXUIElementSetMessagingTimeout(element, 0)
-      }
     }
     return try perform()
   }
 
   private func acquireLocks(
     for elements: [AXUIElement]
-  ) -> [(key: UInt, lock: NSRecursiveLock)]? {
+  ) -> LockAcquisition {
     let keys = Set(elements.map(elementIdentity)).sorted()
     registryLock.lock()
     let locks = keys.map { key in
@@ -50,47 +51,49 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
       return (key: key, lock: entry.lock)
     }
     registryLock.unlock()
-    var acquired: [(key: UInt, lock: NSRecursiveLock)] = []
+    var ownedKeys = Set<UInt>()
     for item in locks {
-      guard item.lock.try() else {
-        for acquiredItem in acquired.reversed() {
-          acquiredItem.lock.unlock()
-        }
-        registryLock.lock()
-        for registeredItem in locks {
-          guard var entry = entries[registeredItem.key] else { continue }
-          entry.users -= 1
-          if entry.users == 0 {
-            entries[registeredItem.key] = nil
-          } else {
-            entries[registeredItem.key] = entry
-          }
-        }
-        registryLock.unlock()
-        return nil
+      if item.lock.try() {
+        ownedKeys.insert(item.key)
       }
-      acquired.append(item)
     }
-    return acquired
+    return LockAcquisition(locks: locks, ownedKeys: ownedKeys)
   }
 
   private func releaseLocks(
-    _ locks: [(key: UInt, lock: NSRecursiveLock)]
+    _ acquisition: LockAcquisition,
+    elements: [AXUIElement]
   ) {
-    for item in locks.reversed() {
-      item.lock.unlock()
+    var elementsByKey: [UInt: AXUIElement] = [:]
+    for element in elements {
+      elementsByKey[elementIdentity(element)] = element
     }
     registryLock.lock()
-    for item in locks {
+    for item in acquisition.locks {
       guard var entry = entries[item.key] else { continue }
       entry.users -= 1
       if entry.users == 0 {
+        if !acquisition.ownedKeys.contains(item.key), !item.lock.try() {
+          entry.users = 1
+          entries[item.key] = entry
+          continue
+        }
+        if let element = elementsByKey[item.key] {
+          AXUIElementSetMessagingTimeout(element, 0)
+        }
+        if !acquisition.ownedKeys.contains(item.key) {
+          item.lock.unlock()
+        }
         entries[item.key] = nil
       } else {
         entries[item.key] = entry
       }
     }
     registryLock.unlock()
+    for item in acquisition.locks.reversed()
+    where acquisition.ownedKeys.contains(item.key) {
+      item.lock.unlock()
+    }
   }
 
   private func elementIdentity(_ element: AXUIElement) -> UInt {

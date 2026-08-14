@@ -447,6 +447,46 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.selectedWindowID(on: monitorID), windows[0].id)
   }
 
+  func testRestoredModalPreservesNewerFocusInsideItsStack() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(100), window(101), window(102)]
+    for item in windows {
+      try discoverWindow(item, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: windows.map(\.id),
+        focusedWindow: 0,
+        width: .pixels(900)
+      )
+    ]
+    state.monitors[0].workspaces[0].focusedColumn = 0
+
+    var modal = windows[0]
+    modal.floating = true
+    modal.floatingOrigin = .automatic
+    reconcileWindows([modal, windows[1], windows[2]], config: config, state: &state)
+    state.monitors[0].workspaces[0].focusedLayer = .tiled
+    state.monitors[0].workspaces[0].columns[0].focusedWindow = 1
+
+    var restored = modal
+    restored.floating = false
+    restored.floatingOrigin = nil
+    reconcileWindows(
+      [restored, windows[1], windows[2]],
+      config: config,
+      state: &state
+    )
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[0].focusedWindow,
+      2
+    )
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), windows[2].id)
+  }
+
   func testManualTilingClearsSuspendedModalPlacement() throws {
     let config = Config()
     var state = RuntimeState(config: config)
