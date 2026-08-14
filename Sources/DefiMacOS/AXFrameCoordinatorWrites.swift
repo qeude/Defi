@@ -391,6 +391,14 @@ extension AXFrameCoordinator {
     lock.unlock()
   }
 
+  func pruneRecentInternalFrameWrites(liveWindowIDs: Set<WindowID>) {
+    lock.lock()
+    recentInternalFrameWrites = recentInternalFrameWrites.filter {
+      liveWindowIDs.contains($0.key)
+    }
+    lock.unlock()
+  }
+
   func recordCompletedActiveSizeWrite(windowID: WindowID) {
     lock.lock()
     activeWrites.removeValue(forKey: windowID)

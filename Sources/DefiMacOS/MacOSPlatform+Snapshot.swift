@@ -276,6 +276,9 @@ extension MacOSPlatform {
       requiredFrameWindows: requiredFrameWindows,
       transientGeometryWindows: transientGeometryWindows
     )
+    frameCoordinator.pruneRecentInternalFrameWrites(
+      liveWindowIDs: Set(nextElements.keys)
+    )
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
     pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }
     latestObservedFrames = latestObservedFrames.filter {

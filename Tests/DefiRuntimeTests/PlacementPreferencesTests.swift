@@ -166,7 +166,7 @@ final class PlacementPreferencesTests: XCTestCase {
     preferences.invalidatePreference(for: window)
 
     XCTAssertNil(preferences.preference(for: window))
-    XCTAssertEqual(preferences.suppressedApplications, ["com.example.chat"])
+    XCTAssertEqual(preferences.suppressedWindowIDs, [window.id])
   }
 
   func testSuppressedPreferenceSurvivesSiblingRecordingUntilReclassification() throws {
@@ -202,6 +202,21 @@ final class PlacementPreferencesTests: XCTestCase {
     preferences.invalidatePreference(for: automatic)
     preferences.recordPlacements(from: state)
     XCTAssertNil(preferences.preference(for: automatic))
+    XCTAssertEqual(
+      preferences.preference(for: sibling)?.workspaceID,
+      WorkspaceID(rawValue: "dev")
+    )
+
+    var reclassified = automatic
+    reclassified.floating = false
+    reclassified.floatingOrigin = nil
+    state.windows[automatic.id] = reclassified
+    preferences.recordPlacements(from: state)
+    XCTAssertTrue(preferences.suppressedWindowIDs.isEmpty)
+    XCTAssertEqual(
+      preferences.preference(for: reclassified)?.workspaceID,
+      WorkspaceID(rawValue: "dev")
+    )
 
     state.windows[automatic.id] = nil
     preferences.recordPlacements(from: state)

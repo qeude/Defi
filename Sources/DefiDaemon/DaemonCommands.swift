@@ -139,7 +139,7 @@ extension Daemon {
         let movedWindow = state.windows[movedWindowID],
         movedWindow.floatingOrigin == .automatic
       {
-        placementPreferences.invalidatePreference(for: movedWindow)
+        invalidatePlacementPreference(for: movedWindow)
       }
       if !switchesWorkspace,
         let submittedCommandFocus,

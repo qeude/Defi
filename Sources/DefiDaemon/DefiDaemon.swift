@@ -150,6 +150,7 @@ final class Daemon: NSObject {
   let placementStore: PlacementStore
   var state: RuntimeState
   var placementPreferences: PlacementPreferences
+  var placementPreferencesDirty = false
   var hotKeys: HotKeyManager?
   var menuBar: MenuBarController?
   var timer: DispatchSourceTimer?

@@ -451,6 +451,28 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testPruningRecentInternalWritesDropsClosedWindows() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 42)
+    coordinator.recordInternalFrameWrite(
+      Rect(x: 100, y: 40, width: 900, height: 700),
+      windowID: windowID,
+      positionChanged: true,
+      sizeChanged: true,
+      now: 10
+    )
+
+    coordinator.pruneRecentInternalFrameWrites(liveWindowIDs: [])
+
+    XCTAssertFalse(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: Rect(x: 100, y: 40, width: 900, height: 700),
+        now: 10.1
+      )
+    )
+  }
+
   func testSuccessfulFrameWriteIntentKeepsPartialPositionWrite() {
     XCTAssertEqual(
       successfulFrameWriteIntent(

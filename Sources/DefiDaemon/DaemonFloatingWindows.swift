@@ -33,7 +33,7 @@ func updateFloatingWindowFrames(
         if let movedWindow = state.windows[window.id],
           movedWindow.floatingOrigin == .automatic
         {
-          placementPreferences.invalidatePreference(for: movedWindow)
+          invalidatePlacementPreference(for: movedWindow)
         }
         reassignedMonitorIDs[window.id] = targetMonitorID
       }
