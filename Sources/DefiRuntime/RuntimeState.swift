@@ -84,7 +84,17 @@ public struct RuntimeState: Equatable, Sendable {
         else {
           continue
         }
-        let columnOffset = monitors[fallbackIndex].workspaces[target].columns.count
+        let targetWorkspace = monitors[fallbackIndex].workspaces[target]
+        let suspendedColumnCount = Set<Int>(suspendedTiledPlacements.values.compactMap { placement in
+          guard placement.monitorID == monitors[fallbackIndex].id,
+            placement.workspaceID == workspace.id,
+            !targetWorkspace.columns.contains(where: { column in
+              column.windows.contains(where: placement.column.windows.contains)
+            })
+          else { return nil }
+          return placement.columnIndex
+        }).count
+        let columnOffset = targetWorkspace.columns.count + suspendedColumnCount
         migrateSuspendedPlacements(
           from: monitor.id,
           to: monitors[fallbackIndex].id,

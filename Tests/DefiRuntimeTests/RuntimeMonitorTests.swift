@@ -124,6 +124,47 @@ final class RuntimeMonitorTests: XCTestCase {
     )
   }
 
+  func testDisconnectedMonitorPlacesMigratedSuspensionAfterTargetSuspensions() {
+    let externalID = MonitorID(rawValue: 2)
+    let workspaceID = WorkspaceID(rawValue: "dev")
+    let targetModalID = WindowID(rawValue: 8)
+    let sourceModalID = WindowID(rawValue: 10)
+    let config = Config(workspaces: WorkspacesConfig(names: [workspaceID.rawValue]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
+    ]
+    state.suspendedTiledPlacements[targetModalID] = SuspendedTiledPlacement(
+      monitorID: monitorID,
+      workspaceID: workspaceID,
+      columnIndex: 1,
+      windowIndex: 0,
+      column: Column(window: targetModalID, width: .pixels(600))
+    )
+    state.suspendedTiledPlacements[sourceModalID] = SuspendedTiledPlacement(
+      monitorID: externalID,
+      workspaceID: workspaceID,
+      columnIndex: 1,
+      windowIndex: 0,
+      column: Column(window: sourceModalID, width: .pixels(600))
+    )
+
+    state.retainMonitors(
+      [monitorID],
+      previousViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900),
+        externalID: Rect(x: 1_500, y: 0, width: 3_000, height: 1_600),
+      ],
+      nextViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900)
+      ]
+    )
+
+    XCTAssertEqual(state.suspendedTiledPlacements[sourceModalID]?.columnIndex, 3)
+  }
+
   func testReboundFocusMonitorRequiresMigratedWindowToRemainSelected() {
     let externalID = MonitorID(rawValue: 2)
     let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))

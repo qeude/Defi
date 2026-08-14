@@ -396,6 +396,29 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testInvalidationRetainsRecentInternalWriteHistory() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 42)
+    let frame = Rect(x: 100, y: 40, width: 900, height: 700)
+
+    coordinator.recordInternalFrameWrite(
+      frame,
+      windowID: windowID,
+      positionChanged: true,
+      sizeChanged: true,
+      now: 10
+    )
+    coordinator.invalidate(reason: "display-change")
+
+    XCTAssertTrue(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: frame,
+        now: 10.1
+      )
+    )
+  }
+
   func testSuccessfulFrameWriteIntentKeepsPartialPositionWrite() {
     XCTAssertEqual(
       successfulFrameWriteIntent(

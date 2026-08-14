@@ -398,6 +398,13 @@ struct PointerFocusTests {
     #expect(
       !commandFocusIsPreserved(
         pendingWindowID: nil,
+        submittedWindowID: WindowID(rawValue: 43),
+        selectedWindowID: windowID
+      )
+    )
+    #expect(
+      !commandFocusIsPreserved(
+        pendingWindowID: nil,
         submittedWindowID: nil,
         selectedWindowID: windowID
       )

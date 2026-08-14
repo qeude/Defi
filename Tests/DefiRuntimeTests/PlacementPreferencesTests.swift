@@ -295,4 +295,48 @@ final class PlacementPreferencesTests: XCTestCase {
       WorkspaceID(rawValue: "dev")
     )
   }
+
+  func testInitiallyAutomaticWindowUsesPersistedPlacementWhenTiled() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 12),
+      appID: "com.example.chat",
+      title: "Updating",
+      frame: Rect(x: 100, y: 100, width: 400, height: 300),
+      monitorID: monitorID,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    let preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web"),
+          monitorID: monitorID
+        )
+      ]
+    )
+
+    reconcileWindows(
+      [window],
+      config: config,
+      placementPreferences: preferences,
+      state: &state
+    )
+    var tiled = window
+    tiled.floating = false
+    tiled.floatingOrigin = nil
+    reconcileWindows(
+      [tiled],
+      config: config,
+      placementPreferences: preferences,
+      state: &state
+    )
+
+    XCTAssertEqual(
+      state.location(containing: window.id)?.workspaceID,
+      WorkspaceID(rawValue: "web")
+    )
+  }
 }

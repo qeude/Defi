@@ -134,6 +134,18 @@ extension Daemon {
         pendingWorkspaceFocus = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)
+      if !switchesWorkspace,
+        let submittedCommandFocus,
+        let commandMonitorID,
+        let selectedWindowID = state.selectedWindowID(on: commandMonitorID),
+        !commandFocusIsPreserved(
+          pendingWindowID: nil,
+          submittedWindowID: submittedCommandFocus.windowID,
+          selectedWindowID: selectedWindowID
+        )
+      {
+        invalidateSubmittedCommandFocus()
+      }
       persistPlacements()
       updateMenuBar()
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
