@@ -298,6 +298,95 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func retainedWindowSchedulesImmediateProcessRefresh() {
+    let retainedWindowID = WindowID(rawValue: 42)
+    let unrelatedWindowID = WindowID(rawValue: 43)
+    let retryProcessIDs = retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: [retainedWindowID],
+      processIDs: [
+        retainedWindowID: 101,
+        unrelatedWindowID: 202,
+      ]
+    )
+
+    #expect(retryProcessIDs == [101])
+    #expect(
+      incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: true,
+        eventPending: false,
+        requiresFullSnapshot: false,
+        processIDs: [],
+        coalescedProcessIDs: retryProcessIDs,
+        allowsCoalescedProcessRefresh: true,
+        allowsCachedRefresh: true
+      ) == [101]
+    )
+  }
+
+  @Test func externalFrameChangeTargetsOnlyEmittingWindow() {
+    let emittedWindowID = WindowID(rawValue: 42)
+    let siblingWindowID = WindowID(rawValue: 43)
+
+    #expect(
+      windowHasExternalFrameChange(
+        emittedWindowID,
+        pendingFrameWindowIDs: [emittedWindowID]
+      )
+    )
+    #expect(
+      windowHasExternalFrameChange(
+        siblingWindowID,
+        pendingFrameWindowIDs: [emittedWindowID]
+      ) == false
+    )
+    #expect(
+      windowHasExternalFrameChange(
+        emittedWindowID,
+        pendingFrameWindowIDs: [emittedWindowID],
+        matchesRecentInternalWrite: true
+      ) == false
+    )
+  }
+
+  @Test func mouseResizeAlwaysAdoptsTheGestureWindow() {
+    let resizedWindowID = WindowID(rawValue: 42)
+    let siblingWindowID = WindowID(rawValue: 43)
+
+    #expect(
+      windowIsMouseResizeGestureCandidate(
+        resizedWindowID,
+        mouseGestureWindowID: resizedWindowID,
+        mouseResizeGestureObserved: true
+      )
+    )
+    #expect(
+      windowIsMouseResizeGestureCandidate(
+        siblingWindowID,
+        mouseGestureWindowID: resizedWindowID,
+        mouseResizeGestureObserved: true
+      ) == false
+    )
+    #expect(
+      windowIsMouseResizeGestureCandidate(
+        resizedWindowID,
+        mouseGestureWindowID: resizedWindowID,
+        mouseResizeGestureObserved: false
+      ) == false
+    )
+  }
+
+  @Test func frameEventRemainsPendingOnlyForRetainedWindow() {
+    let retained = WindowID(rawValue: 42)
+    let observed = WindowID(rawValue: 43)
+
+    #expect(
+      retainedFrameEventWindowIDs(
+        observedFrameEventWindowIDs: [retained, observed],
+        retainedWindowIDs: [retained]
+      ) == Set([retained])
+    )
+  }
+
   @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
     let window = makeWindow(id: 42)
 

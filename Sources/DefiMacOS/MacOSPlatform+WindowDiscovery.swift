@@ -6,6 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
+private let focusSnapshotAccessibilityTimeoutSeconds: Float = 0.05
 @MainActor
 extension MacOSPlatform {
 
@@ -122,6 +123,7 @@ extension MacOSPlatform {
         appID: window.appID,
         hasCloseButton: false,
         canResize: false,
+        isModal: false,
         configuredFloating: configuredFloating,
         forceTiling: forceTiling
       )
@@ -130,12 +132,32 @@ extension MacOSPlatform {
       let capabilities = windowManagementCapabilities[window.id]
     {
       windowManagementMetadataReuseCount += 1
+      var modalState = capabilities.isModal
+      var modalValue: CFTypeRef?
+      let modalError = AXUIElementCopyAttributeValue(
+        element,
+        kAXModalAttribute as CFString,
+        &modalValue
+      )
+      if let refreshedModalState = resolvedWindowModalState(
+        error: modalError,
+        observedValue: modalValue as? Bool,
+        cachedValue: capabilities.isModal
+      ) {
+        modalState = refreshedModalState
+        windowManagementCapabilities[window.id] = WindowManagementCapabilities(
+          hasCloseButton: capabilities.hasCloseButton,
+          canResize: capabilities.canResize,
+          isModal: refreshedModalState
+        )
+      }
       return classifyWindow(
         role: window.role,
         subrole: window.subrole,
         appID: window.appID,
         hasCloseButton: capabilities.hasCloseButton,
         canResize: capabilities.canResize,
+        isModal: modalState,
         configuredFloating: false,
         forceTiling: false
       )
@@ -153,6 +175,19 @@ extension MacOSPlatform {
       kAXSizeAttribute as CFString,
       &sizeSettable
     )
+    var modalValue: CFTypeRef?
+    let modalError = AXUIElementCopyAttributeValue(
+      element,
+      kAXModalAttribute as CFString,
+      &modalValue
+    )
+    guard let isModal = resolvedWindowModalState(
+      error: modalError,
+      observedValue: modalValue as? Bool,
+      cachedValue: windowManagementCapabilities[window.id]?.isModal
+    ) else {
+      return previousDisposition ?? .unavailable
+    }
     if !configuredFloating,
       !forceTiling,
       let fallbackDisposition = fallbackDispositionForTransientWindowMetadata(
@@ -174,7 +209,8 @@ extension MacOSPlatform {
       canResize: windowCanResize(
         sizeSettableError: sizeSettableError,
         isSettable: sizeSettable.boolValue
-      )
+      ),
+      isModal: isModal
     )
     windowManagementCapabilities[window.id] = capabilities
     return classifyWindow(
@@ -183,6 +219,7 @@ extension MacOSPlatform {
       appID: window.appID,
       hasCloseButton: capabilities.hasCloseButton,
       canResize: capabilities.canResize,
+      isModal: capabilities.isModal,
       configuredFloating: configuredFloating,
       forceTiling: forceTiling
     )
@@ -192,25 +229,39 @@ extension MacOSPlatform {
     in windows: [Window]
   ) -> WindowID? {
     let frontmostProcessID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-    var focusedApplication: CFTypeRef?
     let system = AXUIElementCreateSystemWide()
+    let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
+      .withTimeout(
+        focusSnapshotAccessibilityTimeoutSeconds,
+        elements: [system]
+      ) {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+          system,
+          kAXFocusedApplicationAttribute as CFString,
+          &value
+        ) == .success else {
+          return nil
+        }
+        return value
+      }
     guard
-      AXUIElementCopyAttributeValue(
-        system,
-        kAXFocusedApplicationAttribute as CFString,
-        &focusedApplication
-      ) == .success,
       let focusedApplication
     else {
       return stableWindowID(processID: frontmostProcessID, in: windows)
     }
     var focusedProcessID: pid_t = 0
-    guard
+    let focusedApplicationElement = focusedApplication as! AXUIElement
+    let readFocusedProcessID = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds,
+      elements: [focusedApplicationElement]
+    ) {
       AXUIElementGetPid(
-        focusedApplication as! AXUIElement,
+        focusedApplicationElement,
         &focusedProcessID
       ) == .success
-    else {
+    }
+    guard readFocusedProcessID else {
       return stableWindowID(processID: frontmostProcessID, in: windows)
     }
     let resolvedProcessID = consistentFocusedProcessID(
@@ -220,22 +271,32 @@ extension MacOSPlatform {
     guard resolvedProcessID == focusedProcessID else {
       return nil
     }
-    var focusedWindow: CFTypeRef?
-    guard
-      AXUIElementCopyAttributeValue(
-        focusedApplication as! AXUIElement,
+    let focusedWindow: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds,
+      elements: [focusedApplicationElement]
+    ) {
+      var value: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(
+        focusedApplicationElement,
         kAXFocusedWindowAttribute as CFString,
-        &focusedWindow
-      ) == .success,
-      let focusedWindow
-    else {
+        &value
+      ) == .success else {
+        return nil
+      }
+      return value
+    }
+    guard let focusedWindow else {
       return stableWindowID(processID: focusedProcessID, in: windows)
     }
     let focusedElement = focusedWindow as! AXUIElement
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
       return exact.key
     }
-    guard let focusedFrame = frame(of: focusedElement) else {
+    guard let focusedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds,
+      elements: [focusedElement],
+      perform: { frame(of: focusedElement) }
+    ) else {
       return stableWindowID(processID: focusedProcessID, in: windows)
     }
     return focusedWindowIDMatchingFrame(
@@ -249,6 +310,7 @@ extension MacOSPlatform {
     processID: pid_t?,
     in windows: [Window]
   ) -> WindowID? {
+    guard !nativeFocusEventPending else { return nil }
     guard let processID else { return nil }
     let candidates = windows.filter { $0.processID == processID }
     if let previous = lastFocusedWindowByProcess[processID],
@@ -281,12 +343,34 @@ extension MacOSPlatform {
     _ element: AXUIElement,
     processID: pid_t
   ) -> AXWindowAttributes {
+    let elementIdentity = AXWindowElementIdentity(
+      processID: processID,
+      element: element
+    )
     if multipleAttributeReadsSupportedByProcess[processID] != false,
       let attributes = batchedWindowAttributes(element)
     {
       multipleAttributeReadsSupportedByProcess[processID] = true
+      failedBatchedWindowAttributeReadsByElement[elementIdentity] = nil
       batchedWindowAttributeReadCount += 1
       return attributes
+    }
+    if multipleAttributeReadsSupportedByProcess[processID] != false {
+      let failures = failedBatchedWindowAttributeReadsByElement[elementIdentity, default: 0] + 1
+      failedBatchedWindowAttributeReadsByElement[elementIdentity] = failures
+      if shouldDisableBatchedWindowAttributeReads(failureCount: failures) {
+        multipleAttributeReadsSupportedByProcess[processID] = false
+        failedBatchedWindowAttributeReadsByElement =
+          failedBatchedWindowAttributeReadsByElement.filter { $0.key.processID != processID }
+        return windowAttributes(element, processID: processID)
+      }
+      return AXWindowAttributes(
+        minimized: nil,
+        frame: nil,
+        title: "",
+        role: nil,
+        subrole: nil
+      )
     }
     fallbackWindowAttributeReadCount += 1
     return fallbackWindowAttributes(
@@ -405,4 +489,9 @@ extension MacOSPlatform {
   func copyElements(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
     copyAttribute(element, name: attribute) as? [AXUIElement]
   }
+}
+
+struct AXWindowElementIdentity: Hashable {
+  let processID: pid_t
+  let element: AXUIElement
 }

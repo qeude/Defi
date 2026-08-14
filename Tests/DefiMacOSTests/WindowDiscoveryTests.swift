@@ -1,5 +1,6 @@
 import ApplicationServices
 import DefiModel
+import Testing
 import XCTest
 
 @testable import DefiMacOS
@@ -7,6 +8,35 @@ import XCTest
 final class WindowDiscoveryTests: XCTestCase {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
+
+  func testTransientWindowOmissionExpiresAfterGracePeriod() {
+    let windowID = WindowID(rawValue: 42)
+    let first = retainedWindowIDsWithinGracePeriod(
+      [windowID],
+      previousDeadlines: [:],
+      now: 10,
+      gracePeriod: 0.75
+    )
+    XCTAssertEqual(first.windowIDs, [windowID])
+    XCTAssertEqual(first.deadlines[windowID], 10.75)
+
+    let pending = retainedWindowIDsWithinGracePeriod(
+      [windowID],
+      previousDeadlines: first.deadlines,
+      now: 10.7,
+      gracePeriod: 0.75
+    )
+    XCTAssertEqual(pending.windowIDs, [windowID])
+
+    let expired = retainedWindowIDsWithinGracePeriod(
+      [windowID],
+      previousDeadlines: first.deadlines,
+      now: 10.75,
+      gracePeriod: 0.75
+    )
+    XCTAssertTrue(expired.windowIDs.isEmpty)
+    XCTAssertTrue(expired.deadlines.isEmpty)
+  }
 
   func testTransientProcessDisagreementDefersFocusResolution() {
     XCTAssertNil(
@@ -35,6 +65,25 @@ final class WindowDiscoveryTests: XCTestCase {
       ),
       42
     )
+  }
+
+  @MainActor
+  func testPendingNativeFocusDoesNotReuseStableWindow() {
+    let platform = MacOSPlatform()
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+    platform.lastFocusedWindowByProcess[processID] = window.id
+
+    XCTAssertEqual(platform.stableWindowID(processID: processID, in: [window]), window.id)
+
+    platform.nativeFocusEventPending = true
+    XCTAssertNil(platform.stableWindowID(processID: processID, in: [window]))
   }
 
   func testFocusedAuxiliaryWindowDoesNotSelectDistantManagedWindow() {
@@ -426,6 +475,37 @@ final class WindowDiscoveryTests: XCTestCase {
     }
   }
 
+  func testModalStandardWindowFloatsEvenWhenResizable() {
+    XCTAssertEqual(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "com.example.app",
+        hasCloseButton: true,
+        canResize: true,
+        isModal: true,
+        configuredFloating: false,
+        forceTiling: false
+      ),
+      .floating
+    )
+  }
+
+  func testQuickLookServiceWindowFloatsEvenWhenStandard() {
+    XCTAssertEqual(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "com.apple.quicklook.QuickLookUIService",
+        hasCloseButton: true,
+        canResize: true,
+        configuredFloating: false,
+        forceTiling: false
+      ),
+      .floating
+    )
+  }
+
   func testConfiguredFloatingTracksUnknownAuxiliaryWindow() {
     XCTAssertEqual(
       classifyWindow(
@@ -507,6 +587,32 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testTransientModalReadPreservesCachedValue() {
+    XCTAssertEqual(
+      resolvedWindowModalState(
+        error: .cannotComplete,
+        observedValue: nil,
+        cachedValue: true
+      ),
+      true
+    )
+    XCTAssertNil(
+      resolvedWindowModalState(
+        error: .cannotComplete,
+        observedValue: nil,
+        cachedValue: nil
+      )
+    )
+    XCTAssertEqual(
+      resolvedWindowModalState(
+        error: .attributeUnsupported,
+        observedValue: nil,
+        cachedValue: true
+      ),
+      false
+    )
+  }
+
   func testMissingCloseButtonRemainsUnmanaged() {
     XCTAssertFalse(
       shouldTreatWindowAsClosable(
@@ -565,6 +671,73 @@ final class WindowDiscoveryTests: XCTestCase {
         focusWritePending: false,
         targetWasLastFocused: true
       )
+    )
+  }
+}
+
+struct WindowClassificationReviewFeedbackTests {
+  @Test func successfulSiblingDoesNotClearFailingElementRetries() {
+    let processID: pid_t = 42
+    let failing = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateApplication(processID)
+    )
+    let successful = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateSystemWide()
+    )
+    var failures = [failing: 2]
+
+    failures[successful] = nil
+
+    #expect(failures[failing] == 2)
+  }
+
+  @Test func vanishedWindowRetryIdentityIsRemoved() {
+    let processID: pid_t = 42
+    let vanished = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateApplication(processID)
+    )
+    let live = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateSystemWide()
+    )
+
+    let failures = [vanished: 2, live: 1].filter { [live].contains($0.key) }
+
+    #expect(failures[vanished] == nil)
+    #expect(failures[live] == 1)
+  }
+
+  @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {
+    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 1))
+    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 2))
+    #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 3))
+  }
+
+  @Test func quickLookRuleMatchesOnlyAppleServiceBundleID() {
+    #expect(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE",
+        hasCloseButton: true,
+        canResize: true,
+        configuredFloating: false,
+        forceTiling: false
+      ) == .floating
+    )
+    #expect(
+      classifyWindow(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        appID: "com.example.quicklook.editor",
+        hasCloseButton: true,
+        canResize: true,
+        configuredFloating: false,
+        forceTiling: false
+      ) == .tiled
     )
   }
 }

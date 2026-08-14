@@ -226,37 +226,85 @@ extension AXFrameCoordinator {
         intermediate
         ? min(item.value.timeoutSeconds, intermediateTimeout)
         : max(item.value.timeoutSeconds, 0.016)
-      AXUIElementSetMessagingTimeout(item.value.application, timeout)
-      AXUIElementSetMessagingTimeout(item.value.element, timeout)
-      let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
-      let asynchronousSizeWriteSucceeded =
-        !item.value.animatesSize
-        || accessibilityWriter.applySize(item.value, size: size)
-      let sizeApplied = frameSizeWriteSucceeded(
+      let requiresAsynchronousSizeWrite = asynchronousSizeWriteIsRequired(
+        sizeChanged: item.value.sizeChanged,
         synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
-        animatesSize: item.value.animatesSize,
-        asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
+        animatesSize: item.value.animatesSize
       )
-      let positionApplied =
-        !item.value.positionChanged
-        || accessibilityWriter.applyPosition(
-          item.value,
-          point: point,
-          forceOffscreenAccess: (stagingReentry && item.value.isReentering)
-            || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
-          suppressNativeAnimation: suppressesNativePositionAnimation(
-            stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-            isParked: item.value.isParked,
-            isIntermediate: intermediate
+      let writeResult = AXMessagingTimeoutAccess.shared.withTimeout(
+        timeout,
+        elements: [item.value.application, item.value.element]
+      ) {
+        let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
+        let generationIsCurrent = isCurrent(generation: frame.generation)
+        let asynchronousSizeWriteSucceeded =
+          generationIsCurrent
+          && (
+            !requiresAsynchronousSizeWrite
+              || accessibilityWriter.applySize(item.value, size: size)
           )
+        let sizeApplied = frameSizeWriteSucceeded(
+          sizeChanged: item.value.sizeChanged,
+          synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
+          animatesSize: item.value.animatesSize,
+          asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
+        let positionApplied =
+          generationIsCurrent
+          && (
+            !item.value.positionChanged
+              || accessibilityWriter.applyPosition(
+                item.value,
+                point: point,
+                forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+                  || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+                suppressNativeAnimation: suppressesNativePositionAnimation(
+                  stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+                  isParked: item.value.isParked,
+                  isIntermediate: intermediate
+                )
+              )
+            )
+        return (
+          sizeApplied: sizeApplied,
+          positionApplied: positionApplied,
+          timeoutConfiguredAt: timeoutConfiguredAt,
+          positionAppliedAt: ProcessInfo.processInfo.systemUptime
+        )
+      }
+      let sizeApplied = writeResult.sizeApplied
+      let positionApplied = writeResult.positionApplied
       let appliedWrite = sizeApplied && positionApplied
-      let positionAppliedAt = ProcessInfo.processInfo.systemUptime
-      AXUIElementSetMessagingTimeout(item.value.element, 0)
-      AXUIElementSetMessagingTimeout(item.value.application, 0)
+      let successfulWrite = successfulFrameWriteIntent(
+        positionChanged: item.value.positionChanged,
+        positionApplied: positionApplied,
+        sizeChanged: requiresAsynchronousSizeWrite,
+        sizeApplied: sizeApplied
+      )
+      let timeoutConfiguredAt = writeResult.timeoutConfiguredAt
+      let positionAppliedAt = writeResult.positionAppliedAt
       let timeoutResetAt = ProcessInfo.processInfo.systemUptime
       let writeElapsedMS =
         (timeoutResetAt - writeStartedAt) * 1_000
+      if sizeApplied, requiresAsynchronousSizeWrite,
+        !intermediate, progress >= 1
+      {
+        recordCompletedActiveSizeWrite(windowID: item.key)
+      }
+      if successfulWrite.position || successfulWrite.size {
+        recordInternalFrameWrite(
+          Rect(
+            x: point.x,
+            y: point.y,
+            width: size.width,
+            height: size.height
+          ),
+          windowID: item.key,
+          positionChanged: successfulWrite.position,
+          sizeChanged: successfulWrite.size,
+          now: timeoutResetAt
+        )
+      }
       guard isCurrent(generation: frame.generation) else {
         stale += 1
         lock.lock()
@@ -283,7 +331,7 @@ extension AXFrameCoordinator {
           : point
         recordCompletedPosition(completedPoint, windowID: item.key)
       }
-      if sizeApplied, item.value.animatesSize {
+      if sizeApplied, requiresAsynchronousSizeWrite {
         recordCompletedSize(
           size,
           windowID: item.key,
@@ -320,6 +368,40 @@ extension AXFrameCoordinator {
     if incrementWriteCount {
       completedAnimatedSizeWrites += 1
     }
+    lock.unlock()
+  }
+
+  func recordInternalFrameWrite(
+    _ frame: Rect,
+    windowID: WindowID,
+    positionChanged: Bool,
+    sizeChanged: Bool,
+    now: TimeInterval
+  ) {
+    lock.lock()
+    var writes = recentInternalFrameWrites[windowID, default: []]
+    writes.removeAll { $0.deadline < now }
+    writes.append(RecentInternalFrameWrite(
+      frame: frame,
+      positionChanged: positionChanged,
+      sizeChanged: sizeChanged,
+      deadline: now + 2.5
+    ))
+    recentInternalFrameWrites[windowID] = writes
+    lock.unlock()
+  }
+
+  func pruneRecentInternalFrameWrites(liveWindowIDs: Set<WindowID>) {
+    lock.lock()
+    recentInternalFrameWrites = recentInternalFrameWrites.filter {
+      liveWindowIDs.contains($0.key)
+    }
+    lock.unlock()
+  }
+
+  func recordCompletedActiveSizeWrite(windowID: WindowID) {
+    lock.lock()
+    activeWrites.removeValue(forKey: windowID)
     lock.unlock()
   }
 }

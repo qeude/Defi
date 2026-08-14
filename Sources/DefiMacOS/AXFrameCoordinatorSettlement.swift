@@ -67,23 +67,26 @@ extension AXFrameCoordinator {
     let write = settlementTarget.write
     lock.unlock()
 
-    AXUIElementSetMessagingTimeout(write.application, 0.025)
-    AXUIElementSetMessagingTimeout(write.element, 0.025)
-    defer {
-      AXUIElementSetMessagingTimeout(write.element, 0)
-      AXUIElementSetMessagingTimeout(write.application, 0)
+    let observedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
+      0.025,
+      elements: [write.application, write.element]
+    ) {
+      guard let actualPosition = accessibilityWriter.readPosition(write.element),
+        let actualSize = accessibilityWriter.readSize(write.element)
+      else {
+        return nil as Rect?
+      }
+      return Rect(
+        x: actualPosition.x,
+        y: actualPosition.y,
+        width: actualSize.width,
+        height: actualSize.height
+      )
     }
-    guard let actualPosition = accessibilityWriter.readPosition(write.element),
-      let actualSize = accessibilityWriter.readSize(write.element)
+    guard let actual = observedFrame
     else {
       return
     }
-    let actual = Rect(
-      x: actualPosition.x,
-      y: actualPosition.y,
-      width: actualSize.width,
-      height: actualSize.height
-    )
     let target = Rect(
       x: write.point.x,
       y: write.point.y,
@@ -106,9 +109,39 @@ extension AXFrameCoordinator {
       )
       return
     case .stable:
+      lock.lock()
+      initialSettlementDriftSamples[windowID] = nil
+      lock.unlock()
       return
     case .drifted:
       break
+    }
+    let observationTime = ProcessInfo.processInfo.systemUptime
+    lock.lock()
+    let previousDrift = initialSettlementDriftSamples[windowID]
+    let driftIsStable = initialSettlementDriftIsStable(
+      previous: previousDrift,
+      generation: settlementTarget.generation,
+      actual: actual,
+      now: observationTime
+    )
+    initialSettlementDriftSamples[windowID] = updatedInitialSettlementDriftSample(
+      previous: previousDrift,
+      generation: settlementTarget.generation,
+      actual: actual,
+      now: observationTime
+    )
+    lock.unlock()
+    guard driftIsStable else {
+      if let delay = initialSettlementFollowUpDelay(
+        now: observationTime,
+        deadline: settlementTarget.deadline
+      ) {
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+          self?.verifyInitialSettlementTarget(windowID: windowID)
+        }
+      }
+      return
     }
     guard isInitialSettlementTargetCurrent(
       windowID: windowID,
@@ -119,20 +152,27 @@ extension AXFrameCoordinator {
       || abs(actual.height - target.height) > 1
     let positionChanged = abs(actual.x - target.x) > 1
       || abs(actual.y - target.y) > 1
-    if sizeChanged {
-      guard isInitialSettlementTargetCurrent(
-        windowID: windowID,
-        generation: settlementTarget.generation
-      ), accessibilityWriter.applySize(write, size: write.size)
-      else { return }
+    let repairSucceeded = AXMessagingTimeoutAccess.shared.withTimeout(
+      0.025,
+      elements: [write.application, write.element]
+    ) { [self] in
+      if sizeChanged {
+        guard isInitialSettlementTargetCurrent(
+          windowID: windowID,
+          generation: settlementTarget.generation
+        ), accessibilityWriter.applySize(write, size: write.size)
+        else { return false }
+      }
+      if positionChanged {
+        guard isInitialSettlementTargetCurrent(
+          windowID: windowID,
+          generation: settlementTarget.generation
+        ), accessibilityWriter.applyPosition(write, point: write.point)
+        else { return false }
+      }
+      return true
     }
-    if positionChanged {
-      guard isInitialSettlementTargetCurrent(
-        windowID: windowID,
-        generation: settlementTarget.generation
-      ), accessibilityWriter.applyPosition(write, point: write.point)
-      else { return }
-    }
+    guard repairSucceeded else { return }
     guard isInitialSettlementTargetCurrent(
       windowID: windowID,
       generation: settlementTarget.generation
@@ -151,6 +191,7 @@ extension AXFrameCoordinator {
       )
     }
     lock.lock()
+    initialSettlementDriftSamples[windowID] = nil
     repairedInitialSettlementDrifts += 1
     appendTraceLocked(
       "initial-repair wid=\(windowID.rawValue) dx=\(String(format: "%.1f", actual.x - target.x)) dy=\(String(format: "%.1f", actual.y - target.y)) dw=\(String(format: "%.1f", actual.width - target.width)) dh=\(String(format: "%.1f", actual.height - target.height))"
@@ -165,6 +206,7 @@ extension AXFrameCoordinator {
     lock.lock()
     if initialSettlementTargets[windowID]?.generation == expectedGeneration {
       initialSettlementTargets[windowID] = nil
+      initialSettlementDriftSamples[windowID] = nil
     }
     lock.unlock()
   }

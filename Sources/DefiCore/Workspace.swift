@@ -3,13 +3,15 @@ import DefiModel
 public func insertNewWindow(
   _ windowID: WindowID,
   into workspace: inout Workspace,
-  settings: LayoutSettings
+  settings: LayoutSettings,
+  focusInsertedWindow: Bool = true
 ) {
   insertNewWindow(
     windowID,
     width: .fraction(settings.defaultColumnWidth),
     into: &workspace,
-    settings: settings
+    settings: settings,
+    focusInsertedWindow: focusInsertedWindow
   )
 }
 
@@ -17,7 +19,8 @@ public func insertNewWindow(
   _ windowID: WindowID,
   width: ColumnWidth,
   into workspace: inout Workspace,
-  settings: LayoutSettings
+  settings: LayoutSettings,
+  focusInsertedWindow: Bool = true
 ) {
   let column = Column(window: windowID, width: width)
   guard !workspace.columns.isEmpty else {
@@ -28,6 +31,7 @@ public func insertNewWindow(
 
   let index = min(workspace.focusedColumn + 1, workspace.columns.count)
   workspace.columns.insert(column, at: index)
+  guard focusInsertedWindow else { return }
   workspace.focusedColumn = index
   repairWorkspaceScroll(&workspace, settings: settings)
 }

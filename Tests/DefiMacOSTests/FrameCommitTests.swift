@@ -1,6 +1,7 @@
 import DefiCore
 import DefiModel
 import Darwin
+import ApplicationServices
 import XCTest
 
 @testable import DefiMacOS
@@ -67,13 +68,15 @@ final class FrameCommitTests: XCTestCase {
   func testSynchronousSizeFailureBlocksWarpReadiness() {
     XCTAssertFalse(
       frameSizeWriteSucceeded(
+        sizeChanged: true,
         synchronousWriteSucceeded: false,
         animatesSize: false,
-        asynchronousWriteSucceeded: true
+        asynchronousWriteSucceeded: false
       )
     )
     XCTAssertTrue(
       frameSizeWriteSucceeded(
+        sizeChanged: true,
         synchronousWriteSucceeded: true,
         animatesSize: false,
         asynchronousWriteSucceeded: false
@@ -81,9 +84,43 @@ final class FrameCommitTests: XCTestCase {
     )
     XCTAssertFalse(
       frameSizeWriteSucceeded(
+        sizeChanged: true,
         synchronousWriteSucceeded: true,
         animatesSize: true,
         asynchronousWriteSucceeded: false
+      )
+    )
+    XCTAssertTrue(
+      frameSizeWriteSucceeded(
+        sizeChanged: true,
+        synchronousWriteSucceeded: false,
+        animatesSize: false,
+        asynchronousWriteSucceeded: true
+      )
+    )
+    XCTAssertTrue(
+      frameSizeWriteSucceeded(
+        sizeChanged: false,
+        synchronousWriteSucceeded: false,
+        animatesSize: false,
+        asynchronousWriteSucceeded: false
+      )
+    )
+  }
+
+  func testAsynchronousLayoutRoutesNonAnimatedSizeWritesToCoordinator() {
+    XCTAssertTrue(
+      asynchronousSizeWriteIsRequired(
+        sizeChanged: true,
+        synchronousWriteSucceeded: false,
+        animatesSize: false
+      )
+    )
+    XCTAssertFalse(
+      asynchronousSizeWriteIsRequired(
+        sizeChanged: true,
+        synchronousWriteSucceeded: true,
+        animatesSize: false
       )
     )
   }
@@ -189,6 +226,293 @@ final class FrameCommitTests: XCTestCase {
     wait(for: [completion], timeout: 0.1)
   }
 
+  func testReplacementFramePreservesSupersededAsyncSizeWrite() {
+    let element = AXUIElementCreateSystemWide()
+    func write(
+      size: CGSize,
+      point: CGPoint = .zero,
+      positionChanged: Bool = false,
+      sizeChanged: Bool = true,
+      synchronousSizeWriteSucceeded: Bool = false
+    )
+      -> AsyncPositionWrite
+    {
+      AsyncPositionWrite(
+        element: element,
+        application: element,
+        processID: 42,
+        fromPoint: .zero,
+        point: point,
+        fromSize: CGSize(width: 800, height: 600),
+        size: size,
+        positionChanged: positionChanged,
+        sizeChanged: sizeChanged,
+        animatesSize: false,
+        synchronousSizeWriteSucceeded: synchronousSizeWriteSucceeded,
+        enhancedUIWasEnabled: false,
+        timeoutSeconds: 0.016,
+        isParked: false,
+        isReentering: false,
+        requiresVerifiedOffscreenWrite: false
+      )
+    }
+    let carriedWindowID = WindowID(rawValue: 1)
+    let replacementWindowID = WindowID(rawValue: 2)
+    let result = frameWritesPreservingSupersededAsyncSizes(
+      active: [carriedWindowID: write(size: CGSize(width: 900, height: 700))],
+      pending: [:],
+      replacement: [
+        replacementWindowID: write(size: CGSize(width: 1_000, height: 700))
+      ]
+    )
+
+    XCTAssertEqual(result[carriedWindowID]?.size.width, 900)
+    XCTAssertEqual(result[replacementWindowID]?.size.width, 1_000)
+  }
+
+  func testPositionOnlyReplacementKeepsSameWindowAsyncSizeDebt() {
+    let element = AXUIElementCreateSystemWide()
+    func write(
+      point: CGPoint,
+      size: CGSize,
+      positionChanged: Bool,
+      sizeChanged: Bool
+    ) -> AsyncPositionWrite {
+      AsyncPositionWrite(
+        element: element,
+        application: element,
+        processID: 42,
+        fromPoint: .zero,
+        point: point,
+        fromSize: CGSize(width: 800, height: 600),
+        size: size,
+        positionChanged: positionChanged,
+        sizeChanged: sizeChanged,
+        animatesSize: false,
+        synchronousSizeWriteSucceeded: !sizeChanged,
+        enhancedUIWasEnabled: false,
+        timeoutSeconds: 0.016,
+        isParked: false,
+        isReentering: false,
+        requiresVerifiedOffscreenWrite: false
+      )
+    }
+    let windowID = WindowID(rawValue: 1)
+    let result = frameWritesPreservingSupersededAsyncSizes(
+      active: [
+        windowID: write(
+          point: .zero,
+          size: CGSize(width: 900, height: 700),
+          positionChanged: false,
+          sizeChanged: true
+        )
+      ],
+      pending: [:],
+      replacement: [
+        windowID: write(
+          point: CGPoint(x: 100, y: 40),
+          size: CGSize(width: 800, height: 600),
+          positionChanged: true,
+          sizeChanged: false
+        )
+      ]
+    )
+
+    XCTAssertEqual(result[windowID]?.point, CGPoint(x: 100, y: 40))
+    XCTAssertEqual(result[windowID]?.size, CGSize(width: 900, height: 700))
+    XCTAssertTrue(result[windowID]?.positionChanged == true)
+    XCTAssertTrue(result[windowID]?.sizeChanged == true)
+    XCTAssertFalse(result[windowID]?.synchronousSizeWriteSucceeded == true)
+  }
+
+  func testRecentInternalWriteMatchesEveryRecordedComponent() {
+    let sizeWrite = RecentInternalFrameWrite(
+      frame: Rect(x: 100, y: 40, width: 900, height: 700),
+      positionChanged: false,
+      sizeChanged: true,
+      deadline: 20
+    )
+    let positionWrite = RecentInternalFrameWrite(
+      frame: Rect(x: 100, y: 40, width: 900, height: 700),
+      positionChanged: true,
+      sizeChanged: false,
+      deadline: 20
+    )
+
+    XCTAssertTrue(
+      frameMatchesRecentInternalWrite(
+        actual: sizeWrite.frame,
+        write: sizeWrite
+      )
+    )
+    XCTAssertTrue(
+      frameMatchesRecentInternalWrite(
+        actual: positionWrite.frame,
+        write: positionWrite
+      )
+    )
+    XCTAssertFalse(
+      frameMatchesRecentInternalWrite(
+        actual: Rect(x: 400, y: 200, width: 900, height: 700),
+        write: sizeWrite
+      )
+    )
+    XCTAssertFalse(
+      frameMatchesRecentInternalWrite(
+        actual: Rect(x: 100, y: 40, width: 1_200, height: 800),
+        write: positionWrite
+      )
+    )
+    XCTAssertFalse(
+      frameMatchesRecentInternalWrite(
+        actual: Rect(x: 400, y: 200, width: 1_200, height: 800),
+        write: sizeWrite
+      )
+    )
+  }
+
+  func testRecentInternalWriteHistoryRetainsEveryLiveTarget() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 42)
+    let first = Rect(x: 100, y: 40, width: 900, height: 700)
+    let second = Rect(x: 300, y: 40, width: 900, height: 700)
+
+    coordinator.recordInternalFrameWrite(
+      first,
+      windowID: windowID,
+      positionChanged: true,
+      sizeChanged: false,
+      now: 10
+    )
+    coordinator.recordInternalFrameWrite(
+      second,
+      windowID: windowID,
+      positionChanged: true,
+      sizeChanged: false,
+      now: 10.1
+    )
+
+    XCTAssertTrue(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: first,
+        now: 10.2
+      )
+    )
+    XCTAssertTrue(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: second,
+        now: 10.2
+      )
+    )
+  }
+
+  func testInvalidationRetainsRecentInternalWriteHistory() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 42)
+    let frame = Rect(x: 100, y: 40, width: 900, height: 700)
+
+    coordinator.recordInternalFrameWrite(
+      frame,
+      windowID: windowID,
+      positionChanged: true,
+      sizeChanged: true,
+      now: 10
+    )
+    let element = AXUIElementCreateSystemWide()
+    coordinator.activeWrites[windowID] = AsyncPositionWrite(
+      element: element,
+      application: element,
+      processID: 42,
+      fromPoint: .zero,
+      point: .zero,
+      fromSize: CGSize(width: 800, height: 600),
+      size: CGSize(width: 900, height: 700),
+      positionChanged: false,
+      sizeChanged: true,
+      animatesSize: false,
+      synchronousSizeWriteSucceeded: false,
+      enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016,
+      isParked: false,
+      isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    coordinator.invalidate(reason: "display-change")
+
+    XCTAssertTrue(coordinator.activeWrites.isEmpty)
+    XCTAssertTrue(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: frame,
+        now: 10.1
+      )
+    )
+  }
+
+  func testPruningRecentInternalWritesDropsClosedWindows() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 42)
+    coordinator.recordInternalFrameWrite(
+      Rect(x: 100, y: 40, width: 900, height: 700),
+      windowID: windowID,
+      positionChanged: true,
+      sizeChanged: true,
+      now: 10
+    )
+
+    coordinator.pruneRecentInternalFrameWrites(liveWindowIDs: [])
+
+    XCTAssertFalse(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: Rect(x: 100, y: 40, width: 900, height: 700),
+        now: 10.1
+      )
+    )
+  }
+
+  func testSuccessfulFrameWriteIntentKeepsPartialPositionWrite() {
+    XCTAssertEqual(
+      successfulFrameWriteIntent(
+        positionChanged: true,
+        positionApplied: true,
+        sizeChanged: true,
+        sizeApplied: false
+      ),
+      FrameWriteIntent(position: true, size: false)
+    )
+  }
+
+  func testCompletedActiveSizeWriteIsNotCarriedIntoReplacement() {
+    let coordinator = AXFrameCoordinator()
+    let element = AXUIElementCreateSystemWide()
+    let windowID = WindowID(rawValue: 42)
+    coordinator.activeWrites[windowID] = AsyncPositionWrite(
+      element: element,
+      application: element,
+      processID: 42,
+      fromPoint: .zero,
+      point: .zero,
+      fromSize: CGSize(width: 800, height: 600),
+      size: CGSize(width: 900, height: 700),
+      positionChanged: false,
+      sizeChanged: true,
+      animatesSize: false,
+      synchronousSizeWriteSucceeded: false,
+      enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016,
+      isParked: false,
+      isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+
+    coordinator.recordCompletedActiveSizeWrite(windowID: windowID)
+
+    XCTAssertNil(coordinator.activeWrites[windowID])
+  }
+
   func testInitialWindowCommitUsesShortQuarantineForFastRetries() {
     XCTAssertEqual(
       frameCommitQuarantineDuration(
@@ -258,6 +582,73 @@ final class FrameCommitTests: XCTestCase {
       ),
       .expired
     )
+  }
+
+  func testInitialSettlementRepairsOnlyStableDrift() {
+    let generation: UInt64 = 4
+    let first = InitialSettlementDriftSample(
+      generation: generation,
+      frame: Rect(x: 100, y: 40, width: 900, height: 700),
+      observedAt: 10
+    )
+
+    XCTAssertFalse(
+      initialSettlementDriftIsStable(
+        previous: first,
+        generation: generation,
+        actual: Rect(x: 100, y: 40, width: 1_000, height: 760),
+        now: 10.1
+      )
+    )
+    XCTAssertFalse(
+      initialSettlementDriftIsStable(
+        previous: first,
+        generation: generation,
+        actual: first.frame,
+        now: 10.04
+      )
+    )
+    XCTAssertTrue(
+      initialSettlementDriftIsStable(
+        previous: first,
+        generation: generation,
+        actual: Rect(x: 101, y: 40, width: 900, height: 700),
+        now: 10.08
+      )
+    )
+  }
+
+  func testUnchangedSettlementDriftPreservesFirstObservationTime() {
+    let first = InitialSettlementDriftSample(
+      generation: 4,
+      frame: Rect(x: 100, y: 40, width: 900, height: 700),
+      observedAt: 10
+    )
+    let unchanged = updatedInitialSettlementDriftSample(
+      previous: first,
+      generation: 4,
+      actual: Rect(x: 101, y: 40, width: 900, height: 700),
+      now: 10.03
+    )
+    let changed = updatedInitialSettlementDriftSample(
+      previous: unchanged,
+      generation: 4,
+      actual: Rect(x: 100, y: 40, width: 1_000, height: 700),
+      now: 10.04
+    )
+
+    XCTAssertEqual(unchanged.observedAt, 10)
+    XCTAssertEqual(changed.observedAt, 10.04)
+  }
+
+  func testInitialSettlementSchedulesStableFollowUpBeforeExpiration() {
+    XCTAssertEqual(
+      initialSettlementFollowUpDelay(now: 12.1, deadline: 12.5)!,
+      0.06,
+      accuracy: 0.000_1
+    )
+    XCTAssertNil(initialSettlementFollowUpDelay(now: 12.48, deadline: 12.5))
+    XCTAssertNil(initialSettlementFollowUpDelay(now: 12.5, deadline: 12.5))
   }
 
   func testInitialSettlementRepairRequiresCurrentGenerationAndIdleMouse() {

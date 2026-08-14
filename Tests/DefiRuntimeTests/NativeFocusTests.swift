@@ -127,6 +127,42 @@ struct NativeFocusTests {
         keyboardFocusIntentCurrent: true
       )
     )
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: true,
+        postReleaseSettlementActive: false
+      )
+    )
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: false,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: true,
+        postReleaseSettlementActive: false
+      ) == false
+    )
+  }
+
+  @Test
+  func keyboardFocusPreemptsPostReleaseMouseSettlement() {
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: false,
+        postReleaseSettlementActive: true
+      )
+    )
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: false,
+        postReleaseSettlementActive: false
+      ) == false
+    )
   }
 
   @Test
@@ -573,6 +609,109 @@ struct NativeFocusTests {
   }
 
   @Test
+  func delayedRemovalFallbackCarriesMonitorForViewportAlignment() throws {
+    var fixture = try makeRemovalFixture()
+    let guardToken = try removeSelectedWindow(
+      keeping: [fixture.localFallback, fixture.external],
+      from: &fixture
+    )
+    let decision = windowRemovalFocusDecision(
+      guard: guardToken,
+      nativeFocusedWindowID: nil,
+      nativeFocusChanged: false,
+      latestUserInputTimestamp: 10,
+      state: fixture.state
+    )
+
+    #expect(
+      guardedWindowRemovalFocusAction(
+        decision: decision,
+        focusGuard: guardToken,
+        newlyCreated: true
+      ) == GuardedWindowRemovalFocusAction(
+        windowID: fixture.localFallback.id,
+        monitorID: monitorID,
+        inputTimestamp: 10
+      )
+    )
+    #expect(
+      guardedWindowRemovalFocusAction(
+        decision: decision,
+        focusGuard: guardToken,
+        newlyCreated: false
+      ) == nil
+    )
+  }
+
+  @Test
+  func consecutiveSameApplicationClosuresRetargetLatestFallback() throws {
+    let workspaceID = WorkspaceID(rawValue: "dev")
+    let config = Config(workspaces: WorkspacesConfig(names: [workspaceID.rawValue]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = (1...3).map { rawID in
+      Window(
+        id: WindowID(rawValue: UInt64(rawID)),
+        appID: "terminal",
+        title: "Terminal \(rawID)",
+        frame: Rect(x: 0, y: 0, width: 800, height: 700),
+        monitorID: monitorID
+      )
+    }
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    focusWindow(windows[0].id, state: &state)
+
+    reconcileWindows(Array(windows.dropFirst()), config: config, state: &state)
+    let firstFallback = try #require(state.selectedWindowID(on: monitorID))
+    let firstGuard = try #require(
+      windowRemovalFocusGuard(
+        previousMonitorID: monitorID,
+        previousWorkspaceID: workspaceID,
+        previousSelectedWindowID: windows[0].id,
+        removedWindowIDs: [windows[0].id],
+        userInputAfterWindowTopology: false,
+        latestUserInputTimestamp: 10
+      )
+    )
+    let finalWindow = try #require(
+      windows.dropFirst().first(where: { $0.id != firstFallback })
+    )
+    reconcileWindows([finalWindow], config: config, state: &state)
+    let secondGuard = try #require(
+      windowRemovalFocusGuard(
+        previousMonitorID: monitorID,
+        previousWorkspaceID: workspaceID,
+        previousSelectedWindowID: firstFallback,
+        removedWindowIDs: [firstFallback],
+        userInputAfterWindowTopology: false,
+        latestUserInputTimestamp: 10
+      )
+    )
+    let secondDecision = windowRemovalFocusDecision(
+      guard: secondGuard,
+      nativeFocusedWindowID: nil,
+      nativeFocusChanged: false,
+      latestUserInputTimestamp: 10,
+      state: state
+    )
+
+    #expect(
+      guardedWindowRemovalFocusAction(
+        decision: secondDecision,
+        focusGuard: secondGuard,
+        newlyCreated: true
+      ) == GuardedWindowRemovalFocusAction(
+        windowID: finalWindow.id,
+        monitorID: monitorID,
+        inputTimestamp: 10
+      )
+    )
+    #expect(firstGuard.monitorID == secondGuard.monitorID)
+  }
+
+  @Test
   func nonSelectedRemovalDoesNotCreateFocusGuard() throws {
     let fixture = try makeRemovalFixture()
 
@@ -668,7 +807,11 @@ struct NativeFocusTests {
         frame: Rect(x: 0, y: 0, width: 800, height: 700),
         monitorID: monitorID
       )
-      try discoverWindow(window, decision: RuleDecision(), state: &state)
+      try discoverWindow(
+        window,
+        decision: RuleDecision(followFocus: true),
+        state: &state
+      )
     }
     return state
   }

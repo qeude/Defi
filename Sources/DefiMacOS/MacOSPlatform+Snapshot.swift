@@ -44,9 +44,19 @@ extension MacOSPlatform {
     let topologyProcessIDs = pendingWindowTopologyProcessIDs
     let frameRequiresFullSnapshot = pendingFrameRequiresFullSnapshot
     let frameProcessIDs = pendingFrameProcessIDs
+    let frameWindowIDs = observedFrameEventWindowIDs
+    let retainedProcessIDs = retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: retainedWindowIDs,
+      processIDs: processIDs
+    )
     let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
+    let processIDsWithoutReliableFrameCoverage =
+      eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
+    let fallbackFrameProcessIDs = forceFullWindowRefresh
+      ? []
+      : processIDsWithoutReliableFrameCoverage
     let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
         eventRequiresFullSnapshot,
@@ -75,10 +85,14 @@ extension MacOSPlatform {
         eventPending: tracesWindowTopology,
         requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         processIDs: pendingWindowTopologyProcessIDs,
-        coalescedProcessIDs: frameProcessIDs,
+        coalescedProcessIDs: frameProcessIDs
+          .union(fallbackFrameProcessIDs)
+          .union(retainedProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
-          frameEventPending || mouseResizeGesturePending,
+          frameEventPending || mouseResizeGesturePending
+            || !fallbackFrameProcessIDs.isEmpty
+            || !retainedProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )
     let snapshotMode: String
@@ -97,6 +111,7 @@ extension MacOSPlatform {
     windowTopologyRequiresFullSnapshot = false
     pendingWindowTopologyInputTimestamp = nil
     pendingFrameProcessIDs.removeAll(keepingCapacity: true)
+    observedFrameEventWindowIDs.removeAll(keepingCapacity: true)
     pendingFrameRequiresFullSnapshot = false
     let monitors = discoverMonitors()
     lastMonitorFrames = monitors.map(\.frame)
@@ -140,6 +155,7 @@ extension MacOSPlatform {
       topologyProcessIDs: topologyProcessIDs,
       publicCGWindows: publicCGWindows
     )
+    explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
     let nextElements = discovery.nextElements
     let nextProcessIDs = discovery.nextProcessIDs
     let nextApplications = discovery.nextApplications
@@ -198,10 +214,29 @@ extension MacOSPlatform {
     transientGeometryWindowElementsByProcess =
       transientGeometryWindows.filter { nextApplications[$0.key] != nil }
     retainedWindowIDs = nextRetainedWindowIDs
+    let deferredFrameEventWindowIDs = retainedFrameEventWindowIDs(
+      observedFrameEventWindowIDs: frameWindowIDs,
+      retainedWindowIDs: nextRetainedWindowIDs
+    )
+    observedFrameEventWindowIDs.formUnion(deferredFrameEventWindowIDs)
+    pendingFrameProcessIDs.formUnion(
+      deferredFrameEventWindowIDs.compactMap { nextProcessIDs[$0] }
+    )
+    frameEventPending = !observedFrameEventWindowIDs.isEmpty
+    retainedWindowDeadlines = retainedWindowDeadlines.filter {
+      nextRetainedWindowIDs.contains($0.key)
+    }
     enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
     multipleAttributeReadsSupportedByProcess =
       multipleAttributeReadsSupportedByProcess.filter {
         nextApplications[$0.key] != nil
+      }
+    let liveWindowElements = Set(applicationWindows.flatMap { processID, elements in
+      elements.map { AXWindowElementIdentity(processID: processID, element: $0) }
+    })
+    failedBatchedWindowAttributeReadsByElement =
+      failedBatchedWindowAttributeReadsByElement.filter {
+        liveWindowElements.contains($0.key)
       }
     unmatchedWindowElementsByProcess =
       unmatchedWindowElementsByProcess.filter {
@@ -241,6 +276,9 @@ extension MacOSPlatform {
       requiredFrameWindows: requiredFrameWindows,
       transientGeometryWindows: transientGeometryWindows
     )
+    frameCoordinator.pruneRecentInternalFrameWrites(
+      liveWindowIDs: Set(nextElements.keys)
+    )
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
     pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }
     latestObservedFrames = latestObservedFrames.filter {
@@ -261,6 +299,25 @@ extension MacOSPlatform {
     )
     let mouseResizeGestureObserved = mouseResizeGesturePending
     let mouseFocusReleaseObserved = mouseFocusReleasePending
+    let userInput = userInputTracker.snapshot
+    let mouseGestureWindowID = mouseResizeGestureObserved
+      ? mouseGestureRefreshProcessID(
+        latestFocusIntent: userInput.latestFocusIntent,
+        focusedWindowID: lastNativeFocusedWindowID,
+        processIDs: processIDs
+      ).flatMap { processID in
+        if let focusIntent = userInput.latestFocusIntent,
+          case .mouse(let windowID) = focusIntent.source,
+          let windowID,
+          processIDs[windowID] == processID
+        {
+          return windowID
+        }
+        return lastNativeFocusedWindowID.flatMap {
+          processIDs[$0] == processID ? $0 : nil
+        }
+      }
+      : nil
     let externalResizeGestureActive =
       leftMouseButtonDown || mouseResizeGestureObserved
     var externallyChangedFrames: [WindowID: Rect] = [:]
@@ -323,7 +380,20 @@ extension MacOSPlatform {
       targetMismatches.append(
         FrameMismatch(windowID: window.id, actual: window.frame, target: target)
       )
-      if externalResizeGestureActive && frameEventPending {
+      if windowHasExternalFrameChange(
+        window.id,
+        pendingFrameWindowIDs: frameWindowIDs,
+        matchesRecentInternalWrite: frameWindowIDs.contains(window.id)
+          && frameCoordinator.frameMatchesRecentInternalWrite(
+            windowID: window.id,
+            actual: window.frame,
+            now: now
+          )
+      ) || windowIsMouseResizeGestureCandidate(
+        window.id,
+        mouseGestureWindowID: mouseGestureWindowID,
+        mouseResizeGestureObserved: mouseResizeGestureObserved
+      ) {
         externallyChangedFrames[window.id] = window.frame
       }
     }
@@ -333,7 +403,7 @@ extension MacOSPlatform {
       targetFrames: targetFrames,
       observedFrames: latestObservedFrames
     )
-    frameEventPending = false
+    frameEventPending = !observedFrameEventWindowIDs.isEmpty
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
     pendingFrameCorrections = Dictionary(
@@ -370,7 +440,6 @@ extension MacOSPlatform {
       hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
       focusedProcessID: focusedProcessID
     )
-    let userInput = userInputTracker.snapshot
     var nativeFocusChanged = nativeFocusTargetMatched
     if nativeFocusChanged,
       let focusedWindowID,

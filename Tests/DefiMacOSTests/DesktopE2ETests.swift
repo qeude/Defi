@@ -20,11 +20,29 @@ final class DesktopE2ETests: XCTestCase {
   }
 
   private func testWindows(in snapshot: DesktopSnapshot) -> [Window] {
-    snapshot.windows
+    let candidates = snapshot.windows
       .filter {
         $0.appID != "com.openai.codex"
           && $0.intrinsicSize == false
       }
+    let visibleCandidates = candidates.filter { window in
+      snapshot.monitors.contains { monitor in
+        let windowRight = window.frame.x + window.frame.width
+        let monitorRight = monitor.frame.x + monitor.frame.width
+        let intersectionWidth = max(
+          min(windowRight, monitorRight) - max(window.frame.x, monitor.frame.x),
+          0
+        )
+        let windowBottom = window.frame.y + window.frame.height
+        let monitorBottom = monitor.frame.y + monitor.frame.height
+        let intersectionHeight = max(
+          min(windowBottom, monitorBottom) - max(window.frame.y, monitor.frame.y),
+          0
+        )
+        return intersectionWidth > 2 && intersectionHeight > 2
+      }
+    }
+    return (visibleCandidates.isEmpty ? candidates : visibleCandidates)
       .sorted {
         if $0.appID == "com.t3tools.t3code" {
           return $1.appID != "com.t3tools.t3code"
@@ -492,6 +510,38 @@ final class DesktopE2ETests: XCTestCase {
 
     XCTAssertGreaterThan(eventCount, 0)
     XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
+  }
+
+  func testRapidNativeFocusKeepsLatestIntent() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    let windows = Array(testWindows(in: snapshot).prefix(2))
+    guard windows.count == 2 else {
+      throw XCTSkip("Need two manageable windows")
+    }
+    let originalFocusedWindowID = snapshot.focusedWindowID
+    defer {
+      if let originalFocusedWindowID {
+        platform.focus(originalFocusedWindowID)
+        pumpRunLoop(for: 0.5)
+      }
+    }
+
+    for windowID in [windows[0].id, windows[1].id, windows[0].id, windows[1].id] {
+      platform.focus(windowID)
+    }
+
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: {
+          !platform.hasPendingFocusWrite
+            && platform.snapshot(config: Config()).focusedWindowID
+              == windows[1].id
+        },
+        timeout: 2
+      ),
+      "stale focus recovery overrode latest rapid focus intent"
+    )
   }
 
   func testSnapshotUsesUniqueWindowIDsPerProcess() throws {

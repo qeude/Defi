@@ -16,6 +16,7 @@ public final class MacOSPlatform {
   var applicationWindowCounts: [pid_t: Int] = [:]
   var enhancedUIByProcess: [pid_t: Bool] = [:]
   var multipleAttributeReadsSupportedByProcess: [pid_t: Bool] = [:]
+  var failedBatchedWindowAttributeReadsByElement: [AXWindowElementIdentity: Int] = [:]
   var batchedWindowAttributeReadCount = 0
   var fallbackWindowAttributeReadCount = 0
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] = [:]
@@ -39,6 +40,7 @@ public final class MacOSPlatform {
   var windowTopologyRequiresFullSnapshot = false
   var pendingWindowTopologyInputTimestamp: TimeInterval?
   var pendingFrameProcessIDs = Set<pid_t>()
+  var observedFrameEventWindowIDs = Set<WindowID>()
   var pendingFrameRequiresFullSnapshot = false
   var lastSnapshotWindows: [Window] = []
   var lastSnapshotWindowIDs = Set<WindowID>()
@@ -51,6 +53,8 @@ public final class MacOSPlatform {
   var windowListReadRetryAttemptsByProcess: [pid_t: Int] = [:]
   var cgWindowInventoryRetryAttempts: Int?
   var retainedWindowIDs = Set<WindowID>()
+  var retainedWindowDeadlines: [WindowID: TimeInterval] = [:]
+  var explicitlyDestroyedWindowIDs = Set<WindowID>()
   var lastWindowSnapshotDurationMS = 0.0
   var maximumWindowSnapshotDurationMS = 0.0
   var windowSnapshotDurationSamplesMS: [Double] = []
@@ -82,6 +86,7 @@ public final class MacOSPlatform {
   var submittedFocusRecoveryTimestamp: TimeInterval?
   var submittedFocusRecoveryGeneration: UInt64?
   var nextFocusRecoveryGeneration: UInt64 = 0
+  var focusRecoveryIntentGeneration: UInt64 = 0
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
@@ -117,6 +122,7 @@ public final class MacOSPlatform {
 
   public func requestFrameRefresh(for windowID: WindowID) {
     frameEventPending = true
+    observedFrameEventWindowIDs.insert(windowID)
     guard let processID = processIDs[windowID] else {
       pendingFrameRequiresFullSnapshot = true
       return

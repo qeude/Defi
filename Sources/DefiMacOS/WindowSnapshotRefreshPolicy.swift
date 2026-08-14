@@ -75,3 +75,33 @@ func retainedWindowIDsForCachedWindows(
   previousRetainedWindowIDs.intersection(windows.lazy.map(\.id))
 }
 
+func retainedWindowRefreshProcessIDs(
+  retainedWindowIDs: Set<WindowID>,
+  processIDs: [WindowID: pid_t]
+) -> Set<pid_t> {
+  Set(retainedWindowIDs.compactMap { processIDs[$0] })
+}
+
+func windowHasExternalFrameChange(
+  _ windowID: WindowID,
+  pendingFrameWindowIDs: Set<WindowID>,
+  matchesRecentInternalWrite: Bool = false
+) -> Bool {
+  pendingFrameWindowIDs.contains(windowID) && !matchesRecentInternalWrite
+}
+
+func windowIsMouseResizeGestureCandidate(
+  _ windowID: WindowID,
+  mouseGestureWindowID: WindowID?,
+  mouseResizeGestureObserved: Bool
+) -> Bool {
+  mouseResizeGestureObserved
+    && mouseGestureWindowID == windowID
+}
+
+func retainedFrameEventWindowIDs(
+  observedFrameEventWindowIDs: Set<WindowID>,
+  retainedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  observedFrameEventWindowIDs.intersection(retainedWindowIDs)
+}

@@ -244,8 +244,8 @@ extension MacOSPlatform {
         wantsFrameAnimation
         && animateSizeChanges
         && intent?.size == true
-      var synchronousSizeWriteSucceeded = true
-      if intent?.size == true, !animatesSize {
+      var synchronousSizeWriteSucceeded = intent?.size != true
+      if intent?.size == true, !animatesSize, !asynchronousPositions {
         if let sizeValue = AXValueCreate(.cgSize, &size) {
           let sizeWriteStartedAt = ProcessInfo.processInfo.systemUptime
           let result = AXUIElementSetAttributeValue(
@@ -301,6 +301,12 @@ extension MacOSPlatform {
       if wantsFrameAnimation {
         asynchronousWrites[assignment.windowID] = write
         animatedWindowIDs.insert(assignment.windowID)
+      } else if asynchronousSizeWriteIsRequired(
+        sizeChanged: write.sizeChanged,
+        synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+        animatesSize: write.animatesSize
+      ) {
+        asynchronousWrites[assignment.windowID] = write
       } else if intent?.position == true {
         if asynchronousPositions || isParked || needsVerifiedOffscreenWrite {
           asynchronousWrites[assignment.windowID] = write
