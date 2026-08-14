@@ -85,7 +85,7 @@ public struct RuntimeState: Equatable, Sendable {
           continue
         }
         let targetWorkspace = monitors[fallbackIndex].workspaces[target]
-        let suspendedColumnCount = Set<Int>(suspendedTiledPlacements.values.compactMap { placement in
+        let highestSuspendedColumnIndex = suspendedTiledPlacements.values.compactMap { placement in
           guard placement.monitorID == monitors[fallbackIndex].id,
             placement.workspaceID == workspace.id,
             !targetWorkspace.columns.contains(where: { column in
@@ -93,8 +93,11 @@ public struct RuntimeState: Equatable, Sendable {
             })
           else { return nil }
           return placement.columnIndex
-        }).count
-        let columnOffset = targetWorkspace.columns.count + suspendedColumnCount
+        }.max() ?? -1
+        let columnOffset = max(
+          targetWorkspace.columns.count,
+          highestSuspendedColumnIndex + 1
+        )
         migrateSuspendedPlacements(
           from: monitor.id,
           to: monitors[fallbackIndex].id,
