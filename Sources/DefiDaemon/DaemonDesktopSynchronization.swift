@@ -133,6 +133,13 @@ extension Daemon {
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       state: &state
     )
+    if let previousSelectedWindowID,
+      let reboundMonitorID = state.reboundFocusMonitorID(for: previousSelectedWindowID),
+      reboundMonitorID != previousActiveMonitorID
+    {
+      activeMonitorID = reboundMonitorID
+      nativelyFocusedMonitorID = reboundMonitorID
+    }
     deferredMouseFocusIntent = updatedDeferredMouseFocusIntent(
       current: deferredMouseFocusIntent,
       consumedMouseFocusIntentTimestamp: consumedMouseFocusIntentTimestamp,

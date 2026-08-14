@@ -325,7 +325,7 @@ final class FrameCommitTests: XCTestCase {
     XCTAssertFalse(result[windowID]?.synchronousSizeWriteSucceeded == true)
   }
 
-  func testRecentInternalWriteMatchesOnlyMutatedComponents() {
+  func testRecentInternalWriteMatchesEveryRecordedComponent() {
     let sizeWrite = RecentInternalFrameWrite(
       frame: Rect(x: 100, y: 40, width: 900, height: 700),
       positionChanged: false,
@@ -341,11 +341,23 @@ final class FrameCommitTests: XCTestCase {
 
     XCTAssertTrue(
       frameMatchesRecentInternalWrite(
-        actual: Rect(x: 400, y: 200, width: 900, height: 700),
+        actual: sizeWrite.frame,
         write: sizeWrite
       )
     )
     XCTAssertTrue(
+      frameMatchesRecentInternalWrite(
+        actual: positionWrite.frame,
+        write: positionWrite
+      )
+    )
+    XCTAssertFalse(
+      frameMatchesRecentInternalWrite(
+        actual: Rect(x: 400, y: 200, width: 900, height: 700),
+        write: sizeWrite
+      )
+    )
+    XCTAssertFalse(
       frameMatchesRecentInternalWrite(
         actual: Rect(x: 100, y: 40, width: 1_200, height: 800),
         write: positionWrite

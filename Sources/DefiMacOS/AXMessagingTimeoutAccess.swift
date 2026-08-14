@@ -26,10 +26,10 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     defer {
       releaseLocks(acquisition, elements: elements)
     }
-    // Keep each operation bounded even when another caller owns one of the
-    // shared elements. Timeout writes are cheap and the reset is deferred
-    // until the last user releases the entry.
-    for element in elements {
+    // A contended element keeps the owner's finite timeout until the final
+    // user releases it; only its owner may mutate that timeout.
+    for element in elements
+    where acquisition.ownedKeys.contains(elementIdentity(element)) {
       AXUIElementSetMessagingTimeout(element, timeout)
     }
     return try perform()

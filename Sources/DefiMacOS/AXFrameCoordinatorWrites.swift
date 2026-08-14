@@ -236,9 +236,13 @@ extension AXFrameCoordinator {
         elements: [item.value.application, item.value.element]
       ) {
         let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
+        let generationIsCurrent = isCurrent(generation: frame.generation)
         let asynchronousSizeWriteSucceeded =
-          !requiresAsynchronousSizeWrite
-          || accessibilityWriter.applySize(item.value, size: size)
+          generationIsCurrent
+          && (
+            !requiresAsynchronousSizeWrite
+              || accessibilityWriter.applySize(item.value, size: size)
+          )
         let sizeApplied = frameSizeWriteSucceeded(
           sizeChanged: item.value.sizeChanged,
           synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
@@ -246,7 +250,7 @@ extension AXFrameCoordinator {
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
         let positionApplied =
-          isCurrent(generation: frame.generation)
+          generationIsCurrent
           && (
             !item.value.positionChanged
               || accessibilityWriter.applyPosition(
