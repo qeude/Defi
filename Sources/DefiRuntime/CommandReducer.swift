@@ -173,6 +173,7 @@ private func moveFocusedWindow(
   }
   let source = state.monitors[monitorIndex].workspaces[sourceIndex]
   if let windowID = effectiveSelectedFloatingWindowID(in: source) {
+    state.suspendedTiledPlacements[windowID] = nil
     removeWindow(
       windowID,
       from: &state.monitors[monitorIndex].workspaces[sourceIndex],

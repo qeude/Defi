@@ -131,12 +131,20 @@ final class FloatingWindowTests: XCTestCase {
     let floater = window(61, floating: true)
     try discoverWindow(floater, decision: RuleDecision(), state: &state)
     try reduce(.activateFloating, on: monitorID, state: &state)
+    state.suspendedTiledPlacements[floater.id] = SuspendedTiledPlacement(
+      monitorID: monitorID,
+      workspaceID: state.monitors[0].activeWorkspace,
+      columnIndex: 0,
+      windowIndex: 0,
+      column: Column(window: floater.id, width: .pixels(900))
+    )
 
     try reduce(.moveWindowToWorkspace(tools), on: monitorID, state: &state)
 
     XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
     XCTAssertEqual(state.monitors[0].workspaces[1].floatingWindows, [floater.id])
     XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
+    XCTAssertNil(state.suspendedTiledPlacements[floater.id])
   }
 
   func testMoveFocusedTileSelectsTiledLayerInTargetWorkspace() throws {
@@ -596,6 +604,13 @@ final class FloatingWindowTests: XCTestCase {
     state.monitors[1].activeWorkspace = tools
     let floater = window(67, floating: true)
     try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    state.suspendedTiledPlacements[floater.id] = SuspendedTiledPlacement(
+      monitorID: monitorID,
+      workspaceID: state.monitors[0].activeWorkspace,
+      columnIndex: 0,
+      windowIndex: 0,
+      column: Column(window: floater.id, width: .pixels(900))
+    )
 
     XCTAssertTrue(
       moveFloatingWindow(floater.id, to: externalMonitorID, state: &state)
@@ -607,6 +622,7 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.monitors[1].workspaces[1].focusedLayer, .floating)
     XCTAssertEqual(state.selectedWindowID(on: externalMonitorID), floater.id)
     XCTAssertEqual(state.windows[floater.id]?.monitorID, externalMonitorID)
+    XCTAssertNil(state.suspendedTiledPlacements[floater.id])
   }
 
   private func window(_ rawValue: UInt64, floating: Bool = false) -> Window {

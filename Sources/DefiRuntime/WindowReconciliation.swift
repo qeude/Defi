@@ -96,6 +96,7 @@ public func moveFloatingWindow(
     return false
   }
 
+  state.suspendedTiledPlacements[windowID] = nil
   removeWindow(
     windowID,
     from: &state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex],
