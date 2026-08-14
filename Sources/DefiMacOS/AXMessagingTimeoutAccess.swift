@@ -7,6 +7,8 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
   private struct LockEntry {
     let lock: NSRecursiveLock
     var users: Int
+    var ownerThread: ObjectIdentifier?
+    var ownerDepth: Int
   }
 
   private struct LockAcquisition {
@@ -39,25 +41,38 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     for elements: [AXUIElement]
   ) -> LockAcquisition {
     let keys = Set(elements.map(elementIdentity)).sorted()
+    let currentThread = ObjectIdentifier(Thread.current)
     registryLock.lock()
-    let locks = keys.map { key in
+    let lockCandidates = keys.map { key in
       if var entry = entries[key] {
         entry.users += 1
+        let isRecursiveOwner = entry.ownerThread == currentThread
+          && entry.ownerDepth > 0
+        if isRecursiveOwner {
+          entry.ownerDepth += 1
+        }
         entries[key] = entry
-        return (key: key, lock: entry.lock)
+        return (key: key, lock: entry.lock, owns: isRecursiveOwner)
       }
-      let entry = LockEntry(lock: NSRecursiveLock(), users: 1)
+      let entry = LockEntry(
+        lock: NSRecursiveLock(),
+        users: 1,
+        ownerThread: currentThread,
+        ownerDepth: 1
+      )
       entries[key] = entry
-      return (key: key, lock: entry.lock)
+      return (key: key, lock: entry.lock, owns: true)
     }
     registryLock.unlock()
     var ownedKeys = Set<UInt>()
-    for item in locks {
-      if item.lock.try() {
-        ownedKeys.insert(item.key)
-      }
+    for item in lockCandidates where item.owns {
+      item.lock.lock()
+      ownedKeys.insert(item.key)
     }
-    return LockAcquisition(locks: locks, ownedKeys: ownedKeys)
+    return LockAcquisition(
+      locks: lockCandidates.map { (key: $0.key, lock: $0.lock) },
+      ownedKeys: ownedKeys
+    )
   }
 
   private func releaseLocks(
@@ -72,17 +87,15 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     for item in acquisition.locks {
       guard var entry = entries[item.key] else { continue }
       entry.users -= 1
-      if entry.users == 0 {
-        if !acquisition.ownedKeys.contains(item.key), !item.lock.try() {
-          entry.users = 1
-          entries[item.key] = entry
-          continue
+      if acquisition.ownedKeys.contains(item.key) {
+        entry.ownerDepth = max(entry.ownerDepth - 1, 0)
+        if entry.ownerDepth == 0 {
+          entry.ownerThread = nil
         }
+      }
+      if entry.users == 0 {
         if let element = elementsByKey[item.key] {
           AXUIElementSetMessagingTimeout(element, 0)
-        }
-        if !acquisition.ownedKeys.contains(item.key) {
-          item.lock.unlock()
         }
         entries[item.key] = nil
       } else {
