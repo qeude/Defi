@@ -154,6 +154,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     pending = nil
+    // The generation reset invalidates in-flight geometry too.
+    activeWrites.removeAll(keepingCapacity: true)
     completedPositions.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
     successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)

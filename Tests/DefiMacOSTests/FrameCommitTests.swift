@@ -420,8 +420,28 @@ final class FrameCommitTests: XCTestCase {
       sizeChanged: true,
       now: 10
     )
+    let element = AXUIElementCreateSystemWide()
+    coordinator.activeWrites[windowID] = AsyncPositionWrite(
+      element: element,
+      application: element,
+      processID: 42,
+      fromPoint: .zero,
+      point: .zero,
+      fromSize: CGSize(width: 800, height: 600),
+      size: CGSize(width: 900, height: 700),
+      positionChanged: false,
+      sizeChanged: true,
+      animatesSize: false,
+      synchronousSizeWriteSucceeded: false,
+      enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016,
+      isParked: false,
+      isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
     coordinator.invalidate(reason: "display-change")
 
+    XCTAssertTrue(coordinator.activeWrites.isEmpty)
     XCTAssertTrue(
       coordinator.frameMatchesRecentInternalWrite(
         windowID: windowID,

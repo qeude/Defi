@@ -93,36 +93,39 @@ extension AXFocusWriter {
             mainResult != .success && raiseResult != .success
           {
             retried = true
-            AXUIElementSetMessagingTimeout(request.application, 0.05)
-            AXUIElementSetMessagingTimeout(request.element, 0.05)
-            let retryMainStartedAt = ProcessInfo.processInfo.systemUptime
-            mainResult = AXUIElementSetAttributeValue(
-              request.element,
-              kAXMainAttribute as CFString,
-              kCFBooleanTrue
-            )
-            focusMutationApplied =
-              focusMutationApplied
-              || mainResult == .success
-            windowSelectionSucceeded =
-              windowSelectionSucceeded
-              || mainResult == .success
-            mainDurationMS +=
-              (ProcessInfo.processInfo.systemUptime - retryMainStartedAt) * 1_000
-            if isCurrent(queued), mainResult != .success {
-              let retryRaiseStartedAt = ProcessInfo.processInfo.systemUptime
-              raiseResult = AXUIElementPerformAction(
+            AXMessagingTimeoutAccess.shared.withTimeout(
+              0.05,
+              elements: [request.application, request.element]
+            ) {
+              let retryMainStartedAt = ProcessInfo.processInfo.systemUptime
+              mainResult = AXUIElementSetAttributeValue(
                 request.element,
-                kAXRaiseAction as CFString
+                kAXMainAttribute as CFString,
+                kCFBooleanTrue
               )
               focusMutationApplied =
                 focusMutationApplied
-                || raiseResult == .success
+                || mainResult == .success
               windowSelectionSucceeded =
                 windowSelectionSucceeded
-                || raiseResult == .success
-              raiseDurationMS +=
-                (ProcessInfo.processInfo.systemUptime - retryRaiseStartedAt) * 1_000
+                || mainResult == .success
+              mainDurationMS +=
+                (ProcessInfo.processInfo.systemUptime - retryMainStartedAt) * 1_000
+              if isCurrent(queued), mainResult != .success {
+                let retryRaiseStartedAt = ProcessInfo.processInfo.systemUptime
+                raiseResult = AXUIElementPerformAction(
+                  request.element,
+                  kAXRaiseAction as CFString
+                )
+                focusMutationApplied =
+                  focusMutationApplied
+                  || raiseResult == .success
+                windowSelectionSucceeded =
+                  windowSelectionSucceeded
+                  || raiseResult == .success
+                raiseDurationMS +=
+                  (ProcessInfo.processInfo.systemUptime - retryRaiseStartedAt) * 1_000
+              }
             }
             cancelled = !isCurrent(queued)
           }
