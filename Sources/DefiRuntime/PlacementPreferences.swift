@@ -14,27 +14,63 @@ public struct WindowPlacementPreference: Codable, Equatable, Sendable {
 public struct PlacementPreferences: Codable, Equatable, Sendable {
   public var version: Int
   public var applications: [String: WindowPlacementPreference]
+  public var suppressedApplications: Set<String>
 
   public init(
     version: Int = 1,
-    applications: [String: WindowPlacementPreference] = [:]
+    applications: [String: WindowPlacementPreference] = [:],
+    suppressedApplications: Set<String> = []
   ) {
     self.version = version
     self.applications = applications
+    self.suppressedApplications = suppressedApplications
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case version
+    case applications
+    case suppressedApplications
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    version = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
+    applications = try values.decodeIfPresent(
+      [String: WindowPlacementPreference].self,
+      forKey: .applications
+    ) ?? [:]
+    suppressedApplications = try values.decodeIfPresent(
+      Set<String>.self,
+      forKey: .suppressedApplications
+    ) ?? []
   }
 
   public func preference(for window: Window) -> WindowPlacementPreference? {
     applications[Self.applicationKey(window.appID)]
   }
 
-  public mutating func invalidatePreference(for window: Window) {
-    applications[Self.applicationKey(window.appID)] = nil
+  @discardableResult
+  public mutating func invalidatePreference(for window: Window) -> String {
+    let key = Self.applicationKey(window.appID)
+    applications[key] = nil
+    suppressedApplications.insert(key)
+    return key
   }
 
   public mutating func recordPlacements(from state: RuntimeState) {
+    let automaticApplications = Set<String>(
+      state.windows.values.compactMap { window in
+        guard window.floatingOrigin == .automatic else { return nil }
+        return Self.applicationKey(window.appID)
+      }
+    )
+    suppressedApplications.formIntersection(automaticApplications)
     var locationsByApplication: [String: Set<PlacementLocation>] = [:]
     for window in state.windows.values {
       guard window.floatingOrigin != .automatic else { continue }
+      guard !suppressedApplications.contains(Self.applicationKey(window.appID)) else {
+        continue
+      }
       guard let location = state.location(containing: window.id) else { continue }
       locationsByApplication[Self.applicationKey(window.appID), default: []].insert(
         PlacementLocation(

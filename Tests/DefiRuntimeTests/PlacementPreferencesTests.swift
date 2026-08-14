@@ -166,6 +166,49 @@ final class PlacementPreferencesTests: XCTestCase {
     preferences.invalidatePreference(for: window)
 
     XCTAssertNil(preferences.preference(for: window))
+    XCTAssertEqual(preferences.suppressedApplications, ["com.example.chat"])
+  }
+
+  func testSuppressedPreferenceSurvivesSiblingRecordingUntilReclassification() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let sibling = Window(
+      id: WindowID(rawValue: 5),
+      appID: "com.example.Chat",
+      title: "Main",
+      frame: Rect(x: 0, y: 0, width: 400, height: 300),
+      monitorID: monitorID
+    )
+    let automatic = Window(
+      id: WindowID(rawValue: 6),
+      appID: sibling.appID,
+      title: "Updating",
+      frame: Rect(x: 0, y: 0, width: 400, height: 300),
+      monitorID: monitorID,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    try discoverWindow(automatic, decision: RuleDecision(), state: &state)
+    var preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web")
+        )
+      ]
+    )
+
+    preferences.invalidatePreference(for: automatic)
+    preferences.recordPlacements(from: state)
+    XCTAssertNil(preferences.preference(for: automatic))
+
+    state.windows[automatic.id] = nil
+    preferences.recordPlacements(from: state)
+    XCTAssertEqual(
+      preferences.preference(for: sibling)?.workspaceID,
+      WorkspaceID(rawValue: "dev")
+    )
   }
 
   func testRecordingPlacementsKeepsClosedApplicationPreferences() throws {
