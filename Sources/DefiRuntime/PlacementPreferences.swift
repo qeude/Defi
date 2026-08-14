@@ -27,6 +27,10 @@ public struct PlacementPreferences: Codable, Equatable, Sendable {
     applications[Self.applicationKey(window.appID)]
   }
 
+  public mutating func invalidatePreference(for window: Window) {
+    applications[Self.applicationKey(window.appID)] = nil
+  }
+
   public mutating func recordPlacements(from state: RuntimeState) {
     var locationsByApplication: [String: Set<PlacementLocation>] = [:]
     for window in state.windows.values {

@@ -30,6 +30,11 @@ func updateFloatingWindowFrames(
         let targetMonitorID = window.monitorID,
         moveFloatingWindow(window.id, to: targetMonitorID, state: &state)
       {
+        if let movedWindow = state.windows[window.id],
+          movedWindow.floatingOrigin == .automatic
+        {
+          placementPreferences.invalidatePreference(for: movedWindow)
+        }
         reassignedMonitorIDs[window.id] = targetMonitorID
       }
       if displayGeometryChanged {
@@ -193,4 +198,3 @@ private func constrainedFloatingFrame(_ frame: Rect, to viewport: Rect) -> Rect 
     height: height
   )
 }
-

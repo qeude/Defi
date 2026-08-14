@@ -134,6 +134,13 @@ extension Daemon {
         pendingWorkspaceFocus = nil
       }
       try reduce(command, on: activeMonitorID, state: &state)
+      if command.movesWindowBetweenWorkspaces,
+        let movedWindowID = previouslySelectedWindowID,
+        let movedWindow = state.windows[movedWindowID],
+        movedWindow.floatingOrigin == .automatic
+      {
+        placementPreferences.invalidatePreference(for: movedWindow)
+      }
       if !switchesWorkspace,
         let submittedCommandFocus,
         let commandMonitorID,

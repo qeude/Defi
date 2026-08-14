@@ -360,14 +360,14 @@ private func reclassifyAutomaticWindow(
     }
   } else {
     let destination = preferredPlacement.flatMap { preference -> (Int, Int)? in
-      guard let monitorIndex = state.monitors.firstIndex(where: { monitor in
-        monitor.id == preference.monitorID
-      }),
-        let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+      let destinationMonitorIndex = preference.monitorID.flatMap { preferredMonitorID in
+        state.monitors.firstIndex(where: { $0.id == preferredMonitorID })
+      } ?? monitorIndex
+      guard let workspaceIndex = state.monitors[destinationMonitorIndex].workspaces.firstIndex(
           where: { $0.id == preference.workspaceID }
         )
       else { return nil }
-      return (monitorIndex, workspaceIndex)
+      return (destinationMonitorIndex, workspaceIndex)
     }
     if let (destinationMonitorIndex, destinationWorkspaceIndex) = destination,
       destinationMonitorIndex != monitorIndex || destinationWorkspaceIndex != workspaceIndex
