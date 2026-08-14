@@ -41,6 +41,59 @@ enum InitialSettlementObservation: Equatable {
   case drifted
 }
 
+struct InitialSettlementDriftSample: Equatable, Sendable {
+  let generation: UInt64
+  let frame: Rect
+  let observedAt: TimeInterval
+}
+
+func updatedInitialSettlementDriftSample(
+  previous: InitialSettlementDriftSample?,
+  generation: UInt64,
+  actual: Rect,
+  now: TimeInterval,
+  tolerance: Double = 2
+) -> InitialSettlementDriftSample {
+  let preservesFirstObservation = previous.map {
+    $0.generation == generation
+      && frameDistance($0.frame, actual) <= tolerance
+  } ?? false
+  return InitialSettlementDriftSample(
+    generation: generation,
+    frame: actual,
+    observedAt: preservesFirstObservation
+      ? previous?.observedAt ?? now
+      : now
+  )
+}
+
+func initialSettlementDriftIsStable(
+  previous: InitialSettlementDriftSample?,
+  generation: UInt64,
+  actual: Rect,
+  now: TimeInterval,
+  minimumStableDuration: TimeInterval = 0.06,
+  tolerance: Double = 2
+) -> Bool {
+  guard let previous,
+    previous.generation == generation,
+    now - previous.observedAt >= minimumStableDuration
+  else {
+    return false
+  }
+  return frameDistance(previous.frame, actual) <= tolerance
+}
+
+func initialSettlementFollowUpDelay(
+  now: TimeInterval,
+  deadline: TimeInterval,
+  minimumStableDuration: TimeInterval = 0.06
+) -> TimeInterval? {
+  let remaining = deadline - now
+  guard remaining > minimumStableDuration else { return nil }
+  return minimumStableDuration
+}
+
 func initialSettlementObservation(
   actual: Rect,
   target: Rect,
@@ -212,4 +265,3 @@ func hiddenWindowsPreservingSkippedWindows(
   desired.subtracting(skippedWindowIDs)
     .union(previous.intersection(skippedWindowIDs))
 }
-

@@ -15,13 +15,19 @@ let displayLogger = Logger(
 
 @MainActor
 extension Daemon {
+  func invalidatePlacementPreference(for window: Window) {
+    placementPreferences.invalidatePreference(for: window)
+    placementPreferencesDirty = true
+  }
+
   func persistPlacements() {
     var updated = placementPreferences
     updated.recordPlacements(from: state)
-    guard updated != placementPreferences else { return }
+    guard placementPreferencesDirty || updated != placementPreferences else { return }
     do {
       try placementStore.save(updated)
       placementPreferences = updated
+      placementPreferencesDirty = false
     } catch {
       log("placement persistence failed: \(error)")
     }

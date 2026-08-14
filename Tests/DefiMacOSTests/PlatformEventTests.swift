@@ -1,11 +1,71 @@
 import AppKit
 import ApplicationServices
 import DefiModel
+import Foundation
 import Testing
 
 @testable import DefiMacOS
 
+private final class TestAXElement: @unchecked Sendable {
+  let value: AXUIElement
+
+  init(_ value: AXUIElement) {
+    self.value = value
+  }
+}
+
 struct PlatformEventTests {
+  @Test
+  func contendedAXTimeoutAccessDoesNotWaitForTheOwner() throws {
+    let element = TestAXElement(AXUIElementCreateSystemWide())
+    let secondary = TestAXElement(
+      AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+    )
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+      _ = AXMessagingTimeoutAccess.shared.withTimeout(
+        0.05,
+        elements: [element.value]
+      ) {
+        entered.signal()
+        release.wait()
+        return true
+      }
+    }
+    DispatchQueue.global(qos: .userInitiated).asyncAfter(
+      deadline: .now() + 0.15
+    ) {
+      release.signal()
+    }
+    #expect(entered.wait(timeout: .now() + 1) == .success)
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    _ = AXMessagingTimeoutAccess.shared.withTimeout(
+      0.05,
+      elements: [element.value, secondary.value]
+    ) {
+      true
+    }
+    let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+    #expect(elapsed < 0.1)
+  }
+
+  @Test
+  func staleFocusRecoveryCannotOverrideNewFocusIntent() {
+    #expect(
+      focusRecoveryIntentIsCurrent(
+        requestGeneration: 8,
+        currentGeneration: 8
+      )
+    )
+    #expect(
+      !focusRecoveryIntentIsCurrent(
+        requestGeneration: 8,
+        currentGeneration: 9
+      )
+    )
+  }
+
   @Test
   func auxiliaryFocusRecoveryLookupIsLatestWins() {
     #expect(
@@ -449,6 +509,25 @@ struct PlatformEventTests {
   }
 
   @Test
+  func commandTabBetweenTwoClosesStillWinsFirstRemovalReconciliation() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(timestamp: 21, focusIntent: .keyboard)
+    tracker.record(timestamp: 22, closeIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent
+      )
+    )
+  }
+
+  @Test
   func mouseClickAfterCloseWinsBeforeTopologyNotification() {
     let tracker = UserInputTracker()
     let clickedWindowID = WindowID(rawValue: 30)
@@ -467,6 +546,50 @@ struct PlatformEventTests {
         latestCloseIntentTimestamp: input.latestCloseIntent,
         removedWindowIDs: [WindowID(rawValue: 10)]
       )
+    )
+  }
+
+  @Test
+  func unresolvedBackgroundClickAfterCloseWinsBeforeTopologyNotification() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    tracker.record(timestamp: 21, focusIntent: .mouse(windowID: nil))
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: input.latestEventTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [WindowID(rawValue: 10)]
+      )
+    )
+  }
+
+  @Test
+  func newFocusPreservesCompletedSuppressionUntilItsDelayedEventArrives() {
+    let windowID = WindowID(rawValue: 1)
+    let completed = InternalFocusSuppression(
+      requestID: 7,
+      deadline: 20,
+      maximumInputTimestamp: 10,
+      isInFlight: false
+    )
+
+    #expect(
+      focusSuppressionsAfterRecoveryInvalidation(
+        [windowID: completed],
+        now: 12,
+        preservingCompleted: true
+      )[windowID] == completed
+    )
+    #expect(
+      focusSuppressionsAfterRecoveryInvalidation(
+        [windowID: completed],
+        now: 12,
+        preservingCompleted: false
+      ).isEmpty
     )
   }
 
@@ -492,6 +615,29 @@ struct PlatformEventTests {
   }
 
   @Test
+  func inputAfterRemovedWindowClickCancelsRemovalFocusRecovery() {
+    let tracker = UserInputTracker()
+    let closingWindowID = WindowID(rawValue: 10)
+    tracker.record(
+      timestamp: 20,
+      focusIntent: .mouse(windowID: closingWindowID)
+    )
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(timestamp: 21)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [closingWindowID]
+      )
+    )
+  }
+
+  @Test
   func closeIntentDoesNotMasqueradeAsExplicitFocus() {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 19, focusIntent: .keyboard)
@@ -504,6 +650,52 @@ struct PlatformEventTests {
         latestInputTimestamp: input.latestEventTimestamp,
         latestFocusIntent: input.latestFocusIntent,
         latestCloseIntentTimestamp: input.latestCloseIntent
+      ) == false
+    )
+  }
+
+  @Test
+  func consecutiveCloseIntentsRemainOneRemovalTransaction() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 20, closeIntent: true)
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(timestamp: 21, closeIntent: true)
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [WindowID(rawValue: 10), WindowID(rawValue: 11)]
+      ) == false
+    )
+  }
+
+  @Test
+  func consecutiveCloseButtonClicksOnRemovedWindowsRemainOneTransaction() {
+    let tracker = UserInputTracker()
+    let firstWindowID = WindowID(rawValue: 10)
+    let secondWindowID = WindowID(rawValue: 11)
+    tracker.record(
+      timestamp: 20,
+      focusIntent: .mouse(windowID: firstWindowID)
+    )
+    let topologyInputTimestamp = tracker.latestEventTimestamp
+    tracker.record(
+      timestamp: 21,
+      focusIntent: .mouse(windowID: secondWindowID)
+    )
+    let input = tracker.snapshot
+
+    #expect(
+      userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: input.latestEventTimestamp,
+        latestFocusIntent: input.latestFocusIntent,
+        latestCloseIntentTimestamp: input.latestCloseIntent,
+        removedWindowIDs: [firstWindowID, secondWindowID]
       ) == false
     )
   }
@@ -1011,6 +1203,14 @@ struct PlatformEventTests {
         reset: true
       ) == 15
     )
+    #expect(
+      boundedSnapshotRefreshDeadline(
+        current: 9.9,
+        now: 10,
+        interval: 0.3,
+        reset: true
+      ) == 10.3
+    )
   }
 
   @Test
@@ -1087,6 +1287,14 @@ struct PlatformEventTests {
   func failedCGWindowInventorySchedulesShortRetry() {
     let platform = MacOSPlatform()
     platform.cgWindowInventoryRetryAttempts = 0
+
+    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
+  }
+
+  @Test @MainActor
+  func retainedWindowSchedulesShortRetryBeforeGraceExpires() {
+    let platform = MacOSPlatform()
+    platform.retainedWindowIDs = [WindowID(rawValue: 42)]
 
     #expect(platform.recommendedWindowListRefreshInterval == 0.1)
   }
@@ -1214,6 +1422,7 @@ struct PlatformEventTests {
 
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs == [101])
+    #expect(platform.observedFrameEventWindowIDs == [windowID])
     #expect(!platform.pendingFrameRequiresFullSnapshot)
   }
 
@@ -1225,6 +1434,7 @@ struct PlatformEventTests {
 
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs.isEmpty)
+    #expect(platform.observedFrameEventWindowIDs == [WindowID(rawValue: 42)])
     #expect(platform.pendingFrameRequiresFullSnapshot)
   }
 
@@ -1237,6 +1447,7 @@ struct PlatformEventTests {
 
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs == [101, 202])
+    #expect(platform.observedFrameEventWindowIDs.isEmpty)
   }
 
   @Test

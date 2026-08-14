@@ -44,6 +44,18 @@ func frameWriteIntent(
   )
 }
 
+func successfulFrameWriteIntent(
+  positionChanged: Bool,
+  positionApplied: Bool,
+  sizeChanged: Bool,
+  sizeApplied: Bool
+) -> FrameWriteIntent {
+  FrameWriteIntent(
+    position: positionChanged && positionApplied,
+    size: sizeChanged && sizeApplied
+  )
+}
+
 func interpolatedFrame(
   from: Rect,
   to: Rect,
@@ -75,6 +87,73 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let isParked: Bool
   let isReentering: Bool
   let requiresVerifiedOffscreenWrite: Bool
+}
+
+func frameWritesPreservingSupersededAsyncSizes(
+  active: [WindowID: AsyncPositionWrite],
+  pending: [WindowID: AsyncPositionWrite],
+  replacement: [WindowID: AsyncPositionWrite]
+) -> [WindowID: AsyncPositionWrite] {
+  var sizeDebt = active.filter { _, write in
+    asynchronousSizeWriteIsRequired(
+      sizeChanged: write.sizeChanged,
+      synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+      animatesSize: write.animatesSize
+    )
+  }
+  for (windowID, write) in pending {
+    guard asynchronousSizeWriteIsRequired(
+      sizeChanged: write.sizeChanged,
+      synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+      animatesSize: write.animatesSize
+    ) else { continue }
+    sizeDebt[windowID] = write
+  }
+  var result = sizeDebt
+  for (windowID, newer) in replacement {
+    if let debt = sizeDebt[windowID], !newer.sizeChanged {
+      result[windowID] = AsyncPositionWrite(
+        element: newer.element,
+        application: newer.application,
+        processID: newer.processID,
+        fromPoint: newer.fromPoint,
+        point: newer.point,
+        fromSize: newer.fromSize,
+        size: debt.size,
+        positionChanged: newer.positionChanged,
+        sizeChanged: true,
+        animatesSize: debt.animatesSize,
+        synchronousSizeWriteSucceeded: debt.synchronousSizeWriteSucceeded,
+        enhancedUIWasEnabled: newer.enhancedUIWasEnabled,
+        timeoutSeconds: newer.timeoutSeconds,
+        isParked: newer.isParked,
+        isReentering: newer.isReentering,
+        requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite
+      )
+    } else {
+      result[windowID] = newer
+    }
+  }
+  return result
+}
+
+struct RecentInternalFrameWrite: Equatable, Sendable {
+  let frame: Rect
+  let positionChanged: Bool
+  let sizeChanged: Bool
+  let deadline: TimeInterval
+}
+
+func frameMatchesRecentInternalWrite(
+  actual: Rect,
+  write: RecentInternalFrameWrite,
+  tolerance: Double = 3
+) -> Bool {
+  let positionMatches = abs(actual.x - write.frame.x) <= tolerance
+    && abs(actual.y - write.frame.y) <= tolerance
+  let sizeMatches = abs(actual.width - write.frame.width) <= tolerance
+    && abs(actual.height - write.frame.height) <= tolerance
+  return positionMatches && sizeMatches
 }
 
 struct InitialSettlementTarget: @unchecked Sendable {
@@ -155,12 +234,22 @@ func cursorWarpFrameReadiness(
 }
 
 func frameSizeWriteSucceeded(
+  sizeChanged: Bool,
   synchronousWriteSucceeded: Bool,
   animatesSize: Bool,
   asynchronousWriteSucceeded: Bool
 ) -> Bool {
-  synchronousWriteSucceeded
-    && (!animatesSize || asynchronousWriteSucceeded)
+  !sizeChanged
+    || (synchronousWriteSucceeded && !animatesSize)
+    || asynchronousWriteSucceeded
+}
+
+func asynchronousSizeWriteIsRequired(
+  sizeChanged: Bool,
+  synchronousWriteSucceeded: Bool,
+  animatesSize: Bool
+) -> Bool {
+  sizeChanged && (animatesSize || !synchronousWriteSucceeded)
 }
 
 struct FrameAnimationLanePlan: Equatable, Sendable {

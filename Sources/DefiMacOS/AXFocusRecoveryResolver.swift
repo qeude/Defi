@@ -79,11 +79,15 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
       return nil
     }
     let application = AXUIElementCreateApplication(processID)
-    AXUIElementSetMessagingTimeout(application, 0.025)
-    defer { AXUIElementSetMessagingTimeout(application, 0) }
-    guard let windows = copyElements(
-      application,
-      attribute: kAXWindowsAttribute
+    guard let windows = AXMessagingTimeoutAccess.shared.withTimeout(
+      0.025,
+      elements: [application],
+      perform: {
+        copyElements(
+          application,
+          attribute: kAXWindowsAttribute
+        )
+      }
     ) else {
       return nil
     }
@@ -107,32 +111,35 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
   private func boundedWindowDescription(
     _ element: AXUIElement
   ) -> (frame: Rect, title: String)? {
-    AXUIElementSetMessagingTimeout(element, 0.01)
-    defer { AXUIElementSetMessagingTimeout(element, 0) }
-    guard let positionValue = copyAttribute(element, name: kAXPositionAttribute),
-      let sizeValue = copyAttribute(element, name: kAXSizeAttribute),
-      CFGetTypeID(positionValue) == AXValueGetTypeID(),
-      CFGetTypeID(sizeValue) == AXValueGetTypeID()
-    else {
-      return nil
+    AXMessagingTimeoutAccess.shared.withTimeout(
+      0.01,
+      elements: [element]
+    ) {
+      guard let positionValue = copyAttribute(element, name: kAXPositionAttribute),
+        let sizeValue = copyAttribute(element, name: kAXSizeAttribute),
+        CFGetTypeID(positionValue) == AXValueGetTypeID(),
+        CFGetTypeID(sizeValue) == AXValueGetTypeID()
+      else {
+        return nil
+      }
+      var position = CGPoint.zero
+      var size = CGSize.zero
+      guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+      else {
+        return nil
+      }
+      let title = copyAttribute(element, name: kAXTitleAttribute) as? String ?? ""
+      return (
+        Rect(
+          x: position.x,
+          y: position.y,
+          width: size.width,
+          height: size.height
+        ),
+        title
+      )
     }
-    var position = CGPoint.zero
-    var size = CGSize.zero
-    guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-      AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
-    else {
-      return nil
-    }
-    let title = copyAttribute(element, name: kAXTitleAttribute) as? String ?? ""
-    return (
-      Rect(
-        x: position.x,
-        y: position.y,
-        width: size.width,
-        height: size.height
-      ),
-      title
-    )
   }
 
   private func copyElements(

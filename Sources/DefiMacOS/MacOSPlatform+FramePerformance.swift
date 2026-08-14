@@ -197,7 +197,8 @@ public var hiddenWindowCount: Int {
       hasPendingShortRetry:
         hasPendingUnmatchedRetry
         || hasPendingWindowListReadRetry
-        || hasPendingCGWindowInventoryRetry,
+        || hasPendingCGWindowInventoryRetry
+        || !retainedWindowIDs.isEmpty,
       reliableTopologyObservation: hasReliableWindowTopologyObservation
     )
   }
@@ -284,4 +285,3 @@ public var hiddenWindowCount: Int {
     focusWriter.isBusy
   }
 }
-

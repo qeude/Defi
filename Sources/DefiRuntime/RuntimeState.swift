@@ -8,6 +8,7 @@ public struct RuntimeState: Equatable, Sendable {
   public var layout: LayoutSettings
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID
+  public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
@@ -16,6 +17,7 @@ public struct RuntimeState: Equatable, Sendable {
     self.layout = LayoutSettings(config: config.layout)
     self.workspaceNames = names
     self.defaultWorkspace = WorkspaceID(rawValue: config.workspaces.defaultName)
+    self.suspendedTiledPlacements = [:]
   }
 
   public mutating func attachMonitor(_ monitorID: MonitorID) {
@@ -53,12 +55,19 @@ public struct RuntimeState: Equatable, Sendable {
         in: &monitors[monitorIndex],
         by: nextWidth / max(previousWidth, 1)
       )
+      scaleSuspendedPlacements(
+        on: monitorID,
+        by: nextWidth / max(previousWidth, 1)
+      )
     }
     let removed = monitors.filter { !monitorIDs.contains($0.id) }
     monitors.removeAll { !monitorIDs.contains($0.id) }
     guard let fallbackIndex = monitors.indices.first else { return }
     let fallbackWidth = nextViewports[monitors[fallbackIndex].id]?.width
     for var monitor in removed {
+      let migrationScale = previousViewports[monitor.id].flatMap { previousViewport in
+        fallbackWidth.map { $0 / max(previousViewport.width, 1) }
+      }
       if let previousWidth = previousViewports[monitor.id]?.width,
         let fallbackWidth
       {
@@ -75,6 +84,27 @@ public struct RuntimeState: Equatable, Sendable {
         else {
           continue
         }
+        let targetWorkspace = monitors[fallbackIndex].workspaces[target]
+        let highestSuspendedColumnIndex = suspendedTiledPlacements.values.compactMap { placement in
+          guard placement.monitorID == monitors[fallbackIndex].id,
+            placement.workspaceID == workspace.id,
+            !targetWorkspace.columns.contains(where: { column in
+              column.windows.contains(where: placement.column.windows.contains)
+            })
+          else { return nil }
+          return placement.columnIndex
+        }.max() ?? -1
+        let columnOffset = max(
+          targetWorkspace.columns.count,
+          highestSuspendedColumnIndex + 1
+        )
+        migrateSuspendedPlacements(
+          from: monitor.id,
+          to: monitors[fallbackIndex].id,
+          workspaceID: workspace.id,
+          columnOffset: columnOffset,
+          scale: migrationScale
+        )
         monitors[fallbackIndex].workspaces[target].columns.append(contentsOf: workspace.columns)
         monitors[fallbackIndex].workspaces[target].floatingWindows.append(
           contentsOf: workspace.floatingWindows.filter {
@@ -82,6 +112,41 @@ public struct RuntimeState: Equatable, Sendable {
           }
         )
       }
+    }
+  }
+
+  private mutating func scaleSuspendedPlacements(
+    on monitorID: MonitorID,
+    by scale: Double
+  ) {
+    for windowID in suspendedTiledPlacements.keys {
+      guard let placement = suspendedTiledPlacements[windowID],
+        placement.monitorID == monitorID
+      else { continue }
+      suspendedTiledPlacements[windowID] = placement.scaled(by: scale)
+    }
+  }
+
+  private mutating func migrateSuspendedPlacements(
+    from sourceMonitorID: MonitorID,
+    to targetMonitorID: MonitorID,
+    workspaceID: WorkspaceID,
+    columnOffset: Int,
+    scale: Double?
+  ) {
+    for windowID in suspendedTiledPlacements.keys {
+      guard let placement = suspendedTiledPlacements[windowID],
+        placement.monitorID == sourceMonitorID,
+        placement.workspaceID == workspaceID
+      else { continue }
+      let migrated = scale.map { placement.scaled(by: $0) } ?? placement
+      suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+        monitorID: targetMonitorID,
+        workspaceID: migrated.workspaceID,
+        columnIndex: columnOffset + migrated.columnIndex,
+        windowIndex: migrated.windowIndex,
+        column: migrated.column
+      )
     }
   }
 
@@ -150,6 +215,26 @@ public struct RuntimeState: Equatable, Sendable {
   }
 }
 
+public struct SuspendedTiledPlacement: Equatable, Sendable {
+  public let monitorID: MonitorID
+  public let workspaceID: WorkspaceID
+  public let columnIndex: Int
+  public let windowIndex: Int
+  public let column: Column
+
+  fileprivate func scaled(by scale: Double) -> Self {
+    var column = column
+    scalePixelWidths(in: &column, by: scale)
+    return Self(
+      monitorID: monitorID,
+      workspaceID: workspaceID,
+      columnIndex: columnIndex,
+      windowIndex: windowIndex,
+      column: column
+    )
+  }
+}
+
 private func focusedFloatingWindowID(in workspace: Workspace) -> WindowID? {
   guard workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow) else {
     return nil
@@ -187,6 +272,15 @@ private func scalePixelWidths(in monitor: inout Monitor, by scale: Double) {
           .preMaximizedWidth = previous
       }
     }
+  }
+}
+
+private func scalePixelWidths(in column: inout Column, by scale: Double) {
+  guard scale.isFinite, scale > 0, abs(scale - 1) >= 0.001 else { return }
+  scalePixelWidth(&column.width, by: scale)
+  if var previous = column.preMaximizedWidth {
+    scalePixelWidth(&previous, by: scale)
+    column.preMaximizedWidth = previous
   }
 }
 

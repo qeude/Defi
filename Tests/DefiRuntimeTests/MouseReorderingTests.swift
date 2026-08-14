@@ -676,7 +676,11 @@ final class MouseReorderingTests: XCTestCase {
         frame: Rect(x: 0, y: 0, width: 784, height: 684),
         monitorID: monitorID
       )
-      try discoverWindow(window, decision: RuleDecision(), state: &state)
+      try discoverWindow(
+        window,
+        decision: RuleDecision(followFocus: true),
+        state: &state
+      )
     }
     return state
   }

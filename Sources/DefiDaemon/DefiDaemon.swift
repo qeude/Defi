@@ -150,6 +150,7 @@ final class Daemon: NSObject {
   let placementStore: PlacementStore
   var state: RuntimeState
   var placementPreferences: PlacementPreferences
+  var placementPreferencesDirty = false
   var hotKeys: HotKeyManager?
   var menuBar: MenuBarController?
   var timer: DispatchSourceTimer?
@@ -376,12 +377,14 @@ final class Daemon: NSObject {
       needsDesktopSync = false
       synchronizeDesktop(
         forceFullWindowRefresh:
-          periodicWindowRefreshDue
-          || windowListRefreshDue
-          || applicationInventoryRefreshDue,
+          windowListRefreshDue
+          || applicationInventoryRefreshDue
+          || (periodicWindowRefreshDue
+            && !platform.hasReliableWindowTopologyObservation),
         forceWindowListRefresh:
           windowListRefreshDue || applicationInventoryRefreshDue,
-        forceApplicationInventoryRefresh: applicationInventoryRefreshDue
+        forceApplicationInventoryRefresh: applicationInventoryRefreshDue,
+        consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
     }
     if liveBorderGesture || animatedWritesPending {
