@@ -132,13 +132,32 @@ extension MacOSPlatform {
       let capabilities = windowManagementCapabilities[window.id]
     {
       windowManagementMetadataReuseCount += 1
+      var modalState = capabilities.isModal
+      var modalValue: CFTypeRef?
+      let modalError = AXUIElementCopyAttributeValue(
+        element,
+        kAXModalAttribute as CFString,
+        &modalValue
+      )
+      if let refreshedModalState = resolvedWindowModalState(
+        error: modalError,
+        observedValue: modalValue as? Bool,
+        cachedValue: capabilities.isModal
+      ) {
+        modalState = refreshedModalState
+        windowManagementCapabilities[window.id] = WindowManagementCapabilities(
+          hasCloseButton: capabilities.hasCloseButton,
+          canResize: capabilities.canResize,
+          isModal: refreshedModalState
+        )
+      }
       return classifyWindow(
         role: window.role,
         subrole: window.subrole,
         appID: window.appID,
         hasCloseButton: capabilities.hasCloseButton,
         canResize: capabilities.canResize,
-        isModal: capabilities.isModal,
+        isModal: modalState,
         configuredFloating: false,
         forceTiling: false
       )
