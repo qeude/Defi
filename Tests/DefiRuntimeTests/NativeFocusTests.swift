@@ -234,6 +234,28 @@ struct NativeFocusTests {
         nativeFocusChanged: observed?.focusObserved == true
       )
     )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: false,
+        mouseInteractionEnded: true,
+        leftMouseButtonDown: false,
+        deferredMouseFocusPending: true,
+        deferredMouseFocusReady: true,
+        mouseReleaseFocusIntentCurrent: true,
+        keyboardFocusIntentCurrent: false,
+        nativeFocusSuppressed: true
+      )
+    )
+    #expect(
+      !nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false,
+        nativeFocusSuppressed: true
+      )
+    )
   }
 
   @Test
@@ -249,6 +271,27 @@ struct NativeFocusTests {
         mouseInteractionEnded: false
       ) == nil
     )
+  }
+
+  @Test
+  func linkActivationRebindsMouseIntentToNativeTarget() {
+    let sourceWindowID = WindowID(rawValue: 1)
+    let targetWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: sourceWindowID
+      ),
+      mouseFocusIntentWindowID: sourceWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: targetWindowID,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: true
+    )
+
+    #expect(observed?.windowID == targetWindowID)
+    #expect(observed?.focusObserved == true)
   }
 
   @Test
@@ -538,6 +581,42 @@ struct NativeFocusTests {
         activeMonitorID: MonitorID(rawValue: 2),
         state: state
       )
+    )
+  }
+
+  @Test
+  func acceptedNativeSelectionCarriesCursorWarpGuard() {
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: true,
+        nativeFocusAccepted: true,
+        selectionChanged: true,
+        latestUserInputTimestamp: 12
+      ) == 12
+    )
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: true,
+        nativeFocusAccepted: true,
+        selectionChanged: false,
+        latestUserInputTimestamp: 12
+      ) == nil
+    )
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: false,
+        nativeFocusAccepted: true,
+        selectionChanged: true,
+        latestUserInputTimestamp: 12
+      ) == nil
+    )
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: true,
+        nativeFocusAccepted: false,
+        selectionChanged: true,
+        latestUserInputTimestamp: 12
+      ) == nil
     )
   }
 

@@ -442,13 +442,13 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
 public func desktopSynchronizationIsReady(
   scrollAnimationActive: Bool,
   animatedWritesPending: Bool,
-  slowLanePending: Bool,
   mouseGestureSyncPending: Bool,
   needsDesktopSync: Bool,
-  periodicSyncDue: Bool
+  periodicSyncDue: Bool,
+  commandQuietPeriodElapsed: Bool
 ) -> Bool {
   guard !scrollAnimationActive,
-    !slowLanePending || mouseGestureSyncPending,
+    commandQuietPeriodElapsed || mouseGestureSyncPending,
     needsDesktopSync || periodicSyncDue
   else {
     return false

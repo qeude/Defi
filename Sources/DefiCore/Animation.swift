@@ -23,6 +23,48 @@ public struct SpringScalarStep: Equatable, Sendable {
   }
 }
 
+public struct SpringProgressSample: Equatable, Sendable {
+  public let progress: Double
+  public let velocity: Double
+
+  public init(progress: Double, velocity: Double) {
+    self.progress = progress
+    self.velocity = velocity
+  }
+}
+
+public func springProgressSample(
+  elapsed: TimeInterval,
+  duration: TimeInterval,
+  initialVelocity: Double = 0,
+  minimumProgress: Double = 0
+) -> SpringProgressSample {
+  guard duration > 0 else {
+    return SpringProgressSample(progress: 1, velocity: 0)
+  }
+  let response = max(duration * 1.5, 0.04)
+  let clampedInitialVelocity = min(max(initialVelocity, 0), 6 / response)
+  let elapsed = max(elapsed, 0)
+  guard elapsed > 0 else {
+    return SpringProgressSample(
+      progress: min(max(minimumProgress, 0), 1),
+      velocity: clampedInitialVelocity
+    )
+  }
+  let step = criticallyDampedSpringStep(
+    value: 0,
+    target: 1,
+    velocity: clampedInitialVelocity,
+    deltaTime: elapsed,
+    response: response
+  )
+  let progress = min(max(step.value, minimumProgress), 1)
+  return SpringProgressSample(
+    progress: progress,
+    velocity: progress > minimumProgress ? max(step.velocity, 0) : 0
+  )
+}
+
 public func criticallyDampedSpringStep(
   value: Double,
   target: Double,
@@ -45,19 +87,26 @@ public func criticallyDampedSpringStep(
 
 public func completedFrameSpringProgresses(
   duration: TimeInterval,
-  refreshRateHz: Double,
-  maximumIntermediateFrames: Int = 4
+  refreshRateHz: Double
 ) -> [Double] {
-  guard duration > 0, maximumIntermediateFrames > 0 else { return [] }
+  completedFrameSpringSamples(
+    duration: duration,
+    refreshRateHz: refreshRateHz
+  ).map(\.progress)
+}
+
+public func completedFrameSpringSamples(
+  duration: TimeInterval,
+  refreshRateHz: Double,
+  initialVelocity: Double = 0
+) -> [SpringProgressSample] {
+  guard duration > 0 else { return [] }
   let refreshRate = min(max(refreshRateHz, 30), 120)
   let interval = 1 / refreshRate
   let response = max(duration * 1.5, 0.04)
-  let frameCount = min(
-    max(Int(ceil(duration / interval)) - 1, 1),
-    maximumIntermediateFrames
-  )
+  let frameCount = max(Int(ceil(duration / interval)) - 1, 1)
   var value = 0.0
-  var velocity = 0.0
+  var velocity = min(max(initialVelocity, 0), 6 / response)
   return (0..<frameCount).map { _ in
     let step = criticallyDampedSpringStep(
       value: value,
@@ -66,10 +115,21 @@ public func completedFrameSpringProgresses(
       deltaTime: interval,
       response: response
     )
-    value = min(max(step.value, 0), 1)
-    velocity = step.velocity
-    return value
+    value = min(max(step.value, value), 1)
+    velocity = value >= 1 ? 0 : max(step.velocity, 0)
+    return SpringProgressSample(progress: value, velocity: velocity)
   }
+}
+
+public func retainedSpringProgressVelocity(
+  normalizedCandidates: [Double],
+  maximum: Double
+) -> Double {
+  let valid = normalizedCandidates
+    .filter { $0.isFinite && $0 > 0 }
+    .sorted()
+  guard !valid.isEmpty else { return 0 }
+  return min(valid[valid.count / 2], max(maximum, 0))
 }
 
 public func shouldEmitAnotherIntermediateFrame(
@@ -143,6 +203,20 @@ public func anticipatedFinalFrameDispatchDelay(
   predictedFrameLatency: TimeInterval
 ) -> TimeInterval {
   max(animationDuration - max(predictedFrameLatency, 0), 0)
+}
+
+public func finalFrameDispatchDeadline(
+  nominalDeadline: TimeInterval,
+  nextDisplayDeadline: TimeInterval,
+  previousFrameWasSlow: Bool,
+  hardDeadline: TimeInterval = .greatestFiniteMagnitude
+) -> TimeInterval {
+  min(
+    previousFrameWasSlow
+      ? nextDisplayDeadline
+      : max(nominalDeadline, nextDisplayDeadline),
+    hardDeadline
+  )
 }
 
 public func speculativeNavigationSettlementDelay(

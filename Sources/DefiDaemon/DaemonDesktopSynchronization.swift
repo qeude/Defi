@@ -25,7 +25,9 @@ extension Daemon {
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextPeriodicWindowRefreshAt,
       now: snapshotCompletedAt,
-      interval: platform.hasReliableDesktopObservation ? 5 : 0.3,
+      interval: desktopSnapshotRefreshInterval(
+        reliableDesktopObservation: platform.hasReliableDesktopObservation
+      ),
       reset: forceFullWindowRefresh || consumePeriodicWindowRefresh
     )
     nextWindowListRefreshAt = boundedSnapshotRefreshDeadline(
@@ -105,7 +107,6 @@ extension Daemon {
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
-      cancelDeferredSlowLane()
       persistentWidthDriftCounts.removeAll(keepingCapacity: true)
       finishMouseGestureTracking()
     }
@@ -126,6 +127,8 @@ extension Daemon {
     }
     var nativelyFocusedMonitorID: MonitorID?
     var nativelyActivatedWorkspace = false
+    var nativeCursorWarpWindowID: WindowID?
+    var nativeCursorWarpInputTimestamp: TimeInterval?
     reconcileWindows(
       snapshot.windows,
       config: config,
@@ -260,16 +263,25 @@ extension Daemon {
           deferredMouseFocusPending: deferredMouseFocusPending,
           deferredMouseFocusReady: deferredMouseFocusReady,
           mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent,
-          keyboardFocusIntentCurrent: keyboardFocusIntentCurrent
+          keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
+          nativeFocusSuppressed:
+            ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil
         )
         && !preservesWorkspaceAfterRemoval
-        && (keyboardFocusIntentCurrent
-          || ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil)
       let selectionChanged = nativeFocusChangesSelection(
         focusedWindowID,
         activeMonitorID: activeMonitorID,
         state: state
       )
+      nativeCursorWarpInputTimestamp = nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: config.input.mouseFollowsFocus,
+        nativeFocusAccepted: nativeFocusAccepted,
+        selectionChanged: selectionChanged,
+        latestUserInputTimestamp: snapshot.latestUserInputTimestamp
+      )
+      if nativeCursorWarpInputTimestamp != nil {
+        nativeCursorWarpWindowID = focusedWindowID
+      }
       if nativeFocusAccepted {
         platform.invalidateFocusRecovery(recoveringTo: focusedWindowID)
         invalidateSubmittedCommandFocus(recoveringTo: focusedWindowID)
@@ -505,6 +517,21 @@ extension Daemon {
       mouseReorderAnimationActive = true
       beginFrameAnimationActivity()
     }
+    let nativeCursorWarpIsCurrentAfterCommit:
+      (@MainActor @Sendable () -> Bool)?
+    if let nativeCursorWarpWindowID {
+      nativeCursorWarpIsCurrentAfterCommit = { [weak self] in
+        guard let self,
+          let monitorID = self.state.monitorID(
+            containing: nativeCursorWarpWindowID
+          )
+        else { return false }
+        return self.state.selectedWindowID(on: monitorID)
+          == nativeCursorWarpWindowID
+      }
+    } else {
+      nativeCursorWarpIsCurrentAfterCommit = nil
+    }
     applyCurrentLayout(
       asynchronousPositions: true,
       updateVisibility: true,
@@ -514,6 +541,10 @@ extension Daemon {
         : 0,
       positionsOnly: animatesMouseReorder,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+      cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
+      cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
+      cursorWarpIsCurrentAfterCommit:
+        nativeCursorWarpIsCurrentAfterCommit,
       forceFloatingFrameWrites: displayGeometryChanged,
       source: nativelyActivatedWorkspace
         ? "native-workspace"

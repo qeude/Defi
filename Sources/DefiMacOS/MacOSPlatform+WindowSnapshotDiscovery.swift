@@ -32,6 +32,8 @@ extension MacOSPlatform {
     forceApplicationInventoryRefresh: Bool,
     capturedTopologyRequiresFullSnapshot: Bool,
     topologyProcessIDs: Set<pid_t>,
+    preparedWindowAttributes: [WindowID: AXWindowAttributes],
+    preparedApplicationWindows: [pid_t: PreparedAXApplicationWindows],
     publicCGWindows: () -> [CGWindowRecord]?
   ) -> SnapshotWindowDiscoveryResult {
       let previousElements = elements
@@ -175,27 +177,30 @@ extension MacOSPlatform {
         if refreshesWindowList {
           applicationWindowListReadCount += 1
           let windowListStartedAt = ProcessInfo.processInfo.systemUptime
-          let copiedWindows = AXMessagingTimeoutAccess.shared.withTimeout(
-            snapshotAccessibilityTimeoutSeconds,
-            elements: [appElement]
-          ) {
-            applicationWindowsAfterPreparingTopologyObservation(
-              prepareObservation: {
-                eventMonitor?.prepareForWindowDiscovery(
-                  processID: processID,
-                  application: appElement
-                )
-              },
-              copyWindows: {
-                copyElements(
-                  appElement,
-                  attribute: kAXWindowsAttribute
-                )
-              }
-            )
-          }
+          let preparedWindows = preparedApplicationWindows[processID]
+          let copiedWindows = preparedWindows?.elements
+            ?? AXMessagingTimeoutAccess.shared.withTimeout(
+              snapshotAccessibilityTimeoutSeconds,
+              elements: [appElement]
+            ) {
+              applicationWindowsAfterPreparingTopologyObservation(
+                prepareObservation: {
+                  eventMonitor?.prepareForWindowDiscovery(
+                    processID: processID,
+                    application: appElement
+                  )
+                },
+                copyWindows: {
+                  copyElements(
+                    appElement,
+                    attribute: kAXWindowsAttribute
+                  )
+                }
+              )
+            }
           recordDurationSample(
-            (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
+            preparedWindows?.durationMS
+              ?? (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
             in: &applicationWindowListDurationSamplesMS
           )
           windowListReadRetryAttemptsByProcess[processID] =
@@ -244,7 +249,10 @@ extension MacOSPlatform {
               publicCGWindows: publicCGWindows,
               monitors: monitors,
               preferredWindowID: previousWindowID,
-              excluding: usedCGWindowIDs
+              excluding: usedCGWindowIDs,
+              preparedAttributes: previousWindowID.flatMap {
+                preparedWindowAttributes[$0]
+              }
             )
           }
           let candidate: Window
@@ -303,7 +311,13 @@ extension MacOSPlatform {
               configuredFloating: decision.floating,
               forceTiling: decision.forceTiling,
               previousDisposition: previousDisposition,
-              reuseCachedCapabilities: !refreshesWindowList
+              reuseCachedCapabilities:
+                previousWindowID.flatMap {
+                  windowManagementCapabilities[$0]
+                } != nil,
+              preparedModalState: previousWindowID.flatMap {
+                preparedWindowAttributes[$0]?.modal
+              }
             )
           }
           switch disposition {

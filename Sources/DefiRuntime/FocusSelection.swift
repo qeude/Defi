@@ -177,6 +177,18 @@ public func keyboardCursorWarpTimestamp(
   return capturedInputTimestamp
 }
 
+public func nativeFocusCursorWarpTimestamp(
+  mouseFollowsFocus: Bool,
+  nativeFocusAccepted: Bool,
+  selectionChanged: Bool,
+  latestUserInputTimestamp: TimeInterval
+) -> TimeInterval? {
+  guard mouseFollowsFocus, nativeFocusAccepted, selectionChanged else {
+    return nil
+  }
+  return latestUserInputTimestamp
+}
+
 public func commandFocusInputTimestamp(
   capturedInputTimestamp: TimeInterval?,
   commandHandledAt: TimeInterval
@@ -364,12 +376,10 @@ public func nextCommandFocusRetryCount(
 public func focusMonitorIsReady(
   targetMonitorID: MonitorID,
   scrollingMonitorIDs: Set<MonitorID>,
-  pendingFrameMonitorIDs: Set<MonitorID>,
-  deferredSlowMonitorIDs: Set<MonitorID>
+  pendingFrameMonitorIDs: Set<MonitorID>
 ) -> Bool {
   !scrollingMonitorIDs.contains(targetMonitorID)
     && !pendingFrameMonitorIDs.contains(targetMonitorID)
-    && !deferredSlowMonitorIDs.contains(targetMonitorID)
 }
 
 /// Keyboard focus can proceed when target window is ready.
@@ -381,12 +391,10 @@ public func focusTargetIsReady(
   targetMonitorID: MonitorID,
   targetWindowID: WindowID,
   scrollingMonitorIDs: Set<MonitorID>,
-  pendingFrameWindowIDs: Set<WindowID>,
-  deferredSlowWindowIDs: Set<WindowID>
+  pendingFrameWindowIDs: Set<WindowID>
 ) -> Bool {
   !scrollingMonitorIDs.contains(targetMonitorID)
     && !pendingFrameWindowIDs.contains(targetWindowID)
-    && !deferredSlowWindowIDs.contains(targetWindowID)
 }
 
 public func nativeFocusMutationIsReady(
@@ -396,8 +404,15 @@ public func nativeFocusMutationIsReady(
   deferredMouseFocusPending: Bool? = nil,
   deferredMouseFocusReady: Bool? = nil,
   mouseReleaseFocusIntentCurrent: Bool,
-  keyboardFocusIntentCurrent: Bool
+  keyboardFocusIntentCurrent: Bool,
+  nativeFocusSuppressed: Bool = false
 ) -> Bool {
+  if nativeFocusSuppressed
+    && !mouseReleaseFocusIntentCurrent
+    && !keyboardFocusIntentCurrent
+  {
+    return false
+  }
   if leftMouseButtonDown {
     return nativeFocusChanged && keyboardFocusIntentCurrent
   }

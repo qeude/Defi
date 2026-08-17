@@ -15,6 +15,39 @@ final class FrameCommitTests: XCTestCase {
     observedAt: nil
   )
 
+  func testReverseRetargetUsesLastCompletedPositionDuringObservationLag() {
+    let staleObserved = Rect(x: 900, y: 40, width: 800, height: 700)
+    let completed = CGPoint(x: 100, y: 40)
+
+    XCTAssertEqual(
+      frameApplicationReference(
+        pendingCorrection: nil,
+        settlingReference: staleObserved,
+        completedPosition: completed,
+        previousTarget: Rect(x: 100, y: 40, width: 800, height: 700),
+        nativeReference: nil
+      ),
+      Rect(x: 100, y: 40, width: 800, height: 700)
+    )
+  }
+
+  func testFrameApplicationReferenceDoesNotReadNativeFrameWhenCached() {
+    var nativeFrameWasRead = false
+
+    _ = frameApplicationReference(
+      pendingCorrection: Rect(x: 100, y: 40, width: 800, height: 700),
+      settlingReference: nil,
+      completedPosition: nil,
+      previousTarget: nil,
+      nativeReference: {
+        nativeFrameWasRead = true
+        return Rect(x: 900, y: 40, width: 800, height: 700)
+      }()
+    )
+
+    XCTAssertFalse(nativeFrameWasRead)
+  }
+
   func testCursorWarpRequiresSuccessfulTargetFrameWrite() {
     let target = WindowID(rawValue: 2)
     let sibling = WindowID(rawValue: 3)
@@ -214,6 +247,8 @@ final class FrameCommitTests: XCTestCase {
       animatedWindowIDs: [],
       animationDuration: 0,
       refreshRateHz: 60,
+      displayID: nil,
+      initialProgressVelocity: 0,
       stagesVisibleBeforeParking: false
     ) { result in
       XCTAssertFalse(result.completedLatest)

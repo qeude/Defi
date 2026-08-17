@@ -8,6 +8,46 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func preparedAttributesAreRejectedAfterInputOrObservationChanges() {
+    let windowIDs: Set<WindowID> = [WindowID(rawValue: 1)]
+    #expect(
+      preparedAXWindowAttributesAreCurrent(
+        capturedGeneration: 4,
+        currentGeneration: 4,
+        capturedInputTimestamp: 10,
+        currentInputTimestamp: 10,
+        capturedWindowIDs: windowIDs,
+        currentWindowIDs: windowIDs,
+        capturedProcessIDs: [42],
+        currentProcessIDs: [42]
+      )
+    )
+    #expect(
+      !preparedAXWindowAttributesAreCurrent(
+        capturedGeneration: 4,
+        currentGeneration: 5,
+        capturedInputTimestamp: 10,
+        currentInputTimestamp: 10,
+        capturedWindowIDs: windowIDs,
+        currentWindowIDs: windowIDs,
+        capturedProcessIDs: [42],
+        currentProcessIDs: [42]
+      )
+    )
+    #expect(
+      !preparedAXWindowAttributesAreCurrent(
+        capturedGeneration: 4,
+        currentGeneration: 4,
+        capturedInputTimestamp: 10,
+        currentInputTimestamp: 11,
+        capturedWindowIDs: windowIDs,
+        currentWindowIDs: windowIDs,
+        capturedProcessIDs: [42],
+        currentProcessIDs: [42]
+      )
+    )
+  }
+
   @Test func applicationInventoryUsesEventsAndBoundedWatchdog() {
     #expect(
       applicationInventoryRefreshIsRequired(

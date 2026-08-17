@@ -100,14 +100,18 @@ func managedPointerHitTest(
   at location: CGPoint,
   records: [CGWindowRecord],
   managedWindowIDs: Set<WindowID>,
-  nonblockingWindowIDs: Set<CGWindowID> = []
+  nonblockingWindowIDs: Set<CGWindowID> = [],
+  frameProvider: (CGWindowRecord) -> Rect? = { $0.frame }
 ) -> ManagedPointerHit {
-  for record in records
-  where location.x >= record.frame.x
-    && location.x <= record.frame.x + record.frame.width
-    && location.y >= record.frame.y
-    && location.y <= record.frame.y + record.frame.height
-  {
+  for record in records {
+    guard let frame = frameProvider(record),
+      location.x >= frame.x,
+      location.x <= frame.x + frame.width,
+      location.y >= frame.y,
+      location.y <= frame.y + frame.height
+    else {
+      continue
+    }
     let windowID = WindowID(rawValue: UInt64(record.id))
     if managedWindowIDs.contains(windowID) {
       return .managed(windowID)
@@ -223,7 +227,13 @@ extension MacOSPlatform {
       at: location,
       records: snapshot.records,
       managedWindowIDs: lastSnapshotWindowIDs,
-      nonblockingWindowIDs: nonblockingWindowIDs
+      nonblockingWindowIDs: nonblockingWindowIDs,
+      frameProvider: { record in
+        guard !screenCaptureAccessAvailable else { return record.frame }
+        return borderBoundsProvider.frame(
+          for: WindowID(rawValue: UInt64(record.id))
+        ) ?? record.frame
+      }
     )
     switch hit {
     case .managed(let windowID):

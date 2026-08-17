@@ -339,9 +339,13 @@ final class DesktopE2ETests: XCTestCase {
     let actual = platform.snapshot(config: Config()).windows
       .first(where: { $0.id == window.id })?.frame
     let performance = platform.frameCoordinatorPerformance
+    let maximumAnimationFrames = completedFrameSpringProgresses(
+      duration: 0.05,
+      refreshRateHz: 120
+    ).count + 1
     XCTAssertEqual(actual?.x ?? 0, target.x, accuracy: 2)
     XCTAssertGreaterThanOrEqual(performance.animationFrames, 2)
-    XCTAssertLessThanOrEqual(performance.animationFrames, 5)
+    XCTAssertLessThanOrEqual(performance.animationFrames, maximumAnimationFrames)
     XCTAssertTrue(platform.frameCoordinatorTrace.contains("reentry=1"))
     XCTAssertFalse(platform.frameCoordinatorTrace.contains("stage-reentry"))
   }
@@ -748,6 +752,68 @@ final class DesktopE2ETests: XCTestCase {
       manager.pointerTransitionCount,
       transitionsBeforeWarp,
       "programmatic cursor warp must not emit pointer transitions"
+    )
+  }
+
+  func testFrameCommitWarpsCursorForAcceptedNativeFocus() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    guard let monitor = snapshot.monitors.first,
+      let window = testWindows(in: snapshot).first,
+      let originalCursorLocation = CGEvent(source: nil)?.location
+    else {
+      throw XCTSkip("Managed desktop window required")
+    }
+    let originalFrame = window.frame
+    let targetFrame = Rect(
+      x: originalFrame.x + 10,
+      y: originalFrame.y,
+      width: originalFrame.width,
+      height: originalFrame.height
+    )
+    let outsideCandidates = [
+      CGPoint(x: monitor.frame.x + 1, y: monitor.frame.y + 1),
+      CGPoint(
+        x: monitor.frame.x + monitor.frame.width - 1,
+        y: monitor.frame.y + 1
+      ),
+      CGPoint(
+        x: monitor.frame.x + 1,
+        y: monitor.frame.y + monitor.frame.height - 1
+      ),
+      CGPoint(
+        x: monitor.frame.x + monitor.frame.width - 1,
+        y: monitor.frame.y + monitor.frame.height - 1
+      ),
+    ]
+    guard let outside = outsideCandidates.first(where: {
+      cursorWarpDestination(frame: targetFrame, currentLocation: $0) != nil
+    }) else {
+      throw XCTSkip("Window covers the usable monitor")
+    }
+    defer {
+      platform.apply([
+        FrameAssignment(windowID: window.id, frame: originalFrame)
+      ])
+      CGWarpMouseCursorPosition(originalCursorLocation)
+      pumpRunLoop(for: 0.3)
+    }
+
+    XCTAssertEqual(CGWarpMouseCursorPosition(outside), .success)
+    platform.apply(
+      [FrameAssignment(windowID: window.id, frame: targetFrame)],
+      asynchronousPositions: true,
+      cursorWarpWindowIDAfterCommit: window.id,
+      cursorWarpInputTimestampAfterCommit: .greatestFiniteMagnitude,
+      cursorWarpIsCurrentAfterCommit: { true }
+    )
+
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { platform.cursorWarpPerformance.applied == 1 },
+        timeout: 1
+      ),
+      "cursor did not warp after the target frame committed"
     )
   }
 

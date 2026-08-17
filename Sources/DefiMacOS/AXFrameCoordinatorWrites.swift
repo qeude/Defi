@@ -13,7 +13,8 @@ extension AXFrameCoordinator {
     progress: Double,
     skippedProcesses: Set<pid_t>,
     intermediate: Bool = false,
-    stagingReentry: Bool = false
+    stagingReentry: Bool = false,
+    recordFinalSuccess: Bool = true
   ) -> (
     applied: Int,
     stale: Int,
@@ -67,7 +68,8 @@ extension AXFrameCoordinator {
             frame: frame,
             progress: progress,
             intermediate: intermediate,
-            stagingReentry: stagingReentry
+            stagingReentry: stagingReentry,
+            recordFinalSuccess: recordFinalSuccess
           )
           let processLatencyMS =
             (ProcessInfo.processInfo.systemUptime - batchStartedAt) * 1_000
@@ -190,7 +192,8 @@ extension AXFrameCoordinator {
     frame: QueuedPositionFrame,
     progress: Double,
     intermediate: Bool,
-    stagingReentry: Bool
+    stagingReentry: Bool,
+    recordFinalSuccess: Bool
   ) -> (applied: Int, stale: Int, slowProcesses: Set<pid_t>) {
     var applied = 0
     var stale = 0
@@ -314,7 +317,7 @@ extension AXFrameCoordinator {
         lock.unlock()
         continue
       }
-      if !intermediate, progress >= 1, appliedWrite {
+      if recordFinalSuccess, !intermediate, progress >= 1, appliedWrite {
         lock.lock()
         successfulFinalWritesByGeneration[frame.generation, default: []]
           .insert(item.key)

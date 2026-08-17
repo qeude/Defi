@@ -2,6 +2,7 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import DefiRuntime
+import Testing
 import XCTest
 
 final class MouseReorderingTests: XCTestCase {
@@ -394,30 +395,20 @@ final class MouseReorderingTests: XCTestCase {
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: true,
-        slowLanePending: false,
         mouseGestureSyncPending: true,
         needsDesktopSync: true,
-        periodicSyncDue: false
+        periodicSyncDue: false,
+        commandQuietPeriodElapsed: false
       )
     )
     XCTAssertFalse(
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: true,
-        slowLanePending: false,
         mouseGestureSyncPending: false,
         needsDesktopSync: true,
-        periodicSyncDue: false
-      )
-    )
-    XCTAssertTrue(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: false,
-        slowLanePending: true,
-        mouseGestureSyncPending: true,
-        needsDesktopSync: true,
-        periodicSyncDue: false
+        periodicSyncDue: false,
+        commandQuietPeriodElapsed: true
       )
     )
   }
@@ -694,6 +685,22 @@ final class MouseReorderingTests: XCTestCase {
         windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
         settings: state.layout
       ).frames.first(where: { $0.windowID == windowID })?.frame
+    )
+  }
+}
+
+struct DesktopSynchronizationTests {
+  @Test
+  func waitsForCommandInputToSettle() {
+    #expect(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: false,
+        animatedWritesPending: false,
+        mouseGestureSyncPending: false,
+        needsDesktopSync: true,
+        periodicSyncDue: true,
+        commandQuietPeriodElapsed: false
+      ) == false
     )
   }
 }

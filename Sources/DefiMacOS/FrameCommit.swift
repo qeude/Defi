@@ -1,27 +1,85 @@
 import AppKit
 import ApplicationServices
-import Darwin
 import DefiConfig
 import DefiCore
 import DefiModel
 import OSLog
+import QuartzCore
 
-private let animationMachTimebase: mach_timebase_info_data_t = {
-  var timebase = mach_timebase_info_data_t()
-  mach_timebase_info(&timebase)
-  return timebase
-}()
+final class DisplayLinkClock: NSObject, @unchecked Sendable {
+  private let condition = NSCondition()
+  private var displayIDsByLink: [ObjectIdentifier: UInt64] = [:]
+  private var nextTargetTimestamps: [UInt64: TimeInterval] = [:]
+  @MainActor private var displayLinks: [UInt64: CADisplayLink] = [:]
 
-func spinWaitPrecisely(for duration: TimeInterval) {
-  guard duration > 0 else { return }
-  let nanoseconds = duration * 1_000_000_000
-  let ticks = UInt64(
-    nanoseconds
-      * Double(animationMachTimebase.denom)
-      / Double(animationMachTimebase.numer)
-  )
-  let deadline = mach_absolute_time() &+ ticks
-  while mach_absolute_time() < deadline {}
+  @MainActor
+  func start() {
+    for link in displayLinks.values {
+      link.invalidate()
+    }
+    displayLinks.removeAll(keepingCapacity: true)
+    condition.lock()
+    displayIDsByLink.removeAll(keepingCapacity: true)
+    nextTargetTimestamps.removeAll(keepingCapacity: true)
+    for screen in NSScreen.screens {
+      guard
+        let number = screen.deviceDescription[
+          NSDeviceDescriptionKey("NSScreenNumber")
+        ] as? NSNumber
+      else { continue }
+      let displayID = number.uint64Value
+      let link = screen.displayLink(
+        target: self,
+        selector: #selector(displayLinkDidFire(_:))
+      )
+      link.isPaused = true
+      link.add(to: .main, forMode: .common)
+      displayLinks[displayID] = link
+      displayIDsByLink[ObjectIdentifier(link)] = displayID
+    }
+    condition.unlock()
+  }
+
+  func setActive(_ active: Bool, displayID: UInt64?) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      let selectedDisplayID = displayID.flatMap {
+        displayLinks[$0] == nil ? nil : $0
+      } ?? displayLinks.keys.first
+      for (candidateID, link) in displayLinks {
+        link.isPaused = !active || candidateID != selectedDisplayID
+      }
+    }
+  }
+
+  func wait(
+    untilDisplayTarget deadline: TimeInterval,
+    displayID: UInt64?
+  ) -> TimeInterval? {
+    guard deadline > ProcessInfo.processInfo.systemUptime else { return nil }
+    condition.lock()
+    defer { condition.unlock() }
+    let selectedDisplayID = displayID ?? displayIDsByLink.values.first
+    while selectedDisplayID.flatMap({ nextTargetTimestamps[$0] }) ?? 0 < deadline {
+      let remaining = deadline - ProcessInfo.processInfo.systemUptime
+      guard remaining > 0 else { break }
+      _ = condition.wait(
+        until: Date(timeIntervalSinceNow: remaining)
+      )
+    }
+    return selectedDisplayID.flatMap { nextTargetTimestamps[$0] }.flatMap {
+      $0 >= deadline ? $0 : nil
+    }
+  }
+
+  @objc private func displayLinkDidFire(_ sender: CADisplayLink) {
+    condition.lock()
+    if let displayID = displayIDsByLink[ObjectIdentifier(sender)] {
+      nextTargetTimestamps[displayID] = sender.targetTimestamp
+    }
+    condition.broadcast()
+    condition.unlock()
+  }
 }
 
 
@@ -87,6 +145,27 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let isParked: Bool
   let isReentering: Bool
   let requiresVerifiedOffscreenWrite: Bool
+}
+
+func frameApplicationReference(
+  pendingCorrection: Rect?,
+  settlingReference: Rect?,
+  completedPosition: CGPoint?,
+  previousTarget: Rect?,
+  nativeReference: @autoclosure () -> Rect?
+) -> Rect? {
+  if let pendingCorrection {
+    return pendingCorrection
+  }
+  if let settlingReference, let completedPosition {
+    return Rect(
+      x: completedPosition.x,
+      y: completedPosition.y,
+      width: settlingReference.width,
+      height: settlingReference.height
+    )
+  }
+  return settlingReference ?? previousTarget ?? nativeReference()
 }
 
 func frameWritesPreservingSupersededAsyncSizes(
@@ -169,6 +248,8 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let animatedWindowIDs: Set<WindowID>
   let animationDuration: TimeInterval
   let refreshRateHz: Double
+  let displayID: UInt64?
+  let initialProgressVelocity: Double
   let stagesVisibleBeforeParking: Bool
   let completion: (@Sendable (FrameWriteCompletion) -> Void)?
 }

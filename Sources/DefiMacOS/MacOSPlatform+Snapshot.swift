@@ -119,10 +119,19 @@ extension MacOSPlatform {
     var cachedCGWindows: [CGWindowRecord]?
     func publicCGWindows() -> [CGWindowRecord]? {
       if hasCopiedCGWindows { return cachedCGWindows }
-      let copyStartedAt = ProcessInfo.processInfo.systemUptime
-      let copied = copyCGWindowsIfAvailable()
-      let copyDurationMS =
-        (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
+      let copied: [CGWindowRecord]?
+      let copyDurationMS: Double
+      if preparedCGWindowInventoryAvailable {
+        copied = preparedCGWindowInventory
+        copyDurationMS = preparedCGWindowInventoryDurationMS
+      } else {
+        let copyStartedAt = ProcessInfo.processInfo.systemUptime
+        copied = copyCGWindowsIfAvailable()
+        copyDurationMS =
+          (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
+      }
+      preparedCGWindowInventory = nil
+      preparedCGWindowInventoryAvailable = false
       snapshotCGWindowCopyCount += 1
       lastSnapshotCGWindowCopyDurationMS = copyDurationMS
       maximumSnapshotCGWindowCopyDurationMS = max(
@@ -144,6 +153,15 @@ extension MacOSPlatform {
     ) {
       _ = publicCGWindows()
     }
+    let preparedWindowAttributes = preparedAXWindowAttributesAvailable
+      ? preparedAXWindowAttributes
+      : [:]
+    let preparedApplicationWindows = preparedAXWindowAttributesAvailable
+      ? preparedAXApplicationWindows
+      : [:]
+    preparedAXWindowAttributes.removeAll(keepingCapacity: true)
+    preparedAXApplicationWindows.removeAll(keepingCapacity: true)
+    preparedAXWindowAttributesAvailable = false
     let previousElements = elements
     let discovery = discoverSnapshotWindows(
       monitors: monitors,
@@ -153,8 +171,12 @@ extension MacOSPlatform {
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
+      preparedWindowAttributes: preparedWindowAttributes,
+      preparedApplicationWindows: preparedApplicationWindows,
       publicCGWindows: publicCGWindows
     )
+    preparedCGWindowInventory = nil
+    preparedCGWindowInventoryAvailable = false
     explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
     let nextElements = discovery.nextElements
     let nextProcessIDs = discovery.nextProcessIDs

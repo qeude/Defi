@@ -43,10 +43,8 @@ public func updatedDeferredMouseFocusIntent(
   }
   guard var intent else { return nil }
   if nativeFocusChanged, let focusedWindowID {
-    if intent.windowID == nil {
-      intent.windowID = focusedWindowID
-    }
-    intent.focusObserved = intent.windowID == focusedWindowID
+    intent.windowID = focusedWindowID
+    intent.focusObserved = true
   }
   intent.mouseInteractionEnded =
     intent.mouseInteractionEnded || mouseInteractionEnded

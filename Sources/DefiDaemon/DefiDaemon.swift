@@ -222,10 +222,6 @@ final class Daemon: NSObject {
   var pointerFocusObservedCount = 0
   var pointerFocusAppliedCount = 0
   var pointerFocusIgnoredCount = 0
-  var deferredSlowWindowIDs = Set<WindowID>()
-  var slowLaneSettlementDeadline: TimeInterval?
-  var slowLaneDeferralCount = 0
-  var slowLaneSettlementCount = 0
   var frameNotificationsSuspended = false
   var animationActivity: NSObjectProtocol?
   var displayedFrameRebaseCount = 0
@@ -309,7 +305,6 @@ final class Daemon: NSObject {
   func tick() {
     processPendingHotKeys()
     pollIPC()
-    finishDeferredSlowLaneIfReady()
     finishPendingAnimatedFocusIfReady()
     finishPendingWorkspaceFocusIfReady()
     finishPendingPointerFocusIfReady()
@@ -335,9 +330,6 @@ final class Daemon: NSObject {
     let mouseGestureSyncPending =
       needsDesktopSync
       && (liveBorderGesture || activelyResizedWindowID != nil)
-    if mouseGestureSyncPending && !deferredSlowWindowIDs.isEmpty {
-      cancelDeferredSlowLane()
-    }
     if mouseGestureSyncPending
       && (!scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites)
     {
@@ -359,28 +351,66 @@ final class Daemon: NSObject {
       }
       setTimerFrequency(60)
     }
-    let periodicWindowRefreshDue = now >= nextPeriodicWindowRefreshAt
-    let windowListRefreshDue = now >= nextWindowListRefreshAt
-    let applicationInventoryRefreshDue =
-      now >= nextApplicationInventoryRefreshAt
+    let userInputIdleDuration = now - latestCommandInputTimestamp
+    let desktopRefreshInterval = desktopSnapshotRefreshInterval(
+      reliableDesktopObservation: platform.hasReliableDesktopObservation
+    )
+    let windowListRefreshInterval = platform.recommendedWindowListRefreshInterval
+    let applicationInventoryInterval =
+      platform.recommendedApplicationInventoryRefreshInterval
+    let periodicWindowRefreshDue = observationWatchdogRefreshIsReady(
+      due: now >= nextPeriodicWindowRefreshAt,
+      interval: desktopRefreshInterval,
+      userInputIdleDuration: userInputIdleDuration
+    )
+    let windowListRefreshDue = observationWatchdogRefreshIsReady(
+      due: now >= nextWindowListRefreshAt,
+      interval: windowListRefreshInterval,
+      userInputIdleDuration: userInputIdleDuration
+    )
+    let applicationInventoryRefreshDue = observationWatchdogRefreshIsReady(
+      due: now >= nextApplicationInventoryRefreshAt,
+      interval: applicationInventoryInterval,
+      userInputIdleDuration: userInputIdleDuration
+    )
+    let commandQuietPeriodElapsed =
+      now - latestCommandInputTimestamp >= 0.3
     if desktopSynchronizationIsReady(
       scrollAnimationActive: !scrollAnimations.isEmpty,
       animatedWritesPending: animatedWritesPending,
-      slowLanePending: !deferredSlowWindowIDs.isEmpty,
       mouseGestureSyncPending: mouseGestureSyncPending,
       needsDesktopSync: needsDesktopSync,
       periodicSyncDue:
         periodicWindowRefreshDue
         || windowListRefreshDue
-        || applicationInventoryRefreshDue
+        || applicationInventoryRefreshDue,
+      commandQuietPeriodElapsed: commandQuietPeriodElapsed
     ) {
+      let forcesWindowInventory =
+        windowListRefreshDue || applicationInventoryRefreshDue
+      let forcesFullWindowRefresh =
+        forcesWindowInventory
+        || (periodicWindowRefreshDue
+          && !platform.hasReliableWindowTopologyObservation)
+      if !mouseGestureSyncPending,
+        forcesFullWindowRefresh,
+        platform.prepareAXWindowAttributesIfNeeded(
+          completion: { [weak self] in self?.needsDesktopSync = true }
+        )
+      {
+        return
+      }
+      if !mouseGestureSyncPending,
+        forcesFullWindowRefresh,
+        platform.prepareCGWindowInventoryIfNeeded(
+          completion: { [weak self] in self?.needsDesktopSync = true }
+        )
+      {
+        return
+      }
       needsDesktopSync = false
       synchronizeDesktop(
-        forceFullWindowRefresh:
-          windowListRefreshDue
-          || applicationInventoryRefreshDue
-          || (periodicWindowRefreshDue
-            && !platform.hasReliableWindowTopologyObservation),
+        forceFullWindowRefresh: forcesFullWindowRefresh,
         forceWindowListRefresh:
           windowListRefreshDue || applicationInventoryRefreshDue,
         forceApplicationInventoryRefresh: applicationInventoryRefreshDue,

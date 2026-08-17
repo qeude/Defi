@@ -20,12 +20,166 @@ enum WindowDiscoveryResult {
   case discovered(Window, CGWindowID, RuleDecision)
 }
 
-struct AXWindowAttributes {
+struct AXWindowAttributes: Sendable {
   let minimized: Bool?
   let frame: Rect?
   let title: String
   let role: String?
   let subrole: String?
+  let modal: Bool?
+
+  init(
+    minimized: Bool?,
+    frame: Rect?,
+    title: String,
+    role: String?,
+    subrole: String?,
+    modal: Bool? = nil
+  ) {
+    self.minimized = minimized
+    self.frame = frame
+    self.title = title
+    self.role = role
+    self.subrole = subrole
+    self.modal = modal
+  }
+}
+
+struct PreparedAXWindowElement: @unchecked Sendable {
+  let windowID: WindowID
+  let processID: pid_t
+  let element: AXUIElement
+}
+
+struct PreparedAXApplicationElement: @unchecked Sendable {
+  let processID: pid_t
+  let element: AXUIElement
+}
+
+struct PreparedAXApplicationWindows: @unchecked Sendable {
+  let elements: [AXUIElement]
+  let durationMS: Double
+}
+
+final class AXWindowIDProvider {
+  private typealias GetWindowFunc =
+    @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+
+  private let libraryHandle: UnsafeMutableRawPointer?
+  private let getWindow: GetWindowFunc?
+
+  init() {
+    let handle = dlopen(
+      "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices",
+      RTLD_LAZY | RTLD_LOCAL
+    )
+    libraryHandle = handle
+    getWindow = handle.flatMap { handle in
+      dlsym(handle, "_AXUIElementGetWindow").map {
+        unsafeBitCast($0, to: GetWindowFunc.self)
+      }
+    }
+  }
+
+  deinit {
+    if let libraryHandle {
+      dlclose(libraryHandle)
+    }
+  }
+
+  var isAvailable: Bool { getWindow != nil }
+
+  func windowID(for element: AXUIElement) -> CGWindowID? {
+    guard let getWindow else { return nil }
+    var windowID: CGWindowID = 0
+    guard getWindow(element, &windowID) == .success, windowID != 0 else {
+      return nil
+    }
+    return windowID
+  }
+}
+
+func preparedAXWindowAttributesAreCurrent(
+  capturedGeneration: UInt64,
+  currentGeneration: UInt64,
+  capturedInputTimestamp: TimeInterval,
+  currentInputTimestamp: TimeInterval,
+  capturedWindowIDs: Set<WindowID>,
+  currentWindowIDs: Set<WindowID>,
+  capturedProcessIDs: Set<pid_t>,
+  currentProcessIDs: Set<pid_t>
+) -> Bool {
+  capturedGeneration == currentGeneration
+    && capturedInputTimestamp == currentInputTimestamp
+    && capturedWindowIDs == currentWindowIDs
+    && capturedProcessIDs == currentProcessIDs
+}
+
+func copyBatchedWindowAttributes(
+  _ element: AXUIElement
+) -> (error: AXError, attributes: AXWindowAttributes?) {
+  let names = [
+    kAXMinimizedAttribute,
+    kAXPositionAttribute,
+    kAXSizeAttribute,
+    kAXTitleAttribute,
+    kAXRoleAttribute,
+    kAXSubroleAttribute,
+    kAXModalAttribute,
+  ]
+  var copiedValues: CFArray?
+  let error = AXUIElementCopyMultipleAttributeValues(
+    element,
+    names as CFArray,
+    AXCopyMultipleAttributeOptions(rawValue: 0),
+    &copiedValues
+  )
+  guard error == .success,
+    let values = copiedValues as? [AnyObject],
+    values.count == names.count
+  else {
+    return (error, nil)
+  }
+  return (
+    error,
+    AXWindowAttributes(
+      minimized: axAttributeValue(values[0]) as? Bool,
+      frame: frameFromAXValues(
+        positionValue: axAttributeValue(values[1]),
+        sizeValue: axAttributeValue(values[2])
+      ),
+      title: axAttributeValue(values[3]) as? String ?? "",
+      role: axAttributeValue(values[4]) as? String,
+      subrole: axAttributeValue(values[5]) as? String,
+      modal: axAttributeValue(values[6]) as? Bool
+    )
+  )
+}
+
+private func frameFromAXValues(
+  positionValue: CFTypeRef?,
+  sizeValue: CFTypeRef?
+) -> Rect? {
+  guard let positionValue,
+    let sizeValue,
+    CFGetTypeID(positionValue) == AXValueGetTypeID(),
+    CFGetTypeID(sizeValue) == AXValueGetTypeID()
+  else {
+    return nil
+  }
+  var position = CGPoint.zero
+  var size = CGSize.zero
+  guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+    AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+  else {
+    return nil
+  }
+  return Rect(
+    x: position.x,
+    y: position.y,
+    width: size.width,
+    height: size.height
+  )
 }
 
 struct WindowManagementCapabilities: Equatable {
@@ -133,13 +287,16 @@ func retainedWindowIDsWithinGracePeriod(
 
 func consistentFocusedProcessID(
   accessibilityProcessID: pid_t?,
-  frontmostProcessID: pid_t?
+  frontmostProcessID: pid_t?,
+  verifiedNativeFocusProcessID: pid_t? = nil
 ) -> pid_t? {
   if let accessibilityProcessID,
     let frontmostProcessID,
     accessibilityProcessID != frontmostProcessID
   {
-    return nil
+    return verifiedNativeFocusProcessID == frontmostProcessID
+      ? frontmostProcessID
+      : nil
   }
   return accessibilityProcessID ?? frontmostProcessID
 }

@@ -234,7 +234,8 @@ extension MacOSPlatform {
         }
         switch result {
         case .completed, .completedWithoutMutation:
-          self?.borderManager.revealPendingBorders()
+          self?.scheduleWindowBorderStackingRefresh()
+          self?.revealWindowBordersIfReady()
           if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(
             result: result,
             requestedTimestamp: cursorWarpInputTimestamp

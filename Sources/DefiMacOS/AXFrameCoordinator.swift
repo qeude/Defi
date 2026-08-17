@@ -20,14 +20,19 @@ func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
 final class AXFrameCoordinator: @unchecked Sendable {
   let queue = DispatchQueue(
     label: "com.quentin.defi.ax-frame-coordinator",
-    qos: .userInitiated
+    qos: .userInteractive
   )
   let finalOnlyAnimationQueue = DispatchQueue(
     label: "com.quentin.defi.ax-final-only-animation",
     qos: .userInitiated
   )
+  let parkingSettlementQueue = DispatchQueue(
+    label: "com.quentin.defi.ax-parking-settlement",
+    qos: .utility
+  )
   let lock = NSLock()
   let accessibilityWriter = AXFrameAccessibilityWriter()
+  let displayLinkClock = DisplayLinkClock()
   var pending: QueuedPositionFrame?
   var nextGeneration: UInt64 = 0
   var latestGeneration: UInt64 = 0
@@ -42,6 +47,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var skippedStaleWrites = 0
   var droppedFrameCount = 0
   var completedPositions: [WindowID: CGPoint] = [:]
+  var retargetHorizontalVelocities: [WindowID: Double] = [:]
+  var deferredParkingWriteGenerations: [WindowID: UInt64] = [:]
   var completedSizes: [WindowID: CGSize] = [:]
   var recentInternalFrameWrites: [WindowID: [RecentInternalFrameWrite]] = [:]
   var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
@@ -65,6 +72,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
+
+  @MainActor
+  func startDisplayLink() {
+    displayLinkClock.start()
+  }
 
   func updateParkingTargets(_ targets: [WindowID: AsyncPositionWrite]) {
     lock.lock()
@@ -157,6 +169,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     // The generation reset invalidates in-flight geometry too.
     activeWrites.removeAll(keepingCapacity: true)
     completedPositions.removeAll(keepingCapacity: true)
+    retargetHorizontalVelocities.removeAll(keepingCapacity: true)
+    deferredParkingWriteGenerations.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
     successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
@@ -180,6 +194,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     source: String,
     animationDuration: TimeInterval = 0,
     refreshRateHz: Double = 60,
+    displayID: UInt64? = nil,
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
@@ -204,6 +219,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
       animatedWindowIDs: animatedWindowIDs,
       animationDuration: max(animationDuration, 0),
       refreshRateHz: min(max(refreshRateHz, 30), 120),
+      displayID: displayID,
+      initialProgressVelocity: 0,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       completion: completion
     )
@@ -273,6 +290,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     if let pending {
       windowIDs.formUnion(pending.writes.keys)
     }
+    windowIDs.formUnion(deferredParkingWriteGenerations.keys)
     return windowIDs
   }
 

@@ -53,7 +53,6 @@ extension Daemon {
 
   func scheduleDisplayReconciliation() {
     displayConfigurationEventCount += 1
-    cancelDeferredSlowLane()
     let now = ProcessInfo.processInfo.systemUptime
     pendingDisplaySyncDeadlines = [0.05, 0.2, 0.5, 1.0, 2.0].map {
       now + $0

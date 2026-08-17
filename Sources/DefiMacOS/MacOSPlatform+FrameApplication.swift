@@ -21,12 +21,14 @@ extension MacOSPlatform {
     asynchronousPositionTimeoutSeconds: Float = 0.016,
     animationDuration: TimeInterval = 0,
     animationRefreshRateHz: Double = 60,
+    animationDisplayID: UInt64? = nil,
     animateSizeChanges: Bool = false,
     positionsOnly: Bool = false,
     updateVisibility: Bool = true,
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
     focusInputTimestampAfterCommit: TimeInterval? = nil,
+    cursorWarpWindowIDAfterCommit: WindowID? = nil,
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
       (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
@@ -72,11 +74,15 @@ extension MacOSPlatform {
           }
           return observed
         }
-      let reference =
-        pendingFrameCorrections[assignment.windowID]
-        ?? settlingReference
-        ?? previousTargetFrames[assignment.windowID]
-        ?? elements[assignment.windowID].flatMap(frame(of:))
+      let reference = frameApplicationReference(
+        pendingCorrection: pendingFrameCorrections[assignment.windowID],
+        settlingReference: settlingReference,
+        completedPosition: frameCoordinator.completedPosition(
+          for: assignment.windowID
+        ),
+        previousTarget: previousTargetFrames[assignment.windowID],
+        nativeReference: elements[assignment.windowID].flatMap(frame(of:))
+      )
       guard let reference else { continue }
       let intent = frameWriteIntent(
         reference: reference,
@@ -329,7 +335,9 @@ extension MacOSPlatform {
     )
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty
     let frameCompletion: (@Sendable (FrameWriteCompletion) -> Void)?
-    if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil {
+    if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil,
+      cursorWarpWindowIDAfterCommit == nil
+    {
       frameCompletion = nil
     } else {
       frameCompletion = { [weak self] result in
@@ -347,6 +355,33 @@ extension MacOSPlatform {
           }
           if refreshesBordersAfterCommit {
             self.refreshWindowBorders()
+          }
+          if let cursorWarpWindowIDAfterCommit,
+            deferredFocusFrameCommitIsReady(
+              targetWindowID: cursorWarpWindowIDAfterCommit,
+              pendingFrameWindowIDs: self.pendingFrameWindowIDs,
+              successfulWindowIDs: result.successfulWindowIDs,
+              observedFrame:
+                self.latestObservedFrames[cursorWarpWindowIDAfterCommit],
+              targetFrame: self.targetFrames[cursorWarpWindowIDAfterCommit]
+            ),
+            let timestamp = cursorWarpTimestampAfterFrameCompletion(
+              requestedTimestamp: cursorWarpInputTimestampAfterCommit,
+              targetWindowID: cursorWarpWindowIDAfterCommit,
+              completion: result
+            ),
+            deferredFocusInputIsCurrent(
+              requestedTimestamp: timestamp,
+              latestUserInputTimestamp:
+                self.userInputTracker.latestEventTimestamp
+            ),
+            cursorWarpIsCurrentAfterCommit?() ?? true
+          {
+            self.warpCursor(
+              to: cursorWarpWindowIDAfterCommit,
+              unlessUserInputAfter: timestamp,
+              preferringTargetFrame: true
+            )
           }
           if let focusWindowIDAfterCommit {
             guard deferredFocusFrameCommitIsReady(
@@ -401,6 +436,7 @@ extension MacOSPlatform {
       animationDuration:
         animatedWindowIDs.isEmpty ? 0 : animationDuration,
       refreshRateHz: animationRefreshRateHz,
+      displayID: animationDisplayID,
       animatedWindowIDs: animatedWindowIDs,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       completion: frameCompletion
@@ -440,6 +476,25 @@ extension MacOSPlatform {
       } else {
         focusCompletionAfterCommit?(.cancelled)
       }
+    }
+    if asynchronousWrites.isEmpty,
+      let cursorWarpWindowIDAfterCommit,
+      let cursorWarpInputTimestampAfterCommit,
+      deferredFocusFrameIsReady(
+        targetWindowID: cursorWarpWindowIDAfterCommit,
+        pendingFrameWindowIDs: pendingFrameWindowIDs
+      ),
+      deferredFocusInputIsCurrent(
+        requestedTimestamp: cursorWarpInputTimestampAfterCommit,
+        latestUserInputTimestamp: userInputTracker.latestEventTimestamp
+      ),
+      cursorWarpIsCurrentAfterCommit?() ?? true
+    {
+      warpCursor(
+        to: cursorWarpWindowIDAfterCommit,
+        unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
+        preferringTargetFrame: true
+      )
     }
     if updateVisibility {
       lastHiddenWindowIDs = effectiveHiddenWindowIDs

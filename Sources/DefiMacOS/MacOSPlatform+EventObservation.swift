@@ -11,6 +11,7 @@ extension MacOSPlatform {
 
   public func invalidateFrameStateForDisplayChange() {
     frameCoordinator.invalidate(reason: "display-change")
+    frameCoordinator.startDisplayLink()
     clearFrameState()
   }
 

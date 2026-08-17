@@ -46,7 +46,6 @@ extension Daemon {
         if var animation = scrollAnimations[key] {
           if animation.target != target {
             animation.target = target
-            animation.velocity = 0
             animation.lastStepAt = now
             animation.startedAt = now
             scrollAnimations[key] = animation
@@ -132,7 +131,6 @@ extension Daemon {
   }
 
   func cancelAnimationForMouseGesture() {
-    cancelDeferredSlowLane()
     needsDesktopSync = true
     guard mouseGestureAnimationCancellationIsNeeded(
       mouseReorderAnimationActive: mouseReorderAnimationActive,
@@ -260,8 +258,7 @@ extension Daemon {
       targetMonitorID: monitorID,
       targetWindowID: targetWindowID,
       scrollingMonitorIDs: Set(scrollAnimations.keys.map(\.monitorID)),
-      pendingFrameWindowIDs: platform.pendingFrameWindowIDs,
-      deferredSlowWindowIDs: deferredSlowWindowIDs
+      pendingFrameWindowIDs: platform.pendingFrameWindowIDs
     )
   }
 
@@ -270,62 +267,6 @@ extension Daemon {
       return true
     }
     return false
-  }
-
-  func scheduleSlowLaneDeferral(
-    at commandStartedAt: TimeInterval
-  ) -> Set<WindowID> {
-    let commandMonitorID = activeMonitorID ?? state.monitors.first?.id
-    let newCandidates = platform.latencySensitiveWindowIDs.filter {
-      state.monitorID(containing: $0) == commandMonitorID
-    }
-    let candidates = newCandidates
-      .union(deferredSlowWindowIDs)
-    guard !candidates.isEmpty else { return [] }
-    deferredSlowWindowIDs = candidates
-    slowLaneSettlementDeadline =
-      commandStartedAt
-      + speculativeNavigationSettlementDelay(
-        animationDuration: TimeInterval(config.animation.durationMS) / 1_000
-      )
-    slowLaneDeferralCount += 1
-    performanceLogger.debug(
-      "slow lane deferred windows=\(candidates.count) deadline_ms=\((self.slowLaneSettlementDeadline! - commandStartedAt) * 1_000, format: .fixed(precision: 1))"
-    )
-    return candidates
-  }
-
-  func cancelDeferredSlowLane() {
-    deferredSlowWindowIDs.removeAll(keepingCapacity: true)
-    slowLaneSettlementDeadline = nil
-  }
-
-  func finishDeferredSlowLaneIfReady() {
-    guard !deferredSlowWindowIDs.isEmpty,
-      let deadline = slowLaneSettlementDeadline,
-      ProcessInfo.processInfo.systemUptime >= deadline,
-      scrollAnimations.isEmpty,
-      !platform.hasPendingAnimatedFrameWrites
-    else {
-      return
-    }
-    let settledWindowIDs = deferredSlowWindowIDs
-    deferredSlowWindowIDs.removeAll(keepingCapacity: true)
-    slowLaneSettlementDeadline = nil
-    slowLaneSettlementCount += 1
-    applyCurrentLayout(
-      asynchronousPositions: true,
-      updateVisibility: true,
-      positionTimeoutSeconds: 0.05,
-      animationDuration: TimeInterval(config.animation.durationMS) / 1_000,
-      skipping: Set(state.windows.keys).subtracting(settledWindowIDs),
-      positionsOnly: true,
-      source: "slow-lane-settlement"
-    )
-    needsDesktopSync = true
-    performanceLogger.debug(
-      "slow lane settled windows=\(settledWindowIDs.count)"
-    )
   }
 
 }

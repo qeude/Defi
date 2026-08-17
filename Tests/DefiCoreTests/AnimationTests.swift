@@ -64,6 +64,75 @@ final class AnimationTests: XCTestCase {
     XCTAssertEqual(at120Hz, at120Hz.sorted())
   }
 
+  func testCompletedFrameSpringUsesTheFullRefreshBudget() {
+    let progresses = completedFrameSpringProgresses(
+      duration: 0.08,
+      refreshRateHz: 120
+    )
+
+    XCTAssertEqual(progresses.count, 9)
+    XCTAssertGreaterThan(progresses.last ?? 0, 0.85)
+  }
+
+  func testRetargetedSpringKeepsForwardVelocityAndRemainsMonotonic() {
+    let stationary = completedFrameSpringSamples(
+      duration: 0.08,
+      refreshRateHz: 120
+    )
+    let retargeted = completedFrameSpringSamples(
+      duration: 0.08,
+      refreshRateHz: 120,
+      initialVelocity: 12
+    )
+
+    XCTAssertGreaterThan(
+      retargeted.first?.progress ?? 0,
+      stationary.first?.progress ?? 1
+    )
+    XCTAssertEqual(
+      retargeted.map(\.progress),
+      retargeted.map(\.progress).sorted()
+    )
+    XCTAssertLessThanOrEqual(retargeted.last?.progress ?? 2, 1)
+    XCTAssertEqual(
+      retainedSpringProgressVelocity(
+        normalizedCandidates: [-4, 8, 12, .infinity],
+        maximum: 10
+      ),
+      10
+    )
+    XCTAssertEqual(
+      retainedSpringProgressVelocity(
+        normalizedCandidates: [-4, -.infinity],
+        maximum: 10
+      ),
+      0
+    )
+  }
+
+  func testDisplayLinkedSpringSamplingUsesElapsedTimeAndNeverRollsBack() {
+    let first = springProgressSample(
+      elapsed: 1.0 / 120,
+      duration: 0.08
+    )
+    let delayed = springProgressSample(
+      elapsed: 0.027,
+      duration: 0.08,
+      minimumProgress: first.progress
+    )
+    let staleTimestamp = springProgressSample(
+      elapsed: 0.020,
+      duration: 0.08,
+      minimumProgress: delayed.progress
+    )
+
+    XCTAssertGreaterThan(first.progress, 0)
+    XCTAssertGreaterThan(delayed.progress, first.progress)
+    XCTAssertEqual(staleTimestamp.progress, delayed.progress)
+    XCTAssertEqual(staleTimestamp.velocity, 0)
+    XCTAssertLessThanOrEqual(staleTimestamp.progress, 1)
+  }
+
   func testAdaptiveFrameLimitAvoidsMultiplyingSlowAXCalls() {
     XCTAssertEqual(
       adaptiveIntermediateFrameLimit(
@@ -203,6 +272,34 @@ final class AnimationTests: XCTestCase {
         predictedFrameLatency: 0.050
       ),
       0
+    )
+  }
+
+  func testSlowIntermediateFrameDoesNotLeaveAnimationFrozenUntilDeadline() {
+    XCTAssertEqual(
+      finalFrameDispatchDeadline(
+        nominalDeadline: 10.08,
+        nextDisplayDeadline: 10.025,
+        previousFrameWasSlow: true
+      ),
+      10.025
+    )
+    XCTAssertEqual(
+      finalFrameDispatchDeadline(
+        nominalDeadline: 10.08,
+        nextDisplayDeadline: 10.025,
+        previousFrameWasSlow: false
+      ),
+      10.08
+    )
+    XCTAssertEqual(
+      finalFrameDispatchDeadline(
+        nominalDeadline: 10.075,
+        nextDisplayDeadline: 10.12,
+        previousFrameWasSlow: false,
+        hardDeadline: 10.08
+      ),
+      10.08
     )
   }
 
