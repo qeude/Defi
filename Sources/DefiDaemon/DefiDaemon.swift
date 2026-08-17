@@ -166,6 +166,8 @@ final class Daemon: NSObject {
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
+  var prefetchInvalidationRetries = 0
+  var bypassPrefetchOnce = false
   var observedPlatformEventCount = 0
   var targetMismatchCount = 0
   var targetMismatches: [FrameMismatch] = []
@@ -395,20 +397,45 @@ final class Daemon: NSObject {
           && !platform.hasReliableWindowTopologyObservation)
       if !mouseGestureSyncPending,
         forcesFullWindowRefresh,
+        !bypassPrefetchOnce,
         platform.prepareAXWindowAttributesIfNeeded(
-          completion: { [weak self] in self?.needsDesktopSync = true }
+          completion: { [weak self] published in
+            guard let self else { return }
+            if published {
+              self.prefetchInvalidationRetries = 0
+            } else {
+              self.prefetchInvalidationRetries += 1
+              if self.prefetchInvalidationRetries >= 2 {
+                self.bypassPrefetchOnce = true
+              }
+            }
+            self.needsDesktopSync = true
+          }
         )
       {
         return
       }
       if !mouseGestureSyncPending,
         forcesFullWindowRefresh,
+        !bypassPrefetchOnce,
         platform.prepareCGWindowInventoryIfNeeded(
-          completion: { [weak self] in self?.needsDesktopSync = true }
+          completion: { [weak self] published in
+            guard let self else { return }
+            if published {
+              self.prefetchInvalidationRetries = 0
+            } else {
+              self.prefetchInvalidationRetries += 1
+              if self.prefetchInvalidationRetries >= 2 {
+                self.bypassPrefetchOnce = true
+              }
+            }
+            self.needsDesktopSync = true
+          }
         )
       {
         return
       }
+      bypassPrefetchOnce = false
       needsDesktopSync = false
       synchronizeDesktop(
         forceFullWindowRefresh: forcesFullWindowRefresh,

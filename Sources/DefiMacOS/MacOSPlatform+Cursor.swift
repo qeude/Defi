@@ -65,6 +65,14 @@ func resolvedCursorWarpFrame(
   return targetFrame ?? observedFrame ?? snapshotFrame
 }
 
+func resolvedPointerHitTestFrame(
+  observedFrame: Rect?,
+  snapshotFrame: Rect?,
+  targetFrame: Rect?
+) -> Rect? {
+  observedFrame ?? snapshotFrame ?? targetFrame
+}
+
 enum ManagedPointerHit: Equatable {
   case managed(WindowID)
   case blocked
@@ -238,7 +246,11 @@ extension MacOSPlatform {
           return record.frame
         }
         return borderBoundsProvider.frame(for: windowID)
-          ?? cursorWarpFrame(for: windowID)
+          ?? resolvedPointerHitTestFrame(
+            observedFrame: latestObservedFrames[windowID],
+            snapshotFrame: lastSnapshotWindows.first { $0.id == windowID }?.frame,
+            targetFrame: targetFrames[windowID]
+          )
       }
     )
     switch hit {

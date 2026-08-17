@@ -64,7 +64,7 @@ func preparedCGWindowInventoryIsCurrent(
 @MainActor
 extension MacOSPlatform {
   public func prepareCGWindowInventoryIfNeeded(
-    completion: @escaping @MainActor @Sendable () -> Void
+    completion: @escaping @MainActor @Sendable (Bool) -> Void
   ) -> Bool {
     if preparedCGWindowInventoryAvailable { return false }
     guard !cgWindowInventoryPreparationPending else { return true }
@@ -83,13 +83,13 @@ extension MacOSPlatform {
             capturedGeneration: capturedGeneration,
             currentGeneration: self.windowSnapshotObservationGeneration
           ) else {
-            completion()
+            completion(false)
             return
           }
           self.preparedCGWindowInventory = windows
           self.preparedCGWindowInventoryDurationMS = durationMS
           self.preparedCGWindowInventoryAvailable = true
-          completion()
+          completion(true)
         }
       }
     }

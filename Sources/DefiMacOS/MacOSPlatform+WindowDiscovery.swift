@@ -11,7 +11,7 @@ private let focusSnapshotAccessibilityTimeoutSeconds: Float = 0.05
 extension MacOSPlatform {
 
   public func prepareAXWindowAttributesIfNeeded(
-    completion: @escaping @MainActor @Sendable () -> Void
+    completion: @escaping @MainActor @Sendable (Bool) -> Void
   ) -> Bool {
     if preparedAXWindowAttributesAvailable { return false }
     guard !axWindowAttributePreparationPending else { return true }
@@ -120,7 +120,7 @@ extension MacOSPlatform {
             capturedProcessIDs: applicationProcessIDs,
             currentProcessIDs: Set(self.applications.keys)
           ) else {
-            completion()
+            completion(false)
             return
           }
           self.preparedAXWindowAttributes = attributes
@@ -134,7 +134,7 @@ extension MacOSPlatform {
           self.frameCoordinator.recordTrace(
             "snapshot-prefetch windows=\(attributes.count) ms=\(formattedDuration)"
           )
-          completion()
+          completion(true)
         }
       }
     }

@@ -120,6 +120,20 @@ struct CursorTests {
   }
 
   @Test
+  func publicHitTestFallbackPrefersObservedFrameOverTarget() {
+    let observed = Rect(x: 100, y: 200, width: 400, height: 600)
+    let target = Rect(x: -10_000, y: -10_000, width: 400, height: 600)
+
+    #expect(
+      resolvedPointerHitTestFrame(
+        observedFrame: observed,
+        snapshotFrame: nil,
+        targetFrame: target
+      ) == observed
+    )
+  }
+
+  @Test
   func pointerHitTestCacheExpiresAndRejectsClockRollback() {
     #expect(
       pointerHitTestCacheIsFresh(
