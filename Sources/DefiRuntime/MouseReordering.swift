@@ -445,10 +445,11 @@ public func desktopSynchronizationIsReady(
   mouseGestureSyncPending: Bool,
   needsDesktopSync: Bool,
   periodicSyncDue: Bool,
-  commandQuietPeriodElapsed: Bool
+  commandQuietPeriodElapsed: Bool,
+  nativeFocusSyncPending: Bool = false
 ) -> Bool {
   guard !scrollAnimationActive,
-    commandQuietPeriodElapsed || mouseGestureSyncPending,
+    commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending,
     needsDesktopSync || periodicSyncDue
   else {
     return false

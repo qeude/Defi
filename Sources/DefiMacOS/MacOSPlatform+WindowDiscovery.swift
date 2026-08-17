@@ -417,9 +417,13 @@ extension MacOSPlatform {
       return nil
     }
     if resolvedProcessID != focusedProcessID {
+      let verifiedProcessHasSingleWindow = windows.filter {
+        $0.processID == resolvedProcessID
+      }.count == 1
       return stableWindowID(
         processID: resolvedProcessID,
-        in: windows
+        in: windows,
+        allowPendingNativeFocus: verifiedProcessHasSingleWindow
       )
     }
     let focusedWindow: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(

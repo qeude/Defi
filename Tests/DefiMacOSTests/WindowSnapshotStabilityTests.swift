@@ -8,6 +8,21 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func staleCGWindowInventoryIsRejected() {
+    #expect(
+      preparedCGWindowInventoryIsCurrent(
+        capturedGeneration: 4,
+        currentGeneration: 4
+      )
+    )
+    #expect(
+      !preparedCGWindowInventoryIsCurrent(
+        capturedGeneration: 4,
+        currentGeneration: 5
+      )
+    )
+  }
+
   @Test func preparedAttributesAreRejectedAfterInputOrObservationChanges() {
     let windowIDs: Set<WindowID> = [WindowID(rawValue: 1)]
     #expect(

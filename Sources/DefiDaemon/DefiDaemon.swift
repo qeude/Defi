@@ -384,7 +384,8 @@ final class Daemon: NSObject {
         periodicWindowRefreshDue
         || windowListRefreshDue
         || applicationInventoryRefreshDue,
-      commandQuietPeriodElapsed: commandQuietPeriodElapsed
+      commandQuietPeriodElapsed: commandQuietPeriodElapsed,
+      nativeFocusSyncPending: platform.hasPendingNativeFocusEvent
     ) {
       let forcesWindowInventory =
         windowListRefreshDue || applicationInventoryRefreshDue

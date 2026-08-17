@@ -194,8 +194,22 @@ extension MacOSPlatform {
       let monitorFrames = lastMonitorFrames
       let knownWindowIDs = Set(elements.keys)
       let targetProcessID = processIDs[request.windowID]
-      let targetFrame = latestObservedFrames[request.windowID]
+      let targetFrame: Rect? = {
+        guard
+          let point = frameCoordinator.completedPosition(for: request.windowID),
+          let size = frameCoordinator.completedSize(for: request.windowID)
+        else {
+          return nil
+        }
+        return Rect(
+          x: point.x,
+          y: point.y,
+          width: size.width,
+          height: size.height
+        )
+      }()
         ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
+        ?? latestObservedFrames[request.windowID]
       let stacking = await Task.detached(priority: .utility) {
         copyWindowBorderStacking(
           targetWindowID: request.windowID,

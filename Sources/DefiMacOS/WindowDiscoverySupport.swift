@@ -61,13 +61,16 @@ struct PreparedAXApplicationWindows: @unchecked Sendable {
   let durationMS: Double
 }
 
+@MainActor
 final class AXWindowIDProvider {
   private typealias GetWindowFunc =
     @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
 
-  private let libraryHandle: UnsafeMutableRawPointer?
+  nonisolated(unsafe) private let libraryHandle: UnsafeMutableRawPointer?
   private let getWindow: GetWindowFunc?
   private var disabled = false
+  private var probeCompleted = false
+  private var probeSucceeded = false
 
   init() {
     let handle = dlopen(
@@ -82,22 +85,82 @@ final class AXWindowIDProvider {
     }
   }
 
-  deinit {
+  nonisolated deinit {
     if let libraryHandle {
       dlclose(libraryHandle)
     }
   }
 
-  var isAvailable: Bool { getWindow != nil && !disabled }
+  var isAvailable: Bool {
+    ensureProbe()
+    return getWindow != nil && probeSucceeded && !disabled
+  }
 
   func windowID(for element: AXUIElement) -> CGWindowID? {
-    guard !disabled, let getWindow else { return nil }
+    ensureProbe()
+    guard !disabled, probeSucceeded, let getWindow else { return nil }
     var windowID: CGWindowID = 0
     guard getWindow(element, &windowID) == .success, windowID != 0 else {
       disabled = true
       return nil
     }
     return windowID
+  }
+
+  private func ensureProbe() {
+    guard !probeCompleted else { return }
+    probeCompleted = true
+    guard let getWindow, NSApp != nil else { return }
+
+    let title = "Defi AX probe \(UUID().uuidString)"
+    let panel = NSPanel(
+      contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+      styleMask: [.nonactivatingPanel],
+      backing: .buffered,
+      defer: false
+    )
+    panel.title = title
+    panel.titleVisibility = .visible
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.alphaValue = 0
+    panel.ignoresMouseEvents = true
+    panel.hasShadow = false
+    panel.sharingType = .none
+    panel.isExcludedFromWindowsMenu = true
+    panel.orderFrontRegardless()
+    defer {
+      panel.orderOut(nil)
+      panel.close()
+    }
+
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+      AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier),
+      kAXWindowsAttribute as CFString,
+      &value
+    ) == .success,
+      let windows = value as? [AXUIElement]
+    else {
+      return
+    }
+    for window in windows {
+      var windowTitle: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(
+        window,
+        kAXTitleAttribute as CFString,
+        &windowTitle
+      ) == .success,
+        windowTitle as? String == title
+      else {
+        continue
+      }
+      var windowID: CGWindowID = 0
+      if getWindow(window, &windowID) == .success, windowID != 0 {
+        probeSucceeded = true
+      }
+      return
+    }
   }
 }
 

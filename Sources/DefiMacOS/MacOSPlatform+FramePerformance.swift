@@ -284,4 +284,8 @@ public var hiddenWindowCount: Int {
   public var hasPendingFocusWrite: Bool {
     focusWriter.isBusy
   }
+
+  public var hasPendingNativeFocusEvent: Bool {
+    nativeFocusEventPending
+  }
 }

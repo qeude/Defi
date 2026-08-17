@@ -54,6 +54,13 @@ func copyCGWindowsIfAvailable(
   return info.compactMap(cgWindowRecord)
 }
 
+func preparedCGWindowInventoryIsCurrent(
+  capturedGeneration: UInt64,
+  currentGeneration: UInt64
+) -> Bool {
+  capturedGeneration == currentGeneration
+}
+
 @MainActor
 extension MacOSPlatform {
   public func prepareCGWindowInventoryIfNeeded(
@@ -61,6 +68,7 @@ extension MacOSPlatform {
   ) -> Bool {
     if preparedCGWindowInventoryAvailable { return false }
     guard !cgWindowInventoryPreparationPending else { return true }
+    let capturedGeneration = windowSnapshotObservationGeneration
     cgWindowInventoryPreparationPending = true
     DispatchQueue.global(qos: .utility).async {
       let startedAt = ProcessInfo.processInfo.systemUptime
@@ -70,10 +78,17 @@ extension MacOSPlatform {
       DispatchQueue.main.async { [weak self] in
         MainActor.assumeIsolated {
           guard let self else { return }
+          self.cgWindowInventoryPreparationPending = false
+          guard preparedCGWindowInventoryIsCurrent(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: self.windowSnapshotObservationGeneration
+          ) else {
+            completion()
+            return
+          }
           self.preparedCGWindowInventory = windows
           self.preparedCGWindowInventoryDurationMS = durationMS
           self.preparedCGWindowInventoryAvailable = true
-          self.cgWindowInventoryPreparationPending = false
           completion()
         }
       }
