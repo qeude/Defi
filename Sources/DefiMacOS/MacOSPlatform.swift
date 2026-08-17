@@ -176,6 +176,8 @@ public final class MacOSPlatform {
 
   func invalidatePreparedAXWindowAttributes() {
     windowSnapshotObservationGeneration &+= 1
+    preparedCGWindowInventory = nil
+    preparedCGWindowInventoryAvailable = false
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)
     preparedAXApplicationWindows.removeAll(keepingCapacity: true)
     preparedAXWindowAttributesAvailable = false

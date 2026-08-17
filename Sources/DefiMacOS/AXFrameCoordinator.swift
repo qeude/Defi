@@ -258,7 +258,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var isBusy: Bool {
     lock.lock()
     defer { lock.unlock() }
-    return running || pending != nil
+    return running || pending != nil || !deferredParkingWriteGenerations.isEmpty
   }
 
   var animatedSizeWindowIDs: Set<WindowID> {

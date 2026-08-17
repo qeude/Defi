@@ -87,7 +87,7 @@ extension AXFrameCoordinator {
       group.wait()
     }
     let result = accumulator.result
-    if frame.animationDuration > 0 {
+    if !result.processLatencySamplesMS.isEmpty {
       recordProcessLatencySamples(result.processLatencySamplesMS)
     }
     return (

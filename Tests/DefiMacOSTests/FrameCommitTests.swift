@@ -102,6 +102,27 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testDeferredParkingKeepsCoordinatorBusyUntilInvalidated() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.deferredParkingWriteGenerations[WindowID(rawValue: 42)] = 3
+
+    XCTAssertTrue(coordinator.isBusy)
+
+    coordinator.invalidate(reason: "mouse-gesture")
+
+    XCTAssertFalse(coordinator.isBusy)
+  }
+
+  func testStaticSettlementSamplesCanExitTheSlowLane() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.predictedProcessLatencyMS[42] = 12
+    coordinator.latencySensitiveProcessIDs.insert(42)
+
+    coordinator.recordProcessLatencySamples([42: 0])
+
+    XCTAssertFalse(coordinator.latencySensitiveProcessIDs.contains(42))
+  }
+
   func testCursorWarpRequiresSuccessfulTargetFrameWrite() {
     let target = WindowID(rawValue: 2)
     let sibling = WindowID(rawValue: 3)
