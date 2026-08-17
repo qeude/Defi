@@ -46,7 +46,9 @@ extension MacOSPlatform {
             "window-event kind=\(String(describing: kind)) pid=\(processID)"
           )
         case .full:
-          if kind == .windows || kind == .applicationTerminated {
+          if kind == .windows || kind == .application
+            || kind == .applicationTerminated
+          {
             self?.windowTopologyEventPending = true
           }
           self?.windowTopologyRequiresFullSnapshot = true
@@ -104,6 +106,20 @@ extension MacOSPlatform {
               deadline: .now() + .milliseconds(delay)
             ) { [weak self] in
               guard self?.nativeFocusEventPending == true else { return }
+              handler()
+            }
+          }
+        }
+        let lifecycleRefreshDelays = applicationLifecycleRefreshDelays(for: kind)
+        if !lifecycleRefreshDelays.isEmpty {
+          for delay in lifecycleRefreshDelays {
+            DispatchQueue.main.asyncAfter(
+              deadline: .now() + .milliseconds(delay)
+            ) { [weak self] in
+              guard let self else { return }
+              self.invalidatePreparedAXWindowAttributes()
+              self.windowTopologyEventPending = true
+              self.windowTopologyRequiresFullSnapshot = true
               handler()
             }
           }

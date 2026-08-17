@@ -16,6 +16,19 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
+  func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
+    #expect(
+      applicationLifecycleRefreshDelays(for: .application)
+        == [50, 150, 350]
+    )
+    #expect(
+      applicationLifecycleRefreshDelays(for: .applicationTerminated)
+        == [50, 150, 350]
+    )
+    #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
+  }
+
+  @Test
   func contendedAXTimeoutAccessDoesNotWaitForTheOwner() throws {
     let element = TestAXElement(AXUIElementCreateSystemWide())
     let secondary = TestAXElement(
