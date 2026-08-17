@@ -405,7 +405,9 @@ extension AXFrameCoordinator {
       "parking-deferred-start g=\(frame.generation) windows=\(writes.count)"
     )
     lock.unlock()
+    parkingSettlementGroup.enter()
     parkingSettlementQueue.async { [self] in
+      defer { parkingSettlementGroup.leave() }
       let result = applyFrame(
         parkingFrame,
         progress: 1,

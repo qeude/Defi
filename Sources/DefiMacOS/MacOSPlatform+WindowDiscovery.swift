@@ -419,8 +419,7 @@ extension MacOSPlatform {
     if resolvedProcessID != focusedProcessID {
       return stableWindowID(
         processID: resolvedProcessID,
-        in: windows,
-        allowPendingNativeFocus: true
+        in: windows
       )
     }
     let focusedWindow: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
@@ -438,11 +437,7 @@ extension MacOSPlatform {
       return value
     }
     guard let focusedWindow else {
-      return stableWindowID(
-        processID: focusedProcessID,
-        in: windows,
-        allowPendingNativeFocus: true
-      )
+      return stableWindowID(processID: focusedProcessID, in: windows)
     }
     let focusedElement = focusedWindow as! AXUIElement
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
@@ -453,11 +448,7 @@ extension MacOSPlatform {
       elements: [focusedElement],
       perform: { frame(of: focusedElement) }
     ) else {
-      return stableWindowID(
-        processID: focusedProcessID,
-        in: windows,
-        allowPendingNativeFocus: true
-      )
+      return stableWindowID(processID: focusedProcessID, in: windows)
     }
     return focusedWindowIDMatchingFrame(
       processID: focusedProcessID,

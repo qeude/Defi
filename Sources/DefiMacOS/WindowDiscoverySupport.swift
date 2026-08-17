@@ -67,6 +67,7 @@ final class AXWindowIDProvider {
 
   private let libraryHandle: UnsafeMutableRawPointer?
   private let getWindow: GetWindowFunc?
+  private var disabled = false
 
   init() {
     let handle = dlopen(
@@ -87,12 +88,13 @@ final class AXWindowIDProvider {
     }
   }
 
-  var isAvailable: Bool { getWindow != nil }
+  var isAvailable: Bool { getWindow != nil && !disabled }
 
   func windowID(for element: AXUIElement) -> CGWindowID? {
-    guard let getWindow else { return nil }
+    guard !disabled, let getWindow else { return nil }
     var windowID: CGWindowID = 0
     guard getWindow(element, &windowID) == .success, windowID != 0 else {
+      disabled = true
       return nil
     }
     return windowID

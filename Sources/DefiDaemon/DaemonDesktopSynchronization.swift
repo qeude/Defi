@@ -277,7 +277,9 @@ extension Daemon {
         mouseFollowsFocus: config.input.mouseFollowsFocus,
         nativeFocusAccepted: nativeFocusAccepted,
         selectionChanged: selectionChanged,
-        latestUserInputTimestamp: snapshot.latestUserInputTimestamp
+        focusIntentTimestamp:
+          snapshot.mouseFocusIntentTimestamp
+          ?? snapshot.keyboardFocusIntentTimestamp
       )
       if nativeCursorWarpInputTimestamp != nil {
         nativeCursorWarpWindowID = focusedWindowID

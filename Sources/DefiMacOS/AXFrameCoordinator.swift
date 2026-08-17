@@ -30,6 +30,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     label: "com.quentin.defi.ax-parking-settlement",
     qos: .utility
   )
+  let parkingSettlementGroup = DispatchGroup()
   let lock = NSLock()
   let accessibilityWriter = AXFrameAccessibilityWriter()
   let displayLinkClock = DisplayLinkClock()
@@ -187,6 +188,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func invalidateAndWaitForWrites() {
     invalidate(reason: "synchronous-restore")
     queue.sync {}
+    parkingSettlementGroup.wait()
   }
 
   func submit(

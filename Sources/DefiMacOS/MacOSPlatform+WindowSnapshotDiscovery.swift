@@ -311,10 +311,7 @@ extension MacOSPlatform {
               configuredFloating: decision.floating,
               forceTiling: decision.forceTiling,
               previousDisposition: previousDisposition,
-              reuseCachedCapabilities:
-                previousWindowID.flatMap {
-                  windowManagementCapabilities[$0]
-                } != nil,
+              reuseCachedCapabilities: !refreshesWindowList,
               preparedModalState: previousWindowID.flatMap {
                 preparedWindowAttributes[$0]?.modal
               }
