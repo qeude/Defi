@@ -295,6 +295,26 @@ struct NativeFocusTests {
   }
 
   @Test
+  func staleNativeFocusPreservesExplicitMouseTargetDuringInteraction() {
+    let clickedWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: clickedWindowID
+      ),
+      mouseFocusIntentWindowID: clickedWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: WindowID(rawValue: 1),
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false
+    )
+
+    #expect(observed?.windowID == clickedWindowID)
+    #expect(observed?.focusObserved == false)
+  }
+
+  @Test
   func delayedMouseFocusCannotBypassNewerCommandAfterReleaseMarker() {
     #expect(
       nativeFocusMutationIsReady(

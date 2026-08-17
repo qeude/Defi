@@ -192,12 +192,6 @@ extension MacOSPlatform {
     let role = attributes.role
     let subrole = attributes.subrole
     let decision = config.decision(appID: appID, title: title, role: role)
-    let axWindowID = windowIDProvider.windowID(for: element)
-    if axWindowID == nil {
-      publicWindowIDFallbackCount += 1
-    } else {
-      privateWindowIDLookupCount += 1
-    }
     guard let publicCGWindows = publicCGWindows() else {
       return .unavailable
     }
@@ -207,8 +201,8 @@ extension MacOSPlatform {
       allowsConfiguredNonzeroLayer: decision.floating || decision.forceTiling,
       in: publicCGWindows
     )
-    let record = cgWindowRecordForDiscovery(
-      axWindowID: axWindowID,
+    let publicRecord = cgWindowRecordForDiscovery(
+      axWindowID: nil,
       preferredWindowID: preferredWindowID,
       processID: processID,
       title: title,
@@ -216,6 +210,26 @@ extension MacOSPlatform {
       records: eligibleCGWindows,
       excluding: usedCGWindowIDs
     )
+    let record: CGWindowRecord?
+    if let publicRecord {
+      record = publicRecord
+    } else {
+      let axWindowID = windowIDProvider.windowID(for: element)
+      if axWindowID == nil {
+        publicWindowIDFallbackCount += 1
+      } else {
+        privateWindowIDLookupCount += 1
+      }
+      record = cgWindowRecordForDiscovery(
+        axWindowID: axWindowID,
+        preferredWindowID: preferredWindowID,
+        processID: processID,
+        title: title,
+        frame: frame,
+        records: eligibleCGWindows,
+        excluding: usedCGWindowIDs
+      )
+    }
     guard let resolvedWindowID = record?.id else {
       return .unmatched
     }
