@@ -355,6 +355,9 @@ extension AXFrameCoordinator {
           expectedPoint: item.value.point
         )
       }
+      if !intermediate, progress >= 1, appliedWrite {
+        frame.cursorWarpAfterWindowCommit?(item.key, frame.generation)
+      }
       if intermediate && (!appliedWrite || writeElapsedMS > 12) {
         slowProcesses.insert(item.value.processID)
       }

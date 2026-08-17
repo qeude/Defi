@@ -427,6 +427,20 @@ final class MouseReorderingTests: XCTestCase {
     )
   }
 
+  func testFrameDebtBypassesCommandQuietPeriod() {
+    XCTAssertTrue(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: false,
+        animatedWritesPending: false,
+        mouseGestureSyncPending: false,
+        needsDesktopSync: true,
+        periodicSyncDue: false,
+        commandQuietPeriodElapsed: false,
+        frameDebtPending: true
+      )
+    )
+  }
+
   func testMouseReorderAnimationSurvivesLaterDragSamples() {
     XCTAssertFalse(
       mouseGestureAnimationCancellationIsNeeded(

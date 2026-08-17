@@ -49,7 +49,8 @@ extension AXFrameCoordinator {
       displayID: frame.displayID,
       initialProgressVelocity: frame.initialProgressVelocity,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-      completion: nil
+      completion: nil,
+      cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
     let finalOnlyFrame = QueuedPositionFrame(
       generation: frame.generation,
@@ -61,7 +62,8 @@ extension AXFrameCoordinator {
       displayID: frame.displayID,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-      completion: nil
+      completion: nil,
+      cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
     let startedAt = ProcessInfo.processInfo.systemUptime
     let interval = 1 / frame.refreshRateHz
@@ -329,7 +331,8 @@ extension AXFrameCoordinator {
         displayID: frame.displayID,
         initialProgressVelocity: 0,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-        completion: nil
+        completion: nil,
+        cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
       )
       let result = applyFrame(
         staticFrame,
@@ -403,7 +406,8 @@ extension AXFrameCoordinator {
       displayID: frame.displayID,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-      completion: nil
+      completion: nil,
+      cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
     lock.lock()
     for windowID in writes.keys {

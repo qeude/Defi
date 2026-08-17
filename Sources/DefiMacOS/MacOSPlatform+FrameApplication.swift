@@ -350,6 +350,32 @@ extension MacOSPlatform {
       repairsSuspended: isLeftMouseButtonDown
     )
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty
+    let cursorWarpAfterWindowCommit:
+      (@Sendable (WindowID, UInt64) -> Void)?
+    if let cursorWarpWindowIDAfterCommit,
+      let cursorWarpInputTimestampAfterCommit
+    {
+      cursorWarpAfterWindowCommit = { [weak self] committedWindowID, generation in
+        guard committedWindowID == cursorWarpWindowIDAfterCommit else { return }
+        DispatchQueue.main.async {
+          guard let self,
+            self.frameCoordinator.isCurrent(generation: generation),
+            deferredFocusInputIsCurrent(
+              requestedTimestamp: cursorWarpInputTimestampAfterCommit,
+              latestUserInputTimestamp: self.userInputTracker.latestEventTimestamp
+            ),
+            cursorWarpIsCurrentAfterCommit?() ?? true
+          else { return }
+          self.warpCursor(
+            to: cursorWarpWindowIDAfterCommit,
+            unlessUserInputAfter: cursorWarpInputTimestampAfterCommit,
+            preferringTargetFrame: true
+          )
+        }
+      }
+    } else {
+      cursorWarpAfterWindowCommit = nil
+    }
     let frameCompletion: (@Sendable (FrameWriteCompletion) -> Void)?
     if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil,
       cursorWarpWindowIDAfterCommit == nil
@@ -455,6 +481,7 @@ extension MacOSPlatform {
       displayID: animationDisplayID,
       animatedWindowIDs: animatedWindowIDs,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit,
       completion: frameCompletion
     )
     if tracesInitialFrame {

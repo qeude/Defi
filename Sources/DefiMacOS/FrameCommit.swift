@@ -308,6 +308,35 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let initialProgressVelocity: Double
   let stagesVisibleBeforeParking: Bool
   let completion: (@Sendable (FrameWriteCompletion) -> Void)?
+  let cursorWarpAfterWindowCommit:
+    (@Sendable (WindowID, UInt64) -> Void)?
+
+  init(
+    generation: UInt64,
+    source: String,
+    writes: [WindowID: AsyncPositionWrite],
+    animatedWindowIDs: Set<WindowID>,
+    animationDuration: TimeInterval,
+    refreshRateHz: Double,
+    displayID: UInt64?,
+    initialProgressVelocity: Double,
+    stagesVisibleBeforeParking: Bool,
+    completion: (@Sendable (FrameWriteCompletion) -> Void)?,
+    cursorWarpAfterWindowCommit:
+      (@Sendable (WindowID, UInt64) -> Void)? = nil
+  ) {
+    self.generation = generation
+    self.source = source
+    self.writes = writes
+    self.animatedWindowIDs = animatedWindowIDs
+    self.animationDuration = animationDuration
+    self.refreshRateHz = refreshRateHz
+    self.displayID = displayID
+    self.initialProgressVelocity = initialProgressVelocity
+    self.stagesVisibleBeforeParking = stagesVisibleBeforeParking
+    self.completion = completion
+    self.cursorWarpAfterWindowCommit = cursorWarpAfterWindowCommit
+  }
 }
 
 struct FrameWriteCompletion: Equatable, Sendable {

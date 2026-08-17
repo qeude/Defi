@@ -169,7 +169,8 @@ extension AXFrameCoordinator {
         displayID: frame.displayID,
         initialProgressVelocity: initialProgressVelocity,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-        completion: frame.completion
+        completion: frame.completion,
+        cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
       ),
       count
     )

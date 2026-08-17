@@ -200,6 +200,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     displayID: UInt64? = nil,
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
+    cursorWarpAfterWindowCommit:
+      (@Sendable (WindowID, UInt64) -> Void)? = nil,
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
   ) {
     guard !writes.isEmpty else { return }
@@ -225,7 +227,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
       displayID: displayID,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
-      completion: completion
+      completion: completion,
+      cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit
     )
     successfulFinalWritesByGeneration[nextGeneration] = []
     if let displacedFrame {

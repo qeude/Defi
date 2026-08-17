@@ -49,6 +49,10 @@ public var hiddenWindowCount: Int {
     frameCoordinator.slowProcessIDs.count
   }
 
+  public var hasPendingFrameDebt: Bool {
+    !pendingFrameDebtWindowIDs.isEmpty
+  }
+
   public var successfulPositionWriteCount: Int {
     positionWriteCount + frameCoordinator.writeCount
   }
