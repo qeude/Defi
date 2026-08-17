@@ -79,6 +79,7 @@ extension AXFrameCoordinator {
             slowProcesses: result.slowProcesses,
             processID: batch.processID,
             processLatencyMS: processLatencyMS,
+            attempted: result.attempted,
             completedAt: ProcessInfo.processInfo.systemUptime
           )
           group.leave()
@@ -194,15 +195,22 @@ extension AXFrameCoordinator {
     intermediate: Bool,
     stagingReentry: Bool,
     recordFinalSuccess: Bool
-  ) -> (applied: Int, stale: Int, slowProcesses: Set<pid_t>) {
+  ) -> (
+    applied: Int,
+    stale: Int,
+    slowProcesses: Set<pid_t>,
+    attempted: Bool
+  ) {
     var applied = 0
     var stale = 0
     var slowProcesses = Set<pid_t>()
+    var attempted = false
     for (index, item) in batch.writes.enumerated() {
       guard isCurrent(generation: frame.generation) else {
         stale += batch.writes.count - index
         break
       }
+      attempted = true
       let interpolated = interpolatedFrame(
         from: Rect(
           x: item.value.fromPoint.x,
@@ -358,7 +366,7 @@ extension AXFrameCoordinator {
         lock.unlock()
       }
     }
-    return (applied, stale, slowProcesses)
+    return (applied, stale, slowProcesses, attempted)
   }
 
   func recordCompletedSize(

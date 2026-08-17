@@ -224,7 +224,9 @@ extension MacOSPlatform {
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
     let snapshot = pointerHitTestSnapshot()
-    if let ownedWindowID = borderManager.ownedSurfaceWindowID {
+    if !screenCaptureAccessAvailable,
+      let ownedWindowID = borderManager.ownedSurfaceWindowID
+    {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
     let nonblockingWindowIDs = transparentDockOverlayWindowIDs(

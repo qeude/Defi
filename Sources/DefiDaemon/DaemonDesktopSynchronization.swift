@@ -524,7 +524,8 @@ extension Daemon {
         guard let self,
           let monitorID = self.state.monitorID(
             containing: nativeCursorWarpWindowID
-          )
+          ),
+          !self.platform.hasPendingNativeFocusEvent
         else { return false }
         return self.state.selectedWindowID(on: monitorID)
           == nativeCursorWarpWindowID

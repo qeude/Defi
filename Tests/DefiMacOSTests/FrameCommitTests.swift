@@ -125,6 +125,21 @@ final class FrameCommitTests: XCTestCase {
     XCTAssertFalse(coordinator.latencySensitiveProcessIDs.contains(42))
   }
 
+  func testStaleBatchDoesNotRecordLatencySample() {
+    let accumulator = FrameResultAccumulator()
+    accumulator.add(
+      applied: 0,
+      stale: 1,
+      slowProcesses: [],
+      processID: 42,
+      processLatencyMS: 0.1,
+      attempted: false,
+      completedAt: 1
+    )
+
+    XCTAssertTrue(accumulator.result.processLatencySamplesMS.isEmpty)
+  }
+
   func testCursorWarpRequiresSuccessfulTargetFrameWrite() {
     let target = WindowID(rawValue: 2)
     let sibling = WindowID(rawValue: 3)

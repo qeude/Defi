@@ -462,13 +462,16 @@ final class FrameResultAccumulator: @unchecked Sendable {
     slowProcesses: Set<pid_t>,
     processID: pid_t,
     processLatencyMS: Double,
+    attempted: Bool,
     completedAt: TimeInterval
   ) {
     lock.lock()
     self.applied += applied
     self.stale += stale
     self.slowProcesses.formUnion(slowProcesses)
-    processLatencySamplesMS[processID] = processLatencyMS
+    if attempted {
+      processLatencySamplesMS[processID] = processLatencyMS
+    }
     firstCompletionAt = min(firstCompletionAt, completedAt)
     lastCompletionAt = max(lastCompletionAt, completedAt)
     lock.unlock()
