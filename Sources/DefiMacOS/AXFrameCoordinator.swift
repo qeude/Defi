@@ -189,6 +189,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     invalidate(reason: "synchronous-restore")
     queue.sync {}
     parkingSettlementGroup.wait()
+    parkingSettlementQueue.sync {}
   }
 
   func submit(

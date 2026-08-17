@@ -137,6 +137,18 @@ public final class MacOSPlatform {
     publicWindowIDFallbackCount
   }
 
+  public var isPrivateWindowBoundsLookupAvailable: Bool {
+    borderBoundsProvider.isAvailable
+  }
+
+  public var successfulPrivateWindowBoundsLookupCount: Int {
+    borderBoundsProvider.successfulLookupCount
+  }
+
+  public var privateWindowBoundsLookupFallbackCount: Int {
+    borderBoundsProvider.failureCount
+  }
+
   public var hasScreenCaptureAccess: Bool {
     screenCaptureAccessAvailable
   }

@@ -41,6 +41,9 @@ final class WindowServerBoundsProvider {
   private let libraryHandle: UnsafeMutableRawPointer?
   private let mainConnectionID: MainConnectionIDFunc?
   private let getWindowBounds: GetWindowBoundsFunc?
+  private(set) var successfulLookupCount = 0
+  private(set) var failureCount = 0
+  private var disabled = false
 
   init() {
     let handle = dlopen(
@@ -65,6 +68,7 @@ final class WindowServerBoundsProvider {
   }
 
   func frame(for windowID: WindowID) -> Rect? {
+    guard !disabled else { return nil }
     guard let rawWindowID = UInt32(exactly: windowID.rawValue),
       let mainConnectionID,
       let getWindowBounds
@@ -73,9 +77,21 @@ final class WindowServerBoundsProvider {
     }
     var bounds = CGRect.zero
     guard getWindowBounds(mainConnectionID(), rawWindowID, &bounds) == 0 else {
+      disabled = true
+      failureCount += 1
       return nil
     }
-    return normalizedWindowBorderFrame(bounds)
+    guard let frame = normalizedWindowBorderFrame(bounds) else {
+      disabled = true
+      failureCount += 1
+      return nil
+    }
+    successfulLookupCount += 1
+    return frame
+  }
+
+  var isAvailable: Bool {
+    !disabled && mainConnectionID != nil && getWindowBounds != nil
   }
 }
 

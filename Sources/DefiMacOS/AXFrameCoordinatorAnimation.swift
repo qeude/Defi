@@ -102,11 +102,19 @@ extension AXFrameCoordinator {
     var lastSpringProgress = 0.0
 
     if !interpolatedWrites.isEmpty {
-      displayLinkClock.setActive(true, displayID: frame.displayID)
+      displayLinkClock.setActive(
+        true,
+        displayID: frame.displayID,
+        generation: frame.generation
+      )
     }
     defer {
       if !interpolatedWrites.isEmpty {
-        displayLinkClock.setActive(false, displayID: frame.displayID)
+        displayLinkClock.setActive(
+          false,
+          displayID: frame.displayID,
+          generation: frame.generation
+        )
       }
     }
 

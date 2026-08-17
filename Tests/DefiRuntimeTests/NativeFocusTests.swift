@@ -591,7 +591,7 @@ struct NativeFocusTests {
         mouseFollowsFocus: true,
         nativeFocusAccepted: true,
         selectionChanged: true,
-        focusIntentTimestamp: 12
+        keyboardFocusIntentTimestamp: 12
       ) == 12
     )
     #expect(
@@ -599,7 +599,7 @@ struct NativeFocusTests {
         mouseFollowsFocus: true,
         nativeFocusAccepted: true,
         selectionChanged: false,
-        focusIntentTimestamp: 12
+        keyboardFocusIntentTimestamp: 12
       ) == nil
     )
     #expect(
@@ -607,7 +607,7 @@ struct NativeFocusTests {
         mouseFollowsFocus: false,
         nativeFocusAccepted: true,
         selectionChanged: true,
-        focusIntentTimestamp: 12
+        keyboardFocusIntentTimestamp: 12
       ) == nil
     )
     #expect(
@@ -615,7 +615,7 @@ struct NativeFocusTests {
         mouseFollowsFocus: true,
         nativeFocusAccepted: false,
         selectionChanged: true,
-        focusIntentTimestamp: 12
+        keyboardFocusIntentTimestamp: 12
       ) == nil
     )
     #expect(
@@ -623,7 +623,7 @@ struct NativeFocusTests {
         mouseFollowsFocus: true,
         nativeFocusAccepted: true,
         selectionChanged: true,
-        focusIntentTimestamp: nil
+        keyboardFocusIntentTimestamp: nil
       ) == nil
     )
   }

@@ -212,6 +212,7 @@ extension MacOSPlatform {
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
     var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
     var animatedWindowIDs = Set<WindowID>()
+    let latencySensitiveProcessIDs = frameCoordinator.slowProcessIDs
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
       guard let element = elements[assignment.windowID] else { continue }
@@ -296,6 +297,21 @@ extension MacOSPlatform {
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite
       )
+      if shouldDeferLatencySensitiveSpeculativeWrite(
+        source: source,
+        isParked: isParked || needsVerifiedOffscreenWrite,
+        positionChanged: write.positionChanged,
+        latencySensitive: latencySensitiveProcessIDs.contains(processID)
+      ) {
+        pendingFrameCorrections[assignment.windowID] = referenceFrames[
+          assignment.windowID
+        ]
+        pendingFrameDebtWindowIDs.insert(assignment.windowID)
+        frameCoordinator.recordTrace(
+          "slow-lane-deferred wid=\(assignment.windowID.rawValue) pid=\(processID)"
+        )
+        continue
+      }
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
       }

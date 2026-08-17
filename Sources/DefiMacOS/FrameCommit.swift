@@ -10,6 +10,9 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
   private let condition = NSCondition()
   private var displayIDsByLink: [ObjectIdentifier: UInt64] = [:]
   private var nextTargetTimestamps: [UInt64: TimeInterval] = [:]
+  private var nextActivationRequestID: UInt64 = 0
+  private var latestActivationRequestID: UInt64 = 0
+  private var latestActivationGeneration: UInt64 = 0
   @MainActor private var displayLinks: [UInt64: CADisplayLink] = [:]
 
   @MainActor
@@ -21,6 +24,9 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
     condition.lock()
     displayIDsByLink.removeAll(keepingCapacity: true)
     nextTargetTimestamps.removeAll(keepingCapacity: true)
+    nextActivationRequestID &+= 1
+    latestActivationRequestID = nextActivationRequestID
+    latestActivationGeneration = 0
     for screen in NSScreen.screens {
       guard
         let number = screen.deviceDescription[
@@ -40,9 +46,24 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
     condition.unlock()
   }
 
-  func setActive(_ active: Bool, displayID: UInt64?) {
+  func setActive(_ active: Bool, displayID: UInt64?, generation: UInt64) {
+    condition.lock()
+    guard generation >= latestActivationGeneration else {
+      condition.unlock()
+      return
+    }
+    nextActivationRequestID &+= 1
+    let requestID = nextActivationRequestID
+    latestActivationRequestID = requestID
+    latestActivationGeneration = generation
+    condition.unlock()
+
     Task { @MainActor [weak self] in
       guard let self else { return }
+      guard self.activationRequestIsCurrent(
+        generation: generation,
+        requestID: requestID
+      ) else { return }
       let selectedDisplayID = displayID.flatMap {
         displayLinks[$0] == nil ? nil : $0
       } ?? displayLinks.keys.first
@@ -50,6 +71,20 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
         link.isPaused = !active || candidateID != selectedDisplayID
       }
     }
+  }
+
+  private func activationRequestIsCurrent(
+    generation: UInt64,
+    requestID: UInt64
+  ) -> Bool {
+    condition.lock()
+    defer { condition.unlock() }
+    return displayLinkActivationIsCurrent(
+      generation: generation,
+      latestGeneration: latestActivationGeneration,
+      requestID: requestID,
+      latestRequestID: latestActivationRequestID
+    )
   }
 
   func wait(
@@ -82,6 +117,15 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
   }
 }
 
+func displayLinkActivationIsCurrent(
+  generation: UInt64,
+  latestGeneration: UInt64,
+  requestID: UInt64,
+  latestRequestID: UInt64
+) -> Bool {
+  generation == latestGeneration && requestID == latestRequestID
+}
+
 
 struct FrameWriteIntent: Equatable, Sendable {
   let position: Bool
@@ -100,6 +144,18 @@ func frameWriteIntent(
       && (abs(reference.width - target.width) >= 0.5
         || abs(reference.height - target.height) >= 0.5)
   )
+}
+
+func shouldDeferLatencySensitiveSpeculativeWrite(
+  source: String,
+  isParked: Bool,
+  positionChanged: Bool,
+  latencySensitive: Bool
+) -> Bool {
+  source == "command-animation"
+    && !isParked
+    && positionChanged
+    && latencySensitive
 }
 
 func successfulFrameWriteIntent(

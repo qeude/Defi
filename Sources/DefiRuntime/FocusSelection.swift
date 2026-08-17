@@ -181,16 +181,16 @@ public func nativeFocusCursorWarpTimestamp(
   mouseFollowsFocus: Bool,
   nativeFocusAccepted: Bool,
   selectionChanged: Bool,
-  focusIntentTimestamp: TimeInterval?
+  keyboardFocusIntentTimestamp: TimeInterval?
 ) -> TimeInterval? {
   guard mouseFollowsFocus,
     nativeFocusAccepted,
     selectionChanged,
-    let focusIntentTimestamp
+    let keyboardFocusIntentTimestamp
   else {
     return nil
   }
-  return focusIntentTimestamp
+  return keyboardFocusIntentTimestamp
 }
 
 public func commandFocusInputTimestamp(

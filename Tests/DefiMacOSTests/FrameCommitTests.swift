@@ -48,6 +48,60 @@ final class FrameCommitTests: XCTestCase {
     XCTAssertFalse(nativeFrameWasRead)
   }
 
+  func testLatencySensitiveSpeculativeWritesAreDeferredOnlyForVisiblePositions() {
+    XCTAssertTrue(
+      shouldDeferLatencySensitiveSpeculativeWrite(
+        source: "command-animation",
+        isParked: false,
+        positionChanged: true,
+        latencySensitive: true
+      )
+    )
+    XCTAssertFalse(
+      shouldDeferLatencySensitiveSpeculativeWrite(
+        source: "desktop-sync",
+        isParked: false,
+        positionChanged: true,
+        latencySensitive: true
+      )
+    )
+    XCTAssertFalse(
+      shouldDeferLatencySensitiveSpeculativeWrite(
+        source: "command-animation",
+        isParked: true,
+        positionChanged: true,
+        latencySensitive: true
+      )
+    )
+  }
+
+  func testDisplayLinkActivationRejectsOlderGenerationAndStaleRequest() {
+    XCTAssertTrue(
+      displayLinkActivationIsCurrent(
+        generation: 4,
+        latestGeneration: 4,
+        requestID: 8,
+        latestRequestID: 8
+      )
+    )
+    XCTAssertFalse(
+      displayLinkActivationIsCurrent(
+        generation: 3,
+        latestGeneration: 4,
+        requestID: 7,
+        latestRequestID: 8
+      )
+    )
+    XCTAssertFalse(
+      displayLinkActivationIsCurrent(
+        generation: 4,
+        latestGeneration: 4,
+        requestID: 7,
+        latestRequestID: 8
+      )
+    )
+  }
+
   func testCursorWarpRequiresSuccessfulTargetFrameWrite() {
     let target = WindowID(rawValue: 2)
     let sibling = WindowID(rawValue: 3)
