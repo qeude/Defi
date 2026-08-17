@@ -15,6 +15,8 @@ extension MacOSPlatform {
   ) -> Bool {
     if preparedAXWindowAttributesAvailable { return false }
     guard !axWindowAttributePreparationPending else { return true }
+    let capturedWindowIDs = Set(elements.keys)
+    let capturedProcessIDs = Set(applications.keys)
     let candidates: [PreparedAXWindowElement] = elements.compactMap {
       windowID, element in
       guard let processID = processIDs[windowID],
@@ -30,13 +32,17 @@ extension MacOSPlatform {
     }
     guard !candidates.isEmpty else {
       preparedAXWindowAttributesAvailable = true
+      preparedAXWindowAttributesGeneration = windowSnapshotObservationGeneration
+      preparedAXWindowAttributesInputTimestamp = userInputTracker.latestEventTimestamp
+      preparedAXWindowAttributesWindowIDs = capturedWindowIDs
+      preparedAXWindowAttributesProcessIDs = capturedProcessIDs
       return false
     }
     let generation = windowSnapshotObservationGeneration
     let inputTimestamp = userInputTracker.latestEventTimestamp
     let inputTracker = userInputTracker
-    let windowIDs = Set(elements.keys)
-    let applicationProcessIDs = Set(applications.keys)
+    let windowIDs = capturedWindowIDs
+    let applicationProcessIDs = capturedProcessIDs
     let applicationCandidates = applications.map {
       PreparedAXApplicationElement(processID: $0.key, element: $0.value)
     }
@@ -120,6 +126,10 @@ extension MacOSPlatform {
           self.preparedAXWindowAttributes = attributes
           self.preparedAXApplicationWindows = applicationWindows
           self.preparedAXWindowAttributesAvailable = true
+          self.preparedAXWindowAttributesGeneration = generation
+          self.preparedAXWindowAttributesInputTimestamp = inputTimestamp
+          self.preparedAXWindowAttributesWindowIDs = windowIDs
+          self.preparedAXWindowAttributesProcessIDs = applicationProcessIDs
           let formattedDuration = String(format: "%.2f", durationMS)
           self.frameCoordinator.recordTrace(
             "snapshot-prefetch windows=\(attributes.count) ms=\(formattedDuration)"

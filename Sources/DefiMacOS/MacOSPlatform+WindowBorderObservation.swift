@@ -187,7 +187,7 @@ extension MacOSPlatform {
     guard let request else { return }
     borderStackingRefreshTask = Task { @MainActor [weak self] in
       guard let self else { return }
-      while frameCoordinator.isBusy {
+      while frameCoordinator.isBusy(for: request.windowID) {
         try? await Task.sleep(for: .milliseconds(4))
         guard !Task.isCancelled else { return }
       }
@@ -263,6 +263,9 @@ extension MacOSPlatform {
       captureEnabled: config.captureEnabled
     )
     refreshWindowBorders()
+    if let ownedWindowID = borderManager.ownedSurfaceWindowID {
+      borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
+    }
     scheduleWindowBorderStackingRefresh()
     revealWindowBordersIfReady()
   }

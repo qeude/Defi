@@ -216,6 +216,9 @@ extension MacOSPlatform {
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
     let snapshot = pointerHitTestSnapshot()
+    if let ownedWindowID = borderManager.ownedSurfaceWindowID {
+      borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
+    }
     let nonblockingWindowIDs = transparentDockOverlayWindowIDs(
       records: snapshot.records,
       dockProcessIDs: snapshot.dockProcessIDs,
@@ -230,9 +233,12 @@ extension MacOSPlatform {
       nonblockingWindowIDs: nonblockingWindowIDs,
       frameProvider: { record in
         guard !screenCaptureAccessAvailable else { return record.frame }
-        return borderBoundsProvider.frame(
-          for: WindowID(rawValue: UInt64(record.id))
-        ) ?? record.frame
+        let windowID = WindowID(rawValue: UInt64(record.id))
+        guard lastSnapshotWindowIDs.contains(windowID) else {
+          return record.frame
+        }
+        return borderBoundsProvider.frame(for: windowID)
+          ?? cursorWarpFrame(for: windowID)
       }
     )
     switch hit {

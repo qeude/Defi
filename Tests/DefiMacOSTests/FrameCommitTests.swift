@@ -107,6 +107,8 @@ final class FrameCommitTests: XCTestCase {
     coordinator.deferredParkingWriteGenerations[WindowID(rawValue: 42)] = 3
 
     XCTAssertTrue(coordinator.isBusy)
+    XCTAssertTrue(coordinator.isBusy(for: WindowID(rawValue: 42)))
+    XCTAssertFalse(coordinator.isBusy(for: WindowID(rawValue: 43)))
 
     coordinator.invalidate(reason: "mouse-gesture")
 

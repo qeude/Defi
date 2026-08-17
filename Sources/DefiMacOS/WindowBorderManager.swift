@@ -46,6 +46,13 @@ final class WindowBorderManager {
     }
   }
 
+  var ownedSurfaceWindowID: WindowID? {
+    overlays.values.lazy
+      .flatMap(\.windowIDs)
+      .first
+      .map { WindowID(rawValue: UInt64($0)) }
+  }
+
   func revealPendingBorders() {
     compositorCommitPending = true
     commitVisibleOverlays()

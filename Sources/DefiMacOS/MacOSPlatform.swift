@@ -79,6 +79,10 @@ public final class MacOSPlatform {
   var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] = [:]
   var preparedAXApplicationWindows: [pid_t: PreparedAXApplicationWindows] = [:]
   var preparedAXWindowAttributesAvailable = false
+  var preparedAXWindowAttributesGeneration: UInt64?
+  var preparedAXWindowAttributesInputTimestamp: TimeInterval?
+  var preparedAXWindowAttributesWindowIDs = Set<WindowID>()
+  var preparedAXWindowAttributesProcessIDs = Set<pid_t>()
   var axWindowAttributePreparationPending = false
   var windowSnapshotObservationGeneration: UInt64 = 0
   var deferredFrameCommitMismatchCount = 0
@@ -181,6 +185,10 @@ public final class MacOSPlatform {
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)
     preparedAXApplicationWindows.removeAll(keepingCapacity: true)
     preparedAXWindowAttributesAvailable = false
+    preparedAXWindowAttributesGeneration = nil
+    preparedAXWindowAttributesInputTimestamp = nil
+    preparedAXWindowAttributesWindowIDs.removeAll(keepingCapacity: true)
+    preparedAXWindowAttributesProcessIDs.removeAll(keepingCapacity: true)
   }
 
 }

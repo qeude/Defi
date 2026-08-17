@@ -153,10 +153,23 @@ extension MacOSPlatform {
     ) {
       _ = publicCGWindows()
     }
-    let preparedWindowAttributes = preparedAXWindowAttributesAvailable
+    let preparedAXIsCurrent = preparedAXWindowAttributesAvailable
+      && preparedAXWindowAttributesGeneration.map {
+        preparedAXWindowAttributesAreCurrent(
+          capturedGeneration: $0,
+          currentGeneration: windowSnapshotObservationGeneration,
+          capturedInputTimestamp: preparedAXWindowAttributesInputTimestamp ?? .nan,
+          currentInputTimestamp: userInputTracker.latestEventTimestamp,
+          capturedWindowIDs: preparedAXWindowAttributesWindowIDs,
+          currentWindowIDs: Set(elements.keys),
+          capturedProcessIDs: preparedAXWindowAttributesProcessIDs,
+          currentProcessIDs: Set(applications.keys)
+        )
+      } ?? false
+    let preparedWindowAttributes = preparedAXIsCurrent
       ? preparedAXWindowAttributes
       : [:]
-    let preparedApplicationWindows = preparedAXWindowAttributesAvailable
+    let preparedApplicationWindows = preparedAXIsCurrent
       ? preparedAXApplicationWindows
       : [:]
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)

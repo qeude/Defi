@@ -261,6 +261,14 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return running || pending != nil || !deferredParkingWriteGenerations.isEmpty
   }
 
+  func isBusy(for windowID: WindowID) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return activeWindowIDs.contains(windowID)
+      || pending?.writes[windowID] != nil
+      || deferredParkingWriteGenerations[windowID] != nil
+  }
+
   var animatedSizeWindowIDs: Set<WindowID> {
     lock.lock()
     defer { lock.unlock() }
