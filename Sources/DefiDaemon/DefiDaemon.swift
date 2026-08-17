@@ -166,7 +166,8 @@ final class Daemon: NSObject {
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
-  var prefetchInvalidationRetries = 0
+  var axPrefetchInvalidationRetries = 0
+  var cgPrefetchInvalidationRetries = 0
   var bypassPrefetchOnce = false
   var observedPlatformEventCount = 0
   var targetMismatchCount = 0
@@ -403,10 +404,10 @@ final class Daemon: NSObject {
           completion: { [weak self] published in
             guard let self else { return }
             if published {
-              self.prefetchInvalidationRetries = 0
+              self.axPrefetchInvalidationRetries = 0
             } else {
-              self.prefetchInvalidationRetries += 1
-              if self.prefetchInvalidationRetries >= 2 {
+              self.axPrefetchInvalidationRetries += 1
+              if self.axPrefetchInvalidationRetries >= 2 {
                 self.bypassPrefetchOnce = true
               }
             }
@@ -423,10 +424,10 @@ final class Daemon: NSObject {
           completion: { [weak self] published in
             guard let self else { return }
             if published {
-              self.prefetchInvalidationRetries = 0
+              self.cgPrefetchInvalidationRetries = 0
             } else {
-              self.prefetchInvalidationRetries += 1
-              if self.prefetchInvalidationRetries >= 2 {
+              self.cgPrefetchInvalidationRetries += 1
+              if self.cgPrefetchInvalidationRetries >= 2 {
                 self.bypassPrefetchOnce = true
               }
             }

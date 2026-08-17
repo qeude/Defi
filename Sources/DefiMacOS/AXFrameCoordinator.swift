@@ -283,6 +283,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     defer { lock.unlock() }
     return activeAnimationRunning
       || (pending?.animationDuration ?? 0) > 0
+      || !deferredParkingWriteGenerations.isEmpty
   }
 
   var pendingAnimatedWindowIDs: Set<WindowID> {
