@@ -36,6 +36,8 @@ within macOS's constraints.
   with a small TOML configuration.
 - **Menu bar and CLI controls** — inspect state, trace behavior, and control
   Defi from the menu bar or Unix-socket CLI.
+- **SketchyBar integration** — event-driven, per-display workspace state and
+  clickable workspace items without polling.
 - **Topology-aware workspaces** — inactive windows park outside visible monitor
   regions and return when their workspace becomes active.
 
@@ -77,6 +79,8 @@ Default path:
 Defi works without this file. Start from [defi.example.toml](defi.example.toml)
 when you need named workspaces, custom hotkeys, application rules, or layout
 overrides. Full reference lives in [CONFIGURATION.md](CONFIGURATION.md).
+SketchyBar setup and ready-to-copy scripts live in
+[SKETCHYBAR.md](SKETCHYBAR.md).
 
 Configuration loads when the daemon starts. Restart the service after editing:
 
@@ -94,6 +98,8 @@ Examples:
 /Applications/Defi.app/Contents/MacOS/defi trace
 /Applications/Defi.app/Contents/MacOS/defi focus-column left
 /Applications/Defi.app/Contents/MacOS/defi workspace 2
+/Applications/Defi.app/Contents/MacOS/defi --monitor 2 workspace 2
+/Applications/Defi.app/Contents/MacOS/defi list-workspaces --json
 /Applications/Defi.app/Contents/MacOS/defi move-window-to-workspace 3
 /Applications/Defi.app/Contents/MacOS/defi quit
 ```

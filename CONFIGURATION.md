@@ -37,6 +37,12 @@ default_column_width = 0.80
 preset_column_widths = [0.33, 0.50, 0.66, 0.80]
 center_focused_column = "never"
 gaps = 8
+outer_top_gap = 8
+outer_right_gap = 8
+outer_bottom_gap = 8
+outer_left_gap = 8
+reserved_top = 0
+reserved_bottom = 0
 ```
 
 | Setting | Default | Values/type | Description |
@@ -45,9 +51,29 @@ gaps = 8
 | `preset_column_widths` | `[0.33, 0.50, 0.66, 0.80]` | non-empty array of numbers from `0.05` to `1.0` | Ordered widths used by `cycle-width`. Cycling wraps at both ends. |
 | `center_focused_column` | `"never"` | `"never"` or `"always"` | `"always"` centers focused columns. `"never"` scrolls only enough to keep focus visible. |
 | `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. |
+| `outer_top_gap` | `gaps` | number from `0` to `256` | Optional top-edge override. |
+| `outer_right_gap` | `gaps` | number from `0` to `256` | Optional right-edge override. |
+| `outer_bottom_gap` | `gaps` | number from `0` to `256` | Optional bottom-edge override. Set to `0` to meet the macOS visible frame above the Dock. |
+| `outer_left_gap` | `gaps` | number from `0` to `256` | Optional left-edge override. |
+| `reserved_top` | `0` | number from `0` to `512` | Additional top inset after the macOS visible frame, for bars extending below the native menu-bar exclusion. |
+| `reserved_bottom` | `0` | number from `0` to `512` | Additional bottom inset after the macOS visible frame. |
 
 Widths are monitor-relative fractions. Existing pixel widths learned from
 manual resize remain pixel-based and scale when monitor geometry changes.
+
+Reserved values are extra insets, not raw bar dimensions. See
+[SKETCHYBAR.md](SKETCHYBAR.md) for overlap calculation and live commands.
+
+## `[menu_bar]`
+
+Controls Defi's native macOS status item.
+
+```toml
+[menu_bar]
+enabled = true
+```
+
+Set `enabled = false` when SketchyBar owns workspace presentation.
 
 ## `[input]`
 
@@ -281,6 +307,18 @@ Commands are validated when config loads. Direction compatibility can still be
 validated at execution for commands implemented by the layout engine; use forms
 listed above for deterministic behavior.
 
+CLI-only integration commands:
+
+| Command | Description |
+| --- | --- |
+| `list-workspaces` | Print configured workspace names. |
+| `list-workspaces --json` | Print versioned per-display workspace and application state. |
+| `--monitor <index> <command>` | Execute command on 1-based `NSScreen.screens`/SketchyBar display index. |
+| `set-reserved-area top\|bottom <points>` | Override extra reserved edge on every display, or targeted `--monitor`. |
+| `clear-reserved-area` | Restore configured reserved edges. |
+
+See [SKETCHYBAR.md](SKETCHYBAR.md) for event contract and example scripts.
+
 ### Native macOS fullscreen
 
 `maximize-column` changes only Defi's logical column width. It does not enter
@@ -359,6 +397,11 @@ default_column_width = 0.80
 preset_column_widths = [0.33, 0.50, 0.66, 0.80]
 center_focused_column = "never"
 gaps = 8
+reserved_top = 0
+reserved_bottom = 0
+
+[menu_bar]
+enabled = true
 
 [animation]
 enabled = true
