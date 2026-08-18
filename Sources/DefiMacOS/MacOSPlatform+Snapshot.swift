@@ -457,6 +457,7 @@ extension MacOSPlatform {
     }
     let focusedWindowID = focusedWindowID(in: windows)
     lastNativeFocusedWindowID = focusedWindowID
+    verifiedNativeFocusedWindowID = focusedWindowID
     if let focusedWindowID,
       let processID = nextProcessIDs[focusedWindowID]
     {

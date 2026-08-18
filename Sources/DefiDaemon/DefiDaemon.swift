@@ -355,7 +355,8 @@ final class Daemon: NSObject {
       }
       setTimerFrequency(60)
     }
-    let userInputIdleDuration = now - latestCommandInputTimestamp
+    let userInputIdleDuration =
+      now - platform.userInputTracker.latestEventTimestamp
     let desktopRefreshInterval = desktopSnapshotRefreshInterval(
       reliableDesktopObservation: platform.hasReliableDesktopObservation
     )

@@ -97,6 +97,7 @@ public final class MacOSPlatform {
   var nativeFocusEventProcessIDs = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess = false
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
+  var verifiedNativeFocusedWindowID: WindowID?
   var internalFocusSuppressions: [WindowID: InternalFocusSuppression] = [:]
   var nextInternalFocusRequestID: UInt64 = 0
   var submittedFocusRecoveryRequestID: NativeFocusRequestID?

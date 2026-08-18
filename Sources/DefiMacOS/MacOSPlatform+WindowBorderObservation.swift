@@ -86,6 +86,7 @@ extension MacOSPlatform {
           self?.mouseFocusReleasePending = true
         }
         if kind == .focus {
+          self?.verifiedNativeFocusedWindowID = nil
           self?.lastNativeFocusedWindowID = nativeFocusedWindowIDAfterEvent(
             kind,
             cachedWindowID: self?.lastNativeFocusedWindowID
@@ -101,7 +102,7 @@ extension MacOSPlatform {
           } else {
             self?.nativeFocusEventHasUnknownProcess = true
           }
-          for delay in [50, 150, 350] {
+          for delay in [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000] {
             DispatchQueue.main.asyncAfter(
               deadline: .now() + .milliseconds(delay)
             ) { [weak self] in
@@ -300,7 +301,8 @@ extension MacOSPlatform {
         windowBorderStacking,
         selectedWindowID: desiredSelectedWindowID,
         activeWindowID: borderManager.activeWindowID,
-        nativeFocusedWindowID: lastNativeFocusedWindowID
+        nativeFocusedWindowID:
+          verifiedNativeFocusedWindowID ?? lastNativeFocusedWindowID
       )
     else { return }
     borderManager.revealPendingBorders()

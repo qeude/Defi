@@ -234,6 +234,7 @@ extension MacOSPlatform {
         }
         switch result {
         case .completed, .completedWithoutMutation:
+          self?.verifiedNativeFocusedWindowID = windowID
           self?.scheduleWindowBorderStackingRefresh()
           self?.revealWindowBordersIfReady()
           if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(

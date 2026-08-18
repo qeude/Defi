@@ -35,6 +35,7 @@ extension MacOSPlatform {
     borderFrames.removeAll(keepingCapacity: true)
     desiredSelectedWindowID = nil
     lastNativeFocusedWindowID = nil
+    verifiedNativeFocusedWindowID = nil
     borderHiddenWindowIDs.removeAll(keepingCapacity: true)
     borderLiveWindowID = nil
     borderManager.hide()
