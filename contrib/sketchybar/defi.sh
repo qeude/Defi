@@ -16,7 +16,6 @@ SKETCHYBAR_BIN="${BAR_NAME:-sketchybar}"
 PLUGIN_DIR="${CONFIG_DIR:-$HOME/.config/sketchybar}/plugins"
 STATE="$("$DEFI_BIN" list-workspaces --json 2>/dev/null || true)"
 
-[ -n "$STATE" ] || exit 0
 command -v jq >/dev/null 2>&1 || {
   printf '%s\n' "Defi SketchyBar integration requires jq" >&2
   exit 1
@@ -36,6 +35,7 @@ fi
     script="$PLUGIN_DIR/defi_workspace_reconcile.sh" \
   --subscribe defi.workspace_observer defi_workspace_change
 
+[ -n "$STATE" ] || exit 0
 INFO="$STATE" "$PLUGIN_DIR/defi_workspace_reconcile.sh"
 
 "$SKETCHYBAR_BIN" --update

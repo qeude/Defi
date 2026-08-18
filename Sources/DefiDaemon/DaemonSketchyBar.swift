@@ -54,6 +54,7 @@ extension Daemon {
 
   func monitorID(atAppKitIndex index: Int?) -> MonitorID? {
     guard let index else { return activeMonitorID ?? state.monitors.first?.id }
+    guard index > 0 else { return nil }
     guard latestMonitors.indices.contains(index - 1) else { return nil }
     return latestMonitors[index - 1].id
   }
