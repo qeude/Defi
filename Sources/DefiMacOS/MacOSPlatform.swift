@@ -25,6 +25,10 @@ public final class MacOSPlatform {
   let frameCoordinator = AXFrameCoordinator()
   let focusWriter = AXFocusWriter()
   let focusRecoveryResolver = AXFocusRecoveryResolver()
+  let windowIDProvider = AXWindowIDProvider()
+  var privateWindowIDLookupCount = 0
+  var publicWindowIDFallbackCount = 0
+  let screenCaptureAccessAvailable = CGPreflightScreenCaptureAccess()
   let borderManager = WindowBorderManager()
   let borderBoundsProvider = WindowServerBoundsProvider()
   var targetFrames: [WindowID: Rect] = [:]
@@ -68,6 +72,19 @@ public final class MacOSPlatform {
   var snapshotCGWindowCopyCount = 0
   var lastSnapshotCGWindowCopyDurationMS = 0.0
   var maximumSnapshotCGWindowCopyDurationMS = 0.0
+  var preparedCGWindowInventory: [CGWindowRecord]?
+  var preparedCGWindowInventoryDurationMS = 0.0
+  var preparedCGWindowInventoryAvailable = false
+  var cgWindowInventoryPreparationPending = false
+  var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] = [:]
+  var preparedAXApplicationWindows: [pid_t: PreparedAXApplicationWindows] = [:]
+  var preparedAXWindowAttributesAvailable = false
+  var preparedAXWindowAttributesGeneration: UInt64?
+  var preparedAXWindowAttributesInputTimestamp: TimeInterval?
+  var preparedAXWindowAttributesWindowIDs = Set<WindowID>()
+  var preparedAXWindowAttributesProcessIDs = Set<pid_t>()
+  var axWindowAttributePreparationPending = false
+  var windowSnapshotObservationGeneration: UInt64 = 0
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0
   var maximumObservedFrameCommitLatencyMS = 0.0
@@ -76,10 +93,13 @@ public final class MacOSPlatform {
   var frameEventPending = false
   var mouseResizeGesturePending = false
   var mouseFocusReleasePending = false
+  var nativeFocusEventGeneration: UInt64 = 0
+  var mouseFocusReleaseEventGeneration: UInt64?
   var nativeFocusEventPending = false
   var nativeFocusEventProcessIDs = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess = false
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
+  var verifiedNativeFocusedWindowID: WindowID?
   var internalFocusSuppressions: [WindowID: InternalFocusSuppression] = [:]
   var nextInternalFocusRequestID: UInt64 = 0
   var submittedFocusRecoveryRequestID: NativeFocusRequestID?
@@ -111,6 +131,42 @@ public final class MacOSPlatform {
     inactiveColor: 0x66c0_99ff,
     captureEnabled: false
   )
+
+  public var isPrivateWindowIDLookupAvailable: Bool {
+    windowIDProvider.isAvailable
+  }
+
+  public var privateWindowIDLookupStatus: String {
+    switch windowIDProvider.probeResult {
+    case .none: "unprobed"
+    case .some(true): "true"
+    case .some(false): "false"
+    }
+  }
+
+  public var successfulPrivateWindowIDLookupCount: Int {
+    privateWindowIDLookupCount
+  }
+
+  public var publicWindowIDLookupFallbackCount: Int {
+    publicWindowIDFallbackCount
+  }
+
+  public var isPrivateWindowBoundsLookupAvailable: Bool {
+    borderBoundsProvider.isAvailable
+  }
+
+  public var successfulPrivateWindowBoundsLookupCount: Int {
+    borderBoundsProvider.successfulLookupCount
+  }
+
+  public var privateWindowBoundsLookupFallbackCount: Int {
+    borderBoundsProvider.failureCount
+  }
+
+  public var hasScreenCaptureAccess: Bool {
+    screenCaptureAccessAvailable
+  }
   var cursorWarpAppliedCount = 0
   var cursorWarpSkippedCount = 0
   var cursorWarpFailedCount = 0
@@ -118,9 +174,12 @@ public final class MacOSPlatform {
   public let userInputTracker = UserInputTracker()
   public let pointerMotionTracker = PointerMotionTracker()
 
-  public init() {}
+  public init() {
+    frameCoordinator.startDisplayLink()
+  }
 
   public func requestFrameRefresh(for windowID: WindowID) {
+    invalidatePreparedAXWindowAttributes()
     frameEventPending = true
     observedFrameEventWindowIDs.insert(windowID)
     guard let processID = processIDs[windowID] else {
@@ -128,6 +187,19 @@ public final class MacOSPlatform {
       return
     }
     pendingFrameProcessIDs.insert(processID)
+  }
+
+  func invalidatePreparedAXWindowAttributes() {
+    windowSnapshotObservationGeneration &+= 1
+    preparedCGWindowInventory = nil
+    preparedCGWindowInventoryAvailable = false
+    preparedAXWindowAttributes.removeAll(keepingCapacity: true)
+    preparedAXApplicationWindows.removeAll(keepingCapacity: true)
+    preparedAXWindowAttributesAvailable = false
+    preparedAXWindowAttributesGeneration = nil
+    preparedAXWindowAttributesInputTimestamp = nil
+    preparedAXWindowAttributesWindowIDs.removeAll(keepingCapacity: true)
+    preparedAXWindowAttributesProcessIDs.removeAll(keepingCapacity: true)
   }
 
 }

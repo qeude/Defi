@@ -99,6 +99,41 @@ struct CursorTests {
   }
 
   @Test
+  func privateBoundsRecoverHitTestFromRedactedCGGeometry() {
+    let windowID = WindowID(rawValue: 1)
+    let redacted = CGWindowRecord(
+      id: 1,
+      processID: 10,
+      layer: 0,
+      title: "",
+      frame: Rect(x: 0, y: 940, width: 500, height: 500)
+    )
+
+    #expect(
+      managedPointerHitTest(
+        at: CGPoint(x: 300, y: 500),
+        records: [redacted],
+        managedWindowIDs: [windowID],
+        frameProvider: { _ in self.frame }
+      ) == .managed(windowID)
+    )
+  }
+
+  @Test
+  func publicHitTestFallbackPrefersObservedFrameOverTarget() {
+    let observed = Rect(x: 100, y: 200, width: 400, height: 600)
+    let target = Rect(x: -10_000, y: -10_000, width: 400, height: 600)
+
+    #expect(
+      resolvedPointerHitTestFrame(
+        observedFrame: observed,
+        snapshotFrame: nil,
+        targetFrame: target
+      ) == observed
+    )
+  }
+
+  @Test
   func pointerHitTestCacheExpiresAndRejectsClockRollback() {
     #expect(
       pointerHitTestCacheIsFresh(

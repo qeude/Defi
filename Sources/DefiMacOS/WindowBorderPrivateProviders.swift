@@ -41,6 +41,31 @@ final class WindowServerBoundsProvider {
   private let libraryHandle: UnsafeMutableRawPointer?
   private let mainConnectionID: MainConnectionIDFunc?
   private let getWindowBounds: GetWindowBoundsFunc?
+  private(set) var successfulLookupCount = 0
+  private(set) var failureCount = 0
+  private var disabled = false
+  private var probeSucceeded = false
+
+  func probe(ownedWindowID: WindowID) {
+    guard !probeSucceeded, !disabled else { return }
+    guard let rawWindowID = UInt32(exactly: ownedWindowID.rawValue),
+      let mainConnectionID,
+      let getWindowBounds
+    else {
+      disabled = true
+      failureCount += 1
+      return
+    }
+    var bounds = CGRect.zero
+    guard getWindowBounds(mainConnectionID(), rawWindowID, &bounds) == 0,
+      normalizedWindowBorderFrame(bounds) != nil
+    else {
+      disabled = true
+      failureCount += 1
+      return
+    }
+    probeSucceeded = true
+  }
 
   init() {
     let handle = dlopen(
@@ -65,6 +90,7 @@ final class WindowServerBoundsProvider {
   }
 
   func frame(for windowID: WindowID) -> Rect? {
+    guard !disabled, probeSucceeded else { return nil }
     guard let rawWindowID = UInt32(exactly: windowID.rawValue),
       let mainConnectionID,
       let getWindowBounds
@@ -73,9 +99,21 @@ final class WindowServerBoundsProvider {
     }
     var bounds = CGRect.zero
     guard getWindowBounds(mainConnectionID(), rawWindowID, &bounds) == 0 else {
+      disabled = true
+      failureCount += 1
       return nil
     }
-    return normalizedWindowBorderFrame(bounds)
+    guard let frame = normalizedWindowBorderFrame(bounds) else {
+      disabled = true
+      failureCount += 1
+      return nil
+    }
+    successfulLookupCount += 1
+    return frame
+  }
+
+  var isAvailable: Bool {
+    !disabled && probeSucceeded && mainConnectionID != nil && getWindowBounds != nil
   }
 }
 

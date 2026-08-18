@@ -18,6 +18,15 @@ func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
   kind == .mouse
 }
 
+func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
+  switch kind {
+  case .application, .applicationTerminated:
+    return [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
+  case .focus, .frame, .windows, .mouse, .mouseRelease, .screens:
+    return []
+  }
+}
+
 func nativeFocusedWindowIDAfterEvent(
   _ kind: PlatformEventKind,
   cachedWindowID: WindowID?

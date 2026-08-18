@@ -166,6 +166,9 @@ final class Daemon: NSObject {
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
+  var axPrefetchInvalidationRetries = 0
+  var cgPrefetchInvalidationRetries = 0
+  var bypassPrefetchOnce = false
   var observedPlatformEventCount = 0
   var targetMismatchCount = 0
   var targetMismatches: [FrameMismatch] = []
@@ -222,10 +225,6 @@ final class Daemon: NSObject {
   var pointerFocusObservedCount = 0
   var pointerFocusAppliedCount = 0
   var pointerFocusIgnoredCount = 0
-  var deferredSlowWindowIDs = Set<WindowID>()
-  var slowLaneSettlementDeadline: TimeInterval?
-  var slowLaneDeferralCount = 0
-  var slowLaneSettlementCount = 0
   var frameNotificationsSuspended = false
   var animationActivity: NSObjectProtocol?
   var displayedFrameRebaseCount = 0
@@ -309,7 +308,6 @@ final class Daemon: NSObject {
   func tick() {
     processPendingHotKeys()
     pollIPC()
-    finishDeferredSlowLaneIfReady()
     finishPendingAnimatedFocusIfReady()
     finishPendingWorkspaceFocusIfReady()
     finishPendingPointerFocusIfReady()
@@ -335,15 +333,13 @@ final class Daemon: NSObject {
     let mouseGestureSyncPending =
       needsDesktopSync
       && (liveBorderGesture || activelyResizedWindowID != nil)
-    if mouseGestureSyncPending && !deferredSlowWindowIDs.isEmpty {
-      cancelDeferredSlowLane()
-    }
     if mouseGestureSyncPending
       && (!scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites)
     {
       cancelAnimationForMouseGesture()
     }
     let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
+    let nativeFocusSyncPending = platform.hasPendingNativeFocusEvent
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
@@ -359,31 +355,102 @@ final class Daemon: NSObject {
       }
       setTimerFrequency(60)
     }
-    let periodicWindowRefreshDue = now >= nextPeriodicWindowRefreshAt
-    let windowListRefreshDue = now >= nextWindowListRefreshAt
-    let applicationInventoryRefreshDue =
-      now >= nextApplicationInventoryRefreshAt
+    let userInputIdleDuration =
+      now - platform.userInputTracker.latestEventTimestamp
+    let desktopRefreshInterval = desktopSnapshotRefreshInterval(
+      reliableDesktopObservation: platform.hasReliableDesktopObservation
+    )
+    let windowListRefreshInterval = platform.recommendedWindowListRefreshInterval
+    let applicationInventoryInterval =
+      platform.recommendedApplicationInventoryRefreshInterval
+    let periodicWindowRefreshDue = observationWatchdogRefreshIsReady(
+      due: now >= nextPeriodicWindowRefreshAt,
+      interval: desktopRefreshInterval,
+      userInputIdleDuration: userInputIdleDuration
+    )
+    let windowListRefreshDue = observationWatchdogRefreshIsReady(
+      due: now >= nextWindowListRefreshAt,
+      interval: windowListRefreshInterval,
+      userInputIdleDuration: userInputIdleDuration
+    )
+    let applicationInventoryRefreshDue = observationWatchdogRefreshIsReady(
+      due: now >= nextApplicationInventoryRefreshAt,
+      interval: applicationInventoryInterval,
+      userInputIdleDuration: userInputIdleDuration
+    )
+    let commandQuietPeriodElapsed =
+      now - latestCommandInputTimestamp >= 0.3
     if desktopSynchronizationIsReady(
       scrollAnimationActive: !scrollAnimations.isEmpty,
       animatedWritesPending: animatedWritesPending,
-      slowLanePending: !deferredSlowWindowIDs.isEmpty,
       mouseGestureSyncPending: mouseGestureSyncPending,
       needsDesktopSync: needsDesktopSync,
       periodicSyncDue:
         periodicWindowRefreshDue
         || windowListRefreshDue
-        || applicationInventoryRefreshDue
+        || applicationInventoryRefreshDue,
+      commandQuietPeriodElapsed: commandQuietPeriodElapsed,
+      nativeFocusSyncPending: nativeFocusSyncPending,
+      frameDebtPending: platform.hasPendingFrameDebt
     ) {
+      let forcesWindowInventory = !nativeFocusSyncPending
+        && (windowListRefreshDue || applicationInventoryRefreshDue)
+      let forceWindowListRefresh = !nativeFocusSyncPending
+        && windowListRefreshDue
+      let forceApplicationInventoryRefresh = !nativeFocusSyncPending
+        && applicationInventoryRefreshDue
+      let forcesFullWindowRefresh = !nativeFocusSyncPending
+        && (forcesWindowInventory
+          || (periodicWindowRefreshDue
+            && !platform.hasReliableWindowTopologyObservation))
+      if !mouseGestureSyncPending,
+        !nativeFocusSyncPending,
+        forcesFullWindowRefresh,
+        !bypassPrefetchOnce,
+        platform.prepareAXWindowAttributesIfNeeded(
+          completion: { [weak self] published in
+            guard let self else { return }
+            if published {
+              self.axPrefetchInvalidationRetries = 0
+            } else {
+              self.axPrefetchInvalidationRetries += 1
+              if self.axPrefetchInvalidationRetries >= 2 {
+                self.bypassPrefetchOnce = true
+              }
+            }
+            self.needsDesktopSync = true
+          }
+        )
+      {
+        return
+      }
+      if !mouseGestureSyncPending,
+        !nativeFocusSyncPending,
+        forcesFullWindowRefresh,
+        !bypassPrefetchOnce,
+        platform.prepareCGWindowInventoryIfNeeded(
+          completion: { [weak self] published in
+            guard let self else { return }
+            if published {
+              self.cgPrefetchInvalidationRetries = 0
+            } else {
+              self.cgPrefetchInvalidationRetries += 1
+              if self.cgPrefetchInvalidationRetries >= 2 {
+                self.bypassPrefetchOnce = true
+              }
+            }
+            self.needsDesktopSync = true
+          }
+        )
+      {
+        return
+      }
+      bypassPrefetchOnce = false
       needsDesktopSync = false
       synchronizeDesktop(
-        forceFullWindowRefresh:
-          windowListRefreshDue
-          || applicationInventoryRefreshDue
-          || (periodicWindowRefreshDue
-            && !platform.hasReliableWindowTopologyObservation),
-        forceWindowListRefresh:
-          windowListRefreshDue || applicationInventoryRefreshDue,
-        forceApplicationInventoryRefresh: applicationInventoryRefreshDue,
+        forceFullWindowRefresh: forcesFullWindowRefresh,
+        forceWindowListRefresh: forceWindowListRefresh,
+        forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
     }

@@ -62,6 +62,7 @@ public struct DesktopSnapshot: Sendable {
   public let leftMouseButtonDown: Bool
   public let mouseResizeGestureObserved: Bool
   public let mouseFocusReleaseObserved: Bool
+  public let nativeFocusObservedAfterMouseRelease: Bool
   public let mouseFocusIntentWindowID: WindowID?
   public let mouseFocusIntentTimestamp: TimeInterval?
   public let keyboardFocusIntentTimestamp: TimeInterval?
@@ -80,6 +81,7 @@ public struct DesktopSnapshot: Sendable {
     leftMouseButtonDown: Bool = false,
     mouseResizeGestureObserved: Bool = false,
     mouseFocusReleaseObserved: Bool = false,
+    nativeFocusObservedAfterMouseRelease: Bool = false,
     mouseFocusIntentWindowID: WindowID? = nil,
     mouseFocusIntentTimestamp: TimeInterval? = nil,
     keyboardFocusIntentTimestamp: TimeInterval? = nil,
@@ -97,6 +99,8 @@ public struct DesktopSnapshot: Sendable {
     self.leftMouseButtonDown = leftMouseButtonDown
     self.mouseResizeGestureObserved = mouseResizeGestureObserved
     self.mouseFocusReleaseObserved = mouseFocusReleaseObserved
+    self.nativeFocusObservedAfterMouseRelease =
+      nativeFocusObservedAfterMouseRelease
     self.mouseFocusIntentWindowID = mouseFocusIntentWindowID
     self.mouseFocusIntentTimestamp = mouseFocusIntentTimestamp
     self.keyboardFocusIntentTimestamp = keyboardFocusIntentTimestamp

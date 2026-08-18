@@ -47,6 +47,17 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testFrontmostNativeFocusEventOverridesStaleAccessibilityProcess() {
+    XCTAssertEqual(
+      consistentFocusedProcessID(
+        accessibilityProcessID: 7,
+        frontmostProcessID: 42,
+        verifiedNativeFocusProcessID: 42
+      ),
+      42
+    )
+  }
+
   func testAccessibilityProcessIsFallbackWithoutFrontmostApplication() {
     XCTAssertEqual(
       consistentFocusedProcessID(
@@ -68,7 +79,7 @@ final class WindowDiscoveryTests: XCTestCase {
   }
 
   @MainActor
-  func testPendingNativeFocusDoesNotReuseStableWindow() {
+  func testPendingNativeFocusReusesStableWindowOnlyAfterProcessVerification() {
     let platform = MacOSPlatform()
     let window = Window(
       id: WindowID(rawValue: 1),
@@ -84,6 +95,34 @@ final class WindowDiscoveryTests: XCTestCase {
 
     platform.nativeFocusEventPending = true
     XCTAssertNil(platform.stableWindowID(processID: processID, in: [window]))
+    XCTAssertEqual(
+      platform.stableWindowID(
+        processID: processID,
+        in: [window],
+        allowPendingNativeFocus: true
+      ),
+      window.id
+    )
+  }
+
+  @MainActor
+  func testPendingNativeFocusAcceptsVerifiedSingleWindowFallback() {
+    let platform = MacOSPlatform()
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+    platform.nativeFocusEventPending = true
+    platform.nativeFocusEventProcessIDs = [processID]
+
+    XCTAssertEqual(
+      platform.stableWindowID(processID: processID, in: [window]),
+      window.id
+    )
   }
 
   func testFocusedAuxiliaryWindowDoesNotSelectDistantManagedWindow() {
@@ -313,6 +352,29 @@ final class WindowDiscoveryTests: XCTestCase {
         records: [live],
         excluding: [42]
       )
+    )
+  }
+
+  func testAXWindowIDBypassesRedactedWindowServerGeometry() {
+    let live = CGWindowRecord(
+      id: 42,
+      processID: processID,
+      layer: 0,
+      title: "",
+      frame: Rect(x: 0, y: 940, width: 500, height: 500)
+    )
+
+    XCTAssertEqual(
+      cgWindowRecordForDiscovery(
+        axWindowID: 42,
+        preferredWindowID: nil,
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [live],
+        excluding: []
+      )?.id,
+      42
     )
   }
 

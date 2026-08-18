@@ -6,10 +6,18 @@ import DefiCore
 import DefiModel
 import OSLog
 
+private let reliableObservationWatchdogInterval: TimeInterval = 30
+
 func applicationInventoryRefreshInterval(
   reliableLifecycleObservation: Bool
 ) -> TimeInterval {
-  reliableLifecycleObservation ? 5 : 0.3
+  reliableLifecycleObservation ? reliableObservationWatchdogInterval : 0.3
+}
+
+public func desktopSnapshotRefreshInterval(
+  reliableDesktopObservation: Bool
+) -> TimeInterval {
+  reliableDesktopObservation ? reliableObservationWatchdogInterval : 0.3
 }
 
 public func boundedSnapshotRefreshDeadline(
@@ -27,7 +35,15 @@ func windowListRefreshInterval(
   reliableTopologyObservation: Bool
 ) -> TimeInterval {
   if hasPendingShortRetry { return 0.1 }
-  return reliableTopologyObservation ? 5 : 0.3
+  return reliableTopologyObservation ? reliableObservationWatchdogInterval : 0.3
+}
+
+public func observationWatchdogRefreshIsReady(
+  due: Bool,
+  interval: TimeInterval,
+  userInputIdleDuration: TimeInterval
+) -> Bool {
+  due && (interval < 1 || userInputIdleDuration >= 1)
 }
 
 func unmatchedWindowRetryIsPending(
@@ -79,4 +95,3 @@ func cacheWindowElementForShortRetry(
     attemptsByProcess[processID] = 0
   }
 }
-

@@ -319,4 +319,3 @@ public struct RuleDecision: Equatable, Sendable {
     self.intrinsicSize = intrinsicSize
   }
 }
-

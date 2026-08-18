@@ -27,7 +27,9 @@ public func updatedDeferredMouseFocusIntent(
   mouseFocusIntentTimestamp: Double?,
   focusedWindowID: WindowID?,
   nativeFocusChanged: Bool,
-  mouseInteractionEnded: Bool
+  mouseInteractionEnded: Bool,
+  nativeFocusTargetIsNew: Bool = false,
+  nativeFocusEventAfterMouseRelease: Bool = false
 ) -> DeferredMouseFocusIntent? {
   var intent = current.flatMap {
     $0.timestamp > consumedMouseFocusIntentTimestamp ? $0 : nil
@@ -42,14 +44,18 @@ public func updatedDeferredMouseFocusIntent(
     )
   }
   guard var intent else { return nil }
+  let interactionEnded = intent.mouseInteractionEnded || mouseInteractionEnded
   if nativeFocusChanged, let focusedWindowID {
-    if intent.windowID == nil {
+    let canRebindToNativeFocus = intent.windowID == nil
+      || intent.windowID == focusedWindowID
+      || (interactionEnded
+        && (nativeFocusTargetIsNew || nativeFocusEventAfterMouseRelease))
+    if canRebindToNativeFocus {
       intent.windowID = focusedWindowID
+      intent.focusObserved = true
     }
-    intent.focusObserved = intent.windowID == focusedWindowID
   }
-  intent.mouseInteractionEnded =
-    intent.mouseInteractionEnded || mouseInteractionEnded
+  intent.mouseInteractionEnded = interactionEnded
   return intent
 }
 

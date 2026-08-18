@@ -6,7 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
-struct CGWindowRecord {
+struct CGWindowRecord: Sendable {
   let id: CGWindowID
   let processID: pid_t
   let ownerName: String
@@ -54,6 +54,49 @@ func copyCGWindowsIfAvailable(
   return info.compactMap(cgWindowRecord)
 }
 
+func preparedCGWindowInventoryIsCurrent(
+  capturedGeneration: UInt64,
+  currentGeneration: UInt64
+) -> Bool {
+  capturedGeneration == currentGeneration
+}
+
+@MainActor
+extension MacOSPlatform {
+  public func prepareCGWindowInventoryIfNeeded(
+    completion: @escaping @MainActor @Sendable (Bool) -> Void
+  ) -> Bool {
+    if preparedCGWindowInventoryAvailable { return false }
+    guard !cgWindowInventoryPreparationPending else { return true }
+    let capturedGeneration = windowSnapshotObservationGeneration
+    cgWindowInventoryPreparationPending = true
+    DispatchQueue.global(qos: .utility).async {
+      let startedAt = ProcessInfo.processInfo.systemUptime
+      let windows = copyCGWindowsIfAvailable()
+      let durationMS =
+        (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+      DispatchQueue.main.async { [weak self] in
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          self.cgWindowInventoryPreparationPending = false
+          guard preparedCGWindowInventoryIsCurrent(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: self.windowSnapshotObservationGeneration
+          ) else {
+            completion(false)
+            return
+          }
+          self.preparedCGWindowInventory = windows
+          self.preparedCGWindowInventoryDurationMS = durationMS
+          self.preparedCGWindowInventoryAvailable = true
+          completion(true)
+        }
+      }
+    }
+    return true
+  }
+}
+
 func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {
   guard let layer = item[kCGWindowLayer as String] as? NSNumber,
       let number = item[kCGWindowNumber as String] as? NSNumber,
@@ -95,6 +138,7 @@ func eligibleCGWindowRecords(
 }
 
 func cgWindowRecordForDiscovery(
+  axWindowID: CGWindowID? = nil,
   preferredWindowID: WindowID?,
   processID: pid_t,
   title: String,
@@ -102,8 +146,10 @@ func cgWindowRecordForDiscovery(
   records: [CGWindowRecord],
   excluding usedWindowIDs: Set<CGWindowID>
 ) -> CGWindowRecord? {
-  if let preferredWindowID {
-    guard let windowID = CGWindowID(exactly: preferredWindowID.rawValue),
+  let exactWindowID = axWindowID.map { WindowID(rawValue: UInt64($0)) }
+    ?? preferredWindowID
+  if let exactWindowID {
+    guard let windowID = CGWindowID(exactly: exactWindowID.rawValue),
       !usedWindowIDs.contains(windowID)
     else {
       return nil
@@ -199,19 +245,28 @@ func frameWindowsRequiringCoverage(
 
 func copyWindowBorderStacking(
   targetWindowID: WindowID?,
+  targetProcessID: pid_t?,
+  targetFrame: Rect?,
   monitorFrames: [Rect],
   knownWindowIDs: Set<WindowID>
 ) -> WindowBorderStacking {
+  let canQueryAboveTarget = targetWindowID != nil
+    && targetProcessID != nil
+    && targetFrame != nil
   guard
     let info = CGWindowListCopyWindowInfo(
-      [.optionOnScreenOnly, .excludeDesktopElements],
-      kCGNullWindowID
+      canQueryAboveTarget
+        ? [.optionOnScreenAboveWindow, .excludeDesktopElements]
+        : [.optionOnScreenOnly, .excludeDesktopElements],
+      canQueryAboveTarget
+        ? CGWindowID(targetWindowID!.rawValue)
+        : kCGNullWindowID
     ) as? [[CFString: Any]]
   else {
     return .inactive(for: targetWindowID)
   }
   let ownProcessID = ProcessInfo.processInfo.processIdentifier
-  let entries = info.compactMap { item -> WindowStackEntry? in
+  var entries = info.compactMap { item -> WindowStackEntry? in
     guard
       let layer = item[kCGWindowLayer] as? NSNumber,
       let processID = item[kCGWindowOwnerPID] as? NSNumber,
@@ -232,6 +287,14 @@ func copyWindowBorderStacking(
         height: cgRect.height
       )
     )
+  }
+  if let targetWindowID, let targetProcessID, let targetFrame {
+    entries.append(WindowStackEntry(
+      windowID: targetWindowID,
+      processID: targetProcessID,
+      layer: NSWindow.Level.normal.rawValue,
+      frame: targetFrame
+    ))
   }
   return windowBorderStacking(
     targetWindowID: targetWindowID,
