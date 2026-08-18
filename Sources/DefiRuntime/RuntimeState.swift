@@ -9,6 +9,7 @@ public struct RuntimeState: Equatable, Sendable {
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
+  public var reservedEdgesByMonitor: [MonitorID: ReservedEdges]
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
@@ -18,6 +19,7 @@ public struct RuntimeState: Equatable, Sendable {
     self.workspaceNames = names
     self.defaultWorkspace = WorkspaceID(rawValue: config.workspaces.defaultName)
     self.suspendedTiledPlacements = [:]
+    self.reservedEdgesByMonitor = [:]
   }
 
   public mutating func attachMonitor(_ monitorID: MonitorID) {

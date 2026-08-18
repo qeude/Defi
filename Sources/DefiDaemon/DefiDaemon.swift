@@ -154,7 +154,6 @@ final class Daemon: NSObject {
   var hotKeys: HotKeyManager?
   var menuBar: MenuBarController?
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
-  var reservedEdgesByMonitor: [MonitorID: ReservedEdges] = [:]
   var timer: DispatchSourceTimer?
   var timerFrequencyHz = 60.0
   var nextPeriodicWindowRefreshAt: TimeInterval = 0

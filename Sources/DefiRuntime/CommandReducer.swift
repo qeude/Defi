@@ -1,8 +1,14 @@
 import DefiCore
 import DefiModel
 
+public enum RuntimeCommand: Equatable, Sendable {
+  case setReservedEdges([MonitorID: ReservedEdges])
+  case clearReservedEdges([MonitorID])
+}
+
 public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
   case noMonitor
+  case unknownMonitor(MonitorID)
   case unknownWorkspace(WorkspaceID)
   case noFocusedWindow
   case layout(LayoutError)
@@ -10,9 +16,37 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
   public var description: String {
     switch self {
     case .noMonitor: "no monitor"
+    case .unknownMonitor(let monitorID): "unknown monitor: \(monitorID)"
     case .unknownWorkspace(let id): "unknown workspace: \(id)"
     case .noFocusedWindow: "no focused window"
     case .layout(let error): "layout error: \(error)"
+    }
+  }
+}
+
+public func reduce(
+  _ command: RuntimeCommand,
+  state: inout RuntimeState
+) throws {
+  let monitorIDs: [MonitorID]
+  switch command {
+  case .setReservedEdges(let edges):
+    monitorIDs = Array(edges.keys)
+  case .clearReservedEdges(let ids):
+    monitorIDs = ids
+  }
+  for monitorID in monitorIDs {
+    guard state.monitors.contains(where: { $0.id == monitorID }) else {
+      throw ReducerError.unknownMonitor(monitorID)
+    }
+  }
+
+  switch command {
+  case .setReservedEdges(let edges):
+    state.reservedEdgesByMonitor.merge(edges) { _, next in next }
+  case .clearReservedEdges(let monitorIDs):
+    for monitorID in monitorIDs {
+      state.reservedEdgesByMonitor[monitorID] = nil
     }
   }
 }

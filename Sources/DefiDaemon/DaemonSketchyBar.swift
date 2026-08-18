@@ -59,7 +59,7 @@ extension Daemon {
   }
 
   func effectiveReservedEdges(for monitorID: MonitorID) -> ReservedEdges {
-    reservedEdgesByMonitor[monitorID]
+    state.reservedEdgesByMonitor[monitorID]
       ?? ReservedEdges(
         top: config.layout.reservedTop,
         bottom: config.layout.reservedBottom
@@ -94,13 +94,12 @@ extension Daemon {
         state.monitorID(containing: windowID).map { (windowID, $0) }
       }
     )
+    let runtimeCommand: RuntimeCommand
     if parts[0] == "clear-reserved-area" {
       guard parts.count == 1 else {
         return .failure("usage: clear-reserved-area")
       }
-      for monitorID in targetMonitorIDs {
-        reservedEdgesByMonitor[monitorID] = nil
-      }
+      runtimeCommand = .clearReservedEdges(targetMonitorIDs)
     } else {
       guard parts.count == 3,
         let points = Double(parts[2]), points.isFinite,
@@ -111,6 +110,7 @@ extension Daemon {
       guard parts[1] == "top" || parts[1] == "bottom" else {
         return .failure("usage: set-reserved-area top|bottom <0...512>")
       }
+      var edgesByMonitor: [MonitorID: ReservedEdges] = [:]
       for monitorID in targetMonitorIDs {
         var edges = effectiveReservedEdges(for: monitorID)
         if parts[1] == "top" {
@@ -118,8 +118,14 @@ extension Daemon {
         } else {
           edges.bottom = points
         }
-        reservedEdgesByMonitor[monitorID] = edges
+        edgesByMonitor[monitorID] = edges
       }
+      runtimeCommand = .setReservedEdges(edgesByMonitor)
+    }
+    do {
+      try reduce(runtimeCommand, state: &state)
+    } catch {
+      return .failure(String(describing: error))
     }
 
     let nextViewports = viewportsByMonitor

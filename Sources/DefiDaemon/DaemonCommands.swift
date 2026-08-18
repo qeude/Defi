@@ -102,7 +102,6 @@ extension Daemon {
       let previouslySelectedWindowID = commandMonitorID.flatMap {
         state.selectedWindowID(on: $0)
       }
-      activeMonitorID = commandMonitorID
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
       platform.recordPerformanceTrace(
@@ -163,6 +162,26 @@ extension Daemon {
         pendingWorkspaceFocus = nil
       }
       try reduce(command, on: commandMonitorID, state: &state)
+      let commandTransfersFocus: Bool
+      if command.activatesWorkspace {
+        commandTransfersFocus = true
+      } else if let commandMonitorID,
+        let selectedWindowID = state.selectedWindowID(on: commandMonitorID)
+      {
+        commandTransfersFocus = commandShouldFocusWindow(
+          command,
+          previousSelectedWindowID: previouslySelectedWindowID,
+          selectedWindowID: selectedWindowID,
+          selectedFloatingWindowID: state.selectedFloatingWindowID(
+            on: commandMonitorID
+          )
+        )
+      } else {
+        commandTransfersFocus = false
+      }
+      if commandTransfersFocus {
+        activeMonitorID = commandMonitorID
+      }
       if command.movesWindowBetweenWorkspaces,
         let movedWindowID = previouslySelectedWindowID,
         let movedWindow = state.windows[movedWindowID],
@@ -305,7 +324,7 @@ extension Daemon {
         )
       }
       if !switchesWorkspace,
-        let monitorID = activeMonitorID ?? state.monitors.first?.id,
+        let monitorID = commandMonitorID ?? state.monitors.first?.id,
         let sourceWorkspaceID = previousWorkspaceID,
         let selected = state.selectedWindowID(on: monitorID),
         commandShouldFocusWindow(
@@ -337,7 +356,7 @@ extension Daemon {
           )
         }
       } else if !switchesWorkspace,
-        let monitorID = activeMonitorID ?? state.monitors.first?.id,
+        let monitorID = commandMonitorID ?? state.monitors.first?.id,
         let sourceWorkspaceID = pendingAnimatedFocus?.sourceWorkspaceID
           ?? submittedCommandFocus?.sourceWorkspaceID
           ?? previousWorkspaceID,
