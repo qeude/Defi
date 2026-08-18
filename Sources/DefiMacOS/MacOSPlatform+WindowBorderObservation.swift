@@ -84,8 +84,13 @@ extension MacOSPlatform {
         }
         if kind == .mouseRelease {
           self?.mouseFocusReleasePending = true
+          self?.mouseFocusReleaseEventGeneration =
+            self?.nativeFocusEventGeneration
         }
         if kind == .focus {
+          if let self {
+            self.nativeFocusEventGeneration &+= 1
+          }
           self?.verifiedNativeFocusedWindowID = nil
           self?.lastNativeFocusedWindowID = nativeFocusedWindowIDAfterEvent(
             kind,

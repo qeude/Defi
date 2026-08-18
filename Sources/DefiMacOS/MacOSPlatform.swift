@@ -93,6 +93,8 @@ public final class MacOSPlatform {
   var frameEventPending = false
   var mouseResizeGesturePending = false
   var mouseFocusReleasePending = false
+  var nativeFocusEventGeneration: UInt64 = 0
+  var mouseFocusReleaseEventGeneration: UInt64?
   var nativeFocusEventPending = false
   var nativeFocusEventProcessIDs = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess = false

@@ -158,7 +158,9 @@ extension Daemon {
       mouseInteractionEnded: mouseInteractionEnded,
       nativeFocusTargetIsNew: snapshot.focusedWindowID.map {
         !previouslyManagedWindowIDs.contains($0)
-      } ?? false
+      } ?? false,
+      nativeFocusEventAfterMouseRelease:
+        snapshot.nativeFocusObservedAfterMouseRelease
     )
     if displayGeometryChanged {
       rebaseFloatingWindowFrames(
@@ -282,7 +284,7 @@ extension Daemon {
       nativeCursorWarpInputTimestamp = nativeFocusCursorWarpTimestamp(
         mouseFollowsFocus: config.input.mouseFollowsFocus,
         nativeFocusAccepted: nativeFocusAccepted,
-        selectionChanged: selectionChanged,
+        keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
         keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp
       )
       if nativeCursorWarpInputTimestamp != nil {

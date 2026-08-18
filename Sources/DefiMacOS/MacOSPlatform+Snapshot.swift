@@ -334,6 +334,10 @@ extension MacOSPlatform {
     )
     let mouseResizeGestureObserved = mouseResizeGesturePending
     let mouseFocusReleaseObserved = mouseFocusReleasePending
+    let nativeFocusObservedAfterMouseRelease =
+      mouseFocusReleasePending
+      && nativeFocusEventGeneration
+        > (mouseFocusReleaseEventGeneration ?? nativeFocusEventGeneration)
     let userInput = userInputTracker.snapshot
     let mouseGestureWindowID = mouseResizeGestureObserved
       ? mouseGestureRefreshProcessID(
@@ -441,6 +445,7 @@ extension MacOSPlatform {
     frameEventPending = !observedFrameEventWindowIDs.isEmpty
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
+    mouseFocusReleaseEventGeneration = nil
     pendingFrameCorrections = frameCorrectionsPreservingDebt(
       existing: pendingFrameCorrections,
       observed: Dictionary(
@@ -566,6 +571,8 @@ extension MacOSPlatform {
       leftMouseButtonDown: leftMouseButtonDown,
       mouseResizeGestureObserved: mouseResizeGestureObserved,
       mouseFocusReleaseObserved: mouseFocusReleaseObserved,
+      nativeFocusObservedAfterMouseRelease:
+        nativeFocusObservedAfterMouseRelease,
       mouseFocusIntentWindowID: mouseFocusIntentWindowID,
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,

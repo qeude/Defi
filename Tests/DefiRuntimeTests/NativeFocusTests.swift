@@ -296,6 +296,28 @@ struct NativeFocusTests {
   }
 
   @Test
+  func currentRedirectToExistingWindowRebindsAfterRelease() {
+    let sourceWindowID = WindowID(rawValue: 1)
+    let targetWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: sourceWindowID
+      ),
+      mouseFocusIntentWindowID: sourceWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: targetWindowID,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: true,
+      nativeFocusEventAfterMouseRelease: true
+    )
+
+    #expect(observed?.windowID == targetWindowID)
+    #expect(observed?.focusObserved == true)
+  }
+
+  @Test
   func staleNativeFocusPreservesExplicitMouseTargetAfterRelease() {
     let clickedWindowID = WindowID(rawValue: 2)
 
@@ -631,7 +653,7 @@ struct NativeFocusTests {
       nativeFocusCursorWarpTimestamp(
         mouseFollowsFocus: true,
         nativeFocusAccepted: true,
-        selectionChanged: true,
+        keyboardFocusIntentCurrent: true,
         keyboardFocusIntentTimestamp: 12
       ) == 12
     )
@@ -639,7 +661,7 @@ struct NativeFocusTests {
       nativeFocusCursorWarpTimestamp(
         mouseFollowsFocus: true,
         nativeFocusAccepted: true,
-        selectionChanged: false,
+        keyboardFocusIntentCurrent: false,
         keyboardFocusIntentTimestamp: 12
       ) == nil
     )
@@ -647,7 +669,7 @@ struct NativeFocusTests {
       nativeFocusCursorWarpTimestamp(
         mouseFollowsFocus: false,
         nativeFocusAccepted: true,
-        selectionChanged: true,
+        keyboardFocusIntentCurrent: true,
         keyboardFocusIntentTimestamp: 12
       ) == nil
     )
@@ -655,7 +677,7 @@ struct NativeFocusTests {
       nativeFocusCursorWarpTimestamp(
         mouseFollowsFocus: true,
         nativeFocusAccepted: false,
-        selectionChanged: true,
+        keyboardFocusIntentCurrent: true,
         keyboardFocusIntentTimestamp: 12
       ) == nil
     )
@@ -663,7 +685,7 @@ struct NativeFocusTests {
       nativeFocusCursorWarpTimestamp(
         mouseFollowsFocus: true,
         nativeFocusAccepted: true,
-        selectionChanged: true,
+        keyboardFocusIntentCurrent: true,
         keyboardFocusIntentTimestamp: nil
       ) == nil
     )
