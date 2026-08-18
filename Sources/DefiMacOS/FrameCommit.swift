@@ -1,27 +1,129 @@
 import AppKit
 import ApplicationServices
-import Darwin
 import DefiConfig
 import DefiCore
 import DefiModel
 import OSLog
+import QuartzCore
 
-private let animationMachTimebase: mach_timebase_info_data_t = {
-  var timebase = mach_timebase_info_data_t()
-  mach_timebase_info(&timebase)
-  return timebase
-}()
+final class DisplayLinkClock: NSObject, @unchecked Sendable {
+  private let condition = NSCondition()
+  private var displayIDsByLink: [ObjectIdentifier: UInt64] = [:]
+  private var nextTargetTimestamps: [UInt64: TimeInterval] = [:]
+  private var nextActivationRequestID: UInt64 = 0
+  private var latestActivationRequestID: UInt64 = 0
+  private var latestActivationGeneration: UInt64 = 0
+  @MainActor private var displayLinks: [UInt64: CADisplayLink] = [:]
 
-func spinWaitPrecisely(for duration: TimeInterval) {
-  guard duration > 0 else { return }
-  let nanoseconds = duration * 1_000_000_000
-  let ticks = UInt64(
-    nanoseconds
-      * Double(animationMachTimebase.denom)
-      / Double(animationMachTimebase.numer)
-  )
-  let deadline = mach_absolute_time() &+ ticks
-  while mach_absolute_time() < deadline {}
+  @MainActor
+  func start() {
+    for link in displayLinks.values {
+      link.invalidate()
+    }
+    displayLinks.removeAll(keepingCapacity: true)
+    condition.lock()
+    displayIDsByLink.removeAll(keepingCapacity: true)
+    nextTargetTimestamps.removeAll(keepingCapacity: true)
+    nextActivationRequestID &+= 1
+    latestActivationRequestID = nextActivationRequestID
+    latestActivationGeneration = 0
+    for screen in NSScreen.screens {
+      guard
+        let number = screen.deviceDescription[
+          NSDeviceDescriptionKey("NSScreenNumber")
+        ] as? NSNumber
+      else { continue }
+      let displayID = number.uint64Value
+      let link = screen.displayLink(
+        target: self,
+        selector: #selector(displayLinkDidFire(_:))
+      )
+      link.isPaused = true
+      link.add(to: .main, forMode: .common)
+      displayLinks[displayID] = link
+      displayIDsByLink[ObjectIdentifier(link)] = displayID
+    }
+    condition.unlock()
+  }
+
+  func setActive(_ active: Bool, displayID: UInt64?, generation: UInt64) {
+    condition.lock()
+    guard generation >= latestActivationGeneration else {
+      condition.unlock()
+      return
+    }
+    nextActivationRequestID &+= 1
+    let requestID = nextActivationRequestID
+    latestActivationRequestID = requestID
+    latestActivationGeneration = generation
+    condition.unlock()
+
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      guard self.activationRequestIsCurrent(
+        generation: generation,
+        requestID: requestID
+      ) else { return }
+      let selectedDisplayID = displayID.flatMap {
+        displayLinks[$0] == nil ? nil : $0
+      } ?? displayLinks.keys.first
+      for (candidateID, link) in displayLinks {
+        link.isPaused = !active || candidateID != selectedDisplayID
+      }
+    }
+  }
+
+  private func activationRequestIsCurrent(
+    generation: UInt64,
+    requestID: UInt64
+  ) -> Bool {
+    condition.lock()
+    defer { condition.unlock() }
+    return displayLinkActivationIsCurrent(
+      generation: generation,
+      latestGeneration: latestActivationGeneration,
+      requestID: requestID,
+      latestRequestID: latestActivationRequestID
+    )
+  }
+
+  func wait(
+    untilDisplayTarget deadline: TimeInterval,
+    displayID: UInt64?
+  ) -> TimeInterval? {
+    guard deadline > ProcessInfo.processInfo.systemUptime else { return nil }
+    condition.lock()
+    defer { condition.unlock() }
+    let selectedDisplayID = displayID ?? displayIDsByLink.values.first
+    while selectedDisplayID.flatMap({ nextTargetTimestamps[$0] }) ?? 0 < deadline {
+      let remaining = deadline - ProcessInfo.processInfo.systemUptime
+      guard remaining > 0 else { break }
+      _ = condition.wait(
+        until: Date(timeIntervalSinceNow: remaining)
+      )
+    }
+    return selectedDisplayID.flatMap { nextTargetTimestamps[$0] }.flatMap {
+      $0 >= deadline ? $0 : nil
+    }
+  }
+
+  @objc private func displayLinkDidFire(_ sender: CADisplayLink) {
+    condition.lock()
+    if let displayID = displayIDsByLink[ObjectIdentifier(sender)] {
+      nextTargetTimestamps[displayID] = sender.targetTimestamp
+    }
+    condition.broadcast()
+    condition.unlock()
+  }
+}
+
+func displayLinkActivationIsCurrent(
+  generation: UInt64,
+  latestGeneration: UInt64,
+  requestID: UInt64,
+  latestRequestID: UInt64
+) -> Bool {
+  generation == latestGeneration && requestID == latestRequestID
 }
 
 
@@ -41,6 +143,30 @@ func frameWriteIntent(
     size: !positionsOnly
       && (abs(reference.width - target.width) >= 0.5
         || abs(reference.height - target.height) >= 0.5)
+  )
+}
+
+func shouldDeferLatencySensitiveSpeculativeWrite(
+  source: String,
+  isParked: Bool,
+  positionChanged: Bool,
+  latencySensitive: Bool
+) -> Bool {
+  source == "command-animation"
+    && !isParked
+    && positionChanged
+    && latencySensitive
+}
+
+func successfulFrameWriteIntent(
+  positionChanged: Bool,
+  positionApplied: Bool,
+  sizeChanged: Bool,
+  sizeApplied: Bool
+) -> FrameWriteIntent {
+  FrameWriteIntent(
+    position: positionChanged && positionApplied,
+    size: sizeChanged && sizeApplied
   )
 }
 
@@ -77,6 +203,106 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let requiresVerifiedOffscreenWrite: Bool
 }
 
+func frameApplicationReference(
+  pendingCorrection: Rect?,
+  settlingReference: Rect?,
+  completedPosition: CGPoint?,
+  previousTarget: Rect?,
+  nativeReference: @autoclosure () -> Rect?
+) -> Rect? {
+  if let pendingCorrection {
+    return pendingCorrection
+  }
+  if let settlingReference, let completedPosition {
+    return Rect(
+      x: completedPosition.x,
+      y: completedPosition.y,
+      width: settlingReference.width,
+      height: settlingReference.height
+    )
+  }
+  return settlingReference ?? previousTarget ?? nativeReference()
+}
+
+func frameCorrectionsPreservingDebt(
+  existing: [WindowID: Rect],
+  observed: [WindowID: Rect],
+  debtWindowIDs: Set<WindowID>
+) -> [WindowID: Rect] {
+  var corrections = observed
+  for windowID in debtWindowIDs where corrections[windowID] == nil {
+    corrections[windowID] = existing[windowID]
+  }
+  return corrections
+}
+
+func frameWritesPreservingSupersededAsyncSizes(
+  active: [WindowID: AsyncPositionWrite],
+  pending: [WindowID: AsyncPositionWrite],
+  replacement: [WindowID: AsyncPositionWrite]
+) -> [WindowID: AsyncPositionWrite] {
+  var sizeDebt = active.filter { _, write in
+    asynchronousSizeWriteIsRequired(
+      sizeChanged: write.sizeChanged,
+      synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+      animatesSize: write.animatesSize
+    )
+  }
+  for (windowID, write) in pending {
+    guard asynchronousSizeWriteIsRequired(
+      sizeChanged: write.sizeChanged,
+      synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+      animatesSize: write.animatesSize
+    ) else { continue }
+    sizeDebt[windowID] = write
+  }
+  var result = sizeDebt
+  for (windowID, newer) in replacement {
+    if let debt = sizeDebt[windowID], !newer.sizeChanged {
+      result[windowID] = AsyncPositionWrite(
+        element: newer.element,
+        application: newer.application,
+        processID: newer.processID,
+        fromPoint: newer.fromPoint,
+        point: newer.point,
+        fromSize: newer.fromSize,
+        size: debt.size,
+        positionChanged: newer.positionChanged,
+        sizeChanged: true,
+        animatesSize: debt.animatesSize,
+        synchronousSizeWriteSucceeded: debt.synchronousSizeWriteSucceeded,
+        enhancedUIWasEnabled: newer.enhancedUIWasEnabled,
+        timeoutSeconds: newer.timeoutSeconds,
+        isParked: newer.isParked,
+        isReentering: newer.isReentering,
+        requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite
+      )
+    } else {
+      result[windowID] = newer
+    }
+  }
+  return result
+}
+
+struct RecentInternalFrameWrite: Equatable, Sendable {
+  let frame: Rect
+  let positionChanged: Bool
+  let sizeChanged: Bool
+  let deadline: TimeInterval
+}
+
+func frameMatchesRecentInternalWrite(
+  actual: Rect,
+  write: RecentInternalFrameWrite,
+  tolerance: Double = 3
+) -> Bool {
+  let positionMatches = abs(actual.x - write.frame.x) <= tolerance
+    && abs(actual.y - write.frame.y) <= tolerance
+  let sizeMatches = abs(actual.width - write.frame.width) <= tolerance
+    && abs(actual.height - write.frame.height) <= tolerance
+  return positionMatches && sizeMatches
+}
+
 struct InitialSettlementTarget: @unchecked Sendable {
   let generation: UInt64
   let write: AsyncPositionWrite
@@ -90,8 +316,39 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let animatedWindowIDs: Set<WindowID>
   let animationDuration: TimeInterval
   let refreshRateHz: Double
+  let displayID: UInt64?
+  let initialProgressVelocity: Double
   let stagesVisibleBeforeParking: Bool
   let completion: (@Sendable (FrameWriteCompletion) -> Void)?
+  let cursorWarpAfterWindowCommit:
+    (@Sendable (WindowID, UInt64) -> Void)?
+
+  init(
+    generation: UInt64,
+    source: String,
+    writes: [WindowID: AsyncPositionWrite],
+    animatedWindowIDs: Set<WindowID>,
+    animationDuration: TimeInterval,
+    refreshRateHz: Double,
+    displayID: UInt64?,
+    initialProgressVelocity: Double,
+    stagesVisibleBeforeParking: Bool,
+    completion: (@Sendable (FrameWriteCompletion) -> Void)?,
+    cursorWarpAfterWindowCommit:
+      (@Sendable (WindowID, UInt64) -> Void)? = nil
+  ) {
+    self.generation = generation
+    self.source = source
+    self.writes = writes
+    self.animatedWindowIDs = animatedWindowIDs
+    self.animationDuration = animationDuration
+    self.refreshRateHz = refreshRateHz
+    self.displayID = displayID
+    self.initialProgressVelocity = initialProgressVelocity
+    self.stagesVisibleBeforeParking = stagesVisibleBeforeParking
+    self.completion = completion
+    self.cursorWarpAfterWindowCommit = cursorWarpAfterWindowCommit
+  }
 }
 
 struct FrameWriteCompletion: Equatable, Sendable {
@@ -246,13 +503,16 @@ final class FrameResultAccumulator: @unchecked Sendable {
     slowProcesses: Set<pid_t>,
     processID: pid_t,
     processLatencyMS: Double,
+    attempted: Bool,
     completedAt: TimeInterval
   ) {
     lock.lock()
     self.applied += applied
     self.stale += stale
     self.slowProcesses.formUnion(slowProcesses)
-    processLatencySamplesMS[processID] = processLatencyMS
+    if attempted {
+      processLatencySamplesMS[processID] = processLatencyMS
+    }
     firstCompletionAt = min(firstCompletionAt, completedAt)
     lastCompletionAt = max(lastCompletionAt, completedAt)
     lock.unlock()

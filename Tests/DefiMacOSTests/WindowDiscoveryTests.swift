@@ -47,6 +47,17 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testFrontmostNativeFocusEventOverridesStaleAccessibilityProcess() {
+    XCTAssertEqual(
+      consistentFocusedProcessID(
+        accessibilityProcessID: 7,
+        frontmostProcessID: 42,
+        verifiedNativeFocusProcessID: 42
+      ),
+      42
+    )
+  }
+
   func testAccessibilityProcessIsFallbackWithoutFrontmostApplication() {
     XCTAssertEqual(
       consistentFocusedProcessID(
@@ -64,6 +75,53 @@ final class WindowDiscoveryTests: XCTestCase {
         frontmostProcessID: 42
       ),
       42
+    )
+  }
+
+  @MainActor
+  func testPendingNativeFocusReusesStableWindowOnlyAfterProcessVerification() {
+    let platform = MacOSPlatform()
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+    platform.lastFocusedWindowByProcess[processID] = window.id
+
+    XCTAssertEqual(platform.stableWindowID(processID: processID, in: [window]), window.id)
+
+    platform.nativeFocusEventPending = true
+    XCTAssertNil(platform.stableWindowID(processID: processID, in: [window]))
+    XCTAssertEqual(
+      platform.stableWindowID(
+        processID: processID,
+        in: [window],
+        allowPendingNativeFocus: true
+      ),
+      window.id
+    )
+  }
+
+  @MainActor
+  func testPendingNativeFocusAcceptsVerifiedSingleWindowFallback() {
+    let platform = MacOSPlatform()
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+    platform.nativeFocusEventPending = true
+    platform.nativeFocusEventProcessIDs = [processID]
+
+    XCTAssertEqual(
+      platform.stableWindowID(processID: processID, in: [window]),
+      window.id
     )
   }
 
@@ -294,6 +352,29 @@ final class WindowDiscoveryTests: XCTestCase {
         records: [live],
         excluding: [42]
       )
+    )
+  }
+
+  func testAXWindowIDBypassesRedactedWindowServerGeometry() {
+    let live = CGWindowRecord(
+      id: 42,
+      processID: processID,
+      layer: 0,
+      title: "",
+      frame: Rect(x: 0, y: 940, width: 500, height: 500)
+    )
+
+    XCTAssertEqual(
+      cgWindowRecordForDiscovery(
+        axWindowID: 42,
+        preferredWindowID: nil,
+        processID: processID,
+        title: "Window",
+        frame: frame,
+        records: [live],
+        excluding: []
+      )?.id,
+      42
     )
   }
 
@@ -568,6 +649,32 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  func testTransientModalReadPreservesCachedValue() {
+    XCTAssertEqual(
+      resolvedWindowModalState(
+        error: .cannotComplete,
+        observedValue: nil,
+        cachedValue: true
+      ),
+      true
+    )
+    XCTAssertNil(
+      resolvedWindowModalState(
+        error: .cannotComplete,
+        observedValue: nil,
+        cachedValue: nil
+      )
+    )
+    XCTAssertEqual(
+      resolvedWindowModalState(
+        error: .attributeUnsupported,
+        observedValue: nil,
+        cachedValue: true
+      ),
+      false
+    )
+  }
+
   func testMissingCloseButtonRemainsUnmanaged() {
     XCTAssertFalse(
       shouldTreatWindowAsClosable(
@@ -631,6 +738,46 @@ final class WindowDiscoveryTests: XCTestCase {
 }
 
 struct WindowClassificationReviewFeedbackTests {
+  @Test func successfulSiblingDoesNotClearFailingElementRetries() {
+    let processID: pid_t = 42
+    let failing = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateApplication(processID)
+    )
+    let successful = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateSystemWide()
+    )
+    var failures = [failing: 2]
+
+    failures[successful] = nil
+
+    #expect(failures[failing] == 2)
+  }
+
+  @Test func vanishedWindowRetryIdentityIsRemoved() {
+    let processID: pid_t = 42
+    let vanished = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateApplication(processID)
+    )
+    let live = AXWindowElementIdentity(
+      processID: processID,
+      element: AXUIElementCreateSystemWide()
+    )
+
+    let failures = [vanished: 2, live: 1].filter { [live].contains($0.key) }
+
+    #expect(failures[vanished] == nil)
+    #expect(failures[live] == 1)
+  }
+
+  @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {
+    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 1))
+    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 2))
+    #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 3))
+  }
+
   @Test func quickLookRuleMatchesOnlyAppleServiceBundleID() {
     #expect(
       classifyWindow(

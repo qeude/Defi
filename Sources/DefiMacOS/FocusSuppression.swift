@@ -83,3 +83,13 @@ func internalFocusSuppressionAfterCompletion(
   }
 }
 
+func focusSuppressionsAfterRecoveryInvalidation(
+  _ suppressions: [WindowID: InternalFocusSuppression],
+  now: TimeInterval,
+  preservingCompleted: Bool
+) -> [WindowID: InternalFocusSuppression] {
+  suppressions.filter {
+    $0.value.deadline >= now
+      && (preservingCompleted || $0.value.isInFlight)
+  }
+}

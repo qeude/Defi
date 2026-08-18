@@ -131,14 +131,36 @@ struct NativeFocusTests {
       keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: true,
         keyboardFocusIntentCurrent: true,
-        leftMouseButtonDown: true
+        leftMouseButtonDown: true,
+        postReleaseSettlementActive: false
       )
     )
     #expect(
       keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: false,
         keyboardFocusIntentCurrent: true,
-        leftMouseButtonDown: true
+        leftMouseButtonDown: true,
+        postReleaseSettlementActive: false
+      ) == false
+    )
+  }
+
+  @Test
+  func keyboardFocusPreemptsPostReleaseMouseSettlement() {
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: false,
+        postReleaseSettlementActive: true
+      )
+    )
+    #expect(
+      keyboardFocusPreemptsMouseGesture(
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        leftMouseButtonDown: false,
+        postReleaseSettlementActive: false
       ) == false
     )
   }
@@ -212,6 +234,28 @@ struct NativeFocusTests {
         nativeFocusChanged: observed?.focusObserved == true
       )
     )
+    #expect(
+      nativeFocusMutationIsReady(
+        nativeFocusChanged: false,
+        mouseInteractionEnded: true,
+        leftMouseButtonDown: false,
+        deferredMouseFocusPending: true,
+        deferredMouseFocusReady: true,
+        mouseReleaseFocusIntentCurrent: true,
+        keyboardFocusIntentCurrent: false,
+        nativeFocusSuppressed: true
+      )
+    )
+    #expect(
+      !nativeFocusMutationIsReady(
+        nativeFocusChanged: true,
+        mouseInteractionEnded: false,
+        leftMouseButtonDown: false,
+        mouseReleaseFocusIntentCurrent: false,
+        keyboardFocusIntentCurrent: false,
+        nativeFocusSuppressed: true
+      )
+    )
   }
 
   @Test
@@ -227,6 +271,90 @@ struct NativeFocusTests {
         mouseInteractionEnded: false
       ) == nil
     )
+  }
+
+  @Test
+  func linkActivationRebindsMouseIntentToNativeTarget() {
+    let sourceWindowID = WindowID(rawValue: 1)
+    let targetWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: sourceWindowID
+      ),
+      mouseFocusIntentWindowID: sourceWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: targetWindowID,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: true,
+      nativeFocusTargetIsNew: true
+    )
+
+    #expect(observed?.windowID == targetWindowID)
+    #expect(observed?.focusObserved == true)
+  }
+
+  @Test
+  func currentRedirectToExistingWindowRebindsAfterRelease() {
+    let sourceWindowID = WindowID(rawValue: 1)
+    let targetWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: sourceWindowID
+      ),
+      mouseFocusIntentWindowID: sourceWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: targetWindowID,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: true,
+      nativeFocusEventAfterMouseRelease: true
+    )
+
+    #expect(observed?.windowID == targetWindowID)
+    #expect(observed?.focusObserved == true)
+  }
+
+  @Test
+  func staleNativeFocusPreservesExplicitMouseTargetAfterRelease() {
+    let clickedWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: clickedWindowID
+      ),
+      mouseFocusIntentWindowID: clickedWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: WindowID(rawValue: 1),
+      nativeFocusChanged: true,
+      mouseInteractionEnded: true
+    )
+
+    #expect(observed?.windowID == clickedWindowID)
+    #expect(observed?.focusObserved == false)
+  }
+
+  @Test
+  func staleNativeFocusPreservesExplicitMouseTargetDuringInteraction() {
+    let clickedWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: clickedWindowID
+      ),
+      mouseFocusIntentWindowID: clickedWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: WindowID(rawValue: 1),
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false
+    )
+
+    #expect(observed?.windowID == clickedWindowID)
+    #expect(observed?.focusObserved == false)
   }
 
   @Test
@@ -520,6 +648,50 @@ struct NativeFocusTests {
   }
 
   @Test
+  func acceptedNativeSelectionCarriesCursorWarpGuard() {
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: true,
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        keyboardFocusIntentTimestamp: 12
+      ) == 12
+    )
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: true,
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: false,
+        keyboardFocusIntentTimestamp: 12
+      ) == nil
+    )
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: false,
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        keyboardFocusIntentTimestamp: 12
+      ) == nil
+    )
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: true,
+        nativeFocusAccepted: false,
+        keyboardFocusIntentCurrent: true,
+        keyboardFocusIntentTimestamp: 12
+      ) == nil
+    )
+    #expect(
+      nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: true,
+        nativeFocusAccepted: true,
+        keyboardFocusIntentCurrent: true,
+        keyboardFocusIntentTimestamp: nil
+      ) == nil
+    )
+  }
+
+  @Test
   func selectedRemovalPreservesWorkspaceAgainstAutomaticExternalFocus() throws {
     var fixture = try makeRemovalFixture()
     let guardToken = try removeSelectedWindow(
@@ -785,7 +957,11 @@ struct NativeFocusTests {
         frame: Rect(x: 0, y: 0, width: 800, height: 700),
         monitorID: monitorID
       )
-      try discoverWindow(window, decision: RuleDecision(), state: &state)
+      try discoverWindow(
+        window,
+        decision: RuleDecision(followFocus: true),
+        state: &state
+      )
     }
     return state
   }

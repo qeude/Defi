@@ -17,6 +17,8 @@ extension AXFrameCoordinator {
     let staticWrites = frame.writes.filter {
       !animatedWrites.keys.contains($0.key)
     }
+    let deferredParkingWrites = staticWrites.filter { $0.value.isParked }
+    let blockingStaticWrites = staticWrites.filter { !$0.value.isParked }
     let finalOnlyProcessIDs = finalOnlyAnimationProcessIDs(
       for: animatedWrites,
       refreshRateHz: frame.refreshRateHz
@@ -44,8 +46,11 @@ extension AXFrameCoordinator {
       animatedWindowIDs: lanePlan.interpolatedWindowIDs,
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
+      displayID: frame.displayID,
+      initialProgressVelocity: frame.initialProgressVelocity,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-      completion: nil
+      completion: nil,
+      cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
     let finalOnlyFrame = QueuedPositionFrame(
       generation: frame.generation,
@@ -54,23 +59,21 @@ extension AXFrameCoordinator {
       animatedWindowIDs: lanePlan.finalOnlyWindowIDs,
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
+      displayID: frame.displayID,
+      initialProgressVelocity: 0,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-      completion: nil
+      completion: nil,
+      cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
     let startedAt = ProcessInfo.processInfo.systemUptime
     let interval = 1 / frame.refreshRateHz
-    let intermediateBudget = max(
-      frame.animationDuration * 1.5,
-      interval * 2
-    )
-    let availableIntermediateProgresses = completedFrameSpringProgresses(
+    let intermediateBudget = max(frame.animationDuration, interval * 2)
+    let availableIntermediateSamples = completedFrameSpringSamples(
       duration: frame.animationDuration,
-      refreshRateHz: frame.refreshRateHz
+      refreshRateHz: frame.refreshRateHz,
+      initialVelocity: frame.initialProgressVelocity
     )
-    let maximumIntermediateFrames = min(
-      availableIntermediateProgresses.count,
-      3
-    )
+    let maximumIntermediateFrames = availableIntermediateSamples.count
     let initialPredictedLatency = predictedFrameLatency(
       for: interpolatedWrites
     )
@@ -97,6 +100,25 @@ extension AXFrameCoordinator {
     var frames = 0
     var nextProgressIndex = 0
     var lastCompletedFrameDuration = 0.0
+    var completedFrameWasSlow = false
+    var lastSpringProgress = 0.0
+
+    if !interpolatedWrites.isEmpty {
+      displayLinkClock.setActive(
+        true,
+        displayID: frame.displayID,
+        generation: frame.generation
+      )
+    }
+    defer {
+      if !interpolatedWrites.isEmpty {
+        displayLinkClock.setActive(
+          false,
+          displayID: frame.displayID,
+          generation: frame.generation
+        )
+      }
+    }
 
     let finalOnlyGroup = DispatchGroup()
     let finalOnlyResultStore = ConcurrentFrameResultStore()
@@ -128,13 +150,17 @@ extension AXFrameCoordinator {
 
     let reentryWrites = interpolatedWrites.filter { $0.value.isReentering }
     while frames < intermediateFrameLimit
-      && nextProgressIndex < availableIntermediateProgresses.count
+      && nextProgressIndex < availableIntermediateSamples.count
       && isCurrent(generation: frame.generation)
     {
       let remaining = nextDeadline - ProcessInfo.processInfo.systemUptime
-      if remaining > 0 {
-        spinWaitPrecisely(for: remaining)
-      }
+      let displayTargetTimestamp = remaining > 0
+        ? displayLinkClock.wait(
+          untilDisplayTarget: nextDeadline,
+          displayID: frame.displayID
+        )
+        : nil
+      let displayAligned = displayTargetTimestamp != nil
       let now = ProcessInfo.processInfo.systemUptime
       let elapsed = now - startedAt
       let predictedLatency = predictedFrameLatency(for: interpolatedWrites)
@@ -144,6 +170,7 @@ extension AXFrameCoordinator {
           refreshRateHz: frame.refreshRateHz
         )
       {
+        completedFrameWasSlow = true
         break
       }
       if !shouldEmitAnotherIntermediateFrame(
@@ -158,14 +185,26 @@ extension AXFrameCoordinator {
         let progressIndex = anticipatedSpringProgressIndex(
           predictedFrameLatency: predictedLatency,
           refreshRateHz: frame.refreshRateHz,
-          availableIntermediateFrames: availableIntermediateProgresses.count,
+          availableIntermediateFrames: availableIntermediateSamples.count,
           minimumIndex: nextProgressIndex,
           maximumIndex: frames == 0 ? 1 : nil
         )
       else {
         break
       }
-      let springProgress = availableIntermediateProgresses[progressIndex]
+      let sampledSpring = displayTargetTimestamp.map {
+        springProgressSample(
+          elapsed: $0 - startedAt + predictedLatency,
+          duration: frame.animationDuration,
+          initialVelocity: frame.initialProgressVelocity,
+          minimumProgress: lastSpringProgress
+        )
+      } ?? availableIntermediateSamples[progressIndex]
+      let springSample = sampledSpring.progress < lastSpringProgress
+        ? SpringProgressSample(progress: lastSpringProgress, velocity: 0)
+        : sampledSpring
+      let springProgress = springSample.progress
+      lastSpringProgress = springProgress
       nextProgressIndex = progressIndex + 1
       let applyStartedAt = ProcessInfo.processInfo.systemUptime
       let result = applyFrame(
@@ -178,6 +217,10 @@ extension AXFrameCoordinator {
       applied += result.applied
       stale += result.stale
       frames += 1
+      recordRetargetVelocity(
+        frame: animatedFrame,
+        progressVelocity: springSample.velocity
+      )
       let applyDurationMS =
         (ProcessInfo.processInfo.systemUptime - applyStartedAt) * 1_000
       let frameCompletedAt = ProcessInfo.processInfo.systemUptime
@@ -198,7 +241,7 @@ extension AXFrameCoordinator {
       }
       lock.lock()
       appendTraceLocked(
-        "sample g=\(frame.generation) i=\(frames) pi=\(progressIndex) p=\(String(format: "%.3f", springProgress)) applied=\(result.applied) spread=\(String(format: "%.2f", result.completionSpreadMS)) ms=\(String(format: "%.2f", applyDurationMS)) reentry=\(frames == 1 ? reentryWrites.count : 0)"
+        "sample g=\(frame.generation) i=\(frames) pi=\(progressIndex) p=\(String(format: "%.3f", springProgress)) applied=\(result.applied) spread=\(String(format: "%.2f", result.completionSpreadMS)) ms=\(String(format: "%.2f", applyDurationMS)) display=\(displayAligned ? 1 : 0) reentry=\(frames == 1 ? reentryWrites.count : 0)"
       )
       lock.unlock()
       nextDeadline = nextCompletedFrameDispatchDeadline(
@@ -222,15 +265,21 @@ extension AXFrameCoordinator {
         animationDuration: frame.animationDuration,
         predictedFrameLatency: predictedFrameLatency(for: interpolatedWrites)
       )
-    let finalDeadline = max(
-      startedAt + finalDispatchDelay,
-      frames > 0 ? nextDeadline : startedAt
+    let finalDeadline = finalFrameDispatchDeadline(
+      nominalDeadline: startedAt + finalDispatchDelay,
+      nextDisplayDeadline: frames > 0 ? nextDeadline : startedAt,
+      previousFrameWasSlow: completedFrameWasSlow,
+      hardDeadline: startedAt + frame.animationDuration
     )
     let finalRemaining =
       finalDeadline - ProcessInfo.processInfo.systemUptime
-    if finalRemaining > 0 {
-      spinWaitPrecisely(for: finalRemaining)
-    }
+    let finalDisplayTargetTimestamp = finalRemaining > 0
+      ? displayLinkClock.wait(
+        untilDisplayTarget: finalDeadline,
+        displayID: frame.displayID
+      )
+      : nil
+    let finalDisplayAligned = finalDisplayTargetTimestamp != nil
     guard isCurrent(generation: frame.generation) else {
       finalOnlyGroup.wait()
       markAnimationFinished(
@@ -252,7 +301,7 @@ extension AXFrameCoordinator {
         (ProcessInfo.processInfo.systemUptime - finalStartedAt) * 1_000
       lock.lock()
       appendTraceLocked(
-        "sample g=\(frame.generation) i=final p=1.000 applied=\(final.applied) spread=\(String(format: "%.2f", final.completionSpreadMS)) ms=\(String(format: "%.2f", finalDurationMS)) reentry=0"
+        "sample g=\(frame.generation) i=final p=1.000 applied=\(final.applied) spread=\(String(format: "%.2f", final.completionSpreadMS)) ms=\(String(format: "%.2f", finalDurationMS)) display=\(finalDisplayAligned ? 1 : 0) reentry=0"
       )
       lock.unlock()
     }
@@ -271,16 +320,19 @@ extension AXFrameCoordinator {
       generation: frame.generation,
       startedAt: startedAt
     )
-    if !staticWrites.isEmpty, isCurrent(generation: frame.generation) {
+    if !blockingStaticWrites.isEmpty, isCurrent(generation: frame.generation) {
       let staticFrame = QueuedPositionFrame(
         generation: frame.generation,
         source: frame.source,
-        writes: staticWrites,
+        writes: blockingStaticWrites,
         animatedWindowIDs: [],
         animationDuration: 0,
         refreshRateHz: frame.refreshRateHz,
+        displayID: frame.displayID,
+        initialProgressVelocity: 0,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-        completion: nil
+        completion: nil,
+        cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
       )
       let result = applyFrame(
         staticFrame,
@@ -289,6 +341,12 @@ extension AXFrameCoordinator {
       )
       applied += result.applied
       stale += result.stale
+    }
+    if !deferredParkingWrites.isEmpty, isCurrent(generation: frame.generation) {
+      deferParkingWrites(
+        deferredParkingWrites,
+        from: frame
+      )
     }
     let interpolatedFrameCount = frames + (interpolatedWrites.isEmpty ? 0 : 1)
     return (
@@ -314,6 +372,71 @@ extension AXFrameCoordinator {
     lock.unlock()
     for windowID in settlementWindowIDs {
       requestInitialSettlementVerification(windowID: windowID)
+    }
+  }
+
+  func recordRetargetVelocity(
+    frame: QueuedPositionFrame,
+    progressVelocity: Double
+  ) {
+    lock.lock()
+    guard latestGeneration == frame.generation else {
+      lock.unlock()
+      return
+    }
+    for windowID in frame.animatedWindowIDs {
+      guard let write = frame.writes[windowID] else { continue }
+      retargetHorizontalVelocities[windowID] =
+        (write.point.x - write.fromPoint.x) * progressVelocity
+    }
+    lock.unlock()
+  }
+
+  func deferParkingWrites(
+    _ writes: [WindowID: AsyncPositionWrite],
+    from frame: QueuedPositionFrame
+  ) {
+    let parkingFrame = QueuedPositionFrame(
+      generation: frame.generation,
+      source: frame.source,
+      writes: writes,
+      animatedWindowIDs: [],
+      animationDuration: 0,
+      refreshRateHz: frame.refreshRateHz,
+      displayID: frame.displayID,
+      initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+      completion: nil,
+      cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
+    )
+    lock.lock()
+    for windowID in writes.keys {
+      deferredParkingWriteGenerations[windowID] = frame.generation
+    }
+    appendTraceLocked(
+      "parking-deferred-start g=\(frame.generation) windows=\(writes.count)"
+    )
+    lock.unlock()
+    parkingSettlementGroup.enter()
+    parkingSettlementQueue.async { [self] in
+      defer { parkingSettlementGroup.leave() }
+      let result = applyFrame(
+        parkingFrame,
+        progress: 1,
+        skippedProcesses: [],
+        recordFinalSuccess: false
+      )
+      lock.lock()
+      completedWrites += result.applied
+      skippedStaleWrites += result.stale
+      for windowID in writes.keys
+      where deferredParkingWriteGenerations[windowID] == frame.generation {
+        deferredParkingWriteGenerations[windowID] = nil
+      }
+      appendTraceLocked(
+        "parking-deferred-complete g=\(frame.generation) applied=\(result.applied) stale=\(result.stale)"
+      )
+      lock.unlock()
     }
   }
 }

@@ -297,12 +297,13 @@ final class PlatformEventMonitor {
   }
 
   var processIDsWithoutReliableFrameCoverage: Set<pid_t> {
-    Set(frameRequiredWindows.compactMap { processID, windows in
-      let observed = frameObservedWindows[processID] ?? []
-      return windows.allSatisfy { window in
-        observed.contains(where: { CFEqual($0, window) })
-      } ? nil : processID
-    })
+    Set(
+      frameRequiredWindows.compactMap { processID, windows in
+        let observed = frameObservedWindows[processID] ?? []
+        return windows.allSatisfy { window in
+          observed.contains(where: { CFEqual($0, window) })
+        } ? nil : processID
+      })
   }
 
   var observationCoverage:
@@ -338,35 +339,6 @@ final class PlatformEventMonitor {
   func setFrameNotificationsEnabled(_ enabled: Bool) {
     guard frameNotificationsEnabled != enabled else { return }
     frameNotificationsEnabled = enabled
-    let windowsByProcess = frameRequiredWindows
-    for (processID, windows) in windowsByProcess {
-      guard let observer = observers[processID] else { continue }
-      if enabled {
-        for window in windows
-        where !((frameObservedWindows[processID] ?? []).contains {
-          CFEqual($0, window)
-        }) {
-          if subscribe(
-            observer,
-            element: window,
-            notifications: [kAXMovedNotification, kAXResizedNotification]
-          ) {
-            frameObservedWindows[processID, default: []].append(window)
-          }
-        }
-      } else {
-        for window in windows {
-          for notification in [kAXMovedNotification, kAXResizedNotification] {
-            AXObserverRemoveNotification(
-              observer,
-              window,
-              notification as CFString
-            )
-          }
-        }
-        frameObservedWindows[processID] = []
-      }
-    }
   }
 
   private func observer(for processID: pid_t) -> AXObserver? {
@@ -392,6 +364,7 @@ final class PlatformEventMonitor {
           case kAXFocusedWindowChangedNotification:
             monitor.handler(.focus, normalizedProcessID)
           case kAXMovedNotification, kAXResizedNotification:
+            guard monitor.frameNotificationsEnabled else { return }
             monitor.frameHandler(element)
             monitor.handler(.frame, normalizedProcessID)
           case kAXUIElementDestroyedNotification:

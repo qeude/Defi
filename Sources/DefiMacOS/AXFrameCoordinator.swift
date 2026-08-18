@@ -20,19 +20,26 @@ func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
 final class AXFrameCoordinator: @unchecked Sendable {
   let queue = DispatchQueue(
     label: "com.quentin.defi.ax-frame-coordinator",
-    qos: .userInitiated
+    qos: .userInteractive
   )
   let finalOnlyAnimationQueue = DispatchQueue(
     label: "com.quentin.defi.ax-final-only-animation",
     qos: .userInitiated
   )
+  let parkingSettlementQueue = DispatchQueue(
+    label: "com.quentin.defi.ax-parking-settlement",
+    qos: .utility
+  )
+  let parkingSettlementGroup = DispatchGroup()
   let lock = NSLock()
   let accessibilityWriter = AXFrameAccessibilityWriter()
+  let displayLinkClock = DisplayLinkClock()
   var pending: QueuedPositionFrame?
   var nextGeneration: UInt64 = 0
   var latestGeneration: UInt64 = 0
   var running = false
   var activeWindowIDs = Set<WindowID>()
+  var activeWrites: [WindowID: AsyncPositionWrite] = [:]
   var activeAnimationRunning = false
   var activeAnimatedWindowIDs = Set<WindowID>()
   var activeAnimatedSizeWindowIDs = Set<WindowID>()
@@ -41,7 +48,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var skippedStaleWrites = 0
   var droppedFrameCount = 0
   var completedPositions: [WindowID: CGPoint] = [:]
+  var retargetHorizontalVelocities: [WindowID: Double] = [:]
+  var deferredParkingWriteGenerations: [WindowID: UInt64] = [:]
   var completedSizes: [WindowID: CGSize] = [:]
+  var recentInternalFrameWrites: [WindowID: [RecentInternalFrameWrite]] = [:]
   var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
   var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   var traceEntries: [String] = []
@@ -63,6 +73,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
+
+  @MainActor
+  func startDisplayLink() {
+    displayLinkClock.start()
+  }
 
   func updateParkingTargets(_ targets: [WindowID: AsyncPositionWrite]) {
     lock.lock()
@@ -152,7 +167,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     pending = nil
+    // The generation reset invalidates in-flight geometry too.
+    activeWrites.removeAll(keepingCapacity: true)
     completedPositions.removeAll(keepingCapacity: true)
+    retargetHorizontalVelocities.removeAll(keepingCapacity: true)
+    deferredParkingWriteGenerations.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
     successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
@@ -169,6 +188,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func invalidateAndWaitForWrites() {
     invalidate(reason: "synchronous-restore")
     queue.sync {}
+    parkingSettlementGroup.wait()
+    parkingSettlementQueue.sync {}
   }
 
   func submit(
@@ -176,8 +197,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
     source: String,
     animationDuration: TimeInterval = 0,
     refreshRateHz: Double = 60,
+    displayID: UInt64? = nil,
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
+    cursorWarpAfterWindowCommit:
+      (@Sendable (WindowID, UInt64) -> Void)? = nil,
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
   ) {
     guard !writes.isEmpty else { return }
@@ -188,15 +212,23 @@ final class AXFrameCoordinator: @unchecked Sendable {
     if pending != nil {
       droppedFrameCount += 1
     }
+    let preservedWrites = frameWritesPreservingSupersededAsyncSizes(
+      active: activeWrites,
+      pending: displacedFrame?.writes ?? [:],
+      replacement: writes
+    )
     pending = QueuedPositionFrame(
       generation: nextGeneration,
       source: source,
-      writes: writes,
+      writes: preservedWrites,
       animatedWindowIDs: animatedWindowIDs,
       animationDuration: max(animationDuration, 0),
       refreshRateHz: min(max(refreshRateHz, 30), 120),
+      displayID: displayID,
+      initialProgressVelocity: 0,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
-      completion: completion
+      completion: completion,
+      cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit
     )
     successfulFinalWritesByGeneration[nextGeneration] = []
     if let displacedFrame {
@@ -205,13 +237,13 @@ final class AXFrameCoordinator: @unchecked Sendable {
     let animatedIDs = animatedWindowIDs.sorted {
       $0.rawValue < $1.rawValue
     }.map { String($0.rawValue) }.joined(separator: ",")
-    let writeIDs = writes.keys.sorted {
+    let writeIDs = preservedWrites.keys.sorted {
       $0.rawValue < $1.rawValue
     }.map { String($0.rawValue) }.joined(separator: ",")
-    let parkedCount = writes.values.filter(\.isParked).count
+    let parkedCount = preservedWrites.values.filter(\.isParked).count
     let durationMS = Int((animationDuration * 1_000).rounded())
     appendTraceLocked(
-      "submit g=\(nextGeneration) source=\(source) windows=\(writes.count)[\(writeIDs)] animated=\(animatedWindowIDs.count)[\(animatedIDs)] parked=\(parkedCount) springMs=\(durationMS)"
+      "submit g=\(nextGeneration) source=\(source) windows=\(preservedWrites.count)[\(writeIDs)] animated=\(animatedWindowIDs.count)[\(animatedIDs)] parked=\(parkedCount) springMs=\(durationMS)"
     )
     let shouldStart = !running
     if shouldStart {
@@ -229,7 +261,15 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var isBusy: Bool {
     lock.lock()
     defer { lock.unlock() }
-    return running || pending != nil
+    return running || pending != nil || !deferredParkingWriteGenerations.isEmpty
+  }
+
+  func isBusy(for windowID: WindowID) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return activeWindowIDs.contains(windowID)
+      || pending?.writes[windowID] != nil
+      || deferredParkingWriteGenerations[windowID] != nil
   }
 
   var animatedSizeWindowIDs: Set<WindowID> {
@@ -243,6 +283,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
     defer { lock.unlock() }
     return activeAnimationRunning
       || (pending?.animationDuration ?? 0) > 0
+  }
+
+  var hasPendingDeferredParkingWrites: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return !deferredParkingWriteGenerations.isEmpty
   }
 
   var pendingAnimatedWindowIDs: Set<WindowID> {
@@ -264,6 +310,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     if let pending {
       windowIDs.formUnion(pending.writes.keys)
     }
+    windowIDs.formUnion(deferredParkingWriteGenerations.keys)
     return windowIDs
   }
 
@@ -313,6 +360,22 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     completedSizes[windowID] = size
     lock.unlock()
+  }
+
+  func frameMatchesRecentInternalWrite(
+    windowID: WindowID,
+    actual: Rect,
+    now: TimeInterval
+  ) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    recentInternalFrameWrites = recentInternalFrameWrites.compactMapValues {
+      let live = $0.filter { $0.deadline >= now }
+      return live.isEmpty ? nil : live
+    }
+    return recentInternalFrameWrites[windowID]?.contains {
+      DefiMacOS.frameMatchesRecentInternalWrite(actual: actual, write: $0)
+    } == true
   }
 
   var trace: String {

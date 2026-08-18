@@ -84,7 +84,24 @@ func retainedWindowRefreshProcessIDs(
 
 func windowHasExternalFrameChange(
   _ windowID: WindowID,
-  pendingFrameWindowIDs: Set<WindowID>
+  pendingFrameWindowIDs: Set<WindowID>,
+  matchesRecentInternalWrite: Bool = false
 ) -> Bool {
-  pendingFrameWindowIDs.contains(windowID)
+  pendingFrameWindowIDs.contains(windowID) && !matchesRecentInternalWrite
+}
+
+func windowIsMouseResizeGestureCandidate(
+  _ windowID: WindowID,
+  mouseGestureWindowID: WindowID?,
+  mouseResizeGestureObserved: Bool
+) -> Bool {
+  mouseResizeGestureObserved
+    && mouseGestureWindowID == windowID
+}
+
+func retainedFrameEventWindowIDs(
+  observedFrameEventWindowIDs: Set<WindowID>,
+  retainedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  observedFrameEventWindowIDs.intersection(retainedWindowIDs)
 }

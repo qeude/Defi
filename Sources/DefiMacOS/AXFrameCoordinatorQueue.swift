@@ -22,6 +22,7 @@ extension AXFrameCoordinator {
       let applicationCount = Set(frame.writes.values.map(\.processID)).count
       activeAnimationRunning = frame.animationDuration > 0
       activeWindowIDs = Set(frame.writes.keys)
+      activeWrites = frame.writes
       activeAnimatedWindowIDs = frame.animatedWindowIDs
       activeAnimatedSizeWindowIDs = Set(
         frame.writes.compactMap { windowID, write in
@@ -76,10 +77,14 @@ extension AXFrameCoordinator {
           latestWriteSucceededByWindowID[windowID] =
             successfulWindowIDs.contains(windowID)
         }
+        for windowID in frame.animatedWindowIDs {
+          retargetHorizontalVelocities[windowID] = nil
+        }
       }
       activeAnimatedSizeWindowIDs.removeAll(keepingCapacity: true)
       activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
       activeWindowIDs.removeAll(keepingCapacity: true)
+      activeWrites.removeAll(keepingCapacity: true)
       lock.unlock()
       frame.completion?(
         FrameWriteCompletion(
@@ -130,7 +135,29 @@ extension AXFrameCoordinator {
       )
       count += 1
     }
-    guard count > 0 else { return (frame, 0) }
+    let velocityCandidates: [Double] = frame.animatedWindowIDs.compactMap {
+      windowID in
+      guard let write = writes[windowID],
+        let previousVelocity = retargetHorizontalVelocities[windowID]
+      else { return nil }
+      let delta = write.point.x - write.fromPoint.x
+      guard abs(delta) >= 0.5 else { return nil }
+      return previousVelocity / delta
+    }
+    let initialProgressVelocity = retainedSpringProgressVelocity(
+      normalizedCandidates: velocityCandidates,
+      maximum: 6 / max(frame.animationDuration, 0.04)
+    )
+    for windowID in frame.animatedWindowIDs {
+      retargetHorizontalVelocities[windowID] = nil
+    }
+    guard count > 0 || initialProgressVelocity > 0 else { return (frame, 0) }
+    if initialProgressVelocity > 0 {
+      let velocityText = String(format: "%.2f", initialProgressVelocity)
+      appendTraceLocked(
+        "retarget-velocity g=\(frame.generation) v=\(velocityText)"
+      )
+    }
     return (
       QueuedPositionFrame(
         generation: frame.generation,
@@ -139,8 +166,11 @@ extension AXFrameCoordinator {
         animatedWindowIDs: frame.animatedWindowIDs,
         animationDuration: frame.animationDuration,
         refreshRateHz: frame.refreshRateHz,
+        displayID: frame.displayID,
+        initialProgressVelocity: initialProgressVelocity,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-        completion: frame.completion
+        completion: frame.completion,
+        cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
       ),
       count
     )

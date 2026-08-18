@@ -131,12 +131,20 @@ final class FloatingWindowTests: XCTestCase {
     let floater = window(61, floating: true)
     try discoverWindow(floater, decision: RuleDecision(), state: &state)
     try reduce(.activateFloating, on: monitorID, state: &state)
+    state.suspendedTiledPlacements[floater.id] = SuspendedTiledPlacement(
+      monitorID: monitorID,
+      workspaceID: state.monitors[0].activeWorkspace,
+      columnIndex: 0,
+      windowIndex: 0,
+      column: Column(window: floater.id, width: .pixels(900))
+    )
 
     try reduce(.moveWindowToWorkspace(tools), on: monitorID, state: &state)
 
     XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
     XCTAssertEqual(state.monitors[0].workspaces[1].floatingWindows, [floater.id])
     XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
+    XCTAssertNil(state.suspendedTiledPlacements[floater.id])
   }
 
   func testMoveFocusedTileSelectsTiledLayerInTargetWorkspace() throws {
@@ -253,6 +261,340 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
   }
 
+  func testExistingTileBecomingModalReclassifiesAsAutomaticFloater() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let selectedTile = window(77)
+    let modalTile = window(78)
+    try discoverWindow(selectedTile, decision: RuleDecision(), state: &state)
+    try discoverWindow(modalTile, decision: RuleDecision(), state: &state)
+    focusWindow(selectedTile.id, state: &state)
+    var observed = modalTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([selectedTile, observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertEqual(workspace.floatingWindows, [modalTile.id])
+    XCTAssertEqual(workspace.columns.flatMap(\.windows), [selectedTile.id])
+    XCTAssertEqual(state.windows[modalTile.id]?.floating, true)
+    XCTAssertEqual(state.windows[modalTile.id]?.floatingOrigin, .automatic)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
+  }
+
+  func testTemporaryModalRestoresStackAndColumnWidth() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let sibling = window(82)
+    let modal = window(83)
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    var workspace = state.monitors[0].workspaces[0]
+    workspace.columns = [
+      Column(
+        windows: [sibling.id, modal.id],
+        focusedWindow: 0,
+        width: .pixels(913),
+        preMaximizedWidth: .fraction(0.7)
+      )
+    ]
+    state.monitors[0].workspaces[0] = workspace
+    var observedModal = modal
+    observedModal.floating = true
+    observedModal.floatingOrigin = .automatic
+    reconcileWindows([sibling, observedModal], config: config, state: &state)
+    var observedTiled = modal
+    observedTiled.floating = false
+    observedTiled.floatingOrigin = nil
+
+    reconcileWindows([sibling, observedTiled], config: config, state: &state)
+
+    let restored = state.monitors[0].workspaces[0]
+    XCTAssertEqual(restored.columns.count, 1)
+    XCTAssertEqual(restored.columns[0].windows, [sibling.id, modal.id])
+    XCTAssertEqual(restored.columns[0].width, .pixels(913))
+    XCTAssertEqual(restored.columns[0].preMaximizedWidth, .fraction(0.7))
+  }
+
+  func testTemporaryModalPreservesSiblingWidthEdits() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let sibling = window(84)
+    let modal = window(85)
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: [sibling.id, modal.id],
+        focusedWindow: 0,
+        width: .pixels(700)
+      )
+    ]
+    var observedModal = modal
+    observedModal.floating = true
+    observedModal.floatingOrigin = .automatic
+    reconcileWindows([sibling, observedModal], config: config, state: &state)
+    state.monitors[0].workspaces[0].columns[0].width = .pixels(950)
+    var observedTiled = modal
+    observedTiled.floating = false
+    observedTiled.floatingOrigin = nil
+
+    reconcileWindows([sibling, observedTiled], config: config, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].columns[0].width, .pixels(950))
+  }
+
+  func testConcurrentTemporaryModalsRestoreOriginalStackOrder() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(90), window(91), window(92)]
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: windows.map(\.id),
+        focusedWindow: 0,
+        width: .fraction(state.layout.defaultColumnWidth)
+      )
+    ]
+
+    var firstModal = windows[0]
+    firstModal.floating = true
+    firstModal.floatingOrigin = .automatic
+    reconcileWindows([firstModal, windows[1], windows[2]], config: config, state: &state)
+    var secondModal = windows[1]
+    secondModal.floating = true
+    secondModal.floatingOrigin = .automatic
+    reconcileWindows([firstModal, secondModal, windows[2]], config: config, state: &state)
+    var firstTiled = windows[0]
+    firstTiled.floating = false
+    reconcileWindows([firstTiled, secondModal, windows[2]], config: config, state: &state)
+    var secondTiled = windows[1]
+    secondTiled.floating = false
+    reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[0].windows,
+      windows.map(\.id)
+    )
+  }
+
+  func testConcurrentStandaloneModalsRestoreOriginalColumnOrder() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(94), window(95), window(96)]
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = windows.map {
+      Column(window: $0.id, width: .pixels(900))
+    }
+
+    var firstModal = windows[0]
+    firstModal.floating = true
+    firstModal.floatingOrigin = .automatic
+    var secondModal = windows[1]
+    secondModal.floating = true
+    secondModal.floatingOrigin = .automatic
+    reconcileWindows([firstModal, secondModal, windows[2]], config: config, state: &state)
+
+    var firstTiled = windows[0]
+    firstTiled.floating = false
+    reconcileWindows([firstTiled, secondModal, windows[2]], config: config, state: &state)
+    var secondTiled = windows[1]
+    secondTiled.floating = false
+    reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns.map(\.windows),
+      windows.map { [$0.id] }
+    )
+  }
+
+  func testRestoredModalRestoresInactiveColumnFocus() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(97), window(98), window(99)]
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: windows[0].id, width: .pixels(900)),
+      Column(
+        windows: [windows[1].id, windows[2].id],
+        focusedWindow: 1,
+        width: .pixels(900)
+      ),
+    ]
+    state.monitors[0].workspaces[0].focusedColumn = 0
+
+    var modal = windows[2]
+    modal.floating = true
+    modal.floatingOrigin = .automatic
+    reconcileWindows([windows[0], windows[1], modal], config: config, state: &state)
+    modal.floating = false
+    reconcileWindows([windows[0], windows[1], modal], config: config, state: &state)
+
+    XCTAssertEqual(state.monitors[0].workspaces[0].columns[1].focusedWindow, 1)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), windows[0].id)
+  }
+
+  func testRestoredModalPreservesNewerFocusInsideItsStack() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = [window(100), window(101), window(102)]
+    for item in windows {
+      try discoverWindow(item, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: windows.map(\.id),
+        focusedWindow: 0,
+        width: .pixels(900)
+      )
+    ]
+    state.monitors[0].workspaces[0].focusedColumn = 0
+
+    var modal = windows[0]
+    modal.floating = true
+    modal.floatingOrigin = .automatic
+    reconcileWindows([modal, windows[1], windows[2]], config: config, state: &state)
+    state.monitors[0].workspaces[0].focusedLayer = .tiled
+    state.monitors[0].workspaces[0].columns[0].focusedWindow = 1
+
+    var restored = modal
+    restored.floating = false
+    restored.floatingOrigin = nil
+    reconcileWindows(
+      [restored, windows[1], windows[2]],
+      config: config,
+      state: &state
+    )
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[0].focusedWindow,
+      2
+    )
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), windows[2].id)
+  }
+
+  func testManualTilingClearsSuspendedModalPlacement() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var modal = window(93, floating: true)
+    modal.floatingOrigin = .automatic
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    state.suspendedTiledPlacements[modal.id] = SuspendedTiledPlacement(
+      monitorID: monitorID,
+      workspaceID: state.monitors[0].activeWorkspace,
+      columnIndex: 0,
+      windowIndex: 0,
+      column: Column(window: modal.id, width: .pixels(900))
+    )
+
+    try reduce(.toggleFloating, on: monitorID, state: &state)
+
+    XCTAssertNil(state.suspendedTiledPlacements[modal.id])
+    XCTAssertEqual(state.windows[modal.id]?.floatingOrigin, .user)
+  }
+
+  func testRestoredModalKeepsFocusedWindowIdentityAfterColumnShift() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let modal = window(86)
+    let selected = window(87)
+    try discoverWindow(modal, decision: RuleDecision(), state: &state)
+    try discoverWindow(selected, decision: RuleDecision(), state: &state)
+    focusWindow(selected.id, state: &state)
+    var observedModal = modal
+    observedModal.floating = true
+    observedModal.floatingOrigin = .automatic
+    reconcileWindows([modal, selected].map { $0.id == modal.id ? observedModal : $0 }, config: config, state: &state)
+    var observedTiled = modal
+    observedTiled.floating = false
+    observedTiled.floatingOrigin = nil
+
+    reconcileWindows([observedTiled, selected], config: config, state: &state)
+
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), selected.id)
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns.flatMap(\.windows),
+      [modal.id, selected.id]
+    )
+  }
+
+  func testFocusedTileBecomingModalRemainsSelectedAsFloater() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let modalTile = window(79)
+    try discoverWindow(modalTile, decision: RuleDecision(), state: &state)
+    var observed = modalTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertEqual(workspace.focusedLayer, .floating)
+    XCTAssertEqual(state.selectedWindowID(on: monitorID), modalTile.id)
+  }
+
+  func testManualTileOverrideSurvivesAutomaticFloatingObservation() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var manualTile = window(80)
+    manualTile.floatingOrigin = .user
+    try discoverWindow(manualTile, decision: RuleDecision(), state: &state)
+    var observed = manualTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertTrue(workspace.floatingWindows.isEmpty)
+    XCTAssertEqual(workspace.columns.flatMap(\.windows), [manualTile.id])
+    XCTAssertEqual(state.windows[manualTile.id]?.floating, false)
+    XCTAssertEqual(state.windows[manualTile.id]?.floatingOrigin, .user)
+  }
+
+  func testForcedTileSurvivesAutomaticFloatingObservation() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var forcedTile = window(81)
+    forcedTile.forceTiling = true
+    try discoverWindow(
+      forcedTile,
+      decision: RuleDecision(forceTiling: true),
+      state: &state
+    )
+    var observed = forcedTile
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+
+    reconcileWindows([observed], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    XCTAssertTrue(workspace.floatingWindows.isEmpty)
+    XCTAssertEqual(workspace.columns.flatMap(\.windows), [forcedTile.id])
+    XCTAssertEqual(state.windows[forcedTile.id]?.floating, false)
+    XCTAssertEqual(state.windows[forcedTile.id]?.forceTiling, true)
+  }
+
   func testFocusedAutomaticFloaterRemainsSelectedWhenReclassified() throws {
     let config = Config()
     var state = RuntimeState(config: config)
@@ -302,6 +644,13 @@ final class FloatingWindowTests: XCTestCase {
     state.monitors[1].activeWorkspace = tools
     let floater = window(67, floating: true)
     try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    state.suspendedTiledPlacements[floater.id] = SuspendedTiledPlacement(
+      monitorID: monitorID,
+      workspaceID: state.monitors[0].activeWorkspace,
+      columnIndex: 0,
+      windowIndex: 0,
+      column: Column(window: floater.id, width: .pixels(900))
+    )
 
     XCTAssertTrue(
       moveFloatingWindow(floater.id, to: externalMonitorID, state: &state)
@@ -313,6 +662,7 @@ final class FloatingWindowTests: XCTestCase {
     XCTAssertEqual(state.monitors[1].workspaces[1].focusedLayer, .floating)
     XCTAssertEqual(state.selectedWindowID(on: externalMonitorID), floater.id)
     XCTAssertEqual(state.windows[floater.id]?.monitorID, externalMonitorID)
+    XCTAssertNil(state.suspendedTiledPlacements[floater.id])
   }
 
   private func window(_ rawValue: UInt64, floating: Bool = false) -> Window {

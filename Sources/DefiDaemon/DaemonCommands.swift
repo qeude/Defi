@@ -105,6 +105,9 @@ extension Daemon {
       activeMonitorID = commandMonitorID
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
+      platform.recordPerformanceTrace(
+        "command-start cg=\(currentCommandGeneration) command=\(rawCommand)"
+      )
       platform.userInputTracker.record(
         timestamp: inputTimestamp ?? commandStartedAt
       )
@@ -143,9 +146,6 @@ extension Daemon {
         resizesManagedLayout
         && config.animation.enabled
         && config.animation.durationMS > 0
-      if !speculativeRibbonNavigation {
-        cancelDeferredSlowLane()
-      }
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
       }
@@ -163,6 +163,25 @@ extension Daemon {
         pendingWorkspaceFocus = nil
       }
       try reduce(command, on: commandMonitorID, state: &state)
+      if command.movesWindowBetweenWorkspaces,
+        let movedWindowID = previouslySelectedWindowID,
+        let movedWindow = state.windows[movedWindowID],
+        movedWindow.floatingOrigin == .automatic
+      {
+        invalidatePlacementPreference(for: movedWindow)
+      }
+      if !switchesWorkspace,
+        let submittedCommandFocus,
+        let commandMonitorID,
+        let selectedWindowID = state.selectedWindowID(on: commandMonitorID),
+        !commandFocusIsPreserved(
+          pendingWindowID: nil,
+          submittedWindowID: submittedCommandFocus.windowID,
+          selectedWindowID: selectedWindowID
+        )
+      {
+        invalidateSubmittedCommandFocus()
+      }
       persistPlacements()
       updateMenuBar()
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
@@ -171,18 +190,10 @@ extension Daemon {
       } else {
         startScrollAnimationsIfNeeded()
       }
-      let deferredWindowIDs: Set<WindowID>
-      if speculativeRibbonNavigation, !scrollAnimations.isEmpty {
-        deferredWindowIDs = scheduleSlowLaneDeferral(
-          at: commandStartedAt
-        )
-      } else {
-        deferredWindowIDs = []
-      }
       let dispatchedAnimation =
         animatedManagedResize
-        ? dispatchManagedResizeAnimation(skipping: deferredWindowIDs)
-        : dispatchScrollAnimationIfNeeded(skipping: deferredWindowIDs)
+        ? dispatchManagedResizeAnimation()
+        : dispatchScrollAnimationIfNeeded()
       let workspaceFocusRequest: PendingWorkspaceFocus?
       if switchesWorkspace,
         let commandMonitorID,
@@ -279,7 +290,6 @@ extension Daemon {
           asynchronousPositions: true,
           updateVisibility: scrollAnimations.isEmpty,
           positionTimeoutSeconds: scrollAnimations.isEmpty ? 0.05 : 0.016,
-          skipping: deferredWindowIDs,
           positionsOnly: speculativeRibbonNavigation,
           stagesVisibleBeforeParking: switchesWorkspace,
           focusWindowIDAfterCommit: focusWindowIDAfterCommit,
@@ -352,6 +362,8 @@ extension Daemon {
           cursorWarpInputTimestamp: cursorWarpInputTimestamp
         )
       }
+      persistPlacements()
+      updateMenuBar()
       lastCommandDurationMS =
         (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
       performanceLogger.debug(

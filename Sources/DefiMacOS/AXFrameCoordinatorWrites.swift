@@ -13,7 +13,8 @@ extension AXFrameCoordinator {
     progress: Double,
     skippedProcesses: Set<pid_t>,
     intermediate: Bool = false,
-    stagingReentry: Bool = false
+    stagingReentry: Bool = false,
+    recordFinalSuccess: Bool = true
   ) -> (
     applied: Int,
     stale: Int,
@@ -67,7 +68,8 @@ extension AXFrameCoordinator {
             frame: frame,
             progress: progress,
             intermediate: intermediate,
-            stagingReentry: stagingReentry
+            stagingReentry: stagingReentry,
+            recordFinalSuccess: recordFinalSuccess
           )
           let processLatencyMS =
             (ProcessInfo.processInfo.systemUptime - batchStartedAt) * 1_000
@@ -77,6 +79,7 @@ extension AXFrameCoordinator {
             slowProcesses: result.slowProcesses,
             processID: batch.processID,
             processLatencyMS: processLatencyMS,
+            attempted: result.attempted,
             completedAt: ProcessInfo.processInfo.systemUptime
           )
           group.leave()
@@ -85,7 +88,7 @@ extension AXFrameCoordinator {
       group.wait()
     }
     let result = accumulator.result
-    if frame.animationDuration > 0 {
+    if !result.processLatencySamplesMS.isEmpty {
       recordProcessLatencySamples(result.processLatencySamplesMS)
     }
     return (
@@ -190,16 +193,24 @@ extension AXFrameCoordinator {
     frame: QueuedPositionFrame,
     progress: Double,
     intermediate: Bool,
-    stagingReentry: Bool
-  ) -> (applied: Int, stale: Int, slowProcesses: Set<pid_t>) {
+    stagingReentry: Bool,
+    recordFinalSuccess: Bool
+  ) -> (
+    applied: Int,
+    stale: Int,
+    slowProcesses: Set<pid_t>,
+    attempted: Bool
+  ) {
     var applied = 0
     var stale = 0
     var slowProcesses = Set<pid_t>()
+    var attempted = false
     for (index, item) in batch.writes.enumerated() {
       guard isCurrent(generation: frame.generation) else {
         stale += batch.writes.count - index
         break
       }
+      attempted = true
       let interpolated = interpolatedFrame(
         from: Rect(
           x: item.value.fromPoint.x,
@@ -236,9 +247,13 @@ extension AXFrameCoordinator {
         elements: [item.value.application, item.value.element]
       ) {
         let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
+        let generationIsCurrent = isCurrent(generation: frame.generation)
         let asynchronousSizeWriteSucceeded =
-          !requiresAsynchronousSizeWrite
-          || accessibilityWriter.applySize(item.value, size: size)
+          generationIsCurrent
+          && (
+            !requiresAsynchronousSizeWrite
+              || accessibilityWriter.applySize(item.value, size: size)
+          )
         let sizeApplied = frameSizeWriteSucceeded(
           sizeChanged: item.value.sizeChanged,
           synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
@@ -246,18 +261,21 @@ extension AXFrameCoordinator {
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
         let positionApplied =
-          !item.value.positionChanged
-          || accessibilityWriter.applyPosition(
-            item.value,
-            point: point,
-            forceOffscreenAccess: (stagingReentry && item.value.isReentering)
-              || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
-            suppressNativeAnimation: suppressesNativePositionAnimation(
-              stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-              isParked: item.value.isParked,
-              isIntermediate: intermediate
+          generationIsCurrent
+          && (
+            !item.value.positionChanged
+              || accessibilityWriter.applyPosition(
+                item.value,
+                point: point,
+                forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+                  || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+                suppressNativeAnimation: suppressesNativePositionAnimation(
+                  stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+                  isParked: item.value.isParked,
+                  isIntermediate: intermediate
+                )
+              )
             )
-          )
         return (
           sizeApplied: sizeApplied,
           positionApplied: positionApplied,
@@ -268,11 +286,36 @@ extension AXFrameCoordinator {
       let sizeApplied = writeResult.sizeApplied
       let positionApplied = writeResult.positionApplied
       let appliedWrite = sizeApplied && positionApplied
+      let successfulWrite = successfulFrameWriteIntent(
+        positionChanged: item.value.positionChanged,
+        positionApplied: positionApplied,
+        sizeChanged: requiresAsynchronousSizeWrite,
+        sizeApplied: sizeApplied
+      )
       let timeoutConfiguredAt = writeResult.timeoutConfiguredAt
       let positionAppliedAt = writeResult.positionAppliedAt
       let timeoutResetAt = ProcessInfo.processInfo.systemUptime
       let writeElapsedMS =
         (timeoutResetAt - writeStartedAt) * 1_000
+      if sizeApplied, requiresAsynchronousSizeWrite,
+        !intermediate, progress >= 1
+      {
+        recordCompletedActiveSizeWrite(windowID: item.key)
+      }
+      if successfulWrite.position || successfulWrite.size {
+        recordInternalFrameWrite(
+          Rect(
+            x: point.x,
+            y: point.y,
+            width: size.width,
+            height: size.height
+          ),
+          windowID: item.key,
+          positionChanged: successfulWrite.position,
+          sizeChanged: successfulWrite.size,
+          now: timeoutResetAt
+        )
+      }
       guard isCurrent(generation: frame.generation) else {
         stale += 1
         lock.lock()
@@ -282,7 +325,7 @@ extension AXFrameCoordinator {
         lock.unlock()
         continue
       }
-      if !intermediate, progress >= 1, appliedWrite {
+      if recordFinalSuccess, !intermediate, progress >= 1, appliedWrite {
         lock.lock()
         successfulFinalWritesByGeneration[frame.generation, default: []]
           .insert(item.key)
@@ -312,6 +355,9 @@ extension AXFrameCoordinator {
           expectedPoint: item.value.point
         )
       }
+      if !intermediate, progress >= 1, appliedWrite {
+        frame.cursorWarpAfterWindowCommit?(item.key, frame.generation)
+      }
       if intermediate && (!appliedWrite || writeElapsedMS > 12) {
         slowProcesses.insert(item.value.processID)
       }
@@ -323,7 +369,7 @@ extension AXFrameCoordinator {
         lock.unlock()
       }
     }
-    return (applied, stale, slowProcesses)
+    return (applied, stale, slowProcesses, attempted)
   }
 
   func recordCompletedSize(
@@ -336,6 +382,40 @@ extension AXFrameCoordinator {
     if incrementWriteCount {
       completedAnimatedSizeWrites += 1
     }
+    lock.unlock()
+  }
+
+  func recordInternalFrameWrite(
+    _ frame: Rect,
+    windowID: WindowID,
+    positionChanged: Bool,
+    sizeChanged: Bool,
+    now: TimeInterval
+  ) {
+    lock.lock()
+    var writes = recentInternalFrameWrites[windowID, default: []]
+    writes.removeAll { $0.deadline < now }
+    writes.append(RecentInternalFrameWrite(
+      frame: frame,
+      positionChanged: positionChanged,
+      sizeChanged: sizeChanged,
+      deadline: now + 2.5
+    ))
+    recentInternalFrameWrites[windowID] = writes
+    lock.unlock()
+  }
+
+  func pruneRecentInternalFrameWrites(liveWindowIDs: Set<WindowID>) {
+    lock.lock()
+    recentInternalFrameWrites = recentInternalFrameWrites.filter {
+      liveWindowIDs.contains($0.key)
+    }
+    lock.unlock()
+  }
+
+  func recordCompletedActiveSizeWrite(windowID: WindowID) {
+    lock.lock()
+    activeWrites.removeValue(forKey: windowID)
     lock.unlock()
   }
 }

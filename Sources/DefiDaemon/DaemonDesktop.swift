@@ -21,6 +21,7 @@ extension Daemon {
     stagesVisibleBeforeParking: Bool = false,
     focusWindowIDAfterCommit: WindowID? = nil,
     focusInputTimestampAfterCommit: TimeInterval? = nil,
+    cursorWarpWindowIDAfterCommit: WindowID? = nil,
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
       (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
@@ -109,7 +110,45 @@ extension Daemon {
     }
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
     let borderStartedAt = ProcessInfo.processInfo.systemUptime
-    platform.prepareWindowBorderSelection(selectedWindowID)
+    let selectedDisplayedFrame = selectedWindowID.flatMap { windowID -> Rect? in
+      guard let observed = state.windows[windowID]?.frame else { return nil }
+      let position = platform.completedPosition(for: windowID)
+      let size = platform.completedSize(for: windowID)
+      return Rect(
+        x: position.map { Double($0.x) } ?? observed.x,
+        y: position.map { Double($0.y) } ?? observed.y,
+        width: size.map { Double($0.width) } ?? observed.width,
+        height: size.map { Double($0.height) } ?? observed.height
+      )
+    }
+    platform.recordPerformanceTrace("frame-submit source=\(source)")
+    platform.apply(
+      platformAssignments,
+      hiddenWindowIDs: hiddenWindowIDs,
+      skipping: skipped,
+      asynchronousPositions: asynchronousPositions,
+      asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
+      animationDuration: animationDuration,
+      animationRefreshRateHz: activeDisplayRefreshRate,
+      animationDisplayID: activeMonitorID?.rawValue,
+      animateSizeChanges: animateSizeChanges,
+      positionsOnly: positionsOnly,
+      updateVisibility: updateVisibility ?? !asynchronousPositions,
+      stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+      focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
+      cursorWarpWindowIDAfterCommit: cursorWarpWindowIDAfterCommit,
+      cursorWarpInputTimestampAfterCommit:
+        cursorWarpInputTimestampAfterCommit,
+      focusCompletionAfterCommit: focusCompletionAfterCommit,
+      cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
+      focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+      source: source
+    )
+    platform.stageWindowBorderSelection(
+      selectedWindowID,
+      displayedFrame: selectedDisplayedFrame
+    )
     platform.updateWindowBorders(
       frames: borderAssignments,
       selectedWindowID: selectedWindowID,
@@ -123,32 +162,5 @@ extension Daemon {
         "initial-border-prepare ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
-    platform.apply(
-      platformAssignments,
-      hiddenWindowIDs: hiddenWindowIDs,
-      skipping: skipped,
-      asynchronousPositions: asynchronousPositions,
-      asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
-      animationDuration: animationDuration,
-      animationRefreshRateHz: activeDisplayRefreshRate,
-      animateSizeChanges: animateSizeChanges,
-      positionsOnly: positionsOnly,
-      updateVisibility: updateVisibility ?? !asynchronousPositions,
-      stagesVisibleBeforeParking: stagesVisibleBeforeParking,
-      focusWindowIDAfterCommit: focusWindowIDAfterCommit,
-      focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
-      cursorWarpInputTimestampAfterCommit:
-        cursorWarpInputTimestampAfterCommit,
-      focusCompletionAfterCommit: focusCompletionAfterCommit,
-      cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
-      focusRequestIDAfterCommit: focusRequestIDAfterCommit,
-      source: source
-    )
-    platform.updateWindowBorders(
-      frames: borderAssignments,
-      selectedWindowID: selectedWindowID,
-      liveWindowID: activelyResizedWindowID,
-      config: config.decorations.borders
-    )
   }
 }

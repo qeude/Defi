@@ -12,8 +12,10 @@ extension Daemon {
   func synchronizeDesktop(
     forceFullWindowRefresh: Bool = false,
     forceWindowListRefresh: Bool = false,
-    forceApplicationInventoryRefresh: Bool = false
+    forceApplicationInventoryRefresh: Bool = false,
+    consumePeriodicWindowRefresh: Bool = false
   ) {
+    let nativeFocusWasPending = platform.hasPendingNativeFocusEvent
     let snapshot = platform.snapshot(
       config: config,
       forceFullWindowRefresh: forceFullWindowRefresh,
@@ -24,8 +26,10 @@ extension Daemon {
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextPeriodicWindowRefreshAt,
       now: snapshotCompletedAt,
-      interval: platform.hasReliableDesktopObservation ? 5 : 0.3,
-      reset: forceFullWindowRefresh
+      interval: desktopSnapshotRefreshInterval(
+        reliableDesktopObservation: platform.hasReliableDesktopObservation
+      ),
+      reset: forceFullWindowRefresh || consumePeriodicWindowRefresh
     )
     nextWindowListRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextWindowListRefreshAt,
@@ -104,7 +108,6 @@ extension Daemon {
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
-      cancelDeferredSlowLane()
       persistentWidthDriftCounts.removeAll(keepingCapacity: true)
       finishMouseGestureTracking()
     }
@@ -125,6 +128,10 @@ extension Daemon {
     }
     var nativelyFocusedMonitorID: MonitorID?
     var nativelyActivatedWorkspace = false
+    var nativeCursorWarpWindowID: WindowID?
+    var nativeCursorWarpInputTimestamp: TimeInterval?
+    var nativeFocusFrameMonitorID: MonitorID?
+    let previouslyManagedWindowIDs = Set(state.windows.keys)
     reconcileWindows(
       snapshot.windows,
       config: config,
@@ -132,6 +139,13 @@ extension Daemon {
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       state: &state
     )
+    if let previousSelectedWindowID,
+      let reboundMonitorID = state.reboundFocusMonitorID(for: previousSelectedWindowID),
+      reboundMonitorID != previousActiveMonitorID
+    {
+      activeMonitorID = reboundMonitorID
+      nativelyFocusedMonitorID = reboundMonitorID
+    }
     deferredMouseFocusIntent = updatedDeferredMouseFocusIntent(
       current: deferredMouseFocusIntent,
       consumedMouseFocusIntentTimestamp: consumedMouseFocusIntentTimestamp,
@@ -141,7 +155,12 @@ extension Daemon {
       mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
       focusedWindowID: snapshot.focusedWindowID,
       nativeFocusChanged: snapshot.nativeFocusChanged,
-      mouseInteractionEnded: mouseInteractionEnded
+      mouseInteractionEnded: mouseInteractionEnded,
+      nativeFocusTargetIsNew: snapshot.focusedWindowID.map {
+        !previouslyManagedWindowIDs.contains($0)
+      } ?? false,
+      nativeFocusEventAfterMouseRelease:
+        snapshot.nativeFocusObservedAfterMouseRelease
     )
     if displayGeometryChanged {
       rebaseFloatingWindowFrames(
@@ -252,17 +271,32 @@ extension Daemon {
           deferredMouseFocusPending: deferredMouseFocusPending,
           deferredMouseFocusReady: deferredMouseFocusReady,
           mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent,
-          keyboardFocusIntentCurrent: keyboardFocusIntentCurrent
+          keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
+          nativeFocusSuppressed:
+            ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil
         )
         && !preservesWorkspaceAfterRemoval
-        && (keyboardFocusIntentCurrent
-          || ProcessInfo.processInfo.systemUptime >= suppressNativeFocusUntil)
       let selectionChanged = nativeFocusChangesSelection(
         focusedWindowID,
         activeMonitorID: activeMonitorID,
         state: state
       )
+      nativeCursorWarpInputTimestamp = nativeFocusCursorWarpTimestamp(
+        mouseFollowsFocus: config.input.mouseFollowsFocus,
+        nativeFocusAccepted: nativeFocusAccepted,
+        keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
+        keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp
+      )
+      if nativeCursorWarpInputTimestamp != nil {
+        nativeCursorWarpWindowID = focusedWindowID
+      }
       if nativeFocusAccepted {
+        nativeFocusFrameMonitorID = state.monitorID(containing: focusedWindowID)
+        if let keyboardFocusIntentTimestamp = snapshot.keyboardFocusIntentTimestamp {
+          platform.userInputTracker.consumeFocusIntent(
+            at: keyboardFocusIntentTimestamp
+          )
+        }
         platform.invalidateFocusRecovery(recoveringTo: focusedWindowID)
         invalidateSubmittedCommandFocus(recoveringTo: focusedWindowID)
         invalidateSubmittedWorkspaceFocus(recoveringTo: focusedWindowID)
@@ -275,7 +309,8 @@ extension Daemon {
       if keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: nativeFocusAccepted,
         keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
-        leftMouseButtonDown: snapshot.leftMouseButtonDown
+        leftMouseButtonDown: snapshot.leftMouseButtonDown,
+        postReleaseSettlementActive: postReleaseMouseGestureActive
       ) {
         preemptMouseGesture()
         mouseResizeGestureActive = false
@@ -496,6 +531,36 @@ extension Daemon {
       mouseReorderAnimationActive = true
       beginFrameAnimationActivity()
     }
+    let nativeFocusSkippedWindowIDs: Set<WindowID>
+    if nativeFocusWasPending {
+      if let nativeFocusFrameMonitorID {
+        nativeFocusSkippedWindowIDs = Set(
+          state.windows.keys.filter {
+            state.monitorID(containing: $0) != nativeFocusFrameMonitorID
+          }
+        )
+      } else {
+        nativeFocusSkippedWindowIDs = Set(state.windows.keys)
+      }
+    } else {
+      nativeFocusSkippedWindowIDs = []
+    }
+    let nativeCursorWarpIsCurrentAfterCommit:
+      (@MainActor @Sendable () -> Bool)?
+    if let nativeCursorWarpWindowID {
+      nativeCursorWarpIsCurrentAfterCommit = { [weak self] in
+        guard let self,
+          let monitorID = self.state.monitorID(
+            containing: nativeCursorWarpWindowID
+          ),
+          !self.platform.hasPendingNativeFocusEvent
+        else { return false }
+        return self.state.selectedWindowID(on: monitorID)
+          == nativeCursorWarpWindowID
+      }
+    } else {
+      nativeCursorWarpIsCurrentAfterCommit = nil
+    }
     applyCurrentLayout(
       asynchronousPositions: true,
       updateVisibility: true,
@@ -503,8 +568,13 @@ extension Daemon {
       animationDuration: animatesMouseReorder
         ? TimeInterval(config.animation.durationMS) / 1_000
         : 0,
+      skipping: nativeFocusSkippedWindowIDs,
       positionsOnly: animatesMouseReorder,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+      cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
+      cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
+      cursorWarpIsCurrentAfterCommit:
+        nativeCursorWarpIsCurrentAfterCommit,
       forceFloatingFrameWrites: displayGeometryChanged,
       source: nativelyActivatedWorkspace
         ? "native-workspace"

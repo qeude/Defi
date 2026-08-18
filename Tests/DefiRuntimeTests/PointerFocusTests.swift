@@ -398,6 +398,13 @@ struct PointerFocusTests {
     #expect(
       !commandFocusIsPreserved(
         pendingWindowID: nil,
+        submittedWindowID: WindowID(rawValue: 43),
+        selectedWindowID: windowID
+      )
+    )
+    #expect(
+      !commandFocusIsPreserved(
+        pendingWindowID: nil,
         submittedWindowID: nil,
         selectedWindowID: windowID
       )
@@ -470,8 +477,7 @@ struct PointerFocusTests {
         targetMonitorID: monitorID,
         targetWindowID: targetWindowID,
         scrollingMonitorIDs: [otherMonitorID],
-        pendingFrameWindowIDs: [otherWindowID],
-        deferredSlowWindowIDs: [otherWindowID]
+        pendingFrameWindowIDs: [otherWindowID]
       )
     )
     #expect(
@@ -479,8 +485,7 @@ struct PointerFocusTests {
         targetMonitorID: monitorID,
         targetWindowID: targetWindowID,
         scrollingMonitorIDs: [monitorID],
-        pendingFrameWindowIDs: [],
-        deferredSlowWindowIDs: []
+        pendingFrameWindowIDs: []
       )
     )
     #expect(
@@ -488,17 +493,7 @@ struct PointerFocusTests {
         targetMonitorID: monitorID,
         targetWindowID: targetWindowID,
         scrollingMonitorIDs: [],
-        pendingFrameWindowIDs: [targetWindowID],
-        deferredSlowWindowIDs: []
-      )
-    )
-    #expect(
-      !focusTargetIsReady(
-        targetMonitorID: monitorID,
-        targetWindowID: targetWindowID,
-        scrollingMonitorIDs: [],
-        pendingFrameWindowIDs: [],
-        deferredSlowWindowIDs: [targetWindowID]
+        pendingFrameWindowIDs: [targetWindowID]
       )
     )
     #expect(
@@ -506,8 +501,7 @@ struct PointerFocusTests {
         targetMonitorID: monitorID,
         targetWindowID: targetWindowID,
         scrollingMonitorIDs: [],
-        pendingFrameWindowIDs: [otherWindowID],
-        deferredSlowWindowIDs: [otherWindowID]
+        pendingFrameWindowIDs: [otherWindowID]
       )
     )
   }
@@ -520,24 +514,14 @@ struct PointerFocusTests {
       !focusMonitorIsReady(
         targetMonitorID: monitorID,
         scrollingMonitorIDs: [],
-        pendingFrameMonitorIDs: [monitorID],
-        deferredSlowMonitorIDs: []
-      )
-    )
-    #expect(
-      !focusMonitorIsReady(
-        targetMonitorID: monitorID,
-        scrollingMonitorIDs: [],
-        pendingFrameMonitorIDs: [],
-        deferredSlowMonitorIDs: [monitorID]
+        pendingFrameMonitorIDs: [monitorID]
       )
     )
     #expect(
       focusMonitorIsReady(
         targetMonitorID: monitorID,
         scrollingMonitorIDs: [otherMonitorID],
-        pendingFrameMonitorIDs: [otherMonitorID],
-        deferredSlowMonitorIDs: [otherMonitorID]
+        pendingFrameMonitorIDs: [otherMonitorID]
       )
     )
   }

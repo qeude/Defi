@@ -29,6 +29,7 @@ extension MacOSPlatform {
     guard eventMonitor == nil else { return }
     let monitor = PlatformEventMonitor(
       handler: { [weak self] kind, processID in
+        self?.invalidatePreparedAXWindowAttributes()
         if let self {
           pendingWindowTopologyInputTimestamp =
             updatedWindowTopologyInputTimestamp(
@@ -45,7 +46,9 @@ extension MacOSPlatform {
             "window-event kind=\(String(describing: kind)) pid=\(processID)"
           )
         case .full:
-          if kind == .windows || kind == .applicationTerminated {
+          if kind == .windows || kind == .application
+            || kind == .applicationTerminated
+          {
             self?.windowTopologyEventPending = true
           }
           self?.windowTopologyRequiresFullSnapshot = true
@@ -81,8 +84,14 @@ extension MacOSPlatform {
         }
         if kind == .mouseRelease {
           self?.mouseFocusReleasePending = true
+          self?.mouseFocusReleaseEventGeneration =
+            self?.nativeFocusEventGeneration
         }
         if kind == .focus {
+          if let self {
+            self.nativeFocusEventGeneration &+= 1
+          }
+          self?.verifiedNativeFocusedWindowID = nil
           self?.lastNativeFocusedWindowID = nativeFocusedWindowIDAfterEvent(
             kind,
             cachedWindowID: self?.lastNativeFocusedWindowID
@@ -97,6 +106,28 @@ extension MacOSPlatform {
             self?.nativeFocusEventProcessIDs.insert(processID)
           } else {
             self?.nativeFocusEventHasUnknownProcess = true
+          }
+          for delay in [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000] {
+            DispatchQueue.main.asyncAfter(
+              deadline: .now() + .milliseconds(delay)
+            ) { [weak self] in
+              guard self?.nativeFocusEventPending == true else { return }
+              handler()
+            }
+          }
+        }
+        let lifecycleRefreshDelays = applicationLifecycleRefreshDelays(for: kind)
+        if !lifecycleRefreshDelays.isEmpty {
+          for delay in lifecycleRefreshDelays {
+            DispatchQueue.main.asyncAfter(
+              deadline: .now() + .milliseconds(delay)
+            ) { [weak self] in
+              guard let self else { return }
+              self.invalidatePreparedAXWindowAttributes()
+              self.windowTopologyEventPending = true
+              self.windowTopologyRequiresFullSnapshot = true
+              handler()
+            }
           }
         }
         if kind == .screens {
@@ -154,22 +185,54 @@ extension MacOSPlatform {
     monitor.refresh(applications: windowsByProcess)
   }
 
-  private func scheduleWindowBorderStackingRefresh() {
+  func scheduleWindowBorderStackingRefresh() {
     let request = borderStackingRefreshState.request(
       for: borderManager.activeWindowID
     )
     borderStackingRefreshTask?.cancel()
     guard let request else { return }
     borderStackingRefreshTask = Task { @MainActor [weak self] in
-      await Task.yield()
-      self?.refreshWindowBorderStacking(request)
-      try? await Task.sleep(for: .milliseconds(4))
-      self?.refreshWindowBorderStacking(request)
+      guard let self else { return }
+      while frameCoordinator.isBusy(for: request.windowID) {
+        try? await Task.sleep(for: .milliseconds(4))
+        guard !Task.isCancelled else { return }
+      }
+      let monitorFrames = lastMonitorFrames
+      let knownWindowIDs = Set(elements.keys)
+      let targetProcessID = processIDs[request.windowID]
+      let targetFrame: Rect? = {
+        guard
+          let point = frameCoordinator.completedPosition(for: request.windowID),
+          let size = frameCoordinator.completedSize(for: request.windowID)
+        else {
+          return nil
+        }
+        return Rect(
+          x: point.x,
+          y: point.y,
+          width: size.width,
+          height: size.height
+        )
+      }()
+        ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
+        ?? latestObservedFrames[request.windowID]
+      let stacking = await Task.detached(priority: .utility) {
+        copyWindowBorderStacking(
+          targetWindowID: request.windowID,
+          targetProcessID: targetProcessID,
+          targetFrame: targetFrame,
+          monitorFrames: monitorFrames,
+          knownWindowIDs: knownWindowIDs
+        )
+      }.value
+      guard !Task.isCancelled else { return }
+      refreshWindowBorderStacking(request, stacking: stacking)
     }
   }
 
   private func refreshWindowBorderStacking(
-    _ request: WindowBorderStackingRefreshRequest
+    _ request: WindowBorderStackingRefreshRequest,
+    stacking: WindowBorderStacking
   ) {
     guard
       borderStackingRefreshState.shouldApply(
@@ -179,16 +242,12 @@ extension MacOSPlatform {
     else {
       return
     }
-    let stacking = copyWindowBorderStacking(
-      targetWindowID: request.windowID,
-      monitorFrames: lastMonitorFrames,
-      knownWindowIDs: Set(elements.keys)
-    )
     windowBorderStacking = stacking
     borderManager.updateActiveStacking(
       for: request.windowID,
       stacking: stacking
     )
+    revealWindowBordersIfReady()
   }
 
   public func updateWindowBorders(
@@ -210,38 +269,47 @@ extension MacOSPlatform {
       captureEnabled: config.captureEnabled
     )
     refreshWindowBorders()
-    if selectedWindowID == lastNativeFocusedWindowID {
-      borderManager.revealPendingBorders()
+    if !screenCaptureAccessAvailable,
+      let ownedWindowID = borderManager.ownedSurfaceWindowID
+    {
+      borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
+    scheduleWindowBorderStackingRefresh()
+    revealWindowBordersIfReady()
   }
 
-  public func prepareWindowBorderSelection(_ selectedWindowID: WindowID?) {
+  public func stageWindowBorderSelection(
+    _ selectedWindowID: WindowID?,
+    displayedFrame: Rect? = nil
+  ) {
     desiredSelectedWindowID = selectedWindowID
-    let stacking = copyWindowBorderStacking(
-      targetWindowID: selectedWindowID,
-      monitorFrames: lastMonitorFrames,
-      knownWindowIDs: Set(elements.keys)
-    )
-    windowBorderStacking = stacking
     let selectedFrame = selectedWindowID.flatMap { windowID in
-      resolvedBorderFrame(for: windowID)
+      displayedFrame ?? resolvedBorderFrame(for: windowID)
     }
     borderManager.prepareForSelection(
       selectedWindowID,
-      displayedFrame: selectedFrame,
-      stacking: stacking
+      displayedFrame: selectedFrame
     )
-    let freshFrames: [WindowID: Rect] = Dictionary(
-      uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
-        guard let frame = resolvedBorderFrame(for: windowID) else { return nil }
-        return (windowID, frame)
-      }
-    )
-    borderManager.updateGeometry(frames: freshFrames, style: borderStyle)
   }
 
   public func commitWindowBorderSelection(_ selectedWindowID: WindowID?) {
-    prepareWindowBorderSelection(selectedWindowID)
+    stageWindowBorderSelection(selectedWindowID)
+    refreshWindowBorderGeometry(
+      windowIDs: borderManager.liveGeometryWindowIDs
+    )
+    scheduleWindowBorderStackingRefresh()
+  }
+
+  func revealWindowBordersIfReady() {
+    guard
+      windowBorderStackingIsReadyForReveal(
+        windowBorderStacking,
+        selectedWindowID: desiredSelectedWindowID,
+        activeWindowID: borderManager.activeWindowID,
+        nativeFocusedWindowID:
+          verifiedNativeFocusedWindowID ?? lastNativeFocusedWindowID
+      )
+    else { return }
     borderManager.revealPendingBorders()
   }
 
@@ -252,10 +320,18 @@ extension MacOSPlatform {
       return
     }
     if frameCoordinator.isBusy {
-      refreshWindowBorderGeometry(
-        windowIDs: frameCoordinator.animatedSizeWindowIDs
-          .intersection(liveGeometryWindowIDs)
+      let displayedFrames: [WindowID: Rect] = Dictionary(
+        uniqueKeysWithValues: liveGeometryWindowIDs.compactMap { windowID in
+          guard let assignment = borderFrames.first(where: {
+            $0.windowID == windowID
+          }) else { return nil }
+          return (
+            windowID,
+            displayedBorderFrame(for: assignment, nativeFrame: nil)
+          )
+        }
       )
+      borderManager.updateGeometry(frames: displayedFrames, style: borderStyle)
       return
     }
     let borderGeometryIsSettling = liveGeometryWindowIDs.contains { windowID in
@@ -326,16 +402,9 @@ extension MacOSPlatform {
   private func resolvedWindowBorderStacking(
     for targetWindowID: WindowID?
   ) -> WindowBorderStacking {
-    if windowBorderStacking.targetWindowID == targetWindowID {
-      return windowBorderStacking
-    }
-    let stacking = copyWindowBorderStacking(
-      targetWindowID: targetWindowID,
-      monitorFrames: lastMonitorFrames,
-      knownWindowIDs: Set(elements.keys)
-    )
-    windowBorderStacking = stacking
-    return stacking
+    windowBorderStacking.targetWindowID == targetWindowID
+      ? windowBorderStacking
+      : .inactive(for: targetWindowID)
   }
 
   private func refreshWindowBorderGeometry(for element: AXUIElement) {
@@ -415,7 +484,8 @@ extension MacOSPlatform {
   public func setFrameNotificationsEnabled(_ enabled: Bool) {
     eventMonitor?.setFrameNotificationsEnabled(enabled)
     guard enabled else { return }
-    // Notifications were absent while animated writes ran. Force fresh reads
+    invalidatePreparedAXWindowAttributes()
+    // Notifications were ignored while animated writes ran. Force fresh reads
     // before trusting the final committed frames.
     frameEventPending = true
     pendingFrameProcessIDs.formUnion(lastSnapshotProcessIDs)

@@ -125,15 +125,24 @@ extension AXFrameCoordinator {
       actual: actual,
       now: observationTime
     )
-    initialSettlementDriftSamples[windowID] = InitialSettlementDriftSample(
+    initialSettlementDriftSamples[windowID] = updatedInitialSettlementDriftSample(
+      previous: previousDrift,
       generation: settlementTarget.generation,
-      frame: actual,
-      observedAt: driftIsStable
-        ? previousDrift?.observedAt ?? observationTime
-        : observationTime
+      actual: actual,
+      now: observationTime
     )
     lock.unlock()
-    guard driftIsStable else { return }
+    guard driftIsStable else {
+      if let delay = initialSettlementFollowUpDelay(
+        now: observationTime,
+        deadline: settlementTarget.deadline
+      ) {
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+          self?.verifyInitialSettlementTarget(windowID: windowID)
+        }
+      }
+      return
+    }
     guard isInitialSettlementTargetCurrent(
       windowID: windowID,
       generation: settlementTarget.generation
@@ -143,20 +152,27 @@ extension AXFrameCoordinator {
       || abs(actual.height - target.height) > 1
     let positionChanged = abs(actual.x - target.x) > 1
       || abs(actual.y - target.y) > 1
-    if sizeChanged {
-      guard isInitialSettlementTargetCurrent(
-        windowID: windowID,
-        generation: settlementTarget.generation
-      ), accessibilityWriter.applySize(write, size: write.size)
-      else { return }
+    let repairSucceeded = AXMessagingTimeoutAccess.shared.withTimeout(
+      0.025,
+      elements: [write.application, write.element]
+    ) { [self] in
+      if sizeChanged {
+        guard isInitialSettlementTargetCurrent(
+          windowID: windowID,
+          generation: settlementTarget.generation
+        ), accessibilityWriter.applySize(write, size: write.size)
+        else { return false }
+      }
+      if positionChanged {
+        guard isInitialSettlementTargetCurrent(
+          windowID: windowID,
+          generation: settlementTarget.generation
+        ), accessibilityWriter.applyPosition(write, point: write.point)
+        else { return false }
+      }
+      return true
     }
-    if positionChanged {
-      guard isInitialSettlementTargetCurrent(
-        windowID: windowID,
-        generation: settlementTarget.generation
-      ), accessibilityWriter.applyPosition(write, point: write.point)
-      else { return }
-    }
+    guard repairSucceeded else { return }
     guard isInitialSettlementTargetCurrent(
       windowID: windowID,
       generation: settlementTarget.generation
