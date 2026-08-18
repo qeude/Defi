@@ -212,9 +212,7 @@ public func finalFrameDispatchDeadline(
   hardDeadline: TimeInterval = .greatestFiniteMagnitude
 ) -> TimeInterval {
   min(
-    previousFrameWasSlow
-      ? nextDisplayDeadline
-      : max(nominalDeadline, nextDisplayDeadline),
+    max(nominalDeadline, nextDisplayDeadline),
     hardDeadline
   )
 }

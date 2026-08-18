@@ -282,7 +282,7 @@ final class AnimationTests: XCTestCase {
         nextDisplayDeadline: 10.025,
         previousFrameWasSlow: true
       ),
-      10.025
+      10.08
     )
     XCTAssertEqual(
       finalFrameDispatchDeadline(
