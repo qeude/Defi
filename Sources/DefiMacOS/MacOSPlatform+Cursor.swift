@@ -221,6 +221,7 @@ extension MacOSPlatform {
 
   public func managedWindowID(
     at location: CGPoint,
+    rawWindowID: WindowID? = nil,
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
     let snapshot = pointerHitTestSnapshot()
@@ -236,6 +237,16 @@ extension MacOSPlatform {
     )
       .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
       .union(borderManager.transparentSurfaceWindowIDs)
+    if !screenCaptureAccessAvailable,
+      let rawWindowID,
+      let rawRecord = snapshot.records.first(where: {
+        WindowID(rawValue: UInt64($0.id)) == rawWindowID
+      }),
+      !lastSnapshotWindowIDs.contains(rawWindowID),
+      !nonblockingWindowIDs.contains(rawRecord.id)
+    {
+      return nil
+    }
     let hit = managedPointerHitTest(
       at: location,
       records: snapshot.records,

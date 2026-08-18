@@ -54,6 +54,7 @@ extension Daemon {
       rawWindowID: invocation.windowID,
       hitTestedWindowID: platform.managedWindowID(
         at: invocation.location,
+        rawWindowID: invocation.windowID,
         retaining: lastPointerWindowID
       )
     )
