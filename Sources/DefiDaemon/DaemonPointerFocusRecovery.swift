@@ -274,11 +274,6 @@ extension Daemon {
         platform.pendingFrameWindowIDs.compactMap {
           state.monitorID(containing: $0)
         }
-      ),
-      deferredSlowMonitorIDs: Set(
-        deferredSlowWindowIDs.compactMap {
-          state.monitorID(containing: $0)
-        }
       )
     )
   }

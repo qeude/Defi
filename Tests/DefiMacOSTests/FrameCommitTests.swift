@@ -15,6 +15,156 @@ final class FrameCommitTests: XCTestCase {
     observedAt: nil
   )
 
+  func testReverseRetargetUsesLastCompletedPositionDuringObservationLag() {
+    let staleObserved = Rect(x: 900, y: 40, width: 800, height: 700)
+    let completed = CGPoint(x: 100, y: 40)
+
+    XCTAssertEqual(
+      frameApplicationReference(
+        pendingCorrection: nil,
+        settlingReference: staleObserved,
+        completedPosition: completed,
+        previousTarget: Rect(x: 100, y: 40, width: 800, height: 700),
+        nativeReference: nil
+      ),
+      Rect(x: 100, y: 40, width: 800, height: 700)
+    )
+  }
+
+  func testFrameApplicationReferenceDoesNotReadNativeFrameWhenCached() {
+    var nativeFrameWasRead = false
+
+    _ = frameApplicationReference(
+      pendingCorrection: Rect(x: 100, y: 40, width: 800, height: 700),
+      settlingReference: nil,
+      completedPosition: nil,
+      previousTarget: nil,
+      nativeReference: {
+        nativeFrameWasRead = true
+        return Rect(x: 900, y: 40, width: 800, height: 700)
+      }()
+    )
+
+    XCTAssertFalse(nativeFrameWasRead)
+  }
+
+  func testDeferredFrameCorrectionSurvivesSnapshotRebuild() {
+    let windowID = WindowID(rawValue: 42)
+    let deferred = Rect(x: 900, y: 40, width: 800, height: 700)
+    let fresh = Rect(x: 100, y: 40, width: 800, height: 700)
+
+    XCTAssertEqual(
+      frameCorrectionsPreservingDebt(
+        existing: [windowID: deferred],
+        observed: [:],
+        debtWindowIDs: [windowID]
+      )[windowID],
+      deferred
+    )
+    XCTAssertEqual(
+      frameCorrectionsPreservingDebt(
+        existing: [windowID: deferred],
+        observed: [windowID: fresh],
+        debtWindowIDs: [windowID]
+      )[windowID],
+      fresh
+    )
+  }
+
+  func testLatencySensitiveSpeculativeWritesAreDeferredOnlyForVisiblePositions() {
+    XCTAssertTrue(
+      shouldDeferLatencySensitiveSpeculativeWrite(
+        source: "command-animation",
+        isParked: false,
+        positionChanged: true,
+        latencySensitive: true
+      )
+    )
+    XCTAssertFalse(
+      shouldDeferLatencySensitiveSpeculativeWrite(
+        source: "desktop-sync",
+        isParked: false,
+        positionChanged: true,
+        latencySensitive: true
+      )
+    )
+    XCTAssertFalse(
+      shouldDeferLatencySensitiveSpeculativeWrite(
+        source: "command-animation",
+        isParked: true,
+        positionChanged: true,
+        latencySensitive: true
+      )
+    )
+  }
+
+  func testDisplayLinkActivationRejectsOlderGenerationAndStaleRequest() {
+    XCTAssertTrue(
+      displayLinkActivationIsCurrent(
+        generation: 4,
+        latestGeneration: 4,
+        requestID: 8,
+        latestRequestID: 8
+      )
+    )
+    XCTAssertFalse(
+      displayLinkActivationIsCurrent(
+        generation: 3,
+        latestGeneration: 4,
+        requestID: 7,
+        latestRequestID: 8
+      )
+    )
+    XCTAssertFalse(
+      displayLinkActivationIsCurrent(
+        generation: 4,
+        latestGeneration: 4,
+        requestID: 7,
+        latestRequestID: 8
+      )
+    )
+  }
+
+  func testDeferredParkingKeepsCoordinatorBusyUntilInvalidated() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.deferredParkingWriteGenerations[WindowID(rawValue: 42)] = 3
+
+    XCTAssertTrue(coordinator.isBusy)
+    XCTAssertTrue(coordinator.hasPendingDeferredParkingWrites)
+    XCTAssertTrue(coordinator.isBusy(for: WindowID(rawValue: 42)))
+    XCTAssertFalse(coordinator.isBusy(for: WindowID(rawValue: 43)))
+
+    coordinator.invalidate(reason: "mouse-gesture")
+
+    XCTAssertFalse(coordinator.isBusy)
+    XCTAssertFalse(coordinator.hasPendingDeferredParkingWrites)
+  }
+
+  func testStaticSettlementSamplesCanExitTheSlowLane() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.predictedProcessLatencyMS[42] = 12
+    coordinator.latencySensitiveProcessIDs.insert(42)
+
+    coordinator.recordProcessLatencySamples([42: 0])
+
+    XCTAssertFalse(coordinator.latencySensitiveProcessIDs.contains(42))
+  }
+
+  func testStaleBatchDoesNotRecordLatencySample() {
+    let accumulator = FrameResultAccumulator()
+    accumulator.add(
+      applied: 0,
+      stale: 1,
+      slowProcesses: [],
+      processID: 42,
+      processLatencyMS: 0.1,
+      attempted: false,
+      completedAt: 1
+    )
+
+    XCTAssertTrue(accumulator.result.processLatencySamplesMS.isEmpty)
+  }
+
   func testCursorWarpRequiresSuccessfulTargetFrameWrite() {
     let target = WindowID(rawValue: 2)
     let sibling = WindowID(rawValue: 3)
@@ -214,6 +364,8 @@ final class FrameCommitTests: XCTestCase {
       animatedWindowIDs: [],
       animationDuration: 0,
       refreshRateHz: 60,
+      displayID: nil,
+      initialProgressVelocity: 0,
       stagesVisibleBeforeParking: false
     ) { result in
       XCTAssertFalse(result.completedLatest)

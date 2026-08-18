@@ -13,7 +13,8 @@ extension AXFrameCoordinator {
     progress: Double,
     skippedProcesses: Set<pid_t>,
     intermediate: Bool = false,
-    stagingReentry: Bool = false
+    stagingReentry: Bool = false,
+    recordFinalSuccess: Bool = true
   ) -> (
     applied: Int,
     stale: Int,
@@ -67,7 +68,8 @@ extension AXFrameCoordinator {
             frame: frame,
             progress: progress,
             intermediate: intermediate,
-            stagingReentry: stagingReentry
+            stagingReentry: stagingReentry,
+            recordFinalSuccess: recordFinalSuccess
           )
           let processLatencyMS =
             (ProcessInfo.processInfo.systemUptime - batchStartedAt) * 1_000
@@ -77,6 +79,7 @@ extension AXFrameCoordinator {
             slowProcesses: result.slowProcesses,
             processID: batch.processID,
             processLatencyMS: processLatencyMS,
+            attempted: result.attempted,
             completedAt: ProcessInfo.processInfo.systemUptime
           )
           group.leave()
@@ -85,7 +88,7 @@ extension AXFrameCoordinator {
       group.wait()
     }
     let result = accumulator.result
-    if frame.animationDuration > 0 {
+    if !result.processLatencySamplesMS.isEmpty {
       recordProcessLatencySamples(result.processLatencySamplesMS)
     }
     return (
@@ -190,16 +193,24 @@ extension AXFrameCoordinator {
     frame: QueuedPositionFrame,
     progress: Double,
     intermediate: Bool,
-    stagingReentry: Bool
-  ) -> (applied: Int, stale: Int, slowProcesses: Set<pid_t>) {
+    stagingReentry: Bool,
+    recordFinalSuccess: Bool
+  ) -> (
+    applied: Int,
+    stale: Int,
+    slowProcesses: Set<pid_t>,
+    attempted: Bool
+  ) {
     var applied = 0
     var stale = 0
     var slowProcesses = Set<pid_t>()
+    var attempted = false
     for (index, item) in batch.writes.enumerated() {
       guard isCurrent(generation: frame.generation) else {
         stale += batch.writes.count - index
         break
       }
+      attempted = true
       let interpolated = interpolatedFrame(
         from: Rect(
           x: item.value.fromPoint.x,
@@ -314,7 +325,7 @@ extension AXFrameCoordinator {
         lock.unlock()
         continue
       }
-      if !intermediate, progress >= 1, appliedWrite {
+      if recordFinalSuccess, !intermediate, progress >= 1, appliedWrite {
         lock.lock()
         successfulFinalWritesByGeneration[frame.generation, default: []]
           .insert(item.key)
@@ -344,6 +355,9 @@ extension AXFrameCoordinator {
           expectedPoint: item.value.point
         )
       }
+      if !intermediate, progress >= 1, appliedWrite {
+        frame.cursorWarpAfterWindowCommit?(item.key, frame.generation)
+      }
       if intermediate && (!appliedWrite || writeElapsedMS > 12) {
         slowProcesses.insert(item.value.processID)
       }
@@ -355,7 +369,7 @@ extension AXFrameCoordinator {
         lock.unlock()
       }
     }
-    return (applied, stale, slowProcesses)
+    return (applied, stale, slowProcesses, attempted)
   }
 
   func recordCompletedSize(

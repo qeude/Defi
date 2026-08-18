@@ -53,6 +53,18 @@ struct WindowBorderStacking: Equatable, Sendable {
   }
 }
 
+func windowBorderStackingIsReadyForReveal(
+  _ stacking: WindowBorderStacking,
+  selectedWindowID: WindowID?,
+  activeWindowID: WindowID?,
+  nativeFocusedWindowID: WindowID?
+) -> Bool {
+  guard let selectedWindowID else { return false }
+  return selectedWindowID == activeWindowID
+    && selectedWindowID == nativeFocusedWindowID
+    && stacking.targetWindowID == selectedWindowID
+}
+
 private let minimumBorderOccludingWindowArea = 2_048.0
 
 func windowBorderStacking(

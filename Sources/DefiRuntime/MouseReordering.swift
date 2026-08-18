@@ -442,18 +442,23 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
 public func desktopSynchronizationIsReady(
   scrollAnimationActive: Bool,
   animatedWritesPending: Bool,
-  slowLanePending: Bool,
   mouseGestureSyncPending: Bool,
   needsDesktopSync: Bool,
-  periodicSyncDue: Bool
+  periodicSyncDue: Bool,
+  commandQuietPeriodElapsed: Bool,
+  nativeFocusSyncPending: Bool = false,
+  frameDebtPending: Bool = false
 ) -> Bool {
-  guard !scrollAnimationActive,
-    !slowLanePending || mouseGestureSyncPending,
+  guard !scrollAnimationActive || nativeFocusSyncPending,
+    commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending
+      || frameDebtPending,
     needsDesktopSync || periodicSyncDue
   else {
     return false
   }
-  return !animatedWritesPending || (mouseGestureSyncPending && needsDesktopSync)
+  return !animatedWritesPending
+    || nativeFocusSyncPending
+    || (mouseGestureSyncPending && needsDesktopSync)
 }
 
 private func activeColumnIndex(

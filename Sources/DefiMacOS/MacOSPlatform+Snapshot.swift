@@ -119,10 +119,19 @@ extension MacOSPlatform {
     var cachedCGWindows: [CGWindowRecord]?
     func publicCGWindows() -> [CGWindowRecord]? {
       if hasCopiedCGWindows { return cachedCGWindows }
-      let copyStartedAt = ProcessInfo.processInfo.systemUptime
-      let copied = copyCGWindowsIfAvailable()
-      let copyDurationMS =
-        (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
+      let copied: [CGWindowRecord]?
+      let copyDurationMS: Double
+      if preparedCGWindowInventoryAvailable {
+        copied = preparedCGWindowInventory
+        copyDurationMS = preparedCGWindowInventoryDurationMS
+      } else {
+        let copyStartedAt = ProcessInfo.processInfo.systemUptime
+        copied = copyCGWindowsIfAvailable()
+        copyDurationMS =
+          (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
+      }
+      preparedCGWindowInventory = nil
+      preparedCGWindowInventoryAvailable = false
       snapshotCGWindowCopyCount += 1
       lastSnapshotCGWindowCopyDurationMS = copyDurationMS
       maximumSnapshotCGWindowCopyDurationMS = max(
@@ -144,6 +153,28 @@ extension MacOSPlatform {
     ) {
       _ = publicCGWindows()
     }
+    let preparedAXIsCurrent = preparedAXWindowAttributesAvailable
+      && preparedAXWindowAttributesGeneration.map {
+        preparedAXWindowAttributesAreCurrent(
+          capturedGeneration: $0,
+          currentGeneration: windowSnapshotObservationGeneration,
+          capturedInputTimestamp: preparedAXWindowAttributesInputTimestamp ?? .nan,
+          currentInputTimestamp: userInputTracker.latestEventTimestamp,
+          capturedWindowIDs: preparedAXWindowAttributesWindowIDs,
+          currentWindowIDs: Set(elements.keys),
+          capturedProcessIDs: preparedAXWindowAttributesProcessIDs,
+          currentProcessIDs: Set(applications.keys)
+        )
+      } ?? false
+    let preparedWindowAttributes = preparedAXIsCurrent
+      ? preparedAXWindowAttributes
+      : [:]
+    let preparedApplicationWindows = preparedAXIsCurrent
+      ? preparedAXApplicationWindows
+      : [:]
+    preparedAXWindowAttributes.removeAll(keepingCapacity: true)
+    preparedAXApplicationWindows.removeAll(keepingCapacity: true)
+    preparedAXWindowAttributesAvailable = false
     let previousElements = elements
     let discovery = discoverSnapshotWindows(
       monitors: monitors,
@@ -153,8 +184,12 @@ extension MacOSPlatform {
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
+      preparedWindowAttributes: preparedWindowAttributes,
+      preparedApplicationWindows: preparedApplicationWindows,
       publicCGWindows: publicCGWindows
     )
+    preparedCGWindowInventory = nil
+    preparedCGWindowInventoryAvailable = false
     explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
     let nextElements = discovery.nextElements
     let nextProcessIDs = discovery.nextProcessIDs
@@ -299,6 +334,10 @@ extension MacOSPlatform {
     )
     let mouseResizeGestureObserved = mouseResizeGesturePending
     let mouseFocusReleaseObserved = mouseFocusReleasePending
+    let nativeFocusObservedAfterMouseRelease =
+      mouseFocusReleasePending
+      && nativeFocusEventGeneration
+        > (mouseFocusReleaseEventGeneration ?? nativeFocusEventGeneration)
     let userInput = userInputTracker.snapshot
     let mouseGestureWindowID = mouseResizeGestureObserved
       ? mouseGestureRefreshProcessID(
@@ -406,8 +445,13 @@ extension MacOSPlatform {
     frameEventPending = !observedFrameEventWindowIDs.isEmpty
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
-    pendingFrameCorrections = Dictionary(
-      uniqueKeysWithValues: targetMismatches.map { ($0.windowID, $0.actual) }
+    mouseFocusReleaseEventGeneration = nil
+    pendingFrameCorrections = frameCorrectionsPreservingDebt(
+      existing: pendingFrameCorrections,
+      observed: Dictionary(
+        uniqueKeysWithValues: targetMismatches.map { ($0.windowID, $0.actual) }
+      ),
+      debtWindowIDs: pendingFrameDebtWindowIDs
     )
     let maximumSettledLatencyMS = settledCommitLatenciesMS.max() ?? 0
     frameCoordinator.recordCommitObservation(
@@ -422,6 +466,7 @@ extension MacOSPlatform {
     }
     let focusedWindowID = focusedWindowID(in: windows)
     lastNativeFocusedWindowID = focusedWindowID
+    verifiedNativeFocusedWindowID = focusedWindowID
     if let focusedWindowID,
       let processID = nextProcessIDs[focusedWindowID]
     {
@@ -526,6 +571,8 @@ extension MacOSPlatform {
       leftMouseButtonDown: leftMouseButtonDown,
       mouseResizeGestureObserved: mouseResizeGestureObserved,
       mouseFocusReleaseObserved: mouseFocusReleaseObserved,
+      nativeFocusObservedAfterMouseRelease:
+        nativeFocusObservedAfterMouseRelease,
       mouseFocusIntentWindowID: mouseFocusIntentWindowID,
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,

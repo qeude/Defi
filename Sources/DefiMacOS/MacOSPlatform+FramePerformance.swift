@@ -49,6 +49,10 @@ public var hiddenWindowCount: Int {
     frameCoordinator.slowProcessIDs.count
   }
 
+  public var hasPendingFrameDebt: Bool {
+    !pendingFrameDebtWindowIDs.isEmpty
+  }
+
   public var successfulPositionWriteCount: Int {
     positionWriteCount + frameCoordinator.writeCount
   }
@@ -254,6 +258,10 @@ public var hiddenWindowCount: Int {
     frameCoordinator.isAnimating
   }
 
+  public var hasPendingDeferredParkingWrites: Bool {
+    frameCoordinator.hasPendingDeferredParkingWrites
+  }
+
   public var hasPendingFrameWrites: Bool {
     frameCoordinator.isBusy
   }
@@ -283,5 +291,9 @@ public var hiddenWindowCount: Int {
 
   public var hasPendingFocusWrite: Bool {
     focusWriter.isBusy
+  }
+
+  public var hasPendingNativeFocusEvent: Bool {
+    nativeFocusEventPending
   }
 }

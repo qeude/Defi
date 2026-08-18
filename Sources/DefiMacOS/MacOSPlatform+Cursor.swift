@@ -65,6 +65,14 @@ func resolvedCursorWarpFrame(
   return targetFrame ?? observedFrame ?? snapshotFrame
 }
 
+func resolvedPointerHitTestFrame(
+  observedFrame: Rect?,
+  snapshotFrame: Rect?,
+  targetFrame: Rect?
+) -> Rect? {
+  observedFrame ?? snapshotFrame ?? targetFrame
+}
+
 enum ManagedPointerHit: Equatable {
   case managed(WindowID)
   case blocked
@@ -100,14 +108,18 @@ func managedPointerHitTest(
   at location: CGPoint,
   records: [CGWindowRecord],
   managedWindowIDs: Set<WindowID>,
-  nonblockingWindowIDs: Set<CGWindowID> = []
+  nonblockingWindowIDs: Set<CGWindowID> = [],
+  frameProvider: (CGWindowRecord) -> Rect? = { $0.frame }
 ) -> ManagedPointerHit {
-  for record in records
-  where location.x >= record.frame.x
-    && location.x <= record.frame.x + record.frame.width
-    && location.y >= record.frame.y
-    && location.y <= record.frame.y + record.frame.height
-  {
+  for record in records {
+    guard let frame = frameProvider(record),
+      location.x >= frame.x,
+      location.x <= frame.x + frame.width,
+      location.y >= frame.y,
+      location.y <= frame.y + frame.height
+    else {
+      continue
+    }
     let windowID = WindowID(rawValue: UInt64(record.id))
     if managedWindowIDs.contains(windowID) {
       return .managed(windowID)
@@ -209,9 +221,15 @@ extension MacOSPlatform {
 
   public func managedWindowID(
     at location: CGPoint,
+    rawWindowID: WindowID? = nil,
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
     let snapshot = pointerHitTestSnapshot()
+    if !screenCaptureAccessAvailable,
+      let ownedWindowID = borderManager.ownedSurfaceWindowID
+    {
+      borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
+    }
     let nonblockingWindowIDs = transparentDockOverlayWindowIDs(
       records: snapshot.records,
       dockProcessIDs: snapshot.dockProcessIDs,
@@ -219,11 +237,34 @@ extension MacOSPlatform {
     )
       .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
       .union(borderManager.transparentSurfaceWindowIDs)
+    if !screenCaptureAccessAvailable,
+      let rawWindowID,
+      let rawRecord = snapshot.records.first(where: {
+        WindowID(rawValue: UInt64($0.id)) == rawWindowID
+      }),
+      !lastSnapshotWindowIDs.contains(rawWindowID),
+      !nonblockingWindowIDs.contains(rawRecord.id)
+    {
+      return nil
+    }
     let hit = managedPointerHitTest(
       at: location,
       records: snapshot.records,
       managedWindowIDs: lastSnapshotWindowIDs,
-      nonblockingWindowIDs: nonblockingWindowIDs
+      nonblockingWindowIDs: nonblockingWindowIDs,
+      frameProvider: { record in
+        guard !screenCaptureAccessAvailable else { return record.frame }
+        let windowID = WindowID(rawValue: UInt64(record.id))
+        guard lastSnapshotWindowIDs.contains(windowID) else {
+          return record.frame
+        }
+        return borderBoundsProvider.frame(for: windowID)
+          ?? resolvedPointerHitTestFrame(
+            observedFrame: latestObservedFrames[windowID],
+            snapshotFrame: lastSnapshotWindows.first { $0.id == windowID }?.frame,
+            targetFrame: targetFrames[windowID]
+          )
+      }
     )
     switch hit {
     case .managed(let windowID):

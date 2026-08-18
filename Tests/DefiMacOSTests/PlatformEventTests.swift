@@ -16,6 +16,19 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
+  func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
+    #expect(
+      applicationLifecycleRefreshDelays(for: .application)
+        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
+    )
+    #expect(
+      applicationLifecycleRefreshDelays(for: .applicationTerminated)
+        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
+    )
+    #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
+  }
+
+  @Test
   func contendedAXTimeoutAccessDoesNotWaitForTheOwner() throws {
     let element = TestAXElement(AXUIElementCreateSystemWide())
     let secondary = TestAXElement(
@@ -877,6 +890,17 @@ struct PlatformEventTests {
   }
 
   @Test
+  func acceptedKeyboardFocusConsumesItsIntent() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 21, focusIntent: .keyboard)
+
+    tracker.consumeFocusIntent(at: 21)
+
+    #expect(tracker.snapshot.latestFocusIntent == nil)
+    #expect(tracker.latestEventTimestamp == 21)
+  }
+
+  @Test
   func mouseFocusRecoveryUsesObservedTargetWithoutEventWindowID() throws {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 11, focusIntent: .mouse(windowID: nil))
@@ -1168,12 +1192,43 @@ struct PlatformEventTests {
     #expect(
       applicationInventoryRefreshInterval(
         reliableLifecycleObservation: true
-      ) == 5
+      ) == 30
     )
     #expect(
       applicationInventoryRefreshInterval(
         reliableLifecycleObservation: false
       ) == 0.3
+    )
+  }
+
+  @Test
+  func reliableObservationWatchdogsWaitForIdleButFallbacksStayImmediate() {
+    #expect(
+      desktopSnapshotRefreshInterval(reliableDesktopObservation: true) == 30
+    )
+    #expect(
+      desktopSnapshotRefreshInterval(reliableDesktopObservation: false) == 0.3
+    )
+    #expect(
+      observationWatchdogRefreshIsReady(
+        due: true,
+        interval: 30,
+        userInputIdleDuration: 0.5
+      ) == false
+    )
+    #expect(
+      observationWatchdogRefreshIsReady(
+        due: true,
+        interval: 30,
+        userInputIdleDuration: 1
+      )
+    )
+    #expect(
+      observationWatchdogRefreshIsReady(
+        due: true,
+        interval: 0.3,
+        userInputIdleDuration: 0
+      )
     )
   }
 
@@ -1228,7 +1283,7 @@ struct PlatformEventTests {
       windowListRefreshInterval(
         hasPendingShortRetry: false,
         reliableTopologyObservation: true
-      ) == 5
+      ) == 30
     )
     #expect(
       windowListRefreshInterval(
@@ -1669,6 +1724,42 @@ struct PlatformEventTests {
     #expect(state.shouldApply(first, activeWindowID: firstWindow) == false)
     #expect(state.shouldApply(second, activeWindowID: firstWindow) == false)
     #expect(state.shouldApply(second, activeWindowID: secondWindow))
+  }
+
+  @Test
+  func borderRevealRequiresCurrentFocusAndExactStacking() {
+    let windowID = WindowID(rawValue: 1)
+    let stacking = WindowBorderStacking(
+      targetWindowID: windowID,
+      activeWindowIsFrontmost: true,
+      upperBoundWindowID: nil,
+      upperBoundLevel: nil
+    )
+
+    #expect(
+      windowBorderStackingIsReadyForReveal(
+        stacking,
+        selectedWindowID: windowID,
+        activeWindowID: windowID,
+        nativeFocusedWindowID: windowID
+      )
+    )
+    #expect(
+      windowBorderStackingIsReadyForReveal(
+        .inactive(for: windowID),
+        selectedWindowID: windowID,
+        activeWindowID: windowID,
+        nativeFocusedWindowID: windowID
+      )
+    )
+    #expect(
+      windowBorderStackingIsReadyForReveal(
+        stacking,
+        selectedWindowID: windowID,
+        activeWindowID: WindowID(rawValue: 2),
+        nativeFocusedWindowID: windowID
+      ) == false
+    )
   }
 
   @Test
