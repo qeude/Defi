@@ -16,6 +16,7 @@ struct DefiCLI {
       }
       let response = try sendCommand(
         options.command.joined(separator: " "),
+        monitorIndex: options.monitorIndex,
         to: options.socketURL
       )
       let stream = response.ok ? FileHandle.standardOutput : FileHandle.standardError
@@ -28,25 +29,30 @@ struct DefiCLI {
   }
 }
 
-private struct Options {
+struct Options {
   static let usage = """
     usage:
-      defi [--socket <path>] <command> [arguments]
+      defi [--socket <path>] [--monitor <index>] <command> [arguments]
       defi service install|start|stop|restart|status|uninstall
 
     examples:
       defi focus-column left
       defi workspace 2
+      defi --monitor 2 workspace web
+      defi list-workspaces --json
+      defi --monitor 1 set-reserved-area top 36
       defi status
       defi trace
     """
 
   let socketURL: URL
+  let monitorIndex: Int?
   let command: [String]
   let service: String?
 
   init(arguments: [String]) throws {
     var socketURL = SocketPath.defaultURL
+    var monitorIndex: Int?
     var remaining: [String] = []
     var index = 0
     while index < arguments.count {
@@ -54,6 +60,14 @@ private struct Options {
         index += 1
         guard arguments.indices.contains(index) else { throw CLIError.usage }
         socketURL = URL(filePath: arguments[index])
+      } else if arguments[index] == "--monitor" {
+        index += 1
+        guard arguments.indices.contains(index),
+          let parsed = Int(arguments[index]), parsed > 0
+        else {
+          throw CLIError.usage
+        }
+        monitorIndex = parsed
       } else {
         remaining.append(arguments[index])
       }
@@ -68,10 +82,11 @@ private struct Options {
       command = remaining
     }
     self.socketURL = socketURL
+    self.monitorIndex = monitorIndex
   }
 }
 
-private enum CLIError: Error, CustomStringConvertible {
+enum CLIError: Error, Equatable, CustomStringConvertible {
   case usage
 
   var description: String { Options.usage }

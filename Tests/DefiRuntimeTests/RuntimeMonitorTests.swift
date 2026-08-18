@@ -1,4 +1,5 @@
 import DefiConfig
+import DefiCore
 import DefiModel
 import XCTest
 
@@ -6,6 +7,30 @@ import XCTest
 
 final class RuntimeMonitorTests: XCTestCase {
   private let monitorID = MonitorID(rawValue: 1)
+
+  func testReservedEdgesAreReducedPerMonitor() throws {
+    let externalID = MonitorID(rawValue: 2)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalID)
+
+    try reduce(
+      .setReservedEdges([
+        monitorID: ReservedEdges(top: 36, bottom: 12)
+      ]),
+      state: &state
+    )
+
+    XCTAssertEqual(
+      state.reservedEdgesByMonitor[monitorID],
+      ReservedEdges(top: 36, bottom: 12)
+    )
+    XCTAssertNil(state.reservedEdgesByMonitor[externalID])
+
+    try reduce(.clearReservedEdges([monitorID]), state: &state)
+
+    XCTAssertNil(state.reservedEdgesByMonitor[monitorID])
+  }
 
   func testDisplayResizeScalesPixelAndPreMaximizedWidths() {
     let config = Config()

@@ -7,6 +7,7 @@ public struct Config: Equatable, Sendable {
   public var layout: LayoutConfig
   public var animation: AnimationConfig
   public var decorations: DecorationsConfig
+  public var menuBar: MenuBarConfig
   public var workspaces: WorkspacesConfig
   public var modifierCombinations: [String: String]
   public var defaultKeyModifier: String
@@ -18,6 +19,7 @@ public struct Config: Equatable, Sendable {
     layout: LayoutConfig = LayoutConfig(),
     animation: AnimationConfig = AnimationConfig(),
     decorations: DecorationsConfig = DecorationsConfig(),
+    menuBar: MenuBarConfig = MenuBarConfig(),
     workspaces: WorkspacesConfig = WorkspacesConfig(),
     modifierCombinations: [String: String] = [:],
     defaultKeyModifier: String = "alt",
@@ -28,6 +30,7 @@ public struct Config: Equatable, Sendable {
     self.layout = layout
     self.animation = animation
     self.decorations = decorations
+    self.menuBar = menuBar
     self.workspaces = workspaces
     self.modifierCombinations = modifierCombinations
     self.defaultKeyModifier = defaultKeyModifier
@@ -47,6 +50,7 @@ public struct Config: Equatable, Sendable {
       layout: raw.layout ?? LayoutConfig(),
       animation: raw.animation ?? AnimationConfig(),
       decorations: raw.decorations ?? DecorationsConfig(),
+      menuBar: raw.menuBar ?? MenuBarConfig(),
       workspaces: workspaces,
       modifierCombinations: raw.modifierCombinations ?? [:],
       defaultKeyModifier: modifier,
@@ -90,6 +94,22 @@ public struct Config: Equatable, Sendable {
     }
     guard (0...256).contains(layout.gaps) else {
       throw ConfigError.invalidValue("layout.gaps")
+    }
+    for (key, value) in [
+      ("outer_top_gap", layout.outerTopGap),
+      ("outer_right_gap", layout.outerRightGap),
+      ("outer_bottom_gap", layout.outerBottomGap),
+      ("outer_left_gap", layout.outerLeftGap),
+    ] {
+      if let value, value.isFinite == false || (0...256).contains(value) == false {
+        throw ConfigError.invalidValue("layout.\(key)")
+      }
+    }
+    guard layout.reservedTop.isFinite, (0...512).contains(layout.reservedTop) else {
+      throw ConfigError.invalidValue("layout.reserved_top")
+    }
+    guard layout.reservedBottom.isFinite, (0...512).contains(layout.reservedBottom) else {
+      throw ConfigError.invalidValue("layout.reserved_bottom")
     }
     guard (0...2_000).contains(animation.durationMS) else {
       throw ConfigError.invalidValue("animation.duration_ms")
@@ -223,6 +243,7 @@ private struct RawConfig: Decodable {
   var layout: LayoutConfig?
   var animation: AnimationConfig?
   var decorations: DecorationsConfig?
+  var menuBar: MenuBarConfig?
   var workspaces: WorkspacesConfig?
   var modifierCombinations: [String: String]?
   var defaultKeyModifier: String?
@@ -234,6 +255,7 @@ private struct RawConfig: Decodable {
     case layout
     case animation
     case decorations
+    case menuBar = "menu_bar"
     case workspaces
     case modifierCombinations = "modifier_combinations"
     case defaultKeyModifier = "default_key_modifier"

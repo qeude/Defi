@@ -1,12 +1,126 @@
 import Darwin
+import DefiModel
 import Foundation
 
 public struct CommandRequest: Codable, Equatable, Sendable {
   public let command: String
+  public let monitorIndex: Int?
 
-  public init(command: String) {
+  public init(command: String, monitorIndex: Int? = nil) {
     self.command = command
+    self.monitorIndex = monitorIndex
   }
+}
+
+public struct WorkspaceStateSnapshot: Codable, Equatable, Sendable {
+  public let version: Int
+  public let focusedMonitorID: UInt64?
+  public let monitors: [MonitorWorkspaceSnapshot]
+
+  public init(
+    version: Int = 1,
+    focusedMonitorID: UInt64?,
+    monitors: [MonitorWorkspaceSnapshot]
+  ) {
+    self.version = version
+    self.focusedMonitorID = focusedMonitorID
+    self.monitors = monitors
+  }
+}
+
+public struct MonitorWorkspaceSnapshot: Codable, Equatable, Sendable {
+  public let id: UInt64
+  public let display: Int
+  public let focused: Bool
+  public let activeWorkspace: String
+  public let workspaces: [WorkspaceSnapshot]
+
+  public init(
+    id: UInt64,
+    display: Int,
+    focused: Bool,
+    activeWorkspace: String,
+    workspaces: [WorkspaceSnapshot]
+  ) {
+    self.id = id
+    self.display = display
+    self.focused = focused
+    self.activeWorkspace = activeWorkspace
+    self.workspaces = workspaces
+  }
+}
+
+public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
+  public let name: String
+  public let active: Bool
+  public let windowCount: Int
+  public let occupied: Bool
+  public let applications: [String]
+  public let focusedApplication: String?
+
+  public init(
+    name: String,
+    active: Bool,
+    windowCount: Int,
+    applications: [String],
+    focusedApplication: String?
+  ) {
+    self.name = name
+    self.active = active
+    self.windowCount = windowCount
+    self.occupied = windowCount > 0
+    self.applications = applications
+    self.focusedApplication = focusedApplication
+  }
+}
+
+public func makeWorkspaceStateSnapshot(
+  monitors: [Monitor],
+  windows: [WindowID: Window],
+  displayOrder: [MonitorID],
+  focusedMonitorID: MonitorID?
+) -> WorkspaceStateSnapshot {
+  let monitorByID = Dictionary(uniqueKeysWithValues: monitors.map { ($0.id, $0) })
+  let orderedIDs =
+    displayOrder.filter { monitorByID[$0] != nil }
+    + monitors.map(\.id).filter { displayOrder.contains($0) == false }
+  return WorkspaceStateSnapshot(
+    focusedMonitorID: focusedMonitorID?.rawValue,
+    monitors: orderedIDs.enumerated().compactMap { offset, monitorID in
+      guard let monitor = monitorByID[monitorID] else { return nil }
+      return MonitorWorkspaceSnapshot(
+        id: monitor.id.rawValue,
+        display: offset + 1,
+        focused: monitor.id == focusedMonitorID,
+        activeWorkspace: monitor.activeWorkspace.rawValue,
+        workspaces: monitor.workspaces.map { workspace in
+          let windowIDs = workspace.columns.flatMap(\.windows) + workspace.floatingWindows
+          let workspaceWindows = windowIDs.compactMap { windows[$0] }
+          let focusedWindowID: WindowID? = {
+            guard workspace.id == monitor.activeWorkspace else { return nil }
+            if workspace.focusedLayer == .floating,
+              workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
+            {
+              return workspace.floatingWindows[workspace.focusedFloatingWindow]
+            }
+            guard workspace.columns.indices.contains(workspace.focusedColumn) else {
+              return nil
+            }
+            let column = workspace.columns[workspace.focusedColumn]
+            guard column.windows.indices.contains(column.focusedWindow) else { return nil }
+            return column.windows[column.focusedWindow]
+          }()
+          return WorkspaceSnapshot(
+            name: workspace.id.rawValue,
+            active: workspace.id == monitor.activeWorkspace,
+            windowCount: workspaceWindows.count,
+            applications: Array(Set(workspaceWindows.map(\.appID))).sorted(),
+            focusedApplication: focusedWindowID.flatMap { windows[$0]?.appID }
+          )
+        }
+      )
+    }
+  )
 }
 
 public struct CommandResponse: Codable, Equatable, Sendable {
@@ -100,7 +214,7 @@ public final class UnixSocketServer {
 
   @discardableResult
   public func poll(
-    handler: (String) -> CommandResponse
+    handler: (CommandRequest) -> CommandResponse
   ) throws -> Bool {
     let client = accept(descriptor, nil, nil)
     if client < 0 {
@@ -117,7 +231,7 @@ public final class UnixSocketServer {
       try configureReadTimeout(client)
       let requestData = try readLine(from: client)
       let request = try JSONDecoder().decode(CommandRequest.self, from: requestData)
-      let response = handler(request.command)
+      let response = handler(request)
       var data = try JSONEncoder().encode(response)
       data.append(0x0A)
       try writeAll(data, to: client)
@@ -132,6 +246,7 @@ public final class UnixSocketServer {
 
 public func sendCommand(
   _ command: String,
+  monitorIndex: Int? = nil,
   to url: URL = SocketPath.defaultURL
 ) throws -> CommandResponse {
   let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -144,10 +259,12 @@ public func sendCommand(
   try withSocketAddress(path: url.path) { address, length in
     guard connect(descriptor, address, length) == 0 else {
       throw IPCError.systemCall("connect", errno)
-      }
+    }
   }
   try configureReadTimeout(descriptor)
-  var request = try JSONEncoder().encode(CommandRequest(command: command))
+  var request = try JSONEncoder().encode(
+    CommandRequest(command: command, monitorIndex: monitorIndex)
+  )
   request.append(0x0A)
   try writeAll(request, to: descriptor)
   let responseData = try readLine(from: descriptor)
