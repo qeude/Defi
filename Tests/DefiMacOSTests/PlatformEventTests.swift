@@ -19,11 +19,11 @@ struct PlatformEventTests {
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
     #expect(
       applicationLifecycleRefreshDelays(for: .application)
-        == [50, 150, 350]
+        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
     )
     #expect(
       applicationLifecycleRefreshDelays(for: .applicationTerminated)
-        == [50, 150, 350]
+        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
     )
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
   }
