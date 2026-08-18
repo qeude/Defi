@@ -111,6 +111,18 @@ public final class UserInputTracker: @unchecked Sendable {
     lock.unlock()
   }
 
+  public func consumeFocusIntent(at timestamp: TimeInterval) {
+    lock.lock()
+    guard latestFocusIntent?.timestamp == timestamp else {
+      lock.unlock()
+      return
+    }
+    latestFocusIntent = nil
+    observedFocusIntentTimestamp = 0
+    observedFocusTargets.removeAll(keepingCapacity: true)
+    lock.unlock()
+  }
+
   public func focusRecoveryTarget(
     after timestamp: TimeInterval,
     excludingWindowID: WindowID? = nil,

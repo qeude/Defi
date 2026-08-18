@@ -287,11 +287,32 @@ struct NativeFocusTests {
       mouseFocusIntentTimestamp: 12,
       focusedWindowID: targetWindowID,
       nativeFocusChanged: true,
-      mouseInteractionEnded: true
+      mouseInteractionEnded: true,
+      nativeFocusTargetIsNew: true
     )
 
     #expect(observed?.windowID == targetWindowID)
     #expect(observed?.focusObserved == true)
+  }
+
+  @Test
+  func staleNativeFocusPreservesExplicitMouseTargetAfterRelease() {
+    let clickedWindowID = WindowID(rawValue: 2)
+
+    let observed = updatedDeferredMouseFocusIntent(
+      current: DeferredMouseFocusIntent(
+        timestamp: 12,
+        windowID: clickedWindowID
+      ),
+      mouseFocusIntentWindowID: clickedWindowID,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: WindowID(rawValue: 1),
+      nativeFocusChanged: true,
+      mouseInteractionEnded: true
+    )
+
+    #expect(observed?.windowID == clickedWindowID)
+    #expect(observed?.focusObserved == false)
   }
 
   @Test

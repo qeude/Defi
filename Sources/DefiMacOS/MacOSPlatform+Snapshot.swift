@@ -441,8 +441,12 @@ extension MacOSPlatform {
     frameEventPending = !observedFrameEventWindowIDs.isEmpty
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
-    pendingFrameCorrections = Dictionary(
-      uniqueKeysWithValues: targetMismatches.map { ($0.windowID, $0.actual) }
+    pendingFrameCorrections = frameCorrectionsPreservingDebt(
+      existing: pendingFrameCorrections,
+      observed: Dictionary(
+        uniqueKeysWithValues: targetMismatches.map { ($0.windowID, $0.actual) }
+      ),
+      debtWindowIDs: pendingFrameDebtWindowIDs
     )
     let maximumSettledLatencyMS = settledCommitLatenciesMS.max() ?? 0
     frameCoordinator.recordCommitObservation(

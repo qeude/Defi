@@ -224,6 +224,18 @@ func frameApplicationReference(
   return settlingReference ?? previousTarget ?? nativeReference()
 }
 
+func frameCorrectionsPreservingDebt(
+  existing: [WindowID: Rect],
+  observed: [WindowID: Rect],
+  debtWindowIDs: Set<WindowID>
+) -> [WindowID: Rect] {
+  var corrections = observed
+  for windowID in debtWindowIDs where corrections[windowID] == nil {
+    corrections[windowID] = existing[windowID]
+  }
+  return corrections
+}
+
 func frameWritesPreservingSupersededAsyncSizes(
   active: [WindowID: AsyncPositionWrite],
   pending: [WindowID: AsyncPositionWrite],

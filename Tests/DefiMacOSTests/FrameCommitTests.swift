@@ -48,6 +48,29 @@ final class FrameCommitTests: XCTestCase {
     XCTAssertFalse(nativeFrameWasRead)
   }
 
+  func testDeferredFrameCorrectionSurvivesSnapshotRebuild() {
+    let windowID = WindowID(rawValue: 42)
+    let deferred = Rect(x: 900, y: 40, width: 800, height: 700)
+    let fresh = Rect(x: 100, y: 40, width: 800, height: 700)
+
+    XCTAssertEqual(
+      frameCorrectionsPreservingDebt(
+        existing: [windowID: deferred],
+        observed: [:],
+        debtWindowIDs: [windowID]
+      )[windowID],
+      deferred
+    )
+    XCTAssertEqual(
+      frameCorrectionsPreservingDebt(
+        existing: [windowID: deferred],
+        observed: [windowID: fresh],
+        debtWindowIDs: [windowID]
+      )[windowID],
+      fresh
+    )
+  }
+
   func testLatencySensitiveSpeculativeWritesAreDeferredOnlyForVisiblePositions() {
     XCTAssertTrue(
       shouldDeferLatencySensitiveSpeculativeWrite(

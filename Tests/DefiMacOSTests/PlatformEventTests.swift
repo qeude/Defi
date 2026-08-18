@@ -890,6 +890,17 @@ struct PlatformEventTests {
   }
 
   @Test
+  func acceptedKeyboardFocusConsumesItsIntent() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 21, focusIntent: .keyboard)
+
+    tracker.consumeFocusIntent(at: 21)
+
+    #expect(tracker.snapshot.latestFocusIntent == nil)
+    #expect(tracker.latestEventTimestamp == 21)
+  }
+
+  @Test
   func mouseFocusRecoveryUsesObservedTargetWithoutEventWindowID() throws {
     let tracker = UserInputTracker()
     tracker.record(timestamp: 11, focusIntent: .mouse(windowID: nil))

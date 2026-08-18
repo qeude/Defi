@@ -15,6 +15,7 @@ extension Daemon {
     forceApplicationInventoryRefresh: Bool = false,
     consumePeriodicWindowRefresh: Bool = false
   ) {
+    let nativeFocusWasPending = platform.hasPendingNativeFocusEvent
     let snapshot = platform.snapshot(
       config: config,
       forceFullWindowRefresh: forceFullWindowRefresh,
@@ -129,6 +130,8 @@ extension Daemon {
     var nativelyActivatedWorkspace = false
     var nativeCursorWarpWindowID: WindowID?
     var nativeCursorWarpInputTimestamp: TimeInterval?
+    var nativeFocusFrameMonitorID: MonitorID?
+    let previouslyManagedWindowIDs = Set(state.windows.keys)
     reconcileWindows(
       snapshot.windows,
       config: config,
@@ -152,7 +155,10 @@ extension Daemon {
       mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
       focusedWindowID: snapshot.focusedWindowID,
       nativeFocusChanged: snapshot.nativeFocusChanged,
-      mouseInteractionEnded: mouseInteractionEnded
+      mouseInteractionEnded: mouseInteractionEnded,
+      nativeFocusTargetIsNew: snapshot.focusedWindowID.map {
+        !previouslyManagedWindowIDs.contains($0)
+      } ?? false
     )
     if displayGeometryChanged {
       rebaseFloatingWindowFrames(
@@ -283,6 +289,12 @@ extension Daemon {
         nativeCursorWarpWindowID = focusedWindowID
       }
       if nativeFocusAccepted {
+        nativeFocusFrameMonitorID = state.monitorID(containing: focusedWindowID)
+        if let keyboardFocusIntentTimestamp = snapshot.keyboardFocusIntentTimestamp {
+          platform.userInputTracker.consumeFocusIntent(
+            at: keyboardFocusIntentTimestamp
+          )
+        }
         platform.invalidateFocusRecovery(recoveringTo: focusedWindowID)
         invalidateSubmittedCommandFocus(recoveringTo: focusedWindowID)
         invalidateSubmittedWorkspaceFocus(recoveringTo: focusedWindowID)
@@ -517,6 +529,20 @@ extension Daemon {
       mouseReorderAnimationActive = true
       beginFrameAnimationActivity()
     }
+    let nativeFocusSkippedWindowIDs: Set<WindowID>
+    if nativeFocusWasPending {
+      if let nativeFocusFrameMonitorID {
+        nativeFocusSkippedWindowIDs = Set(
+          state.windows.keys.filter {
+            state.monitorID(containing: $0) != nativeFocusFrameMonitorID
+          }
+        )
+      } else {
+        nativeFocusSkippedWindowIDs = Set(state.windows.keys)
+      }
+    } else {
+      nativeFocusSkippedWindowIDs = []
+    }
     let nativeCursorWarpIsCurrentAfterCommit:
       (@MainActor @Sendable () -> Bool)?
     if let nativeCursorWarpWindowID {
@@ -540,6 +566,7 @@ extension Daemon {
       animationDuration: animatesMouseReorder
         ? TimeInterval(config.animation.durationMS) / 1_000
         : 0,
+      skipping: nativeFocusSkippedWindowIDs,
       positionsOnly: animatesMouseReorder,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
       cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
