@@ -308,6 +308,30 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func ownedSurfaceWindowIDRemainsReadableAfterRapidOverlayChanges() {
+    let manager = WindowBorderManager()
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+
+    for rawWindowID in 1...24 {
+      let windowID = WindowID(rawValue: UInt64(rawWindowID))
+      let plan = planWindowBorders(
+        frames: [FrameAssignment(windowID: windowID, frame: frame)],
+        selectedWindowID: windowID,
+        hiddenWindowIDs: [],
+        monitorFrames: [monitor],
+        style: style
+      )
+      manager.sync(
+        plan,
+        displayedFrames: [windowID: frame],
+        stacking: frontmostStacking(for: windowID)
+      )
+
+      _ = manager.ownedSurfaceWindowID
+    }
+  }
+
+  @Test @MainActor
   func initialInactiveBorderBatchReservesEveryAllocation() {
     let manager = WindowBorderManager()
     let windowIDs = (1...3).map { WindowID(rawValue: UInt64($0)) }

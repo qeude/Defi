@@ -105,6 +105,26 @@ final class WindowDiscoveryTests: XCTestCase {
     )
   }
 
+  @MainActor
+  func testPendingNativeFocusAcceptsVerifiedSingleWindowFallback() {
+    let platform = MacOSPlatform()
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.app",
+      title: "Main",
+      frame: frame,
+      processID: processID,
+      monitorID: MonitorID(rawValue: 1)
+    )
+    platform.nativeFocusEventPending = true
+    platform.nativeFocusEventProcessIDs = [processID]
+
+    XCTAssertEqual(
+      platform.stableWindowID(processID: processID, in: [window]),
+      window.id
+    )
+  }
+
   func testFocusedAuxiliaryWindowDoesNotSelectDistantManagedWindow() {
     let managed = Window(
       id: WindowID(rawValue: 1),

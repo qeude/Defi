@@ -449,14 +449,16 @@ public func desktopSynchronizationIsReady(
   nativeFocusSyncPending: Bool = false,
   frameDebtPending: Bool = false
 ) -> Bool {
-  guard !scrollAnimationActive,
+  guard !scrollAnimationActive || nativeFocusSyncPending,
     commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending
       || frameDebtPending,
     needsDesktopSync || periodicSyncDue
   else {
     return false
   }
-  return !animatedWritesPending || (mouseGestureSyncPending && needsDesktopSync)
+  return !animatedWritesPending
+    || nativeFocusSyncPending
+    || (mouseGestureSyncPending && needsDesktopSync)
 }
 
 private func activeColumnIndex(

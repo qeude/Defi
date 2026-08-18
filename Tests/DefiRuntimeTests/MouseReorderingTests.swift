@@ -427,6 +427,31 @@ final class MouseReorderingTests: XCTestCase {
     )
   }
 
+  func testNativeFocusSyncBypassesPendingAnimationWrites() {
+    XCTAssertTrue(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: false,
+        animatedWritesPending: true,
+        mouseGestureSyncPending: false,
+        needsDesktopSync: true,
+        periodicSyncDue: false,
+        commandQuietPeriodElapsed: false,
+        nativeFocusSyncPending: true
+      )
+    )
+    XCTAssertTrue(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: true,
+        animatedWritesPending: true,
+        mouseGestureSyncPending: false,
+        needsDesktopSync: true,
+        periodicSyncDue: false,
+        commandQuietPeriodElapsed: false,
+        nativeFocusSyncPending: true
+      )
+    )
+  }
+
   func testFrameDebtBypassesCommandQuietPeriod() {
     XCTAssertTrue(
       desktopSynchronizationIsReady(

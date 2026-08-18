@@ -47,10 +47,12 @@ final class WindowBorderManager {
   }
 
   var ownedSurfaceWindowID: WindowID? {
-    overlays.values.lazy
-      .flatMap(\.windowIDs)
-      .first
-      .map { WindowID(rawValue: UInt64($0)) }
+    for overlay in overlays.values {
+      if let windowID = overlay.windowIDs.first {
+        return WindowID(rawValue: UInt64(windowID))
+      }
+    }
+    return nil
   }
 
   func revealPendingBorders() {

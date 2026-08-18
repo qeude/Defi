@@ -490,9 +490,20 @@ extension MacOSPlatform {
     in windows: [Window],
     allowPendingNativeFocus: Bool = false
   ) -> WindowID? {
-    guard allowPendingNativeFocus || !nativeFocusEventPending else { return nil }
     guard let processID else { return nil }
     let candidates = windows.filter { $0.processID == processID }
+    let verifiedSingleWindowPendingFocus =
+      nativeFocusEventMatchesTarget(
+        eventPending: nativeFocusEventPending,
+        eventProcessIDs: nativeFocusEventProcessIDs,
+        hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
+        focusedProcessID: processID
+      ) && candidates.count == 1
+    guard
+      allowPendingNativeFocus
+        || !nativeFocusEventPending
+        || verifiedSingleWindowPendingFocus
+    else { return nil }
     if let previous = lastFocusedWindowByProcess[processID],
       candidates.contains(where: { $0.id == previous })
     {
