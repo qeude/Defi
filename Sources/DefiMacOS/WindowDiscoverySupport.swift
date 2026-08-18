@@ -96,6 +96,11 @@ final class AXWindowIDProvider {
     return getWindow != nil && probeSucceeded && !disabled
   }
 
+  var probeResult: Bool? {
+    guard probeCompleted else { return nil }
+    return getWindow != nil && probeSucceeded && !disabled
+  }
+
   func windowID(for element: AXUIElement) -> CGWindowID? {
     ensureProbe()
     guard !disabled, probeSucceeded, let getWindow else { return nil }

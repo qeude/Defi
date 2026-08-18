@@ -152,7 +152,7 @@ extension Daemon {
       + " desktopObservers=\(platform.hasReliableDesktopObservation)"
       + " observerCoverage=\(observationCoverage.applicationObservers)/\(observationCoverage.applications):\(observationCoverage.topologyWindows)/\(observationCoverage.requiredTopologyWindows):\(observationCoverage.frameWindows)/\(observationCoverage.requiredFrameWindows)"
       + " windowMetadata=\(attributeReads.metadata)/\(attributeReads.metadataReuses)"
-      + " windowIDs=private:\(platform.successfulPrivateWindowIDLookupCount)/fallback:\(platform.publicWindowIDLookupFallbackCount)/available:\(platform.isPrivateWindowIDLookupAvailable)"
+      + " windowIDs=private:\(platform.successfulPrivateWindowIDLookupCount)/fallback:\(platform.publicWindowIDLookupFallbackCount)/available:\(platform.privateWindowIDLookupStatus)"
       + " windowBounds=private:\(platform.successfulPrivateWindowBoundsLookupCount)/fallback:\(platform.privateWindowBoundsLookupFallbackCount)/available:\(platform.isPrivateWindowBoundsLookupAvailable)"
       + " screenCapture=\(platform.hasScreenCaptureAccess)"
       + " snapshotP50/P95=\(snapshotP50MS)/\(snapshotP95MS)"

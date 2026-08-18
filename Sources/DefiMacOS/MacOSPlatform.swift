@@ -133,6 +133,14 @@ public final class MacOSPlatform {
     windowIDProvider.isAvailable
   }
 
+  public var privateWindowIDLookupStatus: String {
+    switch windowIDProvider.probeResult {
+    case .none: "unprobed"
+    case .some(true): "true"
+    case .some(false): "false"
+    }
+  }
+
   public var successfulPrivateWindowIDLookupCount: Int {
     privateWindowIDLookupCount
   }

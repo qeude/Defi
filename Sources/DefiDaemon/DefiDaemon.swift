@@ -339,6 +339,7 @@ final class Daemon: NSObject {
       cancelAnimationForMouseGesture()
     }
     let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
+    let nativeFocusSyncPending = platform.hasPendingNativeFocusEvent
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
@@ -388,16 +389,21 @@ final class Daemon: NSObject {
         || windowListRefreshDue
         || applicationInventoryRefreshDue,
       commandQuietPeriodElapsed: commandQuietPeriodElapsed,
-      nativeFocusSyncPending: platform.hasPendingNativeFocusEvent,
+      nativeFocusSyncPending: nativeFocusSyncPending,
       frameDebtPending: platform.hasPendingFrameDebt
     ) {
-      let forcesWindowInventory =
-        windowListRefreshDue || applicationInventoryRefreshDue
-      let forcesFullWindowRefresh =
-        forcesWindowInventory
-        || (periodicWindowRefreshDue
-          && !platform.hasReliableWindowTopologyObservation)
+      let forcesWindowInventory = !nativeFocusSyncPending
+        && (windowListRefreshDue || applicationInventoryRefreshDue)
+      let forceWindowListRefresh = !nativeFocusSyncPending
+        && windowListRefreshDue
+      let forceApplicationInventoryRefresh = !nativeFocusSyncPending
+        && applicationInventoryRefreshDue
+      let forcesFullWindowRefresh = !nativeFocusSyncPending
+        && (forcesWindowInventory
+          || (periodicWindowRefreshDue
+            && !platform.hasReliableWindowTopologyObservation))
       if !mouseGestureSyncPending,
+        !nativeFocusSyncPending,
         forcesFullWindowRefresh,
         !bypassPrefetchOnce,
         platform.prepareAXWindowAttributesIfNeeded(
@@ -418,6 +424,7 @@ final class Daemon: NSObject {
         return
       }
       if !mouseGestureSyncPending,
+        !nativeFocusSyncPending,
         forcesFullWindowRefresh,
         !bypassPrefetchOnce,
         platform.prepareCGWindowInventoryIfNeeded(
@@ -441,9 +448,8 @@ final class Daemon: NSObject {
       needsDesktopSync = false
       synchronizeDesktop(
         forceFullWindowRefresh: forcesFullWindowRefresh,
-        forceWindowListRefresh:
-          windowListRefreshDue || applicationInventoryRefreshDue,
-        forceApplicationInventoryRefresh: applicationInventoryRefreshDue,
+        forceWindowListRefresh: forceWindowListRefresh,
+        forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
     }

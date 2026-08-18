@@ -135,7 +135,9 @@ extension Daemon {
     guard mouseGestureAnimationCancellationIsNeeded(
       mouseReorderAnimationActive: mouseReorderAnimationActive,
       scrollAnimationActive: !scrollAnimations.isEmpty,
-      animatedWritesPending: platform.hasPendingAnimatedFrameWrites
+      animatedWritesPending:
+        platform.hasPendingAnimatedFrameWrites
+        || platform.hasPendingDeferredParkingWrites
     ) else {
       return
     }

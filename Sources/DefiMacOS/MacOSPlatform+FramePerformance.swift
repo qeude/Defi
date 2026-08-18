@@ -258,6 +258,10 @@ public var hiddenWindowCount: Int {
     frameCoordinator.isAnimating
   }
 
+  public var hasPendingDeferredParkingWrites: Bool {
+    frameCoordinator.hasPendingDeferredParkingWrites
+  }
+
   public var hasPendingFrameWrites: Bool {
     frameCoordinator.isBusy
   }
