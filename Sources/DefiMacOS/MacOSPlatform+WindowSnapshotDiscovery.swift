@@ -57,6 +57,19 @@ func transientOwnerWindowIDsToRevalidate(
   }
 }
 
+func transientOwnerResolutionCandidateIDs(
+  windows: [Window],
+  relationshipChildIDs: Set<WindowID>
+) -> Set<WindowID> {
+  Set(windows.compactMap { window in
+    window.isModal
+      || window.floatingOrigin == .automatic
+      || relationshipChildIDs.contains(window.id)
+      ? window.id
+      : nil
+  })
+}
+
 struct SnapshotWindowDiscoveryResult {
   let nextElements: [WindowID: AXUIElement]
   let nextProcessIDs: [WindowID: pid_t]
@@ -506,9 +519,11 @@ extension MacOSPlatform {
     transientOwnerResolutionRetryAfter = transientOwnerResolutionRetryAfter.filter {
       liveWindowIDs.contains($0.key)
     }
-    let candidateIDs = Set(windows.compactMap { window in
-      window.isModal || window.floatingOrigin == .automatic ? window.id : nil
-    })
+    let candidateIDs = transientOwnerResolutionCandidateIDs(
+      windows: windows,
+      relationshipChildIDs: Set(preparedOwnerWindowIDs.keys)
+        .union(transientOwnerWindowIDs.keys)
+    )
     let livePreparedOwnerWindowIDs = preparedOwnerWindowIDs.filter {
       candidateIDs.contains($0.key) && liveWindowIDs.contains($0.value)
     }

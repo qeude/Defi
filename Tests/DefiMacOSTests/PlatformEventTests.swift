@@ -54,6 +54,32 @@ struct PlatformEventTests {
   }
 
   @Test
+  func preparedRelationshipMakesForceTiledWindowAnOwnerCandidate() {
+    let childID = WindowID(rawValue: 1)
+    let unrelatedID = WindowID(rawValue: 2)
+    let child = Window(
+      id: childID,
+      appID: "app",
+      title: "Panel",
+      frame: Rect(x: 0, y: 0, width: 500, height: 700),
+      forceTiling: true
+    )
+    let unrelated = Window(
+      id: unrelatedID,
+      appID: "app",
+      title: "Window",
+      frame: Rect(x: 0, y: 0, width: 500, height: 700)
+    )
+
+    #expect(
+      transientOwnerResolutionCandidateIDs(
+        windows: [child, unrelated],
+        relationshipChildIDs: [childID]
+      ) == [childID]
+    )
+  }
+
+  @Test
   func topologyEventsRevalidateTransientOwnersFromAffectedProcesses() {
     let affectedChild = WindowID(rawValue: 1)
     let unaffectedChild = WindowID(rawValue: 2)

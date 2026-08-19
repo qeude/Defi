@@ -262,11 +262,15 @@ private func moveFocusedSelectionToMonitor(
   let rootColumnIndex = sourceWorkspace.columns.firstIndex {
     $0.windows.contains(rootWindowID)
   }
-  let movesColumn = movesWholeColumn && rootColumnIndex != nil
+  let movedColumnIndex = movesWholeColumn
+    ? sourceWorkspace.columns.firstIndex {
+      $0.windows.contains(selectedWindowID)
+    }
+    : nil
   let primaryWindowIDs: Set<WindowID>
   var transferredColumn: Column?
-  if let rootColumnIndex, movesColumn {
-    transferredColumn = sourceWorkspace.columns[rootColumnIndex]
+  if let movedColumnIndex {
+    transferredColumn = sourceWorkspace.columns[movedColumnIndex]
     primaryWindowIDs = Set(transferredColumn?.windows ?? [])
   } else {
     primaryWindowIDs = [rootWindowID]
@@ -279,10 +283,14 @@ private func moveFocusedSelectionToMonitor(
       )
     }
   }
+  let ownerWindowIDs = Set(primaryWindowIDs.map {
+    transientRootWindowID($0, windows: state.windows)
+  })
+  let chainWindowIDs = primaryWindowIDs.union(ownerWindowIDs)
   let movedWindowIDs = transientDescendants(
-    of: primaryWindowIDs,
+    of: chainWindowIDs,
     windows: state.windows
-  ).union(primaryWindowIDs)
+  ).union(chainWindowIDs)
   var auxiliaryTiledColumns: [WindowID: Column] = [:]
   for column in sourceWorkspace.columns {
     for windowID in column.windows
@@ -302,9 +310,9 @@ private func moveFocusedSelectionToMonitor(
       $0.rawValue < $1.rawValue
     }
 
-  if let rootColumnIndex, movesColumn {
+  if let movedColumnIndex {
     state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
-      .columns.remove(at: rootColumnIndex)
+      .columns.remove(at: movedColumnIndex)
     let remainingColumnCount = state.monitors[sourceMonitorIndex]
       .workspaces[sourceWorkspaceIndex].columns.count
     state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
