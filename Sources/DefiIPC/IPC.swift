@@ -147,28 +147,7 @@ func encodedResponseForIPC(_ response: CommandResponse) throws -> Data {
   let encoder = JSONEncoder()
   let encoded = try encoder.encode(response)
   guard encoded.count > maximumIPCMessageBytes else { return encoded }
-
-  let marker = "[truncated]\n"
-  let scalars = Array(response.message.unicodeScalars)
-  var lowerBound = 0
-  var upperBound = scalars.count
-  var best = try encoder.encode(CommandResponse(ok: response.ok, message: marker))
-  while lowerBound <= upperBound {
-    let count = (lowerBound + upperBound) / 2
-    var suffix = ""
-    suffix.unicodeScalars.append(contentsOf: scalars.suffix(count))
-    let candidate = try encoder.encode(
-      CommandResponse(ok: response.ok, message: marker + suffix)
-    )
-    if candidate.count <= maximumIPCMessageBytes {
-      best = candidate
-      lowerBound = count + 1
-    } else {
-      guard count > 0 else { break }
-      upperBound = count - 1
-    }
-  }
-  return best
+  return try encoder.encode(CommandResponse.failure("IPC response too large"))
 }
 
 public enum IPCError: Error, CustomStringConvertible, Sendable {

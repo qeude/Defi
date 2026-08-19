@@ -49,6 +49,7 @@ struct PreparedAXWindowElement: @unchecked Sendable {
   let windowID: WindowID
   let processID: pid_t
   let element: AXUIElement
+  let usesBatchedAttributeReads: Bool
 }
 
 struct PreparedAXApplicationElement: @unchecked Sendable {
@@ -59,6 +60,13 @@ struct PreparedAXApplicationElement: @unchecked Sendable {
 struct PreparedAXApplicationWindows: @unchecked Sendable {
   let elements: [AXUIElement]
   let durationMS: Double
+}
+
+struct PreparedAXWindowRead {
+  let windowID: WindowID
+  let attributes: AXWindowAttributes?
+  let parent: AXUIElement?
+  let sheets: [AXUIElement]
 }
 
 @MainActor
@@ -185,10 +193,44 @@ func preparedAXWindowAttributesAreCurrent(
     && capturedProcessIDs == currentProcessIDs
 }
 
+func transientOwnerWindowIDsFromPreparedRelationships(
+  elements: [WindowID: AXUIElement],
+  parents: [WindowID: AXUIElement],
+  sheets: [WindowID: [AXUIElement]]
+) -> [WindowID: WindowID] {
+  var ownerWindowIDs: [WindowID: WindowID] = [:]
+  // ponytail: window counts are small; index AX identities if this background scan matters.
+  for (childID, parent) in parents {
+    ownerWindowIDs[childID] = elements.first {
+      $0.key != childID && CFEqual($0.value, parent)
+    }?.key
+  }
+  for (ownerID, ownerSheets) in sheets {
+    for sheet in ownerSheets {
+      guard let childID = elements.first(where: {
+        $0.key != ownerID && CFEqual($0.value, sheet)
+      })?.key else { continue }
+      ownerWindowIDs[childID] = ownerWindowIDs[childID] ?? ownerID
+    }
+  }
+  return ownerWindowIDs
+}
+
+private func axElementValue(_ value: CFTypeRef?) -> AXUIElement? {
+  guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+  return (value as! AXUIElement)
+}
+
 func copyBatchedWindowAttributes(
-  _ element: AXUIElement
-) -> (error: AXError, attributes: AXWindowAttributes?) {
-  let names = [
+  _ element: AXUIElement,
+  includingTransientRelationships: Bool = false
+) -> (
+  error: AXError,
+  attributes: AXWindowAttributes?,
+  parent: AXUIElement?,
+  sheets: [AXUIElement]?
+) {
+  var names = [
     kAXMinimizedAttribute,
     kAXPositionAttribute,
     kAXSizeAttribute,
@@ -197,6 +239,9 @@ func copyBatchedWindowAttributes(
     kAXSubroleAttribute,
     kAXModalAttribute,
   ]
+  if includingTransientRelationships {
+    names += [kAXParentAttribute, "AXSheets"]
+  }
   var copiedValues: CFArray?
   let error = AXUIElementCopyMultipleAttributeValues(
     element,
@@ -208,8 +253,9 @@ func copyBatchedWindowAttributes(
     let values = copiedValues as? [AnyObject],
     values.count == names.count
   else {
-    return (error, nil)
+    return (error, nil, nil, nil)
   }
+  let parent = values.count > 7 ? axElementValue(axAttributeValue(values[7])) : nil
   return (
     error,
     AXWindowAttributes(
@@ -222,8 +268,31 @@ func copyBatchedWindowAttributes(
       role: axAttributeValue(values[4]) as? String,
       subrole: axAttributeValue(values[5]) as? String,
       modal: axAttributeValue(values[6]) as? Bool
-    )
+    ),
+    parent,
+    values.count > 8 ? axAttributeValue(values[8]) as? [AXUIElement] : nil
   )
+}
+
+func copyTransientOwnerRelationships(
+  _ element: AXUIElement
+) -> (parent: AXUIElement?, sheets: [AXUIElement]) {
+  var parentValue: CFTypeRef?
+  _ = AXUIElementCopyAttributeValue(
+    element,
+    kAXParentAttribute as CFString,
+    &parentValue
+  )
+  let parent = axElementValue(parentValue)
+  var sheetsValue: CFTypeRef?
+  let sheets = AXUIElementCopyAttributeValue(
+    element,
+    "AXSheets" as CFString,
+    &sheetsValue
+  ) == .success
+    ? sheetsValue as? [AXUIElement] ?? []
+    : []
+  return (parent, sheets)
 }
 
 private func frameFromAXValues(

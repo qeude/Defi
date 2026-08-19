@@ -165,15 +165,21 @@ public func modalAllowsPointerFocus(
   while let current = candidate, ancestry.insert(current).inserted {
     candidate = state.windows[current]?.transientOwnerID
   }
-  let ownerlessModalIDs = Set(state.windows.values.lazy.filter {
-    $0.appID == target.appID && $0.isModal && $0.transientOwnerID == nil
+  let ownerlessModalIDs = Set(state.windows.values.lazy.filter { modal in
+    modal.appID == target.appID
+      && (target.processID.map { modal.processID == $0 } ?? true)
+      && modal.isModal
+      && modal.transientOwnerID == nil
   }.map(\.id))
   if ownerlessModalIDs.isEmpty == false {
     return ancestry.isDisjoint(with: ownerlessModalIDs) == false
   }
-  let modalIDs = Set(workspaceWindowIDs.filter {
-    state.windows[$0]?.appID == target.appID
-      && state.windows[$0]?.isModal == true
+  let modalIDs = Set(workspaceWindowIDs.filter { candidateID in
+    state.windows[candidateID]?.appID == target.appID
+      && (target.processID.map {
+        state.windows[candidateID]?.processID == $0
+      } ?? true)
+      && state.windows[candidateID]?.isModal == true
   })
   guard !modalIDs.isEmpty else { return true }
   if ancestry.isDisjoint(with: modalIDs) == false {

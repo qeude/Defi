@@ -121,7 +121,7 @@ struct IPCCompletionTests {
   }
 
   @Test
-  func oversizedResponseIsTruncatedWithinTheProtocolLimit() throws {
+  func oversizedResponseFailsWithinTheProtocolLimit() throws {
     let original = CommandResponse.success(
       String(repeating: "trace \\\"value\\\"\n", count: 8_000)
     )
@@ -130,8 +130,6 @@ struct IPCCompletionTests {
     let decoded = try JSONDecoder().decode(CommandResponse.self, from: data)
 
     #expect(data.count <= 65_536)
-    #expect(decoded.ok)
-    #expect(decoded.message.hasPrefix("[truncated]\n"))
-    #expect(original.message.hasSuffix(decoded.message.dropFirst("[truncated]\n".count)))
+    #expect(decoded == .failure("IPC response too large"))
   }
 }

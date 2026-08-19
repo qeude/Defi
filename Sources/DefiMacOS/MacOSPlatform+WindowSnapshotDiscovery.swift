@@ -47,13 +47,6 @@ func transientOwnerResolutionRefreshInterval(
   retryAfter.min().map { max($0 - now, 0) }
 }
 
-func transientOwnerResolutionProcessIDs(
-  for unresolvedWindowIDs: Set<WindowID>,
-  processIDs: [WindowID: pid_t]
-) -> Set<pid_t> {
-  Set(unresolvedWindowIDs.compactMap { processIDs[$0] })
-}
-
 func transientOwnerWindowIDsToRevalidate(
   candidateIDs: Set<WindowID>,
   processIDs: [WindowID: pid_t],
@@ -89,6 +82,7 @@ extension MacOSPlatform {
     capturedTopologyRequiresFullSnapshot: Bool,
     topologyProcessIDs: Set<pid_t>,
     preparedWindowAttributes: [WindowID: AXWindowAttributes],
+    preparedTransientOwnerWindowIDs: [WindowID: WindowID],
     preparedApplicationWindows: [pid_t: PreparedAXApplicationWindows],
     publicCGWindows: () -> [CGWindowRecord]?
   ) -> SnapshotWindowDiscoveryResult {
@@ -473,6 +467,7 @@ extension MacOSPlatform {
       windows: &windows,
       elements: nextElements,
       processIDs: nextProcessIDs,
+      preparedOwnerWindowIDs: preparedTransientOwnerWindowIDs,
       topologyProcessIDs:
         capturedTopologyRequiresFullSnapshot
         ? Set(nextProcessIDs.values)
@@ -498,6 +493,7 @@ extension MacOSPlatform {
     windows: inout [Window],
     elements: [WindowID: AXUIElement],
     processIDs: [WindowID: pid_t],
+    preparedOwnerWindowIDs: [WindowID: WindowID],
     topologyProcessIDs: Set<pid_t>
   ) {
     let liveWindowIDs = Set(elements.keys)
@@ -513,6 +509,10 @@ extension MacOSPlatform {
     let candidateIDs = Set(windows.compactMap { window in
       window.isModal || window.floatingOrigin == .automatic ? window.id : nil
     })
+    let livePreparedOwnerWindowIDs = preparedOwnerWindowIDs.filter {
+      candidateIDs.contains($0.key) && liveWindowIDs.contains($0.value)
+    }
+    transientOwnerWindowIDs.merge(livePreparedOwnerWindowIDs) { _, prepared in prepared }
     transientOwnerResolutionAttempts = transientOwnerResolutionAttempts.filter {
       candidateIDs.contains($0.key)
     }
@@ -535,8 +535,10 @@ extension MacOSPlatform {
         )
       }
     )
-    var resolvedCandidateIDs = Set<WindowID>()
-    for childID in ownerLookupCandidateIDs {
+    var resolvedCandidateIDs = ownerLookupCandidateIDs.intersection(
+      livePreparedOwnerWindowIDs.keys
+    )
+    for childID in ownerLookupCandidateIDs where !resolvedCandidateIDs.contains(childID) {
       guard let child = elements[childID] else { continue }
       let parent = AXMessagingTimeoutAccess.shared.withTimeout(
         snapshotAccessibilityTimeoutSeconds,
@@ -553,32 +555,6 @@ extension MacOSPlatform {
           $0.key != childID && CFEqual($0.value, parent)
         })?.key
       {
-        transientOwnerWindowIDs[childID] = ownerID
-        resolvedCandidateIDs.insert(childID)
-      }
-    }
-    let unresolved = ownerLookupCandidateIDs.subtracting(resolvedCandidateIDs)
-    let unresolvedProcessIDs = transientOwnerResolutionProcessIDs(
-      for: unresolved,
-      processIDs: processIDs
-    )
-    for ownerID in elements.keys where !unresolved.isEmpty {
-      guard let owner = elements[ownerID],
-        let processID = processIDs[ownerID],
-        unresolvedProcessIDs.contains(processID)
-      else {
-        continue
-      }
-      let sheets = AXMessagingTimeoutAccess.shared.withTimeout(
-        snapshotAccessibilityTimeoutSeconds,
-        elements: [owner]
-      ) {
-        self.copyAttribute(owner, name: "AXSheets") as? [AXUIElement]
-      } ?? []
-      for childID in unresolved where processIDs[childID] == processID {
-        guard let child = elements[childID],
-          sheets.contains(where: { CFEqual($0, child) })
-        else { continue }
         transientOwnerWindowIDs[childID] = ownerID
         resolvedCandidateIDs.insert(childID)
       }

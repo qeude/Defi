@@ -80,6 +80,7 @@ public final class MacOSPlatform {
   var preparedCGWindowInventoryAvailable = false
   var cgWindowInventoryPreparationPending = false
   var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] = [:]
+  var preparedTransientOwnerWindowIDs: [WindowID: WindowID] = [:]
   var preparedAXApplicationWindows: [pid_t: PreparedAXApplicationWindows] = [:]
   var preparedAXWindowAttributesAvailable = false
   var preparedAXWindowAttributesGeneration: UInt64?
@@ -198,6 +199,7 @@ public final class MacOSPlatform {
     preparedCGWindowInventory = nil
     preparedCGWindowInventoryAvailable = false
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)
+    preparedTransientOwnerWindowIDs.removeAll(keepingCapacity: true)
     preparedAXApplicationWindows.removeAll(keepingCapacity: true)
     preparedAXWindowAttributesAvailable = false
     preparedAXWindowAttributesGeneration = nil

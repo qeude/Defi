@@ -195,6 +195,20 @@ struct PointerFocusTests {
   }
 
   @Test
+  func ownerlessModalDoesNotBlockAnotherInstanceOfTheSameApplication() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5])
+    let modalID = WindowID(rawValue: 1)
+    let documentID = WindowID(rawValue: 2)
+    state.windows[modalID]?.appID = "app"
+    state.windows[modalID]?.processID = 100
+    state.windows[modalID]?.isModal = true
+    state.windows[documentID]?.appID = "app"
+    state.windows[documentID]?.processID = 200
+
+    #expect(modalAllowsPointerFocus(documentID, state: state))
+  }
+
+  @Test
   func ownerlessModalBlocksItsApplicationAcrossMonitors() throws {
     var state = try makeState(columnWidths: [0.5, 0.5])
     let modalID = WindowID(rawValue: 1)

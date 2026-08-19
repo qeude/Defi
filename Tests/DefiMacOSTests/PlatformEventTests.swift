@@ -32,20 +32,24 @@ struct PlatformEventTests {
   }
 
   @Test
-  func transientOwnerResolutionOnlyQueriesRelevantProcesses() {
-    let childID = WindowID(rawValue: 1)
-    let sameProcessOwnerID = WindowID(rawValue: 2)
-    let unrelatedOwnerID = WindowID(rawValue: 3)
+  func preparedAXRelationshipsResolveTransientOwners() {
+    let ownerID = WindowID(rawValue: 1)
+    let parentChildID = WindowID(rawValue: 2)
+    let sheetChildID = WindowID(rawValue: 3)
+    let owner = AXUIElementCreateApplication(101)
+    let parentChild = AXUIElementCreateApplication(102)
+    let sheetChild = AXUIElementCreateApplication(103)
 
     #expect(
-      transientOwnerResolutionProcessIDs(
-        for: [childID],
-        processIDs: [
-          childID: 100,
-          sameProcessOwnerID: 100,
-          unrelatedOwnerID: 200,
-        ]
-      ) == [100]
+      transientOwnerWindowIDsFromPreparedRelationships(
+        elements: [
+          ownerID: owner,
+          parentChildID: parentChild,
+          sheetChildID: sheetChild,
+        ],
+        parents: [parentChildID: owner],
+        sheets: [ownerID: [sheetChild]]
+      ) == [parentChildID: ownerID, sheetChildID: ownerID]
     )
   }
 

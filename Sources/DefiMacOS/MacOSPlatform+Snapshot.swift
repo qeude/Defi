@@ -169,10 +169,14 @@ extension MacOSPlatform {
     let preparedWindowAttributes = preparedAXIsCurrent
       ? preparedAXWindowAttributes
       : [:]
+    let preparedTransientOwners = preparedAXIsCurrent
+      ? preparedTransientOwnerWindowIDs
+      : [:]
     let preparedApplicationWindows = preparedAXIsCurrent
       ? preparedAXApplicationWindows
       : [:]
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)
+    preparedTransientOwnerWindowIDs.removeAll(keepingCapacity: true)
     preparedAXApplicationWindows.removeAll(keepingCapacity: true)
     preparedAXWindowAttributesAvailable = false
     let previousElements = elements
@@ -185,6 +189,7 @@ extension MacOSPlatform {
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
       preparedWindowAttributes: preparedWindowAttributes,
+      preparedTransientOwnerWindowIDs: preparedTransientOwners,
       preparedApplicationWindows: preparedApplicationWindows,
       publicCGWindows: publicCGWindows
     )
