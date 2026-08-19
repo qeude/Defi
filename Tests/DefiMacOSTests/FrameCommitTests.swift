@@ -348,7 +348,7 @@ final class FrameCommitTests: XCTestCase {
       animatedWindowIDs: [],
       animationDuration: 0,
       refreshRateHz: 60,
-      displayID: nil,
+      displayIDs: [],
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: false
     ) { result in
@@ -374,7 +374,7 @@ final class FrameCommitTests: XCTestCase {
       animatedWindowIDs: [],
       animationDuration: 0,
       refreshRateHz: 60,
-      displayID: nil,
+      displayIDs: [],
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: false,
       successfulWrite: { windowID, _ in

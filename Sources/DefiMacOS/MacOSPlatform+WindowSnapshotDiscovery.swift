@@ -18,7 +18,14 @@ func transientOwnerResolutionIsDue(
   retryAfter: TimeInterval?,
   now: TimeInterval
 ) -> Bool {
-  ownerKnown == false && (retryAfter ?? 0) <= now
+  (ownerKnown == false || retryAfter != nil) && (retryAfter ?? 0) <= now
+}
+
+func transientOwnerResolutionRefreshInterval(
+  retryAfter: [TimeInterval],
+  now: TimeInterval
+) -> TimeInterval? {
+  retryAfter.min().map { max($0 - now, 0) }
 }
 
 func transientOwnerResolutionProcessIDs(
@@ -498,20 +505,18 @@ extension MacOSPlatform {
       processIDs: processIDs,
       topologyProcessIDs: topologyProcessIDs
     )
-    for childID in revalidatedCandidateIDs {
-      transientOwnerWindowIDs[childID] = nil
-      transientOwnerResolutionAttempts[childID] = nil
-      transientOwnerResolutionRetryAfter[childID] = nil
-    }
     let now = ProcessInfo.processInfo.systemUptime
-    let unresolvedCandidateIDs = candidateIDs.filter {
-      transientOwnerResolutionIsDue(
-        ownerKnown: transientOwnerWindowIDs[$0] != nil,
-        retryAfter: transientOwnerResolutionRetryAfter[$0],
-        now: now
-      )
-    }
-    for childID in unresolvedCandidateIDs {
+    let ownerLookupCandidateIDs = revalidatedCandidateIDs.union(
+      candidateIDs.filter {
+        transientOwnerResolutionIsDue(
+          ownerKnown: transientOwnerWindowIDs[$0] != nil,
+          retryAfter: transientOwnerResolutionRetryAfter[$0],
+          now: now
+        )
+      }
+    )
+    var resolvedCandidateIDs = Set<WindowID>()
+    for childID in ownerLookupCandidateIDs {
       guard let child = elements[childID] else { continue }
       let parent = AXMessagingTimeoutAccess.shared.withTimeout(
         snapshotAccessibilityTimeoutSeconds,
@@ -529,11 +534,10 @@ extension MacOSPlatform {
         })?.key
       {
         transientOwnerWindowIDs[childID] = ownerID
+        resolvedCandidateIDs.insert(childID)
       }
     }
-    let unresolved = unresolvedCandidateIDs.filter {
-      transientOwnerWindowIDs[$0] == nil
-    }
+    let unresolved = ownerLookupCandidateIDs.subtracting(resolvedCandidateIDs)
     let unresolvedProcessIDs = transientOwnerResolutionProcessIDs(
       for: unresolved,
       processIDs: processIDs
@@ -556,13 +560,14 @@ extension MacOSPlatform {
           sheets.contains(where: { CFEqual($0, child) })
         else { continue }
         transientOwnerWindowIDs[childID] = ownerID
+        resolvedCandidateIDs.insert(childID)
       }
     }
     for index in windows.indices {
       windows[index].transientOwnerID = transientOwnerWindowIDs[windows[index].id]
     }
-    for childID in unresolvedCandidateIDs {
-      guard transientOwnerWindowIDs[childID] == nil else {
+    for childID in ownerLookupCandidateIDs {
+      guard resolvedCandidateIDs.contains(childID) == false else {
         transientOwnerResolutionAttempts[childID] = nil
         transientOwnerResolutionRetryAfter[childID] = nil
         continue

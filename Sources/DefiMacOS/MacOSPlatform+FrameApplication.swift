@@ -21,7 +21,7 @@ extension MacOSPlatform {
     asynchronousPositionTimeoutSeconds: Float = 0.016,
     animationDuration: TimeInterval = 0,
     animationRefreshRateHz: Double = 60,
-    animationDisplayID: UInt64? = nil,
+    animationDisplayIDs: Set<UInt64> = [],
     animateSizeChanges: Bool = false,
     positionsOnly: Bool = false,
     updateVisibility: Bool = true,
@@ -514,7 +514,7 @@ extension MacOSPlatform {
       animationDuration:
         animatedWindowIDs.isEmpty ? 0 : animationDuration,
       refreshRateHz: animationRefreshRateHz,
-      displayID: animationDisplayID,
+      displayIDs: animationDisplayIDs,
       animatedWindowIDs: animatedWindowIDs,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       successfulWrite: commandSuccessfulWrite,

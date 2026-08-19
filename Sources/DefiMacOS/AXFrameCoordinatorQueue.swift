@@ -167,7 +167,7 @@ extension AXFrameCoordinator {
         animatedWindowIDs: frame.animatedWindowIDs,
         animationDuration: frame.animationDuration,
         refreshRateHz: frame.refreshRateHz,
-        displayID: frame.displayID,
+        displayIDs: frame.displayIDs,
         initialProgressVelocity: initialProgressVelocity,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
         successfulWrite: frame.successfulWrite,

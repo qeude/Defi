@@ -369,6 +369,7 @@ final class Daemon: NSObject {
         || platform.hasPendingFocusWrite
         || platform.hasPendingFrameWrites
         || platform.hasPendingFrameDebt
+        || platform.hasPendingTransientOwnerResolution
       setTimerFrequency(followUpPending ? 60 : 2)
     }
     let userInputIdleDuration =

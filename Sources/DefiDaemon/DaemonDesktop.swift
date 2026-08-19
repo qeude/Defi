@@ -8,6 +8,26 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+struct AnimationDisplayTiming: Equatable {
+  let refreshRateHz: Double
+  let displayIDs: Set<UInt64>
+}
+
+func animationDisplayTiming(
+  monitorIDs: Set<MonitorID>?,
+  activeMonitorID: MonitorID?,
+  fallbackMonitorID: MonitorID?,
+  refreshRates: [MonitorID: Double]
+) -> AnimationDisplayTiming {
+  let selectedMonitorIDs = monitorIDs.flatMap { $0.isEmpty ? nil : $0 }
+    ?? Set([activeMonitorID ?? fallbackMonitorID].compactMap { $0 })
+  let selectedRefreshRates = selectedMonitorIDs.compactMap { refreshRates[$0] }
+  return AnimationDisplayTiming(
+    refreshRateHz: selectedRefreshRates.min() ?? 60,
+    displayIDs: Set(selectedMonitorIDs.map(\.rawValue))
+  )
+}
+
 func layoutWindowIDsOutsideSubmissionScope(
   _ plan: MonitorLayoutPlan,
   monitorID: MonitorID,
@@ -153,6 +173,14 @@ extension Daemon {
       asynchronousPositions
       ? assignments.map(roundAnimatedPosition)
       : assignments
+    let animationTiming = animationDisplayTiming(
+      monitorIDs: monitorIDs,
+      activeMonitorID: activeMonitorID,
+      fallbackMonitorID: latestMonitors.first?.id,
+      refreshRates: Dictionary(
+        uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.refreshRateHz) }
+      )
+    )
     let selectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
@@ -181,8 +209,8 @@ extension Daemon {
       asynchronousPositions: asynchronousPositions,
       asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
       animationDuration: animationDuration,
-      animationRefreshRateHz: activeDisplayRefreshRate,
-      animationDisplayID: activeMonitorID?.rawValue,
+      animationRefreshRateHz: animationTiming.refreshRateHz,
+      animationDisplayIDs: animationTiming.displayIDs,
       animateSizeChanges: animateSizeChanges,
       positionsOnly: positionsOnly,
       updateVisibility: updateVisibility ?? !asynchronousPositions,

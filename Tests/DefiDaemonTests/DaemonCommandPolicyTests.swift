@@ -61,6 +61,22 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func crossMonitorAnimationWaitsForEveryDisplayAtTheSlowestCadence() {
+    let source = MonitorID(rawValue: 1)
+    let destination = MonitorID(rawValue: 2)
+
+    let timing = animationDisplayTiming(
+      monitorIDs: [source, destination],
+      activeMonitorID: destination,
+      fallbackMonitorID: source,
+      refreshRates: [source: 60, destination: 120]
+    )
+
+    #expect(timing.refreshRateHz == 60)
+    #expect(timing.displayIDs == [1, 2])
+  }
+
+  @Test
   func workspaceMutationUsesTheCommandMonitorFloatingWindows() {
     let activeMonitor = MonitorID(rawValue: 1)
     let commandMonitor = MonitorID(rawValue: 2)

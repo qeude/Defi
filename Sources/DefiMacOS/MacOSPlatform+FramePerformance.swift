@@ -306,7 +306,7 @@ extension MacOSPlatform {
       cgWindowInventoryRetryAttempts.map {
         unmatchedWindowRetryIsPending(attempts: $0)
       } == true
-    return windowListRefreshInterval(
+    let baseInterval = windowListRefreshInterval(
       hasPendingShortRetry:
         hasPendingUnmatchedRetry
         || hasPendingWindowListReadRetry
@@ -314,6 +314,17 @@ extension MacOSPlatform {
         || !retainedWindowIDs.isEmpty,
       reliableTopologyObservation: hasReliableWindowTopologyObservation
     )
+    return min(
+      baseInterval,
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: Array(transientOwnerResolutionRetryAfter.values),
+        now: ProcessInfo.processInfo.systemUptime
+      ) ?? baseInterval
+    )
+  }
+
+  public var hasPendingTransientOwnerResolution: Bool {
+    transientOwnerResolutionRetryAfter.isEmpty == false
   }
 
   public var hasReliableDesktopObservation: Bool {

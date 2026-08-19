@@ -46,7 +46,7 @@ extension AXFrameCoordinator {
       animatedWindowIDs: lanePlan.interpolatedWindowIDs,
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
-      displayID: frame.displayID,
+      displayIDs: frame.displayIDs,
       initialProgressVelocity: frame.initialProgressVelocity,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
       successfulWrite: frame.successfulWrite,
@@ -60,7 +60,7 @@ extension AXFrameCoordinator {
       animatedWindowIDs: lanePlan.finalOnlyWindowIDs,
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
-      displayID: frame.displayID,
+      displayIDs: frame.displayIDs,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
       successfulWrite: frame.successfulWrite,
@@ -108,7 +108,7 @@ extension AXFrameCoordinator {
     if !interpolatedWrites.isEmpty {
       displayLinkClock.setActive(
         true,
-        displayID: frame.displayID,
+        displayIDs: frame.displayIDs,
         generation: frame.generation
       )
     }
@@ -116,7 +116,7 @@ extension AXFrameCoordinator {
       if !interpolatedWrites.isEmpty {
         displayLinkClock.setActive(
           false,
-          displayID: frame.displayID,
+          displayIDs: frame.displayIDs,
           generation: frame.generation
         )
       }
@@ -159,7 +159,7 @@ extension AXFrameCoordinator {
       let displayTargetTimestamp = remaining > 0
         ? displayLinkClock.wait(
           untilDisplayTarget: nextDeadline,
-          displayID: frame.displayID
+          displayIDs: frame.displayIDs
         )
         : nil
       let displayAligned = displayTargetTimestamp != nil
@@ -278,7 +278,7 @@ extension AXFrameCoordinator {
     let finalDisplayTargetTimestamp = finalRemaining > 0
       ? displayLinkClock.wait(
         untilDisplayTarget: finalDeadline,
-        displayID: frame.displayID
+        displayIDs: frame.displayIDs
       )
       : nil
     let finalDisplayAligned = finalDisplayTargetTimestamp != nil
@@ -330,7 +330,7 @@ extension AXFrameCoordinator {
         animatedWindowIDs: [],
         animationDuration: 0,
         refreshRateHz: frame.refreshRateHz,
-        displayID: frame.displayID,
+        displayIDs: frame.displayIDs,
         initialProgressVelocity: 0,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
         successfulWrite: frame.successfulWrite,
@@ -406,7 +406,7 @@ extension AXFrameCoordinator {
       animatedWindowIDs: [],
       animationDuration: 0,
       refreshRateHz: frame.refreshRateHz,
-      displayID: frame.displayID,
+      displayIDs: frame.displayIDs,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
       successfulWrite: frame.successfulWrite,

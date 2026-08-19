@@ -16,6 +16,22 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
+  func animationDisplayBarrierKeepsEveryRequestedAvailableDisplay() {
+    #expect(
+      resolvedAnimationDisplayIDs(
+        requested: [1, 2],
+        available: [1, 2, 3]
+      ) == [1, 2]
+    )
+    #expect(
+      resolvedAnimationDisplayIDs(
+        requested: [9],
+        available: [3]
+      ) == [3]
+    )
+  }
+
+  @Test
   func transientOwnerResolutionOnlyQueriesRelevantProcesses() {
     let childID = WindowID(rawValue: 1)
     let sameProcessOwnerID = WindowID(rawValue: 2)
@@ -67,6 +83,54 @@ struct PlatformEventTests {
         now: 12
       )
     )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: true,
+        retryAfter: 12,
+        now: 11
+      ) == false
+    )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: true,
+        retryAfter: 12,
+        now: 12
+      )
+    )
+  }
+
+  @Test
+  func transientOwnerRetryClampsWindowRefreshToItsDeadline() {
+    #expect(
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: [14, 12],
+        now: 10
+      ) == 2
+    )
+    #expect(
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: [9],
+        now: 10
+      ) == 0
+    )
+    #expect(
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: [],
+        now: 10
+      ) == nil
+    )
+  }
+
+  @Test @MainActor
+  func transientOwnerRetrySchedulesTheWindowListRefresh() {
+    let platform = MacOSPlatform()
+    platform.eventMonitor = PlatformEventMonitor(handler: { _, _ in })
+    let now = ProcessInfo.processInfo.systemUptime
+    platform.transientOwnerResolutionRetryAfter[WindowID(rawValue: 42)] = now + 5
+
+    #expect(platform.hasPendingTransientOwnerResolution)
+    #expect(platform.recommendedWindowListRefreshInterval > 4)
+    #expect(platform.recommendedWindowListRefreshInterval <= 5)
   }
 
   @Test
