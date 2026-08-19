@@ -260,15 +260,34 @@ extension Daemon {
         ? previouslySelectedWindowID.flatMap { state.monitorID(containing: $0) }
           ?? commandMonitorID
         : commandMonitorID
+      let nextWindowMonitorIDs = movesAcrossMonitors
+        ? Dictionary(uniqueKeysWithValues: state.windows.keys.compactMap { windowID in
+          state.monitorID(containing: windowID).map { (windowID, $0) }
+        })
+        : [:]
       if movesAcrossMonitors {
         activeMonitorID = resultMonitorID
+        let movedWindowIDs = Set(previousWindowMonitorIDs.compactMap {
+          windowID, previousMonitorID in
+          nextWindowMonitorIDs[windowID] != previousMonitorID ? windowID : nil
+        })
+        rebaseFloatingWindowFrames(
+          previousViewports: commandViewports,
+          nextViewports: commandViewports,
+          previousMonitorIDs: previousWindowMonitorIDs,
+          windowIDs: movedWindowIDs
+        )
         for (windowID, window) in state.windows where window.floating {
           guard let nextMonitorID = state.monitorID(containing: windowID),
             previousWindowMonitorIDs[windowID] != nextMonitorID
           else {
             continue
           }
-          floatingWindowFrames[windowID] = window.frame
+          if let frame = floatingWindowFrames[windowID] {
+            state.windows[windowID]?.frame = frame
+          } else {
+            floatingWindowFrames[windowID] = window.frame
+          }
           if window.floatingOrigin == .automatic {
             invalidatePlacementPreference(for: window)
           }
@@ -324,8 +343,11 @@ extension Daemon {
       platform.recordPerformanceTrace(
         "command-ready cg=\(currentCommandGeneration) stateMs=\(String(format: "%.2f", (stateReadyAt - commandStartedAt) * 1_000)) scrollMs=\(String(format: "%.2f", (animationReadyAt - stateReadyAt) * 1_000))"
       )
-      let affectedMonitorIDs = Set(
-        [commandMonitorID, resultMonitorID].compactMap { $0 }
+      let affectedMonitorIDs = affectedMonitorIDsForWindowMove(
+        commandMonitorID: commandMonitorID,
+        resultMonitorID: resultMonitorID,
+        previousWindowMonitorIDs: previousWindowMonitorIDs,
+        nextWindowMonitorIDs: nextWindowMonitorIDs
       )
       let dispatchedAnimation =
         animatedManagedResize
@@ -528,4 +550,21 @@ extension Daemon {
       return .failure(String(describing: error))
     }
   }
+}
+
+func affectedMonitorIDsForWindowMove(
+  commandMonitorID: MonitorID?,
+  resultMonitorID: MonitorID?,
+  previousWindowMonitorIDs: [WindowID: MonitorID],
+  nextWindowMonitorIDs: [WindowID: MonitorID]
+) -> Set<MonitorID> {
+  var monitorIDs = Set([commandMonitorID, resultMonitorID].compactMap { $0 })
+  for (windowID, previousMonitorID) in previousWindowMonitorIDs {
+    guard nextWindowMonitorIDs[windowID] != previousMonitorID else { continue }
+    monitorIDs.insert(previousMonitorID)
+    if let nextMonitorID = nextWindowMonitorIDs[windowID] {
+      monitorIDs.insert(nextMonitorID)
+    }
+  }
+  return monitorIDs
 }

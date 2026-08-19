@@ -16,6 +16,24 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
+  func transientOwnerResolutionOnlyQueriesRelevantProcesses() {
+    let childID = WindowID(rawValue: 1)
+    let sameProcessOwnerID = WindowID(rawValue: 2)
+    let unrelatedOwnerID = WindowID(rawValue: 3)
+
+    #expect(
+      transientOwnerResolutionProcessIDs(
+        for: [childID],
+        processIDs: [
+          childID: 100,
+          sameProcessOwnerID: 100,
+          unrelatedOwnerID: 200,
+        ]
+      ) == [100]
+    )
+  }
+
+  @Test
   func unresolvedTransientOwnershipKeepsRetryingWithBoundedBackoff() {
     #expect(transientOwnerResolutionRetryDelay(afterAttempt: 1) == 0)
     #expect(transientOwnerResolutionRetryDelay(afterAttempt: 2) == 1)

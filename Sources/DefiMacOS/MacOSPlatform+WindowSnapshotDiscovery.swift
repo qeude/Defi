@@ -21,6 +21,13 @@ func transientOwnerResolutionIsDue(
   ownerKnown == false && (retryAfter ?? 0) <= now
 }
 
+func transientOwnerResolutionProcessIDs(
+  for unresolvedWindowIDs: Set<WindowID>,
+  processIDs: [WindowID: pid_t]
+) -> Set<pid_t> {
+  Set(unresolvedWindowIDs.compactMap { processIDs[$0] })
+}
+
 struct SnapshotWindowDiscoveryResult {
   let nextElements: [WindowID: AXUIElement]
   let nextProcessIDs: [WindowID: pid_t]
@@ -502,8 +509,15 @@ extension MacOSPlatform {
     let unresolved = unresolvedCandidateIDs.filter {
       transientOwnerWindowIDs[$0] == nil
     }
+    let unresolvedProcessIDs = transientOwnerResolutionProcessIDs(
+      for: unresolved,
+      processIDs: processIDs
+    )
     for ownerID in elements.keys where !unresolved.isEmpty {
-      guard let owner = elements[ownerID], let processID = processIDs[ownerID] else {
+      guard let owner = elements[ownerID],
+        let processID = processIDs[ownerID],
+        unresolvedProcessIDs.contains(processID)
+      else {
         continue
       }
       let sheets = AXMessagingTimeoutAccess.shared.withTimeout(

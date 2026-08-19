@@ -64,16 +64,8 @@ for _ in $(jot "$cycles"); do
   sleep "$settle"
 done
 
-for _ in $(jot 10); do
-  status="$($cli status)"
-  if printf '%s\n' "$status" | grep -q ' timerHz=2 ' \
-    && printf '%s\n' "$status" | grep -q ' axPending=false ' \
-    && printf '%s\n' "$status" | grep -q ' focusPending=false '
-  then
-    break
-  fi
-  sleep 0.5
-done
+wait_until_ready
+status="$($cli status)"
 printf '%s\n' "$status" | tr ' ' '\n' | grep -E \
   '^(workspace=|focused=|timerHz=|slowApps=|slowAppDetails=|axAppDetails=|snapshotP50/P95=|commandLatency=|input(Plan|Write|Observed|Converged|Focus)N)'
 

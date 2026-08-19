@@ -88,5 +88,9 @@ let package = Package(
       name: "DefiMacOSTests",
       dependencies: ["DefiMacOS", "DefiConfig", "DefiCore", "DefiModel"]
     ),
+    .testTarget(
+      name: "DefiDaemonTests",
+      dependencies: ["DefiDaemon", "DefiModel"]
+    ),
   ]
 )
