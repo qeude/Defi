@@ -22,6 +22,10 @@ func transientOwnerResolutionRetryDeadline(
   return now + transientOwnerResolutionRetryDelay(afterAttempt: attempt)
 }
 
+func transientOwnerResolutionShouldClearCachedOwner(afterAttempt attempt: Int) -> Bool {
+  attempt >= maximumTransientOwnerResolutionAttempts
+}
+
 func transientOwnerResolutionIsDue(
   ownerKnown: Bool,
   attempts: Int,
@@ -579,9 +583,6 @@ extension MacOSPlatform {
         resolvedCandidateIDs.insert(childID)
       }
     }
-    for index in windows.indices {
-      windows[index].transientOwnerID = transientOwnerWindowIDs[windows[index].id]
-    }
     for childID in ownerLookupCandidateIDs {
       guard resolvedCandidateIDs.contains(childID) == false else {
         transientOwnerResolutionAttempts[childID] = nil
@@ -590,8 +591,14 @@ extension MacOSPlatform {
       }
       let attempt = transientOwnerResolutionAttempts[childID, default: 0] + 1
       transientOwnerResolutionAttempts[childID] = attempt
+      if transientOwnerResolutionShouldClearCachedOwner(afterAttempt: attempt) {
+        transientOwnerWindowIDs[childID] = nil
+      }
       transientOwnerResolutionRetryAfter[childID] =
         transientOwnerResolutionRetryDeadline(afterAttempt: attempt, now: now)
+    }
+    for index in windows.indices {
+      windows[index].transientOwnerID = transientOwnerWindowIDs[windows[index].id]
     }
   }
 }

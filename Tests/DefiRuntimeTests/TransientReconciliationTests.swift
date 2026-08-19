@@ -6,6 +6,71 @@ import Testing
 
 struct TransientReconciliationTests {
   @Test
+  func ownerlessTransientDoesNotFollowAnotherInstanceOfTheSameApplication() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    let selected = Window(
+      id: WindowID(rawValue: 1),
+      appID: "editor",
+      title: "Other instance",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      processID: 200,
+      monitorID: monitorID
+    )
+    try discoverWindow(selected, decision: RuleDecision(), state: &state)
+    let transient = Window(
+      id: WindowID(rawValue: 2),
+      appID: "editor",
+      title: "Sheet",
+      frame: Rect(x: 100, y: 100, width: 300, height: 200),
+      processID: 100,
+      isModal: true,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+
+    #expect(transientPlacementLocation(for: transient, state: state) == nil)
+  }
+
+  @Test
+  func movingTransientToWorkspaceMovesItsWholeOwnershipChain() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let targetWorkspace = WorkspaceID(rawValue: "web")
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", targetWorkspace.rawValue]))
+    )
+    state.attachMonitor(monitorID)
+    let owner = Window(
+      id: WindowID(rawValue: 1),
+      appID: "editor",
+      title: "Document",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    let transient = Window(
+      id: WindowID(rawValue: 2),
+      appID: "editor",
+      title: "Sheet",
+      frame: Rect(x: 100, y: 100, width: 300, height: 200),
+      transientOwnerID: owner.id,
+      isModal: true,
+      monitorID: monitorID,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    try discoverWindow(owner, decision: RuleDecision(), state: &state)
+    try discoverWindow(transient, decision: RuleDecision(), state: &state)
+    _ = focusWindow(transient.id, state: &state)
+
+    try reduce(.moveWindowToWorkspace(targetWorkspace), on: monitorID, state: &state)
+
+    #expect(state.location(containing: owner.id)?.workspaceID == targetWorkspace)
+    #expect(state.location(containing: transient.id)?.workspaceID == targetWorkspace)
+    #expect(state.selectedWindowID(on: monitorID) == transient.id)
+  }
+
+  @Test
   func delayedOwnershipRebasesSuspendedTiledPlacement() throws {
     let sourceMonitor = MonitorID(rawValue: 1)
     let targetMonitor = MonitorID(rawValue: 2)

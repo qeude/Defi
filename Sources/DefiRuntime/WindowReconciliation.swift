@@ -90,7 +90,9 @@ public func transientPlacementLocation(
   }
   let sameApplicationSelections = state.monitors.compactMap { monitor -> WindowID? in
     guard let selected = state.selectedWindowID(on: monitor.id),
-      state.windows[selected]?.appID == window.appID
+      let selectedWindow = state.windows[selected],
+      selectedWindow.appID == window.appID,
+      window.processID.map({ selectedWindow.processID == $0 }) ?? true
     else { return nil }
     return selected
   }

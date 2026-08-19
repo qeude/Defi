@@ -469,42 +469,65 @@ private func moveFocusedWindow(
   guard let sourceIndex, let targetIndex else {
     throw ReducerError.unknownWorkspace(workspaceID)
   }
+  guard sourceIndex != targetIndex else { return }
   let source = state.monitors[monitorIndex].workspaces[sourceIndex]
-  if let windowID = effectiveSelectedFloatingWindowID(in: source) {
-    state.suspendedTiledPlacements[windowID] = nil
-    removeWindow(
-      windowID,
-      from: &state.monitors[monitorIndex].workspaces[sourceIndex],
-      settings: state.layout
-    )
-    state.monitors[monitorIndex].workspaces[targetIndex].floatingWindows.append(windowID)
-    state.monitors[monitorIndex].workspaces[targetIndex].focusedFloatingWindow =
-      state.monitors[monitorIndex].workspaces[targetIndex].floatingWindows.count - 1
-    state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .floating
-    if follow {
-      state.monitors[monitorIndex].activeWorkspace = workspaceID
+  let selectedWindowID: WindowID
+  if let floatingWindowID = effectiveSelectedFloatingWindowID(in: source) {
+    selectedWindowID = floatingWindowID
+  } else {
+    guard source.columns.indices.contains(source.focusedColumn) else {
+      throw ReducerError.noFocusedWindow
     }
-    return
+    let column = source.columns[source.focusedColumn]
+    guard column.windows.indices.contains(column.focusedWindow) else {
+      throw ReducerError.noFocusedWindow
+    }
+    selectedWindowID = column.windows[column.focusedWindow]
   }
-  guard source.columns.indices.contains(source.focusedColumn) else {
-    throw ReducerError.noFocusedWindow
+
+  let rootWindowID = transientRootWindowID(selectedWindowID, windows: state.windows)
+  let movedWindowIDs = transientDescendants(of: [rootWindowID], windows: state.windows)
+    .union([rootWindowID])
+  let orderedMovedWindowIDs = state.monitors[monitorIndex].workspaces.flatMap {
+    $0.columns.flatMap(\.windows) + $0.floatingWindows
+  }.filter(movedWindowIDs.contains)
+
+  for windowID in orderedMovedWindowIDs {
+    removeWindowFromEveryWorkspace(windowID, state: &state)
+    if state.windows[windowID]?.floating == true
+      && state.windows[windowID]?.forceTiling != true
+    {
+      state.monitors[monitorIndex].workspaces[targetIndex].floatingWindows.append(windowID)
+    } else {
+      insertNewWindow(
+        windowID,
+        into: &state.monitors[monitorIndex].workspaces[targetIndex],
+        settings: state.layout,
+        focusInsertedWindow: windowID == selectedWindowID
+      )
+    }
+    if let placement = state.suspendedTiledPlacements[windowID] {
+      if state.windows[windowID]?.floatingOrigin == .automatic {
+        state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+          monitorID: placement.monitorID,
+          workspaceID: workspaceID,
+          columnIndex: placement.columnIndex,
+          windowIndex: placement.windowIndex,
+          column: placement.column
+        )
+      } else {
+        state.suspendedTiledPlacements[windowID] = nil
+      }
+    }
   }
-  let column = source.columns[source.focusedColumn]
-  guard column.windows.indices.contains(column.focusedWindow) else {
-    throw ReducerError.noFocusedWindow
+  if let selectedIndex = state.monitors[monitorIndex].workspaces[targetIndex]
+    .floatingWindows.firstIndex(of: selectedWindowID)
+  {
+    state.monitors[monitorIndex].workspaces[targetIndex].focusedFloatingWindow = selectedIndex
+    state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .floating
+  } else {
+    state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .tiled
   }
-  let windowID = column.windows[column.focusedWindow]
-  removeWindow(
-    windowID,
-    from: &state.monitors[monitorIndex].workspaces[sourceIndex],
-    settings: state.layout
-  )
-  insertNewWindow(
-    windowID,
-    into: &state.monitors[monitorIndex].workspaces[targetIndex],
-    settings: state.layout
-  )
-  state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .tiled
   if follow {
     state.monitors[monitorIndex].activeWorkspace = workspaceID
   }

@@ -122,6 +122,12 @@ struct PlatformEventTests {
   }
 
   @Test
+  func repeatedNegativeTransientOwnerResolutionEventuallyClearsCachedOwner() {
+    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 7) == false)
+    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 8))
+  }
+
+  @Test
   func transientOwnerRetryClampsWindowRefreshToItsDeadline() {
     #expect(
       transientOwnerResolutionRefreshInterval(
