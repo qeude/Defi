@@ -321,6 +321,7 @@ private func moveFocusedSelectionToMonitor(
   let widthScale = sourceViewport.flatMap { source in
     targetViewport.map { $0.width / max(source.width, 1) }
   } ?? 1
+  var transferredColumnIndex: Int?
   if var column = transferredColumn {
     scalePixelWidths(in: &column, by: widthScale)
     let insertionIndex = min(
@@ -335,6 +336,7 @@ private func moveFocusedSelectionToMonitor(
       .focusedColumn = insertionIndex
     state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
       .focusedLayer = .tiled
+    transferredColumnIndex = insertionIndex
   }
 
   let transferredWindowIDs = transferredColumn.map { Set($0.windows) } ?? []
@@ -375,7 +377,18 @@ private func moveFocusedSelectionToMonitor(
     settings: state.layout
   )
   for windowID in orderedMovedWindowIDs {
-    state.suspendedTiledPlacements[windowID] = nil
+    if let placement = state.suspendedTiledPlacements[windowID] {
+      var column = placement.column
+      scalePixelWidths(in: &column, by: widthScale)
+      state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+        monitorID: targetMonitorID,
+        workspaceID: state.monitors[targetMonitorIndex]
+          .workspaces[targetWorkspaceIndex].id,
+        columnIndex: transferredColumnIndex ?? placement.columnIndex,
+        windowIndex: placement.windowIndex,
+        column: column
+      )
+    }
     state.windows[windowID]?.monitorID = targetMonitorID
     if state.windows[windowID]?.floating == true,
       let sourceViewport,

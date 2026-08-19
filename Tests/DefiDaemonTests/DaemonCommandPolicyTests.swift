@@ -5,6 +5,34 @@ import Testing
 
 struct DaemonCommandPolicyTests {
   @Test
+  func workspaceMutationUsesTheCommandMonitorFloatingWindows() {
+    let activeMonitor = MonitorID(rawValue: 1)
+    let commandMonitor = MonitorID(rawValue: 2)
+    let activeFloating = WindowID(rawValue: 10)
+    let commandFloating = WindowID(rawValue: 20)
+    let workspaceID = WorkspaceID(rawValue: "dev")
+    let monitors = [
+      Monitor(
+        id: activeMonitor,
+        workspaces: [Workspace(id: workspaceID, floatingWindows: [activeFloating])],
+        activeWorkspace: workspaceID
+      ),
+      Monitor(
+        id: commandMonitor,
+        workspaces: [Workspace(id: workspaceID, floatingWindows: [commandFloating])],
+        activeWorkspace: workspaceID
+      ),
+    ]
+
+    #expect(
+      floatingWindowIDsForWorkspaceMutation(
+        monitors: monitors,
+        monitorID: commandMonitor
+      ) == [commandFloating]
+    )
+  }
+
+  @Test
   func crossMonitorMoveRefreshesEveryPreviousMonitor() {
     let source = MonitorID(rawValue: 1)
     let destination = MonitorID(rawValue: 2)

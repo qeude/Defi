@@ -511,6 +511,91 @@ struct MonitorMoveFocusTests {
   }
 
   @Test
+  func movingOwnerPreservesAutomaticTransientStackPlacement() throws {
+    let sourceID = MonitorID(rawValue: 1)
+    let targetID = MonitorID(rawValue: 2)
+    let workspaceID = WorkspaceID(rawValue: "dev")
+    let ownerID = WindowID(rawValue: 1)
+    let transientID = WindowID(rawValue: 2)
+    let config = Config(workspaces: WorkspacesConfig(names: [workspaceID.rawValue]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(sourceID)
+    state.attachMonitor(targetID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: ownerID, width: .pixels(500))
+    ]
+    state.monitors[0].workspaces[0].floatingWindows = [transientID]
+    state.windows = [
+      ownerID: Window(
+        id: ownerID,
+        appID: "app",
+        title: "Owner",
+        frame: Rect(x: 0, y: 0, width: 500, height: 700),
+        monitorID: sourceID
+      ),
+      transientID: Window(
+        id: transientID,
+        appID: "app",
+        title: "Dialog",
+        frame: Rect(x: 100, y: 100, width: 300, height: 200),
+        transientOwnerID: ownerID,
+        monitorID: sourceID,
+        floating: true,
+        floatingOrigin: .automatic
+      ),
+    ]
+    state.suspendedTiledPlacements[transientID] = SuspendedTiledPlacement(
+      monitorID: sourceID,
+      workspaceID: workspaceID,
+      columnIndex: 0,
+      windowIndex: 1,
+      column: Column(
+        windows: [ownerID, transientID],
+        focusedWindow: 0,
+        width: .pixels(500)
+      )
+    )
+
+    try reduce(
+      .moveColumnToMonitor(.right),
+      on: sourceID,
+      state: &state,
+      monitorFrames: [
+        sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 2_000, height: 1_000),
+      ],
+      viewports: [
+        sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 2_000, height: 1_000),
+      ]
+    )
+
+    let placement = try #require(state.suspendedTiledPlacements[transientID])
+    #expect(placement.monitorID == targetID)
+    #expect(placement.workspaceID == workspaceID)
+    #expect(placement.columnIndex == 0)
+    #expect(placement.column.width == .pixels(1_000))
+
+    var observedTransient = try #require(state.windows[transientID])
+    observedTransient.floating = false
+    _ = reconcileWindows(
+      [try #require(state.windows[ownerID]), observedTransient],
+      config: config,
+      state: &state
+    )
+
+    #expect(
+      state.monitors[1].workspaces[0].columns == [
+        Column(
+          windows: [ownerID, transientID],
+          focusedWindow: 0,
+          width: .pixels(1_000)
+        )
+      ]
+    )
+  }
+
+  @Test
   func movingTheLastColumnKeepsSourceFocusOnItsLastRemainingColumn() throws {
     let sourceID = MonitorID(rawValue: 1)
     let targetID = MonitorID(rawValue: 2)

@@ -101,18 +101,15 @@ func updateFloatingWindowFrames(
     }
   }
 
-  func refreshFloatingWindowFramesBeforeWorkspaceMutation() {
-    guard
-      let monitorID = activeMonitorID ?? state.monitors.first?.id,
-      let monitor = state.monitors.first(where: { $0.id == monitorID }),
-      let workspace = monitor.workspaces.first(where: {
-        $0.id == monitor.activeWorkspace
-      })
-    else {
-      return
-    }
+  func refreshFloatingWindowFramesBeforeWorkspaceMutation(
+    on monitorID: MonitorID?
+  ) {
+    guard let monitorID else { return }
     for (windowID, frame) in platform.userAdjustedFrames(
-      for: Set(workspace.floatingWindows)
+      for: floatingWindowIDsForWorkspaceMutation(
+        monitors: state.monitors,
+        monitorID: monitorID
+      )
     ) {
       floatingWindowFrames[windowID] = frame
       platform.acceptObservedFrame(frame, for: windowID)
@@ -166,6 +163,18 @@ func updateFloatingWindowFrames(
       0
     )
   }
+}
+
+func floatingWindowIDsForWorkspaceMutation(
+  monitors: [Monitor],
+  monitorID: MonitorID
+) -> Set<WindowID> {
+  guard let monitor = monitors.first(where: { $0.id == monitorID }),
+    let workspace = monitor.workspaces.first(where: {
+      $0.id == monitor.activeWorkspace
+    })
+  else { return [] }
+  return Set(workspace.floatingWindows)
 }
 
 func rebasedFloatingWindowFrames(

@@ -41,12 +41,10 @@ public func rebasedFloatingFrame(
     max((frame.y - previousViewport.y) / previousVerticalRange, 0),
     1
   )
-  let width = min(frame.width, nextViewport.width)
-  let height = min(frame.height, nextViewport.height)
   return Rect(
-    x: nextViewport.x + horizontalProgress * max(nextViewport.width - width, 0),
-    y: nextViewport.y + verticalProgress * max(nextViewport.height - height, 0),
-    width: width,
-    height: height
+    x: nextViewport.x + horizontalProgress * max(nextViewport.width - frame.width, 0),
+    y: nextViewport.y + verticalProgress * max(nextViewport.height - frame.height, 0),
+    width: frame.width,
+    height: frame.height
   )
 }

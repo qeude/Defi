@@ -87,7 +87,9 @@ struct IPCCompletionTests {
       .appending(path: "defi-ipc-\(UUID().uuidString).sock")
     let server = try UnixSocketServer(url: url)
     let clientQueue = DispatchQueue(label: "defi.ipc.tests")
-    let state = Mutex((handlerFinished: false, completionObservedHandler: false))
+    let handlerFinished = Mutex(false)
+    let (completionEvents, completionEventsContinuation) =
+      AsyncStream<Bool>.makeStream()
     let responseTask = Task.detached {
       try sendCommand("quit", to: url)
     }
@@ -97,14 +99,14 @@ struct IPCCompletionTests {
       accepted = try server.poll(
         on: clientQueue,
         handler: { request in
-          state.withLock { $0.handlerFinished = true }
+          handlerFinished.withLock { $0 = true }
           return .success(request.command)
         },
         completion: { request in
-          state.withLock {
-            $0.completionObservedHandler =
-              $0.handlerFinished && request.command == "quit"
-          }
+          completionEventsContinuation.yield(
+            handlerFinished.withLock { $0 } && request.command == "quit"
+          )
+          completionEventsContinuation.finish()
         }
       )
       if accepted == false {
@@ -114,7 +116,8 @@ struct IPCCompletionTests {
 
     #expect(accepted)
     #expect(try await responseTask.value == .success("quit"))
-    #expect(state.withLock { $0.completionObservedHandler })
+    var completionIterator = completionEvents.makeAsyncIterator()
+    #expect(await completionIterator.next() == true)
   }
 
   @Test

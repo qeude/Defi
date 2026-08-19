@@ -231,7 +231,7 @@ extension Daemon {
         rebaseActiveScrollOffsetToDisplayedFrames()
       }
       if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors {
-        refreshFloatingWindowFramesBeforeWorkspaceMutation()
+        refreshFloatingWindowFramesBeforeWorkspaceMutation(on: commandMonitorID)
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25

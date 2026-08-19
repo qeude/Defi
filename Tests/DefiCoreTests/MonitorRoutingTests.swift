@@ -29,4 +29,15 @@ struct MonitorRoutingTests {
       ) == Rect(x: 1_900, y: 400, width: 200, height: 200)
     )
   }
+
+  @Test
+  func oversizedFloatingFrameKeepsItsSizeOnASmallerMonitor() {
+    #expect(
+      rebasedFloatingFrame(
+        Rect(x: 0, y: 0, width: 1_200, height: 900),
+        from: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        to: Rect(x: 1_000, y: 0, width: 600, height: 500)
+      ) == Rect(x: 1_000, y: 0, width: 1_200, height: 900)
+    )
+  }
 }
