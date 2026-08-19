@@ -72,6 +72,7 @@ struct PlatformEventTests {
     #expect(
       transientOwnerResolutionIsDue(
         ownerKnown: false,
+        attempts: 1,
         retryAfter: 12,
         now: 11
       ) == false
@@ -79,6 +80,7 @@ struct PlatformEventTests {
     #expect(
       transientOwnerResolutionIsDue(
         ownerKnown: false,
+        attempts: 1,
         retryAfter: 12,
         now: 12
       )
@@ -86,6 +88,7 @@ struct PlatformEventTests {
     #expect(
       transientOwnerResolutionIsDue(
         ownerKnown: true,
+        attempts: 1,
         retryAfter: 12,
         now: 11
       ) == false
@@ -93,9 +96,28 @@ struct PlatformEventTests {
     #expect(
       transientOwnerResolutionIsDue(
         ownerKnown: true,
+        attempts: 1,
         retryAfter: 12,
         now: 12
       )
+    )
+  }
+
+  @Test
+  func unresolvedTransientOwnershipEventuallyReturnsToIdleCadence() {
+    #expect(
+      transientOwnerResolutionRetryDeadline(afterAttempt: 7, now: 10) == 15
+    )
+    #expect(
+      transientOwnerResolutionRetryDeadline(afterAttempt: 8, now: 10) == nil
+    )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: false,
+        attempts: 8,
+        retryAfter: nil,
+        now: 10
+      ) == false
     )
   }
 

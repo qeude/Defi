@@ -7,18 +7,33 @@ import DefiModel
 import OSLog
 
 private let snapshotAccessibilityTimeoutSeconds: Float = 0.05
+private let maximumTransientOwnerResolutionAttempts = 8
 
 func transientOwnerResolutionRetryDelay(afterAttempt attempt: Int) -> TimeInterval {
   guard attempt >= 2 else { return 0 }
   return min(pow(2, Double(attempt - 2)), 5)
 }
 
+func transientOwnerResolutionRetryDeadline(
+  afterAttempt attempt: Int,
+  now: TimeInterval
+) -> TimeInterval? {
+  guard attempt < maximumTransientOwnerResolutionAttempts else { return nil }
+  return now + transientOwnerResolutionRetryDelay(afterAttempt: attempt)
+}
+
 func transientOwnerResolutionIsDue(
   ownerKnown: Bool,
+  attempts: Int,
   retryAfter: TimeInterval?,
   now: TimeInterval
 ) -> Bool {
-  (ownerKnown == false || retryAfter != nil) && (retryAfter ?? 0) <= now
+  guard
+    retryAfter != nil
+      || (ownerKnown == false
+        && attempts < maximumTransientOwnerResolutionAttempts)
+  else { return false }
+  return (retryAfter ?? 0) <= now
 }
 
 func transientOwnerResolutionRefreshInterval(
@@ -510,6 +525,7 @@ extension MacOSPlatform {
       candidateIDs.filter {
         transientOwnerResolutionIsDue(
           ownerKnown: transientOwnerWindowIDs[$0] != nil,
+          attempts: transientOwnerResolutionAttempts[$0, default: 0],
           retryAfter: transientOwnerResolutionRetryAfter[$0],
           now: now
         )
@@ -575,7 +591,7 @@ extension MacOSPlatform {
       let attempt = transientOwnerResolutionAttempts[childID, default: 0] + 1
       transientOwnerResolutionAttempts[childID] = attempt
       transientOwnerResolutionRetryAfter[childID] =
-        now + transientOwnerResolutionRetryDelay(afterAttempt: attempt)
+        transientOwnerResolutionRetryDeadline(afterAttempt: attempt, now: now)
     }
   }
 }

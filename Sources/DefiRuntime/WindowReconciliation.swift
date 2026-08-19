@@ -197,10 +197,16 @@ public func reconcileWindows(
         }
       }
       state.windows[window.id] = updated
-      if relocateTransientIfNeeded(window.id, state: &state) {
-        relocatedTransientIDs.insert(window.id)
-      }
     }
+  }
+  // ponytail: bounded convergence scan; owner-ordering can replace it if deep chains become common.
+  for _ in discovered.indices {
+    var relocatedInPass = false
+    for window in discovered where relocateTransientIfNeeded(window.id, state: &state) {
+      relocatedTransientIDs.insert(window.id)
+      relocatedInPass = true
+    }
+    if relocatedInPass == false { break }
   }
   return relocatedTransientIDs
 }

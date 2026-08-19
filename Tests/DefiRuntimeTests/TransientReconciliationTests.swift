@@ -5,6 +5,55 @@ import Testing
 
 struct TransientReconciliationTests {
   @Test
+  func newlyDiscoveredTransientChainConvergesRegardlessOfSnapshotOrder() {
+    let firstMonitor = MonitorID(rawValue: 1)
+    let secondMonitor = MonitorID(rawValue: 2)
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(firstMonitor)
+    state.attachMonitor(secondMonitor)
+    let owner = Window(
+      id: WindowID(rawValue: 1),
+      appID: "editor",
+      title: "Owner",
+      frame: Rect(x: 1_000, y: 0, width: 600, height: 800),
+      monitorID: secondMonitor
+    )
+    let sheet = Window(
+      id: WindowID(rawValue: 2),
+      appID: "editor",
+      title: "Sheet",
+      frame: Rect(x: 100, y: 100, width: 300, height: 200),
+      transientOwnerID: owner.id,
+      isModal: true,
+      monitorID: firstMonitor,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    let child = Window(
+      id: WindowID(rawValue: 3),
+      appID: "editor",
+      title: "Child sheet",
+      frame: Rect(x: 120, y: 120, width: 250, height: 180),
+      transientOwnerID: sheet.id,
+      isModal: true,
+      monitorID: firstMonitor,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+
+    let relocated = reconcileWindows(
+      [child, sheet, owner],
+      config: config,
+      state: &state
+    )
+
+    #expect(relocated == [child.id, sheet.id])
+    #expect(state.location(containing: sheet.id)?.monitorID == secondMonitor)
+    #expect(state.location(containing: child.id)?.monitorID == secondMonitor)
+  }
+
+  @Test
   func delayedOwnershipRelocatesTransientToOwnerWorkspace() throws {
     let firstMonitor = MonitorID(rawValue: 1)
     let secondMonitor = MonitorID(rawValue: 2)
