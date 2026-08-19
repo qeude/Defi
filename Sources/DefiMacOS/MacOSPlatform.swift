@@ -12,6 +12,7 @@ public final class MacOSPlatform {
   var processIDs: [WindowID: pid_t] = [:]
   var transientOwnerWindowIDs: [WindowID: WindowID] = [:]
   var transientOwnerResolutionAttempts: [WindowID: Int] = [:]
+  var transientOwnerResolutionRetryAfter: [WindowID: TimeInterval] = [:]
   var floatingWindowIDs = Set<WindowID>()
   var applications: [pid_t: AXUIElement] = [:]
   var applicationIDsByProcess: [pid_t: String] = [:]

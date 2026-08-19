@@ -1,6 +1,7 @@
 import DefiConfig
 import DefiCore
 import DefiModel
+import Testing
 import XCTest
 
 @testable import DefiRuntime
@@ -428,5 +429,45 @@ final class RuntimeMonitorTests: XCTestCase {
 
   private func windowID(_ rawValue: UInt64) -> WindowID {
     WindowID(rawValue: rawValue)
+  }
+}
+
+struct MonitorMoveFocusTests {
+  @Test
+  func movingTheLastColumnKeepsSourceFocusOnItsLastRemainingColumn() throws {
+    let sourceID = MonitorID(rawValue: 1)
+    let targetID = MonitorID(rawValue: 2)
+    let windowIDs = (1...3).map { WindowID(rawValue: UInt64($0)) }
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    )
+    state.attachMonitor(sourceID)
+    state.attachMonitor(targetID)
+    state.monitors[0].workspaces[0].columns = windowIDs.map {
+      Column(window: $0, width: .fraction(0.5))
+    }
+    state.monitors[0].workspaces[0].focusedColumn = 2
+    state.windows = Dictionary(uniqueKeysWithValues: windowIDs.map {
+      ($0, Window(
+        id: $0,
+        appID: "app",
+        title: "Window \($0.rawValue)",
+        frame: Rect(x: 0, y: 0, width: 500, height: 700),
+        monitorID: sourceID
+      ))
+    })
+
+    try reduce(
+      .moveColumnToMonitor(.right),
+      on: sourceID,
+      state: &state,
+      monitorFrames: [
+        sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+      ]
+    )
+
+    #expect(state.monitors[0].workspaces[0].focusedColumn == 1)
+    #expect(state.selectedWindowID(on: sourceID) == windowIDs[1])
   }
 }

@@ -8,6 +8,19 @@ import OSLog
 
 private let snapshotAccessibilityTimeoutSeconds: Float = 0.05
 
+func transientOwnerResolutionRetryDelay(afterAttempt attempt: Int) -> TimeInterval {
+  guard attempt >= 2 else { return 0 }
+  return min(pow(2, Double(attempt - 2)), 5)
+}
+
+func transientOwnerResolutionIsDue(
+  ownerKnown: Bool,
+  retryAfter: TimeInterval?,
+  now: TimeInterval
+) -> Bool {
+  ownerKnown == false && (retryAfter ?? 0) <= now
+}
+
 struct SnapshotWindowDiscoveryResult {
   let nextElements: [WindowID: AXUIElement]
   let nextProcessIDs: [WindowID: pid_t]
@@ -446,12 +459,25 @@ extension MacOSPlatform {
     transientOwnerResolutionAttempts = transientOwnerResolutionAttempts.filter {
       liveWindowIDs.contains($0.key)
     }
+    transientOwnerResolutionRetryAfter = transientOwnerResolutionRetryAfter.filter {
+      liveWindowIDs.contains($0.key)
+    }
     let candidateIDs = Set(windows.compactMap { window in
       window.isModal || window.floatingOrigin == .automatic ? window.id : nil
     })
+    transientOwnerResolutionAttempts = transientOwnerResolutionAttempts.filter {
+      candidateIDs.contains($0.key)
+    }
+    transientOwnerResolutionRetryAfter = transientOwnerResolutionRetryAfter.filter {
+      candidateIDs.contains($0.key)
+    }
+    let now = ProcessInfo.processInfo.systemUptime
     let unresolvedCandidateIDs = candidateIDs.filter {
-      transientOwnerWindowIDs[$0] == nil
-        && transientOwnerResolutionAttempts[$0, default: 0] < 2
+      transientOwnerResolutionIsDue(
+        ownerKnown: transientOwnerWindowIDs[$0] != nil,
+        retryAfter: transientOwnerResolutionRetryAfter[$0],
+        now: now
+      )
     }
     for childID in unresolvedCandidateIDs {
       guard let child = elements[childID] else { continue }
@@ -497,7 +523,15 @@ extension MacOSPlatform {
       windows[index].transientOwnerID = transientOwnerWindowIDs[windows[index].id]
     }
     for childID in unresolvedCandidateIDs {
-      transientOwnerResolutionAttempts[childID, default: 0] += 1
+      guard transientOwnerWindowIDs[childID] == nil else {
+        transientOwnerResolutionAttempts[childID] = nil
+        transientOwnerResolutionRetryAfter[childID] = nil
+        continue
+      }
+      let attempt = transientOwnerResolutionAttempts[childID, default: 0] + 1
+      transientOwnerResolutionAttempts[childID] = attempt
+      transientOwnerResolutionRetryAfter[childID] =
+        now + transientOwnerResolutionRetryDelay(afterAttempt: attempt)
     }
   }
 }

@@ -284,6 +284,16 @@ private func moveFocusedSelectionToMonitor(
   if let rootColumnIndex, movesColumn {
     state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
       .columns.remove(at: rootColumnIndex)
+    let remainingColumnCount = state.monitors[sourceMonitorIndex]
+      .workspaces[sourceWorkspaceIndex].columns.count
+    state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+      .focusedColumn = remainingColumnCount == 0
+      ? 0
+      : min(
+        state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+          .focusedColumn,
+        remainingColumnCount - 1
+      )
     repairWorkspaceScroll(
       &state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex],
       settings: state.layout

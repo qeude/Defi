@@ -1,6 +1,8 @@
 @testable import DefiIPC
 import Darwin
 import Foundation
+import Synchronization
+import Testing
 import XCTest
 
 final class IPCTests: XCTestCase {
@@ -75,5 +77,58 @@ final class IPCTests: XCTestCase {
       0
     )
     XCTAssertGreaterThan(timeout.tv_sec, 0)
+  }
+}
+
+struct IPCCompletionTests {
+  @Test
+  func asynchronousCompletionRunsAfterTheRequestHandler() async throws {
+    let url = FileManager.default.temporaryDirectory
+      .appending(path: "defi-ipc-\(UUID().uuidString).sock")
+    let server = try UnixSocketServer(url: url)
+    let clientQueue = DispatchQueue(label: "defi.ipc.tests")
+    let state = Mutex((handlerFinished: false, completionObservedHandler: false))
+    let responseTask = Task.detached {
+      try sendCommand("quit", to: url)
+    }
+
+    var accepted = false
+    for _ in 0..<100 where accepted == false {
+      accepted = try server.poll(
+        on: clientQueue,
+        handler: { request in
+          state.withLock { $0.handlerFinished = true }
+          return .success(request.command)
+        },
+        completion: { request in
+          state.withLock {
+            $0.completionObservedHandler =
+              $0.handlerFinished && request.command == "quit"
+          }
+        }
+      )
+      if accepted == false {
+        try await Task.sleep(for: .milliseconds(5))
+      }
+    }
+
+    #expect(accepted)
+    #expect(try await responseTask.value == .success("quit"))
+    #expect(state.withLock { $0.completionObservedHandler })
+  }
+
+  @Test
+  func oversizedResponseIsTruncatedWithinTheProtocolLimit() throws {
+    let original = CommandResponse.success(
+      String(repeating: "trace \\\"value\\\"\n", count: 8_000)
+    )
+
+    let data = try encodedResponseForIPC(original)
+    let decoded = try JSONDecoder().decode(CommandResponse.self, from: data)
+
+    #expect(data.count <= 65_536)
+    #expect(decoded.ok)
+    #expect(decoded.message.hasPrefix("[truncated]\n"))
+    #expect(original.message.hasSuffix(decoded.message.dropFirst("[truncated]\n".count)))
   }
 }

@@ -167,6 +167,34 @@ struct PointerFocusTests {
   }
 
   @Test
+  func documentModalAllowsPointerFocusInAnUnrelatedDocument() throws {
+    var state = try makeState(columnWidths: [0.25, 0.25, 0.25, 0.25])
+    let ownerID = WindowID(rawValue: 1)
+    let modalID = WindowID(rawValue: 2)
+    let unrelatedDocumentID = WindowID(rawValue: 4)
+    for windowID in [ownerID, modalID, unrelatedDocumentID] {
+      state.windows[windowID]?.appID = "app"
+    }
+    state.windows[modalID]?.isModal = true
+    state.windows[modalID]?.transientOwnerID = ownerID
+
+    #expect(modalAllowsPointerFocus(unrelatedDocumentID, state: state))
+  }
+
+  @Test
+  func ownerlessModalStillBlocksTheRestOfItsApplication() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5])
+    let modalID = WindowID(rawValue: 1)
+    let documentID = WindowID(rawValue: 2)
+    state.windows[modalID]?.appID = "app"
+    state.windows[modalID]?.isModal = true
+    state.windows[documentID]?.appID = "app"
+
+    #expect(modalAllowsPointerFocus(documentID, state: state) == false)
+    #expect(modalAllowsPointerFocus(modalID, state: state))
+  }
+
+  @Test
   func alreadySelectedPointerTargetCanRestoreNativeFocus() throws {
     var state = try makeState(columnWidths: [0.4, 0.4])
     let original = state

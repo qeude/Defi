@@ -24,6 +24,8 @@ final class PlatformEventMonitor {
   private var topologyObservedWindows: [pid_t: [AXUIElement]] = [:]
   private var frameObservedWindows: [pid_t: [AXUIElement]] = [:]
   private var frameNotificationsEnabled = true
+  private var suppressedFrameProcessIDs = Set<pid_t>()
+  private var suppressedFrameRequiresFullSnapshot = false
   private var displayCallbackRegistered = false
 
   init(
@@ -336,9 +338,32 @@ final class PlatformEventMonitor {
     workspaceTokens.count == 5
   }
 
-  func setFrameNotificationsEnabled(_ enabled: Bool) {
-    guard frameNotificationsEnabled != enabled else { return }
+  func setFrameNotificationsEnabled(_ enabled: Bool) -> (
+    processIDs: Set<pid_t>, requiresFullSnapshot: Bool
+  ) {
+    guard frameNotificationsEnabled != enabled else { return ([], false) }
     frameNotificationsEnabled = enabled
+    guard enabled else {
+      suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+      suppressedFrameRequiresFullSnapshot = false
+      return ([], false)
+    }
+    let refresh = (
+      processIDs: suppressedFrameProcessIDs,
+      requiresFullSnapshot: suppressedFrameRequiresFullSnapshot
+    )
+    suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+    suppressedFrameRequiresFullSnapshot = false
+    return refresh
+  }
+
+  func recordSuppressedFrameNotification(processID: pid_t?) {
+    guard frameNotificationsEnabled == false else { return }
+    if let processID {
+      suppressedFrameProcessIDs.insert(processID)
+    } else {
+      suppressedFrameRequiresFullSnapshot = true
+    }
   }
 
   private func observer(for processID: pid_t) -> AXObserver? {
@@ -364,7 +389,12 @@ final class PlatformEventMonitor {
           case kAXFocusedWindowChangedNotification:
             monitor.handler(.focus, normalizedProcessID)
           case kAXMovedNotification, kAXResizedNotification:
-            guard monitor.frameNotificationsEnabled else { return }
+            guard monitor.frameNotificationsEnabled else {
+              monitor.recordSuppressedFrameNotification(
+                processID: normalizedProcessID
+              )
+              return
+            }
             monitor.frameHandler(element)
             monitor.handler(.frame, normalizedProcessID)
           case kAXUIElementDestroyedNotification:

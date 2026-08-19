@@ -482,7 +482,7 @@ extension MacOSPlatform {
   }
 
   public func setFrameNotificationsEnabled(_ enabled: Bool) {
-    eventMonitor?.setFrameNotificationsEnabled(enabled)
+    let suppressedRefresh = eventMonitor?.setFrameNotificationsEnabled(enabled)
     guard enabled else { return }
     invalidatePreparedAXWindowAttributes()
     // Notifications were ignored while animated writes ran. Force fresh reads
@@ -494,6 +494,12 @@ extension MacOSPlatform {
     pendingFrameProcessIDs.formUnion(
       committedProcessIDs.isEmpty ? lastSnapshotProcessIDs : committedProcessIDs
     )
+    if let suppressedRefresh {
+      pendingFrameProcessIDs.formUnion(suppressedRefresh.processIDs)
+      pendingFrameRequiresFullSnapshot =
+        pendingFrameRequiresFullSnapshot
+        || suppressedRefresh.requiresFullSnapshot
+    }
   }
 
   public var isLeftMouseButtonDown: Bool {

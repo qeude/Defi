@@ -165,13 +165,26 @@ public func modalAllowsPointerFocus(
       && state.windows[$0]?.isModal == true
   })
   guard !modalIDs.isEmpty else { return true }
+  var ancestry = Set<WindowID>()
   var candidate: WindowID? = windowID
-  var visited = Set<WindowID>()
-  while let current = candidate, visited.insert(current).inserted {
-    if modalIDs.contains(current) { return true }
+  while let current = candidate, ancestry.insert(current).inserted {
     candidate = state.windows[current]?.transientOwnerID
   }
-  return false
+  let ownerlessModalIDs = modalIDs.filter {
+    state.windows[$0]?.transientOwnerID == nil
+  }
+  if ownerlessModalIDs.isEmpty == false {
+    return ancestry.isDisjoint(with: ownerlessModalIDs) == false
+  }
+  if ancestry.isDisjoint(with: modalIDs) == false {
+    return true
+  }
+  return modalIDs.allSatisfy { modalID in
+    guard let ownerID = state.windows[modalID]?.transientOwnerID else {
+      return false
+    }
+    return ancestry.contains(ownerID) == false
+  }
 }
 
 public func pointerFocusRecoveryWindowID(

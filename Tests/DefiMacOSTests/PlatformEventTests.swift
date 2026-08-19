@@ -16,6 +16,28 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
+  func unresolvedTransientOwnershipKeepsRetryingWithBoundedBackoff() {
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 1) == 0)
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 2) == 1)
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 3) == 2)
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 8) == 5)
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: false,
+        retryAfter: 12,
+        now: 11
+      ) == false
+    )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: false,
+        retryAfter: 12,
+        now: 12
+      )
+    )
+  }
+
+  @Test
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
     #expect(
       applicationLifecycleRefreshDelays(for: .application)
@@ -1496,6 +1518,8 @@ struct PlatformEventTests {
   @Test @MainActor
   func resumingFrameNotificationsForcesFreshProcessReads() {
     let platform = MacOSPlatform()
+    let eventMonitor = PlatformEventMonitor(handler: { _, _ in })
+    platform.eventMonitor = eventMonitor
     platform.lastSnapshotProcessIDs = [101, 202]
     let windowID = WindowID(rawValue: 42)
     platform.processIDs[windowID] = 101
@@ -1506,11 +1530,15 @@ struct PlatformEventTests {
       deadline: 2,
       observedAt: nil
     )
+    platform.setFrameNotificationsEnabled(false)
+    eventMonitor.recordSuppressedFrameNotification(processID: 202)
+    eventMonitor.recordSuppressedFrameNotification(processID: nil)
 
     platform.setFrameNotificationsEnabled(true)
 
     #expect(platform.frameEventPending)
-    #expect(platform.pendingFrameProcessIDs == [101])
+    #expect(platform.pendingFrameProcessIDs == [101, 202])
+    #expect(platform.pendingFrameRequiresFullSnapshot)
     #expect(platform.observedFrameEventWindowIDs == [windowID])
   }
 

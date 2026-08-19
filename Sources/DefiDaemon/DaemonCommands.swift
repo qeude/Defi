@@ -16,21 +16,27 @@ private func ipcEventHandler(
   { [weak daemon] in
     do {
       for _ in 0..<16 {
-        let handled = try server.poll(on: clientQueue) { request in
-          DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
-              daemon?.handle(
-                request.command,
-                monitorIndex: request.monitorIndex
-              ) ?? .failure("daemon unavailable")
+        let handled = try server.poll(
+          on: clientQueue,
+          handler: { request in
+            DispatchQueue.main.sync {
+              MainActor.assumeIsolated {
+                daemon?.handle(
+                  request.command,
+                  monitorIndex: request.monitorIndex
+                ) ?? .failure("daemon unavailable")
+              }
+            }
+          },
+          completion: { [weak daemon] request in
+            guard request.command == "quit" else { return }
+            DispatchQueue.main.async {
+              guard let daemon, daemon.shouldShutdown else { return }
+              daemon.shutdown()
             }
           }
-        }
+        )
         if !handled { break }
-      }
-      DispatchQueue.main.async { [weak daemon] in
-        guard let daemon, daemon.shouldShutdown else { return }
-        daemon.shutdown()
       }
     } catch {
       let message = "IPC error: \(error)"
@@ -149,13 +155,14 @@ extension Daemon {
         uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }
       )
       let commandViewports = viewportsByMonitor
-      guard let validationState = try changedState(
+      let validationState = try changedState(
         after: command,
         on: commandMonitorID,
         from: state,
         monitorFrames: physicalMonitorFrames,
         viewports: commandViewports
-      ) else {
+      )
+      if validationState == nil, command.explicitlyFocusesFloating == false {
         lastCommandDurationMS =
           (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
         platform.recordPerformanceTrace(
@@ -246,7 +253,7 @@ extension Daemon {
           monitorFrames: physicalMonitorFrames,
           viewports: commandViewports
         )
-      } else {
+      } else if let validationState {
         state = validationState
       }
       let resultMonitorID = movesAcrossMonitors

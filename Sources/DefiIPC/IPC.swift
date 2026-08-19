@@ -141,6 +141,36 @@ public struct CommandResponse: Codable, Equatable, Sendable {
   }
 }
 
+private let maximumIPCMessageBytes = 65_536
+
+func encodedResponseForIPC(_ response: CommandResponse) throws -> Data {
+  let encoder = JSONEncoder()
+  let encoded = try encoder.encode(response)
+  guard encoded.count > maximumIPCMessageBytes else { return encoded }
+
+  let marker = "[truncated]\n"
+  let scalars = Array(response.message.unicodeScalars)
+  var lowerBound = 0
+  var upperBound = scalars.count
+  var best = try encoder.encode(CommandResponse(ok: response.ok, message: marker))
+  while lowerBound <= upperBound {
+    let count = (lowerBound + upperBound) / 2
+    var suffix = ""
+    suffix.unicodeScalars.append(contentsOf: scalars.suffix(count))
+    let candidate = try encoder.encode(
+      CommandResponse(ok: response.ok, message: marker + suffix)
+    )
+    if candidate.count <= maximumIPCMessageBytes {
+      best = candidate
+      lowerBound = count + 1
+    } else {
+      guard count > 0 else { break }
+      upperBound = count - 1
+    }
+  }
+  return best
+}
+
 public enum IPCError: Error, CustomStringConvertible, Sendable {
   case invalidSocketPath
   case systemCall(String, Int32)
@@ -217,7 +247,8 @@ public final class UnixSocketServer: @unchecked Sendable {
   @discardableResult
   public func poll(
     on clientQueue: DispatchQueue? = nil,
-    handler: @escaping @Sendable (CommandRequest) -> CommandResponse
+    handler: @escaping @Sendable (CommandRequest) -> CommandResponse,
+    completion: (@Sendable (CommandRequest) -> Void)? = nil
   ) throws -> Bool {
     let client = accept(descriptor, nil, nil)
     if client < 0 {
@@ -236,28 +267,37 @@ public final class UnixSocketServer: @unchecked Sendable {
     }
     if let clientQueue {
       clientQueue.async {
-        try? self.serve(client, handler: handler)
+        try? self.serve(client, handler: handler, completion: completion)
       }
     } else {
-      try serve(client, handler: handler)
+      try serve(client, handler: handler, completion: completion)
     }
     return true
   }
 
   private func serve(
     _ client: Int32,
-    handler: @Sendable (CommandRequest) -> CommandResponse
+    handler: @Sendable (CommandRequest) -> CommandResponse,
+    completion: (@Sendable (CommandRequest) -> Void)?
   ) throws {
     defer { Darwin.close(client) }
+    var completedRequest: CommandRequest?
+    defer {
+      if let completedRequest {
+        completion?(completedRequest)
+      }
+    }
     do {
       let requestData = try readLine(from: client)
       let request = try JSONDecoder().decode(CommandRequest.self, from: requestData)
-      let response = handler(request)
-      var data = try JSONEncoder().encode(response)
+      completedRequest = request
+      var data = try encodedResponseForIPC(handler(request))
       data.append(0x0A)
       try writeAll(data, to: client)
     } catch {
-      var data = try JSONEncoder().encode(CommandResponse.failure(String(describing: error)))
+      var data = try encodedResponseForIPC(
+        CommandResponse.failure(String(describing: error))
+      )
       data.append(0x0A)
       try writeAll(data, to: client)
     }
