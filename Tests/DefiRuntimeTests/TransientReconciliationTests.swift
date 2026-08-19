@@ -1,9 +1,68 @@
 import DefiConfig
 import DefiModel
-import DefiRuntime
 import Testing
 
+@testable import DefiRuntime
+
 struct TransientReconciliationTests {
+  @Test
+  func delayedOwnershipRebasesSuspendedTiledPlacement() throws {
+    let sourceMonitor = MonitorID(rawValue: 1)
+    let targetMonitor = MonitorID(rawValue: 2)
+    let web = WorkspaceID(rawValue: "web")
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", web.rawValue]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(sourceMonitor)
+    state.attachMonitor(targetMonitor)
+    var transient = Window(
+      id: WindowID(rawValue: 1),
+      appID: "editor",
+      title: "Sheet",
+      frame: Rect(x: 100, y: 100, width: 300, height: 200),
+      isModal: true,
+      monitorID: sourceMonitor,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    let owner = Window(
+      id: WindowID(rawValue: 2),
+      appID: "editor",
+      title: "Owner",
+      frame: Rect(x: 1_000, y: 0, width: 600, height: 800),
+      monitorID: targetMonitor
+    )
+    try discoverWindow(transient, decision: RuleDecision(), state: &state)
+    try discoverWindow(
+      owner,
+      decision: RuleDecision(workspace: web),
+      state: &state
+    )
+    state.suspendedTiledPlacements[transient.id] = SuspendedTiledPlacement(
+      monitorID: sourceMonitor,
+      workspaceID: WorkspaceID(rawValue: "dev"),
+      columnIndex: 1,
+      windowIndex: 0,
+      column: Column(window: transient.id, width: .pixels(500))
+    )
+
+    transient.transientOwnerID = owner.id
+    _ = reconcileWindows(
+      [transient, owner],
+      config: config,
+      viewports: [
+        sourceMonitor: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetMonitor: Rect(x: 1_000, y: 0, width: 2_000, height: 800),
+      ],
+      state: &state
+    )
+
+    let placement = try #require(state.suspendedTiledPlacements[transient.id])
+    #expect(placement.monitorID == targetMonitor)
+    #expect(placement.workspaceID == web)
+    #expect(placement.columnIndex == 1)
+    #expect(placement.column.width == .pixels(1_000))
+  }
+
   @Test
   func newlyDiscoveredTransientChainConvergesRegardlessOfSnapshotOrder() {
     let firstMonitor = MonitorID(rawValue: 1)

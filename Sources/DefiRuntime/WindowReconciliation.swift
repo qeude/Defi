@@ -144,6 +144,7 @@ public func reconcileWindows(
   config: Config,
   placementPreferences: PlacementPreferences = PlacementPreferences(),
   externallyChangedWindowIDs: Set<WindowID> = [],
+  viewports: [MonitorID: Rect] = [:],
   state: inout RuntimeState
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
@@ -202,7 +203,11 @@ public func reconcileWindows(
   // ponytail: bounded convergence scan; owner-ordering can replace it if deep chains become common.
   for _ in discovered.indices {
     var relocatedInPass = false
-    for window in discovered where relocateTransientIfNeeded(window.id, state: &state) {
+    for window in discovered where relocateTransientIfNeeded(
+      window.id,
+      viewports: viewports,
+      state: &state
+    ) {
       relocatedTransientIDs.insert(window.id)
       relocatedInPass = true
     }
@@ -214,6 +219,7 @@ public func reconcileWindows(
 @discardableResult
 private func relocateTransientIfNeeded(
   _ windowID: WindowID,
+  viewports: [MonitorID: Rect],
   state: inout RuntimeState
 ) -> Bool {
   guard let window = state.windows[windowID],
@@ -254,6 +260,24 @@ private func relocateTransientIfNeeded(
   }
   if wasSelected {
     state.monitors[targetMonitorIndex].activeWorkspace = target.workspaceID
+  }
+  if let placement = state.suspendedTiledPlacements[windowID] {
+    var column = placement.column
+    if let sourceViewport = viewports[current.monitorID],
+      let targetViewport = viewports[target.monitorID]
+    {
+      scalePixelWidths(
+        in: &column,
+        by: targetViewport.width / max(sourceViewport.width, 1)
+      )
+    }
+    state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+      monitorID: target.monitorID,
+      workspaceID: target.workspaceID,
+      columnIndex: placement.columnIndex,
+      windowIndex: placement.windowIndex,
+      column: column
+    )
   }
   state.windows[windowID]?.monitorID = target.monitorID
   return true

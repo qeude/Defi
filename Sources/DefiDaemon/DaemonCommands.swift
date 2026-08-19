@@ -233,6 +233,13 @@ extension Daemon {
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
       }
+      let inFlightAnimationMonitorIDs = Set(
+        scrollAnimations.keys.map(\.monitorID)
+      ).union(
+        platform.pendingAnimatedFrameWindowIDs.compactMap {
+          state.monitorID(containing: $0)
+        }
+      )
       let rebasesPendingFrame =
         !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites
       if rebasesPendingFrame {
@@ -357,11 +364,14 @@ extension Daemon {
       platform.recordPerformanceTrace(
         "command-ready cg=\(currentCommandGeneration) stateMs=\(String(format: "%.2f", (stateReadyAt - commandStartedAt) * 1_000)) scrollMs=\(String(format: "%.2f", (animationReadyAt - stateReadyAt) * 1_000))"
       )
-      let affectedMonitorIDs = affectedMonitorIDsForWindowMove(
-        commandMonitorID: commandMonitorID,
-        resultMonitorID: resultMonitorID,
-        previousWindowMonitorIDs: previousWindowMonitorIDs,
-        nextWindowMonitorIDs: nextWindowMonitorIDs
+      let affectedMonitorIDs = commandLayoutMonitorIDs(
+        affected: affectedMonitorIDsForWindowMove(
+          commandMonitorID: commandMonitorID,
+          resultMonitorID: resultMonitorID,
+          previousWindowMonitorIDs: previousWindowMonitorIDs,
+          nextWindowMonitorIDs: nextWindowMonitorIDs
+        ),
+        inFlightAnimations: inFlightAnimationMonitorIDs
       )
       let dispatchedAnimation =
         animatedManagedResize
@@ -575,6 +585,13 @@ extension Daemon {
       return .failure(String(describing: error))
     }
   }
+}
+
+func commandLayoutMonitorIDs(
+  affected: Set<MonitorID>,
+  inFlightAnimations: Set<MonitorID>
+) -> Set<MonitorID> {
+  affected.union(inFlightAnimations)
 }
 
 func affectedMonitorIDsForWindowMove(

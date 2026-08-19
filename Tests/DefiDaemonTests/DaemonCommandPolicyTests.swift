@@ -6,6 +6,19 @@ import Testing
 
 struct DaemonCommandPolicyTests {
   @Test
+  func localCommandResubmitsMonitorsWithInFlightAnimation() {
+    let animatedMonitor = MonitorID(rawValue: 1)
+    let commandMonitor = MonitorID(rawValue: 2)
+
+    #expect(
+      commandLayoutMonitorIDs(
+        affected: [commandMonitor],
+        inFlightAnimations: [animatedMonitor]
+      ) == [animatedMonitor, commandMonitor]
+    )
+  }
+
+  @Test
   func localLayoutSubmissionSkipsCachedMonitorAssignments() {
     let included = MonitorID(rawValue: 1)
     let excluded = MonitorID(rawValue: 2)
