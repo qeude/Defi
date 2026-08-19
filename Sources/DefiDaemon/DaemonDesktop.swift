@@ -8,6 +8,16 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+func layoutWindowIDsOutsideSubmissionScope(
+  _ plan: MonitorLayoutPlan,
+  monitorID: MonitorID,
+  restrictedTo monitorIDs: Set<MonitorID>?
+) -> Set<WindowID> {
+  monitorIDs?.contains(monitorID) == false
+    ? Set(plan.assignments.map(\.windowID))
+    : []
+}
+
 @MainActor
 extension Daemon {
   func applyCurrentLayout(
@@ -39,6 +49,7 @@ extension Daemon {
     var assignments: [FrameAssignment] = []
     var borderAssignments: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
+    var outOfScopeWindowIDs = Set<WindowID>()
     let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
     let liveMonitorIDs = Set(state.monitors.map(\.id))
     layoutPlansByMonitor = layoutPlansByMonitor.filter {
@@ -52,6 +63,7 @@ extension Daemon {
         assignments.append(contentsOf: cached.assignments)
         borderAssignments.append(contentsOf: cached.borderAssignments)
         hiddenWindowIDs.formUnion(cached.hiddenWindowIDs)
+        outOfScopeWindowIDs.formUnion(cached.assignments.map(\.windowID))
         continue
       }
       guard
@@ -124,10 +136,17 @@ extension Daemon {
       )
       layoutPlansByMonitor[monitor.id] = plan
       assignments.append(contentsOf: plan.assignments)
+      outOfScopeWindowIDs.formUnion(
+        layoutWindowIDsOutsideSubmissionScope(
+          plan,
+          monitorID: monitor.id,
+          restrictedTo: monitorIDs
+        )
+      )
       borderAssignments.append(contentsOf: plan.borderAssignments)
       hiddenWindowIDs.formUnion(plan.hiddenWindowIDs)
     }
-    let skipped = additionalSkippedWindowIDs.union(
+    let skipped = additionalSkippedWindowIDs.union(outOfScopeWindowIDs).union(
       activelyResizedWindowID.map { Set([$0]) } ?? []
     )
     let platformAssignments =

@@ -117,7 +117,7 @@ extension MacOSPlatform {
         at: ProcessInfo.processInfo.systemUptime
       )
     }
-    var writePerformance = commandPerformance
+    var writePerformanceByWindowID: [WindowID: CommandPerformanceContext] = [:]
     var animationStartPositions = startPositions
     var animationStartSizes = referenceFrames.mapValues {
       CGSize(width: $0.width, height: $0.height)
@@ -199,11 +199,8 @@ extension MacOSPlatform {
             ? expectation.command
             : nil
         }
-      if let continuedCommand,
-        writePerformance.map({ $0.generation < continuedCommand.generation })
-          ?? true
-      {
-        writePerformance = continuedCommand
+      if let writePerformance = commandPerformance ?? continuedCommand {
+        writePerformanceByWindowID[assignment.windowID] = writePerformance
       }
       frameCommitExpectations[assignment.windowID] = FrameCommitExpectation(
         from: Rect(
@@ -287,7 +284,7 @@ extension MacOSPlatform {
           )
           synchronousSizeWriteSucceeded = result == .success
           if result == .success {
-            if let writePerformance {
+            if let writePerformance = writePerformanceByWindowID[assignment.windowID] {
               recordCommandFirstWrite(
                 writePerformance,
                 at: ProcessInfo.processInfo.systemUptime
@@ -356,7 +353,7 @@ extension MacOSPlatform {
           )
           if result == .success {
             positionWriteCount += 1
-            if let writePerformance {
+            if let writePerformance = writePerformanceByWindowID[assignment.windowID] {
               recordCommandFirstWrite(
                 writePerformance,
                 at: ProcessInfo.processInfo.systemUptime
@@ -496,9 +493,14 @@ extension MacOSPlatform {
       // confirm their targets; the next layout may omit equal optimistic frames.
       pendingFrameDebtWindowIDs.formUnion(frameCoordinator.pendingWindowIDs)
     }
-    let commandSuccessfulWrite: (@Sendable (TimeInterval) -> Void)?
-    if let writePerformance {
-      commandSuccessfulWrite = { [weak self] timestamp in
+    let commandSuccessfulWrite:
+      (@Sendable (WindowID, TimeInterval) -> Void)?
+    if !writePerformanceByWindowID.isEmpty {
+      let writePerformanceByWindowID = writePerformanceByWindowID
+      commandSuccessfulWrite = { [weak self] windowID, timestamp in
+        guard let writePerformance = writePerformanceByWindowID[windowID] else {
+          return
+        }
         DispatchQueue.main.async {
           self?.recordCommandFirstWrite(writePerformance, at: timestamp)
         }

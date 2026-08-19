@@ -2,6 +2,7 @@ import DefiCore
 import DefiModel
 import Darwin
 import ApplicationServices
+import Synchronization
 import XCTest
 
 @testable import DefiMacOS
@@ -359,6 +360,49 @@ final class FrameCommitTests: XCTestCase {
     completeSupersededFrame(frame)
 
     wait(for: [completion], timeout: 0.1)
+  }
+
+  func testSuccessfulWriteReportsTheWindowThatWasWritten() {
+    let coordinator = AXFrameCoordinator()
+    let firstWindowID = WindowID(rawValue: 42)
+    let secondWindowID = WindowID(rawValue: 43)
+    let reportedWindowIDs = Mutex<[WindowID]>([])
+    let frame = QueuedPositionFrame(
+      generation: 1,
+      source: "test",
+      writes: [:],
+      animatedWindowIDs: [],
+      animationDuration: 0,
+      refreshRateHz: 60,
+      displayID: nil,
+      initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false,
+      successfulWrite: { windowID, _ in
+        reportedWindowIDs.withLock { $0.append(windowID) }
+      },
+      completion: nil
+    )
+
+    coordinator.reportSuccessfulWrite(
+      for: frame,
+      windowID: firstWindowID,
+      at: 10
+    )
+    coordinator.reportSuccessfulWrite(
+      for: frame,
+      windowID: firstWindowID,
+      at: 11
+    )
+    coordinator.reportSuccessfulWrite(
+      for: frame,
+      windowID: secondWindowID,
+      at: 12
+    )
+
+    XCTAssertEqual(
+      reportedWindowIDs.withLock { $0 },
+      [firstWindowID, secondWindowID]
+    )
   }
 
   func testReplacementFramePreservesSupersededAsyncSizeWrite() {

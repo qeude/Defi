@@ -28,6 +28,16 @@ func transientOwnerResolutionProcessIDs(
   Set(unresolvedWindowIDs.compactMap { processIDs[$0] })
 }
 
+func transientOwnerWindowIDsToRevalidate(
+  candidateIDs: Set<WindowID>,
+  processIDs: [WindowID: pid_t],
+  topologyProcessIDs: Set<pid_t>
+) -> Set<WindowID> {
+  candidateIDs.filter {
+    processIDs[$0].map(topologyProcessIDs.contains) == true
+  }
+}
+
 struct SnapshotWindowDiscoveryResult {
   let nextElements: [WindowID: AXUIElement]
   let nextProcessIDs: [WindowID: pid_t]
@@ -436,7 +446,11 @@ extension MacOSPlatform {
     resolveTransientOwners(
       windows: &windows,
       elements: nextElements,
-      processIDs: nextProcessIDs
+      processIDs: nextProcessIDs,
+      topologyProcessIDs:
+        capturedTopologyRequiresFullSnapshot
+        ? Set(nextProcessIDs.values)
+        : topologyProcessIDs
     )
     return SnapshotWindowDiscoveryResult(
       nextElements: nextElements,
@@ -457,7 +471,8 @@ extension MacOSPlatform {
   private func resolveTransientOwners(
     windows: inout [Window],
     elements: [WindowID: AXUIElement],
-    processIDs: [WindowID: pid_t]
+    processIDs: [WindowID: pid_t],
+    topologyProcessIDs: Set<pid_t>
   ) {
     let liveWindowIDs = Set(elements.keys)
     transientOwnerWindowIDs = transientOwnerWindowIDs.filter {
@@ -477,6 +492,16 @@ extension MacOSPlatform {
     }
     transientOwnerResolutionRetryAfter = transientOwnerResolutionRetryAfter.filter {
       candidateIDs.contains($0.key)
+    }
+    let revalidatedCandidateIDs = transientOwnerWindowIDsToRevalidate(
+      candidateIDs: candidateIDs,
+      processIDs: processIDs,
+      topologyProcessIDs: topologyProcessIDs
+    )
+    for childID in revalidatedCandidateIDs {
+      transientOwnerWindowIDs[childID] = nil
+      transientOwnerResolutionAttempts[childID] = nil
+      transientOwnerResolutionRetryAfter[childID] = nil
     }
     let now = ProcessInfo.processInfo.systemUptime
     let unresolvedCandidateIDs = candidateIDs.filter {

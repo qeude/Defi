@@ -34,6 +34,20 @@ struct PlatformEventTests {
   }
 
   @Test
+  func topologyEventsRevalidateTransientOwnersFromAffectedProcesses() {
+    let affectedChild = WindowID(rawValue: 1)
+    let unaffectedChild = WindowID(rawValue: 2)
+
+    #expect(
+      transientOwnerWindowIDsToRevalidate(
+        candidateIDs: [affectedChild, unaffectedChild],
+        processIDs: [affectedChild: 100, unaffectedChild: 200],
+        topologyProcessIDs: [100]
+      ) == [affectedChild]
+    )
+  }
+
+  @Test
   func unresolvedTransientOwnershipKeepsRetryingWithBoundedBackoff() {
     #expect(transientOwnerResolutionRetryDelay(afterAttempt: 1) == 0)
     #expect(transientOwnerResolutionRetryDelay(afterAttempt: 2) == 1)

@@ -72,7 +72,7 @@ extension AXFrameCoordinator {
         successfulFinalWritesByGeneration.removeValue(
           forKey: frame.generation
         ) ?? []
-      reportedSuccessfulWriteGenerations.remove(frame.generation)
+      reportedSuccessfulWriteWindowIDsByGeneration[frame.generation] = nil
       if !aborted {
         for windowID in frame.writes.keys {
           latestWriteSucceededByWindowID[windowID] =

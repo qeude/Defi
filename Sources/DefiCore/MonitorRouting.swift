@@ -13,10 +13,10 @@ public func spatialMonitor(
     let dy = frame.y + frame.height / 2 - sourceCenter.y
     let isCandidate: Bool
     switch direction {
-    case .left: isCandidate = dx < 0
-    case .right: isCandidate = dx > 0
-    case .up: isCandidate = dy < 0
-    case .down: isCandidate = dy > 0
+    case .left: isCandidate = dx < 0 && abs(dx) >= abs(dy)
+    case .right: isCandidate = dx > 0 && abs(dx) >= abs(dy)
+    case .up: isCandidate = dy < 0 && abs(dy) >= abs(dx)
+    case .down: isCandidate = dy > 0 && abs(dy) >= abs(dx)
     case .next, .previous, .first, .last: isCandidate = false
     }
     guard isCandidate else { return nil }

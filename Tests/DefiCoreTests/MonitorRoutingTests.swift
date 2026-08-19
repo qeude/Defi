@@ -20,6 +20,21 @@ struct MonitorRoutingTests {
   }
 
   @Test
+  func ignoresACloserMonitorWhoseSecondaryAxisDominates() {
+    let source = MonitorID(rawValue: 1)
+    let right = MonitorID(rawValue: 2)
+    let lowerRight = MonitorID(rawValue: 3)
+    let frames = [
+      source: Rect(x: 0, y: 0, width: 1_000, height: 800),
+      right: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+      lowerRight: Rect(x: 100, y: 800, width: 1_000, height: 800),
+    ]
+
+    #expect(spatialMonitor(from: source, toward: .right, frames: frames) == right)
+    #expect(spatialMonitor(from: source, toward: .down, frames: frames) == lowerRight)
+  }
+
+  @Test
   func floatingFrameKeepsRelativePositionAndSizeAcrossMonitors() {
     #expect(
       rebasedFloatingFrame(

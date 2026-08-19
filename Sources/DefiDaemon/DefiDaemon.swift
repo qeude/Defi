@@ -367,6 +367,7 @@ final class Daemon: NSObject {
         || pendingAnimatedFocus != nil
         || pendingWorkspaceFocus != nil
         || platform.hasPendingFocusWrite
+        || platform.hasPendingFrameWrites
         || platform.hasPendingFrameDebt
       setTimerFrequency(followUpPending ? 60 : 2)
     }

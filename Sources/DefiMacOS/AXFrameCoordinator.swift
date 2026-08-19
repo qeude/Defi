@@ -53,7 +53,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedSizes: [WindowID: CGSize] = [:]
   var recentInternalFrameWrites: [WindowID: [RecentInternalFrameWrite]] = [:]
   var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
-  var reportedSuccessfulWriteGenerations = Set<UInt64>()
+  var reportedSuccessfulWriteWindowIDsByGeneration:
+    [UInt64: Set<WindowID>] = [:]
   var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   var traceEntries: [String] = []
   var lastFrameDurationMS = 0.0
@@ -175,7 +176,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
     deferredParkingWriteGenerations.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
     successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
-    reportedSuccessfulWriteGenerations.removeAll(keepingCapacity: true)
+    reportedSuccessfulWriteWindowIDsByGeneration.removeAll(
+      keepingCapacity: true
+    )
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
@@ -202,7 +205,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     displayID: UInt64? = nil,
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
-    successfulWrite: (@Sendable (TimeInterval) -> Void)? = nil,
+    successfulWrite: (@Sendable (WindowID, TimeInterval) -> Void)? = nil,
     cursorWarpAfterWindowCommit:
       (@Sendable (WindowID, UInt64) -> Void)? = nil,
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
@@ -262,17 +265,19 @@ final class AXFrameCoordinator: @unchecked Sendable {
     }
   }
 
-  func reportFirstSuccessfulWrite(
+  func reportSuccessfulWrite(
     for frame: QueuedPositionFrame,
+    windowID: WindowID,
     at timestamp: TimeInterval
   ) {
     lock.lock()
-    let isFirst = reportedSuccessfulWriteGenerations.insert(
-      frame.generation
-    ).inserted
+    let isFirst = reportedSuccessfulWriteWindowIDsByGeneration[
+      frame.generation,
+      default: []
+    ].insert(windowID).inserted
     lock.unlock()
     if isFirst {
-      frame.successfulWrite?(timestamp)
+      frame.successfulWrite?(windowID, timestamp)
     }
   }
 

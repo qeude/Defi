@@ -47,6 +47,14 @@ private func ipcEventHandler(
   }
 }
 
+func commandFollowUpIsPending(
+  frameWrites: Bool,
+  animatedFocus: Bool,
+  workspaceFocus: Bool
+) -> Bool {
+  frameWrites || animatedFocus || workspaceFocus
+}
+
 @MainActor
 extension Daemon {
   func installIPCSource() {
@@ -550,6 +558,13 @@ extension Daemon {
       }
       persistPlacements()
       updateMenuBar()
+      if commandFollowUpIsPending(
+        frameWrites: platform.hasPendingFrameWrites,
+        animatedFocus: pendingAnimatedFocus != nil,
+        workspaceFocus: pendingWorkspaceFocus != nil
+      ) {
+        setTimerFrequency(60)
+      }
       lastCommandDurationMS =
         (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
       performanceLogger.debug(

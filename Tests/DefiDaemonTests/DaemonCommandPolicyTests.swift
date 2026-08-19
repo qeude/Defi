@@ -1,9 +1,65 @@
+import DefiCore
 import DefiModel
 import Testing
 
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test
+  func localLayoutSubmissionSkipsCachedMonitorAssignments() {
+    let included = MonitorID(rawValue: 1)
+    let excluded = MonitorID(rawValue: 2)
+    let assignment = FrameAssignment(
+      windowID: WindowID(rawValue: 10),
+      frame: Rect(x: 0, y: 0, width: 800, height: 600)
+    )
+    let plan = MonitorLayoutPlan(
+      assignments: [assignment],
+      borderAssignments: [assignment],
+      hiddenWindowIDs: []
+    )
+
+    #expect(
+      layoutWindowIDsOutsideSubmissionScope(
+        plan,
+        monitorID: included,
+        restrictedTo: [included]
+      ).isEmpty
+    )
+    #expect(
+      layoutWindowIDsOutsideSubmissionScope(
+        plan,
+        monitorID: excluded,
+        restrictedTo: [included]
+      ) == [assignment.windowID]
+    )
+  }
+
+  @Test
+  func staticFrameOrDeferredFocusKeepsCommandFollowUpResponsive() {
+    #expect(
+      commandFollowUpIsPending(
+        frameWrites: true,
+        animatedFocus: false,
+        workspaceFocus: false
+      )
+    )
+    #expect(
+      commandFollowUpIsPending(
+        frameWrites: false,
+        animatedFocus: true,
+        workspaceFocus: false
+      )
+    )
+    #expect(
+      !commandFollowUpIsPending(
+        frameWrites: false,
+        animatedFocus: false,
+        workspaceFocus: false
+      )
+    )
+  }
+
   @Test
   func workspaceMutationUsesTheCommandMonitorFloatingWindows() {
     let activeMonitor = MonitorID(rawValue: 1)
