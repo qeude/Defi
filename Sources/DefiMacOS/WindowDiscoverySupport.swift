@@ -267,7 +267,8 @@ func fallbackWindowAttributes(
   frame: () -> Rect?,
   title: () -> String?,
   role: () -> String?,
-  subrole: () -> String?
+  subrole: () -> String?,
+  modal: () -> Bool?
 ) -> AXWindowAttributes {
   let minimizedValue = minimized()
   guard minimizedValue != true else {
@@ -284,7 +285,8 @@ func fallbackWindowAttributes(
     frame: frame(),
     title: title() ?? "",
     role: role(),
-    subrole: subrole()
+    subrole: subrole(),
+    modal: modal()
   )
 }
 

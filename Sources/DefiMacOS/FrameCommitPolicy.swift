@@ -143,6 +143,8 @@ struct CommandLatencyAccumulator {
     }
     if approximatelyEqual(actual, target) {
       record.convergedWindowIDs.insert(windowID)
+    } else {
+      record.convergedWindowIDs.remove(windowID)
     }
     var convergenceMS: Double?
     if !record.convergenceRecorded,

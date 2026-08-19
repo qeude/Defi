@@ -88,6 +88,7 @@ extension Daemon {
   func dispatchScrollAnimationIfNeeded(
     monitorIDs: Set<MonitorID>? = nil,
     skipping skippedWindowIDs: Set<WindowID> = [],
+    forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
     guard !scrollAnimations.isEmpty else { return false }
@@ -101,6 +102,7 @@ extension Daemon {
       animationDuration: duration,
       skipping: skippedWindowIDs,
       positionsOnly: true,
+      forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
       commandPerformance: commandPerformance,
       source: "command-animation"
     )
@@ -111,6 +113,7 @@ extension Daemon {
   func dispatchManagedResizeAnimation(
     monitorIDs: Set<MonitorID>? = nil,
     skipping skippedWindowIDs: Set<WindowID> = [],
+    forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
     let duration = TimeInterval(config.animation.durationMS) / 1_000
@@ -125,6 +128,7 @@ extension Daemon {
       animationDuration: duration,
       animateSizeChanges: true,
       skipping: skippedWindowIDs,
+      forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
       commandPerformance: commandPerformance,
       source: "command-resize-animation"
     )

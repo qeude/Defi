@@ -265,17 +265,18 @@ extension Daemon {
           state.monitorID(containing: windowID).map { (windowID, $0) }
         })
         : [:]
+      let movedFloatingWindowIDs = floatingWindowIDsMovedBetweenMonitors(
+        previousWindowMonitorIDs: previousWindowMonitorIDs,
+        nextWindowMonitorIDs: nextWindowMonitorIDs,
+        windows: state.windows
+      )
       if movesAcrossMonitors {
         activeMonitorID = resultMonitorID
-        let movedWindowIDs = Set(previousWindowMonitorIDs.compactMap {
-          windowID, previousMonitorID in
-          nextWindowMonitorIDs[windowID] != previousMonitorID ? windowID : nil
-        })
         rebaseFloatingWindowFrames(
           previousViewports: commandViewports,
           nextViewports: commandViewports,
           previousMonitorIDs: previousWindowMonitorIDs,
-          windowIDs: movedWindowIDs
+          windowIDs: movedFloatingWindowIDs
         )
         for (windowID, window) in state.windows where window.floating {
           guard let nextMonitorID = state.monitorID(containing: windowID),
@@ -353,10 +354,12 @@ extension Daemon {
         animatedManagedResize
         ? dispatchManagedResizeAnimation(
           monitorIDs: affectedMonitorIDs,
+          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
           commandPerformance: commandPerformance
         )
         : dispatchScrollAnimationIfNeeded(
           monitorIDs: affectedMonitorIDs,
+          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
           commandPerformance: commandPerformance
         )
       let workspaceFocusRequest: PendingWorkspaceFocus?
@@ -467,6 +470,7 @@ extension Daemon {
           cursorWarpIsCurrentAfterCommit:
             cursorWarpIsCurrentAfterCommit,
           focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
           commandPerformance: commandPerformance,
           source: switchesWorkspace ? "workspace-command" : "command"
         )
@@ -567,4 +571,17 @@ func affectedMonitorIDsForWindowMove(
     }
   }
   return monitorIDs
+}
+
+func floatingWindowIDsMovedBetweenMonitors(
+  previousWindowMonitorIDs: [WindowID: MonitorID],
+  nextWindowMonitorIDs: [WindowID: MonitorID],
+  windows: [WindowID: Window]
+) -> Set<WindowID> {
+  Set(previousWindowMonitorIDs.compactMap { windowID, previousMonitorID in
+    guard nextWindowMonitorIDs[windowID] != previousMonitorID,
+      windows[windowID]?.floating == true
+    else { return nil }
+    return windowID
+  })
 }

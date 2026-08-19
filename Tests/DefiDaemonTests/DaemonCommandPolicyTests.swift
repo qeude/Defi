@@ -49,4 +49,50 @@ struct DaemonCommandPolicyTests {
       )[windowID] == Rect(x: 1_850, y: 80, width: 300, height: 200)
     )
   }
+
+  @Test
+  func crossMonitorMoveForcesOnlyMovedFloatingFrameWrites() {
+    let source = MonitorID(rawValue: 1)
+    let destination = MonitorID(rawValue: 2)
+    let floatingID = WindowID(rawValue: 10)
+    let tiledID = WindowID(rawValue: 11)
+    let stationaryFloatingID = WindowID(rawValue: 12)
+
+    #expect(
+      floatingWindowIDsMovedBetweenMonitors(
+        previousWindowMonitorIDs: [
+          floatingID: source,
+          tiledID: source,
+          stationaryFloatingID: source,
+        ],
+        nextWindowMonitorIDs: [
+          floatingID: destination,
+          tiledID: destination,
+          stationaryFloatingID: source,
+        ],
+        windows: [
+          floatingID: Window(
+            id: floatingID,
+            appID: "app",
+            title: "Floating",
+            frame: Rect(x: 0, y: 0, width: 300, height: 200),
+            floating: true
+          ),
+          tiledID: Window(
+            id: tiledID,
+            appID: "app",
+            title: "Tiled",
+            frame: Rect(x: 0, y: 0, width: 600, height: 800)
+          ),
+          stationaryFloatingID: Window(
+            id: stationaryFloatingID,
+            appID: "app",
+            title: "Stationary",
+            frame: Rect(x: 0, y: 0, width: 300, height: 200),
+            floating: true
+          ),
+        ]
+      ) == [floatingID]
+    )
+  }
 }

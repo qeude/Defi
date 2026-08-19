@@ -590,6 +590,13 @@ extension MacOSPlatform {
           attribute: kAXSubroleAttribute,
           as: String.self
         )
+      },
+      modal: {
+        value(
+          element,
+          attribute: kAXModalAttribute,
+          as: Bool.self
+        )
       }
     )
   }

@@ -84,6 +84,58 @@ struct FrameCommitTransitionTests {
   }
 
   @Test
+  func commandConvergenceUsesLatestObservationForEveryWindow() {
+    let first = WindowID(rawValue: 1)
+    let second = WindowID(rawValue: 2)
+    let from = Rect(x: 0, y: 0, width: 100, height: 100)
+    let target = Rect(x: 100, y: 0, width: 100, height: 100)
+    let drifted = Rect(x: 80, y: 0, width: 100, height: 100)
+    let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
+    var latency = CommandLatencyAccumulator()
+    latency.begin(context)
+    _ = latency.recordPlan(
+      context,
+      expectedWindowIDs: [first, second],
+      at: 10.001
+    )
+    _ = latency.recordObservation(
+      context,
+      windowID: first,
+      from: from,
+      actual: target,
+      target: target,
+      at: 10.010
+    )
+    _ = latency.recordObservation(
+      context,
+      windowID: first,
+      from: from,
+      actual: drifted,
+      target: target,
+      at: 10.020
+    )
+    let provisional = latency.recordObservation(
+      context,
+      windowID: second,
+      from: from,
+      actual: target,
+      target: target,
+      at: 10.030
+    )
+    #expect(provisional.convergenceMS == nil)
+
+    let final = latency.recordObservation(
+      context,
+      windowID: first,
+      from: from,
+      actual: target,
+      target: target,
+      at: 10.040
+    )
+    #expect(abs((final.convergenceMS ?? 0) - 40) < 0.001)
+  }
+
+  @Test
   func intermediatePositionAndSizeCommitIsQuarantined() {
     #expect(
       frameIsOnExpectedCommitPath(

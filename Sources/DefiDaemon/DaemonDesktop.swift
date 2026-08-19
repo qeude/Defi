@@ -31,6 +31,7 @@ extension Daemon {
     focusRequestIDAfterCommit:
       (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     forceFloatingFrameWrites: Bool = false,
+    forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "layout"
   ) {
@@ -94,6 +95,7 @@ extension Daemon {
           for assignment in floatingAssignments(in: workspace) {
             monitorBorderAssignments.append(assignment)
             if forceFloatingFrameWrites
+              || forcedFloatingWindowIDs.contains(assignment.windowID)
               || platform.isWindowHidden(assignment.windowID)
               || platform.hasPendingFrameTransition(assignment.windowID)
             {

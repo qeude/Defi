@@ -195,8 +195,40 @@ public func reconcileWindows(
         }
       }
       state.windows[window.id] = updated
+      relocateTransientIfNeeded(window.id, state: &state)
     }
   }
+}
+
+private func relocateTransientIfNeeded(
+  _ windowID: WindowID,
+  state: inout RuntimeState
+) {
+  guard let window = state.windows[windowID],
+    let current = state.location(containing: windowID),
+    let target = transientPlacementLocation(for: window, state: state),
+    current.monitorID != target.monitorID || current.workspaceID != target.workspaceID,
+    let targetMonitorIndex = state.monitors.firstIndex(where: {
+      $0.id == target.monitorID
+    }),
+    let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(
+      where: { $0.id == target.workspaceID }
+    )
+  else { return }
+
+  removeWindowEverywhere(windowID, state: &state)
+  if window.floating && !window.forceTiling {
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .floatingWindows.append(windowID)
+  } else {
+    insertNewWindow(
+      windowID,
+      into: &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
+      settings: state.layout,
+      focusInsertedWindow: false
+    )
+  }
+  state.windows[windowID]?.monitorID = target.monitorID
 }
 
 private func reclassifyTiledWindowAsAutomaticFloater(
