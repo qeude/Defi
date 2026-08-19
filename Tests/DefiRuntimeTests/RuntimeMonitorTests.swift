@@ -302,6 +302,7 @@ final class RuntimeMonitorTests: XCTestCase {
 
   func testMoveColumnToMonitorKeepsStackScalesPixelsAndMovesTransient() throws {
     let externalID = MonitorID(rawValue: 2)
+    let transientIDs = [12, 7, 14, 3, 11, 5, 13, 4].map(windowID)
     var state = twoMonitorState(externalID: externalID)
     state.monitors[0].workspaces[0].columns = [
       Column(
@@ -310,15 +311,18 @@ final class RuntimeMonitorTests: XCTestCase {
         width: .pixels(1_000)
       )
     ]
-    state.monitors[0].workspaces[0].floatingWindows = [WindowID(rawValue: 3)]
+    state.monitors[0].workspaces[0].floatingWindows = transientIDs
     state.monitors[1].workspaces[0].columns = [
       Column(window: WindowID(rawValue: 9), width: .fraction(0.5))
     ]
     state.windows = [
       windowID(1): window(1, monitorID: monitorID),
       windowID(2): window(2, monitorID: monitorID),
-      windowID(3): Window(
-        id: WindowID(rawValue: 3),
+      windowID(9): window(9, monitorID: externalID),
+    ]
+    for transientID in transientIDs {
+      state.windows[transientID] = Window(
+        id: transientID,
         appID: "app",
         title: "Dialog",
         frame: Rect(x: 100, y: 100, width: 300, height: 200),
@@ -326,9 +330,8 @@ final class RuntimeMonitorTests: XCTestCase {
         monitorID: monitorID,
         floating: true,
         floatingOrigin: .automatic
-      ),
-      windowID(9): window(9, monitorID: externalID),
-    ]
+      )
+    }
 
     try reduce(
       .moveColumnToMonitor(.right),
@@ -344,9 +347,14 @@ final class RuntimeMonitorTests: XCTestCase {
       [windowID(1), windowID(2)]
     )
     XCTAssertEqual(state.monitors[1].workspaces[0].columns[1].width, .pixels(2_000))
-    XCTAssertEqual(state.monitors[1].workspaces[0].floatingWindows, [windowID(3)])
+    XCTAssertEqual(
+      state.monitors[1].workspaces[0].floatingWindows,
+      transientIDs
+    )
     XCTAssertEqual(state.selectedWindowID(on: externalID), WindowID(rawValue: 2))
-    XCTAssertEqual(state.windows[windowID(3)]?.monitorID, externalID)
+    XCTAssertTrue(
+      transientIDs.allSatisfy { state.windows[$0]?.monitorID == externalID }
+    )
   }
 
   func testMoveWindowToMonitorCreatesIndependentColumn() throws {

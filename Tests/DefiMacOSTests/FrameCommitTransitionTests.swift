@@ -84,6 +84,28 @@ struct FrameCommitTransitionTests {
   }
 
   @Test
+  func commandLatencyKeepsOnlyItsLatestSamples() {
+    var latency = CommandLatencyAccumulator()
+
+    for generation in 1...121 {
+      let context = CommandPerformanceContext(
+        generation: UInt64(generation),
+        inputTimestamp: Double(generation)
+      )
+      latency.begin(context)
+      _ = latency.recordPlan(
+        context,
+        expectedWindowIDs: [],
+        hasFrameWrites: false,
+        at: Double(generation) + Double(generation) / 1_000
+      )
+    }
+
+    #expect(latency.performance.plan.count == 120)
+    #expect(abs(latency.performance.plan.p50MS - 62) < 0.001)
+  }
+
+  @Test
   func commandConvergenceUsesLatestObservationForEveryWindow() {
     let first = WindowID(rawValue: 1)
     let second = WindowID(rawValue: 2)

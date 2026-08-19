@@ -222,17 +222,32 @@ private func relocateTransientIfNeeded(
     )
   else { return false }
 
+  let wasSelected = state.selectedWindowID(on: current.monitorID) == windowID
   removeWindowEverywhere(windowID, state: &state)
   if window.floating && !window.forceTiling {
     state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
       .floatingWindows.append(windowID)
+    if wasSelected {
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .focusedFloatingWindow = state.monitors[targetMonitorIndex]
+        .workspaces[targetWorkspaceIndex].floatingWindows.count - 1
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .focusedLayer = .floating
+    }
   } else {
     insertNewWindow(
       windowID,
       into: &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
       settings: state.layout,
-      focusInsertedWindow: false
+      focusInsertedWindow: wasSelected
     )
+    if wasSelected {
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .focusedLayer = .tiled
+    }
+  }
+  if wasSelected {
+    state.monitors[targetMonitorIndex].activeWorkspace = target.workspaceID
   }
   state.windows[windowID]?.monitorID = target.monitorID
   return true

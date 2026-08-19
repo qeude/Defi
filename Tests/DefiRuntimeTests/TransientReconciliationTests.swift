@@ -57,5 +57,28 @@ struct TransientReconciliationTests {
     #expect(location.monitorID == secondMonitor)
     #expect(location.workspaceID == WorkspaceID(rawValue: "web"))
     #expect(state.monitors.allSatisfy { $0.activeWorkspace.rawValue == "dev" })
+
+    var selectedTransient = Window(
+      id: WindowID(rawValue: 4),
+      appID: "editor",
+      title: "Selected sheet",
+      frame: Rect(x: 120, y: 120, width: 300, height: 200),
+      isModal: true,
+      monitorID: firstMonitor,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+    try discoverWindow(selectedTransient, decision: RuleDecision(), state: &state)
+    _ = focusWindow(selectedTransient.id, state: &state)
+    selectedTransient.transientOwnerID = owner.id
+
+    _ = reconcileWindows(
+      [decoy, owner, transient, selectedTransient],
+      config: config,
+      state: &state
+    )
+
+    #expect(state.monitors[1].activeWorkspace.rawValue == "web")
+    #expect(state.selectedWindowID(on: secondMonitor) == selectedTransient.id)
   }
 }

@@ -280,6 +280,13 @@ private func moveFocusedSelectionToMonitor(
     of: primaryWindowIDs,
     windows: state.windows
   ).union(primaryWindowIDs)
+  let topologyWindowIDs = state.monitors.flatMap(\.workspaces).flatMap {
+    $0.columns.flatMap(\.windows) + $0.floatingWindows
+  }
+  let orderedMovedWindowIDs = topologyWindowIDs.filter(movedWindowIDs.contains)
+    + movedWindowIDs.subtracting(topologyWindowIDs).sorted {
+      $0.rawValue < $1.rawValue
+    }
 
   if let rootColumnIndex, movesColumn {
     state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
@@ -305,7 +312,7 @@ private func moveFocusedSelectionToMonitor(
       settings: state.layout
     )
   }
-  for windowID in movedWindowIDs.subtracting(primaryWindowIDs) {
+  for windowID in orderedMovedWindowIDs where !primaryWindowIDs.contains(windowID) {
     removeWindowFromEveryWorkspace(windowID, state: &state)
   }
 
@@ -330,9 +337,10 @@ private func moveFocusedSelectionToMonitor(
       .focusedLayer = .tiled
   }
 
-  let auxiliaryWindowIDs = movedWindowIDs.subtracting(
-    transferredColumn.map { Set($0.windows) } ?? []
-  )
+  let transferredWindowIDs = transferredColumn.map { Set($0.windows) } ?? []
+  let auxiliaryWindowIDs = orderedMovedWindowIDs.filter {
+    !transferredWindowIDs.contains($0)
+  }
   for windowID in auxiliaryWindowIDs {
     if state.windows[windowID]?.floating == true
       && state.windows[windowID]?.forceTiling != true
@@ -366,7 +374,7 @@ private func moveFocusedSelectionToMonitor(
     &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
     settings: state.layout
   )
-  for windowID in movedWindowIDs {
+  for windowID in orderedMovedWindowIDs {
     state.suspendedTiledPlacements[windowID] = nil
     state.windows[windowID]?.monitorID = targetMonitorID
     if state.windows[windowID]?.floating == true,
