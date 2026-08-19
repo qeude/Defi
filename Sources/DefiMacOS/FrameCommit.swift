@@ -146,18 +146,6 @@ func frameWriteIntent(
   )
 }
 
-func shouldDeferLatencySensitiveSpeculativeWrite(
-  source: String,
-  isParked: Bool,
-  positionChanged: Bool,
-  latencySensitive: Bool
-) -> Bool {
-  source == "command-animation"
-    && !isParked
-    && positionChanged
-    && latencySensitive
-}
-
 func successfulFrameWriteIntent(
   positionChanged: Bool,
   positionApplied: Bool,
@@ -319,6 +307,7 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let displayID: UInt64?
   let initialProgressVelocity: Double
   let stagesVisibleBeforeParking: Bool
+  let successfulWrite: (@Sendable (TimeInterval) -> Void)?
   let completion: (@Sendable (FrameWriteCompletion) -> Void)?
   let cursorWarpAfterWindowCommit:
     (@Sendable (WindowID, UInt64) -> Void)?
@@ -333,6 +322,7 @@ struct QueuedPositionFrame: @unchecked Sendable {
     displayID: UInt64?,
     initialProgressVelocity: Double,
     stagesVisibleBeforeParking: Bool,
+    successfulWrite: (@Sendable (TimeInterval) -> Void)? = nil,
     completion: (@Sendable (FrameWriteCompletion) -> Void)?,
     cursorWarpAfterWindowCommit:
       (@Sendable (WindowID, UInt64) -> Void)? = nil
@@ -346,6 +336,7 @@ struct QueuedPositionFrame: @unchecked Sendable {
     self.displayID = displayID
     self.initialProgressVelocity = initialProgressVelocity
     self.stagesVisibleBeforeParking = stagesVisibleBeforeParking
+    self.successfulWrite = successfulWrite
     self.completion = completion
     self.cursorWarpAfterWindowCommit = cursorWarpAfterWindowCommit
   }

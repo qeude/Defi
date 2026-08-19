@@ -58,6 +58,8 @@ extension Daemon {
       now + $0
     }
     needsDesktopSync = true
+    setTimerFrequency(60)
+    scheduleTick()
   }
 
   var viewportsByMonitor: [MonitorID: Rect] {

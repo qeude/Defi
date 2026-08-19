@@ -36,6 +36,7 @@ extension MacOSPlatform {
       (@MainActor @Sendable () -> Bool)? = nil,
     focusRequestIDAfterCommit:
       (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
+    commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
@@ -106,6 +107,16 @@ extension MacOSPlatform {
       assignments: assignments,
       skippedWindowIDs: skippedWindowIDs
     )
+    if let commandPerformance {
+      recordCommandPlan(
+        commandPerformance,
+        expectedWindowIDs: Set(writeIntents.keys).subtracting(
+          effectiveHiddenWindowIDs
+        ).intersection(elements.keys),
+        at: ProcessInfo.processInfo.systemUptime
+      )
+    }
+    var writePerformance = commandPerformance
     var animationStartPositions = startPositions
     var animationStartSizes = referenceFrames.mapValues {
       CGSize(width: $0.width, height: $0.height)
@@ -180,6 +191,19 @@ extension MacOSPlatform {
         animationDuration: animationDuration,
         initialFrameSettlement: initialFrameSettlement
       )
+      let continuedCommand = frameCommitExpectations[assignment.windowID]
+        .flatMap { expectation in
+          expectation.deadline > now
+            && approximatelyEqual(expectation.target, assignment.frame)
+            ? expectation.command
+            : nil
+        }
+      if let continuedCommand,
+        writePerformance.map({ $0.generation < continuedCommand.generation })
+          ?? true
+      {
+        writePerformance = continuedCommand
+      }
       frameCommitExpectations[assignment.windowID] = FrameCommitExpectation(
         from: Rect(
           x: start.x,
@@ -190,6 +214,7 @@ extension MacOSPlatform {
         target: assignment.frame,
         issuedAt: now,
         deadline: commitDeadline,
+        command: commandPerformance ?? continuedCommand,
         observedAt: nil
       )
     }
@@ -212,7 +237,6 @@ extension MacOSPlatform {
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
     var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
     var animatedWindowIDs = Set<WindowID>()
-    let latencySensitiveProcessIDs = frameCoordinator.slowProcessIDs
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
       guard let element = elements[assignment.windowID] else { continue }
@@ -262,6 +286,12 @@ extension MacOSPlatform {
           )
           synchronousSizeWriteSucceeded = result == .success
           if result == .success {
+            if let writePerformance {
+              recordCommandFirstWrite(
+                writePerformance,
+                at: ProcessInfo.processInfo.systemUptime
+              )
+            }
             frameCoordinator.alignCompletedSize(
               windowID: assignment.windowID,
               size: size
@@ -297,21 +327,6 @@ extension MacOSPlatform {
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite
       )
-      if shouldDeferLatencySensitiveSpeculativeWrite(
-        source: source,
-        isParked: isParked || needsVerifiedOffscreenWrite,
-        positionChanged: write.positionChanged,
-        latencySensitive: latencySensitiveProcessIDs.contains(processID)
-      ) {
-        pendingFrameCorrections[assignment.windowID] = referenceFrames[
-          assignment.windowID
-        ]
-        pendingFrameDebtWindowIDs.insert(assignment.windowID)
-        frameCoordinator.recordTrace(
-          "slow-lane-deferred wid=\(assignment.windowID.rawValue) pid=\(processID)"
-        )
-        continue
-      }
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
       }
@@ -333,12 +348,20 @@ extension MacOSPlatform {
         if asynchronousPositions || isParked || needsVerifiedOffscreenWrite {
           asynchronousWrites[assignment.windowID] = write
         } else if let positionValue = AXValueCreate(.cgPoint, &position) {
-          AXUIElementSetAttributeValue(
+          let result = AXUIElementSetAttributeValue(
             element,
             kAXPositionAttribute as CFString,
             positionValue
           )
-          positionWriteCount += 1
+          if result == .success {
+            positionWriteCount += 1
+            if let writePerformance {
+              recordCommandFirstWrite(
+                writePerformance,
+                at: ProcessInfo.processInfo.systemUptime
+              )
+            }
+          }
         }
       }
       pendingFrameCorrections[assignment.windowID] = nil
@@ -472,6 +495,16 @@ extension MacOSPlatform {
       // confirm their targets; the next layout may omit equal optimistic frames.
       pendingFrameDebtWindowIDs.formUnion(frameCoordinator.pendingWindowIDs)
     }
+    let commandSuccessfulWrite: (@Sendable (TimeInterval) -> Void)?
+    if let writePerformance {
+      commandSuccessfulWrite = { [weak self] timestamp in
+        DispatchQueue.main.async {
+          self?.recordCommandFirstWrite(writePerformance, at: timestamp)
+        }
+      }
+    } else {
+      commandSuccessfulWrite = nil
+    }
     frameCoordinator.submit(
       asynchronousWrites,
       source: source,
@@ -481,6 +514,7 @@ extension MacOSPlatform {
       displayID: animationDisplayID,
       animatedWindowIDs: animatedWindowIDs,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      successfulWrite: commandSuccessfulWrite,
       cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit,
       completion: frameCompletion
     )

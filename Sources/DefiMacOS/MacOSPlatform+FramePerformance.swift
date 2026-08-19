@@ -7,7 +7,7 @@ import DefiModel
 import OSLog
 
 extension MacOSPlatform {
-public var hiddenWindowCount: Int {
+  public var hiddenWindowCount: Int {
     lastHiddenWindowIDs.count
   }
 
@@ -49,6 +49,28 @@ public var hiddenWindowCount: Int {
     frameCoordinator.slowProcessIDs.count
   }
 
+  public var latencySensitiveProcessDescription: String {
+    frameCoordinator.slowProcessLatenciesMS.sorted { $0.key < $1.key }
+      .map { processID, latencyMS in
+        let appID = applicationIDsByProcess[processID] ?? "unknown"
+        return "\(appID)@\(processID):\(String(format: "%.1f", latencyMS))ms"
+      }.joined(separator: ",")
+  }
+
+  public var processLatencyDescription: String {
+    frameCoordinator.processLatenciesMS.sorted { $0.key < $1.key }
+      .map { processID, latencyMS in
+        let appID = applicationIDsByProcess[processID] ?? "unknown"
+        return "\(appID)@\(processID):\(String(format: "%.1f", latencyMS))ms"
+      }.joined(separator: ",")
+  }
+
+  public var hasPendingCommandObservation: Bool {
+    frameCommitExpectations.values.contains {
+      $0.command != nil && $0.observedAt == nil
+    }
+  }
+
   public var hasPendingFrameDebt: Bool {
     !pendingFrameDebtWindowIDs.isEmpty
   }
@@ -79,6 +101,81 @@ public var hiddenWindowCount: Int {
 
   public func recordPerformanceTrace(_ event: String) {
     frameCoordinator.recordTrace(event)
+  }
+
+  public func beginCommandPerformance(_ context: CommandPerformanceContext) {
+    commandLatency.begin(context)
+  }
+
+  func recordCommandPlan(
+    _ context: CommandPerformanceContext,
+    expectedWindowIDs: Set<WindowID>,
+    at timestamp: TimeInterval
+  ) {
+    guard let latency = commandLatency.recordPlan(
+      context,
+      expectedWindowIDs: expectedWindowIDs,
+      at: timestamp
+    ) else { return }
+    frameCoordinator.recordTrace(
+      "command-plan cg=\(context.generation) windows=\(expectedWindowIDs.count) ms=\(String(format: "%.2f", latency))"
+    )
+  }
+
+  func recordCommandFirstWrite(
+    _ context: CommandPerformanceContext,
+    at timestamp: TimeInterval
+  ) {
+    guard let latency = commandLatency.recordFirstWrite(context, at: timestamp)
+    else { return }
+    frameCoordinator.recordTrace(
+      "command-first-write cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+    )
+  }
+
+  func recordCommandObservation(
+    _ context: CommandPerformanceContext,
+    windowID: WindowID,
+    from: Rect,
+    actual: Rect,
+    target: Rect,
+    at timestamp: TimeInterval
+  ) {
+    let result = commandLatency.recordObservation(
+      context,
+      windowID: windowID,
+      from: from,
+      actual: actual,
+      target: target,
+      at: timestamp
+    )
+    if let latency = result.firstObservationMS {
+      frameCoordinator.recordTrace(
+        "command-first-observed cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+      )
+    }
+    if let latency = result.convergenceMS {
+      frameCoordinator.recordTrace(
+        "command-converged cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+      )
+    }
+  }
+
+  public func recordCommandFocus(
+    _ context: CommandPerformanceContext,
+    result: NativeFocusResult,
+    at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) {
+    guard result == .completed || result == .completedWithoutMutation,
+      let latency = commandLatency.recordFocus(context, at: timestamp)
+    else { return }
+    frameCoordinator.recordTrace(
+      "command-focus cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+    )
+  }
+
+  public var commandLatencyPerformance: CommandLatencyPerformance {
+    commandLatency.performance
   }
 
   public var parkingPerformance: (checks: Int, repairs: Int) {

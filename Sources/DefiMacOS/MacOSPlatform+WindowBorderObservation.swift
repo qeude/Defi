@@ -487,8 +487,13 @@ extension MacOSPlatform {
     invalidatePreparedAXWindowAttributes()
     // Notifications were ignored while animated writes ran. Force fresh reads
     // before trusting the final committed frames.
+    let committedWindowIDs = Set(frameCommitExpectations.keys)
+    observedFrameEventWindowIDs.formUnion(committedWindowIDs)
+    let committedProcessIDs = Set(committedWindowIDs.compactMap { processIDs[$0] })
     frameEventPending = true
-    pendingFrameProcessIDs.formUnion(lastSnapshotProcessIDs)
+    pendingFrameProcessIDs.formUnion(
+      committedProcessIDs.isEmpty ? lastSnapshotProcessIDs : committedProcessIDs
+    )
   }
 
   public var isLeftMouseButtonDown: Bool {

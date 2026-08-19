@@ -54,7 +54,9 @@ public func reduce(
 public func reduce(
   _ command: Command,
   on requestedMonitorID: MonitorID?,
-  state: inout RuntimeState
+  state: inout RuntimeState,
+  monitorFrames: [MonitorID: Rect] = [:],
+  viewports: [MonitorID: Rect] = [:]
 ) throws {
   guard !state.monitors.isEmpty else {
     throw ReducerError.noMonitor
@@ -98,6 +100,24 @@ public func reduce(
           settings: layout
         )
       }
+    case .moveColumnToMonitor(let direction):
+      try moveFocusedSelectionToMonitor(
+        direction,
+        movesWholeColumn: true,
+        sourceMonitorIndex: monitorIndex,
+        monitorFrames: monitorFrames,
+        viewports: viewports,
+        state: &state
+      )
+    case .moveWindowToMonitor(let direction):
+      try moveFocusedSelectionToMonitor(
+        direction,
+        movesWholeColumn: false,
+        sourceMonitorIndex: monitorIndex,
+        monitorFrames: monitorFrames,
+        viewports: viewports,
+        state: &state
+      )
     case .focusWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
@@ -187,6 +207,205 @@ public func reduce(
     }
   } catch let error as LayoutError {
     throw ReducerError.layout(error)
+  }
+}
+
+public func changedState(
+  after command: Command,
+  on monitorID: MonitorID?,
+  from state: RuntimeState,
+  monitorFrames: [MonitorID: Rect] = [:],
+  viewports: [MonitorID: Rect] = [:]
+) throws -> RuntimeState? {
+  var next = state
+  try reduce(
+    command,
+    on: monitorID,
+    state: &next,
+    monitorFrames: monitorFrames,
+    viewports: viewports
+  )
+  return next == state ? nil : next
+}
+
+private func moveFocusedSelectionToMonitor(
+  _ direction: Direction,
+  movesWholeColumn: Bool,
+  sourceMonitorIndex: Int,
+  monitorFrames: [MonitorID: Rect],
+  viewports: [MonitorID: Rect],
+  state: inout RuntimeState
+) throws {
+  let sourceMonitorID = state.monitors[sourceMonitorIndex].id
+  guard let targetMonitorID = spatialMonitor(
+    from: sourceMonitorID,
+    toward: direction,
+    frames: monitorFrames
+  ),
+    let targetMonitorIndex = state.monitors.firstIndex(where: {
+      $0.id == targetMonitorID
+    }),
+    let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(
+      where: { $0.id == state.monitors[sourceMonitorIndex].activeWorkspace }
+    ),
+    let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(
+      where: { $0.id == state.monitors[targetMonitorIndex].activeWorkspace }
+    ),
+    let selectedWindowID = state.selectedWindowID(on: sourceMonitorID)
+  else { return }
+
+  let rootWindowID = transientRootWindowID(selectedWindowID, windows: state.windows)
+  let sourceWorkspace = state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+  let rootColumnIndex = sourceWorkspace.columns.firstIndex {
+    $0.windows.contains(rootWindowID)
+  }
+  let movesColumn = movesWholeColumn && rootColumnIndex != nil
+  let primaryWindowIDs: Set<WindowID>
+  var transferredColumn: Column?
+  if let rootColumnIndex, movesColumn {
+    transferredColumn = sourceWorkspace.columns[rootColumnIndex]
+    primaryWindowIDs = Set(transferredColumn?.windows ?? [])
+  } else {
+    primaryWindowIDs = [rootWindowID]
+    if let rootColumnIndex {
+      let sourceColumn = sourceWorkspace.columns[rootColumnIndex]
+      transferredColumn = Column(
+        window: rootWindowID,
+        width: sourceColumn.width,
+        preMaximizedWidth: sourceColumn.preMaximizedWidth
+      )
+    }
+  }
+  let movedWindowIDs = transientDescendants(
+    of: primaryWindowIDs,
+    windows: state.windows
+  ).union(primaryWindowIDs)
+
+  if let rootColumnIndex, movesColumn {
+    state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+      .columns.remove(at: rootColumnIndex)
+    repairWorkspaceScroll(
+      &state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex],
+      settings: state.layout
+    )
+  } else {
+    removeWindow(
+      rootWindowID,
+      from: &state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex],
+      settings: state.layout
+    )
+  }
+  for windowID in movedWindowIDs.subtracting(primaryWindowIDs) {
+    removeWindowFromEveryWorkspace(windowID, state: &state)
+  }
+
+  let sourceViewport = viewports[sourceMonitorID] ?? monitorFrames[sourceMonitorID]
+  let targetViewport = viewports[targetMonitorID] ?? monitorFrames[targetMonitorID]
+  let widthScale = sourceViewport.flatMap { source in
+    targetViewport.map { $0.width / max(source.width, 1) }
+  } ?? 1
+  if var column = transferredColumn {
+    scalePixelWidths(in: &column, by: widthScale)
+    let insertionIndex = min(
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .focusedColumn + 1,
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .columns.count
+    )
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .columns.insert(column, at: insertionIndex)
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .focusedColumn = insertionIndex
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .focusedLayer = .tiled
+  }
+
+  let auxiliaryWindowIDs = movedWindowIDs.subtracting(
+    transferredColumn.map { Set($0.windows) } ?? []
+  )
+  for windowID in auxiliaryWindowIDs {
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .floatingWindows.append(windowID)
+  }
+  if auxiliaryWindowIDs.contains(selectedWindowID),
+    let selectedIndex = state.monitors[targetMonitorIndex]
+      .workspaces[targetWorkspaceIndex].floatingWindows.firstIndex(of: selectedWindowID)
+  {
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .focusedFloatingWindow = selectedIndex
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .focusedLayer = .floating
+  }
+  state.monitors[targetMonitorIndex].activeWorkspace =
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].id
+  repairWorkspaceScroll(
+    &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
+    settings: state.layout
+  )
+  for windowID in movedWindowIDs {
+    state.suspendedTiledPlacements[windowID] = nil
+    state.windows[windowID]?.monitorID = targetMonitorID
+    if state.windows[windowID]?.floating == true,
+      let sourceViewport,
+      let targetViewport,
+      let frame = state.windows[windowID]?.frame
+    {
+      state.windows[windowID]?.frame = rebasedFloatingFrame(
+        frame,
+        from: sourceViewport,
+        to: targetViewport
+      )
+    }
+  }
+}
+
+private func transientRootWindowID(
+  _ windowID: WindowID,
+  windows: [WindowID: Window]
+) -> WindowID {
+  var root = windowID
+  var visited = Set<WindowID>()
+  while visited.insert(root).inserted,
+    let owner = windows[root]?.transientOwnerID,
+    windows[owner] != nil
+  {
+    root = owner
+  }
+  return root
+}
+
+private func transientDescendants(
+  of ownerWindowIDs: Set<WindowID>,
+  windows: [WindowID: Window]
+) -> Set<WindowID> {
+  var descendants = Set<WindowID>()
+  var owners = ownerWindowIDs
+  while true {
+    let next = Set(windows.compactMap { windowID, window in
+      window.transientOwnerID.map(owners.contains) == true
+        && !ownerWindowIDs.contains(windowID)
+        && !descendants.contains(windowID)
+        ? windowID
+        : nil
+    })
+    guard !next.isEmpty else { return descendants }
+    descendants.formUnion(next)
+    owners = next
+  }
+}
+
+private func removeWindowFromEveryWorkspace(
+  _ windowID: WindowID,
+  state: inout RuntimeState
+) {
+  for monitorIndex in state.monitors.indices {
+    for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+      removeWindow(
+        windowID,
+        from: &state.monitors[monitorIndex].workspaces[workspaceIndex],
+        settings: state.layout
+      )
+    }
   }
 }
 

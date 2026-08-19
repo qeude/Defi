@@ -5,7 +5,7 @@ configuration may change before the first stable release.
 
 ## Prerequisites
 
-- macOS 14 or newer
+- macOS 26 or newer
 - Swift 6.2 or newer
 - Accessibility permission for desktop tests and local runtime checks
 

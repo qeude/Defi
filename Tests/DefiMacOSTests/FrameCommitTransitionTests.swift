@@ -13,6 +13,77 @@ struct FrameCommitTransitionTests {
   )
 
   @Test
+  func commandLatencyCorrelatesLatestCommandStages() {
+    let first = WindowID(rawValue: 1)
+    let second = WindowID(rawValue: 2)
+    let from = Rect(x: 0, y: 0, width: 100, height: 100)
+    let target = Rect(x: 100, y: 0, width: 100, height: 100)
+    let context = CommandPerformanceContext(
+      generation: 1,
+      inputTimestamp: 10
+    )
+    var latency = CommandLatencyAccumulator()
+
+    latency.begin(context)
+    let plan = latency.recordPlan(
+      context,
+      expectedWindowIDs: [first, second],
+      at: 10.002
+    )
+    #expect(abs((plan ?? 0) - 2) < 0.001)
+    let firstWrite = latency.recordFirstWrite(context, at: 10.003)
+    #expect(abs((firstWrite ?? 0) - 3) < 0.001)
+    #expect(latency.recordFirstWrite(context, at: 10.004) == nil)
+    let firstObservation = latency.recordObservation(
+      context,
+      windowID: first,
+      from: from,
+      actual: target,
+      target: target,
+      at: 10.010
+    )
+    #expect(abs((firstObservation.firstObservationMS ?? 0) - 10) < 0.001)
+    #expect(firstObservation.convergenceMS == nil)
+    let convergence = latency.recordObservation(
+      context,
+      windowID: second,
+      from: from,
+      actual: target,
+      target: target,
+      at: 10.020
+    )
+    #expect(convergence.firstObservationMS == nil)
+    #expect(abs((convergence.convergenceMS ?? 0) - 20) < 0.001)
+    let focus = latency.recordFocus(context, at: 10.025)
+    #expect(abs((focus ?? 0) - 25) < 0.001)
+
+    let performance = latency.performance
+    #expect(performance.started == 1)
+    #expect(performance.superseded == 0)
+    #expect(abs(performance.plan.p95MS - 2) < 0.001)
+    #expect(abs(performance.firstWrite.p95MS - 3) < 0.001)
+    #expect(abs(performance.firstObservation.p95MS - 10) < 0.001)
+    #expect(abs(performance.convergence.p95MS - 20) < 0.001)
+    #expect(abs(performance.focus.p95MS - 25) < 0.001)
+
+    let superseded = CommandPerformanceContext(
+      generation: 2,
+      inputTimestamp: 20
+    )
+    latency.begin(superseded)
+    _ = latency.recordPlan(
+      superseded,
+      expectedWindowIDs: [first],
+      at: 20.001
+    )
+    latency.begin(
+      CommandPerformanceContext(generation: 3, inputTimestamp: 21)
+    )
+    #expect(latency.recordFirstWrite(superseded, at: 21.001) == nil)
+    #expect(latency.performance.superseded == 1)
+  }
+
+  @Test
   func intermediatePositionAndSizeCommitIsQuarantined() {
     #expect(
       frameIsOnExpectedCommitPath(

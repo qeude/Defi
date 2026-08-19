@@ -149,6 +149,24 @@ struct PointerFocusTests {
   }
 
   @Test
+  func modalBlocksPointerFocusBehindItButAllowsDescendants() throws {
+    var state = try makeState(columnWidths: [0.3, 0.3, 0.3])
+    let ownerID = WindowID(rawValue: 1)
+    let modalID = WindowID(rawValue: 2)
+    let descendantID = WindowID(rawValue: 3)
+    state.windows[ownerID]?.appID = "app"
+    state.windows[modalID]?.appID = "app"
+    state.windows[modalID]?.isModal = true
+    state.windows[modalID]?.transientOwnerID = ownerID
+    state.windows[descendantID]?.appID = "app"
+    state.windows[descendantID]?.transientOwnerID = modalID
+
+    #expect(!modalAllowsPointerFocus(ownerID, state: state))
+    #expect(modalAllowsPointerFocus(modalID, state: state))
+    #expect(modalAllowsPointerFocus(descendantID, state: state))
+  }
+
+  @Test
   func alreadySelectedPointerTargetCanRestoreNativeFocus() throws {
     var state = try makeState(columnWidths: [0.4, 0.4])
     let original = state

@@ -71,33 +71,6 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
-  func testLatencySensitiveSpeculativeWritesAreDeferredOnlyForVisiblePositions() {
-    XCTAssertTrue(
-      shouldDeferLatencySensitiveSpeculativeWrite(
-        source: "command-animation",
-        isParked: false,
-        positionChanged: true,
-        latencySensitive: true
-      )
-    )
-    XCTAssertFalse(
-      shouldDeferLatencySensitiveSpeculativeWrite(
-        source: "desktop-sync",
-        isParked: false,
-        positionChanged: true,
-        latencySensitive: true
-      )
-    )
-    XCTAssertFalse(
-      shouldDeferLatencySensitiveSpeculativeWrite(
-        source: "command-animation",
-        isParked: true,
-        positionChanged: true,
-        latencySensitive: true
-      )
-    )
-  }
-
   func testDisplayLinkActivationRejectsOlderGenerationAndStaleRequest() {
     XCTAssertTrue(
       displayLinkActivationIsCurrent(
@@ -148,6 +121,16 @@ final class FrameCommitTests: XCTestCase {
     coordinator.recordProcessLatencySamples([42: 0])
 
     XCTAssertFalse(coordinator.latencySensitiveProcessIDs.contains(42))
+  }
+
+  func testExitedProcessesAreRemovedFromSlowLaneDiagnostics() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.predictedProcessLatencyMS = [42: 20, 43: 18]
+    coordinator.latencySensitiveProcessIDs = [42, 43]
+
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [43])
+
+    XCTAssertEqual(coordinator.slowProcessLatenciesMS, [43: 18])
   }
 
   func testStaleBatchDoesNotRecordLatencySample() {

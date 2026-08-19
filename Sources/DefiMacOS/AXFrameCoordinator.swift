@@ -53,6 +53,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedSizes: [WindowID: CGSize] = [:]
   var recentInternalFrameWrites: [WindowID: [RecentInternalFrameWrite]] = [:]
   var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
+  var reportedSuccessfulWriteGenerations = Set<UInt64>()
   var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   var traceEntries: [String] = []
   var lastFrameDurationMS = 0.0
@@ -174,6 +175,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     deferredParkingWriteGenerations.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
     successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
+    reportedSuccessfulWriteGenerations.removeAll(keepingCapacity: true)
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
@@ -200,6 +202,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     displayID: UInt64? = nil,
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
+    successfulWrite: (@Sendable (TimeInterval) -> Void)? = nil,
     cursorWarpAfterWindowCommit:
       (@Sendable (WindowID, UInt64) -> Void)? = nil,
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
@@ -227,6 +230,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
       displayID: displayID,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      successfulWrite: successfulWrite,
       completion: completion,
       cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit
     )
@@ -255,6 +259,20 @@ final class AXFrameCoordinator: @unchecked Sendable {
       queue.async { [self] in
         drain()
       }
+    }
+  }
+
+  func reportFirstSuccessfulWrite(
+    for frame: QueuedPositionFrame,
+    at timestamp: TimeInterval
+  ) {
+    lock.lock()
+    let isFirst = reportedSuccessfulWriteGenerations.insert(
+      frame.generation
+    ).inserted
+    lock.unlock()
+    if isFirst {
+      frame.successfulWrite?(timestamp)
     }
   }
 
@@ -442,6 +460,29 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return latencySensitiveProcessIDs
+  }
+
+  var slowProcessLatenciesMS: [pid_t: Double] {
+    lock.lock()
+    defer { lock.unlock() }
+    return predictedProcessLatencyMS.filter {
+      latencySensitiveProcessIDs.contains($0.key)
+    }
+  }
+
+  var processLatenciesMS: [pid_t: Double] {
+    lock.lock()
+    defer { lock.unlock() }
+    return predictedProcessLatencyMS
+  }
+
+  func pruneProcessLatencyState(liveProcessIDs: Set<pid_t>) {
+    lock.lock()
+    predictedProcessLatencyMS = predictedProcessLatencyMS.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    latencySensitiveProcessIDs.formIntersection(liveProcessIDs)
+    lock.unlock()
   }
 
 }

@@ -413,6 +413,11 @@ extension MacOSPlatform {
           }
         }
       }
+    resolveTransientOwners(
+      windows: &windows,
+      elements: nextElements,
+      processIDs: nextProcessIDs
+    )
     return SnapshotWindowDiscoveryResult(
       nextElements: nextElements,
       nextProcessIDs: nextProcessIDs,
@@ -427,5 +432,72 @@ extension MacOSPlatform {
       previouslyManagedApplicationWindows:
         previouslyManagedApplicationWindows
     )
+  }
+
+  private func resolveTransientOwners(
+    windows: inout [Window],
+    elements: [WindowID: AXUIElement],
+    processIDs: [WindowID: pid_t]
+  ) {
+    let liveWindowIDs = Set(elements.keys)
+    transientOwnerWindowIDs = transientOwnerWindowIDs.filter {
+      liveWindowIDs.contains($0.key) && liveWindowIDs.contains($0.value)
+    }
+    transientOwnerResolutionAttempts = transientOwnerResolutionAttempts.filter {
+      liveWindowIDs.contains($0.key)
+    }
+    let candidateIDs = Set(windows.compactMap { window in
+      window.isModal || window.floatingOrigin == .automatic ? window.id : nil
+    })
+    let unresolvedCandidateIDs = candidateIDs.filter {
+      transientOwnerWindowIDs[$0] == nil
+        && transientOwnerResolutionAttempts[$0, default: 0] < 2
+    }
+    for childID in unresolvedCandidateIDs {
+      guard let child = elements[childID] else { continue }
+      let parent = AXMessagingTimeoutAccess.shared.withTimeout(
+        snapshotAccessibilityTimeoutSeconds,
+        elements: [child]
+      ) {
+        guard
+          let value = self.copyAttribute(child, name: kAXParentAttribute),
+          CFGetTypeID(value) == AXUIElementGetTypeID()
+        else { return nil as AXUIElement? }
+        return (value as! AXUIElement)
+      }
+      if let parent,
+        let ownerID = elements.first(where: {
+          $0.key != childID && CFEqual($0.value, parent)
+        })?.key
+      {
+        transientOwnerWindowIDs[childID] = ownerID
+      }
+    }
+    let unresolved = unresolvedCandidateIDs.filter {
+      transientOwnerWindowIDs[$0] == nil
+    }
+    for ownerID in elements.keys where !unresolved.isEmpty {
+      guard let owner = elements[ownerID], let processID = processIDs[ownerID] else {
+        continue
+      }
+      let sheets = AXMessagingTimeoutAccess.shared.withTimeout(
+        snapshotAccessibilityTimeoutSeconds,
+        elements: [owner]
+      ) {
+        self.copyAttribute(owner, name: "AXSheets") as? [AXUIElement]
+      } ?? []
+      for childID in unresolved where processIDs[childID] == processID {
+        guard let child = elements[childID],
+          sheets.contains(where: { CFEqual($0, child) })
+        else { continue }
+        transientOwnerWindowIDs[childID] = ownerID
+      }
+    }
+    for index in windows.indices {
+      windows[index].transientOwnerID = transientOwnerWindowIDs[windows[index].id]
+    }
+    for childID in unresolvedCandidateIDs {
+      transientOwnerResolutionAttempts[childID, default: 0] += 1
+    }
   }
 }

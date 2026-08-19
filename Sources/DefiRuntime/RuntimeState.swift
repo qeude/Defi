@@ -277,7 +277,7 @@ private func scalePixelWidths(in monitor: inout Monitor, by scale: Double) {
   }
 }
 
-private func scalePixelWidths(in column: inout Column, by scale: Double) {
+func scalePixelWidths(in column: inout Column, by scale: Double) {
   guard scale.isFinite, scale > 0, abs(scale - 1) >= 0.001 else { return }
   scalePixelWidth(&column.width, by: scale)
   if var previous = column.preMaximizedWidth {

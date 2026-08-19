@@ -171,9 +171,11 @@ public enum SocketPath {
   }
 }
 
-public final class UnixSocketServer {
+public final class UnixSocketServer: @unchecked Sendable {
   public let url: URL
   private let descriptor: Int32
+
+  public var listeningFileDescriptor: Int32 { descriptor }
 
   public init(url: URL = SocketPath.defaultURL) throws {
     self.url = url
@@ -214,7 +216,8 @@ public final class UnixSocketServer {
 
   @discardableResult
   public func poll(
-    handler: (CommandRequest) -> CommandResponse
+    on clientQueue: DispatchQueue? = nil,
+    handler: @escaping @Sendable (CommandRequest) -> CommandResponse
   ) throws -> Bool {
     let client = accept(descriptor, nil, nil)
     if client < 0 {
@@ -223,12 +226,30 @@ public final class UnixSocketServer {
       }
       throw IPCError.systemCall("accept", errno)
     }
-    defer { Darwin.close(client) }
-
     do {
       try configureNoSigPipe(client)
       try configureBlocking(client)
       try configureReadTimeout(client)
+    } catch {
+      Darwin.close(client)
+      throw error
+    }
+    if let clientQueue {
+      clientQueue.async {
+        try? self.serve(client, handler: handler)
+      }
+    } else {
+      try serve(client, handler: handler)
+    }
+    return true
+  }
+
+  private func serve(
+    _ client: Int32,
+    handler: @Sendable (CommandRequest) -> CommandResponse
+  ) throws {
+    defer { Darwin.close(client) }
+    do {
       let requestData = try readLine(from: client)
       let request = try JSONDecoder().decode(CommandRequest.self, from: requestData)
       let response = handler(request)
@@ -240,7 +261,6 @@ public final class UnixSocketServer {
       data.append(0x0A)
       try writeAll(data, to: client)
     }
-    return true
   }
 }
 

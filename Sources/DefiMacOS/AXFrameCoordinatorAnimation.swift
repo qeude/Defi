@@ -49,6 +49,7 @@ extension AXFrameCoordinator {
       displayID: frame.displayID,
       initialProgressVelocity: frame.initialProgressVelocity,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+      successfulWrite: frame.successfulWrite,
       completion: nil,
       cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
@@ -62,6 +63,7 @@ extension AXFrameCoordinator {
       displayID: frame.displayID,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+      successfulWrite: frame.successfulWrite,
       completion: nil,
       cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
@@ -331,6 +333,7 @@ extension AXFrameCoordinator {
         displayID: frame.displayID,
         initialProgressVelocity: 0,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+        successfulWrite: frame.successfulWrite,
         completion: nil,
         cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
       )
@@ -406,6 +409,7 @@ extension AXFrameCoordinator {
       displayID: frame.displayID,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+      successfulWrite: frame.successfulWrite,
       completion: nil,
       cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )

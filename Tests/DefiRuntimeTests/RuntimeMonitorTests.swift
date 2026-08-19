@@ -298,4 +298,135 @@ final class RuntimeMonitorTests: XCTestCase {
       WorkspaceID(rawValue: "5")
     )
   }
+
+  func testMoveColumnToMonitorKeepsStackScalesPixelsAndMovesTransient() throws {
+    let externalID = MonitorID(rawValue: 2)
+    var state = twoMonitorState(externalID: externalID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: [WindowID(rawValue: 1), WindowID(rawValue: 2)],
+        focusedWindow: 1,
+        width: .pixels(1_000)
+      )
+    ]
+    state.monitors[0].workspaces[0].floatingWindows = [WindowID(rawValue: 3)]
+    state.monitors[1].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 9), width: .fraction(0.5))
+    ]
+    state.windows = [
+      windowID(1): window(1, monitorID: monitorID),
+      windowID(2): window(2, monitorID: monitorID),
+      windowID(3): Window(
+        id: WindowID(rawValue: 3),
+        appID: "app",
+        title: "Dialog",
+        frame: Rect(x: 100, y: 100, width: 300, height: 200),
+        transientOwnerID: WindowID(rawValue: 1),
+        monitorID: monitorID,
+        floating: true,
+        floatingOrigin: .automatic
+      ),
+      windowID(9): window(9, monitorID: externalID),
+    ]
+
+    try reduce(
+      .moveColumnToMonitor(.right),
+      on: monitorID,
+      state: &state,
+      monitorFrames: monitorFrames(externalID: externalID),
+      viewports: monitorFrames(externalID: externalID)
+    )
+
+    XCTAssertTrue(state.monitors[0].workspaces[0].columns.isEmpty)
+    XCTAssertEqual(
+      state.monitors[1].workspaces[0].columns[1].windows,
+      [windowID(1), windowID(2)]
+    )
+    XCTAssertEqual(state.monitors[1].workspaces[0].columns[1].width, .pixels(2_000))
+    XCTAssertEqual(state.monitors[1].workspaces[0].floatingWindows, [windowID(3)])
+    XCTAssertEqual(state.selectedWindowID(on: externalID), WindowID(rawValue: 2))
+    XCTAssertEqual(state.windows[windowID(3)]?.monitorID, externalID)
+  }
+
+  func testMoveWindowToMonitorCreatesIndependentColumn() throws {
+    let externalID = MonitorID(rawValue: 2)
+    var state = twoMonitorState(externalID: externalID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: [WindowID(rawValue: 1), WindowID(rawValue: 2)],
+        focusedWindow: 1,
+        width: .fraction(0.6)
+      )
+    ]
+    state.windows = [
+      windowID(1): window(1, monitorID: monitorID),
+      windowID(2): window(2, monitorID: monitorID),
+    ]
+
+    try reduce(
+      .moveWindowToMonitor(.right),
+      on: monitorID,
+      state: &state,
+      monitorFrames: monitorFrames(externalID: externalID),
+      viewports: monitorFrames(externalID: externalID)
+    )
+
+    XCTAssertEqual(
+      state.monitors[0].workspaces[0].columns[0].windows,
+      [windowID(1)]
+    )
+    XCTAssertEqual(
+      state.monitors[1].workspaces[0].columns[0].windows,
+      [windowID(2)]
+    )
+    XCTAssertEqual(state.monitors[1].workspaces[0].columns[0].width, .fraction(0.6))
+    XCTAssertEqual(state.selectedWindowID(on: externalID), WindowID(rawValue: 2))
+  }
+
+  func testMoveToMissingSpatialMonitorIsStrictNoOp() throws {
+    var state = twoMonitorState(externalID: MonitorID(rawValue: 2))
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: windowID(1), width: .fraction(0.5))
+    ]
+    state.windows = [windowID(1): window(1, monitorID: monitorID)]
+
+    let changed = try changedState(
+      after: .moveColumnToMonitor(.left),
+      on: monitorID,
+      from: state,
+      monitorFrames: monitorFrames(externalID: MonitorID(rawValue: 2))
+    )
+
+    XCTAssertNil(changed)
+  }
+
+  private func twoMonitorState(externalID: MonitorID) -> RuntimeState {
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    )
+    state.attachMonitor(monitorID)
+    state.attachMonitor(externalID)
+    return state
+  }
+
+  private func monitorFrames(externalID: MonitorID) -> [MonitorID: Rect] {
+    [
+      monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+      externalID: Rect(x: 1_000, y: 0, width: 2_000, height: 1_000),
+    ]
+  }
+
+  private func window(_ rawID: UInt64, monitorID: MonitorID) -> Window {
+    Window(
+      id: WindowID(rawValue: rawID),
+      appID: "app",
+      title: "Window \(rawID)",
+      frame: Rect(x: 0, y: 0, width: 500, height: 700),
+      monitorID: monitorID
+    )
+  }
+
+  private func windowID(_ rawValue: UInt64) -> WindowID {
+    WindowID(rawValue: rawValue)
+  }
 }

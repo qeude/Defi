@@ -10,6 +10,8 @@ import OSLog
 public final class MacOSPlatform {
   var elements: [WindowID: AXUIElement] = [:]
   var processIDs: [WindowID: pid_t] = [:]
+  var transientOwnerWindowIDs: [WindowID: WindowID] = [:]
+  var transientOwnerResolutionAttempts: [WindowID: Int] = [:]
   var floatingWindowIDs = Set<WindowID>()
   var applications: [pid_t: AXUIElement] = [:]
   var applicationIDsByProcess: [pid_t: String] = [:]
@@ -88,6 +90,7 @@ public final class MacOSPlatform {
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0
   var maximumObservedFrameCommitLatencyMS = 0.0
+  var commandLatency = CommandLatencyAccumulator()
   var lastHiddenWindowIDs = Set<WindowID>()
   var eventMonitor: PlatformEventMonitor?
   var frameEventPending = false

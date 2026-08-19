@@ -11,7 +11,202 @@ struct FrameCommitExpectation: Equatable, Sendable {
   let target: Rect
   let issuedAt: TimeInterval
   let deadline: TimeInterval
+  let command: CommandPerformanceContext?
   var observedAt: TimeInterval?
+
+  init(
+    from: Rect,
+    target: Rect,
+    issuedAt: TimeInterval,
+    deadline: TimeInterval,
+    command: CommandPerformanceContext? = nil,
+    observedAt: TimeInterval?
+  ) {
+    self.from = from
+    self.target = target
+    self.issuedAt = issuedAt
+    self.deadline = deadline
+    self.command = command
+    self.observedAt = observedAt
+  }
+}
+
+public struct CommandPerformanceContext: Equatable, Sendable {
+  public let generation: UInt64
+  public let inputTimestamp: TimeInterval
+
+  public init(generation: UInt64, inputTimestamp: TimeInterval) {
+    self.generation = generation
+    self.inputTimestamp = inputTimestamp
+  }
+}
+
+public struct LatencyPercentiles: Equatable, Sendable {
+  public let count: Int
+  public let p50MS: Double
+  public let p95MS: Double
+  public let p99MS: Double
+}
+
+public struct CommandLatencyPerformance: Equatable, Sendable {
+  public let started: Int
+  public let superseded: Int
+  public let plan: LatencyPercentiles
+  public let firstWrite: LatencyPercentiles
+  public let firstObservation: LatencyPercentiles
+  public let convergence: LatencyPercentiles
+  public let focus: LatencyPercentiles
+}
+
+struct CommandLatencyRecord: Equatable {
+  let inputTimestamp: TimeInterval
+  var expectedWindowIDs = Set<WindowID>()
+  var convergedWindowIDs = Set<WindowID>()
+  var firstWriteRecorded = false
+  var firstObservationRecorded = false
+  var convergenceRecorded = false
+  var focusRecorded = false
+}
+
+struct CommandLatencyAccumulator {
+  private(set) var latestGeneration: UInt64 = 0
+  private(set) var started = 0
+  private(set) var superseded = 0
+  private(set) var record: CommandLatencyRecord?
+  private(set) var planSamplesMS: [Double] = []
+  private(set) var firstWriteSamplesMS: [Double] = []
+  private(set) var firstObservationSamplesMS: [Double] = []
+  private(set) var convergenceSamplesMS: [Double] = []
+  private(set) var focusSamplesMS: [Double] = []
+
+  mutating func begin(_ context: CommandPerformanceContext) {
+    guard context.generation > latestGeneration else { return }
+    if let previous = record,
+      !previous.convergenceRecorded
+        && (!previous.expectedWindowIDs.isEmpty
+          || previous.firstWriteRecorded
+          || previous.firstObservationRecorded)
+    {
+      superseded += 1
+    }
+    latestGeneration = context.generation
+    record = CommandLatencyRecord(inputTimestamp: context.inputTimestamp)
+    started += 1
+  }
+
+  mutating func recordPlan(
+    _ context: CommandPerformanceContext,
+    expectedWindowIDs: Set<WindowID>,
+    at timestamp: TimeInterval
+  ) -> Double? {
+    guard var record = currentRecord(for: context) else { return nil }
+    record.expectedWindowIDs = expectedWindowIDs
+    self.record = record
+    let latency = latencyMS(from: context, to: timestamp)
+    recordDurationSample(latency, in: &planSamplesMS)
+    return latency
+  }
+
+  mutating func recordFirstWrite(
+    _ context: CommandPerformanceContext,
+    at timestamp: TimeInterval
+  ) -> Double? {
+    guard var record = currentRecord(for: context),
+      !record.firstWriteRecorded
+    else { return nil }
+    record.firstWriteRecorded = true
+    self.record = record
+    let latency = latencyMS(from: context, to: timestamp)
+    recordDurationSample(latency, in: &firstWriteSamplesMS)
+    return latency
+  }
+
+  mutating func recordObservation(
+    _ context: CommandPerformanceContext,
+    windowID: WindowID,
+    from: Rect,
+    actual: Rect,
+    target: Rect,
+    at timestamp: TimeInterval
+  ) -> (firstObservationMS: Double?, convergenceMS: Double?) {
+    guard var record = currentRecord(for: context) else { return (nil, nil) }
+    var firstObservationMS: Double?
+    if !record.firstObservationRecorded,
+      frameDistance(from, actual) >= 0.5
+    {
+      record.firstObservationRecorded = true
+      firstObservationMS = latencyMS(from: context, to: timestamp)
+      recordDurationSample(
+        firstObservationMS ?? 0,
+        in: &firstObservationSamplesMS
+      )
+    }
+    if approximatelyEqual(actual, target) {
+      record.convergedWindowIDs.insert(windowID)
+    }
+    var convergenceMS: Double?
+    if !record.convergenceRecorded,
+      !record.expectedWindowIDs.isEmpty,
+      record.expectedWindowIDs.isSubset(of: record.convergedWindowIDs)
+    {
+      record.convergenceRecorded = true
+      convergenceMS = latencyMS(from: context, to: timestamp)
+      recordDurationSample(convergenceMS ?? 0, in: &convergenceSamplesMS)
+    }
+    self.record = record
+    return (firstObservationMS, convergenceMS)
+  }
+
+  mutating func recordFocus(
+    _ context: CommandPerformanceContext,
+    at timestamp: TimeInterval
+  ) -> Double? {
+    guard var record = currentRecord(for: context), !record.focusRecorded
+    else { return nil }
+    record.focusRecorded = true
+    self.record = record
+    let latency = latencyMS(from: context, to: timestamp)
+    recordDurationSample(latency, in: &focusSamplesMS)
+    return latency
+  }
+
+  var performance: CommandLatencyPerformance {
+    CommandLatencyPerformance(
+      started: started,
+      superseded: superseded,
+      plan: percentiles(planSamplesMS),
+      firstWrite: percentiles(firstWriteSamplesMS),
+      firstObservation: percentiles(firstObservationSamplesMS),
+      convergence: percentiles(convergenceSamplesMS),
+      focus: percentiles(focusSamplesMS)
+    )
+  }
+
+  private func currentRecord(
+    for context: CommandPerformanceContext
+  ) -> CommandLatencyRecord? {
+    guard context.generation == latestGeneration,
+      let record,
+      record.inputTimestamp == context.inputTimestamp
+    else { return nil }
+    return record
+  }
+
+  private func latencyMS(
+    from context: CommandPerformanceContext,
+    to timestamp: TimeInterval
+  ) -> Double {
+    max(timestamp - context.inputTimestamp, 0) * 1_000
+  }
+
+  private func percentiles(_ samples: [Double]) -> LatencyPercentiles {
+    LatencyPercentiles(
+      count: samples.count,
+      p50MS: durationPercentile(0.50, samples: samples),
+      p95MS: durationPercentile(0.95, samples: samples),
+      p99MS: durationPercentile(0.99, samples: samples)
+    )
+  }
 }
 
 func frameCommitQuarantineDuration(

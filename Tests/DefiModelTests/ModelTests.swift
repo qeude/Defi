@@ -56,6 +56,14 @@ final class ModelTests: XCTestCase {
     XCTAssertEqual(try parseCommand("focus-window last"), .focusWindow(.last))
     XCTAssertEqual(try parseCommand("move-column last"), .moveColumn(.last))
     XCTAssertEqual(try parseCommand("move-window down"), .moveWindow(.down))
+    XCTAssertEqual(
+      try parseCommand("move-column-to-monitor left"),
+      .moveColumnToMonitor(.left)
+    )
+    XCTAssertEqual(
+      try parseCommand("move-window-to-monitor up"),
+      .moveWindowToMonitor(.up)
+    )
     XCTAssertEqual(try parseCommand("focus-floating next"), .focusFloating(.next))
     XCTAssertEqual(
       try parseCommand("workspace sim"),
@@ -69,6 +77,10 @@ final class ModelTests: XCTestCase {
   func testRejectsInvalidMoveDirection() {
     XCTAssertThrowsError(try parseCommand("move-window right")) { error in
       XCTAssertEqual(error as? CommandParseError, .invalidDirection("right"))
+    }
+    XCTAssertThrowsError(try parseCommand("move-column-to-monitor next")) {
+      error in
+      XCTAssertEqual(error as? CommandParseError, .invalidDirection("next"))
     }
   }
 
@@ -86,6 +98,8 @@ final class ModelTests: XCTestCase {
     XCTAssertTrue(Command.maximizeColumn.resizesManagedLayout)
     XCTAssertTrue(Command.joinWindow(.left).resizesManagedLayout)
     XCTAssertTrue(Command.unjoinWindows.resizesManagedLayout)
+    XCTAssertTrue(Command.moveColumnToMonitor(.right).resizesManagedLayout)
+    XCTAssertTrue(Command.moveWindowToMonitor(.right).movesWindowsAcrossMonitors)
     XCTAssertFalse(Command.focusColumn(.right).resizesManagedLayout)
     XCTAssertFalse(Command.toggleFloating.resizesManagedLayout)
   }

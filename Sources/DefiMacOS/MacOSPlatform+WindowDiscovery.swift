@@ -253,6 +253,7 @@ extension MacOSPlatform {
         role: role,
         subrole: subrole,
         processID: processID,
+        isModal: attributes.modal == true,
         monitorID: monitorID,
         forceTiling: false
       ), resolvedWindowID, decision

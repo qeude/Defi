@@ -283,6 +283,11 @@ an entry from `[workspaces].names`.
 | `move-column last` | Move focused column to last position. | `<mod>-shift-rightbracket` |
 | `move-window up` | Move focused window up inside current stack. | `<mod>-shift-up` |
 | `move-window down` | Move focused window down inside current stack. | `<mod>-shift-down` |
+| `move-column-to-monitor left` | Move focused column to the nearest monitor on the left. | `<mod>-shift-h` |
+| `move-column-to-monitor down` | Move focused column to the nearest monitor below. | `<mod>-shift-j` |
+| `move-column-to-monitor up` | Move focused column to the nearest monitor above. | `<mod>-shift-k` |
+| `move-column-to-monitor right` | Move focused column to the nearest monitor on the right. | `<mod>-shift-l` |
+| `move-window-to-monitor left\|right\|up\|down` | Move only the focused window to the nearest monitor in that direction. | unset |
 | `workspace <name>` | Switch active monitor to workspace. | `<mod>-1` … `<mod>-9` |
 | `move-window-to-workspace <name>` | Move focused window and follow it. | `<mod>-shift-1` … `<mod>-shift-9` |
 | `send-window-to-workspace <name>` | Move focused window without switching workspace. | unset |

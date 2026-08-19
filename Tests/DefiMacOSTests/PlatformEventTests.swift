@@ -1497,12 +1497,21 @@ struct PlatformEventTests {
   func resumingFrameNotificationsForcesFreshProcessReads() {
     let platform = MacOSPlatform()
     platform.lastSnapshotProcessIDs = [101, 202]
+    let windowID = WindowID(rawValue: 42)
+    platform.processIDs[windowID] = 101
+    platform.frameCommitExpectations[windowID] = FrameCommitExpectation(
+      from: Rect(x: 0, y: 0, width: 100, height: 100),
+      target: Rect(x: 100, y: 0, width: 100, height: 100),
+      issuedAt: 1,
+      deadline: 2,
+      observedAt: nil
+    )
 
     platform.setFrameNotificationsEnabled(true)
 
     #expect(platform.frameEventPending)
-    #expect(platform.pendingFrameProcessIDs == [101, 202])
-    #expect(platform.observedFrameEventWindowIDs.isEmpty)
+    #expect(platform.pendingFrameProcessIDs == [101])
+    #expect(platform.observedFrameEventWindowIDs == [windowID])
   }
 
   @Test

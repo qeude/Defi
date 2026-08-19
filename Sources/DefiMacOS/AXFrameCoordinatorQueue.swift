@@ -72,6 +72,7 @@ extension AXFrameCoordinator {
         successfulFinalWritesByGeneration.removeValue(
           forKey: frame.generation
         ) ?? []
+      reportedSuccessfulWriteGenerations.remove(frame.generation)
       if !aborted {
         for windowID in frame.writes.keys {
           latestWriteSucceededByWindowID[windowID] =
@@ -169,6 +170,7 @@ extension AXFrameCoordinator {
         displayID: frame.displayID,
         initialProgressVelocity: initialProgressVelocity,
         stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+        successfulWrite: frame.successfulWrite,
         completion: frame.completion,
         cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
       ),

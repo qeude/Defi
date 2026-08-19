@@ -26,14 +26,20 @@ public func discoverWindow(
   window.forceTiling = decision.forceTiling
   window.intrinsicSize = decision.intrinsicSize
   let effectivePlacement = window.floatingOrigin == .automatic ? nil : placement
+  let transientLocation = transientPlacementLocation(for: window, state: state)
   let preferredMonitorID = effectivePlacement?.monitorID.flatMap { preferred in
     state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
   }
-  let monitorID = preferredMonitorID ?? window.monitorID ?? state.monitors[0].id
+  let monitorID =
+    transientLocation?.monitorID
+    ?? preferredMonitorID
+    ?? window.monitorID
+    ?? state.monitors[0].id
   let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }) ?? 0
   let preferredWorkspaceID = effectivePlacement?.workspaceID
   let workspaceID =
-    decision.workspace
+    transientLocation?.workspaceID
+    ?? decision.workspace
     ?? preferredWorkspaceID.flatMap { preferred in
       state.monitors[monitorIndex].workspaces.contains(where: { $0.id == preferred })
         ? preferred
@@ -70,6 +76,26 @@ public func discoverWindow(
     state.monitors[monitorIndex].activeWorkspace = workspaceID
   }
   state.windows[window.id] = window
+}
+
+public func transientPlacementLocation(
+  for window: Window,
+  state: RuntimeState
+) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+  guard window.isModal || window.floatingOrigin == .automatic else { return nil }
+  if let ownerID = window.transientOwnerID,
+    let ownerLocation = state.location(containing: ownerID)
+  {
+    return ownerLocation
+  }
+  let sameApplicationSelections = state.monitors.compactMap { monitor -> WindowID? in
+    guard let selected = state.selectedWindowID(on: monitor.id),
+      state.windows[selected]?.appID == window.appID
+    else { return nil }
+    return selected
+  }
+  guard sameApplicationSelections.count == 1 else { return nil }
+  return state.location(containing: sameApplicationSelections[0])
 }
 
 @discardableResult

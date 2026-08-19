@@ -99,6 +99,7 @@ public func pointerFocusMonitor(
   maximumScrollAmount: Double? = nil,
   acceptsAlreadySelectedWindow: Bool = false
 ) -> MonitorID? {
+  guard modalAllowsPointerFocus(windowID, state: state) else { return nil }
   let changesSelection = nativeFocusChangesSelection(
     windowID,
     activeMonitorID: activeMonitorID,
@@ -146,6 +147,31 @@ public func pointerFocusMonitor(
   }
 
   return location.monitorID
+}
+
+public func modalAllowsPointerFocus(
+  _ windowID: WindowID,
+  state: RuntimeState
+) -> Bool {
+  guard let target = state.windows[windowID],
+    let location = state.location(containing: windowID),
+    let workspace = state.monitors.first(where: { $0.id == location.monitorID })?
+      .workspaces.first(where: { $0.id == location.workspaceID })
+  else { return true }
+  let workspaceWindowIDs = workspace.columns.flatMap(\.windows)
+    + workspace.floatingWindows
+  let modalIDs = Set(workspaceWindowIDs.filter {
+    state.windows[$0]?.appID == target.appID
+      && state.windows[$0]?.isModal == true
+  })
+  guard !modalIDs.isEmpty else { return true }
+  var candidate: WindowID? = windowID
+  var visited = Set<WindowID>()
+  while let current = candidate, visited.insert(current).inserted {
+    if modalIDs.contains(current) { return true }
+    candidate = state.windows[current]?.transientOwnerID
+  }
+  return false
 }
 
 public func pointerFocusRecoveryWindowID(

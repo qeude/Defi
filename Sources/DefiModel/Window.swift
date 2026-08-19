@@ -7,6 +7,8 @@ public struct Window: Equatable, Codable, Sendable {
   public var role: String?
   public var subrole: String?
   public var processID: Int32?
+  public var transientOwnerID: WindowID?
+  public var isModal: Bool
   public var monitorID: MonitorID?
   public var frame: Rect
   public var floating: Bool
@@ -22,6 +24,8 @@ public struct Window: Equatable, Codable, Sendable {
     role: String? = nil,
     subrole: String? = nil,
     processID: Int32? = nil,
+    transientOwnerID: WindowID? = nil,
+    isModal: Bool = false,
     monitorID: MonitorID? = nil,
     floating: Bool = false,
     floatingOrigin: FloatingOrigin? = nil,
@@ -34,6 +38,8 @@ public struct Window: Equatable, Codable, Sendable {
     self.role = role
     self.subrole = subrole
     self.processID = processID
+    self.transientOwnerID = transientOwnerID
+    self.isModal = isModal
     self.monitorID = monitorID
     self.frame = frame
     self.floating = floating

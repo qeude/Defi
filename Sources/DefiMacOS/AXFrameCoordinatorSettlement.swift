@@ -299,8 +299,8 @@ extension AXFrameCoordinator {
   func appendTraceLocked(_ event: String) {
     let uptime = ProcessInfo.processInfo.systemUptime
     traceEntries.append(String(format: "%.6f %@", uptime, event))
-    if traceEntries.count > 96 {
-      traceEntries.removeFirst(traceEntries.count - 96)
+    if traceEntries.count > 512 {
+      traceEntries.removeFirst(traceEntries.count - 512)
     }
   }
 }

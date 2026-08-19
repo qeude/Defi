@@ -163,30 +163,6 @@ func updateFloatingWindowFrames(
     )
   }
 }
-private func rebasedFloatingFrame(
-  _ frame: Rect,
-  from previousViewport: Rect,
-  to nextViewport: Rect
-) -> Rect {
-  let previousHorizontalRange = max(previousViewport.width - frame.width, 1)
-  let previousVerticalRange = max(previousViewport.height - frame.height, 1)
-  let horizontalProgress = min(
-    max((frame.x - previousViewport.x) / previousHorizontalRange, 0),
-    1
-  )
-  let verticalProgress = min(
-    max((frame.y - previousViewport.y) / previousVerticalRange, 0),
-    1
-  )
-  let nextHorizontalRange = max(nextViewport.width - frame.width, 0)
-  let nextVerticalRange = max(nextViewport.height - frame.height, 0)
-  return Rect(
-    x: nextViewport.x + horizontalProgress * nextHorizontalRange,
-    y: nextViewport.y + verticalProgress * nextVerticalRange,
-    width: min(frame.width, nextViewport.width),
-    height: min(frame.height, nextViewport.height)
-  )
-}
 
 private func constrainedFloatingFrame(_ frame: Rect, to viewport: Rect) -> Rect {
   let width = min(frame.width, viewport.width)

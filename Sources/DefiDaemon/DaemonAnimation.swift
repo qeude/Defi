@@ -66,15 +66,9 @@ extension Daemon {
   }
 
   func beginFrameAnimationActivity() {
-    if animationActivity == nil {
+    if !frameNotificationsSuspended {
       currentAnimationFrameCount = 0
       maximumAnimationStepDurationMS = 0
-      animationActivity = ProcessInfo.processInfo.beginActivity(
-        options: [.userInitiated, .latencyCritical],
-        reason: "Defi frame animation"
-      )
-    }
-    if !frameNotificationsSuspended {
       platform.setFrameNotificationsEnabled(false)
       frameNotificationsSuspended = true
     }
@@ -92,18 +86,22 @@ extension Daemon {
   }
 
   func dispatchScrollAnimationIfNeeded(
-    skipping skippedWindowIDs: Set<WindowID> = []
+    monitorIDs: Set<MonitorID>? = nil,
+    skipping skippedWindowIDs: Set<WindowID> = [],
+    commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
     guard !scrollAnimations.isEmpty else { return false }
     let duration = TimeInterval(config.animation.durationMS) / 1_000
     snapScrollOffsetsToTargets()
     applyCurrentLayout(
+      monitorIDs: monitorIDs,
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
       animationDuration: duration,
       skipping: skippedWindowIDs,
       positionsOnly: true,
+      commandPerformance: commandPerformance,
       source: "command-animation"
     )
     needsDesktopSync = true
@@ -111,19 +109,23 @@ extension Daemon {
   }
 
   func dispatchManagedResizeAnimation(
-    skipping skippedWindowIDs: Set<WindowID> = []
+    monitorIDs: Set<MonitorID>? = nil,
+    skipping skippedWindowIDs: Set<WindowID> = [],
+    commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
     let duration = TimeInterval(config.animation.durationMS) / 1_000
     guard config.animation.enabled, duration > 0 else { return false }
     snapScrollOffsetsToTargets()
     beginFrameAnimationActivity()
     applyCurrentLayout(
+      monitorIDs: monitorIDs,
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
       animationDuration: duration,
       animateSizeChanges: true,
       skipping: skippedWindowIDs,
+      commandPerformance: commandPerformance,
       source: "command-resize-animation"
     )
     needsDesktopSync = true
