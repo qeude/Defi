@@ -16,7 +16,7 @@ Single-context repo:
 /
 ├── CONTEXT.md
 ├── docs/adr/
-└── src/
+└── Sources/
 
 ## Use the glossary's vocabulary
 
