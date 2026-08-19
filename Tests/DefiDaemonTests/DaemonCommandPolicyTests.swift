@@ -142,6 +142,27 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func columnTransferTargetsTheTiledSelectionWhenFloatingIsFocused() {
+    let tiledID = WindowID(rawValue: 10)
+    let floatingID = WindowID(rawValue: 11)
+
+    #expect(
+      crossMonitorCommandWindowID(
+        .moveColumnToMonitor(.right),
+        selectedWindowID: floatingID,
+        selectedTiledWindowID: tiledID
+      ) == tiledID
+    )
+    #expect(
+      crossMonitorCommandWindowID(
+        .moveWindowToMonitor(.right),
+        selectedWindowID: floatingID,
+        selectedTiledWindowID: tiledID
+      ) == floatingID
+    )
+  }
+
+  @Test
   func crossMonitorMoveRebasesTheFreshlyObservedFloatingFrame() {
     let source = MonitorID(rawValue: 1)
     let destination = MonitorID(rawValue: 2)

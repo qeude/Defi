@@ -254,18 +254,10 @@ private func moveFocusedSelectionToMonitor(
   else { return }
 
   let sourceWorkspace = state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
-  let selectedWindowID: WindowID
-  if movesWholeColumn {
-    guard sourceWorkspace.columns.indices.contains(sourceWorkspace.focusedColumn) else {
-      return
-    }
-    let column = sourceWorkspace.columns[sourceWorkspace.focusedColumn]
-    guard column.windows.indices.contains(column.focusedWindow) else { return }
-    selectedWindowID = column.windows[column.focusedWindow]
-  } else {
-    guard let selected = state.selectedWindowID(on: sourceMonitorID) else { return }
-    selectedWindowID = selected
-  }
+  guard let selectedWindowID = movesWholeColumn
+    ? state.selectedTiledWindowID(on: sourceMonitorID)
+    : state.selectedWindowID(on: sourceMonitorID)
+  else { return }
   let rootWindowID = transientRootWindowID(selectedWindowID, windows: state.windows)
   let rootColumnIndex = sourceWorkspace.columns.firstIndex {
     $0.windows.contains(rootWindowID)

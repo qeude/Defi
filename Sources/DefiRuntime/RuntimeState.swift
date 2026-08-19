@@ -156,6 +156,10 @@ public struct RuntimeState: Equatable, Sendable {
     location(containing: windowID)?.monitorID
   }
 
+  public mutating func updateWindowFrame(_ frame: Rect, for windowID: WindowID) {
+    windows[windowID]?.frame = frame
+  }
+
   public func location(
     containing windowID: WindowID
   ) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
@@ -183,11 +187,18 @@ public struct RuntimeState: Equatable, Sendable {
     guard workspace.columns.indices.contains(workspace.focusedColumn) else {
       return selectedFloatingWindowID
     }
-    let column = workspace.columns[workspace.focusedColumn]
-    guard column.windows.indices.contains(column.focusedWindow) else {
+    return focusedTiledWindowID(in: workspace)
+  }
+
+  public func selectedTiledWindowID(on monitorID: MonitorID) -> WindowID? {
+    guard let monitor = monitors.first(where: { $0.id == monitorID }),
+      let workspace = monitor.workspaces.first(
+        where: { $0.id == monitor.activeWorkspace }
+      )
+    else {
       return nil
     }
-    return column.windows[column.focusedWindow]
+    return focusedTiledWindowID(in: workspace)
   }
 
   public func selectedFloatingWindowID(on monitorID: MonitorID) -> WindowID? {
@@ -242,6 +253,13 @@ private func focusedFloatingWindowID(in workspace: Workspace) -> WindowID? {
     return nil
   }
   return workspace.floatingWindows[workspace.focusedFloatingWindow]
+}
+
+private func focusedTiledWindowID(in workspace: Workspace) -> WindowID? {
+  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
+  let column = workspace.columns[workspace.focusedColumn]
+  guard column.windows.indices.contains(column.focusedWindow) else { return nil }
+  return column.windows[column.focusedWindow]
 }
 
 public func commandShouldFocusWindow(

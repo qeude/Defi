@@ -55,6 +55,15 @@ func commandFollowUpIsPending(
   frameWrites || animatedFocus || workspaceFocus
 }
 
+func crossMonitorCommandWindowID(
+  _ command: Command,
+  selectedWindowID: WindowID?,
+  selectedTiledWindowID: WindowID?
+) -> WindowID? {
+  if case .moveColumnToMonitor = command { return selectedTiledWindowID }
+  return selectedWindowID
+}
+
 @MainActor
 extension Daemon {
   func installIPCSource() {
@@ -181,6 +190,13 @@ extension Daemon {
       let previouslySelectedWindowID = commandMonitorID.flatMap {
         state.selectedWindowID(on: $0)
       }
+      let crossMonitorWindowID = crossMonitorCommandWindowID(
+        command,
+        selectedWindowID: previouslySelectedWindowID,
+        selectedTiledWindowID: commandMonitorID.flatMap {
+          state.selectedTiledWindowID(on: $0)
+        }
+      )
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
       let validationMS =
@@ -272,7 +288,7 @@ extension Daemon {
         state = validationState
       }
       let resultMonitorID = movesAcrossMonitors
-        ? previouslySelectedWindowID.flatMap { state.monitorID(containing: $0) }
+        ? crossMonitorWindowID.flatMap { state.monitorID(containing: $0) }
           ?? commandMonitorID
         : commandMonitorID
       let nextWindowMonitorIDs = movesAcrossMonitors
@@ -300,7 +316,7 @@ extension Daemon {
             continue
           }
           if let frame = floatingWindowFrames[windowID] {
-            state.windows[windowID]?.frame = frame
+            state.updateWindowFrame(frame, for: windowID)
           } else {
             floatingWindowFrames[windowID] = window.frame
           }
