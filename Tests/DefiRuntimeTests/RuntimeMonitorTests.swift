@@ -397,7 +397,12 @@ final class RuntimeMonitorTests: XCTestCase {
     state.monitors[0].workspaces[0].columns = [
       Column(window: windowID(1), width: .fraction(0.5))
     ]
-    state.windows = [windowID(1): window(1, monitorID: monitorID)]
+    state.monitors[0].workspaces[0].floatingWindows = [windowID(2)]
+    state.monitors[0].workspaces[0].focusedLayer = .floating
+    state.windows = [
+      windowID(1): window(1, monitorID: monitorID),
+      windowID(2): window(2, monitorID: monitorID),
+    ]
 
     let changed = try changedState(
       after: .moveColumnToMonitor(.left),
@@ -457,7 +462,56 @@ struct MonitorMoveFocusTests {
   }
 
   @Test
-  func movingOwnerKeepsForceTiledTransientInAColumn() throws {
+  func columnTransferUsesTheTiledSelectionWhenAFloatingWindowIsFocused() throws {
+    let sourceID = MonitorID(rawValue: 1)
+    let targetID = MonitorID(rawValue: 2)
+    let tiledID = WindowID(rawValue: 1)
+    let floatingID = WindowID(rawValue: 2)
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    )
+    state.attachMonitor(sourceID)
+    state.attachMonitor(targetID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: tiledID, width: .fraction(0.5))
+    ]
+    state.monitors[0].workspaces[0].floatingWindows = [floatingID]
+    state.monitors[0].workspaces[0].focusedLayer = .floating
+    state.windows = [
+      tiledID: Window(
+        id: tiledID,
+        appID: "app",
+        title: "Tiled",
+        frame: Rect(x: 0, y: 0, width: 500, height: 700),
+        monitorID: sourceID
+      ),
+      floatingID: Window(
+        id: floatingID,
+        appID: "app",
+        title: "Floating",
+        frame: Rect(x: 100, y: 100, width: 300, height: 200),
+        monitorID: sourceID,
+        floating: true,
+        floatingOrigin: .user
+      ),
+    ]
+
+    try reduce(
+      .moveColumnToMonitor(.right),
+      on: sourceID,
+      state: &state,
+      monitorFrames: [
+        sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+      ]
+    )
+
+    #expect(state.monitors[0].workspaces[0].floatingWindows == [floatingID])
+    #expect(state.monitors[1].workspaces[0].columns.flatMap(\.windows) == [tiledID])
+  }
+
+  @Test
+  func movingOwnerKeepsForceTiledTransientColumnMetadata() throws {
     let sourceID = MonitorID(rawValue: 1)
     let targetID = MonitorID(rawValue: 2)
     let ownerID = WindowID(rawValue: 1)
@@ -469,7 +523,11 @@ struct MonitorMoveFocusTests {
     state.attachMonitor(targetID)
     state.monitors[0].workspaces[0].columns = [
       Column(window: ownerID, width: .fraction(0.5)),
-      Column(window: transientID, width: .fraction(0.5)),
+      Column(
+        window: transientID,
+        width: .pixels(700),
+        preMaximizedWidth: .pixels(400)
+      ),
     ]
     state.windows = [
       ownerID: Window(
@@ -496,14 +554,21 @@ struct MonitorMoveFocusTests {
       state: &state,
       monitorFrames: [
         sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
-        targetID: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 2_000, height: 800),
+      ],
+      viewports: [
+        sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 2_000, height: 800),
       ]
     )
 
-    #expect(
-      state.monitors[1].workspaces[0].columns.flatMap(\.windows)
-        .contains(transientID)
+    let transientColumn = try #require(
+      state.monitors[1].workspaces[0].columns.first {
+        $0.windows.contains(transientID)
+      }
     )
+    #expect(transientColumn.width == .pixels(1_400))
+    #expect(transientColumn.preMaximizedWidth == .pixels(800))
     #expect(
       state.monitors[1].workspaces[0].floatingWindows.contains(transientID)
         == false

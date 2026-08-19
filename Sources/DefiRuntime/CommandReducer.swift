@@ -250,12 +250,23 @@ private func moveFocusedSelectionToMonitor(
     ),
     let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(
       where: { $0.id == state.monitors[targetMonitorIndex].activeWorkspace }
-    ),
-    let selectedWindowID = state.selectedWindowID(on: sourceMonitorID)
+    )
   else { return }
 
-  let rootWindowID = transientRootWindowID(selectedWindowID, windows: state.windows)
   let sourceWorkspace = state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+  let selectedWindowID: WindowID
+  if movesWholeColumn {
+    guard sourceWorkspace.columns.indices.contains(sourceWorkspace.focusedColumn) else {
+      return
+    }
+    let column = sourceWorkspace.columns[sourceWorkspace.focusedColumn]
+    guard column.windows.indices.contains(column.focusedWindow) else { return }
+    selectedWindowID = column.windows[column.focusedWindow]
+  } else {
+    guard let selected = state.selectedWindowID(on: sourceMonitorID) else { return }
+    selectedWindowID = selected
+  }
+  let rootWindowID = transientRootWindowID(selectedWindowID, windows: state.windows)
   let rootColumnIndex = sourceWorkspace.columns.firstIndex {
     $0.windows.contains(rootWindowID)
   }
@@ -280,6 +291,17 @@ private func moveFocusedSelectionToMonitor(
     of: primaryWindowIDs,
     windows: state.windows
   ).union(primaryWindowIDs)
+  var auxiliaryTiledColumns: [WindowID: Column] = [:]
+  for column in sourceWorkspace.columns {
+    for windowID in column.windows
+    where movedWindowIDs.contains(windowID) && !primaryWindowIDs.contains(windowID) {
+      auxiliaryTiledColumns[windowID] = Column(
+        window: windowID,
+        width: column.width,
+        preMaximizedWidth: column.preMaximizedWidth
+      )
+    }
+  }
   let topologyWindowIDs = state.monitors.flatMap(\.workspaces).flatMap {
     $0.columns.flatMap(\.windows) + $0.floatingWindows
   }
@@ -349,6 +371,20 @@ private func moveFocusedSelectionToMonitor(
     {
       state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
         .floatingWindows.append(windowID)
+    } else if var column = auxiliaryTiledColumns[windowID] {
+      scalePixelWidths(in: &column, by: widthScale)
+      let insertionIndex = min(
+        state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+          .focusedColumn + 1,
+        state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+          .columns.count
+      )
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .columns.insert(column, at: insertionIndex)
+      if windowID == selectedWindowID {
+        state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+          .focusedColumn = insertionIndex
+      }
     } else {
       insertNewWindow(
         windowID,
