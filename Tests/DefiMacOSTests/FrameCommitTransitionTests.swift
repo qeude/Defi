@@ -136,6 +136,57 @@ struct FrameCommitTransitionTests {
   }
 
   @Test
+  func emptyVisibleFramePlanConvergesAfterItsParkingWrite() {
+    let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
+    var latency = CommandLatencyAccumulator()
+    latency.begin(context)
+    latency.recordFocusExpectation(context, expectsFocus: false)
+    _ = latency.recordPlan(
+      context,
+      expectedWindowIDs: [],
+      hasFrameWrites: true,
+      at: 10.002
+    )
+    #expect(latency.performance.convergence.count == 0)
+    _ = latency.recordFirstWrite(context, at: 10.003)
+
+    latency.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
+
+    #expect(latency.performance.superseded == 0)
+    #expect(latency.performance.convergence.count == 1)
+  }
+
+  @Test
+  func focusOnlyPlanConvergesOnlyAfterSuccessfulFocus() {
+    let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
+    var cancelled = CommandLatencyAccumulator()
+    cancelled.begin(context)
+    cancelled.recordFocusExpectation(context, expectsFocus: true)
+    _ = cancelled.recordPlan(
+      context,
+      expectedWindowIDs: [],
+      hasFrameWrites: false,
+      at: 10.002
+    )
+    cancelled.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
+    #expect(cancelled.performance.superseded == 1)
+
+    var completed = CommandLatencyAccumulator()
+    completed.begin(context)
+    completed.recordFocusExpectation(context, expectsFocus: true)
+    _ = completed.recordPlan(
+      context,
+      expectedWindowIDs: [],
+      hasFrameWrites: false,
+      at: 10.002
+    )
+    _ = completed.recordFocus(context, at: 10.010)
+    completed.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
+    #expect(completed.performance.superseded == 0)
+    #expect(completed.performance.convergence.count == 1)
+  }
+
+  @Test
   func intermediatePositionAndSizeCommitIsQuarantined() {
     #expect(
       frameIsOnExpectedCommitPath(

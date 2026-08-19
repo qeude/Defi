@@ -46,9 +46,14 @@ struct TransientReconciliationTests {
     #expect(state.location(containing: transient.id)?.monitorID == firstMonitor)
 
     transient.transientOwnerID = owner.id
-    reconcileWindows([decoy, owner, transient], config: config, state: &state)
+    let relocated = reconcileWindows(
+      [decoy, owner, transient],
+      config: config,
+      state: &state
+    )
 
     let location = try #require(state.location(containing: transient.id))
+    #expect(relocated == [transient.id])
     #expect(location.monitorID == secondMonitor)
     #expect(location.workspaceID == WorkspaceID(rawValue: "web"))
     #expect(state.monitors.allSatisfy { $0.activeWorkspace.rawValue == "dev" })

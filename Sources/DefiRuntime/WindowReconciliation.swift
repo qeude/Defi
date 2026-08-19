@@ -138,13 +138,15 @@ public func moveFloatingWindow(
   return true
 }
 
+@discardableResult
 public func reconcileWindows(
   _ discovered: [Window],
   config: Config,
   placementPreferences: PlacementPreferences = PlacementPreferences(),
   externallyChangedWindowIDs: Set<WindowID> = [],
   state: inout RuntimeState
-) {
+) -> Set<WindowID> {
+  var relocatedTransientIDs = Set<WindowID>()
   let discoveredIDs = Set(discovered.map(\.id))
   for existingID in Array(state.windows.keys) where !discoveredIDs.contains(existingID) {
     removeWindowEverywhere(existingID, state: &state)
@@ -195,15 +197,19 @@ public func reconcileWindows(
         }
       }
       state.windows[window.id] = updated
-      relocateTransientIfNeeded(window.id, state: &state)
+      if relocateTransientIfNeeded(window.id, state: &state) {
+        relocatedTransientIDs.insert(window.id)
+      }
     }
   }
+  return relocatedTransientIDs
 }
 
+@discardableResult
 private func relocateTransientIfNeeded(
   _ windowID: WindowID,
   state: inout RuntimeState
-) {
+) -> Bool {
   guard let window = state.windows[windowID],
     let current = state.location(containing: windowID),
     let target = transientPlacementLocation(for: window, state: state),
@@ -214,7 +220,7 @@ private func relocateTransientIfNeeded(
     let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(
       where: { $0.id == target.workspaceID }
     )
-  else { return }
+  else { return false }
 
   removeWindowEverywhere(windowID, state: &state)
   if window.floating && !window.forceTiling {
@@ -229,6 +235,7 @@ private func relocateTransientIfNeeded(
     )
   }
   state.windows[windowID]?.monitorID = target.monitorID
+  return true
 }
 
 private func reclassifyTiledWindowAsAutomaticFloater(

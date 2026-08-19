@@ -306,11 +306,16 @@ extension Daemon {
           selectedWindowID: selectedWindowID,
           selectedFloatingWindowID: state.selectedFloatingWindowID(
             on: resultMonitorID
-          )
+          ),
+          movesAcrossMonitors: movesAcrossMonitors
         )
       } else {
         commandTransfersFocus = false
       }
+      platform.recordCommandFocusExpectation(
+        commandPerformance,
+        expectsFocus: commandTransfersFocus
+      )
       if commandTransfersFocus {
         activeMonitorID = resultMonitorID
       }
@@ -483,7 +488,8 @@ extension Daemon {
           command,
           previousSelectedWindowID: previouslySelectedWindowID,
           selectedWindowID: selected,
-          selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID)
+          selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID),
+          movesAcrossMonitors: movesAcrossMonitors
         )
       {
         if focusIsReady(on: monitorID, targetWindowID: selected) {

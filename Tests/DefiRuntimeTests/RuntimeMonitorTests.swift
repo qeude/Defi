@@ -434,6 +434,75 @@ final class RuntimeMonitorTests: XCTestCase {
 
 struct MonitorMoveFocusTests {
   @Test
+  func crossMonitorMoveIsFocusBearingWhenSelectionIdentityIsUnchanged() {
+    let windowID = WindowID(rawValue: 1)
+
+    #expect(
+      commandShouldFocusWindow(
+        .moveWindowToMonitor(.right),
+        previousSelectedWindowID: windowID,
+        selectedWindowID: windowID,
+        selectedFloatingWindowID: nil,
+        movesAcrossMonitors: true
+      )
+    )
+  }
+
+  @Test
+  func movingOwnerKeepsForceTiledTransientInAColumn() throws {
+    let sourceID = MonitorID(rawValue: 1)
+    let targetID = MonitorID(rawValue: 2)
+    let ownerID = WindowID(rawValue: 1)
+    let transientID = WindowID(rawValue: 2)
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    )
+    state.attachMonitor(sourceID)
+    state.attachMonitor(targetID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: ownerID, width: .fraction(0.5)),
+      Column(window: transientID, width: .fraction(0.5)),
+    ]
+    state.windows = [
+      ownerID: Window(
+        id: ownerID,
+        appID: "app",
+        title: "Owner",
+        frame: Rect(x: 0, y: 0, width: 500, height: 700),
+        monitorID: sourceID
+      ),
+      transientID: Window(
+        id: transientID,
+        appID: "app",
+        title: "Dialog",
+        frame: Rect(x: 0, y: 0, width: 500, height: 700),
+        transientOwnerID: ownerID,
+        monitorID: sourceID,
+        forceTiling: true
+      ),
+    ]
+
+    try reduce(
+      .moveColumnToMonitor(.right),
+      on: sourceID,
+      state: &state,
+      monitorFrames: [
+        sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+      ]
+    )
+
+    #expect(
+      state.monitors[1].workspaces[0].columns.flatMap(\.windows)
+        .contains(transientID)
+    )
+    #expect(
+      state.monitors[1].workspaces[0].floatingWindows.contains(transientID)
+        == false
+    )
+  }
+
+  @Test
   func movingTheLastColumnKeepsSourceFocusOnItsLastRemainingColumn() throws {
     let sourceID = MonitorID(rawValue: 1)
     let targetID = MonitorID(rawValue: 2)

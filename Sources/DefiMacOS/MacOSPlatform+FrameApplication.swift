@@ -113,6 +113,7 @@ extension MacOSPlatform {
         expectedWindowIDs: Set(writeIntents.keys).subtracting(
           effectiveHiddenWindowIDs
         ).intersection(elements.keys),
+        hasFrameWrites: !writeIntents.isEmpty,
         at: ProcessInfo.processInfo.systemUptime
       )
     }

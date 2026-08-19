@@ -107,14 +107,26 @@ extension MacOSPlatform {
     commandLatency.begin(context)
   }
 
+  public func recordCommandFocusExpectation(
+    _ context: CommandPerformanceContext,
+    expectsFocus: Bool
+  ) {
+    commandLatency.recordFocusExpectation(
+      context,
+      expectsFocus: expectsFocus
+    )
+  }
+
   func recordCommandPlan(
     _ context: CommandPerformanceContext,
     expectedWindowIDs: Set<WindowID>,
+    hasFrameWrites: Bool,
     at timestamp: TimeInterval
   ) {
     guard let latency = commandLatency.recordPlan(
       context,
       expectedWindowIDs: expectedWindowIDs,
+      hasFrameWrites: hasFrameWrites,
       at: timestamp
     ) else { return }
     frameCoordinator.recordTrace(

@@ -334,8 +334,19 @@ private func moveFocusedSelectionToMonitor(
     transferredColumn.map { Set($0.windows) } ?? []
   )
   for windowID in auxiliaryWindowIDs {
-    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
-      .floatingWindows.append(windowID)
+    if state.windows[windowID]?.floating == true
+      && state.windows[windowID]?.forceTiling != true
+    {
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .floatingWindows.append(windowID)
+    } else {
+      insertNewWindow(
+        windowID,
+        into: &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
+        settings: state.layout,
+        focusInsertedWindow: windowID == selectedWindowID
+      )
+    }
   }
   if auxiliaryWindowIDs.contains(selectedWindowID),
     let selectedIndex = state.monitors[targetMonitorIndex]
@@ -345,6 +356,9 @@ private func moveFocusedSelectionToMonitor(
       .focusedFloatingWindow = selectedIndex
     state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
       .focusedLayer = .floating
+  } else if auxiliaryWindowIDs.contains(selectedWindowID) {
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .focusedLayer = .tiled
   }
   state.monitors[targetMonitorIndex].activeWorkspace =
     state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].id

@@ -70,9 +70,12 @@ extension Daemon {
       snapshot.mouseResizeGestureObserved && !snapshot.leftMouseButtonDown
     let mouseInteractionEnded =
       mouseGestureEnded || snapshot.mouseFocusReleaseObserved
-    let previousFloatingMonitorIDs = Dictionary(
-      uniqueKeysWithValues: floatingWindowFrames.keys.compactMap { windowID in
-        state.monitorID(containing: windowID).map { (windowID, $0) }
+    let previousFloatingMonitorIDs: [WindowID: MonitorID] = Dictionary(
+      uniqueKeysWithValues: state.windows.keys.compactMap { windowID in
+        guard state.windows[windowID]?.floating == true else { return nil }
+        return state.monitorID(containing: windowID).map {
+          (windowID, $0)
+        }
       }
     )
     let displayGeometryChanged = monitorGeometryChanged(
@@ -132,13 +135,24 @@ extension Daemon {
     var nativeCursorWarpInputTimestamp: TimeInterval?
     var nativeFocusFrameMonitorID: MonitorID?
     let previouslyManagedWindowIDs = Set(state.windows.keys)
-    reconcileWindows(
+    let relocatedTransientIDs = reconcileWindows(
       snapshot.windows,
       config: config,
       placementPreferences: placementPreferences,
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       state: &state
     )
+    let relocatedFloatingWindowIDs = displayGeometryChanged
+      ? []
+      : floatingWindowIDsMovedBetweenMonitors(
+        previousWindowMonitorIDs: previousFloatingMonitorIDs,
+        nextWindowMonitorIDs: Dictionary(
+          uniqueKeysWithValues: previousFloatingMonitorIDs.keys.compactMap { windowID in
+            state.monitorID(containing: windowID).map { (windowID, $0) }
+          }
+        ),
+        windows: state.windows
+      ).intersection(relocatedTransientIDs)
     if let previousSelectedWindowID,
       let reboundMonitorID = state.reboundFocusMonitorID(for: previousSelectedWindowID),
       reboundMonitorID != previousActiveMonitorID
@@ -184,6 +198,14 @@ extension Daemon {
       displayGeometryChanged: displayGeometryChanged,
       mouseResizeGestureActive: mouseResizeGestureActive
     )
+    if !relocatedFloatingWindowIDs.isEmpty {
+      rebaseFloatingWindowFrames(
+        previousViewports: previousViewports,
+        nextViewports: viewportsByMonitor,
+        previousMonitorIDs: previousFloatingMonitorIDs,
+        windowIDs: relocatedFloatingWindowIDs
+      )
+    }
     let reassignedMonitorID =
       snapshot.focusedWindowID.flatMap {
         reassignedFloatingMonitorIDs[$0]
@@ -576,6 +598,7 @@ extension Daemon {
       cursorWarpIsCurrentAfterCommit:
         nativeCursorWarpIsCurrentAfterCommit,
       forceFloatingFrameWrites: displayGeometryChanged,
+      forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs,
       source: nativelyActivatedWorkspace
         ? "native-workspace"
         : (animatesMouseReorder ? "mouse-reorder-animation" : "desktop-sync")

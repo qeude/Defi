@@ -248,9 +248,11 @@ public func commandShouldFocusWindow(
   _ command: Command,
   previousSelectedWindowID: WindowID?,
   selectedWindowID: WindowID,
-  selectedFloatingWindowID: WindowID?
+  selectedFloatingWindowID: WindowID?,
+  movesAcrossMonitors: Bool = false
 ) -> Bool {
-  selectedWindowID != previousSelectedWindowID
+  movesAcrossMonitors
+    || selectedWindowID != previousSelectedWindowID
     || (command.explicitlyFocusesFloating
       && selectedWindowID == selectedFloatingWindowID)
 }

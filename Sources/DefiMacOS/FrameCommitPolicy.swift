@@ -62,6 +62,7 @@ struct CommandLatencyRecord: Equatable {
   let inputTimestamp: TimeInterval
   var expectedWindowIDs = Set<WindowID>()
   var convergedWindowIDs = Set<WindowID>()
+  var expectsFocus = false
   var firstWriteRecorded = false
   var firstObservationRecorded = false
   var convergenceRecorded = false
@@ -83,7 +84,8 @@ struct CommandLatencyAccumulator {
     guard context.generation > latestGeneration else { return }
     if let previous = record,
       !previous.convergenceRecorded
-        && (!previous.expectedWindowIDs.isEmpty
+        && (previous.expectsFocus
+          || !previous.expectedWindowIDs.isEmpty
           || previous.firstWriteRecorded
           || previous.firstObservationRecorded)
     {
@@ -94,16 +96,34 @@ struct CommandLatencyAccumulator {
     started += 1
   }
 
+  mutating func recordFocusExpectation(
+    _ context: CommandPerformanceContext,
+    expectsFocus: Bool
+  ) {
+    guard var record = currentRecord(for: context) else { return }
+    record.expectsFocus = expectsFocus
+    self.record = record
+  }
+
   mutating func recordPlan(
     _ context: CommandPerformanceContext,
     expectedWindowIDs: Set<WindowID>,
+    hasFrameWrites: Bool = true,
     at timestamp: TimeInterval
   ) -> Double? {
     guard var record = currentRecord(for: context) else { return nil }
     record.expectedWindowIDs = expectedWindowIDs
-    self.record = record
     let latency = latencyMS(from: context, to: timestamp)
     recordDurationSample(latency, in: &planSamplesMS)
+    if expectedWindowIDs.isEmpty,
+      !record.expectsFocus,
+      !hasFrameWrites,
+      !record.convergenceRecorded
+    {
+      record.convergenceRecorded = true
+      recordDurationSample(latency, in: &convergenceSamplesMS)
+    }
+    self.record = record
     return latency
   }
 
@@ -115,9 +135,16 @@ struct CommandLatencyAccumulator {
       !record.firstWriteRecorded
     else { return nil }
     record.firstWriteRecorded = true
-    self.record = record
     let latency = latencyMS(from: context, to: timestamp)
     recordDurationSample(latency, in: &firstWriteSamplesMS)
+    if record.expectedWindowIDs.isEmpty,
+      !record.expectsFocus,
+      !record.convergenceRecorded
+    {
+      record.convergenceRecorded = true
+      recordDurationSample(latency, in: &convergenceSamplesMS)
+    }
+    self.record = record
     return latency
   }
 
@@ -166,9 +193,16 @@ struct CommandLatencyAccumulator {
     guard var record = currentRecord(for: context), !record.focusRecorded
     else { return nil }
     record.focusRecorded = true
-    self.record = record
     let latency = latencyMS(from: context, to: timestamp)
     recordDurationSample(latency, in: &focusSamplesMS)
+    if record.expectedWindowIDs.isEmpty,
+      record.expectsFocus,
+      !record.convergenceRecorded
+    {
+      record.convergenceRecorded = true
+      recordDurationSample(latency, in: &convergenceSamplesMS)
+    }
+    self.record = record
     return latency
   }
 
