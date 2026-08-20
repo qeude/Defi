@@ -10,6 +10,9 @@ import OSLog
 public final class MacOSPlatform {
   var elements: [WindowID: AXUIElement] = [:]
   var processIDs: [WindowID: pid_t] = [:]
+  var transientOwnerWindowIDs: [WindowID: WindowID] = [:]
+  var transientOwnerResolutionAttempts: [WindowID: Int] = [:]
+  var transientOwnerResolutionRetryAfter: [WindowID: TimeInterval] = [:]
   var floatingWindowIDs = Set<WindowID>()
   var applications: [pid_t: AXUIElement] = [:]
   var applicationIDsByProcess: [pid_t: String] = [:]
@@ -77,6 +80,7 @@ public final class MacOSPlatform {
   var preparedCGWindowInventoryAvailable = false
   var cgWindowInventoryPreparationPending = false
   var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] = [:]
+  var preparedTransientOwnerWindowIDs: [WindowID: WindowID] = [:]
   var preparedAXApplicationWindows: [pid_t: PreparedAXApplicationWindows] = [:]
   var preparedAXWindowAttributesAvailable = false
   var preparedAXWindowAttributesGeneration: UInt64?
@@ -88,6 +92,7 @@ public final class MacOSPlatform {
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0
   var maximumObservedFrameCommitLatencyMS = 0.0
+  var commandLatency = CommandLatencyAccumulator()
   var lastHiddenWindowIDs = Set<WindowID>()
   var eventMonitor: PlatformEventMonitor?
   var frameEventPending = false
@@ -194,6 +199,7 @@ public final class MacOSPlatform {
     preparedCGWindowInventory = nil
     preparedCGWindowInventoryAvailable = false
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)
+    preparedTransientOwnerWindowIDs.removeAll(keepingCapacity: true)
     preparedAXApplicationWindows.removeAll(keepingCapacity: true)
     preparedAXWindowAttributesAvailable = false
     preparedAXWindowAttributesGeneration = nil

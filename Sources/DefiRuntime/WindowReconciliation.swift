@@ -6,6 +6,7 @@ public func discoverWindow(
   _ original: Window,
   decision: RuleDecision,
   placement: WindowPlacementPreference? = nil,
+  isNativelyFocused: Bool = false,
   state: inout RuntimeState
 ) throws {
   guard !state.monitors.isEmpty else {
@@ -26,14 +27,21 @@ public func discoverWindow(
   window.forceTiling = decision.forceTiling
   window.intrinsicSize = decision.intrinsicSize
   let effectivePlacement = window.floatingOrigin == .automatic ? nil : placement
+  let transientLocation = transientPlacementLocation(for: window, state: state)
+  let followsFocus = decision.followFocus && (transientLocation == nil || isNativelyFocused)
   let preferredMonitorID = effectivePlacement?.monitorID.flatMap { preferred in
     state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
   }
-  let monitorID = preferredMonitorID ?? window.monitorID ?? state.monitors[0].id
+  let monitorID =
+    transientLocation?.monitorID
+    ?? preferredMonitorID
+    ?? window.monitorID
+    ?? state.monitors[0].id
   let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }) ?? 0
   let preferredWorkspaceID = effectivePlacement?.workspaceID
   let workspaceID =
-    decision.workspace
+    transientLocation?.workspaceID
+    ?? decision.workspace
     ?? preferredWorkspaceID.flatMap { preferred in
       state.monitors[monitorIndex].workspaces.contains(where: { $0.id == preferred })
         ? preferred
@@ -50,7 +58,7 @@ public func discoverWindow(
 
   if window.floating && !window.forceTiling {
     state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(window.id)
-    if decision.followFocus {
+    if followsFocus {
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedFloatingWindow =
         state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.count - 1
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .floating
@@ -60,16 +68,38 @@ public func discoverWindow(
       window.id,
       into: &state.monitors[monitorIndex].workspaces[workspaceIndex],
       settings: state.layout,
-      focusInsertedWindow: decision.followFocus
+      focusInsertedWindow: followsFocus
     )
-    if decision.followFocus {
+    if followsFocus {
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
     }
   }
-  if decision.followFocus {
+  if followsFocus {
     state.monitors[monitorIndex].activeWorkspace = workspaceID
   }
   state.windows[window.id] = window
+}
+
+public func transientPlacementLocation(
+  for window: Window,
+  state: RuntimeState
+) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+  guard window.isModal || window.floatingOrigin == .automatic else { return nil }
+  if let ownerID = window.transientOwnerID,
+    let ownerLocation = state.location(containing: ownerID)
+  {
+    return ownerLocation
+  }
+  let sameApplicationSelections = state.monitors.compactMap { monitor -> WindowID? in
+    guard let selected = state.selectedWindowID(on: monitor.id),
+      let selectedWindow = state.windows[selected],
+      selectedWindow.appID == window.appID,
+      window.processID.map({ selectedWindow.processID == $0 }) ?? true
+    else { return nil }
+    return selected
+  }
+  guard sameApplicationSelections.count == 1 else { return nil }
+  return state.location(containing: sameApplicationSelections[0])
 }
 
 @discardableResult
@@ -112,13 +142,17 @@ public func moveFloatingWindow(
   return true
 }
 
+@discardableResult
 public func reconcileWindows(
   _ discovered: [Window],
   config: Config,
   placementPreferences: PlacementPreferences = PlacementPreferences(),
   externallyChangedWindowIDs: Set<WindowID> = [],
+  viewports: [MonitorID: Rect] = [:],
+  nativeFocusedWindowID: WindowID? = nil,
   state: inout RuntimeState
-) {
+) -> Set<WindowID> {
+  var relocatedTransientIDs = Set<WindowID>()
   let discoveredIDs = Set(discovered.map(\.id))
   for existingID in Array(state.windows.keys) where !discoveredIDs.contains(existingID) {
     removeWindowEverywhere(existingID, state: &state)
@@ -132,6 +166,7 @@ public func reconcileWindows(
         window,
         decision: config.decision(for: window),
         placement: placementPreferences.preference(for: window),
+        isNativelyFocused: window.id == nativeFocusedWindowID,
         state: &state
       )
     } else {
@@ -171,6 +206,121 @@ public func reconcileWindows(
       state.windows[window.id] = updated
     }
   }
+  // ponytail: bounded convergence scan; owner-ordering can replace it if deep chains become common.
+  for _ in discovered.indices {
+    var relocatedInPass = false
+    for window in discovered where relocateTransientIfNeeded(
+      window.id,
+      viewports: viewports,
+      state: &state
+    ) {
+      relocatedTransientIDs.insert(window.id)
+      relocatedInPass = true
+    }
+    if relocatedInPass == false { break }
+  }
+  return relocatedTransientIDs
+}
+
+@discardableResult
+private func relocateTransientIfNeeded(
+  _ windowID: WindowID,
+  viewports: [MonitorID: Rect],
+  state: inout RuntimeState
+) -> Bool {
+  guard let window = state.windows[windowID],
+    let current = state.location(containing: windowID),
+    let target = transientPlacementLocation(for: window, state: state),
+    current.monitorID != target.monitorID || current.workspaceID != target.workspaceID,
+    let targetMonitorIndex = state.monitors.firstIndex(where: {
+      $0.id == target.monitorID
+    }),
+    let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(
+      where: { $0.id == target.workspaceID }
+    )
+  else { return false }
+
+  let wasSelected = state.selectedWindowID(on: current.monitorID) == windowID
+  var relocatedTiledColumn = state.monitors.first {
+    $0.id == current.monitorID
+  }?.workspaces.first {
+    $0.id == current.workspaceID
+  }?.columns.first {
+    $0.windows.contains(windowID)
+  }.map {
+    Column(
+      window: windowID,
+      width: $0.width,
+      preMaximizedWidth: $0.preMaximizedWidth
+    )
+  }
+  if var column = relocatedTiledColumn,
+    let sourceViewport = viewports[current.monitorID],
+    let targetViewport = viewports[target.monitorID]
+  {
+    scalePixelWidths(
+      in: &column,
+      by: targetViewport.width / max(sourceViewport.width, 1)
+    )
+    relocatedTiledColumn = column
+  }
+  removeWindowEverywhere(windowID, state: &state)
+  if window.floating && !window.forceTiling {
+    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+      .floatingWindows.append(windowID)
+    if wasSelected {
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .focusedFloatingWindow = state.monitors[targetMonitorIndex]
+        .workspaces[targetWorkspaceIndex].floatingWindows.count - 1
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .focusedLayer = .floating
+    }
+  } else {
+    insertNewWindow(
+      windowID,
+      width: relocatedTiledColumn?.width
+        ?? .fraction(state.layout.defaultColumnWidth),
+      into: &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
+      settings: state.layout,
+      focusInsertedWindow: wasSelected
+    )
+    if let preMaximizedWidth = relocatedTiledColumn?.preMaximizedWidth,
+      let columnIndex = state.monitors[targetMonitorIndex]
+        .workspaces[targetWorkspaceIndex].columns.firstIndex(where: {
+          $0.windows.contains(windowID)
+        })
+    {
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .columns[columnIndex].preMaximizedWidth = preMaximizedWidth
+    }
+    if wasSelected {
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .focusedLayer = .tiled
+    }
+  }
+  if wasSelected {
+    state.monitors[targetMonitorIndex].activeWorkspace = target.workspaceID
+  }
+  if let placement = state.suspendedTiledPlacements[windowID] {
+    var column = placement.column
+    if let sourceViewport = viewports[current.monitorID],
+      let targetViewport = viewports[target.monitorID]
+    {
+      scalePixelWidths(
+        in: &column,
+        by: targetViewport.width / max(sourceViewport.width, 1)
+      )
+    }
+    state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+      monitorID: target.monitorID,
+      workspaceID: target.workspaceID,
+      columnIndex: placement.columnIndex,
+      windowIndex: placement.windowIndex,
+      column: column
+    )
+  }
+  state.windows[windowID]?.monitorID = target.monitorID
+  return true
 }
 
 private func reclassifyTiledWindowAsAutomaticFloater(

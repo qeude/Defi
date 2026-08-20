@@ -19,18 +19,17 @@ extension MacOSPlatform {
     let capturedProcessIDs = Set(applications.keys)
     let candidates: [PreparedAXWindowElement] = elements.compactMap {
       windowID, element in
-      guard let processID = processIDs[windowID],
-        multipleAttributeReadsSupportedByProcess[processID] != false
-      else {
-        return nil
-      }
+      guard let processID = processIDs[windowID] else { return nil }
       return PreparedAXWindowElement(
         windowID: windowID,
         processID: processID,
-        element: element
+        element: element,
+        usesBatchedAttributeReads:
+          multipleAttributeReadsSupportedByProcess[processID] != false
       )
     }
     guard !candidates.isEmpty else {
+      preparedTransientOwnerWindowIDs.removeAll(keepingCapacity: true)
       preparedAXWindowAttributesAvailable = true
       preparedAXWindowAttributesGeneration = windowSnapshotObservationGeneration
       preparedAXWindowAttributesInputTimestamp = userInputTracker.latestEventTimestamp
@@ -55,20 +54,54 @@ extension MacOSPlatform {
     axWindowAttributePreparationPending = true
     DispatchQueue.global(qos: .utility).async {
       let startedAt = ProcessInfo.processInfo.systemUptime
-      let attributes: [WindowID: AXWindowAttributes] = Dictionary(
-        uniqueKeysWithValues: candidates.compactMap { candidate in
-          guard inputTracker.latestEventTimestamp == inputTimestamp else {
-            return nil
-          }
-          return AXMessagingTimeoutAccess.shared.withTimeout(
-            0.05,
-            elements: [candidate.element]
-          ) {
-            copyBatchedWindowAttributes(candidate.element).attributes.map {
-              (candidate.windowID, $0)
-            }
-          }
+      let reads = candidates.compactMap { candidate -> PreparedAXWindowRead? in
+        guard inputTracker.latestEventTimestamp == inputTimestamp else {
+          return nil
         }
+        return AXMessagingTimeoutAccess.shared.withTimeout(
+          0.05,
+          elements: [candidate.element]
+        ) {
+          var attributes: AXWindowAttributes?
+          var parent: AXUIElement?
+          var sheets: [AXUIElement]?
+          if candidate.usesBatchedAttributeReads {
+            let read = copyBatchedWindowAttributes(
+              candidate.element,
+              includingTransientRelationships: true
+            )
+            attributes = read.attributes
+            parent = read.parent
+            sheets = read.sheets
+          }
+          if parent == nil || sheets == nil {
+            let fallback = copyTransientOwnerRelationships(candidate.element)
+            parent = parent ?? fallback.parent
+            sheets = sheets ?? fallback.sheets
+          }
+          return PreparedAXWindowRead(
+            windowID: candidate.windowID,
+            attributes: attributes,
+            parent: parent,
+            sheets: sheets ?? []
+          )
+        }
+      }
+      let attributes: [WindowID: AXWindowAttributes] = Dictionary(
+        uniqueKeysWithValues: reads.compactMap { read in
+          read.attributes.map { (read.windowID, $0) }
+        }
+      )
+      let transientOwnerWindowIDs = transientOwnerWindowIDsFromPreparedRelationships(
+        elements: Dictionary(uniqueKeysWithValues: candidates.map {
+          ($0.windowID, $0.element)
+        }),
+        parents: Dictionary(uniqueKeysWithValues: reads.compactMap { read in
+          read.parent.map { (read.windowID, $0) }
+        }),
+        sheets: Dictionary(uniqueKeysWithValues: reads.map {
+          ($0.windowID, $0.sheets)
+        })
       )
       let durationMS =
         (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
@@ -124,6 +157,7 @@ extension MacOSPlatform {
             return
           }
           self.preparedAXWindowAttributes = attributes
+          self.preparedTransientOwnerWindowIDs = transientOwnerWindowIDs
           self.preparedAXApplicationWindows = applicationWindows
           self.preparedAXWindowAttributesAvailable = true
           self.preparedAXWindowAttributesGeneration = generation
@@ -253,6 +287,7 @@ extension MacOSPlatform {
         role: role,
         subrole: subrole,
         processID: processID,
+        isModal: attributes.modal == true,
         monitorID: monitorID,
         forceTiling: false
       ), resolvedWindowID, decision
@@ -588,6 +623,13 @@ extension MacOSPlatform {
           element,
           attribute: kAXSubroleAttribute,
           as: String.self
+        )
+      },
+      modal: {
+        value(
+          element,
+          attribute: kAXModalAttribute,
+          as: Bool.self
         )
       }
     )

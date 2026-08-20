@@ -71,22 +71,26 @@ func updateFloatingWindowFrames(
   func rebaseFloatingWindowFrames(
     previousViewports: [MonitorID: Rect],
     nextViewports: [MonitorID: Rect],
-    previousMonitorIDs: [WindowID: MonitorID]
+    previousMonitorIDs: [WindowID: MonitorID],
+    windowIDs: Set<WindowID>? = nil
   ) {
-    for (windowID, frame) in floatingWindowFrames {
-      guard let previousMonitorID = previousMonitorIDs[windowID],
-        let previousViewport = previousViewports[previousMonitorID],
-        let nextMonitorID = state.monitorID(containing: windowID),
-        let nextViewport = nextViewports[nextMonitorID]
-      else {
-        floatingWindowFrames[windowID] = nil
-        continue
+    let frames = windowIDs.map { windowIDs in
+      floatingWindowFrames.filter { windowIDs.contains($0.key) }
+    } ?? floatingWindowFrames
+    let nextMonitorIDs = Dictionary(
+      uniqueKeysWithValues: frames.keys.compactMap { windowID in
+        state.monitorID(containing: windowID).map { (windowID, $0) }
       }
-      floatingWindowFrames[windowID] = rebasedFloatingFrame(
-        frame,
-        from: previousViewport,
-        to: nextViewport
-      )
+    )
+    let rebasedFrames = rebasedFloatingWindowFrames(
+      frames,
+      previousViewports: previousViewports,
+      nextViewports: nextViewports,
+      previousMonitorIDs: previousMonitorIDs,
+      nextMonitorIDs: nextMonitorIDs
+    )
+    for windowID in frames.keys {
+      floatingWindowFrames[windowID] = rebasedFrames[windowID]
     }
   }
 
@@ -97,18 +101,15 @@ func updateFloatingWindowFrames(
     }
   }
 
-  func refreshFloatingWindowFramesBeforeWorkspaceMutation() {
-    guard
-      let monitorID = activeMonitorID ?? state.monitors.first?.id,
-      let monitor = state.monitors.first(where: { $0.id == monitorID }),
-      let workspace = monitor.workspaces.first(where: {
-        $0.id == monitor.activeWorkspace
-      })
-    else {
-      return
-    }
+  func refreshFloatingWindowFramesBeforeWorkspaceMutation(
+    on monitorID: MonitorID?
+  ) {
+    guard let monitorID else { return }
     for (windowID, frame) in platform.userAdjustedFrames(
-      for: Set(workspace.floatingWindows)
+      for: floatingWindowIDsForWorkspaceMutation(
+        monitors: state.monitors,
+        monitorID: monitorID
+      )
     ) {
       floatingWindowFrames[windowID] = frame
       platform.acceptObservedFrame(frame, for: windowID)
@@ -163,29 +164,37 @@ func updateFloatingWindowFrames(
     )
   }
 }
-private func rebasedFloatingFrame(
-  _ frame: Rect,
-  from previousViewport: Rect,
-  to nextViewport: Rect
-) -> Rect {
-  let previousHorizontalRange = max(previousViewport.width - frame.width, 1)
-  let previousVerticalRange = max(previousViewport.height - frame.height, 1)
-  let horizontalProgress = min(
-    max((frame.x - previousViewport.x) / previousHorizontalRange, 0),
-    1
-  )
-  let verticalProgress = min(
-    max((frame.y - previousViewport.y) / previousVerticalRange, 0),
-    1
-  )
-  let nextHorizontalRange = max(nextViewport.width - frame.width, 0)
-  let nextVerticalRange = max(nextViewport.height - frame.height, 0)
-  return Rect(
-    x: nextViewport.x + horizontalProgress * nextHorizontalRange,
-    y: nextViewport.y + verticalProgress * nextVerticalRange,
-    width: min(frame.width, nextViewport.width),
-    height: min(frame.height, nextViewport.height)
-  )
+
+func floatingWindowIDsForWorkspaceMutation(
+  monitors: [Monitor],
+  monitorID: MonitorID
+) -> Set<WindowID> {
+  guard let monitor = monitors.first(where: { $0.id == monitorID }),
+    let workspace = monitor.workspaces.first(where: {
+      $0.id == monitor.activeWorkspace
+    })
+  else { return [] }
+  return Set(workspace.floatingWindows)
+}
+
+func rebasedFloatingWindowFrames(
+  _ frames: [WindowID: Rect],
+  previousViewports: [MonitorID: Rect],
+  nextViewports: [MonitorID: Rect],
+  previousMonitorIDs: [WindowID: MonitorID],
+  nextMonitorIDs: [WindowID: MonitorID]
+) -> [WindowID: Rect] {
+  Dictionary(uniqueKeysWithValues: frames.compactMap { windowID, frame in
+    guard let previousMonitorID = previousMonitorIDs[windowID],
+      let previousViewport = previousViewports[previousMonitorID],
+      let nextMonitorID = nextMonitorIDs[windowID],
+      let nextViewport = nextViewports[nextMonitorID]
+    else { return nil }
+    return (
+      windowID,
+      rebasedFloatingFrame(frame, from: previousViewport, to: nextViewport)
+    )
+  })
 }
 
 private func constrainedFloatingFrame(_ frame: Rect, to viewport: Rect) -> Rect {

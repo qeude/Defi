@@ -8,9 +8,40 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+struct AnimationDisplayTiming: Equatable {
+  let refreshRateHz: Double
+  let displayIDs: Set<UInt64>
+}
+
+func animationDisplayTiming(
+  monitorIDs: Set<MonitorID>?,
+  activeMonitorID: MonitorID?,
+  fallbackMonitorID: MonitorID?,
+  refreshRates: [MonitorID: Double]
+) -> AnimationDisplayTiming {
+  let selectedMonitorIDs = monitorIDs.flatMap { $0.isEmpty ? nil : $0 }
+    ?? Set([activeMonitorID ?? fallbackMonitorID].compactMap { $0 })
+  let selectedRefreshRates = selectedMonitorIDs.compactMap { refreshRates[$0] }
+  return AnimationDisplayTiming(
+    refreshRateHz: selectedRefreshRates.min() ?? 60,
+    displayIDs: Set(selectedMonitorIDs.map(\.rawValue))
+  )
+}
+
+func layoutWindowIDsOutsideSubmissionScope(
+  _ plan: MonitorLayoutPlan,
+  monitorID: MonitorID,
+  restrictedTo monitorIDs: Set<MonitorID>?
+) -> Set<WindowID> {
+  monitorIDs?.contains(monitorID) == false
+    ? Set(plan.assignments.map(\.windowID))
+    : []
+}
+
 @MainActor
 extension Daemon {
   func applyCurrentLayout(
+    monitorIDs: Set<MonitorID>? = nil,
     asynchronousPositions: Bool = false,
     updateVisibility: Bool? = nil,
     positionTimeoutSeconds: Float = 0.016,
@@ -30,14 +61,31 @@ extension Daemon {
     focusRequestIDAfterCommit:
       (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     forceFloatingFrameWrites: Bool = false,
+    forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
+    commandPerformance: CommandPerformanceContext? = nil,
     source: String = "layout"
   ) {
+    let layoutStartedAt = ProcessInfo.processInfo.systemUptime
     var assignments: [FrameAssignment] = []
     var borderAssignments: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
+    var outOfScopeWindowIDs = Set<WindowID>()
     let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
+    let liveMonitorIDs = Set(state.monitors.map(\.id))
+    layoutPlansByMonitor = layoutPlansByMonitor.filter {
+      liveMonitorIDs.contains($0.key)
+    }
     for monitorIndex in state.monitors.indices {
       let monitor = state.monitors[monitorIndex]
+      if let monitorIDs, !monitorIDs.contains(monitor.id),
+        let cached = layoutPlansByMonitor[monitor.id]
+      {
+        assignments.append(contentsOf: cached.assignments)
+        borderAssignments.append(contentsOf: cached.borderAssignments)
+        hiddenWindowIDs.formUnion(cached.hiddenWindowIDs)
+        outOfScopeWindowIDs.formUnion(cached.assignments.map(\.windowID))
+        continue
+      }
       guard
         let monitorSnapshot = latestMonitors.first(where: { $0.id == monitor.id })
       else {
@@ -49,6 +97,9 @@ extension Daemon {
         monitor.workspaces.firstIndex {
           $0.id == monitor.activeWorkspace
         } ?? 0
+      var monitorAssignments: [FrameAssignment] = []
+      var monitorBorderAssignments: [FrameAssignment] = []
+      var monitorHiddenWindowIDs = Set<WindowID>()
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
         let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
         let workspaceWindows = workspace.columns
@@ -69,21 +120,22 @@ extension Daemon {
             parkingFrame: viewport,
             allMonitorFrames: allPhysicalMonitorFrames
           )
-          assignments.append(contentsOf: strip.frames)
-          borderAssignments.append(contentsOf: strip.frames)
-          hiddenWindowIDs.formUnion(strip.parkedWindowIDs)
+          monitorAssignments.append(contentsOf: strip.frames)
+          monitorBorderAssignments.append(contentsOf: strip.frames)
+          monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
 
           for assignment in floatingAssignments(in: workspace) {
-            borderAssignments.append(assignment)
+            monitorBorderAssignments.append(assignment)
             if forceFloatingFrameWrites
+              || forcedFloatingWindowIDs.contains(assignment.windowID)
               || platform.isWindowHidden(assignment.windowID)
               || platform.hasPendingFrameTransition(assignment.windowID)
             {
-              assignments.append(assignment)
+              monitorAssignments.append(assignment)
             }
           }
         } else {
-          hiddenWindowIDs.formUnion(sizedFrames.map(\.windowID))
+          monitorHiddenWindowIDs.formUnion(sizedFrames.map(\.windowID))
           let floatingFrames = floatingAssignments(in: workspace)
           let parked = parkFramesInSafeCorner(
             sizedFrames + floatingFrames,
@@ -92,19 +144,43 @@ extension Daemon {
             allMonitorFrames: allPhysicalMonitorFrames,
             preferredSide: workspaceIndex < activeWorkspaceIndex ? .left : .right
           )
-          hiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
-          assignments.append(contentsOf: parked.frames)
-          borderAssignments.append(contentsOf: parked.frames)
+          monitorHiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
+          monitorAssignments.append(contentsOf: parked.frames)
+          monitorBorderAssignments.append(contentsOf: parked.frames)
         }
       }
+      let plan = MonitorLayoutPlan(
+        assignments: monitorAssignments,
+        borderAssignments: monitorBorderAssignments,
+        hiddenWindowIDs: monitorHiddenWindowIDs
+      )
+      layoutPlansByMonitor[monitor.id] = plan
+      assignments.append(contentsOf: plan.assignments)
+      outOfScopeWindowIDs.formUnion(
+        layoutWindowIDsOutsideSubmissionScope(
+          plan,
+          monitorID: monitor.id,
+          restrictedTo: monitorIDs
+        )
+      )
+      borderAssignments.append(contentsOf: plan.borderAssignments)
+      hiddenWindowIDs.formUnion(plan.hiddenWindowIDs)
     }
-    let skipped = additionalSkippedWindowIDs.union(
+    let skipped = additionalSkippedWindowIDs.union(outOfScopeWindowIDs).union(
       activelyResizedWindowID.map { Set([$0]) } ?? []
     )
     let platformAssignments =
       asynchronousPositions
       ? assignments.map(roundAnimatedPosition)
       : assignments
+    let animationTiming = animationDisplayTiming(
+      monitorIDs: monitorIDs,
+      activeMonitorID: activeMonitorID,
+      fallbackMonitorID: latestMonitors.first?.id,
+      refreshRates: Dictionary(
+        uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.refreshRateHz) }
+      )
+    )
     let selectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
@@ -121,7 +197,11 @@ extension Daemon {
         height: size.map { Double($0.height) } ?? observed.height
       )
     }
-    platform.recordPerformanceTrace("frame-submit source=\(source)")
+    let layoutMS =
+      (ProcessInfo.processInfo.systemUptime - layoutStartedAt) * 1_000
+    platform.recordPerformanceTrace(
+      "frame-submit source=\(source) cg=\(commandPerformance?.generation.description ?? "none") layoutMs=\(String(format: "%.2f", layoutMS))"
+    )
     platform.apply(
       platformAssignments,
       hiddenWindowIDs: hiddenWindowIDs,
@@ -129,8 +209,8 @@ extension Daemon {
       asynchronousPositions: asynchronousPositions,
       asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
       animationDuration: animationDuration,
-      animationRefreshRateHz: activeDisplayRefreshRate,
-      animationDisplayID: activeMonitorID?.rawValue,
+      animationRefreshRateHz: animationTiming.refreshRateHz,
+      animationDisplayIDs: animationTiming.displayIDs,
       animateSizeChanges: animateSizeChanges,
       positionsOnly: positionsOnly,
       updateVisibility: updateVisibility ?? !asynchronousPositions,
@@ -143,6 +223,7 @@ extension Daemon {
       focusCompletionAfterCommit: focusCompletionAfterCommit,
       cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
       focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+      commandPerformance: commandPerformance,
       source: source
     )
     platform.stageWindowBorderSelection(

@@ -2,6 +2,7 @@ import DefiCore
 import DefiModel
 import Darwin
 import ApplicationServices
+import Synchronization
 import XCTest
 
 @testable import DefiMacOS
@@ -71,33 +72,6 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
-  func testLatencySensitiveSpeculativeWritesAreDeferredOnlyForVisiblePositions() {
-    XCTAssertTrue(
-      shouldDeferLatencySensitiveSpeculativeWrite(
-        source: "command-animation",
-        isParked: false,
-        positionChanged: true,
-        latencySensitive: true
-      )
-    )
-    XCTAssertFalse(
-      shouldDeferLatencySensitiveSpeculativeWrite(
-        source: "desktop-sync",
-        isParked: false,
-        positionChanged: true,
-        latencySensitive: true
-      )
-    )
-    XCTAssertFalse(
-      shouldDeferLatencySensitiveSpeculativeWrite(
-        source: "command-animation",
-        isParked: true,
-        positionChanged: true,
-        latencySensitive: true
-      )
-    )
-  }
-
   func testDisplayLinkActivationRejectsOlderGenerationAndStaleRequest() {
     XCTAssertTrue(
       displayLinkActivationIsCurrent(
@@ -148,6 +122,16 @@ final class FrameCommitTests: XCTestCase {
     coordinator.recordProcessLatencySamples([42: 0])
 
     XCTAssertFalse(coordinator.latencySensitiveProcessIDs.contains(42))
+  }
+
+  func testExitedProcessesAreRemovedFromSlowLaneDiagnostics() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.predictedProcessLatencyMS = [42: 20, 43: 18]
+    coordinator.latencySensitiveProcessIDs = [42, 43]
+
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [43])
+
+    XCTAssertEqual(coordinator.slowProcessLatenciesMS, [43: 18])
   }
 
   func testStaleBatchDoesNotRecordLatencySample() {
@@ -364,7 +348,7 @@ final class FrameCommitTests: XCTestCase {
       animatedWindowIDs: [],
       animationDuration: 0,
       refreshRateHz: 60,
-      displayID: nil,
+      displayIDs: [],
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: false
     ) { result in
@@ -376,6 +360,49 @@ final class FrameCommitTests: XCTestCase {
     completeSupersededFrame(frame)
 
     wait(for: [completion], timeout: 0.1)
+  }
+
+  func testSuccessfulWriteReportsTheWindowThatWasWritten() {
+    let coordinator = AXFrameCoordinator()
+    let firstWindowID = WindowID(rawValue: 42)
+    let secondWindowID = WindowID(rawValue: 43)
+    let reportedWindowIDs = Mutex<[WindowID]>([])
+    let frame = QueuedPositionFrame(
+      generation: 1,
+      source: "test",
+      writes: [:],
+      animatedWindowIDs: [],
+      animationDuration: 0,
+      refreshRateHz: 60,
+      displayIDs: [],
+      initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false,
+      successfulWrite: { windowID, _ in
+        reportedWindowIDs.withLock { $0.append(windowID) }
+      },
+      completion: nil
+    )
+
+    coordinator.reportSuccessfulWrite(
+      for: frame,
+      windowID: firstWindowID,
+      at: 10
+    )
+    coordinator.reportSuccessfulWrite(
+      for: frame,
+      windowID: firstWindowID,
+      at: 11
+    )
+    coordinator.reportSuccessfulWrite(
+      for: frame,
+      windowID: secondWindowID,
+      at: 12
+    )
+
+    XCTAssertEqual(
+      reportedWindowIDs.withLock { $0 },
+      [firstWindowID, secondWindowID]
+    )
   }
 
   func testReplacementFramePreservesSupersededAsyncSizeWrite() {

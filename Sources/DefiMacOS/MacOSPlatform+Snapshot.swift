@@ -169,10 +169,14 @@ extension MacOSPlatform {
     let preparedWindowAttributes = preparedAXIsCurrent
       ? preparedAXWindowAttributes
       : [:]
+    let preparedTransientOwners = preparedAXIsCurrent
+      ? preparedTransientOwnerWindowIDs
+      : [:]
     let preparedApplicationWindows = preparedAXIsCurrent
       ? preparedAXApplicationWindows
       : [:]
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)
+    preparedTransientOwnerWindowIDs.removeAll(keepingCapacity: true)
     preparedAXApplicationWindows.removeAll(keepingCapacity: true)
     preparedAXWindowAttributesAvailable = false
     let previousElements = elements
@@ -185,6 +189,7 @@ extension MacOSPlatform {
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
       preparedWindowAttributes: preparedWindowAttributes,
+      preparedTransientOwnerWindowIDs: preparedTransientOwners,
       preparedApplicationWindows: preparedApplicationWindows,
       publicCGWindows: publicCGWindows
     )
@@ -314,6 +319,9 @@ extension MacOSPlatform {
     frameCoordinator.pruneRecentInternalFrameWrites(
       liveWindowIDs: Set(nextElements.keys)
     )
+    frameCoordinator.pruneProcessLatencyState(
+      liveProcessIDs: Set(nextApplications.keys)
+    )
     targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
     pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }
     latestObservedFrames = latestObservedFrames.filter {
@@ -368,6 +376,16 @@ extension MacOSPlatform {
       if var expectation = frameCommitExpectations[window.id],
         let target = targetFrames[window.id]
       {
+        if let command = expectation.command {
+          recordCommandObservation(
+            command,
+            windowID: window.id,
+            from: expectation.from,
+            actual: window.frame,
+            target: expectation.target,
+            at: now
+          )
+        }
         if now >= expectation.deadline {
           frameCommitExpectations[window.id] = nil
         } else if approximatelyEqual(window.frame, target) {

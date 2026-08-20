@@ -303,6 +303,11 @@ extension AXFrameCoordinator {
         recordCompletedActiveSizeWrite(windowID: item.key)
       }
       if successfulWrite.position || successfulWrite.size {
+        reportSuccessfulWrite(
+          for: frame,
+          windowID: item.key,
+          at: timeoutResetAt
+        )
         recordInternalFrameWrite(
           Rect(
             x: point.x,

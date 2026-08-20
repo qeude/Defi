@@ -262,7 +262,8 @@ struct WindowSnapshotStabilityTests {
       frame: { recordRead(frame) },
       title: { recordRead("Window") },
       role: { recordRead(kAXWindowRole) },
-      subrole: { recordRead(kAXStandardWindowSubrole) }
+      subrole: { recordRead(kAXStandardWindowSubrole) },
+      modal: { recordRead(true) }
     )
 
     #expect(attributes.minimized == true)
@@ -271,6 +272,19 @@ struct WindowSnapshotStabilityTests {
     #expect(attributes.role == nil)
     #expect(attributes.subrole == nil)
     #expect(remainingReadCount == 0)
+  }
+
+  @Test func fallbackWindowAttributesPreservesModalState() {
+    let attributes = fallbackWindowAttributes(
+      minimized: { false },
+      frame: { frame },
+      title: { "Sheet" },
+      role: { kAXWindowRole },
+      subrole: { kAXStandardWindowSubrole },
+      modal: { true }
+    )
+
+    #expect(attributes.modal == true)
   }
 
   @Test func usableWindowGeometryRemainsDiscoverable() {

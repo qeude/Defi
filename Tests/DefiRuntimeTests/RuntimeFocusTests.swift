@@ -6,6 +6,31 @@ import XCTest
 final class RuntimeFocusTests: XCTestCase {
   private let monitorID = MonitorID(rawValue: 1)
 
+  func testChangedStateRejectsBoundaryFocusNoOp() throws {
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    for id in 1...2 {
+      try discoverWindow(
+        Window(
+          id: WindowID(rawValue: UInt64(id)),
+          appID: "app-\(id)",
+          title: "Window \(id)",
+          frame: Rect(x: 0, y: 0, width: 800, height: 700),
+          monitorID: monitorID
+        ),
+        decision: RuleDecision(),
+        state: &state
+      )
+    }
+
+    XCTAssertNil(
+      try changedState(after: .focusColumn(.left), on: monitorID, from: state)
+    )
+    XCTAssertNotNil(
+      try changedState(after: .focusColumn(.right), on: monitorID, from: state)
+    )
+  }
+
   func testExternalFocusActivatesContainingWorkspace() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)

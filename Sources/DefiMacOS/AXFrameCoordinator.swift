@@ -53,6 +53,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedSizes: [WindowID: CGSize] = [:]
   var recentInternalFrameWrites: [WindowID: [RecentInternalFrameWrite]] = [:]
   var successfulFinalWritesByGeneration: [UInt64: Set<WindowID>] = [:]
+  var reportedSuccessfulWriteWindowIDsByGeneration:
+    [UInt64: Set<WindowID>] = [:]
   var latestWriteSucceededByWindowID: [WindowID: Bool] = [:]
   var traceEntries: [String] = []
   var lastFrameDurationMS = 0.0
@@ -174,6 +176,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
     deferredParkingWriteGenerations.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
     successfulFinalWritesByGeneration.removeAll(keepingCapacity: true)
+    reportedSuccessfulWriteWindowIDsByGeneration.removeAll(
+      keepingCapacity: true
+    )
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
@@ -197,9 +202,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
     source: String,
     animationDuration: TimeInterval = 0,
     refreshRateHz: Double = 60,
-    displayID: UInt64? = nil,
+    displayIDs: Set<UInt64> = [],
     animatedWindowIDs: Set<WindowID> = [],
     stagesVisibleBeforeParking: Bool = false,
+    successfulWrite: (@Sendable (WindowID, TimeInterval) -> Void)? = nil,
     cursorWarpAfterWindowCommit:
       (@Sendable (WindowID, UInt64) -> Void)? = nil,
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
@@ -224,9 +230,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
       animatedWindowIDs: animatedWindowIDs,
       animationDuration: max(animationDuration, 0),
       refreshRateHz: min(max(refreshRateHz, 30), 120),
-      displayID: displayID,
+      displayIDs: displayIDs,
       initialProgressVelocity: 0,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      successfulWrite: successfulWrite,
       completion: completion,
       cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit
     )
@@ -255,6 +262,22 @@ final class AXFrameCoordinator: @unchecked Sendable {
       queue.async { [self] in
         drain()
       }
+    }
+  }
+
+  func reportSuccessfulWrite(
+    for frame: QueuedPositionFrame,
+    windowID: WindowID,
+    at timestamp: TimeInterval
+  ) {
+    lock.lock()
+    let isFirst = reportedSuccessfulWriteWindowIDsByGeneration[
+      frame.generation,
+      default: []
+    ].insert(windowID).inserted
+    lock.unlock()
+    if isFirst {
+      frame.successfulWrite?(windowID, timestamp)
     }
   }
 
@@ -442,6 +465,29 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return latencySensitiveProcessIDs
+  }
+
+  var slowProcessLatenciesMS: [pid_t: Double] {
+    lock.lock()
+    defer { lock.unlock() }
+    return predictedProcessLatencyMS.filter {
+      latencySensitiveProcessIDs.contains($0.key)
+    }
+  }
+
+  var processLatenciesMS: [pid_t: Double] {
+    lock.lock()
+    defer { lock.unlock() }
+    return predictedProcessLatencyMS
+  }
+
+  func pruneProcessLatencyState(liveProcessIDs: Set<pid_t>) {
+    lock.lock()
+    predictedProcessLatencyMS = predictedProcessLatencyMS.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    latencySensitiveProcessIDs.formIntersection(liveProcessIDs)
+    lock.unlock()
   }
 
 }

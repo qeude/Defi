@@ -27,6 +27,84 @@ final class WindowLifecycleTests: XCTestCase {
     XCTAssertEqual(state.monitors[0].workspaces[1].columns[0].windows, [window.id])
   }
 
+  func testTransientInheritsOwnersWorkspaceWithoutActivatingIt() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let owner = Window(
+      id: WindowID(rawValue: 1),
+      appID: "finder",
+      title: "Trash",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    try discoverWindow(
+      owner,
+      decision: RuleDecision(workspace: WorkspaceID(rawValue: "web")),
+      state: &state
+    )
+    let dialog = Window(
+      id: WindowID(rawValue: 2),
+      appID: "finder",
+      title: "Empty Trash?",
+      frame: Rect(x: 100, y: 100, width: 300, height: 200),
+      transientOwnerID: owner.id,
+      isModal: true,
+      monitorID: monitorID,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+
+    try discoverWindow(dialog, decision: RuleDecision(), state: &state)
+
+    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "dev"))
+    XCTAssertEqual(state.location(containing: dialog.id)?.workspaceID, WorkspaceID(rawValue: "web"))
+  }
+
+  func testBackgroundTransientIgnoresFollowFocusRule() throws {
+    let web = WorkspaceID(rawValue: "web")
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", web.rawValue]),
+      rules: [Rule(appID: "finder", followFocus: true)]
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let owner = Window(
+      id: WindowID(rawValue: 1),
+      appID: "finder",
+      title: "Trash",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    try discoverWindow(owner, decision: RuleDecision(workspace: web), state: &state)
+    let dialog = Window(
+      id: WindowID(rawValue: 2),
+      appID: "finder",
+      title: "Empty Trash?",
+      frame: Rect(x: 100, y: 100, width: 300, height: 200),
+      transientOwnerID: owner.id,
+      isModal: true,
+      monitorID: monitorID,
+      floating: true,
+      floatingOrigin: .automatic
+    )
+
+    reconcileWindows([owner, dialog], config: config, state: &state)
+
+    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "dev"))
+    XCTAssertEqual(state.location(containing: dialog.id)?.workspaceID, web)
+
+    reconcileWindows([owner], config: config, state: &state)
+    reconcileWindows(
+      [owner, dialog],
+      config: config,
+      nativeFocusedWindowID: dialog.id,
+      state: &state
+    )
+
+    XCTAssertEqual(state.monitors[0].activeWorkspace, web)
+  }
+
   func testMoveWindowToWorkspaceFollows() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)

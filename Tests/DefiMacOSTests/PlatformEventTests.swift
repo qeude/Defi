@@ -16,6 +16,182 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
+  func animationDisplayBarrierKeepsEveryRequestedAvailableDisplay() {
+    #expect(
+      resolvedAnimationDisplayIDs(
+        requested: [1, 2],
+        available: [1, 2, 3]
+      ) == [1, 2]
+    )
+    #expect(
+      resolvedAnimationDisplayIDs(
+        requested: [9],
+        available: [3]
+      ) == [3]
+    )
+  }
+
+  @Test
+  func preparedAXRelationshipsResolveTransientOwners() {
+    let ownerID = WindowID(rawValue: 1)
+    let parentChildID = WindowID(rawValue: 2)
+    let sheetChildID = WindowID(rawValue: 3)
+    let owner = AXUIElementCreateApplication(101)
+    let parentChild = AXUIElementCreateApplication(102)
+    let sheetChild = AXUIElementCreateApplication(103)
+
+    #expect(
+      transientOwnerWindowIDsFromPreparedRelationships(
+        elements: [
+          ownerID: owner,
+          parentChildID: parentChild,
+          sheetChildID: sheetChild,
+        ],
+        parents: [parentChildID: owner],
+        sheets: [ownerID: [sheetChild]]
+      ) == [parentChildID: ownerID, sheetChildID: ownerID]
+    )
+  }
+
+  @Test
+  func forceTiledWindowIsAnOwnerCandidateWithoutPreparedRelationship() {
+    let childID = WindowID(rawValue: 1)
+    let unrelatedID = WindowID(rawValue: 2)
+    let child = Window(
+      id: childID,
+      appID: "app",
+      title: "Panel",
+      frame: Rect(x: 0, y: 0, width: 500, height: 700),
+      forceTiling: true
+    )
+    let unrelated = Window(
+      id: unrelatedID,
+      appID: "app",
+      title: "Window",
+      frame: Rect(x: 0, y: 0, width: 500, height: 700)
+    )
+
+    #expect(
+      transientOwnerResolutionCandidateIDs(
+        windows: [child, unrelated],
+        relationshipChildIDs: []
+      ) == [childID]
+    )
+  }
+
+  @Test
+  func topologyEventsRevalidateTransientOwnersFromAffectedProcesses() {
+    let affectedChild = WindowID(rawValue: 1)
+    let unaffectedChild = WindowID(rawValue: 2)
+
+    #expect(
+      transientOwnerWindowIDsToRevalidate(
+        candidateIDs: [affectedChild, unaffectedChild],
+        processIDs: [affectedChild: 100, unaffectedChild: 200],
+        topologyProcessIDs: [100]
+      ) == [affectedChild]
+    )
+  }
+
+  @Test
+  func unresolvedTransientOwnershipKeepsRetryingWithBoundedBackoff() {
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 1) == 0)
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 2) == 1)
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 3) == 2)
+    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 8) == 5)
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: false,
+        attempts: 1,
+        retryAfter: 12,
+        now: 11
+      ) == false
+    )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: false,
+        attempts: 1,
+        retryAfter: 12,
+        now: 12
+      )
+    )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: true,
+        attempts: 1,
+        retryAfter: 12,
+        now: 11
+      ) == false
+    )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: true,
+        attempts: 1,
+        retryAfter: 12,
+        now: 12
+      )
+    )
+  }
+
+  @Test
+  func unresolvedTransientOwnershipEventuallyReturnsToIdleCadence() {
+    #expect(
+      transientOwnerResolutionRetryDeadline(afterAttempt: 7, now: 10) == 15
+    )
+    #expect(
+      transientOwnerResolutionRetryDeadline(afterAttempt: 8, now: 10) == nil
+    )
+    #expect(
+      transientOwnerResolutionIsDue(
+        ownerKnown: false,
+        attempts: 8,
+        retryAfter: nil,
+        now: 10
+      ) == false
+    )
+  }
+
+  @Test
+  func repeatedNegativeTransientOwnerResolutionEventuallyClearsCachedOwner() {
+    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 7) == false)
+    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 8))
+  }
+
+  @Test
+  func transientOwnerRetryClampsWindowRefreshToItsDeadline() {
+    #expect(
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: [14, 12],
+        now: 10
+      ) == 2
+    )
+    #expect(
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: [9],
+        now: 10
+      ) == 0
+    )
+    #expect(
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: [],
+        now: 10
+      ) == nil
+    )
+  }
+
+  @Test @MainActor
+  func transientOwnerRetrySchedulesTheWindowListRefresh() {
+    let platform = MacOSPlatform()
+    platform.eventMonitor = PlatformEventMonitor(handler: { _, _ in })
+    let now = ProcessInfo.processInfo.systemUptime
+    platform.transientOwnerResolutionRetryAfter[WindowID(rawValue: 42)] = now + 5
+
+    #expect(platform.hasPendingTransientOwnerResolution)
+    #expect(platform.recommendedWindowListRefreshInterval > 4)
+    #expect(platform.recommendedWindowListRefreshInterval <= 5)
+  }
+
+  @Test
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
     #expect(
       applicationLifecycleRefreshDelays(for: .application)
@@ -1369,6 +1545,30 @@ struct PlatformEventTests {
   }
 
   @Test
+  func failedNotificationObservationIsQuarantinedUntilProcessTerminates() {
+    let failedProcessID: pid_t = 101
+    let quarantined = updatedNotificationObservationFailures(
+      [],
+      activeProcessIDs: [failedProcessID],
+      failedProcessID: failedProcessID
+    )
+
+    #expect(quarantined == [failedProcessID])
+    #expect(
+      updatedNotificationObservationFailures(
+        quarantined,
+        activeProcessIDs: [failedProcessID]
+      ) == [failedProcessID]
+    )
+    #expect(
+      updatedNotificationObservationFailures(
+        quarantined,
+        activeProcessIDs: []
+      ).isEmpty
+    )
+  }
+
+  @Test
   func applicationObserverIsPreparedBeforeInitialWindowDiscovery() {
     var actions: [String] = []
 
@@ -1496,13 +1696,28 @@ struct PlatformEventTests {
   @Test @MainActor
   func resumingFrameNotificationsForcesFreshProcessReads() {
     let platform = MacOSPlatform()
+    let eventMonitor = PlatformEventMonitor(handler: { _, _ in })
+    platform.eventMonitor = eventMonitor
     platform.lastSnapshotProcessIDs = [101, 202]
+    let windowID = WindowID(rawValue: 42)
+    platform.processIDs[windowID] = 101
+    platform.frameCommitExpectations[windowID] = FrameCommitExpectation(
+      from: Rect(x: 0, y: 0, width: 100, height: 100),
+      target: Rect(x: 100, y: 0, width: 100, height: 100),
+      issuedAt: 1,
+      deadline: 2,
+      observedAt: nil
+    )
+    platform.setFrameNotificationsEnabled(false)
+    eventMonitor.recordSuppressedFrameNotification(processID: 202)
+    eventMonitor.recordSuppressedFrameNotification(processID: nil)
 
     platform.setFrameNotificationsEnabled(true)
 
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs == [101, 202])
-    #expect(platform.observedFrameEventWindowIDs.isEmpty)
+    #expect(platform.pendingFrameRequiresFullSnapshot)
+    #expect(platform.observedFrameEventWindowIDs == [windowID])
   }
 
   @Test

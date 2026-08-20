@@ -22,6 +22,14 @@ func registerNotificationBatch(
   return true
 }
 
+func updatedNotificationObservationFailures(
+  _ failures: Set<pid_t>,
+  activeProcessIDs: Set<pid_t>,
+  failedProcessID: pid_t? = nil
+) -> Set<pid_t> {
+  failures.intersection(activeProcessIDs).union(failedProcessID.map { [$0] } ?? [])
+}
+
 func observedWindowCount(
   _ required: [pid_t: [AXUIElement]],
   coveredBy observed: [pid_t: [AXUIElement]]

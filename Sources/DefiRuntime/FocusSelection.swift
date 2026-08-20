@@ -99,6 +99,7 @@ public func pointerFocusMonitor(
   maximumScrollAmount: Double? = nil,
   acceptsAlreadySelectedWindow: Bool = false
 ) -> MonitorID? {
+  guard modalAllowsPointerFocus(windowID, state: state) else { return nil }
   let changesSelection = nativeFocusChangesSelection(
     windowID,
     activeMonitorID: activeMonitorID,
@@ -146,6 +147,50 @@ public func pointerFocusMonitor(
   }
 
   return location.monitorID
+}
+
+public func modalAllowsPointerFocus(
+  _ windowID: WindowID,
+  state: RuntimeState
+) -> Bool {
+  guard let target = state.windows[windowID],
+    let location = state.location(containing: windowID),
+    let workspace = state.monitors.first(where: { $0.id == location.monitorID })?
+      .workspaces.first(where: { $0.id == location.workspaceID })
+  else { return true }
+  let workspaceWindowIDs = workspace.columns.flatMap(\.windows)
+    + workspace.floatingWindows
+  var ancestry = Set<WindowID>()
+  var candidate: WindowID? = windowID
+  while let current = candidate, ancestry.insert(current).inserted {
+    candidate = state.windows[current]?.transientOwnerID
+  }
+  let ownerlessModalIDs = Set(state.windows.values.lazy.filter { modal in
+    modal.appID == target.appID
+      && (target.processID.map { modal.processID == $0 } ?? true)
+      && modal.isModal
+      && modal.transientOwnerID == nil
+  }.map(\.id))
+  if ownerlessModalIDs.isEmpty == false {
+    return ancestry.isDisjoint(with: ownerlessModalIDs) == false
+  }
+  let modalIDs = Set(workspaceWindowIDs.filter { candidateID in
+    state.windows[candidateID]?.appID == target.appID
+      && (target.processID.map {
+        state.windows[candidateID]?.processID == $0
+      } ?? true)
+      && state.windows[candidateID]?.isModal == true
+  })
+  guard !modalIDs.isEmpty else { return true }
+  if ancestry.isDisjoint(with: modalIDs) == false {
+    return true
+  }
+  return modalIDs.allSatisfy { modalID in
+    guard let ownerID = state.windows[modalID]?.transientOwnerID else {
+      return false
+    }
+    return ancestry.contains(ownerID) == false
+  }
 }
 
 public func pointerFocusRecoveryWindowID(

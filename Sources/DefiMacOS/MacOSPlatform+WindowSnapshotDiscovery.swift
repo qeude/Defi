@@ -7,6 +7,69 @@ import DefiModel
 import OSLog
 
 private let snapshotAccessibilityTimeoutSeconds: Float = 0.05
+private let maximumTransientOwnerResolutionAttempts = 8
+
+func transientOwnerResolutionRetryDelay(afterAttempt attempt: Int) -> TimeInterval {
+  guard attempt >= 2 else { return 0 }
+  return min(pow(2, Double(attempt - 2)), 5)
+}
+
+func transientOwnerResolutionRetryDeadline(
+  afterAttempt attempt: Int,
+  now: TimeInterval
+) -> TimeInterval? {
+  guard attempt < maximumTransientOwnerResolutionAttempts else { return nil }
+  return now + transientOwnerResolutionRetryDelay(afterAttempt: attempt)
+}
+
+func transientOwnerResolutionShouldClearCachedOwner(afterAttempt attempt: Int) -> Bool {
+  attempt >= maximumTransientOwnerResolutionAttempts
+}
+
+func transientOwnerResolutionIsDue(
+  ownerKnown: Bool,
+  attempts: Int,
+  retryAfter: TimeInterval?,
+  now: TimeInterval
+) -> Bool {
+  guard
+    retryAfter != nil
+      || (ownerKnown == false
+        && attempts < maximumTransientOwnerResolutionAttempts)
+  else { return false }
+  return (retryAfter ?? 0) <= now
+}
+
+func transientOwnerResolutionRefreshInterval(
+  retryAfter: [TimeInterval],
+  now: TimeInterval
+) -> TimeInterval? {
+  retryAfter.min().map { max($0 - now, 0) }
+}
+
+func transientOwnerWindowIDsToRevalidate(
+  candidateIDs: Set<WindowID>,
+  processIDs: [WindowID: pid_t],
+  topologyProcessIDs: Set<pid_t>
+) -> Set<WindowID> {
+  candidateIDs.filter {
+    processIDs[$0].map(topologyProcessIDs.contains) == true
+  }
+}
+
+func transientOwnerResolutionCandidateIDs(
+  windows: [Window],
+  relationshipChildIDs: Set<WindowID>
+) -> Set<WindowID> {
+  Set(windows.compactMap { window in
+    window.isModal
+      || window.floatingOrigin == .automatic
+      || window.forceTiling
+      || relationshipChildIDs.contains(window.id)
+      ? window.id
+      : nil
+  })
+}
 
 struct SnapshotWindowDiscoveryResult {
   let nextElements: [WindowID: AXUIElement]
@@ -33,6 +96,7 @@ extension MacOSPlatform {
     capturedTopologyRequiresFullSnapshot: Bool,
     topologyProcessIDs: Set<pid_t>,
     preparedWindowAttributes: [WindowID: AXWindowAttributes],
+    preparedTransientOwnerWindowIDs: [WindowID: WindowID],
     preparedApplicationWindows: [pid_t: PreparedAXApplicationWindows],
     publicCGWindows: () -> [CGWindowRecord]?
   ) -> SnapshotWindowDiscoveryResult {
@@ -339,6 +403,7 @@ extension MacOSPlatform {
           }
           var tracked = candidate
           tracked.floating = disposition == .floating
+          tracked.forceTiling = decision.forceTiling
           tracked.floatingOrigin = floatingOrigin(
             for: disposition,
             configuredFloating: decision.floating
@@ -413,6 +478,16 @@ extension MacOSPlatform {
           }
         }
       }
+    resolveTransientOwners(
+      windows: &windows,
+      elements: nextElements,
+      processIDs: nextProcessIDs,
+      preparedOwnerWindowIDs: preparedTransientOwnerWindowIDs,
+      topologyProcessIDs:
+        capturedTopologyRequiresFullSnapshot
+        ? Set(nextProcessIDs.values)
+        : topologyProcessIDs
+    )
     return SnapshotWindowDiscoveryResult(
       nextElements: nextElements,
       nextProcessIDs: nextProcessIDs,
@@ -427,5 +502,96 @@ extension MacOSPlatform {
       previouslyManagedApplicationWindows:
         previouslyManagedApplicationWindows
     )
+  }
+
+  private func resolveTransientOwners(
+    windows: inout [Window],
+    elements: [WindowID: AXUIElement],
+    processIDs: [WindowID: pid_t],
+    preparedOwnerWindowIDs: [WindowID: WindowID],
+    topologyProcessIDs: Set<pid_t>
+  ) {
+    let liveWindowIDs = Set(elements.keys)
+    transientOwnerWindowIDs = transientOwnerWindowIDs.filter {
+      liveWindowIDs.contains($0.key) && liveWindowIDs.contains($0.value)
+    }
+    transientOwnerResolutionAttempts = transientOwnerResolutionAttempts.filter {
+      liveWindowIDs.contains($0.key)
+    }
+    transientOwnerResolutionRetryAfter = transientOwnerResolutionRetryAfter.filter {
+      liveWindowIDs.contains($0.key)
+    }
+    let candidateIDs = transientOwnerResolutionCandidateIDs(
+      windows: windows,
+      relationshipChildIDs: Set(preparedOwnerWindowIDs.keys)
+        .union(transientOwnerWindowIDs.keys)
+    )
+    let livePreparedOwnerWindowIDs = preparedOwnerWindowIDs.filter {
+      candidateIDs.contains($0.key) && liveWindowIDs.contains($0.value)
+    }
+    transientOwnerWindowIDs.merge(livePreparedOwnerWindowIDs) { _, prepared in prepared }
+    transientOwnerResolutionAttempts = transientOwnerResolutionAttempts.filter {
+      candidateIDs.contains($0.key)
+    }
+    transientOwnerResolutionRetryAfter = transientOwnerResolutionRetryAfter.filter {
+      candidateIDs.contains($0.key)
+    }
+    let revalidatedCandidateIDs = transientOwnerWindowIDsToRevalidate(
+      candidateIDs: candidateIDs,
+      processIDs: processIDs,
+      topologyProcessIDs: topologyProcessIDs
+    )
+    let now = ProcessInfo.processInfo.systemUptime
+    let ownerLookupCandidateIDs = revalidatedCandidateIDs.union(
+      candidateIDs.filter {
+        transientOwnerResolutionIsDue(
+          ownerKnown: transientOwnerWindowIDs[$0] != nil,
+          attempts: transientOwnerResolutionAttempts[$0, default: 0],
+          retryAfter: transientOwnerResolutionRetryAfter[$0],
+          now: now
+        )
+      }
+    )
+    var resolvedCandidateIDs = ownerLookupCandidateIDs.intersection(
+      livePreparedOwnerWindowIDs.keys
+    )
+    for childID in ownerLookupCandidateIDs where !resolvedCandidateIDs.contains(childID) {
+      guard let child = elements[childID] else { continue }
+      let parent = AXMessagingTimeoutAccess.shared.withTimeout(
+        snapshotAccessibilityTimeoutSeconds,
+        elements: [child]
+      ) {
+        guard
+          let value = self.copyAttribute(child, name: kAXParentAttribute),
+          CFGetTypeID(value) == AXUIElementGetTypeID()
+        else { return nil as AXUIElement? }
+        return (value as! AXUIElement)
+      }
+      if let parent,
+        let ownerID = elements.first(where: {
+          $0.key != childID && CFEqual($0.value, parent)
+        })?.key
+      {
+        transientOwnerWindowIDs[childID] = ownerID
+        resolvedCandidateIDs.insert(childID)
+      }
+    }
+    for childID in ownerLookupCandidateIDs {
+      guard resolvedCandidateIDs.contains(childID) == false else {
+        transientOwnerResolutionAttempts[childID] = nil
+        transientOwnerResolutionRetryAfter[childID] = nil
+        continue
+      }
+      let attempt = transientOwnerResolutionAttempts[childID, default: 0] + 1
+      transientOwnerResolutionAttempts[childID] = attempt
+      if transientOwnerResolutionShouldClearCachedOwner(afterAttempt: attempt) {
+        transientOwnerWindowIDs[childID] = nil
+      }
+      transientOwnerResolutionRetryAfter[childID] =
+        transientOwnerResolutionRetryDeadline(afterAttempt: attempt, now: now)
+    }
+    for index in windows.indices {
+      windows[index].transientOwnerID = transientOwnerWindowIDs[windows[index].id]
+    }
   }
 }
