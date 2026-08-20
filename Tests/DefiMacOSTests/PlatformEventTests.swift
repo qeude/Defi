@@ -1545,6 +1545,30 @@ struct PlatformEventTests {
   }
 
   @Test
+  func failedNotificationObservationIsQuarantinedUntilProcessTerminates() {
+    let failedProcessID: pid_t = 101
+    let quarantined = updatedNotificationObservationFailures(
+      [],
+      activeProcessIDs: [failedProcessID],
+      failedProcessID: failedProcessID
+    )
+
+    #expect(quarantined == [failedProcessID])
+    #expect(
+      updatedNotificationObservationFailures(
+        quarantined,
+        activeProcessIDs: [failedProcessID]
+      ) == [failedProcessID]
+    )
+    #expect(
+      updatedNotificationObservationFailures(
+        quarantined,
+        activeProcessIDs: []
+      ).isEmpty
+    )
+  }
+
+  @Test
   func applicationObserverIsPreparedBeforeInitialWindowDiscovery() {
     var actions: [String] = []
 

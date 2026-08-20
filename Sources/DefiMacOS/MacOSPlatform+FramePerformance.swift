@@ -65,12 +65,6 @@ extension MacOSPlatform {
       }.joined(separator: ",")
   }
 
-  public var hasPendingCommandObservation: Bool {
-    frameCommitExpectations.values.contains {
-      $0.command != nil && $0.observedAt == nil
-    }
-  }
-
   public var hasPendingFrameDebt: Bool {
     !pendingFrameDebtWindowIDs.isEmpty
   }
