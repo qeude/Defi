@@ -71,6 +71,63 @@ struct TransientReconciliationTests {
   }
 
   @Test
+  func movingOwnerToWorkspacePreservesStackedForceTiledTransients() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let targetWorkspace = WorkspaceID(rawValue: "web")
+    let ownerID = WindowID(rawValue: 1)
+    let transientIDs = [WindowID(rawValue: 2), WindowID(rawValue: 3)]
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    )
+    state.attachMonitor(monitorID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: ownerID, width: .fraction(0.5)),
+      Column(
+        windows: transientIDs,
+        focusedWindow: 1,
+        width: .pixels(700),
+        preMaximizedWidth: .pixels(400)
+      ),
+    ]
+    state.windows[ownerID] = Window(
+      id: ownerID,
+      appID: "editor",
+      title: "Owner",
+      frame: Rect(x: 0, y: 0, width: 500, height: 800),
+      monitorID: monitorID
+    )
+    for transientID in transientIDs {
+      state.windows[transientID] = Window(
+        id: transientID,
+        appID: "editor",
+        title: "Dialog",
+        frame: Rect(x: 0, y: 0, width: 500, height: 400),
+        transientOwnerID: ownerID,
+        monitorID: monitorID,
+        forceTiling: true
+      )
+    }
+
+    try reduce(
+      .sendWindowToWorkspace(targetWorkspace),
+      on: monitorID,
+      state: &state
+    )
+
+    #expect(
+      state.monitors[0].workspaces[1].columns == [
+        Column(window: ownerID, width: .fraction(0.5)),
+        Column(
+          windows: transientIDs,
+          focusedWindow: 1,
+          width: .pixels(700),
+          preMaximizedWidth: .pixels(400)
+        ),
+      ]
+    )
+  }
+
+  @Test
   func delayedOwnershipRebasesSuspendedTiledPlacement() throws {
     let sourceMonitor = MonitorID(rawValue: 1)
     let targetMonitor = MonitorID(rawValue: 2)

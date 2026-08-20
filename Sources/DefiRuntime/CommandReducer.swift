@@ -291,25 +291,11 @@ private func moveFocusedSelectionToMonitor(
     of: chainWindowIDs,
     windows: state.windows
   ).union(chainWindowIDs)
-  var auxiliaryTiledColumns: [WindowID: Column] = [:]
-  var auxiliaryTiledWindowIDs = Set<WindowID>()
-  for column in sourceWorkspace.columns {
-    let windows = column.windows.filter {
-      movedWindowIDs.contains($0) && !primaryWindowIDs.contains($0)
-    }
-    guard let firstWindowID = windows.first else { continue }
-    let focusedWindowID = column.windows.indices.contains(column.focusedWindow)
-      ? column.windows[column.focusedWindow]
-      : nil
-    auxiliaryTiledColumns[firstWindowID] = Column(
-      windows: windows,
-      focusedWindow: focusedWindowID.flatMap(windows.firstIndex(of:))
-        ?? min(column.focusedWindow, windows.count - 1),
-      width: column.width,
-      preMaximizedWidth: column.preMaximizedWidth
-    )
-    auxiliaryTiledWindowIDs.formUnion(windows)
-  }
+  let auxiliaryTiledColumns = groupedTiledColumns(
+    moving: movedWindowIDs,
+    excluding: primaryWindowIDs,
+    from: sourceWorkspace
+  )
   let topologyWindowIDs = state.monitors.flatMap(\.workspaces).flatMap {
     $0.columns.flatMap(\.windows) + $0.floatingWindows
   }
@@ -379,7 +365,7 @@ private func moveFocusedSelectionToMonitor(
     {
       state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
         .floatingWindows.append(windowID)
-    } else if var column = auxiliaryTiledColumns[windowID] {
+    } else if var column = auxiliaryTiledColumns.byFirstWindowID[windowID] {
       scalePixelWidths(in: &column, by: widthScale)
       let insertionIndex = min(
         state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
@@ -393,7 +379,7 @@ private func moveFocusedSelectionToMonitor(
         state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
           .focusedColumn = insertionIndex
       }
-    } else if auxiliaryTiledWindowIDs.contains(windowID) {
+    } else if auxiliaryTiledColumns.windowIDs.contains(windowID) {
       continue
     } else {
       insertNewWindow(
@@ -485,6 +471,33 @@ private func transientDescendants(
   }
 }
 
+private func groupedTiledColumns(
+  moving movedWindowIDs: Set<WindowID>,
+  excluding excludedWindowIDs: Set<WindowID> = [],
+  from workspace: Workspace
+) -> (byFirstWindowID: [WindowID: Column], windowIDs: Set<WindowID>) {
+  var columns: [WindowID: Column] = [:]
+  var tiledWindowIDs = Set<WindowID>()
+  for column in workspace.columns {
+    let windows = column.windows.filter {
+      movedWindowIDs.contains($0) && !excludedWindowIDs.contains($0)
+    }
+    guard let firstWindowID = windows.first else { continue }
+    let focusedWindowID = column.windows.indices.contains(column.focusedWindow)
+      ? column.windows[column.focusedWindow]
+      : nil
+    columns[firstWindowID] = Column(
+      windows: windows,
+      focusedWindow: focusedWindowID.flatMap(windows.firstIndex(of:))
+        ?? min(column.focusedWindow, windows.count - 1),
+      width: column.width,
+      preMaximizedWidth: column.preMaximizedWidth
+    )
+    tiledWindowIDs.formUnion(windows)
+  }
+  return (columns, tiledWindowIDs)
+}
+
 private func removeWindowFromEveryWorkspace(
   _ windowID: WindowID,
   state: inout RuntimeState
@@ -537,20 +550,45 @@ private func moveFocusedWindow(
   let orderedMovedWindowIDs = state.monitors[monitorIndex].workspaces.flatMap {
     $0.columns.flatMap(\.windows) + $0.floatingWindows
   }.filter(movedWindowIDs.contains)
+  let tiledColumns = groupedTiledColumns(
+    moving: movedWindowIDs,
+    from: source
+  )
 
   for windowID in orderedMovedWindowIDs {
     removeWindowFromEveryWorkspace(windowID, state: &state)
+  }
+  var insertionIndex = min(
+    state.monitors[monitorIndex].workspaces[targetIndex].focusedColumn + 1,
+    state.monitors[monitorIndex].workspaces[targetIndex].columns.count
+  )
+  var selectedTiledColumnIndex: Int?
+  for windowID in orderedMovedWindowIDs {
     if state.windows[windowID]?.floating == true
       && state.windows[windowID]?.forceTiling != true
     {
       state.monitors[monitorIndex].workspaces[targetIndex].floatingWindows.append(windowID)
-    } else {
-      insertNewWindow(
-        windowID,
-        into: &state.monitors[monitorIndex].workspaces[targetIndex],
-        settings: state.layout,
-        focusInsertedWindow: windowID == selectedWindowID
+    } else if let column = tiledColumns.byFirstWindowID[windowID] {
+      state.monitors[monitorIndex].workspaces[targetIndex].columns.insert(
+        column,
+        at: insertionIndex
       )
+      if column.windows.contains(selectedWindowID) {
+        selectedTiledColumnIndex = insertionIndex
+      }
+      insertionIndex += 1
+    } else if tiledColumns.windowIDs.contains(windowID) == false {
+      state.monitors[monitorIndex].workspaces[targetIndex].columns.insert(
+        Column(
+          window: windowID,
+          width: .fraction(state.layout.defaultColumnWidth)
+        ),
+        at: insertionIndex
+      )
+      if windowID == selectedWindowID {
+        selectedTiledColumnIndex = insertionIndex
+      }
+      insertionIndex += 1
     }
     if let placement = state.suspendedTiledPlacements[windowID] {
       if state.windows[windowID]?.floatingOrigin == .automatic {
@@ -565,6 +603,14 @@ private func moveFocusedWindow(
         state.suspendedTiledPlacements[windowID] = nil
       }
     }
+  }
+  if let selectedTiledColumnIndex {
+    state.monitors[monitorIndex].workspaces[targetIndex].focusedColumn =
+      selectedTiledColumnIndex
+    repairWorkspaceScroll(
+      &state.monitors[monitorIndex].workspaces[targetIndex],
+      settings: state.layout
+    )
   }
   if let selectedIndex = state.monitors[monitorIndex].workspaces[targetIndex]
     .floatingWindows.firstIndex(of: selectedWindowID)
