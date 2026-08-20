@@ -472,7 +472,7 @@ public func nativeFocusMutationIsReady(
     return (deferredMouseFocusReady ?? mouseInteractionEnded)
       && mouseReleaseFocusIntentCurrent
   }
-  return nativeFocusChanged
+  return false
 }
 
 public func keyboardFocusPreemptsMouseGesture(
