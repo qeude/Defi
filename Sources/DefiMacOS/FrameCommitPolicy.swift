@@ -496,3 +496,13 @@ func hiddenWindowsPreservingSkippedWindows(
   desired.subtracting(skippedWindowIDs)
     .union(previous.intersection(skippedWindowIDs))
 }
+
+func commandPerformanceFramePlan(
+  writeWindowIDs: Set<WindowID>,
+  hiddenWindowIDs: Set<WindowID>,
+  availableWindowIDs: Set<WindowID>
+) -> (expectedWindowIDs: Set<WindowID>, hasMeasuredFrameWrites: Bool) {
+  let expectedWindowIDs = writeWindowIDs.subtracting(hiddenWindowIDs)
+    .intersection(availableWindowIDs)
+  return (expectedWindowIDs, expectedWindowIDs.isEmpty == false)
+}

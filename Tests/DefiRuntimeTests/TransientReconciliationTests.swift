@@ -129,6 +129,55 @@ struct TransientReconciliationTests {
   }
 
   @Test
+  func delayedOwnershipPreservesForceTiledColumnWidths() throws {
+    let sourceMonitor = MonitorID(rawValue: 1)
+    let targetMonitor = MonitorID(rawValue: 2)
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(sourceMonitor)
+    state.attachMonitor(targetMonitor)
+    var transient = Window(
+      id: WindowID(rawValue: 1),
+      appID: "editor",
+      title: "Dialog",
+      frame: Rect(x: 0, y: 0, width: 700, height: 800),
+      isModal: true,
+      monitorID: sourceMonitor,
+      forceTiling: true
+    )
+    let owner = Window(
+      id: WindowID(rawValue: 2),
+      appID: "editor",
+      title: "Owner",
+      frame: Rect(x: 1_000, y: 0, width: 600, height: 800),
+      monitorID: targetMonitor
+    )
+    try discoverWindow(transient, decision: RuleDecision(), state: &state)
+    try discoverWindow(owner, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].columns[0].width = .pixels(700)
+    state.monitors[0].workspaces[0].columns[0].preMaximizedWidth = .pixels(400)
+
+    transient.transientOwnerID = owner.id
+    _ = reconcileWindows(
+      [transient, owner],
+      config: config,
+      viewports: [
+        sourceMonitor: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetMonitor: Rect(x: 1_000, y: 0, width: 2_000, height: 800),
+      ],
+      state: &state
+    )
+
+    let column = try #require(
+      state.monitors[1].workspaces[0].columns.first {
+        $0.windows.contains(transient.id)
+      }
+    )
+    #expect(column.width == .pixels(1_400))
+    #expect(column.preMaximizedWidth == .pixels(800))
+  }
+
+  @Test
   func newlyDiscoveredTransientChainConvergesRegardlessOfSnapshotOrder() {
     let firstMonitor = MonitorID(rawValue: 1)
     let secondMonitor = MonitorID(rawValue: 2)

@@ -108,12 +108,15 @@ extension MacOSPlatform {
       skippedWindowIDs: skippedWindowIDs
     )
     if let commandPerformance {
+      let performancePlan = commandPerformanceFramePlan(
+        writeWindowIDs: Set(writeIntents.keys),
+        hiddenWindowIDs: effectiveHiddenWindowIDs,
+        availableWindowIDs: Set(elements.keys)
+      )
       recordCommandPlan(
         commandPerformance,
-        expectedWindowIDs: Set(writeIntents.keys).subtracting(
-          effectiveHiddenWindowIDs
-        ).intersection(elements.keys),
-        hasFrameWrites: !writeIntents.isEmpty,
+        expectedWindowIDs: performancePlan.expectedWindowIDs,
+        hasFrameWrites: performancePlan.hasMeasuredFrameWrites,
         at: ProcessInfo.processInfo.systemUptime
       )
     }

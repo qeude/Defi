@@ -179,6 +179,30 @@ struct FrameCommitTransitionTests {
   }
 
   @Test
+  func parkingOnlyPlanConvergesWithoutWaitingForUnmeasuredWrites() {
+    let parked = WindowID(rawValue: 1)
+    let plan = commandPerformanceFramePlan(
+      writeWindowIDs: [parked],
+      hiddenWindowIDs: [parked],
+      availableWindowIDs: [parked]
+    )
+    let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
+    var latency = CommandLatencyAccumulator()
+    latency.begin(context)
+
+    _ = latency.recordPlan(
+      context,
+      expectedWindowIDs: plan.expectedWindowIDs,
+      hasFrameWrites: plan.hasMeasuredFrameWrites,
+      at: 10.002
+    )
+
+    #expect(plan.expectedWindowIDs.isEmpty)
+    #expect(plan.hasMeasuredFrameWrites == false)
+    #expect(latency.performance.convergence.count == 1)
+  }
+
+  @Test
   func focusOnlyPlanConvergesOnlyAfterSuccessfulFocus() {
     let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
     var cancelled = CommandLatencyAccumulator()

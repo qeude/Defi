@@ -292,15 +292,23 @@ private func moveFocusedSelectionToMonitor(
     windows: state.windows
   ).union(chainWindowIDs)
   var auxiliaryTiledColumns: [WindowID: Column] = [:]
+  var auxiliaryTiledWindowIDs = Set<WindowID>()
   for column in sourceWorkspace.columns {
-    for windowID in column.windows
-    where movedWindowIDs.contains(windowID) && !primaryWindowIDs.contains(windowID) {
-      auxiliaryTiledColumns[windowID] = Column(
-        window: windowID,
-        width: column.width,
-        preMaximizedWidth: column.preMaximizedWidth
-      )
+    let windows = column.windows.filter {
+      movedWindowIDs.contains($0) && !primaryWindowIDs.contains($0)
     }
+    guard let firstWindowID = windows.first else { continue }
+    let focusedWindowID = column.windows.indices.contains(column.focusedWindow)
+      ? column.windows[column.focusedWindow]
+      : nil
+    auxiliaryTiledColumns[firstWindowID] = Column(
+      windows: windows,
+      focusedWindow: focusedWindowID.flatMap(windows.firstIndex(of:))
+        ?? min(column.focusedWindow, windows.count - 1),
+      width: column.width,
+      preMaximizedWidth: column.preMaximizedWidth
+    )
+    auxiliaryTiledWindowIDs.formUnion(windows)
   }
   let topologyWindowIDs = state.monitors.flatMap(\.workspaces).flatMap {
     $0.columns.flatMap(\.windows) + $0.floatingWindows
@@ -381,10 +389,12 @@ private func moveFocusedSelectionToMonitor(
       )
       state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
         .columns.insert(column, at: insertionIndex)
-      if windowID == selectedWindowID {
+      if column.windows.contains(selectedWindowID) {
         state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
           .focusedColumn = insertionIndex
       }
+    } else if auxiliaryTiledWindowIDs.contains(windowID) {
+      continue
     } else {
       insertNewWindow(
         windowID,

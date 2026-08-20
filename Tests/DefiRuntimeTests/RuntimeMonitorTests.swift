@@ -645,6 +645,68 @@ struct MonitorMoveFocusTests {
   }
 
   @Test
+  func movingOwnerPreservesStackedForceTiledTransients() throws {
+    let sourceID = MonitorID(rawValue: 1)
+    let targetID = MonitorID(rawValue: 2)
+    let ownerID = WindowID(rawValue: 1)
+    let transientIDs = [WindowID(rawValue: 2), WindowID(rawValue: 3)]
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    )
+    state.attachMonitor(sourceID)
+    state.attachMonitor(targetID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: ownerID, width: .fraction(0.5)),
+      Column(
+        windows: transientIDs,
+        focusedWindow: 1,
+        width: .pixels(700),
+        preMaximizedWidth: .pixels(400)
+      ),
+    ]
+    state.windows[ownerID] = Window(
+      id: ownerID,
+      appID: "app",
+      title: "Owner",
+      frame: Rect(x: 0, y: 0, width: 500, height: 700),
+      monitorID: sourceID
+    )
+    for transientID in transientIDs {
+      state.windows[transientID] = Window(
+        id: transientID,
+        appID: "app",
+        title: "Dialog",
+        frame: Rect(x: 0, y: 0, width: 500, height: 350),
+        transientOwnerID: ownerID,
+        monitorID: sourceID,
+        forceTiling: true
+      )
+    }
+
+    try reduce(
+      .moveColumnToMonitor(.right),
+      on: sourceID,
+      state: &state,
+      monitorFrames: [
+        sourceID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        targetID: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+      ]
+    )
+
+    #expect(
+      state.monitors[1].workspaces[0].columns == [
+        Column(window: ownerID, width: .fraction(0.5)),
+        Column(
+          windows: transientIDs,
+          focusedWindow: 1,
+          width: .pixels(700),
+          preMaximizedWidth: .pixels(400)
+        ),
+      ]
+    )
+  }
+
+  @Test
   func movingOwnerPreservesAutomaticTransientStackPlacement() throws {
     let sourceID = MonitorID(rawValue: 1)
     let targetID = MonitorID(rawValue: 2)

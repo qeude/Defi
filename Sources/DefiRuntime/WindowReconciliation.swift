@@ -237,6 +237,29 @@ private func relocateTransientIfNeeded(
   else { return false }
 
   let wasSelected = state.selectedWindowID(on: current.monitorID) == windowID
+  var relocatedTiledColumn = state.monitors.first {
+    $0.id == current.monitorID
+  }?.workspaces.first {
+    $0.id == current.workspaceID
+  }?.columns.first {
+    $0.windows.contains(windowID)
+  }.map {
+    Column(
+      window: windowID,
+      width: $0.width,
+      preMaximizedWidth: $0.preMaximizedWidth
+    )
+  }
+  if var column = relocatedTiledColumn,
+    let sourceViewport = viewports[current.monitorID],
+    let targetViewport = viewports[target.monitorID]
+  {
+    scalePixelWidths(
+      in: &column,
+      by: targetViewport.width / max(sourceViewport.width, 1)
+    )
+    relocatedTiledColumn = column
+  }
   removeWindowEverywhere(windowID, state: &state)
   if window.floating && !window.forceTiling {
     state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
@@ -251,10 +274,21 @@ private func relocateTransientIfNeeded(
   } else {
     insertNewWindow(
       windowID,
+      width: relocatedTiledColumn?.width
+        ?? .fraction(state.layout.defaultColumnWidth),
       into: &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
       settings: state.layout,
       focusInsertedWindow: wasSelected
     )
+    if let preMaximizedWidth = relocatedTiledColumn?.preMaximizedWidth,
+      let columnIndex = state.monitors[targetMonitorIndex]
+        .workspaces[targetWorkspaceIndex].columns.firstIndex(where: {
+          $0.windows.contains(windowID)
+        })
+    {
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+        .columns[columnIndex].preMaximizedWidth = preMaximizedWidth
+    }
     if wasSelected {
       state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
         .focusedLayer = .tiled
