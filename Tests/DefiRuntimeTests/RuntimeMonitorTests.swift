@@ -649,7 +649,9 @@ struct MonitorMoveFocusTests {
     let sourceID = MonitorID(rawValue: 1)
     let targetID = MonitorID(rawValue: 2)
     let ownerID = WindowID(rawValue: 1)
-    let transientIDs = [WindowID(rawValue: 2), WindowID(rawValue: 3)]
+    let stackedTransientIDs = [WindowID(rawValue: 2), WindowID(rawValue: 3)]
+    let trailingTransientID = WindowID(rawValue: 4)
+    let transientIDs = stackedTransientIDs + [trailingTransientID]
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
     )
@@ -658,11 +660,12 @@ struct MonitorMoveFocusTests {
     state.monitors[0].workspaces[0].columns = [
       Column(window: ownerID, width: .fraction(0.5)),
       Column(
-        windows: transientIDs,
+        windows: stackedTransientIDs,
         focusedWindow: 1,
         width: .pixels(700),
         preMaximizedWidth: .pixels(400)
       ),
+      Column(window: trailingTransientID, width: .fraction(0.4)),
     ]
     state.windows[ownerID] = Window(
       id: ownerID,
@@ -697,11 +700,12 @@ struct MonitorMoveFocusTests {
       state.monitors[1].workspaces[0].columns == [
         Column(window: ownerID, width: .fraction(0.5)),
         Column(
-          windows: transientIDs,
+          windows: stackedTransientIDs,
           focusedWindow: 1,
           width: .pixels(700),
           preMaximizedWidth: .pixels(400)
         ),
+        Column(window: trailingTransientID, width: .fraction(0.4)),
       ]
     )
   }

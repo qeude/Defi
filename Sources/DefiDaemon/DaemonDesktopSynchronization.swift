@@ -141,6 +141,7 @@ extension Daemon {
       placementPreferences: placementPreferences,
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       viewports: viewportsByMonitor,
+      nativeFocusedWindowID: snapshot.focusedWindowID,
       state: &state
     )
     let relocatedFloatingWindowIDs = displayGeometryChanged

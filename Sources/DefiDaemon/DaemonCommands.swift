@@ -180,6 +180,7 @@ extension Daemon {
         viewports: commandViewports
       )
       if validationState == nil, command.explicitlyFocusesFloating == false {
+        commandGeneration &+= 1
         lastCommandDurationMS =
           (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
         platform.recordPerformanceTrace(

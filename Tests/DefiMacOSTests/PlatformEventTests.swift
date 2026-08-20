@@ -54,7 +54,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func preparedRelationshipMakesForceTiledWindowAnOwnerCandidate() {
+  func forceTiledWindowIsAnOwnerCandidateWithoutPreparedRelationship() {
     let childID = WindowID(rawValue: 1)
     let unrelatedID = WindowID(rawValue: 2)
     let child = Window(
@@ -74,7 +74,7 @@ struct PlatformEventTests {
     #expect(
       transientOwnerResolutionCandidateIDs(
         windows: [child, unrelated],
-        relationshipChildIDs: [childID]
+        relationshipChildIDs: []
       ) == [childID]
     )
   }

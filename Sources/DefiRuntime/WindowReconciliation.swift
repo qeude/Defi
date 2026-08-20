@@ -6,6 +6,7 @@ public func discoverWindow(
   _ original: Window,
   decision: RuleDecision,
   placement: WindowPlacementPreference? = nil,
+  isNativelyFocused: Bool = false,
   state: inout RuntimeState
 ) throws {
   guard !state.monitors.isEmpty else {
@@ -27,6 +28,7 @@ public func discoverWindow(
   window.intrinsicSize = decision.intrinsicSize
   let effectivePlacement = window.floatingOrigin == .automatic ? nil : placement
   let transientLocation = transientPlacementLocation(for: window, state: state)
+  let followsFocus = decision.followFocus && (transientLocation == nil || isNativelyFocused)
   let preferredMonitorID = effectivePlacement?.monitorID.flatMap { preferred in
     state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
   }
@@ -56,7 +58,7 @@ public func discoverWindow(
 
   if window.floating && !window.forceTiling {
     state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(window.id)
-    if decision.followFocus {
+    if followsFocus {
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedFloatingWindow =
         state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.count - 1
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .floating
@@ -66,13 +68,13 @@ public func discoverWindow(
       window.id,
       into: &state.monitors[monitorIndex].workspaces[workspaceIndex],
       settings: state.layout,
-      focusInsertedWindow: decision.followFocus
+      focusInsertedWindow: followsFocus
     )
-    if decision.followFocus {
+    if followsFocus {
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
     }
   }
-  if decision.followFocus {
+  if followsFocus {
     state.monitors[monitorIndex].activeWorkspace = workspaceID
   }
   state.windows[window.id] = window
@@ -147,6 +149,7 @@ public func reconcileWindows(
   placementPreferences: PlacementPreferences = PlacementPreferences(),
   externallyChangedWindowIDs: Set<WindowID> = [],
   viewports: [MonitorID: Rect] = [:],
+  nativeFocusedWindowID: WindowID? = nil,
   state: inout RuntimeState
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
@@ -163,6 +166,7 @@ public func reconcileWindows(
         window,
         decision: config.decision(for: window),
         placement: placementPreferences.preference(for: window),
+        isNativelyFocused: window.id == nativeFocusedWindowID,
         state: &state
       )
     } else {

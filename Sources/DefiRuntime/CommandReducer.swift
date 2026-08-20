@@ -359,6 +359,7 @@ private func moveFocusedSelectionToMonitor(
   let auxiliaryWindowIDs = orderedMovedWindowIDs.filter {
     !transferredWindowIDs.contains($0)
   }
+  var auxiliaryColumnInsertionIndex = transferredColumnIndex.map { $0 + 1 }
   for windowID in auxiliaryWindowIDs {
     if state.windows[windowID]?.floating == true
       && state.windows[windowID]?.forceTiling != true
@@ -368,13 +369,15 @@ private func moveFocusedSelectionToMonitor(
     } else if var column = auxiliaryTiledColumns.byFirstWindowID[windowID] {
       scalePixelWidths(in: &column, by: widthScale)
       let insertionIndex = min(
-        state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
-          .focusedColumn + 1,
+        auxiliaryColumnInsertionIndex
+          ?? state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
+            .focusedColumn + 1,
         state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
           .columns.count
       )
       state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
         .columns.insert(column, at: insertionIndex)
+      auxiliaryColumnInsertionIndex = insertionIndex + 1
       if column.windows.contains(selectedWindowID) {
         state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
           .focusedColumn = insertionIndex

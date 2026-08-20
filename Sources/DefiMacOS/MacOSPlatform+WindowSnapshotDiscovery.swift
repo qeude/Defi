@@ -64,6 +64,7 @@ func transientOwnerResolutionCandidateIDs(
   Set(windows.compactMap { window in
     window.isModal
       || window.floatingOrigin == .automatic
+      || window.forceTiling
       || relationshipChildIDs.contains(window.id)
       ? window.id
       : nil
@@ -402,6 +403,7 @@ extension MacOSPlatform {
           }
           var tracked = candidate
           tracked.floating = disposition == .floating
+          tracked.forceTiling = decision.forceTiling
           tracked.floatingOrigin = floatingOrigin(
             for: disposition,
             configuredFloating: decision.floating
