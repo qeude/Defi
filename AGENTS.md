@@ -147,3 +147,17 @@ the installed build with Computer Use.
 Use conventional branch names in `type/short-kebab-description` form. Prefer
 `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, or `chore` as type.
 Use English commit and PR text. Preserve user changes. Never revert unrelated work.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues; use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo using root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
