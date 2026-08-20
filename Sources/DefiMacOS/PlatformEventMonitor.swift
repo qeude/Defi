@@ -18,12 +18,15 @@ final class PlatformEventMonitor {
   private var mouseGestureNormalizer = MouseGestureEventNormalizer()
   private var observers: [pid_t: AXObserver] = [:]
   private var topologyObservedProcessIDs = Set<pid_t>()
+  private var notificationObservationFailures = Set<pid_t>()
   private var observedWindows: [pid_t: [AXUIElement]] = [:]
   private var topologyRequiredWindows: [pid_t: [AXUIElement]] = [:]
   private var frameRequiredWindows: [pid_t: [AXUIElement]] = [:]
   private var topologyObservedWindows: [pid_t: [AXUIElement]] = [:]
   private var frameObservedWindows: [pid_t: [AXUIElement]] = [:]
   private var frameNotificationsEnabled = true
+  private var suppressedFrameProcessIDs = Set<pid_t>()
+  private var suppressedFrameRequiresFullSnapshot = false
   private var displayCallbackRegistered = false
 
   init(
@@ -171,6 +174,10 @@ final class PlatformEventMonitor {
     transientGeometryWindows: [pid_t: [AXUIElement]] = [:]
   ) {
     let activeProcessIDs = Set(applications.keys)
+    notificationObservationFailures = updatedNotificationObservationFailures(
+      notificationObservationFailures,
+      activeProcessIDs: activeProcessIDs
+    )
     for processID in observers.keys where !activeProcessIDs.contains(processID) {
       observers[processID] = nil
       topologyObservedProcessIDs.remove(processID)
@@ -182,6 +189,7 @@ final class PlatformEventMonitor {
     }
 
     for (processID, windows) in applications {
+      guard !notificationObservationFailures.contains(processID) else { continue }
       guard let observer = observer(for: processID) else { continue }
       prepareForWindowDiscovery(
         processID: processID,
@@ -203,10 +211,12 @@ final class PlatformEventMonitor {
         transientGeometry: transientGeometryWindows[processID] ?? [],
         applicationWindows: windows
       )
-      for window in requiredTopology {
+      for window in requiredTopology
+      where !notificationObservationFailures.contains(processID) {
         if !topologyObserved.contains(where: { CFEqual($0, window) }),
           subscribe(
             observer,
+            processID: processID,
             element: window,
             notifications: [
               kAXUIElementDestroyedNotification,
@@ -219,11 +229,13 @@ final class PlatformEventMonitor {
         }
       }
       for window in windows {
-        if frameNotificationsEnabled,
+        if !notificationObservationFailures.contains(processID),
+          frameNotificationsEnabled,
           requiredFrames.contains(where: { CFEqual($0, window) }),
           !frameObserved.contains(where: { CFEqual($0, window) }),
           subscribe(
             observer,
+            processID: processID,
             element: window,
             notifications: [kAXMovedNotification, kAXResizedNotification]
           )
@@ -264,6 +276,7 @@ final class PlatformEventMonitor {
     processID: pid_t,
     application: AXUIElement
   ) {
+    guard !notificationObservationFailures.contains(processID) else { return }
     guard let observer = observer(for: processID) else { return }
     prepareForWindowDiscovery(
       processID: processID,
@@ -336,9 +349,32 @@ final class PlatformEventMonitor {
     workspaceTokens.count == 5
   }
 
-  func setFrameNotificationsEnabled(_ enabled: Bool) {
-    guard frameNotificationsEnabled != enabled else { return }
+  func setFrameNotificationsEnabled(_ enabled: Bool) -> (
+    processIDs: Set<pid_t>, requiresFullSnapshot: Bool
+  ) {
+    guard frameNotificationsEnabled != enabled else { return ([], false) }
     frameNotificationsEnabled = enabled
+    guard enabled else {
+      suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+      suppressedFrameRequiresFullSnapshot = false
+      return ([], false)
+    }
+    let refresh = (
+      processIDs: suppressedFrameProcessIDs,
+      requiresFullSnapshot: suppressedFrameRequiresFullSnapshot
+    )
+    suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+    suppressedFrameRequiresFullSnapshot = false
+    return refresh
+  }
+
+  func recordSuppressedFrameNotification(processID: pid_t?) {
+    guard frameNotificationsEnabled == false else { return }
+    if let processID {
+      suppressedFrameProcessIDs.insert(processID)
+    } else {
+      suppressedFrameRequiresFullSnapshot = true
+    }
   }
 
   private func observer(for processID: pid_t) -> AXObserver? {
@@ -364,7 +400,12 @@ final class PlatformEventMonitor {
           case kAXFocusedWindowChangedNotification:
             monitor.handler(.focus, normalizedProcessID)
           case kAXMovedNotification, kAXResizedNotification:
-            guard monitor.frameNotificationsEnabled else { return }
+            guard monitor.frameNotificationsEnabled else {
+              monitor.recordSuppressedFrameNotification(
+                processID: normalizedProcessID
+              )
+              return
+            }
             monitor.frameHandler(element)
             monitor.handler(.frame, normalizedProcessID)
           case kAXUIElementDestroyedNotification:
@@ -395,6 +436,7 @@ final class PlatformEventMonitor {
     guard !topologyObservedProcessIDs.contains(processID) else { return }
     if subscribe(
       observer,
+      processID: processID,
       element: application,
       notifications: [
         kAXFocusedWindowChangedNotification,
@@ -408,11 +450,12 @@ final class PlatformEventMonitor {
   @discardableResult
   private func subscribe(
     _ observer: AXObserver,
+    processID: pid_t,
     element: AXUIElement,
     notifications: [String]
   ) -> Bool {
     let context = Unmanaged.passUnretained(self).toOpaque()
-    return registerNotificationBatch(
+    let registered = registerNotificationBatch(
       notifications: notifications,
       add: { notification in
         AXObserverAddNotification(
@@ -430,6 +473,14 @@ final class PlatformEventMonitor {
         )
       }
     )
+    if !registered {
+      notificationObservationFailures = updatedNotificationObservationFailures(
+        notificationObservationFailures,
+        activeProcessIDs: Set(observers.keys),
+        failedProcessID: processID
+      )
+    }
+    return registered
   }
 
   func stop() {

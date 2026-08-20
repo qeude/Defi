@@ -37,6 +37,14 @@ public func parseCommand(_ input: String) throws -> Command {
       throw CommandParseError.invalidDirection(parts[1])
     }
     return .moveWindow(direction)
+  case "move-column-to-monitor":
+    return .moveColumnToMonitor(
+      try parseSpatialDirection(argument("direction"))
+    )
+  case "move-window-to-monitor":
+    return .moveWindowToMonitor(
+      try parseSpatialDirection(argument("direction"))
+    )
   case "focus-window":
     return .focusWindow(try parseDirection(argument("direction")))
   case "move-window-to-workspace":
@@ -62,6 +70,14 @@ public func parseCommand(_ input: String) throws -> Command {
   default:
     throw CommandParseError.unknownCommand(name)
   }
+}
+
+private func parseSpatialDirection(_ input: String) throws -> Direction {
+  let direction = try parseDirection(input)
+  guard [.left, .right, .up, .down].contains(direction) else {
+    throw CommandParseError.invalidDirection(input)
+  }
+  return direction
 }
 
 private func parseDirection(_ input: String) throws -> Direction {

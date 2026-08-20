@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
   name: "Defi",
   platforms: [
-    .macOS(.v14)
+    .macOS(.v26)
   ],
   products: [
     .library(name: "DefiModel", targets: ["DefiModel"]),
@@ -87,6 +87,10 @@ let package = Package(
     .testTarget(
       name: "DefiMacOSTests",
       dependencies: ["DefiMacOS", "DefiConfig", "DefiCore", "DefiModel"]
+    ),
+    .testTarget(
+      name: "DefiDaemonTests",
+      dependencies: ["DefiDaemon", "DefiModel"]
     ),
   ]
 )

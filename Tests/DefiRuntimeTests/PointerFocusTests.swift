@@ -149,6 +149,85 @@ struct PointerFocusTests {
   }
 
   @Test
+  func modalBlocksPointerFocusBehindItButAllowsDescendants() throws {
+    var state = try makeState(columnWidths: [0.3, 0.3, 0.3])
+    let ownerID = WindowID(rawValue: 1)
+    let modalID = WindowID(rawValue: 2)
+    let descendantID = WindowID(rawValue: 3)
+    state.windows[ownerID]?.appID = "app"
+    state.windows[modalID]?.appID = "app"
+    state.windows[modalID]?.isModal = true
+    state.windows[modalID]?.transientOwnerID = ownerID
+    state.windows[descendantID]?.appID = "app"
+    state.windows[descendantID]?.transientOwnerID = modalID
+
+    #expect(!modalAllowsPointerFocus(ownerID, state: state))
+    #expect(modalAllowsPointerFocus(modalID, state: state))
+    #expect(modalAllowsPointerFocus(descendantID, state: state))
+  }
+
+  @Test
+  func documentModalAllowsPointerFocusInAnUnrelatedDocument() throws {
+    var state = try makeState(columnWidths: [0.25, 0.25, 0.25, 0.25])
+    let ownerID = WindowID(rawValue: 1)
+    let modalID = WindowID(rawValue: 2)
+    let unrelatedDocumentID = WindowID(rawValue: 4)
+    for windowID in [ownerID, modalID, unrelatedDocumentID] {
+      state.windows[windowID]?.appID = "app"
+    }
+    state.windows[modalID]?.isModal = true
+    state.windows[modalID]?.transientOwnerID = ownerID
+
+    #expect(modalAllowsPointerFocus(unrelatedDocumentID, state: state))
+  }
+
+  @Test
+  func ownerlessModalStillBlocksTheRestOfItsApplication() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5])
+    let modalID = WindowID(rawValue: 1)
+    let documentID = WindowID(rawValue: 2)
+    state.windows[modalID]?.appID = "app"
+    state.windows[modalID]?.isModal = true
+    state.windows[documentID]?.appID = "app"
+
+    #expect(modalAllowsPointerFocus(documentID, state: state) == false)
+    #expect(modalAllowsPointerFocus(modalID, state: state))
+  }
+
+  @Test
+  func ownerlessModalDoesNotBlockAnotherInstanceOfTheSameApplication() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5])
+    let modalID = WindowID(rawValue: 1)
+    let documentID = WindowID(rawValue: 2)
+    state.windows[modalID]?.appID = "app"
+    state.windows[modalID]?.processID = 100
+    state.windows[modalID]?.isModal = true
+    state.windows[documentID]?.appID = "app"
+    state.windows[documentID]?.processID = 200
+
+    #expect(modalAllowsPointerFocus(documentID, state: state))
+  }
+
+  @Test
+  func ownerlessModalBlocksItsApplicationAcrossMonitors() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5])
+    let modalID = WindowID(rawValue: 1)
+    let documentID = WindowID(rawValue: 2)
+    let otherMonitorID = MonitorID(rawValue: 2)
+    state.windows[modalID]?.appID = "app"
+    state.windows[modalID]?.isModal = true
+    state.windows[documentID]?.appID = "app"
+    state.monitors[0].workspaces[0].columns.removeLast()
+    state.attachMonitor(otherMonitorID)
+    state.monitors[1].workspaces[0].columns = [
+      Column(window: documentID, width: .fraction(0.5))
+    ]
+    state.windows[documentID]?.monitorID = otherMonitorID
+
+    #expect(modalAllowsPointerFocus(documentID, state: state) == false)
+  }
+
+  @Test
   func alreadySelectedPointerTargetCanRestoreNativeFocus() throws {
     var state = try makeState(columnWidths: [0.4, 0.4])
     let original = state

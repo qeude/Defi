@@ -37,7 +37,10 @@ meet a user-visible correctness, stability, or latency invariant.
 - probe private capabilities using Defi-owned surfaces, never by mutating user windows
 - downgrade to the public backend for the rest of the session after a private operation fails
 - expose the active backend and fallback count through status or telemetry
-- do not mutate third-party windows through private APIs without separate explicit approval
+- third-party position and size mutation is approved only for Defi's
+  experimental frame backend after explicit user opt-in; keep it disabled by
+  default, while focus, lifecycle, Spaces, and compositor control remain on
+  public macOS APIs
 
 ## Product shape
 

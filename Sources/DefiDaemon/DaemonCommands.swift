@@ -8,8 +8,96 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+private func ipcEventHandler(
+  server: UnixSocketServer,
+  clientQueue: DispatchQueue,
+  daemon: Daemon
+) -> @Sendable () -> Void {
+  { [weak daemon] in
+    do {
+      for _ in 0..<16 {
+        let handled = try server.poll(
+          on: clientQueue,
+          handler: { request in
+            DispatchQueue.main.sync {
+              MainActor.assumeIsolated {
+                daemon?.handle(
+                  request.command,
+                  monitorIndex: request.monitorIndex
+                ) ?? .failure("daemon unavailable")
+              }
+            }
+          },
+          completion: { [weak daemon] request in
+            guard request.command == "quit" else { return }
+            DispatchQueue.main.async {
+              guard let daemon, daemon.shouldShutdown else { return }
+              daemon.shutdown()
+            }
+          }
+        )
+        if !handled { break }
+      }
+    } catch {
+      let message = "IPC error: \(error)"
+      DispatchQueue.main.async { [weak daemon] in
+        daemon?.log(message)
+      }
+    }
+  }
+}
+
+func commandFollowUpIsPending(
+  frameWrites: Bool,
+  animatedFocus: Bool,
+  workspaceFocus: Bool
+) -> Bool {
+  frameWrites || animatedFocus || workspaceFocus
+}
+
+func crossMonitorCommandWindowID(
+  _ command: Command,
+  selectedWindowID: WindowID?,
+  selectedTiledWindowID: WindowID?
+) -> WindowID? {
+  if case .moveColumnToMonitor = command { return selectedTiledWindowID }
+  return selectedWindowID
+}
+
 @MainActor
 extension Daemon {
+  func installIPCSource() {
+    let server = server
+    let clientQueue = DispatchQueue(
+      label: "com.quentin.defi.ipc.clients",
+      qos: .userInitiated,
+      attributes: .concurrent
+    )
+    let source = DispatchSource.makeReadSource(
+      fileDescriptor: server.listeningFileDescriptor,
+      queue: DispatchQueue(label: "com.quentin.defi.ipc.accept", qos: .userInitiated)
+    )
+    source.setEventHandler(
+      handler: ipcEventHandler(
+        server: server,
+        clientQueue: clientQueue,
+        daemon: self
+      )
+    )
+    source.resume()
+    ipcSource = source
+  }
+
+  func scheduleTick() {
+    guard !tickScheduled else { return }
+    tickScheduled = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.tickScheduled = false
+      self.tick()
+    }
+  }
+
   func enqueueHotKey(_ invocation: HotKeyInvocation) {
     guard pendingHotKeyCommands.count < 64 else { return }
     pendingHotKeyCommands.append(invocation)
@@ -27,25 +115,6 @@ extension Daemon {
         inputTimestamp: invocation.timestamp
       )
       processedHotKeyCount += 1
-    }
-  }
-
-  func pollIPC() {
-    do {
-      for _ in 0..<16 {
-        let handled = try server.poll { [weak self] request in
-          self?.handle(
-            request.command,
-            monitorIndex: request.monitorIndex
-          ) ?? .failure("daemon unavailable")
-        }
-        if !handled { break }
-      }
-      if shouldShutdown {
-        shutdown()
-      }
-    } catch {
-      log("IPC error: \(error)")
     }
   }
 
@@ -97,18 +166,44 @@ extension Daemon {
       } else {
         commandMonitorID = activeMonitorID ?? state.monitors.first?.id
       }
-      var validationState = state
-      try reduce(command, on: commandMonitorID, state: &validationState)
+      let commandInputTimestamp = inputTimestamp ?? commandStartedAt
+      platform.userInputTracker.record(timestamp: commandInputTimestamp)
+      let physicalMonitorFrames = Dictionary(
+        uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }
+      )
+      let commandViewports = viewportsByMonitor
+      let validationState = try changedState(
+        after: command,
+        on: commandMonitorID,
+        from: state,
+        monitorFrames: physicalMonitorFrames,
+        viewports: commandViewports
+      )
+      if validationState == nil, command.explicitlyFocusesFloating == false {
+        commandGeneration &+= 1
+        lastCommandDurationMS =
+          (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
+        platform.recordPerformanceTrace(
+          "command-no-op command=\(rawCommand) ms=\(String(format: "%.2f", lastCommandDurationMS))"
+        )
+        return .success()
+      }
       let previouslySelectedWindowID = commandMonitorID.flatMap {
         state.selectedWindowID(on: $0)
       }
+      let crossMonitorWindowID = crossMonitorCommandWindowID(
+        command,
+        selectedWindowID: previouslySelectedWindowID,
+        selectedTiledWindowID: commandMonitorID.flatMap {
+          state.selectedTiledWindowID(on: $0)
+        }
+      )
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
+      let validationMS =
+        (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
       platform.recordPerformanceTrace(
-        "command-start cg=\(currentCommandGeneration) command=\(rawCommand)"
-      )
-      platform.userInputTracker.record(
-        timestamp: inputTimestamp ?? commandStartedAt
+        "command-start cg=\(currentCommandGeneration) command=\(rawCommand) validationMs=\(String(format: "%.2f", validationMS))"
       )
       displacedPointerFocusRecovery = nil
       invalidatePointerFocusIntent(recoveringTo: previouslySelectedWindowID)
@@ -116,6 +211,11 @@ extension Daemon {
         capturedInputTimestamp: inputTimestamp,
         commandHandledAt: commandStartedAt
       )
+      let commandPerformance = CommandPerformanceContext(
+        generation: currentCommandGeneration,
+        inputTimestamp: focusInputTimestamp
+      )
+      platform.beginCommandPerformance(commandPerformance)
       let cursorWarpInputTimestamp = keyboardCursorWarpTimestamp(
         mouseFollowsFocus: config.input.mouseFollowsFocus,
         capturedInputTimestamp: inputTimestamp
@@ -129,14 +229,16 @@ extension Daemon {
       pendingWindowRemovalFocusGuard = nil
       let switchesWorkspace = command.activatesWorkspace
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
+      let movesAcrossMonitors = command.movesWindowsAcrossMonitors
       let resizesManagedLayout = command.resizesManagedLayout
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
-      if switchesWorkspace || mutatesWorkspaceWindows
+      if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors
         || resizesManagedLayout || speculativeRibbonNavigation
       {
         rearmPointerFocusTransition()
       }
-      if switchesWorkspace || mutatesWorkspaceWindows || resizesManagedLayout
+      if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors
+        || resizesManagedLayout
         || speculativeRibbonNavigation
       {
         preemptMouseGesture()
@@ -148,11 +250,20 @@ extension Daemon {
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
       }
-      if !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites {
+      let inFlightAnimationMonitorIDs = Set(
+        scrollAnimations.keys.map(\.monitorID)
+      ).union(
+        platform.pendingAnimatedFrameWindowIDs.compactMap {
+          state.monitorID(containing: $0)
+        }
+      )
+      let rebasesPendingFrame =
+        !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites
+      if rebasesPendingFrame {
         rebaseActiveScrollOffsetToDisplayedFrames()
       }
-      if switchesWorkspace || mutatesWorkspaceWindows {
-        refreshFloatingWindowFramesBeforeWorkspaceMutation()
+      if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors {
+        refreshFloatingWindowFramesBeforeWorkspaceMutation(on: commandMonitorID)
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
@@ -161,26 +272,84 @@ extension Daemon {
         invalidateSubmittedWorkspaceFocus()
         pendingWorkspaceFocus = nil
       }
-      try reduce(command, on: commandMonitorID, state: &state)
+      let previousWindowMonitorIDs = movesAcrossMonitors
+        ? Dictionary(uniqueKeysWithValues: state.windows.keys.compactMap { windowID in
+          state.monitorID(containing: windowID).map { (windowID, $0) }
+        })
+        : [:]
+      if rebasesPendingFrame {
+        try reduce(
+          command,
+          on: commandMonitorID,
+          state: &state,
+          monitorFrames: physicalMonitorFrames,
+          viewports: commandViewports
+        )
+      } else if let validationState {
+        state = validationState
+      }
+      let resultMonitorID = movesAcrossMonitors
+        ? crossMonitorWindowID.flatMap { state.monitorID(containing: $0) }
+          ?? commandMonitorID
+        : commandMonitorID
+      let nextWindowMonitorIDs = movesAcrossMonitors
+        ? Dictionary(uniqueKeysWithValues: state.windows.keys.compactMap { windowID in
+          state.monitorID(containing: windowID).map { (windowID, $0) }
+        })
+        : [:]
+      let movedFloatingWindowIDs = floatingWindowIDsMovedBetweenMonitors(
+        previousWindowMonitorIDs: previousWindowMonitorIDs,
+        nextWindowMonitorIDs: nextWindowMonitorIDs,
+        windows: state.windows
+      )
+      if movesAcrossMonitors {
+        activeMonitorID = resultMonitorID
+        rebaseFloatingWindowFrames(
+          previousViewports: commandViewports,
+          nextViewports: commandViewports,
+          previousMonitorIDs: previousWindowMonitorIDs,
+          windowIDs: movedFloatingWindowIDs
+        )
+        for (windowID, window) in state.windows where window.floating {
+          guard let nextMonitorID = state.monitorID(containing: windowID),
+            previousWindowMonitorIDs[windowID] != nextMonitorID
+          else {
+            continue
+          }
+          if let frame = floatingWindowFrames[windowID] {
+            state.updateWindowFrame(frame, for: windowID)
+          } else {
+            floatingWindowFrames[windowID] = window.frame
+          }
+          if window.floatingOrigin == .automatic {
+            invalidatePlacementPreference(for: window)
+          }
+        }
+      }
       let commandTransfersFocus: Bool
       if command.activatesWorkspace {
         commandTransfersFocus = true
-      } else if let commandMonitorID,
-        let selectedWindowID = state.selectedWindowID(on: commandMonitorID)
+      } else if let resultMonitorID,
+        let selectedWindowID = state.selectedWindowID(on: resultMonitorID)
       {
         commandTransfersFocus = commandShouldFocusWindow(
           command,
           previousSelectedWindowID: previouslySelectedWindowID,
           selectedWindowID: selectedWindowID,
           selectedFloatingWindowID: state.selectedFloatingWindowID(
-            on: commandMonitorID
-          )
+            on: resultMonitorID
+          ),
+          movesAcrossMonitors: movesAcrossMonitors
         )
       } else {
         commandTransfersFocus = false
       }
+      platform.recordCommandFocusExpectation(
+        commandPerformance,
+        expectsFocus: commandTransfersFocus
+      )
       if commandTransfersFocus {
-        activeMonitorID = commandMonitorID
+        activeMonitorID = resultMonitorID
       }
       if command.movesWindowBetweenWorkspaces,
         let movedWindowID = previouslySelectedWindowID,
@@ -191,8 +360,8 @@ extension Daemon {
       }
       if !switchesWorkspace,
         let submittedCommandFocus,
-        let commandMonitorID,
-        let selectedWindowID = state.selectedWindowID(on: commandMonitorID),
+        let resultMonitorID,
+        let selectedWindowID = state.selectedWindowID(on: resultMonitorID),
         !commandFocusIsPreserved(
           pendingWindowID: nil,
           submittedWindowID: submittedCommandFocus.windowID,
@@ -201,18 +370,38 @@ extension Daemon {
       {
         invalidateSubmittedCommandFocus()
       }
-      persistPlacements()
-      updateMenuBar()
+      let stateReadyAt = ProcessInfo.processInfo.systemUptime
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
       if switchesWorkspace {
         snapScrollOffsetsToTargets()
       } else {
         startScrollAnimationsIfNeeded()
       }
+      let animationReadyAt = ProcessInfo.processInfo.systemUptime
+      platform.recordPerformanceTrace(
+        "command-ready cg=\(currentCommandGeneration) stateMs=\(String(format: "%.2f", (stateReadyAt - commandStartedAt) * 1_000)) scrollMs=\(String(format: "%.2f", (animationReadyAt - stateReadyAt) * 1_000))"
+      )
+      let affectedMonitorIDs = commandLayoutMonitorIDs(
+        affected: affectedMonitorIDsForWindowMove(
+          commandMonitorID: commandMonitorID,
+          resultMonitorID: resultMonitorID,
+          previousWindowMonitorIDs: previousWindowMonitorIDs,
+          nextWindowMonitorIDs: nextWindowMonitorIDs
+        ),
+        inFlightAnimations: inFlightAnimationMonitorIDs
+      )
       let dispatchedAnimation =
         animatedManagedResize
-        ? dispatchManagedResizeAnimation()
-        : dispatchScrollAnimationIfNeeded()
+        ? dispatchManagedResizeAnimation(
+          monitorIDs: affectedMonitorIDs,
+          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
+          commandPerformance: commandPerformance
+        )
+        : dispatchScrollAnimationIfNeeded(
+          monitorIDs: affectedMonitorIDs,
+          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
+          commandPerformance: commandPerformance
+        )
       let workspaceFocusRequest: PendingWorkspaceFocus?
       if switchesWorkspace,
         let commandMonitorID,
@@ -306,6 +495,7 @@ extension Daemon {
           focusRequestIDAfterCommit = nil
         }
         applyCurrentLayout(
+          monitorIDs: affectedMonitorIDs,
           asynchronousPositions: true,
           updateVisibility: scrollAnimations.isEmpty,
           positionTimeoutSeconds: scrollAnimations.isEmpty ? 0.05 : 0.016,
@@ -320,18 +510,21 @@ extension Daemon {
           cursorWarpIsCurrentAfterCommit:
             cursorWarpIsCurrentAfterCommit,
           focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
+          commandPerformance: commandPerformance,
           source: switchesWorkspace ? "workspace-command" : "command"
         )
       }
       if !switchesWorkspace,
-        let monitorID = commandMonitorID ?? state.monitors.first?.id,
+        let monitorID = resultMonitorID ?? state.monitors.first?.id,
         let sourceWorkspaceID = previousWorkspaceID,
         let selected = state.selectedWindowID(on: monitorID),
         commandShouldFocusWindow(
           command,
           previousSelectedWindowID: previouslySelectedWindowID,
           selectedWindowID: selected,
-          selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID)
+          selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID),
+          movesAcrossMonitors: movesAcrossMonitors
         )
       {
         if focusIsReady(on: monitorID, targetWindowID: selected) {
@@ -356,7 +549,7 @@ extension Daemon {
           )
         }
       } else if !switchesWorkspace,
-        let monitorID = commandMonitorID ?? state.monitors.first?.id,
+        let monitorID = resultMonitorID ?? state.monitors.first?.id,
         let sourceWorkspaceID = pendingAnimatedFocus?.sourceWorkspaceID
           ?? submittedCommandFocus?.sourceWorkspaceID
           ?? previousWorkspaceID,
@@ -381,8 +574,24 @@ extension Daemon {
           cursorWarpInputTimestamp: cursorWarpInputTimestamp
         )
       }
+      if movesAcrossMonitors,
+        let selectedWindowID = resultMonitorID.flatMap({ state.selectedWindowID(on: $0) }),
+        platform.isWindowNativelyFocused(selectedWindowID)
+      {
+        platform.recordCommandFocus(
+          commandPerformance,
+          result: .completedWithoutMutation
+        )
+      }
       persistPlacements()
       updateMenuBar()
+      if commandFollowUpIsPending(
+        frameWrites: platform.hasPendingFrameWrites,
+        animatedFocus: pendingAnimatedFocus != nil,
+        workspaceFocus: pendingWorkspaceFocus != nil
+      ) {
+        setTimerFrequency(60)
+      }
       lastCommandDurationMS =
         (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
       performanceLogger.debug(
@@ -393,4 +602,41 @@ extension Daemon {
       return .failure(String(describing: error))
     }
   }
+}
+
+func commandLayoutMonitorIDs(
+  affected: Set<MonitorID>,
+  inFlightAnimations: Set<MonitorID>
+) -> Set<MonitorID> {
+  affected.union(inFlightAnimations)
+}
+
+func affectedMonitorIDsForWindowMove(
+  commandMonitorID: MonitorID?,
+  resultMonitorID: MonitorID?,
+  previousWindowMonitorIDs: [WindowID: MonitorID],
+  nextWindowMonitorIDs: [WindowID: MonitorID]
+) -> Set<MonitorID> {
+  var monitorIDs = Set([commandMonitorID, resultMonitorID].compactMap { $0 })
+  for (windowID, previousMonitorID) in previousWindowMonitorIDs {
+    guard nextWindowMonitorIDs[windowID] != previousMonitorID else { continue }
+    monitorIDs.insert(previousMonitorID)
+    if let nextMonitorID = nextWindowMonitorIDs[windowID] {
+      monitorIDs.insert(nextMonitorID)
+    }
+  }
+  return monitorIDs
+}
+
+func floatingWindowIDsMovedBetweenMonitors(
+  previousWindowMonitorIDs: [WindowID: MonitorID],
+  nextWindowMonitorIDs: [WindowID: MonitorID],
+  windows: [WindowID: Window]
+) -> Set<WindowID> {
+  Set(previousWindowMonitorIDs.compactMap { windowID, previousMonitorID in
+    guard nextWindowMonitorIDs[windowID] != previousMonitorID,
+      windows[windowID]?.floating == true
+    else { return nil }
+    return windowID
+  })
 }

@@ -54,6 +54,13 @@ extension Daemon {
     )
     let visibility = "topology-parking"
     let commandMS = String(format: "%.2f", lastCommandDurationMS)
+    let commandLatency = platform.commandLatencyPerformance
+    func latencyStatus(_ value: LatencyPercentiles) -> String {
+      let p50 = String(format: "%.2f", value.p50MS)
+      let p95 = String(format: "%.2f", value.p95MS)
+      let p99 = String(format: "%.2f", value.p99MS)
+      return "\(value.count)/\(p50)/\(p95)/\(p99)"
+    }
     let frameMS = String(format: "%.2f", platform.frameApplyDurationMS)
     let snapshotPerformance = platform.windowSnapshotPerformance
     let attributeReads = platform.windowAttributeReadPerformance
@@ -147,7 +154,7 @@ extension Daemon {
       "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
     }.joined(separator: ",")
     return
-      "running monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) floating=\(floatingCount) workspace=\(workspace) focused=\(focused) columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) closeFocusPreserved=\(preservedWindowRemovalFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) hidden=\(platform.hiddenWindowCount) borders=\(borders.visible) borderNodes=\(borders.allocated) borderDormant=\(borders.dormant) borderOpacity=\(borderOpacity) borderSurfaceMiB=\(borderSurfaceMiB) borderCapture=\(borders.captureEnabled) borderPlans=\(borders.appliedPlans) borderSkips=\(borders.skippedPlans) borderGeometry=\(borders.geometryUpdates) snapshots=\(snapshotPerformance.full)/\(snapshotPerformance.incremental)/\(snapshotPerformance.cached) appInventories=\(snapshotPerformance.applicationInventories) snapshotMs=\(snapshotMS) snapshotMaxMs=\(snapshotMaxMS) snapshotCG=\(snapshotPerformance.cgCopies)/\(snapshotCGMS)/\(snapshotCGMaxMS) axReads=\(attributeReads.batched)/\(attributeReads.fallback) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) initialChecks=\(initialSettlement.checks) initialRepairs=\(initialSettlement.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) slowApps=\(platform.latencySensitiveProcessCount) posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) focusFast=\(focusPerformance.fastPaths) focusCancelled=\(focusPerformance.cancelled) focusRetries=\(focusPerformance.retries) focusMainMs=\(focusMainMS) focusRaiseMs=\(focusRaiseMS) focusActivateMs=\(focusActivateMS) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
+      "running monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) floating=\(floatingCount) workspace=\(workspace) focused=\(focused) columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) closeFocusPreserved=\(preservedWindowRemovalFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) hidden=\(platform.hiddenWindowCount) borders=\(borders.visible) borderNodes=\(borders.allocated) borderDormant=\(borders.dormant) borderOpacity=\(borderOpacity) borderSurfaceMiB=\(borderSurfaceMiB) borderCapture=\(borders.captureEnabled) borderPlans=\(borders.appliedPlans) borderSkips=\(borders.skippedPlans) borderGeometry=\(borders.geometryUpdates) snapshots=\(snapshotPerformance.full)/\(snapshotPerformance.incremental)/\(snapshotPerformance.cached) appInventories=\(snapshotPerformance.applicationInventories) snapshotMs=\(snapshotMS) snapshotMaxMs=\(snapshotMaxMS) snapshotCG=\(snapshotPerformance.cgCopies)/\(snapshotCGMS)/\(snapshotCGMaxMS) axReads=\(attributeReads.batched)/\(attributeReads.fallback) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) initialChecks=\(initialSettlement.checks) initialRepairs=\(initialSettlement.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) slowApps=\(platform.latencySensitiveProcessCount) slowAppDetails=[\(platform.latencySensitiveProcessDescription)] axAppDetails=[\(platform.processLatencyDescription)] posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) focusFast=\(focusPerformance.fastPaths) focusCancelled=\(focusPerformance.cancelled) focusRetries=\(focusPerformance.retries) focusMainMs=\(focusMainMS) focusRaiseMs=\(focusRaiseMS) focusActivateMs=\(focusActivateMS) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
       + " topologyObservers=\(platform.hasReliableWindowTopologyObservation) appWindowLists=\(snapshotPerformance.applicationWindowListReads)"
       + " appLifecycleObservers=\(platform.hasReliableApplicationLifecycleObservation) appInventoryInterval=\(Int(platform.recommendedApplicationInventoryRefreshInterval))"
       + " desktopObservers=\(platform.hasReliableDesktopObservation)"
@@ -159,6 +166,12 @@ extension Daemon {
       + " snapshotP50/P95=\(snapshotP50MS)/\(snapshotP95MS)"
       + " snapshotComponents=\(applicationInventoryP50MS)/\(applicationInventoryP95MS):\(applicationWindowListP50MS)/\(applicationWindowListP95MS)"
       + " focusFollowsMouse=\(config.input.focusFollowsMouse) mouseFollowsFocus=\(config.input.mouseFollowsFocus) pointerTransitions=\(pointerTransitionCount) pointerFocus=\(pointerFocusAppliedCount)/\(pointerFocusObservedCount) pointerIgnored=\(pointerFocusIgnoredCount) cursorWarps=\(cursorWarps.applied)/\(cursorWarps.skipped)/\(cursorWarps.failed)"
+      + " commandLatency=started:\(commandLatency.started)/superseded:\(commandLatency.superseded)"
+      + " inputPlanN/P50/P95/P99=\(latencyStatus(commandLatency.plan))"
+      + " inputWriteN/P50/P95/P99=\(latencyStatus(commandLatency.firstWrite))"
+      + " inputObservedN/P50/P95/P99=\(latencyStatus(commandLatency.firstObservation))"
+      + " inputConvergedN/P50/P95/P99=\(latencyStatus(commandLatency.convergence))"
+      + " inputFocusN/P50/P95/P99=\(latencyStatus(commandLatency.focus))"
   }
 
   private func columnWidthStatus(_ width: ColumnWidth) -> String {
@@ -195,19 +208,30 @@ extension Daemon {
   }
 
   func setTimerFrequency(_ frequencyHz: Double) {
-    let frequencyHz = min(max(frequencyHz, 30), 240)
+    let frequencyHz = min(max(frequencyHz, 1), 240)
     guard abs(timerFrequencyHz - frequencyHz) >= 0.5 else { return }
     replaceTimer(frequencyHz: frequencyHz)
   }
 
   func replaceTimer(frequencyHz: Double) {
-    timer?.cancel()
-    let timer = DispatchSource.makeTimerSource(queue: .main)
     let intervalNanoseconds = max(Int(1_000_000_000 / frequencyHz), 1)
+    let leewayNanoseconds = frequencyHz <= 10
+      ? intervalNanoseconds / 10
+      : max(intervalNanoseconds / 20_000, 250_000)
+    if let timer {
+      timer.schedule(
+        deadline: .now(),
+        repeating: .nanoseconds(intervalNanoseconds),
+        leeway: .nanoseconds(leewayNanoseconds)
+      )
+      timerFrequencyHz = frequencyHz
+      return
+    }
+    let timer = DispatchSource.makeTimerSource(queue: .main)
     timer.schedule(
       deadline: .now(),
       repeating: .nanoseconds(intervalNanoseconds),
-      leeway: .microseconds(max(intervalNanoseconds / 20_000, 250))
+      leeway: .nanoseconds(leewayNanoseconds)
     )
     timer.setEventHandler { [weak self] in
       self?.tick()
@@ -257,11 +281,14 @@ extension Daemon {
   }
 
   func requestShutdown() {
+    guard !shouldShutdown else { return }
     shouldShutdown = true
+    shutdown()
   }
 
   func shutdown() -> Never {
     timer?.cancel()
+    ipcSource?.cancel()
     platform.hideWindowBorders()
     restoreAllWindows()
     server.removeSocketFile()

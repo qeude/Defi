@@ -76,6 +76,13 @@ extension Daemon {
           completedWindowID: request.windowID,
           completedGeneration: request.commandGeneration
         ) else { return }
+        self.platform.recordCommandFocus(
+          CommandPerformanceContext(
+            generation: request.commandGeneration,
+            inputTimestamp: request.focusInputTimestamp
+          ),
+          result: result
+        )
         self.submittedCommandFocus = nil
         self.submittedCommandFocusRequestID = nil
         self.submittedCommandFocusRequestTimestamp = nil
@@ -145,6 +152,13 @@ extension Daemon {
   ) {
     guard pendingWorkspaceFocus?.commandGeneration == request.commandGeneration
     else { return }
+    platform.recordCommandFocus(
+      CommandPerformanceContext(
+        generation: request.commandGeneration,
+        inputTimestamp: request.focusInputTimestamp
+      ),
+      result: result
+    )
     submittedWorkspaceFocusRequestID = nil
     submittedWorkspaceFocusRequestTimestamp = nil
     submittedWorkspaceFocusRecoveryGeneration = nil

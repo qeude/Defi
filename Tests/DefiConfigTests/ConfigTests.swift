@@ -22,6 +22,10 @@ final class ConfigTests: XCTestCase {
     XCTAssertEqual(config.keys["alt-shift-backslash"], "activate-floating")
     XCTAssertEqual(config.keys["alt-period"], "focus-floating next")
     XCTAssertEqual(config.keys["alt-shift-1"], "move-window-to-workspace 1")
+    XCTAssertEqual(config.keys["alt-shift-h"], "move-column-to-monitor left")
+    XCTAssertEqual(config.keys["alt-shift-j"], "move-column-to-monitor down")
+    XCTAssertEqual(config.keys["alt-shift-k"], "move-column-to-monitor up")
+    XCTAssertEqual(config.keys["alt-shift-l"], "move-column-to-monitor right")
   }
 
   func testDecodesBorderConfiguration() throws {

@@ -105,7 +105,7 @@ private func columnWidthInViewports(
     / max(viewport.width, 1)
 }
 
-func repairWorkspaceScroll(_ workspace: inout Workspace, settings: LayoutSettings) {
+public func repairWorkspaceScroll(_ workspace: inout Workspace, settings: LayoutSettings) {
   workspace.targetScrollOffset = focusedColumnTargetScrollOffset(
     workspace: workspace,
     centerFocusedColumn: settings.centerFocusedColumn

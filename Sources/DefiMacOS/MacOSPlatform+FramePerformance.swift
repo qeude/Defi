@@ -7,7 +7,7 @@ import DefiModel
 import OSLog
 
 extension MacOSPlatform {
-public var hiddenWindowCount: Int {
+  public var hiddenWindowCount: Int {
     lastHiddenWindowIDs.count
   }
 
@@ -49,6 +49,22 @@ public var hiddenWindowCount: Int {
     frameCoordinator.slowProcessIDs.count
   }
 
+  public var latencySensitiveProcessDescription: String {
+    frameCoordinator.slowProcessLatenciesMS.sorted { $0.key < $1.key }
+      .map { processID, latencyMS in
+        let appID = applicationIDsByProcess[processID] ?? "unknown"
+        return "\(appID)@\(processID):\(String(format: "%.1f", latencyMS))ms"
+      }.joined(separator: ",")
+  }
+
+  public var processLatencyDescription: String {
+    frameCoordinator.processLatenciesMS.sorted { $0.key < $1.key }
+      .map { processID, latencyMS in
+        let appID = applicationIDsByProcess[processID] ?? "unknown"
+        return "\(appID)@\(processID):\(String(format: "%.1f", latencyMS))ms"
+      }.joined(separator: ",")
+  }
+
   public var hasPendingFrameDebt: Bool {
     !pendingFrameDebtWindowIDs.isEmpty
   }
@@ -79,6 +95,93 @@ public var hiddenWindowCount: Int {
 
   public func recordPerformanceTrace(_ event: String) {
     frameCoordinator.recordTrace(event)
+  }
+
+  public func beginCommandPerformance(_ context: CommandPerformanceContext) {
+    commandLatency.begin(context)
+  }
+
+  public func recordCommandFocusExpectation(
+    _ context: CommandPerformanceContext,
+    expectsFocus: Bool
+  ) {
+    commandLatency.recordFocusExpectation(
+      context,
+      expectsFocus: expectsFocus
+    )
+  }
+
+  func recordCommandPlan(
+    _ context: CommandPerformanceContext,
+    expectedWindowIDs: Set<WindowID>,
+    hasFrameWrites: Bool,
+    at timestamp: TimeInterval
+  ) {
+    guard let latency = commandLatency.recordPlan(
+      context,
+      expectedWindowIDs: expectedWindowIDs,
+      hasFrameWrites: hasFrameWrites,
+      at: timestamp
+    ) else { return }
+    frameCoordinator.recordTrace(
+      "command-plan cg=\(context.generation) windows=\(expectedWindowIDs.count) ms=\(String(format: "%.2f", latency))"
+    )
+  }
+
+  func recordCommandFirstWrite(
+    _ context: CommandPerformanceContext,
+    at timestamp: TimeInterval
+  ) {
+    guard let latency = commandLatency.recordFirstWrite(context, at: timestamp)
+    else { return }
+    frameCoordinator.recordTrace(
+      "command-first-write cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+    )
+  }
+
+  func recordCommandObservation(
+    _ context: CommandPerformanceContext,
+    windowID: WindowID,
+    from: Rect,
+    actual: Rect,
+    target: Rect,
+    at timestamp: TimeInterval
+  ) {
+    let result = commandLatency.recordObservation(
+      context,
+      windowID: windowID,
+      from: from,
+      actual: actual,
+      target: target,
+      at: timestamp
+    )
+    if let latency = result.firstObservationMS {
+      frameCoordinator.recordTrace(
+        "command-first-observed cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+      )
+    }
+    if let latency = result.convergenceMS {
+      frameCoordinator.recordTrace(
+        "command-converged cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+      )
+    }
+  }
+
+  public func recordCommandFocus(
+    _ context: CommandPerformanceContext,
+    result: NativeFocusResult,
+    at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) {
+    guard result == .completed || result == .completedWithoutMutation,
+      let latency = commandLatency.recordFocus(context, at: timestamp)
+    else { return }
+    frameCoordinator.recordTrace(
+      "command-focus cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
+    )
+  }
+
+  public var commandLatencyPerformance: CommandLatencyPerformance {
+    commandLatency.performance
   }
 
   public var parkingPerformance: (checks: Int, repairs: Int) {
@@ -197,7 +300,7 @@ public var hiddenWindowCount: Int {
       cgWindowInventoryRetryAttempts.map {
         unmatchedWindowRetryIsPending(attempts: $0)
       } == true
-    return windowListRefreshInterval(
+    let baseInterval = windowListRefreshInterval(
       hasPendingShortRetry:
         hasPendingUnmatchedRetry
         || hasPendingWindowListReadRetry
@@ -205,6 +308,17 @@ public var hiddenWindowCount: Int {
         || !retainedWindowIDs.isEmpty,
       reliableTopologyObservation: hasReliableWindowTopologyObservation
     )
+    return min(
+      baseInterval,
+      transientOwnerResolutionRefreshInterval(
+        retryAfter: Array(transientOwnerResolutionRetryAfter.values),
+        now: ProcessInfo.processInfo.systemUptime
+      ) ?? baseInterval
+    )
+  }
+
+  public var hasPendingTransientOwnerResolution: Bool {
+    transientOwnerResolutionRetryAfter.isEmpty == false
   }
 
   public var hasReliableDesktopObservation: Bool {

@@ -46,7 +46,11 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
     condition.unlock()
   }
 
-  func setActive(_ active: Bool, displayID: UInt64?, generation: UInt64) {
+  func setActive(
+    _ active: Bool,
+    displayIDs: Set<UInt64>,
+    generation: UInt64
+  ) {
     condition.lock()
     guard generation >= latestActivationGeneration else {
       condition.unlock()
@@ -64,11 +68,14 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
         generation: generation,
         requestID: requestID
       ) else { return }
-      let selectedDisplayID = displayID.flatMap {
-        displayLinks[$0] == nil ? nil : $0
-      } ?? displayLinks.keys.first
+      let availableDisplayIDs = Set(displayLinks.keys)
+      let selectedDisplayIDs = resolvedAnimationDisplayIDs(
+        requested: displayIDs,
+        available: availableDisplayIDs
+      )
       for (candidateID, link) in displayLinks {
-        link.isPaused = !active || candidateID != selectedDisplayID
+        link.isPaused =
+          !active || selectedDisplayIDs.contains(candidateID) == false
       }
     }
   }
@@ -89,22 +96,30 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
 
   func wait(
     untilDisplayTarget deadline: TimeInterval,
-    displayID: UInt64?
+    displayIDs: Set<UInt64>
   ) -> TimeInterval? {
     guard deadline > ProcessInfo.processInfo.systemUptime else { return nil }
     condition.lock()
     defer { condition.unlock() }
-    let selectedDisplayID = displayID ?? displayIDsByLink.values.first
-    while selectedDisplayID.flatMap({ nextTargetTimestamps[$0] }) ?? 0 < deadline {
+    let availableDisplayIDs = Set(displayIDsByLink.values)
+    let selectedDisplayIDs = resolvedAnimationDisplayIDs(
+      requested: displayIDs,
+      available: availableDisplayIDs
+    )
+    while selectedDisplayIDs.contains(where: {
+      nextTargetTimestamps[$0] ?? 0 < deadline
+    }) {
       let remaining = deadline - ProcessInfo.processInfo.systemUptime
       guard remaining > 0 else { break }
       _ = condition.wait(
         until: Date(timeIntervalSinceNow: remaining)
       )
     }
-    return selectedDisplayID.flatMap { nextTargetTimestamps[$0] }.flatMap {
-      $0 >= deadline ? $0 : nil
-    }
+    let timestamps = selectedDisplayIDs.compactMap { nextTargetTimestamps[$0] }
+    guard timestamps.count == selectedDisplayIDs.count,
+      timestamps.allSatisfy({ $0 >= deadline })
+    else { return nil }
+    return timestamps.max()
   }
 
   @objc private func displayLinkDidFire(_ sender: CADisplayLink) {
@@ -115,6 +130,17 @@ final class DisplayLinkClock: NSObject, @unchecked Sendable {
     condition.broadcast()
     condition.unlock()
   }
+}
+
+func resolvedAnimationDisplayIDs(
+  requested: Set<UInt64>,
+  available: Set<UInt64>
+) -> Set<UInt64> {
+  let selected = requested.intersection(available)
+  if selected.isEmpty, let fallback = available.first {
+    return [fallback]
+  }
+  return selected
 }
 
 func displayLinkActivationIsCurrent(
@@ -144,18 +170,6 @@ func frameWriteIntent(
       && (abs(reference.width - target.width) >= 0.5
         || abs(reference.height - target.height) >= 0.5)
   )
-}
-
-func shouldDeferLatencySensitiveSpeculativeWrite(
-  source: String,
-  isParked: Bool,
-  positionChanged: Bool,
-  latencySensitive: Bool
-) -> Bool {
-  source == "command-animation"
-    && !isParked
-    && positionChanged
-    && latencySensitive
 }
 
 func successfulFrameWriteIntent(
@@ -316,9 +330,10 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let animatedWindowIDs: Set<WindowID>
   let animationDuration: TimeInterval
   let refreshRateHz: Double
-  let displayID: UInt64?
+  let displayIDs: Set<UInt64>
   let initialProgressVelocity: Double
   let stagesVisibleBeforeParking: Bool
+  let successfulWrite: (@Sendable (WindowID, TimeInterval) -> Void)?
   let completion: (@Sendable (FrameWriteCompletion) -> Void)?
   let cursorWarpAfterWindowCommit:
     (@Sendable (WindowID, UInt64) -> Void)?
@@ -330,9 +345,10 @@ struct QueuedPositionFrame: @unchecked Sendable {
     animatedWindowIDs: Set<WindowID>,
     animationDuration: TimeInterval,
     refreshRateHz: Double,
-    displayID: UInt64?,
+    displayIDs: Set<UInt64>,
     initialProgressVelocity: Double,
     stagesVisibleBeforeParking: Bool,
+    successfulWrite: (@Sendable (WindowID, TimeInterval) -> Void)? = nil,
     completion: (@Sendable (FrameWriteCompletion) -> Void)?,
     cursorWarpAfterWindowCommit:
       (@Sendable (WindowID, UInt64) -> Void)? = nil
@@ -343,9 +359,10 @@ struct QueuedPositionFrame: @unchecked Sendable {
     self.animatedWindowIDs = animatedWindowIDs
     self.animationDuration = animationDuration
     self.refreshRateHz = refreshRateHz
-    self.displayID = displayID
+    self.displayIDs = displayIDs
     self.initialProgressVelocity = initialProgressVelocity
     self.stagesVisibleBeforeParking = stagesVisibleBeforeParking
+    self.successfulWrite = successfulWrite
     self.completion = completion
     self.cursorWarpAfterWindowCommit = cursorWarpAfterWindowCommit
   }

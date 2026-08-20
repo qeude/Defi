@@ -137,6 +137,12 @@ struct PendingWorkspaceFocus: Equatable {
   }
 }
 
+struct MonitorLayoutPlan {
+  let assignments: [FrameAssignment]
+  let borderAssignments: [FrameAssignment]
+  let hiddenWindowIDs: Set<WindowID>
+}
+
 enum DisplacedPointerFocusRecovery: Equatable {
   case command(PendingAnimatedFocus, timestamp: TimeInterval)
   case workspace(PendingWorkspaceFocus, timestamp: TimeInterval)
@@ -155,12 +161,15 @@ final class Daemon: NSObject {
   var menuBar: MenuBarController?
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
   var timer: DispatchSourceTimer?
-  var timerFrequencyHz = 60.0
+  var timerFrequencyHz = 2.0
+  var tickScheduled = false
+  var ipcSource: DispatchSourceRead?
   var nextPeriodicWindowRefreshAt: TimeInterval = 0
   var nextWindowListRefreshAt: TimeInterval = 0
   var nextApplicationInventoryRefreshAt: TimeInterval = 0
   var activeMonitorID: MonitorID?
   var latestMonitors: [MonitorSnapshot] = []
+  var layoutPlansByMonitor: [MonitorID: MonitorLayoutPlan] = [:]
   var shouldShutdown = false
   var signalSources: [DispatchSourceSignal] = []
   var pendingHotKeyCommands: [HotKeyInvocation] = []
@@ -227,7 +236,6 @@ final class Daemon: NSObject {
   var pointerFocusAppliedCount = 0
   var pointerFocusIgnoredCount = 0
   var frameNotificationsSuspended = false
-  var animationActivity: NSObjectProtocol?
   var displayedFrameRebaseCount = 0
   var lastDisplayedFrameRebaseDelta = 0.0
   var displayConfigurationEventCount = 0
@@ -254,6 +262,7 @@ final class Daemon: NSObject {
       { [weak self] in
         self?.observedPlatformEventCount += 1
         self?.needsDesktopSync = true
+        self?.scheduleTick()
       },
       displayConfigurationHandler: { [weak self] in
         self?.scheduleDisplayReconciliation()
@@ -297,20 +306,20 @@ final class Daemon: NSObject {
         _ = self?.handle(command)
       }
     }
+    installIPCSource()
 
     synchronizeDesktop(
       forceFullWindowRefresh: true,
       forceWindowListRefresh: true,
       forceApplicationInventoryRefresh: true
     )
-    replaceTimer(frequencyHz: 60)
+    replaceTimer(frequencyHz: 2)
     log("running; socket=\(server.url.path)")
     NSApplication.shared.run()
   }
 
   func tick() {
     processPendingHotKeys()
-    pollIPC()
     finishPendingAnimatedFocusIfReady()
     finishPendingWorkspaceFocusIfReady()
     finishPendingPointerFocusIfReady()
@@ -347,16 +356,21 @@ final class Daemon: NSObject {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
     if scrollAnimations.isEmpty && !animatedWritesPending && !liveBorderGesture {
-      if let animationActivity {
-        ProcessInfo.processInfo.endActivity(animationActivity)
-        self.animationActivity = nil
-      }
       if frameNotificationsSuspended {
         platform.setFrameNotificationsEnabled(true)
         frameNotificationsSuspended = false
         needsDesktopSync = true
       }
-      setTimerFrequency(60)
+      let followUpPending = needsDesktopSync
+        || mouseGestureSettlement != nil
+        || !pendingDisplaySyncDeadlines.isEmpty
+        || pendingAnimatedFocus != nil
+        || pendingWorkspaceFocus != nil
+        || platform.hasPendingFocusWrite
+        || platform.hasPendingFrameWrites
+        || platform.hasPendingFrameDebt
+        || platform.hasPendingTransientOwnerResolution
+      setTimerFrequency(followUpPending ? 60 : 2)
     }
     let userInputIdleDuration =
       now - platform.userInputTracker.latestEventTimestamp
@@ -422,6 +436,7 @@ final class Daemon: NSObject {
               }
             }
             self.needsDesktopSync = true
+            self.scheduleTick()
           }
         )
       {
@@ -443,6 +458,7 @@ final class Daemon: NSObject {
               }
             }
             self.needsDesktopSync = true
+            self.scheduleTick()
           }
         )
       {

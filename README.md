@@ -62,7 +62,7 @@ focus, and park windows:
 
 Without this permission, Defi can start but cannot manage application windows.
 
-Defi targets macOS 14 or newer. No configuration file is required: built-in
+Defi targets macOS 26 or newer. No configuration file is required: built-in
 defaults provide workspaces `1` through `9` and Option-based shortcuts.
 
 Default keyboard bindings use Option. The complete shortcut and command
@@ -146,7 +146,8 @@ permission. `./script/test_desktop.sh` stops the installed service, exercises
 the desktop, restores changed windows, and restarts the service.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code boundaries and contribution
-guidance. See [ROADMAP.md](ROADMAP.md) for planned work.
+guidance. See [PERFORMANCE.md](PERFORMANCE.md) for the current performance
+initiative.
 
 ## License
 
