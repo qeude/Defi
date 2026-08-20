@@ -92,7 +92,7 @@ struct NativeFocusTests {
   }
 
   @Test
-  func nonMouseNativeFocusMutatesImmediately() {
+  func nativeFocusWithoutHumanIntentDoesNotMutateSelection() {
     #expect(
       nativeFocusMutationIsReady(
         nativeFocusChanged: true,
@@ -100,7 +100,7 @@ struct NativeFocusTests {
         leftMouseButtonDown: false,
         mouseReleaseFocusIntentCurrent: false,
         keyboardFocusIntentCurrent: false
-      )
+      ) == false
     )
   }
 
