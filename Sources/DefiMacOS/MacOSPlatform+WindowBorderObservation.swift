@@ -216,15 +216,13 @@ extension MacOSPlatform {
       }()
         ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
         ?? latestObservedFrames[request.windowID]
-      let stacking = await Task.detached(priority: .utility) {
-        copyWindowBorderStacking(
-          targetWindowID: request.windowID,
-          targetProcessID: targetProcessID,
-          targetFrame: targetFrame,
-          monitorFrames: monitorFrames,
-          knownWindowIDs: knownWindowIDs
-        )
-      }.value
+      let stacking = await copyWindowBorderStackingOffMain(
+        targetWindowID: request.windowID,
+        targetProcessID: targetProcessID,
+        targetFrame: targetFrame,
+        monitorFrames: monitorFrames,
+        knownWindowIDs: knownWindowIDs
+      )
       guard !Task.isCancelled else { return }
       refreshWindowBorderStacking(request, stacking: stacking)
     }
@@ -506,4 +504,21 @@ extension MacOSPlatform {
     CGEventSource.buttonState(.combinedSessionState, button: .left)
   }
 
+}
+
+@concurrent
+private func copyWindowBorderStackingOffMain(
+  targetWindowID: WindowID,
+  targetProcessID: pid_t?,
+  targetFrame: Rect?,
+  monitorFrames: [Rect],
+  knownWindowIDs: Set<WindowID>
+) async -> WindowBorderStacking {
+  copyWindowBorderStacking(
+    targetWindowID: targetWindowID,
+    targetProcessID: targetProcessID,
+    targetFrame: targetFrame,
+    monitorFrames: monitorFrames,
+    knownWindowIDs: knownWindowIDs
+  )
 }
