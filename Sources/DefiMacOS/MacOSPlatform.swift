@@ -162,7 +162,10 @@ public final class MacOSPlatform {
     get { snapshotEngine.targetFrames }
     set { snapshotEngine.targetFrames = newValue }
   }
-  var pendingFrameDebtWindowIDs = Set<WindowID>()
+  var pendingFrameDebtWindowIDs: Set<WindowID> {
+    get { snapshotEngine.pendingFrameDebtWindowIDs }
+    set { snapshotEngine.pendingFrameDebtWindowIDs = newValue }
+  }
   var pendingFrameCorrections: [WindowID: Rect] {
     get { snapshotEngine.pendingFrameCorrections }
     set { snapshotEngine.pendingFrameCorrections = newValue }
@@ -175,13 +178,22 @@ public final class MacOSPlatform {
     get { snapshotEngine.frameCommitExpectations }
     set { snapshotEngine.frameCommitExpectations = newValue }
   }
-  var initialFrameSettlementDeadlines: [WindowID: TimeInterval] = [:]
+  var initialFrameSettlementDeadlines: [WindowID: TimeInterval] {
+    get { snapshotEngine.initialFrameSettlementDeadlines }
+    set { snapshotEngine.initialFrameSettlementDeadlines = newValue }
+  }
   var newlyDiscoveredWindowIDs: Set<WindowID> {
     get { snapshotEngine.newlyDiscoveredWindowIDs }
     set { snapshotEngine.newlyDiscoveredWindowIDs = newValue }
   }
-  var hasCompletedWindowSnapshot = false
-  var windowTopologyEventPending = false
+  var hasCompletedWindowSnapshot: Bool {
+    get { snapshotEngine.hasCompletedWindowSnapshot }
+    set { snapshotEngine.hasCompletedWindowSnapshot = newValue }
+  }
+  var windowTopologyEventPending: Bool {
+    get { snapshotEngine.windowTopologyEventPending }
+    set { snapshotEngine.windowTopologyEventPending = newValue }
+  }
 
   public var hasPendingWindowTopologyEvent: Bool {
     windowTopologyEventPending
@@ -190,7 +202,10 @@ public final class MacOSPlatform {
     get { snapshotEngine.pendingWindowTopologyProcessIDs }
     set { snapshotEngine.pendingWindowTopologyProcessIDs = newValue }
   }
-  var windowTopologyRequiresFullSnapshot = false
+  var windowTopologyRequiresFullSnapshot: Bool {
+    get { snapshotEngine.windowTopologyRequiresFullSnapshot }
+    set { snapshotEngine.windowTopologyRequiresFullSnapshot = newValue }
+  }
   var pendingWindowTopologyInputTimestamp: TimeInterval? {
     get { snapshotEngine.pendingWindowTopologyInputTimestamp }
     set { snapshotEngine.pendingWindowTopologyInputTimestamp = newValue }
@@ -203,7 +218,10 @@ public final class MacOSPlatform {
     get { snapshotEngine.observedFrameEventWindowIDs }
     set { snapshotEngine.observedFrameEventWindowIDs = newValue }
   }
-  var pendingFrameRequiresFullSnapshot = false
+  var pendingFrameRequiresFullSnapshot: Bool {
+    get { snapshotEngine.pendingFrameRequiresFullSnapshot }
+    set { snapshotEngine.pendingFrameRequiresFullSnapshot = newValue }
+  }
   var lastSnapshotWindows: [Window] {
     get { snapshotEngine.lastSnapshotWindows }
     set { snapshotEngine.lastSnapshotWindows = newValue }
@@ -256,17 +274,38 @@ public final class MacOSPlatform {
     get { snapshotEngine.explicitlyDestroyedWindowIDs }
     set { snapshotEngine.explicitlyDestroyedWindowIDs = newValue }
   }
-  var lastWindowSnapshotDurationMS = 0.0
-  var maximumWindowSnapshotDurationMS = 0.0
+  var lastWindowSnapshotDurationMS: Double {
+    get { snapshotEngine.lastWindowSnapshotDurationMS }
+    set { snapshotEngine.lastWindowSnapshotDurationMS = newValue }
+  }
+  var maximumWindowSnapshotDurationMS: Double {
+    get { snapshotEngine.maximumWindowSnapshotDurationMS }
+    set { snapshotEngine.maximumWindowSnapshotDurationMS = newValue }
+  }
   var windowSnapshotDurationSamplesMS: [Double] {
     get { snapshotEngine.windowSnapshotDurationSamplesMS }
     set { snapshotEngine.windowSnapshotDurationSamplesMS = newValue }
   }
-  var fullWindowSnapshotCount = 0
-  var incrementalWindowSnapshotCount = 0
-  var cachedWindowSnapshotCount = 0
-  var applicationInventorySnapshotCount = 0
-  var applicationWindowListReadCount = 0
+  var fullWindowSnapshotCount: Int {
+    get { snapshotEngine.fullWindowSnapshotCount }
+    set { snapshotEngine.fullWindowSnapshotCount = newValue }
+  }
+  var incrementalWindowSnapshotCount: Int {
+    get { snapshotEngine.incrementalWindowSnapshotCount }
+    set { snapshotEngine.incrementalWindowSnapshotCount = newValue }
+  }
+  var cachedWindowSnapshotCount: Int {
+    get { snapshotEngine.cachedWindowSnapshotCount }
+    set { snapshotEngine.cachedWindowSnapshotCount = newValue }
+  }
+  var applicationInventorySnapshotCount: Int {
+    get { snapshotEngine.applicationInventorySnapshotCount }
+    set { snapshotEngine.applicationInventorySnapshotCount = newValue }
+  }
+  var applicationWindowListReadCount: Int {
+    get { snapshotEngine.applicationWindowListReadCount }
+    set { snapshotEngine.applicationWindowListReadCount = newValue }
+  }
   var applicationInventoryDurationSamplesMS: [Double] {
     get { snapshotEngine.applicationInventoryDurationSamplesMS }
     set { snapshotEngine.applicationInventoryDurationSamplesMS = newValue }
@@ -275,16 +314,34 @@ public final class MacOSPlatform {
     get { snapshotEngine.applicationWindowListDurationSamplesMS }
     set { snapshotEngine.applicationWindowListDurationSamplesMS = newValue }
   }
-  var snapshotCGWindowCopyCount = 0
-  var lastSnapshotCGWindowCopyDurationMS = 0.0
-  var maximumSnapshotCGWindowCopyDurationMS = 0.0
+  var snapshotCGWindowCopyCount: Int {
+    get { snapshotEngine.snapshotCGWindowCopyCount }
+    set { snapshotEngine.snapshotCGWindowCopyCount = newValue }
+  }
+  var lastSnapshotCGWindowCopyDurationMS: Double {
+    get { snapshotEngine.lastSnapshotCGWindowCopyDurationMS }
+    set { snapshotEngine.lastSnapshotCGWindowCopyDurationMS = newValue }
+  }
+  var maximumSnapshotCGWindowCopyDurationMS: Double {
+    get { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS }
+    set { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS = newValue }
+  }
   var preparedCGWindowInventory: [CGWindowRecord]? {
     get { snapshotEngine.preparedCGWindowInventory }
     set { snapshotEngine.preparedCGWindowInventory = newValue }
   }
-  var preparedCGWindowInventoryDurationMS = 0.0
-  var preparedCGWindowInventoryAvailable = false
-  var cgWindowInventoryPreparationPending = false
+  var preparedCGWindowInventoryDurationMS: Double {
+    get { snapshotEngine.preparedCGWindowInventoryDurationMS }
+    set { snapshotEngine.preparedCGWindowInventoryDurationMS = newValue }
+  }
+  var preparedCGWindowInventoryAvailable: Bool {
+    get { snapshotEngine.preparedCGWindowInventoryAvailable }
+    set { snapshotEngine.preparedCGWindowInventoryAvailable = newValue }
+  }
+  var cgWindowInventoryPreparationPending: Bool {
+    get { snapshotEngine.cgWindowInventoryPreparationPending }
+    set { snapshotEngine.cgWindowInventoryPreparationPending = newValue }
+  }
   var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] {
     get { snapshotEngine.preparedAXWindowAttributes }
     set { snapshotEngine.preparedAXWindowAttributes = newValue }
@@ -297,7 +354,10 @@ public final class MacOSPlatform {
     get { snapshotEngine.preparedAXApplicationWindows }
     set { snapshotEngine.preparedAXApplicationWindows = newValue }
   }
-  var preparedAXWindowAttributesAvailable = false
+  var preparedAXWindowAttributesAvailable: Bool {
+    get { snapshotEngine.preparedAXWindowAttributesAvailable }
+    set { snapshotEngine.preparedAXWindowAttributesAvailable = newValue }
+  }
   var preparedAXWindowAttributesGeneration: UInt64? {
     get { snapshotEngine.preparedAXWindowAttributesGeneration }
     set { snapshotEngine.preparedAXWindowAttributesGeneration = newValue }
@@ -314,14 +374,26 @@ public final class MacOSPlatform {
     get { snapshotEngine.preparedAXWindowAttributesProcessIDs }
     set { snapshotEngine.preparedAXWindowAttributesProcessIDs = newValue }
   }
-  var axWindowAttributePreparationPending = false
+  var axWindowAttributePreparationPending: Bool {
+    get { snapshotEngine.axWindowAttributePreparationPending }
+    set { snapshotEngine.axWindowAttributePreparationPending = newValue }
+  }
   var windowSnapshotObservationGeneration: UInt64 {
     get { snapshotEngine.windowSnapshotObservationGeneration }
     set { snapshotEngine.windowSnapshotObservationGeneration = newValue }
   }
-  var deferredFrameCommitMismatchCount = 0
-  var observedFrameCommitCount = 0
-  var maximumObservedFrameCommitLatencyMS = 0.0
+  var deferredFrameCommitMismatchCount: Int {
+    get { snapshotEngine.deferredFrameCommitMismatchCount }
+    set { snapshotEngine.deferredFrameCommitMismatchCount = newValue }
+  }
+  var observedFrameCommitCount: Int {
+    get { snapshotEngine.observedFrameCommitCount }
+    set { snapshotEngine.observedFrameCommitCount = newValue }
+  }
+  var maximumObservedFrameCommitLatencyMS: Double {
+    get { snapshotEngine.maximumObservedFrameCommitLatencyMS }
+    set { snapshotEngine.maximumObservedFrameCommitLatencyMS = newValue }
+  }
   var commandLatency = CommandLatencyAccumulator()
   var commandDiagnosticHandler:
     (@MainActor @Sendable (CommandDiagnosticSample) -> Void)?
@@ -330,17 +402,50 @@ public final class MacOSPlatform {
     set { snapshotEngine.lastHiddenWindowIDs = newValue }
   }
   var eventMonitor: PlatformEventMonitor?
-  var frameEventPending = false
-  var mouseResizeGesturePending = false
-  var mouseFocusReleasePending = false
-  var nativeFocusEventGeneration: UInt64 = 0
-  var mouseFocusReleaseEventGeneration: UInt64?
-  var nativeFocusEventPending = false
-  var nativeFocusEventProcessIDs = Set<pid_t>()
-  var nativeFocusEventHasUnknownProcess = false
-  var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
-  var verifiedNativeFocusedWindowID: WindowID?
-  var internalFocusSuppressions: [WindowID: InternalFocusSuppression] = [:]
+  var frameEventPending: Bool {
+    get { snapshotEngine.frameEventPending }
+    set { snapshotEngine.frameEventPending = newValue }
+  }
+  var mouseResizeGesturePending: Bool {
+    get { snapshotEngine.mouseResizeGesturePending }
+    set { snapshotEngine.mouseResizeGesturePending = newValue }
+  }
+  var mouseFocusReleasePending: Bool {
+    get { snapshotEngine.mouseFocusReleasePending }
+    set { snapshotEngine.mouseFocusReleasePending = newValue }
+  }
+  var nativeFocusEventGeneration: UInt64 {
+    get { snapshotEngine.nativeFocusEventGeneration }
+    set { snapshotEngine.nativeFocusEventGeneration = newValue }
+  }
+  var mouseFocusReleaseEventGeneration: UInt64? {
+    get { snapshotEngine.mouseFocusReleaseEventGeneration }
+    set { snapshotEngine.mouseFocusReleaseEventGeneration = newValue }
+  }
+  var nativeFocusEventPending: Bool {
+    get { snapshotEngine.nativeFocusEventPending }
+    set { snapshotEngine.nativeFocusEventPending = newValue }
+  }
+  var nativeFocusEventProcessIDs: Set<pid_t> {
+    get { snapshotEngine.nativeFocusEventProcessIDs }
+    set { snapshotEngine.nativeFocusEventProcessIDs = newValue }
+  }
+  var nativeFocusEventHasUnknownProcess: Bool {
+    get { snapshotEngine.nativeFocusEventHasUnknownProcess }
+    set { snapshotEngine.nativeFocusEventHasUnknownProcess = newValue }
+  }
+  var lastFocusedWindowByProcess: [pid_t: WindowID] {
+    get { snapshotEngine.lastFocusedWindowByProcess }
+    set { snapshotEngine.lastFocusedWindowByProcess = newValue }
+  }
+  var verifiedNativeFocusedWindowID: WindowID? {
+    get { snapshotEngine.verifiedNativeFocusedWindowID }
+    set { snapshotEngine.verifiedNativeFocusedWindowID = newValue }
+  }
+  var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
+    get { snapshotEngine.internalFocusSuppressions }
+    set { snapshotEngine.internalFocusSuppressions = newValue }
+  }
   var nextInternalFocusRequestID: UInt64 = 0
   var submittedFocusRecoveryRequestID: NativeFocusRequestID?
   var submittedFocusRecoveryTimestamp: TimeInterval?
@@ -350,7 +455,10 @@ public final class MacOSPlatform {
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
-  var lastMonitorFrames: [Rect] = []
+  var lastMonitorFrames: [Rect] {
+    get { snapshotEngine.lastMonitorFrames }
+    set { snapshotEngine.lastMonitorFrames = newValue }
+  }
   var deferredFreshReadProcessIDs: Set<pid_t> {
     get { snapshotEngine.deferredFreshReadProcessIDs }
     set { snapshotEngine.deferredFreshReadProcessIDs = newValue }
@@ -373,7 +481,10 @@ public final class MacOSPlatform {
   var borderFrames: [FrameAssignment] = []
   var borderSelectedWindowID: WindowID?
   var desiredSelectedWindowID: WindowID?
-  var lastNativeFocusedWindowID: WindowID?
+  var lastNativeFocusedWindowID: WindowID? {
+    get { snapshotEngine.lastNativeFocusedWindowID }
+    set { snapshotEngine.lastNativeFocusedWindowID = newValue }
+  }
   var borderHiddenWindowIDs = Set<WindowID>()
   var borderLiveWindowID: WindowID?
   var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
