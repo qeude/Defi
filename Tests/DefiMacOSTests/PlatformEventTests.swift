@@ -2058,6 +2058,65 @@ struct PlatformEventTests {
   }
 
   @Test
+  func sameAppSiblingAboveInZOrderDoesNotOccludeWithoutOverlap() {
+    let sibling = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: sibling,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2, y: 34, width: 900, height: 1_354)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 910, y: 34, width: 900, height: 1_354)
+        ),
+      ],
+      knownWindowIDs: [sibling]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == nil)
+  }
+
+  @Test
+  func sameAppOverlappingKnownWindowStillOccludes() {
+    let dialog = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: dialog,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 400, y: 300, width: 640, height: 480)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
+        ),
+      ],
+      knownWindowIDs: [dialog]
+    )
+
+    #expect(result.activeWindowIsFrontmost == false)
+  }
+
+  @Test
   func floatingPictureInPictureBoundsFrontmostBorder() {
     let pictureInPicture = WindowID(rawValue: 1)
     let focusedWindow = WindowID(rawValue: 2)
