@@ -1,12 +1,14 @@
 import DefiConfig
 import DefiCore
 import DefiModel
+import Darwin
 
 public func discoverWindow(
   _ original: Window,
   decision: RuleDecision,
   placement: WindowPlacementPreference? = nil,
   isNativelyFocused: Bool = false,
+  isFrontmostAppSpawn: Bool = false,
   state: inout RuntimeState
 ) throws {
   guard !state.monitors.isEmpty else {
@@ -28,7 +30,7 @@ public func discoverWindow(
   window.intrinsicSize = decision.intrinsicSize
   let effectivePlacement = window.floatingOrigin == .automatic ? nil : placement
   let transientLocation = transientPlacementLocation(for: window, state: state)
-  let followsFocus = decision.followFocus && isNativelyFocused
+  let followFocusIntent = decision.followFocus && isNativelyFocused
   let preferredMonitorID = effectivePlacement?.monitorID.flatMap { preferred in
     state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
   }
@@ -55,6 +57,15 @@ public func discoverWindow(
   else {
     throw ReducerError.unknownWorkspace(workspaceID)
   }
+  // Policy: a managed window spawning into the active workspace of its
+  // monitor always inserts after the focused column and takes focus - the
+  // native focused-window event can legitimately lag window creation, so it
+  // alone must not gate this.
+  let followsFocus =
+    followFocusIntent
+    || (isFrontmostAppSpawn
+        && workspaceID == state.monitors[monitorIndex].activeWorkspace
+        && !window.floating)
 
   if window.floating && !window.forceTiling {
     state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(window.id)
@@ -154,7 +165,7 @@ public func reconcileWindows(
   externallyChangedWindowIDs: Set<WindowID> = [],
   viewports: [MonitorID: Rect] = [:],
   nativeFocusedWindowID: WindowID? = nil,
-  state: inout RuntimeState
+  frontmostProcessID: pid_t? = nil,  state: inout RuntimeState
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
   let discoveredIDs = Set(discovered.map(\.id))
@@ -171,6 +182,8 @@ public func reconcileWindows(
         decision: config.decision(for: window),
         placement: placementPreferences.preference(for: window),
         isNativelyFocused: window.id == nativeFocusedWindowID,
+        isFrontmostAppSpawn: window.processID != nil
+          && window.processID == frontmostProcessID,
         state: &state
       )
     } else {

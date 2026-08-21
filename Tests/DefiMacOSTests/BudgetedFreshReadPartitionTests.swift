@@ -37,8 +37,8 @@ final class BudgetedFreshReadPartitionTests: XCTestCase {
       budget: 12
     )
 
-    XCTAssertEqual(result.allowedNow, [1, 2, 3])
-    XCTAssertEqual(result.stillDeferred, [4])
+    XCTAssertEqual(result.allowedNow, [1, 2])
+    XCTAssertEqual(result.stillDeferred, [3, 4])
     XCTAssertEqual(result.deferredSince, 100)
   }
 
@@ -101,6 +101,8 @@ final class BudgetedFreshReadPartitionTests: XCTestCase {
     )
     XCTAssertEqual(first.deferredSince, 100)
 
+    // Progress guarantee: the single deferred process is always served on
+    // the next pass even though it exceeds the budget alone.
     let second = partition(
       requested: [],
       deferred: first.stillDeferred,
@@ -108,6 +110,6 @@ final class BudgetedFreshReadPartitionTests: XCTestCase {
       deferredSince: first.deferredSince,
       now: 100.2
     )
-    XCTAssertEqual(second.deferredSince, 100)
+    XCTAssertNil(second.deferredSince)
   }
 }

@@ -37,6 +37,7 @@ extension SnapshotEngine {
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
+let frontmostProcessID = onMain { _ in NSWorkspace.shared.frontmostApplication }?.processIdentifier
     let tracesWindowTopology = windowTopologyEventPending
     let capturedTopologyRequiresFullSnapshot =
       windowTopologyRequiresFullSnapshot
@@ -695,7 +696,8 @@ extension SnapshotEngine {
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
       targetMismatchCount: targetMismatches.count,
-      targetMismatches: targetMismatches
+      targetMismatches: targetMismatches,
+      frontmostProcessID: frontmostProcessID
     )
   }
 
