@@ -186,6 +186,13 @@ final class Daemon: NSObject {
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
+  var desktopSnapshotInFlight = false
+  var supersededDesktopSnapshotRequest: (
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool,
+    forceApplicationInventoryRefresh: Bool,
+    consumePeriodicWindowRefresh: Bool
+  )?
   var axPrefetchInvalidationRetries = 0
   var cgPrefetchInvalidationRetries = 0
   var bypassPrefetchOnce = false

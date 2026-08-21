@@ -43,6 +43,24 @@ public final class MacOSPlatform {
     return snapshotEngine.snapshot(config: config)
   }
 
+
+  public func beginSnapshot(
+    config: Config,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool,
+    forceApplicationInventoryRefresh: Bool,
+    completion: @escaping @MainActor @Sendable (DesktopSnapshot) -> Void
+  ) {
+    snapshotEngine.host = self
+    snapshotEngine.beginSnapshot(
+      config: config,
+      forceFullWindowRefresh: forceFullWindowRefresh,
+      forceWindowListRefresh: forceWindowListRefresh,
+      forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
+      completion: completion
+    )
+  }
+
   public func snapshot(
     config: Config,
     forceFullWindowRefresh: Bool,

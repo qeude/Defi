@@ -16,12 +16,53 @@ extension Daemon {
     consumePeriodicWindowRefresh: Bool = false
   ) {
     let nativeFocusWasPending = platform.hasPendingNativeFocusEvent
-    let snapshot = platform.snapshot(
+    if desktopSnapshotInFlight {
+      supersededDesktopSnapshotRequest = (
+        forceFullWindowRefresh,
+        forceWindowListRefresh,
+        forceApplicationInventoryRefresh,
+        consumePeriodicWindowRefresh
+      )
+      return
+    }
+    desktopSnapshotInFlight = true
+    platform.beginSnapshot(
       config: config,
       forceFullWindowRefresh: forceFullWindowRefresh,
       forceWindowListRefresh: forceWindowListRefresh,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
-    )
+    ) { [weak self] snapshot in
+      self?.applyDesktopSnapshot(
+        snapshot,
+        nativeFocusWasPending: nativeFocusWasPending,
+        forceFullWindowRefresh: forceFullWindowRefresh,
+        forceWindowListRefresh: forceWindowListRefresh,
+        forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
+        consumePeriodicWindowRefresh: consumePeriodicWindowRefresh
+      )
+    }
+  }
+
+  private func applyDesktopSnapshot(
+    _ snapshot: DesktopSnapshot,
+    nativeFocusWasPending: Bool,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool,
+    forceApplicationInventoryRefresh: Bool,
+    consumePeriodicWindowRefresh: Bool
+  ) {
+    defer {
+      desktopSnapshotInFlight = false
+      if let pending = supersededDesktopSnapshotRequest {
+        supersededDesktopSnapshotRequest = nil
+        synchronizeDesktop(
+          forceFullWindowRefresh: pending.forceFullWindowRefresh,
+          forceWindowListRefresh: pending.forceWindowListRefresh,
+          forceApplicationInventoryRefresh: pending.forceApplicationInventoryRefresh,
+          consumePeriodicWindowRefresh: pending.consumePeriodicWindowRefresh
+        )
+      }
+    }
     let snapshotCompletedAt = ProcessInfo.processInfo.systemUptime
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextPeriodicWindowRefreshAt,

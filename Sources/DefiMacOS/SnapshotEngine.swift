@@ -49,6 +49,36 @@ final class SnapshotEngine: @unchecked Sendable {
 
   weak var host: MacOSPlatform?
 
+  private let snapshotQueue = DispatchQueue(
+    label: "com.quentin.defi.snapshot",
+    qos: .userInitiated
+  )
+
+  /// Runs a full desktop-snapshot pass off the main thread and publishes the
+  /// result back to it. Serialized by the queue; main-thread readers only
+  /// ever touch lock-guarded state.
+  func beginSnapshot(
+    config: Config,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool,
+    forceApplicationInventoryRefresh: Bool,
+    completion: @escaping @MainActor @Sendable (DesktopSnapshot) -> Void
+  ) {
+    precondition(host != nil, "host must be assigned")
+    snapshotQueue.async { [weak self] in
+      guard let self else { return }
+      let result = self.snapshot(
+        config: config,
+        forceFullWindowRefresh: forceFullWindowRefresh,
+        forceWindowListRefresh: forceWindowListRefresh,
+        forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
+      )
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated { completion(result) }
+      }
+    }
+  }
+
   /// Runs main-actor work from the engine. Joins the main thread when called
   /// off it; executes inline when already there (synchronous test path).
   func onMain<T>(_ work: @MainActor (MacOSPlatform) -> T) -> T {
