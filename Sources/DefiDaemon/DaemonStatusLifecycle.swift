@@ -158,6 +158,7 @@ extension Daemon {
       + " topologyObservers=\(platform.hasReliableWindowTopologyObservation) appWindowLists=\(snapshotPerformance.applicationWindowListReads)"
       + " appLifecycleObservers=\(platform.hasReliableApplicationLifecycleObservation) appInventoryInterval=\(Int(platform.recommendedApplicationInventoryRefreshInterval))"
       + " desktopObservers=\(platform.hasReliableDesktopObservation)"
+      + " observationFailures=\(platform.notificationObservationFailureSummary)"
       + " observerCoverage=\(observationCoverage.applicationObservers)/\(observationCoverage.applications):\(observationCoverage.topologyWindows)/\(observationCoverage.requiredTopologyWindows):\(observationCoverage.frameWindows)/\(observationCoverage.requiredFrameWindows)"
       + " windowMetadata=\(attributeReads.metadata)/\(attributeReads.metadataReuses)"
       + " windowIDs=private:\(platform.successfulPrivateWindowIDLookupCount)/fallback:\(platform.publicWindowIDLookupFallbackCount)/available:\(platform.privateWindowIDLookupStatus)"

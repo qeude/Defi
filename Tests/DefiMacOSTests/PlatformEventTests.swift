@@ -1545,24 +1545,46 @@ struct PlatformEventTests {
   }
 
   @Test
-  func failedNotificationObservationIsQuarantinedUntilProcessTerminates() {
+  func failedNotificationObservationRetriesThenQuarantines() {
     let failedProcessID: pid_t = 101
-    let quarantined = updatedNotificationObservationFailures(
-      [],
+    var counts = updatedNotificationObservationFailureCounts(
+      [:],
       activeProcessIDs: [failedProcessID],
       failedProcessID: failedProcessID
     )
 
-    #expect(quarantined == [failedProcessID])
+    #expect(counts == [failedProcessID: 1])
     #expect(
-      updatedNotificationObservationFailures(
-        quarantined,
-        activeProcessIDs: [failedProcessID]
-      ) == [failedProcessID]
+      processIDsIncompatibleWithNotificationObservation(counts).isEmpty
+    )
+    for _ in 1..<(notificationObservationMaxAttempts - 1) {
+      counts = updatedNotificationObservationFailureCounts(
+        counts,
+        activeProcessIDs: [failedProcessID],
+        failedProcessID: failedProcessID
+      )
+    }
+    #expect(
+      processIDsIncompatibleWithNotificationObservation(counts).isEmpty
+    )
+    counts = updatedNotificationObservationFailureCounts(
+      counts,
+      activeProcessIDs: [failedProcessID],
+      failedProcessID: failedProcessID
     )
     #expect(
-      updatedNotificationObservationFailures(
-        quarantined,
+      processIDsIncompatibleWithNotificationObservation(counts)
+        == [failedProcessID]
+    )
+    #expect(
+      updatedNotificationObservationFailureCounts(
+        counts,
+        activeProcessIDs: [failedProcessID]
+      ) == counts
+    )
+    #expect(
+      updatedNotificationObservationFailureCounts(
+        counts,
         activeProcessIDs: []
       ).isEmpty
     )

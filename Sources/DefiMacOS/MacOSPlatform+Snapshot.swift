@@ -54,9 +54,10 @@ extension MacOSPlatform {
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
     let processIDsWithoutReliableFrameCoverage =
       eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
-    let fallbackFrameProcessIDs = forceFullWindowRefresh
+    let fallbackFreshReadProcessIDs = forceFullWindowRefresh
       ? []
       : processIDsWithoutReliableFrameCoverage
+        .union(processIDsWithoutReliableTopologyCoverage())
     let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
         eventRequiresFullSnapshot,
@@ -86,12 +87,12 @@ extension MacOSPlatform {
         requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         processIDs: pendingWindowTopologyProcessIDs,
         coalescedProcessIDs: frameProcessIDs
-          .union(fallbackFrameProcessIDs)
+          .union(fallbackFreshReadProcessIDs)
           .union(retainedProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
           frameEventPending || mouseResizeGesturePending
-            || !fallbackFrameProcessIDs.isEmpty
+            || !fallbackFreshReadProcessIDs.isEmpty
             || !retainedProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )

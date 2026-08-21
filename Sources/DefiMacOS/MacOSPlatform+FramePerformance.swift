@@ -303,6 +303,21 @@ extension MacOSPlatform {
     ) == true
   }
 
+  public func processIDsWithoutReliableTopologyCoverage() -> Set<pid_t> {
+    eventMonitor?.processIDsWithoutReliableTopologyCoverage(
+      activeProcessIDs: Set(applications.keys)
+    ) ?? []
+  }
+
+  public var notificationObservationFailureSummary: String {
+    let counts = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
+    guard !counts.isEmpty else { return "[]" }
+    return "["
+      + counts.sorted { $0.key < $1.key }
+        .map { "\($0.key)x\($0.value)" }.joined(separator: ",")
+      + "]"
+  }
+
   public var hasReliableApplicationLifecycleObservation: Bool {
     eventMonitor?.hasReliableApplicationLifecycleObservation == true
   }

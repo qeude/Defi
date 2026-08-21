@@ -18,7 +18,7 @@ final class PlatformEventMonitor {
   private var mouseGestureNormalizer = MouseGestureEventNormalizer()
   private var observers: [pid_t: AXObserver] = [:]
   private var topologyObservedProcessIDs = Set<pid_t>()
-  private var notificationObservationFailures = Set<pid_t>()
+  private var notificationObservationFailureCounts: [pid_t: Int] = [:]
   private var observedWindows: [pid_t: [AXUIElement]] = [:]
   private var topologyRequiredWindows: [pid_t: [AXUIElement]] = [:]
   private var frameRequiredWindows: [pid_t: [AXUIElement]] = [:]
@@ -174,8 +174,8 @@ final class PlatformEventMonitor {
     transientGeometryWindows: [pid_t: [AXUIElement]] = [:]
   ) {
     let activeProcessIDs = Set(applications.keys)
-    notificationObservationFailures = updatedNotificationObservationFailures(
-      notificationObservationFailures,
+    notificationObservationFailureCounts = updatedNotificationObservationFailureCounts(
+      notificationObservationFailureCounts,
       activeProcessIDs: activeProcessIDs
     )
     for processID in observers.keys where !activeProcessIDs.contains(processID) {
@@ -189,7 +189,7 @@ final class PlatformEventMonitor {
     }
 
     for (processID, windows) in applications {
-      guard !notificationObservationFailures.contains(processID) else { continue }
+      guard !isIncompatibleWithNotificationObservation(processID) else { continue }
       guard let observer = observer(for: processID) else { continue }
       prepareForWindowDiscovery(
         processID: processID,
@@ -212,7 +212,7 @@ final class PlatformEventMonitor {
         applicationWindows: windows
       )
       for window in requiredTopology
-      where !notificationObservationFailures.contains(processID) {
+      where !isIncompatibleWithNotificationObservation(processID) {
         if !topologyObserved.contains(where: { CFEqual($0, window) }),
           subscribe(
             observer,
@@ -229,7 +229,7 @@ final class PlatformEventMonitor {
         }
       }
       for window in windows {
-        if !notificationObservationFailures.contains(processID),
+        if !isIncompatibleWithNotificationObservation(processID),
           frameNotificationsEnabled,
           requiredFrames.contains(where: { CFEqual($0, window) }),
           !frameObserved.contains(where: { CFEqual($0, window) }),
@@ -276,7 +276,7 @@ final class PlatformEventMonitor {
     processID: pid_t,
     application: AXUIElement
   ) {
-    guard !notificationObservationFailures.contains(processID) else { return }
+    guard !isIncompatibleWithNotificationObservation(processID) else { return }
     guard let observer = observer(for: processID) else { return }
     prepareForWindowDiscovery(
       processID: processID,
@@ -288,15 +288,49 @@ final class PlatformEventMonitor {
   func hasReliableWindowTopologyCoverage(
     for processIDs: Set<pid_t>
   ) -> Bool {
-    guard processIDs.isSubset(of: topologyObservedProcessIDs) else {
+    let requiredProcessIDs =
+      processIDs.subtracting(incompatibleNotificationProcessIDs)
+    guard requiredProcessIDs.isSubset(of: topologyObservedProcessIDs) else {
       return false
     }
     return topologyRequiredWindows.allSatisfy { processID, windows in
+      guard requiredProcessIDs.contains(processID) else { return true }
       let topologyObserved = topologyObservedWindows[processID] ?? []
       return windows.allSatisfy { window in
         topologyObserved.contains(where: { CFEqual($0, window) })
       }
     }
+  }
+
+  func processIDsWithoutReliableTopologyCoverage(
+    activeProcessIDs: Set<pid_t>
+  ) -> Set<pid_t> {
+    var uncovered = activeProcessIDs.subtracting(topologyObservedProcessIDs)
+    for (processID, windows) in topologyRequiredWindows {
+      let observed = topologyObservedWindows[processID] ?? []
+      if !windows.allSatisfy({ window in
+        observed.contains(where: { CFEqual($0, window) })
+      }) {
+        uncovered.insert(processID)
+      }
+    }
+    return uncovered
+  }
+
+  var incompatibleNotificationProcessIDs: Set<pid_t> {
+    processIDsIncompatibleWithNotificationObservation(
+      notificationObservationFailureCounts
+    )
+  }
+
+  var notificationObservationFailureCountsValue: [pid_t: Int] {
+    notificationObservationFailureCounts
+  }
+
+  private func isIncompatibleWithNotificationObservation(
+    _ processID: pid_t
+  ) -> Bool {
+    incompatibleNotificationProcessIDs.contains(processID)
   }
 
   func hasReliableFrameCoverage() -> Bool {
@@ -474,8 +508,8 @@ final class PlatformEventMonitor {
       }
     )
     if !registered {
-      notificationObservationFailures = updatedNotificationObservationFailures(
-        notificationObservationFailures,
+      notificationObservationFailureCounts = updatedNotificationObservationFailureCounts(
+        notificationObservationFailureCounts,
         activeProcessIDs: Set(observers.keys),
         failedProcessID: processID
       )
