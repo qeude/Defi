@@ -18,6 +18,10 @@ func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
 }
 
 final class AXFrameCoordinator: @unchecked Sendable {
+  /// Publishes interpolated frames of animated windows each animation tick so
+  /// border overlays ride the motion instead of snapping to targets.
+  var borderLiveGeometryHandler: (@Sendable ([WindowID: Rect]) -> Void)?
+
   let queue = DispatchQueue(
     label: "com.quentin.defi.ax-frame-coordinator",
     qos: .userInteractive

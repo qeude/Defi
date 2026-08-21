@@ -14,6 +14,17 @@ public final class MacOSPlatform {
       userInputTracker: userInputTracker
     )
     engine.host = self
+    engine.frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          _ = self.borderManager.updateGeometry(
+            frames: frames,
+            style: self.borderStyle
+          )
+        }
+      }
+    }
     return engine
   }()
 
