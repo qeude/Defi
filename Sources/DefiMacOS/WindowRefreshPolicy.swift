@@ -6,7 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
-private let reliableObservationWatchdogInterval: TimeInterval = 30
+let reliableObservationWatchdogInterval: TimeInterval = 30
 
 func applicationInventoryRefreshInterval(
   reliableLifecycleObservation: Bool

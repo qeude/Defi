@@ -313,6 +313,14 @@ extension MacOSPlatform {
     deferredFreshReadProcessIDs.isEmpty == false
   }
 
+  public var incompatibleObservationProcessIDs: Set<pid_t> {
+    eventMonitor?.incompatibleNotificationProcessIDs ?? []
+  }
+
+  public var hasChunkedFullRefreshPending: Bool {
+    chunkedFullRefreshRemainingProcessIDs?.isEmpty == false
+  }
+
   public var notificationObservationFailureSummary: String {
     let counts = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
     guard !counts.isEmpty else { return "[]" }

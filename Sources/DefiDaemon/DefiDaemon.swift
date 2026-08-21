@@ -507,7 +507,9 @@ final class Daemon: NSObject {
         forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
-      if platform.hasDeferredFreshWindowReads {
+      if platform.hasDeferredFreshWindowReads
+        || platform.hasChunkedFullRefreshPending
+      {
         needsDesktopSync = true
         setTimerFrequency(30)
         scheduleTick()

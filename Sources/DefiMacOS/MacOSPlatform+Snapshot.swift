@@ -54,10 +54,32 @@ extension MacOSPlatform {
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
     let processIDsWithoutReliableFrameCoverage =
       eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
-    let fallbackFreshReadProcessIDs = forceFullWindowRefresh
-      ? []
-      : processIDsWithoutReliableFrameCoverage
-        .union(processIDsWithoutReliableTopologyCoverage())
+    let uncoveredProcessIDs = processIDsWithoutReliableFrameCoverage
+      .union(processIDsWithoutReliableTopologyCoverage())
+    // Processes that exhausted their notification-subscription attempts read
+    // at watchdog cadence instead of every pass: their reads are the slowest
+    // (hundreds of ms) and they no longer produce AX events to justify the
+    // per-pass tax. App-level lifecycle events still trigger fresh reads.
+    let incompatiblePIDs = incompatibleObservationProcessIDs
+    let fallbackNow = ProcessInfo.processInfo.systemUptime
+    incompatibleFreshReadDeadlines = incompatibleFreshReadDeadlines
+      .filter { $0.value > fallbackNow }
+    var fallbackFreshReadProcessIDs = Set<pid_t>()
+    for processID in uncoveredProcessIDs {
+      if incompatiblePIDs.contains(processID) {
+        if forceFullWindowRefresh
+          || topologyProcessIDs.contains(processID)
+          || frameProcessIDs.contains(processID)
+          || incompatibleFreshReadDeadlines[processID] == nil
+        {
+          incompatibleFreshReadDeadlines[processID] =
+            fallbackNow + reliableObservationWatchdogInterval
+          fallbackFreshReadProcessIDs.insert(processID)
+        }
+      } else {
+        fallbackFreshReadProcessIDs.insert(processID)
+      }
+    }
     let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
         eventRequiresFullSnapshot,
@@ -99,7 +121,45 @@ extension MacOSPlatform {
         allowsCachedRefresh: true
       )
     var effectiveIncrementalProcessIDs = incrementalProcessIDs
-    if let requested = incrementalProcessIDs {
+    let chunkedFullActive =
+      !applications.isEmpty
+      && (forceFullWindowRefresh
+        || chunkedFullRefreshRemainingProcessIDs?.isEmpty == false)
+    if chunkedFullActive {
+      // Full refreshes are the most expensive passes (every app re-read), so
+      // they are spread over consecutive budgeted passes: served apps get
+      // fresh window lists, deferred apps ride their cached windows until
+      // their pass comes. Cacheless apps are always served immediately so a
+      // fresh launch can never pop in late.
+      let liveProcessIDs = Set(applications.keys)
+      if chunkedFullRefreshRemainingProcessIDs == nil {
+        chunkedFullRefreshRemainingProcessIDs = liveProcessIDs
+      }
+      chunkedFullRefreshRemainingProcessIDs?.formIntersection(liveProcessIDs)
+      let remaining = chunkedFullRefreshRemainingProcessIDs ?? []
+      let cachelessProcessIDs = remaining.subtracting(
+        Set(lastApplicationWindowElements.keys)
+      )
+      let partition = budgetedFreshReadPartition(
+        requestedProcessIDs: remaining,
+        deferredProcessIDs: [],
+        eventPendingProcessIDs: topologyProcessIDs.union(frameProcessIDs)
+          .union(cachelessProcessIDs),
+        predictedLatencyMS: { processID in
+          frameCoordinator.predictedProcessLatency(processID: processID)
+        },
+        budgetMS: snapshotFreshReadBudgetMS,
+        maximumDeferredAgeSeconds: 0.5,
+        deferredSince: nil,
+        now: ProcessInfo.processInfo.systemUptime
+      )
+      effectiveIncrementalProcessIDs = partition.allowedNow
+      chunkedFullRefreshRemainingProcessIDs =
+        partition.stillDeferred.isEmpty ? nil : partition.stillDeferred
+      frameCoordinator.recordTrace(
+        "fresh-read-budget kind=full allowed=\(partition.allowedNow.count) deferred=\(partition.stillDeferred.count)"
+      )
+    } else if let requested = incrementalProcessIDs {
       deferredFreshReadProcessIDs.formIntersection(
         Set(applications.keys)
       )
@@ -127,6 +187,8 @@ extension MacOSPlatform {
       deferredFreshReadProcessIDs.removeAll(keepingCapacity: true)
       deferredFreshReadsStartedAt = nil
     }
+    let forceWindowListRefreshEffective =
+      forceWindowListRefresh || chunkedFullActive
     let snapshotMode: String
     if effectiveIncrementalProcessIDs == nil {
       snapshotMode = "full"
@@ -216,7 +278,7 @@ extension MacOSPlatform {
       monitors: monitors,
       config: config,
       incrementalProcessIDs: effectiveIncrementalProcessIDs,
-      forceWindowListRefresh: forceWindowListRefresh,
+      forceWindowListRefresh: forceWindowListRefreshEffective,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
