@@ -155,6 +155,7 @@ final class Daemon: NSObject {
   let server: UnixSocketServer
   let placementStore: PlacementStore
   let diagnostics = DiagnosticRecorder()
+  let readResponseCache = DaemonReadResponseCache()
   var state: RuntimeState
   var placementPreferences: PlacementPreferences
   var placementPreferencesDirty = false

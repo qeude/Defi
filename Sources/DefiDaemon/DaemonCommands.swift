@@ -11,7 +11,8 @@ import OSLog
 private func ipcEventHandler(
   server: UnixSocketServer,
   clientQueue: DispatchQueue,
-  daemon: Daemon
+  daemon: Daemon,
+  readResponseCache: DaemonReadResponseCache
 ) -> @Sendable () -> Void {
   { [weak daemon] in
     do {
@@ -19,12 +20,33 @@ private func ipcEventHandler(
         let handled = try server.poll(
           on: clientQueue,
           handler: { request in
-            DispatchQueue.main.sync {
+            if DaemonReadResponseCache.isReadCommand(request.command),
+              let cached = readResponseCache.response(
+                for: request.command,
+                now: ProcessInfo.processInfo.systemUptime
+              )
+            {
+              return cached
+            }
+            return DispatchQueue.main.sync {
               MainActor.assumeIsolated {
-                daemon?.handle(
+                guard let daemon else {
+                  return CommandResponse.failure("daemon unavailable")
+                }
+                let response = daemon.handle(
                   request.command,
                   monitorIndex: request.monitorIndex
                 ) ?? .failure("daemon unavailable")
+                if DaemonReadResponseCache.isReadCommand(request.command),
+                  response.ok
+                {
+                  readResponseCache.store(
+                    message: response.message,
+                    for: request.command,
+                    now: ProcessInfo.processInfo.systemUptime
+                  )
+                }
+                return response
               }
             }
           },
@@ -111,7 +133,8 @@ extension Daemon {
       handler: ipcEventHandler(
         server: server,
         clientQueue: clientQueue,
-        daemon: self
+        daemon: self,
+        readResponseCache: readResponseCache
       )
     )
     source.resume()
