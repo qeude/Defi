@@ -39,10 +39,46 @@ extension AXFrameCoordinator {
     let finalOnlyWrites = animatedWrites.filter {
       lanePlan.finalOnlyWindowIDs.contains($0.key)
     }
+    var loopWrites = interpolatedWrites
+    let sizeCommitCandidates = interpolatedWrites.filter {
+      !$0.value.isReentering && !$0.value.requiresVerifiedOffscreenWrite
+        && asynchronousSizeWriteIsRequired(
+          sizeChanged: $0.value.sizeChanged,
+          synchronousWriteSucceeded: $0.value.synchronousSizeWriteSucceeded,
+          animatesSize: $0.value.animatesSize
+        )
+    }
+    if !sizeCommitCandidates.isEmpty {
+      let committedWindowIDs = commitFinalSizesOnce(
+        sizeCommitCandidates,
+        generation: frame.generation
+      )
+      for (windowID, write) in sizeCommitCandidates
+      where committedWindowIDs.contains(windowID) {
+        loopWrites[windowID] = AsyncPositionWrite(
+          element: write.element,
+          application: write.application,
+          processID: write.processID,
+          fromPoint: write.fromPoint,
+          point: write.point,
+          fromSize: write.size,
+          size: write.size,
+          positionChanged: write.positionChanged,
+          sizeChanged: write.sizeChanged,
+          animatesSize: false,
+          synchronousSizeWriteSucceeded: true,
+          enhancedUIWasEnabled: write.enhancedUIWasEnabled,
+          timeoutSeconds: write.timeoutSeconds,
+          isParked: write.isParked,
+          isReentering: write.isReentering,
+          requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite
+        )
+      }
+    }
     let animatedFrame = QueuedPositionFrame(
       generation: frame.generation,
       source: frame.source,
-      writes: interpolatedWrites,
+      writes: loopWrites,
       animatedWindowIDs: lanePlan.interpolatedWindowIDs,
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
@@ -80,14 +116,14 @@ extension AXFrameCoordinator {
       for: interpolatedWrites
     )
     var intermediateFrameLimit =
-      interpolatedWrites.isEmpty
+      loopWrites.isEmpty
       ? 0
       : adaptiveIntermediateFrameLimit(
         predictedFrameLatency: initialPredictedLatency,
         refreshRateHz: frame.refreshRateHz,
         availableIntermediateFrames: maximumIntermediateFrames
       )
-    if !interpolatedWrites.isEmpty,
+    if !loopWrites.isEmpty,
       intermediateFrameLimit < maximumIntermediateFrames
     {
       lock.lock()
@@ -105,7 +141,7 @@ extension AXFrameCoordinator {
     var completedFrameWasSlow = false
     var lastSpringProgress = 0.0
 
-    if !interpolatedWrites.isEmpty {
+    if !loopWrites.isEmpty {
       displayLinkClock.setActive(
         true,
         displayIDs: frame.displayIDs,
@@ -113,7 +149,7 @@ extension AXFrameCoordinator {
       )
     }
     defer {
-      if !interpolatedWrites.isEmpty {
+      if !loopWrites.isEmpty {
         displayLinkClock.setActive(
           false,
           displayIDs: frame.displayIDs,
@@ -150,7 +186,7 @@ extension AXFrameCoordinator {
       lock.unlock()
     }
 
-    let reentryWrites = interpolatedWrites.filter { $0.value.isReentering }
+    let reentryWrites = loopWrites.filter { $0.value.isReentering }
     while frames < intermediateFrameLimit
       && nextProgressIndex < availableIntermediateSamples.count
       && isCurrent(generation: frame.generation)
@@ -290,7 +326,7 @@ extension AXFrameCoordinator {
       )
       return (applied, stale + animatedWrites.count, frames)
     }
-    if !interpolatedWrites.isEmpty {
+    if !loopWrites.isEmpty {
       let finalStartedAt = ProcessInfo.processInfo.systemUptime
       let final = applyFrame(
         animatedFrame,

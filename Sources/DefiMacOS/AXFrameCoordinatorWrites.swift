@@ -420,6 +420,68 @@ extension AXFrameCoordinator {
     return (applied, stale, slowProcesses, attempted)
   }
 
+  func commitFinalSizesOnce(
+    _ writes: [WindowID: AsyncPositionWrite],
+    generation: UInt64
+  ) -> Set<WindowID> {
+    guard !writes.isEmpty else { return [] }
+    let byProcess = Dictionary(grouping: writes) { $0.value.processID }
+    let group = DispatchGroup()
+    let resultLock = NSLock()
+    var committedWindowIDs = Set<WindowID>()
+    lock.lock()
+    appendTraceLocked(
+      "size-commit g=\(generation) processes=\(byProcess.count) windows=\(writes.count)"
+    )
+    lock.unlock()
+    for entries in byProcess.values {
+      group.enter()
+      processWriteQueue(for: entries[0].value.processID).async { [self] in
+        var succeeded = Set<WindowID>()
+        for (windowID, write) in entries.sorted(by: {
+          $0.key.rawValue < $1.key.rawValue
+        }) {
+          guard isCurrent(generation: generation) else { break }
+          let writeSucceeded = AXMessagingTimeoutAccess.shared.withTimeout(
+            max(write.timeoutSeconds, 0.016),
+            elements: [write.application, write.element]
+          ) {
+            accessibilityWriter.applySize(
+              write,
+              size: write.size,
+              enhancedUIManagedByBatch: false
+            )
+          }
+          guard writeSucceeded else { continue }
+          succeeded.insert(windowID)
+          recordInternalFrameWrite(
+            Rect(
+              x: write.fromPoint.x,
+              y: write.fromPoint.y,
+              width: write.size.width,
+              height: write.size.height
+            ),
+            windowID: windowID,
+            positionChanged: false,
+            sizeChanged: true,
+            now: ProcessInfo.processInfo.systemUptime
+          )
+          recordCompletedSize(
+            write.size,
+            windowID: windowID,
+            incrementWriteCount: true
+          )
+        }
+        resultLock.lock()
+        committedWindowIDs.formUnion(succeeded)
+        resultLock.unlock()
+        group.leave()
+      }
+    }
+    group.wait()
+    return committedWindowIDs
+  }
+
   func recordCompletedSize(
     _ size: CGSize,
     windowID: WindowID,
