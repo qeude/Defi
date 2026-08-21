@@ -64,6 +64,36 @@ func crossMonitorCommandWindowID(
   return selectedWindowID
 }
 
+func commandDiagnosticMetadata(
+  command: String,
+  generation: UInt64,
+  inputTimestamp: TimeInterval,
+  monitorID: MonitorID?,
+  selectedWindowID: WindowID?,
+  state: RuntimeState,
+  commandStartedAt: TimeInterval? = nil
+) -> CommandDiagnosticMetadata {
+  let monitor = monitorID.flatMap { id in
+    state.monitors.first(where: { $0.id == id })
+  }
+  let window = selectedWindowID.flatMap { state.windows[$0] }
+  let queueWaitMS = commandStartedAt.map { startedAt in
+    max(startedAt - inputTimestamp, 0) * 1_000
+  }
+  return CommandDiagnosticMetadata(
+    timestamp: Date(),
+    inputTimestamp: inputTimestamp,
+    command: command,
+    generation: generation,
+    monitorID: monitorID,
+    workspaceID: monitor?.activeWorkspace,
+    windowID: selectedWindowID,
+    applicationID: window?.appID,
+    processID: window?.processID,
+    queueWaitMS: queueWaitMS
+  )
+}
+
 @MainActor
 extension Daemon {
   func installIPCSource() {
@@ -146,6 +176,10 @@ extension Daemon {
     if rawCommand == "trace" {
       return .success(platform.frameCoordinatorTrace)
     }
+    if rawCommand == "diagnostic-mark" {
+      diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
+      return .success("marked \(diagnostics.currentFileURL.path)")
+    }
     if rawCommand == "restore" {
       restoreAllWindows()
       return .success("restored")
@@ -172,17 +206,37 @@ extension Daemon {
         uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }
       )
       let commandViewports = viewportsByMonitor
-      let validationState = try changedState(
-        after: command,
-        on: commandMonitorID,
-        from: state,
-        monitorFrames: physicalMonitorFrames,
-        viewports: commandViewports
-      )
+      // When frames are already in flight the reducer must run on the live
+      // state after the displayed-frame rebase, so skip the validation copy.
+      let rebasesPendingFrame =
+        !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites
+      let validationState = try rebasesPendingFrame
+        ? nil
+        : changedState(
+          after: command,
+          on: commandMonitorID,
+          from: state,
+          monitorFrames: physicalMonitorFrames,
+          viewports: commandViewports
+        )
       if validationState == nil, command.explicitlyFocusesFloating == false {
         commandGeneration &+= 1
         lastCommandDurationMS =
           (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
+        diagnostics.recordNoOp(
+          commandDiagnosticMetadata(
+            command: rawCommand,
+            generation: commandGeneration,
+            inputTimestamp: commandInputTimestamp,
+            monitorID: commandMonitorID,
+            selectedWindowID: commandMonitorID.flatMap {
+              state.selectedWindowID(on: $0)
+            },
+            state: state,
+            commandStartedAt: commandStartedAt
+          ),
+          durationMS: lastCommandDurationMS
+        )
         platform.recordPerformanceTrace(
           "command-no-op command=\(rawCommand) ms=\(String(format: "%.2f", lastCommandDurationMS))"
         )
@@ -250,15 +304,14 @@ extension Daemon {
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
       }
+      let preCommandWindowMonitorIDs = state.windowLocationMap()
       let inFlightAnimationMonitorIDs = Set(
         scrollAnimations.keys.map(\.monitorID)
       ).union(
         platform.pendingAnimatedFrameWindowIDs.compactMap {
-          state.monitorID(containing: $0)
+          preCommandWindowMonitorIDs[$0]?.monitorID
         }
       )
-      let rebasesPendingFrame =
-        !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites
       if rebasesPendingFrame {
         rebaseActiveScrollOffsetToDisplayedFrames()
       }
@@ -273,9 +326,7 @@ extension Daemon {
         pendingWorkspaceFocus = nil
       }
       let previousWindowMonitorIDs = movesAcrossMonitors
-        ? Dictionary(uniqueKeysWithValues: state.windows.keys.compactMap { windowID in
-          state.monitorID(containing: windowID).map { (windowID, $0) }
-        })
+        ? monitorIDsByWindow(preCommandWindowMonitorIDs)
         : [:]
       if rebasesPendingFrame {
         try reduce(
@@ -288,14 +339,13 @@ extension Daemon {
       } else if let validationState {
         state = validationState
       }
+      let nextWindowMonitorIDsMap = state.windowLocationMap()
       let resultMonitorID = movesAcrossMonitors
-        ? crossMonitorWindowID.flatMap { state.monitorID(containing: $0) }
+        ? crossMonitorWindowID.flatMap { nextWindowMonitorIDsMap[$0]?.monitorID }
           ?? commandMonitorID
         : commandMonitorID
       let nextWindowMonitorIDs = movesAcrossMonitors
-        ? Dictionary(uniqueKeysWithValues: state.windows.keys.compactMap { windowID in
-          state.monitorID(containing: windowID).map { (windowID, $0) }
-        })
+        ? monitorIDsByWindow(nextWindowMonitorIDsMap)
         : [:]
       let movedFloatingWindowIDs = floatingWindowIDsMovedBetweenMonitors(
         previousWindowMonitorIDs: previousWindowMonitorIDs,
@@ -311,7 +361,7 @@ extension Daemon {
           windowIDs: movedFloatingWindowIDs
         )
         for (windowID, window) in state.windows where window.floating {
-          guard let nextMonitorID = state.monitorID(containing: windowID),
+          guard let nextMonitorID = nextWindowMonitorIDsMap[windowID]?.monitorID,
             previousWindowMonitorIDs[windowID] != nextMonitorID
           else {
             continue
@@ -348,6 +398,20 @@ extension Daemon {
         commandPerformance,
         expectsFocus: commandTransfersFocus
       )
+      let diagnosticMonitorID = resultMonitorID ?? commandMonitorID
+      diagnostics.beginCommand(
+        commandDiagnosticMetadata(
+          command: rawCommand,
+          generation: currentCommandGeneration,
+          inputTimestamp: commandInputTimestamp,
+          monitorID: diagnosticMonitorID,
+          selectedWindowID: diagnosticMonitorID.flatMap {
+            state.selectedWindowID(on: $0)
+          } ?? previouslySelectedWindowID,
+          state: state,
+          commandStartedAt: commandStartedAt
+        )
+      )
       if commandTransfersFocus {
         activeMonitorID = resultMonitorID
       }
@@ -371,7 +435,7 @@ extension Daemon {
         invalidateSubmittedCommandFocus()
       }
       let stateReadyAt = ProcessInfo.processInfo.systemUptime
-      synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
+      synchronizeScrollOffsets(state: &state, viewports: commandViewports)
       if switchesWorkspace {
         snapScrollOffsetsToTargets()
       } else {
@@ -639,4 +703,15 @@ func floatingWindowIDsMovedBetweenMonitors(
     else { return nil }
     return windowID
   })
+}
+
+private func monitorIDsByWindow(
+  _ locations: WindowLocationMap
+) -> [WindowID: MonitorID] {
+  var monitorIDs: [WindowID: MonitorID] = [:]
+  monitorIDs.reserveCapacity(locations.count)
+  for (windowID, location) in locations {
+    monitorIDs[windowID] = location.monitorID
+  }
+  return monitorIDs
 }

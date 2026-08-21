@@ -2,6 +2,8 @@ import DefiConfig
 import DefiCore
 import DefiModel
 
+public typealias WindowLocationMap = [WindowID: (monitorID: MonitorID, workspaceID: WorkspaceID)]
+
 public struct RuntimeState: Equatable, Sendable {
   public var monitors: [Monitor]
   public var windows: [WindowID: Window]
@@ -163,15 +165,25 @@ public struct RuntimeState: Equatable, Sendable {
   public func location(
     containing windowID: WindowID
   ) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+    windowLocationMap()[windowID]
+  }
+
+  public func windowLocationMap() -> WindowLocationMap {
+    var locations = WindowLocationMap()
+    locations.reserveCapacity(windows.count)
     for monitor in monitors {
-      for workspace in monitor.workspaces
-      where workspace.columns.contains(where: { $0.windows.contains(windowID) })
-        || workspace.floatingWindows.contains(windowID)
-      {
-        return (monitor.id, workspace.id)
+      for workspace in monitor.workspaces {
+        for column in workspace.columns {
+          for windowID in column.windows where locations[windowID] == nil {
+            locations[windowID] = (monitor.id, workspace.id)
+          }
+        }
+        for windowID in workspace.floatingWindows where locations[windowID] == nil {
+          locations[windowID] = (monitor.id, workspace.id)
+        }
       }
     }
-    return nil
+    return locations
   }
 
   public func selectedWindowID(on monitorID: MonitorID) -> WindowID? {

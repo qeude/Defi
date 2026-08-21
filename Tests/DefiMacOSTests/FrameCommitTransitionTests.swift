@@ -106,6 +106,72 @@ struct FrameCommitTransitionTests {
   }
 
   @Test
+  func commandDiagnosticWaitsForConvergenceAndExpectedFocus() {
+    let windowID = WindowID(rawValue: 1)
+    let from = Rect(x: 0, y: 0, width: 100, height: 100)
+    let target = Rect(x: 100, y: 0, width: 100, height: 100)
+    let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
+    var latency = CommandLatencyAccumulator()
+
+    latency.begin(context)
+    latency.recordFocusExpectation(context, expectsFocus: true)
+    _ = latency.recordPlan(
+      context,
+      expectedWindowIDs: [windowID],
+      at: 10.002
+    )
+    _ = latency.recordFirstWrite(context, at: 10.003)
+    _ = latency.recordObservation(
+      context,
+      windowID: windowID,
+      from: from,
+      actual: target,
+      target: target,
+      at: 10.010
+    )
+    #expect(latency.takeDiagnosticSamples().isEmpty)
+
+    _ = latency.recordFocus(context, at: 10.012)
+
+    let sample = latency.takeDiagnosticSamples().first
+    #expect(sample?.generation == 1)
+    #expect(sample?.outcome == .completed)
+    #expect(sample?.expectedWindowCount == 1)
+    #expect(abs((sample?.planMS ?? 0) - 2) < 0.001)
+    #expect(abs((sample?.convergenceMS ?? 0) - 10) < 0.001)
+    #expect(abs((sample?.focusMS ?? 0) - 12) < 0.001)
+  }
+
+  @Test
+  func supersededCommandProducesOneDiagnosticSample() {
+    let first = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
+    var latency = CommandLatencyAccumulator()
+
+    latency.begin(first)
+    latency.recordFocusExpectation(first, expectsFocus: true)
+    _ = latency.recordPlan(
+      first,
+      expectedWindowIDs: [WindowID(rawValue: 1)],
+      at: 10.002
+    )
+    latency.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
+
+    let samples = latency.takeDiagnosticSamples()
+    #expect(samples.count == 1)
+    #expect(samples.first?.generation == 1)
+    #expect(samples.first?.outcome == .superseded)
+    #expect(latency.takeDiagnosticSamples().isEmpty)
+  }
+
+  @Test
+  func onlyHighSignalTraceEventsBecomePersistentAnomalies() {
+    #expect(traceEventIsDiagnosticAnomaly("parking-repair wid=1"))
+    #expect(traceEventIsDiagnosticAnomaly("slow g=1 pid=2 windows=1 ms=20"))
+    #expect(!traceEventIsDiagnosticAnomaly("sample g=1 i=2 p=0.4"))
+    #expect(!traceEventIsDiagnosticAnomaly("command-plan cg=1 windows=2 ms=2"))
+  }
+
+  @Test
   func commandConvergenceUsesLatestObservationForEveryWindow() {
     let first = WindowID(rawValue: 1)
     let second = WindowID(rawValue: 2)

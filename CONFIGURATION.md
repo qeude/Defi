@@ -303,6 +303,7 @@ an entry from `[workspaces].names`.
 | `join-window left` | Join focused window into stack on left. | `<mod>-semicolon` |
 | `join-window right` | Join focused window into stack on right. | `<mod>-quote` |
 | `unjoin-windows` | Split focused window from stack into new column. | `<mod>-r` |
+| `diagnostic-mark` | Record current status and recent trace without changing managed windows. | unset |
 
 `previous` may be written as `prev`. `focus-column` also accepts
 `previous`/`next`; `focus-window` accepts `previous`/`next`; `focus-floating`
@@ -311,6 +312,21 @@ accepts `left`/`right` and `up`/`down` as previous/next aliases.
 Commands are validated when config loads. Direction compatibility can still be
 validated at execution for commands implemented by the layout engine; use forms
 listed above for deterministic behavior.
+
+### Diagnostics
+
+Defi keeps compact command summaries and high-signal anomalies in three rotating
+10 MiB JSONL files under `~/Library/Logs/Defi/Diagnostics`. The files never
+contain window titles, document contents, or typed text.
+
+Bind `diagnostic-mark` when investigating an intermittent issue. It records the
+current status and the recent in-memory trace without changing focus, layout,
+frames, or visibility:
+
+```toml
+[keys]
+"hyper-d" = "diagnostic-mark"
+```
 
 CLI-only integration commands:
 

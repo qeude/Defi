@@ -93,6 +93,8 @@ public final class MacOSPlatform {
   var observedFrameCommitCount = 0
   var maximumObservedFrameCommitLatencyMS = 0.0
   var commandLatency = CommandLatencyAccumulator()
+  var commandDiagnosticHandler:
+    (@MainActor @Sendable (CommandDiagnosticSample) -> Void)?
   var lastHiddenWindowIDs = Set<WindowID>()
   var eventMonitor: PlatformEventMonitor?
   var frameEventPending = false

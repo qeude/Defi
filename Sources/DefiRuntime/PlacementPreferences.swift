@@ -66,13 +66,14 @@ public struct PlacementPreferences: Codable, Equatable, Sendable {
       }
     )
     suppressedWindowIDs.formIntersection(automaticWindowIDs)
+    let locationsByWindow = state.windowLocationMap()
     var locationsByApplication: [String: Set<PlacementLocation>] = [:]
     for window in state.windows.values {
       guard window.floatingOrigin != .automatic else { continue }
       guard !suppressedWindowIDs.contains(window.id) else {
         continue
       }
-      guard let location = state.location(containing: window.id) else { continue }
+      guard let location = locationsByWindow[window.id] else { continue }
       locationsByApplication[Self.applicationKey(window.appID), default: []].insert(
         PlacementLocation(
           monitorID: location.monitorID,

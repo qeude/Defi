@@ -99,6 +99,24 @@ extension MacOSPlatform {
 
   public func beginCommandPerformance(_ context: CommandPerformanceContext) {
     commandLatency.begin(context)
+    emitCommandDiagnostics()
+  }
+
+  public func setCommandDiagnosticHandler(
+    _ handler: @escaping @MainActor @Sendable (CommandDiagnosticSample) -> Void
+  ) {
+    commandDiagnosticHandler = handler
+  }
+
+  public func setDiagnosticAnomalyHandler(
+    _ handler: @escaping @Sendable (TimeInterval, String) -> Void
+  ) {
+    frameCoordinator.setDiagnosticAnomalyHandler(handler)
+  }
+
+  public func finishCommandDiagnostics() {
+    commandLatency.finishCurrentDiagnostic()
+    emitCommandDiagnostics()
   }
 
   public func recordCommandFocusExpectation(
@@ -126,6 +144,7 @@ extension MacOSPlatform {
     frameCoordinator.recordTrace(
       "command-plan cg=\(context.generation) windows=\(expectedWindowIDs.count) ms=\(String(format: "%.2f", latency))"
     )
+    emitCommandDiagnostics()
   }
 
   func recordCommandFirstWrite(
@@ -137,6 +156,7 @@ extension MacOSPlatform {
     frameCoordinator.recordTrace(
       "command-first-write cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
     )
+    emitCommandDiagnostics()
   }
 
   func recordCommandObservation(
@@ -165,6 +185,7 @@ extension MacOSPlatform {
         "command-converged cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
       )
     }
+    emitCommandDiagnostics()
   }
 
   public func recordCommandFocus(
@@ -178,10 +199,18 @@ extension MacOSPlatform {
     frameCoordinator.recordTrace(
       "command-focus cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
     )
+    emitCommandDiagnostics()
   }
 
   public var commandLatencyPerformance: CommandLatencyPerformance {
     commandLatency.performance
+  }
+
+  private func emitCommandDiagnostics() {
+    let samples = commandLatency.takeDiagnosticSamples()
+    for sample in samples {
+      commandDiagnosticHandler?(sample)
+    }
   }
 
   public var parkingPerformance: (checks: Int, repairs: Int) {

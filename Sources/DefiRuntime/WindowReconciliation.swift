@@ -82,11 +82,15 @@ public func discoverWindow(
 
 public func transientPlacementLocation(
   for window: Window,
-  state: RuntimeState
+  state: RuntimeState,
+  locations: WindowLocationMap? = nil
 ) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+  func location(containing windowID: WindowID) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+    locations?[windowID] ?? state.location(containing: windowID)
+  }
   guard window.isModal || window.floatingOrigin == .automatic else { return nil }
   if let ownerID = window.transientOwnerID,
-    let ownerLocation = state.location(containing: ownerID)
+    let ownerLocation = location(containing: ownerID)
   {
     return ownerLocation
   }
@@ -99,7 +103,7 @@ public func transientPlacementLocation(
     return selected
   }
   guard sameApplicationSelections.count == 1 else { return nil }
-  return state.location(containing: sameApplicationSelections[0])
+  return location(containing: sameApplicationSelections[0])
 }
 
 @discardableResult
@@ -209,9 +213,11 @@ public func reconcileWindows(
   // ponytail: bounded convergence scan; owner-ordering can replace it if deep chains become common.
   for _ in discovered.indices {
     var relocatedInPass = false
+    var locations = state.windowLocationMap()
     for window in discovered where relocateTransientIfNeeded(
       window.id,
       viewports: viewports,
+      locations: &locations,
       state: &state
     ) {
       relocatedTransientIDs.insert(window.id)
@@ -226,11 +232,16 @@ public func reconcileWindows(
 private func relocateTransientIfNeeded(
   _ windowID: WindowID,
   viewports: [MonitorID: Rect],
+  locations: inout WindowLocationMap,
   state: inout RuntimeState
 ) -> Bool {
   guard let window = state.windows[windowID],
-    let current = state.location(containing: windowID),
-    let target = transientPlacementLocation(for: window, state: state),
+    let current = locations[windowID] ?? state.location(containing: windowID),
+    let target = transientPlacementLocation(
+      for: window,
+      state: state,
+      locations: locations
+    ),
     current.monitorID != target.monitorID || current.workspaceID != target.workspaceID,
     let targetMonitorIndex = state.monitors.firstIndex(where: {
       $0.id == target.monitorID
@@ -320,6 +331,7 @@ private func relocateTransientIfNeeded(
     )
   }
   state.windows[windowID]?.monitorID = target.monitorID
+  locations[windowID] = (target.monitorID, target.workspaceID)
   return true
 }
 

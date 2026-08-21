@@ -70,11 +70,39 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var nextInitialSettlementGeneration: UInt64 = 0
   var initialSettlementRepairsSuspended = false
   var pendingInitialSettlementEventChecks = Set<WindowID>()
+  var diagnosticAnomalyHandler:
+    (@Sendable (TimeInterval, String) -> Void)?
   var completedInitialSettlementChecks = 0
   var repairedInitialSettlementDrifts = 0
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
+  var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
+  var immediateReadbackProcessDeadlines: [pid_t: TimeInterval] = [:]
+
+  func processNeedsImmediateReadback(_ processID: pid_t) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let deadline = immediateReadbackProcessDeadlines[processID] else {
+      return false
+    }
+    let now = ProcessInfo.processInfo.systemUptime
+    if deadline < now {
+      immediateReadbackProcessDeadlines[processID] = nil
+      return false
+    }
+    return true
+  }
+
+  func markProcessNeedsImmediateReadback(
+    _ processID: pid_t,
+    duration: TimeInterval = 30
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    immediateReadbackProcessDeadlines[processID] =
+      ProcessInfo.processInfo.systemUptime + duration
+  }
 
   @MainActor
   func startDisplayLink() {
@@ -413,6 +441,14 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.unlock()
   }
 
+  func setDiagnosticAnomalyHandler(
+    _ handler: @escaping @Sendable (TimeInterval, String) -> Void
+  ) {
+    lock.lock()
+    diagnosticAnomalyHandler = handler
+    lock.unlock()
+  }
+
   func recordCommitObservation(
     deferred: Int,
     settled: Int,
@@ -487,7 +523,24 @@ final class AXFrameCoordinator: @unchecked Sendable {
       liveProcessIDs.contains($0.key)
     }
     latencySensitiveProcessIDs.formIntersection(liveProcessIDs)
+    processLatencyStreaks = processLatencyStreaks.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    immediateReadbackProcessDeadlines = immediateReadbackProcessDeadlines.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    let retiredQueues = processWriteQueues.filter {
+      !liveProcessIDs.contains($0.key)
+    }
+    for processID in retiredQueues.keys {
+      processWriteQueues[processID] = nil
+    }
     lock.unlock()
+    // Drain outside the lock: pending work items observe the empty queue map
+    // and their writes are generation-checked, so they become no-ops.
+    for (_, queue) in retiredQueues {
+      queue.async { }
+    }
   }
 
 }

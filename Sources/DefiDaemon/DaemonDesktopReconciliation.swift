@@ -24,10 +24,45 @@ extension Daemon {
     var updated = placementPreferences
     updated.recordPlacements(from: state)
     guard placementPreferencesDirty || updated != placementPreferences else { return }
+    placementPreferences = updated
+    placementPreferencesDirty = false
+    schedulePlacementStoreWrite(updated)
+  }
+
+  static let placementSaveDebounce: TimeInterval = 0.5
+
+  func schedulePlacementStoreWrite(_ preferences: PlacementPreferences) {
+    placementSaveWorkItem?.cancel()
+    let item = DispatchWorkItem { [weak self] in
+      self?.writePlacementStore(preferences)
+    }
+    placementSaveWorkItem = item
+    placementSaveQueue.asyncAfter(
+      deadline: .now() + Self.placementSaveDebounce,
+      execute: item
+    )
+  }
+
+  nonisolated private func writePlacementStore(_ preferences: PlacementPreferences) {
     do {
-      try placementStore.save(updated)
-      placementPreferences = updated
-      placementPreferencesDirty = false
+      try placementStore.save(preferences)
+    } catch {
+      DispatchQueue.main.async { [weak self] in
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          self.placementPreferencesDirty = true
+          self.log("placement persistence failed: \(error)")
+        }
+      }
+    }
+  }
+
+  func flushPendingPlacementWrite() {
+    guard placementSaveWorkItem != nil else { return }
+    placementSaveWorkItem?.cancel()
+    placementSaveWorkItem = nil
+    do {
+      try placementStore.save(placementPreferences)
     } catch {
       log("placement persistence failed: \(error)")
     }

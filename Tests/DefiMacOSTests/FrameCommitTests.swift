@@ -1185,6 +1185,35 @@ final class FrameCommitTests: XCTestCase {
     )
   }
 
+  func testSlowLaneEntryRequiresConsecutiveSamples() {
+    var streak = ProcessLatencyStreak()
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 120, streak: &streak)
+    )
+    XCTAssertTrue(
+      processLatencyEntryIsConfirmed(sampleMS: 15, streak: &streak)
+    )
+  }
+
+  func testSlowLaneEntryIgnoresSingleSpike() {
+    var streak = ProcessLatencyStreak()
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 90, streak: &streak)
+    )
+    XCTAssertTrue(
+      processLatencyEntryIsConfirmed(sampleMS: 25, streak: &streak)
+    )
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 4, streak: &streak)
+    )
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 20, streak: &streak)
+    )
+    XCTAssertTrue(
+      processLatencyEntryIsConfirmed(sampleMS: 30, streak: &streak)
+    )
+  }
+
   func testAnimationLanesKeepFastProcessesInterpolated() {
     let fast = WindowID(rawValue: 1)
     let slow = WindowID(rawValue: 2)

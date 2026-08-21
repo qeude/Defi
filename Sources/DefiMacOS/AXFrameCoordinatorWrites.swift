@@ -161,17 +161,30 @@ extension AXFrameCoordinator {
       let sample = min(max(rawSample, 0), 120)
       let prediction: Double
       if let previous = predictedProcessLatencyMS[processID] {
-        let sampleWeight = sample >= previous ? 0.75 : 0.5
-        prediction = previous * (1 - sampleWeight) + sample * sampleWeight
+        // Clamp a single outlier so one slow write cannot yank the
+        // prediction (and the lane) away from the observed steady state.
+        let clampedSample = min(sample, previous + 30)
+        let sampleWeight = clampedSample >= previous ? 0.75 : 0.5
+        prediction = previous * (1 - sampleWeight) + clampedSample * sampleWeight
       } else {
         prediction = sample
       }
       predictedProcessLatencyMS[processID] = prediction
+      var streak = processLatencyStreaks[processID] ?? ProcessLatencyStreak()
       let wasSensitive = latencySensitiveProcessIDs.contains(processID)
-      let isSensitive = axProcessIsLatencySensitive(
-        previouslySensitive: wasSensitive,
-        predictedLatencyMS: prediction
-      )
+      let isSensitive: Bool
+      if wasSensitive {
+        isSensitive = axProcessIsLatencySensitive(
+          previouslySensitive: true,
+          predictedLatencyMS: prediction
+        )
+      } else {
+        isSensitive = processLatencyEntryIsConfirmed(
+          sampleMS: sample,
+          streak: &streak
+        )
+      }
+      processLatencyStreaks[processID] = streak
       if isSensitive {
         latencySensitiveProcessIDs.insert(processID)
       } else {
@@ -205,6 +218,30 @@ extension AXFrameCoordinator {
     var stale = 0
     var slowProcesses = Set<pid_t>()
     var attempted = false
+    // Hoist the AXEnhancedUserInterface toggle to batch granularity: one
+    // disable/restore pair per application instead of two round-trips per
+    // parked or verified-offscreen write.
+    let managesEnhancedUI =
+      batch.writes.contains { $0.value.enhancedUIWasEnabled }
+      && batch.writes.contains {
+        $0.value.isParked || $0.value.requiresVerifiedOffscreenWrite
+      }
+    if let batchApplication = batch.writes.first?.value.application, managesEnhancedUI {
+      accessibilityWriter.setEnhancedUserInterface(
+        false,
+        application: batchApplication
+      )
+    }
+    defer {
+      if let batchApplication = batch.writes.first?.value.application,
+        managesEnhancedUI
+      {
+        accessibilityWriter.setEnhancedUserInterface(
+          true,
+          application: batchApplication
+        )
+      }
+    }
     for (index, item) in batch.writes.enumerated() {
       guard isCurrent(generation: frame.generation) else {
         stale += batch.writes.count - index
@@ -252,7 +289,11 @@ extension AXFrameCoordinator {
           generationIsCurrent
           && (
             !requiresAsynchronousSizeWrite
-              || accessibilityWriter.applySize(item.value, size: size)
+              || accessibilityWriter.applySize(
+                item.value,
+                size: size,
+                enhancedUIManagedByBatch: managesEnhancedUI
+              )
           )
         let sizeApplied = frameSizeWriteSucceeded(
           sizeChanged: item.value.sizeChanged,
@@ -273,7 +314,8 @@ extension AXFrameCoordinator {
                   stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
                   isParked: item.value.isParked,
                   isIntermediate: intermediate
-                )
+                ),
+                enhancedUIManagedByBatch: managesEnhancedUI
               )
             )
         return (
@@ -343,6 +385,7 @@ extension AXFrameCoordinator {
         applied += 1
         let completedPoint =
           requiresReadback
+          && processNeedsImmediateReadback(item.value.processID)
           ? accessibilityWriter.readPosition(item.value.element) ?? point
           : point
         recordCompletedPosition(completedPoint, windowID: item.key)

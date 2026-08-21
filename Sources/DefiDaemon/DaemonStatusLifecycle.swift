@@ -289,6 +289,9 @@ extension Daemon {
   func shutdown() -> Never {
     timer?.cancel()
     ipcSource?.cancel()
+    flushPendingPlacementWrite()
+    platform.finishCommandDiagnostics()
+    diagnostics.flush()
     platform.hideWindowBorders()
     restoreAllWindows()
     server.removeSocketFile()

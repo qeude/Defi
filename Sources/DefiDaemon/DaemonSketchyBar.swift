@@ -30,6 +30,17 @@ extension Daemon {
   }
 
   func publishWorkspaceStateIfNeeded() {
+    let displayOrder = latestMonitors.map(\.id)
+    if lastPublishedWorkspaceState != nil,
+      lastWorkspacePublishState == state,
+      lastWorkspacePublishDisplayOrder == displayOrder,
+      lastWorkspacePublishFocusedMonitorID == activeMonitorID
+    {
+      return
+    }
+    lastWorkspacePublishState = state
+    lastWorkspacePublishDisplayOrder = displayOrder
+    lastWorkspacePublishFocusedMonitorID = activeMonitorID
     let snapshot = currentWorkspaceState()
     guard snapshot != lastPublishedWorkspaceState else { return }
     do {

@@ -96,6 +96,7 @@ Examples:
 ```sh
 /Applications/Defi.app/Contents/MacOS/defi status
 /Applications/Defi.app/Contents/MacOS/defi trace
+/Applications/Defi.app/Contents/MacOS/defi diagnostic-mark
 /Applications/Defi.app/Contents/MacOS/defi focus-column left
 /Applications/Defi.app/Contents/MacOS/defi workspace 2
 /Applications/Defi.app/Contents/MacOS/defi --monitor 2 workspace 2

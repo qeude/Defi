@@ -3,7 +3,8 @@ import ApplicationServices
 final class AXFrameAccessibilityWriter {
   func applySize(
     _ write: AsyncPositionWrite,
-    size: CGSize
+    size: CGSize,
+    enhancedUIManagedByBatch: Bool = false
   ) -> Bool {
     let initialResult = applySizeValue(write, size: size)
     if initialResult == .success {
@@ -13,6 +14,9 @@ final class AXFrameAccessibilityWriter {
       write.enhancedUIWasEnabled
     else {
       return false
+    }
+    if enhancedUIManagedByBatch {
+      return applySizeValue(write, size: size) == .success
     }
     setEnhancedUserInterface(false, application: write.application)
     defer {
@@ -25,21 +29,26 @@ final class AXFrameAccessibilityWriter {
     _ write: AsyncPositionWrite,
     point: CGPoint,
     forceOffscreenAccess: Bool = false,
-    suppressNativeAnimation: Bool = false
+    suppressNativeAnimation: Bool = false,
+    enhancedUIManagedByBatch: Bool = false
   ) -> Bool {
     if suppressNativeAnimation, write.enhancedUIWasEnabled {
       // WindowServer can animate a successful offscreen-to-visible AX write.
-      setEnhancedUserInterface(false, application: write.application)
-      defer {
-        setEnhancedUserInterface(true, application: write.application)
+      if !enhancedUIManagedByBatch {
+        setEnhancedUserInterface(false, application: write.application)
+        defer {
+          setEnhancedUserInterface(true, application: write.application)
+        }
       }
       return apply(write, point: point) == .success
     }
     if write.isParked || forceOffscreenAccess {
-      setEnhancedUserInterface(false, application: write.application)
-      defer {
-        if write.enhancedUIWasEnabled {
-          setEnhancedUserInterface(true, application: write.application)
+      if !enhancedUIManagedByBatch {
+        setEnhancedUserInterface(false, application: write.application)
+        defer {
+          if write.enhancedUIWasEnabled {
+            setEnhancedUserInterface(true, application: write.application)
+          }
         }
       }
       for _ in 0..<2 {
@@ -59,6 +68,9 @@ final class AXFrameAccessibilityWriter {
       write.enhancedUIWasEnabled
     else {
       return false
+    }
+    if enhancedUIManagedByBatch {
+      return apply(write, point: point) == .success
     }
     setEnhancedUserInterface(false, application: write.application)
     defer {
@@ -139,7 +151,7 @@ final class AXFrameAccessibilityWriter {
     )
   }
 
-  private func setEnhancedUserInterface(
+  func setEnhancedUserInterface(
     _ enabled: Bool,
     application: AXUIElement
   ) {

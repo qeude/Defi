@@ -204,3 +204,44 @@ restore the initial workspace, and leave exactly one `defi-daemon` process.
 
 Native fullscreen, trackpad gestures, overview, Settings UI, and visual polish
 are outside this initiative.
+
+## Persistent diagnostics
+
+Defi will keep a bounded local diagnostic record so intermittent latency,
+focus, frame, and parking problems can be investigated after ordinary use.
+Diagnostics must not add synchronous file I/O or Accessibility work to the
+input path.
+
+The always-on record contains one compact entry per command with wall-clock and
+monotonic timestamps, build and daemon session identifiers, command generation,
+monitor, workspace, managed window, application bundle ID and process ID, the
+command result, and the measured planning, first-write, observation,
+convergence, and focus latencies. A diagnostic marker adds the recent detailed
+trace. Target and observed frames, Accessibility writes, retries,
+cancellations, stale work, dropped frames, and repairs are recorded only for an
+anomaly or a diagnostic marker.
+
+Diagnostic storage uses three rotating files of at most 10 MiB each. Files
+survive daemon restarts and application updates; rotation replaces the oldest
+file. Writes run outside the input path on a low-priority queue.
+
+`diagnostic-mark` records the current status and recent in-memory trace without
+changing focus, layout, frames, or visibility. It has no generated default
+binding. The development configuration binds `hyper-d` to it.
+
+Diagnostics never record window titles, document names or contents, typed text,
+or complete configuration files. Application bundle IDs, process IDs, window
+IDs, monitor IDs, workspace IDs, geometry, and timing data are diagnostic data
+and may be included.
+
+Investigation order is:
+
+1. user diagnostic markers
+2. broken invariants and automatic repairs
+3. per-application P95 and P99 latency outliers
+4. slow animation without a focus or frame error
+
+The first investigation compares the installed daemon's reported input-to-plan
+P95 with the 4 ms contract and the 2.97 ms installed benchmark above. It must
+determine whether the higher observed value is input queueing or incorrect
+timestamp attribution before optimizing layout code.

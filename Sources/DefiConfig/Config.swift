@@ -133,6 +133,7 @@ public struct Config: Equatable, Sendable {
     }
 
     for (_, command) in keys {
+      if command == "diagnostic-mark" { continue }
       do {
         try validateCommandWorkspace(try parseCommand(command))
       } catch let error as ConfigError {
