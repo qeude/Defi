@@ -159,6 +159,7 @@ final class FloatingWindowTests: XCTestCase {
     try discoverWindow(
       floater,
       decision: RuleDecision(workspace: tools, followFocus: true),
+      isNativelyFocused: true,
       state: &state
     )
     try reduce(.switchWorkspace(WorkspaceID(rawValue: "dev")), on: monitorID, state: &state)
@@ -205,6 +206,7 @@ final class FloatingWindowTests: XCTestCase {
     try discoverWindow(
       followed,
       decision: RuleDecision(workspace: tools, followFocus: true),
+      isNativelyFocused: true,
       state: &state
     )
 
@@ -223,6 +225,7 @@ final class FloatingWindowTests: XCTestCase {
     try discoverWindow(
       floater,
       decision: RuleDecision(workspace: tools, followFocus: true),
+      isNativelyFocused: true,
       state: &state
     )
 
@@ -230,6 +233,7 @@ final class FloatingWindowTests: XCTestCase {
     try discoverWindow(
       followed,
       decision: RuleDecision(workspace: tools, followFocus: true),
+      isNativelyFocused: true,
       state: &state
     )
 
