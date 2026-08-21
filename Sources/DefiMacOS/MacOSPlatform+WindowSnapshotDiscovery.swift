@@ -85,8 +85,7 @@ struct SnapshotWindowDiscoveryResult {
   let previouslyManagedApplicationWindows: [pid_t: [AXUIElement]]
 }
 
-@MainActor
-extension MacOSPlatform {
+extension SnapshotEngine {
   func discoverSnapshotWindows(
     monitors: [MonitorSnapshot],
     config: Config,
@@ -252,10 +251,11 @@ extension MacOSPlatform {
             ) {
               applicationWindowsAfterPreparingTopologyObservation(
                 prepareObservation: {
-                  eventMonitor?.prepareForWindowDiscovery(
+                  let preparedAppElement = AssumedThreadSafe(appElement)
+onMain { $0.eventMonitor?.prepareForWindowDiscovery(
                     processID: processID,
-                    application: appElement
-                  )
+                    application: preparedAppElement.value
+                  ) }
                 },
                 copyWindows: {
                   copyElements(

@@ -11,8 +11,7 @@ private let frameCommitLogger = Logger(
   category: "FrameCommit"
 )
 
-@MainActor
-extension MacOSPlatform {
+extension SnapshotEngine {
 
   public func accessibilityTrusted(prompt: Bool) -> Bool {
     let options =
@@ -53,14 +52,14 @@ extension MacOSPlatform {
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
     let processIDsWithoutReliableFrameCoverage =
-      eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
+      (onMain { ($0.eventMonitor?.processIDsWithoutReliableFrameCoverage) ?? [] })
     let uncoveredProcessIDs = processIDsWithoutReliableFrameCoverage
-      .union(processIDsWithoutReliableTopologyCoverage())
+      .union(onMain { $0.processIDsWithoutReliableTopologyCoverage() })
     // Processes that exhausted their notification-subscription attempts read
     // at watchdog cadence instead of every pass: their reads are the slowest
     // (hundreds of ms) and they no longer produce AX events to justify the
     // per-pass tax. App-level lifecycle events still trigger fresh reads.
-    let incompatiblePIDs = incompatibleObservationProcessIDs
+    let incompatiblePIDs = onMain { $0.incompatibleObservationProcessIDs }
     let fallbackNow = ProcessInfo.processInfo.systemUptime
     incompatibleFreshReadDeadlines = incompatibleFreshReadDeadlines
       .filter { $0.value > fallbackNow }
@@ -207,7 +206,7 @@ extension MacOSPlatform {
     pendingFrameProcessIDs.removeAll(keepingCapacity: true)
     observedFrameEventWindowIDs.removeAll(keepingCapacity: true)
     pendingFrameRequiresFullSnapshot = false
-    let monitors = discoverMonitors()
+    let monitors = onMain { $0.discoverMonitors() }
     lastMonitorFrames = monitors.map(\.frame)
     var hasCopiedCGWindows = false
     var cachedCGWindows: [CGWindowRecord]?
@@ -317,7 +316,7 @@ extension MacOSPlatform {
       || !newlyDiscoveredWindowIDs.isEmpty
       || !removedWindowIDs.isEmpty
     {
-      invalidatePointerHitTestCache()
+      onMain { $0.invalidatePointerHitTestCache() }
     }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
       let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
@@ -404,12 +403,18 @@ extension MacOSPlatform {
       previouslyManagedWindows: previouslyManagedApplicationWindows,
       minimizedWindows: minimizedWindows
     )
-    eventMonitor?.refresh(
-      applications: observedApplicationWindows,
-      requiredTopologyWindows: topologyWindowsRequiredForObservation,
-      requiredFrameWindows: requiredFrameWindows,
-      transientGeometryWindows: transientGeometryWindows
-    )
+    let observationInputs = AssumedThreadSafe((
+      apps: observedApplicationWindows,
+      topo: topologyWindowsRequiredForObservation,
+      frames: requiredFrameWindows,
+      transient: transientGeometryWindows
+    ))
+    onMain { $0.eventMonitor?.refresh(
+      applications: observationInputs.value.apps,
+      requiredTopologyWindows: observationInputs.value.topo,
+      requiredFrameWindows: observationInputs.value.frames,
+      transientGeometryWindows: observationInputs.value.transient
+    ) }
     frameCoordinator.pruneRecentInternalFrameWrites(
       liveWindowIDs: Set(nextElements.keys),
       now: ProcessInfo.processInfo.systemUptime
@@ -472,14 +477,14 @@ extension MacOSPlatform {
         let target = targetFrames[window.id]
       {
         if let command = expectation.command {
-          recordCommandObservation(
+          onMain { $0.recordCommandObservation(
             command,
             windowID: window.id,
             from: expectation.from,
             actual: window.frame,
             target: expectation.target,
             at: now
-          )
+          ) }
         }
         if now >= expectation.deadline {
           frameCommitExpectations[window.id] = nil

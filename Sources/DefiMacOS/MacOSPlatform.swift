@@ -8,7 +8,55 @@ import OSLog
 
 @MainActor
 public final class MacOSPlatform {
-  let snapshotEngine = SnapshotEngine()
+  lazy var snapshotEngine: SnapshotEngine = {
+    let engine = SnapshotEngine(
+      frameCoordinator: frameCoordinator,
+      userInputTracker: userInputTracker
+    )
+    engine.host = self
+    return engine
+  }()
+
+  func frame(of element: AXUIElement) -> Rect? {
+    snapshotEngine.frame(of: element)
+  }
+
+  func stableWindowID(
+    processID: pid_t?,
+    in windows: [Window],
+    allowPendingNativeFocus: Bool = false
+  ) -> WindowID? {
+    snapshotEngine.stableWindowID(
+      processID: processID,
+      in: windows,
+      allowPendingNativeFocus: allowPendingNativeFocus
+    )
+  }
+
+  public func accessibilityTrusted(prompt: Bool) -> Bool {
+    snapshotEngine.host = self
+    return snapshotEngine.accessibilityTrusted(prompt: prompt)
+  }
+
+  public func snapshot(config: Config) -> DesktopSnapshot {
+    snapshotEngine.host = self
+    return snapshotEngine.snapshot(config: config)
+  }
+
+  public func snapshot(
+    config: Config,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool = false,
+    forceApplicationInventoryRefresh: Bool = false
+  ) -> DesktopSnapshot {
+    snapshotEngine.host = self
+    return snapshotEngine.snapshot(
+      config: config,
+      forceFullWindowRefresh: forceFullWindowRefresh,
+      forceWindowListRefresh: forceWindowListRefresh,
+      forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
+    )
+  }
   var elements: [WindowID: AXUIElement] {
     get { snapshotEngine.elements }
     set { snapshotEngine.elements = newValue }
