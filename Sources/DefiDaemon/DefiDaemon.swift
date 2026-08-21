@@ -507,6 +507,11 @@ final class Daemon: NSObject {
         forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
+      if platform.hasDeferredFreshWindowReads {
+        needsDesktopSync = true
+        setTimerFrequency(30)
+        scheduleTick()
+      }
     }
     if liveBorderGesture || animatedWritesPending {
       platform.refreshWindowBorders()

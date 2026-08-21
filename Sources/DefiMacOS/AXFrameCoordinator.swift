@@ -407,6 +407,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return latestWriteSucceededByWindowID[windowID]
   }
 
+  func predictedProcessLatency(processID: pid_t) -> Double {
+    lock.lock()
+    defer { lock.unlock() }
+    return predictedProcessLatencyMS[processID] ?? 8.0
+  }
+
   func alignCompletedSize(windowID: WindowID, size: CGSize) {
     lock.lock()
     completedSizes[windowID] = size

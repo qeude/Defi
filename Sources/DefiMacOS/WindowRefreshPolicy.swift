@@ -95,3 +95,59 @@ func cacheWindowElementForShortRetry(
     attemptsByProcess[processID] = 0
   }
 }
+
+/// Per-pass budget for fresh AX window-list reads, in milliseconds. Passes
+/// stay short enough that pending commands interleave between them on the
+/// main run loop instead of queueing behind one monolithic snapshot.
+public let snapshotFreshReadBudgetMS = 12.0
+
+/// Splits the processes needing fresh reads into those served this pass and
+/// those deferred to a later pass, cheapest-first by predicted latency.
+///
+/// - Processes with pending topology/frame events always go now: freshness
+///   wins over budget.
+/// - At least one candidate is always served so deferred work makes progress
+///   even when a single expensive process exceeds the whole budget.
+/// - If deferred processes age past `maximumDeferredAgeSeconds`, everything
+///   is served at once and the deferral timestamp clears.
+func budgetedFreshReadPartition(
+  requestedProcessIDs: Set<pid_t>,
+  deferredProcessIDs: Set<pid_t>,
+  eventPendingProcessIDs: Set<pid_t>,
+  predictedLatencyMS: (pid_t) -> Double,
+  budgetMS: Double,
+  maximumDeferredAgeSeconds: TimeInterval,
+  deferredSince: TimeInterval?,
+  now: TimeInterval
+) -> (
+  allowedNow: Set<pid_t>,
+  stillDeferred: Set<pid_t>,
+  deferredSince: TimeInterval?
+) {
+  let pending = requestedProcessIDs.union(deferredProcessIDs)
+  guard !pending.isEmpty else { return ([], [], nil) }
+  if let deferredSince,
+    now - deferredSince >= maximumDeferredAgeSeconds
+  {
+    return (pending, [], nil)
+  }
+  var allowed = pending.intersection(eventPendingProcessIDs)
+  var used = 0.0
+  var stillDeferred = Set<pid_t>()
+  let candidates = pending.subtracting(eventPendingProcessIDs).sorted {
+    (predictedLatencyMS($0), $0)
+      < (predictedLatencyMS($1), $1)
+  }
+  for processID in candidates {
+    let cost = predictedLatencyMS(processID)
+    if used == 0 || used + cost <= budgetMS {
+      allowed.insert(processID)
+      used += cost
+    } else {
+      stillDeferred.insert(processID)
+    }
+  }
+  let nextDeferredSince =
+    stillDeferred.isEmpty ? nil : (deferredSince ?? now)
+  return (allowed, stillDeferred, nextDeferredSince)
+}

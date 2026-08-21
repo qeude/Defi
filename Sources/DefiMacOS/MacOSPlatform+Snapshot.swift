@@ -88,19 +88,50 @@ extension MacOSPlatform {
         processIDs: pendingWindowTopologyProcessIDs,
         coalescedProcessIDs: frameProcessIDs
           .union(fallbackFreshReadProcessIDs)
+          .union(deferredFreshReadProcessIDs)
           .union(retainedProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
           frameEventPending || mouseResizeGesturePending
             || !fallbackFreshReadProcessIDs.isEmpty
+            || !deferredFreshReadProcessIDs.isEmpty
             || !retainedProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )
+    var effectiveIncrementalProcessIDs = incrementalProcessIDs
+    if let requested = incrementalProcessIDs {
+      deferredFreshReadProcessIDs.formIntersection(
+        Set(applications.keys)
+      )
+      let partition = budgetedFreshReadPartition(
+        requestedProcessIDs: requested,
+        deferredProcessIDs: deferredFreshReadProcessIDs,
+        eventPendingProcessIDs: topologyProcessIDs.union(frameProcessIDs),
+        predictedLatencyMS: { processID in
+          frameCoordinator.predictedProcessLatency(processID: processID)
+        },
+        budgetMS: snapshotFreshReadBudgetMS,
+        maximumDeferredAgeSeconds: 0.5,
+        deferredSince: deferredFreshReadsStartedAt,
+        now: ProcessInfo.processInfo.systemUptime
+      )
+      deferredFreshReadProcessIDs = partition.stillDeferred
+      deferredFreshReadsStartedAt = partition.deferredSince
+      effectiveIncrementalProcessIDs = partition.allowedNow
+      if !partition.stillDeferred.isEmpty {
+        frameCoordinator.recordTrace(
+          "fresh-read-budget allowed=\(partition.allowedNow.count) deferred=\(partition.stillDeferred.count)"
+        )
+      }
+    } else {
+      deferredFreshReadProcessIDs.removeAll(keepingCapacity: true)
+      deferredFreshReadsStartedAt = nil
+    }
     let snapshotMode: String
-    if incrementalProcessIDs == nil {
+    if effectiveIncrementalProcessIDs == nil {
       snapshotMode = "full"
       fullWindowSnapshotCount += 1
-    } else if incrementalProcessIDs?.isEmpty == true {
+    } else if effectiveIncrementalProcessIDs?.isEmpty == true {
       snapshotMode = "cached"
       cachedWindowSnapshotCount += 1
     } else {
@@ -184,7 +215,7 @@ extension MacOSPlatform {
     let discovery = discoverSnapshotWindows(
       monitors: monitors,
       config: config,
-      incrementalProcessIDs: incrementalProcessIDs,
+      incrementalProcessIDs: effectiveIncrementalProcessIDs,
       forceWindowListRefresh: forceWindowListRefresh,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,

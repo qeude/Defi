@@ -309,6 +309,10 @@ extension MacOSPlatform {
     ) ?? []
   }
 
+  public var hasDeferredFreshWindowReads: Bool {
+    deferredFreshReadProcessIDs.isEmpty == false
+  }
+
   public var notificationObservationFailureSummary: String {
     let counts = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
     guard !counts.isEmpty else { return "[]" }

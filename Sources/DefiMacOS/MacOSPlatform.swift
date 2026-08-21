@@ -122,6 +122,8 @@ public final class MacOSPlatform {
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
   var lastMonitorFrames: [Rect] = []
+  var deferredFreshReadProcessIDs = Set<pid_t>()
+  var deferredFreshReadsStartedAt: TimeInterval?
   var pointerHitTestRecords: [CGWindowRecord] = []
   var pointerHitTestDockProcessIDs = Set<pid_t>()
   var pointerHitTestSnapshotTimestamp: TimeInterval?
