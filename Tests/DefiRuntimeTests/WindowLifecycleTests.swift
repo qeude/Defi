@@ -21,7 +21,12 @@ final class WindowLifecycleTests: XCTestCase {
       monitorID: monitorID
     )
 
-    try discoverWindow(window, decision: config.decision(for: window), state: &state)
+    try discoverWindow(
+      window,
+      decision: config.decision(for: window),
+      isNativelyFocused: true,
+      state: &state
+    )
 
     XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "web"))
     XCTAssertEqual(state.monitors[0].workspaces[1].columns[0].windows, [window.id])

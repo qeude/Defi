@@ -960,6 +960,7 @@ struct NativeFocusTests {
       try discoverWindow(
         window,
         decision: RuleDecision(followFocus: true),
+        isNativelyFocused: true,
         state: &state
       )
     }

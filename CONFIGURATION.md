@@ -367,7 +367,7 @@ intrinsic_size = true
 | `title` | unset | string | Case-insensitive substring match against window title. |
 | `role` | unset | string | Exact, case-sensitive Accessibility role match, such as `AXWindow`. |
 | `workspace` | unset | string present in `[workspaces].names` | Places newly discovered matching window on workspace. |
-| `follow_focus` | `false` | boolean | Activates target workspace and selects matching window when discovered. |
+| `follow_focus` | `false` | boolean | Activates the target workspace when the newly discovered matching window has native focus. |
 | `floating` | `false` | boolean | Places matching window in workspace floating layer. |
 | `force_tiling` | `false` | boolean | Tiles matching window even when platform classification would normally float or ignore it. Overrides `floating`. |
 | `intrinsic_size` | `false` | boolean | Preserves observed window width and height inside its tile. |
