@@ -467,3 +467,60 @@ extension MacOSPlatform {
     nativeFocusEventPending
   }
 }
+
+
+extension MacOSPlatform {
+/// Samples how far each visible border overlay sits from its window's most
+/// recently observed frame. Transient divergence during animations is
+/// expected (borders follow the plan, applications accept frames late);
+/// sustained large deltas are the regression signal.
+  public func auditBorderAlignment() -> String {
+    let assignments = borderFrames
+    guard !assignments.isEmpty else { return "no-border-assignments" }
+    var compared = 0
+    var mismatched = 0
+    var totalTarget = 0.0
+    var worstTarget = 0.0
+    var worstAcceptance = 0.0
+    var worstWindowID: WindowID?
+    for assignment in assignments {
+      guard
+        let target = targetFrames[assignment.windowID],
+        let observed = latestObservedFrames[assignment.windowID]
+      else {
+        continue
+      }
+      compared += 1
+      let targetDelta = max(
+        abs(assignment.frame.x - target.x),
+        abs(assignment.frame.y - target.y),
+        abs(assignment.frame.width - target.width),
+        abs(assignment.frame.height - target.height)
+      )
+      totalTarget += targetDelta
+      if targetDelta > worstTarget {
+        worstTarget = targetDelta
+        worstWindowID = assignment.windowID
+      }
+      if targetDelta > 2 {
+        mismatched += 1
+      }
+      let acceptance = max(
+        abs(target.x - observed.x),
+        abs(target.y - observed.y),
+        abs(target.width - observed.width),
+        abs(target.height - observed.height)
+      )
+      worstAcceptance = max(worstAcceptance, acceptance)
+    }
+    guard compared > 0 else { return "no-comparable-windows" }
+    var result = "compared=\(compared) mismatches>2pt=\(mismatched)"
+    result += " avg=\(String(format: "%.2f", totalTarget / Double(compared)))"
+    result += " worst=\(String(format: "%.2f", worstTarget))pt"
+    result += " appAcceptance=\(String(format: "%.2f", worstAcceptance))pt"
+    if let worstWindowID {
+      result += " wid=\(worstWindowID.rawValue)"
+    }
+    return result
+  }
+}

@@ -199,6 +199,9 @@ extension Daemon {
     if rawCommand == "trace" {
       return .success(platform.frameCoordinatorTrace)
     }
+    if rawCommand == "border-audit" {
+      return .success(platform.auditBorderAlignment())
+    }
     if rawCommand == "diagnostic-mark" {
       diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
       return .success("marked \(diagnostics.currentFileURL.path)")
