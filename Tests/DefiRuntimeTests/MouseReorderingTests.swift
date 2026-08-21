@@ -723,6 +723,7 @@ final class MouseReorderingTests: XCTestCase {
       try discoverWindow(
         window,
         decision: RuleDecision(followFocus: true),
+        isNativelyFocused: true,
         state: &state
       )
     }

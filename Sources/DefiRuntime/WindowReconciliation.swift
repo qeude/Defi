@@ -28,7 +28,7 @@ public func discoverWindow(
   window.intrinsicSize = decision.intrinsicSize
   let effectivePlacement = window.floatingOrigin == .automatic ? nil : placement
   let transientLocation = transientPlacementLocation(for: window, state: state)
-  let followsFocus = decision.followFocus && (transientLocation == nil || isNativelyFocused)
+  let followsFocus = decision.followFocus && isNativelyFocused
   let preferredMonitorID = effectivePlacement?.monitorID.flatMap { preferred in
     state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
   }

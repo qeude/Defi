@@ -5,6 +5,49 @@ import Testing
 
 struct BackgroundWindowDiscoveryTests {
   @Test
+  func followFocusRuleDoesNotActivateUnfocusedBackgroundWindow() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let tools = WorkspaceID(rawValue: "tools")
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]),
+      rules: [Rule(appID: "proxy", workspace: tools.rawValue, followFocus: true)]
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let selectedWindow = Window(
+      id: WindowID(rawValue: 1),
+      appID: "editor",
+      title: "Selected",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    let backgroundWindow = Window(
+      id: WindowID(rawValue: 2),
+      appID: "proxy",
+      title: "Background",
+      frame: Rect(x: 600, y: 0, width: 600, height: 800),
+      monitorID: monitorID
+    )
+    try discoverWindow(
+      selectedWindow,
+      decision: RuleDecision(followFocus: true),
+      isNativelyFocused: true,
+      state: &state
+    )
+
+    reconcileWindows(
+      [selectedWindow, backgroundWindow],
+      config: config,
+      nativeFocusedWindowID: selectedWindow.id,
+      state: &state
+    )
+
+    #expect(state.monitors[0].activeWorkspace.rawValue == "dev")
+    #expect(state.selectedWindowID(on: monitorID) == selectedWindow.id)
+    #expect(state.location(containing: backgroundWindow.id)?.workspaceID == tools)
+  }
+
+  @Test
   func tiledWindowDiscoveredWithoutFollowFocusPreservesSelectionAndScroll() throws {
     let monitorID = MonitorID(rawValue: 1)
     var state = RuntimeState(config: Config())
@@ -27,6 +70,7 @@ struct BackgroundWindowDiscoveryTests {
     try discoverWindow(
       selectedWindow,
       decision: RuleDecision(followFocus: true),
+      isNativelyFocused: true,
       state: &state
     )
     state.monitors[0].workspaces[0].scrollOffset = 0.25
