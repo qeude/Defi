@@ -43,6 +43,10 @@ public final class MacOSPlatform {
   var newlyDiscoveredWindowIDs = Set<WindowID>()
   var hasCompletedWindowSnapshot = false
   var windowTopologyEventPending = false
+
+  public var hasPendingWindowTopologyEvent: Bool {
+    windowTopologyEventPending
+  }
   var pendingWindowTopologyProcessIDs = Set<pid_t>()
   var windowTopologyRequiresFullSnapshot = false
   var pendingWindowTopologyInputTimestamp: TimeInterval?
