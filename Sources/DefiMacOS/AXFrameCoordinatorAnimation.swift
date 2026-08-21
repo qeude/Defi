@@ -255,34 +255,7 @@ extension AXFrameCoordinator {
       applied += result.applied
       stale += result.stale
       frames += 1
-      if let borderLiveGeometryHandler {
-        var liveFrames: [WindowID: Rect] = [:]
-        // Only windows that actually receive intermediate writes should drag
-        // their border along; final-only lanes keep the overlay pinned to the
-        // displayed frame until the real write lands.
-        for (windowID, write) in animatedFrame.writes
-        where !lanePlan.finalOnlyWindowIDs.contains(windowID) {
-          let rect = interpolatedFrame(
-            from: Rect(
-              x: write.fromPoint.x,
-              y: write.fromPoint.y,
-              width: write.fromSize.width,
-              height: write.fromSize.height
-            ),
-            to: Rect(
-              x: write.point.x,
-              y: write.point.y,
-              width: write.size.width,
-              height: write.size.height
-            ),
-            progress: springProgress
-          )
-          liveFrames[windowID] = rect
-        }
-        if !liveFrames.isEmpty {
-          borderLiveGeometryHandler(liveFrames)
-        }
-      }
+      publishCompletedBorderGeometry(animatedFrame.writes)
       recordRetargetVelocity(
         frame: animatedFrame,
         progressVelocity: springSample.velocity
@@ -363,6 +336,7 @@ extension AXFrameCoordinator {
       )
       applied += final.applied
       stale += final.stale
+      publishCompletedBorderGeometry(animatedFrame.writes)
       let finalDurationMS =
         (ProcessInfo.processInfo.systemUptime - finalStartedAt) * 1_000
       lock.lock()
@@ -421,6 +395,30 @@ extension AXFrameCoordinator {
       stale,
       max(interpolatedFrameCount, finalOnlyResult?.frames ?? 0)
     )
+  }
+
+  /// Border overlays ride the geometry that has actually been written and
+  /// accepted - never the interpolated target - so they always match the
+  /// displayed window frame.
+  func publishCompletedBorderGeometry(
+    _ writes: [WindowID: AsyncPositionWrite]
+  ) {
+    guard let borderLiveGeometryHandler else { return }
+    var liveFrames: [WindowID: Rect] = [:]
+    for (windowID, _) in writes {
+      if let position = completedPosition(for: windowID),
+        let size = completedSize(for: windowID) {
+        liveFrames[windowID] = Rect(
+          x: position.x,
+          y: position.y,
+          width: size.width,
+          height: size.height
+        )
+      }
+    }
+    if !liveFrames.isEmpty {
+      borderLiveGeometryHandler(liveFrames)
+    }
   }
 
   func markAnimationFinished(

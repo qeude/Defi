@@ -311,7 +311,32 @@ extension MacOSPlatform {
     borderManager.revealPendingBorders()
   }
 
+
+  private func activeIsMinimizedOrHidden(_ windowID: WindowID) -> Bool {
+    if lastHiddenWindowIDs.contains(windowID) {
+      return true
+    }
+    guard let element = elements[windowID] else {
+      return false
+    }
+    for minimized in minimizedWindowElementsByProcess.values {
+      if minimized.contains(where: { CFEqual($0, element) }) {
+        return true
+      }
+    }
+    return false
+  }
+
   public func refreshWindowBorders() {
+    // A selected window that is no longer on screen (minimized, hidden, or
+    // parked) must never keep an overlay drawn over whatever is displayed.
+    if let active = borderManager.activeWindowID,
+      !borderFrames.contains(where: { $0.windowID == active })
+        || activeIsMinimizedOrHidden(active)
+    {
+      hideWindowBorders()
+      return
+    }
     let liveGeometryWindowIDs = borderManager.liveGeometryWindowIDs
     if isLeftMouseButtonDown {
       refreshWindowBorderGeometry(windowIDs: liveGeometryWindowIDs)
