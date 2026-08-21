@@ -317,7 +317,8 @@ extension MacOSPlatform {
       transientGeometryWindows: transientGeometryWindows
     )
     frameCoordinator.pruneRecentInternalFrameWrites(
-      liveWindowIDs: Set(nextElements.keys)
+      liveWindowIDs: Set(nextElements.keys),
+      now: ProcessInfo.processInfo.systemUptime
     )
     frameCoordinator.pruneProcessLatencyState(
       liveProcessIDs: Set(nextApplications.keys)

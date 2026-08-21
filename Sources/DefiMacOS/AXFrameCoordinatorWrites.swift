@@ -453,11 +453,20 @@ extension AXFrameCoordinator {
     lock.unlock()
   }
 
-  func pruneRecentInternalFrameWrites(liveWindowIDs: Set<WindowID>) {
+  func pruneRecentInternalFrameWrites(
+    liveWindowIDs: Set<WindowID>,
+    now: TimeInterval
+  ) {
     lock.lock()
-    recentInternalFrameWrites = recentInternalFrameWrites.filter {
-      liveWindowIDs.contains($0.key)
+    var pruned: [WindowID: [RecentInternalFrameWrite]] = [:]
+    for (windowID, writes) in recentInternalFrameWrites {
+      guard liveWindowIDs.contains(windowID) else { continue }
+      let unexpired = writes.filter { $0.deadline >= now }
+      if !unexpired.isEmpty {
+        pruned[windowID] = unexpired
+      }
     }
+    recentInternalFrameWrites = pruned
     lock.unlock()
   }
 

@@ -420,12 +420,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
   ) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    recentInternalFrameWrites = recentInternalFrameWrites.compactMapValues {
-      let live = $0.filter { $0.deadline >= now }
-      return live.isEmpty ? nil : live
-    }
     return recentInternalFrameWrites[windowID]?.contains {
-      DefiMacOS.frameMatchesRecentInternalWrite(actual: actual, write: $0)
+      $0.deadline >= now
+        && DefiMacOS.frameMatchesRecentInternalWrite(actual: actual, write: $0)
     } == true
   }
 

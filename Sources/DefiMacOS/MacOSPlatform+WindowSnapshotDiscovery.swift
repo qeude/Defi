@@ -105,10 +105,13 @@ extension MacOSPlatform {
       let previousApplications = applications
       let previousApplicationIDs = applicationIDsByProcess
       var previouslyManagedApplicationWindows: [pid_t: [AXUIElement]] = [:]
+      var previousWindowIDsByProcessAndElementHash: [pid_t: [UInt: [WindowID]]] = [:]
       for (windowID, element) in previousElements {
-        if let processID = previousProcessIDs[windowID] {
-          previouslyManagedApplicationWindows[processID, default: []].append(element)
-        }
+        guard let processID = previousProcessIDs[windowID] else { continue }
+        previouslyManagedApplicationWindows[processID, default: []].append(element)
+        previousWindowIDsByProcessAndElementHash[processID, default: [:]][
+          CFHash(element), default: []
+        ].append(windowID)
       }
       let previousWindowsByProcess = Dictionary(
         grouping: lastSnapshotWindows,
@@ -287,10 +290,9 @@ extension MacOSPlatform {
         )
   
         for element in appWindows ?? [] {
-          let previousWindowID = previousElements.first { windowID, previousElement in
-            previousProcessIDs[windowID] == processID
-              && CFEqual(previousElement, element)
-          }?.key
+          let previousWindowID = previousWindowIDsByProcessAndElementHash[processID]?[
+            CFHash(element)
+          ]?.first { CFEqual(previousElements[$0], element) }
           if previousWindowID.map(explicitlyDestroyedWindowIDs.contains) == true {
             continue
           }
