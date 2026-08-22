@@ -186,22 +186,12 @@ extension Daemon {
     }
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
     let borderStartedAt = ProcessInfo.processInfo.systemUptime
-    let selectedDisplayedFrame = selectedWindowID.flatMap { windowID -> Rect? in
-      guard let observed = state.windows[windowID]?.frame else { return nil }
-      let position = platform.completedPosition(for: windowID)
-      let size = platform.completedSize(for: windowID)
-      return Rect(
-        x: position.map { Double($0.x) } ?? observed.x,
-        y: position.map { Double($0.y) } ?? observed.y,
-        width: size.map { Double($0.width) } ?? observed.width,
-        height: size.map { Double($0.height) } ?? observed.height
-      )
-    }
     let layoutMS =
       (ProcessInfo.processInfo.systemUptime - layoutStartedAt) * 1_000
     platform.recordPerformanceTrace(
       "frame-submit source=\(source) cg=\(commandPerformance?.generation.description ?? "none") layoutMs=\(String(format: "%.2f", layoutMS))"
     )
+    platform.stageWindowBorderSelection(selectedWindowID)
     platform.apply(
       platformAssignments,
       hiddenWindowIDs: hiddenWindowIDs,
@@ -223,12 +213,37 @@ extension Daemon {
       focusCompletionAfterCommit: focusCompletionAfterCommit,
       cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
       focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+      acceptedFrameHandler: { [weak self] acceptedFrames in
+        guard let self else { return }
+        var learnedMinimum = false
+        var affectedMonitorIDs = Set<MonitorID>()
+        for (windowID, frame) in acceptedFrames.sorted(by: {
+          $0.key.rawValue < $1.key.rawValue
+        }) {
+          if let monitorID = state.monitorID(containing: windowID) {
+            affectedMonitorIDs.insert(monitorID)
+          }
+          if learnTiledWindowMinimumWidth(
+            windowID,
+            actualFrame: frame,
+            state: &state,
+            viewports: viewportsByMonitor
+          ) {
+            learnedMinimum = true
+          }
+          state.updateWindowFrame(frame, for: windowID)
+        }
+        guard learnedMinimum else { return }
+        applyCurrentLayout(
+          monitorIDs: affectedMonitorIDs,
+          asynchronousPositions: true,
+          updateVisibility: false,
+          positionTimeoutSeconds: 0.05,
+          source: "accepted-size-reflow"
+        )
+      },
       commandPerformance: commandPerformance,
       source: source
-    )
-    platform.stageWindowBorderSelection(
-      selectedWindowID,
-      displayedFrame: selectedDisplayedFrame
     )
     platform.updateWindowBorders(
       frames: borderAssignments,

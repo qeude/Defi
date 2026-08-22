@@ -123,6 +123,9 @@ public struct Config: Equatable, Sendable {
     guard parseBorderColor(decorations.borders.inactiveColor) != nil else {
       throw ConfigError.invalidValue("decorations.borders.inactive_color")
     }
+    guard ["inside", "outside"].contains(decorations.borders.placement) else {
+      throw ConfigError.invalidValue("decorations.borders.placement")
+    }
     guard !workspaces.names.isEmpty,
       Set(workspaces.names).count == workspaces.names.count
     else {

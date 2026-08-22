@@ -504,6 +504,24 @@ func frameIsOnExpectedCommitPath(
   }
 }
 
+/// Decides whether border replanning must wait for frame writes to settle.
+/// Only unresolved expectations whose deadline has not passed count: an
+/// expired expectation is stale bookkeeping that an application may never
+/// confirm with a fresh observation, and it must never freeze border
+/// geometry updates.
+func borderRefreshBlockedBySettling(
+  liveWindowIDs: Set<WindowID>,
+  expectations: [WindowID: FrameCommitExpectation],
+  now: TimeInterval
+) -> Bool {
+  liveWindowIDs.contains { windowID in
+    guard let expectation = expectations[windowID] else {
+      return false
+    }
+    return expectation.observedAt == nil && expectation.deadline > now
+  }
+}
+
 func requiresVerifiedOffscreenWrite(
   frame: Rect,
   monitorFrames: [Rect],
@@ -595,6 +613,22 @@ func unresolvedFrameDebtWindowIDs(
       guard let target = targetFrames[windowID] else { return false }
       guard let observed = observedFrames[windowID] else { return true }
       return frameDistance(observed, target) > tolerance
+    }
+  )
+}
+
+func unresolvedPositionDebtWindowIDs(
+  pendingWindowIDs: Set<WindowID>,
+  debtWindowIDs: Set<WindowID>,
+  targetFrames: [WindowID: Rect],
+  observedFrames: [WindowID: Rect],
+  tolerance: Double = 1
+) -> Set<WindowID> {
+  pendingWindowIDs.union(
+    debtWindowIDs.filter { windowID in
+      guard let target = targetFrames[windowID] else { return false }
+      guard let observed = observedFrames[windowID] else { return true }
+      return abs(observed.x - target.x) + abs(observed.y - target.y) > tolerance
     }
   )
 }

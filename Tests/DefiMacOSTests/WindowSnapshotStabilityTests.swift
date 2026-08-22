@@ -8,6 +8,21 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func destroyedWindowsArrivingDuringSnapshotRemainPending() {
+    let engine = SnapshotEngine(
+      frameCoordinator: AXFrameCoordinator(),
+      userInputTracker: UserInputTracker()
+    )
+    let consumed = WindowID(rawValue: 1)
+    let arrivedDuringSnapshot = WindowID(rawValue: 2)
+
+    engine.recordExplicitlyDestroyedWindow(consumed)
+    #expect(engine.consumeExplicitlyDestroyedWindows() == [consumed])
+    engine.recordExplicitlyDestroyedWindow(arrivedDuringSnapshot)
+
+    #expect(engine.explicitlyDestroyedWindowIDs == [arrivedDuringSnapshot])
+  }
+
   @Test func staleCGWindowInventoryIsRejected() {
     #expect(
       preparedCGWindowInventoryIsCurrent(

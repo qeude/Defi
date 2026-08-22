@@ -97,6 +97,7 @@ extension SnapshotEngine {
     preparedWindowAttributes: [WindowID: AXWindowAttributes],
     preparedTransientOwnerWindowIDs: [WindowID: WindowID],
     preparedApplicationWindows: [pid_t: PreparedAXApplicationWindows],
+    explicitlyDestroyedWindowIDs: Set<WindowID>,
     publicCGWindows: () -> [CGWindowRecord]?
   ) -> SnapshotWindowDiscoveryResult {
       let previousElements = elements

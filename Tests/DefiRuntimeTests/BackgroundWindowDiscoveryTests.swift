@@ -82,4 +82,42 @@ struct BackgroundWindowDiscoveryTests {
     #expect(state.monitors[0].workspaces[0].scrollOffset == 0.25)
     #expect(state.monitors[0].workspaces[0].targetScrollOffset == 0.25)
   }
+
+  @Test
+  func frontmostApplicationSpawnFollowsSelectedWindowAndTakesFocus() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    let windows = (1...3).map { rawValue in
+      Window(
+        id: WindowID(rawValue: UInt64(rawValue)),
+        appID: "terminal",
+        title: "Window \(rawValue)",
+        frame: Rect(x: Double(rawValue - 1) * 600, y: 0, width: 600, height: 800),
+        processID: 42,
+        monitorID: monitorID
+      )
+    }
+    try discoverWindow(
+      windows[0],
+      decision: RuleDecision(followFocus: true),
+      isNativelyFocused: true,
+      state: &state
+    )
+    try discoverWindow(windows[1], decision: RuleDecision(), state: &state)
+
+    reconcileWindows(
+      windows,
+      config: Config(),
+      frontmostProcessID: 42,
+      state: &state
+    )
+
+    let workspace = state.monitors[0].workspaces[0]
+    #expect(
+      workspace.columns.map(\.windows)
+        == [[windows[0].id], [windows[2].id], [windows[1].id]]
+    )
+    #expect(state.selectedWindowID(on: monitorID) == windows[2].id)
+  }
 }

@@ -127,6 +127,7 @@ color = "#FFC099FF"
 inactive_enabled = false
 inactive_color = "#66C099FF"
 capture_enabled = false
+placement = "outside"
 ```
 
 | Setting | Default | Values/type | Description |
@@ -137,6 +138,13 @@ capture_enabled = false
 | `inactive_enabled` | `false` | boolean | Draws borders around other visible tiled windows. |
 | `inactive_color` | `"#66C099FF"` | `0xAARRGGBB` or `#AARRGGBB` string | Inactive-window border color. |
 | `capture_enabled` | `false` | boolean | Makes border surfaces visible to screenshots and screen capture for debugging. |
+| `placement` | `"outside"` | `"inside"` or `"outside"` | Draws the stroke inside the window edge (overlapping the first pixels of content) or just past it. |
+
+With `placement = "outside"`, the stroke no longer overlaps window content, but
+the ring extends into gaps between adjacent windows; a neighboring window drawn
+above the border panel can clip it there. Defi reserves enough horizontal space
+at monitor edges to keep the full stroke visible without changing gaps between
+windows.
 
 Colors require exactly eight hexadecimal digits. First byte is alpha, followed
 by red, green, and blue. Both prefixes accept uppercase or lowercase digits.
@@ -435,6 +443,7 @@ color = "#FFC099FF"
 inactive_enabled = false
 inactive_color = "#66C099FF"
 capture_enabled = false
+placement = "outside"
 
 [workspaces]
 names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]

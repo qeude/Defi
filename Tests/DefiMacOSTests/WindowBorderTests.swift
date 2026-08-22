@@ -226,6 +226,55 @@ struct WindowBorderTests {
   }
 
   @Test
+  func outsidePlacementShiftsSegmentsPastWindowBounds() throws {
+    let windowFrame = Rect(x: 100, y: 200, width: 800, height: 600)
+    let width = 4.0
+    let radius = 9.0
+    let geometries = windowBorderSegmentGeometries(
+      windowFrame: windowFrame,
+      width: width,
+      radius: radius,
+      placement: .outside
+    )
+    let ringFrame = Rect(
+      x: windowFrame.x - width,
+      y: windowFrame.y - width,
+      width: windowFrame.width + width * 2,
+      height: windowFrame.height + width * 2
+    )
+    let expected = windowBorderSegmentGeometries(
+      windowFrame: ringFrame,
+      width: width,
+      radius: radius
+    )
+    #expect(geometries == expected)
+
+    let top = try #require(geometries.first { $0.kind == .top })
+    let bottom = try #require(geometries.first { $0.kind == .bottom })
+    #expect(top.frame == Rect(x: 96, y: 196, width: 808, height: 13))
+    #expect(bottom.frame == Rect(x: 96, y: 791, width: 808, height: 13))
+
+    let insidePixels = windowBorderSegmentGeometries(
+      windowFrame: windowFrame,
+      width: width,
+      radius: radius
+    ).reduce(0) { $0 + Int($1.frame.width * $1.frame.height) }
+    let outsidePixels = geometries.reduce(0) {
+      $0 + Int($1.frame.width * $1.frame.height)
+    }
+    #expect(
+      Double(outsidePixels) < Double(insidePixels) * 1.15
+    )
+  }
+
+  @Test
+  func borderPlacementParsesConfigValues() {
+    #expect(WindowBorderPlacement(configValue: "inside") == .inside)
+    #expect(WindowBorderPlacement(configValue: "outside") == .outside)
+    #expect(WindowBorderPlacement(configValue: "bogus") == .inside)
+  }
+
+  @Test
   func windowServerBoundsBecomeValidatedBorderFrames() {
     #expect(
       normalizedWindowBorderFrame(

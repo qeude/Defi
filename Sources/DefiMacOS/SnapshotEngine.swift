@@ -269,6 +269,18 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.explicitlyDestroyedWindowIDs = newValue } }
   }
 
+  func recordExplicitlyDestroyedWindow(_ windowID: WindowID) {
+    _ = read { $0.explicitlyDestroyedWindowIDs.insert(windowID) }
+  }
+
+  func consumeExplicitlyDestroyedWindows() -> Set<WindowID> {
+    read {
+      let windowIDs = $0.explicitlyDestroyedWindowIDs
+      $0.explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
+      return windowIDs
+    }
+  }
+
   var transientOwnerWindowIDs: [WindowID: WindowID] {
     get { read { $0.transientOwnerWindowIDs } }
     set { read { $0.transientOwnerWindowIDs = newValue } }

@@ -11,6 +11,7 @@ final class BorderOverlay {
   private var color: UInt32 = 0
   private var radius = -1.0
   private var captureEnabled = false
+  private var placement: WindowBorderPlacement = .inside
   private var visible = false
   private var opacityValue: Float = 0
   private var pendingOpacityReveal: Float?
@@ -60,13 +61,15 @@ final class BorderOverlay {
     width: Double,
     color: UInt32,
     windowRadius: Double,
-    captureEnabled: Bool
+    captureEnabled: Bool,
+    placement: WindowBorderPlacement
   ) {
     _ = syncGeometry(
       frame: frame,
       width: width,
       windowRadius: windowRadius,
-      captureEnabled: captureEnabled
+      captureEnabled: captureEnabled,
+      placement: placement
     )
     updateAppearance(to: color)
   }
@@ -75,17 +78,29 @@ final class BorderOverlay {
     frame: Rect,
     width: Double,
     windowRadius: Double,
-    captureEnabled: Bool
+    captureEnabled: Bool,
+    placement: WindowBorderPlacement = .inside
   ) -> Bool {
-    let radius = borderCornerRadius(windowRadius: windowRadius)
+    let baseRadius = borderCornerRadius(windowRadius: windowRadius)
+    // The outside ring renders against a frame expanded by the stroke width;
+    // its corner radius grows by the same outset so the stroke keeps hugging
+    // the real window curvature.
+    let radius = placement == .outside ? baseRadius + width : baseRadius
     guard
       windowFrame != frame || self.width != width || self.radius != radius
-        || self.captureEnabled != captureEnabled
+        || self.captureEnabled != captureEnabled || self.placement != placement
     else {
       return false
     }
+    let outset = placement == .outside ? width : 0
+    let ringFrame = Rect(
+      x: frame.x - outset,
+      y: frame.y - outset,
+      width: frame.width + outset * 2,
+      height: frame.height + outset * 2
+    )
     let geometries = windowBorderSegmentGeometries(
-      windowFrame: frame,
+      windowFrame: ringFrame,
       width: width,
       radius: radius
     )
@@ -100,7 +115,7 @@ final class BorderOverlay {
       }
       segment.syncGeometry(
         geometry,
-        windowFrame: frame,
+        windowFrame: ringFrame,
         width: width,
         radius: radius,
         captureEnabled: captureEnabled,
@@ -111,6 +126,7 @@ final class BorderOverlay {
     self.width = width
     self.radius = radius
     self.captureEnabled = captureEnabled
+    self.placement = placement
     return true
   }
 

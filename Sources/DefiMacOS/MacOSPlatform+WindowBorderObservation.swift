@@ -169,7 +169,7 @@ extension MacOSPlatform {
         else {
           return
         }
-        self.explicitlyDestroyedWindowIDs.insert(windowID)
+        self.snapshotEngine.recordExplicitlyDestroyedWindow(windowID)
       }
     )
     monitor.start()
@@ -264,7 +264,10 @@ extension MacOSPlatform {
       activeColor: parseBorderColor(config.color) ?? 0xffc0_99ff,
       inactiveEnabled: config.inactiveEnabled,
       inactiveColor: parseBorderColor(config.inactiveColor) ?? 0x66c0_99ff,
-      captureEnabled: config.captureEnabled
+      captureEnabled: config.captureEnabled,
+      placement: WindowBorderPlacement(
+        configValue: config.placement
+      )
     )
     refreshWindowBorders()
     if !screenCaptureAccessAvailable,
@@ -276,13 +279,11 @@ extension MacOSPlatform {
     revealWindowBordersIfReady()
   }
 
-  public func stageWindowBorderSelection(
-    _ selectedWindowID: WindowID?,
-    displayedFrame: Rect? = nil
-  ) {
+  public func stageWindowBorderSelection(_ selectedWindowID: WindowID?) {
     desiredSelectedWindowID = selectedWindowID
+    frameCoordinator.updateLiveBorderWindowID(selectedWindowID)
     let selectedFrame = selectedWindowID.flatMap { windowID in
-      displayedFrame ?? resolvedBorderFrame(for: windowID)
+      resolvedBorderFrame(for: windowID)
     }
     borderManager.prepareForSelection(
       selectedWindowID,
@@ -357,13 +358,19 @@ extension MacOSPlatform {
       borderManager.updateGeometry(frames: displayedFrames, style: borderStyle)
       return
     }
-    let borderGeometryIsSettling = liveGeometryWindowIDs.contains { windowID in
-      guard let expectation = frameCommitExpectations[windowID] else {
-        return false
-      }
-      return expectation.observedAt == nil
+    let borderGeometryIsSettling = borderRefreshBlockedBySettling(
+      liveWindowIDs: liveGeometryWindowIDs,
+      expectations: frameCommitExpectations,
+      now: ProcessInfo.processInfo.systemUptime
+    )
+    if borderGeometryIsSettling {
+      // Writes are still settling. Keep following displayed frames without
+      // replanning: if an application stops confirming its frame commits,
+      // overlays must converge on the real window instead of freezing at a
+      // mid-transition geometry.
+      refreshWindowBorderGeometry(windowIDs: liveGeometryWindowIDs)
+      return
     }
-    guard !borderGeometryIsSettling else { return }
     let plan = planWindowBorders(
       frames: borderFrames,
       selectedWindowID: borderSelectedWindowID,
@@ -437,7 +444,18 @@ extension MacOSPlatform {
     else {
       return
     }
-    refreshWindowBorderGeometry(windowIDs: [windowID])
+    guard
+      let frame = frame(of: element) ?? resolvedBorderFrame(for: windowID)
+    else {
+      return
+    }
+    latestObservedFrames[windowID] = frame
+    if borderManager.updateGeometry(
+      frames: [windowID: frame],
+      style: borderStyle
+    ) {
+      invalidatePointerHitTestCache()
+    }
   }
 
   private func refreshWindowBorderGeometry(

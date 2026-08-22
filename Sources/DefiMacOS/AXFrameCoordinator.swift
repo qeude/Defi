@@ -83,6 +83,19 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
   var immediateReadbackProcessDeadlines: [pid_t: TimeInterval] = [:]
+  var liveBorderWindowID: WindowID?
+
+  func updateLiveBorderWindowID(_ windowID: WindowID?) {
+    lock.lock()
+    liveBorderWindowID = windowID
+    lock.unlock()
+  }
+
+  func currentLiveBorderWindowID() -> WindowID? {
+    lock.lock()
+    defer { lock.unlock() }
+    return liveBorderWindowID
+  }
 
   func processNeedsImmediateReadback(_ processID: pid_t) -> Bool {
     lock.lock()

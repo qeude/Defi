@@ -36,7 +36,7 @@ private func ipcEventHandler(
                 let response = daemon.handle(
                   request.command,
                   monitorIndex: request.monitorIndex
-                ) ?? .failure("daemon unavailable")
+                )
                 if DaemonReadResponseCache.isReadCommand(request.command),
                   response.ok
                 {

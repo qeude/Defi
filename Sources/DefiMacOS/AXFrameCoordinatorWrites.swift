@@ -279,6 +279,11 @@ extension AXFrameCoordinator {
         synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
         animatesSize: item.value.animatesSize
       )
+      let readsLiveBorderPosition = acceptedFrameRequiresReadback(
+        windowID: item.key,
+        sizeChanged: false,
+        liveBorderWindowID: currentLiveBorderWindowID()
+      )
       let writeResult = AXMessagingTimeoutAccess.shared.withTimeout(
         timeout,
         elements: [item.value.application, item.value.element]
@@ -301,6 +306,11 @@ extension AXFrameCoordinator {
           animatesSize: item.value.animatesSize,
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
+        let acceptedSize =
+          sizeApplied && requiresAsynchronousSizeWrite && !intermediate
+            && progress >= 1
+          ? accessibilityWriter.readSize(item.value.element)
+          : nil
         let positionApplied =
           generationIsCurrent
           && (
@@ -318,15 +328,23 @@ extension AXFrameCoordinator {
                 enhancedUIManagedByBatch: managesEnhancedUI
               )
             )
+        let acceptedPosition =
+          positionApplied && readsLiveBorderPosition
+            ? accessibilityWriter.readPosition(item.value.element)
+            : nil
         return (
           sizeApplied: sizeApplied,
+          acceptedSize: acceptedSize,
           positionApplied: positionApplied,
+          acceptedPosition: acceptedPosition,
           timeoutConfiguredAt: timeoutConfiguredAt,
           positionAppliedAt: ProcessInfo.processInfo.systemUptime
         )
       }
       let sizeApplied = writeResult.sizeApplied
+      let acceptedSize = writeResult.acceptedSize
       let positionApplied = writeResult.positionApplied
+      let acceptedPosition = writeResult.acceptedPosition
       let appliedWrite = sizeApplied && positionApplied
       let successfulWrite = successfulFrameWriteIntent(
         positionChanged: item.value.positionChanged,
@@ -384,15 +402,18 @@ extension AXFrameCoordinator {
       if positionApplied, item.value.positionChanged {
         applied += 1
         let completedPoint =
-          requiresReadback
+          acceptedPosition
+          ?? (requiresReadback
           && processNeedsImmediateReadback(item.value.processID)
           ? accessibilityWriter.readPosition(item.value.element) ?? point
-          : point
+          : point)
         recordCompletedPosition(completedPoint, windowID: item.key)
+      } else if let acceptedPosition {
+        recordCompletedPosition(acceptedPosition, windowID: item.key)
       }
       if sizeApplied, requiresAsynchronousSizeWrite {
         recordCompletedSize(
-          size,
+          acceptedSize ?? size,
           windowID: item.key,
           incrementWriteCount: true
         )
@@ -427,32 +448,37 @@ extension AXFrameCoordinator {
     guard !writes.isEmpty else { return [] }
     let byProcess = Dictionary(grouping: writes) { $0.value.processID }
     let group = DispatchGroup()
-    let resultLock = NSLock()
-    var committedWindowIDs = Set<WindowID>()
     lock.lock()
     appendTraceLocked(
       "size-commit g=\(generation) processes=\(byProcess.count) windows=\(writes.count)"
     )
     lock.unlock()
+    let committed = WindowIDCollector()
     for entries in byProcess.values {
       group.enter()
       processWriteQueue(for: entries[0].value.processID).async { [self] in
+        defer { group.leave() }
         var succeeded = Set<WindowID>()
         for (windowID, write) in entries.sorted(by: {
           $0.key.rawValue < $1.key.rawValue
         }) {
           guard isCurrent(generation: generation) else { break }
-          let writeSucceeded = AXMessagingTimeoutAccess.shared.withTimeout(
+          let writeResult = AXMessagingTimeoutAccess.shared.withTimeout(
             max(write.timeoutSeconds, 0.016),
             elements: [write.application, write.element]
           ) {
-            accessibilityWriter.applySize(
+            let succeeded = accessibilityWriter.applySize(
               write,
               size: write.size,
               enhancedUIManagedByBatch: false
             )
+            return (
+              succeeded: succeeded,
+              acceptedSize: succeeded
+                ? accessibilityWriter.readSize(write.element) : nil
+            )
           }
-          guard writeSucceeded else { continue }
+          guard writeResult.succeeded else { continue }
           succeeded.insert(windowID)
           recordInternalFrameWrite(
             Rect(
@@ -467,19 +493,16 @@ extension AXFrameCoordinator {
             now: ProcessInfo.processInfo.systemUptime
           )
           recordCompletedSize(
-            write.size,
+            writeResult.acceptedSize ?? write.size,
             windowID: windowID,
             incrementWriteCount: true
           )
         }
-        resultLock.lock()
-        committedWindowIDs.formUnion(succeeded)
-        resultLock.unlock()
-        group.leave()
+        committed.add(succeeded)
       }
     }
     group.wait()
-    return committedWindowIDs
+    return committed.value
   }
 
   func recordCompletedSize(
@@ -493,6 +516,56 @@ extension AXFrameCoordinator {
       completedAnimatedSizeWrites += 1
     }
     lock.unlock()
+  }
+
+  func readAcceptedFrames(
+    for frame: QueuedPositionFrame,
+    successfulWindowIDs: Set<WindowID>
+  ) -> [WindowID: Rect] {
+    var acceptedFrames: [WindowID: Rect] = [:]
+    let liveBorderWindowID = currentLiveBorderWindowID()
+    for (windowID, write) in frame.writes.sorted(by: {
+      $0.key.rawValue < $1.key.rawValue
+    }) where acceptedFrameRequiresReadback(
+      windowID: windowID,
+      sizeChanged: write.sizeChanged,
+      liveBorderWindowID: liveBorderWindowID
+    ) && successfulWindowIDs.contains(windowID) {
+      guard isCurrent(generation: frame.generation) else { break }
+      let accepted = AXMessagingTimeoutAccess.shared.withTimeout(
+        max(write.timeoutSeconds, 0.025),
+        elements: [write.application, write.element]
+      ) {
+        guard let position = accessibilityWriter.readPosition(write.element),
+          let size = accessibilityWriter.readSize(write.element)
+        else {
+          return nil as Rect?
+        }
+        return Rect(
+          x: position.x,
+          y: position.y,
+          width: size.width,
+          height: size.height
+        )
+      }
+      guard let accepted, isCurrent(generation: frame.generation) else {
+        continue
+      }
+      recordCompletedPosition(
+        CGPoint(x: accepted.x, y: accepted.y),
+        windowID: windowID
+      )
+      recordCompletedSize(
+        CGSize(width: accepted.width, height: accepted.height),
+        windowID: windowID,
+        incrementWriteCount: false
+      )
+      acceptedFrames[windowID] = accepted
+    }
+    if !acceptedFrames.isEmpty {
+      borderLiveGeometryHandler?(acceptedFrames)
+    }
+    return acceptedFrames
   }
 
   func recordInternalFrameWrite(
@@ -536,5 +609,23 @@ extension AXFrameCoordinator {
     lock.lock()
     activeWrites.removeValue(forKey: windowID)
     lock.unlock()
+  }
+}
+
+/// Lock-guarded because per-process write queues merge concurrently.
+private final class WindowIDCollector: @unchecked Sendable {
+  private let lock = NSLock()
+  private var ids = Set<WindowID>()
+
+  func add(_ newIDs: Set<WindowID>) {
+    lock.lock()
+    ids.formUnion(newIDs)
+    lock.unlock()
+  }
+
+  var value: Set<WindowID> {
+    lock.lock()
+    defer { lock.unlock() }
+    return ids
   }
 }

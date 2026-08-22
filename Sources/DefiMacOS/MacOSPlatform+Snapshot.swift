@@ -37,7 +37,10 @@ extension SnapshotEngine {
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
-let frontmostProcessID = onMain { _ in NSWorkspace.shared.frontmostApplication }?.processIdentifier
+    let explicitlyDestroyedWindowIDs = consumeExplicitlyDestroyedWindows()
+    let frontmostProcessID = onMain {
+      _ in NSWorkspace.shared.frontmostApplication
+    }?.processIdentifier
     let tracesWindowTopology = windowTopologyEventPending
     let capturedTopologyRequiresFullSnapshot =
       windowTopologyRequiresFullSnapshot
@@ -285,11 +288,11 @@ let frontmostProcessID = onMain { _ in NSWorkspace.shared.frontmostApplication }
       preparedWindowAttributes: preparedWindowAttributes,
       preparedTransientOwnerWindowIDs: preparedTransientOwners,
       preparedApplicationWindows: preparedApplicationWindows,
+      explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
       publicCGWindows: publicCGWindows
     )
     preparedCGWindowInventory = nil
     preparedCGWindowInventoryAvailable = false
-    explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
     let nextElements = discovery.nextElements
     let nextProcessIDs = discovery.nextProcessIDs
     let nextApplications = discovery.nextApplications
@@ -429,10 +432,13 @@ let frontmostProcessID = onMain { _ in NSWorkspace.shared.frontmostApplication }
       freshObservationIDs.contains($0.key)
         || cachedSnapshotWindowIDs.contains($0.key)
     }
-    frameCommitExpectations = frameCommitExpectations.filter {
-      nextElements[$0.key] != nil
-    }
     let now = ProcessInfo.processInfo.systemUptime
+    // Expired expectations are dead bookkeeping. The per-window expiry below
+    // only runs on fresh observations; applications that stop delivering
+    // them would otherwise keep an expectation alive forever.
+    frameCommitExpectations = frameCommitExpectations.filter {
+      nextElements[$0.key] != nil && $0.value.deadline > now
+    }
     initialFrameSettlementDeadlines = initialFrameSettlementDeadlines.filter {
       nextElements[$0.key] != nil && $0.value > now
     }

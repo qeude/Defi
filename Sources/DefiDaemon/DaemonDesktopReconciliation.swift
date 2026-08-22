@@ -177,7 +177,7 @@ extension Daemon {
       let count = persistentWidthDriftCounts[mismatch.windowID, default: 0] + 1
       persistentWidthDriftCounts[mismatch.windowID] = count
       if count >= 3,
-        learnTiledWindowWidth(
+        learnTiledWindowMinimumWidth(
           mismatch.windowID,
           actualFrame: mismatch.actual,
           state: &state,

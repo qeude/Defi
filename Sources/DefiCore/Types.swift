@@ -19,6 +19,7 @@ public struct LayoutSettings: Equatable, Sendable {
   public var outerRightGap: Double
   public var outerBottomGap: Double
   public var outerLeftGap: Double
+  public var horizontalViewportPadding: Double
 
   public init(
     defaultColumnWidth: Double = 0.80,
@@ -29,7 +30,8 @@ public struct LayoutSettings: Equatable, Sendable {
     outerTopGap: Double = 8,
     outerRightGap: Double = 8,
     outerBottomGap: Double = 8,
-    outerLeftGap: Double = 8
+    outerLeftGap: Double = 8,
+    horizontalViewportPadding: Double = 0
   ) {
     self.defaultColumnWidth = defaultColumnWidth
     self.presetColumnWidths = presetColumnWidths
@@ -40,6 +42,7 @@ public struct LayoutSettings: Equatable, Sendable {
     self.outerRightGap = outerRightGap
     self.outerBottomGap = outerBottomGap
     self.outerLeftGap = outerLeftGap
+    self.horizontalViewportPadding = horizontalViewportPadding
   }
 }
 

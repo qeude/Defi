@@ -213,6 +213,7 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
+        updated.minimumTiledWidth = existing.minimumTiledWidth
         if existing.intrinsicSize,
           !externallyChangedWindowIDs.contains(window.id)
         {

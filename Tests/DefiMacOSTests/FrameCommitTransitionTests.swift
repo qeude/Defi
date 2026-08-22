@@ -349,6 +349,48 @@ struct FrameCommitTransitionTests {
   }
 
   @Test
+  func borderRefreshSettleGateExpiresWithTheExpectationDeadline() {
+    let windowID = WindowID(rawValue: 7)
+    let liveWindowIDs: Set<WindowID> = [windowID]
+
+    // Unresolved and inside the deadline: replanning waits.
+    #expect(
+      borderRefreshBlockedBySettling(
+        liveWindowIDs: liveWindowIDs,
+        expectations: [windowID: expectation],
+        now: 10.5
+      )
+    )
+    // Past the deadline the expectation is stale bookkeeping and must never
+    // block border geometry updates.
+    #expect(
+      borderRefreshBlockedBySettling(
+        liveWindowIDs: liveWindowIDs,
+        expectations: [windowID: expectation],
+        now: 10.8
+      ) == false
+    )
+    // Observed expectations do not gate either.
+    var observed = expectation
+    observed.observedAt = 10.4
+    #expect(
+      borderRefreshBlockedBySettling(
+        liveWindowIDs: liveWindowIDs,
+        expectations: [windowID: observed],
+        now: 10.5
+      ) == false
+    )
+    // Windows without expectations never gate.
+    #expect(
+      borderRefreshBlockedBySettling(
+        liveWindowIDs: [WindowID(rawValue: 9)],
+        expectations: [windowID: expectation],
+        now: 10.5
+      ) == false
+    )
+  }
+
+  @Test
   func supersededFrameDebtStaysUntilTargetIsObserved() {
     let displaced = WindowID(rawValue: 1)
     let replacement = WindowID(rawValue: 2)
@@ -370,6 +412,33 @@ struct FrameCommitTransitionTests {
       observedFrames: [displaced: target]
     )
     #expect(observed == [replacement])
+  }
+
+  @Test
+  func minimumSizeDebtDoesNotBlockFocusReadiness() {
+    let windowID = WindowID(rawValue: 1)
+    let target = Rect(x: 100, y: 40, width: 800, height: 900)
+
+    #expect(
+      unresolvedPositionDebtWindowIDs(
+        pendingWindowIDs: [],
+        debtWindowIDs: [windowID],
+        targetFrames: [windowID: target],
+        observedFrames: [
+          windowID: Rect(x: 100, y: 40, width: 1_000, height: 900)
+        ]
+      ).isEmpty
+    )
+    #expect(
+      unresolvedPositionDebtWindowIDs(
+        pendingWindowIDs: [],
+        debtWindowIDs: [windowID],
+        targetFrames: [windowID: target],
+        observedFrames: [
+          windowID: Rect(x: 101.5, y: 40, width: 1_000, height: 900)
+        ]
+      ) == [windowID]
+    )
   }
 
   @Test

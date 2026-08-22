@@ -449,7 +449,7 @@ final class FrameCommitTests: XCTestCase {
     XCTAssertEqual(result[replacementWindowID]?.size.width, 1_000)
   }
 
-  func testPositionOnlyReplacementKeepsSameWindowAsyncSizeDebt() {
+  func testPositionOnlyReplacementRetargetsAsyncSizeDebtToLatestPlan() {
     let element = AXUIElementCreateSystemWide()
     func write(
       point: CGPoint,
@@ -498,7 +498,7 @@ final class FrameCommitTests: XCTestCase {
     )
 
     XCTAssertEqual(result[windowID]?.point, CGPoint(x: 100, y: 40))
-    XCTAssertEqual(result[windowID]?.size, CGSize(width: 900, height: 700))
+    XCTAssertEqual(result[windowID]?.size, CGSize(width: 800, height: 600))
     XCTAssertTrue(result[windowID]?.positionChanged == true)
     XCTAssertTrue(result[windowID]?.sizeChanged == true)
     XCTAssertFalse(result[windowID]?.synchronousSizeWriteSucceeded == true)
@@ -688,6 +688,25 @@ final class FrameCommitTests: XCTestCase {
         sizeApplied: false
       ),
       FrameWriteIntent(position: true, size: false)
+    )
+  }
+
+  func testLiveBorderWindowRequiresAcceptedFrameReadbackAfterPositionWrite() {
+    let liveWindowID = WindowID(rawValue: 42)
+
+    XCTAssertTrue(
+      acceptedFrameRequiresReadback(
+        windowID: liveWindowID,
+        sizeChanged: false,
+        liveBorderWindowID: liveWindowID
+      )
+    )
+    XCTAssertFalse(
+      acceptedFrameRequiresReadback(
+        windowID: WindowID(rawValue: 43),
+        sizeChanged: false,
+        liveBorderWindowID: liveWindowID
+      )
     )
   }
 

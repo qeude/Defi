@@ -451,7 +451,8 @@ extension MacOSPlatform {
   }
 
   public var pendingFrameWindowIDs: Set<WindowID> {
-    unresolvedFrameDebtWindowIDs(
+    // App-enforced minimum sizes are layout debt, but cannot delay focus forever.
+    unresolvedPositionDebtWindowIDs(
       pendingWindowIDs: frameCoordinator.pendingWindowIDs,
       debtWindowIDs: pendingFrameDebtWindowIDs,
       targetFrames: targetFrames,

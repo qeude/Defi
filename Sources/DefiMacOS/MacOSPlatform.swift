@@ -22,14 +22,9 @@ public final class MacOSPlatform {
           // Server - never the planned one - so clamping apps keep borders
           // matched to their real geometry.
           var resolvedFrames: [WindowID: Rect] = [:]
-          for (windowID, planned) in frames {
-            if let native = self.borderBoundsProvider.frame(for: windowID) {
-              resolvedFrames[windowID] = native
-            } else if let observed = self.latestObservedFrames[windowID] {
-              resolvedFrames[windowID] = observed
-            } else {
-              resolvedFrames[windowID] = planned
-            }
+          for (windowID, completed) in frames {
+            resolvedFrames[windowID] =
+              self.borderBoundsProvider.frame(for: windowID) ?? completed
           }
           _ = self.borderManager.updateGeometry(
             frames: resolvedFrames,

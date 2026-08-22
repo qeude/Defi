@@ -17,7 +17,7 @@ public struct RuntimeState: Equatable, Sendable {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
     self.monitors = []
     self.windows = [:]
-    self.layout = LayoutSettings(config: config.layout)
+    self.layout = LayoutSettings(config: config)
     self.workspaceNames = names
     self.defaultWorkspace = WorkspaceID(rawValue: config.workspaces.defaultName)
     self.suspendedTiledPlacements = [:]
@@ -324,17 +324,23 @@ private func scalePixelWidth(_ width: inout ColumnWidth, by scale: Double) {
 }
 
 extension LayoutSettings {
-  fileprivate init(config: LayoutConfig) {
+  fileprivate init(config: Config) {
+    let borderPadding =
+      config.decorations.borders.enabled
+        && config.decorations.borders.placement == "outside"
+      ? config.decorations.borders.width
+      : 0
     self.init(
-      defaultColumnWidth: config.defaultColumnWidth,
-      presetColumnWidths: config.presetColumnWidths,
-      centerFocusedColumn: config.centerFocusedColumn == .always ? .always : .never,
-      innerHorizontalGap: config.gaps / 2,
-      innerVerticalGap: config.gaps / 2,
-      outerTopGap: config.outerTopGap ?? config.gaps,
-      outerRightGap: config.outerRightGap ?? config.gaps,
-      outerBottomGap: config.outerBottomGap ?? config.gaps,
-      outerLeftGap: config.outerLeftGap ?? config.gaps
+      defaultColumnWidth: config.layout.defaultColumnWidth,
+      presetColumnWidths: config.layout.presetColumnWidths,
+      centerFocusedColumn: config.layout.centerFocusedColumn == .always ? .always : .never,
+      innerHorizontalGap: config.layout.gaps / 2,
+      innerVerticalGap: config.layout.gaps / 2,
+      outerTopGap: config.layout.outerTopGap ?? config.layout.gaps,
+      outerRightGap: max(config.layout.outerRightGap ?? config.layout.gaps, borderPadding),
+      outerBottomGap: config.layout.outerBottomGap ?? config.layout.gaps,
+      outerLeftGap: max(config.layout.outerLeftGap ?? config.layout.gaps, borderPadding),
+      horizontalViewportPadding: borderPadding
     )
   }
 }

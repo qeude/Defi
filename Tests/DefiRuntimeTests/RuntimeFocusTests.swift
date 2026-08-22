@@ -19,6 +19,7 @@ final class RuntimeFocusTests: XCTestCase {
           monitorID: monitorID
         ),
         decision: RuleDecision(),
+        isFrontmostAppSpawn: true,
         state: &state
       )
     }
