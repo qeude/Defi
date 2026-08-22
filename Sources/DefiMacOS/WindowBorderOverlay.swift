@@ -84,18 +84,8 @@ final class BorderOverlay {
     else {
       return false
     }
-    // Draw the ring outside the window bounds instead of overlapping its
-    // content: expand the reference frame by the full band so every segment
-    // sits just past the real window edge.
-    let band = ceil(max(width * 2, radius + width, 1))
-    let outerFrame = Rect(
-      x: frame.x - band,
-      y: frame.y - band,
-      width: frame.width + band * 2,
-      height: frame.height + band * 2
-    )
     let geometries = windowBorderSegmentGeometries(
-      windowFrame: outerFrame,
+      windowFrame: frame,
       width: width,
       radius: radius
     )
