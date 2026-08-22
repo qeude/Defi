@@ -18,8 +18,21 @@ public final class MacOSPlatform {
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
           guard let self else { return }
+          // The overlay follows the frame actually displayed by the Window
+          // Server - never the planned one - so clamping apps keep borders
+          // matched to their real geometry.
+          var resolvedFrames: [WindowID: Rect] = [:]
+          for (windowID, planned) in frames {
+            if let native = self.borderBoundsProvider.frame(for: windowID) {
+              resolvedFrames[windowID] = native
+            } else if let observed = self.latestObservedFrames[windowID] {
+              resolvedFrames[windowID] = observed
+            } else {
+              resolvedFrames[windowID] = planned
+            }
+          }
           _ = self.borderManager.updateGeometry(
-            frames: frames,
+            frames: resolvedFrames,
             style: self.borderStyle
           )
         }
