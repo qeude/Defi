@@ -1,8 +1,8 @@
 import DefiConfig
 import DefiModel
 import DefiRuntime
+import Numerics
 import Testing
-import XCTest
 
 struct RuntimeFocusTests {
   private let monitorID = MonitorID(rawValue: 1)
@@ -98,10 +98,11 @@ struct RuntimeFocusTests {
       viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     )
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].targetScrollOffset,
-      0.1,
-      accuracy: 0.001
+    #expect(
+      state.monitors[0].workspaces[0].targetScrollOffset.isApproximatelyEqual(
+        to: 0.1,
+        absoluteTolerance: 0.001
+      )
     )
   }
 
@@ -129,10 +130,11 @@ struct RuntimeFocusTests {
       viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     )
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].targetScrollOffset,
-      0,
-      accuracy: 0.001
+    #expect(
+      state.monitors[0].workspaces[0].targetScrollOffset.isApproximatelyEqual(
+        to: 0,
+        absoluteTolerance: 0.001
+      )
     )
   }
 

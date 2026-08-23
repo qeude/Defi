@@ -1,7 +1,7 @@
 import DefiCore
 import DefiModel
+import Numerics
 import Testing
-import XCTest
 
 struct WorkspaceScrollingTests {
   private let settings = LayoutSettings()
@@ -21,8 +21,15 @@ struct WorkspaceScrollingTests {
       settings: compact
     )
 
-    XCTAssertEqual(workspace.targetScrollOffset, 0.44, accuracy: 0.001)
-    XCTAssertEqual(diff.frames[1].frame.x, 407.2, accuracy: 0.001)
+    #expect(
+      workspace.targetScrollOffset.isApproximatelyEqual(
+        to: 0.44,
+        absoluteTolerance: 0.001
+      )
+    )
+    #expect(
+      diff.frames[1].frame.x.isApproximatelyEqual(to: 407.2, absoluteTolerance: 0.001)
+    )
   }
 
   @Test
@@ -37,25 +44,22 @@ struct WorkspaceScrollingTests {
       columns: columns,
       focusedColumn: 1
     )
-    XCTAssertEqual(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport),
-      0,
-      accuracy: 0.001
+    #expect(
+      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+        .isApproximatelyEqual(to: 0, absoluteTolerance: 0.001)
     )
 
     workspace.focusedColumn = 2
-    XCTAssertEqual(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport),
-      0.5,
-      accuracy: 0.001
+    #expect(
+      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+        .isApproximatelyEqual(to: 0.5, absoluteTolerance: 0.001)
     )
 
     workspace.focusedColumn = 3
     workspace.scrollOffset = 0.5
-    XCTAssertEqual(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport),
-      1,
-      accuracy: 0.001
+    #expect(
+      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+        .isApproximatelyEqual(to: 1, absoluteTolerance: 0.001)
     )
   }
 
@@ -85,8 +89,15 @@ struct WorkspaceScrollingTests {
       settings: centered
     )
 
-    XCTAssertEqual(workspace.targetScrollOffset, 0.25, accuracy: 0.001)
-    XCTAssertEqual(diff.frames[1].frame.x, 250, accuracy: 0.001)
+    #expect(
+      workspace.targetScrollOffset.isApproximatelyEqual(
+        to: 0.25,
+        absoluteTolerance: 0.001
+      )
+    )
+    #expect(
+      diff.frames[1].frame.x.isApproximatelyEqual(to: 250, absoluteTolerance: 0.001)
+    )
   }
 
 }

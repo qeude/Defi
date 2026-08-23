@@ -2,8 +2,8 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import DefiRuntime
+import Numerics
 import Testing
-import XCTest
 
 struct MouseReorderingTests {
   private let monitorID = MonitorID(rawValue: 1)
@@ -541,7 +541,12 @@ struct MouseReorderingTests {
     )
 
     #expect(update.shouldFinish == false)
-    XCTAssertEqual(update.settlement.nextCheckAt, 10.35, accuracy: 0.000_1)
+    #expect(
+      update.settlement.nextCheckAt.isApproximatelyEqual(
+        to: 10.35,
+        absoluteTolerance: 0.000_1
+      )
+    )
   }
 
   @Test
