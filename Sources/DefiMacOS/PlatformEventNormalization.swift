@@ -12,6 +12,7 @@ enum PlatformEventKind: Equatable {
   case mouse
   case mouseRelease
   case screens
+  case space
 }
 
 func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
@@ -22,7 +23,7 @@ func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   switch kind {
   case .application, .applicationTerminated:
     return [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
-  case .focus, .frame, .windows, .mouse, .mouseRelease, .screens:
+  case .focus, .frame, .windows, .mouse, .mouseRelease, .screens, .space:
     return []
   }
 }
@@ -78,7 +79,7 @@ func updatedWindowTopologyInputTimestamp(
   switch kind {
   case .windows, .applicationTerminated:
     return latestInputTimestamp
-  case .application, .focus, .frame, .mouse, .mouseRelease, .screens:
+  case .application, .focus, .frame, .mouse, .mouseRelease, .screens, .space:
     return previousTimestamp
   }
 }
@@ -149,7 +150,7 @@ func windowSnapshotInvalidation(
   switch kind {
   case .windows:
     return processID.map(WindowSnapshotInvalidation.process) ?? .full
-  case .application, .applicationTerminated, .screens:
+  case .application, .applicationTerminated, .screens, .space:
     return .full
   case .focus, .frame, .mouse, .mouseRelease:
     return .none

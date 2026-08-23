@@ -225,8 +225,8 @@ extension MacOSPlatform {
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
     let snapshot = pointerHitTestSnapshot()
-    if !screenCaptureAccessAvailable,
-      let ownedWindowID = borderManager.ownedSurfaceWindowID
+    if let ownedWindowID = borderManager.ownedSurfaceWindowID
+      ?? nativeFullscreenPlaceholderManager.ownedSurfaceWindowID
     {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
@@ -237,8 +237,8 @@ extension MacOSPlatform {
     )
       .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
       .union(borderManager.transparentSurfaceWindowIDs)
-    if !screenCaptureAccessAvailable,
-      let rawWindowID,
+      .union(nativeFullscreenPlaceholderManager.transparentSurfaceWindowIDs)
+    if let rawWindowID,
       let rawRecord = snapshot.records.first(where: {
         WindowID(rawValue: UInt64($0.id)) == rawWindowID
       }),
@@ -253,7 +253,6 @@ extension MacOSPlatform {
       managedWindowIDs: lastSnapshotWindowIDs,
       nonblockingWindowIDs: nonblockingWindowIDs,
       frameProvider: { record in
-        guard !screenCaptureAccessAvailable else { return record.frame }
         let windowID = WindowID(rawValue: UInt64(record.id))
         guard lastSnapshotWindowIDs.contains(windowID) else {
           return record.frame

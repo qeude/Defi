@@ -86,8 +86,13 @@ extension MacOSPlatform {
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
     cursorWarpIsCurrent: (@MainActor @Sendable () -> Bool)? = nil,
+    allowsNativeFullscreen: Bool = false,
     completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
+    guard allowsNativeFullscreen || !nativeFullscreenWindowIDs.contains(windowID) else {
+      completion?(.completedWithoutMutation)
+      return nil
+    }
     // A direct focus request is the new source of truth. Any asynchronous
     // recovery started by an older request must not be allowed to submit a
     // focus write after this one.

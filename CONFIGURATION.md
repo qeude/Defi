@@ -353,15 +353,15 @@ See [SKETCHYBAR.md](SKETCHYBAR.md) for event contract and example scripts.
 `maximize-column` changes only Defi's logical column width. It does not enter
 native macOS fullscreen or create a macOS Space.
 
-Native fullscreen lifecycle support is not implemented yet. Its required policy
-is:
+Native fullscreen lifecycle support follows this policy:
 
 - macOS or the application owns fullscreen entry and exit; Defi passes those
   actions through and never substitutes `maximize-column`
-- while macOS reports a window in native fullscreen, Defi temporarily unmanages
-  it and performs no layout, parking, frame, or focus writes for that window
+- while macOS reports a window in native fullscreen, Defi temporarily removes
+  it from the visible strip and performs no layout, parking, frame, border, or
+  automatic focus writes for that window
 - Defi preserves the window's logical column slot, width, monitor, workspace,
-  and focus selection while it is unmanaged
+  and focus selection; explicit Defi focus commands may still select it
 - on exit, Defi restores the window to that slot and reconciles once against
   current monitor topology; normal deterministic monitor fallback applies when
   the original monitor no longer exists

@@ -140,6 +140,7 @@ struct PendingWorkspaceFocus: Equatable {
 struct MonitorLayoutPlan {
   let assignments: [FrameAssignment]
   let borderAssignments: [FrameAssignment]
+  let nativeFullscreenPlaceholderAssignments: [FrameAssignment]
   let hiddenWindowIDs: Set<WindowID>
 }
 

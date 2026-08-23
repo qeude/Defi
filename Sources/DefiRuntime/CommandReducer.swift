@@ -67,6 +67,13 @@ public func reduce(
     } ?? 0
   let layout = state.layout
 
+  if let selectedWindowID = state.selectedWindowID(on: state.monitors[monitorIndex].id),
+    state.nativeFullscreenWindowIDs.contains(selectedWindowID),
+    commandMutatesNativeFullscreenSelection(command)
+  {
+    return
+  }
+
   func workspaceIndex(_ monitor: Monitor) throws -> Int {
     guard
       let index = monitor.workspaces.firstIndex(
@@ -130,6 +137,10 @@ public func reduce(
       if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         let column = state.monitors[monitorIndex].workspaces[index].columns[columnIndex]
+        for windowID in column.windows
+        where state.pendingNativeFullscreenWidthResetWindowIDs.remove(windowID) != nil {
+          state.windows[windowID]?.minimumTiledWidth = nil
+        }
         let minimumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
           viewport in
           guard viewport.width > 0 else { return nil }
@@ -185,7 +196,14 @@ public func reduce(
       )
     case .joinWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
-      if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
+      let workspace = state.monitors[monitorIndex].workspaces[index]
+      if !workspace.columns.isEmpty,
+        !joinTargetsNativeFullscreenColumn(
+          direction,
+          workspace: workspace,
+          nativeFullscreenWindowIDs: state.nativeFullscreenWindowIDs
+        )
+      {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         try joinFocusedWindow(
           direction,
@@ -217,6 +235,42 @@ public func reduce(
     }
   } catch let error as LayoutError {
     throw ReducerError.layout(error)
+  }
+  normalizeNativeFullscreenColumns(state: &state)
+}
+
+private func joinTargetsNativeFullscreenColumn(
+  _ direction: Direction,
+  workspace: Workspace,
+  nativeFullscreenWindowIDs: Set<WindowID>
+) -> Bool {
+  let targetColumnIndex: Int?
+  switch direction {
+  case .left, .previous:
+    targetColumnIndex = workspace.focusedColumn > 0 ? workspace.focusedColumn - 1 : nil
+  case .right, .next:
+    targetColumnIndex =
+      workspace.focusedColumn + 1 < workspace.columns.count
+      ? workspace.focusedColumn + 1
+      : nil
+  case .up, .down, .first, .last:
+    return false
+  }
+  guard let targetColumnIndex else { return false }
+  return workspace.columns[targetColumnIndex].windows.contains {
+    nativeFullscreenWindowIDs.contains($0)
+  }
+}
+
+private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool {
+  switch command {
+  case .moveColumn, .moveWindow, .moveColumnToMonitor, .moveWindowToMonitor,
+    .moveWindowToWorkspace, .sendWindowToWorkspace, .cycleWidth,
+    .maximizeColumn, .toggleFloating, .joinWindow, .unjoinWindows:
+    true
+  case .focusColumn, .focusFloating, .focusWindow, .switchWorkspace,
+    .activateFloating, .runStartupCommands:
+    false
   }
 }
 
