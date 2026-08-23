@@ -13,6 +13,16 @@ let displayLogger = Logger(
   category: "Display"
 )
 
+func flushPlacementStore(
+  _ store: PlacementStore,
+  preferences: PlacementPreferences,
+  on queue: DispatchQueue
+) throws {
+  try queue.sync {
+    try store.save(preferences)
+  }
+}
+
 @MainActor
 extension Daemon {
   func invalidatePlacementPreference(for window: Window) {
@@ -24,10 +34,49 @@ extension Daemon {
     var updated = placementPreferences
     updated.recordPlacements(from: state)
     guard placementPreferencesDirty || updated != placementPreferences else { return }
+    placementPreferences = updated
+    placementPreferencesDirty = false
+    schedulePlacementStoreWrite(updated)
+  }
+
+  static let placementSaveDebounce: TimeInterval = 0.5
+
+  func schedulePlacementStoreWrite(_ preferences: PlacementPreferences) {
+    placementSaveWorkItem?.cancel()
+    let item = DispatchWorkItem { [weak self] in
+      self?.writePlacementStore(preferences)
+    }
+    placementSaveWorkItem = item
+    placementSaveQueue.asyncAfter(
+      deadline: .now() + Self.placementSaveDebounce,
+      execute: item
+    )
+  }
+
+  nonisolated private func writePlacementStore(_ preferences: PlacementPreferences) {
     do {
-      try placementStore.save(updated)
-      placementPreferences = updated
-      placementPreferencesDirty = false
+      try placementStore.save(preferences)
+    } catch {
+      DispatchQueue.main.async { [weak self] in
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          self.placementPreferencesDirty = true
+          self.log("placement persistence failed: \(error)")
+        }
+      }
+    }
+  }
+
+  func flushPendingPlacementWrite() {
+    guard placementSaveWorkItem != nil else { return }
+    placementSaveWorkItem?.cancel()
+    placementSaveWorkItem = nil
+    do {
+      try flushPlacementStore(
+        placementStore,
+        preferences: placementPreferences,
+        on: placementSaveQueue
+      )
     } catch {
       log("placement persistence failed: \(error)")
     }
@@ -142,7 +191,7 @@ extension Daemon {
       let count = persistentWidthDriftCounts[mismatch.windowID, default: 0] + 1
       persistentWidthDriftCounts[mismatch.windowID] = count
       if count >= 3,
-        learnTiledWindowWidth(
+        learnTiledWindowMinimumWidth(
           mismatch.windowID,
           actualFrame: mismatch.actual,
           state: &state,

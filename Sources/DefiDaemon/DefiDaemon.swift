@@ -154,12 +154,22 @@ final class Daemon: NSObject {
   let platform = MacOSPlatform()
   let server: UnixSocketServer
   let placementStore: PlacementStore
+  let diagnostics = DiagnosticRecorder()
+  let readResponseCache = DaemonReadResponseCache()
   var state: RuntimeState
   var placementPreferences: PlacementPreferences
   var placementPreferencesDirty = false
+  let placementSaveQueue = DispatchQueue(
+    label: "com.quentin.defi.placements",
+    qos: .utility
+  )
+  var placementSaveWorkItem: DispatchWorkItem?
   var hotKeys: HotKeyManager?
   var menuBar: MenuBarController?
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
+  var lastWorkspacePublishState: RuntimeState?
+  var lastWorkspacePublishDisplayOrder: [MonitorID] = []
+  var lastWorkspacePublishFocusedMonitorID: MonitorID?
   var timer: DispatchSourceTimer?
   var timerFrequencyHz = 2.0
   var tickScheduled = false
@@ -176,6 +186,13 @@ final class Daemon: NSObject {
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
+  var desktopSnapshotInFlight = false
+  var supersededDesktopSnapshotRequest: (
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool,
+    forceApplicationInventoryRefresh: Bool,
+    consumePeriodicWindowRefresh: Bool
+  )?
   var axPrefetchInvalidationRetries = 0
   var cgPrefetchInvalidationRetries = 0
   var bypassPrefetchOnce = false
@@ -240,6 +257,8 @@ final class Daemon: NSObject {
   var lastDisplayedFrameRebaseDelta = 0.0
   var displayConfigurationEventCount = 0
   var pendingDisplaySyncDeadlines: [TimeInterval] = []
+  var followUpTickSignature: String?
+  var followUpBackoffSteps = 0
 
   fileprivate init(options: DaemonOptions) throws {
     config = try Config.load(from: options.configURL)
@@ -248,6 +267,12 @@ final class Daemon: NSObject {
     placementPreferences = (try? placementStore.load()) ?? PlacementPreferences()
     state = RuntimeState(config: config)
     super.init()
+    platform.setCommandDiagnosticHandler { [weak diagnostics] sample in
+      diagnostics?.record(sample)
+    }
+    platform.setDiagnosticAnomalyHandler { [weak diagnostics] uptime, event in
+      diagnostics?.recordAnomaly(uptime: uptime, event: event)
+    }
   }
 
   fileprivate func run() {
@@ -370,7 +395,23 @@ final class Daemon: NSObject {
         || platform.hasPendingFrameWrites
         || platform.hasPendingFrameDebt
         || platform.hasPendingTransientOwnerResolution
-      setTimerFrequency(followUpPending ? 60 : 2)
+      // A single stuck slow-app write must not pin the timer at 60 Hz:
+      // decay while the pending set is unchanged, reset on any movement.
+      if followUpPending {
+        let signature =
+          "\(needsDesktopSync)|\(mouseGestureSettlement != nil)|\(pendingDisplaySyncDeadlines.count)|\(pendingAnimatedFocus != nil)|\(pendingWorkspaceFocus != nil)|\(platform.hasPendingFocusWrite)|\(platform.hasPendingFrameWrites)|\(platform.hasPendingFrameDebt)|\(platform.hasPendingTransientOwnerResolution)"
+        if signature == followUpTickSignature {
+          followUpBackoffSteps = min(followUpBackoffSteps + 1, 2)
+        } else {
+          followUpTickSignature = signature
+          followUpBackoffSteps = 0
+        }
+        setTimerFrequency([60.0, 30.0, 15.0][followUpBackoffSteps])
+      } else {
+        followUpTickSignature = nil
+        followUpBackoffSteps = 0
+        setTimerFrequency(2)
+      }
     }
     let userInputIdleDuration =
       now - platform.userInputTracker.latestEventTimestamp
@@ -408,7 +449,8 @@ final class Daemon: NSObject {
         || applicationInventoryRefreshDue,
       commandQuietPeriodElapsed: commandQuietPeriodElapsed,
       nativeFocusSyncPending: nativeFocusSyncPending,
-      frameDebtPending: platform.hasPendingFrameDebt
+      frameDebtPending: platform.hasPendingFrameDebt,
+      lifecycleEventPending: platform.hasPendingWindowTopologyEvent
     ) {
       let forcesWindowInventory = !nativeFocusSyncPending
         && (windowListRefreshDue || applicationInventoryRefreshDue)
@@ -472,6 +514,13 @@ final class Daemon: NSObject {
         forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
+      if platform.hasDeferredFreshWindowReads
+        || platform.hasChunkedFullRefreshPending
+      {
+        needsDesktopSync = true
+        setTimerFrequency(30)
+        scheduleTick()
+      }
     }
     if liveBorderGesture || animatedWritesPending {
       platform.refreshWindowBorders()

@@ -449,7 +449,7 @@ final class FrameCommitTests: XCTestCase {
     XCTAssertEqual(result[replacementWindowID]?.size.width, 1_000)
   }
 
-  func testPositionOnlyReplacementKeepsSameWindowAsyncSizeDebt() {
+  func testPositionOnlyReplacementRetargetsAsyncSizeDebtToLatestPlan() {
     let element = AXUIElementCreateSystemWide()
     func write(
       point: CGPoint,
@@ -498,7 +498,7 @@ final class FrameCommitTests: XCTestCase {
     )
 
     XCTAssertEqual(result[windowID]?.point, CGPoint(x: 100, y: 40))
-    XCTAssertEqual(result[windowID]?.size, CGSize(width: 900, height: 700))
+    XCTAssertEqual(result[windowID]?.size, CGSize(width: 800, height: 600))
     XCTAssertTrue(result[windowID]?.positionChanged == true)
     XCTAssertTrue(result[windowID]?.sizeChanged == true)
     XCTAssertFalse(result[windowID]?.synchronousSizeWriteSucceeded == true)
@@ -641,13 +641,40 @@ final class FrameCommitTests: XCTestCase {
       now: 10
     )
 
-    coordinator.pruneRecentInternalFrameWrites(liveWindowIDs: [])
+    coordinator.pruneRecentInternalFrameWrites(liveWindowIDs: [], now: 10.2)
 
     XCTAssertFalse(
       coordinator.frameMatchesRecentInternalWrite(
         windowID: windowID,
         actual: Rect(x: 100, y: 40, width: 900, height: 700),
         now: 10.1
+      )
+    )
+  }
+
+  func testPruningRecentInternalWritesDropsExpiredEntriesForLiveWindows() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 42)
+    coordinator.recordInternalFrameWrite(
+      Rect(x: 100, y: 40, width: 900, height: 700),
+      windowID: windowID,
+      positionChanged: true,
+      sizeChanged: true,
+      now: 10
+    )
+
+    XCTAssertFalse(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: Rect(x: 100, y: 40, width: 900, height: 700),
+        now: 12.6
+      )
+    )
+    XCTAssertTrue(
+      coordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID,
+        actual: Rect(x: 100, y: 40, width: 900, height: 700),
+        now: 12.4
       )
     )
   }
@@ -661,6 +688,25 @@ final class FrameCommitTests: XCTestCase {
         sizeApplied: false
       ),
       FrameWriteIntent(position: true, size: false)
+    )
+  }
+
+  func testLiveBorderWindowRequiresAcceptedFrameReadbackAfterPositionWrite() {
+    let liveWindowID = WindowID(rawValue: 42)
+
+    XCTAssertTrue(
+      acceptedFrameRequiresReadback(
+        windowID: liveWindowID,
+        sizeChanged: false,
+        liveBorderWindowID: liveWindowID
+      )
+    )
+    XCTAssertFalse(
+      acceptedFrameRequiresReadback(
+        windowID: WindowID(rawValue: 43),
+        sizeChanged: false,
+        liveBorderWindowID: liveWindowID
+      )
     )
   }
 
@@ -1182,6 +1228,35 @@ final class FrameCommitTests: XCTestCase {
         previouslySensitive: true,
         predictedLatencyMS: 6.9
       )
+    )
+  }
+
+  func testSlowLaneEntryRequiresConsecutiveSamples() {
+    var streak = ProcessLatencyStreak()
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 120, streak: &streak)
+    )
+    XCTAssertTrue(
+      processLatencyEntryIsConfirmed(sampleMS: 15, streak: &streak)
+    )
+  }
+
+  func testSlowLaneEntryIgnoresSingleSpike() {
+    var streak = ProcessLatencyStreak()
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 90, streak: &streak)
+    )
+    XCTAssertTrue(
+      processLatencyEntryIsConfirmed(sampleMS: 25, streak: &streak)
+    )
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 4, streak: &streak)
+    )
+    XCTAssertFalse(
+      processLatencyEntryIsConfirmed(sampleMS: 20, streak: &streak)
+    )
+    XCTAssertTrue(
+      processLatencyEntryIsConfirmed(sampleMS: 30, streak: &streak)
     )
   }
 

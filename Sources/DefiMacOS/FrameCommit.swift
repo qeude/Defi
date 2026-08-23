@@ -184,6 +184,14 @@ func successfulFrameWriteIntent(
   )
 }
 
+func acceptedFrameRequiresReadback(
+  windowID: WindowID,
+  sizeChanged: Bool,
+  liveBorderWindowID: WindowID?
+) -> Bool {
+  sizeChanged || windowID == liveBorderWindowID
+}
+
 func interpolatedFrame(
   from: Rect,
   to: Rect,
@@ -280,7 +288,7 @@ func frameWritesPreservingSupersededAsyncSizes(
         fromPoint: newer.fromPoint,
         point: newer.point,
         fromSize: newer.fromSize,
-        size: debt.size,
+        size: newer.size,
         positionChanged: newer.positionChanged,
         sizeChanged: true,
         animatesSize: debt.animatesSize,
@@ -372,6 +380,19 @@ struct FrameWriteCompletion: Equatable, Sendable {
   let completedLatest: Bool
   let attemptedWindowIDs: Set<WindowID>
   let successfulWindowIDs: Set<WindowID>
+  let acceptedFrames: [WindowID: Rect]
+
+  init(
+    completedLatest: Bool,
+    attemptedWindowIDs: Set<WindowID>,
+    successfulWindowIDs: Set<WindowID>,
+    acceptedFrames: [WindowID: Rect] = [:]
+  ) {
+    self.completedLatest = completedLatest
+    self.attemptedWindowIDs = attemptedWindowIDs
+    self.successfulWindowIDs = successfulWindowIDs
+    self.acceptedFrames = acceptedFrames
+  }
 }
 
 func cursorWarpTimestampAfterFrameCompletion(

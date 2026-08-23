@@ -18,6 +18,10 @@ func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
 }
 
 final class AXFrameCoordinator: @unchecked Sendable {
+  /// Publishes interpolated frames of animated windows each animation tick so
+  /// border overlays ride the motion instead of snapping to targets.
+  var borderLiveGeometryHandler: (@Sendable ([WindowID: Rect]) -> Void)?
+
   let queue = DispatchQueue(
     label: "com.quentin.defi.ax-frame-coordinator",
     qos: .userInteractive
@@ -70,11 +74,52 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var nextInitialSettlementGeneration: UInt64 = 0
   var initialSettlementRepairsSuspended = false
   var pendingInitialSettlementEventChecks = Set<WindowID>()
+  var diagnosticAnomalyHandler:
+    (@Sendable (TimeInterval, String) -> Void)?
   var completedInitialSettlementChecks = 0
   var repairedInitialSettlementDrifts = 0
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
+  var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
+  var immediateReadbackProcessDeadlines: [pid_t: TimeInterval] = [:]
+  var liveBorderWindowID: WindowID?
+
+  func updateLiveBorderWindowID(_ windowID: WindowID?) {
+    lock.lock()
+    liveBorderWindowID = windowID
+    lock.unlock()
+  }
+
+  func currentLiveBorderWindowID() -> WindowID? {
+    lock.lock()
+    defer { lock.unlock() }
+    return liveBorderWindowID
+  }
+
+  func processNeedsImmediateReadback(_ processID: pid_t) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let deadline = immediateReadbackProcessDeadlines[processID] else {
+      return false
+    }
+    let now = ProcessInfo.processInfo.systemUptime
+    if deadline < now {
+      immediateReadbackProcessDeadlines[processID] = nil
+      return false
+    }
+    return true
+  }
+
+  func markProcessNeedsImmediateReadback(
+    _ processID: pid_t,
+    duration: TimeInterval = 30
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    immediateReadbackProcessDeadlines[processID] =
+      ProcessInfo.processInfo.systemUptime + duration
+  }
 
   @MainActor
   func startDisplayLink() {
@@ -379,6 +424,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return latestWriteSucceededByWindowID[windowID]
   }
 
+  func predictedProcessLatency(processID: pid_t) -> Double {
+    lock.lock()
+    defer { lock.unlock() }
+    return predictedProcessLatencyMS[processID] ?? 8.0
+  }
+
   func alignCompletedSize(windowID: WindowID, size: CGSize) {
     lock.lock()
     completedSizes[windowID] = size
@@ -392,12 +443,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
   ) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    recentInternalFrameWrites = recentInternalFrameWrites.compactMapValues {
-      let live = $0.filter { $0.deadline >= now }
-      return live.isEmpty ? nil : live
-    }
     return recentInternalFrameWrites[windowID]?.contains {
-      DefiMacOS.frameMatchesRecentInternalWrite(actual: actual, write: $0)
+      $0.deadline >= now
+        && DefiMacOS.frameMatchesRecentInternalWrite(actual: actual, write: $0)
     } == true
   }
 
@@ -410,6 +458,14 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func recordTrace(_ event: String) {
     lock.lock()
     appendTraceLocked(event)
+    lock.unlock()
+  }
+
+  func setDiagnosticAnomalyHandler(
+    _ handler: @escaping @Sendable (TimeInterval, String) -> Void
+  ) {
+    lock.lock()
+    diagnosticAnomalyHandler = handler
     lock.unlock()
   }
 
@@ -487,7 +543,24 @@ final class AXFrameCoordinator: @unchecked Sendable {
       liveProcessIDs.contains($0.key)
     }
     latencySensitiveProcessIDs.formIntersection(liveProcessIDs)
+    processLatencyStreaks = processLatencyStreaks.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    immediateReadbackProcessDeadlines = immediateReadbackProcessDeadlines.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    let retiredQueues = processWriteQueues.filter {
+      !liveProcessIDs.contains($0.key)
+    }
+    for processID in retiredQueues.keys {
+      processWriteQueues[processID] = nil
+    }
     lock.unlock()
+    // Drain outside the lock: pending work items observe the empty queue map
+    // and their writes are generation-checked, so they become no-ops.
+    for (_, queue) in retiredQueues {
+      queue.async { }
+    }
   }
 
 }

@@ -64,6 +64,7 @@ public struct BordersConfig: Codable, Equatable, Sendable {
   public var inactiveEnabled: Bool
   public var inactiveColor: String
   public var captureEnabled: Bool
+  public var placement: String
 
   public init(
     enabled: Bool = true,
@@ -71,7 +72,8 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     color: String = "#FFC099FF",
     inactiveEnabled: Bool = false,
     inactiveColor: String = "#66C099FF",
-    captureEnabled: Bool = false
+    captureEnabled: Bool = false,
+    placement: String = "outside"
   ) {
     self.enabled = enabled
     self.width = width
@@ -79,6 +81,7 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     self.inactiveEnabled = inactiveEnabled
     self.inactiveColor = inactiveColor
     self.captureEnabled = captureEnabled
+    self.placement = placement
   }
 
   enum CodingKeys: String, CodingKey {
@@ -88,6 +91,7 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     case inactiveEnabled = "inactive_enabled"
     case inactiveColor = "inactive_color"
     case captureEnabled = "capture_enabled"
+    case placement
   }
 
   public init(from decoder: Decoder) throws {
@@ -105,6 +109,9 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     captureEnabled =
       try values.decodeIfPresent(Bool.self, forKey: .captureEnabled)
       ?? defaults.captureEnabled
+    placement =
+      try values.decodeIfPresent(String.self, forKey: .placement)
+      ?? defaults.placement
   }
 }
 

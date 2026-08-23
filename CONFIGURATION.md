@@ -127,6 +127,7 @@ color = "#FFC099FF"
 inactive_enabled = false
 inactive_color = "#66C099FF"
 capture_enabled = false
+placement = "outside"
 ```
 
 | Setting | Default | Values/type | Description |
@@ -137,6 +138,13 @@ capture_enabled = false
 | `inactive_enabled` | `false` | boolean | Draws borders around other visible tiled windows. |
 | `inactive_color` | `"#66C099FF"` | `0xAARRGGBB` or `#AARRGGBB` string | Inactive-window border color. |
 | `capture_enabled` | `false` | boolean | Makes border surfaces visible to screenshots and screen capture for debugging. |
+| `placement` | `"outside"` | `"inside"` or `"outside"` | Draws the stroke inside the window edge (overlapping the first pixels of content) or just past it. |
+
+With `placement = "outside"`, the stroke no longer overlaps window content, but
+the ring extends into gaps between adjacent windows; a neighboring window drawn
+above the border panel can clip it there. Defi reserves enough horizontal space
+at monitor edges to keep the full stroke visible without changing gaps between
+windows.
 
 Colors require exactly eight hexadecimal digits. First byte is alpha, followed
 by red, green, and blue. Both prefixes accept uppercase or lowercase digits.
@@ -303,6 +311,7 @@ an entry from `[workspaces].names`.
 | `join-window left` | Join focused window into stack on left. | `<mod>-semicolon` |
 | `join-window right` | Join focused window into stack on right. | `<mod>-quote` |
 | `unjoin-windows` | Split focused window from stack into new column. | `<mod>-r` |
+| `diagnostic-mark` | Record current status and recent trace without changing managed windows. | unset |
 
 `previous` may be written as `prev`. `focus-column` also accepts
 `previous`/`next`; `focus-window` accepts `previous`/`next`; `focus-floating`
@@ -311,6 +320,21 @@ accepts `left`/`right` and `up`/`down` as previous/next aliases.
 Commands are validated when config loads. Direction compatibility can still be
 validated at execution for commands implemented by the layout engine; use forms
 listed above for deterministic behavior.
+
+### Diagnostics
+
+Defi keeps compact command summaries and high-signal anomalies in three rotating
+10 MiB JSONL files under `~/Library/Logs/Defi/Diagnostics`. The files never
+contain window titles, document contents, or typed text.
+
+Bind `diagnostic-mark` when investigating an intermittent issue. It records the
+current status and the recent in-memory trace without changing focus, layout,
+frames, or visibility:
+
+```toml
+[keys]
+"hyper-d" = "diagnostic-mark"
+```
 
 CLI-only integration commands:
 
@@ -419,6 +443,7 @@ color = "#FFC099FF"
 inactive_enabled = false
 inactive_color = "#66C099FF"
 capture_enabled = false
+placement = "outside"
 
 [workspaces]
 names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]

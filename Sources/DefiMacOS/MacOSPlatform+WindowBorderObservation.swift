@@ -169,7 +169,7 @@ extension MacOSPlatform {
         else {
           return
         }
-        self.explicitlyDestroyedWindowIDs.insert(windowID)
+        self.snapshotEngine.recordExplicitlyDestroyedWindow(windowID)
       }
     )
     monitor.start()
@@ -216,15 +216,13 @@ extension MacOSPlatform {
       }()
         ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
         ?? latestObservedFrames[request.windowID]
-      let stacking = await Task.detached(priority: .utility) {
-        copyWindowBorderStacking(
-          targetWindowID: request.windowID,
-          targetProcessID: targetProcessID,
-          targetFrame: targetFrame,
-          monitorFrames: monitorFrames,
-          knownWindowIDs: knownWindowIDs
-        )
-      }.value
+      let stacking = await copyWindowBorderStackingOffMain(
+        targetWindowID: request.windowID,
+        targetProcessID: targetProcessID,
+        targetFrame: targetFrame,
+        monitorFrames: monitorFrames,
+        knownWindowIDs: knownWindowIDs
+      )
       guard !Task.isCancelled else { return }
       refreshWindowBorderStacking(request, stacking: stacking)
     }
@@ -266,7 +264,10 @@ extension MacOSPlatform {
       activeColor: parseBorderColor(config.color) ?? 0xffc0_99ff,
       inactiveEnabled: config.inactiveEnabled,
       inactiveColor: parseBorderColor(config.inactiveColor) ?? 0x66c0_99ff,
-      captureEnabled: config.captureEnabled
+      captureEnabled: config.captureEnabled,
+      placement: WindowBorderPlacement(
+        configValue: config.placement
+      )
     )
     refreshWindowBorders()
     if !screenCaptureAccessAvailable,
@@ -278,13 +279,11 @@ extension MacOSPlatform {
     revealWindowBordersIfReady()
   }
 
-  public func stageWindowBorderSelection(
-    _ selectedWindowID: WindowID?,
-    displayedFrame: Rect? = nil
-  ) {
+  public func stageWindowBorderSelection(_ selectedWindowID: WindowID?) {
     desiredSelectedWindowID = selectedWindowID
+    frameCoordinator.updateLiveBorderWindowID(selectedWindowID)
     let selectedFrame = selectedWindowID.flatMap { windowID in
-      displayedFrame ?? resolvedBorderFrame(for: windowID)
+      resolvedBorderFrame(for: windowID)
     }
     borderManager.prepareForSelection(
       selectedWindowID,
@@ -313,7 +312,32 @@ extension MacOSPlatform {
     borderManager.revealPendingBorders()
   }
 
+
+  private func activeIsMinimizedOrHidden(_ windowID: WindowID) -> Bool {
+    if lastHiddenWindowIDs.contains(windowID) {
+      return true
+    }
+    guard let element = elements[windowID] else {
+      return false
+    }
+    for minimized in minimizedWindowElementsByProcess.values {
+      if minimized.contains(where: { CFEqual($0, element) }) {
+        return true
+      }
+    }
+    return false
+  }
+
   public func refreshWindowBorders() {
+    // A selected window that is no longer on screen (minimized, hidden, or
+    // parked) must never keep an overlay drawn over whatever is displayed.
+    if let active = borderManager.activeWindowID,
+      !borderFrames.contains(where: { $0.windowID == active })
+        || activeIsMinimizedOrHidden(active)
+    {
+      hideWindowBorders()
+      return
+    }
     let liveGeometryWindowIDs = borderManager.liveGeometryWindowIDs
     if isLeftMouseButtonDown {
       refreshWindowBorderGeometry(windowIDs: liveGeometryWindowIDs)
@@ -334,13 +358,19 @@ extension MacOSPlatform {
       borderManager.updateGeometry(frames: displayedFrames, style: borderStyle)
       return
     }
-    let borderGeometryIsSettling = liveGeometryWindowIDs.contains { windowID in
-      guard let expectation = frameCommitExpectations[windowID] else {
-        return false
-      }
-      return expectation.observedAt == nil
+    let borderGeometryIsSettling = borderRefreshBlockedBySettling(
+      liveWindowIDs: liveGeometryWindowIDs,
+      expectations: frameCommitExpectations,
+      now: ProcessInfo.processInfo.systemUptime
+    )
+    if borderGeometryIsSettling {
+      // Writes are still settling. Keep following displayed frames without
+      // replanning: if an application stops confirming its frame commits,
+      // overlays must converge on the real window instead of freezing at a
+      // mid-transition geometry.
+      refreshWindowBorderGeometry(windowIDs: liveGeometryWindowIDs)
+      return
     }
-    guard !borderGeometryIsSettling else { return }
     let plan = planWindowBorders(
       frames: borderFrames,
       selectedWindowID: borderSelectedWindowID,
@@ -414,7 +444,18 @@ extension MacOSPlatform {
     else {
       return
     }
-    refreshWindowBorderGeometry(windowIDs: [windowID])
+    guard
+      let frame = frame(of: element) ?? resolvedBorderFrame(for: windowID)
+    else {
+      return
+    }
+    latestObservedFrames[windowID] = frame
+    if borderManager.updateGeometry(
+      frames: [windowID: frame],
+      style: borderStyle
+    ) {
+      invalidatePointerHitTestCache()
+    }
   }
 
   private func refreshWindowBorderGeometry(
@@ -506,4 +547,21 @@ extension MacOSPlatform {
     CGEventSource.buttonState(.combinedSessionState, button: .left)
   }
 
+}
+
+@concurrent
+private func copyWindowBorderStackingOffMain(
+  targetWindowID: WindowID,
+  targetProcessID: pid_t?,
+  targetFrame: Rect?,
+  monitorFrames: [Rect],
+  knownWindowIDs: Set<WindowID>
+) async -> WindowBorderStacking {
+  copyWindowBorderStacking(
+    targetWindowID: targetWindowID,
+    targetProcessID: targetProcessID,
+    targetFrame: targetFrame,
+    monitorFrames: monitorFrames,
+    knownWindowIDs: knownWindowIDs
+  )
 }

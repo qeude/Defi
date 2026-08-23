@@ -36,6 +36,8 @@ extension MacOSPlatform {
       (@MainActor @Sendable () -> Bool)? = nil,
     focusRequestIDAfterCommit:
       (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
+    acceptedFrameHandler:
+      (@MainActor @Sendable ([WindowID: Rect]) -> Void)? = nil,
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
@@ -374,6 +376,7 @@ extension MacOSPlatform {
       repairsSuspended: isLeftMouseButtonDown
     )
     let refreshesBordersAfterCommit = !animatedWindowIDs.isEmpty
+    let readsAcceptedFrames = writeIntents.values.contains { $0.size }
     let cursorWarpAfterWindowCommit:
       (@Sendable (WindowID, UInt64) -> Void)?
     if let cursorWarpWindowIDAfterCommit,
@@ -401,7 +404,8 @@ extension MacOSPlatform {
       cursorWarpAfterWindowCommit = nil
     }
     let frameCompletion: (@Sendable (FrameWriteCompletion) -> Void)?
-    if !refreshesBordersAfterCommit, focusWindowIDAfterCommit == nil,
+    if !readsAcceptedFrames, !refreshesBordersAfterCommit,
+      focusWindowIDAfterCommit == nil,
       cursorWarpWindowIDAfterCommit == nil
     {
       frameCompletion = nil
@@ -419,8 +423,16 @@ extension MacOSPlatform {
             focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
+          if !result.acceptedFrames.isEmpty {
+            for (windowID, frame) in result.acceptedFrames {
+              self.latestObservedFrames[windowID] = frame
+            }
+          }
           if refreshesBordersAfterCommit {
             self.refreshWindowBorders()
+          }
+          if !result.acceptedFrames.isEmpty {
+            acceptedFrameHandler?(result.acceptedFrames)
           }
           if let cursorWarpWindowIDAfterCommit,
             deferredFocusFrameCommitIsReady(

@@ -16,6 +16,25 @@ struct WindowBorderStyle: Equatable, Sendable {
   let inactiveEnabled: Bool
   let inactiveColor: UInt32
   let captureEnabled: Bool
+  let placement: WindowBorderPlacement
+
+  init(
+    enabled: Bool,
+    width: Double,
+    activeColor: UInt32,
+    inactiveEnabled: Bool,
+    inactiveColor: UInt32,
+    captureEnabled: Bool,
+    placement: WindowBorderPlacement = .inside
+  ) {
+    self.enabled = enabled
+    self.width = width
+    self.activeColor = activeColor
+    self.inactiveEnabled = inactiveEnabled
+    self.inactiveColor = inactiveColor
+    self.captureEnabled = captureEnabled
+    self.placement = placement
+  }
 }
 
 struct WindowBorderRenderPlan: Equatable, Sendable {

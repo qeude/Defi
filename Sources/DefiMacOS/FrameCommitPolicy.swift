@@ -58,15 +58,81 @@ public struct CommandLatencyPerformance: Equatable, Sendable {
   public let focus: LatencyPercentiles
 }
 
+public enum CommandDiagnosticOutcome: String, Equatable, Sendable {
+  case completed
+  case superseded
+  case stopped
+}
+
+public struct CommandDiagnosticSample: Equatable, Sendable {
+  public let generation: UInt64
+  public let inputTimestamp: TimeInterval
+  public let expectedWindowCount: Int
+  public let expectsFocus: Bool
+  public let planMS: Double?
+  public let firstWriteMS: Double?
+  public let firstObservationMS: Double?
+  public let convergenceMS: Double?
+  public let focusMS: Double?
+  public let outcome: CommandDiagnosticOutcome
+
+  public init(
+    generation: UInt64,
+    inputTimestamp: TimeInterval,
+    expectedWindowCount: Int,
+    expectsFocus: Bool,
+    planMS: Double?,
+    firstWriteMS: Double?,
+    firstObservationMS: Double?,
+    convergenceMS: Double?,
+    focusMS: Double?,
+    outcome: CommandDiagnosticOutcome
+  ) {
+    self.generation = generation
+    self.inputTimestamp = inputTimestamp
+    self.expectedWindowCount = expectedWindowCount
+    self.expectsFocus = expectsFocus
+    self.planMS = planMS
+    self.firstWriteMS = firstWriteMS
+    self.firstObservationMS = firstObservationMS
+    self.convergenceMS = convergenceMS
+    self.focusMS = focusMS
+    self.outcome = outcome
+  }
+}
+
 struct CommandLatencyRecord: Equatable {
-  let inputTimestamp: TimeInterval
+  let context: CommandPerformanceContext
   var expectedWindowIDs = Set<WindowID>()
   var convergedWindowIDs = Set<WindowID>()
   var expectsFocus = false
-  var firstWriteRecorded = false
-  var firstObservationRecorded = false
-  var convergenceRecorded = false
-  var focusRecorded = false
+  var planMS: Double?
+  var firstWriteMS: Double?
+  var firstObservationMS: Double?
+  var convergenceMS: Double?
+  var focusMS: Double?
+  var diagnosticRecorded = false
+
+  var diagnosticIsComplete: Bool {
+    convergenceMS != nil && (!expectsFocus || focusMS != nil)
+  }
+
+  func diagnosticSample(
+    outcome: CommandDiagnosticOutcome
+  ) -> CommandDiagnosticSample {
+    CommandDiagnosticSample(
+      generation: context.generation,
+      inputTimestamp: context.inputTimestamp,
+      expectedWindowCount: expectedWindowIDs.count,
+      expectsFocus: expectsFocus,
+      planMS: planMS,
+      firstWriteMS: firstWriteMS,
+      firstObservationMS: firstObservationMS,
+      convergenceMS: convergenceMS,
+      focusMS: focusMS,
+      outcome: outcome
+    )
+  }
 }
 
 struct CommandLatencyAccumulator {
@@ -79,20 +145,28 @@ struct CommandLatencyAccumulator {
   private(set) var firstObservationSamplesMS: [Double] = []
   private(set) var convergenceSamplesMS: [Double] = []
   private(set) var focusSamplesMS: [Double] = []
+  private var pendingDiagnosticSamples: [CommandDiagnosticSample] = []
 
   mutating func begin(_ context: CommandPerformanceContext) {
     guard context.generation > latestGeneration else { return }
     if let previous = record,
-      !previous.convergenceRecorded
+      previous.convergenceMS == nil
         && (previous.expectsFocus
           || !previous.expectedWindowIDs.isEmpty
-          || previous.firstWriteRecorded
-          || previous.firstObservationRecorded)
+          || previous.firstWriteMS != nil
+          || previous.firstObservationMS != nil)
     {
       superseded += 1
     }
+    if let previous = record, !previous.diagnosticRecorded {
+      pendingDiagnosticSamples.append(
+        previous.diagnosticSample(
+          outcome: previous.diagnosticIsComplete ? .completed : .superseded
+        )
+      )
+    }
     latestGeneration = context.generation
-    record = CommandLatencyRecord(inputTimestamp: context.inputTimestamp)
+    record = CommandLatencyRecord(context: context)
     started += 1
   }
 
@@ -114,16 +188,18 @@ struct CommandLatencyAccumulator {
     guard var record = currentRecord(for: context) else { return nil }
     record.expectedWindowIDs = expectedWindowIDs
     let latency = latencyMS(from: context, to: timestamp)
+    record.planMS = latency
     recordDurationSample(latency, in: &planSamplesMS)
     if expectedWindowIDs.isEmpty,
       !record.expectsFocus,
       !hasFrameWrites,
-      !record.convergenceRecorded
+      record.convergenceMS == nil
     {
-      record.convergenceRecorded = true
+      record.convergenceMS = latency
       recordDurationSample(latency, in: &convergenceSamplesMS)
     }
     self.record = record
+    queueDiagnosticIfComplete(context)
     return latency
   }
 
@@ -132,19 +208,20 @@ struct CommandLatencyAccumulator {
     at timestamp: TimeInterval
   ) -> Double? {
     guard var record = currentRecord(for: context),
-      !record.firstWriteRecorded
+      record.firstWriteMS == nil
     else { return nil }
-    record.firstWriteRecorded = true
     let latency = latencyMS(from: context, to: timestamp)
+    record.firstWriteMS = latency
     recordDurationSample(latency, in: &firstWriteSamplesMS)
     if record.expectedWindowIDs.isEmpty,
       !record.expectsFocus,
-      !record.convergenceRecorded
+      record.convergenceMS == nil
     {
-      record.convergenceRecorded = true
+      record.convergenceMS = latency
       recordDurationSample(latency, in: &convergenceSamplesMS)
     }
     self.record = record
+    queueDiagnosticIfComplete(context)
     return latency
   }
 
@@ -158,11 +235,11 @@ struct CommandLatencyAccumulator {
   ) -> (firstObservationMS: Double?, convergenceMS: Double?) {
     guard var record = currentRecord(for: context) else { return (nil, nil) }
     var firstObservationMS: Double?
-    if !record.firstObservationRecorded,
+    if record.firstObservationMS == nil,
       frameDistance(from, actual) >= 0.5
     {
-      record.firstObservationRecorded = true
       firstObservationMS = latencyMS(from: context, to: timestamp)
+      record.firstObservationMS = firstObservationMS
       recordDurationSample(
         firstObservationMS ?? 0,
         in: &firstObservationSamplesMS
@@ -174,15 +251,16 @@ struct CommandLatencyAccumulator {
       record.convergedWindowIDs.remove(windowID)
     }
     var convergenceMS: Double?
-    if !record.convergenceRecorded,
+    if record.convergenceMS == nil,
       !record.expectedWindowIDs.isEmpty,
       record.expectedWindowIDs.isSubset(of: record.convergedWindowIDs)
     {
-      record.convergenceRecorded = true
       convergenceMS = latencyMS(from: context, to: timestamp)
+      record.convergenceMS = convergenceMS
       recordDurationSample(convergenceMS ?? 0, in: &convergenceSamplesMS)
     }
     self.record = record
+    queueDiagnosticIfComplete(context)
     return (firstObservationMS, convergenceMS)
   }
 
@@ -190,20 +268,33 @@ struct CommandLatencyAccumulator {
     _ context: CommandPerformanceContext,
     at timestamp: TimeInterval
   ) -> Double? {
-    guard var record = currentRecord(for: context), !record.focusRecorded
+    guard var record = currentRecord(for: context), record.focusMS == nil
     else { return nil }
-    record.focusRecorded = true
     let latency = latencyMS(from: context, to: timestamp)
+    record.focusMS = latency
     recordDurationSample(latency, in: &focusSamplesMS)
     if record.expectedWindowIDs.isEmpty,
       record.expectsFocus,
-      !record.convergenceRecorded
+      record.convergenceMS == nil
     {
-      record.convergenceRecorded = true
+      record.convergenceMS = latency
       recordDurationSample(latency, in: &convergenceSamplesMS)
     }
     self.record = record
+    queueDiagnosticIfComplete(context)
     return latency
+  }
+
+  mutating func finishCurrentDiagnostic() {
+    guard var record, !record.diagnosticRecorded else { return }
+    pendingDiagnosticSamples.append(record.diagnosticSample(outcome: .stopped))
+    record.diagnosticRecorded = true
+    self.record = record
+  }
+
+  mutating func takeDiagnosticSamples() -> [CommandDiagnosticSample] {
+    defer { pendingDiagnosticSamples.removeAll(keepingCapacity: true) }
+    return pendingDiagnosticSamples
   }
 
   var performance: CommandLatencyPerformance {
@@ -223,9 +314,21 @@ struct CommandLatencyAccumulator {
   ) -> CommandLatencyRecord? {
     guard context.generation == latestGeneration,
       let record,
-      record.inputTimestamp == context.inputTimestamp
+      record.context.inputTimestamp == context.inputTimestamp
     else { return nil }
     return record
+  }
+
+  private mutating func queueDiagnosticIfComplete(
+    _ context: CommandPerformanceContext
+  ) {
+    guard var record = currentRecord(for: context),
+      record.diagnosticIsComplete,
+      !record.diagnosticRecorded
+    else { return }
+    pendingDiagnosticSamples.append(record.diagnosticSample(outcome: .completed))
+    record.diagnosticRecorded = true
+    self.record = record
   }
 
   private func latencyMS(
@@ -401,6 +504,24 @@ func frameIsOnExpectedCommitPath(
   }
 }
 
+/// Decides whether border replanning must wait for frame writes to settle.
+/// Only unresolved expectations whose deadline has not passed count: an
+/// expired expectation is stale bookkeeping that an application may never
+/// confirm with a fresh observation, and it must never freeze border
+/// geometry updates.
+func borderRefreshBlockedBySettling(
+  liveWindowIDs: Set<WindowID>,
+  expectations: [WindowID: FrameCommitExpectation],
+  now: TimeInterval
+) -> Bool {
+  liveWindowIDs.contains { windowID in
+    guard let expectation = expectations[windowID] else {
+      return false
+    }
+    return expectation.observedAt == nil && expectation.deadline > now
+  }
+}
+
 func requiresVerifiedOffscreenWrite(
   frame: Rect,
   monitorFrames: [Rect],
@@ -435,6 +556,32 @@ func axProcessIsLatencySensitive(
     : predictedLatencyMS >= enterThresholdMS
 }
 
+struct ProcessLatencyStreak: Equatable, Sendable {
+  var highSamples = 0
+}
+
+/// Confirms slow-lane entry only after consecutive high samples so a single
+/// spike cannot downgrade an application's animation lane. Exit stays
+/// prediction-driven so recovering applications return to animation promptly.
+func processLatencyEntryIsConfirmed(
+  sampleMS: Double,
+  streak: inout ProcessLatencyStreak,
+  enterThresholdMS: Double = 12,
+  requiredConsecutiveSamples: Int = 2
+) -> Bool {
+  guard sampleMS.isFinite else { return false }
+  if sampleMS >= enterThresholdMS {
+    streak.highSamples += 1
+  } else {
+    streak.highSamples = 0
+  }
+  if streak.highSamples >= requiredConsecutiveSamples {
+    streak.highSamples = 0
+    return true
+  }
+  return false
+}
+
 func frameTargetsPreservingSkippedWindows(
   previous: [WindowID: Rect],
   assignments: [FrameAssignment],
@@ -466,6 +613,22 @@ func unresolvedFrameDebtWindowIDs(
       guard let target = targetFrames[windowID] else { return false }
       guard let observed = observedFrames[windowID] else { return true }
       return frameDistance(observed, target) > tolerance
+    }
+  )
+}
+
+func unresolvedPositionDebtWindowIDs(
+  pendingWindowIDs: Set<WindowID>,
+  debtWindowIDs: Set<WindowID>,
+  targetFrames: [WindowID: Rect],
+  observedFrames: [WindowID: Rect],
+  tolerance: Double = 1
+) -> Set<WindowID> {
+  pendingWindowIDs.union(
+    debtWindowIDs.filter { windowID in
+      guard let target = targetFrames[windowID] else { return false }
+      guard let observed = observedFrames[windowID] else { return true }
+      return abs(observed.x - target.x) + abs(observed.y - target.y) > tolerance
     }
   )
 }

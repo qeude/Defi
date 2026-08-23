@@ -178,19 +178,25 @@ public func removeWindow(
 public func cycleWidth(
   of column: inout Column,
   direction: Direction,
-  presets: [Double]
+  presets: [Double],
+  minimumFraction: Double? = nil
 ) {
   guard !presets.isEmpty else { return }
+  func effectiveWidth(_ preset: Double) -> Double {
+    max(preset, minimumFraction ?? 0)
+  }
   if column.preMaximizedWidth != nil {
     let boundaryIndex: Int?
     switch direction {
     case .next, .right, .first:
       boundaryIndex = presets.firstIndex {
         abs($0 - 1) >= .ulpOfOne
+          && abs(effectiveWidth($0) - effectiveWidth(1)) >= .ulpOfOne
       }
     case .previous, .left, .last:
       boundaryIndex = presets.lastIndex {
         abs($0 - 1) >= .ulpOfOne
+          && abs(effectiveWidth($0) - effectiveWidth(1)) >= .ulpOfOne
       }
     case .up, .down:
       boundaryIndex = nil
@@ -209,18 +215,38 @@ public func cycleWidth(
   let currentIndex =
     presets.firstIndex(where: { abs($0 - current) < .ulpOfOne })
     ?? nearestPresetIndex(current: current, presets: presets)
-  let nextIndex: Int
+  var nextIndex = currentIndex
+  let step: Int
   switch direction {
   case .next, .right:
-    nextIndex = (currentIndex + 1) % presets.count
+    step = 1
   case .previous, .left:
-    nextIndex = currentIndex == 0 ? presets.count - 1 : currentIndex - 1
+    step = -1
   case .first:
+    step = 0
     nextIndex = 0
   case .last:
+    step = 0
     nextIndex = presets.count - 1
   case .up, .down:
-    nextIndex = currentIndex
+    step = 0
+  }
+  if step != 0 {
+    nextIndex = (currentIndex + step + presets.count) % presets.count
+    let currentEffectiveWidth = effectiveWidth(current)
+    for _ in presets.indices {
+      guard abs(effectiveWidth(presets[nextIndex]) - currentEffectiveWidth)
+        < .ulpOfOne
+      else {
+        break
+      }
+      nextIndex = (nextIndex + step + presets.count) % presets.count
+    }
+    guard abs(effectiveWidth(presets[nextIndex]) - currentEffectiveWidth)
+      >= .ulpOfOne
+    else {
+      return
+    }
   }
   column.width = .fraction(presets[nextIndex])
   column.preMaximizedWidth = nil
