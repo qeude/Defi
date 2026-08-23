@@ -167,8 +167,8 @@ struct FrameCommitTransitionTests {
   func onlyHighSignalTraceEventsBecomePersistentAnomalies() {
     #expect(traceEventIsDiagnosticAnomaly("parking-repair wid=1"))
     #expect(traceEventIsDiagnosticAnomaly("slow g=1 pid=2 windows=1 ms=20"))
-    #expect(!traceEventIsDiagnosticAnomaly("sample g=1 i=2 p=0.4"))
-    #expect(!traceEventIsDiagnosticAnomaly("command-plan cg=1 windows=2 ms=2"))
+    #expect(traceEventIsDiagnosticAnomaly("sample g=1 i=2 p=0.4") == false)
+    #expect(traceEventIsDiagnosticAnomaly("command-plan cg=1 windows=2 ms=2") == false)
   }
 
   @Test

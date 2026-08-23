@@ -1,15 +1,15 @@
 import ApplicationServices
 import DefiModel
 import Testing
-import XCTest
 
 @testable import DefiMacOS
 
-final class WindowDiscoveryTests: XCTestCase {
+struct WindowDiscoveryTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
-  func testTransientWindowOmissionExpiresAfterGracePeriod() {
+  @Test
+  func `Transient window omission expires after grace period`() {
     let windowID = WindowID(rawValue: 42)
     let first = retainedWindowIDsWithinGracePeriod(
       [windowID],
@@ -17,8 +17,8 @@ final class WindowDiscoveryTests: XCTestCase {
       now: 10,
       gracePeriod: 0.75
     )
-    XCTAssertEqual(first.windowIDs, [windowID])
-    XCTAssertEqual(first.deadlines[windowID], 10.75)
+    #expect(first.windowIDs == [windowID])
+    #expect(first.deadlines[windowID] == 10.75)
 
     let pending = retainedWindowIDsWithinGracePeriod(
       [windowID],
@@ -26,7 +26,7 @@ final class WindowDiscoveryTests: XCTestCase {
       now: 10.7,
       gracePeriod: 0.75
     )
-    XCTAssertEqual(pending.windowIDs, [windowID])
+    #expect(pending.windowIDs == [windowID])
 
     let expired = retainedWindowIDsWithinGracePeriod(
       [windowID],
@@ -34,52 +34,50 @@ final class WindowDiscoveryTests: XCTestCase {
       now: 10.75,
       gracePeriod: 0.75
     )
-    XCTAssertTrue(expired.windowIDs.isEmpty)
-    XCTAssertTrue(expired.deadlines.isEmpty)
+    #expect(expired.windowIDs.isEmpty)
+    #expect(expired.deadlines.isEmpty)
   }
 
-  func testTransientProcessDisagreementDefersFocusResolution() {
-    XCTAssertNil(
+  @Test
+  func `Transient process disagreement defers focus resolution`() {
+    #expect(
       consistentFocusedProcessID(
         accessibilityProcessID: 42,
         frontmostProcessID: 7
-      )
-    )
+      ) == nil)
   }
 
-  func testFrontmostNativeFocusEventOverridesStaleAccessibilityProcess() {
-    XCTAssertEqual(
+  @Test
+  func `Frontmost native focus event overrides stale accessibility process`() {
+    #expect(
       consistentFocusedProcessID(
         accessibilityProcessID: 7,
         frontmostProcessID: 42,
         verifiedNativeFocusProcessID: 42
-      ),
-      42
-    )
+      ) == 42)
   }
 
-  func testAccessibilityProcessIsFallbackWithoutFrontmostApplication() {
-    XCTAssertEqual(
+  @Test
+  func `Accessibility process is fallback without frontmost application`() {
+    #expect(
       consistentFocusedProcessID(
         accessibilityProcessID: 42,
         frontmostProcessID: nil
-      ),
-      42
-    )
+      ) == 42)
   }
 
-  func testMatchingFrontmostAndAccessibilityProcessesResolveFocus() {
-    XCTAssertEqual(
+  @Test
+  func `Matching frontmost and accessibility processes resolve focus`() {
+    #expect(
       consistentFocusedProcessID(
         accessibilityProcessID: 42,
         frontmostProcessID: 42
-      ),
-      42
-    )
+      ) == 42)
   }
 
   @MainActor
-  func testPendingNativeFocusReusesStableWindowOnlyAfterProcessVerification() {
+  @Test
+  func `Pending native focus reuses stable window only after process verification`() {
     let platform = MacOSPlatform()
     let window = Window(
       id: WindowID(rawValue: 1),
@@ -91,22 +89,21 @@ final class WindowDiscoveryTests: XCTestCase {
     )
     platform.lastFocusedWindowByProcess[processID] = window.id
 
-    XCTAssertEqual(platform.stableWindowID(processID: processID, in: [window]), window.id)
+    #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
 
     platform.nativeFocusEventPending = true
-    XCTAssertNil(platform.stableWindowID(processID: processID, in: [window]))
-    XCTAssertEqual(
+    #expect(platform.stableWindowID(processID: processID, in: [window]) == nil)
+    #expect(
       platform.stableWindowID(
         processID: processID,
         in: [window],
         allowPendingNativeFocus: true
-      ),
-      window.id
-    )
+      ) == window.id)
   }
 
   @MainActor
-  func testPendingNativeFocusAcceptsVerifiedSingleWindowFallback() {
+  @Test
+  func `Pending native focus accepts verified single window fallback`() {
     let platform = MacOSPlatform()
     let window = Window(
       id: WindowID(rawValue: 1),
@@ -119,13 +116,11 @@ final class WindowDiscoveryTests: XCTestCase {
     platform.nativeFocusEventPending = true
     platform.nativeFocusEventProcessIDs = [processID]
 
-    XCTAssertEqual(
-      platform.stableWindowID(processID: processID, in: [window]),
-      window.id
-    )
+    #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
   }
 
-  func testFocusedAuxiliaryWindowDoesNotSelectDistantManagedWindow() {
+  @Test
+  func `Focused auxiliary window does not select distant managed window`() {
     let managed = Window(
       id: WindowID(rawValue: 1),
       appID: "com.example.app",
@@ -135,16 +130,16 @@ final class WindowDiscoveryTests: XCTestCase {
       monitorID: MonitorID(rawValue: 1)
     )
 
-    XCTAssertNil(
+    #expect(
       focusedWindowIDMatchingFrame(
         processID: processID,
         focusedFrame: Rect(x: 400, y: 300, width: 500, height: 300),
         windows: [managed]
-      )
-    )
+      ) == nil)
   }
 
-  func testFocusedManagedWindowMatchesSmallSnapshotFrameDrift() {
+  @Test
+  func `Focused managed window matches small snapshot frame drift`() {
     let managed = Window(
       id: WindowID(rawValue: 1),
       appID: "com.example.app",
@@ -154,7 +149,7 @@ final class WindowDiscoveryTests: XCTestCase {
       monitorID: MonitorID(rawValue: 1)
     )
 
-    XCTAssertEqual(
+    #expect(
       focusedWindowIDMatchingFrame(
         processID: processID,
         focusedFrame: Rect(
@@ -164,12 +159,11 @@ final class WindowDiscoveryTests: XCTestCase {
           height: frame.height
         ),
         windows: [managed]
-      ),
-      managed.id
-    )
+      ) == managed.id)
   }
 
-  func testWindowMatchingPrefersExactFrameOverEmptyTitle() {
+  @Test
+  func `Window matching prefers exact frame over empty title`() {
     let exactFrame = CGWindowRecord(
       id: 1,
       processID: processID,
@@ -192,10 +186,11 @@ final class WindowDiscoveryTests: XCTestCase {
       records: [emptyTitleStrip, exactFrame]
     )
 
-    XCTAssertEqual(match?.id, exactFrame.id)
+    #expect(match?.id == exactFrame.id)
   }
 
-  func testWindowMatchingRejectsUnrelatedSurface() {
+  @Test
+  func `Window matching rejects unrelated surface`() {
     let unrelated = CGWindowRecord(
       id: 1,
       processID: processID,
@@ -204,29 +199,28 @@ final class WindowDiscoveryTests: XCTestCase {
       frame: Rect(x: 104, y: 34, width: 2_554, height: 1_354)
     )
 
-    XCTAssertNil(
+    #expect(
       bestCGWindow(
         processID: processID,
         title: "Picture in Picture",
         frame: frame,
         records: [unrelated]
-      )
-    )
+      ) == nil)
   }
 
-  func testFocusRecoveryMatchesUnmanagedAuxiliaryWindowByFrame() {
+  @Test
+  func `Focus recovery matches unmanaged auxiliary window by frame`() {
     let auxiliaryFrame = Rect(x: 400, y: 300, width: 500, height: 300)
 
-    XCTAssertEqual(
+    #expect(
       closestFocusRecoveryWindowIndex(
         target: (auxiliaryFrame, "Preferences"),
         candidates: [(frame, "Main"), (auxiliaryFrame, "Preferences")]
-      ),
-      1
-    )
+      ) == 1)
   }
 
-  func testFocusRecoverySearchesBeyondFirst32Candidates() {
+  @Test
+  func `Focus recovery searches beyond first 32 candidates`() {
     let targetFrame = Rect(x: 400, y: 300, width: 500, height: 300)
     var candidates = Array(
       repeating: (Rect(x: 0, y: 0, width: 100, height: 100), "Other"),
@@ -234,43 +228,41 @@ final class WindowDiscoveryTests: XCTestCase {
     )
     candidates.append((targetFrame, "Preferences"))
 
-    XCTAssertEqual(
+    #expect(
       closestFocusRecoveryWindowIndex(
         target: (targetFrame, "Preferences"),
         candidates: candidates
-      ),
-      32
-    )
+      ) == 32)
   }
 
-  func testFocusRecoveryRejectsDistantAccessibilityWindow() {
-    XCTAssertNil(
+  @Test
+  func `Focus recovery rejects distant accessibility window`() {
+    #expect(
       closestFocusRecoveryWindowIndex(
         target: (
           Rect(x: 400, y: 300, width: 500, height: 300),
           "Preferences"
         ),
         candidates: [(frame, "Main")]
-      )
-    )
+      ) == nil)
   }
 
-  func testFocusRecoveryUsesTitleToBreakGeometryTie() {
+  @Test
+  func `Focus recovery uses title to break geometry tie`() {
     let auxiliaryFrame = Rect(x: 400, y: 300, width: 500, height: 300)
 
-    XCTAssertEqual(
+    #expect(
       closestFocusRecoveryWindowIndex(
         target: (auxiliaryFrame, "Preferences"),
         candidates: [
           (auxiliaryFrame, "Main"),
           (auxiliaryFrame, "Preferences"),
         ]
-      ),
-      1
-    )
+      ) == 1)
   }
 
-  func testWindowMatchingUsesTitleToBreakGeometryTie() {
+  @Test
+  func `Window matching uses title to break geometry tie`() {
     let wrongTitle = CGWindowRecord(
       id: 1,
       processID: processID,
@@ -293,10 +285,11 @@ final class WindowDiscoveryTests: XCTestCase {
       records: [wrongTitle, matchingTitle]
     )
 
-    XCTAssertEqual(match?.id, matchingTitle.id)
+    #expect(match?.id == matchingTitle.id)
   }
 
-  func testPreferredWindowIDRequiresLiveCGRecordFromSameProcess() {
+  @Test
+  func `Preferred window ID requires live CG record from same process`() {
     let live = CGWindowRecord(
       id: 42,
       processID: processID,
@@ -312,7 +305,7 @@ final class WindowDiscoveryTests: XCTestCase {
       frame: frame
     )
 
-    XCTAssertEqual(
+    #expect(
       cgWindowRecordForDiscovery(
         preferredWindowID: WindowID(rawValue: 42),
         processID: processID,
@@ -320,10 +313,8 @@ final class WindowDiscoveryTests: XCTestCase {
         frame: frame,
         records: [live],
         excluding: []
-      )?.id,
-      42
-    )
-    XCTAssertNil(
+      )?.id == 42)
+    #expect(
       cgWindowRecordForDiscovery(
         preferredWindowID: WindowID(rawValue: 42),
         processID: processID,
@@ -331,9 +322,8 @@ final class WindowDiscoveryTests: XCTestCase {
         frame: frame,
         records: [],
         excluding: []
-      )
-    )
-    XCTAssertNil(
+      ) == nil)
+    #expect(
       cgWindowRecordForDiscovery(
         preferredWindowID: WindowID(rawValue: 42),
         processID: processID,
@@ -341,9 +331,8 @@ final class WindowDiscoveryTests: XCTestCase {
         frame: frame,
         records: [recycledByAnotherProcess],
         excluding: []
-      )
-    )
-    XCTAssertNil(
+      ) == nil)
+    #expect(
       cgWindowRecordForDiscovery(
         preferredWindowID: WindowID(rawValue: 42),
         processID: processID,
@@ -351,11 +340,11 @@ final class WindowDiscoveryTests: XCTestCase {
         frame: frame,
         records: [live],
         excluding: [42]
-      )
-    )
+      ) == nil)
   }
 
-  func testAXWindowIDBypassesRedactedWindowServerGeometry() {
+  @Test
+  func `AX window ID bypasses redacted window server geometry`() {
     let live = CGWindowRecord(
       id: 42,
       processID: processID,
@@ -364,7 +353,7 @@ final class WindowDiscoveryTests: XCTestCase {
       frame: Rect(x: 0, y: 940, width: 500, height: 500)
     )
 
-    XCTAssertEqual(
+    #expect(
       cgWindowRecordForDiscovery(
         axWindowID: 42,
         preferredWindowID: nil,
@@ -373,12 +362,11 @@ final class WindowDiscoveryTests: XCTestCase {
         frame: frame,
         records: [live],
         excluding: []
-      )?.id,
-      42
-    )
+      )?.id == 42)
   }
 
-  func testMissingPreferredWindowRecordDoesNotRematchUnrelatedLiveWindow() {
+  @Test
+  func `Missing preferred window record does not rematch unrelated live window`() {
     let otherLiveWindow = CGWindowRecord(
       id: 43,
       processID: processID,
@@ -387,7 +375,7 @@ final class WindowDiscoveryTests: XCTestCase {
       frame: frame
     )
 
-    XCTAssertNil(
+    #expect(
       cgWindowRecordForDiscovery(
         preferredWindowID: WindowID(rawValue: 42),
         processID: processID,
@@ -395,9 +383,8 @@ final class WindowDiscoveryTests: XCTestCase {
         frame: frame,
         records: [otherLiveWindow],
         excluding: []
-      )
-    )
-    XCTAssertEqual(
+      ) == nil)
+    #expect(
       cgWindowRecordForDiscovery(
         preferredWindowID: nil,
         processID: processID,
@@ -405,12 +392,26 @@ final class WindowDiscoveryTests: XCTestCase {
         frame: frame,
         records: [otherLiveWindow],
         excluding: []
-      )?.id,
-      43
-    )
+      )?.id == 43)
   }
 
-  func testAuxiliaryRolesCanMatchFloatingLevelWindowRecords() {
+  @Test(arguments: [
+    (kAXWindowRole, Optional("AXDialog"), false, true),
+    (kAXWindowRole, Optional("AXFloatingWindow"), false, true),
+    (kAXWindowRole, Optional("AXSystemDialog"), false, true),
+    (kAXWindowRole, Optional("AXSystemFloatingWindow"), false, true),
+    (kAXSheetRole, nil, false, true),
+    (kAXWindowRole, Optional(kAXStandardWindowSubrole), false, false),
+    (kAXWindowRole, Optional(kAXUnknownSubrole), true, true),
+  ])
+  func `Window roles select eligible window server layers`(
+    testCase: (
+      role: String,
+      subrole: String?,
+      allowsConfiguredNonzeroLayer: Bool,
+      includesPanel: Bool
+    )
+  ) {
     let normal = CGWindowRecord(
       id: 1,
       processID: processID,
@@ -426,42 +427,22 @@ final class WindowDiscoveryTests: XCTestCase {
       frame: frame
     )
 
-    for (role, subrole) in [
-      (kAXWindowRole, "AXDialog"),
-      (kAXWindowRole, "AXFloatingWindow"),
-      (kAXWindowRole, "AXSystemDialog"),
-      (kAXWindowRole, "AXSystemFloatingWindow"),
-      (kAXSheetRole, nil),
-    ] {
-      XCTAssertEqual(
-        eligibleCGWindowRecords(
-          role: role,
-          for: subrole,
-          in: [normal, panel]
-        ).map(\.id),
-        [normal.id, panel.id]
-      )
-    }
-    XCTAssertEqual(
+    let expected =
+      testCase.includesPanel
+      ? [normal.id, panel.id]
+      : [normal.id]
+
+    #expect(
       eligibleCGWindowRecords(
-        role: kAXWindowRole,
-        for: kAXStandardWindowSubrole,
+        role: testCase.role,
+        for: testCase.subrole,
+        allowsConfiguredNonzeroLayer: testCase.allowsConfiguredNonzeroLayer,
         in: [normal, panel]
-      ).map(\.id),
-      [normal.id]
-    )
-    XCTAssertEqual(
-      eligibleCGWindowRecords(
-        role: kAXWindowRole,
-        for: kAXUnknownSubrole,
-        allowsConfiguredNonzeroLayer: true,
-        in: [normal, panel]
-      ).map(\.id),
-      [normal.id, panel.id]
-    )
+      ).map(\.id) == expected)
   }
 
-  func testWindowFrameSnapshotSelectsRequestedFloatingWindow() {
+  @Test
+  func `Window frame snapshot selects requested floating window`() {
     let requested = CGWindowRecord(
       id: 2,
       processID: processID,
@@ -477,17 +458,16 @@ final class WindowDiscoveryTests: XCTestCase {
       frame: Rect(x: 100, y: 100, width: 800, height: 600)
     )
 
-    XCTAssertEqual(
+    #expect(
       framesByWindowID(
         for: [WindowID(rawValue: UInt64(requested.id))],
         in: [unrelated, requested]
-      ),
-      [WindowID(rawValue: UInt64(requested.id)): frame]
-    )
+      ) == [WindowID(rawValue: UInt64(requested.id)): frame])
   }
 
-  func testStandardClosableResizableWindowIsTiled() {
-    XCTAssertEqual(
+  @Test
+  func `Standard closable resizable window is tiled`() {
+    #expect(
       classifyWindow(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
@@ -496,13 +476,12 @@ final class WindowDiscoveryTests: XCTestCase {
         canResize: true,
         configuredFloating: false,
         forceTiling: false
-      ),
-      .tiled
-    )
+      ) == .tiled)
   }
 
-  func testControlLessPictureInPictureWindowFloats() {
-    XCTAssertEqual(
+  @Test
+  func `Control less picture in picture window floats`() {
+    #expect(
       classifyWindow(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
@@ -511,34 +490,32 @@ final class WindowDiscoveryTests: XCTestCase {
         canResize: false,
         configuredFloating: false,
         forceTiling: false
-      ),
-      .floating
-    )
+      ) == .floating)
   }
 
-  func testSystemDialogsAndSheetsFloatByDefault() {
-    for (role, subrole) in [
-      (kAXWindowRole, "AXSystemDialog"),
-      (kAXWindowRole, "AXFloatingWindow"),
-      (kAXSheetRole, nil),
-    ] {
-      XCTAssertEqual(
-        classifyWindow(
-          role: role,
-          subrole: subrole,
-          appID: "com.example.app",
-          hasCloseButton: false,
-          canResize: false,
-          configuredFloating: false,
-          forceTiling: false
-        ),
-        .floating
-      )
-    }
+  @Test(arguments: [
+    (kAXWindowRole, Optional("AXSystemDialog")),
+    (kAXWindowRole, Optional("AXFloatingWindow")),
+    (kAXSheetRole, nil),
+  ])
+  func `System dialogs and sheets float by default`(
+    testCase: (role: String, subrole: String?)
+  ) {
+    #expect(
+      classifyWindow(
+        role: testCase.role,
+        subrole: testCase.subrole,
+        appID: "com.example.app",
+        hasCloseButton: false,
+        canResize: false,
+        configuredFloating: false,
+        forceTiling: false
+      ) == .floating)
   }
 
-  func testModalStandardWindowFloatsEvenWhenResizable() {
-    XCTAssertEqual(
+  @Test
+  func `Modal standard window floats even when resizable`() {
+    #expect(
       classifyWindow(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
@@ -548,13 +525,12 @@ final class WindowDiscoveryTests: XCTestCase {
         isModal: true,
         configuredFloating: false,
         forceTiling: false
-      ),
-      .floating
-    )
+      ) == .floating)
   }
 
-  func testQuickLookServiceWindowFloatsEvenWhenStandard() {
-    XCTAssertEqual(
+  @Test
+  func `Quick look service window floats even when standard`() {
+    #expect(
       classifyWindow(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
@@ -563,13 +539,12 @@ final class WindowDiscoveryTests: XCTestCase {
         canResize: true,
         configuredFloating: false,
         forceTiling: false
-      ),
-      .floating
-    )
+      ) == .floating)
   }
 
-  func testConfiguredFloatingTracksUnknownAuxiliaryWindow() {
-    XCTAssertEqual(
+  @Test
+  func `Configured floating tracks unknown auxiliary window`() {
+    #expect(
       classifyWindow(
         role: kAXWindowRole,
         subrole: kAXUnknownSubrole,
@@ -578,115 +553,110 @@ final class WindowDiscoveryTests: XCTestCase {
         canResize: false,
         configuredFloating: true,
         forceTiling: false
-      ),
-      .floating
-    )
+      ) == .floating)
   }
 
-  func testTransientCloseButtonFailurePreservesManagedWindow() {
-    XCTAssertTrue(
+  @Test
+  func `Transient close button failure preserves managed window`() {
+    #expect(
       shouldTreatWindowAsClosable(
         error: .cannotComplete,
         hasValue: false,
         wasPreviouslyManaged: true
-      )
-    )
-    XCTAssertFalse(
+      ))
+    #expect(
       shouldTreatWindowAsClosable(
         error: .cannotComplete,
         hasValue: false,
         wasPreviouslyManaged: false
-      )
-    )
+      ) == false)
   }
 
-  func testTransientMetadataFailurePreservesPreviousDisposition() {
-    let cases: [(WindowDisposition?, WindowDisposition)] = [
-      (nil, WindowDisposition.unavailable),
-      (.tiled, .tiled),
-      (.floating, .floating),
-    ]
-    for (closeButtonError, sizeSettableError) in [
+  @Test(
+    arguments: [
       (AXError.cannotComplete, AXError.success),
-      (.success, .cannotComplete),
-    ] {
-      for (previous, expected) in cases {
-        XCTAssertEqual(
-          fallbackDispositionForTransientWindowMetadata(
-            role: kAXWindowRole,
-            subrole: kAXStandardWindowSubrole,
-            closeButtonError: closeButtonError,
-            sizeSettableError: sizeSettableError,
-            previousDisposition: previous
-          ),
-          expected
-        )
-      }
-    }
-    XCTAssertNil(
+      (AXError.success, AXError.cannotComplete),
+    ],
+    [
+      (Optional<WindowDisposition>.none, WindowDisposition.unavailable),
+      (WindowDisposition.tiled, .tiled),
+      (WindowDisposition.floating, .floating),
+    ])
+  func `Transient metadata failure preserves previous disposition`(
+    errors: (closeButton: AXError, sizeSettable: AXError),
+    dispositions: (previous: WindowDisposition?, expected: WindowDisposition)
+  ) {
+    #expect(
+      fallbackDispositionForTransientWindowMetadata(
+        role: kAXWindowRole,
+        subrole: kAXStandardWindowSubrole,
+        closeButtonError: errors.closeButton,
+        sizeSettableError: errors.sizeSettable,
+        previousDisposition: dispositions.previous
+      ) == dispositions.expected)
+  }
+
+  @Test
+  func `Successful metadata does not need a fallback disposition`() {
+    #expect(
       fallbackDispositionForTransientWindowMetadata(
         role: kAXWindowRole,
         subrole: kAXStandardWindowSubrole,
         closeButtonError: .success,
         sizeSettableError: .success,
         previousDisposition: .floating
-      )
-    )
+      ) == nil)
   }
 
-  func testUnsupportedSizeAttributeMeansFixedSize() {
-    XCTAssertFalse(
+  @Test
+  func `Unsupported size attribute means fixed size`() {
+    #expect(
       windowCanResize(
         sizeSettableError: .attributeUnsupported,
         isSettable: false
-      )
-    )
-    XCTAssertTrue(
+      ) == false)
+    #expect(
       windowCanResize(
         sizeSettableError: .cannotComplete,
         isSettable: false
-      )
-    )
+      ))
   }
 
-  func testTransientModalReadPreservesCachedValue() {
-    XCTAssertEqual(
+  @Test
+  func `Transient modal read preserves cached value`() {
+    #expect(
       resolvedWindowModalState(
         error: .cannotComplete,
         observedValue: nil,
         cachedValue: true
-      ),
-      true
-    )
-    XCTAssertNil(
+      ) == true)
+    #expect(
       resolvedWindowModalState(
         error: .cannotComplete,
         observedValue: nil,
         cachedValue: nil
-      )
-    )
-    XCTAssertEqual(
+      ) == nil)
+    #expect(
       resolvedWindowModalState(
         error: .attributeUnsupported,
         observedValue: nil,
         cachedValue: true
-      ),
-      false
-    )
+      ) == false)
   }
 
-  func testMissingCloseButtonRemainsUnmanaged() {
-    XCTAssertFalse(
+  @Test
+  func `Missing close button remains unmanaged`() {
+    #expect(
       shouldTreatWindowAsClosable(
         error: .noValue,
         hasValue: false,
         wasPreviouslyManaged: true
-      )
-    )
+      ) == false)
   }
 
-  func testForceTilingOverridesWindowShapeFilter() {
-    XCTAssertEqual(
+  @Test
+  func `Force tiling overrides window shape filter`() {
+    #expect(
       classifyWindow(
         role: kAXWindowRole,
         subrole: kAXUnknownSubrole,
@@ -695,45 +665,43 @@ final class WindowDiscoveryTests: XCTestCase {
         canResize: false,
         configuredFloating: false,
         forceTiling: true
-      ),
-      .tiled
-    )
+      ) == .tiled)
   }
 
-  func testApplicationActivationSelectsTargetWithUnmanagedAuxiliaryWindows() {
-    XCTAssertTrue(
+  @Test
+  func `Application activation selects target with unmanaged auxiliary windows`() {
+    #expect(
       shouldSelectSpecificWindow(
         activatesApplication: true,
         hasUnmanagedAuxiliaryWindows: true,
         hasMultipleManagedWindows: false,
         focusWritePending: false,
         targetWasLastFocused: true
-      )
-    )
+      ))
   }
 
-  func testStableSingleWindowFocusKeepsFastPath() {
-    XCTAssertFalse(
+  @Test
+  func `Stable single window focus keeps fast path`() {
+    #expect(
       shouldSelectSpecificWindow(
         activatesApplication: true,
         hasUnmanagedAuxiliaryWindows: false,
         hasMultipleManagedWindows: false,
         focusWritePending: false,
         targetWasLastFocused: true
-      )
-    )
+      ) == false)
   }
 
-  func testFrontmostSingleWindowDefersSelectionToAsyncValidation() {
-    XCTAssertFalse(
+  @Test
+  func `Frontmost single window defers selection to async validation`() {
+    #expect(
       shouldSelectSpecificWindow(
         activatesApplication: false,
         hasUnmanagedAuxiliaryWindows: true,
         hasMultipleManagedWindows: false,
         focusWritePending: false,
         targetWasLastFocused: true
-      )
-    )
+      ) == false)
   }
 }
 
@@ -773,8 +741,8 @@ struct WindowClassificationReviewFeedbackTests {
   }
 
   @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {
-    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 1))
-    #expect(!shouldDisableBatchedWindowAttributeReads(failureCount: 2))
+    #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 1) == false)
+    #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 2) == false)
     #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 3))
   }
 

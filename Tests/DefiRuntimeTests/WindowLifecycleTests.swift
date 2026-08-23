@@ -1,12 +1,13 @@
 import DefiConfig
 import DefiModel
 import DefiRuntime
-import XCTest
+import Testing
 
-final class WindowLifecycleTests: XCTestCase {
+struct WindowLifecycleTests {
   private let monitorID = MonitorID(rawValue: 1)
 
-  func testDiscoveryUsesRuleWorkspaceAndFollowFocus() throws {
+  @Test
+  func `Discovery uses rule workspace and follow focus`() throws {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "web"]),
       rules: [Rule(appID: "browser", workspace: "web", followFocus: true)]
@@ -28,11 +29,12 @@ final class WindowLifecycleTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "web"))
-    XCTAssertEqual(state.monitors[0].workspaces[1].columns[0].windows, [window.id])
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "web"))
+    #expect(state.monitors[0].workspaces[1].columns[0].windows == [window.id])
   }
 
-  func testTransientInheritsOwnersWorkspaceWithoutActivatingIt() throws {
+  @Test
+  func `Transient inherits owners workspace without activating it`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -62,11 +64,12 @@ final class WindowLifecycleTests: XCTestCase {
 
     try discoverWindow(dialog, decision: RuleDecision(), state: &state)
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "dev"))
-    XCTAssertEqual(state.location(containing: dialog.id)?.workspaceID, WorkspaceID(rawValue: "web"))
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "dev"))
+    #expect(state.location(containing: dialog.id)?.workspaceID == WorkspaceID(rawValue: "web"))
   }
 
-  func testBackgroundTransientIgnoresFollowFocusRule() throws {
+  @Test
+  func `Background transient ignores follow focus rule`() throws {
     let web = WorkspaceID(rawValue: "web")
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", web.rawValue]),
@@ -96,8 +99,8 @@ final class WindowLifecycleTests: XCTestCase {
 
     reconcileWindows([owner, dialog], config: config, state: &state)
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "dev"))
-    XCTAssertEqual(state.location(containing: dialog.id)?.workspaceID, web)
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "dev"))
+    #expect(state.location(containing: dialog.id)?.workspaceID == web)
 
     reconcileWindows([owner], config: config, state: &state)
     reconcileWindows(
@@ -107,10 +110,11 @@ final class WindowLifecycleTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, web)
+    #expect(state.monitors[0].activeWorkspace == web)
   }
 
-  func testMoveWindowToWorkspaceFollows() throws {
+  @Test
+  func `Move window to workspace follows`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -129,12 +133,13 @@ final class WindowLifecycleTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "web"))
-    XCTAssertEqual(state.monitors[0].workspaces[1].columns[0].windows, [window.id])
-    XCTAssertTrue(state.monitors[0].workspaces[0].columns.isEmpty)
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "web"))
+    #expect(state.monitors[0].workspaces[1].columns[0].windows == [window.id])
+    #expect(state.monitors[0].workspaces[0].columns.isEmpty)
   }
 
-  func testReconcileRemovesClosedWindow() throws {
+  @Test
+  func `Reconcile removes closed window`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -149,11 +154,12 @@ final class WindowLifecycleTests: XCTestCase {
 
     reconcileWindows([], config: config, state: &state)
 
-    XCTAssertTrue(state.windows.isEmpty)
-    XCTAssertTrue(state.monitors[0].workspaces[0].columns.isEmpty)
+    #expect(state.windows.isEmpty)
+    #expect(state.monitors[0].workspaces[0].columns.isEmpty)
   }
 
-  func testReconcilePreservesIntrinsicDimensionsAfterAppliedGaps() throws {
+  @Test
+  func `Reconcile preserves intrinsic dimensions after applied gaps`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -180,11 +186,12 @@ final class WindowLifecycleTests: XCTestCase {
 
     reconcileWindows([observedAfterLayout], config: config, state: &state)
 
-    XCTAssertEqual(state.windows[initial.id]?.frame.width, 320)
-    XCTAssertEqual(state.windows[initial.id]?.frame.height, 640)
+    #expect(state.windows[initial.id]?.frame.width == 320)
+    #expect(state.windows[initial.id]?.frame.height == 640)
   }
 
-  func testReconcileAdoptsExternalIntrinsicResize() throws {
+  @Test
+  func `Reconcile adopts external intrinsic resize`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -216,8 +223,8 @@ final class WindowLifecycleTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(state.windows[initial.id]?.frame.width, 430)
-    XCTAssertEqual(state.windows[initial.id]?.frame.height, 860)
+    #expect(state.windows[initial.id]?.frame.width == 430)
+    #expect(state.windows[initial.id]?.frame.height == 860)
   }
 
 }

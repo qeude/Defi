@@ -3,7 +3,6 @@ import DefiCore
 import DefiModel
 import DefiRuntime
 import Testing
-import XCTest
 
 struct RuntimeMinimumWidthTests {
   @Test
@@ -104,10 +103,11 @@ struct RuntimeMinimumWidthTests {
   }
 }
 
-final class RuntimeWidthLearningTests: XCTestCase {
+struct RuntimeWidthLearningTests {
   private let monitorID = MonitorID(rawValue: 1)
 
-  func testMouseResizeLearnsRealColumnWidth() throws {
+  @Test
+  func `Mouse resize learns real column width`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -128,14 +128,12 @@ final class RuntimeWidthLearningTests: XCTestCase {
       viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     )
 
-    XCTAssertTrue(learned)
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].width,
-      .pixels(600)
-    )
+    #expect(learned)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
   }
 
-  func testMouseResizeDoesNotOverwriteIntrinsicWidth() throws {
+  @Test
+  func `Mouse resize does not overwrite intrinsic width`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -152,17 +150,17 @@ final class RuntimeWidthLearningTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertFalse(
+    #expect(
       learnTiledWindowWidth(
         window.id,
         actualFrame: Rect(x: 8, y: 8, width: 404, height: 684),
         state: &state,
         viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
-      )
-    )
+      ) == false)
   }
 
-  func testMaximizedWidthCannotBeLearnedFromAXDrift() throws {
+  @Test
+  func `Maximized width cannot be learned from AX drift`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -176,22 +174,15 @@ final class RuntimeWidthLearningTests: XCTestCase {
     try discoverWindow(window, decision: RuleDecision(), state: &state)
     try reduce(.maximizeColumn, on: monitorID, state: &state)
 
-    XCTAssertFalse(
+    #expect(
       learnTiledWindowWidth(
         window.id,
         actualFrame: Rect(x: 8, y: 8, width: 784, height: 684),
         state: &state,
         viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].width,
-      .fraction(1)
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].preMaximizedWidth,
-      .fraction(0.8)
-    )
+      ) == false)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(1))
+    #expect(state.monitors[0].workspaces[0].columns[0].preMaximizedWidth == .fraction(0.8))
   }
 
 }

@@ -1,19 +1,21 @@
 import DefiCore
 import DefiModel
-import XCTest
+import Testing
 
-final class ParkingTests: XCTestCase {
-  func testParkingUsesStableUniqueSlots() {
+struct ParkingTests {
+  @Test
+  func `Parking uses stable unique slots`() {
     let diff = parkOffscreen([
       WindowID(rawValue: 1),
       WindowID(rawValue: 2),
     ])
 
-    XCTAssertEqual(diff.frames[0].frame, Rect(x: -10_000, y: -10_000, width: 1, height: 1))
-    XCTAssertEqual(diff.frames[1].frame, Rect(x: -10_000, y: -10_020, width: 1, height: 1))
+    #expect(diff.frames[0].frame == Rect(x: -10_000, y: -10_000, width: 1, height: 1))
+    #expect(diff.frames[1].frame == Rect(x: -10_000, y: -10_020, width: 1, height: 1))
   }
 
-  func testContinuousStripAnchorsEveryOffscreenColumnAndPrefetchesNeighbors() {
+  @Test
+  func `Continuous strip anchors every offscreen column and prefetches neighbors`() {
     let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let frames = (0..<10).map { index in
       FrameAssignment(
@@ -37,27 +39,22 @@ final class ParkingTests: XCTestCase {
       uniqueKeysWithValues: plan.frames.map { ($0.windowID, $0.frame) }
     )
 
-    XCTAssertEqual(byID[WindowID(rawValue: 4)]?.x, -499)
-    XCTAssertEqual(byID[WindowID(rawValue: 3)]?.x, -499)
-    XCTAssertEqual(byID[WindowID(rawValue: 3)]?.y, 0)
-    XCTAssertEqual(byID[WindowID(rawValue: 9)]?.x, 999)
-    XCTAssertEqual(byID[WindowID(rawValue: 10)]?.x, 999)
-    XCTAssertEqual(byID[WindowID(rawValue: 10)]?.y, 0)
-    XCTAssertTrue(plan.parkedWindowIDs.contains(WindowID(rawValue: 3)))
-    XCTAssertTrue(plan.parkedWindowIDs.contains(WindowID(rawValue: 10)))
-    XCTAssertTrue(plan.parkedWindowIDs.contains(WindowID(rawValue: 4)))
-    XCTAssertTrue(plan.parkedWindowIDs.contains(WindowID(rawValue: 9)))
-    XCTAssertEqual(
-      plan.visibilityByWindowID[WindowID(rawValue: 4)],
-      .prefetched
-    )
-    XCTAssertEqual(
-      plan.visibilityByWindowID[WindowID(rawValue: 3)],
-      .parked
-    )
+    #expect(byID[WindowID(rawValue: 4)]?.x == -499)
+    #expect(byID[WindowID(rawValue: 3)]?.x == -499)
+    #expect(byID[WindowID(rawValue: 3)]?.y == 0)
+    #expect(byID[WindowID(rawValue: 9)]?.x == 999)
+    #expect(byID[WindowID(rawValue: 10)]?.x == 999)
+    #expect(byID[WindowID(rawValue: 10)]?.y == 0)
+    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 3)))
+    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 10)))
+    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 4)))
+    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 9)))
+    #expect(plan.visibilityByWindowID[WindowID(rawValue: 4)] == .prefetched)
+    #expect(plan.visibilityByWindowID[WindowID(rawValue: 3)] == .parked)
   }
 
-  func testParkingResolverAvoidsNeighboringMonitor() {
+  @Test
+  func `Parking resolver avoids neighboring monitor`() {
     let owner = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let leftNeighbor = Rect(x: -1_000, y: 0, width: 1_000, height: 700)
     let placement = resolveParkingPlacement(
@@ -67,14 +64,12 @@ final class ParkingTests: XCTestCase {
       preferredSide: .left
     )
 
-    XCTAssertEqual(placement.side, .right)
-    XCTAssertEqual(
-      placement.frame,
-      Rect(x: 999, y: 0, width: 500, height: 700)
-    )
+    #expect(placement.side == .right)
+    #expect(placement.frame == Rect(x: 999, y: 0, width: 500, height: 700))
   }
 
-  func testParkingResolverUsesVerticalLaneAroundStaggeredDisplays() {
+  @Test
+  func `Parking resolver uses vertical lane around staggered displays`() {
     let owner = Rect(x: 1_000, y: 0, width: 1_000, height: 1_000)
     let leftNeighbor = Rect(x: 0, y: 400, width: 1_000, height: 500)
     let rightNeighbor = Rect(x: 2_000, y: 0, width: 1_000, height: 500)
@@ -85,12 +80,9 @@ final class ParkingTests: XCTestCase {
       preferredSide: .left
     )
 
-    XCTAssertGreaterThan(
-      verticalIntersection(placement.frame, owner),
-      0
-    )
-    XCTAssertEqual(intersectionArea(placement.frame, leftNeighbor), 0)
-    XCTAssertEqual(intersectionArea(placement.frame, rightNeighbor), 0)
+    #expect(verticalIntersection(placement.frame, owner) > 0)
+    #expect(intersectionArea(placement.frame, leftNeighbor) == 0)
+    #expect(intersectionArea(placement.frame, rightNeighbor) == 0)
   }
 
   private func intersectionArea(_ lhs: Rect, _ rhs: Rect) -> Double {

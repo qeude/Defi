@@ -1,11 +1,12 @@
 import DefiCore
 import DefiModel
-import XCTest
+import Testing
 
-final class WindowLayoutTests: XCTestCase {
+struct WindowLayoutTests {
   private let settings = LayoutSettings()
 
-  func testIntrinsicSizeWindowStaysCenteredInTile() {
+  @Test
+  func `Intrinsic size window stays centered in tile`() {
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(
       WindowID(rawValue: 1),
@@ -28,16 +29,16 @@ final class WindowLayoutTests: XCTestCase {
       settings: settings
     )
 
-    XCTAssertEqual(
-      diff.frames[0],
-      FrameAssignment(
-        windowID: WindowID(rawValue: 1),
-        frame: Rect(x: 8, y: 88, width: 304, height: 624)
-      )
-    )
+    #expect(
+      diff.frames[0]
+        == FrameAssignment(
+          windowID: WindowID(rawValue: 1),
+          frame: Rect(x: 8, y: 88, width: 304, height: 624)
+        ))
   }
 
-  func testFrameBatchSkipsUnchangedAssignments() {
+  @Test
+  func `Frame batch skips unchanged assignments`() {
     let first = FrameAssignment(
       windowID: WindowID(rawValue: 1),
       frame: Rect(x: 0, y: 0, width: 500, height: 800)
@@ -53,12 +54,13 @@ final class WindowLayoutTests: XCTestCase {
 
     let batch = planFrameBatch(previous: [first, second], next: [first, moved])
 
-    XCTAssertEqual(batch.frames, [moved])
-    XCTAssertEqual(batch.stats.plannedWrites, 1)
-    XCTAssertEqual(batch.stats.skippedUnchanged, 1)
+    #expect(batch.frames == [moved])
+    #expect(batch.stats.plannedWrites == 1)
+    #expect(batch.stats.skippedUnchanged == 1)
   }
 
-  func testEachViewportProducesItsOwnMonitorSizedLayout() {
+  @Test
+  func `Each viewport produces its own monitor sized layout`() {
     let noGaps = LayoutSettings(
       defaultColumnWidth: 0.8,
       innerHorizontalGap: 0,
@@ -84,11 +86,8 @@ final class WindowLayoutTests: XCTestCase {
       settings: noGaps
     ).frames[0].frame
 
-    XCTAssertEqual(laptop, Rect(x: 0, y: 0, width: 1_200, height: 900))
-    XCTAssertEqual(
-      external,
-      Rect(x: 1_500, y: 30, width: 2_048, height: 1_362)
-    )
+    #expect(laptop == Rect(x: 0, y: 0, width: 1_200, height: 900))
+    #expect(external == Rect(x: 1_500, y: 30, width: 2_048, height: 1_362))
   }
 
 }

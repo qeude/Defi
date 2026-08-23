@@ -1,32 +1,32 @@
-@testable import DefiIPC
 import Darwin
 import Foundation
 import Synchronization
 import Testing
-import XCTest
 
-final class IPCTests: XCTestCase {
-  func testProtocolRoundTrip() throws {
+@testable import DefiIPC
+
+struct IPCTests {
+  @Test
+  func `Protocol round trip`() throws {
     let request = CommandRequest(command: "focus-column left")
     let requestData = try JSONEncoder().encode(request)
-    XCTAssertEqual(try JSONDecoder().decode(CommandRequest.self, from: requestData), request)
+    #expect(try JSONDecoder().decode(CommandRequest.self, from: requestData) == request)
 
     let response = CommandResponse.success("moved")
     let responseData = try JSONEncoder().encode(response)
-    XCTAssertEqual(
-      try JSONDecoder().decode(CommandResponse.self, from: responseData),
-      response
-    )
+    #expect(try JSONDecoder().decode(CommandResponse.self, from: responseData) == response)
   }
 
-  func testDefaultSocketPathIsPerUser() {
-    XCTAssertTrue(SocketPath.defaultURL.lastPathComponent.hasPrefix("defi-"))
-    XCTAssertEqual(SocketPath.defaultURL.pathExtension, "sock")
+  @Test
+  func `Default socket path is per user`() {
+    #expect(SocketPath.defaultURL.lastPathComponent.hasPrefix("defi-"))
+    #expect(SocketPath.defaultURL.pathExtension == "sock")
   }
 
-  func testClosedPeerReturnsBrokenPipeInsteadOfTerminatingProcess() throws {
+  @Test
+  func `Closed peer returns broken pipe instead of terminating process`() throws {
     var descriptors = [Int32](repeating: -1, count: 2)
-    XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+    #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
     defer {
       if descriptors[0] >= 0 { Darwin.close(descriptors[0]) }
       if descriptors[1] >= 0 { Darwin.close(descriptors[1]) }
@@ -35,28 +35,33 @@ final class IPCTests: XCTestCase {
     Darwin.close(descriptors[1])
     descriptors[1] = -1
 
-    XCTAssertThrowsError(try writeAll(Data("request\n".utf8), to: descriptors[0])) {
-      guard case IPCError.systemCall("write", EPIPE) = $0 else {
-        return XCTFail("expected EPIPE, got \($0)")
-      }
+    let capturedError = #expect(throws: IPCError.self) {
+      try writeAll(Data("request\n".utf8), to: descriptors[0])
+    }
+    let error = try #require(capturedError)
+    guard case IPCError.systemCall("write", EPIPE) = error else {
+      Issue.record("expected EPIPE, got \(error)")
+      return
     }
   }
 
-  func testAcceptedClientCanBeRestoredToBlockingMode() throws {
+  @Test
+  func `Accepted client can be restored to blocking mode`() throws {
     let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-    XCTAssertGreaterThanOrEqual(descriptor, 0)
+    #expect(descriptor >= 0)
     defer { Darwin.close(descriptor) }
     let flags = fcntl(descriptor, F_GETFL)
-    XCTAssertEqual(fcntl(descriptor, F_SETFL, flags | O_NONBLOCK), 0)
+    #expect(fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0)
 
     try configureBlocking(descriptor)
 
-    XCTAssertEqual(fcntl(descriptor, F_GETFL) & O_NONBLOCK, 0)
+    #expect(fcntl(descriptor, F_GETFL) & O_NONBLOCK == 0)
   }
 
-  func testReadTimeoutIsConfigured() throws {
+  @Test
+  func `Read timeout is configured`() throws {
     var descriptors = [Int32](repeating: -1, count: 2)
-    XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+    #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
     defer {
       if descriptors[0] >= 0 { Darwin.close(descriptors[0]) }
       if descriptors[1] >= 0 { Darwin.close(descriptors[1]) }
@@ -66,17 +71,15 @@ final class IPCTests: XCTestCase {
 
     var timeout = timeval(tv_sec: 0, tv_usec: 0)
     var length = socklen_t(MemoryLayout<timeval>.size)
-    XCTAssertEqual(
+    #expect(
       getsockopt(
         descriptors[0],
         SOL_SOCKET,
         SO_RCVTIMEO,
         &timeout,
         &length
-      ),
-      0
-    )
-    XCTAssertGreaterThan(timeout.tv_sec, 0)
+      ) == 0)
+    #expect(timeout.tv_sec > 0)
   }
 }
 

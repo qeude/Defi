@@ -247,15 +247,14 @@ struct NativeFocusTests {
       )
     )
     #expect(
-      !nativeFocusMutationIsReady(
+      nativeFocusMutationIsReady(
         nativeFocusChanged: true,
         mouseInteractionEnded: false,
         leftMouseButtonDown: false,
         mouseReleaseFocusIntentCurrent: false,
         keyboardFocusIntentCurrent: false,
         nativeFocusSuppressed: true
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -473,12 +472,11 @@ struct NativeFocusTests {
       )
     )
     #expect(
-      !cancelledFocusTargetsRequestedWindow(
+      cancelledFocusTargetsRequestedWindow(
         requestedWindowID: requestedWindowID,
         requestedWindowIsNativelyFocused: false,
         cancellingFocusTargetWindowID: WindowID(rawValue: 3)
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -611,25 +609,23 @@ struct NativeFocusTests {
       )
     )
     #expect(
-      !pendingWorkspaceFocusIsPreserved(
+      pendingWorkspaceFocusIsPreserved(
         pendingMonitorID: monitor,
         commandMonitorID: MonitorID(rawValue: 2),
         requestedWorkspaceID: workspace,
         activeWorkspaceID: workspace,
         requestedWindowID: window,
         selectedWindowID: window
-      )
-    )
+      ) == false)
     #expect(
-      !pendingWorkspaceFocusIsPreserved(
+      pendingWorkspaceFocusIsPreserved(
         pendingMonitorID: monitor,
         commandMonitorID: monitor,
         requestedWorkspaceID: workspace,
         activeWorkspaceID: workspace,
         requestedWindowID: window,
         selectedWindowID: WindowID(rawValue: 3)
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -778,11 +774,12 @@ struct NativeFocusTests {
         decision: decision,
         focusGuard: guardToken,
         newlyCreated: true
-      ) == GuardedWindowRemovalFocusAction(
-        windowID: fixture.localFallback.id,
-        monitorID: monitorID,
-        inputTimestamp: 10
       )
+        == GuardedWindowRemovalFocusAction(
+          windowID: fixture.localFallback.id,
+          monitorID: monitorID,
+          inputTimestamp: 10
+        )
     )
     #expect(
       guardedWindowRemovalFocusAction(
@@ -852,11 +849,12 @@ struct NativeFocusTests {
         decision: secondDecision,
         focusGuard: secondGuard,
         newlyCreated: true
-      ) == GuardedWindowRemovalFocusAction(
-        windowID: finalWindow.id,
-        monitorID: monitorID,
-        inputTimestamp: 10
       )
+        == GuardedWindowRemovalFocusAction(
+          windowID: finalWindow.id,
+          monitorID: monitorID,
+          inputTimestamp: 10
+        )
     )
     #expect(firstGuard.monitorID == secondGuard.monitorID)
   }

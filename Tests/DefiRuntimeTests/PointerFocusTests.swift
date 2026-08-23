@@ -22,7 +22,7 @@ struct PointerFocusTests {
         pointerWindowIsReady: false,
         targetAccepted: false,
         logicalFocusWindowID: logicalWindowID
-    ) == logicalWindowID
+      ) == logicalWindowID
     )
   }
 
@@ -161,7 +161,7 @@ struct PointerFocusTests {
     state.windows[descendantID]?.appID = "app"
     state.windows[descendantID]?.transientOwnerID = modalID
 
-    #expect(!modalAllowsPointerFocus(ownerID, state: state))
+    #expect(modalAllowsPointerFocus(ownerID, state: state) == false)
     #expect(modalAllowsPointerFocus(modalID, state: state))
     #expect(modalAllowsPointerFocus(descendantID, state: state))
   }
@@ -374,47 +374,43 @@ struct PointerFocusTests {
       )
     )
     #expect(
-      !pointerFocusRetryIsCurrent(
+      pointerFocusRetryIsCurrent(
         pendingWindowID: windowID,
         windowUnderPointerID: WindowID(rawValue: 43),
         requestGeneration: 4,
         currentGeneration: 4,
         pointerTimestamp: 12,
         latestUserInputTimestamp: 12
-      )
-    )
+      ) == false)
     #expect(
-      !pointerFocusRetryIsCurrent(
+      pointerFocusRetryIsCurrent(
         pendingWindowID: windowID,
         windowUnderPointerID: windowID,
         requestGeneration: 4,
         currentGeneration: 4,
         pointerTimestamp: 12,
         latestUserInputTimestamp: 13
-      )
-    )
+      ) == false)
   }
 
   @Test
   func newerPointerTransitionInvalidatesRequestWithoutGeneralInput() {
     #expect(
-      !pointerFocusRequestIsCurrent(
+      pointerFocusRequestIsCurrent(
         requestGeneration: 4,
         currentGeneration: 5,
         pointerTimestamp: 12,
         latestUserInputTimestamp: 12
-      )
-    )
+      ) == false)
     #expect(
-      !pointerFocusRetryIsCurrent(
+      pointerFocusRetryIsCurrent(
         pendingWindowID: WindowID(rawValue: 42),
         windowUnderPointerID: WindowID(rawValue: 42),
         requestGeneration: 4,
         currentGeneration: 5,
         pointerTimestamp: 12,
         latestUserInputTimestamp: 12
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -426,11 +422,10 @@ struct PointerFocusTests {
       )
     )
     #expect(
-      !pointerFocusIntentIsCurrent(
+      pointerFocusIntentIsCurrent(
         pointerTimestamp: 12,
         latestUserInputTimestamp: 13
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -442,11 +437,10 @@ struct PointerFocusTests {
       )
     )
     #expect(
-      !cancelledPointerFocusShouldRearm(
+      cancelledPointerFocusShouldRearm(
         pointerTimestamp: 12,
         latestUserInputTimestamp: 13
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -468,26 +462,23 @@ struct PointerFocusTests {
       )
     )
     #expect(
-      !commandFocusIsPreserved(
+      commandFocusIsPreserved(
         pendingWindowID: WindowID(rawValue: 43),
         submittedWindowID: nil,
         selectedWindowID: windowID
-      )
-    )
+      ) == false)
     #expect(
-      !commandFocusIsPreserved(
+      commandFocusIsPreserved(
         pendingWindowID: nil,
         submittedWindowID: WindowID(rawValue: 43),
         selectedWindowID: windowID
-      )
-    )
+      ) == false)
     #expect(
-      !commandFocusIsPreserved(
+      commandFocusIsPreserved(
         pendingWindowID: nil,
         submittedWindowID: nil,
         selectedWindowID: windowID
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -503,21 +494,19 @@ struct PointerFocusTests {
       )
     )
     #expect(
-      !commandFocusCompletionIsCurrent(
+      commandFocusCompletionIsCurrent(
         submittedWindowID: nil,
         submittedGeneration: nil,
         completedWindowID: windowID,
         completedGeneration: 4
-      )
-    )
+      ) == false)
     #expect(
-      !commandFocusCompletionIsCurrent(
+      commandFocusCompletionIsCurrent(
         submittedWindowID: WindowID(rawValue: 43),
         submittedGeneration: 5,
         completedWindowID: windowID,
         completedGeneration: 4
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -560,21 +549,19 @@ struct PointerFocusTests {
       )
     )
     #expect(
-      !focusTargetIsReady(
+      focusTargetIsReady(
         targetMonitorID: monitorID,
         targetWindowID: targetWindowID,
         scrollingMonitorIDs: [monitorID],
         pendingFrameWindowIDs: []
-      )
-    )
+      ) == false)
     #expect(
-      !focusTargetIsReady(
+      focusTargetIsReady(
         targetMonitorID: monitorID,
         targetWindowID: targetWindowID,
         scrollingMonitorIDs: [],
         pendingFrameWindowIDs: [targetWindowID]
-      )
-    )
+      ) == false)
     #expect(
       focusTargetIsReady(
         targetMonitorID: monitorID,
@@ -590,12 +577,11 @@ struct PointerFocusTests {
     let otherMonitorID = MonitorID(rawValue: 2)
 
     #expect(
-      !focusMonitorIsReady(
+      focusMonitorIsReady(
         targetMonitorID: monitorID,
         scrollingMonitorIDs: [],
         pendingFrameMonitorIDs: [monitorID]
-      )
-    )
+      ) == false)
     #expect(
       focusMonitorIsReady(
         targetMonitorID: monitorID,

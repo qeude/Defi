@@ -1,12 +1,14 @@
 import DefiConfig
 import DefiModel
 import DefiRuntime
+import Testing
 import XCTest
 
-final class RuntimeFocusTests: XCTestCase {
+struct RuntimeFocusTests {
   private let monitorID = MonitorID(rawValue: 1)
 
-  func testChangedStateRejectsBoundaryFocusNoOp() throws {
+  @Test
+  func `Changed state rejects boundary focus no op`() throws {
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
     for id in 1...2 {
@@ -32,16 +34,14 @@ final class RuntimeFocusTests: XCTestCase {
     let rejected = try changedState(
       after: .focusColumn(.left), on: monitorID, from: state
     )
-    XCTAssertEqual(
-      rejected?.monitors[0].workspaces[0].focusedColumn,
-      state.monitors[0].workspaces[0].focusedColumn
-    )
-    XCTAssertNotNil(
-      try changedState(after: .focusColumn(.right), on: monitorID, from: state)
-    )
+    #expect(
+      rejected?.monitors[0].workspaces[0].focusedColumn
+        == state.monitors[0].workspaces[0].focusedColumn)
+    #expect(try changedState(after: .focusColumn(.right), on: monitorID, from: state) != nil)
   }
 
-  func testExternalFocusActivatesContainingWorkspace() throws {
+  @Test
+  func `External focus activates containing workspace`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -57,14 +57,15 @@ final class RuntimeFocusTests: XCTestCase {
       decision: RuleDecision(workspace: WorkspaceID(rawValue: "web")),
       state: &state
     )
-    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "dev"))
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "dev"))
 
-    XCTAssertTrue(focusWindow(window.id, state: &state))
+    #expect(focusWindow(window.id, state: &state))
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, WorkspaceID(rawValue: "web"))
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "web"))
   }
 
-  func testExternalFocusSynchronizesNeverScrollUsingRealViewport() throws {
+  @Test
+  func `External focus synchronizes never scroll using real viewport`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -104,7 +105,8 @@ final class RuntimeFocusTests: XCTestCase {
     )
   }
 
-  func testNativeFocusAlignsFocusedColumnToLeftEdge() throws {
+  @Test
+  func `Native focus aligns focused column to left edge`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)

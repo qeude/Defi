@@ -1,9 +1,11 @@
+import Darwin
 import DefiModel
-import XCTest
+import Foundation
+import Testing
 
 @testable import DefiMacOS
 
-final class BudgetedFreshReadPartitionTests: XCTestCase {
+struct BudgetedFreshReadPartitionTests {
   private func partition(
     requested: Set<pid_t>,
     deferred: Set<pid_t> = [],
@@ -30,31 +32,34 @@ final class BudgetedFreshReadPartitionTests: XCTestCase {
     )
   }
 
-  func testServesCheapestProcessesFirstWithinBudget() {
+  @Test
+  func `Serves cheapest processes first within budget`() {
     let result = partition(
       requested: [1, 2, 3, 4],
       latencies: [1: 2, 2: 4, 3: 8, 4: 120],
       budget: 12
     )
 
-    XCTAssertEqual(result.allowedNow, [1, 2])
-    XCTAssertEqual(result.stillDeferred, [3, 4])
-    XCTAssertEqual(result.deferredSince, 100)
+    #expect(result.allowedNow == [1, 2])
+    #expect(result.stillDeferred == [3, 4])
+    #expect(result.deferredSince == 100)
   }
 
-  func testAlwaysServesAtLeastOneProcessPerPass() {
+  @Test
+  func `Always serves at least one process per pass`() {
     let result = partition(
       requested: [7],
       latencies: [7: 500],
       budget: 12
     )
 
-    XCTAssertEqual(result.allowedNow, [7])
-    XCTAssertTrue(result.stillDeferred.isEmpty)
-    XCTAssertNil(result.deferredSince)
+    #expect(result.allowedNow == [7])
+    #expect(result.stillDeferred.isEmpty)
+    #expect(result.deferredSince == nil)
   }
 
-  func testEventPendingProcessesBypassTheBudget() {
+  @Test
+  func `Event pending processes bypass the budget`() {
     let result = partition(
       requested: [1, 2, 3],
       eventPending: [3],
@@ -62,11 +67,12 @@ final class BudgetedFreshReadPartitionTests: XCTestCase {
       budget: 6
     )
 
-    XCTAssertEqual(result.allowedNow, [1, 2, 3])
-    XCTAssertTrue(result.stillDeferred.isEmpty)
+    #expect(result.allowedNow == [1, 2, 3])
+    #expect(result.stillDeferred.isEmpty)
   }
 
-  func testDeferredAgeFlushServesEverythingAndClearsTimestamp() {
+  @Test
+  func `Deferred age flush serves everything and clears timestamp`() {
     let result = partition(
       requested: [9],
       deferred: [4, 5],
@@ -75,31 +81,33 @@ final class BudgetedFreshReadPartitionTests: XCTestCase {
       now: 100
     )
 
-    XCTAssertEqual(result.allowedNow, [4, 5, 9])
-    XCTAssertTrue(result.stillDeferred.isEmpty)
-    XCTAssertNil(result.deferredSince)
+    #expect(result.allowedNow == [4, 5, 9])
+    #expect(result.stillDeferred.isEmpty)
+    #expect(result.deferredSince == nil)
   }
 
-  func testEmptyPendingClearsDeferralTimestamp() {
+  @Test
+  func `Empty pending clears deferral timestamp`() {
     let result = partition(
       requested: [],
       deferred: [],
       deferredSince: 90
     )
 
-    XCTAssertTrue(result.allowedNow.isEmpty)
-    XCTAssertTrue(result.stillDeferred.isEmpty)
-    XCTAssertNil(result.deferredSince)
+    #expect(result.allowedNow.isEmpty)
+    #expect(result.stillDeferred.isEmpty)
+    #expect(result.deferredSince == nil)
   }
 
-  func testDeferredProcessesKeepTheirOriginalDeferralTimestamp() {
+  @Test
+  func `Deferred processes keep their original deferral timestamp`() {
     let first = partition(
       requested: [1, 2],
       latencies: [1: 2, 2: 120],
       deferredSince: nil,
       now: 100
     )
-    XCTAssertEqual(first.deferredSince, 100)
+    #expect(first.deferredSince == 100)
 
     // Progress guarantee: the single deferred process is always served on
     // the next pass even though it exceeds the budget alone.
@@ -110,6 +118,6 @@ final class BudgetedFreshReadPartitionTests: XCTestCase {
       deferredSince: first.deferredSince,
       now: 100.2
     )
-    XCTAssertNil(second.deferredSince)
+    #expect(second.deferredSince == nil)
   }
 }

@@ -1,9 +1,11 @@
 import DefiCore
 import DefiModel
+import Testing
 import XCTest
 
-final class AnimationTests: XCTestCase {
-  func testSpeculativeNavigationSettlementWaitsPastVisualAnimation() {
+struct AnimationTests {
+  @Test
+  func `Speculative navigation settlement waits past visual animation`() {
     XCTAssertEqual(
       speculativeNavigationSettlementDelay(animationDuration: 0.035),
       0.075,
@@ -16,17 +18,19 @@ final class AnimationTests: XCTestCase {
     )
   }
 
-  func testScrollAnimationUsesEaseOutCubicAndFinishesExactly() {
-    XCTAssertEqual(animatedScalar(from: 0, to: 1, elapsed: 0, duration: 0.08), 0)
+  @Test
+  func `Scroll animation uses ease out cubic and finishes exactly`() {
+    #expect(animatedScalar(from: 0, to: 1, elapsed: 0, duration: 0.08) == 0)
     XCTAssertEqual(
       animatedScalar(from: 0, to: 1, elapsed: 0.04, duration: 0.08),
       0.875,
       accuracy: 0.000_1
     )
-    XCTAssertEqual(animatedScalar(from: 0, to: 1, elapsed: 0.08, duration: 0.08), 1)
+    #expect(animatedScalar(from: 0, to: 1, elapsed: 0.08, duration: 0.08) == 1)
   }
 
-  func testCriticallyDampedSpringConvergesWithoutOvershoot() {
+  @Test
+  func `Critically damped spring converges without overshoot`() {
     var value = 0.0
     var velocity = 0.0
     for _ in 0..<90 {
@@ -37,8 +41,8 @@ final class AnimationTests: XCTestCase {
         deltaTime: 1 / 120,
         response: 0.18
       )
-      XCTAssertGreaterThanOrEqual(step.value, value)
-      XCTAssertLessThanOrEqual(step.value, 500)
+      #expect(step.value >= value)
+      #expect(step.value <= 500)
       value = step.value
       velocity = step.velocity
     }
@@ -46,7 +50,8 @@ final class AnimationTests: XCTestCase {
     XCTAssertEqual(velocity, 0, accuracy: 0.5)
   }
 
-  func testCompletedFrameSpringKeepsMultipleMonotonicSamples() {
+  @Test
+  func `Completed frame spring keeps multiple monotonic samples`() {
     let at120Hz = completedFrameSpringProgresses(
       duration: 0.035,
       refreshRateHz: 120
@@ -56,25 +61,27 @@ final class AnimationTests: XCTestCase {
       refreshRateHz: 60
     )
 
-    XCTAssertEqual(at120Hz.count, 4)
-    XCTAssertEqual(at60Hz.count, 2)
+    #expect(at120Hz.count == 4)
+    #expect(at60Hz.count == 2)
     XCTAssertEqual(at120Hz.first ?? 0, 0.247, accuracy: 0.002)
-    XCTAssertGreaterThan(at120Hz.last ?? 0, 0.85)
-    XCTAssertLessThan(at120Hz.last ?? 1, 1)
-    XCTAssertEqual(at120Hz, at120Hz.sorted())
+    #expect(at120Hz.last ?? 0 > 0.85)
+    #expect(at120Hz.last ?? 1 < 1)
+    #expect(at120Hz == at120Hz.sorted())
   }
 
-  func testCompletedFrameSpringUsesTheFullRefreshBudget() {
+  @Test
+  func `Completed frame spring uses the full refresh budget`() {
     let progresses = completedFrameSpringProgresses(
       duration: 0.08,
       refreshRateHz: 120
     )
 
-    XCTAssertEqual(progresses.count, 9)
-    XCTAssertGreaterThan(progresses.last ?? 0, 0.85)
+    #expect(progresses.count == 9)
+    #expect(progresses.last ?? 0 > 0.85)
   }
 
-  func testRetargetedSpringKeepsForwardVelocityAndRemainsMonotonic() {
+  @Test
+  func `Retargeted spring keeps forward velocity and remains monotonic`() {
     let stationary = completedFrameSpringSamples(
       duration: 0.08,
       refreshRateHz: 120
@@ -85,32 +92,23 @@ final class AnimationTests: XCTestCase {
       initialVelocity: 12
     )
 
-    XCTAssertGreaterThan(
-      retargeted.first?.progress ?? 0,
-      stationary.first?.progress ?? 1
-    )
-    XCTAssertEqual(
-      retargeted.map(\.progress),
-      retargeted.map(\.progress).sorted()
-    )
-    XCTAssertLessThanOrEqual(retargeted.last?.progress ?? 2, 1)
-    XCTAssertEqual(
+    #expect(retargeted.first?.progress ?? 0 > stationary.first?.progress ?? 1)
+    #expect(retargeted.map(\.progress) == retargeted.map(\.progress).sorted())
+    #expect(retargeted.last?.progress ?? 2 <= 1)
+    #expect(
       retainedSpringProgressVelocity(
         normalizedCandidates: [-4, 8, 12, .infinity],
         maximum: 10
-      ),
-      10
-    )
-    XCTAssertEqual(
+      ) == 10)
+    #expect(
       retainedSpringProgressVelocity(
         normalizedCandidates: [-4, -.infinity],
         maximum: 10
-      ),
-      0
-    )
+      ) == 0)
   }
 
-  func testDisplayLinkedSpringSamplingUsesElapsedTimeAndNeverRollsBack() {
+  @Test
+  func `Display linked spring sampling uses elapsed time and never rolls back`() {
     let first = springProgressSample(
       elapsed: 1.0 / 120,
       duration: 0.08
@@ -126,77 +124,66 @@ final class AnimationTests: XCTestCase {
       minimumProgress: delayed.progress
     )
 
-    XCTAssertGreaterThan(first.progress, 0)
-    XCTAssertGreaterThan(delayed.progress, first.progress)
-    XCTAssertEqual(staleTimestamp.progress, delayed.progress)
-    XCTAssertEqual(staleTimestamp.velocity, 0)
-    XCTAssertLessThanOrEqual(staleTimestamp.progress, 1)
+    #expect(first.progress > 0)
+    #expect(delayed.progress > first.progress)
+    #expect(staleTimestamp.progress == delayed.progress)
+    #expect(staleTimestamp.velocity == 0)
+    #expect(staleTimestamp.progress <= 1)
   }
 
-  func testAdaptiveFrameLimitAvoidsMultiplyingSlowAXCalls() {
-    XCTAssertEqual(
+  @Test
+  func `Adaptive frame limit avoids multiplying slow AX calls`() {
+    #expect(
       adaptiveIntermediateFrameLimit(
         predictedFrameLatency: 0.004,
         refreshRateHz: 120,
         availableIntermediateFrames: 4
-      ),
-      4
-    )
-    XCTAssertEqual(
+      ) == 4)
+    #expect(
       adaptiveIntermediateFrameLimit(
         predictedFrameLatency: 0.012,
         refreshRateHz: 120,
         availableIntermediateFrames: 4
-      ),
-      1
-    )
-    XCTAssertEqual(
+      ) == 1)
+    #expect(
       adaptiveIntermediateFrameLimit(
         predictedFrameLatency: 0.030,
         refreshRateHz: 120,
         availableIntermediateFrames: 4
-      ),
-      0
-    )
+      ) == 0)
   }
 
-  func testSpringProgressAnticipatesAXCompletionLatency() {
-    XCTAssertEqual(
+  @Test
+  func `Spring progress anticipates AX completion latency`() {
+    #expect(
       anticipatedSpringProgressIndex(
         predictedFrameLatency: 0.002,
         refreshRateHz: 120,
         availableIntermediateFrames: 4
-      ),
-      0
-    )
-    XCTAssertEqual(
+      ) == 0)
+    #expect(
       anticipatedSpringProgressIndex(
         predictedFrameLatency: 0.018,
         refreshRateHz: 120,
         availableIntermediateFrames: 4
-      ),
-      2
-    )
-    XCTAssertEqual(
+      ) == 2)
+    #expect(
       anticipatedSpringProgressIndex(
         predictedFrameLatency: 0.030,
         refreshRateHz: 120,
         availableIntermediateFrames: 4
-      ),
-      3
-    )
-    XCTAssertEqual(
+      ) == 3)
+    #expect(
       anticipatedSpringProgressIndex(
         predictedFrameLatency: 0.051,
         refreshRateHz: 120,
         availableIntermediateFrames: 4,
         maximumIndex: 1
-      ),
-      1
-    )
+      ) == 1)
   }
 
-  func testCompletedAXFrameSchedulesNextWriteAfterDisplayInterval() {
+  @Test
+  func `Completed AX frame schedules next write after display interval`() {
     XCTAssertEqual(
       nextCompletedFrameDispatchDeadline(
         completedAt: 10,
@@ -215,49 +202,47 @@ final class AnimationTests: XCTestCase {
     )
   }
 
-  func testSlowCompletedFrameSkipsIntermediateThatCannotFitBudget() {
-    XCTAssertTrue(
+  @Test
+  func `Slow completed frame skips intermediate that cannot fit budget`() {
+    #expect(
       shouldEmitAnotherIntermediateFrame(
         elapsed: 0.029,
         predictedFrameLatency: 0.024,
         budget: 0.06,
         completedIntermediateFrames: 1
-      )
-    )
-    XCTAssertFalse(
+      ))
+    #expect(
       shouldEmitAnotherIntermediateFrame(
         elapsed: 0.029,
         predictedFrameLatency: 0.032,
         budget: 0.06,
         completedIntermediateFrames: 1
-      )
-    )
-    XCTAssertTrue(
+      ) == false)
+    #expect(
       shouldEmitAnotherIntermediateFrame(
         elapsed: 0.059,
         predictedFrameLatency: 0.5,
         budget: 0.06,
         completedIntermediateFrames: 0
-      )
-    )
+      ))
   }
 
-  func testSlowCompletedSampleStopsFurtherAXFrames() {
-    XCTAssertTrue(
+  @Test
+  func `Slow completed sample stops further AX frames`() {
+    #expect(
       completedFrameSupportsAnotherSample(
         duration: 0.006,
         refreshRateHz: 120
-      )
-    )
-    XCTAssertFalse(
+      ))
+    #expect(
       completedFrameSupportsAnotherSample(
         duration: 0.020,
         refreshRateHz: 120
-      )
-    )
+      ) == false)
   }
 
-  func testFinalAXFrameIsDispatchedEarlyEnoughToFinishOnAnimationDeadline() {
+  @Test
+  func `Final AX frame is dispatched early enough to finish on animation deadline`() {
     XCTAssertEqual(
       anticipatedFinalFrameDispatchDelay(
         animationDuration: 0.035,
@@ -266,58 +251,49 @@ final class AnimationTests: XCTestCase {
       0.023,
       accuracy: 0.000_1
     )
-    XCTAssertEqual(
+    #expect(
       anticipatedFinalFrameDispatchDelay(
         animationDuration: 0.035,
         predictedFrameLatency: 0.050
-      ),
-      0
-    )
+      ) == 0)
   }
 
-  func testSlowIntermediateFrameDoesNotLeaveAnimationFrozenUntilDeadline() {
-    XCTAssertEqual(
+  @Test
+  func `Slow intermediate frame does not leave animation frozen until deadline`() {
+    #expect(
       finalFrameDispatchDeadline(
         nominalDeadline: 10.08,
         nextDisplayDeadline: 10.025,
         previousFrameWasSlow: true
-      ),
-      10.08
-    )
-    XCTAssertEqual(
+      ) == 10.08)
+    #expect(
       finalFrameDispatchDeadline(
         nominalDeadline: 10.08,
         nextDisplayDeadline: 10.025,
         previousFrameWasSlow: false
-      ),
-      10.08
-    )
-    XCTAssertEqual(
+      ) == 10.08)
+    #expect(
       finalFrameDispatchDeadline(
         nominalDeadline: 10.075,
         nextDisplayDeadline: 10.12,
         previousFrameWasSlow: false,
         hardDeadline: 10.08
-      ),
-      10.08
-    )
+      ) == 10.08)
   }
 
-  func testDisplayedFrameRebaseUsesMedianAndRejectsOutliers() {
-    XCTAssertEqual(
+  @Test
+  func `Displayed frame rebase uses median and rejects outliers`() {
+    #expect(
       rebaseScalarToDisplayedFrames(
         logicalValue: 500,
         expectedMinusDisplayedDeltas: [-82, -80, 4_000],
         maximumAbsoluteDelta: 1_000
-      ),
-      DisplayedScalarRebase(value: 420, delta: -80)
-    )
-    XCTAssertNil(
+      ) == DisplayedScalarRebase(value: 420, delta: -80))
+    #expect(
       rebaseScalarToDisplayedFrames(
         logicalValue: 500,
         expectedMinusDisplayedDeltas: [0.1, 4_000],
         maximumAbsoluteDelta: 1_000
-      )
-    )
+      ) == nil)
   }
 }

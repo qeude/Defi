@@ -1,13 +1,14 @@
 import DefiConfig
 import DefiModel
-import XCTest
+import Testing
 
 @testable import DefiRuntime
 
-final class FloatingWindowTests: XCTestCase {
+struct FloatingWindowTests {
   private let monitorID = MonitorID(rawValue: 1)
 
-  func testFloatingLayerActivationAndCyclingWrap() throws {
+  @Test
+  func `Floating layer activation and cycling wrap`() throws {
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
     let tiled = window(40)
@@ -17,16 +18,24 @@ final class FloatingWindowTests: XCTestCase {
       try discoverWindow(floater, decision: RuleDecision(), state: &state)
     }
 
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), tiled.id)
+    #expect(state.selectedWindowID(on: monitorID) == tiled.id)
     try reduce(.activateFloating, on: monitorID, state: &state)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[0].id)
+    #expect(state.selectedWindowID(on: monitorID) == floaters[0].id)
     try reduce(.focusFloating(.previous), on: monitorID, state: &state)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[1].id)
+    #expect(state.selectedWindowID(on: monitorID) == floaters[1].id)
     try reduce(.focusFloating(.next), on: monitorID, state: &state)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[0].id)
+    #expect(state.selectedWindowID(on: monitorID) == floaters[0].id)
   }
 
-  func testTiledCommandsPreserveFocusedFloaterWithoutColumns() throws {
+  @Test(arguments: [
+    Command.focusColumn(.next),
+    .focusWindow(.next),
+    .cycleWidth(.next),
+    .maximizeColumn,
+  ])
+  func `Tiled commands preserve focused floater without columns`(
+    command: Command
+  ) throws {
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
     let floaters = [window(43, floating: true), window(44, floating: true)]
@@ -36,19 +45,14 @@ final class FloatingWindowTests: XCTestCase {
     try reduce(.activateFloating, on: monitorID, state: &state)
     try reduce(.focusFloating(.next), on: monitorID, state: &state)
 
-    for command in [
-      Command.focusColumn(.next),
-      .focusWindow(.next),
-      .cycleWidth(.next),
-      .maximizeColumn,
-    ] {
-      try reduce(command, on: monitorID, state: &state)
-      XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[1].id)
-      XCTAssertEqual(state.monitors[0].workspaces[0].focusedLayer, .floating)
-    }
+    try reduce(command, on: monitorID, state: &state)
+
+    #expect(state.selectedWindowID(on: monitorID) == floaters[1].id)
+    #expect(state.monitors[0].workspaces[0].focusedLayer == .floating)
   }
 
-  func testToggleFloatingUsesFallbackSelectedFloaterWithoutColumns() throws {
+  @Test
+  func `Toggle floating uses fallback selected floater without columns`() throws {
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
     let floaters = [window(50, floating: true), window(51, floating: true)]
@@ -60,12 +64,13 @@ final class FloatingWindowTests: XCTestCase {
 
     try reduce(.toggleFloating, on: monitorID, state: &state)
 
-    XCTAssertEqual(state.monitors[0].workspaces[0].floatingWindows, [floaters[0].id])
-    XCTAssertEqual(state.monitors[0].workspaces[0].columns[0].windows, [floaters[1].id])
-    XCTAssertEqual(state.windows[floaters[1].id]?.floatingOrigin, .user)
+    #expect(state.monitors[0].workspaces[0].floatingWindows == [floaters[0].id])
+    #expect(state.monitors[0].workspaces[0].columns[0].windows == [floaters[1].id])
+    #expect(state.windows[floaters[1].id]?.floatingOrigin == .user)
   }
 
-  func testTilingLastFocusedFloaterClampsRemainingSelection() throws {
+  @Test
+  func `Tiling last focused floater clamps remaining selection`() throws {
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
     let floaters = [window(52, floating: true), window(53, floating: true)]
@@ -78,33 +83,33 @@ final class FloatingWindowTests: XCTestCase {
     try reduce(.toggleFloating, on: monitorID, state: &state)
     try reduce(.activateFloating, on: monitorID, state: &state)
 
-    XCTAssertEqual(state.monitors[0].workspaces[0].focusedFloatingWindow, 0)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), floaters[0].id)
+    #expect(state.monitors[0].workspaces[0].focusedFloatingWindow == 0)
+    #expect(state.selectedWindowID(on: monitorID) == floaters[0].id)
   }
 
-  func testFloatingFocusCommandRequiresValidFloatingSelection() {
+  @Test
+  func `Floating focus command requires valid floating selection`() {
     let tiled = WindowID(rawValue: 70)
     let floating = WindowID(rawValue: 71)
 
-    XCTAssertFalse(
+    #expect(
       commandShouldFocusWindow(
         .activateFloating,
         previousSelectedWindowID: tiled,
         selectedWindowID: tiled,
         selectedFloatingWindowID: nil
-      )
-    )
-    XCTAssertTrue(
+      ) == false)
+    #expect(
       commandShouldFocusWindow(
         .focusFloating(.next),
         previousSelectedWindowID: floating,
         selectedWindowID: floating,
         selectedFloatingWindowID: floating
-      )
-    )
+      ))
   }
 
-  func testNativeFloatingFocusActivatesItsWorkspace() throws {
+  @Test
+  func `Native floating focus activates its workspace`() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
@@ -117,12 +122,13 @@ final class FloatingWindowTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertTrue(focusWindow(floater.id, state: &state))
-    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
+    #expect(focusWindow(floater.id, state: &state))
+    #expect(state.monitors[0].activeWorkspace == tools)
+    #expect(state.selectedWindowID(on: monitorID) == floater.id)
   }
 
-  func testMoveFocusedFloaterPreservesLayer() throws {
+  @Test
+  func `Move focused floater preserves layer`() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
@@ -141,13 +147,14 @@ final class FloatingWindowTests: XCTestCase {
 
     try reduce(.moveWindowToWorkspace(tools), on: monitorID, state: &state)
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
-    XCTAssertEqual(state.monitors[0].workspaces[1].floatingWindows, [floater.id])
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
-    XCTAssertNil(state.suspendedTiledPlacements[floater.id])
+    #expect(state.monitors[0].activeWorkspace == tools)
+    #expect(state.monitors[0].workspaces[1].floatingWindows == [floater.id])
+    #expect(state.selectedWindowID(on: monitorID) == floater.id)
+    #expect(state.suspendedTiledPlacements[floater.id] == nil)
   }
 
-  func testMoveFocusedTileSelectsTiledLayerInTargetWorkspace() throws {
+  @Test
+  func `Move focused tile selects tiled layer in target workspace`() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
@@ -166,12 +173,13 @@ final class FloatingWindowTests: XCTestCase {
 
     try reduce(.moveWindowToWorkspace(tools), on: monitorID, state: &state)
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
-    XCTAssertEqual(state.monitors[0].workspaces[1].focusedLayer, .tiled)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), tile.id)
+    #expect(state.monitors[0].activeWorkspace == tools)
+    #expect(state.monitors[0].workspaces[1].focusedLayer == .tiled)
+    #expect(state.selectedWindowID(on: monitorID) == tile.id)
   }
 
-  func testMoveFallbackSelectedFloaterWithoutColumns() throws {
+  @Test
+  func `Move fallback selected floater without columns`() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
@@ -179,17 +187,18 @@ final class FloatingWindowTests: XCTestCase {
     state.attachMonitor(monitorID)
     let floater = window(62, floating: true)
     try discoverWindow(floater, decision: RuleDecision(), state: &state)
-    XCTAssertEqual(state.monitors[0].workspaces[0].focusedLayer, .tiled)
+    #expect(state.monitors[0].workspaces[0].focusedLayer == .tiled)
 
     try reduce(.moveWindowToWorkspace(tools), on: monitorID, state: &state)
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
-    XCTAssertTrue(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
-    XCTAssertEqual(state.monitors[0].workspaces[1].floatingWindows, [floater.id])
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), floater.id)
+    #expect(state.monitors[0].activeWorkspace == tools)
+    #expect(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
+    #expect(state.monitors[0].workspaces[1].floatingWindows == [floater.id])
+    #expect(state.selectedWindowID(on: monitorID) == floater.id)
   }
 
-  func testFollowFocusSelectsNewFloatingWindow() throws {
+  @Test
+  func `Follow focus selects new floating window`() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
@@ -210,12 +219,13 @@ final class FloatingWindowTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
-    XCTAssertEqual(state.monitors[0].workspaces[1].focusedLayer, .floating)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), followed.id)
+    #expect(state.monitors[0].activeWorkspace == tools)
+    #expect(state.monitors[0].workspaces[1].focusedLayer == .floating)
+    #expect(state.selectedWindowID(on: monitorID) == followed.id)
   }
 
-  func testFollowFocusSelectsNewTiledWindowFromFloatingLayer() throws {
+  @Test
+  func `Follow focus selects new tiled window from floating layer`() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
@@ -237,12 +247,13 @@ final class FloatingWindowTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(state.monitors[0].activeWorkspace, tools)
-    XCTAssertEqual(state.monitors[0].workspaces[1].focusedLayer, .tiled)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), followed.id)
+    #expect(state.monitors[0].activeWorkspace == tools)
+    #expect(state.monitors[0].workspaces[1].focusedLayer == .tiled)
+    #expect(state.selectedWindowID(on: monitorID) == followed.id)
   }
 
-  func testAutomaticFloaterReclassifiesAsTiledWithoutStealingFocus() throws {
+  @Test
+  func `Automatic floater reclassifies as tiled without stealing focus`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -258,14 +269,15 @@ final class FloatingWindowTests: XCTestCase {
     reconcileWindows([selectedTile, observed], config: config, state: &state)
 
     let workspace = state.monitors[0].workspaces[0]
-    XCTAssertTrue(workspace.floatingWindows.isEmpty)
-    XCTAssertEqual(workspace.columns.flatMap(\.windows), [selectedTile.id, automatic.id])
-    XCTAssertEqual(state.windows[automatic.id]?.floating, false)
-    XCTAssertNil(state.windows[automatic.id]?.floatingOrigin)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
+    #expect(workspace.floatingWindows.isEmpty)
+    #expect(workspace.columns.flatMap(\.windows) == [selectedTile.id, automatic.id])
+    #expect(state.windows[automatic.id]?.floating == false)
+    #expect(state.windows[automatic.id]?.floatingOrigin == nil)
+    #expect(state.selectedWindowID(on: monitorID) == selectedTile.id)
   }
 
-  func testExistingTileBecomingModalReclassifiesAsAutomaticFloater() throws {
+  @Test
+  func `Existing tile becoming modal reclassifies as automatic floater`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -281,14 +293,15 @@ final class FloatingWindowTests: XCTestCase {
     reconcileWindows([selectedTile, observed], config: config, state: &state)
 
     let workspace = state.monitors[0].workspaces[0]
-    XCTAssertEqual(workspace.floatingWindows, [modalTile.id])
-    XCTAssertEqual(workspace.columns.flatMap(\.windows), [selectedTile.id])
-    XCTAssertEqual(state.windows[modalTile.id]?.floating, true)
-    XCTAssertEqual(state.windows[modalTile.id]?.floatingOrigin, .automatic)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), selectedTile.id)
+    #expect(workspace.floatingWindows == [modalTile.id])
+    #expect(workspace.columns.flatMap(\.windows) == [selectedTile.id])
+    #expect(state.windows[modalTile.id]?.floating == true)
+    #expect(state.windows[modalTile.id]?.floatingOrigin == .automatic)
+    #expect(state.selectedWindowID(on: monitorID) == selectedTile.id)
   }
 
-  func testTemporaryModalRestoresStackAndColumnWidth() throws {
+  @Test
+  func `Temporary modal restores stack and column width`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -317,13 +330,14 @@ final class FloatingWindowTests: XCTestCase {
     reconcileWindows([sibling, observedTiled], config: config, state: &state)
 
     let restored = state.monitors[0].workspaces[0]
-    XCTAssertEqual(restored.columns.count, 1)
-    XCTAssertEqual(restored.columns[0].windows, [sibling.id, modal.id])
-    XCTAssertEqual(restored.columns[0].width, .pixels(913))
-    XCTAssertEqual(restored.columns[0].preMaximizedWidth, .fraction(0.7))
+    #expect(restored.columns.count == 1)
+    #expect(restored.columns[0].windows == [sibling.id, modal.id])
+    #expect(restored.columns[0].width == .pixels(913))
+    #expect(restored.columns[0].preMaximizedWidth == .fraction(0.7))
   }
 
-  func testTemporaryModalPreservesSiblingWidthEdits() throws {
+  @Test
+  func `Temporary modal preserves sibling width edits`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -349,10 +363,11 @@ final class FloatingWindowTests: XCTestCase {
 
     reconcileWindows([sibling, observedTiled], config: config, state: &state)
 
-    XCTAssertEqual(state.monitors[0].workspaces[0].columns[0].width, .pixels(950))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(950))
   }
 
-  func testConcurrentTemporaryModalsRestoreOriginalStackOrder() throws {
+  @Test
+  func `Concurrent temporary modals restore original stack order`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -383,13 +398,11 @@ final class FloatingWindowTests: XCTestCase {
     secondTiled.floating = false
     reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].windows,
-      windows.map(\.id)
-    )
+    #expect(state.monitors[0].workspaces[0].columns[0].windows == windows.map(\.id))
   }
 
-  func testConcurrentStandaloneModalsRestoreOriginalColumnOrder() throws {
+  @Test
+  func `Concurrent standalone modals restore original column order`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -416,13 +429,11 @@ final class FloatingWindowTests: XCTestCase {
     secondTiled.floating = false
     reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.map(\.windows),
-      windows.map { [$0.id] }
-    )
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == windows.map { [$0.id] })
   }
 
-  func testRestoredModalRestoresInactiveColumnFocus() throws {
+  @Test
+  func `Restored modal restores inactive column focus`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -447,11 +458,12 @@ final class FloatingWindowTests: XCTestCase {
     modal.floating = false
     reconcileWindows([windows[0], windows[1], modal], config: config, state: &state)
 
-    XCTAssertEqual(state.monitors[0].workspaces[0].columns[1].focusedWindow, 1)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), windows[0].id)
+    #expect(state.monitors[0].workspaces[0].columns[1].focusedWindow == 1)
+    #expect(state.selectedWindowID(on: monitorID) == windows[0].id)
   }
 
-  func testRestoredModalPreservesNewerFocusInsideItsStack() throws {
+  @Test
+  func `Restored modal preserves newer focus inside its stack`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -484,14 +496,12 @@ final class FloatingWindowTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].focusedWindow,
-      2
-    )
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), windows[2].id)
+    #expect(state.monitors[0].workspaces[0].columns[0].focusedWindow == 2)
+    #expect(state.selectedWindowID(on: monitorID) == windows[2].id)
   }
 
-  func testManualTilingClearsSuspendedModalPlacement() throws {
+  @Test
+  func `Manual tiling clears suspended modal placement`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -508,11 +518,12 @@ final class FloatingWindowTests: XCTestCase {
 
     try reduce(.toggleFloating, on: monitorID, state: &state)
 
-    XCTAssertNil(state.suspendedTiledPlacements[modal.id])
-    XCTAssertEqual(state.windows[modal.id]?.floatingOrigin, .user)
+    #expect(state.suspendedTiledPlacements[modal.id] == nil)
+    #expect(state.windows[modal.id]?.floatingOrigin == .user)
   }
 
-  func testRestoredModalKeepsFocusedWindowIdentityAfterColumnShift() throws {
+  @Test
+  func `Restored modal keeps focused window identity after column shift`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -524,21 +535,21 @@ final class FloatingWindowTests: XCTestCase {
     var observedModal = modal
     observedModal.floating = true
     observedModal.floatingOrigin = .automatic
-    reconcileWindows([modal, selected].map { $0.id == modal.id ? observedModal : $0 }, config: config, state: &state)
+    reconcileWindows(
+      [modal, selected].map { $0.id == modal.id ? observedModal : $0 }, config: config,
+      state: &state)
     var observedTiled = modal
     observedTiled.floating = false
     observedTiled.floatingOrigin = nil
 
     reconcileWindows([observedTiled, selected], config: config, state: &state)
 
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), selected.id)
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.flatMap(\.windows),
-      [modal.id, selected.id]
-    )
+    #expect(state.selectedWindowID(on: monitorID) == selected.id)
+    #expect(state.monitors[0].workspaces[0].columns.flatMap(\.windows) == [modal.id, selected.id])
   }
 
-  func testFocusedTileBecomingModalRemainsSelectedAsFloater() throws {
+  @Test
+  func `Focused tile becoming modal remains selected as floater`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -551,11 +562,12 @@ final class FloatingWindowTests: XCTestCase {
     reconcileWindows([observed], config: config, state: &state)
 
     let workspace = state.monitors[0].workspaces[0]
-    XCTAssertEqual(workspace.focusedLayer, .floating)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), modalTile.id)
+    #expect(workspace.focusedLayer == .floating)
+    #expect(state.selectedWindowID(on: monitorID) == modalTile.id)
   }
 
-  func testManualTileOverrideSurvivesAutomaticFloatingObservation() throws {
+  @Test
+  func `Manual tile override survives automatic floating observation`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -569,13 +581,14 @@ final class FloatingWindowTests: XCTestCase {
     reconcileWindows([observed], config: config, state: &state)
 
     let workspace = state.monitors[0].workspaces[0]
-    XCTAssertTrue(workspace.floatingWindows.isEmpty)
-    XCTAssertEqual(workspace.columns.flatMap(\.windows), [manualTile.id])
-    XCTAssertEqual(state.windows[manualTile.id]?.floating, false)
-    XCTAssertEqual(state.windows[manualTile.id]?.floatingOrigin, .user)
+    #expect(workspace.floatingWindows.isEmpty)
+    #expect(workspace.columns.flatMap(\.windows) == [manualTile.id])
+    #expect(state.windows[manualTile.id]?.floating == false)
+    #expect(state.windows[manualTile.id]?.floatingOrigin == .user)
   }
 
-  func testForcedTileSurvivesAutomaticFloatingObservation() throws {
+  @Test
+  func `Forced tile survives automatic floating observation`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -593,13 +606,14 @@ final class FloatingWindowTests: XCTestCase {
     reconcileWindows([observed], config: config, state: &state)
 
     let workspace = state.monitors[0].workspaces[0]
-    XCTAssertTrue(workspace.floatingWindows.isEmpty)
-    XCTAssertEqual(workspace.columns.flatMap(\.windows), [forcedTile.id])
-    XCTAssertEqual(state.windows[forcedTile.id]?.floating, false)
-    XCTAssertEqual(state.windows[forcedTile.id]?.forceTiling, true)
+    #expect(workspace.floatingWindows.isEmpty)
+    #expect(workspace.columns.flatMap(\.windows) == [forcedTile.id])
+    #expect(state.windows[forcedTile.id]?.floating == false)
+    #expect(state.windows[forcedTile.id]?.forceTiling == true)
   }
 
-  func testFocusedAutomaticFloaterRemainsSelectedWhenReclassified() throws {
+  @Test
+  func `Focused automatic floater remains selected when reclassified`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -615,11 +629,12 @@ final class FloatingWindowTests: XCTestCase {
 
     reconcileWindows([selectedTile, observed], config: config, state: &state)
 
-    XCTAssertEqual(state.monitors[0].workspaces[0].focusedLayer, .tiled)
-    XCTAssertEqual(state.selectedWindowID(on: monitorID), automatic.id)
+    #expect(state.monitors[0].workspaces[0].focusedLayer == .tiled)
+    #expect(state.selectedWindowID(on: monitorID) == automatic.id)
   }
 
-  func testUserFloatingOverrideSurvivesTiledObservation() throws {
+  @Test
+  func `User floating override survives tiled observation`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -632,12 +647,13 @@ final class FloatingWindowTests: XCTestCase {
 
     reconcileWindows([observed], config: config, state: &state)
 
-    XCTAssertEqual(state.monitors[0].workspaces[0].floatingWindows, [userFloater.id])
-    XCTAssertEqual(state.windows[userFloater.id]?.floating, true)
-    XCTAssertEqual(state.windows[userFloater.id]?.floatingOrigin, .user)
+    #expect(state.monitors[0].workspaces[0].floatingWindows == [userFloater.id])
+    #expect(state.windows[userFloater.id]?.floating == true)
+    #expect(state.windows[userFloater.id]?.floatingOrigin == .user)
   }
 
-  func testDraggedFloaterMovesToTargetMonitorActiveWorkspace() throws {
+  @Test
+  func `Dragged floater moves to target monitor active workspace`() throws {
     let externalMonitorID = MonitorID(rawValue: 2)
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
@@ -656,17 +672,15 @@ final class FloatingWindowTests: XCTestCase {
       column: Column(window: floater.id, width: .pixels(900))
     )
 
-    XCTAssertTrue(
-      moveFloatingWindow(floater.id, to: externalMonitorID, state: &state)
-    )
+    #expect(moveFloatingWindow(floater.id, to: externalMonitorID, state: &state))
 
-    XCTAssertTrue(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
-    XCTAssertEqual(state.monitors[0].workspaces[0].focusedLayer, .tiled)
-    XCTAssertEqual(state.monitors[1].workspaces[1].floatingWindows, [floater.id])
-    XCTAssertEqual(state.monitors[1].workspaces[1].focusedLayer, .floating)
-    XCTAssertEqual(state.selectedWindowID(on: externalMonitorID), floater.id)
-    XCTAssertEqual(state.windows[floater.id]?.monitorID, externalMonitorID)
-    XCTAssertNil(state.suspendedTiledPlacements[floater.id])
+    #expect(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
+    #expect(state.monitors[0].workspaces[0].focusedLayer == .tiled)
+    #expect(state.monitors[1].workspaces[1].floatingWindows == [floater.id])
+    #expect(state.monitors[1].workspaces[1].focusedLayer == .floating)
+    #expect(state.selectedWindowID(on: externalMonitorID) == floater.id)
+    #expect(state.windows[floater.id]?.monitorID == externalMonitorID)
+    #expect(state.suspendedTiledPlacements[floater.id] == nil)
   }
 
   private func window(_ rawValue: UInt64, floating: Bool = false) -> Window {

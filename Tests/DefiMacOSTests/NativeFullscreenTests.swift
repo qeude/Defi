@@ -11,13 +11,13 @@ struct NativeFullscreenTests {
     physicalFrame: Rect(x: 0, y: 0, width: 1_512, height: 982)
   )
 
-  @Test
-  func physicalScreenCoverageDetectsTrackedWindow() {
+  @Test(arguments: [1, 2])
+  func `Physical screen coverage detects tracked observations`(observationCount: Int) {
     let window = makeWindow(id: 1, processID: 10, frame: monitor.physicalFrame)
 
     #expect(
       nativeFullscreenWindowIDs(
-        windows: [window],
+        windows: Array(repeating: window, count: observationCount),
         cgWindows: [],
         monitors: [monitor],
         lastFocusedWindowByProcess: [:]
@@ -26,21 +26,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func duplicateTrackedObservationsDoNotCrashDetection() {
-    let window = makeWindow(id: 1, processID: 10, frame: monitor.physicalFrame)
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [window, window],
-        cgWindows: [],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [:]
-      ) == [window.id]
-    )
-  }
-
-  @Test
-  func visibleFrameAndPictureInPictureAreNotFullscreen() {
+  func `Visible frame and picture in picture are not fullscreen`() {
     let tiled = makeWindow(id: 1, processID: 10, frame: monitor.frame)
     let pictureInPicture = makeWindow(
       id: 2,
@@ -60,7 +46,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func maximizedSurfaceWithoutItsMissingTopBandIsNotFullscreen() {
+  func `Maximized surface without its missing top band is not fullscreen`() {
     let window = makeWindow(id: 1, processID: 10, frame: monitor.frame)
     let surface = CGWindowRecord(
       id: 99,
@@ -81,7 +67,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func adjacentProcessSurfacesCanCoverThePhysicalScreen() {
+  func `Adjacent process surfaces can cover the physical screen`() {
     let window = makeWindow(id: 1, processID: 10, frame: monitor.frame)
     let surfaces = [
       CGWindowRecord(
@@ -111,7 +97,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func staleOffscreenFullscreenSurfacesDoNotHideVisibleParent() {
+  func `Stale offscreen fullscreen surfaces do not hide visible parent`() {
     let window = makeWindow(id: 1, processID: 10, frame: monitor.frame)
     let surfaces = [
       CGWindowRecord(
@@ -151,7 +137,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func fullscreenHelperSelectsLastFocusedWindowFromItsProcess() {
+  func `Fullscreen helper selects last focused window from its process`() {
     let first = makeWindow(id: 1, processID: 10, frame: monitor.frame)
     let second = makeWindow(id: 2, processID: 10, frame: monitor.frame)
     let helper = CGWindowRecord(
@@ -173,7 +159,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func exactFullscreenSurfaceWinsOverStaleProcessFocus() {
+  func `Exact fullscreen surface wins over stale process focus`() {
     let processID: Int32 = 10
     let staleFocused = makeWindow(
       id: 1,
@@ -215,7 +201,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func remappedFullscreenSurfaceKeepsPreviousLogicalWindowIdentity() {
+  func `Remapped fullscreen surface keeps previous logical window identity`() {
     let surfaceWindow = makeWindow(
       id: 99,
       processID: 10,
@@ -234,7 +220,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func ambiguousFullscreenHelperDoesNotGuess() {
+  func `Ambiguous fullscreen helper does not guess`() {
     let first = makeWindow(id: 1, processID: 10, frame: monitor.frame)
     let second = makeWindow(id: 2, processID: 10, frame: monitor.frame)
     let helper = CGWindowRecord(
@@ -255,15 +241,16 @@ struct NativeFullscreenTests {
     )
   }
 
-  @Test
-  func activeFullscreenWindowRequiresAnOnscreenSurface() {
+  @Test(arguments: [true, false])
+  func `Active fullscreen window requires an onscreen surface`(isOnscreen: Bool) {
     let windowID = WindowID(rawValue: 1)
     let surface = CGWindowRecord(
       id: 1,
       processID: 10,
       layer: 0,
       title: "Video",
-      frame: Rect(x: 0, y: 33, width: 1_512, height: 949)
+      frame: Rect(x: 0, y: 33, width: 1_512, height: 949),
+      isOnscreen: isOnscreen
     )
     let hiddenMenuBand = CGWindowRecord(
       id: 99,
@@ -279,30 +266,13 @@ struct NativeFullscreenTests {
         processIDsByWindowID: [windowID: 10],
         cgWindows: [surface, hiddenMenuBand],
         monitors: [monitor]
-      ) == [windowID]
-    )
-    #expect(
-      activeNativeFullscreenWindowIDs(
-        processIDsByWindowID: [windowID: 10],
-        cgWindows: [
-          CGWindowRecord(
-            id: surface.id,
-            processID: surface.processID,
-            layer: surface.layer,
-            title: surface.title,
-            frame: surface.frame,
-            isOnscreen: false
-          ),
-          hiddenMenuBand,
-        ],
-        monitors: [monitor]
-      ).isEmpty
+      ) == (isOnscreen ? [windowID] : [])
     )
   }
 
   @MainActor
   @Test
-  func automaticFocusWriteIsSkippedForFullscreenWindow() {
+  func `Automatic focus write is skipped for fullscreen window`() {
     let windowID = WindowID(rawValue: 1)
     let platform = MacOSPlatform()
     platform.updateNativeFullscreenWindowIDs([windowID])
@@ -319,7 +289,7 @@ struct NativeFullscreenTests {
 
   @MainActor
   @Test
-  func frameApplicationPreservesFullscreenTarget() {
+  func `Frame application preserves fullscreen target`() {
     let windowID = WindowID(rawValue: 1)
     let original = Rect(x: 0, y: 0, width: 1_512, height: 982)
     let platform = MacOSPlatform()
@@ -338,7 +308,7 @@ struct NativeFullscreenTests {
 
   @MainActor
   @Test
-  func fullscreenExitStartsFrameSettlement() {
+  func `Fullscreen exit starts frame settlement`() {
     let windowID = WindowID(rawValue: 1)
     let platform = MacOSPlatform()
     platform.updateNativeFullscreenWindowIDs([windowID])
@@ -351,7 +321,7 @@ struct NativeFullscreenTests {
 
   @MainActor
   @Test
-  func placeholderManagerTracksOnlyCurrentFullscreenSlots() {
+  func `Placeholder manager tracks only current fullscreen slots`() {
     let manager = NativeFullscreenPlaceholderManager()
     let windowID = WindowID(rawValue: 1)
     let siblingWindowID = WindowID(rawValue: 2)
@@ -377,7 +347,7 @@ struct NativeFullscreenTests {
         appID: "com.apple.TextEdit",
         title: "Other monitor",
         frame: Rect(x: 1_600, y: 100, width: 600, height: 700)
-      )
+      ),
     ]
     manager.sync(
       placeholders,
@@ -409,7 +379,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func activeSpaceChangeForcesFreshTopology() {
+  func `Active space change forces fresh topology`() {
     #expect(windowSnapshotInvalidation(for: .space, processID: nil) == .full)
     #expect(
       nativeFocusedWindowIDAfterEvent(
@@ -420,7 +390,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func transientSpaceGapDoesNotEmitAFullscreenExit() {
+  func `Transient space gap does not emit a fullscreen exit`() {
     let windowID = WindowID(rawValue: 1)
     let entered = stabilizedNativeFullscreenWindowIDs(
       detectedWindowIDs: [windowID],
@@ -446,7 +416,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func inactiveSpaceRetainsFullscreenIdentityWhileProcessStillCoversDisplay() {
+  func `Inactive space retains fullscreen identity while process still covers display`() {
     let windowID = WindowID(rawValue: 1)
     let processID: Int32 = 10
 
@@ -470,7 +440,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func fullscreenSpaceRetainsFocusResourcesFromMaskedSpaces() {
+  func `Fullscreen space retains focus resources from masked spaces`() {
     let visibleID = WindowID(rawValue: 1)
     let maskedID = WindowID(rawValue: 2)
     let removedID = WindowID(rawValue: 3)

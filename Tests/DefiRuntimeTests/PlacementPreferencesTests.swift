@@ -1,12 +1,13 @@
 import DefiConfig
 import DefiModel
 import DefiRuntime
-import XCTest
+import Testing
 
-final class PlacementPreferencesTests: XCTestCase {
+struct PlacementPreferencesTests {
   private let monitorID = MonitorID(rawValue: 1)
 
-  func testReconcileRestoresPersistedApplicationWorkspace() throws {
+  @Test
+  func `Reconcile restores persisted application workspace`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -33,13 +34,11 @@ final class PlacementPreferencesTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(
-      state.location(containing: window.id)?.workspaceID,
-      WorkspaceID(rawValue: "web")
-    )
+    #expect(state.location(containing: window.id)?.workspaceID == WorkspaceID(rawValue: "web"))
   }
 
-  func testConfiguredRuleOverridesPersistedApplicationWorkspace() throws {
+  @Test
+  func `Configured rule overrides persisted application workspace`() throws {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "web"]),
       rules: [Rule(appID: "com.example.chat", workspace: "dev")]
@@ -68,13 +67,11 @@ final class PlacementPreferencesTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(
-      state.location(containing: window.id)?.workspaceID,
-      WorkspaceID(rawValue: "dev")
-    )
+    #expect(state.location(containing: window.id)?.workspaceID == WorkspaceID(rawValue: "dev"))
   }
 
-  func testAutomaticFloaterIgnoresPersistedApplicationPlacement() throws {
+  @Test
+  func `Automatic floater ignores persisted application placement`() throws {
     let externalMonitorID = MonitorID(rawValue: 2)
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
@@ -105,14 +102,12 @@ final class PlacementPreferencesTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(state.location(containing: window.id)?.monitorID, monitorID)
-    XCTAssertEqual(
-      state.location(containing: window.id)?.workspaceID,
-      WorkspaceID(rawValue: "dev")
-    )
+    #expect(state.location(containing: window.id)?.monitorID == monitorID)
+    #expect(state.location(containing: window.id)?.workspaceID == WorkspaceID(rawValue: "dev"))
   }
 
-  func testAutomaticFloaterRestoresWorkspaceOnlyPreferenceOnCurrentMonitor() throws {
+  @Test
+  func `Automatic floater restores workspace only preference on current monitor`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -139,13 +134,11 @@ final class PlacementPreferencesTests: XCTestCase {
     tiled.floatingOrigin = nil
     reconcileWindows([tiled], config: config, placementPreferences: preferences, state: &state)
 
-    XCTAssertEqual(
-      state.location(containing: window.id)?.workspaceID,
-      WorkspaceID(rawValue: "web")
-    )
+    #expect(state.location(containing: window.id)?.workspaceID == WorkspaceID(rawValue: "web"))
   }
 
-  func testInvalidatingPreferenceRemovesAutomaticFloaterDestination() {
+  @Test
+  func `Invalidating preference removes automatic floater destination`() {
     let window = Window(
       id: WindowID(rawValue: 4),
       appID: "com.example.Chat",
@@ -165,11 +158,12 @@ final class PlacementPreferencesTests: XCTestCase {
 
     preferences.invalidatePreference(for: window)
 
-    XCTAssertNil(preferences.preference(for: window))
-    XCTAssertEqual(preferences.suppressedWindowIDs, [window.id])
+    #expect(preferences.preference(for: window) == nil)
+    #expect(preferences.suppressedWindowIDs == [window.id])
   }
 
-  func testSuppressedPreferenceSurvivesSiblingRecordingUntilReclassification() throws {
+  @Test
+  func `Suppressed preference survives sibling recording until reclassification`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -201,32 +195,24 @@ final class PlacementPreferencesTests: XCTestCase {
 
     preferences.invalidatePreference(for: automatic)
     preferences.recordPlacements(from: state)
-    XCTAssertNil(preferences.preference(for: automatic))
-    XCTAssertEqual(
-      preferences.preference(for: sibling)?.workspaceID,
-      WorkspaceID(rawValue: "dev")
-    )
+    #expect(preferences.preference(for: automatic) == nil)
+    #expect(preferences.preference(for: sibling)?.workspaceID == WorkspaceID(rawValue: "dev"))
 
     var reclassified = automatic
     reclassified.floating = false
     reclassified.floatingOrigin = nil
     state.windows[automatic.id] = reclassified
     preferences.recordPlacements(from: state)
-    XCTAssertTrue(preferences.suppressedWindowIDs.isEmpty)
-    XCTAssertEqual(
-      preferences.preference(for: reclassified)?.workspaceID,
-      WorkspaceID(rawValue: "dev")
-    )
+    #expect(preferences.suppressedWindowIDs.isEmpty)
+    #expect(preferences.preference(for: reclassified)?.workspaceID == WorkspaceID(rawValue: "dev"))
 
     state.windows[automatic.id] = nil
     preferences.recordPlacements(from: state)
-    XCTAssertEqual(
-      preferences.preference(for: sibling)?.workspaceID,
-      WorkspaceID(rawValue: "dev")
-    )
+    #expect(preferences.preference(for: sibling)?.workspaceID == WorkspaceID(rawValue: "dev"))
   }
 
-  func testRecordingPlacementsKeepsClosedApplicationPreferences() throws {
+  @Test
+  func `Recording placements keeps closed application preferences`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -252,17 +238,14 @@ final class PlacementPreferencesTests: XCTestCase {
 
     preferences.recordPlacements(from: state)
 
-    XCTAssertEqual(
-      preferences.applications["com.example.chat"]?.workspaceID,
-      WorkspaceID(rawValue: "web")
-    )
-    XCTAssertEqual(
-      preferences.applications["com.example.closed"]?.workspaceID,
-      WorkspaceID(rawValue: "dev")
-    )
+    #expect(
+      preferences.applications["com.example.chat"]?.workspaceID == WorkspaceID(rawValue: "web"))
+    #expect(
+      preferences.applications["com.example.closed"]?.workspaceID == WorkspaceID(rawValue: "dev"))
   }
 
-  func testRecordingSharedWorkspaceAcrossMonitorsOmitsMonitor() throws {
+  @Test
+  func `Recording shared workspace across monitors omits monitor`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     let externalMonitorID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: config)
@@ -295,13 +278,13 @@ final class PlacementPreferencesTests: XCTestCase {
 
     preferences.recordPlacements(from: state)
 
-    XCTAssertEqual(
-      preferences.applications["com.example.chat"],
-      WindowPlacementPreference(workspaceID: WorkspaceID(rawValue: "web"))
-    )
+    #expect(
+      preferences.applications["com.example.chat"]
+        == WindowPlacementPreference(workspaceID: WorkspaceID(rawValue: "web")))
   }
 
-  func testRecordingFallbackRetainsDisconnectedMonitor() throws {
+  @Test
+  func `Recording fallback retains disconnected monitor`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     let disconnectedMonitorID = MonitorID(rawValue: 99)
     var state = RuntimeState(config: config)
@@ -329,13 +312,11 @@ final class PlacementPreferencesTests: XCTestCase {
 
     preferences.recordPlacements(from: state)
 
-    XCTAssertEqual(
-      preferences.applications["com.example.chat"]?.monitorID,
-      disconnectedMonitorID
-    )
+    #expect(preferences.applications["com.example.chat"]?.monitorID == disconnectedMonitorID)
   }
 
-  func testDisconnectMigratesLiveWindowWithoutOverwritingPreferredMonitor() throws {
+  @Test
+  func `Disconnect migrates live window without overwriting preferred monitor`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     let externalMonitorID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: config)
@@ -364,17 +345,15 @@ final class PlacementPreferencesTests: XCTestCase {
 
     state.retainMonitors([monitorID])
 
-    XCTAssertEqual(state.location(containing: window.id)?.monitorID, monitorID)
+    #expect(state.location(containing: window.id)?.monitorID == monitorID)
 
     preferences.recordPlacements(from: state)
 
-    XCTAssertEqual(
-      preferences.applications["com.example.chat"]?.monitorID,
-      externalMonitorID
-    )
+    #expect(preferences.applications["com.example.chat"]?.monitorID == externalMonitorID)
   }
 
-  func testAutomaticFloatersDoNotAffectPlacementPreferences() throws {
+  @Test
+  func `Automatic floaters do not affect placement preferences`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -404,13 +383,11 @@ final class PlacementPreferencesTests: XCTestCase {
 
     preferences.recordPlacements(from: state)
 
-    XCTAssertEqual(
-      preferences.applications[normal.appID]?.workspaceID,
-      WorkspaceID(rawValue: "dev")
-    )
+    #expect(preferences.applications[normal.appID]?.workspaceID == WorkspaceID(rawValue: "dev"))
   }
 
-  func testInitiallyAutomaticWindowUsesPersistedPlacementWhenTiled() throws {
+  @Test
+  func `Initially automatic window uses persisted placement when tiled`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -448,9 +425,6 @@ final class PlacementPreferencesTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(
-      state.location(containing: window.id)?.workspaceID,
-      WorkspaceID(rawValue: "web")
-    )
+    #expect(state.location(containing: window.id)?.workspaceID == WorkspaceID(rawValue: "web"))
   }
 }

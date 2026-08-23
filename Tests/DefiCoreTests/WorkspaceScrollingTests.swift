@@ -1,11 +1,13 @@
 import DefiCore
 import DefiModel
+import Testing
 import XCTest
 
-final class WorkspaceScrollingTests: XCTestCase {
+struct WorkspaceScrollingTests {
   private let settings = LayoutSettings()
 
-  func testFocusScrollsOnlyEnoughForOverflow() throws {
+  @Test
+  func `Focus scrolls only enough for overflow`() throws {
     let compact = LayoutSettings(defaultColumnWidth: 0.72)
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: compact)
@@ -23,7 +25,8 @@ final class WorkspaceScrollingTests: XCTestCase {
     XCTAssertEqual(diff.frames[1].frame.x, 407.2, accuracy: 0.001)
   }
 
-  func testNeverCenteringPreservesVisibleColumn() {
+  @Test
+  func `Never centering preserves visible column`() {
     let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let columns = (1...4).map {
       Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5))
@@ -56,7 +59,8 @@ final class WorkspaceScrollingTests: XCTestCase {
     )
   }
 
-  func testAlwaysCenteringCentersTarget() throws {
+  @Test
+  func `Always centering centers target`() throws {
     let centered = LayoutSettings(
       defaultColumnWidth: 0.5,
       centerFocusedColumn: .always,

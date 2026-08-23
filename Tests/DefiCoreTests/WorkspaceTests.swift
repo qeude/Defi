@@ -1,111 +1,116 @@
 import DefiCore
 import DefiModel
-import XCTest
+import Testing
 
-final class WorkspaceTests: XCTestCase {
+struct WorkspaceTests {
   private let settings = LayoutSettings()
 
-  func testNewWindowInsertsAfterFocusedColumn() {
+  @Test
+  func `New window inserts after focused column`() {
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: settings)
     insertNewWindow(WindowID(rawValue: 2), into: &workspace, settings: settings)
     workspace.focusedColumn = 0
     insertNewWindow(WindowID(rawValue: 3), into: &workspace, settings: settings)
 
-    XCTAssertEqual(
-      workspace.columns.map(\.windows[0]),
-      [WindowID(rawValue: 1), WindowID(rawValue: 3), WindowID(rawValue: 2)]
-    )
-    XCTAssertEqual(workspace.focusedColumn, 1)
+    #expect(
+      workspace.columns.map(\.windows[0]) == [
+        WindowID(rawValue: 1), WindowID(rawValue: 3), WindowID(rawValue: 2),
+      ])
+    #expect(workspace.focusedColumn == 1)
   }
 
-  func testMoveFocusedWindowSwapsColumns() throws {
+  @Test
+  func `Move focused window swaps columns`() throws {
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: settings)
     insertNewWindow(WindowID(rawValue: 2), into: &workspace, settings: settings)
 
     try moveFocusedWindow(.left, in: &workspace, settings: settings)
 
-    XCTAssertEqual(
-      workspace.columns.map(\.windows[0]),
-      [WindowID(rawValue: 2), WindowID(rawValue: 1)]
-    )
-    XCTAssertEqual(workspace.focusedColumn, 0)
+    #expect(workspace.columns.map(\.windows[0]) == [WindowID(rawValue: 2), WindowID(rawValue: 1)])
+    #expect(workspace.focusedColumn == 0)
   }
 
-  func testRemovingLastWindowRepairsFocus() {
+  @Test
+  func `Removing last window repairs focus`() {
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: settings)
     insertNewWindow(WindowID(rawValue: 2), into: &workspace, settings: settings)
 
-    XCTAssertTrue(
-      removeWindow(WindowID(rawValue: 2), from: &workspace, settings: settings)
-    )
-    XCTAssertEqual(workspace.columns.count, 1)
-    XCTAssertEqual(workspace.focusedColumn, 0)
+    #expect(removeWindow(WindowID(rawValue: 2), from: &workspace, settings: settings))
+    #expect(workspace.columns.count == 1)
+    #expect(workspace.focusedColumn == 0)
   }
 
-  func testJoinAndUnjoinRoundTrip() throws {
+  @Test
+  func `Join and unjoin round trip`() throws {
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: settings)
     insertNewWindow(WindowID(rawValue: 2), into: &workspace, settings: settings)
 
     try joinFocusedWindow(.left, in: &workspace, settings: settings)
-    XCTAssertEqual(workspace.columns.count, 1)
-    XCTAssertEqual(
-      workspace.columns[0].windows,
-      [WindowID(rawValue: 1), WindowID(rawValue: 2)]
-    )
-    XCTAssertEqual(workspace.columns[0].focusedWindow, 1)
+    #expect(workspace.columns.count == 1)
+    #expect(workspace.columns[0].windows == [WindowID(rawValue: 1), WindowID(rawValue: 2)])
+    #expect(workspace.columns[0].focusedWindow == 1)
 
     try unjoinFocusedWindow(in: &workspace, settings: settings)
-    XCTAssertEqual(workspace.columns.count, 2)
-    XCTAssertEqual(workspace.columns[1].windows, [WindowID(rawValue: 2)])
-    XCTAssertEqual(workspace.focusedColumn, 1)
+    #expect(workspace.columns.count == 2)
+    #expect(workspace.columns[1].windows == [WindowID(rawValue: 2)])
+    #expect(workspace.focusedColumn == 1)
   }
 
-  func testMaximizedColumnRestoresPixelWidth() {
+  @Test
+  func `Maximized column restores pixel width`() {
     var column = Column(window: WindowID(rawValue: 1), width: .pixels(420))
 
     maximizeColumn(&column, defaultWidth: 0.8)
-    XCTAssertEqual(column.width, .fraction(1))
-    XCTAssertEqual(column.preMaximizedWidth, .pixels(420))
+    #expect(column.width == .fraction(1))
+    #expect(column.preMaximizedWidth == .pixels(420))
 
     maximizeColumn(&column, defaultWidth: 0.8)
-    XCTAssertEqual(column.width, .pixels(420))
-    XCTAssertNil(column.preMaximizedWidth)
+    #expect(column.width == .pixels(420))
+    #expect(column.preMaximizedWidth == nil)
   }
 
-  func testCyclingForwardFromMaximizedUsesFirstPreset() {
+  @Test(arguments: [
+    (
+      Direction.next,
+      [1.0, 0.33, 0.5, 0.66, 0.8],
+      ColumnWidth.fraction(0.33),
+      nil
+    ),
+    (
+      Direction.previous,
+      [0.33, 0.5, 0.66, 0.8, 1.0],
+      ColumnWidth.fraction(0.8),
+      nil
+    ),
+    (
+      Direction.previous,
+      [1.0],
+      ColumnWidth.fraction(1),
+      ColumnWidth.fraction(0.5)
+    ),
+  ])
+  func `Cycling from maximized selects the expected preset`(
+    testCase: (
+      direction: Direction,
+      presets: [Double],
+      expectedWidth: ColumnWidth,
+      expectedPreviousWidth: ColumnWidth?
+    )
+  ) {
     var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
-    let presets = [1.0, 0.33, 0.5, 0.66, 0.8]
 
     maximizeColumn(&column, defaultWidth: 0.8)
-    cycleWidth(of: &column, direction: .next, presets: presets)
+    cycleWidth(
+      of: &column,
+      direction: testCase.direction,
+      presets: testCase.presets
+    )
 
-    XCTAssertEqual(column.width, .fraction(0.33))
-    XCTAssertNil(column.preMaximizedWidth)
+    #expect(column.width == testCase.expectedWidth)
+    #expect(column.preMaximizedWidth == testCase.expectedPreviousWidth)
   }
-
-  func testCyclingBackwardFromMaximizedUsesLastPreset() {
-    var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
-    let presets = [0.33, 0.5, 0.66, 0.8, 1.0]
-
-    maximizeColumn(&column, defaultWidth: 0.8)
-    cycleWidth(of: &column, direction: .previous, presets: presets)
-
-    XCTAssertEqual(column.width, .fraction(0.8))
-    XCTAssertNil(column.preMaximizedWidth)
-  }
-
-  func testCyclingFromMaximizedWithOnlyFullWidthPresetDoesNothing() {
-    var column = Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
-
-    maximizeColumn(&column, defaultWidth: 0.8)
-    cycleWidth(of: &column, direction: .previous, presets: [1.0])
-
-    XCTAssertEqual(column.width, .fraction(1))
-    XCTAssertEqual(column.preMaximizedWidth, .fraction(0.5))
-  }
-
 }

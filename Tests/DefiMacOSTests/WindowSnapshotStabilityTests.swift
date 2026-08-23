@@ -31,11 +31,10 @@ struct WindowSnapshotStabilityTests {
       )
     )
     #expect(
-      !preparedCGWindowInventoryIsCurrent(
+      preparedCGWindowInventoryIsCurrent(
         capturedGeneration: 4,
         currentGeneration: 5
-      )
-    )
+      ) == false)
   }
 
   @Test func preparedAttributesAreRejectedAfterInputOrObservationChanges() {
@@ -53,7 +52,7 @@ struct WindowSnapshotStabilityTests {
       )
     )
     #expect(
-      !preparedAXWindowAttributesAreCurrent(
+      preparedAXWindowAttributesAreCurrent(
         capturedGeneration: 4,
         currentGeneration: 5,
         capturedInputTimestamp: 10,
@@ -62,10 +61,9 @@ struct WindowSnapshotStabilityTests {
         currentWindowIDs: windowIDs,
         capturedProcessIDs: [42],
         currentProcessIDs: [42]
-      )
-    )
+      ) == false)
     #expect(
-      !preparedAXWindowAttributesAreCurrent(
+      preparedAXWindowAttributesAreCurrent(
         capturedGeneration: 4,
         currentGeneration: 4,
         capturedInputTimestamp: 10,
@@ -74,8 +72,7 @@ struct WindowSnapshotStabilityTests {
         currentWindowIDs: windowIDs,
         capturedProcessIDs: [42],
         currentProcessIDs: [42]
-      )
-    )
+      ) == false)
   }
 
   @Test func applicationInventoryUsesEventsAndBoundedWatchdog() {
@@ -101,12 +98,11 @@ struct WindowSnapshotStabilityTests {
       )
     )
     #expect(
-      !applicationInventoryRefreshIsRequired(
+      applicationInventoryRefreshIsRequired(
         hasCompletedSnapshot: true,
         topologyRequiresFullSnapshot: false,
         forced: false
-      )
-    )
+      ) == false)
   }
 
   @Test func windowListUsesCacheUntilTopologyOrWatchdogInvalidation() {
@@ -132,12 +128,11 @@ struct WindowSnapshotStabilityTests {
       )
     )
     #expect(
-      !applicationWindowListRefreshIsRequired(
+      applicationWindowListRefreshIsRequired(
         hasCachedWindows: true,
         refreshesAllWindowLists: false,
         topologyProcessWasInvalidated: false
-      )
-    )
+      ) == false)
   }
 
   @Test func windowListWatchdogRetriesPreviouslyUnmatchedWindows() {
@@ -163,12 +158,11 @@ struct WindowSnapshotStabilityTests {
       )
     )
     #expect(
-      !unmatchedWindowCacheRequiresFullRetry(
+      unmatchedWindowCacheRequiresFullRetry(
         eventRequiresFullSnapshot: false,
         forceFullWindowRefresh: false,
         forceWindowListRefresh: false
-      )
-    )
+      ) == false)
   }
 
   @Test func unavailableNewWindowUsesDeduplicatedShortRetry() {
@@ -206,23 +200,20 @@ struct WindowSnapshotStabilityTests {
       )
     )
     #expect(
-      !cgWindowInventoryRetryIsRequired(
+      cgWindowInventoryRetryIsRequired(
         attempts: nil,
         forceWindowListRefresh: true
-      )
-    )
+      ) == false)
     #expect(
-      !cgWindowInventoryRetryIsRequired(
+      cgWindowInventoryRetryIsRequired(
         attempts: 3,
         forceWindowListRefresh: true
-      )
-    )
+      ) == false)
     #expect(
-      !cgWindowInventoryRetryIsRequired(
+      cgWindowInventoryRetryIsRequired(
         attempts: 0,
         forceWindowListRefresh: false
-      )
-    )
+      ) == false)
   }
 
   @Test func snapshotDurationPercentilesAreBoundedAndDeterministic() {
