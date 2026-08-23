@@ -4,13 +4,15 @@ public func focusedColumnScrollOffset(
   workspace: Workspace,
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
   windows: [Window] = [],
-  settings: LayoutSettings = LayoutSettings()
+  settings: LayoutSettings = LayoutSettings(),
+  excludingWindowIDs: Set<WindowID> = []
 ) -> Double {
   focusedColumnTargetScrollOffset(
     workspace: workspace,
     viewport: viewport,
     windows: windows,
     settings: settings,
+    excludingWindowIDs: excludingWindowIDs,
     centerFocusedColumn: .never
   )
 }
@@ -19,8 +21,13 @@ public func focusedColumnLeftScrollOffset(
   workspace: Workspace,
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
   windows: [Window] = [],
-  settings: LayoutSettings = LayoutSettings()
+  settings: LayoutSettings = LayoutSettings(),
+  excludingWindowIDs: Set<WindowID> = []
 ) -> Double {
+  let workspace = workspaceForLayout(
+    workspace,
+    excludingWindowIDs: excludingWindowIDs
+  )
   let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
   let focusedLeft = columnsWidth(
     Array(workspace.columns.prefix(workspace.focusedColumn)),
@@ -40,13 +47,15 @@ public func focusedColumnRevealScrollOffset(
   workspace: Workspace,
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
   windows: [Window] = [],
-  settings: LayoutSettings = LayoutSettings()
+  settings: LayoutSettings = LayoutSettings(),
+  excludingWindowIDs: Set<WindowID> = []
 ) -> Double {
   let minimumReveal = focusedColumnTargetScrollOffset(
     workspace: workspace,
     viewport: viewport,
     windows: windows,
     settings: settings,
+    excludingWindowIDs: excludingWindowIDs,
     centerFocusedColumn: .never
   )
   let pixelTolerance = 1 / max(viewport.width, 1)
@@ -57,7 +66,8 @@ public func focusedColumnRevealScrollOffset(
     workspace: workspace,
     viewport: viewport,
     windows: windows,
-    settings: settings
+    settings: settings,
+    excludingWindowIDs: excludingWindowIDs
   )
 }
 
@@ -66,8 +76,13 @@ public func focusedColumnTargetScrollOffset(
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
   windows: [Window] = [],
   settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = [],
   centerFocusedColumn: CenterFocusedColumn? = nil
 ) -> Double {
+  let workspace = workspaceForLayout(
+    workspace,
+    excludingWindowIDs: excludingWindowIDs
+  )
   let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
   let focusedLeft = columnsWidth(
     Array(workspace.columns.prefix(workspace.focusedColumn)),
@@ -131,10 +146,15 @@ private func columnWidthInViewports(
     / max(viewport.width, 1)
 }
 
-public func repairWorkspaceScroll(_ workspace: inout Workspace, settings: LayoutSettings) {
+public func repairWorkspaceScroll(
+  _ workspace: inout Workspace,
+  settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = []
+) {
   workspace.targetScrollOffset = focusedColumnTargetScrollOffset(
     workspace: workspace,
-    settings: settings
+    settings: settings,
+    excludingWindowIDs: excludingWindowIDs
   )
 }
 

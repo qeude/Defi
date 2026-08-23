@@ -16,7 +16,7 @@ extension MacOSPlatform {
   public func apply(
     _ assignments: [FrameAssignment],
     hiddenWindowIDs: Set<WindowID> = [],
-    skipping skippedWindowIDs: Set<WindowID> = [],
+    skipping requestedSkippedWindowIDs: Set<WindowID> = [],
     asynchronousPositions: Bool = false,
     asynchronousPositionTimeoutSeconds: Float = 0.016,
     animationDuration: TimeInterval = 0,
@@ -41,6 +41,9 @@ extension MacOSPlatform {
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
+    let skippedWindowIDs = requestedSkippedWindowIDs.union(
+      nativeFullscreenWindowIDs
+    )
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
     let tracesInitialFrame = !newlyDiscoveredWindowIDs.isEmpty
     if tracesInitialFrame {
@@ -496,6 +499,7 @@ extension MacOSPlatform {
                 ),
               cursorWarpPrefersTargetFrame: true,
               cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
+              allowsNativeFullscreen: true,
               completion: focusCompletionAfterCommit
             )
             focusRequestIDAfterCommit?(requestID)
@@ -563,6 +567,7 @@ extension MacOSPlatform {
           cursorWarpInputTimestampAfterCommit,
           cursorWarpPrefersTargetFrame: true,
           cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
+          allowsNativeFullscreen: true,
           completion: focusCompletionAfterCommit
         )
         focusRequestIDAfterCommit?(requestID)

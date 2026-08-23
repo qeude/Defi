@@ -144,7 +144,8 @@ extension Daemon {
       workspace: workspace,
       viewport: viewport,
       windows: windows,
-      settings: state.layout
+      settings: state.layout,
+      excludingWindowIDs: state.nativeFullscreenWindowIDs
     ).frames.map(preserveIntrinsicSize)
     let deltas = assignments.compactMap { assignment -> Double? in
       guard horizontalIntersection(assignment.frame, viewport) > 0.5,
@@ -184,7 +185,9 @@ extension Daemon {
     }
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
-        state.windows[mismatch.windowID]?.intrinsicSize != true
+        state.windows[mismatch.windowID]?.intrinsicSize != true,
+        !state.pendingNativeFullscreenWidthResetWindowIDs.contains(mismatch.windowID),
+        !platform.isInitialFrameSettlementActive(for: mismatch.windowID)
       else {
         continue
       }

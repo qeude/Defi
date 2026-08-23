@@ -68,6 +68,7 @@ extension Daemon {
     let layoutStartedAt = ProcessInfo.processInfo.systemUptime
     var assignments: [FrameAssignment] = []
     var borderAssignments: [FrameAssignment] = []
+    var nativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
     var outOfScopeWindowIDs = Set<WindowID>()
     let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
@@ -82,6 +83,9 @@ extension Daemon {
       {
         assignments.append(contentsOf: cached.assignments)
         borderAssignments.append(contentsOf: cached.borderAssignments)
+        nativeFullscreenPlaceholderAssignments.append(
+          contentsOf: cached.nativeFullscreenPlaceholderAssignments
+        )
         hiddenWindowIDs.formUnion(cached.hiddenWindowIDs)
         outOfScopeWindowIDs.formUnion(cached.assignments.map(\.windowID))
         continue
@@ -99,6 +103,7 @@ extension Daemon {
         } ?? 0
       var monitorAssignments: [FrameAssignment] = []
       var monitorBorderAssignments: [FrameAssignment] = []
+      var monitorNativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
       var monitorHiddenWindowIDs = Set<WindowID>()
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
         let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
@@ -109,7 +114,8 @@ extension Daemon {
           workspace: workspace,
           viewport: viewport,
           windows: workspaceWindows,
-          settings: state.layout
+          settings: state.layout,
+          excludingWindowIDs: state.nativeFullscreenWindowIDs
         )
         let sizedFrames = layout.frames.map(preserveIntrinsicSize)
         if workspace.id == monitor.activeWorkspace {
@@ -123,6 +129,27 @@ extension Daemon {
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
           monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
+
+          if !state.nativeFullscreenWindowIDs.isEmpty {
+            let fullscreenStrip = continuousStripFramesForActiveWorkspace(
+              computeLayout(
+                workspace: workspace,
+                viewport: viewport,
+                windows: workspaceWindows,
+                settings: state.layout
+              ).frames,
+              viewport: viewport,
+              ownerFrame: physicalFrame,
+              parkingFrame: viewport,
+              allMonitorFrames: allPhysicalMonitorFrames
+            )
+            monitorNativeFullscreenPlaceholderAssignments.append(
+              contentsOf: fullscreenStrip.frames.filter {
+                state.nativeFullscreenWindowIDs.contains($0.windowID)
+                  && fullscreenStrip.visibilityByWindowID[$0.windowID] == .visible
+              }
+            )
+          }
 
           for assignment in floatingAssignments(in: workspace) {
             monitorBorderAssignments.append(assignment)
@@ -152,6 +179,8 @@ extension Daemon {
       let plan = MonitorLayoutPlan(
         assignments: monitorAssignments,
         borderAssignments: monitorBorderAssignments,
+        nativeFullscreenPlaceholderAssignments:
+          monitorNativeFullscreenPlaceholderAssignments,
         hiddenWindowIDs: monitorHiddenWindowIDs
       )
       layoutPlansByMonitor[monitor.id] = plan
@@ -164,11 +193,14 @@ extension Daemon {
         )
       )
       borderAssignments.append(contentsOf: plan.borderAssignments)
+      nativeFullscreenPlaceholderAssignments.append(
+        contentsOf: plan.nativeFullscreenPlaceholderAssignments
+      )
       hiddenWindowIDs.formUnion(plan.hiddenWindowIDs)
     }
-    let skipped = additionalSkippedWindowIDs.union(outOfScopeWindowIDs).union(
-      activelyResizedWindowID.map { Set([$0]) } ?? []
-    )
+    let skipped = additionalSkippedWindowIDs.union(outOfScopeWindowIDs)
+      .union(state.nativeFullscreenWindowIDs)
+      .union(activelyResizedWindowID.map { Set([$0]) } ?? [])
     let platformAssignments =
       asynchronousPositions
       ? assignments.map(roundAnimatedPosition)
@@ -223,12 +255,15 @@ extension Daemon {
           if let monitorID = state.monitorID(containing: windowID) {
             affectedMonitorIDs.insert(monitorID)
           }
-          if learnTiledWindowMinimumWidth(
-            windowID,
-            actualFrame: frame,
-            state: &state,
-            viewports: viewportsByMonitor
-          ) {
+          if !state.pendingNativeFullscreenWidthResetWindowIDs.contains(windowID),
+            !platform.isInitialFrameSettlementActive(for: windowID),
+            learnTiledWindowMinimumWidth(
+              windowID,
+              actualFrame: frame,
+              state: &state,
+              viewports: viewportsByMonitor
+            )
+          {
             learnedMinimum = true
           }
           state.updateWindowFrame(frame, for: windowID)
@@ -250,6 +285,24 @@ extension Daemon {
       selectedWindowID: selectedWindowID,
       liveWindowID: activelyResizedWindowID,
       config: config.decorations.borders
+    )
+    platform.updateNativeFullscreenPlaceholders(
+      nativeFullscreenPlaceholderAssignments.compactMap { assignment in
+        guard let window = state.windows[assignment.windowID],
+          let monitorID = state.monitorID(containing: assignment.windowID)
+        else { return nil }
+        return NativeFullscreenPlaceholder(
+          windowID: window.id,
+          monitorID: monitorID,
+          appID: window.appID,
+          title: window.title,
+          frame: assignment.frame
+        )
+      },
+      selectedWindowID: selectedWindowID,
+      stackingWindowID: assignments.first {
+        !hiddenWindowIDs.contains($0.windowID)
+      }?.windowID ?? assignments.first?.windowID
     )
     if tracesWindowCreation {
       let elapsedMS =

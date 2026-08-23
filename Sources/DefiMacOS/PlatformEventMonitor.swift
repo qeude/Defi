@@ -64,6 +64,17 @@ final class PlatformEventMonitor {
         }
       }
     )
+    workspaceTokens.append(
+      center.addObserver(
+        forName: NSWorkspace.activeSpaceDidChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated {
+          self?.handler(.space, nil)
+        }
+      }
+    )
     for name in [
       NSWorkspace.didLaunchApplicationNotification,
       NSWorkspace.didHideApplicationNotification,
@@ -380,7 +391,7 @@ final class PlatformEventMonitor {
   }
 
   var hasReliableApplicationLifecycleObservation: Bool {
-    workspaceTokens.count == 5
+    workspaceTokens.count == 6
   }
 
   func setFrameNotificationsEnabled(_ enabled: Bool) -> (

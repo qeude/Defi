@@ -254,8 +254,12 @@ extension MacOSPlatform {
     liveWindowID: WindowID?,
     config: BordersConfig
   ) {
-    borderFrames = frames
-    borderSelectedWindowID = selectedWindowID
+    borderFrames = frames.filter {
+      !nativeFullscreenWindowIDs.contains($0.windowID)
+    }
+    borderSelectedWindowID = selectedWindowID.flatMap {
+      nativeFullscreenWindowIDs.contains($0) ? nil : $0
+    }
     borderHiddenWindowIDs = lastHiddenWindowIDs
     borderLiveWindowID = liveWindowID
     borderStyle = WindowBorderStyle(
@@ -270,8 +274,7 @@ extension MacOSPlatform {
       )
     )
     refreshWindowBorders()
-    if !screenCaptureAccessAvailable,
-      let ownedWindowID = borderManager.ownedSurfaceWindowID
+    if let ownedWindowID = borderManager.ownedSurfaceWindowID
     {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
@@ -280,6 +283,9 @@ extension MacOSPlatform {
   }
 
   public func stageWindowBorderSelection(_ selectedWindowID: WindowID?) {
+    let selectedWindowID = selectedWindowID.flatMap {
+      nativeFullscreenWindowIDs.contains($0) ? nil : $0
+    }
     desiredSelectedWindowID = selectedWindowID
     frameCoordinator.updateLiveBorderWindowID(selectedWindowID)
     let selectedFrame = selectedWindowID.flatMap { windowID in
@@ -312,9 +318,10 @@ extension MacOSPlatform {
     borderManager.revealPendingBorders()
   }
 
-
   private func activeIsMinimizedOrHidden(_ windowID: WindowID) -> Bool {
-    if lastHiddenWindowIDs.contains(windowID) {
+    if lastHiddenWindowIDs.contains(windowID)
+      || nativeFullscreenWindowIDs.contains(windowID)
+    {
       return true
     }
     guard let element = elements[windowID] else {
@@ -481,6 +488,27 @@ extension MacOSPlatform {
 
   public func hideWindowBorders() {
     borderManager.hide()
+  }
+
+  public func updateNativeFullscreenPlaceholders(
+    _ placeholders: [NativeFullscreenPlaceholder],
+    selectedWindowID: WindowID?,
+    stackingWindowID: WindowID?
+  ) {
+    if nativeFullscreenPlaceholderManager.sync(
+      placeholders,
+      selectedWindowID: selectedWindowID,
+      stackingWindowID: stackingWindowID,
+      suppressedWindowIDs: activeNativeFullscreenWindowIDs,
+      accentColor: borderStyle.activeColor
+    ) {
+      invalidatePointerHitTestCache()
+    }
+  }
+
+  public func hideNativeFullscreenPlaceholders() {
+    nativeFullscreenPlaceholderManager.hide()
+    invalidatePointerHitTestCache()
   }
 
   public var windowBorderPerformance: WindowBorderPerformance {
