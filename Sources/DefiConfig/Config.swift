@@ -123,6 +123,9 @@ public struct Config: Equatable, Sendable {
     guard parseBorderColor(decorations.borders.inactiveColor) != nil else {
       throw ConfigError.invalidValue("decorations.borders.inactive_color")
     }
+    guard ["inside", "outside"].contains(decorations.borders.placement) else {
+      throw ConfigError.invalidValue("decorations.borders.placement")
+    }
     guard !workspaces.names.isEmpty,
       Set(workspaces.names).count == workspaces.names.count
     else {
@@ -133,6 +136,7 @@ public struct Config: Equatable, Sendable {
     }
 
     for (_, command) in keys {
+      if command == "diagnostic-mark" { continue }
       do {
         try validateCommandWorkspace(try parseCommand(command))
       } catch let error as ConfigError {

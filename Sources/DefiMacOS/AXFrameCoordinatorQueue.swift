@@ -87,11 +87,17 @@ extension AXFrameCoordinator {
       activeWindowIDs.removeAll(keepingCapacity: true)
       activeWrites.removeAll(keepingCapacity: true)
       lock.unlock()
+      let acceptedFrames = readAcceptedFrames(
+        for: frame,
+        successfulWindowIDs: successfulWindowIDs
+      )
+      let completedLatest = !aborted && isCurrent(generation: frame.generation)
       frame.completion?(
         FrameWriteCompletion(
-          completedLatest: !aborted,
+          completedLatest: completedLatest,
           attemptedWindowIDs: Set(frame.writes.keys),
-          successfulWindowIDs: successfulWindowIDs
+          successfulWindowIDs: successfulWindowIDs,
+          acceptedFrames: completedLatest ? acceptedFrames : [:]
         )
       )
     }

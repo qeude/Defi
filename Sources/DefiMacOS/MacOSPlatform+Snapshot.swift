@@ -11,8 +11,7 @@ private let frameCommitLogger = Logger(
   category: "FrameCommit"
 )
 
-@MainActor
-extension MacOSPlatform {
+extension SnapshotEngine {
 
   public func accessibilityTrusted(prompt: Bool) -> Bool {
     let options =
@@ -38,6 +37,10 @@ extension MacOSPlatform {
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
+    let explicitlyDestroyedWindowIDs = consumeExplicitlyDestroyedWindows()
+    let frontmostProcessID = onMain {
+      _ in NSWorkspace.shared.frontmostApplication
+    }?.processIdentifier
     let tracesWindowTopology = windowTopologyEventPending
     let capturedTopologyRequiresFullSnapshot =
       windowTopologyRequiresFullSnapshot
@@ -53,10 +56,33 @@ extension MacOSPlatform {
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
     let processIDsWithoutReliableFrameCoverage =
-      eventMonitor?.processIDsWithoutReliableFrameCoverage ?? []
-    let fallbackFrameProcessIDs = forceFullWindowRefresh
-      ? []
-      : processIDsWithoutReliableFrameCoverage
+      (onMain { ($0.eventMonitor?.processIDsWithoutReliableFrameCoverage) ?? [] })
+    let uncoveredProcessIDs = processIDsWithoutReliableFrameCoverage
+      .union(onMain { $0.processIDsWithoutReliableTopologyCoverage() })
+    // Processes that exhausted their notification-subscription attempts read
+    // at watchdog cadence instead of every pass: their reads are the slowest
+    // (hundreds of ms) and they no longer produce AX events to justify the
+    // per-pass tax. App-level lifecycle events still trigger fresh reads.
+    let incompatiblePIDs = onMain { $0.incompatibleObservationProcessIDs }
+    let fallbackNow = ProcessInfo.processInfo.systemUptime
+    incompatibleFreshReadDeadlines = incompatibleFreshReadDeadlines
+      .filter { $0.value > fallbackNow }
+    var fallbackFreshReadProcessIDs = Set<pid_t>()
+    for processID in uncoveredProcessIDs {
+      if incompatiblePIDs.contains(processID) {
+        if forceFullWindowRefresh
+          || topologyProcessIDs.contains(processID)
+          || frameProcessIDs.contains(processID)
+          || incompatibleFreshReadDeadlines[processID] == nil
+        {
+          incompatibleFreshReadDeadlines[processID] =
+            fallbackNow + reliableObservationWatchdogInterval
+          fallbackFreshReadProcessIDs.insert(processID)
+        }
+      } else {
+        fallbackFreshReadProcessIDs.insert(processID)
+      }
+    }
     let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
       eventRequiresFullSnapshot:
         eventRequiresFullSnapshot,
@@ -86,20 +112,91 @@ extension MacOSPlatform {
         requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         processIDs: pendingWindowTopologyProcessIDs,
         coalescedProcessIDs: frameProcessIDs
-          .union(fallbackFrameProcessIDs)
+          .union(fallbackFreshReadProcessIDs)
+          .union(deferredFreshReadProcessIDs)
           .union(retainedProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
           frameEventPending || mouseResizeGesturePending
-            || !fallbackFrameProcessIDs.isEmpty
+            || !fallbackFreshReadProcessIDs.isEmpty
+            || !deferredFreshReadProcessIDs.isEmpty
             || !retainedProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )
+    var effectiveIncrementalProcessIDs = incrementalProcessIDs
+    let chunkedFullActive =
+      !applications.isEmpty
+      && (forceFullWindowRefresh
+        || chunkedFullRefreshRemainingProcessIDs?.isEmpty == false)
+    if chunkedFullActive {
+      // Full refreshes are the most expensive passes (every app re-read), so
+      // they are spread over consecutive budgeted passes: served apps get
+      // fresh window lists, deferred apps ride their cached windows until
+      // their pass comes. Cacheless apps are always served immediately so a
+      // fresh launch can never pop in late.
+      let liveProcessIDs = Set(applications.keys)
+      if chunkedFullRefreshRemainingProcessIDs == nil {
+        chunkedFullRefreshRemainingProcessIDs = liveProcessIDs
+      }
+      chunkedFullRefreshRemainingProcessIDs?.formIntersection(liveProcessIDs)
+      let remaining = chunkedFullRefreshRemainingProcessIDs ?? []
+      let cachelessProcessIDs = remaining.subtracting(
+        Set(lastApplicationWindowElements.keys)
+      )
+      let partition = budgetedFreshReadPartition(
+        requestedProcessIDs: remaining,
+        deferredProcessIDs: [],
+        eventPendingProcessIDs: topologyProcessIDs.union(frameProcessIDs)
+          .union(cachelessProcessIDs),
+        predictedLatencyMS: { processID in
+          frameCoordinator.predictedProcessLatency(processID: processID)
+        },
+        budgetMS: snapshotFreshReadBudgetMS,
+        maximumDeferredAgeSeconds: 0.5,
+        deferredSince: nil,
+        now: ProcessInfo.processInfo.systemUptime
+      )
+      effectiveIncrementalProcessIDs = partition.allowedNow
+      chunkedFullRefreshRemainingProcessIDs =
+        partition.stillDeferred.isEmpty ? nil : partition.stillDeferred
+      frameCoordinator.recordTrace(
+        "fresh-read-budget kind=full allowed=\(partition.allowedNow.count) deferred=\(partition.stillDeferred.count)"
+      )
+    } else if let requested = incrementalProcessIDs {
+      deferredFreshReadProcessIDs.formIntersection(
+        Set(applications.keys)
+      )
+      let partition = budgetedFreshReadPartition(
+        requestedProcessIDs: requested,
+        deferredProcessIDs: deferredFreshReadProcessIDs,
+        eventPendingProcessIDs: topologyProcessIDs.union(frameProcessIDs),
+        predictedLatencyMS: { processID in
+          frameCoordinator.predictedProcessLatency(processID: processID)
+        },
+        budgetMS: snapshotFreshReadBudgetMS,
+        maximumDeferredAgeSeconds: 0.5,
+        deferredSince: deferredFreshReadsStartedAt,
+        now: ProcessInfo.processInfo.systemUptime
+      )
+      deferredFreshReadProcessIDs = partition.stillDeferred
+      deferredFreshReadsStartedAt = partition.deferredSince
+      effectiveIncrementalProcessIDs = partition.allowedNow
+      if !partition.stillDeferred.isEmpty {
+        frameCoordinator.recordTrace(
+          "fresh-read-budget allowed=\(partition.allowedNow.count) deferred=\(partition.stillDeferred.count)"
+        )
+      }
+    } else {
+      deferredFreshReadProcessIDs.removeAll(keepingCapacity: true)
+      deferredFreshReadsStartedAt = nil
+    }
+    let forceWindowListRefreshEffective =
+      forceWindowListRefresh || chunkedFullActive
     let snapshotMode: String
-    if incrementalProcessIDs == nil {
+    if effectiveIncrementalProcessIDs == nil {
       snapshotMode = "full"
       fullWindowSnapshotCount += 1
-    } else if incrementalProcessIDs?.isEmpty == true {
+    } else if effectiveIncrementalProcessIDs?.isEmpty == true {
       snapshotMode = "cached"
       cachedWindowSnapshotCount += 1
     } else {
@@ -113,7 +210,7 @@ extension MacOSPlatform {
     pendingFrameProcessIDs.removeAll(keepingCapacity: true)
     observedFrameEventWindowIDs.removeAll(keepingCapacity: true)
     pendingFrameRequiresFullSnapshot = false
-    let monitors = discoverMonitors()
+    let monitors = onMain { $0.discoverMonitors() }
     lastMonitorFrames = monitors.map(\.frame)
     var hasCopiedCGWindows = false
     var cachedCGWindows: [CGWindowRecord]?
@@ -183,19 +280,19 @@ extension MacOSPlatform {
     let discovery = discoverSnapshotWindows(
       monitors: monitors,
       config: config,
-      incrementalProcessIDs: incrementalProcessIDs,
-      forceWindowListRefresh: forceWindowListRefresh,
+      incrementalProcessIDs: effectiveIncrementalProcessIDs,
+      forceWindowListRefresh: forceWindowListRefreshEffective,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
       preparedWindowAttributes: preparedWindowAttributes,
       preparedTransientOwnerWindowIDs: preparedTransientOwners,
       preparedApplicationWindows: preparedApplicationWindows,
+      explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
       publicCGWindows: publicCGWindows
     )
     preparedCGWindowInventory = nil
     preparedCGWindowInventoryAvailable = false
-    explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
     let nextElements = discovery.nextElements
     let nextProcessIDs = discovery.nextProcessIDs
     let nextApplications = discovery.nextApplications
@@ -223,7 +320,7 @@ extension MacOSPlatform {
       || !newlyDiscoveredWindowIDs.isEmpty
       || !removedWindowIDs.isEmpty
     {
-      invalidatePointerHitTestCache()
+      onMain { $0.invalidatePointerHitTestCache() }
     }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
       let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
@@ -310,14 +407,21 @@ extension MacOSPlatform {
       previouslyManagedWindows: previouslyManagedApplicationWindows,
       minimizedWindows: minimizedWindows
     )
-    eventMonitor?.refresh(
-      applications: observedApplicationWindows,
-      requiredTopologyWindows: topologyWindowsRequiredForObservation,
-      requiredFrameWindows: requiredFrameWindows,
-      transientGeometryWindows: transientGeometryWindows
-    )
+    let observationInputs = AssumedThreadSafe((
+      apps: observedApplicationWindows,
+      topo: topologyWindowsRequiredForObservation,
+      frames: requiredFrameWindows,
+      transient: transientGeometryWindows
+    ))
+    onMain { $0.eventMonitor?.refresh(
+      applications: observationInputs.value.apps,
+      requiredTopologyWindows: observationInputs.value.topo,
+      requiredFrameWindows: observationInputs.value.frames,
+      transientGeometryWindows: observationInputs.value.transient
+    ) }
     frameCoordinator.pruneRecentInternalFrameWrites(
-      liveWindowIDs: Set(nextElements.keys)
+      liveWindowIDs: Set(nextElements.keys),
+      now: ProcessInfo.processInfo.systemUptime
     )
     frameCoordinator.pruneProcessLatencyState(
       liveProcessIDs: Set(nextApplications.keys)
@@ -328,10 +432,13 @@ extension MacOSPlatform {
       freshObservationIDs.contains($0.key)
         || cachedSnapshotWindowIDs.contains($0.key)
     }
-    frameCommitExpectations = frameCommitExpectations.filter {
-      nextElements[$0.key] != nil
-    }
     let now = ProcessInfo.processInfo.systemUptime
+    // Expired expectations are dead bookkeeping. The per-window expiry below
+    // only runs on fresh observations; applications that stop delivering
+    // them would otherwise keep an expectation alive forever.
+    frameCommitExpectations = frameCommitExpectations.filter {
+      nextElements[$0.key] != nil && $0.value.deadline > now
+    }
     initialFrameSettlementDeadlines = initialFrameSettlementDeadlines.filter {
       nextElements[$0.key] != nil && $0.value > now
     }
@@ -377,14 +484,14 @@ extension MacOSPlatform {
         let target = targetFrames[window.id]
       {
         if let command = expectation.command {
-          recordCommandObservation(
+          onMain { $0.recordCommandObservation(
             command,
             windowID: window.id,
             from: expectation.from,
             actual: window.frame,
             target: expectation.target,
             at: now
-          )
+          ) }
         }
         if now >= expectation.deadline {
           frameCommitExpectations[window.id] = nil
@@ -595,7 +702,8 @@ extension MacOSPlatform {
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
       targetMismatchCount: targetMismatches.count,
-      targetMismatches: targetMismatches
+      targetMismatches: targetMismatches,
+      frontmostProcessID: frontmostProcessID
     )
   }
 

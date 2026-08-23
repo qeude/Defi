@@ -1545,24 +1545,46 @@ struct PlatformEventTests {
   }
 
   @Test
-  func failedNotificationObservationIsQuarantinedUntilProcessTerminates() {
+  func failedNotificationObservationRetriesThenQuarantines() {
     let failedProcessID: pid_t = 101
-    let quarantined = updatedNotificationObservationFailures(
-      [],
+    var counts = updatedNotificationObservationFailureCounts(
+      [:],
       activeProcessIDs: [failedProcessID],
       failedProcessID: failedProcessID
     )
 
-    #expect(quarantined == [failedProcessID])
+    #expect(counts == [failedProcessID: 1])
     #expect(
-      updatedNotificationObservationFailures(
-        quarantined,
-        activeProcessIDs: [failedProcessID]
-      ) == [failedProcessID]
+      processIDsIncompatibleWithNotificationObservation(counts).isEmpty
+    )
+    for _ in 1..<(notificationObservationMaxAttempts - 1) {
+      counts = updatedNotificationObservationFailureCounts(
+        counts,
+        activeProcessIDs: [failedProcessID],
+        failedProcessID: failedProcessID
+      )
+    }
+    #expect(
+      processIDsIncompatibleWithNotificationObservation(counts).isEmpty
+    )
+    counts = updatedNotificationObservationFailureCounts(
+      counts,
+      activeProcessIDs: [failedProcessID],
+      failedProcessID: failedProcessID
     )
     #expect(
-      updatedNotificationObservationFailures(
-        quarantined,
+      processIDsIncompatibleWithNotificationObservation(counts)
+        == [failedProcessID]
+    )
+    #expect(
+      updatedNotificationObservationFailureCounts(
+        counts,
+        activeProcessIDs: [failedProcessID]
+      ) == counts
+    )
+    #expect(
+      updatedNotificationObservationFailureCounts(
+        counts,
         activeProcessIDs: []
       ).isEmpty
     )
@@ -2033,6 +2055,65 @@ struct PlatformEventTests {
 
     #expect(result.activeWindowIsFrontmost == false)
     #expect(result.upperBoundWindowID == nil)
+  }
+
+  @Test
+  func sameAppSiblingAboveInZOrderDoesNotOccludeWithoutOverlap() {
+    let sibling = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: sibling,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2, y: 34, width: 900, height: 1_354)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 910, y: 34, width: 900, height: 1_354)
+        ),
+      ],
+      knownWindowIDs: [sibling]
+    )
+
+    #expect(result.activeWindowIsFrontmost)
+    #expect(result.upperBoundWindowID == nil)
+  }
+
+  @Test
+  func sameAppOverlappingKnownWindowStillOccludes() {
+    let dialog = WindowID(rawValue: 1)
+    let focusedWindow = WindowID(rawValue: 2)
+
+    let result = windowBorderStacking(
+      targetWindowID: focusedWindow,
+      ownProcessID: 99,
+      floatingLevel: NSWindow.Level.floating.rawValue,
+      entries: [
+        WindowStackEntry(
+          windowID: dialog,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 400, y: 300, width: 640, height: 480)
+        ),
+        WindowStackEntry(
+          windowID: focusedWindow,
+          processID: 8,
+          layer: NSWindow.Level.normal.rawValue,
+          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
+        ),
+      ],
+      knownWindowIDs: [dialog]
+    )
+
+    #expect(result.activeWindowIsFrontmost == false)
   }
 
   @Test

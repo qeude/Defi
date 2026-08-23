@@ -9,6 +9,9 @@ names = ["dev", "web", "dev-secondary", "tools", "misc", "6", "7", "8", "9"]
 [modifier_combinations]
 hyper = "Alt + Cmd + Ctrl"
 
+[keys]
+"hyper-d" = "diagnostic-mark"
+
 [[rules]]
 app_id = "com.apple.dt.Xcode"
 workspace = "dev"

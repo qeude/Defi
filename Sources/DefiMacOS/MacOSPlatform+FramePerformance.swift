@@ -99,6 +99,24 @@ extension MacOSPlatform {
 
   public func beginCommandPerformance(_ context: CommandPerformanceContext) {
     commandLatency.begin(context)
+    emitCommandDiagnostics()
+  }
+
+  public func setCommandDiagnosticHandler(
+    _ handler: @escaping @MainActor @Sendable (CommandDiagnosticSample) -> Void
+  ) {
+    commandDiagnosticHandler = handler
+  }
+
+  public func setDiagnosticAnomalyHandler(
+    _ handler: @escaping @Sendable (TimeInterval, String) -> Void
+  ) {
+    frameCoordinator.setDiagnosticAnomalyHandler(handler)
+  }
+
+  public func finishCommandDiagnostics() {
+    commandLatency.finishCurrentDiagnostic()
+    emitCommandDiagnostics()
   }
 
   public func recordCommandFocusExpectation(
@@ -126,6 +144,7 @@ extension MacOSPlatform {
     frameCoordinator.recordTrace(
       "command-plan cg=\(context.generation) windows=\(expectedWindowIDs.count) ms=\(String(format: "%.2f", latency))"
     )
+    emitCommandDiagnostics()
   }
 
   func recordCommandFirstWrite(
@@ -137,6 +156,7 @@ extension MacOSPlatform {
     frameCoordinator.recordTrace(
       "command-first-write cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
     )
+    emitCommandDiagnostics()
   }
 
   func recordCommandObservation(
@@ -165,6 +185,7 @@ extension MacOSPlatform {
         "command-converged cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
       )
     }
+    emitCommandDiagnostics()
   }
 
   public func recordCommandFocus(
@@ -178,10 +199,18 @@ extension MacOSPlatform {
     frameCoordinator.recordTrace(
       "command-focus cg=\(context.generation) ms=\(String(format: "%.2f", latency))"
     )
+    emitCommandDiagnostics()
   }
 
   public var commandLatencyPerformance: CommandLatencyPerformance {
     commandLatency.performance
+  }
+
+  private func emitCommandDiagnostics() {
+    let samples = commandLatency.takeDiagnosticSamples()
+    for sample in samples {
+      commandDiagnosticHandler?(sample)
+    }
   }
 
   public var parkingPerformance: (checks: Int, repairs: Int) {
@@ -272,6 +301,33 @@ extension MacOSPlatform {
     eventMonitor?.hasReliableWindowTopologyCoverage(
       for: Set(applications.keys)
     ) == true
+  }
+
+  public func processIDsWithoutReliableTopologyCoverage() -> Set<pid_t> {
+    eventMonitor?.processIDsWithoutReliableTopologyCoverage(
+      activeProcessIDs: Set(applications.keys)
+    ) ?? []
+  }
+
+  public var hasDeferredFreshWindowReads: Bool {
+    deferredFreshReadProcessIDs.isEmpty == false
+  }
+
+  public var incompatibleObservationProcessIDs: Set<pid_t> {
+    eventMonitor?.incompatibleNotificationProcessIDs ?? []
+  }
+
+  public var hasChunkedFullRefreshPending: Bool {
+    chunkedFullRefreshRemainingProcessIDs?.isEmpty == false
+  }
+
+  public var notificationObservationFailureSummary: String {
+    let counts = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
+    guard !counts.isEmpty else { return "[]" }
+    return "["
+      + counts.sorted { $0.key < $1.key }
+        .map { "\($0.key)x\($0.value)" }.joined(separator: ",")
+      + "]"
   }
 
   public var hasReliableApplicationLifecycleObservation: Bool {
@@ -395,7 +451,8 @@ extension MacOSPlatform {
   }
 
   public var pendingFrameWindowIDs: Set<WindowID> {
-    unresolvedFrameDebtWindowIDs(
+    // App-enforced minimum sizes are layout debt, but cannot delay focus forever.
+    unresolvedPositionDebtWindowIDs(
       pendingWindowIDs: frameCoordinator.pendingWindowIDs,
       debtWindowIDs: pendingFrameDebtWindowIDs,
       targetFrames: targetFrames,
@@ -409,5 +466,62 @@ extension MacOSPlatform {
 
   public var hasPendingNativeFocusEvent: Bool {
     nativeFocusEventPending
+  }
+}
+
+
+extension MacOSPlatform {
+/// Samples how far each visible border overlay sits from its window's most
+/// recently observed frame. Transient divergence during animations is
+/// expected (borders follow the plan, applications accept frames late);
+/// sustained large deltas are the regression signal.
+  public func auditBorderAlignment() -> String {
+    let assignments = borderFrames
+    guard !assignments.isEmpty else { return "no-border-assignments" }
+    var compared = 0
+    var mismatched = 0
+    var totalTarget = 0.0
+    var worstTarget = 0.0
+    var worstAcceptance = 0.0
+    var worstWindowID: WindowID?
+    for assignment in assignments {
+      guard
+        let target = targetFrames[assignment.windowID],
+        let observed = latestObservedFrames[assignment.windowID]
+      else {
+        continue
+      }
+      compared += 1
+      let targetDelta = max(
+        abs(assignment.frame.x - target.x),
+        abs(assignment.frame.y - target.y),
+        abs(assignment.frame.width - target.width),
+        abs(assignment.frame.height - target.height)
+      )
+      totalTarget += targetDelta
+      if targetDelta > worstTarget {
+        worstTarget = targetDelta
+        worstWindowID = assignment.windowID
+      }
+      if targetDelta > 2 {
+        mismatched += 1
+      }
+      let acceptance = max(
+        abs(target.x - observed.x),
+        abs(target.y - observed.y),
+        abs(target.width - observed.width),
+        abs(target.height - observed.height)
+      )
+      worstAcceptance = max(worstAcceptance, acceptance)
+    }
+    guard compared > 0 else { return "no-comparable-windows" }
+    var result = "compared=\(compared) mismatches>2pt=\(mismatched)"
+    result += " avg=\(String(format: "%.2f", totalTarget / Double(compared)))"
+    result += " worst=\(String(format: "%.2f", worstTarget))pt"
+    result += " appAcceptance=\(String(format: "%.2f", worstAcceptance))pt"
+    if let worstWindowID {
+      result += " wid=\(worstWindowID.rawValue)"
+    }
+    return result
   }
 }

@@ -1,7 +1,108 @@
 import DefiConfig
+import DefiCore
 import DefiModel
 import DefiRuntime
+import Testing
 import XCTest
+
+struct RuntimeMinimumWidthTests {
+  @Test
+  func cycleSkipsPresetWithTheSameEffectiveMinimumWidth() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let windowID = WindowID(rawValue: 1)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.windows[windowID] = Window(
+      id: windowID,
+      appID: "editor",
+      title: "Editor",
+      frame: Rect(x: 0, y: 0, width: 560, height: 700),
+      minimumTiledWidth: 560
+    )
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: windowID, width: .fraction(0.33))
+    ]
+
+    try reduce(
+      .cycleWidth(.next),
+      on: monitorID,
+      state: &state,
+      viewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)
+      ]
+    )
+
+    #expect(
+      state.monitors[0].workspaces[0].columns[0].width
+        == .fraction(0.66)
+    )
+  }
+
+  @Test
+  func acceptedMinimumWidthReflowsFollowingColumnWithoutReplacingPreset() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let constrainedID = WindowID(rawValue: 1)
+    let followingID = WindowID(rawValue: 2)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.layout = LayoutSettings(
+      innerHorizontalGap: 0,
+      innerVerticalGap: 0,
+      outerTopGap: 0,
+      outerRightGap: 0,
+      outerBottomGap: 0,
+      outerLeftGap: 0
+    )
+    state.windows = [
+      constrainedID: Window(
+        id: constrainedID,
+        appID: "editor",
+        title: "Editor",
+        frame: Rect(x: 0, y: 0, width: 800, height: 700)
+      ),
+      followingID: Window(
+        id: followingID,
+        appID: "calendar",
+        title: "Calendar",
+        frame: Rect(x: 800, y: 0, width: 500, height: 700)
+      ),
+    ]
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: constrainedID, width: .fraction(0.33)),
+      Column(window: followingID, width: .fraction(0.5)),
+    ]
+
+    #expect(
+      learnTiledWindowMinimumWidth(
+        constrainedID,
+        actualFrame: Rect(x: 0, y: 0, width: 560, height: 700),
+        state: &state,
+        viewports: [
+          monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)
+        ]
+      )
+    )
+    #expect(
+      state.monitors[0].workspaces[0].columns[0].width
+        == .fraction(0.33)
+    )
+
+    let layout = computeLayout(
+      workspace: state.monitors[0].workspaces[0],
+      viewport: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      windows: Array(state.windows.values),
+      settings: state.layout
+    )
+    let constrained = try #require(
+      layout.frames.first { $0.windowID == constrainedID }
+    )
+    let following = try #require(
+      layout.frames.first { $0.windowID == followingID }
+    )
+    #expect(constrained.frame.width == 560)
+    #expect(following.frame.x == 560)
+  }
+}
 
 final class RuntimeWidthLearningTests: XCTestCase {
   private let monitorID = MonitorID(rawValue: 1)

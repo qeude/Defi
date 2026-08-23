@@ -129,10 +129,20 @@ public func reduce(
       let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
       if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+        let column = state.monitors[monitorIndex].workspaces[index].columns[columnIndex]
+        let minimumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
+          viewport in
+          guard viewport.width > 0 else { return nil }
+          let minimumWidth = column.windows.compactMap {
+            state.windows[$0]?.minimumTiledWidth
+          }.max()
+          return minimumWidth.map { $0 / viewport.width }
+        }
         cycleWidth(
           of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
           direction: direction,
-          presets: layout.presetColumnWidths
+          presets: layout.presetColumnWidths,
+          minimumFraction: minimumFraction
         )
         state.monitors[monitorIndex].workspaces[index].targetScrollOffset =
           focusedColumnLeftScrollOffset(

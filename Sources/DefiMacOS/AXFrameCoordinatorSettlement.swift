@@ -262,6 +262,7 @@ extension AXFrameCoordinator {
     completedParkingChecks += 1
     lock.unlock()
     guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else { return }
+    markProcessNeedsImmediateReadback(write.processID)
     guard
       accessibilityWriter.applyPosition(
         write,
@@ -302,5 +303,19 @@ extension AXFrameCoordinator {
     if traceEntries.count > 512 {
       traceEntries.removeFirst(traceEntries.count - 512)
     }
+    if traceEventIsDiagnosticAnomaly(event) {
+      diagnosticAnomalyHandler?(uptime, event)
+    }
   }
+}
+
+func traceEventIsDiagnosticAnomaly(_ event: String) -> Bool {
+  [
+    "focus-recovery ",
+    "initial-repair ",
+    "parking-repair ",
+    "slow ",
+    "slow-lane ",
+    "stale-completion ",
+  ].contains { event.hasPrefix($0) }
 }

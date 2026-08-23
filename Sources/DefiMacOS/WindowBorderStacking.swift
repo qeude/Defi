@@ -95,14 +95,25 @@ func windowBorderStacking(
   let targetProcessID = relevantEntries.first(where: {
     $0.windowID == targetWindowID
   })?.processID
+  let targetEntryFrame = externalEntries.first(where: {
+    $0.windowID == targetWindowID
+  })?.frame
   // Untracked same-process helpers can appear during mouse-down. Known windows remain
-  // occluders so a selected window's border cannot cover its app's dialogs.
+  // occluders so a selected window's border cannot cover its app's dialogs — but only
+  // windows physically overlapping the target can hide it: same-app siblings share the
+  // monitor without covering the target, and keyboard focus does not raise z-order.
   let frontmostNormalWindowID = relevantEntries.first { entry in
-    entry.layer == NSWindow.Level.normal.rawValue
-      && entry.frame.width * entry.frame.height >= minimumBorderOccludingWindowArea
-      && (entry.windowID == targetWindowID
-        || entry.processID != targetProcessID
-        || knownWindowIDs.contains(entry.windowID))
+    guard entry.layer == NSWindow.Level.normal.rawValue,
+      entry.frame.width * entry.frame.height >= minimumBorderOccludingWindowArea
+    else { return false }
+    if entry.windowID == targetWindowID { return true }
+    if let targetEntryFrame,
+      !framesIntersect(entry.frame, targetEntryFrame)
+    {
+      return false
+    }
+    return entry.processID != targetProcessID
+      || knownWindowIDs.contains(entry.windowID)
   }?.windowID
   guard let targetWindowID,
     frontmostNormalWindowID == targetWindowID,

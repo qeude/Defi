@@ -18,7 +18,7 @@ public func synchronizeScrollOffsets(
           workspace: workspace,
           viewport: viewport,
           windows: windows,
-          centerFocusedColumn: state.layout.centerFocusedColumn
+          settings: state.layout
         )
     }
   }
@@ -45,7 +45,8 @@ public func alignFocusedColumnLeft(
     focusedColumnRevealScrollOffset(
       workspace: workspace,
       viewport: viewport,
-      windows: windows
+      windows: windows,
+      settings: state.layout
     )
 }
 
@@ -56,8 +57,58 @@ public func learnTiledWindowWidth(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> Bool {
-  guard state.windows[windowID]?.intrinsicSize != true else { return false }
+  let previousMinimum = state.windows[windowID]?.minimumTiledWidth
+  state.windows[windowID]?.minimumTiledWidth = nil
+  guard let learned = tiledWindowWidthLearning(
+    windowID,
+    actualFrame: actualFrame,
+    state: state,
+    viewports: viewports
+  ) else {
+    state.windows[windowID]?.minimumTiledWidth = previousMinimum
+    return false
+  }
+  state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
+    .columns[learned.columnIndex].width = .pixels(learned.width)
+  synchronizeScrollOffsets(state: &state, viewports: viewports)
+  return true
+}
 
+@discardableResult
+public func learnTiledWindowMinimumWidth(
+  _ windowID: WindowID,
+  actualFrame: Rect,
+  state: inout RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> Bool {
+  guard let learned = tiledWindowWidthLearning(
+    windowID,
+    actualFrame: actualFrame,
+    state: state,
+    viewports: viewports
+  ), learned.width > learned.requestedWidth + 0.5,
+    learned.width > (state.windows[windowID]?.minimumTiledWidth ?? 0) + 0.5
+  else {
+    return false
+  }
+  state.windows[windowID]?.minimumTiledWidth = learned.width
+  synchronizeScrollOffsets(state: &state, viewports: viewports)
+  return true
+}
+
+private func tiledWindowWidthLearning(
+  _ windowID: WindowID,
+  actualFrame: Rect,
+  state: RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> (
+  monitorIndex: Int,
+  workspaceIndex: Int,
+  columnIndex: Int,
+  requestedWidth: Double,
+  width: Double
+)? {
+  guard state.windows[windowID]?.intrinsicSize != true else { return nil }
   for monitorIndex in state.monitors.indices {
     let monitorID = state.monitors[monitorIndex].id
     guard let viewport = viewports[monitorID] else { continue }
@@ -73,7 +124,7 @@ public func learnTiledWindowWidth(
       guard workspace.id == state.monitors[monitorIndex].activeWorkspace,
         workspace.columns[columnIndex].preMaximizedWidth == nil
       else {
-        return false
+        return nil
       }
 
       let windows = workspace.columns
@@ -85,23 +136,31 @@ public func learnTiledWindowWidth(
         windows: windows,
         settings: state.layout
       ).frames.first(where: { $0.windowID == windowID })?.frame
-      guard let target else { return false }
+      guard let target else { return nil }
 
-      let currentSlotWidth: Double
+      let configuredSlotWidth: Double
       switch workspace.columns[columnIndex].width {
       case .fraction(let fraction):
-        currentSlotWidth = viewport.width * fraction
+        configuredSlotWidth = viewport.width * fraction
       case .pixels(let width):
-        currentSlotWidth = width
+        configuredSlotWidth = width
       }
+      let currentSlotWidth = max(
+        configuredSlotWidth,
+        workspace.columns[columnIndex].windows.compactMap {
+          state.windows[$0]?.minimumTiledWidth
+        }.max() ?? 0
+      )
       let learnedWidth = max(currentSlotWidth + actualFrame.width - target.width, 80)
-      guard abs(learnedWidth - currentSlotWidth) >= 1 else { return false }
-
-      state.monitors[monitorIndex].workspaces[workspaceIndex]
-        .columns[columnIndex].width = .pixels(learnedWidth)
-      synchronizeScrollOffsets(state: &state, viewports: viewports)
-      return true
+      guard abs(learnedWidth - currentSlotWidth) >= 1 else { return nil }
+      return (
+        monitorIndex,
+        workspaceIndex,
+        columnIndex,
+        currentSlotWidth,
+        learnedWidth
+      )
     }
   }
-  return false
+  return nil
 }

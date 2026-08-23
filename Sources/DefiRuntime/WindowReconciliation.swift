@@ -1,12 +1,14 @@
 import DefiConfig
 import DefiCore
 import DefiModel
+import Darwin
 
 public func discoverWindow(
   _ original: Window,
   decision: RuleDecision,
   placement: WindowPlacementPreference? = nil,
   isNativelyFocused: Bool = false,
+  isFrontmostAppSpawn: Bool = false,
   state: inout RuntimeState
 ) throws {
   guard !state.monitors.isEmpty else {
@@ -28,7 +30,7 @@ public func discoverWindow(
   window.intrinsicSize = decision.intrinsicSize
   let effectivePlacement = window.floatingOrigin == .automatic ? nil : placement
   let transientLocation = transientPlacementLocation(for: window, state: state)
-  let followsFocus = decision.followFocus && isNativelyFocused
+  let followFocusIntent = decision.followFocus && isNativelyFocused
   let preferredMonitorID = effectivePlacement?.monitorID.flatMap { preferred in
     state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
   }
@@ -55,6 +57,15 @@ public func discoverWindow(
   else {
     throw ReducerError.unknownWorkspace(workspaceID)
   }
+  // Policy: a managed window spawning into the active workspace of its
+  // monitor always inserts after the focused column and takes focus - the
+  // native focused-window event can legitimately lag window creation, so it
+  // alone must not gate this.
+  let followsFocus =
+    followFocusIntent
+    || (isFrontmostAppSpawn
+        && workspaceID == state.monitors[monitorIndex].activeWorkspace
+        && !window.floating)
 
   if window.floating && !window.forceTiling {
     state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(window.id)
@@ -82,11 +93,15 @@ public func discoverWindow(
 
 public func transientPlacementLocation(
   for window: Window,
-  state: RuntimeState
+  state: RuntimeState,
+  locations: WindowLocationMap? = nil
 ) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+  func location(containing windowID: WindowID) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+    locations?[windowID] ?? state.location(containing: windowID)
+  }
   guard window.isModal || window.floatingOrigin == .automatic else { return nil }
   if let ownerID = window.transientOwnerID,
-    let ownerLocation = state.location(containing: ownerID)
+    let ownerLocation = location(containing: ownerID)
   {
     return ownerLocation
   }
@@ -99,7 +114,7 @@ public func transientPlacementLocation(
     return selected
   }
   guard sameApplicationSelections.count == 1 else { return nil }
-  return state.location(containing: sameApplicationSelections[0])
+  return location(containing: sameApplicationSelections[0])
 }
 
 @discardableResult
@@ -150,7 +165,7 @@ public func reconcileWindows(
   externallyChangedWindowIDs: Set<WindowID> = [],
   viewports: [MonitorID: Rect] = [:],
   nativeFocusedWindowID: WindowID? = nil,
-  state: inout RuntimeState
+  frontmostProcessID: pid_t? = nil,  state: inout RuntimeState
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
   let discoveredIDs = Set(discovered.map(\.id))
@@ -167,6 +182,8 @@ public func reconcileWindows(
         decision: config.decision(for: window),
         placement: placementPreferences.preference(for: window),
         isNativelyFocused: window.id == nativeFocusedWindowID,
+        isFrontmostAppSpawn: window.processID != nil
+          && window.processID == frontmostProcessID,
         state: &state
       )
     } else {
@@ -196,6 +213,7 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
+        updated.minimumTiledWidth = existing.minimumTiledWidth
         if existing.intrinsicSize,
           !externallyChangedWindowIDs.contains(window.id)
         {
@@ -209,9 +227,11 @@ public func reconcileWindows(
   // ponytail: bounded convergence scan; owner-ordering can replace it if deep chains become common.
   for _ in discovered.indices {
     var relocatedInPass = false
+    var locations = state.windowLocationMap()
     for window in discovered where relocateTransientIfNeeded(
       window.id,
       viewports: viewports,
+      locations: &locations,
       state: &state
     ) {
       relocatedTransientIDs.insert(window.id)
@@ -226,11 +246,16 @@ public func reconcileWindows(
 private func relocateTransientIfNeeded(
   _ windowID: WindowID,
   viewports: [MonitorID: Rect],
+  locations: inout WindowLocationMap,
   state: inout RuntimeState
 ) -> Bool {
   guard let window = state.windows[windowID],
-    let current = state.location(containing: windowID),
-    let target = transientPlacementLocation(for: window, state: state),
+    let current = locations[windowID] ?? state.location(containing: windowID),
+    let target = transientPlacementLocation(
+      for: window,
+      state: state,
+      locations: locations
+    ),
     current.monitorID != target.monitorID || current.workspaceID != target.workspaceID,
     let targetMonitorIndex = state.monitors.firstIndex(where: {
       $0.id == target.monitorID
@@ -320,6 +345,7 @@ private func relocateTransientIfNeeded(
     )
   }
   state.windows[windowID]?.monitorID = target.monitorID
+  locations[windowID] = (target.monitorID, target.workspaceID)
   return true
 }
 

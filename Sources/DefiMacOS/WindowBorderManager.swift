@@ -122,7 +122,8 @@ final class WindowBorderManager {
         frame: displayedFrame,
         width: style.width,
         windowRadius: radius(for: windowID),
-        captureEnabled: style.captureEnabled
+        captureEnabled: style.captureEnabled,
+        placement: style.placement
       )
       overlay.prepareReveal(to: style.activeColor)
     }
@@ -141,7 +142,8 @@ final class WindowBorderManager {
         frame: frame,
         width: style.width,
         windowRadius: radius(for: windowID),
-        captureEnabled: style.captureEnabled
+        captureEnabled: style.captureEnabled,
+        placement: style.placement
       )
       if changed {
         geometryChanged = true
@@ -198,7 +200,8 @@ final class WindowBorderManager {
           width: plan.style.width,
           color: plan.style.activeColor,
           windowRadius: radius(for: assignment.windowID),
-          captureEnabled: plan.style.captureEnabled
+          captureEnabled: plan.style.captureEnabled,
+          placement: plan.style.placement
         )
       }
     }
@@ -211,7 +214,8 @@ final class WindowBorderManager {
         width: plan.style.width,
         color: plan.style.inactiveColor,
         windowRadius: radius(for: assignment.windowID),
-        captureEnabled: plan.style.captureEnabled
+        captureEnabled: plan.style.captureEnabled,
+        placement: plan.style.placement
       )
     }
 

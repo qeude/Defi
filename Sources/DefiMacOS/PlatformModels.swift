@@ -68,6 +68,7 @@ public struct DesktopSnapshot: Sendable {
   public let keyboardFocusIntentTimestamp: TimeInterval?
   public let targetMismatchCount: Int
   public let targetMismatches: [FrameMismatch]
+  public let frontmostProcessID: pid_t?
 
   public init(
     monitors: [MonitorSnapshot],
@@ -86,7 +87,8 @@ public struct DesktopSnapshot: Sendable {
     mouseFocusIntentTimestamp: TimeInterval? = nil,
     keyboardFocusIntentTimestamp: TimeInterval? = nil,
     targetMismatchCount: Int = 0,
-    targetMismatches: [FrameMismatch] = []
+    targetMismatches: [FrameMismatch] = [],
+    frontmostProcessID: pid_t? = nil
   ) {
     self.monitors = monitors
     self.windows = windows
@@ -106,6 +108,7 @@ public struct DesktopSnapshot: Sendable {
     self.keyboardFocusIntentTimestamp = keyboardFocusIntentTimestamp
     self.targetMismatchCount = targetMismatchCount
     self.targetMismatches = targetMismatches
+    self.frontmostProcessID = frontmostProcessID
   }
 }
 

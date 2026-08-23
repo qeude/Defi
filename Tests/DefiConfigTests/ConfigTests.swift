@@ -122,6 +122,22 @@ final class ConfigTests: XCTestCase {
     XCTAssertEqual(config.rules.count, 1)
   }
 
+  func testAcceptsDiagnosticMarkerBinding() throws {
+    let config = try Config.decode(
+      Data(
+        """
+        [keys]
+        "hyper-d" = "diagnostic-mark"
+
+        [modifier_combinations]
+        hyper = "Alt + Cmd + Ctrl"
+        """.utf8
+      )
+    )
+
+    XCTAssertEqual(config.keys["hyper-d"], "diagnostic-mark")
+  }
+
   func testRuleDecisionCombinesMatches() {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "web"]),

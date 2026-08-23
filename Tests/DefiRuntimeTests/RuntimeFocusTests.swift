@@ -19,12 +19,22 @@ final class RuntimeFocusTests: XCTestCase {
           monitorID: monitorID
         ),
         decision: RuleDecision(),
+        isFrontmostAppSpawn: true,
         state: &state
       )
     }
 
-    XCTAssertNil(
-      try changedState(after: .focusColumn(.left), on: monitorID, from: state)
+    // Policy (ADR 0002): discovery inside the active workspace focuses the
+    // newest window (which also runs scroll repair), so the rejection check
+    // targets the semantic outcome - the selection stays pinned at the
+    // boundary - rather than whole-structure equality.
+    state.monitors[0].workspaces[0].focusedColumn = 0
+    let rejected = try changedState(
+      after: .focusColumn(.left), on: monitorID, from: state
+    )
+    XCTAssertEqual(
+      rejected?.monitors[0].workspaces[0].focusedColumn,
+      state.monitors[0].workspaces[0].focusedColumn
     )
     XCTAssertNotNil(
       try changedState(after: .focusColumn(.right), on: monitorID, from: state)

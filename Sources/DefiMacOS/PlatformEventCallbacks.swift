@@ -22,12 +22,27 @@ func registerNotificationBatch(
   return true
 }
 
-func updatedNotificationObservationFailures(
-  _ failures: Set<pid_t>,
+let notificationObservationMaxAttempts = 3
+
+func updatedNotificationObservationFailureCounts(
+  _ counts: [pid_t: Int],
   activeProcessIDs: Set<pid_t>,
   failedProcessID: pid_t? = nil
+) -> [pid_t: Int] {
+  var updated = counts.filter { activeProcessIDs.contains($0.key) }
+  if let failedProcessID, activeProcessIDs.contains(failedProcessID) {
+    updated[failedProcessID, default: 0] += 1
+  }
+  return updated
+}
+
+func processIDsIncompatibleWithNotificationObservation(
+  _ counts: [pid_t: Int]
 ) -> Set<pid_t> {
-  failures.intersection(activeProcessIDs).union(failedProcessID.map { [$0] } ?? [])
+  Set(
+    counts.filter { $0.value >= notificationObservationMaxAttempts }
+      .keys
+  )
 }
 
 func observedWindowCount(
