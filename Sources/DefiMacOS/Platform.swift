@@ -199,17 +199,6 @@ func nativeFullscreenWindowIDs(
     },
     by: \.0
   ).mapValues { $0.map(\.1) }
-  var result = Set<WindowID>(
-    windows.compactMap { window in
-      guard
-        physicalFrames.contains(where: {
-          fullscreenFrameMatches(window.frame, $0)
-        })
-      else { return nil }
-      return window.processID.flatMap { lastFocusedWindowByProcess[$0] }
-        ?? window.id
-    })
-
   let layerZeroSurfaces = cgWindows.filter { $0.layer == 0 }
   let exactFullscreenSurfaceIDs = Set(
     layerZeroSurfaces.compactMap { surface in
@@ -217,6 +206,20 @@ func nativeFullscreenWindowIDs(
         ? WindowID(rawValue: UInt64(surface.id))
         : nil
     })
+  var result = Set<WindowID>(
+    windows.compactMap { window in
+      guard
+        physicalFrames.contains(where: {
+          fullscreenFrameMatches(window.frame, $0)
+        })
+      else { return nil }
+      if exactFullscreenSurfaceIDs.contains(window.id) {
+        return window.id
+      }
+      return window.processID.flatMap { lastFocusedWindowByProcess[$0] }
+        ?? window.id
+    })
+
   let fullscreenProcessIDs = nativeFullscreenProcessIDs(
     cgWindows: cgWindows,
     monitors: monitors
@@ -226,10 +229,10 @@ func nativeFullscreenWindowIDs(
     let exactCandidates = candidates.filter {
       exactFullscreenSurfaceIDs.contains($0.id)
     }
-    if let lastFocusedID = lastFocusedWindowByProcess[processID] {
-      result.insert(lastFocusedID)
-    } else if !exactCandidates.isEmpty {
+    if !exactCandidates.isEmpty {
       result.formUnion(exactCandidates.map(\.id))
+    } else if let lastFocusedID = lastFocusedWindowByProcess[processID] {
+      result.insert(lastFocusedID)
     } else if candidates.count == 1 {
       result.insert(candidates[0].id)
     }
@@ -287,7 +290,10 @@ func retainedNativeFullscreenProcessIDsByWindowID(
   fullscreenProcessIDs: Set<pid_t>,
   explicitlyRemovedWindowIDs: Set<WindowID>
 ) -> [WindowID: pid_t] {
-  var retained = previous
+  let detectedProcessIDs = Set(detectedWindowIDs.compactMap { observedProcessIDs[$0] })
+  var retained = previous.filter {
+    !detectedProcessIDs.contains($0.value)
+  }
   for windowID in detectedWindowIDs {
     if let processID = observedProcessIDs[windowID] {
       retained[windowID] = processID

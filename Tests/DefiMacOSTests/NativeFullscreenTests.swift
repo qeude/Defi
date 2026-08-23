@@ -173,6 +173,48 @@ struct NativeFullscreenTests {
   }
 
   @Test
+  func exactFullscreenSurfaceWinsOverStaleProcessFocus() {
+    let processID: Int32 = 10
+    let staleFocused = makeWindow(
+      id: 1,
+      processID: processID,
+      frame: monitor.frame
+    )
+    let fullscreen = makeWindow(
+      id: 2,
+      processID: processID,
+      frame: monitor.physicalFrame
+    )
+    let fullscreenSurface = CGWindowRecord(
+      id: 2,
+      processID: processID,
+      layer: 0,
+      title: "Video",
+      frame: monitor.physicalFrame
+    )
+    let detected = nativeFullscreenWindowIDs(
+      windows: [staleFocused, fullscreen],
+      cgWindows: [fullscreenSurface],
+      monitors: [monitor],
+      lastFocusedWindowByProcess: [processID: staleFocused.id]
+    )
+
+    #expect(detected == [fullscreen.id])
+    #expect(
+      retainedNativeFullscreenProcessIDsByWindowID(
+        detectedWindowIDs: detected,
+        previous: [staleFocused.id: processID],
+        observedProcessIDs: [
+          staleFocused.id: processID,
+          fullscreen.id: processID,
+        ],
+        fullscreenProcessIDs: [processID],
+        explicitlyRemovedWindowIDs: []
+      ) == [fullscreen.id: processID]
+    )
+  }
+
+  @Test
   func remappedFullscreenSurfaceKeepsPreviousLogicalWindowIdentity() {
     let surfaceWindow = makeWindow(
       id: 99,
