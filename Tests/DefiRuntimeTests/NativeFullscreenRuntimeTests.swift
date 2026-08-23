@@ -13,6 +13,7 @@ struct NativeFullscreenRuntimeTests {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     state.monitors[0].workspaces[0].columns[1].width = .pixels(420)
+    state.windows[fullscreenID]?.minimumTiledWidth = 900
 
     reconcileWindows(
       orderedWindows(in: state),
@@ -23,6 +24,7 @@ struct NativeFullscreenRuntimeTests {
 
     #expect(columnWindowIDs(in: state) == [[1], [3], [2]])
     #expect(state.nativeFullscreenWindowIDs == [fullscreenID])
+    #expect(state.windows[fullscreenID]?.minimumTiledWidth == nil)
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.columnIndex == 1)
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.column.width == .pixels(420))
     let layout = computeLayout(
@@ -78,10 +80,16 @@ struct NativeFullscreenRuntimeTests {
       nativeFullscreenWindowIDs: [fullscreenID],
       state: &state
     )
+
+    #expect(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
+    #expect(columnWindowIDs(in: state) == [[1], [3], [2]])
+    #expect(state.nativeFullscreenFloatingWindowIDs == [fullscreenID])
+
     reconcileWindows(orderedWindows(in: state), config: Config(), state: &state)
 
     #expect(state.suspendedTiledPlacements[fullscreenID] == placement)
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID] == nil)
+    #expect(state.nativeFullscreenFloatingWindowIDs.isEmpty)
     #expect(state.monitors[0].workspaces[0].floatingWindows.contains(fullscreenID))
   }
 
@@ -108,6 +116,34 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
+  func fullscreenPlaceholderCanDriveRibbonScroll() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 800)
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+    _ = focusWindow(fullscreenID, state: &state)
+
+    synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
+    var workspace = state.monitors[0].workspaces[0]
+    #expect(workspace.targetScrollOffset > 0)
+
+    workspace.scrollOffset = workspace.targetScrollOffset
+    let placeholderFrame = computeLayout(
+      workspace: workspace,
+      viewport: viewport,
+      windows: orderedWindows(in: state),
+      settings: state.layout
+    ).frames.first { $0.windowID == fullscreenID }?.frame
+    #expect(placeholderFrame.map { $0.x < viewport.width } == true)
+    #expect(placeholderFrame.map { $0.x + $0.width > viewport.x } == true)
+  }
+
+  @Test
   func exitRestoresExactSlotAndWidthWithoutChangingSelection() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
@@ -131,6 +167,32 @@ struct NativeFullscreenRuntimeTests {
     #expect(state.monitors[0].workspaces[0].columns[1].width == .pixels(420))
     #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID] == nil)
+    #expect(state.pendingNativeFullscreenWidthResetWindowIDs == [fullscreenID])
+  }
+
+  @Test
+  func firstWidthCycleAfterFullscreenReevaluatesTheWindowMinimum() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+    reconcileWindows(orderedWindows(in: state), config: Config(), state: &state)
+    _ = focusWindow(fullscreenID, state: &state)
+    state.windows[fullscreenID]?.minimumTiledWidth = 900
+
+    try reduce(
+      .cycleWidth(.next),
+      on: monitorID,
+      state: &state,
+      viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800)]
+    )
+
+    #expect(state.windows[fullscreenID]?.minimumTiledWidth == nil)
+    #expect(state.pendingNativeFullscreenWidthResetWindowIDs.isEmpty)
   }
 
   @Test

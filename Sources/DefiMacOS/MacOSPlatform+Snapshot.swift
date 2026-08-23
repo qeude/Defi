@@ -293,8 +293,8 @@ extension SnapshotEngine {
     )
     preparedCGWindowInventory = nil
     preparedCGWindowInventoryAvailable = false
-    let nextElements = discovery.nextElements
-    let nextProcessIDs = discovery.nextProcessIDs
+    var nextElements = discovery.nextElements
+    var nextProcessIDs = discovery.nextProcessIDs
     let nextApplications = discovery.nextApplications
     let nextApplicationIDs = discovery.nextApplicationIDs
     let applicationWindows = discovery.applicationWindows
@@ -306,11 +306,22 @@ extension SnapshotEngine {
       cgWindows: fullscreenCGWindows,
       monitors: monitors
     )
-    let detectedNativeFullscreenWindowIDs = nativeFullscreenWindowIDs(
+    var detectedNativeFullscreenWindowIDs = nativeFullscreenWindowIDs(
       windows: windows,
       cgWindows: fullscreenCGWindows,
       monitors: monitors,
       lastFocusedWindowByProcess: lastFocusedWindowByProcess
+    )
+    nativeFullscreenProcessIDsByWindowID =
+      retainedNativeFullscreenProcessIDsByWindowID(
+        detectedWindowIDs: detectedNativeFullscreenWindowIDs,
+        previous: nativeFullscreenProcessIDsByWindowID,
+        observedProcessIDs: processIDs.merging(nextProcessIDs) { _, next in next },
+        fullscreenProcessIDs: detectedNativeFullscreenProcessIDs,
+        explicitlyRemovedWindowIDs: explicitlyDestroyedWindowIDs
+      )
+    detectedNativeFullscreenWindowIDs.formUnion(
+      nativeFullscreenProcessIDsByWindowID.keys
     )
     let stabilizedNativeFullscreen = stabilizedNativeFullscreenWindowIDs(
       detectedWindowIDs: detectedNativeFullscreenWindowIDs,
@@ -320,6 +331,22 @@ extension SnapshotEngine {
     )
     nativeFullscreenExitDeadlines = stabilizedNativeFullscreen.exitDeadlines
     let nativeFullscreenWindowIDs = stabilizedNativeFullscreen.windowIDs
+    let maskedWindowIDs = fullscreenMaskedWindowIDs(
+      previousWindowIDs: Set(previousElements.keys),
+      nativeFullscreenWindowIDs: nativeFullscreenWindowIDs,
+      explicitlyRemovedWindowIDs: explicitlyDestroyedWindowIDs
+    )
+    nextElements.merge(previousElements.filter { maskedWindowIDs.contains($0.key) }) {
+      current, _ in current
+    }
+    nextProcessIDs.merge(processIDs.filter { maskedWindowIDs.contains($0.key) }) {
+      current, _ in current
+    }
+    let activeNativeFullscreenWindowIDs = activeNativeFullscreenWindowIDs(
+      processIDsByWindowID: nativeFullscreenProcessIDsByWindowID,
+      cgWindows: fullscreenCGWindows,
+      monitors: monitors
+    ).intersection(nativeFullscreenWindowIDs)
     let nextRetainedWindowIDs = discovery.nextRetainedWindowIDs
     let cachedSnapshotWindowIDs = discovery.cachedSnapshotWindowIDs
     let previouslyManagedApplicationWindows =
@@ -459,7 +486,7 @@ extension SnapshotEngine {
       nextElements[$0.key] != nil && $0.value.deadline > now
     }
     initialFrameSettlementDeadlines = initialFrameSettlementDeadlines.filter {
-      nextElements[$0.key] != nil && $0.value > now
+      $0.value > now
     }
     lastHiddenWindowIDs = lastHiddenWindowIDs.filter { nextElements[$0] != nil }
     let leftMouseButtonDown = CGEventSource.buttonState(
@@ -704,6 +731,7 @@ extension SnapshotEngine {
       monitors: monitors,
       windows: windows,
       nativeFullscreenWindowIDs: nativeFullscreenWindowIDs,
+      activeNativeFullscreenWindowIDs: activeNativeFullscreenWindowIDs,
       focusedWindowID: focusedWindowID,
       nativeFocusChanged: nativeFocusChanged,
       removedWindowIDs: removedWindowIDs,

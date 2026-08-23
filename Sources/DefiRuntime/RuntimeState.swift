@@ -11,7 +11,9 @@ public struct RuntimeState: Equatable, Sendable {
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID
   public var nativeFullscreenWindowIDs: Set<WindowID>
+  public var nativeFullscreenFloatingWindowIDs: Set<WindowID>
   public var nativeFullscreenTiledPlacements: [WindowID: SuspendedTiledPlacement]
+  public var pendingNativeFullscreenWidthResetWindowIDs: Set<WindowID>
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
   public var reservedEdgesByMonitor: [MonitorID: ReservedEdges]
 
@@ -23,7 +25,9 @@ public struct RuntimeState: Equatable, Sendable {
     self.workspaceNames = names
     self.defaultWorkspace = WorkspaceID(rawValue: config.workspaces.defaultName)
     self.nativeFullscreenWindowIDs = []
+    self.nativeFullscreenFloatingWindowIDs = []
     self.nativeFullscreenTiledPlacements = [:]
+    self.pendingNativeFullscreenWidthResetWindowIDs = []
     self.suspendedTiledPlacements = [:]
     self.reservedEdgesByMonitor = [:]
   }

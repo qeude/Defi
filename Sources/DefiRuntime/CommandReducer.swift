@@ -137,6 +137,10 @@ public func reduce(
       if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         let column = state.monitors[monitorIndex].workspaces[index].columns[columnIndex]
+        for windowID in column.windows
+        where state.pendingNativeFullscreenWidthResetWindowIDs.remove(windowID) != nil {
+          state.windows[windowID]?.minimumTiledWidth = nil
+        }
         let minimumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
           viewport in
           guard viewport.width > 0 else { return nil }

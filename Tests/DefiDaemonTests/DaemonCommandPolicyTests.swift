@@ -29,6 +29,7 @@ struct DaemonCommandPolicyTests {
     let plan = MonitorLayoutPlan(
       assignments: [assignment],
       borderAssignments: [assignment],
+      nativeFullscreenPlaceholderAssignments: [],
       hiddenWindowIDs: []
     )
 

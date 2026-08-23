@@ -18,8 +18,7 @@ public func synchronizeScrollOffsets(
           workspace: workspace,
           viewport: viewport,
           windows: windows,
-          settings: state.layout,
-          excludingWindowIDs: state.nativeFullscreenWindowIDs
+          settings: state.layout
         )
     }
   }
@@ -47,8 +46,7 @@ public func alignFocusedColumnLeft(
       workspace: workspace,
       viewport: viewport,
       windows: windows,
-      settings: state.layout,
-      excludingWindowIDs: state.nativeFullscreenWindowIDs
+      settings: state.layout
     )
 }
 

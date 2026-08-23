@@ -213,6 +213,51 @@ struct NativeFullscreenTests {
     )
   }
 
+  @Test
+  func activeFullscreenWindowRequiresAnOnscreenSurface() {
+    let windowID = WindowID(rawValue: 1)
+    let surface = CGWindowRecord(
+      id: 1,
+      processID: 10,
+      layer: 0,
+      title: "Video",
+      frame: Rect(x: 0, y: 33, width: 1_512, height: 949)
+    )
+    let hiddenMenuBand = CGWindowRecord(
+      id: 99,
+      processID: 10,
+      layer: 0,
+      title: "",
+      frame: Rect(x: 0, y: 0, width: 1_512, height: 33),
+      isOnscreen: false
+    )
+
+    #expect(
+      activeNativeFullscreenWindowIDs(
+        processIDsByWindowID: [windowID: 10],
+        cgWindows: [surface, hiddenMenuBand],
+        monitors: [monitor]
+      ) == [windowID]
+    )
+    #expect(
+      activeNativeFullscreenWindowIDs(
+        processIDsByWindowID: [windowID: 10],
+        cgWindows: [
+          CGWindowRecord(
+            id: surface.id,
+            processID: surface.processID,
+            layer: surface.layer,
+            title: surface.title,
+            frame: surface.frame,
+            isOnscreen: false
+          ),
+          hiddenMenuBand,
+        ],
+        monitors: [monitor]
+      ).isEmpty
+    )
+  }
+
   @MainActor
   @Test
   func automaticFocusWriteIsSkippedForFullscreenWindow() {
@@ -247,6 +292,78 @@ struct NativeFullscreenTests {
     ])
 
     #expect(platform.targetFrames[windowID] == original)
+  }
+
+  @MainActor
+  @Test
+  func fullscreenExitStartsFrameSettlement() {
+    let windowID = WindowID(rawValue: 1)
+    let platform = MacOSPlatform()
+    platform.updateNativeFullscreenWindowIDs([windowID])
+    #expect(platform.isInitialFrameSettlementActive(for: windowID))
+
+    platform.updateNativeFullscreenWindowIDs([])
+
+    #expect(platform.isInitialFrameSettlementActive(for: windowID))
+  }
+
+  @MainActor
+  @Test
+  func placeholderManagerTracksOnlyCurrentFullscreenSlots() {
+    let manager = NativeFullscreenPlaceholderManager()
+    let windowID = WindowID(rawValue: 1)
+    let siblingWindowID = WindowID(rawValue: 2)
+    let otherMonitorWindowID = WindowID(rawValue: 3)
+    let placeholders = [
+      NativeFullscreenPlaceholder(
+        windowID: windowID,
+        monitorID: MonitorID(rawValue: 1),
+        appID: "com.apple.TextEdit",
+        title: "Document",
+        frame: Rect(x: 100, y: 100, width: 600, height: 700)
+      ),
+      NativeFullscreenPlaceholder(
+        windowID: siblingWindowID,
+        monitorID: MonitorID(rawValue: 1),
+        appID: "com.apple.TextEdit",
+        title: "Sibling",
+        frame: Rect(x: 800, y: 100, width: 600, height: 700)
+      ),
+      NativeFullscreenPlaceholder(
+        windowID: otherMonitorWindowID,
+        monitorID: MonitorID(rawValue: 2),
+        appID: "com.apple.TextEdit",
+        title: "Other monitor",
+        frame: Rect(x: 1_600, y: 100, width: 600, height: 700)
+      )
+    ]
+    manager.sync(
+      placeholders,
+      selectedWindowID: windowID,
+      stackingWindowID: nil,
+      accentColor: 0xffc0_99ff
+    )
+
+    #expect(manager.visibleWindowIDs == Set(placeholders.map(\.windowID)))
+
+    manager.sync(
+      placeholders,
+      selectedWindowID: windowID,
+      stackingWindowID: nil,
+      suppressedWindowIDs: [windowID],
+      accentColor: 0xffc0_99ff
+    )
+
+    #expect(manager.visibleWindowIDs == [otherMonitorWindowID])
+
+    manager.sync(
+      [],
+      selectedWindowID: nil,
+      stackingWindowID: nil,
+      accentColor: 0xffc0_99ff
+    )
+
+    #expect(manager.visibleWindowIDs.isEmpty)
   }
 
   @Test
@@ -284,6 +401,52 @@ struct NativeFullscreenTests {
 
     #expect(transitionGap.windowIDs == [windowID])
     #expect(exited.windowIDs.isEmpty)
+  }
+
+  @Test
+  func inactiveSpaceRetainsFullscreenIdentityWhileProcessStillCoversDisplay() {
+    let windowID = WindowID(rawValue: 1)
+    let processID: Int32 = 10
+
+    let retained = retainedNativeFullscreenProcessIDsByWindowID(
+      detectedWindowIDs: [],
+      previous: [windowID: processID],
+      observedProcessIDs: [:],
+      fullscreenProcessIDs: [processID],
+      explicitlyRemovedWindowIDs: []
+    )
+    #expect(retained == [windowID: processID])
+    #expect(
+      retainedNativeFullscreenProcessIDsByWindowID(
+        detectedWindowIDs: [],
+        previous: retained,
+        observedProcessIDs: [:],
+        fullscreenProcessIDs: [],
+        explicitlyRemovedWindowIDs: []
+      ).isEmpty
+    )
+  }
+
+  @Test
+  func fullscreenSpaceRetainsFocusResourcesFromMaskedSpaces() {
+    let visibleID = WindowID(rawValue: 1)
+    let maskedID = WindowID(rawValue: 2)
+    let removedID = WindowID(rawValue: 3)
+
+    #expect(
+      fullscreenMaskedWindowIDs(
+        previousWindowIDs: [visibleID, maskedID, removedID],
+        nativeFullscreenWindowIDs: [visibleID],
+        explicitlyRemovedWindowIDs: [removedID]
+      ) == [visibleID, maskedID]
+    )
+    #expect(
+      fullscreenMaskedWindowIDs(
+        previousWindowIDs: [visibleID, maskedID],
+        nativeFullscreenWindowIDs: [],
+        explicitlyRemovedWindowIDs: []
+      ).isEmpty
+    )
   }
 
   private func makeWindow(

@@ -180,7 +180,9 @@ public func reconcileWindows(
   where !discoveredIDs.contains(existingID) && !fullscreenSpaceHidesOtherWindows {
     removeWindowEverywhere(existingID, state: &state)
     state.windows[existingID] = nil
+    state.nativeFullscreenFloatingWindowIDs.remove(existingID)
     state.nativeFullscreenTiledPlacements[existingID] = nil
+    state.pendingNativeFullscreenWidthResetWindowIDs.remove(existingID)
     state.suspendedTiledPlacements[existingID] = nil
   }
 
@@ -226,7 +228,9 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
-        updated.minimumTiledWidth = existing.minimumTiledWidth
+        updated.minimumTiledWidth = nativeFullscreenWindowIDs.contains(window.id)
+          ? nil
+          : existing.minimumTiledWidth
         if existing.intrinsicSize,
           !externallyChangedWindowIDs.contains(window.id)
         {
@@ -267,6 +271,7 @@ private func reconcileNativeFullscreenWindows(
       < (rhs?.columnIndex ?? .max, rhs?.windowIndex ?? .max, $1.rawValue)
   }
   for windowID in exiting {
+    state.pendingNativeFullscreenWidthResetWindowIDs.insert(windowID)
     state.nativeFullscreenWindowIDs.remove(windowID)
     resumeNativeFullscreenWindow(windowID, state: &state)
   }
@@ -276,6 +281,7 @@ private func reconcileNativeFullscreenWindows(
       < nativeFullscreenEntryOrder($1, state: state)
   }
   for windowID in entering {
+    state.pendingNativeFullscreenWidthResetWindowIDs.remove(windowID)
     suspendNativeFullscreenWindow(windowID, state: &state)
     state.nativeFullscreenWindowIDs.insert(windowID)
   }
@@ -310,6 +316,30 @@ private func suspendNativeFullscreenWindow(
     )
   else { return }
   var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+  let selectedWindowID = selectedWindowID(in: workspace)
+  let targetScrollOffset = workspace.targetScrollOffset
+  if workspace.floatingWindows.contains(windowID) {
+    let savedColumn = state.suspendedTiledPlacements[windowID]?.column
+    removeWindow(windowID, from: &workspace, settings: state.layout)
+    workspace.columns.append(
+      Column(
+        window: windowID,
+        width: savedColumn?.width ?? .fraction(state.layout.defaultColumnWidth),
+        preMaximizedWidth: savedColumn?.preMaximizedWidth
+      )
+    )
+    state.nativeFullscreenFloatingWindowIDs.insert(windowID)
+    state.nativeFullscreenWindowIDs.insert(windowID)
+    normalizeNativeFullscreenColumns(
+      &workspace,
+      fullscreenWindowIDs: state.nativeFullscreenWindowIDs,
+      placements: state.nativeFullscreenTiledPlacements
+    )
+    restoreSelection(selectedWindowID, in: &workspace)
+    workspace.targetScrollOffset = targetScrollOffset
+    state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
+    return
+  }
   guard
     let columnIndex = workspace.columns.firstIndex(where: {
       $0.windows.contains(windowID)
@@ -317,8 +347,6 @@ private func suspendNativeFullscreenWindow(
     let windowIndex = workspace.columns[columnIndex].windows.firstIndex(of: windowID)
   else { return }
 
-  let selectedWindowID = selectedWindowID(in: workspace)
-  let targetScrollOffset = workspace.targetScrollOffset
   let priorPlacement = state.nativeFullscreenWindowIDs.compactMap {
     state.nativeFullscreenTiledPlacements[$0]
   }.first { $0.column.windows.contains(windowID) }
@@ -362,6 +390,24 @@ private func resumeNativeFullscreenWindow(
   _ windowID: WindowID,
   state: inout RuntimeState
 ) {
+  if state.nativeFullscreenFloatingWindowIDs.remove(windowID) != nil {
+    guard state.windows[windowID]?.floating == true,
+      let location = state.location(containing: windowID),
+      let monitorIndex = state.monitors.firstIndex(where: { $0.id == location.monitorID }),
+      let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+        where: { $0.id == location.workspaceID }
+      )
+    else { return }
+    var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+    let selectedWindowID = selectedWindowID(in: workspace)
+    let targetScrollOffset = workspace.targetScrollOffset
+    removeWindow(windowID, from: &workspace, settings: state.layout)
+    workspace.floatingWindows.append(windowID)
+    restoreSelection(selectedWindowID, in: &workspace)
+    workspace.targetScrollOffset = targetScrollOffset
+    state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
+    return
+  }
   guard let placement = state.nativeFullscreenTiledPlacements.removeValue(forKey: windowID),
     let monitorIndex = state.monitors.firstIndex(where: { $0.id == placement.monitorID }),
     let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(

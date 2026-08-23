@@ -274,8 +274,7 @@ extension MacOSPlatform {
       )
     )
     refreshWindowBorders()
-    if !screenCaptureAccessAvailable,
-      let ownedWindowID = borderManager.ownedSurfaceWindowID
+    if let ownedWindowID = borderManager.ownedSurfaceWindowID
     {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
@@ -489,6 +488,27 @@ extension MacOSPlatform {
 
   public func hideWindowBorders() {
     borderManager.hide()
+  }
+
+  public func updateNativeFullscreenPlaceholders(
+    _ placeholders: [NativeFullscreenPlaceholder],
+    selectedWindowID: WindowID?,
+    stackingWindowID: WindowID?
+  ) {
+    if nativeFullscreenPlaceholderManager.sync(
+      placeholders,
+      selectedWindowID: selectedWindowID,
+      stackingWindowID: stackingWindowID,
+      suppressedWindowIDs: activeNativeFullscreenWindowIDs,
+      accentColor: borderStyle.activeColor
+    ) {
+      invalidatePointerHitTestCache()
+    }
+  }
+
+  public func hideNativeFullscreenPlaceholders() {
+    nativeFullscreenPlaceholderManager.hide()
+    invalidatePointerHitTestCache()
   }
 
   public var windowBorderPerformance: WindowBorderPerformance {

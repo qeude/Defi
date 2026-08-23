@@ -256,6 +256,58 @@ func nativeFullscreenProcessIDs(
   )
 }
 
+func activeNativeFullscreenWindowIDs(
+  processIDsByWindowID: [WindowID: pid_t],
+  cgWindows: [CGWindowRecord],
+  monitors: [MonitorSnapshot]
+) -> Set<WindowID> {
+  let onscreenSurfaces = cgWindows.filter(\.isOnscreen)
+  let activeProcessIDs = nativeFullscreenProcessIDs(
+    cgWindows: onscreenSurfaces,
+    monitors: monitors
+  )
+  return Set(processIDsByWindowID.compactMap { windowID, processID in
+    if activeProcessIDs.contains(processID) { return windowID }
+    guard let surfaceID = CGWindowID(exactly: windowID.rawValue),
+      let surface = onscreenSurfaces.first(where: {
+        $0.id == surfaceID && $0.processID == processID && $0.layer == 0
+      }),
+      monitors.contains(where: {
+        activeFullscreenSurfaceMatches(surface.frame, $0.physicalFrame)
+    })
+    else { return nil }
+    return windowID
+  })
+}
+
+func retainedNativeFullscreenProcessIDsByWindowID(
+  detectedWindowIDs: Set<WindowID>,
+  previous: [WindowID: pid_t],
+  observedProcessIDs: [WindowID: pid_t],
+  fullscreenProcessIDs: Set<pid_t>,
+  explicitlyRemovedWindowIDs: Set<WindowID>
+) -> [WindowID: pid_t] {
+  var retained = previous
+  for windowID in detectedWindowIDs {
+    if let processID = observedProcessIDs[windowID] {
+      retained[windowID] = processID
+    }
+  }
+  return retained.filter {
+    fullscreenProcessIDs.contains($0.value)
+      && !explicitlyRemovedWindowIDs.contains($0.key)
+  }
+}
+
+func fullscreenMaskedWindowIDs(
+  previousWindowIDs: Set<WindowID>,
+  nativeFullscreenWindowIDs: Set<WindowID>,
+  explicitlyRemovedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  guard !nativeFullscreenWindowIDs.isEmpty else { return [] }
+  return previousWindowIDs.subtracting(explicitlyRemovedWindowIDs)
+}
+
 func stabilizedNativeFullscreenWindowIDs(
   detectedWindowIDs: Set<WindowID>,
   previousExitDeadlines: [WindowID: TimeInterval],
@@ -321,6 +373,18 @@ private func fullscreenFrameMatches(
     && abs(candidate.y - physicalFrame.y) <= tolerance
     && abs(candidate.width - physicalFrame.width) <= tolerance
     && abs(candidate.height - physicalFrame.height) <= tolerance
+}
+
+private func activeFullscreenSurfaceMatches(
+  _ candidate: Rect,
+  _ physicalFrame: Rect,
+  tolerance: Double = 2
+) -> Bool {
+  abs(candidate.x - physicalFrame.x) <= tolerance
+    && abs(candidate.width - physicalFrame.width) <= tolerance
+    && abs(candidate.y + candidate.height - physicalFrame.y - physicalFrame.height)
+      <= tolerance
+    && candidate.height >= physicalFrame.height * 0.8
 }
 
 func targetWindowFocusIsConfirmed(

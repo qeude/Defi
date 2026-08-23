@@ -179,7 +179,8 @@ extension Daemon {
     let enteringNativeFullscreenWindowIDs = snapshot.nativeFullscreenWindowIDs
       .subtracting(state.nativeFullscreenWindowIDs)
     platform.updateNativeFullscreenWindowIDs(
-      snapshot.nativeFullscreenWindowIDs
+      snapshot.nativeFullscreenWindowIDs,
+      activeWindowIDs: snapshot.activeNativeFullscreenWindowIDs
     )
     if pendingAnimatedFocus.map({
       enteringNativeFullscreenWindowIDs.contains($0.windowID)

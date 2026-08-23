@@ -185,7 +185,9 @@ extension Daemon {
     }
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
-        state.windows[mismatch.windowID]?.intrinsicSize != true
+        state.windows[mismatch.windowID]?.intrinsicSize != true,
+        !state.pendingNativeFullscreenWidthResetWindowIDs.contains(mismatch.windowID),
+        !platform.isInitialFrameSettlementActive(for: mismatch.windowID)
       else {
         continue
       }

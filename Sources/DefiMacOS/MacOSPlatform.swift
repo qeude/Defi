@@ -173,8 +173,8 @@ public final class MacOSPlatform {
     get { snapshotEngine.publicWindowIDFallbackCount }
     set { snapshotEngine.publicWindowIDFallbackCount = newValue }
   }
-  let screenCaptureAccessAvailable = CGPreflightScreenCaptureAccess()
   let borderManager = WindowBorderManager()
+  let nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
   let borderBoundsProvider = WindowServerBoundsProvider()
   var targetFrames: [WindowID: Rect] {
     get { snapshotEngine.targetFrames }
@@ -506,6 +506,7 @@ public final class MacOSPlatform {
   var borderHiddenWindowIDs = Set<WindowID>()
   var borderLiveWindowID: WindowID?
   public private(set) var nativeFullscreenWindowIDs = Set<WindowID>()
+  public private(set) var activeNativeFullscreenWindowIDs = Set<WindowID>()
   var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
   var borderStackingRefreshState = WindowBorderStackingRefreshState()
   var borderStackingRefreshTask: Task<Void, Never>?
@@ -550,9 +551,6 @@ public final class MacOSPlatform {
     borderBoundsProvider.failureCount
   }
 
-  public var hasScreenCaptureAccess: Bool {
-    screenCaptureAccessAvailable
-  }
   var cursorWarpAppliedCount = 0
   var cursorWarpSkippedCount = 0
   var cursorWarpFailedCount = 0
@@ -564,18 +562,26 @@ public final class MacOSPlatform {
     frameCoordinator.startDisplayLink()
   }
 
-  public func updateNativeFullscreenWindowIDs(_ windowIDs: Set<WindowID>) {
+  public func updateNativeFullscreenWindowIDs(
+    _ windowIDs: Set<WindowID>,
+    activeWindowIDs: Set<WindowID> = []
+  ) {
     let entered = windowIDs.subtracting(nativeFullscreenWindowIDs)
     let exited = nativeFullscreenWindowIDs.subtracting(windowIDs)
     nativeFullscreenWindowIDs = windowIDs
+    activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
+    let now = ProcessInfo.processInfo.systemUptime
     if entered.contains(where: frameCoordinator.isBusy(for:)) {
       frameCoordinator.invalidate(reason: "native-fullscreen")
     }
     for windowID in entered {
       frameCommitExpectations[windowID] = nil
-      initialFrameSettlementDeadlines[windowID] = nil
+      initialFrameSettlementDeadlines[windowID] = now + 2.5
       pendingFrameCorrections[windowID] = nil
       pendingFrameDebtWindowIDs.remove(windowID)
+    }
+    for windowID in exited {
+      initialFrameSettlementDeadlines[windowID] = now + 2.5
     }
     if let activeWindowID = borderManager.activeWindowID,
       windowIDs.contains(activeWindowID)
@@ -592,6 +598,13 @@ public final class MacOSPlatform {
         .map { String($0.rawValue) }.joined(separator: ",")
       frameCoordinator.recordTrace("fullscreen-exit ids=[\(ids)]")
     }
+  }
+
+  public func isInitialFrameSettlementActive(
+    for windowID: WindowID,
+    now: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) -> Bool {
+    initialFrameSettlementDeadlines[windowID].map { $0 > now } ?? false
   }
 
   public func requestFrameRefresh(for windowID: WindowID) {
