@@ -254,8 +254,12 @@ extension MacOSPlatform {
     liveWindowID: WindowID?,
     config: BordersConfig
   ) {
-    borderFrames = frames
-    borderSelectedWindowID = selectedWindowID
+    borderFrames = frames.filter {
+      !nativeFullscreenWindowIDs.contains($0.windowID)
+    }
+    borderSelectedWindowID = selectedWindowID.flatMap {
+      nativeFullscreenWindowIDs.contains($0) ? nil : $0
+    }
     borderHiddenWindowIDs = lastHiddenWindowIDs
     borderLiveWindowID = liveWindowID
     borderStyle = WindowBorderStyle(
@@ -280,6 +284,9 @@ extension MacOSPlatform {
   }
 
   public func stageWindowBorderSelection(_ selectedWindowID: WindowID?) {
+    let selectedWindowID = selectedWindowID.flatMap {
+      nativeFullscreenWindowIDs.contains($0) ? nil : $0
+    }
     desiredSelectedWindowID = selectedWindowID
     frameCoordinator.updateLiveBorderWindowID(selectedWindowID)
     let selectedFrame = selectedWindowID.flatMap { windowID in
@@ -312,9 +319,10 @@ extension MacOSPlatform {
     borderManager.revealPendingBorders()
   }
 
-
   private func activeIsMinimizedOrHidden(_ windowID: WindowID) -> Bool {
-    if lastHiddenWindowIDs.contains(windowID) {
+    if lastHiddenWindowIDs.contains(windowID)
+      || nativeFullscreenWindowIDs.contains(windowID)
+    {
       return true
     }
     guard let element = elements[windowID] else {

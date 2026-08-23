@@ -248,6 +248,7 @@ extension Daemon {
           && self.submittedWorkspaceFocusGeneration
             == request.commandGeneration
       },
+      allowsNativeFullscreen: true,
       completion: { [weak self] result in
         self?.commitWorkspaceCommandFocus(result: result, request: request)
       }

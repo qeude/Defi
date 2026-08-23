@@ -67,6 +67,7 @@ extension Daemon {
           && self.submittedCommandFocus?.commandGeneration
             == request.commandGeneration
       },
+      allowsNativeFullscreen: true,
       completion: { [weak self] result in
         guard let self else { return }
         guard commandFocusCompletionIsCurrent(

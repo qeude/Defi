@@ -145,6 +145,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.lastFocusedWindowByProcess = newValue } }
   }
 
+  var nativeFullscreenExitDeadlines: [WindowID: TimeInterval] {
+    get { read { $0.nativeFullscreenExitDeadlines } }
+    set { read { $0.nativeFullscreenExitDeadlines = newValue } }
+  }
+
   var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
     get { read { $0.internalFocusSuppressions } }
     set { read { $0.internalFocusSuppressions = newValue } }
@@ -1169,6 +1174,7 @@ private struct Storage {
   var nativeFocusEventProcessIDs: Set<pid_t> = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess: Bool = false
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
+  var nativeFullscreenExitDeadlines: [WindowID: TimeInterval] = [:]
   var internalFocusSuppressions: [WindowID: InternalFocusSuppression] = [:]
   var lastMonitorFrames: [Rect] = []
   var pendingFrameDebtWindowIDs: Set<WindowID> = Set<WindowID>()

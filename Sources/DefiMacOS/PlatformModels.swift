@@ -53,6 +53,7 @@ public func monitorGeometryChanged(
 public struct DesktopSnapshot: Sendable {
   public let monitors: [MonitorSnapshot]
   public let windows: [Window]
+  public let nativeFullscreenWindowIDs: Set<WindowID>
   public let focusedWindowID: WindowID?
   public let nativeFocusChanged: Bool
   public let removedWindowIDs: Set<WindowID>
@@ -73,6 +74,7 @@ public struct DesktopSnapshot: Sendable {
   public init(
     monitors: [MonitorSnapshot],
     windows: [Window],
+    nativeFullscreenWindowIDs: Set<WindowID> = [],
     focusedWindowID: WindowID?,
     nativeFocusChanged: Bool = false,
     removedWindowIDs: Set<WindowID> = [],
@@ -92,6 +94,7 @@ public struct DesktopSnapshot: Sendable {
   ) {
     self.monitors = monitors
     self.windows = windows
+    self.nativeFullscreenWindowIDs = nativeFullscreenWindowIDs
     self.focusedWindowID = focusedWindowID
     self.nativeFocusChanged = nativeFocusChanged
     self.removedWindowIDs = removedWindowIDs

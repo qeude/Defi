@@ -10,6 +10,8 @@ public struct RuntimeState: Equatable, Sendable {
   public var layout: LayoutSettings
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID
+  public var nativeFullscreenWindowIDs: Set<WindowID>
+  public var nativeFullscreenTiledPlacements: [WindowID: SuspendedTiledPlacement]
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
   public var reservedEdgesByMonitor: [MonitorID: ReservedEdges]
 
@@ -20,6 +22,8 @@ public struct RuntimeState: Equatable, Sendable {
     self.layout = LayoutSettings(config: config)
     self.workspaceNames = names
     self.defaultWorkspace = WorkspaceID(rawValue: config.workspaces.defaultName)
+    self.nativeFullscreenWindowIDs = []
+    self.nativeFullscreenTiledPlacements = [:]
     self.suspendedTiledPlacements = [:]
     self.reservedEdgesByMonitor = [:]
   }
@@ -89,15 +93,17 @@ public struct RuntimeState: Equatable, Sendable {
           continue
         }
         let targetWorkspace = monitors[fallbackIndex].workspaces[target]
-        let highestSuspendedColumnIndex = suspendedTiledPlacements.values.compactMap { placement in
-          guard placement.monitorID == monitors[fallbackIndex].id,
-            placement.workspaceID == workspace.id,
-            !targetWorkspace.columns.contains(where: { column in
-              column.windows.contains(where: placement.column.windows.contains)
-            })
-          else { return nil }
-          return placement.columnIndex
-        }.max() ?? -1
+        let highestSuspendedColumnIndex =
+          (Array(suspendedTiledPlacements.values)
+          + Array(nativeFullscreenTiledPlacements.values)).compactMap { placement in
+            guard placement.monitorID == monitors[fallbackIndex].id,
+              placement.workspaceID == workspace.id,
+              !targetWorkspace.columns.contains(where: { column in
+                column.windows.contains(where: placement.column.windows.contains)
+              })
+            else { return nil }
+            return placement.columnIndex
+          }.max() ?? -1
         let columnOffset = max(
           targetWorkspace.columns.count,
           highestSuspendedColumnIndex + 1
@@ -129,6 +135,12 @@ public struct RuntimeState: Equatable, Sendable {
       else { continue }
       suspendedTiledPlacements[windowID] = placement.scaled(by: scale)
     }
+    for windowID in nativeFullscreenTiledPlacements.keys {
+      guard let placement = nativeFullscreenTiledPlacements[windowID],
+        placement.monitorID == monitorID
+      else { continue }
+      nativeFullscreenTiledPlacements[windowID] = placement.scaled(by: scale)
+    }
   }
 
   private mutating func migrateSuspendedPlacements(
@@ -145,6 +157,20 @@ public struct RuntimeState: Equatable, Sendable {
       else { continue }
       let migrated = scale.map { placement.scaled(by: $0) } ?? placement
       suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+        monitorID: targetMonitorID,
+        workspaceID: migrated.workspaceID,
+        columnIndex: columnOffset + migrated.columnIndex,
+        windowIndex: migrated.windowIndex,
+        column: migrated.column
+      )
+    }
+    for windowID in nativeFullscreenTiledPlacements.keys {
+      guard let placement = nativeFullscreenTiledPlacements[windowID],
+        placement.monitorID == sourceMonitorID,
+        placement.workspaceID == workspaceID
+      else { continue }
+      let migrated = scale.map { placement.scaled(by: $0) } ?? placement
+      nativeFullscreenTiledPlacements[windowID] = SuspendedTiledPlacement(
         monitorID: targetMonitorID,
         workspaceID: migrated.workspaceID,
         columnIndex: columnOffset + migrated.columnIndex,

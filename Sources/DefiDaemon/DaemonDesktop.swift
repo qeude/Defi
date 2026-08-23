@@ -109,7 +109,8 @@ extension Daemon {
           workspace: workspace,
           viewport: viewport,
           windows: workspaceWindows,
-          settings: state.layout
+          settings: state.layout,
+          excludingWindowIDs: state.nativeFullscreenWindowIDs
         )
         let sizedFrames = layout.frames.map(preserveIntrinsicSize)
         if workspace.id == monitor.activeWorkspace {
@@ -166,9 +167,9 @@ extension Daemon {
       borderAssignments.append(contentsOf: plan.borderAssignments)
       hiddenWindowIDs.formUnion(plan.hiddenWindowIDs)
     }
-    let skipped = additionalSkippedWindowIDs.union(outOfScopeWindowIDs).union(
-      activelyResizedWindowID.map { Set([$0]) } ?? []
-    )
+    let skipped = additionalSkippedWindowIDs.union(outOfScopeWindowIDs)
+      .union(state.nativeFullscreenWindowIDs)
+      .union(activelyResizedWindowID.map { Set([$0]) } ?? [])
     let platformAssignments =
       asynchronousPositions
       ? assignments.map(roundAnimatedPosition)

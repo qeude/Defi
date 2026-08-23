@@ -13,6 +13,7 @@ struct CGWindowRecord: Sendable {
   let layer: Int
   let title: String
   let frame: Rect
+  let isOnscreen: Bool
   let memoryUsage: Int?
 
   init(
@@ -22,6 +23,7 @@ struct CGWindowRecord: Sendable {
     layer: Int,
     title: String,
     frame: Rect,
+    isOnscreen: Bool = true,
     memoryUsage: Int? = nil
   ) {
     self.id = id
@@ -30,6 +32,7 @@ struct CGWindowRecord: Sendable {
     self.layer = layer
     self.title = title
     self.frame = frame
+    self.isOnscreen = isOnscreen
     self.memoryUsage = memoryUsage
   }
 }
@@ -118,6 +121,8 @@ func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {
       width: cgRect.width,
       height: cgRect.height
     ),
+    isOnscreen: (item[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue
+      ?? false,
     memoryUsage: (item[kCGWindowMemoryUsage as String] as? NSNumber)?.intValue
   )
 }
@@ -177,6 +182,145 @@ func framesByWindowID(
       return windowIDs.contains(windowID) ? (windowID, record.frame) : nil
     }
   )
+}
+
+func nativeFullscreenWindowIDs(
+  windows: [Window],
+  cgWindows: [CGWindowRecord],
+  monitors: [MonitorSnapshot],
+  lastFocusedWindowByProcess: [pid_t: WindowID]
+) -> Set<WindowID> {
+  let physicalFrames = monitors.map(\.physicalFrame)
+  guard !physicalFrames.isEmpty else { return [] }
+  let windowsByID = Dictionary(windows.map { ($0.id, $0) }) { current, _ in current }
+  let windowsByProcess = Dictionary(
+    grouping: windowsByID.values.compactMap { window in
+      window.processID.map { ($0, window) }
+    },
+    by: \.0
+  ).mapValues { $0.map(\.1) }
+  var result = Set<WindowID>(
+    windows.compactMap { window in
+      guard
+        physicalFrames.contains(where: {
+          fullscreenFrameMatches(window.frame, $0)
+        })
+      else { return nil }
+      return window.processID.flatMap { lastFocusedWindowByProcess[$0] }
+        ?? window.id
+    })
+
+  let layerZeroSurfaces = cgWindows.filter { $0.layer == 0 }
+  let exactFullscreenSurfaceIDs = Set(
+    layerZeroSurfaces.compactMap { surface in
+      physicalFrames.contains(where: { fullscreenFrameMatches(surface.frame, $0) })
+        ? WindowID(rawValue: UInt64(surface.id))
+        : nil
+    })
+  let fullscreenProcessIDs = nativeFullscreenProcessIDs(
+    cgWindows: cgWindows,
+    monitors: monitors
+  )
+  for processID in fullscreenProcessIDs {
+    let candidates = windowsByProcess[processID] ?? []
+    let exactCandidates = candidates.filter {
+      exactFullscreenSurfaceIDs.contains($0.id)
+    }
+    if let lastFocusedID = lastFocusedWindowByProcess[processID] {
+      result.insert(lastFocusedID)
+    } else if !exactCandidates.isEmpty {
+      result.formUnion(exactCandidates.map(\.id))
+    } else if candidates.count == 1 {
+      result.insert(candidates[0].id)
+    }
+  }
+  return result
+}
+
+func nativeFullscreenProcessIDs(
+  cgWindows: [CGWindowRecord],
+  monitors: [MonitorSnapshot]
+) -> Set<pid_t> {
+  let physicalFrames = monitors.map(\.physicalFrame)
+  guard !physicalFrames.isEmpty else { return [] }
+  return Set(
+    Dictionary(grouping: cgWindows.filter { $0.layer == 0 }, by: \.processID)
+      .compactMap { processID, surfaces in
+        physicalFrames.contains { physicalFrame in
+          fullscreenSurfaceGroupMatches(
+            surfaces,
+            physicalFrame
+          )
+        } ? processID : nil
+      }
+  )
+}
+
+func stabilizedNativeFullscreenWindowIDs(
+  detectedWindowIDs: Set<WindowID>,
+  previousExitDeadlines: [WindowID: TimeInterval],
+  explicitlyRemovedWindowIDs: Set<WindowID>,
+  now: TimeInterval,
+  exitGrace: TimeInterval = 0.75
+) -> (windowIDs: Set<WindowID>, exitDeadlines: [WindowID: TimeInterval]) {
+  // ponytail: one fixed Space-transition grace; tune only if real traces demand it.
+  var deadlines = previousExitDeadlines.filter {
+    $0.value > now && !explicitlyRemovedWindowIDs.contains($0.key)
+  }
+  for windowID in detectedWindowIDs {
+    deadlines[windowID] = now + exitGrace
+  }
+  return (Set(deadlines.keys), deadlines)
+}
+
+private func fullscreenSurfaceGroupMatches(
+  _ surfaces: [CGWindowRecord],
+  _ physicalFrame: Rect,
+  tolerance: Double = 2
+) -> Bool {
+  // ponytail: public geometry heuristic; add Space metadata only after a reproducible false match.
+  let fullWidthSurfaces = surfaces.filter { surface in
+    abs(surface.frame.x - physicalFrame.x) <= tolerance
+      && abs(surface.frame.width - physicalFrame.width) <= tolerance
+      && surface.frame.y >= physicalFrame.y - tolerance
+      && surface.frame.y + surface.frame.height
+        <= physicalFrame.y + physicalFrame.height + tolerance
+  }
+  guard
+    fullWidthSurfaces.contains(where: {
+      $0.frame.height >= physicalFrame.height * 0.8
+    })
+  else { return false }
+
+  var coveredThrough = physicalFrame.y
+  for surface in fullWidthSurfaces.sorted(by: { $0.frame.y < $1.frame.y }) {
+    guard surface.frame.y <= coveredThrough + tolerance else { break }
+    coveredThrough = max(
+      coveredThrough,
+      surface.frame.y + surface.frame.height
+    )
+  }
+  guard coveredThrough >= physicalFrame.y + physicalFrame.height - tolerance
+  else { return false }
+  if fullWidthSurfaces.contains(where: {
+    $0.isOnscreen
+      && ($0.title.isEmpty
+        || fullscreenFrameMatches($0.frame, physicalFrame))
+  }) {
+    return true
+  }
+  return !surfaces.contains(where: \.isOnscreen)
+}
+
+private func fullscreenFrameMatches(
+  _ candidate: Rect,
+  _ physicalFrame: Rect,
+  tolerance: Double = 2
+) -> Bool {
+  abs(candidate.x - physicalFrame.x) <= tolerance
+    && abs(candidate.y - physicalFrame.y) <= tolerance
+    && abs(candidate.width - physicalFrame.width) <= tolerance
+    && abs(candidate.height - physicalFrame.height) <= tolerance
 }
 
 func targetWindowFocusIsConfirmed(

@@ -62,7 +62,6 @@ public final class MacOSPlatform {
     return snapshotEngine.snapshot(config: config)
   }
 
-
   public func beginSnapshot(
     config: Config,
     forceFullWindowRefresh: Bool,
@@ -506,6 +505,7 @@ public final class MacOSPlatform {
   }
   var borderHiddenWindowIDs = Set<WindowID>()
   var borderLiveWindowID: WindowID?
+  public private(set) var nativeFullscreenWindowIDs = Set<WindowID>()
   var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
   var borderStackingRefreshState = WindowBorderStackingRefreshState()
   var borderStackingRefreshTask: Task<Void, Never>?
@@ -562,6 +562,36 @@ public final class MacOSPlatform {
 
   public init() {
     frameCoordinator.startDisplayLink()
+  }
+
+  public func updateNativeFullscreenWindowIDs(_ windowIDs: Set<WindowID>) {
+    let entered = windowIDs.subtracting(nativeFullscreenWindowIDs)
+    let exited = nativeFullscreenWindowIDs.subtracting(windowIDs)
+    nativeFullscreenWindowIDs = windowIDs
+    if entered.contains(where: frameCoordinator.isBusy(for:)) {
+      frameCoordinator.invalidate(reason: "native-fullscreen")
+    }
+    for windowID in entered {
+      frameCommitExpectations[windowID] = nil
+      initialFrameSettlementDeadlines[windowID] = nil
+      pendingFrameCorrections[windowID] = nil
+      pendingFrameDebtWindowIDs.remove(windowID)
+    }
+    if let activeWindowID = borderManager.activeWindowID,
+      windowIDs.contains(activeWindowID)
+    {
+      hideWindowBorders()
+    }
+    if !entered.isEmpty {
+      let ids = entered.sorted { $0.rawValue < $1.rawValue }
+        .map { String($0.rawValue) }.joined(separator: ",")
+      frameCoordinator.recordTrace("fullscreen-enter ids=[\(ids)]")
+    }
+    if !exited.isEmpty {
+      let ids = exited.sorted { $0.rawValue < $1.rawValue }
+        .map { String($0.rawValue) }.joined(separator: ",")
+      frameCoordinator.recordTrace("fullscreen-exit ids=[\(ids)]")
+    }
   }
 
   public func requestFrameRefresh(for windowID: WindowID) {

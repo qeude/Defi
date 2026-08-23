@@ -176,17 +176,34 @@ extension Daemon {
     var nativeCursorWarpInputTimestamp: TimeInterval?
     var nativeFocusFrameMonitorID: MonitorID?
     let previouslyManagedWindowIDs = Set(state.windows.keys)
+    let enteringNativeFullscreenWindowIDs = snapshot.nativeFullscreenWindowIDs
+      .subtracting(state.nativeFullscreenWindowIDs)
+    platform.updateNativeFullscreenWindowIDs(
+      snapshot.nativeFullscreenWindowIDs
+    )
+    if pendingAnimatedFocus.map({
+      enteringNativeFullscreenWindowIDs.contains($0.windowID)
+    }) == true {
+      pendingAnimatedFocus = nil
+    }
+    if submittedCommandFocus.map({
+      enteringNativeFullscreenWindowIDs.contains($0.windowID)
+    }) == true {
+      invalidateSubmittedCommandFocus()
+    }
     let relocatedTransientIDs = reconcileWindows(
       snapshot.windows,
       config: config,
       placementPreferences: placementPreferences,
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
+      nativeFullscreenWindowIDs: snapshot.nativeFullscreenWindowIDs,
       viewports: viewportsByMonitor,
       nativeFocusedWindowID: snapshot.focusedWindowID,
       frontmostProcessID: snapshot.frontmostProcessID,
       state: &state
     )
-    let relocatedFloatingWindowIDs = displayGeometryChanged
+    let relocatedFloatingWindowIDs =
+      displayGeometryChanged
       ? []
       : floatingWindowIDsMovedBetweenMonitors(
         previousWindowMonitorIDs: previousFloatingMonitorIDs,

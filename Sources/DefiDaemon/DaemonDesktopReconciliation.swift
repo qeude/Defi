@@ -144,7 +144,8 @@ extension Daemon {
       workspace: workspace,
       viewport: viewport,
       windows: windows,
-      settings: state.layout
+      settings: state.layout,
+      excludingWindowIDs: state.nativeFullscreenWindowIDs
     ).frames.map(preserveIntrinsicSize)
     let deltas = assignments.compactMap { assignment -> Double? in
       guard horizontalIntersection(assignment.frame, viewport) > 0.5,

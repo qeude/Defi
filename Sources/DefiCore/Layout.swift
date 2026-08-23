@@ -5,8 +5,13 @@ public func computeLayout(
   workspace: Workspace,
   viewport: Rect,
   windows: [Window] = [],
-  settings: LayoutSettings
+  settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = []
 ) -> LayoutDiff {
+  let workspace = workspaceForLayout(
+    workspace,
+    excludingWindowIDs: excludingWindowIDs
+  )
   let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
   var x = viewport.x - workspace.scrollOffset * viewport.width
   var frames: [FrameAssignment] = []
@@ -54,6 +59,48 @@ public func computeLayout(
   }
 
   return LayoutDiff(frames: frames)
+}
+
+func workspaceForLayout(
+  _ workspace: Workspace,
+  excludingWindowIDs: Set<WindowID>
+) -> Workspace {
+  guard !excludingWindowIDs.isEmpty else { return workspace }
+  var result = workspace
+  var columns: [Column] = []
+  var focusedColumn: Int?
+  var visibleColumnsBeforeFocus = 0
+  for (columnIndex, column) in workspace.columns.enumerated() {
+    let windows = column.windows.filter { !excludingWindowIDs.contains($0) }
+    guard !windows.isEmpty else { continue }
+    if columnIndex < workspace.focusedColumn {
+      visibleColumnsBeforeFocus += 1
+    }
+    var visible = column
+    let focusedWindowID =
+      column.windows.indices.contains(column.focusedWindow)
+      ? column.windows[column.focusedWindow]
+      : nil
+    visible.windows = windows
+    visible.focusedWindow =
+      focusedWindowID.flatMap(windows.firstIndex(of:))
+      ?? min(
+        column.windows.prefix(column.focusedWindow).filter {
+          !excludingWindowIDs.contains($0)
+        }.count,
+        windows.count - 1
+      )
+    if columnIndex == workspace.focusedColumn {
+      focusedColumn = columns.count
+    }
+    columns.append(visible)
+  }
+  result.columns = columns
+  result.focusedColumn =
+    columns.isEmpty
+    ? 0
+    : min(focusedColumn ?? visibleColumnsBeforeFocus, columns.count - 1)
+  return result
 }
 
 public func diffLayout(

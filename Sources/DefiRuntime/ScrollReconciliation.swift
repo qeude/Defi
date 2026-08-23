@@ -18,7 +18,8 @@ public func synchronizeScrollOffsets(
           workspace: workspace,
           viewport: viewport,
           windows: windows,
-          settings: state.layout
+          settings: state.layout,
+          excludingWindowIDs: state.nativeFullscreenWindowIDs
         )
     }
   }
@@ -46,7 +47,8 @@ public func alignFocusedColumnLeft(
       workspace: workspace,
       viewport: viewport,
       windows: windows,
-      settings: state.layout
+      settings: state.layout,
+      excludingWindowIDs: state.nativeFullscreenWindowIDs
     )
 }
 
@@ -134,7 +136,8 @@ private func tiledWindowWidthLearning(
         workspace: workspace,
         viewport: viewport,
         windows: windows,
-        settings: state.layout
+        settings: state.layout,
+        excludingWindowIDs: state.nativeFullscreenWindowIDs
       ).frames.first(where: { $0.windowID == windowID })?.frame
       guard let target else { return nil }
 
