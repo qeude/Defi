@@ -13,6 +13,16 @@ let displayLogger = Logger(
   category: "Display"
 )
 
+func flushPlacementStore(
+  _ store: PlacementStore,
+  preferences: PlacementPreferences,
+  on queue: DispatchQueue
+) throws {
+  try queue.sync {
+    try store.save(preferences)
+  }
+}
+
 @MainActor
 extension Daemon {
   func invalidatePlacementPreference(for window: Window) {
@@ -62,7 +72,11 @@ extension Daemon {
     placementSaveWorkItem?.cancel()
     placementSaveWorkItem = nil
     do {
-      try placementStore.save(placementPreferences)
+      try flushPlacementStore(
+        placementStore,
+        preferences: placementPreferences,
+        on: placementSaveQueue
+      )
     } catch {
       log("placement persistence failed: \(error)")
     }
