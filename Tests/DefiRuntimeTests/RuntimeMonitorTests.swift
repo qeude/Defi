@@ -2,14 +2,14 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import Testing
-import XCTest
 
 @testable import DefiRuntime
 
-final class RuntimeMonitorTests: XCTestCase {
+struct RuntimeMonitorTests {
   private let monitorID = MonitorID(rawValue: 1)
 
-  func testReservedEdgesAreReducedPerMonitor() throws {
+  @Test
+  func `Reserved edges are reduced per monitor`() throws {
     let externalID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
@@ -22,18 +22,16 @@ final class RuntimeMonitorTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(
-      state.reservedEdgesByMonitor[monitorID],
-      ReservedEdges(top: 36, bottom: 12)
-    )
-    XCTAssertNil(state.reservedEdgesByMonitor[externalID])
+    #expect(state.reservedEdgesByMonitor[monitorID] == ReservedEdges(top: 36, bottom: 12))
+    #expect(state.reservedEdgesByMonitor[externalID] == nil)
 
     try reduce(.clearReservedEdges([monitorID]), state: &state)
 
-    XCTAssertNil(state.reservedEdgesByMonitor[monitorID])
+    #expect(state.reservedEdgesByMonitor[monitorID] == nil)
   }
 
-  func testDisplayResizeScalesPixelAndPreMaximizedWidths() {
+  @Test
+  func `Display resize scales pixel and pre maximized widths`() {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -57,17 +55,12 @@ final class RuntimeMonitorTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].preMaximizedWidth,
-      .pixels(400)
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[1].width,
-      .pixels(500)
-    )
+    #expect(state.monitors[0].workspaces[0].columns[0].preMaximizedWidth == .pixels(400))
+    #expect(state.monitors[0].workspaces[0].columns[1].width == .pixels(500))
   }
 
-  func testDisconnectedMonitorMergesAndScalesColumnsIntoRemainingDisplay() {
+  @Test
+  func `Disconnected monitor merges and scales columns into remaining display`() {
     let externalID = MonitorID(rawValue: 2)
     let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))
     var state = RuntimeState(config: config)
@@ -88,14 +81,12 @@ final class RuntimeMonitorTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(state.monitors.count, 1)
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].width,
-      .pixels(600)
-    )
+    #expect(state.monitors.count == 1)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
   }
 
-  func testDisconnectedMonitorMigratesAndScalesSuspendedPlacement() {
+  @Test
+  func `Disconnected monitor migrates and scales suspended placement`() {
     let externalID = MonitorID(rawValue: 2)
     let workspaceID = WorkspaceID(rawValue: "dev")
     let modalID = WindowID(rawValue: 10)
@@ -133,24 +124,24 @@ final class RuntimeMonitorTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      state.suspendedTiledPlacements[modalID],
-      SuspendedTiledPlacement(
-        monitorID: monitorID,
-        workspaceID: workspaceID,
-        columnIndex: 2,
-        windowIndex: 0,
-        column: Column(
-          windows: [modalID],
-          focusedWindow: 0,
-          width: .pixels(600),
-          preMaximizedWidth: .pixels(400)
-        )
-      )
-    )
+    #expect(
+      state.suspendedTiledPlacements[modalID]
+        == SuspendedTiledPlacement(
+          monitorID: monitorID,
+          workspaceID: workspaceID,
+          columnIndex: 2,
+          windowIndex: 0,
+          column: Column(
+            windows: [modalID],
+            focusedWindow: 0,
+            width: .pixels(600),
+            preMaximizedWidth: .pixels(400)
+          )
+        ))
   }
 
-  func testDisconnectedMonitorPlacesMigratedSuspensionAfterTargetSuspensions() {
+  @Test
+  func `Disconnected monitor places migrated suspension after target suspensions`() {
     let externalID = MonitorID(rawValue: 2)
     let workspaceID = WorkspaceID(rawValue: "dev")
     let targetModalID = WindowID(rawValue: 8)
@@ -188,10 +179,11 @@ final class RuntimeMonitorTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(state.suspendedTiledPlacements[sourceModalID]?.columnIndex, 3)
+    #expect(state.suspendedTiledPlacements[sourceModalID]?.columnIndex == 3)
   }
 
-  func testDisconnectedMonitorPlacesMigrationAfterHighestSuspendedColumn() {
+  @Test
+  func `Disconnected monitor places migration after highest suspended column`() {
     let externalID = MonitorID(rawValue: 2)
     let workspaceID = WorkspaceID(rawValue: "dev")
     let targetModalID = WindowID(rawValue: 8)
@@ -226,10 +218,11 @@ final class RuntimeMonitorTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(state.suspendedTiledPlacements[sourceModalID]?.columnIndex, 4)
+    #expect(state.suspendedTiledPlacements[sourceModalID]?.columnIndex == 4)
   }
 
-  func testReboundFocusMonitorRequiresMigratedWindowToRemainSelected() {
+  @Test
+  func `Rebound focus monitor requires migrated window to remain selected`() {
     let externalID = MonitorID(rawValue: 2)
     let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))
     var state = RuntimeState(config: config)
@@ -253,36 +246,28 @@ final class RuntimeMonitorTests: XCTestCase {
       ]
     )
 
-    XCTAssertNil(
+    #expect(
       state.reboundFocusMonitorID(
         for: WindowID(rawValue: 9),
         requestedWorkspaceID: WorkspaceID(rawValue: "dev")
-      )
-    )
+      ) == nil)
     state.monitors[0].workspaces[0].focusedColumn = 1
-    XCTAssertEqual(
+    #expect(
       state.reboundFocusMonitorID(
         for: WindowID(rawValue: 9),
         requestedWorkspaceID: WorkspaceID(rawValue: "dev")
-      ),
-      monitorID
-    )
+      ) == monitorID)
   }
 
-  func testEachMonitorOwnsIndependentNineWorkspaces() throws {
+  @Test
+  func `Each monitor owns independent nine workspaces`() throws {
     let externalID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
     state.attachMonitor(externalID)
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces.map(\.id.rawValue),
-      (1...9).map(String.init)
-    )
-    XCTAssertEqual(
-      state.monitors[1].workspaces.map(\.id.rawValue),
-      (1...9).map(String.init)
-    )
+    #expect(state.monitors[0].workspaces.map(\.id.rawValue) == (1...9).map(String.init))
+    #expect(state.monitors[1].workspaces.map(\.id.rawValue) == (1...9).map(String.init))
 
     try reduce(
       .switchWorkspace(WorkspaceID(rawValue: "5")),
@@ -290,17 +275,16 @@ final class RuntimeMonitorTests: XCTestCase {
       state: &state
     )
 
-    XCTAssertEqual(
-      state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace,
-      WorkspaceID(rawValue: "1")
-    )
-    XCTAssertEqual(
-      state.monitors.first(where: { $0.id == externalID })?.activeWorkspace,
-      WorkspaceID(rawValue: "5")
-    )
+    #expect(
+      state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
+        == WorkspaceID(rawValue: "1"))
+    #expect(
+      state.monitors.first(where: { $0.id == externalID })?.activeWorkspace
+        == WorkspaceID(rawValue: "5"))
   }
 
-  func testMoveColumnToMonitorKeepsStackScalesPixelsAndMovesTransient() throws {
+  @Test
+  func `Move column to monitor keeps stack scales pixels and moves transient`() throws {
     let externalID = MonitorID(rawValue: 2)
     let transientIDs = [12, 7, 14, 3, 11, 5, 13, 4].map(windowID)
     var state = twoMonitorState(externalID: externalID)
@@ -341,23 +325,16 @@ final class RuntimeMonitorTests: XCTestCase {
       viewports: monitorFrames(externalID: externalID)
     )
 
-    XCTAssertTrue(state.monitors[0].workspaces[0].columns.isEmpty)
-    XCTAssertEqual(
-      state.monitors[1].workspaces[0].columns[1].windows,
-      [windowID(1), windowID(2)]
-    )
-    XCTAssertEqual(state.monitors[1].workspaces[0].columns[1].width, .pixels(2_000))
-    XCTAssertEqual(
-      state.monitors[1].workspaces[0].floatingWindows,
-      transientIDs
-    )
-    XCTAssertEqual(state.selectedWindowID(on: externalID), WindowID(rawValue: 2))
-    XCTAssertTrue(
-      transientIDs.allSatisfy { state.windows[$0]?.monitorID == externalID }
-    )
+    #expect(state.monitors[0].workspaces[0].columns.isEmpty)
+    #expect(state.monitors[1].workspaces[0].columns[1].windows == [windowID(1), windowID(2)])
+    #expect(state.monitors[1].workspaces[0].columns[1].width == .pixels(2_000))
+    #expect(state.monitors[1].workspaces[0].floatingWindows == transientIDs)
+    #expect(state.selectedWindowID(on: externalID) == WindowID(rawValue: 2))
+    #expect(transientIDs.allSatisfy { state.windows[$0]?.monitorID == externalID })
   }
 
-  func testMoveWindowToMonitorCreatesIndependentColumn() throws {
+  @Test
+  func `Move window to monitor creates independent column`() throws {
     let externalID = MonitorID(rawValue: 2)
     var state = twoMonitorState(externalID: externalID)
     state.monitors[0].workspaces[0].columns = [
@@ -380,19 +357,14 @@ final class RuntimeMonitorTests: XCTestCase {
       viewports: monitorFrames(externalID: externalID)
     )
 
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].windows,
-      [windowID(1)]
-    )
-    XCTAssertEqual(
-      state.monitors[1].workspaces[0].columns[0].windows,
-      [windowID(2)]
-    )
-    XCTAssertEqual(state.monitors[1].workspaces[0].columns[0].width, .fraction(0.6))
-    XCTAssertEqual(state.selectedWindowID(on: externalID), WindowID(rawValue: 2))
+    #expect(state.monitors[0].workspaces[0].columns[0].windows == [windowID(1)])
+    #expect(state.monitors[1].workspaces[0].columns[0].windows == [windowID(2)])
+    #expect(state.monitors[1].workspaces[0].columns[0].width == .fraction(0.6))
+    #expect(state.selectedWindowID(on: externalID) == WindowID(rawValue: 2))
   }
 
-  func testMoveToMissingSpatialMonitorIsStrictNoOp() throws {
+  @Test
+  func `Move to missing spatial monitor is strict no op`() throws {
     var state = twoMonitorState(externalID: MonitorID(rawValue: 2))
     state.monitors[0].workspaces[0].columns = [
       Column(window: windowID(1), width: .fraction(0.5))
@@ -411,7 +383,7 @@ final class RuntimeMonitorTests: XCTestCase {
       monitorFrames: monitorFrames(externalID: MonitorID(rawValue: 2))
     )
 
-    XCTAssertNil(changed)
+    #expect(changed == nil)
   }
 
   private func twoMonitorState(externalID: MonitorID) -> RuntimeState {
@@ -809,15 +781,19 @@ struct MonitorMoveFocusTests {
       Column(window: $0, width: .fraction(0.5))
     }
     state.monitors[0].workspaces[0].focusedColumn = 2
-    state.windows = Dictionary(uniqueKeysWithValues: windowIDs.map {
-      ($0, Window(
-        id: $0,
-        appID: "app",
-        title: "Window \($0.rawValue)",
-        frame: Rect(x: 0, y: 0, width: 500, height: 700),
-        monitorID: sourceID
-      ))
-    })
+    state.windows = Dictionary(
+      uniqueKeysWithValues: windowIDs.map {
+        (
+          $0,
+          Window(
+            id: $0,
+            appID: "app",
+            title: "Window \($0.rawValue)",
+            frame: Rect(x: 0, y: 0, width: 500, height: 700),
+            monitorID: sourceID
+          )
+        )
+      })
 
     try reduce(
       .moveColumnToMonitor(.right),

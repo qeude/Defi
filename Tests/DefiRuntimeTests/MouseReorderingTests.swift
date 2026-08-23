@@ -2,19 +2,20 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import DefiRuntime
+import Numerics
 import Testing
-import XCTest
 
-final class MouseReorderingTests: XCTestCase {
+struct MouseReorderingTests {
   private let monitorID = MonitorID(rawValue: 1)
   private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
 
-  func testHorizontalDragReordersColumnsAfterCrossingNeighborCenter() throws {
+  @Test
+  func `Horizontal drag reorders columns after crossing neighbor center`() throws {
     var state = try makeState(windowCount: 3)
     let draggedID = WindowID(rawValue: 1)
     let target = try targetFrame(for: draggedID, state: state)
 
-    XCTAssertTrue(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: Rect(
@@ -25,26 +26,24 @@ final class MouseReorderingTests: XCTestCase {
         ),
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.map(\.windows),
-      [
+      ))
+    #expect(
+      state.monitors[0].workspaces[0].columns.map(\.windows) == [
         [WindowID(rawValue: 2)],
         [WindowID(rawValue: 1)],
         [WindowID(rawValue: 3)],
-      ]
-    )
-    XCTAssertEqual(state.monitors[0].workspaces[0].focusedColumn, 1)
+      ])
+    #expect(state.monitors[0].workspaces[0].focusedColumn == 1)
   }
 
-  func testVerticalDragReordersWindowsWithinStack() throws {
+  @Test
+  func `Vertical drag reorders windows within stack`() throws {
     var state = try makeState(windowCount: 2)
     try reduce(.joinWindow(.left), on: monitorID, state: &state)
     let draggedID = WindowID(rawValue: 1)
     let target = try targetFrame(for: draggedID, state: state)
 
-    XCTAssertTrue(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: Rect(
@@ -55,22 +54,22 @@ final class MouseReorderingTests: XCTestCase {
         ),
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns[0].windows,
-      [WindowID(rawValue: 2), WindowID(rawValue: 1)]
-    )
-    XCTAssertEqual(state.monitors[0].workspaces[0].columns[0].focusedWindow, 1)
+      ))
+    #expect(
+      state.monitors[0].workspaces[0].columns[0].windows == [
+        WindowID(rawValue: 2), WindowID(rawValue: 1),
+      ])
+    #expect(state.monitors[0].workspaces[0].columns[0].focusedWindow == 1)
   }
 
-  func testHorizontalDragLeftReordersWithOffscreenPreviousColumn() throws {
+  @Test
+  func `Horizontal drag left reorders with offscreen previous column`() throws {
     var state = try makeState(windowCount: 2)
     state.monitors[0].workspaces[0].scrollOffset = 0.8
     let draggedID = WindowID(rawValue: 2)
     let target = try targetFrame(for: draggedID, state: state)
 
-    XCTAssertTrue(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: Rect(
@@ -81,20 +80,20 @@ final class MouseReorderingTests: XCTestCase {
         ),
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.map(\.windows),
-      [[WindowID(rawValue: 2)], [WindowID(rawValue: 1)]]
-    )
+      ))
+    #expect(
+      state.monitors[0].workspaces[0].columns.map(\.windows) == [
+        [WindowID(rawValue: 2)], [WindowID(rawValue: 1)],
+      ])
   }
 
-  func testSmallHorizontalDragKeepsColumnOrder() throws {
+  @Test
+  func `Small horizontal drag keeps column order`() throws {
     var state = try makeState(windowCount: 2)
     let draggedID = WindowID(rawValue: 1)
     let target = try targetFrame(for: draggedID, state: state)
 
-    XCTAssertFalse(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: Rect(
@@ -105,15 +104,15 @@ final class MouseReorderingTests: XCTestCase {
         ),
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.map(\.windows),
-      [[WindowID(rawValue: 1)], [WindowID(rawValue: 2)]]
-    )
+      ) == false)
+    #expect(
+      state.monitors[0].workspaces[0].columns.map(\.windows) == [
+        [WindowID(rawValue: 1)], [WindowID(rawValue: 2)],
+      ])
   }
 
-  func testLiveHorizontalSwapDoesNotOscillateAtSamePointerPosition() throws {
+  @Test
+  func `Live horizontal swap does not oscillate at same pointer position`() throws {
     var state = try makeState(windowCount: 2)
     let draggedID = WindowID(rawValue: 1)
     let target = try targetFrame(for: draggedID, state: state)
@@ -124,27 +123,26 @@ final class MouseReorderingTests: XCTestCase {
       height: target.height
     )
 
-    XCTAssertTrue(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: draggedFrame,
         initialFrame: target,
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertFalse(
+      ))
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: draggedFrame,
         initialFrame: target,
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
+      ) == false)
   }
 
-  func testUnequalWidthColumnsDoNotOscillateAtSamePointerPosition() throws {
+  @Test
+  func `Unequal width columns do not oscillate at same pointer position`() throws {
     var state = try makeState(windowCount: 2)
     state.monitors[0].workspaces[0].columns[0].width = .pixels(300)
     state.monitors[0].workspaces[0].columns[1].width = .pixels(700)
@@ -161,32 +159,31 @@ final class MouseReorderingTests: XCTestCase {
       height: initialFrame.height
     )
 
-    XCTAssertTrue(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: draggedFrame,
         initialFrame: initialFrame,
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertFalse(
+      ))
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: draggedFrame,
         initialFrame: initialFrame,
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
+      ) == false)
   }
 
-  func testScrollAnchorPreservesViewportAfterReorderFocusChanges() throws {
+  @Test
+  func `Scroll anchor preserves viewport after reorder focus changes`() throws {
     var state = try makeState(windowCount: 2)
     let firstID = WindowID(rawValue: 1)
     state.monitors[0].workspaces[0].scrollOffset = 0.25
     state.monitors[0].workspaces[0].targetScrollOffset = 0.25
-    let anchor = try XCTUnwrap(
+    let anchor = try #require(
       workspaceScrollAnchor(containing: firstID, state: state)
     )
 
@@ -197,11 +194,12 @@ final class MouseReorderingTests: XCTestCase {
     )
     restoreWorkspaceScroll(anchor, state: &state)
 
-    XCTAssertEqual(state.monitors[0].workspaces[0].scrollOffset, 0.25)
-    XCTAssertEqual(state.monitors[0].workspaces[0].targetScrollOffset, 0.25)
+    #expect(state.monitors[0].workspaces[0].scrollOffset == 0.25)
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset == 0.25)
   }
 
-  func testMouseGestureScrollAnchorSurvivesNonCrossingUpdates() throws {
+  @Test
+  func `Mouse gesture scroll anchor survives non crossing updates`() throws {
     var state = try makeState(windowCount: 2)
     let draggedID = WindowID(rawValue: 2)
     state.monitors[0].workspaces[0].scrollOffset = 0.25
@@ -222,56 +220,54 @@ final class MouseReorderingTests: XCTestCase {
       state: state
     )
 
-    XCTAssertEqual(preservedAnchor?.scrollOffset, 0.25)
-    XCTAssertNil(
+    #expect(preservedAnchor?.scrollOffset == 0.25)
+    #expect(
       resolvedMouseGestureScrollAnchor(
         current: preservedAnchor,
         gestureWindowID: draggedID,
         mouseGestureActive: false,
         state: state
-      )
-    )
+      ) == nil)
   }
 
-  func testFocusedTiledWindowStartsMouseGestureBeforeFrameMoves() throws {
+  @Test
+  func `Focused tiled window starts mouse gesture before frame moves`() throws {
     let state = try makeState(windowCount: 2)
     let focusedID = WindowID(rawValue: 2)
 
-    XCTAssertEqual(
+    #expect(
       mouseGestureTiledWindowID(
         translatedWindowID: nil,
         activeWindowID: nil,
         mouseFocusIntentWindowID: focusedID,
         focusedWindowID: focusedID,
         state: state
-      ),
-      focusedID
-    )
+      ) == focusedID)
   }
 
-  func testActiveGestureWindowRejectsUnrelatedTranslatedCandidate() throws {
+  @Test
+  func `Active gesture window rejects unrelated translated candidate`() throws {
     let state = try makeState(windowCount: 2)
     let translatedID = WindowID(rawValue: 2)
     let activeID = WindowID(rawValue: 1)
 
-    XCTAssertEqual(
+    #expect(
       mouseGestureTiledWindowID(
         translatedWindowID: translatedID,
         activeWindowID: activeID,
         mouseFocusIntentWindowID: activeID,
         focusedWindowID: activeID,
         state: state
-      ),
-      activeID
-    )
+      ) == activeID)
   }
 
-  func testReleaseOnlyGestureRecoversPreviousObservedFrame() {
+  @Test
+  func `Release only gesture recovers previous observed frame`() {
     let windowID = WindowID(rawValue: 2)
     let previousFrame = Rect(x: 800, y: 0, width: 784, height: 684)
     let releasedFrame = Rect(x: 200, y: 0, width: 784, height: 684)
 
-    XCTAssertEqual(
+    #expect(
       resolvedMouseGestureInitialFrame(
         currentInitialFrame: nil,
         gestureWindowID: windowID,
@@ -280,48 +276,43 @@ final class MouseReorderingTests: XCTestCase {
         leftMouseButtonDown: false,
         previousObservedFrames: [windowID: previousFrame],
         actualFrame: releasedFrame
-      ),
-      previousFrame
-    )
+      ) == previousFrame)
   }
 
-  func testMouseGestureOriginUsesDisplayedAnimationPosition() {
+  @Test
+  func `Mouse gesture origin uses displayed animation position`() {
     let observedFrame = Rect(x: 0, y: 20, width: 784, height: 684)
 
-    XCTAssertEqual(
+    #expect(
       resolvedMouseGestureOriginFrame(
         observedFrame: observedFrame,
         displayedX: 320,
         displayedY: 40
-      ),
-      Rect(x: 320, y: 40, width: 784, height: 684)
-    )
-    XCTAssertEqual(
+      ) == Rect(x: 320, y: 40, width: 784, height: 684))
+    #expect(
       resolvedMouseGestureOriginFrame(
         observedFrame: observedFrame,
         displayedX: nil,
         displayedY: nil
-      ),
-      observedFrame
-    )
+      ) == observedFrame)
   }
 
-  func testMouseGestureOriginUsesDisplayedAnimationSize() {
+  @Test
+  func `Mouse gesture origin uses displayed animation size`() {
     let observedFrame = Rect(x: 0, y: 20, width: 784, height: 684)
 
-    XCTAssertEqual(
+    #expect(
       resolvedMouseGestureOriginFrame(
         observedFrame: observedFrame,
         displayedX: 320,
         displayedY: 40,
         displayedWidth: 640,
         displayedHeight: 600
-      ),
-      Rect(x: 320, y: 40, width: 640, height: 600)
-    )
+      ) == Rect(x: 320, y: 40, width: 640, height: 600))
   }
 
-  func testLiveDragCanCrossMultipleColumnsAcrossUpdates() throws {
+  @Test
+  func `Live drag can cross multiple columns across updates`() throws {
     var state = try makeState(windowCount: 3)
     let draggedID = WindowID(rawValue: 1)
     let target = try targetFrame(for: draggedID, state: state)
@@ -332,40 +323,37 @@ final class MouseReorderingTests: XCTestCase {
       height: target.height
     )
 
-    XCTAssertTrue(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: draggedFrame,
         initialFrame: target,
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertTrue(
+      ))
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         draggedID,
         actualFrame: draggedFrame,
         initialFrame: target,
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.map(\.windows),
-      [
+      ))
+    #expect(
+      state.monitors[0].workspaces[0].columns.map(\.windows) == [
         [WindowID(rawValue: 2)],
         [WindowID(rawValue: 3)],
         [WindowID(rawValue: 1)],
-      ]
-    )
+      ])
   }
 
-  func testReleaseOnlyDragCrossesMultipleColumnsInOneSync() throws {
+  @Test
+  func `Release only drag crosses multiple columns in one sync`() throws {
     var state = try makeState(windowCount: 4)
     let draggedID = WindowID(rawValue: 1)
     let target = try targetFrame(for: draggedID, state: state)
 
-    XCTAssertTrue(
+    #expect(
       reorderTiledWindowAfterCompletedMouseDrag(
         draggedID,
         actualFrame: Rect(
@@ -377,21 +365,19 @@ final class MouseReorderingTests: XCTestCase {
         initialFrame: target,
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.map(\.windows),
-      [
+      ))
+    #expect(
+      state.monitors[0].workspaces[0].columns.map(\.windows) == [
         [WindowID(rawValue: 2)],
         [WindowID(rawValue: 3)],
         [WindowID(rawValue: 4)],
         [WindowID(rawValue: 1)],
-      ]
-    )
+      ])
   }
 
-  func testLiveMouseSyncBypassesPendingReorderAnimation() {
-    XCTAssertTrue(
+  @Test
+  func `Live mouse sync bypasses pending reorder animation`() {
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: true,
@@ -399,9 +385,8 @@ final class MouseReorderingTests: XCTestCase {
         needsDesktopSync: true,
         periodicSyncDue: false,
         commandQuietPeriodElapsed: false
-      )
-    )
-    XCTAssertFalse(
+      ))
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: true,
@@ -409,12 +394,12 @@ final class MouseReorderingTests: XCTestCase {
         needsDesktopSync: true,
         periodicSyncDue: false,
         commandQuietPeriodElapsed: true
-      )
-    )
+      ) == false)
   }
 
-  func testNativeFocusSyncBypassesCommandQuietPeriod() {
-    XCTAssertTrue(
+  @Test
+  func `Native focus sync bypasses command quiet period`() {
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: false,
@@ -423,12 +408,12 @@ final class MouseReorderingTests: XCTestCase {
         periodicSyncDue: false,
         commandQuietPeriodElapsed: false,
         nativeFocusSyncPending: true
-      )
-    )
+      ))
   }
 
-  func testLifecycleEventBypassesCommandQuietPeriod() {
-    XCTAssertTrue(
+  @Test
+  func `Lifecycle event bypasses command quiet period`() {
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: false,
@@ -437,9 +422,8 @@ final class MouseReorderingTests: XCTestCase {
         periodicSyncDue: false,
         commandQuietPeriodElapsed: false,
         lifecycleEventPending: true
-      )
-    )
-    XCTAssertFalse(
+      ))
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: true,
         animatedWritesPending: false,
@@ -448,12 +432,12 @@ final class MouseReorderingTests: XCTestCase {
         periodicSyncDue: false,
         commandQuietPeriodElapsed: false,
         lifecycleEventPending: true
-      )
-    )
+      ) == false)
   }
 
-  func testNativeFocusSyncBypassesPendingAnimationWrites() {
-    XCTAssertTrue(
+  @Test
+  func `Native focus sync bypasses pending animation writes`() {
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: true,
@@ -462,9 +446,8 @@ final class MouseReorderingTests: XCTestCase {
         periodicSyncDue: false,
         commandQuietPeriodElapsed: false,
         nativeFocusSyncPending: true
-      )
-    )
-    XCTAssertTrue(
+      ))
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: true,
         animatedWritesPending: true,
@@ -473,12 +456,12 @@ final class MouseReorderingTests: XCTestCase {
         periodicSyncDue: false,
         commandQuietPeriodElapsed: false,
         nativeFocusSyncPending: true
-      )
-    )
+      ))
   }
 
-  func testFrameDebtBypassesCommandQuietPeriod() {
-    XCTAssertTrue(
+  @Test
+  func `Frame debt bypasses command quiet period`() {
+    #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: false,
         animatedWritesPending: false,
@@ -487,28 +470,27 @@ final class MouseReorderingTests: XCTestCase {
         periodicSyncDue: false,
         commandQuietPeriodElapsed: false,
         frameDebtPending: true
-      )
-    )
+      ))
   }
 
-  func testMouseReorderAnimationSurvivesLaterDragSamples() {
-    XCTAssertFalse(
+  @Test
+  func `Mouse reorder animation survives later drag samples`() {
+    #expect(
       mouseGestureAnimationCancellationIsNeeded(
         mouseReorderAnimationActive: true,
         scrollAnimationActive: false,
         animatedWritesPending: true
-      )
-    )
-    XCTAssertTrue(
+      ) == false)
+    #expect(
       mouseGestureAnimationCancellationIsNeeded(
         mouseReorderAnimationActive: false,
         scrollAnimationActive: true,
         animatedWritesPending: true
-      )
-    )
+      ))
   }
 
-  func testPostReleaseSettlementWaitsForStableLateFrame() {
+  @Test
+  func `Post release settlement waits for stable late frame`() {
     let initial = Rect(x: 0, y: 0, width: 500, height: 700)
     let released = Rect(x: 300, y: 0, width: 500, height: 700)
     let late = Rect(x: 700, y: 0, width: 500, height: 700)
@@ -527,8 +509,8 @@ final class MouseReorderingTests: XCTestCase {
       now: 10.1,
       animationPending: false
     )
-    XCTAssertFalse(changed.shouldFinish)
-    XCTAssertTrue(changed.settlement.observedPostReleaseChange)
+    #expect(changed.shouldFinish == false)
+    #expect(changed.settlement.observedPostReleaseChange)
 
     let stable = advanceMouseGestureSettlement(
       changed.settlement,
@@ -536,10 +518,11 @@ final class MouseReorderingTests: XCTestCase {
       now: 10.16,
       animationPending: false
     )
-    XCTAssertTrue(stable.shouldFinish)
+    #expect(stable.shouldFinish)
   }
 
-  func testPostReleaseSettlementWaitsForReorderAnimation() {
+  @Test
+  func `Post release settlement waits for reorder animation`() {
     let frame = Rect(x: 300, y: 0, width: 500, height: 700)
     let settlement = MouseGestureSettlement(
       generation: 4,
@@ -557,11 +540,17 @@ final class MouseReorderingTests: XCTestCase {
       animationPending: true
     )
 
-    XCTAssertFalse(update.shouldFinish)
-    XCTAssertEqual(update.settlement.nextCheckAt, 10.35, accuracy: 0.000_1)
+    #expect(update.shouldFinish == false)
+    #expect(
+      update.settlement.nextCheckAt.isApproximatelyEqual(
+        to: 10.35,
+        absoluteTolerance: 0.000_1
+      )
+    )
   }
 
-  func testPostReleaseSettlementFinishesAtDeadlineWithoutLateFrame() {
+  @Test
+  func `Post release settlement finishes at deadline without late frame`() {
     let frame = Rect(x: 300, y: 0, width: 500, height: 700)
     let settlement = MouseGestureSettlement(
       generation: 4,
@@ -579,49 +568,47 @@ final class MouseReorderingTests: XCTestCase {
       animationPending: false
     )
 
-    XCTAssertTrue(update.shouldFinish)
+    #expect(update.shouldFinish)
   }
 
-  func testSlowPostReleaseSettlementGetsLongerDeadline() {
-    XCTAssertEqual(mouseGestureSettlementMaximumDuration(latencySensitive: false), 0.25)
-    XCTAssertEqual(mouseGestureSettlementMaximumDuration(latencySensitive: true), 0.8)
+  @Test
+  func `Slow post release settlement gets longer deadline`() {
+    #expect(mouseGestureSettlementMaximumDuration(latencySensitive: false) == 0.25)
+    #expect(mouseGestureSettlementMaximumDuration(latencySensitive: true) == 0.8)
   }
 
-  func testPostReleaseSettlementUsesLateFrameForWidthLearning() {
+  @Test
+  func `Post release settlement uses late frame for width learning`() {
     let external = Rect(x: 0, y: 0, width: 600, height: 700)
     let late = Rect(x: 0, y: 0, width: 800, height: 700)
 
-    XCTAssertEqual(
+    #expect(
       mouseGestureWidthLearningFrame(
         externallyChangedFrame: external,
         actualFrame: late,
         postReleaseSettlementActive: true
-      ),
-      external
-    )
-    XCTAssertEqual(
+      ) == external)
+    #expect(
       mouseGestureWidthLearningFrame(
         externallyChangedFrame: nil,
         actualFrame: late,
         postReleaseSettlementActive: true
-      ),
-      late
-    )
-    XCTAssertNil(
+      ) == late)
+    #expect(
       mouseGestureWidthLearningFrame(
         externallyChangedFrame: nil,
         actualFrame: late,
         postReleaseSettlementActive: false
-      )
-    )
+      ) == nil)
   }
 
-  func testResizeIsNotClassifiedAsTranslation() throws {
+  @Test
+  func `Resize is not classified as translation`() throws {
     let state = try makeState(windowCount: 1)
     let windowID = WindowID(rawValue: 1)
     let target = try targetFrame(for: windowID, state: state)
 
-    XCTAssertNil(
+    #expect(
       mouseTranslatedTiledWindowID(
         candidateWindowIDs: [windowID],
         externallyChangedFrames: [
@@ -634,16 +621,16 @@ final class MouseReorderingTests: XCTestCase {
         ],
         state: state,
         viewports: [monitorID: viewport]
-      )
-    )
+      ) == nil)
   }
 
-  func testResizeWithPositionChangeDoesNotReorderColumn() throws {
+  @Test
+  func `Resize with position change does not reorder column`() throws {
     var state = try makeState(windowCount: 2)
     let windowID = WindowID(rawValue: 1)
     let target = try targetFrame(for: windowID, state: state)
 
-    XCTAssertFalse(
+    #expect(
       reorderTiledWindowAfterMouseDrag(
         windowID,
         actualFrame: Rect(
@@ -654,20 +641,20 @@ final class MouseReorderingTests: XCTestCase {
         ),
         state: &state,
         viewports: [monitorID: viewport]
-      )
-    )
-    XCTAssertEqual(
-      state.monitors[0].workspaces[0].columns.map(\.windows),
-      [[WindowID(rawValue: 1)], [WindowID(rawValue: 2)]]
-    )
+      ) == false)
+    #expect(
+      state.monitors[0].workspaces[0].columns.map(\.windows) == [
+        [WindowID(rawValue: 1)], [WindowID(rawValue: 2)],
+      ])
   }
 
-  func testTranslationCandidateFindsMovedTiledWindow() throws {
+  @Test
+  func `Translation candidate finds moved tiled window`() throws {
     let state = try makeState(windowCount: 1)
     let windowID = WindowID(rawValue: 1)
     let target = try targetFrame(for: windowID, state: state)
 
-    XCTAssertEqual(
+    #expect(
       mouseTranslatedTiledWindowID(
         candidateWindowIDs: [windowID],
         externallyChangedFrames: [
@@ -680,19 +667,18 @@ final class MouseReorderingTests: XCTestCase {
         ],
         state: state,
         viewports: [monitorID: viewport]
-      ),
-      windowID
-    )
+      ) == windowID)
   }
 
-  func testTranslationCandidateIgnoresUnrelatedMismatch() throws {
+  @Test
+  func `Translation candidate ignores unrelated mismatch`() throws {
     let state = try makeState(windowCount: 2)
     let firstID = WindowID(rawValue: 1)
     let secondID = WindowID(rawValue: 2)
     let firstTarget = try targetFrame(for: firstID, state: state)
     let secondTarget = try targetFrame(for: secondID, state: state)
 
-    XCTAssertEqual(
+    #expect(
       mouseTranslatedTiledWindowID(
         candidateWindowIDs: [secondID],
         externallyChangedFrames: [
@@ -711,17 +697,16 @@ final class MouseReorderingTests: XCTestCase {
         ],
         state: state,
         viewports: [monitorID: viewport]
-      ),
-      secondID
-    )
+      ) == secondID)
   }
 
-  func testTranslationCandidateIgnoresFloatingWindows() throws {
+  @Test
+  func `Translation candidate ignores floating windows`() throws {
     var state = try makeState(windowCount: 1)
     try reduce(.toggleFloating, on: monitorID, state: &state)
     let windowID = WindowID(rawValue: 1)
 
-    XCTAssertNil(
+    #expect(
       mouseTranslatedTiledWindowID(
         candidateWindowIDs: [windowID],
         externallyChangedFrames: [
@@ -729,8 +714,7 @@ final class MouseReorderingTests: XCTestCase {
         ],
         state: state,
         viewports: [monitorID: viewport]
-      )
-    )
+      ) == nil)
   }
 
   private func makeState(windowCount: Int) throws -> RuntimeState {
@@ -757,7 +741,7 @@ final class MouseReorderingTests: XCTestCase {
 
   private func targetFrame(for windowID: WindowID, state: RuntimeState) throws -> Rect {
     let workspace = state.monitors[0].workspaces[0]
-    return try XCTUnwrap(
+    return try #require(
       computeLayout(
         workspace: workspace,
         viewport: viewport,

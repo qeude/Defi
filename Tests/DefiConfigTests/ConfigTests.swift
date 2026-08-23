@@ -1,34 +1,36 @@
 import DefiConfig
 import DefiModel
 import Foundation
-import XCTest
+import Testing
 
-final class ConfigTests: XCTestCase {
-  func testEmptyConfigUsesDefaults() throws {
+struct ConfigTests {
+  @Test
+  func `Empty config uses defaults`() throws {
     let config = try Config.decode(Data())
 
-    XCTAssertEqual(config.workspaces.names, (1...9).map(String.init))
-    XCTAssertEqual(config.layout.defaultColumnWidth, 0.8)
-    XCTAssertTrue(config.animation.enabled)
-    XCTAssertEqual(config.animation.durationMS, 35)
-    XCTAssertTrue(config.decorations.borders.enabled)
-    XCTAssertEqual(config.decorations.borders.width, 4)
-    XCTAssertEqual(config.decorations.borders.color, "#FFC099FF")
-    XCTAssertFalse(config.decorations.borders.inactiveEnabled)
-    XCTAssertEqual(config.decorations.borders.inactiveColor, "#66C099FF")
-    XCTAssertFalse(config.decorations.borders.captureEnabled)
-    XCTAssertEqual(config.keys["alt-left"], "focus-column left")
-    XCTAssertEqual(config.keys["alt-backslash"], "toggle-floating")
-    XCTAssertEqual(config.keys["alt-shift-backslash"], "activate-floating")
-    XCTAssertEqual(config.keys["alt-period"], "focus-floating next")
-    XCTAssertEqual(config.keys["alt-shift-1"], "move-window-to-workspace 1")
-    XCTAssertEqual(config.keys["alt-shift-h"], "move-column-to-monitor left")
-    XCTAssertEqual(config.keys["alt-shift-j"], "move-column-to-monitor down")
-    XCTAssertEqual(config.keys["alt-shift-k"], "move-column-to-monitor up")
-    XCTAssertEqual(config.keys["alt-shift-l"], "move-column-to-monitor right")
+    #expect(config.workspaces.names == (1...9).map(String.init))
+    #expect(config.layout.defaultColumnWidth == 0.8)
+    #expect(config.animation.enabled)
+    #expect(config.animation.durationMS == 35)
+    #expect(config.decorations.borders.enabled)
+    #expect(config.decorations.borders.width == 4)
+    #expect(config.decorations.borders.color == "#FFC099FF")
+    #expect(config.decorations.borders.inactiveEnabled == false)
+    #expect(config.decorations.borders.inactiveColor == "#66C099FF")
+    #expect(config.decorations.borders.captureEnabled == false)
+    #expect(config.keys["alt-left"] == "focus-column left")
+    #expect(config.keys["alt-backslash"] == "toggle-floating")
+    #expect(config.keys["alt-shift-backslash"] == "activate-floating")
+    #expect(config.keys["alt-period"] == "focus-floating next")
+    #expect(config.keys["alt-shift-1"] == "move-window-to-workspace 1")
+    #expect(config.keys["alt-shift-h"] == "move-column-to-monitor left")
+    #expect(config.keys["alt-shift-j"] == "move-column-to-monitor down")
+    #expect(config.keys["alt-shift-k"] == "move-column-to-monitor up")
+    #expect(config.keys["alt-shift-l"] == "move-column-to-monitor right")
   }
 
-  func testDecodesBorderConfiguration() throws {
+  @Test
+  func `Decodes border configuration`() throws {
     let config = try Config.decode(
       Data(
         """
@@ -43,44 +45,52 @@ final class ConfigTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(config.decorations.borders.width, 3.5)
-    XCTAssertEqual(config.decorations.borders.color, "#ff33aaff")
-    XCTAssertTrue(config.decorations.borders.inactiveEnabled)
-    XCTAssertEqual(config.decorations.borders.inactiveColor, "0x4433aaff")
-    XCTAssertTrue(config.decorations.borders.captureEnabled)
+    #expect(config.decorations.borders.width == 3.5)
+    #expect(config.decorations.borders.color == "#ff33aaff")
+    #expect(config.decorations.borders.inactiveEnabled)
+    #expect(config.decorations.borders.inactiveColor == "0x4433aaff")
+    #expect(config.decorations.borders.captureEnabled)
   }
 
-  func testRejectsInvalidBorderConfiguration() {
-    XCTAssertThrowsError(
-      try Config.decode(
-        Data(
-          """
-          [decorations.borders]
-          width = 65
-          """.utf8
-        )
-      )
+  @Test(arguments: [
+    (
+      "width = 65",
+      ConfigError.invalidValue("decorations.borders.width")
+    ),
+    (
+      "color = \"ffffff\"",
+      ConfigError.invalidValue("decorations.borders.color")
+    ),
+  ])
+  func `Rejects invalid border configuration`(
+    testCase: (setting: String, expectedError: ConfigError)
+  ) {
+    let data = Data(
+      """
+      [decorations.borders]
+      \(testCase.setting)
+      """.utf8
     )
-    XCTAssertThrowsError(
-      try Config.decode(
-        Data(
-          """
-          [decorations.borders]
-          color = "ffffff"
-          """.utf8
-        )
-      )
-    )
+
+    #expect(throws: testCase.expectedError) {
+      try Config.decode(data)
+    }
   }
 
-  func testParsesBorderColors() {
-    XCTAssertEqual(parseBorderColor("0xffffffff"), 0xffff_ffff)
-    XCTAssertEqual(parseBorderColor("#8033aaff"), 0x8033_aaff)
-    XCTAssertNil(parseBorderColor("#fff"))
-    XCTAssertNil(parseBorderColor("8033aaff"))
+  @Test(arguments: [
+    ("0xffffffff", UInt32(0xffff_ffff)),
+    ("#8033aaff", UInt32(0x8033_aaff)),
+    ("#fff", nil),
+    ("8033aaff", nil),
+  ])
+  func `Parses border colors`(
+    testCase: (value: String, expected: UInt32?)
+  ) {
+    #expect(parseBorderColor(testCase.value) == testCase.expected)
   }
 
-  func testDecodesExampleShapeAndGeneratesNamedWorkspaceKeys() throws {
+  @Test
+  func `Decodes example shape and generates named workspace keys`() throws {
     let data = Data(
       """
       default_key_modifier = "hyper"
@@ -107,22 +117,23 @@ final class ConfigTests: XCTestCase {
 
     let config = try Config.decode(data)
 
-    XCTAssertEqual(config.layout.gaps, 4)
-    XCTAssertEqual(config.animation.durationMS, 120)
-    XCTAssertEqual(config.workspaces.defaultName, "dev")
-    XCTAssertEqual(config.keys["hyper-1"], "workspace dev")
-    XCTAssertEqual(config.keys["hyper-minus"], "cycle-width previous")
-    XCTAssertEqual(config.keys["hyper-equal"], "cycle-width next")
-    XCTAssertEqual(config.keys["hyper-f"], "maximize-column")
-    XCTAssertEqual(config.keys["hyper-backslash"], "toggle-floating")
-    XCTAssertEqual(config.keys["hyper-shift-backslash"], "activate-floating")
-    XCTAssertEqual(config.keys["hyper-comma"], "focus-floating previous")
-    XCTAssertEqual(config.keys["hyper-period"], "focus-floating next")
-    XCTAssertEqual(config.modifierCombinations["hyper"], "Alt + Cmd + Ctrl")
-    XCTAssertEqual(config.rules.count, 1)
+    #expect(config.layout.gaps == 4)
+    #expect(config.animation.durationMS == 120)
+    #expect(config.workspaces.defaultName == "dev")
+    #expect(config.keys["hyper-1"] == "workspace dev")
+    #expect(config.keys["hyper-minus"] == "cycle-width previous")
+    #expect(config.keys["hyper-equal"] == "cycle-width next")
+    #expect(config.keys["hyper-f"] == "maximize-column")
+    #expect(config.keys["hyper-backslash"] == "toggle-floating")
+    #expect(config.keys["hyper-shift-backslash"] == "activate-floating")
+    #expect(config.keys["hyper-comma"] == "focus-floating previous")
+    #expect(config.keys["hyper-period"] == "focus-floating next")
+    #expect(config.modifierCombinations["hyper"] == "Alt + Cmd + Ctrl")
+    #expect(config.rules.count == 1)
   }
 
-  func testAcceptsDiagnosticMarkerBinding() throws {
+  @Test
+  func `Accepts diagnostic marker binding`() throws {
     let config = try Config.decode(
       Data(
         """
@@ -135,10 +146,11 @@ final class ConfigTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(config.keys["hyper-d"], "diagnostic-mark")
+    #expect(config.keys["hyper-d"] == "diagnostic-mark")
   }
 
-  func testRuleDecisionCombinesMatches() {
+  @Test
+  func `Rule decision combines matches`() {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "web"]),
       rules: [
@@ -160,18 +172,17 @@ final class ConfigTests: XCTestCase {
 
     let decision = config.decision(for: window)
 
-    XCTAssertEqual(
-      decision,
-      config.decision(appID: window.appID, title: window.title, role: window.role)
-    )
-    XCTAssertEqual(decision.workspace, WorkspaceID(rawValue: "dev"))
-    XCTAssertTrue(decision.followFocus)
-    XCTAssertTrue(decision.floating)
-    XCTAssertTrue(decision.forceTiling)
-    XCTAssertTrue(decision.intrinsicSize)
+    #expect(
+      decision == config.decision(appID: window.appID, title: window.title, role: window.role))
+    #expect(decision.workspace == WorkspaceID(rawValue: "dev"))
+    #expect(decision.followFocus)
+    #expect(decision.floating)
+    #expect(decision.forceTiling)
+    #expect(decision.intrinsicSize)
   }
 
-  func testRejectsUnknownRuleWorkspace() {
+  @Test
+  func `Rejects unknown rule workspace`() {
     let data = Data(
       """
       [workspaces]
@@ -183,18 +194,21 @@ final class ConfigTests: XCTestCase {
       """.utf8
     )
 
-    XCTAssertThrowsError(try Config.decode(data))
+    #expect(throws: ConfigError.unknownWorkspace("missing")) {
+      try Config.decode(data)
+    }
   }
 
-  func testRepositoryExampleDecodes() throws {
+  @Test
+  func `Repository example decodes`() throws {
     let repository = URL(filePath: #filePath)
       .deletingLastPathComponent()
       .deletingLastPathComponent()
       .deletingLastPathComponent()
     let config = try Config.load(from: repository.appending(path: "defi.example.toml"))
 
-    XCTAssertEqual(config.workspaces.names.first, "dev")
-    XCTAssertEqual(config.keys["hyper-left"], "focus-column left")
-    XCTAssertEqual(config.rules.count, 9)
+    #expect(config.workspaces.names.first == "dev")
+    #expect(config.keys["hyper-left"] == "focus-column left")
+    #expect(config.rules.count == 9)
   }
 }
