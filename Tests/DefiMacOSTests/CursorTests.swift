@@ -164,11 +164,10 @@ struct CursorTests {
   @Test
   func rawPointerWindowTransitionsInvalidateHitTestCache() {
     #expect(
-      !pointerRawWindowTransitionRequiresRefresh(
+      pointerRawWindowTransitionRequiresRefresh(
         previousRawWindowID: nil,
         currentRawWindowID: nil
-      )
-    )
+      ) == false)
     #expect(
       pointerRawWindowTransitionRequiresRefresh(
         previousRawWindowID: WindowID(rawValue: 1),
@@ -206,21 +205,19 @@ struct CursorTests {
   @Test
   func newerGeneralInputOrHeldButtonRejectsWarp() {
     #expect(
-      !cursorWarpIsCurrent(
+      cursorWarpIsCurrent(
         latestPointerMotionTimestamp: 10,
         latestUserInputTimestamp: 12,
         maximumInputTimestamp: 11,
         mouseButtonDown: false
-      )
-    )
+      ) == false)
     #expect(
-      !cursorWarpIsCurrent(
+      cursorWarpIsCurrent(
         latestPointerMotionTimestamp: 10,
         latestUserInputTimestamp: 10,
         maximumInputTimestamp: 11,
         mouseButtonDown: true
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -232,7 +229,7 @@ struct CursorTests {
         }
       )
     }
-    #expect(!anyMouseButtonIsDown { _ in false })
+    #expect(anyMouseButtonIsDown { _ in false } == false)
   }
 
   @Test

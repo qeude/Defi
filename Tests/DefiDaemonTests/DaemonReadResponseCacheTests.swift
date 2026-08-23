@@ -1,48 +1,50 @@
 import DefiIPC
-import XCTest
+import Testing
 
 @testable import DefiDaemon
 
-final class DaemonReadResponseCacheTests: XCTestCase {
-  func testStoresAndServesReadResponsesWithinTTL() {
+struct DaemonReadResponseCacheTests {
+  @Test
+  func `Stores and serves read responses within TTL`() {
     let cache = DaemonReadResponseCache(maxAge: 0.25)
 
-    XCTAssertNil(cache.response(for: "status", now: 10))
+    #expect(cache.response(for: "status", now: 10) == nil)
     cache.store(message: "running", for: "status", now: 10)
 
-    XCTAssertEqual(
-      cache.response(for: "status", now: 10.2),
-      .success("running")
-    )
+    #expect(cache.response(for: "status", now: 10.2) == .success("running"))
   }
 
-  func testExpiresResponsesAfterTTL() {
+  @Test
+  func `Expires responses after TTL`() {
     let cache = DaemonReadResponseCache(maxAge: 0.25)
     cache.store(message: "running", for: "status", now: 10)
 
-    XCTAssertNil(cache.response(for: "status", now: 10.26))
+    #expect(cache.response(for: "status", now: 10.26) == nil)
   }
 
-  func testKeysAreIsolatedPerCommand() {
+  @Test
+  func `Keys are isolated per command`() {
     let cache = DaemonReadResponseCache(maxAge: 1)
     cache.store(message: "a", for: "status", now: 10)
     cache.store(message: "b", for: "trace", now: 10)
 
-    XCTAssertEqual(
-      cache.response(for: "status", now: 10.5),
-      .success("a")
-    )
-    XCTAssertEqual(
-      cache.response(for: "trace", now: 10.5),
-      .success("b")
-    )
-    XCTAssertNil(cache.response(for: "list-workspaces", now: 10.5))
+    #expect(cache.response(for: "status", now: 10.5) == .success("a"))
+    #expect(cache.response(for: "trace", now: 10.5) == .success("b"))
+    #expect(cache.response(for: "list-workspaces", now: 10.5) == nil)
   }
 
-  func testOnlyReadCommandsAreCacheable() {
-    XCTAssertTrue(DaemonReadResponseCache.isReadCommand("status"))
-    XCTAssertTrue(DaemonReadResponseCache.isReadCommand("list-workspaces --json"))
-    XCTAssertFalse(DaemonReadResponseCache.isReadCommand("focus-column left"))
-    XCTAssertFalse(DaemonReadResponseCache.isReadCommand("quit"))
+  @Test(arguments: [
+    ("status", true),
+    ("list-workspaces --json", true),
+    ("focus-column left", false),
+    ("quit", false),
+  ])
+  func `Only read commands are cacheable`(
+    testCase: (command: String, expected: Bool)
+  ) {
+    #expect(
+      DaemonReadResponseCache.isReadCommand(testCase.command)
+        == testCase.expected
+    )
   }
 }

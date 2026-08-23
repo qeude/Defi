@@ -1,11 +1,13 @@
 import DefiCore
 import DefiModel
-import XCTest
+import Numerics
+import Testing
 
-final class WorkspaceScrollingTests: XCTestCase {
+struct WorkspaceScrollingTests {
   private let settings = LayoutSettings()
 
-  func testFocusScrollsOnlyEnoughForOverflow() throws {
+  @Test
+  func `Focus scrolls only enough for overflow`() throws {
     let compact = LayoutSettings(defaultColumnWidth: 0.72)
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: compact)
@@ -19,11 +21,19 @@ final class WorkspaceScrollingTests: XCTestCase {
       settings: compact
     )
 
-    XCTAssertEqual(workspace.targetScrollOffset, 0.44, accuracy: 0.001)
-    XCTAssertEqual(diff.frames[1].frame.x, 407.2, accuracy: 0.001)
+    #expect(
+      workspace.targetScrollOffset.isApproximatelyEqual(
+        to: 0.44,
+        absoluteTolerance: 0.001
+      )
+    )
+    #expect(
+      diff.frames[1].frame.x.isApproximatelyEqual(to: 407.2, absoluteTolerance: 0.001)
+    )
   }
 
-  func testNeverCenteringPreservesVisibleColumn() {
+  @Test
+  func `Never centering preserves visible column`() {
     let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let columns = (1...4).map {
       Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5))
@@ -34,29 +44,27 @@ final class WorkspaceScrollingTests: XCTestCase {
       columns: columns,
       focusedColumn: 1
     )
-    XCTAssertEqual(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport),
-      0,
-      accuracy: 0.001
+    #expect(
+      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+        .isApproximatelyEqual(to: 0, absoluteTolerance: 0.001)
     )
 
     workspace.focusedColumn = 2
-    XCTAssertEqual(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport),
-      0.5,
-      accuracy: 0.001
+    #expect(
+      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+        .isApproximatelyEqual(to: 0.5, absoluteTolerance: 0.001)
     )
 
     workspace.focusedColumn = 3
     workspace.scrollOffset = 0.5
-    XCTAssertEqual(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport),
-      1,
-      accuracy: 0.001
+    #expect(
+      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+        .isApproximatelyEqual(to: 1, absoluteTolerance: 0.001)
     )
   }
 
-  func testAlwaysCenteringCentersTarget() throws {
+  @Test
+  func `Always centering centers target`() throws {
     let centered = LayoutSettings(
       defaultColumnWidth: 0.5,
       centerFocusedColumn: .always,
@@ -81,8 +89,15 @@ final class WorkspaceScrollingTests: XCTestCase {
       settings: centered
     )
 
-    XCTAssertEqual(workspace.targetScrollOffset, 0.25, accuracy: 0.001)
-    XCTAssertEqual(diff.frames[1].frame.x, 250, accuracy: 0.001)
+    #expect(
+      workspace.targetScrollOffset.isApproximatelyEqual(
+        to: 0.25,
+        absoluteTolerance: 0.001
+      )
+    )
+    #expect(
+      diff.frames[1].frame.x.isApproximatelyEqual(to: 250, absoluteTolerance: 0.001)
+    )
   }
 
 }

@@ -1,68 +1,45 @@
 import ApplicationServices
 import DefiConfig
 import Testing
-import XCTest
 
 @testable import DefiMacOS
 
-final class HotKeyTests: XCTestCase {
+struct HotKeyTests {
   private let aliases = [
     "hyper": "Alt + Cmd + Ctrl"
   ]
 
-  func testHyperArrowUsesExpectedKeyCodeAndModifiers() throws {
-    let key = try Key(accelerator: "hyper-left", aliases: aliases)
-
-    XCTAssertEqual(key.code, 123)
-    XCTAssertEqual(
-      key.modifierBits,
-      CGEventFlags([
-        .maskAlternate,
-        .maskCommand,
-        .maskControl,
-      ]).rawValue
-    )
-  }
-
-  func testHyperShiftWorkspaceUsesExpectedKeyCodeAndModifiers() throws {
-    let key = try Key(accelerator: "hyper-shift-1", aliases: aliases)
-
-    XCTAssertEqual(key.code, 18)
-    XCTAssertEqual(
-      key.modifierBits,
-      CGEventFlags([
-        .maskAlternate,
-        .maskCommand,
-        .maskControl,
-        .maskShift,
-      ]).rawValue
-    )
-  }
-
-  func testHyperResizeKeysUseExpectedKeyCodesAndModifiers() throws {
-    let expectedModifierBits = CGEventFlags([
+  @Test(arguments: [
+    ("hyper-left", CGKeyCode(123), false),
+    ("hyper-shift-1", CGKeyCode(18), true),
+    ("hyper-equal", CGKeyCode(24), false),
+    ("hyper-minus", CGKeyCode(27), false),
+    ("hyper-f", CGKeyCode(3), false),
+    ("hyper-backslash", CGKeyCode(42), false),
+    ("hyper-comma", CGKeyCode(43), false),
+    ("hyper-period", CGKeyCode(47), false),
+  ])
+  func `Hyper bindings use expected key codes and modifiers`(
+    testCase: (accelerator: String, code: CGKeyCode, shift: Bool)
+  ) throws {
+    var expectedModifiers = CGEventFlags([
       .maskAlternate,
       .maskCommand,
       .maskControl,
-    ]).rawValue
-
-    let cases: [(accelerator: String, code: CGKeyCode)] = [
-      ("hyper-equal", 24),
-      ("hyper-minus", 27),
-      ("hyper-f", 3),
-      ("hyper-backslash", 42),
-      ("hyper-comma", 43),
-      ("hyper-period", 47),
-    ]
-    for (accelerator, code) in cases {
-      let key = try Key(accelerator: accelerator, aliases: aliases)
-      XCTAssertEqual(key.code, code)
-      XCTAssertEqual(key.modifierBits, expectedModifierBits)
+    ])
+    if testCase.shift {
+      expectedModifiers.insert(.maskShift)
     }
+
+    let key = try Key(accelerator: testCase.accelerator, aliases: aliases)
+
+    #expect(key.code == testCase.code)
+    #expect(key.modifierBits == expectedModifiers.rawValue)
   }
 
   @MainActor
-  func testInvalidBindingDisablesHotKeysButKeepsPointerTrackingConfigured() {
+  @Test
+  func `Invalid binding disables hot keys but keeps pointer tracking configured`() {
     let config = Config(
       input: InputConfig(focusFollowsMouse: true),
       keys: ["unknown-no-such-key": "focus-column left"]
@@ -70,12 +47,9 @@ final class HotKeyTests: XCTestCase {
 
     let manager = HotKeyManager(config: config) { _ in }
 
-    XCTAssertEqual(manager.bindingCount, 0)
-    XCTAssertEqual(
-      manager.bindingError,
-      .invalidAccelerator("unknown-no-such-key")
-    )
-    XCTAssertTrue(manager.tracksPointerMotion)
+    #expect(manager.bindingCount == 0)
+    #expect(manager.bindingError == .invalidAccelerator("unknown-no-such-key"))
+    #expect(manager.tracksPointerMotion)
   }
 }
 

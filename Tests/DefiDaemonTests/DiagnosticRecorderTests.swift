@@ -50,8 +50,8 @@ struct DiagnosticRecorderTests {
     #expect(lines.count == 2)
     #expect(contents.contains("\"applicationID\":\"com.example.Editor\""))
     #expect(contents.contains("\"kind\":\"marker\""))
-    #expect(!contents.contains("windowTitle"))
-    #expect(!contents.contains("document"))
+    #expect(contents.contains("windowTitle") == false)
+    #expect(contents.contains("document") == false)
   }
 
   @Test

@@ -1,8 +1,9 @@
 import DefiModel
-import XCTest
+import Testing
 
-final class ModelTests: XCTestCase {
-  func testConstructorsUseSafeDefaults() {
+struct ModelTests {
+  @Test
+  func `Constructors use safe defaults`() {
     let window = Window(
       id: WindowID(rawValue: 1),
       appID: "app",
@@ -12,101 +13,97 @@ final class ModelTests: XCTestCase {
     let column = Column(window: WindowID(rawValue: 1), width: .fraction(0.72))
     let workspace = Workspace(id: WorkspaceID(rawValue: "1"))
 
-    XCTAssertNil(window.role)
-    XCTAssertNil(window.processID)
-    XCTAssertFalse(window.floating)
-    XCTAssertFalse(window.forceTiling)
-    XCTAssertFalse(window.intrinsicSize)
-    XCTAssertEqual(column.focusedWindow, 0)
-    XCTAssertNil(column.preMaximizedWidth)
-    XCTAssertEqual(workspace.focusedColumn, 0)
-    XCTAssertTrue(workspace.columns.isEmpty)
-    XCTAssertTrue(workspace.floatingWindows.isEmpty)
+    #expect(window.role == nil)
+    #expect(window.processID == nil)
+    #expect(window.floating == false)
+    #expect(window.forceTiling == false)
+    #expect(window.intrinsicSize == false)
+    #expect(column.focusedWindow == 0)
+    #expect(column.preMaximizedWidth == nil)
+    #expect(workspace.focusedColumn == 0)
+    #expect(workspace.columns.isEmpty)
+    #expect(workspace.floatingWindows.isEmpty)
   }
 
-  func testOnlyFollowingWorkspaceCommandsActivateWorkspace() {
-    XCTAssertTrue(
-      Command.switchWorkspace(WorkspaceID(rawValue: "web")).activatesWorkspace
-    )
-    XCTAssertTrue(
-      Command.moveWindowToWorkspace(WorkspaceID(rawValue: "web")).activatesWorkspace
-    )
-    XCTAssertFalse(
-      Command.sendWindowToWorkspace(WorkspaceID(rawValue: "web")).activatesWorkspace
-    )
-    XCTAssertFalse(Command.focusColumn(.right).activatesWorkspace)
-    XCTAssertFalse(Command.cycleWidth(.next).activatesWorkspace)
-    XCTAssertTrue(
-      Command.moveWindowToWorkspace(WorkspaceID(rawValue: "web"))
-        .movesWindowBetweenWorkspaces
-    )
-    XCTAssertTrue(
-      Command.sendWindowToWorkspace(WorkspaceID(rawValue: "web"))
-        .movesWindowBetweenWorkspaces
-    )
-    XCTAssertFalse(
-      Command.switchWorkspace(WorkspaceID(rawValue: "web"))
-        .movesWindowBetweenWorkspaces
-    )
+  @Test(arguments: [
+    (Command.switchWorkspace(WorkspaceID(rawValue: "web")), true, false),
+    (Command.moveWindowToWorkspace(WorkspaceID(rawValue: "web")), true, true),
+    (Command.sendWindowToWorkspace(WorkspaceID(rawValue: "web")), false, true),
+    (Command.focusColumn(.right), false, false),
+    (Command.cycleWidth(.next), false, false),
+  ])
+  func `Workspace command behavior is explicit`(
+    testCase: (command: Command, activatesWorkspace: Bool, movesWindow: Bool)
+  ) {
+    #expect(testCase.command.activatesWorkspace == testCase.activatesWorkspace)
+    #expect(testCase.command.movesWindowBetweenWorkspaces == testCase.movesWindow)
   }
 
-  func testParsesSharedCommands() throws {
-    XCTAssertEqual(try parseCommand("focus-column left"), .focusColumn(.left))
-    XCTAssertEqual(try parseCommand("focus-column first"), .focusColumn(.first))
-    XCTAssertEqual(try parseCommand("focus-window last"), .focusWindow(.last))
-    XCTAssertEqual(try parseCommand("move-column last"), .moveColumn(.last))
-    XCTAssertEqual(try parseCommand("move-window down"), .moveWindow(.down))
-    XCTAssertEqual(
-      try parseCommand("move-column-to-monitor left"),
-      .moveColumnToMonitor(.left)
-    )
-    XCTAssertEqual(
-      try parseCommand("move-window-to-monitor up"),
-      .moveWindowToMonitor(.up)
-    )
-    XCTAssertEqual(try parseCommand("focus-floating next"), .focusFloating(.next))
-    XCTAssertEqual(
-      try parseCommand("workspace sim"),
-      .switchWorkspace(WorkspaceID(rawValue: "sim"))
-    )
-    XCTAssertEqual(try parseCommand("maximize-column"), .maximizeColumn)
-    XCTAssertEqual(try parseCommand("toggle-floating"), .toggleFloating)
-    XCTAssertEqual(try parseCommand("activate-floating"), .activateFloating)
+  @Test(arguments: [
+    ("focus-column left", Command.focusColumn(.left)),
+    ("focus-column first", Command.focusColumn(.first)),
+    ("focus-window last", Command.focusWindow(.last)),
+    ("move-column last", Command.moveColumn(.last)),
+    ("move-window down", Command.moveWindow(.down)),
+    ("move-column-to-monitor left", Command.moveColumnToMonitor(.left)),
+    ("move-window-to-monitor up", Command.moveWindowToMonitor(.up)),
+    ("focus-floating next", Command.focusFloating(.next)),
+    ("workspace sim", Command.switchWorkspace(WorkspaceID(rawValue: "sim"))),
+    ("maximize-column", Command.maximizeColumn),
+    ("toggle-floating", Command.toggleFloating),
+    ("activate-floating", Command.activateFloating),
+  ])
+  func `Parses shared commands`(
+    testCase: (input: String, expected: Command)
+  ) throws {
+    #expect(try parseCommand(testCase.input) == testCase.expected)
   }
 
-  func testRejectsInvalidMoveDirection() {
-    XCTAssertThrowsError(try parseCommand("move-window right")) { error in
-      XCTAssertEqual(error as? CommandParseError, .invalidDirection("right"))
-    }
-    XCTAssertThrowsError(try parseCommand("move-column-to-monitor next")) {
-      error in
-      XCTAssertEqual(error as? CommandParseError, .invalidDirection("next"))
+  @Test(arguments: [
+    ("move-window right", CommandParseError.invalidDirection("right")),
+    ("move-column-to-monitor next", CommandParseError.invalidDirection("next")),
+  ])
+  func `Rejects invalid move directions`(
+    testCase: (input: String, expectedError: CommandParseError)
+  ) {
+    #expect(throws: testCase.expectedError) {
+      try parseCommand(testCase.input)
     }
   }
 
-  func testRejectsObsoleteFullscreenCommandName() {
-    XCTAssertThrowsError(try parseCommand("toggle-fullscreen")) { error in
-      XCTAssertEqual(
-        error as? CommandParseError,
-        .unknownCommand("toggle-fullscreen")
-      )
+  @Test
+  func `Rejects obsolete fullscreen command name`() {
+    #expect(throws: CommandParseError.unknownCommand("toggle-fullscreen")) {
+      try parseCommand("toggle-fullscreen")
     }
   }
 
-  func testManagedLayoutResizeCommandsAreExplicit() {
-    XCTAssertTrue(Command.cycleWidth(.next).resizesManagedLayout)
-    XCTAssertTrue(Command.maximizeColumn.resizesManagedLayout)
-    XCTAssertTrue(Command.joinWindow(.left).resizesManagedLayout)
-    XCTAssertTrue(Command.unjoinWindows.resizesManagedLayout)
-    XCTAssertTrue(Command.moveColumnToMonitor(.right).resizesManagedLayout)
-    XCTAssertTrue(Command.moveWindowToMonitor(.right).movesWindowsAcrossMonitors)
-    XCTAssertFalse(Command.focusColumn(.right).resizesManagedLayout)
-    XCTAssertFalse(Command.toggleFloating.resizesManagedLayout)
+  @Test(arguments: [
+    (Command.cycleWidth(.next), true, false),
+    (Command.maximizeColumn, true, false),
+    (Command.joinWindow(.left), true, false),
+    (Command.unjoinWindows, true, false),
+    (Command.moveColumnToMonitor(.right), true, true),
+    (Command.moveWindowToMonitor(.right), true, true),
+    (Command.focusColumn(.right), false, false),
+    (Command.toggleFloating, false, false),
+  ])
+  func `Managed layout command behavior is explicit`(
+    testCase: (command: Command, resizesLayout: Bool, crossesMonitors: Bool)
+  ) {
+    #expect(testCase.command.resizesManagedLayout == testCase.resizesLayout)
+    #expect(
+      testCase.command.movesWindowsAcrossMonitors == testCase.crossesMonitors)
   }
 
-  func testFloatingFocusCommandsRequestExplicitFocus() {
-    XCTAssertTrue(Command.activateFloating.explicitlyFocusesFloating)
-    XCTAssertTrue(Command.focusFloating(.next).explicitlyFocusesFloating)
-    XCTAssertFalse(Command.toggleFloating.explicitlyFocusesFloating)
+  @Test(arguments: [
+    (Command.activateFloating, true),
+    (Command.focusFloating(.next), true),
+    (Command.toggleFloating, false),
+  ])
+  func `Floating focus behavior is explicit`(
+    testCase: (command: Command, expected: Bool)
+  ) {
+    #expect(testCase.command.explicitlyFocusesFloating == testCase.expected)
   }
 }

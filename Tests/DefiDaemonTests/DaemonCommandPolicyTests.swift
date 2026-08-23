@@ -66,12 +66,11 @@ struct DaemonCommandPolicyTests {
       )
     )
     #expect(
-      !commandFollowUpIsPending(
+      commandFollowUpIsPending(
         frameWrites: false,
         animatedFocus: false,
         workspaceFocus: false
-      )
-    )
+      ) == false)
   }
 
   @Test

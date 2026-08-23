@@ -18,7 +18,8 @@ let package = Package(
     .executable(name: "defi", targets: ["DefiCLI"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/dduan/TOMLDecoder.git", from: "0.4.5")
+    .package(url: "https://github.com/dduan/TOMLDecoder.git", from: "0.4.5"),
+    .package(url: "https://github.com/apple/swift-numerics.git", from: "1.1.1"),
   ],
   targets: [
     .target(name: "DefiModel"),
@@ -66,7 +67,11 @@ let package = Package(
     ),
     .testTarget(
       name: "DefiCoreTests",
-      dependencies: ["DefiCore", "DefiModel"]
+      dependencies: [
+        "DefiCore",
+        "DefiModel",
+        .product(name: "Numerics", package: "swift-numerics"),
+      ]
     ),
     .testTarget(
       name: "DefiConfigTests",
@@ -74,7 +79,12 @@ let package = Package(
     ),
     .testTarget(
       name: "DefiRuntimeTests",
-      dependencies: ["DefiRuntime", "DefiConfig", "DefiModel"]
+      dependencies: [
+        "DefiRuntime",
+        "DefiConfig",
+        "DefiModel",
+        .product(name: "Numerics", package: "swift-numerics"),
+      ]
     ),
     .testTarget(
       name: "DefiIPCTests",
@@ -86,7 +96,13 @@ let package = Package(
     ),
     .testTarget(
       name: "DefiMacOSTests",
-      dependencies: ["DefiMacOS", "DefiConfig", "DefiCore", "DefiModel"]
+      dependencies: [
+        "DefiMacOS",
+        "DefiConfig",
+        "DefiCore",
+        "DefiModel",
+        .product(name: "Numerics", package: "swift-numerics"),
+      ]
     ),
     .testTarget(
       name: "DefiDaemonTests",

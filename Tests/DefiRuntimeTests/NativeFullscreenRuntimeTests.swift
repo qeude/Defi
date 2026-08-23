@@ -9,7 +9,7 @@ struct NativeFullscreenRuntimeTests {
   private let monitorID = MonitorID(rawValue: 1)
 
   @Test
-  func entryCompactsStripAndKeepsTargetAfterRightEdge() throws {
+  func `Entry compacts strip and keeps target after right edge`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     state.monitors[0].workspaces[0].columns[1].width = .pixels(420)
@@ -38,7 +38,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func fullscreenSpaceDoesNotForgetWindowsHiddenFromDiscovery() throws {
+  func `Fullscreen space does not forget windows hidden from discovery`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
 
@@ -54,7 +54,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func fullscreenDoesNotConsumeAnAutomaticFloatPlacement() throws {
+  func `Fullscreen does not consume an automatic float placement`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     let placement = SuspendedTiledPlacement(
@@ -94,7 +94,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func fullscreenTargetRemainsNavigableButCannotBeMutated() throws {
+  func `Fullscreen target remains navigable but cannot be mutated`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     reconcileWindows(
@@ -116,7 +116,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func fullscreenPlaceholderCanDriveRibbonScroll() throws {
+  func `Fullscreen placeholder can drive ribbon scroll`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     let viewport = Rect(x: 0, y: 0, width: 1_000, height: 800)
@@ -144,7 +144,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func exitRestoresExactSlotAndWidthWithoutChangingSelection() throws {
+  func `Exit restores exact slot and width without changing selection`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     state.monitors[0].workspaces[0].columns[1].width = .pixels(420)
@@ -171,7 +171,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func firstWidthCycleAfterFullscreenReevaluatesTheWindowMinimum() throws {
+  func `First width cycle after fullscreen reevaluates the window minimum`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     reconcileWindows(
@@ -196,7 +196,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func multipleFullscreenTargetsKeepOriginalOrder() throws {
+  func `Multiple fullscreen targets keep original order`() throws {
     var state = try makeState()
     reconcileWindows(
       orderedWindows(in: state),
@@ -209,7 +209,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func stackedWindowReturnsToItsExactPosition() throws {
+  func `Stacked window returns to its exact position`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     state.monitors[0].workspaces[0].columns = [
@@ -239,7 +239,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func joiningTowardFullscreenColumnDoesNothing() throws {
+  func `Joining toward fullscreen column does nothing`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
     reconcileWindows(

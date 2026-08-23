@@ -1,11 +1,11 @@
 import AppKit
 import DefiModel
-import XCTest
+import Testing
 
 @testable import DefiMacOS
 
 @MainActor
-final class MonitorTests: XCTestCase {
+struct MonitorTests {
   private let internalDisplay = MonitorSnapshot(
     id: MonitorID(rawValue: 1),
     frame: Rect(x: 0, y: 0, width: 1_512, height: 901),
@@ -13,7 +13,8 @@ final class MonitorTests: XCTestCase {
     refreshRateHz: 120
   )
 
-  func testMonitorGeometryDetectsDisplayReplacement() {
+  @Test
+  func `Monitor geometry detects display replacement`() {
     let externalDisplay = MonitorSnapshot(
       id: MonitorID(rawValue: 3),
       frame: Rect(x: 0, y: 30, width: 2_560, height: 1_362),
@@ -21,12 +22,11 @@ final class MonitorTests: XCTestCase {
       refreshRateHz: 120
     )
 
-    XCTAssertTrue(
-      monitorGeometryChanged(from: [internalDisplay], to: [externalDisplay])
-    )
+    #expect(monitorGeometryChanged(from: [internalDisplay], to: [externalDisplay]))
   }
 
-  func testMonitorGeometryDetectsVisibleFrameResize() {
+  @Test
+  func `Monitor geometry detects visible frame resize`() {
     let resized = MonitorSnapshot(
       id: internalDisplay.id,
       frame: Rect(x: 0, y: 0, width: 1_512, height: 880),
@@ -34,12 +34,11 @@ final class MonitorTests: XCTestCase {
       refreshRateHz: 120
     )
 
-    XCTAssertTrue(
-      monitorGeometryChanged(from: [internalDisplay], to: [resized])
-    )
+    #expect(monitorGeometryChanged(from: [internalDisplay], to: [resized]))
   }
 
-  func testMonitorGeometryIgnoresRefreshRateOnlyChange() {
+  @Test
+  func `Monitor geometry ignores refresh rate only change`() {
     let changedRefreshRate = MonitorSnapshot(
       id: internalDisplay.id,
       frame: internalDisplay.frame,
@@ -47,12 +46,11 @@ final class MonitorTests: XCTestCase {
       refreshRateHz: 60
     )
 
-    XCTAssertFalse(
-      monitorGeometryChanged(from: [internalDisplay], to: [changedRefreshRate])
-    )
+    #expect(monitorGeometryChanged(from: [internalDisplay], to: [changedRefreshRate]) == false)
   }
 
-  func testMonitorGeometryIgnoresOrdering() {
+  @Test
+  func `Monitor geometry ignores ordering`() {
     let externalDisplay = MonitorSnapshot(
       id: MonitorID(rawValue: 3),
       frame: Rect(x: 1_512, y: 0, width: 2_560, height: 1_362),
@@ -60,15 +58,15 @@ final class MonitorTests: XCTestCase {
       refreshRateHz: 120
     )
 
-    XCTAssertFalse(
+    #expect(
       monitorGeometryChanged(
         from: [internalDisplay, externalDisplay],
         to: [externalDisplay, internalDisplay]
-      )
-    )
+      ) == false)
   }
 
-  func testScreenParameterNotificationIsClassifiedAsDisplayChange() {
+  @Test
+  func `Screen parameter notification is classified as display change`() {
     var receivedKinds: [PlatformEventKind] = []
     let monitor = PlatformEventMonitor { kind, _ in receivedKinds.append(kind) }
     monitor.start()
@@ -79,10 +77,11 @@ final class MonitorTests: XCTestCase {
       object: NSApplication.shared
     )
 
-    XCTAssertEqual(receivedKinds, [.screens])
+    #expect(receivedKinds == [.screens])
   }
 
-  func testTerminationNotificationIncludesApplicationProcessID() {
+  @Test
+  func `Termination notification includes application process ID`() {
     var receivedKind: PlatformEventKind?
     var receivedProcessID: pid_t?
     let monitor = PlatformEventMonitor { kind, processID in
@@ -99,7 +98,7 @@ final class MonitorTests: XCTestCase {
       userInfo: [NSWorkspace.applicationUserInfoKey: application]
     )
 
-    XCTAssertEqual(receivedKind, .applicationTerminated)
-    XCTAssertEqual(receivedProcessID, application.processIdentifier)
+    #expect(receivedKind == .applicationTerminated)
+    #expect(receivedProcessID == application.processIdentifier)
   }
 }

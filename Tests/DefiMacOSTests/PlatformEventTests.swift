@@ -248,11 +248,10 @@ struct PlatformEventTests {
       )
     )
     #expect(
-      !focusRecoveryIntentIsCurrent(
+      focusRecoveryIntentIsCurrent(
         requestGeneration: 8,
         currentGeneration: 9
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -264,11 +263,10 @@ struct PlatformEventTests {
       )
     )
     #expect(
-      !focusRecoveryResolutionIsCurrent(
+      focusRecoveryResolutionIsCurrent(
         requestGeneration: 3,
         currentGeneration: 4
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -277,8 +275,8 @@ struct PlatformEventTests {
     #expect(eventTracksPhysicalPointerMotion(.leftMouseDragged))
     #expect(eventTracksPhysicalPointerMotion(.rightMouseDragged))
     #expect(eventTracksPhysicalPointerMotion(.otherMouseDragged))
-    #expect(!eventTracksPhysicalPointerMotion(.scrollWheel))
-    #expect(!eventTracksPhysicalPointerMotion(.keyDown))
+    #expect(eventTracksPhysicalPointerMotion(.scrollWheel) == false)
+    #expect(eventTracksPhysicalPointerMotion(.keyDown) == false)
   }
 
   @Test
@@ -286,9 +284,9 @@ struct PlatformEventTests {
     #expect(eventIsMouseButtonDown(.leftMouseDown))
     #expect(eventIsMouseButtonDown(.rightMouseDown))
     #expect(eventIsMouseButtonDown(.otherMouseDown))
-    #expect(!eventIsMouseButtonDown(.leftMouseUp))
-    #expect(!eventIsMouseButtonDown(.mouseMoved))
-    #expect(!eventIsMouseButtonDown(.keyDown))
+    #expect(eventIsMouseButtonDown(.leftMouseUp) == false)
+    #expect(eventIsMouseButtonDown(.mouseMoved) == false)
+    #expect(eventIsMouseButtonDown(.keyDown) == false)
   }
 
   @Test
@@ -299,8 +297,8 @@ struct PlatformEventTests {
     #expect(eventTracksGeneralUserInput(.rightMouseDown))
     #expect(eventTracksGeneralUserInput(.otherMouseDown))
     #expect(eventTracksGeneralUserInput(.scrollWheel))
-    #expect(!eventTracksGeneralUserInput(.mouseMoved))
-    #expect(!eventTracksGeneralUserInput(.leftMouseUp))
+    #expect(eventTracksGeneralUserInput(.mouseMoved) == false)
+    #expect(eventTracksGeneralUserInput(.leftMouseUp) == false)
   }
 
   @Test
@@ -492,11 +490,10 @@ struct PlatformEventTests {
   @Test
   func failedActivationDoesNotReportAnUnappliedMutation() {
     #expect(
-      !focusMutationStateAfterActivation(
+      focusMutationStateAfterActivation(
         priorMutationApplied: false,
         activationSucceeded: false
-      )
-    )
+      ) == false)
     #expect(
       focusMutationStateAfterActivation(
         priorMutationApplied: true,
@@ -530,13 +527,12 @@ struct PlatformEventTests {
       )
     )
     #expect(
-      !focusRequestCanBeCancelled(
+      focusRequestCanBeCancelled(
         requestGeneration: 4,
         latestGeneration: 5,
         pendingGeneration: nil,
         activeGeneration: 5
-      )
-    )
+      ) == false)
   }
 
   @Test
@@ -1226,8 +1222,8 @@ struct PlatformEventTests {
   @Test
   func momentumScrollDoesNotSupersedeKeyboardFocus() {
     #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 0))
-    #expect(!eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 1))
-    #expect(!eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 2))
+    #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 1) == false)
+    #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 2) == false)
   }
 
   @Test
@@ -1310,20 +1306,22 @@ struct PlatformEventTests {
         rawWindowChanged: false,
         refreshDelay: 0.007,
         deliveryScheduled: false
-      ) == PointerMotionDeliveryPlan(
-        shouldSchedule: true,
-        delay: 0.007
       )
+        == PointerMotionDeliveryPlan(
+          shouldSchedule: true,
+          delay: 0.007
+        )
     )
     #expect(
       pointerMotionDeliveryPlan(
         rawWindowChanged: false,
         refreshDelay: 0.007,
         deliveryScheduled: true
-      ) == PointerMotionDeliveryPlan(
-        shouldSchedule: false,
-        delay: 0.007
       )
+        == PointerMotionDeliveryPlan(
+          shouldSchedule: false,
+          delay: 0.007
+        )
     )
   }
 
@@ -1613,14 +1611,15 @@ struct PlatformEventTests {
     let firstSeenMinimized = AXUIElementCreateApplication(303)
     let unmanagedAuxiliary = AXUIElementCreateApplication(404)
 
-    let required = requiredTopologyWindows(
-      applicationWindows: [
-        7: [current, minimized, firstSeenMinimized, unmanagedAuxiliary]
-      ],
-      managedWindows: [7: [current]],
-      previouslyManagedWindows: [7: [current, minimized]],
-      minimizedWindows: [7: [minimized, firstSeenMinimized]]
-    )[7] ?? []
+    let required =
+      requiredTopologyWindows(
+        applicationWindows: [
+          7: [current, minimized, firstSeenMinimized, unmanagedAuxiliary]
+        ],
+        managedWindows: [7: [current]],
+        previouslyManagedWindows: [7: [current, minimized]],
+        minimizedWindows: [7: [minimized, firstSeenMinimized]]
+      )[7] ?? []
 
     #expect(required.count == 3)
     #expect(required.contains(where: { CFEqual($0, current) }))
@@ -1700,7 +1699,7 @@ struct PlatformEventTests {
     #expect(platform.frameEventPending)
     #expect(platform.pendingFrameProcessIDs == [101])
     #expect(platform.observedFrameEventWindowIDs == [windowID])
-    #expect(!platform.pendingFrameRequiresFullSnapshot)
+    #expect(platform.pendingFrameRequiresFullSnapshot == false)
   }
 
   @Test @MainActor
@@ -1835,7 +1834,7 @@ struct PlatformEventTests {
     _ = normalizer.actions(for: .rightMouseDown, buttonNumber: 1)
 
     let leftUp = normalizer.actions(for: .leftMouseUp)
-    #expect(!leftUp.endsFocusInteraction)
+    #expect(leftUp.endsFocusInteraction == false)
 
     let rightUp = normalizer.actions(for: .rightMouseUp, buttonNumber: 1)
     #expect(rightUp.endsFocusInteraction)
@@ -1861,9 +1860,9 @@ struct PlatformEventTests {
     #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
     #expect(eventEndsMouseFocusInteraction(.rightMouseUp))
     #expect(eventEndsMouseFocusInteraction(.otherMouseUp))
-    #expect(!eventEndsMouseFocusInteraction(.leftMouseDown))
-    #expect(!eventEndsMouseFocusInteraction(.rightMouseDown))
-    #expect(!eventEndsMouseFocusInteraction(.otherMouseDown))
+    #expect(eventEndsMouseFocusInteraction(.leftMouseDown) == false)
+    #expect(eventEndsMouseFocusInteraction(.rightMouseDown) == false)
+    #expect(eventEndsMouseFocusInteraction(.otherMouseDown) == false)
   }
 
   @Test
@@ -1871,9 +1870,9 @@ struct PlatformEventTests {
     #expect(eventStartsMouseFocusInteraction(.leftMouseDown))
     #expect(eventStartsMouseFocusInteraction(.rightMouseDown))
     #expect(eventStartsMouseFocusInteraction(.otherMouseDown))
-    #expect(!eventStartsMouseFocusInteraction(.leftMouseUp))
-    #expect(!eventStartsMouseFocusInteraction(.rightMouseUp))
-    #expect(!eventStartsMouseFocusInteraction(.otherMouseUp))
+    #expect(eventStartsMouseFocusInteraction(.leftMouseUp) == false)
+    #expect(eventStartsMouseFocusInteraction(.rightMouseUp) == false)
+    #expect(eventStartsMouseFocusInteraction(.otherMouseUp) == false)
   }
 
   @Test
@@ -1897,7 +1896,7 @@ struct PlatformEventTests {
     let resetHeldButtons = normalizer.reset()
     let resetEmptyGesture = normalizer.reset()
     #expect(resetHeldButtons)
-    #expect(!resetEmptyGesture)
+    #expect(resetEmptyGesture == false)
     #expect(
       normalizer.actions(for: .leftMouseUp)
         == MouseGestureEventNormalizer.Actions()
