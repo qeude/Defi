@@ -83,6 +83,7 @@ struct SnapshotWindowDiscoveryResult {
   let nextRetainedWindowIDs: Set<WindowID>
   let cachedSnapshotWindowIDs: Set<WindowID>
   let previouslyManagedApplicationWindows: [pid_t: [AXUIElement]]
+  let windowIDReplacements: [WindowID: WindowID]
 }
 
 extension SnapshotEngine {
@@ -125,6 +126,7 @@ extension SnapshotEngine {
       var minimizedWindows = minimizedWindowElementsByProcess
       var transientGeometryWindows = transientGeometryWindowElementsByProcess
       var windows: [Window] = []
+      var nextNativeWindowTabGroups: [WindowID: NativeWindowTabGroup] = [:]
       var nextRetainedWindowIDs = Set<WindowID>()
       var cachedSnapshotWindowIDs = Set<WindowID>()
   
@@ -161,6 +163,8 @@ extension SnapshotEngine {
           for (windowID, element) in cachedElements {
             nextElements[windowID] = element
             nextProcessIDs[windowID] = processID
+            nextNativeWindowTabGroups[windowID] =
+              nativeWindowTabGroupsByWindowID[windowID]
           }
         }
         processIDsToRefresh = requestedProcessIDs
@@ -290,10 +294,27 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
         )
   
-        for element in appWindows ?? [] {
+        let orderedWindowCandidates = (appWindows ?? []).enumerated().map {
+          index, element in
           let previousWindowID = previousWindowIDsByProcessAndElementHash[processID]?[
             CFHash(element)
           ]?.first { CFEqual(previousElements[$0], element) }
+          return (
+            index: index,
+            element: element,
+            previousWindowID: previousWindowID
+          )
+        }.sorted { lhs, rhs in
+          windowDiscoveryCandidateComesFirst(
+            lhsPreviousWindowID: lhs.previousWindowID,
+            lhsIndex: lhs.index,
+            rhsPreviousWindowID: rhs.previousWindowID,
+            rhsIndex: rhs.index
+          )
+        }
+        for candidate in orderedWindowCandidates {
+          let element = candidate.element
+          let previousWindowID = candidate.previousWindowID
           if previousWindowID.map(explicitlyDestroyedWindowIDs.contains) == true {
             continue
           }
@@ -411,11 +432,46 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             for: disposition,
             configuredFloating: decision.floating
           )
+          var nativeTabGroup: NativeWindowTabGroup?
+          if refreshesWindowList || previousWindowID == nil {
+            // ponytail: native tab groups are small; index physical IDs if this scan grows.
+            let belongsToKnownNativeTabGroup =
+              nativeWindowTabGroupsByWindowID[tracked.id] != nil
+              || nativeWindowTabGroupsByWindowID.values.contains {
+                $0.backingWindowIDs.contains(tracked.id)
+              }
+            nativeTabGroup = AXMessagingTimeoutAccess.shared.withTimeout(
+              snapshotAccessibilityTimeoutSeconds,
+              elements: [element]
+            ) {
+              self.nativeWindowTabGroup(
+                in: element,
+                windowFrame: tracked.frame,
+                allowsTransientFrameMismatch:
+                  belongsToKnownNativeTabGroup
+              )
+            }
+          } else {
+            nativeTabGroup = previousWindowID.flatMap {
+              nativeWindowTabGroupsByWindowID[$0]
+            }
+          }
+          if let detectedGroup = nativeTabGroup {
+            nativeTabGroup = nativeWindowTabGroupRebindingKnownMembers(
+              detectedGroup,
+              representativeID: tracked.id,
+              processID: processID,
+              previousGroupsByRepresentativeID:
+                nativeWindowTabGroupsByWindowID,
+              previousProcessIDs: previousProcessIDs
+            )
+          }
           windows.append(tracked)
           nextElements[tracked.id] = element
           nextProcessIDs[tracked.id] = processID
+          nextNativeWindowTabGroups[tracked.id] = nativeTabGroup
         }
-  
+
         let previousWindows = previousWindowsByProcess[processID] ?? []
         let discoveredWindowIDs = Set(nextElements.keys)
         let needsCachedWindowValidation = previousWindows.contains {
@@ -474,11 +530,65 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           windows.append(previousWindow)
           nextElements[previousWindow.id] = previousElement
           nextProcessIDs[previousWindow.id] = processID
+          nextNativeWindowTabGroups[previousWindow.id] =
+            nativeWindowTabGroupsByWindowID[previousWindow.id]
           if applicationWindows[processID]?.contains(where: {
             CFEqual($0, previousElement)
           }) != true {
             applicationWindows[processID, default: []].append(previousElement)
           }
+        }
+
+        let processNativeTabGroups = nextNativeWindowTabGroups.filter {
+          nextProcessIDs[$0.key] == processID
+        }
+        let newlyObservedProcessWindowIDs = Set(
+          windows.lazy.filter { $0.processID == processID }.map(\.id)
+        ).subtracting(previousElements.keys)
+        let additionalBackingWindowIDsByRepresentative:
+          [WindowID: Set<WindowID>] = Dictionary(
+            uniqueKeysWithValues: processNativeTabGroups.compactMap {
+              representativeID, group in
+              guard let previousGroup =
+                  nativeWindowTabGroupsByWindowID[representativeID],
+                group.tabTitles.count == previousGroup.tabTitles.count + 1
+              else { return nil }
+              return (representativeID, newlyObservedProcessWindowIDs)
+            }
+          )
+        let nativeTabBackingIDsByRepresentative =
+          nativeTabBackingWindowIDsByRepresentative(
+            windows: windows.filter { $0.processID == processID },
+            groupsByRepresentativeID: processNativeTabGroups,
+            retainedWindowIDs: processRetainedWindowIDs,
+            additionalBackingWindowIDsByRepresentative:
+              additionalBackingWindowIDsByRepresentative
+          )
+        let nativeTabBackingIDs = Set(
+          nativeTabBackingIDsByRepresentative.values.flatMap { $0 }
+        )
+        if nativeTabBackingIDs.isEmpty == false {
+          for (representativeID, backingWindowIDs) in
+            nativeTabBackingIDsByRepresentative
+          {
+            nextNativeWindowTabGroups[representativeID]?.backingWindowIDs =
+              backingWindowIDs
+          }
+          windows.removeAll { nativeTabBackingIDs.contains($0.id) }
+          for windowID in nativeTabBackingIDs {
+            nextElements[windowID] = nil
+            nextProcessIDs[windowID] = nil
+            nextNativeWindowTabGroups[windowID] = nil
+          }
+          let representativeIDs = nativeTabBackingIDsByRepresentative.keys.sorted {
+            $0.rawValue < $1.rawValue
+          }.map { String($0.rawValue) }.joined(separator: ",")
+          let backingIDs = nativeTabBackingIDs.sorted {
+            $0.rawValue < $1.rawValue
+          }.map { String($0.rawValue) }.joined(separator: ",")
+          frameCoordinator.recordTrace(
+            "native-tabs pid=\(processID) representatives=[\(representativeIDs)] backing=[\(backingIDs)]"
+          )
         }
       }
     resolveTransientOwners(
@@ -491,6 +601,15 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         ? Set(nextProcessIDs.values)
         : topologyProcessIDs
     )
+    let liveNativeWindowTabGroups = nextNativeWindowTabGroups.filter {
+      nextElements[$0.key] != nil
+    }
+    let windowIDReplacements = nativeWindowTabRepresentativeReplacements(
+      previousWindowIDs: Set(previousElements.keys),
+      nextWindowIDs: Set(nextElements.keys),
+      groupsByRepresentativeID: liveNativeWindowTabGroups
+    )
+    nativeWindowTabGroupsByWindowID = liveNativeWindowTabGroups
     return SnapshotWindowDiscoveryResult(
       nextElements: nextElements,
       nextProcessIDs: nextProcessIDs,
@@ -503,7 +622,8 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       nextRetainedWindowIDs: nextRetainedWindowIDs,
       cachedSnapshotWindowIDs: cachedSnapshotWindowIDs,
       previouslyManagedApplicationWindows:
-        previouslyManagedApplicationWindows
+        previouslyManagedApplicationWindows,
+      windowIDReplacements: windowIDReplacements
     )
   }
 

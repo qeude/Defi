@@ -3,8 +3,101 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
+func reboundPendingAnimatedFocus(
+  _ request: PendingAnimatedFocus,
+  using replacements: [WindowID: WindowID]
+) -> PendingAnimatedFocus {
+  PendingAnimatedFocus(
+    windowID: replacements[request.windowID] ?? request.windowID,
+    previousSelectedWindowID: request.previousSelectedWindowID.map {
+      replacements[$0] ?? $0
+    },
+    monitorID: request.monitorID,
+    sourceWorkspaceID: request.sourceWorkspaceID,
+    commandGeneration: request.commandGeneration,
+    focusInputTimestamp: request.focusInputTimestamp,
+    cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
+    retryCount: request.retryCount
+  )
+}
+
+func reboundPendingWorkspaceFocus(
+  _ request: PendingWorkspaceFocus,
+  using replacements: [WindowID: WindowID]
+) -> PendingWorkspaceFocus {
+  PendingWorkspaceFocus(
+    monitorID: request.monitorID,
+    requestedWorkspaceID: request.requestedWorkspaceID,
+    previousWorkspaceID: request.previousWorkspaceID,
+    requestedWindowID:
+      replacements[request.requestedWindowID] ?? request.requestedWindowID,
+    restoresPreviousWorkspaceOnCancellation:
+      request.restoresPreviousWorkspaceOnCancellation,
+    commandGeneration: request.commandGeneration,
+    focusInputTimestamp: request.focusInputTimestamp,
+    cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
+    retryCount: request.retryCount
+  )
+}
+
+func reboundDisplacedPointerFocusRecovery(
+  _ recovery: DisplacedPointerFocusRecovery,
+  using replacements: [WindowID: WindowID]
+) -> DisplacedPointerFocusRecovery {
+  switch recovery {
+  case .command(let request, let timestamp):
+    .command(
+      reboundPendingAnimatedFocus(request, using: replacements),
+      timestamp: timestamp
+    )
+  case .workspace(let request, let timestamp):
+    .workspace(
+      reboundPendingWorkspaceFocus(request, using: replacements),
+      timestamp: timestamp
+    )
+  }
+}
+
 @MainActor
 extension Daemon {
+  func rebindFocusRequests(using replacements: [WindowID: WindowID]) {
+    guard replacements.isEmpty == false else { return }
+
+    if let submittedCommandFocus {
+      let rebound = reboundPendingAnimatedFocus(
+        submittedCommandFocus,
+        using: replacements
+      )
+      if rebound != submittedCommandFocus {
+        invalidateSubmittedCommandFocus(recoveringTo: rebound.windowID)
+        pendingAnimatedFocus = rebound
+      }
+    }
+    pendingAnimatedFocus = pendingAnimatedFocus.map {
+      reboundPendingAnimatedFocus($0, using: replacements)
+    }
+
+    if let pendingWorkspaceFocus {
+      let rebound = reboundPendingWorkspaceFocus(
+        pendingWorkspaceFocus,
+        using: replacements
+      )
+      if rebound != pendingWorkspaceFocus,
+        submittedWorkspaceFocusGeneration != nil
+          || submittedWorkspaceFocusRequestID != nil
+      {
+        invalidateSubmittedWorkspaceFocus(
+          recoveringTo: rebound.requestedWindowID
+        )
+      }
+      self.pendingWorkspaceFocus = rebound
+    }
+
+    displacedPointerFocusRecovery = displacedPointerFocusRecovery.map {
+      reboundDisplacedPointerFocusRecovery($0, using: replacements)
+    }
+  }
+
   func requeueDisplacedPointerFocusAfterDisplayChange(
     _ recovery: DisplacedPointerFocusRecovery
   ) {

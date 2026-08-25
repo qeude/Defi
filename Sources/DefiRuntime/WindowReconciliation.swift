@@ -165,6 +165,7 @@ public func reconcileWindows(
   _ discovered: [Window],
   config: Config,
   placementPreferences: PlacementPreferences = PlacementPreferences(),
+  windowIDReplacements: [WindowID: WindowID] = [:],
   externallyChangedWindowIDs: Set<WindowID> = [],
   nativeFullscreenWindowIDs: Set<WindowID> = [],
   viewports: [MonitorID: Rect] = [:],
@@ -174,6 +175,14 @@ public func reconcileWindows(
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
   let discoveredIDs = Set(discovered.map(\.id))
+  applyWindowIDReplacements(
+    windowIDReplacements,
+    discoveredWindows: Dictionary(
+      discovered.map { ($0.id, $0) },
+      uniquingKeysWith: { _, latest in latest }
+    ),
+    state: &state
+  )
   let fullscreenSpaceHidesOtherWindows =
     !nativeFullscreenWindowIDs.isEmpty || !state.nativeFullscreenWindowIDs.isEmpty
   for existingID in Array(state.windows.keys)
@@ -258,6 +267,109 @@ public func reconcileWindows(
   }
   reconcileNativeFullscreenWindows(nativeFullscreenWindowIDs, state: &state)
   return relocatedTransientIDs
+}
+
+private func applyWindowIDReplacements(
+  _ replacements: [WindowID: WindowID],
+  discoveredWindows: [WindowID: Window],
+  state: inout RuntimeState
+) {
+  for (previousID, replacementID) in replacements.sorted(by: {
+    $0.key.rawValue < $1.key.rawValue
+  }) {
+    guard previousID != replacementID,
+      state.windows[replacementID] == nil,
+      var replacement = discoveredWindows[replacementID],
+      let previous = state.windows.removeValue(forKey: previousID)
+    else { continue }
+
+    replacement.floating = previous.floating
+    replacement.floatingOrigin = previous.floatingOrigin
+    replacement.forceTiling = previous.forceTiling
+    replacement.intrinsicSize = previous.intrinsicSize
+    replacement.minimumTiledWidth = previous.minimumTiledWidth
+    if previous.intrinsicSize {
+      replacement.frame.width = previous.frame.width
+      replacement.frame.height = previous.frame.height
+    }
+    state.windows[replacementID] = replacement
+
+    for monitorIndex in state.monitors.indices {
+      for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+        for columnIndex in state.monitors[monitorIndex].workspaces[workspaceIndex]
+          .columns.indices
+        {
+          state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex]
+            .windows = state.monitors[monitorIndex].workspaces[workspaceIndex]
+            .columns[columnIndex].windows.map {
+              $0 == previousID ? replacementID : $0
+            }
+        }
+        state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows =
+          state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.map {
+            $0 == previousID ? replacementID : $0
+          }
+      }
+    }
+    for windowID in state.windows.keys
+    where state.windows[windowID]?.transientOwnerID == previousID {
+      state.windows[windowID]?.transientOwnerID = replacementID
+    }
+    replace(previousID, with: replacementID, in: &state.nativeFullscreenWindowIDs)
+    replace(
+      previousID,
+      with: replacementID,
+      in: &state.nativeFullscreenFloatingWindowIDs
+    )
+    replace(
+      previousID,
+      with: replacementID,
+      in: &state.pendingNativeFullscreenWidthResetWindowIDs
+    )
+    replace(
+      previousID,
+      with: replacementID,
+      in: &state.nativeFullscreenTiledPlacements
+    )
+    replace(
+      previousID,
+      with: replacementID,
+      in: &state.suspendedTiledPlacements
+    )
+  }
+}
+
+private func replace(
+  _ previousID: WindowID,
+  with replacementID: WindowID,
+  in windowIDs: inout Set<WindowID>
+) {
+  guard windowIDs.remove(previousID) != nil else { return }
+  windowIDs.insert(replacementID)
+}
+
+private func replace(
+  _ previousID: WindowID,
+  with replacementID: WindowID,
+  in placements: inout [WindowID: SuspendedTiledPlacement]
+) {
+  var replaced: [WindowID: SuspendedTiledPlacement] = [:]
+  replaced.reserveCapacity(placements.count)
+  for (windowID, placement) in placements {
+    var column = placement.column
+    column.windows = column.windows.map {
+      $0 == previousID ? replacementID : $0
+    }
+    replaced[windowID == previousID ? replacementID : windowID] =
+      SuspendedTiledPlacement(
+        monitorID: placement.monitorID,
+        workspaceID: placement.workspaceID,
+        columnIndex: placement.columnIndex,
+        windowIndex: placement.windowIndex,
+        column: column
+      )
+  }
+  placements = replaced
 }
 
 private func reconcileNativeFullscreenWindows(

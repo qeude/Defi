@@ -109,7 +109,7 @@ extension Daemon {
     }
     let previousSelectedWindowID = previousActiveMonitorID.flatMap {
       state.selectedWindowID(on: $0)
-    }
+    }.map { snapshot.windowIDReplacements[$0] ?? $0 }
     let mouseGestureEnded =
       snapshot.mouseResizeGestureObserved && !snapshot.leftMouseButtonDown
     let mouseInteractionEnded =
@@ -178,13 +178,16 @@ extension Daemon {
     var nativeCursorWarpWindowID: WindowID?
     var nativeCursorWarpInputTimestamp: TimeInterval?
     var nativeFocusFrameMonitorID: MonitorID?
-    let previouslyManagedWindowIDs = Set(state.windows.keys)
+    let previouslyManagedWindowIDs = Set(state.windows.keys.map {
+      snapshot.windowIDReplacements[$0] ?? $0
+    })
     let enteringNativeFullscreenWindowIDs = snapshot.nativeFullscreenWindowIDs
       .subtracting(state.nativeFullscreenWindowIDs)
     platform.updateNativeFullscreenWindowIDs(
       snapshot.nativeFullscreenWindowIDs,
       activeWindowIDs: snapshot.activeNativeFullscreenWindowIDs
     )
+    rebindFocusRequests(using: snapshot.windowIDReplacements)
     if pendingAnimatedFocus.map({
       enteringNativeFullscreenWindowIDs.contains($0.windowID)
     }) == true {
@@ -199,6 +202,7 @@ extension Daemon {
       snapshot.windows,
       config: config,
       placementPreferences: placementPreferences,
+      windowIDReplacements: snapshot.windowIDReplacements,
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       nativeFullscreenWindowIDs: snapshot.nativeFullscreenWindowIDs,
       viewports: viewportsByMonitor,

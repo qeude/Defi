@@ -357,7 +357,18 @@ extension SnapshotEngine {
       retainedWindowIDs: nextRetainedWindowIDs,
       cachedWindowIDs: cachedSnapshotWindowIDs
     )
-    let removedWindowIDs = Set(previousElements.keys).subtracting(nextWindowIDs)
+    let windowIDReplacements = discovery.windowIDReplacements
+    let removedWindowIDs = Set(previousElements.keys)
+      .subtracting(nextWindowIDs)
+      .subtracting(windowIDReplacements.keys)
+    if windowIDReplacements.isEmpty == false {
+      let replacements = windowIDReplacements.sorted {
+        $0.key.rawValue < $1.key.rawValue
+      }.map {
+        "\($0.key.rawValue)->\($0.value.rawValue)"
+      }.joined(separator: ",")
+      frameCoordinator.recordTrace("window-identity-replaced [\(replacements)]")
+    }
     newlyDiscoveredWindowIDs =
       hasCompletedWindowSnapshot
       ? nextWindowIDs.subtracting(previousElements.keys)
@@ -735,6 +746,7 @@ extension SnapshotEngine {
       focusedWindowID: focusedWindowID,
       nativeFocusChanged: nativeFocusChanged,
       removedWindowIDs: removedWindowIDs,
+      windowIDReplacements: windowIDReplacements,
       latestUserInputTimestamp: userInput.latestEventTimestamp,
       userInputAfterWindowTopology: userInputOccurredAfterWindowTopology(
         topologyInputTimestamp: topologyInputTimestamp,
