@@ -48,6 +48,21 @@ The offscreen placement of windows from inactive workspaces without hiding or
 minimizing them.
 _Avoid_: Hiding, minimizing
 
+**Overview**:
+An interactive stack of full-width workspace ribbons. Each ribbon shows a
+uniformly scaled view of its scrolling strip and exposes normal navigation and
+window movement.
+
+**Overview viewport**:
+The temporary two-axis view into an Overview. Moving it does not change native
+window frames or a workspace's scrolling offset.
+_Avoid_: Workspace scroll offset
+
+**Window preview**:
+A non-authoritative captured image of a managed window shown in the Overview.
+Its absence or staleness never changes Overview behavior.
+_Avoid_: Live window, window mirror, screenshot
+
 ## Focus and responsiveness
 
 **Human focus intent**:

@@ -190,6 +190,38 @@ struct WindowDiscoveryTests {
   }
 
   @Test
+  func `Identical public windows require an exact identifier`() {
+    let records = [1, 2].map {
+      CGWindowRecord(
+        id: CGWindowID($0),
+        processID: processID,
+        layer: 0,
+        title: "Defi",
+        frame: frame
+      )
+    }
+
+    #expect(
+      cgWindowDiscoveryNeedsExactID(
+        processID: processID,
+        title: "Defi",
+        frame: frame,
+        records: records,
+        excluding: []
+      )
+    )
+    #expect(
+      !cgWindowDiscoveryNeedsExactID(
+        processID: processID,
+        title: "Defi",
+        frame: frame,
+        records: [records[0]],
+        excluding: []
+      )
+    )
+  }
+
+  @Test
   func `Window matching rejects unrelated surface`() {
     let unrelated = CGWindowRecord(
       id: 1,

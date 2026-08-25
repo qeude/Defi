@@ -22,5 +22,7 @@
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Defi can show optional window previews in Overview.</string>
 </dict>
 </plist>

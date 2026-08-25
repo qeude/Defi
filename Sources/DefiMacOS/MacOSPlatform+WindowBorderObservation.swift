@@ -262,17 +262,7 @@ extension MacOSPlatform {
     }
     borderHiddenWindowIDs = lastHiddenWindowIDs
     borderLiveWindowID = liveWindowID
-    borderStyle = WindowBorderStyle(
-      enabled: config.enabled,
-      width: config.width,
-      activeColor: parseBorderColor(config.color) ?? 0xffc0_99ff,
-      inactiveEnabled: config.inactiveEnabled,
-      inactiveColor: parseBorderColor(config.inactiveColor) ?? 0x66c0_99ff,
-      captureEnabled: config.captureEnabled,
-      placement: WindowBorderPlacement(
-        configValue: config.placement
-      )
-    )
+    borderStyle = WindowBorderStyle(config: config)
     refreshWindowBorders()
     if let ownedWindowID = borderManager.ownedSurfaceWindowID
     {
@@ -488,6 +478,19 @@ extension MacOSPlatform {
 
   public func hideWindowBorders() {
     borderManager.hide()
+  }
+
+  public func setWindowBordersSuppressed(_ suppressed: Bool) {
+    guard borderManager.isSuppressed != suppressed else { return }
+    borderManager.setSuppressed(suppressed)
+    if suppressed {
+      borderStackingRefreshTask?.cancel()
+      return
+    }
+    stageWindowBorderSelection(borderSelectedWindowID)
+    refreshWindowBorders()
+    scheduleWindowBorderStackingRefresh()
+    revealWindowBordersIfReady()
   }
 
   public func updateNativeFullscreenPlaceholders(
