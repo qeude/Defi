@@ -184,6 +184,7 @@ extension Daemon {
       snapshot.nativeFullscreenWindowIDs,
       activeWindowIDs: snapshot.activeNativeFullscreenWindowIDs
     )
+    rebindFocusRequests(using: snapshot.windowIDReplacements)
     if pendingAnimatedFocus.map({
       enteringNativeFullscreenWindowIDs.contains($0.windowID)
     }) == true {
