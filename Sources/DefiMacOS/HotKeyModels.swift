@@ -25,6 +25,32 @@ public struct HotKeyInvocation: Equatable, Sendable {
   }
 }
 
+public enum OverviewKeyAction: Equatable, Sendable {
+  case left
+  case right
+  case up
+  case down
+  case select
+  case cancel
+}
+
+func overviewKeyAction(
+  keyCode: CGKeyCode,
+  modifierBits: UInt64,
+  isConfiguredBinding: Bool = false
+) -> OverviewKeyAction? {
+  return switch keyCode {
+  case 123 where modifierBits == 0 || isConfiguredBinding: .left
+  case 124 where modifierBits == 0 || isConfiguredBinding: .right
+  case 125 where modifierBits == 0 || isConfiguredBinding: .down
+  case 126 where modifierBits == 0 || isConfiguredBinding: .up
+  case 36 where modifierBits == 0: .select
+  case 76 where modifierBits == 0: .select
+  case 53 where modifierBits == 0: .cancel
+  default: nil
+  }
+}
+
 public struct PointerMotionInvocation: Equatable, Sendable {
   public let windowID: WindowID?
   public let location: CGPoint
@@ -139,4 +165,3 @@ struct Key: Hashable, Sendable {
     "left": 123, "right": 124, "down": 125, "up": 126,
   ]
 }
-

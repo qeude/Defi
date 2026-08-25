@@ -217,6 +217,9 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      if command == .toggleOverview {
+        return toggleOverview()
+      }
       let commandMonitorID: MonitorID?
       if let monitorIndex {
         guard let monitorID = monitorID(atAppKitIndex: monitorIndex) else {
@@ -266,6 +269,7 @@ extension Daemon {
         platform.recordPerformanceTrace(
           "command-no-op command=\(rawCommand) ms=\(String(format: "%.2f", lastCommandDurationMS))"
         )
+        updateOverviewIfOpen()
         return .success()
       }
       let previouslySelectedWindowID = commandMonitorID.flatMap {
@@ -687,6 +691,7 @@ extension Daemon {
       performanceLogger.debug(
         "command applied command=\(rawCommand, privacy: .public) duration_ms=\(self.lastCommandDurationMS, format: .fixed(precision: 2)) animations=\(self.scrollAnimations.count)"
       )
+      updateOverviewIfOpen()
       return .success()
     } catch {
       return .failure(String(describing: error))

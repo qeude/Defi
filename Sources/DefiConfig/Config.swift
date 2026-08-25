@@ -6,6 +6,7 @@ public struct Config: Equatable, Sendable {
   public var input: InputConfig
   public var layout: LayoutConfig
   public var animation: AnimationConfig
+  public var overview: OverviewConfig
   public var decorations: DecorationsConfig
   public var menuBar: MenuBarConfig
   public var workspaces: WorkspacesConfig
@@ -18,6 +19,7 @@ public struct Config: Equatable, Sendable {
     input: InputConfig = InputConfig(),
     layout: LayoutConfig = LayoutConfig(),
     animation: AnimationConfig = AnimationConfig(),
+    overview: OverviewConfig = OverviewConfig(),
     decorations: DecorationsConfig = DecorationsConfig(),
     menuBar: MenuBarConfig = MenuBarConfig(),
     workspaces: WorkspacesConfig = WorkspacesConfig(),
@@ -29,6 +31,7 @@ public struct Config: Equatable, Sendable {
     self.input = input
     self.layout = layout
     self.animation = animation
+    self.overview = overview
     self.decorations = decorations
     self.menuBar = menuBar
     self.workspaces = workspaces
@@ -49,6 +52,7 @@ public struct Config: Equatable, Sendable {
       input: raw.input ?? InputConfig(),
       layout: raw.layout ?? LayoutConfig(),
       animation: raw.animation ?? AnimationConfig(),
+      overview: raw.overview ?? OverviewConfig(),
       decorations: raw.decorations ?? DecorationsConfig(),
       menuBar: raw.menuBar ?? MenuBarConfig(),
       workspaces: workspaces,
@@ -113,6 +117,9 @@ public struct Config: Equatable, Sendable {
     }
     guard (0...2_000).contains(animation.durationMS) else {
       throw ConfigError.invalidValue("animation.duration_ms")
+    }
+    guard overview.zoom.isFinite, (0...0.75).contains(overview.zoom) else {
+      throw ConfigError.invalidValue("overview.zoom")
     }
     guard (0...64).contains(decorations.borders.width) else {
       throw ConfigError.invalidValue("decorations.borders.width")
@@ -220,6 +227,7 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-semicolon": "join-window left",
       "\(modifier)-quote": "join-window right",
       "\(modifier)-r": "unjoin-windows",
+      "\(modifier)-o": "toggle-overview",
     ]
     for (index, workspace) in workspaceNames.prefix(9).enumerated() {
       let number = index + 1
@@ -250,6 +258,7 @@ private struct RawConfig: Decodable {
   var input: InputConfig?
   var layout: LayoutConfig?
   var animation: AnimationConfig?
+  var overview: OverviewConfig?
   var decorations: DecorationsConfig?
   var menuBar: MenuBarConfig?
   var workspaces: WorkspacesConfig?
@@ -262,6 +271,7 @@ private struct RawConfig: Decodable {
     case input
     case layout
     case animation
+    case overview
     case decorations
     case menuBar = "menu_bar"
     case workspaces

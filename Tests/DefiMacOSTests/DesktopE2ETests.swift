@@ -626,6 +626,42 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(manager.tapReenableCount, 0)
   }
 
+  func testConfiguredHyperArrowNavigatesOverview() throws {
+    _ = try makePlatform()
+    let config = Config(
+      modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
+      keys: ["hyper-left": "focus-column left"]
+    )
+    var commands: [HotKeyInvocation] = []
+    var overviewActions: [OverviewKeyAction] = []
+    let manager = HotKeyManager(
+      config: config,
+      overviewHandler: { overviewActions.append($0) }
+    ) { commands.append($0) }
+    try manager.start()
+    manager.setOverviewModeEnabled(true)
+
+    DispatchQueue.global(qos: .userInteractive).async {
+      Thread.sleep(forTimeInterval: 0.05)
+      guard
+        let source = CGEventSource(stateID: .hidSystemState),
+        let event = CGEvent(
+          keyboardEventSource: source,
+          virtualKey: 123,
+          keyDown: true
+        )
+      else { return }
+      event.flags = [.maskAlternate, .maskCommand, .maskControl]
+      event.post(tap: .cghidEventTap)
+    }
+
+    XCTAssertTrue(
+      pumpRunLoop(until: { overviewActions == [.left] }, timeout: 1)
+    )
+    XCTAssertEqual(commands, [])
+    XCTAssertEqual(manager.capturedKeyCount, 1)
+  }
+
   func testScrollWheelAdvancesUserInputTracker() throws {
     _ = try makePlatform()
     let tracker = UserInputTracker()

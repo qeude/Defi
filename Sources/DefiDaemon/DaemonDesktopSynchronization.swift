@@ -64,6 +64,9 @@ extension Daemon {
       }
     }
     let snapshotCompletedAt = ProcessInfo.processInfo.systemUptime
+    if snapshot.nativeFocusChanged {
+      overviewController?.close()
+    }
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextPeriodicWindowRefreshAt,
       now: snapshotCompletedAt,
@@ -673,6 +676,7 @@ extension Daemon {
     }
     persistPlacements()
     updateMenuBar()
+    updateOverviewIfOpen()
     if !snapshot.leftMouseButtonDown && mouseGestureSettlement == nil {
       mouseGestureScrollAnchor = nil
     }

@@ -12,6 +12,8 @@ struct ConfigTests {
     #expect(config.layout.defaultColumnWidth == 0.8)
     #expect(config.animation.enabled)
     #expect(config.animation.durationMS == 35)
+    #expect(config.overview.zoom == 0.5)
+    #expect(config.overview.windowPreviews == false)
     #expect(config.decorations.borders.enabled)
     #expect(config.decorations.borders.width == 4)
     #expect(config.decorations.borders.color == "#FFC099FF")
@@ -27,6 +29,37 @@ struct ConfigTests {
     #expect(config.keys["alt-shift-j"] == "move-column-to-monitor down")
     #expect(config.keys["alt-shift-k"] == "move-column-to-monitor up")
     #expect(config.keys["alt-shift-l"] == "move-column-to-monitor right")
+    #expect(config.keys["alt-o"] == "toggle-overview")
+  }
+
+  @Test
+  func `Decodes overview configuration`() throws {
+    let config = try Config.decode(
+      Data(
+        """
+        [overview]
+        zoom = 0.25
+        window_previews = true
+        """.utf8
+      )
+    )
+
+    #expect(config.overview.zoom == 0.25)
+    #expect(config.overview.windowPreviews)
+  }
+
+  @Test
+  func `Rejects invalid overview zoom`() {
+    let data = Data(
+      """
+      [overview]
+      zoom = 0.76
+      """.utf8
+    )
+
+    #expect(throws: ConfigError.invalidValue("overview.zoom")) {
+      try Config.decode(data)
+    }
   }
 
   @Test

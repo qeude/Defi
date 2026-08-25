@@ -43,9 +43,10 @@ extension Daemon {
 
   func schedulePlacementStoreWrite(_ preferences: PlacementPreferences) {
     placementSaveWorkItem?.cancel()
-    let item = DispatchWorkItem { [weak self] in
+    let operation: @Sendable () -> Void = { [weak self] in
       self?.writePlacementStore(preferences)
     }
+    let item = DispatchWorkItem(block: operation)
     placementSaveWorkItem = item
     placementSaveQueue.asyncAfter(
       deadline: .now() + Self.placementSaveDebounce,
@@ -101,6 +102,7 @@ extension Daemon {
   }
 
   func scheduleDisplayReconciliation() {
+    overviewController?.close()
     displayConfigurationEventCount += 1
     let now = ProcessInfo.processInfo.systemUptime
     pendingDisplaySyncDeadlines = [0.05, 0.2, 0.5, 1.0, 2.0].map {

@@ -28,6 +28,7 @@ public enum Command: Equatable, Codable, Sendable {
   case activateFloating
   case joinWindow(Direction)
   case unjoinWindows
+  case toggleOverview
   case runStartupCommands
 
   public var resizesManagedLayout: Bool {
