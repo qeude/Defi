@@ -58,6 +58,7 @@ public struct DesktopSnapshot: Sendable {
   public let focusedWindowID: WindowID?
   public let nativeFocusChanged: Bool
   public let removedWindowIDs: Set<WindowID>
+  public let windowIDReplacements: [WindowID: WindowID]
   public let latestUserInputTimestamp: TimeInterval
   public let userInputAfterWindowTopology: Bool
   public let externallyChangedFrames: [WindowID: Rect]
@@ -80,6 +81,7 @@ public struct DesktopSnapshot: Sendable {
     focusedWindowID: WindowID?,
     nativeFocusChanged: Bool = false,
     removedWindowIDs: Set<WindowID> = [],
+    windowIDReplacements: [WindowID: WindowID] = [:],
     latestUserInputTimestamp: TimeInterval = 0,
     userInputAfterWindowTopology: Bool = false,
     externallyChangedFrames: [WindowID: Rect] = [:],
@@ -101,6 +103,7 @@ public struct DesktopSnapshot: Sendable {
     self.focusedWindowID = focusedWindowID
     self.nativeFocusChanged = nativeFocusChanged
     self.removedWindowIDs = removedWindowIDs
+    self.windowIDReplacements = windowIDReplacements
     self.latestUserInputTimestamp = latestUserInputTimestamp
     self.userInputAfterWindowTopology = userInputAfterWindowTopology
     self.externallyChangedFrames = externallyChangedFrames
