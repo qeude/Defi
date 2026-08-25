@@ -230,6 +230,8 @@ public func reduce(
       if !state.monitors[monitorIndex].workspaces[index].floatingWindows.isEmpty {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .floating
       }
+    case .toggleOverview:
+      break
     case .runStartupCommands:
       break
     }
@@ -269,7 +271,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .maximizeColumn, .toggleFloating, .joinWindow, .unjoinWindows:
     true
   case .focusColumn, .focusFloating, .focusWindow, .switchWorkspace,
-    .activateFloating, .runStartupCommands:
+    .activateFloating, .toggleOverview, .runStartupCommands:
     false
   }
 }
@@ -503,7 +505,7 @@ private func moveFocusedSelectionToMonitor(
   }
 }
 
-private func transientRootWindowID(
+func transientRootWindowID(
   _ windowID: WindowID,
   windows: [WindowID: Window]
 ) -> WindowID {
@@ -518,7 +520,7 @@ private func transientRootWindowID(
   return root
 }
 
-private func transientDescendants(
+func transientDescendants(
   of ownerWindowIDs: Set<WindowID>,
   windows: [WindowID: Window]
 ) -> Set<WindowID> {
@@ -538,7 +540,7 @@ private func transientDescendants(
   }
 }
 
-private func groupedTiledColumns(
+func groupedTiledColumns(
   moving movedWindowIDs: Set<WindowID>,
   excluding excludedWindowIDs: Set<WindowID> = [],
   from workspace: Workspace
@@ -565,7 +567,7 @@ private func groupedTiledColumns(
   return (columns, tiledWindowIDs)
 }
 
-private func removeWindowFromEveryWorkspace(
+func removeWindowFromEveryWorkspace(
   _ windowID: WindowID,
   state: inout RuntimeState
 ) {

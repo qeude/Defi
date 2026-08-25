@@ -115,6 +115,40 @@ duration_ms = 35
 | `enabled` | `true` | boolean | Enables visual scrolling and managed resize animation. |
 | `duration_ms` | `35` | integer from `0` to `2000` | Animation duration in milliseconds. `0` disables animation even when `enabled = true`. |
 
+## `[overview]`
+
+Controls the Overview scale and optional pixels inside window cards.
+
+```toml
+[overview]
+zoom = 0.5
+window_previews = false
+```
+
+| Setting | Default | Values/type | Description |
+| --- | --- | --- | --- |
+| `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
+| `window_previews` | `false` | boolean | Captures a card-sized still image when a window first becomes visible in the current Overview session. |
+
+With the default `false`, Defi performs no Screen Recording permission check,
+request, or ScreenCaptureKit content query. With `true`, the next Overview
+opening reuses a valid in-memory preview when available, then captures a fresh
+image. Denial, revocation, protected content, and capture errors leave the
+icon-and-title cards fully usable and do not trigger repeated prompts in the
+same daemon session.
+
+Previews are memory-only, contain no audio or cursor, and use at most 16 MiB
+between Overview sessions. Defi validates the window and process identity before
+reuse, requests a fresh image immediately, and removes the remembered image if
+that capture fails. A full-display screen share can include the Overview and the
+content shown in its cards; sharing one selected application or window does not
+normally include Defi's overlay.
+
+When dragging a tiled card, the outer quarter on either side of a column creates
+a neighboring column. Its central half inserts the card into the stack according
+to pointer height. The Overview animates the projected ribbons immediately;
+native windows receive only the final layout while the overlay is visible.
+
 ## `[decorations.borders]`
 
 Controls borders around visible tiled windows.
@@ -311,6 +345,7 @@ an entry from `[workspaces].names`.
 | `join-window left` | Join focused window into stack on left. | `<mod>-semicolon` |
 | `join-window right` | Join focused window into stack on right. | `<mod>-quote` |
 | `unjoin-windows` | Split focused window from stack into new column. | `<mod>-r` |
+| `toggle-overview` | Open or close the interactive workspace Overview. | `<mod>-o` |
 | `diagnostic-mark` | Record current status and recent trace without changing managed windows. | unset |
 
 `previous` may be written as `prev`. `focus-column` also accepts
@@ -436,6 +471,10 @@ enabled = true
 enabled = true
 duration_ms = 35
 
+[overview]
+zoom = 0.5
+window_previews = false
+
 [decorations.borders]
 enabled = true
 width = 4
@@ -456,6 +495,7 @@ default = "1"
 "alt-right" = "focus-column right"
 "alt-up" = "focus-window up"
 "alt-down" = "focus-window down"
+"alt-o" = "toggle-overview"
 "alt-leftbracket" = "focus-column first"
 "alt-rightbracket" = "focus-column last"
 

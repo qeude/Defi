@@ -668,10 +668,18 @@ extension SnapshotEngine {
       records: eligibleCGWindows,
       excluding: usedCGWindowIDs
     )
-    let record: CGWindowRecord?
-    if let publicRecord {
-      record = publicRecord
-    } else {
+    var record = publicRecord
+    let hasEligiblePublicCandidate = eligibleCGWindows.contains {
+      $0.processID == processID && !usedCGWindowIDs.contains($0.id)
+    }
+    let supportsExactWindowID = role == kAXWindowRole || role == kAXSheetRole
+    if supportsExactWindowID && ((publicRecord == nil && hasEligiblePublicCandidate) || cgWindowDiscoveryNeedsExactID(
+      processID: processID,
+      title: title,
+      frame: frame,
+      records: eligibleCGWindows,
+      excluding: usedCGWindowIDs
+    )) {
       let axWindowID = {
           let assumedElement = AssumedThreadSafe(element)
           return onMain { $0.windowIDProvider.windowID(for: assumedElement.value) }
@@ -681,15 +689,17 @@ extension SnapshotEngine {
       } else {
         privateWindowIDLookupCount += 1
       }
-      record = cgWindowRecordForDiscovery(
-        axWindowID: axWindowID,
-        preferredWindowID: preferredWindowID,
-        processID: processID,
-        title: title,
-        frame: frame,
-        records: eligibleCGWindows,
-        excluding: usedCGWindowIDs
-      )
+      if let axWindowID {
+        record = cgWindowRecordForDiscovery(
+          axWindowID: axWindowID,
+          preferredWindowID: nil,
+          processID: processID,
+          title: title,
+          frame: frame,
+          records: eligibleCGWindows,
+          excluding: usedCGWindowIDs
+        ) ?? record
+      }
     }
     guard let resolvedWindowID = record?.id else {
       return .unmatched

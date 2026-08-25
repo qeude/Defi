@@ -303,6 +303,9 @@ final class AXWindowIDProvider {
   private var disabled = false
   private var probeCompleted = false
   private var probeSucceeded = false
+  private var probeAttempts = 0
+  private var probePanel: NSPanel?
+  private var probeScheduled = false
 
   init() {
     let handle = dlopen(
@@ -346,39 +349,51 @@ final class AXWindowIDProvider {
 
   private func ensureProbe() {
     guard !probeCompleted else { return }
-    probeCompleted = true
-    guard let getWindow, NSApp != nil else { return }
-
-    let title = "Defi AX probe \(UUID().uuidString)"
-    let panel = NSPanel(
-      contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
-      styleMask: [.nonactivatingPanel],
-      backing: .buffered,
-      defer: false
-    )
-    panel.title = title
-    panel.titleVisibility = .visible
-    panel.isOpaque = false
-    panel.backgroundColor = .clear
-    panel.alphaValue = 0
-    panel.ignoresMouseEvents = true
-    panel.hasShadow = false
-    panel.sharingType = .none
-    panel.isExcludedFromWindowsMenu = true
-    panel.orderFrontRegardless()
-    defer {
-      panel.orderOut(nil)
-      panel.close()
+    guard getWindow != nil else {
+      probeCompleted = true
+      return
     }
+    guard NSApp != nil else { return }
+    if probePanel == nil {
+      let panel = NSPanel(
+        contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+        styleMask: [.nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+      )
+      panel.title = "Defi AX probe \(UUID().uuidString)"
+      panel.titleVisibility = .visible
+      panel.isOpaque = false
+      panel.backgroundColor = .clear
+      panel.alphaValue = 0
+      panel.ignoresMouseEvents = true
+      panel.hasShadow = false
+      panel.sharingType = .none
+      panel.isExcludedFromWindowsMenu = true
+      panel.orderFrontRegardless()
+      probePanel = panel
+    }
+    guard !probeScheduled else { return }
+    probeScheduled = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+      self?.runProbe()
+    }
+  }
+
+  private func runProbe() {
+    probeScheduled = false
+    guard !probeCompleted, let getWindow, let panel = probePanel else { return }
+    probeAttempts += 1
 
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(
       AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier),
       kAXWindowsAttribute as CFString,
       &value
-    ) == .success,
+      ) == .success,
       let windows = value as? [AXUIElement]
     else {
+      finishInconclusiveProbe(panel)
       return
     }
     for window in windows {
@@ -388,15 +403,31 @@ final class AXWindowIDProvider {
         kAXTitleAttribute as CFString,
         &windowTitle
       ) == .success,
-        windowTitle as? String == title
+        windowTitle as? String == panel.title
       else {
         continue
       }
+      probeCompleted = true
       var windowID: CGWindowID = 0
       if getWindow(window, &windowID) == .success, windowID != 0 {
         probeSucceeded = true
+      } else {
+        disabled = true
       }
+      panel.close()
+      probePanel = nil
       return
+    }
+    finishInconclusiveProbe(panel)
+  }
+
+  private func finishInconclusiveProbe(_ panel: NSPanel) {
+    if probeAttempts == 3 {
+      probeCompleted = true
+      panel.close()
+      probePanel = nil
+    } else {
+      ensureProbe()
     }
   }
 }

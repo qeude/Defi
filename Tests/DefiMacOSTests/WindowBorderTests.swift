@@ -157,6 +157,42 @@ struct WindowBorderTests {
   }
 
   @Test
+  func overviewReusesConfiguredWindowBorderPolicy() {
+    let active = overviewWindowBorderAppearance(isSelected: true, style: style)
+    #expect(active?.color == style.activeColor)
+    #expect(active?.width == style.width)
+    #expect(overviewWindowBorderAppearance(isSelected: false, style: style) == nil)
+
+    let inactiveStyle = WindowBorderStyle(
+      enabled: true,
+      width: 2,
+      activeColor: 0xff11_2233,
+      inactiveEnabled: true,
+      inactiveColor: 0x8044_5566,
+      captureEnabled: false
+    )
+    let inactive = overviewWindowBorderAppearance(
+      isSelected: false,
+      style: inactiveStyle
+    )
+    #expect(inactive?.color == inactiveStyle.inactiveColor)
+    #expect(inactive?.width == inactiveStyle.width)
+  }
+
+  @Test
+  func overviewOutsideBorderKeepsTheCardRadius() {
+    let geometry = overviewWindowBorderGeometry(
+      cardFrame: Rect(x: 100, y: 200, width: 800, height: 600),
+      cardRadius: 9,
+      width: 4,
+      placement: .outside
+    )
+
+    #expect(geometry.frame == Rect(x: 98, y: 198, width: 804, height: 604))
+    #expect(geometry.radius == 11)
+  }
+
+  @Test
   func borderAppearanceValuesAreNormalized() {
     #expect(borderCornerRadius(windowRadius: 9) == 9)
     #expect(borderOpacity(0xffc0_99ff) == 1)
@@ -326,6 +362,47 @@ struct WindowBorderTests {
 
     manager.prepareForSelection(third, displayedFrame: nil)
     #expect(manager.activeWindowID == third)
+  }
+
+  @Test @MainActor
+  func suppressedBordersStayHiddenUntilRestored() {
+    let manager = WindowBorderManager()
+    let windowID = WindowID(rawValue: 1)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    let plan = planWindowBorders(
+      frames: [FrameAssignment(windowID: windowID, frame: frame)],
+      selectedWindowID: windowID,
+      hiddenWindowIDs: [],
+      monitorFrames: [monitor],
+      style: style
+    )
+
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    manager.sync(
+      plan,
+      displayedFrames: [windowID: frame],
+      stacking: frontmostStacking(for: windowID)
+    )
+    #expect(manager.performance.visible == 1)
+
+    manager.setSuppressed(true)
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    manager.sync(
+      plan,
+      displayedFrames: [windowID: frame],
+      stacking: frontmostStacking(for: windowID)
+    )
+    manager.revealPendingBorders()
+    #expect(manager.performance.visible == 0)
+
+    manager.setSuppressed(false)
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    manager.sync(
+      plan,
+      displayedFrames: [windowID: frame],
+      stacking: frontmostStacking(for: windowID)
+    )
+    #expect(manager.performance.visible == 1)
   }
 
   @Test @MainActor

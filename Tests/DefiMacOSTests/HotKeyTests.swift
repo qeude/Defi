@@ -1,8 +1,39 @@
 import ApplicationServices
 import DefiConfig
 import Testing
-
 @testable import DefiMacOS
+
+@Suite
+struct OverviewHotKeyTests {
+  @Test
+  func `Overview captures unmodified and Hyper arrows`() {
+    let hyper = hotKeyModifierBits([
+      .maskAlternate,
+      .maskCommand,
+      .maskControl,
+    ])
+
+    #expect(overviewKeyAction(keyCode: 123, modifierBits: 0) == .left)
+    #expect(
+      overviewKeyAction(
+        keyCode: 123,
+        modifierBits: hyper,
+        isConfiguredBinding: true
+      ) == .left
+    )
+    #expect(overviewKeyAction(keyCode: 123, modifierBits: hyper) == nil)
+    #expect(overviewKeyAction(keyCode: 36, modifierBits: 0) == .select)
+    #expect(
+      overviewKeyAction(
+        keyCode: 36,
+        modifierBits: hyper,
+        isConfiguredBinding: true
+      ) == nil
+    )
+    #expect(overviewKeyAction(keyCode: 53, modifierBits: 0) == .cancel)
+    #expect(overviewKeyAction(keyCode: 0, modifierBits: 0) == nil)
+  }
+}
 
 struct HotKeyTests {
   private let aliases = [

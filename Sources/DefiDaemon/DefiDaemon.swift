@@ -166,6 +166,7 @@ final class Daemon: NSObject {
   )
   var placementSaveWorkItem: DispatchWorkItem?
   var hotKeys: HotKeyManager?
+  var overviewController: OverviewController?
   var menuBar: MenuBarController?
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
   var lastWorkspacePublishState: RuntimeState?
@@ -310,6 +311,9 @@ final class Daemon: NSObject {
       },
       tapReenabledHandler: { [weak self] timestamp in
         self?.handleEventTapReenabled(at: timestamp)
+      },
+      overviewHandler: { [weak self] action in
+        self?.overviewController?.handleKey(action)
       }
     ) { [weak self] invocation in
       self?.enqueueHotKey(invocation)
@@ -329,7 +333,11 @@ final class Daemon: NSObject {
     }
     if config.menuBar.enabled {
       menuBar = MenuBarController { [weak self] command in
-        _ = self?.handle(command)
+        if command == "quit" {
+          self?.requestShutdown()
+        } else {
+          _ = self?.handle(command)
+        }
       }
     }
     installIPCSource()
