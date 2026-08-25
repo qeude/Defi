@@ -1,6 +1,7 @@
 import AppKit
 import CoreFoundation
 import Darwin
+import DefiConfig
 import DefiCore
 import DefiModel
 
@@ -34,6 +35,18 @@ struct WindowBorderStyle: Equatable, Sendable {
     self.inactiveColor = inactiveColor
     self.captureEnabled = captureEnabled
     self.placement = placement
+  }
+
+  init(config: BordersConfig) {
+    self.init(
+      enabled: config.enabled,
+      width: config.width,
+      activeColor: parseBorderColor(config.color) ?? 0xffc0_99ff,
+      inactiveEnabled: config.inactiveEnabled,
+      inactiveColor: parseBorderColor(config.inactiveColor) ?? 0x66c0_99ff,
+      captureEnabled: config.captureEnabled,
+      placement: WindowBorderPlacement(configValue: config.placement)
+    )
   }
 }
 
@@ -125,6 +138,38 @@ func planWindowBorders(
     inactive: inactive,
     tracked: tracked,
     style: style
+  )
+}
+
+func overviewWindowBorderAppearance(
+  isSelected: Bool,
+  style: WindowBorderStyle
+) -> (color: UInt32, width: Double)? {
+  guard style.enabled, style.width > 0 else { return nil }
+  if isSelected, windowBorderAlpha(of: style.activeColor) > 0 {
+    return (style.activeColor, style.width)
+  }
+  guard style.inactiveEnabled, windowBorderAlpha(of: style.inactiveColor) > 0 else {
+    return nil
+  }
+  return (style.inactiveColor, style.width)
+}
+
+func overviewWindowBorderGeometry(
+  cardFrame: Rect,
+  cardRadius: Double,
+  width: Double,
+  placement: WindowBorderPlacement
+) -> (frame: Rect, radius: Double) {
+  let inset = placement == .inside ? width / 2 : -width / 2
+  return (
+    Rect(
+      x: cardFrame.x + inset,
+      y: cardFrame.y + inset,
+      width: cardFrame.width - inset * 2,
+      height: cardFrame.height - inset * 2
+    ),
+    max(cardRadius - inset, 0)
   )
 }
 

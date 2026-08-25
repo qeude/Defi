@@ -10,6 +10,8 @@ public final class HotKeyManager {
     @MainActor @Sendable (PointerMotionInvocation) -> Void
   public typealias TapReenabledHandler =
     @MainActor @Sendable (TimeInterval) -> Void
+  public typealias OverviewHandler =
+    @MainActor @Sendable (OverviewKeyAction) -> Void
 
   private let bindings: [Key: String]
   private let handler: Handler
@@ -17,6 +19,7 @@ public final class HotKeyManager {
   public let bindingError: HotKeyError?
   private let pointerMotionHandler: PointerMotionHandler?
   private let tapReenabledHandler: TapReenabledHandler
+  private let overviewHandler: OverviewHandler
   private let userInputTracker: UserInputTracker
   private let pointerMotionTracker: PointerMotionTracker
   private var context: HotKeyTapContext?
@@ -50,6 +53,7 @@ public final class HotKeyManager {
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
+    overviewHandler: @escaping OverviewHandler = { _ in },
     handler: @escaping Handler
   ) {
     self.handler = handler
@@ -59,6 +63,7 @@ public final class HotKeyManager {
       ? pointerMotionHandler
       : nil
     self.tapReenabledHandler = tapReenabledHandler
+    self.overviewHandler = overviewHandler
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     var bindings: [Key: String] = [:]
@@ -111,6 +116,7 @@ public final class HotKeyManager {
     let handler = self.handler
     let pointerMotionHandler = self.pointerMotionHandler
     let tapReenabledHandler = self.tapReenabledHandler
+    let overviewHandler = self.overviewHandler
     let context = HotKeyTapContext(
       bindings: bindings,
       userInputTracker: userInputTracker,
@@ -120,6 +126,12 @@ public final class HotKeyManager {
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
           handler(invocation)
+        }
+      }
+    } deliverOverview: { action in
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          overviewHandler(action)
         }
       }
     } deliverPointerMotion: { invocation in
@@ -169,6 +181,10 @@ public final class HotKeyManager {
     context?.resetPointerWindowTransition()
   }
 
+  public func setOverviewModeEnabled(_ enabled: Bool) {
+    context?.setOverviewModeEnabled(enabled)
+  }
+
   isolated deinit {
     context?.stop()
   }
@@ -183,6 +199,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
   private let pointerMotionTracker: PointerMotionTracker
   private let tracksPointerWindowTransitions: Bool
   private let deliver: @Sendable (HotKeyInvocation) -> Void
+  private let deliverOverview: @Sendable (OverviewKeyAction) -> Void
   private let deliverPointerMotion: @Sendable (PointerMotionInvocation) -> Void
   private let tapReenabled: @Sendable (TimeInterval) -> Void
   private let lock = NSLock()
@@ -199,6 +216,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
   private var pointerDeliveryGeneration: UInt64 = 0
   private var lastPointerDeliveryTimestamp: TimeInterval?
   private var capturedModifierReleaseState = CapturedHotKeyModifierReleaseState()
+  private var overviewModeEnabled = false
 
   init(
     bindings: [Key: String],
@@ -206,6 +224,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
     pointerMotionTracker: PointerMotionTracker,
     tracksPointerWindowTransitions: Bool,
     deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
+    deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
     tapReenabled: @escaping @Sendable (TimeInterval) -> Void
   ) {
@@ -214,6 +233,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
     self.pointerMotionTracker = pointerMotionTracker
     self.tracksPointerWindowTransitions = tracksPointerWindowTransitions
     self.deliver = deliver
+    self.deliverOverview = deliverOverview
     self.deliverPointerMotion = deliverPointerMotion
     self.tapReenabled = tapReenabled
   }
@@ -340,6 +360,30 @@ private final class HotKeyTapContext: @unchecked Sendable {
     }
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let key = Key(code: code, flags: event.flags.rawValue)
+    lock.lock()
+    let overviewModeEnabled = overviewModeEnabled
+    lock.unlock()
+    if overviewModeEnabled,
+      event.flags.contains(.maskCommand),
+      code == Self.commandTabKeyCode
+    {
+      deliverOverview(.cancel)
+      return Unmanaged.passUnretained(event)
+    }
+    if overviewModeEnabled,
+      let action = overviewKeyAction(
+        keyCode: code,
+        modifierBits: key.modifierBits,
+        isConfiguredBinding: bindings[key] != nil
+      )
+    {
+      lock.lock()
+      captured += 1
+      lock.unlock()
+      capturedModifierReleaseState.capture(modifierBits: key.modifierBits)
+      deliverOverview(action)
+      return nil
+    }
     guard let command = bindings[key] else {
       return Unmanaged.passUnretained(event)
     }
@@ -382,6 +426,12 @@ private final class HotKeyTapContext: @unchecked Sendable {
     pendingPointerMotion = nil
     pointerDeliveryGeneration &+= 1
     pointerDeliveryScheduled = false
+    lock.unlock()
+  }
+
+  func setOverviewModeEnabled(_ enabled: Bool) {
+    lock.lock()
+    overviewModeEnabled = enabled
     lock.unlock()
   }
 

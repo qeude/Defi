@@ -154,6 +154,28 @@ public struct AnimationConfig: Codable, Equatable, Sendable {
   }
 }
 
+public struct OverviewConfig: Codable, Equatable, Sendable {
+  public var zoom: Double
+  public var windowPreviews: Bool
+
+  public init(zoom: Double = 0.5, windowPreviews: Bool = false) {
+    self.zoom = zoom
+    self.windowPreviews = windowPreviews
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case zoom
+    case windowPreviews = "window_previews"
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    zoom = try values.decodeIfPresent(Double.self, forKey: .zoom) ?? 0.5
+    windowPreviews =
+      try values.decodeIfPresent(Bool.self, forKey: .windowPreviews) ?? false
+  }
+}
+
 public struct LayoutConfig: Codable, Equatable, Sendable {
   public var defaultColumnWidth: Double
   public var presetColumnWidths: [Double]

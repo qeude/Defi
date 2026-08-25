@@ -65,6 +65,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .joinWindow(try parseDirection(argument("direction")))
   case "unjoin-windows":
     return .unjoinWindows
+  case "toggle-overview":
+    return .toggleOverview
   case "run-startup-commands":
     return .runStartupCommands
   default:

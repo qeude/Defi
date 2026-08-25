@@ -52,6 +52,7 @@ struct ModelTests {
     ("maximize-column", Command.maximizeColumn),
     ("toggle-floating", Command.toggleFloating),
     ("activate-floating", Command.activateFloating),
+    ("toggle-overview", Command.toggleOverview),
   ])
   func `Parses shared commands`(
     testCase: (input: String, expected: Command)
@@ -87,6 +88,7 @@ struct ModelTests {
     (Command.moveWindowToMonitor(.right), true, true),
     (Command.focusColumn(.right), false, false),
     (Command.toggleFloating, false, false),
+    (Command.toggleOverview, false, false),
   ])
   func `Managed layout command behavior is explicit`(
     testCase: (command: Command, resizesLayout: Bool, crossesMonitors: Bool)

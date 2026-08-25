@@ -547,6 +547,33 @@ func bestCGWindow(
   return closest
 }
 
+func cgWindowDiscoveryNeedsExactID(
+  processID: pid_t,
+  title: String,
+  frame: Rect,
+  records: [CGWindowRecord],
+  excluding usedWindowIDs: Set<CGWindowID>,
+  maximumDistance: Double = 80
+) -> Bool {
+  guard let closest = bestCGWindow(
+    processID: processID,
+    title: title,
+    frame: frame,
+    records: records,
+    excluding: usedWindowIDs,
+    maximumDistance: maximumDistance
+  ) else { return false }
+  let closestDistance = frameDistance(closest.frame, frame)
+  let closestTitleRank = windowTitleMatchRank(closest.title, title)
+  return records.contains { candidate in
+    candidate.id != closest.id
+      && candidate.processID == processID
+      && !usedWindowIDs.contains(candidate.id)
+      && abs(frameDistance(candidate.frame, frame) - closestDistance) <= 0.5
+      && windowTitleMatchRank(candidate.title, title) == closestTitleRank
+  }
+}
+
 func closestFocusRecoveryWindowIndex(
   target: (frame: Rect, title: String),
   candidates: [(frame: Rect, title: String)],

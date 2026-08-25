@@ -12,6 +12,7 @@ final class WindowBorderManager {
   private var lastPlan: WindowBorderRenderPlan?
   private var lastDisplayedFrames: [WindowID: Rect] = [:]
   private var compositorCommitPending = false
+  private(set) var isSuppressed = false
   private var appliedPlans = 0
   private var skippedPlans = 0
   private var geometryUpdateCount = 0
@@ -56,6 +57,7 @@ final class WindowBorderManager {
   }
 
   func revealPendingBorders() {
+    guard !isSuppressed else { return }
     compositorCommitPending = true
     commitVisibleOverlays()
     revealPendingOpacities(in: overlays.values.filter(\.isVisible))
@@ -79,6 +81,7 @@ final class WindowBorderManager {
     displayedFrame: Rect?,
     stacking: WindowBorderStacking? = nil
   ) {
+    guard !isSuppressed else { return }
     let activeStacking = stacking ?? .inactive(for: windowID)
     if activeWindowID == windowID {
       if let windowID {
@@ -135,6 +138,7 @@ final class WindowBorderManager {
     frames: [WindowID: Rect],
     style: WindowBorderStyle
   ) -> Bool {
+    guard !isSuppressed else { return false }
     var geometryChanged = false
     for (windowID, frame) in frames {
       guard let overlay = overlays[windowID], overlay.isVisible else { continue }
@@ -161,6 +165,7 @@ final class WindowBorderManager {
     displayedFrames: [WindowID: Rect],
     stacking: WindowBorderStacking
   ) {
+    guard !isSuppressed else { return }
     let trackedWindowIDs = Set(plan.tracked.map(\.windowID))
     if let activeWindowID = plan.active?.windowID {
       overlays[activeWindowID]?.setStacking(
@@ -244,6 +249,14 @@ final class WindowBorderManager {
     lastPlan = nil
     lastDisplayedFrames.removeAll(keepingCapacity: true)
     compositorCommitPending = false
+  }
+
+  func setSuppressed(_ suppressed: Bool) {
+    guard isSuppressed != suppressed else { return }
+    isSuppressed = suppressed
+    if suppressed {
+      hide()
+    }
   }
 
   private func commitVisibleOverlays() {
