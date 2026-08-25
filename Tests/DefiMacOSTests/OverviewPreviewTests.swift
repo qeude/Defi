@@ -59,6 +59,28 @@ struct OverviewPreviewTests {
   }
 
   @Test
+  func `Preview capture rejects a reused window ID from another app`() {
+    #expect(
+      overviewPreviewOwnerMatches(
+        expectedAppID: "com.example.original",
+        capturedAppID: "com.example.original"
+      )
+    )
+    #expect(
+      overviewPreviewOwnerMatches(
+        expectedAppID: "com.example.original",
+        capturedAppID: "com.example.replacement"
+      ) == false
+    )
+    #expect(
+      overviewPreviewOwnerMatches(
+        expectedAppID: "com.example.original",
+        capturedAppID: nil
+      ) == false
+    )
+  }
+
+  @Test
   func `Remembered previews stay inside their memory budget`() {
     let first = WindowID(rawValue: 1)
     let second = WindowID(rawValue: 2)

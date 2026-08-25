@@ -92,6 +92,13 @@ func overviewPreviewCacheCanStore(
   return bytesWithoutExisting <= maximumBytes - byteCost
 }
 
+func overviewPreviewOwnerMatches(
+  expectedAppID: String,
+  capturedAppID: String?
+) -> Bool {
+  capturedAppID == expectedAppID
+}
+
 func runOverviewPreviewCaptures(
   _ requests: [OverviewPreviewRequest],
   maximumConcurrent: Int = 2,
@@ -187,7 +194,11 @@ private final class OverviewScreenCaptureBatch {
   ) async -> OverviewPreviewCaptureResult {
     guard !Task.isCancelled,
       let windowID = CGWindowID(exactly: request.windowID.rawValue),
-      let window = windows[windowID]
+      let window = windows[windowID],
+      overviewPreviewOwnerMatches(
+        expectedAppID: request.expectedAppID,
+        capturedAppID: window.owningApplication?.bundleIdentifier
+      )
     else {
       return OverviewPreviewCaptureResult(request: request, image: nil)
     }
