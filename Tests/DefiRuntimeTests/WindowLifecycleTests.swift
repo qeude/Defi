@@ -159,6 +159,45 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `Reconcile preserves layout when a native tab replaces the window ID`() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let original = Window(
+      id: WindowID(rawValue: 1),
+      appID: "terminal",
+      title: "First",
+      frame: Rect(x: 0, y: 0, width: 1_200, height: 800),
+      monitorID: monitorID
+    )
+    try discoverWindow(original, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].columns[0].width = .fraction(0.8)
+    state.monitors[0].workspaces[0].targetScrollOffset = 240
+    let replacement = Window(
+      id: WindowID(rawValue: 2),
+      appID: original.appID,
+      title: "Second",
+      frame: original.frame,
+      monitorID: monitorID
+    )
+
+    reconcileWindows(
+      [replacement, replacement],
+      config: config,
+      windowIDReplacements: [original.id: replacement.id],
+      state: &state
+    )
+
+    let workspace = state.monitors[0].workspaces[0]
+    #expect(workspace.columns.count == 1)
+    #expect(workspace.columns[0].windows == [replacement.id])
+    #expect(workspace.columns[0].width == .fraction(0.8))
+    #expect(workspace.targetScrollOffset == 240)
+    #expect(state.selectedWindowID(on: monitorID) == replacement.id)
+    #expect(state.windows[original.id] == nil)
+  }
+
+  @Test
   func `Reconcile preserves intrinsic dimensions after applied gaps`() throws {
     let config = Config()
     var state = RuntimeState(config: config)

@@ -310,6 +310,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.windowManagementCapabilities = newValue } }
   }
 
+  var nativeWindowTabGroupsByWindowID: [WindowID: NativeWindowTabGroup] {
+    get { read { $0.nativeWindowTabGroupsByWindowID } }
+    set { read { $0.nativeWindowTabGroupsByWindowID = newValue } }
+  }
+
   var enhancedUIByProcess: [pid_t: Bool] {
     get { read { $0.enhancedUIByProcess } }
     set { read { $0.enhancedUIByProcess = newValue } }
@@ -977,6 +982,47 @@ extension SnapshotEngine {
     return Rect(x: position.x, y: position.y, width: size.width, height: size.height)
   }
 
+  func nativeWindowTabGroup(
+    in element: AXUIElement,
+    windowFrame: Rect,
+    allowsTransientFrameMismatch: Bool = false
+  ) -> NativeWindowTabGroup? {
+    guard let children = copyElements(element, attribute: kAXChildrenAttribute) else {
+      return nil
+    }
+    for child in children {
+      guard value(child, attribute: kAXRoleAttribute, as: String.self) == kAXTabGroupRole,
+        let tabGroupFrame = frame(of: child),
+        allowsTransientFrameMismatch
+          || nativeTabGroupFrameIsInWindowChrome(
+            tabGroupFrame,
+            windowFrame: windowFrame
+          ),
+        let tabs = copyElements(child, attribute: kAXTabsAttribute),
+        tabs.count > 1
+      else { continue }
+      let selectedTabTitle: String?
+      if let selectedTabValue = copyAttribute(child, name: kAXValueAttribute),
+        CFGetTypeID(selectedTabValue) == AXUIElementGetTypeID()
+      {
+        selectedTabTitle = value(
+          selectedTabValue as! AXUIElement,
+          attribute: kAXTitleAttribute,
+          as: String.self
+        )
+      } else {
+        selectedTabTitle = nil
+      }
+      return NativeWindowTabGroup(
+        tabTitles: tabs.map {
+          value($0, attribute: kAXTitleAttribute, as: String.self) ?? ""
+        },
+        selectedTabTitle: selectedTabTitle
+      )
+    }
+    return nil
+  }
+
   func windowAttributes(
     _ element: AXUIElement,
     processID: pid_t
@@ -1103,6 +1149,7 @@ private struct Storage {
   var fallbackWindowAttributeReadCount = 0
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] =
     [:]
+  var nativeWindowTabGroupsByWindowID: [WindowID: NativeWindowTabGroup] = [:]
   var windowManagementMetadataReadCount = 0
   var windowManagementMetadataReuseCount = 0
   var privateWindowIDLookupCount = 0

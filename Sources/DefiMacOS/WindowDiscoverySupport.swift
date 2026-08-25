@@ -20,6 +20,230 @@ enum WindowDiscoveryResult {
   case discovered(Window, CGWindowID, RuleDecision)
 }
 
+func windowDiscoveryCandidateComesFirst(
+  lhsPreviousWindowID: WindowID?,
+  lhsIndex: Int,
+  rhsPreviousWindowID: WindowID?,
+  rhsIndex: Int
+) -> Bool {
+  if (lhsPreviousWindowID != nil) != (rhsPreviousWindowID != nil) {
+    return lhsPreviousWindowID != nil
+  }
+  return lhsIndex < rhsIndex
+}
+
+struct NativeWindowTabGroup: Equatable, Sendable {
+  let tabTitles: [String]
+  let selectedTabTitle: String?
+  var backingWindowIDs: Set<WindowID>
+
+  init(
+    tabTitles: [String],
+    selectedTabTitle: String? = nil,
+    backingWindowIDs: Set<WindowID> = []
+  ) {
+    self.tabTitles = tabTitles
+    self.selectedTabTitle = selectedTabTitle
+    self.backingWindowIDs = backingWindowIDs
+  }
+}
+
+func nativeTabGroupFrameIsInWindowChrome(
+  _ tabGroupFrame: Rect,
+  windowFrame: Rect
+) -> Bool {
+  let tabGroupRight = tabGroupFrame.x + tabGroupFrame.width
+  let windowRight = windowFrame.x + windowFrame.width
+  return tabGroupFrame.width > 0
+    && tabGroupFrame.height > 0
+    && tabGroupFrame.height <= 80
+    && tabGroupFrame.width >= windowFrame.width * 0.5
+    && tabGroupFrame.x >= windowFrame.x - 4
+    && tabGroupRight <= windowRight + 4
+    && (
+      abs(tabGroupFrame.x - windowFrame.x) <= 4
+        || abs(tabGroupRight - windowRight) <= 4
+    )
+    && tabGroupFrame.y >= windowFrame.y - 2
+    && tabGroupFrame.y + tabGroupFrame.height <= windowFrame.y + 96
+}
+
+func nativeWindowTabGroupRebindingKnownMembers(
+  _ detectedGroup: NativeWindowTabGroup,
+  representativeID: WindowID,
+  processID: pid_t,
+  previousGroupsByRepresentativeID: [WindowID: NativeWindowTabGroup],
+  previousProcessIDs: [WindowID: pid_t]
+) -> NativeWindowTabGroup {
+  if let previousGroup = previousGroupsByRepresentativeID[representativeID],
+    previousGroup.tabTitles.count <= detectedGroup.tabTitles.count
+  {
+    var rebound = detectedGroup
+    rebound.backingWindowIDs = previousGroup.backingWindowIDs
+    return rebound
+  }
+
+  let replacements = previousGroupsByRepresentativeID.filter {
+    previousRepresentativeID, previousGroup in
+    previousProcessIDs[previousRepresentativeID] == processID
+      && previousGroup.tabTitles.count == detectedGroup.tabTitles.count
+      && previousGroup.backingWindowIDs.contains(representativeID)
+  }
+  guard replacements.count == 1,
+    let replacement = replacements.first
+  else { return detectedGroup }
+
+  var reboundBackingWindowIDs = replacement.value.backingWindowIDs
+  reboundBackingWindowIDs.insert(replacement.key)
+  reboundBackingWindowIDs.remove(representativeID)
+  guard reboundBackingWindowIDs.count == detectedGroup.tabTitles.count
+    || reboundBackingWindowIDs.count + 1 == detectedGroup.tabTitles.count
+  else {
+    return detectedGroup
+  }
+  var rebound = detectedGroup
+  rebound.backingWindowIDs = reboundBackingWindowIDs
+  return rebound
+}
+
+func nativeWindowTabRepresentativeReplacements(
+  previousWindowIDs: Set<WindowID>,
+  nextWindowIDs: Set<WindowID>,
+  groupsByRepresentativeID: [WindowID: NativeWindowTabGroup]
+) -> [WindowID: WindowID] {
+  let removedWindowIDs = previousWindowIDs.subtracting(nextWindowIDs)
+  let candidates = nextWindowIDs.subtracting(previousWindowIDs).compactMap {
+    representativeID -> (WindowID, WindowID)? in
+    guard let group = groupsByRepresentativeID[representativeID] else {
+      return nil
+    }
+    let previousRepresentatives = group.backingWindowIDs.intersection(
+      removedWindowIDs
+    )
+    guard previousRepresentatives.count == 1,
+      let previousRepresentativeID = previousRepresentatives.first
+    else { return nil }
+    return (previousRepresentativeID, representativeID)
+  }
+  let candidateCounts = Dictionary(grouping: candidates, by: \.0).mapValues(\.count)
+  return Dictionary(
+    uniqueKeysWithValues: candidates.filter { candidateCounts[$0.0] == 1 }
+  )
+}
+
+func nativeTabBackingWindowIDsByRepresentative(
+  windows: [Window],
+  groupsByRepresentativeID: [WindowID: NativeWindowTabGroup],
+  retainedWindowIDs: Set<WindowID> = [],
+  additionalBackingWindowIDsByRepresentative: [WindowID: Set<WindowID>] = [:],
+  maximumFrameDistance: Double = 8
+) -> [WindowID: Set<WindowID>] {
+  let representatives = Set(groupsByRepresentativeID.keys)
+  let windowsByID = Dictionary(windows.map { ($0.id, $0) }) { current, _ in current }
+  let uniqueWindows = Array(windowsByID.values)
+  var backingWindowIDsByRepresentative: [WindowID: Set<WindowID>] = [:]
+  var claimedWindowIDs = Set<WindowID>()
+
+  for representativeID in representatives.sorted(by: { $0.rawValue < $1.rawValue }) {
+    guard let representative = windowsByID[representativeID],
+      let processID = representative.processID,
+      let group = groupsByRepresentativeID[representativeID],
+      group.tabTitles.isEmpty == false
+    else { continue }
+
+    var directTabTitles = group.tabTitles
+    if let selectedTabTitle = group.selectedTabTitle,
+      let selectedIndex = directTabTitles.firstIndex(of: selectedTabTitle)
+    {
+      directTabTitles.remove(at: selectedIndex)
+    } else {
+      directTabTitles = []
+    }
+    var interpretations: [(titles: [String], requiresRetention: Bool)] = []
+    if group.backingWindowIDs.count <= group.tabTitles.count
+    {
+      interpretations.append((group.tabTitles, false))
+    }
+    if directTabTitles.isEmpty == false,
+      group.backingWindowIDs.count <= directTabTitles.count
+    {
+      interpretations.append((directTabTitles, true))
+    }
+
+    func matchingBackingWindowIDs(
+      titles: [String],
+      requiresRetention: Bool
+    ) -> Set<WindowID>? {
+      var remainingTitles = Dictionary(grouping: titles, by: { $0 }).mapValues(\.count)
+      let knownBackingWindows = group.backingWindowIDs.compactMap { windowsByID[$0] }
+        .filter { window in
+          representatives.contains(window.id) == false
+            && claimedWindowIDs.contains(window.id) == false
+            && window.processID == processID
+            && window.role == representative.role
+            && window.subrole == representative.subrole
+        }
+      guard knownBackingWindows.count <= titles.count else { return nil }
+      var backingWindowIDs = Set(knownBackingWindows.map(\.id))
+      for window in knownBackingWindows {
+        guard let count = remainingTitles[window.title], count > 0 else {
+          return nil
+        }
+        remainingTitles[window.title] = count - 1
+      }
+      remainingTitles = remainingTitles.filter { $0.value > 0 }
+
+      let eligibleCandidates = uniqueWindows.filter { window in
+        window.id != representativeID
+          && representatives.contains(window.id) == false
+          && claimedWindowIDs.contains(window.id) == false
+          && backingWindowIDs.contains(window.id) == false
+          && window.processID == processID
+          && window.role == representative.role
+          && window.subrole == representative.subrole
+          && remainingTitles[window.title] != nil
+          && (
+            !requiresRetention
+              || retainedWindowIDs.contains(window.id)
+              || additionalBackingWindowIDsByRepresentative[representativeID]?
+                .contains(window.id) == true
+          )
+      }
+      let nearbyCandidates = eligibleCandidates.filter {
+        frameDistance($0.frame, representative.frame) <= maximumFrameDistance
+      }
+      let nearbyTitles = Dictionary(grouping: nearbyCandidates, by: \.title)
+        .mapValues(\.count)
+      let eligibleTitles = Dictionary(grouping: eligibleCandidates, by: \.title)
+        .mapValues(\.count)
+      let candidates: [Window]
+      if nearbyTitles == remainingTitles {
+        candidates = nearbyCandidates
+      } else if eligibleTitles == remainingTitles {
+        candidates = eligibleCandidates
+      } else {
+        return nil
+      }
+      backingWindowIDs.formUnion(candidates.lazy.map(\.id))
+      return backingWindowIDs.count == titles.count ? backingWindowIDs : nil
+    }
+
+    let matches = interpretations.compactMap {
+      matchingBackingWindowIDs(
+        titles: $0.titles,
+        requiresRetention: $0.requiresRetention
+      )
+    }
+    guard let backingWindowIDs = matches.first,
+      matches.dropFirst().allSatisfy({ $0 == backingWindowIDs })
+    else { continue }
+    backingWindowIDsByRepresentative[representativeID] = backingWindowIDs
+    claimedWindowIDs.formUnion(backingWindowIDs)
+  }
+
+  return backingWindowIDsByRepresentative
+}
+
 struct AXWindowAttributes: Sendable {
   let minimized: Bool?
   let frame: Rect?
