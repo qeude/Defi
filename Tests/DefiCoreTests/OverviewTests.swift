@@ -48,6 +48,48 @@ struct OverviewTests {
   }
 
   @Test
+  func `Adjacent active workspace projections retain entering and leaving ribbons`() {
+    let workspaceIDs = (1...9).map { WorkspaceID(rawValue: String($0)) }
+    let workspaces = workspaceIDs.map { Workspace(id: $0) }
+    func projection(activeIndex: Int) -> OverviewProjection {
+      projectOverview(
+        snapshot: OverviewSnapshot(
+          monitors: [
+            Monitor(
+              id: monitorID,
+              workspaces: workspaces,
+              activeWorkspace: workspaceIDs[activeIndex]
+            )
+          ],
+          monitorFrames: [monitorID: monitorFrame],
+          windows: [:]
+        ),
+        monitorID: monitorID,
+        bounds: monitorFrame,
+        viewport: OverviewViewport(),
+        layout: LayoutSettings()
+      )
+    }
+    let source = projection(activeIndex: 4)
+    let target = projection(activeIndex: 5)
+    let sourceIDs = Set(source.workspaces.map(\.workspaceID))
+    let targetIDs = Set(target.workspaces.map(\.workspaceID))
+    let isVisible: (OverviewWorkspaceProjection) -> Bool = {
+      $0.frame.y < monitorFrame.y + monitorFrame.height
+        && $0.frame.y + $0.frame.height > monitorFrame.y
+    }
+    let sourceVisibleIDs = Set(
+      source.workspaces.filter(isVisible).map(\.workspaceID)
+    )
+    let targetVisibleIDs = Set(
+      target.workspaces.filter(isVisible).map(\.workspaceID)
+    )
+
+    #expect(targetVisibleIDs.isSubset(of: sourceIDs))
+    #expect(sourceVisibleIDs.isSubset(of: targetIDs))
+  }
+
+  @Test
   func `Workspace projects as a centered half-height ribbon`() {
     let windowID = WindowID(rawValue: 1)
     let floatingID = WindowID(rawValue: 2)
@@ -307,6 +349,137 @@ struct OverviewTests {
     #expect(viewport.horizontalOffsets[first] == 1)
     #expect(viewport.horizontalOffsets[second] == 2)
     #expect(viewport.horizontalOffsets[third] == 3)
+  }
+
+  @Test
+  func `Projection interpolation follows reordered windows`() throws {
+    let workspaceID = WorkspaceID(rawValue: "dev")
+    let first = WindowID(rawValue: 1)
+    let second = WindowID(rawValue: 2)
+    func card(_ windowID: WindowID, x: Double, column: Int) -> OverviewWindowProjection {
+      OverviewWindowProjection(
+        windowID: windowID,
+        frame: Rect(x: x, y: 0, width: 100, height: 100),
+        layer: .tiled(columnIndex: column, windowIndex: 0),
+        isNativeFullscreen: false,
+        canDrag: true
+      )
+    }
+    func projection(_ windows: [OverviewWindowProjection]) -> OverviewProjection {
+      OverviewProjection(
+        monitorID: monitorID,
+        workspaces: [
+          OverviewWorkspaceProjection(
+            workspaceID: workspaceID,
+            frame: monitorFrame,
+            windows: windows
+          )
+        ]
+      )
+    }
+    let source = projection([
+      card(first, x: 0, column: 0),
+      card(second, x: 100, column: 1),
+    ])
+    let target = projection([
+      card(second, x: 0, column: 0),
+      card(first, x: 100, column: 1),
+    ])
+
+    let middle = interpolateOverviewProjection(from: source, to: target, progress: 0.5)
+    let windows = try #require(middle.workspaces.first?.windows)
+    let movedFirst = try #require(windows.first(where: { $0.windowID == first }))
+    let movedSecond = try #require(windows.first(where: { $0.windowID == second }))
+
+    #expect(movedFirst.frame.x == 50)
+    #expect(movedSecond.frame.x == 50)
+    #expect(movedFirst.layer == .tiled(columnIndex: 1, windowIndex: 0))
+
+    let returning = interpolateOverviewProjection(
+      from: target,
+      to: source,
+      progress: 0.5,
+      foregroundWindowID: first
+    )
+    #expect(
+      returning.hitTest(OverviewPoint(x: 50, y: 50))
+        == .window(windowID: first, monitorID: monitorID, workspaceID: workspaceID)
+    )
+  }
+
+  @Test
+  func `Projection interpolation follows a window between workspaces`() throws {
+    let firstWorkspace = WorkspaceID(rawValue: "1")
+    let secondWorkspace = WorkspaceID(rawValue: "2")
+    let windowID = WindowID(rawValue: 1)
+    let card = OverviewWindowProjection(
+      windowID: windowID,
+      frame: Rect(x: 0, y: 0, width: 100, height: 100),
+      layer: .tiled(columnIndex: 0, windowIndex: 0),
+      isNativeFullscreen: false,
+      canDrag: true
+    )
+    let source = OverviewProjection(
+      monitorID: monitorID,
+      workspaces: [
+        OverviewWorkspaceProjection(
+          workspaceID: firstWorkspace,
+          frame: Rect(x: 0, y: 0, width: 100, height: 100),
+          windows: [card]
+        ),
+        OverviewWorkspaceProjection(
+          workspaceID: secondWorkspace,
+          frame: Rect(x: 0, y: 100, width: 100, height: 100),
+          windows: []
+        ),
+      ]
+    )
+    let target = OverviewProjection(
+      monitorID: monitorID,
+      workspaces: [
+        OverviewWorkspaceProjection(
+          workspaceID: firstWorkspace,
+          frame: Rect(x: 0, y: 0, width: 100, height: 100),
+          windows: []
+        ),
+        OverviewWorkspaceProjection(
+          workspaceID: secondWorkspace,
+          frame: Rect(x: 0, y: 100, width: 100, height: 100),
+          windows: [
+            OverviewWindowProjection(
+              windowID: windowID,
+              frame: Rect(x: 0, y: 100, width: 100, height: 100),
+              layer: card.layer,
+              isNativeFullscreen: false,
+              canDrag: true
+            )
+          ]
+        ),
+      ]
+    )
+
+    let middle = interpolateOverviewProjection(
+      from: source,
+      to: target,
+      progress: 0.5,
+      foregroundWindowID: windowID
+    )
+    let start = interpolateOverviewProjection(
+      from: source,
+      to: target,
+      progress: 0,
+      foregroundWindowID: windowID
+    )
+
+    #expect(middle.workspaces[1].windows[0].frame.y == 50)
+    #expect(
+      start.hitTest(OverviewPoint(x: 50, y: 50))
+        == .window(
+          windowID: windowID,
+          monitorID: monitorID,
+          workspaceID: secondWorkspace
+        )
+    )
   }
 
   @Test

@@ -4,6 +4,28 @@ import Testing
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @Test("Overview parks windows when captured desktop is unavailable")
+  func overviewBackdropFallbackPolicy() {
+    #expect(
+      overviewUsesWorkspaceParking(
+        windowPreviewsEnabled: false,
+        screenCaptureAccessGranted: true
+      )
+    )
+    #expect(
+      overviewUsesWorkspaceParking(
+        windowPreviewsEnabled: true,
+        screenCaptureAccessGranted: false
+      )
+    )
+    #expect(
+      !overviewUsesWorkspaceParking(
+        windowPreviewsEnabled: true,
+        screenCaptureAccessGranted: true
+      )
+    )
+  }
+
   @Test
   func `Capture scheduler never exceeds its bound and preserves order`() async {
     let probe = CaptureProbe()

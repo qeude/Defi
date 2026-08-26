@@ -68,8 +68,22 @@ extension Daemon {
         self?.activeMonitorID = monitorID
       },
       openStateChanged: { [weak self] isOpen in
-        self?.hotKeys?.setOverviewModeEnabled(isOpen)
-        self?.platform.setWindowBordersSuppressed(isOpen)
+        guard let self else { return }
+        let parksWindows = overviewController?.usesWorkspaceParking == true
+        overviewOpenedAt = isOpen && parksWindows
+          ? ProcessInfo.processInfo.systemUptime
+          : nil
+        hotKeys?.setOverviewModeEnabled(isOpen)
+        platform.setWindowBordersSuppressed(isOpen)
+        if parksWindows {
+          applyCurrentLayout(
+            asynchronousPositions: true,
+            updateVisibility: true,
+            positionTimeoutSeconds: 0.05,
+            stagesVisibleBeforeParking: !isOpen,
+            source: isOpen ? "overview-park" : "overview-restore"
+          )
+        }
       }
     )
   }
