@@ -6,7 +6,7 @@ import Testing
 @Suite
 struct OverviewHotKeyTests {
   @Test
-  func `Overview captures unmodified and Hyper arrows`() {
+  func `Overview captures navigation arrows but leaves move bindings active`() {
     let hyper = hotKeyModifierBits([
       .maskAlternate,
       .maskCommand,
@@ -18,16 +18,37 @@ struct OverviewHotKeyTests {
       overviewKeyAction(
         keyCode: 123,
         modifierBits: hyper,
-        isConfiguredBinding: true
+        configuredCommand: "focus-column left"
       ) == .left
     )
     #expect(overviewKeyAction(keyCode: 123, modifierBits: hyper) == nil)
+    #expect(
+      overviewKeyAction(
+        keyCode: 123,
+        modifierBits: hyper | hotKeyModifierBits([.maskShift]),
+        configuredCommand: "move-column left"
+      ) == nil
+    )
+    #expect(
+      overviewKeyAction(
+        keyCode: 126,
+        modifierBits: hyper | hotKeyModifierBits([.maskShift]),
+        configuredCommand: "move-window up"
+      ) == .moveUp
+    )
+    #expect(
+      overviewKeyAction(
+        keyCode: 125,
+        modifierBits: hyper | hotKeyModifierBits([.maskShift]),
+        configuredCommand: "move-window down"
+      ) == .moveDown
+    )
     #expect(overviewKeyAction(keyCode: 36, modifierBits: 0) == .select)
     #expect(
       overviewKeyAction(
         keyCode: 36,
         modifierBits: hyper,
-        isConfiguredBinding: true
+        configuredCommand: "focus-column left"
       ) == nil
     )
     #expect(overviewKeyAction(keyCode: 53, modifierBits: 0) == .cancel)

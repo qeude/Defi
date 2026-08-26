@@ -76,19 +76,113 @@ public func interpolateOverviewViewport(
   )
 }
 
+public func interpolateOverviewProjection(
+  from: OverviewProjection,
+  to: OverviewProjection,
+  progress: Double,
+  foregroundWindowID: WindowID? = nil
+) -> OverviewProjection {
+  guard from.monitorID == to.monitorID else { return to }
+  let progress = min(max(progress, 0), 1)
+  let sourceWorkspaces = Dictionary(
+    uniqueKeysWithValues: from.workspaces.map { ($0.workspaceID, $0) }
+  )
+  let sourceWindows = Dictionary(
+    uniqueKeysWithValues: from.workspaces.flatMap(\.windows).map { ($0.windowID, $0) }
+  )
+  let sourceWorkspaceID = from.workspaces.first(where: { workspace in
+    workspace.windows.contains(where: { $0.windowID == foregroundWindowID })
+  })?.workspaceID
+  let targetWorkspaceID = to.workspaces.first(where: { workspace in
+    workspace.windows.contains(where: { $0.windowID == foregroundWindowID })
+  })?.workspaceID
+  let overlayWindowID = sourceWorkspaceID != targetWorkspaceID
+    ? foregroundWindowID
+    : nil
+  return OverviewProjection(
+    monitorID: to.monitorID,
+    workspaces: to.workspaces.map { targetWorkspace in
+      guard let sourceWorkspace = sourceWorkspaces[targetWorkspace.workspaceID]
+      else { return targetWorkspace }
+      var windows = targetWorkspace.windows.map { targetWindow in
+        guard let sourceWindow = sourceWindows[targetWindow.windowID]
+        else { return targetWindow }
+        return OverviewWindowProjection(
+          windowID: targetWindow.windowID,
+          frame: interpolateOverviewRect(
+            from: sourceWindow.frame,
+            to: targetWindow.frame,
+            progress: progress
+          ),
+          layer: targetWindow.layer,
+          isNativeFullscreen: targetWindow.isNativeFullscreen,
+          canDrag: targetWindow.canDrag
+        )
+      }
+      if let foregroundWindowID,
+        let index = windows.firstIndex(where: { $0.windowID == foregroundWindowID })
+      {
+        windows.append(windows.remove(at: index))
+      }
+      return OverviewWorkspaceProjection(
+        workspaceID: targetWorkspace.workspaceID,
+        frame: interpolateOverviewRect(
+          from: sourceWorkspace.frame,
+          to: targetWorkspace.frame,
+          progress: progress
+        ),
+        windows: windows,
+        hiddenTiledWindowCountBefore: targetWorkspace.hiddenTiledWindowCountBefore,
+        hiddenTiledWindowCountAfter: targetWorkspace.hiddenTiledWindowCountAfter
+      )
+    },
+    overlayWindowID: overlayWindowID
+  )
+}
+
+private func interpolateOverviewRect(
+  from: Rect,
+  to: Rect,
+  progress: Double
+) -> Rect {
+  Rect(
+    x: from.x + (to.x - from.x) * progress,
+    y: from.y + (to.y - from.y) * progress,
+    width: from.width + (to.width - from.width) * progress,
+    height: from.height + (to.height - from.height) * progress
+  )
+}
+
 public struct OverviewProjection: Equatable, Sendable {
   public let monitorID: MonitorID
   public let workspaces: [OverviewWorkspaceProjection]
+  public let overlayWindowID: WindowID?
 
   public init(
     monitorID: MonitorID,
-    workspaces: [OverviewWorkspaceProjection]
+    workspaces: [OverviewWorkspaceProjection],
+    overlayWindowID: WindowID? = nil
   ) {
     self.monitorID = monitorID
     self.workspaces = workspaces
+    self.overlayWindowID = overlayWindowID
   }
 
   public func hitTest(_ point: OverviewPoint) -> OverviewHit? {
+    if let overlayWindowID,
+      let workspace = workspaces.first(where: { workspace in
+        workspace.windows.contains(where: { $0.windowID == overlayWindowID })
+      }),
+      let window = workspace.windows.first(where: {
+        $0.windowID == overlayWindowID && $0.frame.contains(point)
+      })
+    {
+      return .window(
+        windowID: window.windowID,
+        monitorID: monitorID,
+        workspaceID: workspace.workspaceID
+      )
+    }
     for workspace in workspaces.reversed() {
       for window in workspace.windows.reversed()
       where window.frame.contains(point) && workspace.frame.contains(point) {
@@ -207,6 +301,12 @@ public func projectOverview(
   )
   let workspaceHeight = stride - workspaceGap
   let contentScale = workspaceHeight / monitorFrame.height
+  let projectionBounds = Rect(
+    x: bounds.x,
+    y: bounds.y - stride,
+    width: bounds.width,
+    height: bounds.height + stride * 2
+  )
   let windows = Array(snapshot.windows.values)
   var projected: [OverviewWorkspaceProjection] = []
 
@@ -219,7 +319,7 @@ public func projectOverview(
       width: workspaceWidth,
       height: workspaceHeight
     )
-    guard workspaceFrame.intersects(bounds) else { continue }
+    guard workspaceFrame.intersects(projectionBounds) else { continue }
 
     var workspace = originalWorkspace
     workspace.scrollOffset = viewport.horizontalOffsets[workspace.id]

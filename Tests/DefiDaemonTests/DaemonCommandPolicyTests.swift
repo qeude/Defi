@@ -6,6 +6,26 @@ import Testing
 
 struct DaemonCommandPolicyTests {
   @Test
+  func overviewIgnoresParkingFocusWithoutNewFocusInput() {
+    #expect(
+      !shouldCloseOverviewAfterNativeFocusChange(
+        nativeFocusChanged: true,
+        overviewOpenedAt: 10,
+        mouseFocusIntentTimestamp: 9,
+        keyboardFocusIntentTimestamp: nil
+      )
+    )
+    #expect(
+      shouldCloseOverviewAfterNativeFocusChange(
+        nativeFocusChanged: true,
+        overviewOpenedAt: 10,
+        mouseFocusIntentTimestamp: nil,
+        keyboardFocusIntentTimestamp: 11
+      )
+    )
+  }
+
+  @Test
   func localCommandResubmitsMonitorsWithInFlightAnimation() {
     let animatedMonitor = MonitorID(rawValue: 1)
     let commandMonitor = MonitorID(rawValue: 2)

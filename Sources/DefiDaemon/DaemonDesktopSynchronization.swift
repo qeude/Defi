@@ -7,6 +7,18 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
+func shouldCloseOverviewAfterNativeFocusChange(
+  nativeFocusChanged: Bool,
+  overviewOpenedAt: TimeInterval?,
+  mouseFocusIntentTimestamp: TimeInterval?,
+  keyboardFocusIntentTimestamp: TimeInterval?
+) -> Bool {
+  guard nativeFocusChanged else { return false }
+  guard let overviewOpenedAt else { return true }
+  return max(mouseFocusIntentTimestamp ?? 0, keyboardFocusIntentTimestamp ?? 0)
+    > overviewOpenedAt
+}
+
 @MainActor
 extension Daemon {
   func synchronizeDesktop(
@@ -64,7 +76,12 @@ extension Daemon {
       }
     }
     let snapshotCompletedAt = ProcessInfo.processInfo.systemUptime
-    if snapshot.nativeFocusChanged {
+    if shouldCloseOverviewAfterNativeFocusChange(
+      nativeFocusChanged: snapshot.nativeFocusChanged,
+      overviewOpenedAt: overviewOpenedAt,
+      mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
+      keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp
+    ) {
       overviewController?.close()
     }
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(

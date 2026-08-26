@@ -374,7 +374,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
       let action = overviewKeyAction(
         keyCode: code,
         modifierBits: key.modifierBits,
-        isConfiguredBinding: bindings[key] != nil
+        configuredCommand: bindings[key]
       )
     {
       lock.lock()

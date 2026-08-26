@@ -117,4 +117,25 @@ struct OverviewScrollTests {
       ) < 0.000_001
     )
   }
+
+  @Test
+  func `Moving a selection clamps its source ribbon and discards the stale target`() {
+    let sourceWorkspaceID = WorkspaceID(rawValue: "dev")
+    let transition = overviewViewportTransitionAfterSelectionAlignment(
+      current: OverviewViewport(horizontalOffsets: [workspaceID: 0, sourceWorkspaceID: 2]),
+      pendingTarget: OverviewViewport(
+        horizontalOffsets: [workspaceID: 0, sourceWorkspaceID: 2]
+      ),
+      animationTarget: nil,
+      workspaceID: workspaceID,
+      scrollOffset: 1,
+      sourceWorkspaceID: sourceWorkspaceID,
+      sourceMaximumHorizontalOffset: 1,
+      movedSelection: true
+    )
+
+    #expect(transition.current.horizontalOffsets[workspaceID] == 1)
+    #expect(transition.current.horizontalOffsets[sourceWorkspaceID] == 1)
+    #expect(transition.target == nil)
+  }
 }

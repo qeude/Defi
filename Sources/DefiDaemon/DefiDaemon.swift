@@ -167,6 +167,7 @@ final class Daemon: NSObject {
   var placementSaveWorkItem: DispatchWorkItem?
   var hotKeys: HotKeyManager?
   var overviewController: OverviewController?
+  var overviewOpenedAt: TimeInterval?
   var menuBar: MenuBarController?
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
   var lastWorkspacePublishState: RuntimeState?

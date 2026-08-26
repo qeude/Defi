@@ -30,6 +30,8 @@ public enum OverviewKeyAction: Equatable, Sendable {
   case right
   case up
   case down
+  case moveUp
+  case moveDown
   case select
   case cancel
 }
@@ -37,13 +39,20 @@ public enum OverviewKeyAction: Equatable, Sendable {
 func overviewKeyAction(
   keyCode: CGKeyCode,
   modifierBits: UInt64,
-  isConfiguredBinding: Bool = false
+  configuredCommand: String? = nil
 ) -> OverviewKeyAction? {
+  let commandName = configuredCommand?.split(whereSeparator: \.isWhitespace).first
+  let navigatesOverview =
+    modifierBits == 0
+    || commandName == "focus-column"
+    || commandName == "focus-window"
   return switch keyCode {
-  case 123 where modifierBits == 0 || isConfiguredBinding: .left
-  case 124 where modifierBits == 0 || isConfiguredBinding: .right
-  case 125 where modifierBits == 0 || isConfiguredBinding: .down
-  case 126 where modifierBits == 0 || isConfiguredBinding: .up
+  case 125 where commandName == "move-window": .moveDown
+  case 126 where commandName == "move-window": .moveUp
+  case 123 where navigatesOverview: .left
+  case 124 where navigatesOverview: .right
+  case 125 where navigatesOverview: .down
+  case 126 where navigatesOverview: .up
   case 36 where modifierBits == 0: .select
   case 76 where modifierBits == 0: .select
   case 53 where modifierBits == 0: .cancel
