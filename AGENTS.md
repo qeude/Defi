@@ -146,7 +146,8 @@ the installed build with Computer Use.
 
 Use conventional branch names in `type/short-kebab-description` form. Prefer
 `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, or `chore` as type.
-Use English commit and PR text. Preserve user changes. Never revert unrelated work.
+Write repository documentation, comments, commit messages, and PR text in English.
+Preserve user changes. Never revert unrelated work.
 
 ## Agent skills
 
