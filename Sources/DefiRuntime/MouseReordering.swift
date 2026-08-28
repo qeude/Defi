@@ -449,10 +449,13 @@ public func desktopSynchronizationIsReady(
   periodicSyncDue: Bool,
   commandQuietPeriodElapsed: Bool,
   nativeFocusSyncPending: Bool = false,
+  nativeFocusHasNewerHumanIntent: Bool = true,
   frameDebtPending: Bool = false,
   lifecycleEventPending: Bool = false
 ) -> Bool {
-  guard !scrollAnimationActive || nativeFocusSyncPending,
+  let nativeFocusPreemptsAnimation =
+    nativeFocusSyncPending && nativeFocusHasNewerHumanIntent
+  guard !scrollAnimationActive || nativeFocusPreemptsAnimation,
     commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending
       || frameDebtPending || lifecycleEventPending,
     needsDesktopSync || periodicSyncDue
@@ -460,7 +463,7 @@ public func desktopSynchronizationIsReady(
     return false
   }
   return !animatedWritesPending
-    || nativeFocusSyncPending
+    || nativeFocusPreemptsAnimation
     || (mouseGestureSyncPending && needsDesktopSync)
 }
 

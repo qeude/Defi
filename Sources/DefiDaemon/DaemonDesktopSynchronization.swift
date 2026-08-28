@@ -19,6 +19,18 @@ func shouldCloseOverviewAfterNativeFocusChange(
     > overviewOpenedAt
 }
 
+func desktopSnapshotWaitsForCommandAnimation(
+  animationPending: Bool,
+  latestCommandInputTimestamp: TimeInterval,
+  mouseFocusIntentTimestamp: TimeInterval?,
+  keyboardFocusIntentTimestamp: TimeInterval?,
+  mouseGestureActive: Bool = false
+) -> Bool {
+  guard animationPending, !mouseGestureActive else { return false }
+  return max(mouseFocusIntentTimestamp ?? 0, keyboardFocusIntentTimestamp ?? 0)
+    <= latestCommandInputTimestamp
+}
+
 @MainActor
 extension Daemon {
   func synchronizeDesktop(
@@ -669,26 +681,36 @@ extension Daemon {
     } else {
       nativeCursorWarpIsCurrentAfterCommit = nil
     }
-    applyCurrentLayout(
-      asynchronousPositions: true,
-      updateVisibility: true,
-      positionTimeoutSeconds: 0.05,
-      animationDuration: animatesMouseReorder
-        ? TimeInterval(config.animation.durationMS) / 1_000
-        : 0,
-      skipping: nativeFocusSkippedWindowIDs,
-      positionsOnly: animatesMouseReorder,
-      stagesVisibleBeforeParking: nativelyActivatedWorkspace,
-      cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
-      cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
-      cursorWarpIsCurrentAfterCommit:
-        nativeCursorWarpIsCurrentAfterCommit,
-      forceFloatingFrameWrites: displayGeometryChanged,
-      forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs,
-      source: nativelyActivatedWorkspace
-        ? "native-workspace"
-        : (animatesMouseReorder ? "mouse-reorder-animation" : "desktop-sync")
-    )
+    if desktopSnapshotWaitsForCommandAnimation(
+      animationPending: platform.hasPendingAnimatedFrameWrites,
+      latestCommandInputTimestamp: latestCommandInputTimestamp,
+      mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
+      keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
+      mouseGestureActive: mouseResizeGestureActive
+    ) {
+      needsDesktopSync = true
+    } else {
+      applyCurrentLayout(
+        asynchronousPositions: true,
+        updateVisibility: true,
+        positionTimeoutSeconds: 0.05,
+        animationDuration: animatesMouseReorder
+          ? TimeInterval(config.animation.durationMS) / 1_000
+          : 0,
+        skipping: nativeFocusSkippedWindowIDs,
+        positionsOnly: animatesMouseReorder,
+        stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+        cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
+        cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
+        cursorWarpIsCurrentAfterCommit:
+          nativeCursorWarpIsCurrentAfterCommit,
+        forceFloatingFrameWrites: displayGeometryChanged,
+        forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs,
+        source: nativelyActivatedWorkspace
+          ? "native-workspace"
+          : (animatesMouseReorder ? "mouse-reorder-animation" : "desktop-sync")
+      )
+    }
     if let guardedRemovalFocus {
       platform.focus(
         guardedRemovalFocus.windowID,

@@ -132,7 +132,12 @@ struct TransientReconciliationTests {
     let sourceMonitor = MonitorID(rawValue: 1)
     let targetMonitor = MonitorID(rawValue: 2)
     let web = WorkspaceID(rawValue: "web")
-    let config = Config(workspaces: WorkspacesConfig(names: ["dev", web.rawValue]))
+    let config = Config(
+      workspaces: WorkspacesConfig(
+        names: ["dev", web.rawValue],
+        monitors: [web.rawValue: 2]
+      )
+    )
     var state = RuntimeState(config: config)
     state.attachMonitor(sourceMonitor)
     state.attachMonitor(targetMonitor)
@@ -287,7 +292,12 @@ struct TransientReconciliationTests {
   func delayedOwnershipRelocatesTransientToOwnerWorkspace() throws {
     let firstMonitor = MonitorID(rawValue: 1)
     let secondMonitor = MonitorID(rawValue: 2)
-    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    let config = Config(
+      workspaces: WorkspacesConfig(
+        names: ["dev", "web"],
+        monitors: ["web": 2]
+      )
+    )
     var state = RuntimeState(config: config)
     state.attachMonitor(firstMonitor)
     state.attachMonitor(secondMonitor)
@@ -335,7 +345,8 @@ struct TransientReconciliationTests {
     #expect(relocated == [transient.id])
     #expect(location.monitorID == secondMonitor)
     #expect(location.workspaceID == WorkspaceID(rawValue: "web"))
-    #expect(state.monitors.allSatisfy { $0.activeWorkspace.rawValue == "dev" })
+    #expect(state.monitors[0].activeWorkspace.rawValue == "dev")
+    #expect(state.monitors[1].workspaces.last?.id == state.monitors[1].activeWorkspace)
 
     var selectedTransient = Window(
       id: WindowID(rawValue: 4),

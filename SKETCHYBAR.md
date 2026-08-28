@@ -23,8 +23,8 @@ Source the integration near the end of `~/.config/sketchybar/sketchybarrc`:
 source "$CONFIG_DIR/defi.sh"
 ```
 
-Reload SketchyBar. The setup creates one item for every Defi workspace on every
-display. A hidden observer reconciles items after display connection or
+Reload SketchyBar. The setup creates one item for every workspace currently
+owned by each display. A hidden observer reconciles dynamic workspaces after display connection or
 disconnection. Clicking an item targets that display, including when another
 display currently owns focus.
 
@@ -73,11 +73,13 @@ The versioned JSON contains:
 - focused monitor ID;
 - AppKit/SketchyBar display index;
 - active workspace per display;
+- stable workspace ID, 1-based position, optional name, and `named`, `ordinary`,
+  or `trailing` kind;
 - window count and occupied state;
 - bundle identifiers present on every workspace;
 - focused application per active workspace.
 
-`defi list-workspaces` without `--json` prints configured workspace names once.
+`defi list-workspaces` without `--json` prints current labels per display.
 Distributed notifications contain the same JSON object in SketchyBar's `$INFO`
 variable. Defi emits only when this state changes.
 

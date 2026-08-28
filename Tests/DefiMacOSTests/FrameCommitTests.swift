@@ -18,6 +18,61 @@ struct FrameCommitTests {
   )
 
   @Test
+  func `Animation lane keeps only its latest pending sample`() {
+    var lane = LatestAnimationSampleState<Int>()
+
+    #expect(lane.submit(1).startsDrain)
+    #expect(lane.submit(2).startsDrain == false)
+    let latest = lane.submit(3)
+    #expect(latest.startsDrain == false)
+    #expect(latest.displaced == 2)
+    #expect(lane.takeNext() == 3)
+    #expect(lane.takeNext() == nil)
+    #expect(lane.isRunning == false)
+  }
+
+  @Test
+  func `Workspace animation accepts an adaptively sampled AX lane`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.predictedProcessLatencyMS[42] = 12
+    coordinator.predictedProcessLatencyMS[43] = 90
+
+    #expect(
+      coordinator.animationSupportsIntermediateFrames(
+        processIDs: [42],
+        animationDuration: 0.18,
+        refreshRateHz: 120
+      ))
+    #expect(
+      coordinator.animationSupportsIntermediateFrames(
+        processIDs: [43],
+        animationDuration: 0.18,
+        refreshRateHz: 120
+      ) == false)
+  }
+
+  @Test
+  func `Vertical reentry ignores cross-axis drift and leaving windows`() {
+    let candidateStart = CGPoint(x: 8, y: 20)
+    let candidateTarget = Rect(x: 10, y: -880, width: 800, height: 700)
+
+    #expect(
+      reentryTransitionDelta(
+        reentryStart: CGPoint(x: 1_600, y: 20),
+        reentryTarget: Rect(x: 10, y: 20, width: 800, height: 700),
+        candidateStart: candidateStart,
+        candidateTarget: candidateTarget
+      ) == CGPoint(x: 0, y: -900))
+    #expect(
+      reentryTransitionDelta(
+        reentryStart: candidateStart,
+        reentryTarget: candidateTarget,
+        candidateStart: candidateStart,
+        candidateTarget: candidateTarget
+      ) == nil)
+  }
+
+  @Test
   func `Reverse retarget uses last completed position during observation lag`() {
     let staleObserved = Rect(x: 900, y: 40, width: 800, height: 700)
     let completed = CGPoint(x: 100, y: 40)
@@ -68,31 +123,6 @@ struct FrameCommitTests {
         observed: [windowID: fresh],
         debtWindowIDs: [windowID]
       )[windowID] == fresh)
-  }
-
-  @Test
-  func `Display link activation rejects older generation and stale request`() {
-    #expect(
-      displayLinkActivationIsCurrent(
-        generation: 4,
-        latestGeneration: 4,
-        requestID: 8,
-        latestRequestID: 8
-      ))
-    #expect(
-      displayLinkActivationIsCurrent(
-        generation: 3,
-        latestGeneration: 4,
-        requestID: 7,
-        latestRequestID: 8
-      ) == false)
-    #expect(
-      displayLinkActivationIsCurrent(
-        generation: 4,
-        latestGeneration: 4,
-        requestID: 7,
-        latestRequestID: 8
-      ) == false)
   }
 
   @Test
@@ -1048,6 +1078,31 @@ struct FrameCommitTests {
   }
 
   @Test
+  func `Final workspace writes defer enhanced UI restoration`() {
+    #expect(
+      defersEnhancedUIRestore(
+        stagesVisibleBeforeParking: true,
+        isIntermediate: false,
+        enhancedUIWasEnabled: true,
+        positionChanged: true
+      ))
+    #expect(
+      defersEnhancedUIRestore(
+        stagesVisibleBeforeParking: true,
+        isIntermediate: true,
+        enhancedUIWasEnabled: true,
+        positionChanged: true
+      ) == false)
+    #expect(
+      defersEnhancedUIRestore(
+        stagesVisibleBeforeParking: false,
+        isIntermediate: false,
+        enhancedUIWasEnabled: true,
+        positionChanged: true
+      ) == false)
+  }
+
+  @Test
   func `Deferred focus only applies to current selection`() {
     let target = WindowID(rawValue: 1)
 
@@ -1283,5 +1338,21 @@ struct FrameCommitTests {
         to: Rect(x: 40, y: 20, width: 1_000, height: 800),
         progress: 0.25
       ) == Rect(x: 85, y: 35, width: 700, height: 725))
+  }
+
+  @Test
+  func `Matching vertical reentry start skips staging`() {
+    #expect(
+      reentryStartRequiresStaging(
+        observed: CGPoint(x: 4, y: 899),
+        planned: CGPoint(x: 4, y: 899)
+      ) == false
+    )
+    #expect(
+      reentryStartRequiresStaging(
+        observed: CGPoint(x: 1_511, y: 37),
+        planned: CGPoint(x: 4, y: 899)
+      )
+    )
   }
 }

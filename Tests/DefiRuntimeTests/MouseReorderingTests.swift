@@ -457,6 +457,17 @@ struct MouseReorderingTests {
         commandQuietPeriodElapsed: false,
         nativeFocusSyncPending: true
       ))
+    #expect(
+      desktopSynchronizationIsReady(
+        scrollAnimationActive: false,
+        animatedWritesPending: true,
+        mouseGestureSyncPending: false,
+        needsDesktopSync: true,
+        periodicSyncDue: false,
+        commandQuietPeriodElapsed: false,
+        nativeFocusSyncPending: true,
+        nativeFocusHasNewerHumanIntent: false
+      ) == false)
   }
 
   @Test

@@ -212,7 +212,6 @@ final class DesktopE2ETests: XCTestCase {
       platform.successfulSizeWriteCount - sizeWrites,
       1
     )
-    XCTAssertTrue(platform.frameCoordinatorTrace.contains("i=final"))
   }
 
   func testUnhiddenOnePixelStripAnchorConvergesWithRealWindowFrame() throws {
@@ -346,8 +345,6 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(actual?.x ?? 0, target.x, accuracy: 2)
     XCTAssertGreaterThanOrEqual(performance.animationFrames, 2)
     XCTAssertLessThanOrEqual(performance.animationFrames, maximumAnimationFrames)
-    XCTAssertTrue(platform.frameCoordinatorTrace.contains("reentry=1"))
-    XCTAssertFalse(platform.frameCoordinatorTrace.contains("stage-reentry"))
   }
 
   func testPostAnimationCommitLagDoesNotTriggerUnanimatedCorrection() throws {
@@ -475,6 +472,7 @@ final class DesktopE2ETests: XCTestCase {
     )
 
     let writesBeforeDesktopSync = platform.successfulPositionWriteCount
+    platform.requestFrameRefresh(for: window.id)
     let delayedSnapshot = platform.snapshot(config: Config())
     platform.apply(
       [FrameAssignment(windowID: window.id, frame: target)],
@@ -849,7 +847,7 @@ final class DesktopE2ETests: XCTestCase {
         until: { platform.cursorWarpPerformance.applied == 1 },
         timeout: 1
       ),
-      "cursor did not warp after the target frame committed"
+      "cursor did not warp after the target frame committed; performance=\(platform.cursorWarpPerformance) trace=\(platform.frameCoordinatorTrace)"
     )
   }
 

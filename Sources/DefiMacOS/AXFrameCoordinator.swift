@@ -26,6 +26,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
     label: "com.quentin.defi.ax-frame-coordinator",
     qos: .userInteractive
   )
+  let animationClockQueue = DispatchQueue(
+    label: "com.quentin.defi.animation-clock",
+    qos: .userInteractive
+  )
   let finalOnlyAnimationQueue = DispatchQueue(
     label: "com.quentin.defi.ax-final-only-animation",
     qos: .userInitiated
@@ -35,9 +39,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
     qos: .utility
   )
   let parkingSettlementGroup = DispatchGroup()
+  let animationLaneWriteGroup = DispatchGroup()
   let lock = NSLock()
+  let animationLaneLock = NSLock()
   let accessibilityWriter = AXFrameAccessibilityWriter()
-  let displayLinkClock = DisplayLinkClock()
   var pending: QueuedPositionFrame?
   var nextGeneration: UInt64 = 0
   var latestGeneration: UInt64 = 0
@@ -82,6 +87,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var latencySensitiveProcessIDs = Set<pid_t>()
   var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
+  var processAnimationLanes:
+    [pid_t: LatestAnimationSampleState<ProcessAnimationSample>] = [:]
+  var nextEnhancedUIRestoreToken: UInt64 = 0
+  var deferredEnhancedUIRestores:
+    [pid_t: (token: UInt64, application: AXUIElement)] = [:]
   var immediateReadbackProcessDeadlines: [pid_t: TimeInterval] = [:]
   var liveBorderWindowID: WindowID?
 
@@ -119,11 +129,6 @@ final class AXFrameCoordinator: @unchecked Sendable {
     defer { lock.unlock() }
     immediateReadbackProcessDeadlines[processID] =
       ProcessInfo.processInfo.systemUptime + duration
-  }
-
-  @MainActor
-  func startDisplayLink() {
-    displayLinkClock.start()
   }
 
   func updateParkingTargets(_ targets: [WindowID: AsyncPositionWrite]) {
@@ -238,8 +243,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func invalidateAndWaitForWrites() {
     invalidate(reason: "synchronous-restore")
     queue.sync {}
+    animationLaneWriteGroup.wait()
     parkingSettlementGroup.wait()
     parkingSettlementQueue.sync {}
+    restoreDeferredEnhancedUserInterfaces()
   }
 
   func submit(
@@ -328,8 +335,13 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   var isBusy: Bool {
     lock.lock()
-    defer { lock.unlock() }
-    return running || pending != nil || !deferredParkingWriteGenerations.isEmpty
+    let coordinatorIsBusy =
+      running || pending != nil || !deferredParkingWriteGenerations.isEmpty
+    lock.unlock()
+    animationLaneLock.lock()
+    let lanesAreBusy = !processAnimationLanes.isEmpty
+    animationLaneLock.unlock()
+    return coordinatorIsBusy || lanesAreBusy
   }
 
   func isBusy(for windowID: WindowID) -> Bool {
@@ -552,10 +564,22 @@ final class AXFrameCoordinator: @unchecked Sendable {
     let retiredQueues = processWriteQueues.filter {
       !liveProcessIDs.contains($0.key)
     }
+    let retiredEnhancedUIRestores = deferredEnhancedUIRestores.filter {
+      !liveProcessIDs.contains($0.key)
+    }
     for processID in retiredQueues.keys {
       processWriteQueues[processID] = nil
     }
+    for processID in retiredEnhancedUIRestores.keys {
+      deferredEnhancedUIRestores[processID] = nil
+    }
     lock.unlock()
+    for restore in retiredEnhancedUIRestores.values {
+      accessibilityWriter.setEnhancedUserInterface(
+        true,
+        application: restore.application
+      )
+    }
     // Drain outside the lock: pending work items observe the empty queue map
     // and their writes are generation-checked, so they become no-ops.
     for (_, queue) in retiredQueues {

@@ -11,6 +11,12 @@ public enum Direction: String, Equatable, Codable, Sendable {
   case last
 }
 
+public enum WorkspaceTarget: Equatable, Codable, Sendable {
+  case relative(Direction)
+  case position(Int)
+  case named(String)
+}
+
 public enum Command: Equatable, Codable, Sendable {
   case focusColumn(Direction)
   case focusFloating(Direction)
@@ -22,6 +28,12 @@ public enum Command: Equatable, Codable, Sendable {
   case moveWindowToWorkspace(WorkspaceID)
   case sendWindowToWorkspace(WorkspaceID)
   case switchWorkspace(WorkspaceID)
+  case focusWorkspace(WorkspaceTarget)
+  case moveColumnToWorkspace(WorkspaceTarget, follow: Bool)
+  case moveWindowToWorkspaceTarget(WorkspaceTarget, follow: Bool)
+  case reorderWorkspace(Direction)
+  case moveWorkspaceToMonitor(Direction)
+  case focusMonitor(Direction)
   case cycleWidth(Direction)
   case maximizeColumn
   case toggleFloating
@@ -34,7 +46,7 @@ public enum Command: Equatable, Codable, Sendable {
   public var resizesManagedLayout: Bool {
     switch self {
     case .cycleWidth, .maximizeColumn, .joinWindow, .unjoinWindows,
-      .moveColumnToMonitor, .moveWindowToMonitor:
+      .moveColumnToMonitor, .moveWindowToMonitor, .moveWorkspaceToMonitor:
       true
     default:
       false
@@ -43,7 +55,10 @@ public enum Command: Equatable, Codable, Sendable {
 
   public var activatesWorkspace: Bool {
     switch self {
-    case .switchWorkspace, .moveWindowToWorkspace:
+    case .switchWorkspace, .moveWindowToWorkspace, .focusWorkspace,
+      .moveColumnToWorkspace(_, follow: true),
+      .moveWindowToWorkspaceTarget(_, follow: true), .moveWorkspaceToMonitor,
+      .focusMonitor:
       true
     default:
       false
@@ -52,7 +67,8 @@ public enum Command: Equatable, Codable, Sendable {
 
   public var movesWindowBetweenWorkspaces: Bool {
     switch self {
-    case .moveWindowToWorkspace, .sendWindowToWorkspace:
+    case .moveWindowToWorkspace, .sendWindowToWorkspace,
+      .moveColumnToWorkspace, .moveWindowToWorkspaceTarget:
       true
     default:
       false
@@ -70,7 +86,20 @@ public enum Command: Equatable, Codable, Sendable {
 
   public var movesWindowsAcrossMonitors: Bool {
     switch self {
-    case .moveColumnToMonitor, .moveWindowToMonitor:
+    case .moveColumnToMonitor, .moveWindowToMonitor, .moveWorkspaceToMonitor,
+      .moveWindowToWorkspace, .sendWindowToWorkspace,
+      .moveColumnToWorkspace, .moveWindowToWorkspaceTarget:
+      true
+    default:
+      false
+    }
+  }
+
+  public var followsWindowMove: Bool {
+    switch self {
+    case .moveColumnToMonitor, .moveWindowToMonitor, .moveWindowToWorkspace,
+      .moveColumnToWorkspace(_, follow: true),
+      .moveWindowToWorkspaceTarget(_, follow: true), .moveWorkspaceToMonitor:
       true
     default:
       false

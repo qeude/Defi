@@ -6,6 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
+private let enhancedUIRestoreDelay: TimeInterval = 0.12
 
 extension AXFrameCoordinator {
   func applyFrame(
@@ -42,22 +43,11 @@ extension AXFrameCoordinator {
         )
         lock.unlock()
       }
-      let orderedWrites = frame.writes
-        .filter { phase.contains($0.key) }
-        .sorted {
-          if $0.value.processID != $1.value.processID {
-            return $0.value.processID < $1.value.processID
-          }
-          return $0.key.rawValue < $1.key.rawValue
-        }
-      let batches = Dictionary(
-        grouping: orderedWrites.filter {
-          !skippedProcesses.contains($0.value.processID)
-        },
-        by: \.value.processID
-      ).map {
-        ProcessWriteBatch(processID: $0.key, writes: $0.value)
-      }.sorted { $0.processID < $1.processID }
+      let batches = processWriteBatches(
+        frame.writes,
+        windowIDs: phase,
+        skippedProcesses: skippedProcesses
+      )
       let group = DispatchGroup()
       for batch in batches {
         group.enter()
@@ -100,6 +90,117 @@ extension AXFrameCoordinator {
     )
   }
 
+  func processWriteBatches(
+    _ writes: [WindowID: AsyncPositionWrite],
+    windowIDs: Set<WindowID>,
+    skippedProcesses: Set<pid_t> = []
+  ) -> [ProcessWriteBatch] {
+    let orderedWrites = writes.filter { windowIDs.contains($0.key) }
+      .sorted {
+        if $0.value.processID != $1.value.processID {
+          return $0.value.processID < $1.value.processID
+        }
+        return $0.key.rawValue < $1.key.rawValue
+      }
+    return Dictionary(
+      grouping: orderedWrites.filter {
+        !skippedProcesses.contains($0.value.processID)
+      },
+      by: \.value.processID
+    ).map {
+      ProcessWriteBatch(processID: $0.key, writes: $0.value)
+    }.sorted { $0.processID < $1.processID }
+  }
+
+  func submitAnimationSamples(
+    _ samples: [ProcessAnimationSample],
+    processQueues: [pid_t: DispatchQueue]
+  ) -> Int {
+    for _ in samples {
+      animationLaneWriteGroup.enter()
+    }
+    var displacedSamples: [ProcessAnimationSample] = []
+    var startingSamples: [ProcessAnimationSample] = []
+    animationLaneLock.lock()
+    for sample in samples {
+      var lane = processAnimationLanes[sample.batch.processID]
+        ?? LatestAnimationSampleState()
+      let submission = lane.submit(sample)
+      processAnimationLanes[sample.batch.processID] = lane
+      if let displaced = submission.displaced {
+        displacedSamples.append(displaced)
+      }
+      if submission.startsDrain {
+        startingSamples.append(sample)
+      }
+    }
+    animationLaneLock.unlock()
+    for displaced in displacedSamples {
+      displaced.completion?()
+      animationLaneWriteGroup.leave()
+    }
+    for sample in startingSamples {
+      let queue =
+        processQueues[sample.batch.processID]
+        ?? processWriteQueue(for: sample.batch.processID)
+      queue.async { [self] in
+        drainAnimationLane(processID: sample.batch.processID)
+      }
+    }
+    return displacedSamples.count
+  }
+
+  func drainAnimationLane(processID: pid_t) {
+    while true {
+      animationLaneLock.lock()
+      guard var lane = processAnimationLanes[processID],
+        let sample = lane.takeNext()
+      else {
+        processAnimationLanes[processID] = nil
+        animationLaneLock.unlock()
+        return
+      }
+      processAnimationLanes[processID] = lane
+      animationLaneLock.unlock()
+
+      let startedAt = ProcessInfo.processInfo.systemUptime
+      let result = applyBatch(
+        sample.batch,
+        frame: sample.frame,
+        progress: sample.progress,
+        intermediate: sample.intermediate,
+        stagingReentry: sample.stagingReentry,
+        recordFinalSuccess: sample.recordFinalSuccess
+      )
+      let completedAt = ProcessInfo.processInfo.systemUptime
+      let latencyMS = (completedAt - startedAt) * 1_000
+      sample.accumulator.add(
+        applied: result.applied,
+        stale: result.stale,
+        slowProcesses: result.slowProcesses,
+        processID: processID,
+        processLatencyMS: latencyMS,
+        attempted: result.attempted,
+        completedAt: completedAt
+      )
+      if result.attempted {
+        recordProcessLatencySamples([processID: latencyMS])
+      }
+      publishCompletedBorderGeometry(
+        Dictionary(uniqueKeysWithValues: sample.batch.writes)
+      )
+      if sample.intermediate {
+        recordRetargetVelocity(
+          frame: sample.frame,
+          progressVelocity: sample.progressVelocity,
+          windowIDs: Set(sample.batch.writes.map(\.key))
+        )
+      }
+      sample.completion?()
+      animationLaneWriteGroup.leave()
+    }
+  }
+
   func processWriteQueue(for processID: pid_t) -> DispatchQueue {
     lock.lock()
     defer { lock.unlock() }
@@ -108,7 +209,7 @@ extension AXFrameCoordinator {
     }
     let queue = DispatchQueue(
       label: "com.quentin.defi.ax-process-\(processID)",
-      qos: .userInteractive,
+      qos: .userInitiated,
       autoreleaseFrequency: .workItem
     )
     processWriteQueues[processID] = queue
@@ -130,9 +231,45 @@ extension AXFrameCoordinator {
 
   func finalOnlyAnimationProcessIDs(
     for writes: [WindowID: AsyncPositionWrite],
+    animationDuration: TimeInterval,
     refreshRateHz: Double
   ) -> Set<pid_t> {
-    let processIDs = Set(writes.values.map(\.processID))
+    finalOnlyAnimationProcessIDs(
+      for: Set(writes.values.map(\.processID)),
+      animationDuration: animationDuration,
+      refreshRateHz: refreshRateHz
+    )
+  }
+
+  func animationSupportsIntermediateFrames(
+    processIDs: Set<pid_t>,
+    animationDuration: TimeInterval,
+    refreshRateHz: Double
+  ) -> Bool {
+    let availableIntermediateFrames = completedFrameSpringSamples(
+      duration: animationDuration,
+      refreshRateHz: refreshRateHz
+    ).count
+    lock.lock()
+    defer { lock.unlock() }
+    return processIDs.allSatisfy {
+      adaptiveIntermediateFrameLimit(
+        predictedFrameLatency: (predictedProcessLatencyMS[$0] ?? 0) / 1_000,
+        refreshRateHz: refreshRateHz,
+        availableIntermediateFrames: availableIntermediateFrames
+      ) >= 2
+    }
+  }
+
+  private func finalOnlyAnimationProcessIDs(
+    for processIDs: Set<pid_t>,
+    animationDuration: TimeInterval,
+    refreshRateHz: Double
+  ) -> Set<pid_t> {
+    let availableIntermediateFrames = completedFrameSpringSamples(
+      duration: animationDuration,
+      refreshRateHz: refreshRateHz
+    ).count
     lock.lock()
     let predictions = Dictionary(
       uniqueKeysWithValues: processIDs.map { processID in
@@ -145,7 +282,7 @@ extension AXFrameCoordinator {
         adaptiveIntermediateFrameLimit(
           predictedFrameLatency: latency,
           refreshRateHz: refreshRateHz,
-          availableIntermediateFrames: 1
+          availableIntermediateFrames: availableIntermediateFrames
         ) == 0
           ? processID
           : nil
@@ -218,24 +355,56 @@ extension AXFrameCoordinator {
     var stale = 0
     var slowProcesses = Set<pid_t>()
     var attempted = false
+    let batchApplication = batch.writes.first?.value.application
+    let enhancedUIWasEnabled = batch.writes.contains {
+      $0.value.enhancedUIWasEnabled
+    }
+    let pendingEnhancedUIRestore = hasDeferredEnhancedUIRestore(
+      processID: batch.processID
+    )
+    let defersEnhancedUIRestore =
+      enhancedUIWasEnabled
+      && (
+        pendingEnhancedUIRestore
+          || batch.writes.contains {
+            DefiMacOS.defersEnhancedUIRestore(
+              stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+              isIntermediate: intermediate,
+              enhancedUIWasEnabled: $0.value.enhancedUIWasEnabled,
+              positionChanged: $0.value.positionChanged
+            )
+          }
+      )
     // Hoist the AXEnhancedUserInterface toggle to batch granularity: one
     // disable/restore pair per application instead of two round-trips per
     // parked or verified-offscreen write.
     let managesEnhancedUI =
-      batch.writes.contains { $0.value.enhancedUIWasEnabled }
+      enhancedUIWasEnabled
       && batch.writes.contains {
         $0.value.isParked || $0.value.requiresVerifiedOffscreenWrite
       }
-    if let batchApplication = batch.writes.first?.value.application, managesEnhancedUI {
-      accessibilityWriter.setEnhancedUserInterface(
-        false,
+    let enhancedUIRestoreToken: UInt64?
+    if let batchApplication, defersEnhancedUIRestore {
+      enhancedUIRestoreToken = beginDeferredEnhancedUIRestore(
+        processID: batch.processID,
         application: batchApplication
       )
+    } else {
+      enhancedUIRestoreToken = nil
+      if let batchApplication, managesEnhancedUI {
+        accessibilityWriter.setEnhancedUserInterface(
+          false,
+          application: batchApplication
+        )
+      }
     }
     defer {
-      if let batchApplication = batch.writes.first?.value.application,
-        managesEnhancedUI
-      {
+      if let enhancedUIRestoreToken {
+        scheduleEnhancedUIRestore(
+          processID: batch.processID,
+          token: enhancedUIRestoreToken
+        )
+      } else if let batchApplication, managesEnhancedUI {
         accessibilityWriter.setEnhancedUserInterface(
           true,
           application: batchApplication
@@ -298,6 +467,7 @@ extension AXFrameCoordinator {
                 item.value,
                 size: size,
                 enhancedUIManagedByBatch: managesEnhancedUI
+                  || defersEnhancedUIRestore
               )
           )
         let sizeApplied = frameSizeWriteSucceeded(
@@ -326,6 +496,7 @@ extension AXFrameCoordinator {
                   isIntermediate: intermediate
                 ),
                 enhancedUIManagedByBatch: managesEnhancedUI
+                  || defersEnhancedUIRestore
               )
             )
         let acceptedPosition =
@@ -439,6 +610,65 @@ extension AXFrameCoordinator {
       }
     }
     return (applied, stale, slowProcesses, attempted)
+  }
+
+  func hasDeferredEnhancedUIRestore(processID: pid_t) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return deferredEnhancedUIRestores[processID] != nil
+  }
+
+  func beginDeferredEnhancedUIRestore(
+    processID: pid_t,
+    application: AXUIElement
+  ) -> UInt64 {
+    lock.lock()
+    nextEnhancedUIRestoreToken &+= 1
+    let token = nextEnhancedUIRestoreToken
+    deferredEnhancedUIRestores[processID] = (token, application)
+    lock.unlock()
+    accessibilityWriter.setEnhancedUserInterface(
+      false,
+      application: application
+    )
+    return token
+  }
+
+  func scheduleEnhancedUIRestore(
+    processID: pid_t,
+    token: UInt64
+  ) {
+    processWriteQueue(for: processID).asyncAfter(
+      deadline: .now() + enhancedUIRestoreDelay
+    ) { [weak self] in
+      guard let self else { return }
+      lock.lock()
+      guard let restore = deferredEnhancedUIRestores[processID],
+        restore.token == token
+      else {
+        lock.unlock()
+        return
+      }
+      deferredEnhancedUIRestores[processID] = nil
+      lock.unlock()
+      accessibilityWriter.setEnhancedUserInterface(
+        true,
+        application: restore.application
+      )
+    }
+  }
+
+  func restoreDeferredEnhancedUserInterfaces() {
+    lock.lock()
+    let restores = Array(deferredEnhancedUIRestores.values)
+    deferredEnhancedUIRestores.removeAll(keepingCapacity: true)
+    lock.unlock()
+    for restore in restores {
+      accessibilityWriter.setEnhancedUserInterface(
+        true,
+        application: restore.application
+      )
+    }
   }
 
   func commitFinalSizesOnce(

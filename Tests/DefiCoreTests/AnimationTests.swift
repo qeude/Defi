@@ -107,30 +107,6 @@ struct AnimationTests {
   }
 
   @Test
-  func `Display linked spring sampling uses elapsed time and never rolls back`() {
-    let first = springProgressSample(
-      elapsed: 1.0 / 120,
-      duration: 0.08
-    )
-    let delayed = springProgressSample(
-      elapsed: 0.027,
-      duration: 0.08,
-      minimumProgress: first.progress
-    )
-    let staleTimestamp = springProgressSample(
-      elapsed: 0.020,
-      duration: 0.08,
-      minimumProgress: delayed.progress
-    )
-
-    #expect(first.progress > 0)
-    #expect(delayed.progress > first.progress)
-    #expect(staleTimestamp.progress == delayed.progress)
-    #expect(staleTimestamp.velocity == 0)
-    #expect(staleTimestamp.progress <= 1)
-  }
-
-  @Test
   func `Adaptive frame limit avoids multiplying slow AX calls`() {
     #expect(
       adaptiveIntermediateFrameLimit(
@@ -150,96 +126,12 @@ struct AnimationTests {
         refreshRateHz: 120,
         availableIntermediateFrames: 4
       ) == 0)
-  }
-
-  @Test
-  func `Spring progress anticipates AX completion latency`() {
     #expect(
-      anticipatedSpringProgressIndex(
-        predictedFrameLatency: 0.002,
-        refreshRateHz: 120,
-        availableIntermediateFrames: 4
-      ) == 0)
-    #expect(
-      anticipatedSpringProgressIndex(
-        predictedFrameLatency: 0.018,
-        refreshRateHz: 120,
-        availableIntermediateFrames: 4
-      ) == 2)
-    #expect(
-      anticipatedSpringProgressIndex(
+      adaptiveIntermediateFrameLimit(
         predictedFrameLatency: 0.030,
         refreshRateHz: 120,
-        availableIntermediateFrames: 4
-      ) == 3)
-    #expect(
-      anticipatedSpringProgressIndex(
-        predictedFrameLatency: 0.051,
-        refreshRateHz: 120,
-        availableIntermediateFrames: 4,
-        maximumIndex: 1
-      ) == 1)
-  }
-
-  @Test
-  func `Completed AX frame schedules next write after display interval`() {
-    #expect(
-      nextCompletedFrameDispatchDeadline(
-        completedAt: 10,
-        refreshRateHz: 120
-      ).isApproximatelyEqual(
-        to: 10 + 1.0 / 120,
-        absoluteTolerance: 0.000_001
-      )
-    )
-    #expect(
-      nextCompletedFrameDispatchDeadline(
-        completedAt: 10,
-        refreshRateHz: 60
-      ).isApproximatelyEqual(
-        to: 10 + 1.0 / 60,
-        absoluteTolerance: 0.000_001
-      )
-    )
-  }
-
-  @Test
-  func `Slow completed frame skips intermediate that cannot fit budget`() {
-    #expect(
-      shouldEmitAnotherIntermediateFrame(
-        elapsed: 0.029,
-        predictedFrameLatency: 0.024,
-        budget: 0.06,
-        completedIntermediateFrames: 1
-      ))
-    #expect(
-      shouldEmitAnotherIntermediateFrame(
-        elapsed: 0.029,
-        predictedFrameLatency: 0.032,
-        budget: 0.06,
-        completedIntermediateFrames: 1
-      ) == false)
-    #expect(
-      shouldEmitAnotherIntermediateFrame(
-        elapsed: 0.059,
-        predictedFrameLatency: 0.5,
-        budget: 0.06,
-        completedIntermediateFrames: 0
-      ))
-  }
-
-  @Test
-  func `Slow completed sample stops further AX frames`() {
-    #expect(
-      completedFrameSupportsAnotherSample(
-        duration: 0.006,
-        refreshRateHz: 120
-      ))
-    #expect(
-      completedFrameSupportsAnotherSample(
-        duration: 0.020,
-        refreshRateHz: 120
-      ) == false)
+        availableIntermediateFrames: 22
+      ) == 5)
   }
 
   @Test
@@ -255,29 +147,6 @@ struct AnimationTests {
         animationDuration: 0.035,
         predictedFrameLatency: 0.050
       ) == 0)
-  }
-
-  @Test
-  func `Slow intermediate frame does not leave animation frozen until deadline`() {
-    #expect(
-      finalFrameDispatchDeadline(
-        nominalDeadline: 10.08,
-        nextDisplayDeadline: 10.025,
-        previousFrameWasSlow: true
-      ) == 10.08)
-    #expect(
-      finalFrameDispatchDeadline(
-        nominalDeadline: 10.08,
-        nextDisplayDeadline: 10.025,
-        previousFrameWasSlow: false
-      ) == 10.08)
-    #expect(
-      finalFrameDispatchDeadline(
-        nominalDeadline: 10.075,
-        nextDisplayDeadline: 10.12,
-        previousFrameWasSlow: false,
-        hardDeadline: 10.08
-      ) == 10.08)
   }
 
   @Test

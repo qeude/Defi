@@ -93,6 +93,9 @@ Current strategy may evolve when replacement preserves the same outcomes and tes
 - coalesce transient focus changes during rapid navigation; commit real AX focus only for the final target
 - keep focus writes asynchronous so slow applications cannot block command intake
 - keep horizontal navigation position-only unless a replacement proves synchronous size work cannot enter the input path
+- keep vertical workspace transitions position-only and all-or-nothing; use an
+  immediate switch when any participating AX lane or display topology cannot
+  animate safely within the refresh budget
 - settle latency-sensitive windows outside the speculative path while preserving their real targets, hidden state, and parking state
 
 The scrolling workspace is one continuous horizontal strip.
@@ -105,15 +108,31 @@ The scrolling workspace is one continuous horizontal strip.
 - keep native click, Dock, and Command-Tab focus compatible with virtual-workspace activation
 - ignore redundant native focus on the already-selected window; no reflow or animation from a plain click
 
-Each monitor owns an independent copy of the configured virtual workspace set.
+Each monitor owns an independent ordered workspace stack. A workspace is
+globally unique and belongs to exactly one monitor at a time.
 
 - preserve each monitor's own geometry, active workspace, focus, column widths, and scroll offset
+- keep exactly one empty trailing ordinary workspace on every monitor; remove
+  other empty ordinary workspaces only after they become inactive
+- keep named workspaces persistent and globally unique; application rules may
+  target names, never dynamic positions
+- preserve workspace identity, ownership, affinity, order, membership, focus,
+  widths, and scroll state across daemon restarts within one macOS session
+- migrate workspaces temporarily after display loss and return them only after a
+  confident monitor match; explicit monitor moves update affinity, automatic
+  migration does not, and ambiguous matches leave workspaces on the fallback
+  monitor
 - never park one monitor's windows inside another monitor's visible or parking region
 - reconcile widths, heights, targets, and parking after display connection, disconnection, or geometry change
+- an active empty trailing workspace has no native focus target; stale native
+  focus must not reactivate its previous workspace without newer human intent
 
 ## Configuration
 
 Defaults live in code and `CONFIGURATION.md`. Example config contains user-specific overrides only.
+
+Built-in defaults declare no named workspaces. `[workspaces].names` declares
+persistent names only; ordinary workspaces come from the dynamic lifecycle.
 
 No compatibility aliases before first stable release. Ask before preserving obsolete config.
 

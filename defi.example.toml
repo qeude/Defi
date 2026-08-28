@@ -4,7 +4,9 @@ default_key_modifier = "hyper"
 gaps = 4
 
 [workspaces]
-names = ["dev", "web", "dev-secondary", "tools", "misc", "6", "7", "8", "9"]
+names = ["dev", "web", "dev-secondary", "tools"]
+default = "dev"
+monitors = { dev-secondary = 2 }
 
 [modifier_combinations]
 hyper = "Alt + Cmd + Ctrl"

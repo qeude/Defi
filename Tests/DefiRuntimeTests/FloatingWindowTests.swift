@@ -657,7 +657,12 @@ struct FloatingWindowTests {
     let externalMonitorID = MonitorID(rawValue: 2)
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
-      config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
+      config: Config(
+        workspaces: WorkspacesConfig(
+          names: ["dev", tools.rawValue],
+          monitors: [tools.rawValue: 2]
+        )
+      )
     )
     state.attachMonitor(monitorID)
     state.attachMonitor(externalMonitorID)
@@ -676,8 +681,8 @@ struct FloatingWindowTests {
 
     #expect(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
     #expect(state.monitors[0].workspaces[0].focusedLayer == .tiled)
-    #expect(state.monitors[1].workspaces[1].floatingWindows == [floater.id])
-    #expect(state.monitors[1].workspaces[1].focusedLayer == .floating)
+    #expect(state.monitors[1].workspaces[0].floatingWindows == [floater.id])
+    #expect(state.monitors[1].workspaces[0].focusedLayer == .floating)
     #expect(state.selectedWindowID(on: externalMonitorID) == floater.id)
     #expect(state.windows[floater.id]?.monitorID == externalMonitorID)
     #expect(state.suspendedTiledPlacements[floater.id] == nil)

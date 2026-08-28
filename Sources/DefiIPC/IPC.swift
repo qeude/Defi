@@ -18,7 +18,7 @@ public struct WorkspaceStateSnapshot: Codable, Equatable, Sendable {
   public let monitors: [MonitorWorkspaceSnapshot]
 
   public init(
-    version: Int = 1,
+    version: Int = 2,
     focusedMonitorID: UInt64?,
     monitors: [MonitorWorkspaceSnapshot]
   ) {
@@ -51,7 +51,10 @@ public struct MonitorWorkspaceSnapshot: Codable, Equatable, Sendable {
 }
 
 public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
-  public let name: String
+  public let id: String
+  public let position: Int
+  public let name: String?
+  public let kind: WorkspaceKind
   public let active: Bool
   public let windowCount: Int
   public let occupied: Bool
@@ -59,13 +62,19 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
   public let focusedApplication: String?
 
   public init(
-    name: String,
+    id: String,
+    position: Int,
+    name: String?,
+    kind: WorkspaceKind,
     active: Bool,
     windowCount: Int,
     applications: [String],
     focusedApplication: String?
   ) {
+    self.id = id
+    self.position = position
     self.name = name
+    self.kind = kind
     self.active = active
     self.windowCount = windowCount
     self.occupied = windowCount > 0
@@ -93,7 +102,7 @@ public func makeWorkspaceStateSnapshot(
         display: offset + 1,
         focused: monitor.id == focusedMonitorID,
         activeWorkspace: monitor.activeWorkspace.rawValue,
-        workspaces: monitor.workspaces.map { workspace in
+        workspaces: monitor.workspaces.enumerated().map { offset, workspace in
           let windowIDs = workspace.columns.flatMap(\.windows) + workspace.floatingWindows
           let workspaceWindows = windowIDs.compactMap { windows[$0] }
           let focusedWindowID: WindowID? = {
@@ -111,7 +120,10 @@ public func makeWorkspaceStateSnapshot(
             return column.windows[column.focusedWindow]
           }()
           return WorkspaceSnapshot(
-            name: workspace.id.rawValue,
+            id: workspace.id.rawValue,
+            position: offset + 1,
+            name: workspace.name,
+            kind: workspace.kind,
             active: workspace.id == monitor.activeWorkspace,
             windowCount: workspaceWindows.count,
             applications: Array(Set(workspaceWindows.map(\.appID))).sorted(),

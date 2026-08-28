@@ -33,38 +33,6 @@ public struct SpringProgressSample: Equatable, Sendable {
   }
 }
 
-public func springProgressSample(
-  elapsed: TimeInterval,
-  duration: TimeInterval,
-  initialVelocity: Double = 0,
-  minimumProgress: Double = 0
-) -> SpringProgressSample {
-  guard duration > 0 else {
-    return SpringProgressSample(progress: 1, velocity: 0)
-  }
-  let response = max(duration * 1.5, 0.04)
-  let clampedInitialVelocity = min(max(initialVelocity, 0), 6 / response)
-  let elapsed = max(elapsed, 0)
-  guard elapsed > 0 else {
-    return SpringProgressSample(
-      progress: min(max(minimumProgress, 0), 1),
-      velocity: clampedInitialVelocity
-    )
-  }
-  let step = criticallyDampedSpringStep(
-    value: 0,
-    target: 1,
-    velocity: clampedInitialVelocity,
-    deltaTime: elapsed,
-    response: response
-  )
-  let progress = min(max(step.value, minimumProgress), 1)
-  return SpringProgressSample(
-    progress: progress,
-    velocity: progress > minimumProgress ? max(step.velocity, 0) : 0
-  )
-}
-
 public func criticallyDampedSpringStep(
   value: Double,
   target: Double,
@@ -132,17 +100,6 @@ public func retainedSpringProgressVelocity(
   return min(valid[valid.count / 2], max(maximum, 0))
 }
 
-public func shouldEmitAnotherIntermediateFrame(
-  elapsed: TimeInterval,
-  predictedFrameLatency: TimeInterval,
-  budget: TimeInterval,
-  completedIntermediateFrames: Int
-) -> Bool {
-  guard elapsed < budget else { return false }
-  guard completedIntermediateFrames > 0 else { return true }
-  return elapsed + max(predictedFrameLatency, 0) < budget
-}
-
 public func adaptiveIntermediateFrameLimit(
   predictedFrameLatency: TimeInterval,
   refreshRateHz: Double,
@@ -150,52 +107,15 @@ public func adaptiveIntermediateFrameLimit(
 ) -> Int {
   guard availableIntermediateFrames > 0 else { return 0 }
   let latency = max(predictedFrameLatency, 0)
-  if latency >= 0.025 {
-    return 0
-  }
   let refreshRate = min(max(refreshRateHz, 30), 120)
   if latency >= 1 / refreshRate {
-    return 1
+    let budget = Double(availableIntermediateFrames) / refreshRate
+    return min(
+      max(Int(floor(budget / latency)) - 1, 0),
+      availableIntermediateFrames
+    )
   }
   return availableIntermediateFrames
-}
-
-public func anticipatedSpringProgressIndex(
-  predictedFrameLatency: TimeInterval,
-  refreshRateHz: Double,
-  availableIntermediateFrames: Int,
-  minimumIndex: Int = 0,
-  maximumIndex: Int? = nil
-) -> Int? {
-  guard availableIntermediateFrames > 0 else { return nil }
-  let refreshRate = min(max(refreshRateHz, 30), 120)
-  let interval = 1 / refreshRate
-  let completedIntervals = max(
-    Int(ceil(max(predictedFrameLatency, interval) / interval)),
-    1
-  )
-  let anticipated = min(
-    max(completedIntervals - 1, minimumIndex),
-    availableIntermediateFrames - 1
-  )
-  return min(anticipated, maximumIndex ?? anticipated)
-}
-
-public func completedFrameSupportsAnotherSample(
-  duration: TimeInterval,
-  refreshRateHz: Double
-) -> Bool {
-  let refreshRate = min(max(refreshRateHz, 30), 120)
-  let maximumDuration = max(1.5 / refreshRate, 0.012)
-  return max(duration, 0) < maximumDuration
-}
-
-public func nextCompletedFrameDispatchDeadline(
-  completedAt: TimeInterval,
-  refreshRateHz: Double
-) -> TimeInterval {
-  let refreshRate = min(max(refreshRateHz, 30), 120)
-  return completedAt + 1 / refreshRate
 }
 
 public func anticipatedFinalFrameDispatchDelay(
@@ -205,17 +125,6 @@ public func anticipatedFinalFrameDispatchDelay(
   max(animationDuration - max(predictedFrameLatency, 0), 0)
 }
 
-public func finalFrameDispatchDeadline(
-  nominalDeadline: TimeInterval,
-  nextDisplayDeadline: TimeInterval,
-  previousFrameWasSlow: Bool,
-  hardDeadline: TimeInterval = .greatestFiniteMagnitude
-) -> TimeInterval {
-  min(
-    max(nominalDeadline, nextDisplayDeadline),
-    hardDeadline
-  )
-}
 
 public func speculativeNavigationSettlementDelay(
   animationDuration: TimeInterval

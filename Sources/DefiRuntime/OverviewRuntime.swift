@@ -68,10 +68,13 @@ public func focusOverviewWorkspace(
 ) throws -> WindowID? {
   guard let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID })
   else { throw OverviewRuntimeError.unknownMonitor(monitorID) }
-  guard state.monitors[monitorIndex].workspaces.contains(where: {
+  guard
+    state.monitors[monitorIndex].workspaces.contains(where: {
     $0.id == workspaceID
-  }) else { throw OverviewRuntimeError.unknownWorkspace(workspaceID) }
+    })
+  else { throw OverviewRuntimeError.unknownWorkspace(workspaceID) }
   state.monitors[monitorIndex].activeWorkspace = workspaceID
+  state.maintainWorkspaceLifecycle()
   return state.selectedWindowID(on: monitorID)
 }
 
@@ -301,6 +304,7 @@ public func applyOverviewDrop(
   )
   _ = focusWindow(intent.windowID, state: &next)
   next.monitors[targetMonitorIndex].activeWorkspace = destination.workspaceID
+  next.maintainWorkspaceLifecycle()
   state = next
   return OverviewDropResult(
     monitorID: destination.monitorID,

@@ -23,6 +23,8 @@ struct ModelTests {
     #expect(workspace.focusedColumn == 0)
     #expect(workspace.columns.isEmpty)
     #expect(workspace.floatingWindows.isEmpty)
+    #expect(workspace.kind == .named)
+    #expect(workspace.name == "1")
   }
 
   @Test(arguments: [
@@ -39,6 +41,12 @@ struct ModelTests {
     #expect(testCase.command.movesWindowBetweenWorkspaces == testCase.movesWindow)
   }
 
+  @Test
+  func `Sending a column does not follow it`() {
+    #expect(Command.moveColumnToWorkspace(.named("web"), follow: true).followsWindowMove)
+    #expect(!Command.moveColumnToWorkspace(.named("web"), follow: false).followsWindowMove)
+  }
+
   @Test(arguments: [
     ("focus-column left", Command.focusColumn(.left)),
     ("focus-column first", Command.focusColumn(.first)),
@@ -49,6 +57,27 @@ struct ModelTests {
     ("move-window-to-monitor up", Command.moveWindowToMonitor(.up)),
     ("focus-floating next", Command.focusFloating(.next)),
     ("workspace sim", Command.switchWorkspace(WorkspaceID(rawValue: "sim"))),
+    ("focus-workspace down", Command.focusWorkspace(.relative(.down))),
+    ("focus-workspace-position 4", Command.focusWorkspace(.position(4))),
+    (
+      "move-column-to-workspace up",
+      Command.moveColumnToWorkspace(.relative(.up), follow: true)
+    ),
+    (
+      "move-column-to-workspace-name up",
+      Command.moveColumnToWorkspace(.named("up"), follow: true)
+    ),
+    (
+      "move-window-to-workspace down",
+      Command.moveWindowToWorkspaceTarget(.relative(.down), follow: true)
+    ),
+    (
+      "send-window-to-workspace-position 3",
+      Command.moveWindowToWorkspaceTarget(.position(3), follow: false)
+    ),
+    ("reorder-workspace down", Command.reorderWorkspace(.down)),
+    ("move-workspace-to-monitor right", Command.moveWorkspaceToMonitor(.right)),
+    ("focus-monitor left", Command.focusMonitor(.left)),
     ("maximize-column", Command.maximizeColumn),
     ("toggle-floating", Command.toggleFloating),
     ("activate-floating", Command.activateFloating),

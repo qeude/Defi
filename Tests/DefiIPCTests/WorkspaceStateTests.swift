@@ -46,7 +46,7 @@ struct WorkspaceStateTests {
       focusedMonitorID: secondMonitor
     )
 
-    #expect(snapshot.version == 1)
+    #expect(snapshot.version == 2)
     #expect(snapshot.monitors.map(\.id) == [20, 10])
     #expect(snapshot.monitors.map(\.display) == [1, 2])
     #expect(snapshot.monitors[0].focused)
@@ -54,6 +54,9 @@ struct WorkspaceStateTests {
       snapshot.monitors[0].workspaces.first(where: { $0.name == "web" })
     )
     #expect(webSnapshot.active)
+    #expect(webSnapshot.id == "web")
+    #expect(webSnapshot.position == 2)
+    #expect(webSnapshot.kind == .named)
     #expect(webSnapshot.occupied)
     #expect(webSnapshot.windowCount == 1)
     #expect(webSnapshot.occupied)

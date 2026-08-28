@@ -9,6 +9,7 @@ struct OverviewRuntimeTests {
   let secondMonitor = MonitorID(rawValue: 2)
   let firstWorkspace = WorkspaceID(rawValue: "1")
   let secondWorkspace = WorkspaceID(rawValue: "2")
+  let remoteWorkspace = WorkspaceID(rawValue: "remote")
 
   @Test
   func `Moves a tiled window to an exact stack atomically`() throws {
@@ -54,7 +55,8 @@ struct OverviewRuntimeTests {
         outerLeftGap: 0
       )
     )
-    #expect(layout.frames.map(\.frame) == [
+    #expect(
+      layout.frames.map(\.frame) == [
       Rect(x: 0, y: 0, width: 500, height: 400),
       Rect(x: 0, y: 400, width: 500, height: 400),
     ])
@@ -84,7 +86,8 @@ struct OverviewRuntimeTests {
       state: &state
     )
 
-    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [
+    #expect(
+      state.monitors[0].workspaces[0].columns.map(\.windows) == [
       [moving], [neighbor],
     ])
   }
@@ -155,7 +158,7 @@ struct OverviewRuntimeTests {
       intent(for: moving),
       target: .floating(
         monitorID: secondMonitor,
-        workspaceID: secondWorkspace,
+        workspaceID: remoteWorkspace,
         relativeFrame: Rect(x: 0.25, y: 0.25, width: 0.3, height: 0.25)
       ),
       viewports: [
@@ -167,7 +170,7 @@ struct OverviewRuntimeTests {
 
     #expect(state.windows[moving]?.floating == true)
     #expect(state.windows[moving]?.monitorID == secondMonitor)
-    #expect(state.monitors[1].workspaces[1].floatingWindows == [moving])
+    #expect(state.monitors[1].workspaces[0].floatingWindows == [moving])
     #expect(
       result.floatingFrameUpdates[moving]
         == Rect(x: 1_500, y: 300, width: 600, height: 300)
@@ -193,7 +196,7 @@ struct OverviewRuntimeTests {
       intent(for: moving),
       target: .floating(
         monitorID: secondMonitor,
-        workspaceID: secondWorkspace,
+        workspaceID: remoteWorkspace,
         relativeFrame: Rect(x: 0.9, y: -0.2, width: 0.3, height: 0.25)
       ),
       viewports: [
@@ -266,7 +269,11 @@ struct OverviewRuntimeTests {
   private func makeState() -> RuntimeState {
     var state = RuntimeState(
       config: Config(
-        workspaces: WorkspacesConfig(names: ["1", "2"], defaultName: "1")
+        workspaces: WorkspacesConfig(
+          names: ["1", "2", "remote"],
+          defaultName: "1",
+          monitors: ["remote": 2]
+        )
       )
     )
     state.attachMonitor(firstMonitor)

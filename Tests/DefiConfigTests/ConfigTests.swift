@@ -8,12 +8,14 @@ struct ConfigTests {
   func `Empty config uses defaults`() throws {
     let config = try Config.decode(Data())
 
-    #expect(config.workspaces.names == (1...9).map(String.init))
+    #expect(config.workspaces.names.isEmpty)
+    #expect(config.workspaces.defaultName == nil)
     #expect(config.layout.defaultColumnWidth == 0.8)
     #expect(config.animation.enabled)
     #expect(config.animation.durationMS == 35)
     #expect(config.overview.zoom == 0.5)
     #expect(config.overview.windowPreviews == false)
+    #expect(config.overview.windowCornerRadius == 12)
     #expect(config.decorations.borders.enabled)
     #expect(config.decorations.borders.width == 4)
     #expect(config.decorations.borders.color == "#FFC099FF")
@@ -24,11 +26,11 @@ struct ConfigTests {
     #expect(config.keys["alt-backslash"] == "toggle-floating")
     #expect(config.keys["alt-shift-backslash"] == "activate-floating")
     #expect(config.keys["alt-period"] == "focus-floating next")
-    #expect(config.keys["alt-shift-1"] == "move-window-to-workspace 1")
-    #expect(config.keys["alt-shift-h"] == "move-column-to-monitor left")
-    #expect(config.keys["alt-shift-j"] == "move-column-to-monitor down")
-    #expect(config.keys["alt-shift-k"] == "move-column-to-monitor up")
-    #expect(config.keys["alt-shift-l"] == "move-column-to-monitor right")
+    #expect(config.keys["alt-up"] == "focus-workspace up")
+    #expect(config.keys["alt-j"] == "focus-window down")
+    #expect(config.keys["alt-shift-1"] == "move-column-to-workspace-position 1")
+    #expect(config.keys["ctrl-cmd-left"] == "focus-monitor left")
+    #expect(config.keys["ctrl-cmd-shift-down"] == "move-column-to-monitor down")
     #expect(config.keys["alt-o"] == "toggle-overview")
   }
 
@@ -40,12 +42,14 @@ struct ConfigTests {
         [overview]
         zoom = 0.25
         window_previews = true
+        window_corner_radius = 18
         """.utf8
       )
     )
 
     #expect(config.overview.zoom == 0.25)
     #expect(config.overview.windowPreviews)
+    #expect(config.overview.windowCornerRadius == 18)
   }
 
   @Test
@@ -58,6 +62,20 @@ struct ConfigTests {
     )
 
     #expect(throws: ConfigError.invalidValue("overview.zoom")) {
+      try Config.decode(data)
+    }
+  }
+
+  @Test(arguments: [-1.0, 65.0])
+  func `Rejects invalid overview window corner radius`(radius: Double) {
+    let data = Data(
+      """
+      [overview]
+      window_corner_radius = \(radius)
+      """.utf8
+    )
+
+    #expect(throws: ConfigError.invalidValue("overview.window_corner_radius")) {
       try Config.decode(data)
     }
   }
@@ -154,6 +172,8 @@ struct ConfigTests {
     #expect(config.animation.durationMS == 120)
     #expect(config.workspaces.defaultName == "dev")
     #expect(config.keys["hyper-1"] == "workspace dev")
+    #expect(config.keys["hyper-shift-1"] == "move-column-to-workspace-name dev")
+    #expect(config.keys["hyper-3"] == "focus-workspace-position 3")
     #expect(config.keys["hyper-minus"] == "cycle-width previous")
     #expect(config.keys["hyper-equal"] == "cycle-width next")
     #expect(config.keys["hyper-f"] == "maximize-column")
@@ -163,6 +183,20 @@ struct ConfigTests {
     #expect(config.keys["hyper-period"] == "focus-floating next")
     #expect(config.modifierCombinations["hyper"] == "Alt + Cmd + Ctrl")
     #expect(config.rules.count == 1)
+  }
+
+  @Test
+  func `Rejects workspace names reserved for dynamic identity`() {
+    let data = Data(
+      """
+      [workspaces]
+      names = ["__defi_dynamic_1"]
+      """.utf8
+    )
+
+    #expect(throws: ConfigError.invalidWorkspaces) {
+      try Config.decode(data)
+    }
   }
 
   @Test
@@ -241,6 +275,7 @@ struct ConfigTests {
     let config = try Config.load(from: repository.appending(path: "defi.example.toml"))
 
     #expect(config.workspaces.names.first == "dev")
+    #expect(config.workspaces.monitors["dev-secondary"] == 2)
     #expect(config.keys["hyper-left"] == "focus-column left")
     #expect(config.rules.count == 9)
   }

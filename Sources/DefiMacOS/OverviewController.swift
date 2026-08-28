@@ -158,6 +158,7 @@ public final class OverviewController: NSObject {
   private var alignSelectionOnNextUpdate = false
   private var animationsEnabled = true
   private var overviewZoom = 0.5
+  private var windowCornerRadius = 12.0
   private var viewportAnimations: [MonitorID: OverviewViewportAnimation] = [:]
   private var projectionAnimations: [MonitorID: OverviewProjectionAnimation] = [:]
   private var viewportDisplayLinks: [MonitorID: CADisplayLink] = [:]
@@ -222,6 +223,7 @@ public final class OverviewController: NSObject {
     borders: BordersConfig = BordersConfig(),
     animation: AnimationConfig = AnimationConfig(),
     zoom: Double = 0.5,
+    windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool = false
   ) {
     if isOpen {
@@ -233,6 +235,7 @@ public final class OverviewController: NSObject {
         borders: borders,
         animation: animation,
         zoom: zoom,
+        windowCornerRadius: windowCornerRadius,
         windowPreviewsEnabled: windowPreviewsEnabled
       )
     }
@@ -244,6 +247,7 @@ public final class OverviewController: NSObject {
     borders: BordersConfig = BordersConfig(),
     animation: AnimationConfig = AnimationConfig(),
     zoom: Double = 0.5,
+    windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool = false
   ) {
     closePanelsImmediately()
@@ -253,6 +257,7 @@ public final class OverviewController: NSObject {
     borderStyle = WindowBorderStyle(config: borders)
     animationsEnabled = animation.enabled
     overviewZoom = zoom
+    self.windowCornerRadius = windowCornerRadius
     self.windowPreviewsEnabled = windowPreviewsEnabled
     usesWorkspaceParking = overviewUsesWorkspaceParking(
       windowPreviewsEnabled: windowPreviewsEnabled,
@@ -308,6 +313,7 @@ public final class OverviewController: NSObject {
     borders: BordersConfig = BordersConfig(),
     animation: AnimationConfig = AnimationConfig(),
     zoom: Double = 0.5,
+    windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool? = nil
   ) {
     guard isOpen else { return }
@@ -337,6 +343,7 @@ public final class OverviewController: NSObject {
     borderStyle = WindowBorderStyle(config: borders)
     animationsEnabled = animation.enabled
     overviewZoom = zoom
+    self.windowCornerRadius = windowCornerRadius
     var movedSelectionPositions: (
       previous: OverviewTiledPosition,
       next: OverviewTiledPosition
@@ -773,6 +780,7 @@ public final class OverviewController: NSObject {
         selection: selection,
         drag: drag?.presentation(on: monitorID, panel: panel),
         borderStyle: borderStyle,
+        windowCornerRadius: windowCornerRadius,
         previews: previewCache,
         previewOpacities: previewOpacities
       )
@@ -1067,12 +1075,24 @@ public final class OverviewController: NSObject {
       let scale = panels[monitorID]?.window.backingScaleFactor ?? 1
       for card in projection.workspaces.flatMap(\.windows) {
         guard let window = snapshot.windows[card.windowID] else { continue }
+        let width = min(max(Int((card.frame.width * scale).rounded(.up)), 32), 1_600)
+        let height = min(max(Int((card.frame.height * scale).rounded(.up)), 24), 1_200)
+        let titleBandHeight = overviewWindowTitleBandHeight(
+          iconSize: overviewWindowTitleIconSize(cardHeight: card.frame.height)
+        )
         requests.append(
           OverviewPreviewRequest(
             windowID: card.windowID,
             expectedAppID: window.appID,
-            width: min(max(Int((card.frame.width * scale).rounded(.up)), 32), 1_600),
-            height: min(max(Int((card.frame.height * scale).rounded(.up)), 24), 1_200)
+            width: width,
+            height: height,
+            blurFadeHeight: Int(
+              overviewPreviewBlurFadeHeight(
+                titleBandHeight: titleBandHeight,
+                imageScale: CGFloat(height) / card.frame.height,
+                imageHeight: CGFloat(height)
+              ).rounded(.up)
+            )
           )
         )
       }
@@ -1779,8 +1799,6 @@ private final class OverviewPanel {
 
 @MainActor
 private final class OverviewView: NSView {
-  private static let windowCornerRadius = 9.0
-
   let monitorID: MonitorID
   private weak var delegate: OverviewViewDelegate?
   private var snapshot: OverviewSnapshot?
@@ -1788,6 +1806,7 @@ private final class OverviewView: NSView {
   private var selection: OverviewSelection?
   private var drag: OverviewDragPresentation?
   private var borderStyle = WindowBorderStyle(config: BordersConfig())
+  private var windowCornerRadius = 12.0
   private var previews: [WindowID: NSImage] = [:]
   private var previewOpacities: [WindowID: Double] = [:]
   private var mouseDownPoint: NSPoint?
@@ -1817,6 +1836,7 @@ private final class OverviewView: NSView {
     selection: OverviewSelection?,
     drag: OverviewDragPresentation?,
     borderStyle: WindowBorderStyle,
+    windowCornerRadius: Double,
     previews: [WindowID: NSImage],
     previewOpacities: [WindowID: Double]
   ) {
@@ -1825,6 +1845,7 @@ private final class OverviewView: NSView {
     self.selection = selection
     self.drag = drag
     self.borderStyle = borderStyle
+    self.windowCornerRadius = windowCornerRadius
     self.previews = previews
     self.previewOpacities = previewOpacities
     needsDisplay = true
@@ -1836,12 +1857,13 @@ private final class OverviewView: NSView {
       drawWorkspace(workspace, snapshot: snapshot)
     }
     if let overlayWindowID = projection.overlayWindowID,
-      let overlay = projection.workspaces.lazy.flatMap(\.windows).first(where: {
-        $0.windowID == overlayWindowID
-      })
+      let workspace = projection.workspaces.first(where: {
+        $0.windows.contains { $0.windowID == overlayWindowID }
+      }),
+      let overlay = workspace.windows.first(where: { $0.windowID == overlayWindowID })
     {
       drawWindow(overlay, snapshot: snapshot)
-      drawWindowBorder(overlay)
+      drawWindowBorder(overlay, scale: contentScale(for: workspace, snapshot: snapshot))
     }
     drawDraggedCard(snapshot: snapshot)
     drawDropTarget()
@@ -1854,7 +1876,7 @@ private final class OverviewView: NSView {
       workspaceElement.setAccessibilityParent(self)
       workspaceElement.setAccessibilityRole(.group)
       workspaceElement.setAccessibilityEnabled(true)
-      workspaceElement.setAccessibilityLabel("Workspace \(workspace.workspaceID.rawValue)")
+      workspaceElement.setAccessibilityLabel("Workspace \(workspace.label)")
       workspaceElement.setAccessibilityFrame(
         window.convertToScreen(convert(nsRect(workspace.frame), to: nil))
       )
@@ -1875,7 +1897,7 @@ private final class OverviewView: NSView {
         element.setAccessibilityLabel(
           managedWindow.title.isEmpty ? managedWindow.appID : managedWindow.title
         )
-        element.setAccessibilityHelp("Workspace \(workspace.workspaceID.rawValue)")
+        element.setAccessibilityHelp("Workspace \(workspace.label)")
         element.setAccessibilitySelected(selection?.windowID == card.windowID)
         element.setAccessibilityFrame(
           window.convertToScreen(convert(visibleFrame, to: nil))
@@ -1891,6 +1913,7 @@ private final class OverviewView: NSView {
     snapshot: OverviewSnapshot
   ) {
     let frame = nsRect(workspace.frame)
+    let scale = contentScale(for: workspace, snapshot: snapshot)
     NSGraphicsContext.saveGraphicsState()
     frame.clip()
     for window in workspace.windows
@@ -1902,12 +1925,13 @@ private final class OverviewView: NSView {
     NSGraphicsContext.restoreGraphicsState()
 
     NSGraphicsContext.saveGraphicsState()
-    frame.insetBy(dx: -borderStyle.width, dy: -borderStyle.width).clip()
+    let borderWidth = borderStyle.width * scale
+    frame.insetBy(dx: -borderWidth, dy: -borderWidth).clip()
     for window in workspace.windows
     where drag?.windowID != window.windowID
       && projection?.overlayWindowID != window.windowID
     {
-      drawWindowBorder(window)
+      drawWindowBorder(window, scale: scale)
     }
     NSGraphicsContext.restoreGraphicsState()
     drawHorizontalOverflowIndicators(for: workspace)
@@ -1921,11 +1945,18 @@ private final class OverviewView: NSView {
     let frame = nsRect(card.frame)
     let path = NSBezierPath(
       roundedRect: frame,
-      xRadius: Self.windowCornerRadius,
-      yRadius: Self.windowCornerRadius
+      xRadius: windowCornerRadius,
+      yRadius: windowCornerRadius
     )
     NSColor(calibratedWhite: card.isNativeFullscreen ? 0.19 : 0.15, alpha: 1).setFill()
     path.fill()
+    let iconSize = overviewWindowTitleIconSize(cardHeight: frame.height)
+    let titleBandHeight = overviewWindowTitleBandHeight(iconSize: iconSize)
+    let titleFadeHeight = overviewPreviewBlurFadeHeight(
+      titleBandHeight: titleBandHeight,
+      imageScale: 1,
+      imageHeight: frame.height
+    )
     if let preview = previews[card.windowID] {
       let opacity = previewOpacities[card.windowID] ?? 1
       NSGraphicsContext.saveGraphicsState()
@@ -1938,40 +1969,48 @@ private final class OverviewView: NSView {
         respectFlipped: true,
         hints: [.interpolation: NSImageInterpolation.high]
       )
-      let scrimHeight = min(max(frame.height * 0.28, 48), 72)
       NSGradient(
-        starting: NSColor.black.withAlphaComponent(0.48 * opacity),
-        ending: NSColor.black.withAlphaComponent(0)
+        colorsAndLocations:
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0, opacity: CGFloat(opacity))
+          ), 0),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.25, opacity: CGFloat(opacity))
+          ), 0.25),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.5, opacity: CGFloat(opacity))
+          ), 0.5),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.75, opacity: CGFloat(opacity))
+          ), 0.75),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.9, opacity: CGFloat(opacity))
+          ), 0.9),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.97, opacity: CGFloat(opacity))
+          ), 0.97),
+          (NSColor.clear, 1)
       )?.draw(
         from: NSPoint(x: frame.midX, y: frame.minY),
-        to: NSPoint(x: frame.midX, y: frame.minY + scrimHeight),
+        to: NSPoint(x: frame.midX, y: frame.minY + titleFadeHeight),
         options: []
       )
       NSGraphicsContext.restoreGraphicsState()
     }
-    let iconSize = min(24, max(frame.height * 0.16, 14))
+    let title = (window.title.isEmpty ? window.appID : window.title) as NSString
+    let titleAttributes: [NSAttributedString.Key: Any] = [
+      .font: NSFont.systemFont(ofSize: min(13, max(frame.height * 0.09, 10)), weight: .medium),
+      .foregroundColor: NSColor.white.withAlphaComponent(0.9),
+    ]
+    let titleLayout = overviewWindowTitleLayout(
+      cardFrame: frame,
+      iconSize: iconSize,
+      titleSize: title.size(withAttributes: titleAttributes),
+      blurHeight: titleBandHeight
+    )
     let icon = icon(for: window)
-    icon.draw(
-      in: NSRect(
-        x: frame.minX + 10,
-        y: frame.minY + 9,
-        width: iconSize,
-        height: iconSize
-      )
-    )
-    let titleRect = NSRect(
-      x: frame.minX + iconSize + 18,
-      y: frame.minY + 10,
-      width: max(frame.width - iconSize - 28, 1),
-      height: 22
-    )
-    ((window.title.isEmpty ? window.appID : window.title) as NSString).draw(
-      in: titleRect,
-      withAttributes: [
-        .font: NSFont.systemFont(ofSize: min(13, max(frame.height * 0.09, 10)), weight: .medium),
-        .foregroundColor: NSColor.white.withAlphaComponent(0.9),
-      ]
-    )
+    icon.draw(in: titleLayout.iconFrame)
+    title.draw(in: titleLayout.titleFrame, withAttributes: titleAttributes)
     if card.isNativeFullscreen {
       let label = "Full Screen" as NSString
       label.draw(
@@ -1984,7 +2023,7 @@ private final class OverviewView: NSView {
     }
   }
 
-  private func drawWindowBorder(_ card: OverviewWindowProjection) {
+  private func drawWindowBorder(_ card: OverviewWindowProjection, scale: Double) {
     let selected = selection == .window(
       windowID: card.windowID,
       monitorID: monitorID,
@@ -1992,12 +2031,13 @@ private final class OverviewView: NSView {
     )
     if let border = overviewWindowBorderAppearance(
       isSelected: selected,
-      style: borderStyle
+      style: borderStyle,
+      scale: scale
     ) {
       overviewBorderColor(border.color).setStroke()
       let geometry = overviewWindowBorderGeometry(
         cardFrame: card.frame,
-        cardRadius: Self.windowCornerRadius,
+        cardRadius: windowCornerRadius,
         width: border.width,
         placement: borderStyle.placement
       )
@@ -2009,6 +2049,16 @@ private final class OverviewView: NSView {
       borderPath.lineWidth = border.width
       borderPath.stroke()
     }
+  }
+
+  private func contentScale(
+    for workspace: OverviewWorkspaceProjection,
+    snapshot: OverviewSnapshot
+  ) -> Double {
+    guard let monitorFrame = snapshot.monitorFrames[monitorID], monitorFrame.height > 0 else {
+      return 1
+    }
+    return workspace.frame.height / monitorFrame.height
   }
 
   private func drawHorizontalOverflowIndicators(
@@ -2138,7 +2188,11 @@ private final class OverviewView: NSView {
       width: drag.cardSize.width,
       height: drag.cardSize.height
     )
-    let path = NSBezierPath(roundedRect: frame, xRadius: 9, yRadius: 9)
+    let path = NSBezierPath(
+      roundedRect: frame,
+      xRadius: windowCornerRadius,
+      yRadius: windowCornerRadius
+    )
     NSColor(calibratedWhite: 0.18, alpha: 0.94).setFill()
     path.fill()
     NSColor.controlAccentColor.setStroke()
@@ -2268,6 +2322,45 @@ private final class OverviewView: NSView {
       height: size.height
     )
   }
+}
+
+func overviewWindowTitleIconSize(cardHeight: CGFloat) -> CGFloat {
+  min(24, max(cardHeight * 0.16, 14))
+}
+
+func overviewWindowTitleBandHeight(iconSize: CGFloat) -> CGFloat {
+  iconSize + 20
+}
+
+func overviewTitleScrimAlpha(progress: CGFloat, opacity: CGFloat) -> CGFloat {
+  let remaining = 1 - min(max(progress, 0), 1)
+  return 0.48 * opacity * remaining * remaining
+}
+
+func overviewWindowTitleLayout(
+  cardFrame: CGRect,
+  iconSize: CGFloat,
+  titleSize: CGSize,
+  blurHeight: CGFloat
+) -> (iconFrame: CGRect, titleFrame: CGRect) {
+  let spacing = 8.0
+  let titleWidth = min(titleSize.width, max(cardFrame.width - iconSize - spacing - 20, 1))
+  let iconX = cardFrame.minX + 10
+  let centerY = cardFrame.minY + blurHeight / 2
+  return (
+    CGRect(
+      x: iconX,
+      y: centerY - iconSize / 2,
+      width: iconSize,
+      height: iconSize
+    ),
+    CGRect(
+      x: iconX + iconSize + spacing,
+      y: centerY - titleSize.height / 2,
+      width: titleWidth,
+      height: titleSize.height
+    )
+  )
 }
 
 @MainActor

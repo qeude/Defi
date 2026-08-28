@@ -158,10 +158,12 @@ struct WindowBorderTests {
 
   @Test
   func overviewReusesConfiguredWindowBorderPolicy() {
-    let active = overviewWindowBorderAppearance(isSelected: true, style: style)
+    let active = overviewWindowBorderAppearance(isSelected: true, style: style, scale: 0.5)
     #expect(active?.color == style.activeColor)
-    #expect(active?.width == style.width)
-    #expect(overviewWindowBorderAppearance(isSelected: false, style: style) == nil)
+    #expect(active?.width == style.width * 0.5)
+    #expect(
+      overviewWindowBorderAppearance(isSelected: false, style: style, scale: 0.5) == nil
+    )
 
     let inactiveStyle = WindowBorderStyle(
       enabled: true,
@@ -173,10 +175,11 @@ struct WindowBorderTests {
     )
     let inactive = overviewWindowBorderAppearance(
       isSelected: false,
-      style: inactiveStyle
+      style: inactiveStyle,
+      scale: 0.5
     )
     #expect(inactive?.color == inactiveStyle.inactiveColor)
-    #expect(inactive?.width == inactiveStyle.width)
+    #expect(inactive?.width == inactiveStyle.width * 0.5)
   }
 
   @Test

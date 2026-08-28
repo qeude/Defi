@@ -4,154 +4,6 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import OSLog
-import QuartzCore
-
-final class DisplayLinkClock: NSObject, @unchecked Sendable {
-  private let condition = NSCondition()
-  private var displayIDsByLink: [ObjectIdentifier: UInt64] = [:]
-  private var nextTargetTimestamps: [UInt64: TimeInterval] = [:]
-  private var nextActivationRequestID: UInt64 = 0
-  private var latestActivationRequestID: UInt64 = 0
-  private var latestActivationGeneration: UInt64 = 0
-  @MainActor private var displayLinks: [UInt64: CADisplayLink] = [:]
-
-  @MainActor
-  func start() {
-    for link in displayLinks.values {
-      link.invalidate()
-    }
-    displayLinks.removeAll(keepingCapacity: true)
-    condition.lock()
-    displayIDsByLink.removeAll(keepingCapacity: true)
-    nextTargetTimestamps.removeAll(keepingCapacity: true)
-    nextActivationRequestID &+= 1
-    latestActivationRequestID = nextActivationRequestID
-    latestActivationGeneration = 0
-    for screen in NSScreen.screens {
-      guard
-        let number = screen.deviceDescription[
-          NSDeviceDescriptionKey("NSScreenNumber")
-        ] as? NSNumber
-      else { continue }
-      let displayID = number.uint64Value
-      let link = screen.displayLink(
-        target: self,
-        selector: #selector(displayLinkDidFire(_:))
-      )
-      link.isPaused = true
-      link.add(to: .main, forMode: .common)
-      displayLinks[displayID] = link
-      displayIDsByLink[ObjectIdentifier(link)] = displayID
-    }
-    condition.unlock()
-  }
-
-  func setActive(
-    _ active: Bool,
-    displayIDs: Set<UInt64>,
-    generation: UInt64
-  ) {
-    condition.lock()
-    guard generation >= latestActivationGeneration else {
-      condition.unlock()
-      return
-    }
-    nextActivationRequestID &+= 1
-    let requestID = nextActivationRequestID
-    latestActivationRequestID = requestID
-    latestActivationGeneration = generation
-    condition.unlock()
-
-    Task { @MainActor [weak self] in
-      guard let self else { return }
-      guard self.activationRequestIsCurrent(
-        generation: generation,
-        requestID: requestID
-      ) else { return }
-      let availableDisplayIDs = Set(displayLinks.keys)
-      let selectedDisplayIDs = resolvedAnimationDisplayIDs(
-        requested: displayIDs,
-        available: availableDisplayIDs
-      )
-      for (candidateID, link) in displayLinks {
-        link.isPaused =
-          !active || selectedDisplayIDs.contains(candidateID) == false
-      }
-    }
-  }
-
-  private func activationRequestIsCurrent(
-    generation: UInt64,
-    requestID: UInt64
-  ) -> Bool {
-    condition.lock()
-    defer { condition.unlock() }
-    return displayLinkActivationIsCurrent(
-      generation: generation,
-      latestGeneration: latestActivationGeneration,
-      requestID: requestID,
-      latestRequestID: latestActivationRequestID
-    )
-  }
-
-  func wait(
-    untilDisplayTarget deadline: TimeInterval,
-    displayIDs: Set<UInt64>
-  ) -> TimeInterval? {
-    guard deadline > ProcessInfo.processInfo.systemUptime else { return nil }
-    condition.lock()
-    defer { condition.unlock() }
-    let availableDisplayIDs = Set(displayIDsByLink.values)
-    let selectedDisplayIDs = resolvedAnimationDisplayIDs(
-      requested: displayIDs,
-      available: availableDisplayIDs
-    )
-    while selectedDisplayIDs.contains(where: {
-      nextTargetTimestamps[$0] ?? 0 < deadline
-    }) {
-      let remaining = deadline - ProcessInfo.processInfo.systemUptime
-      guard remaining > 0 else { break }
-      _ = condition.wait(
-        until: Date(timeIntervalSinceNow: remaining)
-      )
-    }
-    let timestamps = selectedDisplayIDs.compactMap { nextTargetTimestamps[$0] }
-    guard timestamps.count == selectedDisplayIDs.count,
-      timestamps.allSatisfy({ $0 >= deadline })
-    else { return nil }
-    return timestamps.max()
-  }
-
-  @objc private func displayLinkDidFire(_ sender: CADisplayLink) {
-    condition.lock()
-    if let displayID = displayIDsByLink[ObjectIdentifier(sender)] {
-      nextTargetTimestamps[displayID] = sender.targetTimestamp
-    }
-    condition.broadcast()
-    condition.unlock()
-  }
-}
-
-func resolvedAnimationDisplayIDs(
-  requested: Set<UInt64>,
-  available: Set<UInt64>
-) -> Set<UInt64> {
-  let selected = requested.intersection(available)
-  if selected.isEmpty, let fallback = available.first {
-    return [fallback]
-  }
-  return selected
-}
-
-func displayLinkActivationIsCurrent(
-  generation: UInt64,
-  latestGeneration: UInt64,
-  requestID: UInt64,
-  latestRequestID: UInt64
-) -> Bool {
-  generation == latestGeneration && requestID == latestRequestID
-}
-
 
 struct FrameWriteIntent: Equatable, Sendable {
   let position: Bool
@@ -170,6 +22,14 @@ func frameWriteIntent(
       && (abs(reference.width - target.width) >= 0.5
         || abs(reference.height - target.height) >= 0.5)
   )
+}
+
+func reentryStartRequiresStaging(
+  observed: CGPoint,
+  planned: CGPoint
+) -> Bool {
+  abs(observed.x - planned.x) >= 0.5
+    || abs(observed.y - planned.y) >= 0.5
 }
 
 func successfulFrameWriteIntent(
@@ -514,6 +374,16 @@ func suppressesNativePositionAnimation(
   stagesVisibleBeforeParking && !isParked && !isIntermediate
 }
 
+func defersEnhancedUIRestore(
+  stagesVisibleBeforeParking: Bool,
+  isIntermediate: Bool,
+  enhancedUIWasEnabled: Bool,
+  positionChanged: Bool
+) -> Bool {
+  stagesVisibleBeforeParking && !isIntermediate
+    && enhancedUIWasEnabled && positionChanged
+}
+
 func shouldApplyDeferredFocus(
   targetWindowID: WindowID,
   selectedWindowID: WindowID?
@@ -524,6 +394,42 @@ func shouldApplyDeferredFocus(
 struct ProcessWriteBatch: @unchecked Sendable {
   let processID: pid_t
   let writes: [(key: WindowID, value: AsyncPositionWrite)]
+}
+
+struct ProcessAnimationSample: @unchecked Sendable {
+  let frame: QueuedPositionFrame
+  let batch: ProcessWriteBatch
+  let progress: Double
+  let progressVelocity: Double
+  let intermediate: Bool
+  let stagingReentry: Bool
+  let recordFinalSuccess: Bool
+  let accumulator: FrameResultAccumulator
+  let completion: (@Sendable () -> Void)?
+}
+
+struct LatestAnimationSampleState<Sample> {
+  private(set) var isRunning = false
+  private var pending: Sample?
+
+  mutating func submit(
+    _ sample: Sample
+  ) -> (startsDrain: Bool, displaced: Sample?) {
+    let displaced = pending
+    pending = sample
+    guard !isRunning else { return (false, displaced) }
+    isRunning = true
+    return (true, displaced)
+  }
+
+  mutating func takeNext() -> Sample? {
+    guard let pending else {
+      isRunning = false
+      return nil
+    }
+    self.pending = nil
+    return pending
+  }
 }
 
 final class FrameResultAccumulator: @unchecked Sendable {

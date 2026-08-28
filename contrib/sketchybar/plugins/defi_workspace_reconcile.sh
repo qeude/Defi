@@ -25,7 +25,7 @@ fi
 next_file="$STATE_FILE.next.$$"
 trap 'rm -f "$next_file"' EXIT
 printf '%s' "$state" \
-  | jq -r '.monitors[] | .display as $display | .workspaces[] | "defi.\($display).\(.name)"' \
+  | jq -r '.monitors[] | .display as $display | .workspaces[] | "defi.\($display).\(.id)"' \
   > "$next_file"
 
 if [ -f "$STATE_FILE" ]; then

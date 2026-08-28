@@ -34,23 +34,26 @@ public func discoverWindow(
   let effectivePlacement = window.floatingOrigin == .automatic ? nil : placement
   let transientLocation = transientPlacementLocation(for: window, state: state)
   let followFocusIntent = decision.followFocus && isNativelyFocused
+  let ruleLocation = decision.workspace.flatMap { state.workspaceLocation(for: $0) }
+  let placementLocation = effectivePlacement.flatMap {
+    state.workspaceLocation(for: $0.workspaceID)
+  }
   let preferredMonitorID = effectivePlacement?.monitorID.flatMap { preferred in
     state.monitors.contains(where: { $0.id == preferred }) ? preferred : nil
   }
   let monitorID =
     transientLocation?.monitorID
+    ?? ruleLocation.map { state.monitors[$0.monitorIndex].id }
+    ?? placementLocation.map { state.monitors[$0.monitorIndex].id }
     ?? preferredMonitorID
     ?? window.monitorID
     ?? state.monitors[0].id
   let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }) ?? 0
-  let preferredWorkspaceID = effectivePlacement?.workspaceID
   let workspaceID =
     transientLocation?.workspaceID
     ?? decision.workspace
-    ?? preferredWorkspaceID.flatMap { preferred in
-      state.monitors[monitorIndex].workspaces.contains(where: { $0.id == preferred })
-        ? preferred
-        : nil
+    ?? placementLocation.map {
+      state.monitors[$0.monitorIndex].workspaces[$0.workspaceIndex].id
     }
     ?? state.monitors[monitorIndex].activeWorkspace
   guard
@@ -92,6 +95,7 @@ public func discoverWindow(
     state.monitors[monitorIndex].activeWorkspace = workspaceID
   }
   state.windows[window.id] = window
+  state.maintainWorkspaceLifecycle()
 }
 
 public func transientPlacementLocation(
@@ -266,6 +270,7 @@ public func reconcileWindows(
     if relocatedInPass == false { break }
   }
   reconcileNativeFullscreenWindows(nativeFullscreenWindowIDs, state: &state)
+  state.maintainWorkspaceLifecycle()
   return relocatedTransientIDs
 }
 

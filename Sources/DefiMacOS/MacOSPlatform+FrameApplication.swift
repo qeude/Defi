@@ -6,6 +6,30 @@ import DefiCore
 import DefiModel
 import OSLog
 
+func reentryTransitionDelta(
+  reentryStart: CGPoint,
+  reentryTarget: Rect,
+  candidateStart: CGPoint,
+  candidateTarget: Rect
+) -> CGPoint? {
+  let delta = CGPoint(
+    x: candidateTarget.x - candidateStart.x,
+    y: candidateTarget.y - candidateStart.y
+  )
+  guard abs(delta.x) >= 0.5 || abs(delta.y) >= 0.5 else { return nil }
+  guard abs(delta.y) > abs(delta.x) else {
+    return CGPoint(x: delta.x, y: 0)
+  }
+  let reentryDelta = CGPoint(
+    x: reentryTarget.x - reentryStart.x,
+    y: reentryTarget.y - reentryStart.y
+  )
+  guard abs(reentryDelta.x - delta.x) >= 0.5
+    || abs(reentryDelta.y - delta.y) >= 0.5
+  else { return nil }
+  return CGPoint(x: 0, y: delta.y)
+}
+
 @MainActor
 extension MacOSPlatform {
 
@@ -145,28 +169,40 @@ extension MacOSPlatform {
     var reenteringWindowIDs = Set<WindowID>()
     for assignment in assignments
     where newlyUnparkedWindowIDs.contains(assignment.windowID) {
+      guard let reentryStart = animationStartPositions[assignment.windowID]
+      else { continue }
       let nearestTransition = assignments.compactMap {
-        candidate -> (distance: Double, deltaX: Double)? in
+        candidate -> (distance: Double, delta: CGPoint)? in
         guard candidate.windowID != assignment.windowID,
           !hiddenWindowIDs.contains(candidate.windowID),
           !newlyUnparkedWindowIDs.contains(candidate.windowID),
-          let start = animationStartPositions[candidate.windowID]
+          let candidateStart = animationStartPositions[candidate.windowID],
+          let delta = reentryTransitionDelta(
+            reentryStart: reentryStart,
+            reentryTarget: assignment.frame,
+            candidateStart: candidateStart,
+            candidateTarget: candidate.frame
+          )
         else {
           return nil
         }
-        let deltaX = candidate.frame.x - start.x
-        guard abs(deltaX) >= 0.5 else { return nil }
         let distance =
           abs(candidate.frame.x - assignment.frame.x)
           + abs(candidate.frame.y - assignment.frame.y)
-        return (distance, deltaX)
+        return (distance, delta)
       }.min { $0.distance < $1.distance }
       guard let nearestTransition else { continue }
-      animationStartPositions[assignment.windowID] = CGPoint(
-        x: assignment.frame.x - nearestTransition.deltaX,
-        y: assignment.frame.y
+      let plannedStart = CGPoint(
+        x: assignment.frame.x - nearestTransition.delta.x,
+        y: assignment.frame.y - nearestTransition.delta.y
       )
-      reenteringWindowIDs.insert(assignment.windowID)
+      animationStartPositions[assignment.windowID] = plannedStart
+      if reentryStartRequiresStaging(
+        observed: reentryStart,
+        planned: plannedStart
+      ) {
+        reenteringWindowIDs.insert(assignment.windowID)
+      }
     }
     for assignment in assignments
     where newlyDiscoveredWindowIDs.contains(assignment.windowID)

@@ -126,6 +126,7 @@ public func interpolateOverviewProjection(
       }
       return OverviewWorkspaceProjection(
         workspaceID: targetWorkspace.workspaceID,
+        label: targetWorkspace.label,
         frame: interpolateOverviewRect(
           from: sourceWorkspace.frame,
           to: targetWorkspace.frame,
@@ -202,6 +203,7 @@ public struct OverviewProjection: Equatable, Sendable {
 
 public struct OverviewWorkspaceProjection: Equatable, Sendable {
   public let workspaceID: WorkspaceID
+  public let label: String
   public let frame: Rect
   public let windows: [OverviewWindowProjection]
   public let hiddenTiledWindowCountBefore: Int
@@ -209,12 +211,14 @@ public struct OverviewWorkspaceProjection: Equatable, Sendable {
 
   public init(
     workspaceID: WorkspaceID,
+    label: String? = nil,
     frame: Rect,
     windows: [OverviewWindowProjection],
     hiddenTiledWindowCountBefore: Int = 0,
     hiddenTiledWindowCountAfter: Int = 0
   ) {
     self.workspaceID = workspaceID
+    self.label = label ?? workspaceID.rawValue
     self.frame = frame
     self.windows = windows
     self.hiddenTiledWindowCountBefore = hiddenTiledWindowCountBefore
@@ -414,6 +418,8 @@ public func projectOverview(
     projected.append(
       OverviewWorkspaceProjection(
         workspaceID: originalWorkspace.id,
+        label: originalWorkspace.name
+          ?? (originalWorkspace.kind == .trailing ? "+" : String(workspaceIndex + 1)),
         frame: workspaceFrame,
         windows: projectedWindows,
         hiddenTiledWindowCountBefore: hiddenTiledWindowCountBefore,

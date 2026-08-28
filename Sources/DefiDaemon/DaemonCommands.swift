@@ -82,8 +82,58 @@ func crossMonitorCommandWindowID(
   selectedWindowID: WindowID?,
   selectedTiledWindowID: WindowID?
 ) -> WindowID? {
-  if case .moveColumnToMonitor = command { return selectedTiledWindowID }
+  switch command {
+  case .moveColumnToMonitor, .moveColumnToWorkspace:
+    return selectedTiledWindowID
+  default:
+    break
+  }
   return selectedWindowID
+}
+
+func workspaceTargetID(
+  for command: Command,
+  on monitorID: MonitorID?,
+  state: RuntimeState
+) -> WorkspaceID? {
+  guard
+    let monitorIndex = monitorID.flatMap({ id in
+      state.monitors.firstIndex(where: { $0.id == id })
+    }) ?? state.monitors.indices.first
+  else { return nil }
+  switch command {
+  case .switchWorkspace(let id), .moveWindowToWorkspace(let id):
+    return id
+  case .focusWorkspace(let target),
+    .moveColumnToWorkspace(let target, follow: true),
+    .moveWindowToWorkspaceTarget(let target, follow: true):
+    return state.resolveWorkspaceTarget(target, on: monitorIndex).map {
+      state.monitors[$0.monitorIndex].workspaces[$0.workspaceIndex].id
+    }
+  case .moveWorkspaceToMonitor:
+    return state.monitors[monitorIndex].activeWorkspace
+  default:
+    return nil
+  }
+}
+
+func workspaceTransitionIntent(
+  targetWorkspaceID: WorkspaceID?,
+  state: RuntimeState
+) -> WorkspaceTransitionIntent? {
+  guard let targetWorkspaceID,
+    let target = state.workspaceLocation(for: targetWorkspaceID),
+    let sourceIndex = state.monitors[target.monitorIndex].workspaces.firstIndex(where: {
+      $0.id == state.monitors[target.monitorIndex].activeWorkspace
+    }),
+    sourceIndex != target.workspaceIndex
+  else { return nil }
+  return WorkspaceTransitionIntent(
+    monitorID: state.monitors[target.monitorIndex].id,
+    outgoingWorkspaceID: state.monitors[target.monitorIndex].activeWorkspace,
+    incomingWorkspaceID: targetWorkspaceID,
+    direction: target.workspaceIndex > sourceIndex ? 1 : -1
+  )
 }
 
 func commandDiagnosticMetadata(
@@ -178,7 +228,14 @@ extension Daemon {
     inputTimestamp: TimeInterval? = nil
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
-      return .success(state.workspaceNames.map(\.rawValue).joined(separator: "\n"))
+      let lines = currentWorkspaceState().monitors.map { monitor in
+        let labels = monitor.workspaces.map { workspace in
+          workspace.name
+            ?? (workspace.kind == .trailing ? "+" : String(workspace.position))
+        }
+        return "\(monitor.display): \(labels.joined(separator: " "))"
+      }
+      return .success(lines.joined(separator: "\n"))
     }
     if rawCommand == "list-workspaces --json" {
       do {
@@ -235,11 +292,50 @@ extension Daemon {
         uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }
       )
       let commandViewports = viewportsByMonitor
+      if case .focusMonitor(let direction) = command {
+        guard let sourceMonitorID = commandMonitorID,
+          let targetMonitorID = spatialMonitor(
+            from: sourceMonitorID,
+            toward: direction,
+            frames: physicalMonitorFrames
+          )
+        else { return .success() }
+        commandGeneration &+= 1
+        latestCommandInputTimestamp = max(
+          latestCommandInputTimestamp,
+          commandInputTimestamp
+        )
+        suppressNativeFocusUntil = commandStartedAt + 0.25
+        invalidatePointerFocusIntent(
+          recoveringTo: state.selectedWindowID(on: targetMonitorID)
+        )
+        preemptMouseGesture()
+        activeMonitorID = targetMonitorID
+        if let windowID = state.selectedWindowID(on: targetMonitorID) {
+          _ = platform.focus(
+            windowID,
+            unlessUserInputAfter: commandInputTimestamp,
+            allowsNativeFullscreen: true
+          )
+        }
+        updateMenuBar()
+        return .success()
+      }
+      let intendedWorkspaceID = workspaceTargetID(
+        for: command,
+        on: commandMonitorID,
+        state: state
+      )
+      let verticalTransitionIntent = workspaceTransitionIntent(
+        targetWorkspaceID: intendedWorkspaceID,
+        state: state
+      )
       // When frames are already in flight the reducer must run on the live
       // state after the displayed-frame rebase, so skip the validation copy.
       let rebasesPendingFrame =
         !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites
-      let validationState = try rebasesPendingFrame
+      let validationState =
+        try rebasesPendingFrame
         ? nil
         : changedState(
           after: command,
@@ -248,7 +344,11 @@ extension Daemon {
           monitorFrames: physicalMonitorFrames,
           viewports: commandViewports
         )
-      if validationState == nil, command.explicitlyFocusesFloating == false {
+      if commandValidationIsNoOp(
+        hasValidationState: validationState != nil,
+        rebasesPendingFrame: rebasesPendingFrame,
+        explicitlyFocusesFloating: command.explicitlyFocusesFloating
+      ) {
         commandGeneration &+= 1
         lastCommandDurationMS =
           (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
@@ -332,7 +432,13 @@ extension Daemon {
         && config.animation.enabled
         && config.animation.durationMS > 0
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
-        state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
+        let activationMonitorID =
+          intendedWorkspaceID.flatMap {
+            state.workspaceLocation(for: $0).map { state.monitors[$0.monitorIndex].id }
+          } ?? monitorID
+        return state.monitors.first(where: {
+          $0.id == activationMonitorID
+        })?.activeWorkspace
       }
       let preCommandWindowMonitorIDs = state.windowLocationMap()
       let inFlightAnimationMonitorIDs = Set(
@@ -355,7 +461,8 @@ extension Daemon {
         invalidateSubmittedWorkspaceFocus()
         pendingWorkspaceFocus = nil
       }
-      let previousWindowMonitorIDs = movesAcrossMonitors
+      let previousWindowMonitorIDs =
+        movesAcrossMonitors
         ? monitorIDsByWindow(preCommandWindowMonitorIDs)
         : [:]
       if rebasesPendingFrame {
@@ -370,20 +477,28 @@ extension Daemon {
         state = validationState
       }
       let nextWindowMonitorIDsMap = state.windowLocationMap()
-      let resultMonitorID = movesAcrossMonitors
+      let resultMonitorID =
+        intendedWorkspaceID.flatMap {
+          state.workspaceLocation(for: $0).map { state.monitors[$0.monitorIndex].id }
+        }
+        ?? (movesAcrossMonitors && command.followsWindowMove
         ? crossMonitorWindowID.flatMap { nextWindowMonitorIDsMap[$0]?.monitorID }
           ?? commandMonitorID
-        : commandMonitorID
-      let nextWindowMonitorIDs = movesAcrossMonitors
+          : commandMonitorID)
+      let nextWindowMonitorIDs =
+        movesAcrossMonitors
         ? monitorIDsByWindow(nextWindowMonitorIDsMap)
         : [:]
+      let movedBetweenMonitors = previousWindowMonitorIDs.contains {
+        nextWindowMonitorIDs[$0.key] != $0.value
+      }
+      let focusBearingMonitorMove = movedBetweenMonitors && command.followsWindowMove
       let movedFloatingWindowIDs = floatingWindowIDsMovedBetweenMonitors(
         previousWindowMonitorIDs: previousWindowMonitorIDs,
         nextWindowMonitorIDs: nextWindowMonitorIDs,
         windows: state.windows
       )
       if movesAcrossMonitors {
-        activeMonitorID = resultMonitorID
         rebaseFloatingWindowFrames(
           previousViewports: commandViewports,
           nextViewports: commandViewports,
@@ -419,7 +534,7 @@ extension Daemon {
           selectedFloatingWindowID: state.selectedFloatingWindowID(
             on: resultMonitorID
           ),
-          movesAcrossMonitors: movesAcrossMonitors
+          movesAcrossMonitors: focusBearingMonitorMove
         )
       } else {
         commandTransfersFocus = false
@@ -498,11 +613,11 @@ extension Daemon {
         )
       let workspaceFocusRequest: PendingWorkspaceFocus?
       if switchesWorkspace,
-        let commandMonitorID,
+        let focusMonitorID = resultMonitorID,
         let requestedWorkspaceID = state.monitors.first(where: {
-          $0.id == commandMonitorID
+          $0.id == focusMonitorID
         })?.activeWorkspace,
-        let requestedWindowID = state.selectedWindowID(on: commandMonitorID)
+        let requestedWindowID = state.selectedWindowID(on: focusMonitorID)
       {
         let restoresPreviousWorkspaceOnCancellation: Bool
         if case .switchWorkspace = command {
@@ -511,7 +626,7 @@ extension Daemon {
           restoresPreviousWorkspaceOnCancellation = false
         }
         workspaceFocusRequest = PendingWorkspaceFocus(
-          monitorID: commandMonitorID,
+          monitorID: focusMonitorID,
           requestedWorkspaceID: requestedWorkspaceID,
           previousWorkspaceID: previousWorkspaceID,
           requestedWindowID: requestedWindowID,
@@ -588,26 +703,45 @@ extension Daemon {
           cursorWarpIsCurrentAfterCommit = nil
           focusRequestIDAfterCommit = nil
         }
-        applyCurrentLayout(
-          monitorIDs: affectedMonitorIDs,
-          asynchronousPositions: true,
-          updateVisibility: scrollAnimations.isEmpty,
-          positionTimeoutSeconds: scrollAnimations.isEmpty ? 0.05 : 0.016,
-          positionsOnly: speculativeRibbonNavigation,
-          stagesVisibleBeforeParking: switchesWorkspace,
-          focusWindowIDAfterCommit: focusWindowIDAfterCommit,
-          focusInputTimestampAfterCommit:
-            workspaceFocusRequest?.focusInputTimestamp,
-          cursorWarpInputTimestampAfterCommit:
-            workspaceFocusRequest?.cursorWarpInputTimestamp,
-          focusCompletionAfterCommit: focusCompletionAfterCommit,
-          cursorWarpIsCurrentAfterCommit:
-            cursorWarpIsCurrentAfterCommit,
-          focusRequestIDAfterCommit: focusRequestIDAfterCommit,
-          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
-          commandPerformance: commandPerformance,
-          source: switchesWorkspace ? "workspace-command" : "command"
-        )
+        if switchesWorkspace, !movedBetweenMonitors,
+          let verticalTransitionIntent,
+          let transition = safeWorkspaceVerticalTransition(verticalTransitionIntent)
+        {
+          dispatchWorkspaceVerticalTransition(
+            transition,
+            affectedMonitorIDs: affectedMonitorIDs,
+            focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+            focusInputTimestampAfterCommit:
+              workspaceFocusRequest?.focusInputTimestamp,
+            cursorWarpInputTimestampAfterCommit:
+              workspaceFocusRequest?.cursorWarpInputTimestamp,
+            focusCompletionAfterCommit: focusCompletionAfterCommit,
+            cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
+            focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+            commandPerformance: commandPerformance
+          )
+        } else {
+          applyCurrentLayout(
+            monitorIDs: affectedMonitorIDs,
+            asynchronousPositions: true,
+            updateVisibility: scrollAnimations.isEmpty,
+            positionTimeoutSeconds: scrollAnimations.isEmpty ? 0.05 : 0.016,
+            positionsOnly: speculativeRibbonNavigation,
+            stagesVisibleBeforeParking: switchesWorkspace,
+            focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+            focusInputTimestampAfterCommit:
+              workspaceFocusRequest?.focusInputTimestamp,
+            cursorWarpInputTimestampAfterCommit:
+              workspaceFocusRequest?.cursorWarpInputTimestamp,
+            focusCompletionAfterCommit: focusCompletionAfterCommit,
+            cursorWarpIsCurrentAfterCommit:
+              cursorWarpIsCurrentAfterCommit,
+            focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+            forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
+            commandPerformance: commandPerformance,
+            source: switchesWorkspace ? "workspace-command" : "command"
+          )
+        }
       }
       if !switchesWorkspace,
         let monitorID = resultMonitorID ?? state.monitors.first?.id,
@@ -618,7 +752,7 @@ extension Daemon {
           previousSelectedWindowID: previouslySelectedWindowID,
           selectedWindowID: selected,
           selectedFloatingWindowID: state.selectedFloatingWindowID(on: monitorID),
-          movesAcrossMonitors: movesAcrossMonitors
+          movesAcrossMonitors: focusBearingMonitorMove
         )
       {
         if focusIsReady(on: monitorID, targetWindowID: selected) {
@@ -668,7 +802,7 @@ extension Daemon {
           cursorWarpInputTimestamp: cursorWarpInputTimestamp
         )
       }
-      if movesAcrossMonitors,
+      if focusBearingMonitorMove,
         let selectedWindowID = resultMonitorID.flatMap({ state.selectedWindowID(on: $0) }),
         platform.isWindowNativelyFocused(selectedWindowID)
       {
@@ -706,6 +840,14 @@ func commandLayoutMonitorIDs(
   affected.union(inFlightAnimations)
 }
 
+func commandValidationIsNoOp(
+  hasValidationState: Bool,
+  rebasesPendingFrame: Bool,
+  explicitlyFocusesFloating: Bool
+) -> Bool {
+  !hasValidationState && !rebasesPendingFrame && !explicitlyFocusesFloating
+}
+
 func affectedMonitorIDsForWindowMove(
   commandMonitorID: MonitorID?,
   resultMonitorID: MonitorID?,
@@ -728,7 +870,8 @@ func floatingWindowIDsMovedBetweenMonitors(
   nextWindowMonitorIDs: [WindowID: MonitorID],
   windows: [WindowID: Window]
 ) -> Set<WindowID> {
-  Set(previousWindowMonitorIDs.compactMap { windowID, previousMonitorID in
+  Set(
+    previousWindowMonitorIDs.compactMap { windowID, previousMonitorID in
     guard nextWindowMonitorIDs[windowID] != previousMonitorID,
       windows[windowID]?.floating == true
     else { return nil }

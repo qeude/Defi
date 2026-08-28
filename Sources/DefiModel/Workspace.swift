@@ -33,6 +33,10 @@ public struct Column: Equatable, Codable, Sendable {
 
 public struct Workspace: Equatable, Codable, Sendable {
   public let id: WorkspaceID
+  public var kind: WorkspaceKind
+  public var name: String?
+  public var affinity: MonitorID?
+  public var affinityPosition: Int
   public var columns: [Column]
   public var floatingWindows: [WindowID]
   public var focusedFloatingWindow: Int
@@ -43,6 +47,10 @@ public struct Workspace: Equatable, Codable, Sendable {
 
   public init(
     id: WorkspaceID,
+    kind: WorkspaceKind = .named,
+    name: String? = nil,
+    affinity: MonitorID? = nil,
+    affinityPosition: Int = 0,
     columns: [Column] = [],
     floatingWindows: [WindowID] = [],
     focusedFloatingWindow: Int = 0,
@@ -52,6 +60,10 @@ public struct Workspace: Equatable, Codable, Sendable {
     targetScrollOffset: Double = 0
   ) {
     self.id = id
+    self.kind = kind
+    self.name = name ?? (kind == .named ? id.rawValue : nil)
+    self.affinity = affinity
+    self.affinityPosition = affinityPosition
     self.columns = columns
     self.floatingWindows = floatingWindows
     self.focusedFloatingWindow = focusedFloatingWindow
@@ -60,6 +72,17 @@ public struct Workspace: Equatable, Codable, Sendable {
     self.scrollOffset = scrollOffset
     self.targetScrollOffset = targetScrollOffset
   }
+
+  public var isEmpty: Bool {
+    columns.isEmpty && floatingWindows.isEmpty
+  }
+
+}
+
+public enum WorkspaceKind: String, Equatable, Codable, Sendable {
+  case named
+  case ordinary
+  case trailing
 }
 
 public enum WindowFocusLayer: String, Equatable, Codable, Sendable {

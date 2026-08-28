@@ -5,7 +5,19 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import OSLog
+import Synchronization
 
+private struct AnimationClockState: Sendable {
+  var nextProgressIndex = 0
+  var frames = 0
+  var previousDispatchAt: TimeInterval?
+  var maximumDispatchGapMS = 0.0
+  var maximumLatenessMS = 0.0
+  var maximumSubmissionMS = 0.0
+  var coalescedLaneCount = 0
+  var finalizedProcessIDs: Set<pid_t> = []
+  var finished = false
+}
 
 extension AXFrameCoordinator {
   func animate(
@@ -21,6 +33,7 @@ extension AXFrameCoordinator {
     let blockingStaticWrites = staticWrites.filter { !$0.value.isParked }
     let finalOnlyProcessIDs = finalOnlyAnimationProcessIDs(
       for: animatedWrites,
+      animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz
     )
     let lanePlan = frameAnimationLanePlan(
@@ -103,60 +116,92 @@ extension AXFrameCoordinator {
       completion: nil,
       cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
+    var applied = 0
+    var stale = 0
+    let stagingGroup = DispatchGroup()
+    let stagingAccumulator = FrameResultAccumulator()
+    let reentryWrites = loopWrites.filter { $0.value.isReentering }
+    if !reentryWrites.isEmpty {
+      let reentryFrame = QueuedPositionFrame(
+        generation: frame.generation,
+        source: frame.source,
+        writes: reentryWrites,
+        animatedWindowIDs: Set(reentryWrites.keys),
+        animationDuration: 0,
+        refreshRateHz: frame.refreshRateHz,
+        displayIDs: frame.displayIDs,
+        initialProgressVelocity: 0,
+        stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
+        successfulWrite: frame.successfulWrite,
+        completion: nil,
+        cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
+      )
+      let stagingBatches = processWriteBatches(
+        reentryWrites,
+        windowIDs: Set(reentryWrites.keys)
+      )
+      for batch in stagingBatches {
+        stagingGroup.enter()
+        processWriteQueue(for: batch.processID).async { [self] in
+          defer { stagingGroup.leave() }
+          let startedAt = ProcessInfo.processInfo.systemUptime
+          let result = applyBatch(
+            batch,
+            frame: reentryFrame,
+            progress: 0,
+            intermediate: true,
+            stagingReentry: true,
+            recordFinalSuccess: false
+          )
+          let completedAt = ProcessInfo.processInfo.systemUptime
+          let latencyMS = (completedAt - startedAt) * 1_000
+          stagingAccumulator.add(
+            applied: result.applied,
+            stale: result.stale,
+            slowProcesses: result.slowProcesses,
+            processID: batch.processID,
+            processLatencyMS: latencyMS,
+            attempted: result.attempted,
+            completedAt: completedAt
+          )
+          if result.attempted {
+            recordProcessLatencySamples([batch.processID: latencyMS])
+          }
+        }
+      }
+    }
+
     let startedAt = ProcessInfo.processInfo.systemUptime
     let interval = 1 / frame.refreshRateHz
-    let intermediateBudget = max(frame.animationDuration, interval * 2)
     let availableIntermediateSamples = completedFrameSpringSamples(
       duration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
       initialVelocity: frame.initialProgressVelocity
     )
-    let maximumIntermediateFrames = availableIntermediateSamples.count
-    let initialPredictedLatency = predictedFrameLatency(
-      for: interpolatedWrites
+    let batches = processWriteBatches(
+      loopWrites,
+      windowIDs: Set(loopWrites.keys)
     )
-    var intermediateFrameLimit =
-      loopWrites.isEmpty
-      ? 0
-      : adaptiveIntermediateFrameLimit(
-        predictedFrameLatency: initialPredictedLatency,
-        refreshRateHz: frame.refreshRateHz,
-        availableIntermediateFrames: maximumIntermediateFrames
-      )
-    if !loopWrites.isEmpty,
-      intermediateFrameLimit < maximumIntermediateFrames
-    {
-      lock.lock()
-      appendTraceLocked(
-        "quality g=\(frame.generation) predictedMs=\(String(format: "%.2f", initialPredictedLatency * 1_000)) intermediates=\(intermediateFrameLimit)"
-      )
-      lock.unlock()
-    }
-    var nextDeadline = startedAt
-    var applied = 0
-    var stale = 0
-    var frames = 0
-    var nextProgressIndex = 0
-    var lastCompletedFrameDuration = 0.0
-    var completedFrameWasSlow = false
-    var lastSpringProgress = 0.0
-
-    if !loopWrites.isEmpty {
-      displayLinkClock.setActive(
-        true,
-        displayIDs: frame.displayIDs,
-        generation: frame.generation
-      )
-    }
-    defer {
-      if !loopWrites.isEmpty {
-        displayLinkClock.setActive(
-          false,
-          displayIDs: frame.displayIDs,
-          generation: frame.generation
+    let processQueues = Dictionary(
+      uniqueKeysWithValues: batches.map {
+        ($0.processID, processWriteQueue(for: $0.processID))
+      }
+    )
+    let finalSubmissionDelayByProcess = Dictionary(
+      uniqueKeysWithValues: batches.map { batch in
+        let writes = Dictionary(uniqueKeysWithValues: batch.writes)
+        return (
+          batch.processID,
+          anticipatedFinalFrameDispatchDelay(
+            animationDuration: frame.animationDuration,
+            predictedFrameLatency: predictedFrameLatency(for: writes)
+          )
         )
       }
-    }
+    )
+    let clockState = Mutex<AnimationClockState>(AnimationClockState())
+    let laneAccumulator = FrameResultAccumulator()
+    let finalGroup = DispatchGroup()
 
     let finalOnlyGroup = DispatchGroup()
     let finalOnlyResultStore = ConcurrentFrameResultStore()
@@ -186,165 +231,197 @@ extension AXFrameCoordinator {
       lock.unlock()
     }
 
-    let reentryWrites = loopWrites.filter { $0.value.isReentering }
-    while frames < intermediateFrameLimit
-      && nextProgressIndex < availableIntermediateSamples.count
-      && isCurrent(generation: frame.generation)
-    {
-      let remaining = nextDeadline - ProcessInfo.processInfo.systemUptime
-      let displayTargetTimestamp = remaining > 0
-        ? displayLinkClock.wait(
-          untilDisplayTarget: nextDeadline,
-          displayIDs: frame.displayIDs
-        )
-        : nil
-      let displayAligned = displayTargetTimestamp != nil
+    let clockDone = DispatchSemaphore(value: 0)
+    let intervalNanoseconds = max(
+      Int((interval * 1_000_000_000).rounded()),
+      1
+    )
+    let clock = DispatchSource.makeTimerSource(
+      flags: .strict,
+      queue: animationClockQueue
+    )
+    clock.schedule(
+      deadline: .now() + .nanoseconds(intervalNanoseconds),
+      repeating: .nanoseconds(intervalNanoseconds),
+      leeway: .microseconds(100)
+    )
+    clock.setEventHandler { [self] in
+      guard isCurrent(generation: frame.generation) else {
+        let shouldSignal = clockState.withLock { state in
+          guard !state.finished else { return false }
+          state.finished = true
+          return true
+        }
+        if shouldSignal {
+          clock.cancel()
+          clockDone.signal()
+        }
+        return
+      }
       let now = ProcessInfo.processInfo.systemUptime
+      let progressIndex = clockState.withLock { state -> Int? in
+        guard state.nextProgressIndex < availableIntermediateSamples.count
+        else { return nil }
+        let elapsedIntervals = max(
+          Int(floor((now - startedAt) / interval)),
+          state.nextProgressIndex + 1
+        )
+        let index = min(
+          elapsedIntervals - 1,
+          availableIntermediateSamples.count - 1
+        )
+        state.nextProgressIndex = index + 1
+        state.maximumLatenessMS = max(
+          state.maximumLatenessMS,
+          max(now - startedAt - Double(index + 1) * interval, 0) * 1_000
+        )
+        return index
+      }
+      guard let progressIndex else {
+        let shouldSignal = clockState.withLock { state in
+          guard !state.finished else { return false }
+          state.finished = true
+          return true
+        }
+        if shouldSignal {
+          clock.cancel()
+          clockDone.signal()
+        }
+        return
+      }
+      let springSample = availableIntermediateSamples[progressIndex]
       let elapsed = now - startedAt
-      let predictedLatency = predictedFrameLatency(for: interpolatedWrites)
-      if frames > 0,
-        !completedFrameSupportsAnotherSample(
-          duration: lastCompletedFrameDuration,
-          refreshRateHz: frame.refreshRateHz
-        )
-      {
-        completedFrameWasSlow = true
-        break
+      let (finalBatches, finalizedProcessIDs) = clockState.withLock { state in
+        let due = batches.filter {
+          !state.finalizedProcessIDs.contains($0.processID)
+            && elapsed >= (finalSubmissionDelayByProcess[$0.processID] ?? .infinity)
+        }
+        state.finalizedProcessIDs.formUnion(due.map(\.processID))
+        return (due, state.finalizedProcessIDs)
       }
-      if !shouldEmitAnotherIntermediateFrame(
-        elapsed: elapsed,
-        predictedFrameLatency: predictedLatency,
-        budget: intermediateBudget,
-        completedIntermediateFrames: frames
-      ) {
-        break
+      let intermediateBatches = batches.filter { batch in
+        !finalizedProcessIDs.contains(batch.processID)
       }
-      guard
-        let progressIndex = anticipatedSpringProgressIndex(
-          predictedFrameLatency: predictedLatency,
-          refreshRateHz: frame.refreshRateHz,
-          availableIntermediateFrames: availableIntermediateSamples.count,
-          minimumIndex: nextProgressIndex,
-          maximumIndex: frames == 0 ? 1 : nil
-        )
-      else {
-        break
+      let submissionStartedAt = ProcessInfo.processInfo.systemUptime
+      for _ in finalBatches {
+        finalGroup.enter()
       }
-      let sampledSpring = displayTargetTimestamp.map {
-        springProgressSample(
-          elapsed: $0 - startedAt + predictedLatency,
-          duration: frame.animationDuration,
-          initialVelocity: frame.initialProgressVelocity,
-          minimumProgress: lastSpringProgress
-        )
-      } ?? availableIntermediateSamples[progressIndex]
-      let springSample = sampledSpring.progress < lastSpringProgress
-        ? SpringProgressSample(progress: lastSpringProgress, velocity: 0)
-        : sampledSpring
-      let springProgress = springSample.progress
-      lastSpringProgress = springProgress
-      nextProgressIndex = progressIndex + 1
-      let applyStartedAt = ProcessInfo.processInfo.systemUptime
-      let result = applyFrame(
-        animatedFrame,
-        progress: springProgress,
-        skippedProcesses: [],
-        intermediate: true,
-        stagingReentry: frames == 0 && !reentryWrites.isEmpty
+      let coalesced = submitAnimationSamples(
+        intermediateBatches.map { batch in
+          ProcessAnimationSample(
+            frame: animatedFrame,
+            batch: batch,
+            progress: springSample.progress,
+            progressVelocity: springSample.velocity,
+            intermediate: true,
+            stagingReentry: false,
+            recordFinalSuccess: false,
+            accumulator: laneAccumulator,
+            completion: nil
+          )
+        } + finalBatches.map { batch in
+          ProcessAnimationSample(
+            frame: animatedFrame,
+            batch: batch,
+            progress: 1,
+            progressVelocity: 0,
+            intermediate: false,
+            stagingReentry: false,
+            recordFinalSuccess: true,
+            accumulator: laneAccumulator,
+            completion: { finalGroup.leave() }
+          )
+        },
+        processQueues: processQueues
       )
-      applied += result.applied
-      stale += result.stale
-      frames += 1
-      publishCompletedBorderGeometry(animatedFrame.writes)
-      recordRetargetVelocity(
-        frame: animatedFrame,
-        progressVelocity: springSample.velocity
-      )
-      let applyDurationMS =
-        (ProcessInfo.processInfo.systemUptime - applyStartedAt) * 1_000
-      let frameCompletedAt = ProcessInfo.processInfo.systemUptime
-      lastCompletedFrameDuration = applyDurationMS / 1_000
-      if frames == 1,
-        intermediateFrameLimit < maximumIntermediateFrames,
-        completedFrameSupportsAnotherSample(
-          duration: lastCompletedFrameDuration,
-          refreshRateHz: frame.refreshRateHz
+      let dispatchedAt = ProcessInfo.processInfo.systemUptime
+      clockState.withLock { state in
+        state.coalescedLaneCount += coalesced
+        state.maximumSubmissionMS = max(
+          state.maximumSubmissionMS,
+          (dispatchedAt - submissionStartedAt) * 1_000
         )
-      {
-        intermediateFrameLimit = maximumIntermediateFrames
-        lock.lock()
-        appendTraceLocked(
-          "quality-recovered g=\(frame.generation) actualMs=\(String(format: "%.2f", applyDurationMS)) intermediates=\(intermediateFrameLimit)"
-        )
-        lock.unlock()
+        if let previousDispatchAt = state.previousDispatchAt {
+          state.maximumDispatchGapMS = max(
+            state.maximumDispatchGapMS,
+            (dispatchedAt - previousDispatchAt) * 1_000
+          )
+        }
+        state.previousDispatchAt = dispatchedAt
+        state.frames += 1
       }
-      lock.lock()
-      appendTraceLocked(
-        "sample g=\(frame.generation) i=\(frames) pi=\(progressIndex) p=\(String(format: "%.3f", springProgress)) applied=\(result.applied) spread=\(String(format: "%.2f", result.completionSpreadMS)) ms=\(String(format: "%.2f", applyDurationMS)) display=\(displayAligned ? 1 : 0) reentry=\(frames == 1 ? reentryWrites.count : 0)"
-      )
-      lock.unlock()
-      nextDeadline = nextCompletedFrameDispatchDeadline(
-        completedAt: frameCompletedAt,
-        refreshRateHz: frame.refreshRateHz
-      )
     }
+    clock.resume()
+    let clockTimeout =
+      DispatchTime.now()
+      + .milliseconds(Int(frame.animationDuration * 1_000) + 100)
+    if clockDone.wait(timeout: clockTimeout) == .timedOut {
+      clockState.withLock { $0.finished = true }
+      clock.cancel()
+    }
+    animationClockQueue.sync {}
+    stagingGroup.wait()
+    let stagingResult = stagingAccumulator.result
+    applied += stagingResult.applied
+    stale += stagingResult.stale
+    let clockMetrics = clockState.withLock { $0 }
+    let frames = clockMetrics.frames
+    let maximumDispatchGapMS = clockMetrics.maximumDispatchGapMS
+    let maximumDisplayWaitMS = clockMetrics.maximumLatenessMS
+    let maximumSubmissionMS = clockMetrics.maximumSubmissionMS
+    let coalescedLaneCount = clockMetrics.coalescedLaneCount
 
     guard isCurrent(generation: frame.generation) else {
+      animationLaneWriteGroup.wait()
       finalOnlyGroup.wait()
+      let laneResult = laneAccumulator.result
+      recordAnimationCadence(
+        generation: frame.generation,
+        frames: frames,
+        maximumDispatchGapMS: maximumDispatchGapMS,
+        maximumDisplayWaitMS: maximumDisplayWaitMS,
+        maximumSubmissionMS: maximumSubmissionMS,
+        coalescedLaneCount: coalescedLaneCount
+      )
       markAnimationFinished(
         generation: frame.generation,
         startedAt: startedAt
       )
-      return (applied, stale + animatedWrites.count, frames)
+      return (
+        applied + laneResult.applied,
+        stale + laneResult.stale + animatedWrites.count,
+        frames
+      )
     }
-    let finalDispatchDelay =
-      intermediateFrameLimit == 0
-      ? 0
-      : anticipatedFinalFrameDispatchDelay(
-        animationDuration: frame.animationDuration,
-        predictedFrameLatency: predictedFrameLatency(for: interpolatedWrites)
-      )
-    let finalDeadline = finalFrameDispatchDeadline(
-      nominalDeadline: startedAt + finalDispatchDelay,
-      nextDisplayDeadline: frames > 0 ? nextDeadline : startedAt,
-      previousFrameWasSlow: completedFrameWasSlow,
-      hardDeadline: startedAt + frame.animationDuration
-    )
-    let finalRemaining =
-      finalDeadline - ProcessInfo.processInfo.systemUptime
-    let finalDisplayTargetTimestamp = finalRemaining > 0
-      ? displayLinkClock.wait(
-        untilDisplayTarget: finalDeadline,
-        displayIDs: frame.displayIDs
-      )
-      : nil
-    let finalDisplayAligned = finalDisplayTargetTimestamp != nil
-    guard isCurrent(generation: frame.generation) else {
-      finalOnlyGroup.wait()
-      markAnimationFinished(
-        generation: frame.generation,
-        startedAt: startedAt
-      )
-      return (applied, stale + animatedWrites.count, frames)
+    let remainingBatches = clockState.withLock { state in
+      let remaining = batches.filter {
+        !state.finalizedProcessIDs.contains($0.processID)
+      }
+      state.finalizedProcessIDs.formUnion(remaining.map(\.processID))
+      return remaining
     }
-    if !loopWrites.isEmpty {
-      let finalStartedAt = ProcessInfo.processInfo.systemUptime
-      let final = applyFrame(
-        animatedFrame,
+    let finalSamples = remainingBatches.map { batch in
+      finalGroup.enter()
+      return ProcessAnimationSample(
+        frame: animatedFrame,
+        batch: batch,
         progress: 1,
-        skippedProcesses: []
+        progressVelocity: 0,
+        intermediate: false,
+        stagingReentry: false,
+        recordFinalSuccess: true,
+        accumulator: laneAccumulator,
+        completion: { finalGroup.leave() }
       )
-      applied += final.applied
-      stale += final.stale
-      publishCompletedBorderGeometry(animatedFrame.writes)
-      let finalDurationMS =
-        (ProcessInfo.processInfo.systemUptime - finalStartedAt) * 1_000
-      lock.lock()
-      appendTraceLocked(
-        "sample g=\(frame.generation) i=final p=1.000 applied=\(final.applied) spread=\(String(format: "%.2f", final.completionSpreadMS)) ms=\(String(format: "%.2f", finalDurationMS)) display=\(finalDisplayAligned ? 1 : 0) reentry=0"
-      )
-      lock.unlock()
     }
+    _ = submitAnimationSamples(
+      finalSamples,
+      processQueues: processQueues
+    )
+    finalGroup.wait()
+    let laneResult = laneAccumulator.result
+    applied += laneResult.applied
+    stale += laneResult.stale
     finalOnlyGroup.wait()
     let finalOnlyResult = finalOnlyResultStore.result
     if let finalOnlyResult {
@@ -356,6 +433,14 @@ extension AXFrameCoordinator {
       )
       lock.unlock()
     }
+    recordAnimationCadence(
+      generation: frame.generation,
+      frames: frames + (batches.isEmpty ? 0 : 1),
+      maximumDispatchGapMS: maximumDispatchGapMS,
+      maximumDisplayWaitMS: maximumDisplayWaitMS,
+      maximumSubmissionMS: maximumSubmissionMS,
+      coalescedLaneCount: coalescedLaneCount
+    )
     markAnimationFinished(
       generation: frame.generation,
       startedAt: startedAt
@@ -395,6 +480,21 @@ extension AXFrameCoordinator {
       stale,
       max(interpolatedFrameCount, finalOnlyResult?.frames ?? 0)
     )
+  }
+
+  func recordAnimationCadence(
+    generation: UInt64,
+    frames: Int,
+    maximumDispatchGapMS: Double,
+    maximumDisplayWaitMS: Double,
+    maximumSubmissionMS: Double,
+    coalescedLaneCount: Int
+  ) {
+    lock.lock()
+    appendTraceLocked(
+      "cadence g=\(generation) frames=\(frames) maxGapMs=\(String(format: "%.2f", maximumDispatchGapMS)) waitMs=\(String(format: "%.2f", maximumDisplayWaitMS)) submitMs=\(String(format: "%.2f", maximumSubmissionMS)) coalesced=\(coalescedLaneCount)"
+    )
+    lock.unlock()
   }
 
   /// Border overlays ride the geometry that has actually been written and
@@ -442,14 +542,15 @@ extension AXFrameCoordinator {
 
   func recordRetargetVelocity(
     frame: QueuedPositionFrame,
-    progressVelocity: Double
+    progressVelocity: Double,
+    windowIDs: Set<WindowID>? = nil
   ) {
     lock.lock()
     guard latestGeneration == frame.generation else {
       lock.unlock()
       return
     }
-    for windowID in frame.animatedWindowIDs {
+    for windowID in windowIDs ?? frame.animatedWindowIDs {
       guard let write = frame.writes[windowID] else { continue }
       retargetHorizontalVelocities[windowID] =
         (write.point.x - write.fromPoint.x) * progressVelocity

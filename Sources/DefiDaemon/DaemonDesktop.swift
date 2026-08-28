@@ -62,6 +62,7 @@ extension Daemon {
       (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     forceFloatingFrameWrites: Bool = false,
     forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
+    workspaceTransition: WorkspaceVerticalTransition? = nil,
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "layout"
   ) {
@@ -130,7 +131,9 @@ extension Daemon {
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
-          monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
+          if workspaceTransition?.monitorID != monitor.id {
+            monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
+          }
 
           if !state.nativeFullscreenWindowIDs.isEmpty {
             let fullscreenStrip = continuousStripFramesForActiveWorkspace(
@@ -163,6 +166,26 @@ extension Daemon {
               monitorAssignments.append(assignment)
             }
           }
+        } else if !overviewParksWindows,
+          let deltaY = outgoingWorkspaceVerticalRibbonOffset(
+            workspaceID: workspace.id,
+            monitorID: monitor.id,
+            transition: workspaceTransition,
+            physicalFrame: physicalFrame
+          )
+        {
+          let strip = continuousStripFramesForActiveWorkspace(
+            sizedFrames,
+            viewport: viewport,
+            ownerFrame: physicalFrame,
+            parkingFrame: viewport,
+            allMonitorFrames: allPhysicalMonitorFrames
+          )
+          let leaving = (strip.frames + floatingAssignments(in: workspace)).map {
+            translatedAssignment($0, deltaY: deltaY)
+          }
+          monitorAssignments.append(contentsOf: leaving)
+          monitorBorderAssignments.append(contentsOf: leaving)
         } else {
           monitorHiddenWindowIDs.formUnion(sizedFrames.map(\.windowID))
           let floatingFrames = floatingAssignments(in: workspace)
@@ -313,5 +336,14 @@ extension Daemon {
         "initial-border-prepare ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
+  }
+
+  private func translatedAssignment(
+    _ assignment: FrameAssignment,
+    deltaY: Double
+  ) -> FrameAssignment {
+    var frame = assignment.frame
+    frame.y += deltaY
+    return FrameAssignment(windowID: assignment.windowID, frame: frame)
   }
 }

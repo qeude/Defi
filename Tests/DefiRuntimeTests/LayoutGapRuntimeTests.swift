@@ -12,6 +12,9 @@ struct LayoutGapRuntimeTests {
         gaps: 8,
         outerTopGap: 1,
         outerBottomGap: 0
+      ),
+      decorations: DecorationsConfig(
+        borders: BordersConfig(placement: "inside")
       )
     )
 
@@ -23,6 +26,29 @@ struct LayoutGapRuntimeTests {
     #expect(state.layout.outerRightGap == 8)
     #expect(state.layout.outerBottomGap == 0)
     #expect(state.layout.outerLeftGap == 8)
+  }
+
+  @Test
+  func outsideBorderReservesEveryViewportEdge() {
+    let config = Config(
+      layout: LayoutConfig(
+        gaps: 4,
+        outerTopGap: 1,
+        outerRightGap: 2,
+        outerBottomGap: 0,
+        outerLeftGap: 3
+      ),
+      decorations: DecorationsConfig(
+        borders: BordersConfig(width: 4, placement: "outside")
+      )
+    )
+
+    let layout = RuntimeState(config: config).layout
+
+    #expect(layout.outerTopGap == 4)
+    #expect(layout.outerRightGap == 4)
+    #expect(layout.outerBottomGap == 4)
+    #expect(layout.outerLeftGap == 4)
   }
 
   @Test

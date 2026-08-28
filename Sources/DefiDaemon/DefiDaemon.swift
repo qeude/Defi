@@ -144,6 +144,19 @@ struct MonitorLayoutPlan {
   let hiddenWindowIDs: Set<WindowID>
 }
 
+struct WorkspaceTransitionIntent: Equatable {
+  let monitorID: MonitorID
+  let outgoingWorkspaceID: WorkspaceID
+  let incomingWorkspaceID: WorkspaceID
+  let direction: Int
+}
+
+struct WorkspaceVerticalTransition: Equatable {
+  let monitorID: MonitorID
+  let outgoingWorkspaceID: WorkspaceID
+  let direction: Int
+}
+
 enum DisplacedPointerFocusRecovery: Equatable {
   case command(PendingAnimatedFocus, timestamp: TimeInterval)
   case workspace(PendingWorkspaceFocus, timestamp: TimeInterval)
@@ -155,6 +168,8 @@ final class Daemon: NSObject {
   let platform = MacOSPlatform()
   let server: UnixSocketServer
   let placementStore: PlacementStore
+  let topologyStore: WorkspaceTopologyStore
+  let topologySessionID: String
   let diagnostics = DiagnosticRecorder()
   let readResponseCache = DaemonReadResponseCache()
   var state: RuntimeState
@@ -165,6 +180,8 @@ final class Daemon: NSObject {
     qos: .utility
   )
   var placementSaveWorkItem: DispatchWorkItem?
+  var topologySaveWorkItem: DispatchWorkItem?
+  var lastPersistedTopology: WorkspaceTopology?
   var hotKeys: HotKeyManager?
   var overviewController: OverviewController?
   var overviewOpenedAt: TimeInterval?
@@ -267,8 +284,12 @@ final class Daemon: NSObject {
     config = try Config.load(from: options.configURL)
     server = try UnixSocketServer(url: options.socketURL)
     placementStore = PlacementStore()
+    topologyStore = WorkspaceTopologyStore()
+    topologySessionID = String(audit_session_self())
     placementPreferences = (try? placementStore.load()) ?? PlacementPreferences()
-    state = RuntimeState(config: config)
+    let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
+    state = RuntimeState(config: config, topology: restoredTopology)
+    lastPersistedTopology = restoredTopology
     super.init()
     platform.setCommandDiagnosticHandler { [weak diagnostics] sample in
       diagnostics?.record(sample)
@@ -387,6 +408,24 @@ final class Daemon: NSObject {
     }
     let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
     let nativeFocusSyncPending = platform.hasPendingNativeFocusEvent
+    let recentCommandAnimationInputTimestamp =
+      animatedWritesPending
+        && now - latestCommandInputTimestamp < 0.3
+      ? latestCommandInputTimestamp
+      : nil
+    let pendingCommandFocusInputTimestamp = [
+      pendingAnimatedFocus?.focusInputTimestamp,
+      submittedCommandFocus?.focusInputTimestamp,
+      pendingWorkspaceFocus?.focusInputTimestamp,
+      submittedCommandFocusRequestTimestamp,
+      submittedWorkspaceFocusRequestTimestamp,
+      recentCommandAnimationInputTimestamp,
+    ].compactMap { $0 }.max()
+    let latestFocusIntentTimestamp = platform.userInputTracker.snapshot
+      .latestFocusIntent?.timestamp
+    let nativeFocusHasNewerHumanIntent = pendingCommandFocusInputTimestamp.map {
+      (latestFocusIntentTimestamp ?? 0) > $0
+    } ?? true
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
@@ -459,6 +498,7 @@ final class Daemon: NSObject {
         || applicationInventoryRefreshDue,
       commandQuietPeriodElapsed: commandQuietPeriodElapsed,
       nativeFocusSyncPending: nativeFocusSyncPending,
+      nativeFocusHasNewerHumanIntent: nativeFocusHasNewerHumanIntent,
       frameDebtPending: platform.hasPendingFrameDebt,
       lifecycleEventPending: platform.hasPendingWindowTopologyEvent
     ) {
