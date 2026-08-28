@@ -38,9 +38,6 @@ extension SnapshotEngine {
   ) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
     let explicitlyDestroyedWindowIDs = consumeExplicitlyDestroyedWindows()
-    let frontmostProcessID = onMain {
-      _ in NSWorkspace.shared.frontmostApplication
-    }?.processIdentifier
     let tracesWindowTopology = windowTopologyEventPending
     let capturedTopologyRequiresFullSnapshot =
       windowTopologyRequiresFullSnapshot
@@ -648,7 +645,13 @@ extension SnapshotEngine {
         "frame commit observed settled=\(settledCommitLatenciesMS.count) deferred=\(deferredMismatchCount) max_latency_ms=\(maximumSettledLatencyMS, format: .fixed(precision: 2))"
       )
     }
-    let focusedWindowID = focusedWindowID(in: windows)
+    let frontmostProcessID = onMain {
+      _ in NSWorkspace.shared.frontmostApplication
+    }?.processIdentifier
+    let focusedWindowID = focusedWindowID(
+      in: windows,
+      frontmostProcessID: frontmostProcessID
+    )
     lastNativeFocusedWindowID = focusedWindowID
     verifiedNativeFocusedWindowID = focusedWindowID
     if let focusedWindowID,

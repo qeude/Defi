@@ -63,15 +63,12 @@ public func discoverWindow(
   else {
     throw ReducerError.unknownWorkspace(workspaceID)
   }
-  // Policy: a managed window spawning into the active workspace of its
-  // monitor always inserts after the focused column and takes focus - the
-  // native focused-window event can legitimately lag window creation, so it
-  // alone must not gate this.
+  // Policy: a managed window spawned by the frontmost application follows
+  // its assigned workspace and takes focus. The native focused-window event
+  // can legitimately lag window creation, so it alone must not gate this.
   let followsFocus =
     followFocusIntent
-    || (isFrontmostAppSpawn
-        && workspaceID == state.monitors[monitorIndex].activeWorkspace
-        && !window.floating)
+    || (isFrontmostAppSpawn && !window.floating)
 
   if window.floating && !window.forceTiling {
     state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(window.id)

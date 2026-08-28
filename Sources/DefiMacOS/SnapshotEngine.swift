@@ -849,9 +849,9 @@ extension SnapshotEngine {
   }
 
   func focusedWindowID(
-    in windows: [Window]
+    in windows: [Window],
+    frontmostProcessID: pid_t?
   ) -> WindowID? {
-    let frontmostProcessID = onMain { _ in NSWorkspace.shared.frontmostApplication }?.processIdentifier
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
       .withTimeout(
