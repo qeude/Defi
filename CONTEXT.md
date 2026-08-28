@@ -7,13 +7,54 @@ as the owner of window lifecycle and focus.
 
 **Monitor**:
 Defi's logical representation of one connected macOS display. Each monitor owns
-an independent copy of the configured workspaces.
+an independent ordered stack of workspaces.
 _Avoid_: Screen, output
 
 **Workspace**:
-A named virtual collection of windows owned by exactly one monitor. Workspaces
-with the same name on different monitors are distinct.
+A globally unique virtual collection of windows owned by exactly one monitor at
+a time. A workspace is either ordinary or named and may move between monitors.
 _Avoid_: macOS Space, desktop
+
+**Ordinary workspace**:
+A dynamic workspace without a stable name. Each monitor keeps one empty ordinary
+workspace at the bottom, and removes other ordinary workspaces after they become
+empty and inactive.
+_Avoid_: Numbered workspace, anonymous workspace
+
+**Named workspace**:
+A persistent workspace with a stable name that application rules and commands
+can target, including while it is empty. Configuration supplies its name and
+optional monitor affinity; otherwise it starts on the primary monitor.
+_Avoid_: Numbered workspace, static workspace
+
+**Trailing workspace**:
+The system-owned empty ordinary workspace at the bottom of each monitor's stack.
+It may be active while empty; once populated, it becomes ordinary and is
+immediately replaced.
+_Avoid_: Default workspace, numbered workspace
+
+**Workspace position**:
+The current one-based position of a workspace in its monitor's ordered stack. It
+may change when workspaces are inserted, removed, reordered, or moved; a
+position beyond the current stack resolves to the trailing workspace.
+_Avoid_: Workspace number, workspace ID
+
+**Workspace affinity**:
+The monitor a workspace returns to after a temporary monitor disconnection.
+Explicit monitor moves change it, while automatic migration or an unavailable
+configured monitor leaves it pending as the workspace lives elsewhere.
+_Avoid_: Current monitor, original monitor
+
+**Placement preference**:
+The last existing workspace associated with an application when no application
+rule provides a named destination. It never recreates a removed workspace.
+_Avoid_: Application rule
+
+**Workspace topology**:
+The workspace identities, monitor ownership, vertical order, window membership,
+column structure, focus, widths, and scroll state that Defi preserves across
+daemon restarts within a macOS session.
+_Avoid_: Layout, configuration
 
 **Scrolling strip**:
 The continuous horizontal sequence of columns inside a workspace.

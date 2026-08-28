@@ -2,6 +2,10 @@
 
 Status: implemented and validated on 2026-08-24.
 
+ADR 0004 supersedes this plan's static workspace and vertical keyboard
+navigation assumptions. The plan otherwise records the implemented Overview
+baseline at the validation date above.
+
 This plan implements the Overview defined in `CONTEXT.md` and the capture
 boundary accepted in ADR 0003. Each phase lands as a revertable commit and
 keeps the tree green.

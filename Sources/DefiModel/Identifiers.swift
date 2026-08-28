@@ -9,6 +9,8 @@ public struct WindowID: RawRepresentable, Hashable, Codable, Sendable {
 }
 
 public struct WorkspaceID: RawRepresentable, Hashable, Codable, Sendable, CustomStringConvertible {
+  public static let dynamicPrefix = "__defi_dynamic_"
+
   public let rawValue: String
 
   public init(rawValue: String) {

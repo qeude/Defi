@@ -245,7 +245,7 @@ struct PlacementPreferencesTests {
   }
 
   @Test
-  func `Recording shared workspace across monitors omits monitor`() throws {
+  func `Recording global workspace keeps its owner monitor`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     let externalMonitorID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: config)
@@ -280,7 +280,10 @@ struct PlacementPreferencesTests {
 
     #expect(
       preferences.applications["com.example.chat"]
-        == WindowPlacementPreference(workspaceID: WorkspaceID(rawValue: "web")))
+        == WindowPlacementPreference(
+          workspaceID: WorkspaceID(rawValue: "web"),
+          monitorID: monitorID
+        ))
   }
 
   @Test

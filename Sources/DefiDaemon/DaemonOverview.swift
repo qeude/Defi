@@ -19,6 +19,7 @@ extension Daemon {
       borders: config.decorations.borders,
       animation: config.animation,
       zoom: config.overview.zoom,
+      windowCornerRadius: config.overview.windowCornerRadius,
       windowPreviewsEnabled: config.overview.windowPreviews
     )
     return .success()
@@ -32,6 +33,7 @@ extension Daemon {
       borders: config.decorations.borders,
       animation: config.animation,
       zoom: config.overview.zoom,
+      windowCornerRadius: config.overview.windowCornerRadius,
       windowPreviewsEnabled: config.overview.windowPreviews
     )
   }

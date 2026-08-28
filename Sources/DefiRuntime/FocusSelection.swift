@@ -21,6 +21,7 @@ public func focusWindow(
         state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .floating
         state.monitors[monitorIndex].activeWorkspace =
           state.monitors[monitorIndex].workspaces[workspaceIndex].id
+        state.maintainWorkspaceLifecycle()
         return activatedWorkspace
       }
       for columnIndex in state.monitors[monitorIndex].workspaces[workspaceIndex].columns.indices {
@@ -41,6 +42,7 @@ public func focusWindow(
             .workspaces[workspaceIndex]
             .columns[columnIndex]
             .focusedWindow = windowIndex
+          state.maintainWorkspaceLifecycle()
           return activatedWorkspace
         }
       }

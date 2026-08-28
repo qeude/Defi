@@ -558,9 +558,7 @@ public final class MacOSPlatform {
   public let userInputTracker = UserInputTracker()
   public let pointerMotionTracker = PointerMotionTracker()
 
-  public init() {
-    frameCoordinator.startDisplayLink()
-  }
+  public init() {}
 
   public func updateNativeFullscreenWindowIDs(
     _ windowIDs: Set<WindowID>,

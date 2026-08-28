@@ -34,7 +34,8 @@ struct OverviewPreviewTests {
         windowID: WindowID(rawValue: UInt64($0)),
         expectedAppID: "app",
         width: 100,
-        height: 80
+        height: 80,
+        blurFadeHeight: 40
       )
     }
 
@@ -56,7 +57,8 @@ struct OverviewPreviewTests {
       windowID: WindowID(rawValue: 1),
       expectedAppID: "app",
       width: 100,
-      height: 80
+      height: 80,
+      blurFadeHeight: 40
     )
     let result = OverviewPreviewCaptureResult(request: request, image: nil)
 
@@ -139,9 +141,50 @@ struct OverviewPreviewTests {
   }
 
   @Test
-  func `Progressive blur stays close to the title band`() {
-    let fadeHeight = overviewPreviewBlurFadeHeight(imageHeight: 512)
-    #expect(fadeHeight >= 120 && fadeHeight <= 145)
+  func `Progressive blur keeps a soft tail below the compact title band`() {
+    let titleBandHeight = overviewWindowTitleBandHeight(iconSize: 24)
+    let fadeHeight = overviewPreviewBlurFadeHeight(
+      titleBandHeight: titleBandHeight,
+      imageScale: 1,
+      imageHeight: 900
+    )
+
+    #expect(titleBandHeight == 44)
+    #expect(fadeHeight == titleBandHeight + 20)
+    #expect(
+      overviewTitleScrimAlpha(
+        progress: titleBandHeight / fadeHeight,
+        opacity: 1
+      ) > 0
+    )
+  }
+
+  @Test
+  func `Overview title row is left aligned and vertically centered`() {
+    let card = CGRect(x: 100, y: 50, width: 400, height: 200)
+    let blurHeight = overviewWindowTitleBandHeight(iconSize: 20)
+    let layout = overviewWindowTitleLayout(
+      cardFrame: card,
+      iconSize: 20,
+      titleSize: CGSize(width: 100, height: 16),
+      blurHeight: blurHeight
+    )
+
+    #expect(layout.iconFrame.midY == layout.titleFrame.midY)
+    #expect(layout.iconFrame.minX == card.minX + 10)
+    #expect(layout.iconFrame.minY == card.minY + 10)
+    #expect(layout.titleFrame.minX - layout.iconFrame.maxX == 8)
+    let topPadding = layout.titleFrame.minY - card.minY
+    let bottomPadding = card.minY + blurHeight - layout.titleFrame.maxY
+    #expect(abs(topPadding - bottomPadding) < 0.001)
+  }
+
+  @Test
+  func `Title scrim has a soft transparent tail`() {
+    #expect(overviewTitleScrimAlpha(progress: 0, opacity: 1) == 0.48)
+    #expect(overviewTitleScrimAlpha(progress: 0.75, opacity: 1) < 0.04)
+    #expect(overviewTitleScrimAlpha(progress: 0.97, opacity: 1) < 0.001)
+    #expect(overviewTitleScrimAlpha(progress: 1, opacity: 1) == 0)
   }
 
   @Test
@@ -164,7 +207,9 @@ struct OverviewPreviewTests {
     context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
     context.fill(CGRect(x: 32, y: 0, width: 32, height: 64))
     let image = try #require(context.makeImage())
-    let blurred = try #require(progressivelyBlurredOverviewPreview(image))
+    let blurred = try #require(
+      progressivelyBlurredOverviewPreview(image, fadeHeight: 24)
+    )
 
     #expect(blurred.width == image.width)
     #expect(blurred.height == image.height)

@@ -6,11 +6,18 @@ import ScreenCaptureKit
 
 private let overviewPreviewCIContext = CIContext(options: [.cacheIntermediates: false])
 
-func overviewPreviewBlurFadeHeight(imageHeight: CGFloat) -> CGFloat {
-  min(max(imageHeight * 0.24, 72), 144)
+func overviewPreviewBlurFadeHeight(
+  titleBandHeight: CGFloat,
+  imageScale: CGFloat,
+  imageHeight: CGFloat
+) -> CGFloat {
+  min(max((titleBandHeight + 20) * imageScale, 1), imageHeight)
 }
 
-func progressivelyBlurredOverviewPreview(_ image: CGImage) -> CGImage? {
+func progressivelyBlurredOverviewPreview(
+  _ image: CGImage,
+  fadeHeight requestedFadeHeight: CGFloat
+) -> CGImage? {
   let source = CIImage(cgImage: image)
   let extent = source.extent
   guard extent.width > 1, extent.height > 1,
@@ -18,7 +25,7 @@ func progressivelyBlurredOverviewPreview(_ image: CGImage) -> CGImage? {
     let blur = CIFilter(name: "CIMaskedVariableBlur")
   else { return nil }
 
-  let fadeHeight = overviewPreviewBlurFadeHeight(imageHeight: extent.height)
+  let fadeHeight = min(max(requestedFadeHeight, 1), extent.height)
   gradient.setValue(
     CIVector(x: extent.midX, y: extent.maxY),
     forKey: "inputPoint0"
@@ -61,6 +68,7 @@ struct OverviewPreviewRequest: Equatable, Sendable {
   let expectedAppID: String
   let width: Int
   let height: Int
+  let blurFadeHeight: Int
 }
 
 struct OverviewPreviewCaptureResult: Sendable {
@@ -213,7 +221,10 @@ private final class OverviewScreenCaptureBatch {
         configuration: configuration
       )
       let styledImage = await Task.detached(priority: .userInitiated) {
-        progressivelyBlurredOverviewPreview(image) ?? image
+        progressivelyBlurredOverviewPreview(
+          image,
+          fadeHeight: CGFloat(request.blurFadeHeight)
+        ) ?? image
       }.value
       return OverviewPreviewCaptureResult(request: request, image: styledImage)
     } catch {

@@ -157,15 +157,22 @@ public struct AnimationConfig: Codable, Equatable, Sendable {
 public struct OverviewConfig: Codable, Equatable, Sendable {
   public var zoom: Double
   public var windowPreviews: Bool
+  public var windowCornerRadius: Double
 
-  public init(zoom: Double = 0.5, windowPreviews: Bool = false) {
+  public init(
+    zoom: Double = 0.5,
+    windowPreviews: Bool = false,
+    windowCornerRadius: Double = 12
+  ) {
     self.zoom = zoom
     self.windowPreviews = windowPreviews
+    self.windowCornerRadius = windowCornerRadius
   }
 
   enum CodingKeys: String, CodingKey {
     case zoom
     case windowPreviews = "window_previews"
+    case windowCornerRadius = "window_corner_radius"
   }
 
   public init(from decoder: Decoder) throws {
@@ -173,6 +180,8 @@ public struct OverviewConfig: Codable, Equatable, Sendable {
     zoom = try values.decodeIfPresent(Double.self, forKey: .zoom) ?? 0.5
     windowPreviews =
       try values.decodeIfPresent(Bool.self, forKey: .windowPreviews) ?? false
+    windowCornerRadius =
+      try values.decodeIfPresent(Double.self, forKey: .windowCornerRadius) ?? 12
   }
 }
 
@@ -271,30 +280,36 @@ public enum CenterFocusedColumnConfig: String, Codable, Sendable {
 
 public struct WorkspacesConfig: Codable, Equatable, Sendable {
   public var names: [String]
-  public var defaultName: String
+  public var defaultName: String?
+  public var monitors: [String: Int]
 
   public init(
-    names: [String] = (1...9).map(String.init),
-    defaultName: String? = nil
+    names: [String] = [],
+    defaultName: String? = nil,
+    monitors: [String: Int] = [:]
   ) {
     self.names = names
-    self.defaultName = defaultName ?? names.first ?? "1"
+    self.defaultName = defaultName ?? names.first
+    self.monitors = monitors
   }
 
   enum CodingKeys: String, CodingKey {
     case names
     case defaultName = "default"
+    case monitors
   }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     names =
       try values.decodeIfPresent([String].self, forKey: .names)
-      ?? (1...9).map(String.init)
+      ?? []
     defaultName =
       try values.decodeIfPresent(String.self, forKey: .defaultName)
       ?? names.first
-      ?? "1"
+    monitors =
+      try values.decodeIfPresent([String: Int].self, forKey: .monitors)
+      ?? [:]
   }
 }
 

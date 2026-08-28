@@ -1,6 +1,16 @@
 import AppKit
 import OSLog
 
+public struct MenuWorkspace: Equatable, Sendable {
+  public let id: String
+  public let label: String
+
+  public init(id: String, label: String) {
+    self.id = id
+    self.label = label
+  }
+}
+
 private let menuBarLogger = Logger(
   subsystem: "com.quentin.defi",
   category: "MenuBar"
@@ -12,7 +22,7 @@ public final class MenuBarController: NSObject {
     withLength: NSStatusItem.variableLength
   )
   private let commandHandler: (String) -> Void
-  private var workspaceNames: [String] = []
+  private var workspaces: [MenuWorkspace] = []
   private var activeWorkspace = ""
 
   public init(commandHandler: @escaping (String) -> Void) {
@@ -23,14 +33,15 @@ public final class MenuBarController: NSObject {
     menuBarLogger.info("Menu bar item installed")
   }
 
-  public func update(activeWorkspace: String, workspaceNames: [String]) {
-    guard self.activeWorkspace != activeWorkspace
-      || self.workspaceNames != workspaceNames
+  public func update(activeWorkspace: String, workspaces: [MenuWorkspace]) {
+    guard
+      self.activeWorkspace != activeWorkspace
+        || self.workspaces != workspaces
     else {
       return
     }
     self.activeWorkspace = activeWorkspace
-    self.workspaceNames = workspaceNames
+    self.workspaces = workspaces
     updateButton()
     rebuildMenu()
   }
@@ -38,9 +49,9 @@ public final class MenuBarController: NSObject {
   private func updateButton() {
     guard let button = statusItem.button else { return }
     button.image = nil
-    if let index = workspaceNames.firstIndex(of: activeWorkspace) {
-      button.title = String(index + 1)
-      button.toolTip = "Defi — Workspace \(index + 1): \(activeWorkspace)"
+    if let workspace = workspaces.first(where: { $0.id == activeWorkspace }) {
+      button.title = workspace.label
+      button.toolTip = "Defi — Workspace \(workspace.label)"
     } else {
       button.title = "–"
       button.toolTip = "Defi"
@@ -54,14 +65,14 @@ public final class MenuBarController: NSObject {
 
   private func rebuildMenu() {
     let menu = NSMenu()
-    for workspace in workspaceNames {
+    for workspace in workspaces {
       let item = commandItem(
-        title: workspace == activeWorkspace ? "✓ \(workspace)" : workspace,
-        command: "workspace \(workspace)"
+        title: workspace.id == activeWorkspace ? "✓ \(workspace.label)" : workspace.label,
+        command: "workspace \(workspace.id)"
       )
       menu.addItem(item)
     }
-    if !workspaceNames.isEmpty {
+    if !workspaces.isEmpty {
       menu.addItem(.separator())
     }
     menu.addItem(commandItem(title: "Quit Defi", command: "quit"))

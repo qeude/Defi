@@ -53,7 +53,7 @@ reserved_bottom = 0
 | `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. |
 | `outer_top_gap` | `gaps` | number from `0` to `256` | Optional top-edge override. |
 | `outer_right_gap` | `gaps` | number from `0` to `256` | Optional right-edge override. |
-| `outer_bottom_gap` | `gaps` | number from `0` to `256` | Optional bottom-edge override. Set to `0` to meet the macOS visible frame above the Dock. |
+| `outer_bottom_gap` | `gaps` | number from `0` to `256` | Optional bottom-edge override. With an outside border, Defi still reserves the border width above the Dock. |
 | `outer_left_gap` | `gaps` | number from `0` to `256` | Optional left-edge override. |
 | `reserved_top` | `0` | number from `0` to `512` | Additional top inset after the macOS visible frame, for bars extending below the native menu-bar exclusion. |
 | `reserved_bottom` | `0` | number from `0` to `512` | Additional bottom inset after the macOS visible frame. |
@@ -113,7 +113,7 @@ duration_ms = 35
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `enabled` | `true` | boolean | Enables visual scrolling and managed resize animation. |
-| `duration_ms` | `35` | integer from `0` to `2000` | Animation duration in milliseconds. `0` disables animation even when `enabled = true`. |
+| `duration_ms` | `35` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
 
 ## `[overview]`
 
@@ -123,12 +123,14 @@ Controls the Overview scale and optional pixels inside window cards.
 [overview]
 zoom = 0.5
 window_previews = false
+window_corner_radius = 12
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
 | `window_previews` | `false` | boolean | Captures a card-sized still image when a window first becomes visible in the current Overview session. |
+| `window_corner_radius` | `12` | number from `0` to `64` | Rounds window cards and their borders in the Overview. |
 
 With the default `false`, Defi performs no Screen Recording permission check,
 request, or ScreenCaptureKit content query. With `true`, the next Overview
@@ -176,7 +178,7 @@ placement = "outside"
 
 With `placement = "outside"`, the stroke no longer overlaps window content, but
 the ring extends into gaps between adjacent windows; a neighboring window drawn
-above the border panel can clip it there. Defi reserves enough horizontal space
+above the border panel can clip it there. Defi reserves enough space
 at monitor edges to keep the full stroke visible without changing gaps between
 windows.
 
@@ -201,35 +203,49 @@ under the pointer while deciding between a click and a drag.
 
 ## `[workspaces]`
 
-Defines stable workspace IDs and startup workspace.
+Declares optional persistent named workspaces. Ordinary workspaces are dynamic.
 
 ```toml
 [workspaces]
 names = ["dev", "web", "tools"]
 default = "dev"
+monitors = { tools = 2 }
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `names` | `["1", "2", "3", "4", "5", "6", "7", "8", "9"]` | non-empty array of unique strings | Workspace IDs used by commands, keybindings, and rules. |
-| `default` | first entry in `names` (`"1"` by default) | string present in `names` | Workspace active on each monitor at daemon startup. |
+| `names` | `[]` | array of unique strings | Persistent globally unique workspace names used by rules and stable bindings. |
+| `default` | first entry in `names`, otherwise unset | string present in `names` | Startup workspace on its owning monitor. |
+| `monitors` | `{}` | table from workspace name to 1-based display index | Initial monitor affinity for named workspaces; unspecified names use the primary display. |
 
-Every connected monitor owns an independent copy of this workspace set. Each
-monitor preserves its own active workspace, focus, widths, and scroll offset.
+Each workspace belongs to exactly one monitor. Every monitor keeps one trailing
+empty workspace shown as `+`. Populating it turns it into an ordinary workspace
+and creates another trailing workspace; an empty ordinary workspace disappears
+after it becomes inactive. Named workspaces persist even when empty.
+
+Workspace identity, ownership, order, focus, widths, and scroll position persist
+across daemon restarts in the current macOS login session. If a display
+disconnects, its workspaces move temporarily to a fallback display and return
+when the same display identity reconnects. An explicit workspace-to-monitor move
+updates its affinity.
 
 Use stable, whitespace-free names. Workspace command arguments are separated by
 whitespace, so names containing spaces cannot be addressed by keybindings or the
-CLI.
+CLI. The `__defi_dynamic_` prefix is reserved for ordinary workspace identity.
 
-Generated number shortcuts target the first nine entries by position. Example:
+Generated number shortcuts bind configured names first, then dynamic positions.
+Example:
 
 ```toml
 [workspaces]
 names = ["dev", "web", "tools"]
 ```
 
-This generates `alt-1 = "workspace dev"`, `alt-2 = "workspace web"`, and
-`alt-3 = "workspace tools"`, plus matching `alt-shift-N` move bindings.
+This generates stable `alt-1 = "workspace dev"`, `alt-2 = "workspace web"`,
+and `alt-3 = "workspace tools"` bindings. `alt-4` through `alt-9` address the
+current monitor's dynamic positions. Matching `alt-shift-N` bindings use
+`move-column-to-workspace-name` and follow the moved column. Positions are
+1-based, do not wrap, and values beyond the current stack select trailing.
 
 ## `default_key_modifier`
 
@@ -306,8 +322,8 @@ Examples: `alt-left`, `cmd-shift-p`, `hyper-backslash`.
 
 ### Commands
 
-Commands use the same strings as the `defi` CLI. Workspace arguments must name
-an entry from `[workspaces].names`.
+Commands use the same strings as the `defi` CLI. Named targets must be declared
+in `[workspaces].names`; application rules cannot target dynamic positions.
 
 | Command | Description | Generated default |
 | --- | --- | --- |
@@ -315,24 +331,31 @@ an entry from `[workspaces].names`.
 | `focus-column right` | Focus next column. | `<mod>-right` |
 | `focus-column first` | Focus first column. | `<mod>-leftbracket` |
 | `focus-column last` | Focus last column. | `<mod>-rightbracket` |
-| `focus-window up` | Focus previous window in current stack. | `<mod>-up` |
-| `focus-window down` | Focus next window in current stack. | `<mod>-down` |
+| `focus-workspace up\|down` | Focus the adjacent workspace without wrapping. | `<mod>-up` / `<mod>-down` |
+| `focus-workspace-position <n>` | Focus a 1-based position, clamped to trailing. | `<mod>-1` … `<mod>-9` after configured names |
+| `focus-workspace-name <name>` or `workspace <name>` | Focus a persistent named workspace, including on another monitor. | `<mod>-1` … `<mod>-9` for configured names |
+| `focus-window up` | Focus previous window in current stack. | `<mod>-k` |
+| `focus-window down` | Focus next window in current stack. | `<mod>-j` |
 | `focus-window first` | Focus first window in current stack. | unset |
 | `focus-window last` | Focus last window in current stack. | unset |
 | `move-column left` | Move focused column left. | `<mod>-shift-left` |
 | `move-column right` | Move focused column right. | `<mod>-shift-right` |
 | `move-column first` | Move focused column to first position. | `<mod>-shift-leftbracket` |
 | `move-column last` | Move focused column to last position. | `<mod>-shift-rightbracket` |
-| `move-window up` | Move focused window up inside current stack. | `<mod>-shift-up` |
-| `move-window down` | Move focused window down inside current stack. | `<mod>-shift-down` |
-| `move-column-to-monitor left` | Move focused column to the nearest monitor on the left. | `<mod>-shift-h` |
-| `move-column-to-monitor down` | Move focused column to the nearest monitor below. | `<mod>-shift-j` |
-| `move-column-to-monitor up` | Move focused column to the nearest monitor above. | `<mod>-shift-k` |
-| `move-column-to-monitor right` | Move focused column to the nearest monitor on the right. | `<mod>-shift-l` |
+| `move-window up` | Move focused window up inside current stack. | `<mod>-shift-k` |
+| `move-window down` | Move focused window down inside current stack. | `<mod>-shift-j` |
+| `move-column-to-workspace up\|down\|<name>` | Move the focused column and follow it. Use `move-column-to-workspace-name <name>` when a name is `up` or `down`. | `<mod>-shift-up` / `<mod>-shift-down` |
+| `send-column-to-workspace up\|down\|<name>` | Move the focused column without following it. | unset |
+| `move-column-to-workspace-position <n>` | Move the focused column to a position and follow it. | `<mod>-shift-1` … `<mod>-shift-9` after configured names |
+| `move-window-to-workspace up\|down\|<name>` | Move only the focused window and follow it. The explicit-name form is `move-window-to-workspace-name <name>`. | unset |
+| `send-window-to-workspace up\|down\|<name>` | Move only the focused window without following it. | unset |
+| `move-window-to-workspace-position <n>` | Move only the focused window to a position and follow it. | unset |
+| `send-window-to-workspace-position <n>` | Move only the focused window to a position without following it. | unset |
+| `focus-monitor left\|right\|up\|down` | Focus the nearest monitor in that direction. | `ctrl-cmd-<arrow>` |
+| `move-column-to-monitor left\|right\|up\|down` | Move focused column to the nearest monitor. | `ctrl-cmd-shift-<arrow>` |
 | `move-window-to-monitor left\|right\|up\|down` | Move only the focused window to the nearest monitor in that direction. | unset |
-| `workspace <name>` | Switch active monitor to workspace. | `<mod>-1` … `<mod>-9` |
-| `move-window-to-workspace <name>` | Move focused window and follow it. | `<mod>-shift-1` … `<mod>-shift-9` |
-| `send-window-to-workspace <name>` | Move focused window without switching workspace. | unset |
+| `reorder-workspace up\|down` | Reorder the active workspace inside its monitor stack. | unset |
+| `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace and update its monitor affinity. | unset |
 | `cycle-width previous` | Select previous width preset, wrapping. | `<mod>-minus` |
 | `cycle-width next` | Select next width preset, wrapping. | `<mod>-equal` |
 | `maximize-column` | Toggle focused column between full width and previous width. | `<mod>-f` |
@@ -375,8 +398,8 @@ CLI-only integration commands:
 
 | Command | Description |
 | --- | --- |
-| `list-workspaces` | Print configured workspace names. |
-| `list-workspaces --json` | Print versioned per-display workspace and application state. |
+| `list-workspaces` | Print current workspace labels per display. |
+| `list-workspaces --json` | Print versioned per-display identity, position, name, kind, and application state. |
 | `--monitor <index> <command>` | Execute command on 1-based `NSScreen.screens`/SketchyBar display index. |
 | `set-reserved-area top\|bottom <points>` | Override extra reserved edge on every display, or targeted `--monitor`. |
 | `clear-reserved-area` | Restore configured reserved edges. |
@@ -474,6 +497,7 @@ duration_ms = 35
 [overview]
 zoom = 0.5
 window_previews = false
+window_corner_radius = 12
 
 [decorations.borders]
 enabled = true
@@ -485,46 +509,43 @@ capture_enabled = false
 placement = "outside"
 
 [workspaces]
-names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
-default = "1"
+names = []
 
 [modifier_combinations]
 
 [keys]
 "alt-left" = "focus-column left"
 "alt-right" = "focus-column right"
-"alt-up" = "focus-window up"
-"alt-down" = "focus-window down"
+"alt-up" = "focus-workspace up"
+"alt-down" = "focus-workspace down"
+"alt-j" = "focus-window down"
+"alt-k" = "focus-window up"
 "alt-o" = "toggle-overview"
 "alt-leftbracket" = "focus-column first"
 "alt-rightbracket" = "focus-column last"
 
 "alt-shift-left" = "move-column left"
 "alt-shift-right" = "move-column right"
-"alt-shift-up" = "move-window up"
-"alt-shift-down" = "move-window down"
+"alt-shift-up" = "move-column-to-workspace up"
+"alt-shift-down" = "move-column-to-workspace down"
+"alt-shift-j" = "move-window down"
+"alt-shift-k" = "move-window up"
 "alt-shift-leftbracket" = "move-column first"
 "alt-shift-rightbracket" = "move-column last"
 
-"alt-1" = "workspace 1"
-"alt-2" = "workspace 2"
-"alt-3" = "workspace 3"
-"alt-4" = "workspace 4"
-"alt-5" = "workspace 5"
-"alt-6" = "workspace 6"
-"alt-7" = "workspace 7"
-"alt-8" = "workspace 8"
-"alt-9" = "workspace 9"
+"alt-1" = "focus-workspace-position 1"
+# ... through alt-9
+"alt-shift-1" = "move-column-to-workspace-position 1"
+# ... through alt-shift-9
 
-"alt-shift-1" = "move-window-to-workspace 1"
-"alt-shift-2" = "move-window-to-workspace 2"
-"alt-shift-3" = "move-window-to-workspace 3"
-"alt-shift-4" = "move-window-to-workspace 4"
-"alt-shift-5" = "move-window-to-workspace 5"
-"alt-shift-6" = "move-window-to-workspace 6"
-"alt-shift-7" = "move-window-to-workspace 7"
-"alt-shift-8" = "move-window-to-workspace 8"
-"alt-shift-9" = "move-window-to-workspace 9"
+"ctrl-cmd-left" = "focus-monitor left"
+"ctrl-cmd-right" = "focus-monitor right"
+"ctrl-cmd-up" = "focus-monitor up"
+"ctrl-cmd-down" = "focus-monitor down"
+"ctrl-cmd-shift-left" = "move-column-to-monitor left"
+"ctrl-cmd-shift-right" = "move-column-to-monitor right"
+"ctrl-cmd-shift-up" = "move-column-to-monitor up"
+"ctrl-cmd-shift-down" = "move-column-to-monitor down"
 
 "alt-minus" = "cycle-width previous"
 "alt-equal" = "cycle-width next"

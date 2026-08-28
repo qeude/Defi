@@ -5,6 +5,7 @@ public enum CommandParseError: Error, Equatable, Sendable {
   case unknownCommand(String)
   case missingArgument(String)
   case invalidDirection(String)
+  case invalidPosition(String)
 }
 
 public func parseCommand(_ input: String) throws -> Command {
@@ -48,11 +49,66 @@ public func parseCommand(_ input: String) throws -> Command {
   case "focus-window":
     return .focusWindow(try parseDirection(argument("direction")))
   case "move-window-to-workspace":
-    return .moveWindowToWorkspace(WorkspaceID(rawValue: try argument("workspace")))
+    let value = try argument("workspace")
+    if value == "up" || value == "down" {
+      return .moveWindowToWorkspaceTarget(try parseWorkspaceTarget(value), follow: true)
+    }
+    return .moveWindowToWorkspace(WorkspaceID(rawValue: value))
   case "send-window-to-workspace":
-    return .sendWindowToWorkspace(WorkspaceID(rawValue: try argument("workspace")))
+    let value = try argument("workspace")
+    if value == "up" || value == "down" {
+      return .moveWindowToWorkspaceTarget(try parseWorkspaceTarget(value), follow: false)
+    }
+    return .sendWindowToWorkspace(WorkspaceID(rawValue: value))
+  case "move-column-to-workspace":
+    return .moveColumnToWorkspace(
+      try parseWorkspaceTarget(argument("workspace")),
+      follow: true
+    )
+  case "move-column-to-workspace-name":
+    return .moveColumnToWorkspace(.named(try argument("workspace")), follow: true)
+  case "send-column-to-workspace":
+    return .moveColumnToWorkspace(
+      try parseWorkspaceTarget(argument("workspace")),
+      follow: false
+    )
+  case "send-column-to-workspace-name":
+    return .moveColumnToWorkspace(.named(try argument("workspace")), follow: false)
+  case "move-column-to-workspace-position":
+    return .moveColumnToWorkspace(
+      try parseWorkspacePosition(argument("position")),
+      follow: true
+    )
+  case "move-window-to-workspace-position":
+    return .moveWindowToWorkspaceTarget(
+      try parseWorkspacePosition(argument("position")),
+      follow: true
+    )
+  case "send-window-to-workspace-position":
+    return .moveWindowToWorkspaceTarget(
+      try parseWorkspacePosition(argument("position")),
+      follow: false
+    )
+  case "move-window-to-workspace-name":
+    return .moveWindowToWorkspaceTarget(.named(try argument("workspace")), follow: true)
+  case "send-window-to-workspace-name":
+    return .moveWindowToWorkspaceTarget(.named(try argument("workspace")), follow: false)
   case "workspace":
     return .switchWorkspace(WorkspaceID(rawValue: try argument("workspace")))
+  case "focus-workspace":
+    return .focusWorkspace(try parseRelativeWorkspace(argument("direction")))
+  case "focus-workspace-position":
+    return .focusWorkspace(try parseWorkspacePosition(argument("position")))
+  case "focus-workspace-name":
+    return .focusWorkspace(.named(try argument("workspace")))
+  case "reorder-workspace":
+    return .reorderWorkspace(try parseVerticalDirection(argument("direction")))
+  case "move-workspace-to-monitor":
+    return .moveWorkspaceToMonitor(
+      try parseSpatialDirection(argument("direction"))
+    )
+  case "focus-monitor":
+    return .focusMonitor(try parseSpatialDirection(argument("direction")))
   case "cycle-width":
     return .cycleWidth(try parseDirection(argument("direction")))
   case "maximize-column":
@@ -72,6 +128,32 @@ public func parseCommand(_ input: String) throws -> Command {
   default:
     throw CommandParseError.unknownCommand(name)
   }
+}
+
+private func parseWorkspaceTarget(_ input: String) throws -> WorkspaceTarget {
+  if input == "up" || input == "down" {
+    return try parseRelativeWorkspace(input)
+  }
+  return .named(input)
+}
+
+private func parseRelativeWorkspace(_ input: String) throws -> WorkspaceTarget {
+  .relative(try parseVerticalDirection(input))
+}
+
+private func parseWorkspacePosition(_ input: String) throws -> WorkspaceTarget {
+  guard let position = Int(input), position > 0 else {
+    throw CommandParseError.invalidPosition(input)
+  }
+  return .position(position)
+}
+
+private func parseVerticalDirection(_ input: String) throws -> Direction {
+  let direction = try parseDirection(input)
+  guard [.up, .down].contains(direction) else {
+    throw CommandParseError.invalidDirection(input)
+  }
+  return direction
 }
 
 private func parseSpatialDirection(_ input: String) throws -> Direction {

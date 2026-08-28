@@ -121,6 +121,11 @@ public struct Config: Equatable, Sendable {
     guard overview.zoom.isFinite, (0...0.75).contains(overview.zoom) else {
       throw ConfigError.invalidValue("overview.zoom")
     }
+    guard overview.windowCornerRadius.isFinite,
+      (0...64).contains(overview.windowCornerRadius)
+    else {
+      throw ConfigError.invalidValue("overview.window_corner_radius")
+    }
     guard (0...64).contains(decorations.borders.width) else {
       throw ConfigError.invalidValue("decorations.borders.width")
     }
@@ -133,13 +138,27 @@ public struct Config: Equatable, Sendable {
     guard ["inside", "outside"].contains(decorations.borders.placement) else {
       throw ConfigError.invalidValue("decorations.borders.placement")
     }
-    guard !workspaces.names.isEmpty,
-      Set(workspaces.names).count == workspaces.names.count
+    guard Set(workspaces.names).count == workspaces.names.count,
+      workspaces.names.allSatisfy({ name in
+        !name.isEmpty
+          && !name.hasPrefix(WorkspaceID.dynamicPrefix)
+          && name.allSatisfy { !$0.isWhitespace }
+      })
     else {
       throw ConfigError.invalidWorkspaces
     }
-    guard workspaces.names.contains(workspaces.defaultName) else {
-      throw ConfigError.unknownWorkspace(workspaces.defaultName)
+    if let defaultName = workspaces.defaultName,
+      !workspaces.names.contains(defaultName)
+    {
+      throw ConfigError.unknownWorkspace(defaultName)
+    }
+    for (name, monitor) in workspaces.monitors {
+      guard workspaces.names.contains(name) else {
+        throw ConfigError.unknownWorkspace(name)
+      }
+      guard monitor > 0 else {
+        throw ConfigError.invalidValue("workspaces.monitors.\(name)")
+      }
     }
 
     for (_, command) in keys {
@@ -182,17 +201,21 @@ public struct Config: Equatable, Sendable {
   }
 
   private func validateCommandWorkspace(_ command: Command) throws {
-    let workspace: WorkspaceID?
+    let workspaceName: String?
     switch command {
     case .switchWorkspace(let value),
       .moveWindowToWorkspace(let value),
       .sendWindowToWorkspace(let value):
-      workspace = value
+      workspaceName = value.rawValue
+    case .focusWorkspace(.named(let value)),
+      .moveColumnToWorkspace(.named(let value), follow: _),
+      .moveWindowToWorkspaceTarget(.named(let value), follow: _):
+      workspaceName = value
     default:
-      workspace = nil
+      workspaceName = nil
     }
-    if let workspace, !workspaces.names.contains(workspace.rawValue) {
-      throw ConfigError.unknownWorkspace(workspace.rawValue)
+    if let workspaceName, !workspaces.names.contains(workspaceName) {
+      throw ConfigError.unknownWorkspace(workspaceName)
     }
   }
 
@@ -203,20 +226,28 @@ public struct Config: Equatable, Sendable {
     var result = [
       "\(modifier)-left": "focus-column left",
       "\(modifier)-right": "focus-column right",
-      "\(modifier)-up": "focus-window up",
-      "\(modifier)-down": "focus-window down",
+      "\(modifier)-up": "focus-workspace up",
+      "\(modifier)-down": "focus-workspace down",
+      "\(modifier)-j": "focus-window down",
+      "\(modifier)-k": "focus-window up",
       "\(modifier)-leftbracket": "focus-column first",
       "\(modifier)-rightbracket": "focus-column last",
       "\(modifier)-shift-left": "move-column left",
       "\(modifier)-shift-right": "move-column right",
-      "\(modifier)-shift-up": "move-window up",
-      "\(modifier)-shift-down": "move-window down",
+      "\(modifier)-shift-up": "move-column-to-workspace up",
+      "\(modifier)-shift-down": "move-column-to-workspace down",
+      "\(modifier)-shift-j": "move-window down",
+      "\(modifier)-shift-k": "move-window up",
       "\(modifier)-shift-leftbracket": "move-column first",
       "\(modifier)-shift-rightbracket": "move-column last",
-      "\(modifier)-shift-h": "move-column-to-monitor left",
-      "\(modifier)-shift-j": "move-column-to-monitor down",
-      "\(modifier)-shift-k": "move-column-to-monitor up",
-      "\(modifier)-shift-l": "move-column-to-monitor right",
+      "ctrl-cmd-left": "focus-monitor left",
+      "ctrl-cmd-right": "focus-monitor right",
+      "ctrl-cmd-up": "focus-monitor up",
+      "ctrl-cmd-down": "focus-monitor down",
+      "ctrl-cmd-shift-left": "move-column-to-monitor left",
+      "ctrl-cmd-shift-right": "move-column-to-monitor right",
+      "ctrl-cmd-shift-up": "move-column-to-monitor up",
+      "ctrl-cmd-shift-down": "move-column-to-monitor down",
       "\(modifier)-minus": "cycle-width previous",
       "\(modifier)-equal": "cycle-width next",
       "\(modifier)-f": "maximize-column",
@@ -229,10 +260,17 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-r": "unjoin-windows",
       "\(modifier)-o": "toggle-overview",
     ]
-    for (index, workspace) in workspaceNames.prefix(9).enumerated() {
-      let number = index + 1
+    for number in 1...9 {
+      if workspaceNames.indices.contains(number - 1) {
+        let workspace = workspaceNames[number - 1]
       result["\(modifier)-\(number)"] = "workspace \(workspace)"
-      result["\(modifier)-shift-\(number)"] = "move-window-to-workspace \(workspace)"
+        result["\(modifier)-shift-\(number)"] =
+          "move-column-to-workspace-name \(workspace)"
+      } else {
+        result["\(modifier)-\(number)"] = "focus-workspace-position \(number)"
+        result["\(modifier)-shift-\(number)"] =
+          "move-column-to-workspace-position \(number)"
+      }
     }
     return result
   }
@@ -247,7 +285,8 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
   public var description: String {
     switch self {
     case .invalidValue(let key): "invalid value: \(key)"
-    case .invalidWorkspaces: "workspace names must be non-empty and unique"
+    case .invalidWorkspaces:
+      "workspace names must be unique, contain no whitespace, and not use Defi's reserved prefix"
     case .unknownWorkspace(let name): "unknown workspace: \(name)"
     case .invalidCommand(let command): "invalid command: \(command)"
     }

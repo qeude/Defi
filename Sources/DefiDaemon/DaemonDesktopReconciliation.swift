@@ -31,12 +31,46 @@ extension Daemon {
   }
 
   func persistPlacements() {
+    persistTopology()
     var updated = placementPreferences
     updated.recordPlacements(from: state)
     guard placementPreferencesDirty || updated != placementPreferences else { return }
     placementPreferences = updated
     placementPreferencesDirty = false
     schedulePlacementStoreWrite(updated)
+  }
+
+  func persistTopology() {
+    let topology = state.topology
+    guard topology != lastPersistedTopology else { return }
+    lastPersistedTopology = topology
+    topologySaveWorkItem?.cancel()
+    let sessionID = topologySessionID
+    let operation: @Sendable () -> Void = { [weak self] in
+      self?.writeTopologyStore(topology, sessionID: sessionID)
+    }
+    let item = DispatchWorkItem(block: operation)
+    topologySaveWorkItem = item
+    placementSaveQueue.asyncAfter(
+      deadline: .now() + Self.placementSaveDebounce,
+      execute: item
+    )
+  }
+
+  nonisolated private func writeTopologyStore(
+    _ topology: WorkspaceTopology,
+    sessionID: String
+  ) {
+    do {
+      try topologyStore.save(topology, sessionID: sessionID)
+    } catch {
+      DispatchQueue.main.async { [weak self] in
+        MainActor.assumeIsolated {
+          self?.lastPersistedTopology = nil
+          self?.log("workspace topology persistence failed: \(error)")
+        }
+      }
+    }
   }
 
   static let placementSaveDebounce: TimeInterval = 0.5
@@ -80,6 +114,19 @@ extension Daemon {
       )
     } catch {
       log("placement persistence failed: \(error)")
+    }
+  }
+
+  func flushPendingTopologyWrite() {
+    guard topologySaveWorkItem != nil else { return }
+    topologySaveWorkItem?.cancel()
+    topologySaveWorkItem = nil
+    do {
+      try placementSaveQueue.sync {
+        try topologyStore.save(state.topology, sessionID: topologySessionID)
+      }
+    } catch {
+      log("workspace topology persistence failed: \(error)")
     }
   }
 

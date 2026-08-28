@@ -175,25 +175,68 @@ public func reduce(
           )
       }
     case .switchWorkspace(let workspaceID):
-      guard state.monitors[monitorIndex].workspaces.contains(where: { $0.id == workspaceID })
-      else {
+      guard let target = state.workspaceLocation(for: workspaceID) else {
         throw ReducerError.unknownWorkspace(workspaceID)
       }
-      state.monitors[monitorIndex].activeWorkspace = workspaceID
+      state.monitors[target.monitorIndex].activeWorkspace = workspaceID
+    case .focusWorkspace(let target):
+      guard let destination = state.resolveWorkspaceTarget(target, on: monitorIndex) else {
+        throw ReducerError.unknownWorkspace(workspaceID(for: target))
+      }
+      state.monitors[destination.monitorIndex].activeWorkspace =
+        state.monitors[destination.monitorIndex].workspaces[destination.workspaceIndex].id
     case .moveWindowToWorkspace(let workspaceID):
-      try moveFocusedWindow(
-        to: workspaceID,
+      try moveFocusedSelectionToWorkspace(
+        .named(workspaceID.rawValue),
+        movesWholeColumn: false,
         follow: true,
-        monitorIndex: monitorIndex,
+        sourceMonitorIndex: monitorIndex,
+        viewports: viewports,
         state: &state
       )
     case .sendWindowToWorkspace(let workspaceID):
-      try moveFocusedWindow(
-        to: workspaceID,
+      try moveFocusedSelectionToWorkspace(
+        .named(workspaceID.rawValue),
+        movesWholeColumn: false,
         follow: false,
+        sourceMonitorIndex: monitorIndex,
+        viewports: viewports,
+        state: &state
+      )
+    case .moveColumnToWorkspace(let target, let follow):
+      try moveFocusedSelectionToWorkspace(
+        target,
+        movesWholeColumn: true,
+        follow: follow,
+        sourceMonitorIndex: monitorIndex,
+        viewports: viewports,
+        state: &state
+      )
+    case .moveWindowToWorkspaceTarget(let target, let follow):
+      try moveFocusedSelectionToWorkspace(
+        target,
+        movesWholeColumn: false,
+        follow: follow,
+        sourceMonitorIndex: monitorIndex,
+        viewports: viewports,
+        state: &state
+      )
+    case .reorderWorkspace(let direction):
+      try reorderActiveWorkspace(
+        direction,
         monitorIndex: monitorIndex,
         state: &state
       )
+    case .moveWorkspaceToMonitor(let direction):
+      try moveActiveWorkspaceToMonitor(
+        direction,
+        sourceMonitorIndex: monitorIndex,
+        monitorFrames: monitorFrames,
+        viewports: viewports,
+        state: &state
+      )
+    case .focusMonitor:
+      break
     case .joinWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let workspace = state.monitors[monitorIndex].workspaces[index]
@@ -238,6 +281,7 @@ public func reduce(
   } catch let error as LayoutError {
     throw ReducerError.layout(error)
   }
+  state.maintainWorkspaceLifecycle()
   normalizeNativeFullscreenColumns(state: &state)
 }
 
@@ -268,9 +312,12 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
   switch command {
   case .moveColumn, .moveWindow, .moveColumnToMonitor, .moveWindowToMonitor,
     .moveWindowToWorkspace, .sendWindowToWorkspace, .cycleWidth,
+    .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
+    .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .toggleFloating, .joinWindow, .unjoinWindows:
     true
   case .focusColumn, .focusFloating, .focusWindow, .switchWorkspace,
+    .focusWorkspace, .focusMonitor,
     .activateFloating, .toggleOverview, .runStartupCommands:
     false
   }
@@ -303,11 +350,12 @@ private func moveFocusedSelectionToMonitor(
   state: inout RuntimeState
 ) throws {
   let sourceMonitorID = state.monitors[sourceMonitorIndex].id
-  guard let targetMonitorID = spatialMonitor(
-    from: sourceMonitorID,
-    toward: direction,
-    frames: monitorFrames
-  ),
+  guard
+    let targetMonitorID = spatialMonitor(
+      from: sourceMonitorID,
+      toward: direction,
+      frames: monitorFrames
+    ),
     let targetMonitorIndex = state.monitors.firstIndex(where: {
       $0.id == targetMonitorID
     }),
@@ -319,16 +367,83 @@ private func moveFocusedSelectionToMonitor(
     )
   else { return }
 
+  try moveFocusedSelection(
+    movesWholeColumn: movesWholeColumn,
+    follow: true,
+    preservesUserFloatingPlacement: true,
+    sourceMonitorIndex: sourceMonitorIndex,
+    sourceWorkspaceIndex: sourceWorkspaceIndex,
+    targetMonitorIndex: targetMonitorIndex,
+    targetWorkspaceIndex: targetWorkspaceIndex,
+    monitorFrames: monitorFrames,
+    viewports: viewports,
+    state: &state
+  )
+}
+
+private func moveFocusedSelectionToWorkspace(
+  _ target: WorkspaceTarget,
+  movesWholeColumn: Bool,
+  follow: Bool,
+  sourceMonitorIndex: Int,
+  viewports: [MonitorID: Rect],
+  state: inout RuntimeState
+) throws {
+  guard
+    let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(
+      where: { $0.id == state.monitors[sourceMonitorIndex].activeWorkspace }
+    )
+  else {
+    throw ReducerError.unknownWorkspace(state.monitors[sourceMonitorIndex].activeWorkspace)
+  }
+  guard let destination = state.resolveWorkspaceTarget(target, on: sourceMonitorIndex) else {
+    throw ReducerError.unknownWorkspace(workspaceID(for: target))
+  }
+  guard
+    sourceMonitorIndex != destination.monitorIndex
+      || sourceWorkspaceIndex != destination.workspaceIndex
+  else { return }
+  try moveFocusedSelection(
+    movesWholeColumn: movesWholeColumn,
+    follow: follow,
+    preservesUserFloatingPlacement: false,
+    sourceMonitorIndex: sourceMonitorIndex,
+    sourceWorkspaceIndex: sourceWorkspaceIndex,
+    targetMonitorIndex: destination.monitorIndex,
+    targetWorkspaceIndex: destination.workspaceIndex,
+    monitorFrames: viewports,
+    viewports: viewports,
+    state: &state
+  )
+}
+
+private func moveFocusedSelection(
+  movesWholeColumn: Bool,
+  follow: Bool,
+  preservesUserFloatingPlacement: Bool,
+  sourceMonitorIndex: Int,
+  sourceWorkspaceIndex: Int,
+  targetMonitorIndex: Int,
+  targetWorkspaceIndex: Int,
+  monitorFrames: [MonitorID: Rect],
+  viewports: [MonitorID: Rect],
+  state: inout RuntimeState
+) throws {
+  let sourceMonitorID = state.monitors[sourceMonitorIndex].id
+  let targetMonitorID = state.monitors[targetMonitorIndex].id
+
   let sourceWorkspace = state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
-  guard let selectedWindowID = movesWholeColumn
-    ? state.selectedTiledWindowID(on: sourceMonitorID)
-    : state.selectedWindowID(on: sourceMonitorID)
+  guard
+    let selectedWindowID = movesWholeColumn
+      ? state.selectedTiledWindowID(on: sourceMonitorID)
+      : state.selectedWindowID(on: sourceMonitorID)
   else { return }
   let rootWindowID = transientRootWindowID(selectedWindowID, windows: state.windows)
   let rootColumnIndex = sourceWorkspace.columns.firstIndex {
     $0.windows.contains(rootWindowID)
   }
-  let movedColumnIndex = movesWholeColumn
+  let movedColumnIndex =
+    movesWholeColumn
     ? sourceWorkspace.columns.firstIndex {
       $0.windows.contains(selectedWindowID)
     }
@@ -349,9 +464,11 @@ private func moveFocusedSelectionToMonitor(
       )
     }
   }
-  let ownerWindowIDs = Set(primaryWindowIDs.map {
-    transientRootWindowID($0, windows: state.windows)
-  })
+  let ownerWindowIDs = Set(
+    primaryWindowIDs.map {
+      transientRootWindowID($0, windows: state.windows)
+    }
+  )
   let chainWindowIDs = primaryWindowIDs.union(ownerWindowIDs)
   let movedWindowIDs = transientDescendants(
     of: chainWindowIDs,
@@ -365,10 +482,11 @@ private func moveFocusedSelectionToMonitor(
   let topologyWindowIDs = state.monitors.flatMap(\.workspaces).flatMap {
     $0.columns.flatMap(\.windows) + $0.floatingWindows
   }
-  let orderedMovedWindowIDs = topologyWindowIDs.filter(movedWindowIDs.contains)
-    + movedWindowIDs.subtracting(topologyWindowIDs).sorted {
-      $0.rawValue < $1.rawValue
-    }
+  let orderedMovedWindowIDs =
+    topologyWindowIDs.filter(movedWindowIDs.contains)
+      + movedWindowIDs.subtracting(topologyWindowIDs).sorted {
+        $0.rawValue < $1.rawValue
+      }
 
   if let movedColumnIndex {
     state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
@@ -376,13 +494,14 @@ private func moveFocusedSelectionToMonitor(
     let remainingColumnCount = state.monitors[sourceMonitorIndex]
       .workspaces[sourceWorkspaceIndex].columns.count
     state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
-      .focusedColumn = remainingColumnCount == 0
-      ? 0
-      : min(
-        state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
-          .focusedColumn,
-        remainingColumnCount - 1
-      )
+      .focusedColumn =
+      remainingColumnCount == 0
+        ? 0
+        : min(
+          state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+            .focusedColumn,
+          remainingColumnCount - 1
+        )
     repairWorkspaceScroll(
       &state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex],
       settings: state.layout
@@ -400,9 +519,10 @@ private func moveFocusedSelectionToMonitor(
 
   let sourceViewport = viewports[sourceMonitorID] ?? monitorFrames[sourceMonitorID]
   let targetViewport = viewports[targetMonitorID] ?? monitorFrames[targetMonitorID]
-  let widthScale = sourceViewport.flatMap { source in
-    targetViewport.map { $0.width / max(source.width, 1) }
-  } ?? 1
+  let widthScale =
+    sourceViewport.flatMap { source in
+      targetViewport.map { $0.width / max(source.width, 1) }
+    } ?? 1
   var transferredColumnIndex: Int?
   if var column = transferredColumn {
     scalePixelWidths(in: &column, by: widthScale)
@@ -471,24 +591,32 @@ private func moveFocusedSelectionToMonitor(
     state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
       .focusedLayer = .tiled
   }
-  state.monitors[targetMonitorIndex].activeWorkspace =
-    state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].id
+  if follow {
+    state.monitors[targetMonitorIndex].activeWorkspace =
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].id
+  }
   repairWorkspaceScroll(
     &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
     settings: state.layout
   )
   for windowID in orderedMovedWindowIDs {
     if let placement = state.suspendedTiledPlacements[windowID] {
-      var column = placement.column
-      scalePixelWidths(in: &column, by: widthScale)
-      state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
-        monitorID: targetMonitorID,
-        workspaceID: state.monitors[targetMonitorIndex]
-          .workspaces[targetWorkspaceIndex].id,
-        columnIndex: transferredColumnIndex ?? placement.columnIndex,
-        windowIndex: placement.windowIndex,
-        column: column
-      )
+      if preservesUserFloatingPlacement
+        || state.windows[windowID]?.floatingOrigin == .automatic
+      {
+        var column = placement.column
+        scalePixelWidths(in: &column, by: widthScale)
+        state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+          monitorID: targetMonitorID,
+          workspaceID: state.monitors[targetMonitorIndex]
+            .workspaces[targetWorkspaceIndex].id,
+          columnIndex: transferredColumnIndex ?? placement.columnIndex,
+          windowIndex: placement.windowIndex,
+          column: column
+        )
+      } else {
+        state.suspendedTiledPlacements[windowID] = nil
+      }
     }
     state.windows[windowID]?.monitorID = targetMonitorID
     if state.windows[windowID]?.floating == true,
@@ -503,6 +631,129 @@ private func moveFocusedSelectionToMonitor(
       )
     }
   }
+  state.maintainWorkspaceLifecycle()
+}
+
+private func workspaceID(for target: WorkspaceTarget) -> WorkspaceID {
+  switch target {
+  case .named(let name):
+    WorkspaceID(rawValue: name)
+  case .position(let position):
+    WorkspaceID(rawValue: "position-\(position)")
+  case .relative(let direction):
+    WorkspaceID(rawValue: direction.rawValue)
+  }
+}
+
+private func reorderActiveWorkspace(
+  _ direction: Direction,
+  monitorIndex: Int,
+  state: inout RuntimeState
+) throws {
+  guard
+    let sourceIndex = state.monitors[monitorIndex].workspaces.firstIndex(where: {
+      $0.id == state.monitors[monitorIndex].activeWorkspace
+    })
+  else {
+    throw ReducerError.unknownWorkspace(state.monitors[monitorIndex].activeWorkspace)
+  }
+  guard state.monitors[monitorIndex].workspaces[sourceIndex].kind != .trailing else { return }
+  let targetIndex: Int
+  switch direction {
+  case .up:
+    targetIndex = sourceIndex - 1
+  case .down:
+    targetIndex = sourceIndex + 1
+  default:
+    return
+  }
+  guard targetIndex >= 0,
+    targetIndex < state.monitors[monitorIndex].workspaces.count,
+    state.monitors[monitorIndex].workspaces[targetIndex].kind != .trailing
+  else { return }
+  state.monitors[monitorIndex].workspaces.swapAt(sourceIndex, targetIndex)
+  state.refreshAffinityPositions(on: monitorIndex)
+}
+
+private func moveActiveWorkspaceToMonitor(
+  _ direction: Direction,
+  sourceMonitorIndex: Int,
+  monitorFrames: [MonitorID: Rect],
+  viewports: [MonitorID: Rect],
+  state: inout RuntimeState
+) throws {
+  let sourceMonitorID = state.monitors[sourceMonitorIndex].id
+  guard
+    let targetMonitorID = spatialMonitor(
+      from: sourceMonitorID,
+      toward: direction,
+      frames: monitorFrames
+    ),
+    let targetMonitorIndex = state.monitors.firstIndex(where: {
+      $0.id == targetMonitorID
+    }),
+    let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(where: {
+      $0.id == state.monitors[sourceMonitorIndex].activeWorkspace
+    }),
+    state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex].kind != .trailing
+  else { return }
+
+  var workspace = state.monitors[sourceMonitorIndex].workspaces.remove(
+    at: sourceWorkspaceIndex
+  )
+  let scale =
+    (viewports[targetMonitorID] ?? monitorFrames[targetMonitorID]).flatMap {
+      target in
+      (viewports[sourceMonitorID] ?? monitorFrames[sourceMonitorID]).map {
+        target.width / max($0.width, 1)
+      }
+    } ?? 1
+  for columnIndex in workspace.columns.indices {
+    scalePixelWidths(in: &workspace.columns[columnIndex], by: scale)
+  }
+  workspace.affinity = targetMonitorID
+  workspace.affinityPosition = state.monitors[targetMonitorIndex].workspaces.count - 1
+  let targetWorkspaceIndex =
+    state.monitors[targetMonitorIndex].workspaces.firstIndex(where: {
+      $0.kind == .trailing
+    }) ?? state.monitors[targetMonitorIndex].workspaces.count
+  state.monitors[targetMonitorIndex].workspaces.insert(workspace, at: targetWorkspaceIndex)
+  state.monitors[targetMonitorIndex].activeWorkspace = workspace.id
+  if !state.monitors[sourceMonitorIndex].workspaces.isEmpty {
+    state.monitors[sourceMonitorIndex].activeWorkspace =
+      state.monitors[sourceMonitorIndex].workspaces[
+        min(sourceWorkspaceIndex, state.monitors[sourceMonitorIndex].workspaces.count - 1)
+      ].id
+  }
+  let movedWindowIDs = workspace.columns.flatMap(\.windows) + workspace.floatingWindows
+  for windowID in movedWindowIDs {
+    state.windows[windowID]?.monitorID = targetMonitorID
+    if let placement = state.suspendedTiledPlacements[windowID] {
+      var column = placement.column
+      scalePixelWidths(in: &column, by: scale)
+      state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+        monitorID: targetMonitorID,
+        workspaceID: workspace.id,
+        columnIndex: placement.columnIndex,
+        windowIndex: placement.windowIndex,
+        column: column
+      )
+    }
+    if let placement = state.nativeFullscreenTiledPlacements[windowID] {
+      var column = placement.column
+      scalePixelWidths(in: &column, by: scale)
+      state.nativeFullscreenTiledPlacements[windowID] = SuspendedTiledPlacement(
+        monitorID: targetMonitorID,
+        workspaceID: workspace.id,
+        columnIndex: placement.columnIndex,
+        windowIndex: placement.windowIndex,
+        column: column
+      )
+    }
+  }
+  state.refreshAffinityPositions(on: sourceMonitorIndex)
+  state.refreshAffinityPositions(on: targetMonitorIndex)
+  state.maintainWorkspaceLifecycle()
 }
 
 func transientRootWindowID(
@@ -527,13 +778,15 @@ func transientDescendants(
   var descendants = Set<WindowID>()
   var owners = ownerWindowIDs
   while true {
-    let next = Set(windows.compactMap { windowID, window in
-      window.transientOwnerID.map(owners.contains) == true
-        && !ownerWindowIDs.contains(windowID)
-        && !descendants.contains(windowID)
-        ? windowID
-        : nil
-    })
+    let next = Set(
+      windows.compactMap { windowID, window in
+        window.transientOwnerID.map(owners.contains) == true
+          && !ownerWindowIDs.contains(windowID)
+          && !descendants.contains(windowID)
+          ? windowID
+          : nil
+      }
+    )
     guard !next.isEmpty else { return descendants }
     descendants.formUnion(next)
     owners = next
@@ -552,9 +805,10 @@ func groupedTiledColumns(
       movedWindowIDs.contains($0) && !excludedWindowIDs.contains($0)
     }
     guard let firstWindowID = windows.first else { continue }
-    let focusedWindowID = column.windows.indices.contains(column.focusedWindow)
-      ? column.windows[column.focusedWindow]
-      : nil
+    let focusedWindowID =
+      column.windows.indices.contains(column.focusedWindow)
+        ? column.windows[column.focusedWindow]
+        : nil
     columns[firstWindowID] = Column(
       windows: windows,
       focusedWindow: focusedWindowID.flatMap(windows.firstIndex(of:))
@@ -579,118 +833,6 @@ func removeWindowFromEveryWorkspace(
         settings: state.layout
       )
     }
-  }
-}
-
-private func moveFocusedWindow(
-  to workspaceID: WorkspaceID,
-  follow: Bool,
-  monitorIndex: Int,
-  state: inout RuntimeState
-) throws {
-  let sourceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
-    where: { $0.id == state.monitors[monitorIndex].activeWorkspace }
-  )
-  let targetIndex = state.monitors[monitorIndex].workspaces.firstIndex(
-    where: { $0.id == workspaceID }
-  )
-  guard let sourceIndex, let targetIndex else {
-    throw ReducerError.unknownWorkspace(workspaceID)
-  }
-  guard sourceIndex != targetIndex else { return }
-  let source = state.monitors[monitorIndex].workspaces[sourceIndex]
-  let selectedWindowID: WindowID
-  if let floatingWindowID = effectiveSelectedFloatingWindowID(in: source) {
-    selectedWindowID = floatingWindowID
-  } else {
-    guard source.columns.indices.contains(source.focusedColumn) else {
-      throw ReducerError.noFocusedWindow
-    }
-    let column = source.columns[source.focusedColumn]
-    guard column.windows.indices.contains(column.focusedWindow) else {
-      throw ReducerError.noFocusedWindow
-    }
-    selectedWindowID = column.windows[column.focusedWindow]
-  }
-
-  let rootWindowID = transientRootWindowID(selectedWindowID, windows: state.windows)
-  let movedWindowIDs = transientDescendants(of: [rootWindowID], windows: state.windows)
-    .union([rootWindowID])
-  let orderedMovedWindowIDs = state.monitors[monitorIndex].workspaces.flatMap {
-    $0.columns.flatMap(\.windows) + $0.floatingWindows
-  }.filter(movedWindowIDs.contains)
-  let tiledColumns = groupedTiledColumns(
-    moving: movedWindowIDs,
-    from: source
-  )
-
-  for windowID in orderedMovedWindowIDs {
-    removeWindowFromEveryWorkspace(windowID, state: &state)
-  }
-  var insertionIndex = min(
-    state.monitors[monitorIndex].workspaces[targetIndex].focusedColumn + 1,
-    state.monitors[monitorIndex].workspaces[targetIndex].columns.count
-  )
-  var selectedTiledColumnIndex: Int?
-  for windowID in orderedMovedWindowIDs {
-    if state.windows[windowID]?.floating == true
-      && state.windows[windowID]?.forceTiling != true
-    {
-      state.monitors[monitorIndex].workspaces[targetIndex].floatingWindows.append(windowID)
-    } else if let column = tiledColumns.byFirstWindowID[windowID] {
-      state.monitors[monitorIndex].workspaces[targetIndex].columns.insert(
-        column,
-        at: insertionIndex
-      )
-      if column.windows.contains(selectedWindowID) {
-        selectedTiledColumnIndex = insertionIndex
-      }
-      insertionIndex += 1
-    } else if tiledColumns.windowIDs.contains(windowID) == false {
-      state.monitors[monitorIndex].workspaces[targetIndex].columns.insert(
-        Column(
-          window: windowID,
-          width: .fraction(state.layout.defaultColumnWidth)
-        ),
-        at: insertionIndex
-      )
-      if windowID == selectedWindowID {
-        selectedTiledColumnIndex = insertionIndex
-      }
-      insertionIndex += 1
-    }
-    if let placement = state.suspendedTiledPlacements[windowID] {
-      if state.windows[windowID]?.floatingOrigin == .automatic {
-        state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
-          monitorID: placement.monitorID,
-          workspaceID: workspaceID,
-          columnIndex: placement.columnIndex,
-          windowIndex: placement.windowIndex,
-          column: placement.column
-        )
-      } else {
-        state.suspendedTiledPlacements[windowID] = nil
-      }
-    }
-  }
-  if let selectedTiledColumnIndex {
-    state.monitors[monitorIndex].workspaces[targetIndex].focusedColumn =
-      selectedTiledColumnIndex
-    repairWorkspaceScroll(
-      &state.monitors[monitorIndex].workspaces[targetIndex],
-      settings: state.layout
-    )
-  }
-  if let selectedIndex = state.monitors[monitorIndex].workspaces[targetIndex]
-    .floatingWindows.firstIndex(of: selectedWindowID)
-  {
-    state.monitors[monitorIndex].workspaces[targetIndex].focusedFloatingWindow = selectedIndex
-    state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .floating
-  } else {
-    state.monitors[monitorIndex].workspaces[targetIndex].focusedLayer = .tiled
-  }
-  if follow {
-    state.monitors[monitorIndex].activeWorkspace = workspaceID
   }
 }
 

@@ -82,18 +82,21 @@ struct RuntimeMonitorTests {
     )
 
     #expect(state.monitors.count == 1)
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    let migrated = state.monitors[0].workspaces.first {
+      $0.columns.contains(where: { $0.windows.contains(WindowID(rawValue: 9)) })
+    }
+    #expect(migrated?.columns[0].width == .pixels(600))
   }
 
   @Test
   func `Disconnected monitor migrates and scales suspended placement`() {
     let externalID = MonitorID(rawValue: 2)
-    let workspaceID = WorkspaceID(rawValue: "dev")
     let modalID = WindowID(rawValue: 10)
-    let config = Config(workspaces: WorkspacesConfig(names: [workspaceID.rawValue]))
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
     state.attachMonitor(externalID)
+    let workspaceID = state.monitors[1].workspaces[0].id
     state.monitors[0].workspaces[0].columns = [
       Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
     ]
@@ -129,7 +132,7 @@ struct RuntimeMonitorTests {
         == SuspendedTiledPlacement(
           monitorID: monitorID,
           workspaceID: workspaceID,
-          columnIndex: 2,
+          columnIndex: 1,
           windowIndex: 0,
           column: Column(
             windows: [modalID],
@@ -141,93 +144,13 @@ struct RuntimeMonitorTests {
   }
 
   @Test
-  func `Disconnected monitor places migrated suspension after target suspensions`() {
-    let externalID = MonitorID(rawValue: 2)
-    let workspaceID = WorkspaceID(rawValue: "dev")
-    let targetModalID = WindowID(rawValue: 8)
-    let sourceModalID = WindowID(rawValue: 10)
-    let config = Config(workspaces: WorkspacesConfig(names: [workspaceID.rawValue]))
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    state.attachMonitor(externalID)
-    state.monitors[0].workspaces[0].columns = [
-      Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
-    ]
-    state.suspendedTiledPlacements[targetModalID] = SuspendedTiledPlacement(
-      monitorID: monitorID,
-      workspaceID: workspaceID,
-      columnIndex: 1,
-      windowIndex: 0,
-      column: Column(window: targetModalID, width: .pixels(600))
-    )
-    state.suspendedTiledPlacements[sourceModalID] = SuspendedTiledPlacement(
-      monitorID: externalID,
-      workspaceID: workspaceID,
-      columnIndex: 1,
-      windowIndex: 0,
-      column: Column(window: sourceModalID, width: .pixels(600))
-    )
-
-    state.retainMonitors(
-      [monitorID],
-      previousViewports: [
-        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900),
-        externalID: Rect(x: 1_500, y: 0, width: 3_000, height: 1_600),
-      ],
-      nextViewports: [
-        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900)
-      ]
-    )
-
-    #expect(state.suspendedTiledPlacements[sourceModalID]?.columnIndex == 3)
-  }
-
-  @Test
-  func `Disconnected monitor places migration after highest suspended column`() {
-    let externalID = MonitorID(rawValue: 2)
-    let workspaceID = WorkspaceID(rawValue: "dev")
-    let targetModalID = WindowID(rawValue: 8)
-    let sourceModalID = WindowID(rawValue: 10)
-    let config = Config(workspaces: WorkspacesConfig(names: [workspaceID.rawValue]))
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    state.attachMonitor(externalID)
-    state.suspendedTiledPlacements[targetModalID] = SuspendedTiledPlacement(
-      monitorID: monitorID,
-      workspaceID: workspaceID,
-      columnIndex: 2,
-      windowIndex: 0,
-      column: Column(window: targetModalID, width: .pixels(600))
-    )
-    state.suspendedTiledPlacements[sourceModalID] = SuspendedTiledPlacement(
-      monitorID: externalID,
-      workspaceID: workspaceID,
-      columnIndex: 1,
-      windowIndex: 0,
-      column: Column(window: sourceModalID, width: .pixels(600))
-    )
-
-    state.retainMonitors(
-      [monitorID],
-      previousViewports: [
-        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900),
-        externalID: Rect(x: 1_500, y: 0, width: 3_000, height: 1_600),
-      ],
-      nextViewports: [
-        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900)
-      ]
-    )
-
-    #expect(state.suspendedTiledPlacements[sourceModalID]?.columnIndex == 4)
-  }
-
-  @Test
   func `Rebound focus monitor requires migrated window to remain selected`() {
     let externalID = MonitorID(rawValue: 2)
     let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
     state.attachMonitor(externalID)
+    let externalWorkspaceID = state.monitors[1].workspaces[0].id
     state.monitors[0].workspaces[0].columns = [
       Column(window: WindowID(rawValue: 1), width: .fraction(0.5))
     ]
@@ -249,38 +172,39 @@ struct RuntimeMonitorTests {
     #expect(
       state.reboundFocusMonitorID(
         for: WindowID(rawValue: 9),
-        requestedWorkspaceID: WorkspaceID(rawValue: "dev")
+        requestedWorkspaceID: externalWorkspaceID
       ) == nil)
-    state.monitors[0].workspaces[0].focusedColumn = 1
+    let migratedIndex = state.monitors[0].workspaces.firstIndex(where: {
+      $0.id == externalWorkspaceID
+    })!
+    state.monitors[0].activeWorkspace = externalWorkspaceID
+    state.monitors[0].workspaces[migratedIndex].focusedColumn = 0
     #expect(
       state.reboundFocusMonitorID(
         for: WindowID(rawValue: 9),
-        requestedWorkspaceID: WorkspaceID(rawValue: "dev")
+        requestedWorkspaceID: externalWorkspaceID
       ) == monitorID)
   }
 
   @Test
-  func `Each monitor owns independent nine workspaces`() throws {
+  func `Each monitor owns a distinct trailing workspace`() throws {
     let externalID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
     state.attachMonitor(externalID)
 
-    #expect(state.monitors[0].workspaces.map(\.id.rawValue) == (1...9).map(String.init))
-    #expect(state.monitors[1].workspaces.map(\.id.rawValue) == (1...9).map(String.init))
+    #expect(state.monitors[0].workspaces.map(\.kind) == [.trailing])
+    #expect(state.monitors[1].workspaces.map(\.kind) == [.trailing])
+    #expect(state.monitors[0].workspaces[0].id != state.monitors[1].workspaces[0].id)
 
     try reduce(
-      .switchWorkspace(WorkspaceID(rawValue: "5")),
+      .focusWorkspace(.position(5)),
       on: externalID,
       state: &state
     )
 
-    #expect(
-      state.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
-        == WorkspaceID(rawValue: "1"))
-    #expect(
-      state.monitors.first(where: { $0.id == externalID })?.activeWorkspace
-        == WorkspaceID(rawValue: "5"))
+    #expect(state.monitors[0].activeWorkspace == state.monitors[0].workspaces[0].id)
+    #expect(state.monitors[1].activeWorkspace == state.monitors[1].workspaces[0].id)
   }
 
   @Test
@@ -693,6 +617,7 @@ struct MonitorMoveFocusTests {
     var state = RuntimeState(config: config)
     state.attachMonitor(sourceID)
     state.attachMonitor(targetID)
+    let targetWorkspaceID = state.monitors[1].activeWorkspace
     state.monitors[0].workspaces[0].columns = [
       Column(window: ownerID, width: .pixels(500))
     ]
@@ -744,7 +669,7 @@ struct MonitorMoveFocusTests {
 
     let placement = try #require(state.suspendedTiledPlacements[transientID])
     #expect(placement.monitorID == targetID)
-    #expect(placement.workspaceID == workspaceID)
+    #expect(placement.workspaceID == targetWorkspaceID)
     #expect(placement.columnIndex == 0)
     #expect(placement.column.width == .pixels(1_000))
 

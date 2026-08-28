@@ -198,14 +198,20 @@ extension Daemon {
   }
 
   func updateMenuBar() {
-    let workspace =
+    let monitor =
       activeMonitorID
       .flatMap { id in state.monitors.first(where: { $0.id == id }) }
-      .map(\.activeWorkspace.rawValue)
-      ?? ""
+      ?? state.monitors.first
+    let workspace = monitor?.activeWorkspace.rawValue ?? ""
     menuBar?.update(
       activeWorkspace: workspace,
-      workspaceNames: state.workspaceNames.map(\.rawValue)
+      workspaces: monitor?.workspaces.enumerated().map { offset, workspace in
+        MenuWorkspace(
+          id: workspace.id.rawValue,
+          label: workspace.name
+            ?? (workspace.kind == .trailing ? "+" : String(offset + 1))
+        )
+      } ?? []
     )
     publishWorkspaceStateIfNeeded()
   }
@@ -305,6 +311,7 @@ extension Daemon {
     timer?.cancel()
     ipcSource?.cancel()
     flushPendingPlacementWrite()
+    flushPendingTopologyWrite()
     platform.finishCommandDiagnostics()
     diagnostics.flush()
     platform.hideWindowBorders()

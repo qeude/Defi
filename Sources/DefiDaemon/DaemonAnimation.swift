@@ -20,8 +20,154 @@ struct ScrollAnimation {
   var startedAt: TimeInterval
 }
 
+func workspaceTransitionPathIsClear(
+  ownerFrame: Rect,
+  otherMonitorFrames: [Rect]
+) -> Bool {
+  let envelope = Rect(
+    x: ownerFrame.x,
+    y: ownerFrame.y - ownerFrame.height,
+    width: ownerFrame.width,
+    height: ownerFrame.height * 3
+  )
+  return otherMonitorFrames.allSatisfy { other in
+    envelope.x + envelope.width <= other.x
+      || other.x + other.width <= envelope.x
+      || envelope.y + envelope.height <= other.y
+      || other.y + other.height <= envelope.y
+  }
+}
+
+func workspaceVerticalTransitionDuration(
+  configuredDurationMS: Int
+) -> TimeInterval {
+  guard configuredDurationMS > 0 else { return 0 }
+  return max(TimeInterval(configuredDurationMS) / 1_000, 0.18)
+}
+
+func workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
+  viewport: Rect,
+  physicalFrame: Rect
+) -> Bool {
+  viewport.y - physicalFrame.y <= 0.5
+    && physicalFrame.y + physicalFrame.height
+      - (viewport.y + viewport.height) <= 0.5
+}
+
+func workspaceVerticalRibbonOffset(
+  relativePosition: Int,
+  physicalFrame: Rect
+) -> Double {
+  Double(relativePosition) * physicalFrame.height
+}
+
+func outgoingWorkspaceVerticalRibbonOffset(
+  workspaceID: WorkspaceID,
+  monitorID: MonitorID,
+  transition: WorkspaceVerticalTransition?,
+  physicalFrame: Rect
+) -> Double? {
+  guard transition?.monitorID == monitorID,
+    transition?.outgoingWorkspaceID == workspaceID
+  else { return nil }
+  return workspaceVerticalRibbonOffset(
+    relativePosition: -(transition?.direction ?? 0),
+    physicalFrame: physicalFrame
+  )
+}
+
 @MainActor
 extension Daemon {
+  func safeWorkspaceVerticalTransition(
+    _ intent: WorkspaceTransitionIntent
+  ) -> WorkspaceVerticalTransition? {
+    let duration = workspaceVerticalTransitionDuration(
+      configuredDurationMS: config.animation.durationMS
+    )
+    guard config.animation.enabled, duration > 0,
+      pendingDisplaySyncDeadlines.isEmpty,
+      latestMonitors.count == state.monitors.count,
+      let monitor = state.monitors.first(where: { $0.id == intent.monitorID }),
+      let outgoing = monitor.workspaces.first(where: {
+        $0.id == intent.outgoingWorkspaceID
+      }),
+      let incoming = monitor.workspaces.first(where: {
+        $0.id == intent.incomingWorkspaceID
+      }),
+      let ownerFrame = latestMonitors.first(where: {
+        $0.id == intent.monitorID
+      })?.physicalFrame,
+      let viewport = viewportsByMonitor[intent.monitorID],
+      workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
+        viewport: viewport,
+        physicalFrame: ownerFrame
+      )
+    else { return nil }
+    let outgoingWindowIDs = Set(
+      outgoing.columns.flatMap(\.windows) + outgoing.floatingWindows
+    )
+    let participantWindowIDs = outgoingWindowIDs.union(
+      incoming.columns.flatMap(\.windows) + incoming.floatingWindows
+    )
+    guard !outgoingWindowIDs.isEmpty,
+      participantWindowIDs.isSubset(of: platform.frameWritableWindowIDs),
+      platform.positionsCanAnimateTogether(
+        windowIDs: participantWindowIDs,
+        animationDuration: duration,
+        refreshRateHz: activeDisplayRefreshRate
+      ),
+      participantWindowIDs.isDisjoint(with: state.nativeFullscreenWindowIDs),
+      workspaceTransitionPathIsClear(
+        ownerFrame: ownerFrame,
+        otherMonitorFrames: latestMonitors.compactMap {
+          $0.id == intent.monitorID ? nil : $0.physicalFrame
+        }
+      )
+    else { return nil }
+    return WorkspaceVerticalTransition(
+      monitorID: intent.monitorID,
+      outgoingWorkspaceID: intent.outgoingWorkspaceID,
+      direction: intent.direction
+    )
+  }
+
+  func dispatchWorkspaceVerticalTransition(
+    _ transition: WorkspaceVerticalTransition,
+    affectedMonitorIDs: Set<MonitorID>,
+    focusWindowIDAfterCommit: WindowID?,
+    focusInputTimestampAfterCommit: TimeInterval?,
+    cursorWarpInputTimestampAfterCommit: TimeInterval?,
+    focusCompletionAfterCommit:
+      (@MainActor @Sendable (NativeFocusResult) -> Void)?,
+    cursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?,
+    focusRequestIDAfterCommit:
+      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?,
+    commandPerformance: CommandPerformanceContext
+  ) {
+    let duration = workspaceVerticalTransitionDuration(
+      configuredDurationMS: config.animation.durationMS
+    )
+    beginFrameAnimationActivity()
+    applyCurrentLayout(
+      monitorIDs: affectedMonitorIDs,
+      asynchronousPositions: true,
+      updateVisibility: true,
+      positionTimeoutSeconds: 0.05,
+      animationDuration: duration,
+      positionsOnly: true,
+      focusWindowIDAfterCommit: focusWindowIDAfterCommit,
+      focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
+      cursorWarpInputTimestampAfterCommit: cursorWarpInputTimestampAfterCommit,
+      focusCompletionAfterCommit: focusCompletionAfterCommit,
+      cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
+      focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+      workspaceTransition: transition,
+      commandPerformance: commandPerformance,
+      source: "workspace-transition"
+    )
+    needsDesktopSync = true
+  }
+
   func startScrollAnimationsIfNeeded() {
     let duration = TimeInterval(config.animation.durationMS) / 1_000
     let now = ProcessInfo.processInfo.systemUptime

@@ -16,22 +16,6 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
-  func animationDisplayBarrierKeepsEveryRequestedAvailableDisplay() {
-    #expect(
-      resolvedAnimationDisplayIDs(
-        requested: [1, 2],
-        available: [1, 2, 3]
-      ) == [1, 2]
-    )
-    #expect(
-      resolvedAnimationDisplayIDs(
-        requested: [9],
-        available: [3]
-      ) == [3]
-    )
-  }
-
-  @Test
   func preparedAXRelationshipsResolveTransientOwners() {
     let ownerID = WindowID(rawValue: 1)
     let parentChildID = WindowID(rawValue: 2)

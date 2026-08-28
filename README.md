@@ -23,8 +23,9 @@ within macOS's constraints.
 
 - **Scrolling columns** — keep neighboring context visible while moving through
   a wide desktop.
-- **Per-monitor workspaces** — every display owns its own workspace set,
-  focused window, widths, and scroll position.
+- **Dynamic per-monitor workspaces** — every display owns an ordered stack with
+  one trailing empty workspace; populated workspaces appear and empty ordinary
+  workspaces disappear automatically.
 - **Keyboard-first control** — focus, move, stack, resize, maximize, and switch
   workspaces without reaching for a mouse.
 - **Native focus and frame reconciliation** — Defi follows real macOS focus and
@@ -63,7 +64,7 @@ focus, and park windows:
 Without this permission, Defi can start but cannot manage application windows.
 
 Defi targets macOS 26 or newer. No configuration file is required: built-in
-defaults provide workspaces `1` through `9` and Option-based shortcuts.
+defaults provide dynamic workspaces and Option-based shortcuts.
 
 Default keyboard bindings use Option. The complete shortcut and command
 reference lives in [CONFIGURATION.md](CONFIGURATION.md).
@@ -98,10 +99,11 @@ Examples:
 /Applications/Defi.app/Contents/MacOS/defi trace
 /Applications/Defi.app/Contents/MacOS/defi diagnostic-mark
 /Applications/Defi.app/Contents/MacOS/defi focus-column left
-/Applications/Defi.app/Contents/MacOS/defi workspace 2
-/Applications/Defi.app/Contents/MacOS/defi --monitor 2 workspace 2
+/Applications/Defi.app/Contents/MacOS/defi focus-workspace down
+/Applications/Defi.app/Contents/MacOS/defi focus-workspace-position 2
+/Applications/Defi.app/Contents/MacOS/defi workspace dev
 /Applications/Defi.app/Contents/MacOS/defi list-workspaces --json
-/Applications/Defi.app/Contents/MacOS/defi move-window-to-workspace 3
+/Applications/Defi.app/Contents/MacOS/defi move-column-to-workspace dev
 /Applications/Defi.app/Contents/MacOS/defi quit
 ```
 
@@ -118,7 +120,7 @@ exists, it installs `defi.example.toml` as the initial user config. This
 example intentionally overrides the built-in defaults: it uses the Hyper
 modifier and named workspaces such as `dev`, `web`, and `tools`. Remove or
 edit `~/.config/defi/config.toml` if you want to use the built-in Option
-bindings and workspaces `1` through `9` instead.
+bindings with unnamed dynamic workspaces instead.
 
 The script uses an Apple Development identity. If multiple identities exist,
 copy `.env.example` to the ignored `.env.local` and select the development

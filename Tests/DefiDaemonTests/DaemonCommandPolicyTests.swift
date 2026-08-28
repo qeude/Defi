@@ -1,10 +1,144 @@
+import DefiConfig
 import DefiCore
 import DefiModel
+import DefiRuntime
 import Testing
 
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test
+  func backgroundSnapshotWaitsForTheCurrentCommandAnimation() {
+    #expect(
+      desktopSnapshotWaitsForCommandAnimation(
+        animationPending: true,
+        latestCommandInputTimestamp: 10,
+        mouseFocusIntentTimestamp: nil,
+        keyboardFocusIntentTimestamp: nil
+      ))
+    #expect(
+      desktopSnapshotWaitsForCommandAnimation(
+        animationPending: true,
+        latestCommandInputTimestamp: 10,
+        mouseFocusIntentTimestamp: 11,
+        keyboardFocusIntentTimestamp: nil
+      ) == false)
+  }
+
+  @Test
+  func verticalWorkspaceTransitionUsesAPerceivableMinimumDuration() {
+    #expect(workspaceVerticalTransitionDuration(configuredDurationMS: 0) == 0)
+    #expect(workspaceVerticalTransitionDuration(configuredDurationMS: 35) == 0.18)
+    #expect(workspaceVerticalTransitionDuration(configuredDurationMS: 250) == 0.25)
+  }
+
+  @Test
+  func verticalWorkspaceTransitionRejectsAOverlappingMonitorPath() {
+    let owner = Rect(x: 0, y: 0, width: 1_000, height: 800)
+
+    #expect(
+      workspaceTransitionPathIsClear(
+        ownerFrame: owner,
+        otherMonitorFrames: [Rect(x: 1_000, y: 0, width: 1_000, height: 800)]
+      )
+    )
+    #expect(
+      !workspaceTransitionPathIsClear(
+        ownerFrame: owner,
+        otherMonitorFrames: [Rect(x: 0, y: 800, width: 1_000, height: 800)]
+      )
+    )
+  }
+
+  @Test
+  func verticalWorkspaceTransitionRejectsAnUncoveredDisplayMargin() {
+    let physicalFrame = Rect(x: 0, y: 0, width: 1_512, height: 982)
+
+    #expect(
+      workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
+        viewport: physicalFrame,
+        physicalFrame: physicalFrame
+      )
+    )
+    #expect(
+      workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
+        viewport: Rect(x: 0, y: 33, width: 1_512, height: 900),
+        physicalFrame: physicalFrame
+      ) == false
+    )
+  }
+
+  @Test
+  func verticalWorkspaceRibbonClearsThePhysicalMonitor() {
+    let physicalFrame = Rect(x: 0, y: 0, width: 1_512, height: 982)
+    let windowFrame = Rect(x: 4, y: 37, width: 1_204, height: 900)
+
+    #expect(
+      windowFrame.y
+        + workspaceVerticalRibbonOffset(
+          relativePosition: 1,
+          physicalFrame: physicalFrame
+        ) >= physicalFrame.y + physicalFrame.height
+    )
+    #expect(
+      windowFrame.y + windowFrame.height
+        + workspaceVerticalRibbonOffset(
+          relativePosition: -1,
+          physicalFrame: physicalFrame
+        ) <= physicalFrame.y
+    )
+  }
+
+  @Test
+  func inactiveWorkspaceOnlyJoinsTheRibbonWhileLeaving() {
+    let monitorID = MonitorID(rawValue: 1)
+    let outgoingWorkspaceID = WorkspaceID(rawValue: "dev")
+    let transition = WorkspaceVerticalTransition(
+      monitorID: monitorID,
+      outgoingWorkspaceID: outgoingWorkspaceID,
+      direction: 1
+    )
+    let physicalFrame = Rect(x: 0, y: 0, width: 1_512, height: 982)
+
+    #expect(
+      outgoingWorkspaceVerticalRibbonOffset(
+        workspaceID: outgoingWorkspaceID,
+        monitorID: monitorID,
+        transition: transition,
+        physicalFrame: physicalFrame
+      ) == -982
+    )
+    #expect(
+      outgoingWorkspaceVerticalRibbonOffset(
+        workspaceID: WorkspaceID(rawValue: "web"),
+        monitorID: monitorID,
+        transition: transition,
+        physicalFrame: physicalFrame
+      ) == nil
+    )
+  }
+
+  @Test
+  func workspaceTransitionIntentUsesTheTargetMonitorOrder() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    )
+    state.attachMonitor(monitorID)
+
+    let intent = try #require(
+      workspaceTransitionIntent(
+        targetWorkspaceID: WorkspaceID(rawValue: "web"),
+        state: state
+      )
+    )
+
+    #expect(intent.monitorID == monitorID)
+    #expect(intent.outgoingWorkspaceID == WorkspaceID(rawValue: "dev"))
+    #expect(intent.incomingWorkspaceID == WorkspaceID(rawValue: "web"))
+    #expect(intent.direction == 1)
+  }
+
   @Test
   func overviewIgnoresParkingFocusWithoutNewFocusInput() {
     #expect(
@@ -35,6 +169,24 @@ struct DaemonCommandPolicyTests {
         affected: [commandMonitor],
         inFlightAnimations: [animatedMonitor]
       ) == [animatedMonitor, commandMonitor]
+    )
+  }
+
+  @Test
+  func inFlightAnimationDoesNotTurnACommandIntoANoOp() {
+    #expect(
+      !commandValidationIsNoOp(
+        hasValidationState: false,
+        rebasesPendingFrame: true,
+        explicitlyFocusesFloating: false
+      )
+    )
+    #expect(
+      commandValidationIsNoOp(
+        hasValidationState: false,
+        rebasesPendingFrame: false,
+        explicitlyFocusesFloating: false
+      )
     )
   }
 

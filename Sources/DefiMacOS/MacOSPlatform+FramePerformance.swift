@@ -45,6 +45,27 @@ extension MacOSPlatform {
     )
   }
 
+  public var frameWritableWindowIDs: Set<WindowID> {
+    Set(
+      elements.keys.filter { windowID in
+        processIDs[windowID].map { applications[$0] != nil } == true
+      })
+  }
+
+  public func positionsCanAnimateTogether(
+    windowIDs: Set<WindowID>,
+    animationDuration: TimeInterval,
+    refreshRateHz: Double
+  ) -> Bool {
+    let processIDs = windowIDs.compactMap { self.processIDs[$0] }
+    guard processIDs.count == windowIDs.count else { return false }
+    return frameCoordinator.animationSupportsIntermediateFrames(
+      processIDs: Set(processIDs),
+      animationDuration: animationDuration,
+      refreshRateHz: refreshRateHz
+    )
+  }
+
   public var latencySensitiveProcessCount: Int {
     frameCoordinator.slowProcessIDs.count
   }

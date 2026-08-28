@@ -143,16 +143,18 @@ func planWindowBorders(
 
 func overviewWindowBorderAppearance(
   isSelected: Bool,
-  style: WindowBorderStyle
+  style: WindowBorderStyle,
+  scale: Double
 ) -> (color: UInt32, width: Double)? {
-  guard style.enabled, style.width > 0 else { return nil }
+  let width = style.width * scale
+  guard style.enabled, width > 0 else { return nil }
   if isSelected, windowBorderAlpha(of: style.activeColor) > 0 {
-    return (style.activeColor, style.width)
+    return (style.activeColor, width)
   }
   guard style.inactiveEnabled, windowBorderAlpha(of: style.inactiveColor) > 0 else {
     return nil
   }
-  return (style.inactiveColor, style.width)
+  return (style.inactiveColor, width)
 }
 
 func overviewWindowBorderGeometry(
