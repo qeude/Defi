@@ -29,36 +29,78 @@ enum DesktopSessionActivityChange: Equatable {
   case becameActive
 }
 
+struct DesktopSessionState: Equatable {
+  var systemAwake: Bool
+  var screensAwake: Bool
+  var sessionActive: Bool
+
+  static let active = DesktopSessionState(
+    systemAwake: true,
+    screensAwake: true,
+    sessionActive: true
+  )
+
+  var isActive: Bool {
+    systemAwake && screensAwake && sessionActive
+  }
+}
+
 struct DesktopSessionEventNormalizer {
-  private var systemAwake = true
-  private var screensAwake = true
-  private var sessionActive = true
+  private var state: DesktopSessionState
+
+  init(initialState: DesktopSessionState = .active) {
+    state = initialState
+  }
 
   mutating func consume(
     _ event: DesktopSessionEvent
   ) -> DesktopSessionActivityChange? {
-    let wasActive = isActive
+    let wasActive = state.isActive
     switch event {
     case .willSleep:
-      systemAwake = false
+      state.systemAwake = false
     case .didWake:
-      systemAwake = true
+      state.systemAwake = true
     case .screensDidSleep:
-      screensAwake = false
+      state.screensAwake = false
     case .screensDidWake:
-      screensAwake = true
+      state.screensAwake = true
     case .sessionDidResignActive:
-      sessionActive = false
+      state.sessionActive = false
     case .sessionDidBecomeActive:
-      sessionActive = true
+      state.sessionActive = true
     }
-    guard isActive != wasActive else { return nil }
-    return isActive ? .becameActive : .becameInactive
+    guard state.isActive != wasActive else { return nil }
+    return state.isActive ? .becameActive : .becameInactive
+  }
+}
+
+func currentDesktopSessionState() -> DesktopSessionState {
+  let session = CGSessionCopyCurrentDictionary() as NSDictionary?
+  let sessionActive =
+    (session?[kCGSessionOnConsoleKey] as? Bool ?? true)
+    && (session?[kCGSessionLoginDoneKey] as? Bool ?? true)
+
+  var displayCount: UInt32 = 0
+  var screensAwake = true
+  if CGGetOnlineDisplayList(0, nil, &displayCount) == .success {
+    var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+    if CGGetOnlineDisplayList(displayCount, &displayIDs, &displayCount)
+      == .success
+    {
+      screensAwake =
+        displayCount == 0
+        || displayIDs.prefix(Int(displayCount)).contains {
+          CGDisplayIsAsleep($0) == 0
+        }
+    }
   }
 
-  private var isActive: Bool {
-    systemAwake && screensAwake && sessionActive
-  }
+  return DesktopSessionState(
+    systemAwake: true,
+    screensAwake: screensAwake,
+    sessionActive: sessionActive
+  )
 }
 
 func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {

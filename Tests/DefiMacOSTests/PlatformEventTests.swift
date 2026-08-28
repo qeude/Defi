@@ -41,7 +41,8 @@ struct PlatformEventTests {
     var changes: [DesktopSessionActivityChange] = []
     let monitor = PlatformEventMonitor(
       handler: { _, _ in },
-      desktopSessionHandler: { changes.append($0) }
+      desktopSessionHandler: { changes.append($0) },
+      desktopSessionStateProvider: { .active }
     )
     monitor.start()
     defer { monitor.stop() }
@@ -51,6 +52,33 @@ struct PlatformEventTests {
     center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
     center.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
     center.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+
+    #expect(changes == [.becameInactive, .becameActive])
+  }
+
+  @Test @MainActor
+  func inactiveStartupPausesUntilTheMissingWakeSignalArrives() {
+    var changes: [DesktopSessionActivityChange] = []
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in },
+      desktopSessionHandler: { changes.append($0) },
+      desktopSessionStateProvider: {
+        DesktopSessionState(
+          systemAwake: true,
+          screensAwake: false,
+          sessionActive: true
+        )
+      }
+    )
+    monitor.start()
+    defer { monitor.stop() }
+
+    #expect(changes == [.becameInactive])
+
+    NSWorkspace.shared.notificationCenter.post(
+      name: NSWorkspace.screensDidWakeNotification,
+      object: nil
+    )
 
     #expect(changes == [.becameInactive, .becameActive])
   }

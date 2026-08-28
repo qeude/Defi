@@ -8,6 +8,7 @@ final class PlatformEventMonitor {
   let handler: (PlatformEventKind, pid_t?) -> Void
   private let userInputTracker: UserInputTracker
   private let desktopSessionHandler: (DesktopSessionActivityChange) -> Void
+  private let desktopSessionStateProvider: () -> DesktopSessionState
   private let frameHandler: (AXUIElement) -> Void
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
@@ -37,6 +38,8 @@ final class PlatformEventMonitor {
     handler: @escaping (PlatformEventKind, pid_t?) -> Void,
     userInputTracker: UserInputTracker = UserInputTracker(),
     desktopSessionHandler: @escaping (DesktopSessionActivityChange) -> Void = { _ in },
+    desktopSessionStateProvider: @escaping () -> DesktopSessionState =
+      currentDesktopSessionState,
     frameHandler: @escaping (AXUIElement) -> Void = { _ in },
     liveFrameHandler: @escaping () -> Void = {},
     borderStackingHandler: @escaping () -> Void = {},
@@ -46,6 +49,7 @@ final class PlatformEventMonitor {
     self.handler = handler
     self.userInputTracker = userInputTracker
     self.desktopSessionHandler = desktopSessionHandler
+    self.desktopSessionStateProvider = desktopSessionStateProvider
     self.frameHandler = frameHandler
     self.liveFrameHandler = liveFrameHandler
     self.borderStackingHandler = borderStackingHandler
@@ -93,6 +97,15 @@ final class PlatformEventMonitor {
           }
         }
       )
+    }
+    let initialDesktopSessionState = desktopSessionStateProvider()
+    desktopSessionNormalizer = DesktopSessionEventNormalizer(
+      initialState: initialDesktopSessionState
+    )
+    desktopSessionActive = initialDesktopSessionState.isActive
+    if !desktopSessionActive {
+      resetAccessibilityObservers()
+      desktopSessionHandler(.becameInactive)
     }
     workspaceTokens.append(
       center.addObserver(
