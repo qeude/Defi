@@ -7,6 +7,55 @@ struct PlacementPreferencesTests {
   private let monitorID = MonitorID(rawValue: 1)
 
   @Test
+  func `Frontmost application spawn follows persisted workspace`() throws {
+    let web = WorkspaceID(rawValue: "web")
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", web.rawValue]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let selected = Window(
+      id: WindowID(rawValue: 1),
+      appID: "com.example.Editor",
+      title: "Editor",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      processID: 7,
+      monitorID: monitorID
+    )
+    let launched = Window(
+      id: WindowID(rawValue: 2),
+      appID: "com.example.Chat",
+      title: "Chat",
+      frame: Rect(x: 600, y: 0, width: 600, height: 800),
+      processID: 42,
+      monitorID: monitorID
+    )
+    let preferences = PlacementPreferences(
+      applications: [
+        "com.example.chat": WindowPlacementPreference(
+          workspaceID: web,
+          monitorID: monitorID
+        )
+      ]
+    )
+    try discoverWindow(
+      selected,
+      decision: RuleDecision(followFocus: true),
+      isNativelyFocused: true,
+      state: &state
+    )
+
+    reconcileWindows(
+      [selected, launched],
+      config: config,
+      placementPreferences: preferences,
+      frontmostProcessID: 42,
+      state: &state
+    )
+
+    #expect(state.monitors[0].activeWorkspace == web)
+    #expect(state.selectedWindowID(on: monitorID) == launched.id)
+  }
+
+  @Test
   func `Reconcile restores persisted application workspace`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)

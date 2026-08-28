@@ -19,6 +19,7 @@ struct BackgroundWindowDiscoveryTests {
       appID: "editor",
       title: "Selected",
       frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      processID: 7,
       monitorID: monitorID
     )
     let backgroundWindow = Window(
@@ -26,6 +27,7 @@ struct BackgroundWindowDiscoveryTests {
       appID: "proxy",
       title: "Background",
       frame: Rect(x: 600, y: 0, width: 600, height: 800),
+      processID: 42,
       monitorID: monitorID
     )
     try discoverWindow(
@@ -39,6 +41,7 @@ struct BackgroundWindowDiscoveryTests {
       [selectedWindow, backgroundWindow],
       config: config,
       nativeFocusedWindowID: selectedWindow.id,
+      frontmostProcessID: 7,
       state: &state
     )
 
