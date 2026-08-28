@@ -14,6 +14,13 @@ extension MacOSPlatform {
     clearFrameState()
   }
 
+  public func invalidateStateForDesktopSessionChange() {
+    invalidatePreparedAXWindowAttributes()
+    frameCoordinator.invalidate(reason: "desktop-session-change")
+    clearFrameState()
+    invalidateFocusStateForDisplayChange()
+  }
+
   public func cancelPendingFrameWrites() {
     frameCoordinator.invalidate(reason: "mouse-gesture")
   }

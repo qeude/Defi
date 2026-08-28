@@ -206,6 +206,8 @@ final class Daemon: NSObject {
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
+  var desktopSessionActive = true
+  var desktopSessionGeneration: UInt64 = 0
   var desktopSnapshotInFlight = false
   var supersededDesktopSnapshotRequest: (
     forceFullWindowRefresh: Bool,
@@ -309,17 +311,24 @@ final class Daemon: NSObject {
     }
     platform.startObserving(
       { [weak self] in
-        self?.observedPlatformEventCount += 1
-        self?.needsDesktopSync = true
-        self?.scheduleTick()
+        guard let self, desktopSessionActive else { return }
+        observedPlatformEventCount += 1
+        needsDesktopSync = true
+        scheduleTick()
+      },
+      desktopSessionHandler: { [weak self] active in
+        self?.handleDesktopSessionActivity(active)
       },
       displayConfigurationHandler: { [weak self] in
+        guard self?.desktopSessionActive == true else { return }
         self?.scheduleDisplayReconciliation()
       },
       mouseGestureStartedHandler: { [weak self] in
+        guard self?.desktopSessionActive == true else { return }
         self?.beginMouseGesture()
       },
       mouseGestureHandler: { [weak self] in
+        guard self?.desktopSessionActive == true else { return }
         self?.cancelAnimationForMouseGesture()
       }
     )
@@ -329,12 +338,14 @@ final class Daemon: NSObject {
       userInputTracker: platform.userInputTracker,
       pointerMotionTracker: platform.pointerMotionTracker,
       pointerMotionHandler: { [weak self] invocation in
+        guard self?.desktopSessionActive == true else { return }
         self?.handlePointerMotion(invocation)
       },
       tapReenabledHandler: { [weak self] timestamp in
         self?.handleEventTapReenabled(at: timestamp)
       },
       overviewHandler: { [weak self] action in
+        guard self?.desktopSessionActive == true else { return }
         self?.overviewController?.handleKey(action)
       }
     ) { [weak self] invocation in
@@ -374,7 +385,47 @@ final class Daemon: NSObject {
     NSApplication.shared.run()
   }
 
+  func handleDesktopSessionActivity(_ active: Bool) {
+    guard desktopSessionActive != active else { return }
+    desktopSessionActive = active
+    desktopSessionGeneration &+= 1
+    guard active else {
+      commandGeneration &+= 1
+      mouseGestureGeneration &+= 1
+      pendingHotKeyCommands.removeAll(keepingCapacity: true)
+      pendingAnimatedFocus = nil
+      invalidateSubmittedCommandFocus()
+      pendingWorkspaceFocus = nil
+      invalidateSubmittedWorkspaceFocus()
+      displacedPointerFocusRecovery = nil
+      invalidatePointerFocusIntent()
+      scrollAnimations.removeAll(keepingCapacity: true)
+      finishMouseGestureTracking()
+      mouseReorderAnimationActive = false
+      frameNotificationsSuspended = false
+      pendingDisplaySyncDeadlines.removeAll(keepingCapacity: true)
+      supersededDesktopSnapshotRequest = nil
+      needsDesktopSync = false
+      followUpTickSignature = nil
+      followUpBackoffSteps = 0
+      platform.invalidateStateForDesktopSessionChange()
+      setTimerFrequency(2)
+      log("desktop session inactive")
+      return
+    }
+
+    needsDesktopSync = true
+    synchronizeDesktop(
+      forceFullWindowRefresh: true,
+      forceWindowListRefresh: true,
+      forceApplicationInventoryRefresh: true
+    )
+    scheduleTick()
+    log("desktop session active; refreshing desktop")
+  }
+
   func tick() {
+    guard desktopSessionActive else { return }
     processPendingHotKeys()
     finishPendingAnimatedFocusIfReady()
     finishPendingWorkspaceFocusIfReady()

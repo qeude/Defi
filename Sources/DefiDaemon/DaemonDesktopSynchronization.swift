@@ -39,6 +39,8 @@ extension Daemon {
     forceApplicationInventoryRefresh: Bool = false,
     consumePeriodicWindowRefresh: Bool = false
   ) {
+    guard desktopSessionActive else { return }
+    let sessionGeneration = desktopSessionGeneration
     let nativeFocusWasPending = platform.hasPendingNativeFocusEvent
     if desktopSnapshotInFlight {
       supersededDesktopSnapshotRequest = (
@@ -56,7 +58,22 @@ extension Daemon {
       forceWindowListRefresh: forceWindowListRefresh,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
     ) { [weak self] snapshot in
-      self?.applyDesktopSnapshot(
+      guard let self else { return }
+      guard desktopSessionActive,
+        desktopSessionGeneration == sessionGeneration
+      else {
+        desktopSnapshotInFlight = false
+        supersededDesktopSnapshotRequest = nil
+        if desktopSessionActive {
+          synchronizeDesktop(
+            forceFullWindowRefresh: true,
+            forceWindowListRefresh: true,
+            forceApplicationInventoryRefresh: true
+          )
+        }
+        return
+      }
+      applyDesktopSnapshot(
         snapshot,
         nativeFocusWasPending: nativeFocusWasPending,
         forceFullWindowRefresh: forceFullWindowRefresh,

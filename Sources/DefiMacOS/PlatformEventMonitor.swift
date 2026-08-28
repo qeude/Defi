@@ -7,12 +7,15 @@ import DefiModel
 final class PlatformEventMonitor {
   let handler: (PlatformEventKind, pid_t?) -> Void
   private let userInputTracker: UserInputTracker
+  private let desktopSessionHandler: (DesktopSessionActivityChange) -> Void
+  private let desktopSessionStateProvider: () -> DesktopSessionState
   private let frameHandler: (AXUIElement) -> Void
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
   private let mouseGestureStartedHandler: () -> Void
   private let windowDestroyedHandler: (AXUIElement) -> Void
   private var workspaceTokens: [NSObjectProtocol] = []
+  private var sessionTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
   private var mouseGestureNormalizer = MouseGestureEventNormalizer()
@@ -28,10 +31,15 @@ final class PlatformEventMonitor {
   private var suppressedFrameProcessIDs = Set<pid_t>()
   private var suppressedFrameRequiresFullSnapshot = false
   private var displayCallbackRegistered = false
+  private var desktopSessionNormalizer = DesktopSessionEventNormalizer()
+  private var desktopSessionActive = true
 
   init(
     handler: @escaping (PlatformEventKind, pid_t?) -> Void,
     userInputTracker: UserInputTracker = UserInputTracker(),
+    desktopSessionHandler: @escaping (DesktopSessionActivityChange) -> Void = { _ in },
+    desktopSessionStateProvider: @escaping () -> DesktopSessionState =
+      currentDesktopSessionState,
     frameHandler: @escaping (AXUIElement) -> Void = { _ in },
     liveFrameHandler: @escaping () -> Void = {},
     borderStackingHandler: @escaping () -> Void = {},
@@ -40,6 +48,8 @@ final class PlatformEventMonitor {
   ) {
     self.handler = handler
     self.userInputTracker = userInputTracker
+    self.desktopSessionHandler = desktopSessionHandler
+    self.desktopSessionStateProvider = desktopSessionStateProvider
     self.frameHandler = frameHandler
     self.liveFrameHandler = liveFrameHandler
     self.borderStackingHandler = borderStackingHandler
@@ -64,6 +74,39 @@ final class PlatformEventMonitor {
         }
       }
     )
+    for (name, event) in [
+      (NSWorkspace.willSleepNotification, DesktopSessionEvent.willSleep),
+      (NSWorkspace.didWakeNotification, .didWake),
+      (NSWorkspace.screensDidSleepNotification, .screensDidSleep),
+      (NSWorkspace.screensDidWakeNotification, .screensDidWake),
+      (NSWorkspace.sessionDidResignActiveNotification, .sessionDidResignActive),
+      (NSWorkspace.sessionDidBecomeActiveNotification, .sessionDidBecomeActive),
+    ] {
+      sessionTokens.append(
+        center.addObserver(forName: name, object: nil, queue: .main) {
+          [weak self] _ in
+          MainActor.assumeIsolated {
+            guard let self,
+              let change = self.desktopSessionNormalizer.consume(event)
+            else { return }
+            self.desktopSessionActive = change == .becameActive
+            if !self.desktopSessionActive {
+              self.resetAccessibilityObservers()
+            }
+            self.desktopSessionHandler(change)
+          }
+        }
+      )
+    }
+    let initialDesktopSessionState = desktopSessionStateProvider()
+    desktopSessionNormalizer = DesktopSessionEventNormalizer(
+      initialState: initialDesktopSessionState
+    )
+    desktopSessionActive = initialDesktopSessionState.isActive
+    if !desktopSessionActive {
+      resetAccessibilityObservers()
+      desktopSessionHandler(.becameInactive)
+    }
     workspaceTokens.append(
       center.addObserver(
         forName: NSWorkspace.activeSpaceDidChangeNotification,
@@ -134,6 +177,7 @@ final class PlatformEventMonitor {
     ) { [weak self] event in
       MainActor.assumeIsolated {
         guard let self else { return }
+        guard self.desktopSessionActive else { return }
         if eventStartsMouseFocusInteraction(event.type) {
           let rawWindowID =
             event.cgEvent?.getIntegerValueField(
@@ -184,6 +228,7 @@ final class PlatformEventMonitor {
     requiredFrameWindows: [pid_t: [AXUIElement]]? = nil,
     transientGeometryWindows: [pid_t: [AXUIElement]] = [:]
   ) {
+    guard desktopSessionActive else { return }
     let activeProcessIDs = Set(applications.keys)
     notificationObservationFailureCounts = updatedNotificationObservationFailureCounts(
       notificationObservationFailureCounts,
@@ -422,6 +467,26 @@ final class PlatformEventMonitor {
     }
   }
 
+  func resetAccessibilityObservers() {
+    for observer in observers.values {
+      CFRunLoopRemoveSource(
+        CFRunLoopGetMain(),
+        AXObserverGetRunLoopSource(observer),
+        .commonModes
+      )
+    }
+    observers.removeAll(keepingCapacity: true)
+    topologyObservedProcessIDs.removeAll(keepingCapacity: true)
+    observedWindows.removeAll(keepingCapacity: true)
+    topologyRequiredWindows.removeAll(keepingCapacity: true)
+    frameRequiredWindows.removeAll(keepingCapacity: true)
+    topologyObservedWindows.removeAll(keepingCapacity: true)
+    frameObservedWindows.removeAll(keepingCapacity: true)
+    frameNotificationsEnabled = true
+    suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+    suppressedFrameRequiresFullSnapshot = false
+  }
+
   private func observer(for processID: pid_t) -> AXObserver? {
     if let observer = observers[processID] {
       return observer
@@ -541,6 +606,10 @@ final class PlatformEventMonitor {
       center.removeObserver(token)
     }
     workspaceTokens.removeAll()
+    for token in sessionTokens {
+      center.removeObserver(token)
+    }
+    sessionTokens.removeAll()
     for token in screenTokens {
       NotificationCenter.default.removeObserver(token)
     }
@@ -549,5 +618,6 @@ final class PlatformEventMonitor {
       NSEvent.removeMonitor(mouseMonitor)
       self.mouseMonitor = nil
     }
+    resetAccessibilityObservers()
   }
 }

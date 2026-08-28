@@ -3,6 +3,8 @@ import DefiConfig
 import DefiModel
 import Foundation
 
+let hotKeyEventTapPlacement = CGEventTapPlacement.tailAppendEventTap
+
 @MainActor
 public final class HotKeyManager {
   public typealias Handler = @MainActor @Sendable (HotKeyInvocation) -> Void
@@ -148,7 +150,7 @@ public final class HotKeyManager {
     guard
       let tap = CGEvent.tapCreate(
         tap: .cgSessionEventTap,
-        place: .headInsertEventTap,
+        place: hotKeyEventTapPlacement,
         options: .defaultTap,
         eventsOfInterest: mask,
         callback: callback,
@@ -160,6 +162,7 @@ public final class HotKeyManager {
     guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
     else {
       CGEvent.tapEnable(tap: tap, enable: false)
+      CFMachPortInvalidate(tap)
       throw HotKeyError.eventTapUnavailable
     }
     context.install(tap: tap, source: source)
@@ -190,7 +193,7 @@ public final class HotKeyManager {
   }
 }
 
-private final class HotKeyTapContext: @unchecked Sendable {
+final class HotKeyTapContext: @unchecked Sendable {
   private static let commandTabKeyCode = CGKeyCode(48)
   private static let closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
 
@@ -495,6 +498,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
     guard let runLoop else {
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: false)
+        CFMachPortInvalidate(tap)
       }
       return
     }
@@ -504,6 +508,7 @@ private final class HotKeyTapContext: @unchecked Sendable {
       }
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: false)
+        CFMachPortInvalidate(tap)
       }
       CFRunLoopStop(runLoop)
     }

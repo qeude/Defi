@@ -1,7 +1,20 @@
 import ApplicationServices
 import DefiConfig
+import Synchronization
 import Testing
 @testable import DefiMacOS
+
+private final class HotKeyInvocationRecorder: Sendable {
+  private let invocations = Mutex<[HotKeyInvocation]>([])
+
+  func append(_ invocation: HotKeyInvocation) {
+    invocations.withLock { $0.append(invocation) }
+  }
+
+  var commands: [String] {
+    invocations.withLock { $0.map(\.command) }
+  }
+}
 
 @Suite
 struct OverviewHotKeyTests {
@@ -61,6 +74,25 @@ struct HotKeyTests {
     "hyper": "Alt + Cmd + Ctrl"
   ]
 
+  private func makeContext(
+    bindings: [Key: String]
+  ) -> (HotKeyTapContext, HotKeyInvocationRecorder) {
+    let invocations = HotKeyInvocationRecorder()
+    return (
+      HotKeyTapContext(
+        bindings: bindings,
+        userInputTracker: UserInputTracker(),
+        pointerMotionTracker: PointerMotionTracker(),
+        tracksPointerWindowTransitions: false,
+        deliver: { invocations.append($0) },
+        deliverOverview: { _ in },
+        deliverPointerMotion: { _ in },
+        tapReenabled: { _ in }
+      ),
+      invocations
+    )
+  }
+
   @Test(arguments: [
     ("hyper-left", CGKeyCode(123), false),
     ("hyper-shift-1", CGKeyCode(18), true),
@@ -102,6 +134,87 @@ struct HotKeyTests {
     #expect(manager.bindingCount == 0)
     #expect(manager.bindingError == .invalidAccelerator("unknown-no-such-key"))
     #expect(manager.tracksPointerMotion)
+  }
+
+  @Test
+  func `Filtering tap runs after remappers`() {
+    #expect(hotKeyEventTapPlacement == .tailAppendEventTap)
+  }
+
+  @Test
+  func `Captured hyper shortcut never reaches the foreground application`() throws {
+    let hyper = CGEventFlags([
+      .maskAlternate,
+      .maskCommand,
+      .maskControl,
+    ])
+    let boundKey = try Key(accelerator: "hyper-1", aliases: aliases)
+    let (context, invocations) = makeContext(
+      bindings: [boundKey: "workspace 1"]
+    )
+    let event = try #require(
+      CGEvent(keyboardEventSource: nil, virtualKey: 18, keyDown: true)
+    )
+    event.flags = hyper
+
+    let forwardedEvent = context.handle(type: .keyDown, event: event)
+
+    #expect(forwardedEvent == nil)
+    #expect(invocations.commands == ["workspace 1"])
+
+    let modifierRelease = try #require(
+      CGEvent(keyboardEventSource: nil, virtualKey: 59, keyDown: false)
+    )
+    modifierRelease.type = .flagsChanged
+    modifierRelease.flags = [.maskAlternate, .maskCommand]
+
+    #expect(
+      context.handle(type: .flagsChanged, event: modifierRelease)?
+        .takeUnretainedValue() === modifierRelease
+    )
+  }
+
+  @Test
+  func `Bare command shortcut reaches the foreground application unchanged`() throws {
+    let (context, invocations) = makeContext(
+      bindings: [
+        try Key(accelerator: "hyper-1", aliases: aliases): "workspace 1"
+      ]
+    )
+    let event = try #require(
+      CGEvent(keyboardEventSource: nil, virtualKey: 18, keyDown: true)
+    )
+    event.flags = [.maskCommand]
+
+    let forwardedEvent = context.handle(type: .keyDown, event: event)
+
+    #expect(forwardedEvent?.takeUnretainedValue() === event)
+    #expect(event.flags == [.maskCommand])
+    #expect(invocations.commands.isEmpty)
+  }
+
+  @Test
+  func `Unbound hyper shortcut is not downgraded to a command shortcut`() throws {
+    let hyper = CGEventFlags([
+      .maskAlternate,
+      .maskCommand,
+      .maskControl,
+    ])
+    let (context, invocations) = makeContext(
+      bindings: [
+        try Key(accelerator: "hyper-1", aliases: aliases): "workspace 1"
+      ]
+    )
+    let event = try #require(
+      CGEvent(keyboardEventSource: nil, virtualKey: 19, keyDown: true)
+    )
+    event.flags = hyper
+
+    let forwardedEvent = context.handle(type: .keyDown, event: event)
+
+    #expect(forwardedEvent?.takeUnretainedValue() === event)
+    #expect(event.flags == hyper)
+    #expect(invocations.commands.isEmpty)
   }
 }
 

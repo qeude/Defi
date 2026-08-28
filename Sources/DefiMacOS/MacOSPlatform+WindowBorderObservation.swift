@@ -22,6 +22,7 @@ extension MacOSPlatform {
 
   public func startObserving(
     _ handler: @escaping () -> Void,
+    desktopSessionHandler: @escaping (Bool) -> Void = { _ in },
     displayConfigurationHandler: @escaping () -> Void = {},
     mouseGestureStartedHandler: @escaping () -> Void = {},
     mouseGestureHandler: @escaping () -> Void = {}
@@ -139,6 +140,9 @@ extension MacOSPlatform {
         handler()
       },
       userInputTracker: userInputTracker,
+      desktopSessionHandler: { change in
+        desktopSessionHandler(change == .becameActive)
+      },
       frameHandler: { [weak self] element in
         guard let self else { return }
         self.refreshWindowBorderGeometry(for: element)
