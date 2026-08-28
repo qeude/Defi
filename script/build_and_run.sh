@@ -26,8 +26,12 @@ SERVICE_DOMAIN="gui/$(id -u)"
 
 cd "$ROOT_DIR"
 
-swift build
-BIN_DIR="$(swift build --show-bin-path)"
+BUILD_CONFIGURATION="release"
+if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
+  BUILD_CONFIGURATION="debug"
+fi
+swift build -c "$BUILD_CONFIGURATION"
+BIN_DIR="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)"
 
 rm -rf "$STAGING_BUNDLE"
 mkdir -p "$APP_MACOS"

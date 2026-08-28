@@ -15,6 +15,52 @@ enum PlatformEventKind: Equatable {
   case space
 }
 
+enum DesktopSessionEvent {
+  case willSleep
+  case didWake
+  case screensDidSleep
+  case screensDidWake
+  case sessionDidResignActive
+  case sessionDidBecomeActive
+}
+
+enum DesktopSessionActivityChange: Equatable {
+  case becameInactive
+  case becameActive
+}
+
+struct DesktopSessionEventNormalizer {
+  private var systemAwake = true
+  private var screensAwake = true
+  private var sessionActive = true
+
+  mutating func consume(
+    _ event: DesktopSessionEvent
+  ) -> DesktopSessionActivityChange? {
+    let wasActive = isActive
+    switch event {
+    case .willSleep:
+      systemAwake = false
+    case .didWake:
+      systemAwake = true
+    case .screensDidSleep:
+      screensAwake = false
+    case .screensDidWake:
+      screensAwake = true
+    case .sessionDidResignActive:
+      sessionActive = false
+    case .sessionDidBecomeActive:
+      sessionActive = true
+    }
+    guard isActive != wasActive else { return nil }
+    return isActive ? .becameActive : .becameInactive
+  }
+
+  private var isActive: Bool {
+    systemAwake && screensAwake && sessionActive
+  }
+}
+
 func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
   kind == .mouse
 }

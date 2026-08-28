@@ -202,6 +202,7 @@ extension Daemon {
   }
 
   func enqueueHotKey(_ invocation: HotKeyInvocation) {
+    guard desktopSessionActive else { return }
     guard pendingHotKeyCommands.count < 64 else { return }
     pendingHotKeyCommands.append(invocation)
     processPendingHotKeys()

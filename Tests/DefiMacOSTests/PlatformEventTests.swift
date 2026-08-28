@@ -16,6 +16,46 @@ private final class TestAXElement: @unchecked Sendable {
 
 struct PlatformEventTests {
   @Test
+  func desktopSessionOnlyReactivatesAfterEveryWakeSignal() {
+    var normalizer = DesktopSessionEventNormalizer()
+
+    #expect(normalizer.consume(.sessionDidResignActive) == .becameInactive)
+    #expect(normalizer.consume(.screensDidSleep) == nil)
+    #expect(normalizer.consume(.screensDidWake) == nil)
+    #expect(normalizer.consume(.sessionDidBecomeActive) == .becameActive)
+    #expect(normalizer.consume(.sessionDidBecomeActive) == nil)
+  }
+
+  @Test
+  func systemWakeDoesNotReactivateBeforeSleepingScreensWake() {
+    var normalizer = DesktopSessionEventNormalizer()
+
+    #expect(normalizer.consume(.willSleep) == .becameInactive)
+    #expect(normalizer.consume(.screensDidSleep) == nil)
+    #expect(normalizer.consume(.didWake) == nil)
+    #expect(normalizer.consume(.screensDidWake) == .becameActive)
+  }
+
+  @Test @MainActor
+  func workspaceSessionNotificationsUseTheNormalizedSequence() {
+    var changes: [DesktopSessionActivityChange] = []
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in },
+      desktopSessionHandler: { changes.append($0) }
+    )
+    monitor.start()
+    defer { monitor.stop() }
+
+    let center = NSWorkspace.shared.notificationCenter
+    center.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+    center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+    center.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+    center.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+
+    #expect(changes == [.becameInactive, .becameActive])
+  }
+
+  @Test
   func preparedAXRelationshipsResolveTransientOwners() {
     let ownerID = WindowID(rawValue: 1)
     let parentChildID = WindowID(rawValue: 2)
