@@ -13,11 +13,14 @@ INSTALL_ROOT="$HOME/Applications"
 INSTALL_BUNDLE="$INSTALL_ROOT/$APP_NAME.app"
 APP_CONTENTS="$STAGING_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
+ICON_INFO_PLIST="$STAGING_ROOT/assetcatalog-generated-info.plist"
 APP_BINARY="$APP_MACOS/$PROCESS_NAME"
 CLI_BINARY="$APP_MACOS/defi"
 INSTALLED_BINARY="$INSTALL_BUNDLE/Contents/MacOS/$PROCESS_NAME"
 INSTALLED_CLI="$INSTALL_BUNDLE/Contents/MacOS/defi"
 INFO_PLIST_SOURCE="$ROOT_DIR/Support/Defi-Info.plist"
+ICON_SOURCE="$ROOT_DIR/Support/Defi.icon"
 DEFAULT_CONFIG_SOURCE="$ROOT_DIR/defi.example.toml"
 CONFIG_DIR="$HOME/.config/defi"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
@@ -34,11 +37,31 @@ swift build -c "$BUILD_CONFIGURATION"
 BIN_DIR="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)"
 
 rm -rf "$STAGING_BUNDLE"
-mkdir -p "$APP_MACOS"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BIN_DIR/$PROCESS_NAME" "$APP_BINARY"
 cp "$BIN_DIR/defi" "$CLI_BINARY"
 cp "$INFO_PLIST_SOURCE" "$APP_CONTENTS/Info.plist"
 chmod +x "$APP_BINARY" "$CLI_BINARY"
+
+MINIMUM_SYSTEM_VERSION="$(/usr/bin/plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST_SOURCE")"
+/usr/bin/xcrun actool "$ICON_SOURCE" \
+  --compile "$APP_RESOURCES" \
+  --output-format human-readable-text \
+  --output-partial-info-plist "$ICON_INFO_PLIST" \
+  --notices \
+  --warnings \
+  --app-icon "$APP_NAME" \
+  --enable-on-demand-resources NO \
+  --development-region en \
+  --target-device mac \
+  --minimum-deployment-target "$MINIMUM_SYSTEM_VERSION" \
+  --platform macosx
+/usr/bin/plutil -insert CFBundleIconFile -string \
+  "$(/usr/bin/plutil -extract CFBundleIconFile raw -o - "$ICON_INFO_PLIST")" \
+  "$APP_CONTENTS/Info.plist"
+/usr/bin/plutil -insert CFBundleIconName -string \
+  "$(/usr/bin/plutil -extract CFBundleIconName raw -o - "$ICON_INFO_PLIST")" \
+  "$APP_CONTENTS/Info.plist"
 
 SIGNING_IDENTITY="$("$ROOT_DIR/script/resolve_signing_identity.sh")"
 
