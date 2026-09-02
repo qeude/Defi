@@ -1,6 +1,16 @@
-# Defi
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/defi-icon-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/defi-icon-light.png">
+    <img src="docs/assets/defi-icon-light.png" width="144" alt="Defi app icon">
+  </picture>
+</p>
 
-[![CI](https://github.com/qeude/Defi/actions/workflows/ci.yml/badge.svg)](https://github.com/qeude/Defi/actions/workflows/ci.yml)
+<h1 align="center">Defi</h1>
+
+<p align="center">
+  <a href="https://github.com/qeude/Defi/actions/workflows/ci.yml"><img src="https://github.com/qeude/Defi/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
 Defi is a native macOS scrolling-column window manager inspired by
 [Niri](https://github.com/YaLTeR/niri). It is built around one simple idea:
