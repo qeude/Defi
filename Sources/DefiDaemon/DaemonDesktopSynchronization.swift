@@ -41,6 +41,7 @@ extension Daemon {
   ) {
     guard desktopSessionActive else { return }
     let sessionGeneration = desktopSessionGeneration
+    let requestedConfigGeneration = configGeneration
     let nativeFocusWasPending = platform.hasPendingNativeFocusEvent
     if desktopSnapshotInFlight {
       supersededDesktopSnapshotRequest = (
@@ -60,7 +61,8 @@ extension Daemon {
     ) { [weak self] snapshot in
       guard let self else { return }
       guard desktopSessionActive,
-        desktopSessionGeneration == sessionGeneration
+        desktopSessionGeneration == sessionGeneration,
+        configGeneration == requestedConfigGeneration
       else {
         desktopSnapshotInFlight = false
         supersededDesktopSnapshotRequest = nil

@@ -188,6 +188,12 @@ public final class HotKeyManager {
     context?.setOverviewModeEnabled(enabled)
   }
 
+  public func stop() {
+    context?.stop()
+    context = nil
+    thread = nil
+  }
+
   isolated deinit {
     context?.stop()
   }
@@ -495,9 +501,11 @@ final class HotKeyTapContext: @unchecked Sendable {
     let source = source
     let runLoop = runLoop
     lock.unlock()
+    if let tap {
+      CGEvent.tapEnable(tap: tap, enable: false)
+    }
     guard let runLoop else {
       if let tap {
-        CGEvent.tapEnable(tap: tap, enable: false)
         CFMachPortInvalidate(tap)
       }
       return

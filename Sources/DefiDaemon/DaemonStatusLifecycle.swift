@@ -308,6 +308,7 @@ extension Daemon {
   }
 
   func shutdown() -> Never {
+    configWatcher?.stop()
     timer?.cancel()
     ipcSource?.cancel()
     flushPendingPlacementWrite()

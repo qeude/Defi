@@ -95,6 +95,30 @@ public struct RuntimeState: Equatable, Sendable {
     WorkspaceTopology(state: self)
   }
 
+  @discardableResult
+  public mutating func applyConfiguration(_ config: Config) -> Bool {
+    let previousLayout = layout
+    let nextWorkspaceNames = config.workspaces.names.map(WorkspaceID.init(rawValue:))
+    let nextWorkspaceMonitorPositions = Dictionary(
+      uniqueKeysWithValues: config.workspaces.monitors.map {
+        (WorkspaceID(rawValue: $0.key), $0.value)
+      }
+    )
+    let workspacesChanged =
+      workspaceNames != nextWorkspaceNames
+      || workspaceMonitorPositions != nextWorkspaceMonitorPositions
+
+    layout = LayoutSettings(config: config)
+    workspaceNames = nextWorkspaceNames
+    defaultWorkspace = config.workspaces.defaultName.map(WorkspaceID.init(rawValue:))
+    workspaceMonitorPositions = nextWorkspaceMonitorPositions
+    if workspacesChanged {
+      reconcileConfiguredWorkspaces()
+    }
+
+    return workspacesChanged || previousLayout.requiresImmediateReflow(comparedTo: layout)
+  }
+
   public mutating func attachMonitor(_ monitorID: MonitorID) {
     attachMonitor(monitorID, previousViewports: [:], nextViewports: [:])
   }
@@ -725,5 +749,16 @@ extension LayoutSettings {
       outerLeftGap: max(config.layout.outerLeftGap ?? config.layout.gaps, borderPadding),
       horizontalViewportPadding: borderPadding
     )
+  }
+
+  fileprivate func requiresImmediateReflow(comparedTo other: LayoutSettings) -> Bool {
+    centerFocusedColumn != other.centerFocusedColumn
+      || innerHorizontalGap != other.innerHorizontalGap
+      || innerVerticalGap != other.innerVerticalGap
+      || outerTopGap != other.outerTopGap
+      || outerRightGap != other.outerRightGap
+      || outerBottomGap != other.outerBottomGap
+      || outerLeftGap != other.outerLeftGap
+      || horizontalViewportPadding != other.horizontalViewportPadding
   }
 }

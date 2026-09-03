@@ -1,0 +1,227 @@
+import Darwin
+import DefiConfig
+import DefiMacOS
+import DefiModel
+import DefiRuntime
+import Foundation
+
+@MainActor
+final class ConfigFileWatcher {
+  private let configURL: URL
+  private let changeHandler: @MainActor @Sendable () -> Void
+  private var directorySource: DispatchSourceFileSystemObject?
+  private var fileSource: DispatchSourceFileSystemObject?
+  private var reloadGeneration: UInt64 = 0
+
+  init(configURL: URL, changeHandler: @escaping @MainActor @Sendable () -> Void) {
+    self.configURL = configURL
+    self.changeHandler = changeHandler
+  }
+
+  func start() throws {
+    guard directorySource == nil else { return }
+    let directoryURL = configURL.deletingLastPathComponent()
+    let descriptor = open(directoryURL.path, O_EVTONLY)
+    guard descriptor >= 0 else {
+      throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+    }
+    let source = DispatchSource.makeFileSystemObjectSource(
+      fileDescriptor: descriptor,
+      eventMask: [.write, .rename, .delete],
+      queue: .main
+    )
+    source.setEventHandler { [weak self] in
+      MainActor.assumeIsolated {
+        self?.scheduleReload()
+      }
+    }
+    source.setCancelHandler {
+      close(descriptor)
+    }
+    directorySource = source
+    source.resume()
+    replaceFileSource()
+  }
+
+  func stop() {
+    reloadGeneration &+= 1
+    fileSource?.cancel()
+    fileSource = nil
+    directorySource?.cancel()
+    directorySource = nil
+  }
+
+  private func scheduleReload() {
+    reloadGeneration &+= 1
+    let generation = reloadGeneration
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+      MainActor.assumeIsolated {
+        guard let self, generation == self.reloadGeneration else { return }
+        self.replaceFileSource()
+        self.changeHandler()
+      }
+    }
+  }
+
+  private func replaceFileSource() {
+    fileSource?.cancel()
+    fileSource = nil
+    let descriptor = open(configURL.path, O_EVTONLY)
+    guard descriptor >= 0 else { return }
+    let source = DispatchSource.makeFileSystemObjectSource(
+      fileDescriptor: descriptor,
+      eventMask: [.write, .rename, .delete],
+      queue: .main
+    )
+    source.setEventHandler { [weak self] in
+      MainActor.assumeIsolated {
+        self?.scheduleReload()
+      }
+    }
+    source.setCancelHandler {
+      close(descriptor)
+    }
+    fileSource = source
+    source.resume()
+  }
+}
+
+@MainActor
+extension Daemon {
+  func startConfigWatcher() {
+    let watcher = ConfigFileWatcher(configURL: configURL) { [weak self] in
+      self?.reloadConfiguration()
+    }
+    do {
+      try watcher.start()
+      configWatcher = watcher
+    } catch {
+      log("config watcher unavailable for \(configURL.path): \(error)")
+    }
+  }
+
+  func reloadConfiguration() {
+    do {
+      let nextConfig = try Config.load(from: configURL)
+      guard nextConfig != config else { return }
+      applyConfiguration(nextConfig)
+      log("config reloaded")
+    } catch {
+      log("config reload failed; keeping previous configuration: \(error)")
+    }
+  }
+
+  private func applyConfiguration(_ nextConfig: Config) {
+    let previousConfig = config
+    let previousViewports = viewportsByMonitor
+    let previousFloatingMonitorIDs = Dictionary(
+      uniqueKeysWithValues: floatingWindowFrames.keys.compactMap { windowID in
+        state.monitorID(containing: windowID).map { (windowID, $0) }
+      }
+    )
+    let requiresLayout = state.applyConfiguration(nextConfig)
+    config = nextConfig
+    configGeneration &+= 1
+
+    if hotKeyConfigurationChanged(from: previousConfig, to: nextConfig) {
+      hotKeys?.stop()
+      hotKeys = nil
+      pendingHotKeyCommands.removeAll(keepingCapacity: true)
+      installHotKeys()
+      hotKeys?.setOverviewModeEnabled(overviewController?.isOpen == true)
+    }
+    if previousConfig.menuBar != nextConfig.menuBar {
+      updateMenuBarAvailability()
+    }
+
+    let nextViewports = viewportsByMonitor
+    let viewportsChanged = previousViewports != nextViewports
+    let bordersChanged =
+      previousConfig.decorations.borders
+      != nextConfig.decorations.borders
+    if requiresLayout || viewportsChanged || bordersChanged {
+      rebaseFloatingWindowFrames(
+        previousViewports: previousViewports,
+        nextViewports: nextViewports,
+        previousMonitorIDs: previousFloatingMonitorIDs
+      )
+      synchronizeScrollOffsets(state: &state, viewports: nextViewports)
+      snapScrollOffsetsToTargets()
+      applyCurrentLayout(
+        asynchronousPositions: true,
+        updateVisibility: true,
+        positionTimeoutSeconds: 0.05,
+        forceFloatingFrameWrites: viewportsChanged,
+        source: "config-reload"
+      )
+    }
+
+    updateOverviewIfOpen()
+    updateMenuBar()
+    persistTopology()
+    if previousConfig.rules != nextConfig.rules {
+      synchronizeDesktop(
+        forceFullWindowRefresh: true,
+        forceWindowListRefresh: true,
+        forceApplicationInventoryRefresh: true
+      )
+    }
+  }
+
+  private func hotKeyConfigurationChanged(from previous: Config, to next: Config) -> Bool {
+    previous.keys != next.keys
+      || previous.modifierCombinations != next.modifierCombinations
+      || previous.input.focusFollowsMouse != next.input.focusFollowsMouse
+      || previous.input.mouseFollowsFocus != next.input.mouseFollowsFocus
+  }
+
+  func installHotKeys() {
+    let manager = HotKeyManager(
+      config: config,
+      userInputTracker: platform.userInputTracker,
+      pointerMotionTracker: platform.pointerMotionTracker,
+      pointerMotionHandler: { [weak self] invocation in
+        guard self?.desktopSessionActive == true else { return }
+        self?.handlePointerMotion(invocation)
+      },
+      tapReenabledHandler: { [weak self] timestamp in
+        self?.handleEventTapReenabled(at: timestamp)
+      },
+      overviewHandler: { [weak self] action in
+        guard self?.desktopSessionActive == true else { return }
+        self?.overviewController?.handleKey(action)
+      }
+    ) { [weak self] invocation in
+      self?.enqueueHotKey(invocation)
+    }
+    do {
+      try manager.start()
+      hotKeys = manager
+      if let bindingError = manager.bindingError {
+        if manager.tracksPointerMotion {
+          log("hotkeys unavailable: \(bindingError); pointer tracking remains enabled")
+        } else {
+          log("hotkeys unavailable: \(bindingError)")
+        }
+      }
+    } catch {
+      log("input event tap unavailable: \(error)")
+    }
+  }
+
+  func updateMenuBarAvailability() {
+    guard config.menuBar.enabled else {
+      menuBar?.remove()
+      menuBar = nil
+      return
+    }
+    guard menuBar == nil else { return }
+    menuBar = MenuBarController { [weak self] command in
+      if command == "quit" {
+        self?.requestShutdown()
+      } else {
+        _ = self?.handle(command)
+      }
+    }
+  }
+}
