@@ -179,11 +179,12 @@ public func cycleWidth(
   of column: inout Column,
   direction: Direction,
   presets: [Double],
-  minimumFraction: Double? = nil
+  minimumFraction: Double? = nil,
+  maximumFraction: Double? = nil
 ) {
   guard !presets.isEmpty else { return }
   func effectiveWidth(_ preset: Double) -> Double {
-    max(preset, minimumFraction ?? 0)
+    max(min(preset, maximumFraction ?? preset), minimumFraction ?? 0)
   }
   if column.preMaximizedWidth != nil {
     let boundaryIndex: Int?

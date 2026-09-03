@@ -241,6 +241,9 @@ public func reconcileWindows(
         updated.minimumTiledWidth = nativeFullscreenWindowIDs.contains(window.id)
           ? nil
           : existing.minimumTiledWidth
+        updated.maximumTiledWidth = nativeFullscreenWindowIDs.contains(window.id)
+          ? nil
+          : existing.maximumTiledWidth
         if existing.intrinsicSize,
           !externallyChangedWindowIDs.contains(window.id)
         {
@@ -290,6 +293,7 @@ private func applyWindowIDReplacements(
     replacement.forceTiling = previous.forceTiling
     replacement.intrinsicSize = previous.intrinsicSize
     replacement.minimumTiledWidth = previous.minimumTiledWidth
+    replacement.maximumTiledWidth = previous.maximumTiledWidth
     if previous.intrinsicSize {
       replacement.frame.width = previous.frame.width
       replacement.frame.height = previous.frame.height

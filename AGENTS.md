@@ -68,6 +68,11 @@ competing event taps, socket ownership, AX writes, and visible layout glitches.
 
 - check for an existing daemon or loaded `com.quentin.defi` LaunchAgent before launch
 - when the LaunchAgent is loaded, use `defi service restart`; never also use `open -n`
+- before replacing an installed bundle, preserve its code-signing identity; set
+  `DEFI_CODESIGN_IDENTITY` in the ignored `.env.local` when needed and verify
+  the replacement has the same designated requirement, because macOS treats a
+  changed requirement as different code and prompts for Accessibility and
+  Screen Recording again
 - stop the current instance before replacing the installed app bundle
 - after build/run verification, confirm exactly one `defi-daemon` process remains
 

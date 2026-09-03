@@ -58,7 +58,9 @@ public func learnTiledWindowWidth(
   viewports: [MonitorID: Rect]
 ) -> Bool {
   let previousMinimum = state.windows[windowID]?.minimumTiledWidth
+  let previousMaximum = state.windows[windowID]?.maximumTiledWidth
   state.windows[windowID]?.minimumTiledWidth = nil
+  state.windows[windowID]?.maximumTiledWidth = nil
   guard let learned = tiledWindowWidthLearning(
     windowID,
     actualFrame: actualFrame,
@@ -66,6 +68,7 @@ public func learnTiledWindowWidth(
     viewports: viewports
   ) else {
     state.windows[windowID]?.minimumTiledWidth = previousMinimum
+    state.windows[windowID]?.maximumTiledWidth = previousMaximum
     return false
   }
   state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
@@ -75,7 +78,7 @@ public func learnTiledWindowWidth(
 }
 
 @discardableResult
-public func learnTiledWindowMinimumWidth(
+public func learnTiledWindowWidthConstraint(
   _ windowID: WindowID,
   actualFrame: Rect,
   state: inout RuntimeState,
@@ -86,12 +89,28 @@ public func learnTiledWindowMinimumWidth(
     actualFrame: actualFrame,
     state: state,
     viewports: viewports
-  ), learned.width > learned.requestedWidth + 0.5,
+  ) else { return false }
+  if learned.width > learned.requestedWidth + 0.5,
     learned.width > (state.windows[windowID]?.minimumTiledWidth ?? 0) + 0.5
-  else {
+  {
+    state.windows[windowID]?.minimumTiledWidth = learned.width
+    if let maximum = state.windows[windowID]?.maximumTiledWidth,
+      maximum < learned.width
+    {
+      state.windows[windowID]?.maximumTiledWidth = nil
+    }
+  } else if learned.width < learned.requestedWidth - 0.5,
+    learned.width < (state.windows[windowID]?.maximumTiledWidth ?? .infinity) - 0.5
+  {
+    state.windows[windowID]?.maximumTiledWidth = learned.width
+    if let minimum = state.windows[windowID]?.minimumTiledWidth,
+      minimum > learned.width
+    {
+      state.windows[windowID]?.minimumTiledWidth = nil
+    }
+  } else {
     return false
   }
-  state.windows[windowID]?.minimumTiledWidth = learned.width
   synchronizeScrollOffsets(state: &state, viewports: viewports)
   return true
 }
@@ -146,11 +165,19 @@ private func tiledWindowWidthLearning(
       case .pixels(let width):
         configuredSlotWidth = width
       }
+      let minimumTiledWidth = workspace.columns[columnIndex].windows.compactMap {
+        state.windows[$0]?.minimumTiledWidth
+      }.max() ?? 0
+      let maximumTiledWidths = workspace.columns[columnIndex].windows.compactMap {
+        state.windows[$0]?.maximumTiledWidth
+      }
+      let maximumTiledWidth =
+        maximumTiledWidths.count == workspace.columns[columnIndex].windows.count
+        ? maximumTiledWidths.max()
+        : nil
       let currentSlotWidth = max(
-        configuredSlotWidth,
-        workspace.columns[columnIndex].windows.compactMap {
-          state.windows[$0]?.minimumTiledWidth
-        }.max() ?? 0
+        min(configuredSlotWidth, maximumTiledWidth ?? configuredSlotWidth),
+        minimumTiledWidth
       )
       let learnedWidth = max(currentSlotWidth + actualFrame.width - target.width, 80)
       guard abs(learnedWidth - currentSlotWidth) >= 1 else { return nil }

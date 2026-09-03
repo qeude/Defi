@@ -16,6 +16,7 @@ public struct Window: Equatable, Codable, Sendable {
   public var forceTiling: Bool
   public var intrinsicSize: Bool
   public var minimumTiledWidth: Double?
+  public var maximumTiledWidth: Double?
 
   public init(
     id: WindowID,
@@ -32,7 +33,8 @@ public struct Window: Equatable, Codable, Sendable {
     floatingOrigin: FloatingOrigin? = nil,
     forceTiling: Bool = false,
     intrinsicSize: Bool = false,
-    minimumTiledWidth: Double? = nil
+    minimumTiledWidth: Double? = nil,
+    maximumTiledWidth: Double? = nil
   ) {
     self.id = id
     self.appID = appID
@@ -49,6 +51,7 @@ public struct Window: Equatable, Codable, Sendable {
     self.forceTiling = forceTiling
     self.intrinsicSize = intrinsicSize
     self.minimumTiledWidth = minimumTiledWidth
+    self.maximumTiledWidth = maximumTiledWidth
   }
 }
 

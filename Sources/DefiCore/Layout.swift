@@ -37,6 +37,17 @@ public func computeLayout(
           width: intrinsicWidth,
           height: intrinsicHeight
         )
+      } else if let window = windowsByID[windowID] {
+        let constrainedWidth = max(
+          min(width, window.maximumTiledWidth ?? width),
+          window.minimumTiledWidth ?? 0
+        )
+        frame = Rect(
+          x: x + (width - constrainedWidth) / 2,
+          y: slot.y,
+          width: constrainedWidth,
+          height: height
+        )
       } else {
         frame = slot
       }
@@ -156,6 +167,11 @@ func columnLayoutWidth(
   let minimumTiledWidth = column.windows
     .compactMap { windowsByID[$0]?.minimumTiledWidth }
     .max() ?? 0
+  let maximumTiledWidths = column.windows
+    .compactMap { windowsByID[$0]?.maximumTiledWidth }
+  let maximumTiledWidth = maximumTiledWidths.count == column.windows.count
+    ? maximumTiledWidths.max()
+    : nil
   let requestedWidth: Double
   switch column.width {
   case .fraction(let fraction):
@@ -163,7 +179,7 @@ func columnLayoutWidth(
   case .pixels(let width):
     requestedWidth = width
   }
-  return max(requestedWidth, minimumTiledWidth)
+  return max(min(requestedWidth, maximumTiledWidth ?? requestedWidth), minimumTiledWidth)
 }
 
 private func applyGaps(
