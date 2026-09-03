@@ -345,9 +345,17 @@ extension MacOSPlatform {
   public var notificationObservationFailureSummary: String {
     let counts = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
     guard !counts.isEmpty else { return "[]" }
+    var failuresByProcess: [pid_t: [String]] = [:]
+    for kind in NotificationObservationKind.allCases {
+      for (processID, count) in counts[kind] ?? [:] {
+        failuresByProcess[processID, default: []]
+          .append("\(kind.rawValue)x\(count)")
+      }
+    }
     return "["
-      + counts.sorted { $0.key < $1.key }
-        .map { "\($0.key)x\($0.value)" }.joined(separator: ",")
+      + failuresByProcess.sorted { $0.key < $1.key }
+        .map { "\($0.key):\($0.value.joined(separator: "/"))" }
+        .joined(separator: ",")
       + "]"
   }
 

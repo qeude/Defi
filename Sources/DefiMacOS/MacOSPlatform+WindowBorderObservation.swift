@@ -9,6 +9,21 @@ import OSLog
 @MainActor
 extension MacOSPlatform {
 
+  public func requestWindowTopologyRefresh(
+    processID: pid_t,
+    inputTimestamp: TimeInterval? = nil
+  ) {
+    invalidatePreparedAXWindowAttributes()
+    windowTopologyEventPending = true
+    pendingWindowTopologyProcessIDs.insert(processID)
+    if let inputTimestamp {
+      pendingWindowTopologyInputTimestamp = max(
+        pendingWindowTopologyInputTimestamp ?? inputTimestamp,
+        inputTimestamp
+      )
+    }
+  }
+
   public func invalidateInputAfterEventTapReenabled(
     at timestamp: TimeInterval
   ) {
@@ -30,6 +45,11 @@ extension MacOSPlatform {
     guard eventMonitor == nil else { return }
     let monitor = PlatformEventMonitor(
       handler: { [weak self] kind, processID in
+        let eventInput = self?.userInputTracker.snapshot
+        let eventInputTimestamp = eventInput?.latestEventTimestamp
+        let previousWindowCount = processID.flatMap {
+          self?.applicationWindowCounts[$0]
+        }
         self?.invalidatePreparedAXWindowAttributes()
         if let self {
           pendingWindowTopologyInputTimestamp =
@@ -47,7 +67,7 @@ extension MacOSPlatform {
             "window-event kind=\(String(describing: kind)) pid=\(processID)"
           )
         case .full:
-          if kind == .windows || kind == .application
+          if kind == .windowCreated || kind == .windows || kind == .application
             || kind == .applicationTerminated
           {
             self?.windowTopologyEventPending = true
@@ -127,6 +147,27 @@ extension MacOSPlatform {
               self.invalidatePreparedAXWindowAttributes()
               self.windowTopologyEventPending = true
               self.windowTopologyRequiresFullSnapshot = true
+              handler()
+            }
+          }
+        }
+        if let processID, let previousWindowCount {
+          for delay in windowTopologyRefreshDelays(
+            for: kind,
+            latestInputTimestamp: eventInputTimestamp,
+            latestCloseIntentTimestamp: eventInput?.latestCloseIntent ?? 0,
+            now: ProcessInfo.processInfo.systemUptime
+          ) {
+            DispatchQueue.main.asyncAfter(
+              deadline: .now() + .milliseconds(delay)
+            ) { [weak self] in
+              guard let self,
+                self.applicationWindowCounts[processID] == previousWindowCount
+              else { return }
+              self.requestWindowTopologyRefresh(
+                processID: processID,
+                inputTimestamp: eventInputTimestamp
+              )
               handler()
             }
           }

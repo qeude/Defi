@@ -254,6 +254,50 @@ struct PlatformEventTests {
         == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
     )
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windowCreated,
+        latestInputTimestamp: 9.5,
+        latestCloseIntentTimestamp: 0,
+        now: 10
+      ) == [50, 150, 350]
+    )
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windowCreated,
+        latestInputTimestamp: 8.5,
+        latestCloseIntentTimestamp: 0,
+        now: 10
+      ).isEmpty
+    )
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windows,
+        latestInputTimestamp: 9.5,
+        latestCloseIntentTimestamp: 0,
+        now: 10
+      ).isEmpty
+    )
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windowCreated,
+        latestInputTimestamp: 9.5,
+        latestCloseIntentTimestamp: 9.5,
+        now: 10
+      ).isEmpty
+    )
+  }
+
+  @Test @MainActor
+  func targetedTopologyRefreshPreservesItsInputTimestamp() {
+    let platform = MacOSPlatform()
+
+    platform.requestWindowTopologyRefresh(processID: 101, inputTimestamp: 12)
+    platform.requestWindowTopologyRefresh(processID: 101, inputTimestamp: 10)
+
+    #expect(platform.hasPendingWindowTopologyEvent)
+    #expect(platform.pendingWindowTopologyProcessIDs == [101])
+    #expect(platform.pendingWindowTopologyInputTimestamp == 12)
   }
 
   @Test
@@ -1595,36 +1639,60 @@ struct PlatformEventTests {
   }
 
   @Test
-  func failedNotificationObservationRetriesThenQuarantines() {
+  func failedFrameObservationDoesNotQuarantineWindowTopology() {
     let failedProcessID: pid_t = 101
     var counts = updatedNotificationObservationFailureCounts(
       [:],
       activeProcessIDs: [failedProcessID],
-      failedProcessID: failedProcessID
+      failedProcessID: failedProcessID,
+      kind: .frame
     )
 
-    #expect(counts == [failedProcessID: 1])
+    #expect(counts == [.frame: [failedProcessID: 1]])
     #expect(
-      processIDsIncompatibleWithNotificationObservation(counts).isEmpty
+      processIDsIncompatibleWithNotificationObservation(
+        counts,
+        kind: .frame
+      ).isEmpty
     )
     for _ in 1..<(notificationObservationMaxAttempts - 1) {
       counts = updatedNotificationObservationFailureCounts(
         counts,
         activeProcessIDs: [failedProcessID],
-        failedProcessID: failedProcessID
+        failedProcessID: failedProcessID,
+        kind: .frame
       )
     }
     #expect(
-      processIDsIncompatibleWithNotificationObservation(counts).isEmpty
+      processIDsIncompatibleWithNotificationObservation(
+        counts,
+        kind: .frame
+      ).isEmpty
     )
     counts = updatedNotificationObservationFailureCounts(
       counts,
       activeProcessIDs: [failedProcessID],
-      failedProcessID: failedProcessID
+      failedProcessID: failedProcessID,
+      kind: .frame
     )
     #expect(
-      processIDsIncompatibleWithNotificationObservation(counts)
+      processIDsIncompatibleWithNotificationObservation(
+        counts,
+        kind: .frame
+      )
         == [failedProcessID]
+    )
+    #expect(
+      processIDsIncompatibleWithNotificationObservation(
+        counts,
+        kind: .applicationTopology
+      ).isEmpty
+    )
+    #expect(
+      processIDsIncompatibleWithNotificationObservation(
+        counts,
+        kind: .windowTopology
+      ).isEmpty
     )
     #expect(
       updatedNotificationObservationFailureCounts(

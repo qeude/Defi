@@ -75,7 +75,8 @@ struct HotKeyTests {
   ]
 
   private func makeContext(
-    bindings: [Key: String]
+    bindings: [Key: String],
+    closeIntent: @escaping @Sendable (TimeInterval, pid_t?) -> Void = { _, _ in }
   ) -> (HotKeyTapContext, HotKeyInvocationRecorder) {
     let invocations = HotKeyInvocationRecorder()
     return (
@@ -87,7 +88,8 @@ struct HotKeyTests {
         deliver: { invocations.append($0) },
         deliverOverview: { _ in },
         deliverPointerMotion: { _ in },
-        tapReenabled: { _ in }
+        tapReenabled: { _ in },
+        closeIntent: closeIntent
       ),
       invocations
     )
@@ -191,6 +193,36 @@ struct HotKeyTests {
     #expect(forwardedEvent?.takeUnretainedValue() === event)
     #expect(event.flags == [.maskCommand])
     #expect(invocations.commands.isEmpty)
+  }
+
+  @Test(arguments: [pid_t(0), 4242])
+  func `Command W forwards the event and reports close intent`(
+    rawProcessID: pid_t
+  ) throws {
+    let intents = Mutex<[(timestamp: TimeInterval, processID: pid_t?)]>([])
+    let (context, invocations) = makeContext(
+      bindings: [:],
+      closeIntent: { timestamp, processID in
+        intents.withLock { $0.append((timestamp, processID)) }
+      }
+    )
+    let event = try #require(
+      CGEvent(keyboardEventSource: nil, virtualKey: 13, keyDown: true)
+    )
+    event.flags = [.maskCommand]
+    event.setIntegerValueField(
+      .eventTargetUnixProcessID,
+      value: Int64(rawProcessID)
+    )
+    let expectedTimestamp = Double(event.timestamp) / 1_000_000_000
+
+    let forwardedEvent = context.handle(type: .keyDown, event: event)
+
+    #expect(forwardedEvent?.takeUnretainedValue() === event)
+    #expect(invocations.commands.isEmpty)
+    #expect(intents.withLock { $0.map(\.timestamp) } == [expectedTimestamp])
+    let expectedProcessID = rawProcessID > 0 ? rawProcessID : nil
+    #expect(intents.withLock { $0.map(\.processID) } == [expectedProcessID])
   }
 
   @Test
