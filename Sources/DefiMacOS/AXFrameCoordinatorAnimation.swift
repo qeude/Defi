@@ -44,7 +44,18 @@ extension AXFrameCoordinator {
           write.isReentering ? windowID : nil
         }
       ),
-      finalOnlyProcessIDs: finalOnlyProcessIDs
+      finalOnlyProcessIDs: finalOnlyProcessIDs,
+      horizontallyMovingResizeWindowIDs: Set(
+        animatedWrites.compactMap { windowID, write in
+          asynchronousSizeWriteIsRequired(
+            sizeChanged: write.sizeChanged,
+            synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+            animatesSize: write.animatesSize
+          ) && abs(write.fromPoint.x - write.point.x) >= 0.5
+            ? windowID
+            : nil
+        }
+      )
     )
     let interpolatedWrites = animatedWrites.filter {
       lanePlan.interpolatedWindowIDs.contains($0.key)
@@ -52,9 +63,21 @@ extension AXFrameCoordinator {
     let finalOnlyWrites = animatedWrites.filter {
       lanePlan.finalOnlyWindowIDs.contains($0.key)
     }
+    let deferredSizeWrites = interpolatedWrites.filter {
+      lanePlan.deferredSizeWindowIDs.contains($0.key)
+    }
     var loopWrites = interpolatedWrites
+    // Move first; one final size write must not block the animation clock.
+    for (windowID, write) in deferredSizeWrites {
+      loopWrites[windowID] = positionOnlyAnimationWrite(
+        write,
+        holding: write.fromSize
+      )
+    }
     let sizeCommitCandidates = interpolatedWrites.filter {
-      !$0.value.isReentering && !$0.value.requiresVerifiedOffscreenWrite
+      !lanePlan.deferredSizeWindowIDs.contains($0.key)
+        && !$0.value.isReentering
+        && !$0.value.requiresVerifiedOffscreenWrite
         && asynchronousSizeWriteIsRequired(
           sizeChanged: $0.value.sizeChanged,
           synchronousWriteSucceeded: $0.value.synchronousSizeWriteSucceeded,
@@ -68,23 +91,9 @@ extension AXFrameCoordinator {
       )
       for (windowID, write) in sizeCommitCandidates
       where committedWindowIDs.contains(windowID) {
-        loopWrites[windowID] = AsyncPositionWrite(
-          element: write.element,
-          application: write.application,
-          processID: write.processID,
-          fromPoint: write.fromPoint,
-          point: write.point,
-          fromSize: write.size,
-          size: write.size,
-          positionChanged: write.positionChanged,
-          sizeChanged: write.sizeChanged,
-          animatesSize: false,
-          synchronousSizeWriteSucceeded: true,
-          enhancedUIWasEnabled: write.enhancedUIWasEnabled,
-          timeoutSeconds: write.timeoutSeconds,
-          isParked: write.isParked,
-          isReentering: write.isReentering,
-          requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite
+        loopWrites[windowID] = positionOnlyAnimationWrite(
+          write,
+          holding: write.size
         )
       }
     }
@@ -422,6 +431,25 @@ extension AXFrameCoordinator {
     let laneResult = laneAccumulator.result
     applied += laneResult.applied
     stale += laneResult.stale
+    if !deferredSizeWrites.isEmpty,
+      isCurrent(generation: frame.generation)
+    {
+      let deferredSizeWindowIDs = Set(deferredSizeWrites.keys)
+      let committedWindowIDs = commitFinalSizesOnce(
+        deferredSizeWrites,
+        generation: frame.generation
+      )
+      lock.lock()
+      var successfulWindowIDs = successfulFinalWritesByGeneration[
+        frame.generation,
+        default: []
+      ]
+      successfulWindowIDs.subtract(deferredSizeWindowIDs)
+      successfulWindowIDs.formUnion(committedWindowIDs)
+      successfulFinalWritesByGeneration[frame.generation] = successfulWindowIDs
+      lock.unlock()
+      publishCompletedBorderGeometry(deferredSizeWrites)
+    }
     finalOnlyGroup.wait()
     let finalOnlyResult = finalOnlyResultStore.result
     if let finalOnlyResult {

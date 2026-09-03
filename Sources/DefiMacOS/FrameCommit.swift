@@ -85,6 +85,30 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let requiresVerifiedOffscreenWrite: Bool
 }
 
+func positionOnlyAnimationWrite(
+  _ write: AsyncPositionWrite,
+  holding size: CGSize
+) -> AsyncPositionWrite {
+  AsyncPositionWrite(
+    element: write.element,
+    application: write.application,
+    processID: write.processID,
+    fromPoint: write.fromPoint,
+    point: write.point,
+    fromSize: size,
+    size: size,
+    positionChanged: write.positionChanged,
+    sizeChanged: write.sizeChanged,
+    animatesSize: false,
+    synchronousSizeWriteSucceeded: true,
+    enhancedUIWasEnabled: write.enhancedUIWasEnabled,
+    timeoutSeconds: write.timeoutSeconds,
+    isParked: write.isParked,
+    isReentering: write.isReentering,
+    requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite
+  )
+}
+
 func frameApplicationReference(
   pendingCorrection: Rect?,
   settlingReference: Rect?,
@@ -332,24 +356,30 @@ struct FrameAnimationLanePlan: Equatable, Sendable {
   let interpolatedWindowIDs: Set<WindowID>
   let finalOnlyWindowIDs: Set<WindowID>
   let stagedFinalOnlyReentryWindowIDs: Set<WindowID>
+  let deferredSizeWindowIDs: Set<WindowID>
 }
 
 func frameAnimationLanePlan(
   animatedWindowIDs: Set<WindowID>,
   processIDs: [WindowID: pid_t],
   reenteringWindowIDs: Set<WindowID>,
-  finalOnlyProcessIDs: Set<pid_t>
+  finalOnlyProcessIDs: Set<pid_t>,
+  horizontallyMovingResizeWindowIDs: Set<WindowID>
 ) -> FrameAnimationLanePlan {
   let finalOnlyWindowIDs = Set(
     animatedWindowIDs.filter { windowID in
       processIDs[windowID].map(finalOnlyProcessIDs.contains) ?? false
     }
   )
+  let interpolatedWindowIDs = animatedWindowIDs.subtracting(finalOnlyWindowIDs)
   return FrameAnimationLanePlan(
-    interpolatedWindowIDs: animatedWindowIDs.subtracting(finalOnlyWindowIDs),
+    interpolatedWindowIDs: interpolatedWindowIDs,
     finalOnlyWindowIDs: finalOnlyWindowIDs,
     stagedFinalOnlyReentryWindowIDs: finalOnlyWindowIDs.intersection(
       reenteringWindowIDs
+    ),
+    deferredSizeWindowIDs: horizontallyMovingResizeWindowIDs.intersection(
+      interpolatedWindowIDs
     )
   )
 }

@@ -1257,12 +1257,35 @@ struct FrameCommitTests {
         animatedWindowIDs: [fast, slow],
         processIDs: [fast: 101, slow: 202],
         reenteringWindowIDs: [],
-        finalOnlyProcessIDs: [202]
+        finalOnlyProcessIDs: [202],
+        horizontallyMovingResizeWindowIDs: []
       )
         == FrameAnimationLanePlan(
           interpolatedWindowIDs: [fast],
           finalOnlyWindowIDs: [slow],
-          stagedFinalOnlyReentryWindowIDs: []
+          stagedFinalOnlyReentryWindowIDs: [],
+          deferredSizeWindowIDs: []
+        ))
+  }
+
+  @Test
+  func `Horizontally moving resize animates before its final size commit`() {
+    let resizing = WindowID(rawValue: 1)
+    let translating = WindowID(rawValue: 2)
+
+    #expect(
+      frameAnimationLanePlan(
+        animatedWindowIDs: [resizing, translating],
+        processIDs: [resizing: 101, translating: 202],
+        reenteringWindowIDs: [],
+        finalOnlyProcessIDs: [],
+        horizontallyMovingResizeWindowIDs: [resizing]
+      )
+        == FrameAnimationLanePlan(
+          interpolatedWindowIDs: [resizing, translating],
+          finalOnlyWindowIDs: [],
+          stagedFinalOnlyReentryWindowIDs: [],
+          deferredSizeWindowIDs: [resizing]
         ))
   }
 
@@ -1276,7 +1299,8 @@ struct FrameCommitTests {
         animatedWindowIDs: [fast, slowReentry],
         processIDs: [fast: 101, slowReentry: 202],
         reenteringWindowIDs: [slowReentry],
-        finalOnlyProcessIDs: [202]
+        finalOnlyProcessIDs: [202],
+        horizontallyMovingResizeWindowIDs: []
       ).stagedFinalOnlyReentryWindowIDs == [slowReentry])
   }
 
