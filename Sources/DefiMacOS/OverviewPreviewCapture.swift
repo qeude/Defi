@@ -62,6 +62,13 @@ public enum OverviewPreviewPermissionState: String, Sendable {
   case denied
 }
 
+func overviewCaptureBatchNeeded(
+  previewRequestCount: Int,
+  hasPendingDesktopCapture: Bool
+) -> Bool {
+  previewRequestCount > 0 || hasPendingDesktopCapture
+}
+
 struct OverviewPreviewRequest: Equatable, Sendable {
   let windowID: WindowID
   let expectedAppID: String

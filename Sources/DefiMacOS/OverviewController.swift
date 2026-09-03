@@ -849,7 +849,13 @@ public final class OverviewController: NSObject {
     let requests = visiblePreviewRequests().filter {
       !attemptedPreviewWindowIDs.contains($0.windowID)
     }
-    guard !requests.isEmpty else { return }
+    let hasPendingDesktopCapture = panels.keys.contains {
+      !attemptedDesktopMonitorIDs.contains($0)
+    }
+    guard overviewCaptureBatchNeeded(
+      previewRequestCount: requests.count,
+      hasPendingDesktopCapture: hasPendingDesktopCapture
+    ) else { return }
     attemptedPreviewWindowIDs.formUnion(requests.map(\.windowID))
     previewPendingCount = requests.count
     let generation = sessionGeneration

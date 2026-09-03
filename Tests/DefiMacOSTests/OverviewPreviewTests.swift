@@ -4,6 +4,22 @@ import Testing
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @Test
+  func `Desktop capture schedules without window previews`() {
+    #expect(
+      overviewCaptureBatchNeeded(
+        previewRequestCount: 0,
+        hasPendingDesktopCapture: true
+      )
+    )
+    #expect(
+      !overviewCaptureBatchNeeded(
+        previewRequestCount: 0,
+        hasPendingDesktopCapture: false
+      )
+    )
+  }
+
   @Test("Overview parks windows when captured desktop is unavailable")
   func overviewBackdropFallbackPolicy() {
     #expect(
