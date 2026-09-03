@@ -72,6 +72,15 @@ func cgWindowInventoryRetryIsRequired(
   return unmatchedWindowRetryIsPending(attempts: attempts)
 }
 
+func cgWindowInventoryCanBeReused(
+  snapshotUsesCachedWindows: Bool,
+  snapshotRefreshesOnlyKnownFrames: Bool,
+  cachedInventoryAvailable: Bool
+) -> Bool {
+  cachedInventoryAvailable
+    && (snapshotUsesCachedWindows || snapshotRefreshesOnlyKnownFrames)
+}
+
 func applicationWindowsAfterPreparingTopologyObservation(
   prepareObservation: () -> Void,
   copyWindows: () -> [AXUIElement]?

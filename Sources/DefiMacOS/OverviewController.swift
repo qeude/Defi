@@ -152,7 +152,6 @@ public final class OverviewController: NSObject {
   private var previewRevealStartedAt: [WindowID: TimeInterval] = [:]
   private var previewFadeTimer: Timer?
   private var attemptedPreviewWindowIDs = Set<WindowID>()
-  private var hasAttemptedDesktopCapture = false
   private var hasRequestedPreviewPermission = false
   private var previewPendingCount = 0
   private var alignSelectionOnNextUpdate = false
@@ -166,7 +165,7 @@ public final class OverviewController: NSObject {
 
   public private(set) var isOpen = false
   public private(set) var usesWorkspaceParking = false
-  public var panelCount: Int { panels.count }
+  public var panelCount: Int { isOpen ? panels.count : 0 }
   public private(set) var previewPermissionState: OverviewPreviewPermissionState = .disabled
   public private(set) var previewFailureCount = 0
   public var previewCacheCount: Int { previewCache.count }
@@ -250,7 +249,6 @@ public final class OverviewController: NSObject {
     windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool = false
   ) {
-    closePanelsImmediately()
     sessionGeneration &+= 1
     self.snapshot = snapshot
     self.layout = layout
@@ -263,13 +261,19 @@ public final class OverviewController: NSObject {
       windowPreviewsEnabled: windowPreviewsEnabled,
       screenCaptureAccessGranted: CGPreflightScreenCaptureAccess()
     )
+    let monitorIDs = Set(snapshot.monitors.map(\.id))
+    let canReusePanels = Set(panels.keys) == monitorIDs
+      && panels.allSatisfy { monitorID, panel in
+        screen(for: monitorID)?.frame == panel.window.frame
+          && panel.usesCapturedDesktop == !usesWorkspaceParking
+      }
+    if !canReusePanels { closePanelsImmediately() }
     previewTask?.cancel()
     previewTask = nil
     previewCache.removeAll(keepingCapacity: true)
     restoreRememberedPreviews(for: snapshot)
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
-    hasAttemptedDesktopCapture = false
     previewPendingCount = 0
     previewPermissionState = windowPreviewsEnabled ? .notDetermined : .disabled
     selection = initialSelection(in: snapshot)
@@ -289,7 +293,9 @@ public final class OverviewController: NSObject {
       )
     })
     for monitor in snapshot.monitors {
-      guard let screen = screen(for: monitor.id) else { continue }
+      guard panels[monitor.id] == nil,
+        let screen = screen(for: monitor.id)
+      else { continue }
       panels[monitor.id] = OverviewPanel(
         monitorID: monitor.id,
         screen: screen,
@@ -333,7 +339,6 @@ public final class OverviewController: NSObject {
       }
       resetPreviewFadeAnimation()
       attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
-      hasAttemptedDesktopCapture = false
       previewPendingCount = 0
       previewPermissionState = windowPreviewsEnabled ? .notDetermined : .disabled
     }
@@ -471,16 +476,12 @@ public final class OverviewController: NSObject {
     previewCache.removeAll(keepingCapacity: true)
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
-    hasAttemptedDesktopCapture = false
     previewPendingCount = 0
     stopOverviewAnimations()
     openStateHandler(false)
     let closingPanels = Array(panels.values)
-    panels.removeAll(keepingCapacity: true)
-    let animated = animationsEnabled
-      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     for panel in closingPanels {
-      panel.hide(animated: animated)
+      panel.hide()
     }
   }
 
@@ -845,9 +846,7 @@ public final class OverviewController: NSObject {
     let requests = visiblePreviewRequests().filter {
       !attemptedPreviewWindowIDs.contains($0.windowID)
     }
-    let captureDesktop = !hasAttemptedDesktopCapture
-    guard captureDesktop || !requests.isEmpty else { return }
-    hasAttemptedDesktopCapture = true
+    guard !requests.isEmpty else { return }
     attemptedPreviewWindowIDs.formUnion(requests.map(\.windowID))
     previewPendingCount = requests.count
     let generation = sessionGeneration
@@ -855,7 +854,6 @@ public final class OverviewController: NSObject {
       await Task.yield()
       await self?.capturePreviewBatch(
         requests,
-        captureDesktop: captureDesktop,
         generation: generation
       )
     }
@@ -863,7 +861,6 @@ public final class OverviewController: NSObject {
 
   private func capturePreviewBatch(
     _ requests: [OverviewPreviewRequest],
-    captureDesktop: Bool,
     generation: UInt64
   ) async {
     guard windowPreviewsEnabled, isOpen, generation == sessionGeneration,
@@ -895,22 +892,9 @@ public final class OverviewController: NSObject {
       return
     }
 
-    let desktopRequests: [OverviewDesktopCaptureRequest] = captureDesktop
-      ? panels.compactMap { monitorID, panel in
-      guard let displayID = CGDirectDisplayID(exactly: monitorID.rawValue) else {
-        return nil
-      }
-      let scale = panel.window.backingScaleFactor
-      return OverviewDesktopCaptureRequest(
-        monitorID: monitorID,
-        displayID: displayID,
-        width: max(Int((panel.view.bounds.width * scale).rounded(.up)), 1),
-        height: max(Int((panel.view.bounds.height * scale).rounded(.up)), 1)
-      )
-      } : []
     let results = await captureOverviewImages(
       previews: requests,
-      desktops: desktopRequests
+      desktops: []
     )
     guard windowPreviewsEnabled, isOpen, generation == sessionGeneration,
       !Task.isCancelled
@@ -1072,7 +1056,7 @@ public final class OverviewController: NSObject {
     guard let snapshot else { return [] }
     var requests: [OverviewPreviewRequest] = []
     for (monitorID, projection) in projections {
-      let scale = panels[monitorID]?.window.backingScaleFactor ?? 1
+      let scale = min(panels[monitorID]?.window.backingScaleFactor ?? 1, 1)
       for card in projection.workspaces.flatMap(\.windows) {
         guard let window = snapshot.windows[card.windowID] else { continue }
         let width = min(max(Int((card.frame.width * scale).rounded(.up)), 32), 1_600)
@@ -1674,6 +1658,7 @@ private protocol OverviewViewDelegate: AnyObject {
 @MainActor
 private final class OverviewPanel {
   let monitorID: MonitorID
+  let usesCapturedDesktop: Bool
   let window: NSPanel
   let view: OverviewView
   private let desktopView: NSView
@@ -1685,6 +1670,7 @@ private final class OverviewPanel {
     delegate: OverviewViewDelegate
   ) {
     self.monitorID = monitorID
+    self.usesCapturedDesktop = usesCapturedDesktop
     view = OverviewView(monitorID: monitorID, delegate: delegate)
     desktopView = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
     window = NSPanel(
@@ -1769,21 +1755,8 @@ private final class OverviewPanel {
     }
   }
 
-  func hide(animated: Bool) {
-    guard animated else {
-      close()
-      return
-    }
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = 0.12
-      context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-      window.animator().alphaValue = 0
-      view.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.98, y: 0.98))
-    } completionHandler: { [weak self] in
-      MainActor.assumeIsolated {
-        self?.close()
-      }
-    }
+  func hide() {
+    orderOut()
   }
 
   func localPoint(fromScreen point: NSPoint) -> NSPoint {
@@ -1792,8 +1765,14 @@ private final class OverviewPanel {
   }
 
   func close() {
-    window.orderOut(nil)
+    orderOut()
+    desktopView.layer?.contents = nil
     window.close()
+  }
+
+  private func orderOut() {
+    view.discardPreviewImages()
+    window.orderOut(nil)
   }
 }
 
@@ -1825,6 +1804,10 @@ private final class OverviewView: NSView {
     setAccessibilityElement(true)
     setAccessibilityRole(.group)
     setAccessibilityLabel("Defi Overview")
+  }
+
+  func discardPreviewImages() {
+    previews.removeAll(keepingCapacity: false)
   }
 
   @available(*, unavailable)

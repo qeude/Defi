@@ -209,10 +209,27 @@ extension SnapshotEngine {
     pendingFrameRequiresFullSnapshot = false
     let monitors = onMain { $0.discoverMonitors() }
     lastMonitorFrames = monitors.map(\.frame)
-    var hasCopiedCGWindows = false
+    var hasResolvedCGWindows = false
     var cachedCGWindows: [CGWindowRecord]?
+    let refreshesOnlyKnownFrames = !frameWindowIDs.isEmpty
+      && frameWindowIDs.isSubset(of: Set(elements.keys))
+      && effectiveIncrementalProcessIDs?.isSubset(of: frameProcessIDs) == true
+      && !forceWindowListRefreshEffective
+      && !forceApplicationInventoryRefresh
+      && !tracesWindowTopology
+      && !eventRequiresFullSnapshot
     func publicCGWindows() -> [CGWindowRecord]? {
-      if hasCopiedCGWindows { return cachedCGWindows }
+      if hasResolvedCGWindows { return cachedCGWindows }
+      let reusableCGWindows = lastCGWindowInventory
+      if cgWindowInventoryCanBeReused(
+        snapshotUsesCachedWindows: effectiveIncrementalProcessIDs?.isEmpty == true,
+        snapshotRefreshesOnlyKnownFrames: refreshesOnlyKnownFrames,
+        cachedInventoryAvailable: reusableCGWindows != nil
+      ) {
+        hasResolvedCGWindows = true
+        cachedCGWindows = reusableCGWindows
+        return cachedCGWindows
+      }
       let copied: [CGWindowRecord]?
       let copyDurationMS: Double
       if preparedCGWindowInventoryAvailable {
@@ -232,8 +249,9 @@ extension SnapshotEngine {
         maximumSnapshotCGWindowCopyDurationMS,
         copyDurationMS
       )
-      hasCopiedCGWindows = true
+      hasResolvedCGWindows = true
       cachedCGWindows = copied
+      lastCGWindowInventory = copied
       cgWindowInventoryRetryAttempts =
         updatedWindowListReadRetryAttempts(
           previousAttempts: cgWindowInventoryRetryAttempts,

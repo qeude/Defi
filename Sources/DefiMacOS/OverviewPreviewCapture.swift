@@ -4,8 +4,6 @@ import DefiModel
 import Foundation
 import ScreenCaptureKit
 
-private let overviewPreviewCIContext = CIContext(options: [.cacheIntermediates: false])
-
 func overviewPreviewBlurFadeHeight(
   titleBandHeight: CGFloat,
   imageScale: CGFloat,
@@ -16,7 +14,8 @@ func overviewPreviewBlurFadeHeight(
 
 func progressivelyBlurredOverviewPreview(
   _ image: CGImage,
-  fadeHeight requestedFadeHeight: CGFloat
+  fadeHeight requestedFadeHeight: CGFloat,
+  context: CIContext = CIContext(options: [.cacheIntermediates: false])
 ) -> CGImage? {
   let source = CIImage(cgImage: image)
   let extent = source.extent
@@ -42,7 +41,7 @@ func progressivelyBlurredOverviewPreview(
   blur.setValue(mask, forKey: "inputMask")
   blur.setValue(min(max(extent.height * 0.04, 10), 24), forKey: kCIInputRadiusKey)
   guard let output = blur.outputImage?.cropped(to: extent) else { return nil }
-  return overviewPreviewCIContext.createCGImage(output, from: extent)
+  return context.createCGImage(output, from: extent)
 }
 
 func overviewPreviewOpacity(
@@ -144,6 +143,8 @@ func captureOverviewImages(
   previews requests: [OverviewPreviewRequest],
   desktops desktopRequests: [OverviewDesktopCaptureRequest]
 ) async -> OverviewCaptureResults {
+  let renderingContext = CIContext(options: [.cacheIntermediates: false])
+  defer { renderingContext.clearCaches() }
   do {
     let content = try await SCShareableContent.excludingDesktopWindows(
       true,
@@ -174,7 +175,10 @@ func captureOverviewImages(
     let windows = Dictionary(
       uniqueKeysWithValues: content.windows.map { ($0.windowID, $0) }
     )
-    let batch = OverviewScreenCaptureBatch(windows: windows)
+    let batch = OverviewScreenCaptureBatch(
+      windows: windows,
+      renderingContext: renderingContext
+    )
     let previews = await runOverviewPreviewCaptures(requests) { request in
       await batch.capture(request)
     }
@@ -192,9 +196,11 @@ func captureOverviewImages(
 @MainActor
 private final class OverviewScreenCaptureBatch {
   private let windows: [CGWindowID: SCWindow]
+  private let renderingContext: CIContext
 
-  init(windows: [CGWindowID: SCWindow]) {
+  init(windows: [CGWindowID: SCWindow], renderingContext: CIContext) {
     self.windows = windows
+    self.renderingContext = renderingContext
   }
 
   func capture(
@@ -220,10 +226,12 @@ private final class OverviewScreenCaptureBatch {
         contentFilter: SCContentFilter(desktopIndependentWindow: window),
         configuration: configuration
       )
+      let renderingContext = renderingContext
       let styledImage = await Task.detached(priority: .userInitiated) {
         progressivelyBlurredOverviewPreview(
           image,
-          fadeHeight: CGFloat(request.blurFadeHeight)
+          fadeHeight: CGFloat(request.blurFadeHeight),
+          context: renderingContext
         ) ?? image
       }.value
       return OverviewPreviewCaptureResult(request: request, image: styledImage)

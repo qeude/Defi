@@ -413,6 +413,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.preparedCGWindowInventory = newValue } }
   }
 
+  var lastCGWindowInventory: [CGWindowRecord]? {
+    get { read { $0.lastCGWindowInventory } }
+    set { read { $0.lastCGWindowInventory = newValue } }
+  }
+
   var preparedCGWindowInventoryDurationMS: Double {
     get { read { $0.preparedCGWindowInventoryDurationMS } }
     set { read { $0.preparedCGWindowInventoryDurationMS = newValue } }
@@ -1204,6 +1209,7 @@ private struct Storage {
   var lastSnapshotCGWindowCopyDurationMS = 0.0
   var maximumSnapshotCGWindowCopyDurationMS = 0.0
   var preparedCGWindowInventory: [CGWindowRecord]?
+  var lastCGWindowInventory: [CGWindowRecord]?
   var preparedCGWindowInventoryDurationMS = 0.0
   var preparedCGWindowInventoryAvailable = false
   var cgWindowInventoryPreparationPending = false
