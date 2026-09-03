@@ -710,10 +710,12 @@ extension AXFrameCoordinator {
           }
           guard writeResult.succeeded else { continue }
           succeeded.insert(windowID)
+          let completedPoint = completedPosition(for: windowID)
+            ?? write.fromPoint
           recordInternalFrameWrite(
             Rect(
-              x: write.fromPoint.x,
-              y: write.fromPoint.y,
+              x: completedPoint.x,
+              y: completedPoint.y,
               width: write.size.width,
               height: write.size.height
             ),
