@@ -18,6 +18,7 @@ struct AsyncFocusRequest: @unchecked Sendable {
   let selectsSpecificWindow: Bool
   let validatesSpecificWindowFocus: Bool
   let activatesApplication: Bool
+  let foregroundWindowElements: [AXUIElement]
   let inputGuard: FocusInputGuard?
   let recoveryRequest: NativeFocusRecoveryRequest?
 }
