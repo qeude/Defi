@@ -514,6 +514,8 @@ final class HotKeyTapContext: @unchecked Sendable {
     let source = source
     let runLoop = runLoop
     let callbackContext = callbackContext
+    self.tap = nil
+    self.source = nil
     self.callbackContext = nil
     lock.unlock()
     guard let callbackContext else { return }
