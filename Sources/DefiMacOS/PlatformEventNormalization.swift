@@ -116,6 +116,10 @@ func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   }
 }
 
+func windowTopologyRefreshDelays(for kind: PlatformEventKind) -> [Int] {
+  kind == .windows ? [50, 150, 350] : []
+}
+
 func nativeFocusedWindowIDAfterEvent(
   _ kind: PlatformEventKind,
   cachedWindowID: WindowID?

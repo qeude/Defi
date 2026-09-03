@@ -75,7 +75,8 @@ struct HotKeyTests {
   ]
 
   private func makeContext(
-    bindings: [Key: String]
+    bindings: [Key: String],
+    closeIntent: @escaping @Sendable (TimeInterval) -> Void = { _ in }
   ) -> (HotKeyTapContext, HotKeyInvocationRecorder) {
     let invocations = HotKeyInvocationRecorder()
     return (
@@ -87,7 +88,8 @@ struct HotKeyTests {
         deliver: { invocations.append($0) },
         deliverOverview: { _ in },
         deliverPointerMotion: { _ in },
-        tapReenabled: { _ in }
+        tapReenabled: { _ in },
+        closeIntent: closeIntent
       ),
       invocations
     )
@@ -191,6 +193,25 @@ struct HotKeyTests {
     #expect(forwardedEvent?.takeUnretainedValue() === event)
     #expect(event.flags == [.maskCommand])
     #expect(invocations.commands.isEmpty)
+  }
+
+  @Test
+  func `Command W forwards the event and reports close intent`() throws {
+    let timestamps = Mutex<[TimeInterval]>([])
+    let (context, invocations) = makeContext(
+      bindings: [:],
+      closeIntent: { timestamp in timestamps.withLock { $0.append(timestamp) } }
+    )
+    let event = try #require(
+      CGEvent(keyboardEventSource: nil, virtualKey: 13, keyDown: true)
+    )
+    event.flags = [.maskCommand]
+
+    let forwardedEvent = context.handle(type: .keyDown, event: event)
+
+    #expect(forwardedEvent?.takeUnretainedValue() === event)
+    #expect(invocations.commands.isEmpty)
+    #expect(timestamps.withLock { $0.count } == 1)
   }
 
   @Test

@@ -24,23 +24,40 @@ func registerNotificationBatch(
 
 let notificationObservationMaxAttempts = 3
 
+enum NotificationObservationKind: String, CaseIterable {
+  case applicationTopology = "app"
+  case windowTopology = "window"
+  case frame
+}
+
+typealias NotificationObservationFailureCounts = [
+  NotificationObservationKind: [pid_t: Int]
+]
+
 func updatedNotificationObservationFailureCounts(
-  _ counts: [pid_t: Int],
+  _ counts: NotificationObservationFailureCounts,
   activeProcessIDs: Set<pid_t>,
-  failedProcessID: pid_t? = nil
-) -> [pid_t: Int] {
-  var updated = counts.filter { activeProcessIDs.contains($0.key) }
-  if let failedProcessID, activeProcessIDs.contains(failedProcessID) {
-    updated[failedProcessID, default: 0] += 1
+  failedProcessID: pid_t? = nil,
+  kind: NotificationObservationKind? = nil
+) -> NotificationObservationFailureCounts {
+  var updated = counts.mapValues { failures in
+    failures.filter { activeProcessIDs.contains($0.key) }
+  }.filter { !$0.value.isEmpty }
+  if let failedProcessID, let kind,
+    activeProcessIDs.contains(failedProcessID)
+  {
+    updated[kind, default: [:]][failedProcessID, default: 0] += 1
   }
   return updated
 }
 
 func processIDsIncompatibleWithNotificationObservation(
-  _ counts: [pid_t: Int]
+  _ counts: NotificationObservationFailureCounts,
+  kind: NotificationObservationKind
 ) -> Set<pid_t> {
   Set(
-    counts.filter { $0.value >= notificationObservationMaxAttempts }
+    (counts[kind] ?? [:])
+      .filter { $0.value >= notificationObservationMaxAttempts }
       .keys
   )
 }

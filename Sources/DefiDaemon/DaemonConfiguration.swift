@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import DefiConfig
 import DefiMacOS
@@ -186,6 +187,24 @@ extension Daemon {
       },
       tapReenabledHandler: { [weak self] timestamp in
         self?.handleEventTapReenabled(at: timestamp)
+      },
+      closeIntentHandler: { [weak self] timestamp in
+        guard let self, desktopSessionActive else { return }
+        let selectedProcessID = activeMonitorID
+          .flatMap { state.selectedWindowID(on: $0) }
+          .flatMap { state.windows[$0]?.processID }
+        guard let processID = NSWorkspace.shared.frontmostApplication?
+          .processIdentifier ?? selectedProcessID
+        else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
+          guard self.desktopSessionActive else { return }
+          self.platform.requestWindowTopologyRefresh(
+            processID: processID,
+            inputTimestamp: timestamp
+          )
+          self.needsDesktopSync = true
+          self.scheduleTick()
+        }
       },
       overviewHandler: { [weak self] action in
         guard self?.desktopSessionActive == true else { return }

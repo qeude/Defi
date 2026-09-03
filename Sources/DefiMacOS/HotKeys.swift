@@ -12,6 +12,8 @@ public final class HotKeyManager {
     @MainActor @Sendable (PointerMotionInvocation) -> Void
   public typealias TapReenabledHandler =
     @MainActor @Sendable (TimeInterval) -> Void
+  public typealias CloseIntentHandler =
+    @MainActor @Sendable (TimeInterval) -> Void
   public typealias OverviewHandler =
     @MainActor @Sendable (OverviewKeyAction) -> Void
 
@@ -21,6 +23,7 @@ public final class HotKeyManager {
   public let bindingError: HotKeyError?
   private let pointerMotionHandler: PointerMotionHandler?
   private let tapReenabledHandler: TapReenabledHandler
+  private let closeIntentHandler: CloseIntentHandler
   private let overviewHandler: OverviewHandler
   private let userInputTracker: UserInputTracker
   private let pointerMotionTracker: PointerMotionTracker
@@ -55,6 +58,7 @@ public final class HotKeyManager {
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
+    closeIntentHandler: @escaping CloseIntentHandler = { _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
     handler: @escaping Handler
   ) {
@@ -65,6 +69,7 @@ public final class HotKeyManager {
       ? pointerMotionHandler
       : nil
     self.tapReenabledHandler = tapReenabledHandler
+    self.closeIntentHandler = closeIntentHandler
     self.overviewHandler = overviewHandler
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
@@ -118,6 +123,7 @@ public final class HotKeyManager {
     let handler = self.handler
     let pointerMotionHandler = self.pointerMotionHandler
     let tapReenabledHandler = self.tapReenabledHandler
+    let closeIntentHandler = self.closeIntentHandler
     let overviewHandler = self.overviewHandler
     let context = HotKeyTapContext(
       bindings: bindings,
@@ -144,6 +150,12 @@ public final class HotKeyManager {
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
           tapReenabledHandler(timestamp)
+        }
+      }
+    } closeIntent: { timestamp in
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          closeIntentHandler(timestamp)
         }
       }
     }
@@ -218,6 +230,7 @@ final class HotKeyTapContext: @unchecked Sendable {
   private let deliverOverview: @Sendable (OverviewKeyAction) -> Void
   private let deliverPointerMotion: @Sendable (PointerMotionInvocation) -> Void
   private let tapReenabled: @Sendable (TimeInterval) -> Void
+  private let closeIntent: @Sendable (TimeInterval) -> Void
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
   private var tap: CFMachPort?
@@ -243,7 +256,8 @@ final class HotKeyTapContext: @unchecked Sendable {
     deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
     deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
-    tapReenabled: @escaping @Sendable (TimeInterval) -> Void
+    tapReenabled: @escaping @Sendable (TimeInterval) -> Void,
+    closeIntent: @escaping @Sendable (TimeInterval) -> Void = { _ in }
   ) {
     self.bindings = bindings
     self.userInputTracker = userInputTracker
@@ -253,6 +267,7 @@ final class HotKeyTapContext: @unchecked Sendable {
     self.deliverOverview = deliverOverview
     self.deliverPointerMotion = deliverPointerMotion
     self.tapReenabled = tapReenabled
+    self.closeIntent = closeIntent
   }
 
   func install(
@@ -375,6 +390,7 @@ final class HotKeyTapContext: @unchecked Sendable {
         capturedModifierReleaseState.capture(
           modifierBits: hotKeyModifierBits(event.flags)
         )
+        self.closeIntent(timestamp)
       }
     }
     guard isKeyDown else {
