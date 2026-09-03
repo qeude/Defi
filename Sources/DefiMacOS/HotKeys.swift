@@ -13,7 +13,7 @@ public final class HotKeyManager {
   public typealias TapReenabledHandler =
     @MainActor @Sendable (TimeInterval) -> Void
   public typealias CloseIntentHandler =
-    @MainActor @Sendable (TimeInterval) -> Void
+    @MainActor @Sendable (TimeInterval, pid_t?) -> Void
   public typealias OverviewHandler =
     @MainActor @Sendable (OverviewKeyAction) -> Void
 
@@ -58,7 +58,7 @@ public final class HotKeyManager {
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
-    closeIntentHandler: @escaping CloseIntentHandler = { _ in },
+    closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
     handler: @escaping Handler
   ) {
@@ -152,10 +152,10 @@ public final class HotKeyManager {
           tapReenabledHandler(timestamp)
         }
       }
-    } closeIntent: { timestamp in
+    } closeIntent: { timestamp, processID in
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
-          closeIntentHandler(timestamp)
+          closeIntentHandler(timestamp, processID)
         }
       }
     }
@@ -230,7 +230,7 @@ final class HotKeyTapContext: @unchecked Sendable {
   private let deliverOverview: @Sendable (OverviewKeyAction) -> Void
   private let deliverPointerMotion: @Sendable (PointerMotionInvocation) -> Void
   private let tapReenabled: @Sendable (TimeInterval) -> Void
-  private let closeIntent: @Sendable (TimeInterval) -> Void
+  private let closeIntent: @Sendable (TimeInterval, pid_t?) -> Void
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
   private var tap: CFMachPort?
@@ -257,7 +257,7 @@ final class HotKeyTapContext: @unchecked Sendable {
     deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
     tapReenabled: @escaping @Sendable (TimeInterval) -> Void,
-    closeIntent: @escaping @Sendable (TimeInterval) -> Void = { _ in }
+    closeIntent: @escaping @Sendable (TimeInterval, pid_t?) -> Void = { _, _ in }
   ) {
     self.bindings = bindings
     self.userInputTracker = userInputTracker
@@ -390,7 +390,12 @@ final class HotKeyTapContext: @unchecked Sendable {
         capturedModifierReleaseState.capture(
           modifierBits: hotKeyModifierBits(event.flags)
         )
-        self.closeIntent(timestamp)
+        let rawProcessID = event.getIntegerValueField(
+          .eventTargetUnixProcessID
+        )
+        let processID = pid_t(exactly: rawProcessID)
+          .flatMap { $0 > 0 ? $0 : nil }
+        self.closeIntent(timestamp, processID)
       }
     }
     guard isKeyDown else {

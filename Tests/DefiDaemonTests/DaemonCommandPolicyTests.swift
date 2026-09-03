@@ -8,6 +8,32 @@ import Testing
 
 struct DaemonCommandPolicyTests {
   @Test
+  func closeTopologyRetriesAreBoundedAndLatestWins() {
+    #expect(windowCloseRefreshDelays == [50, 150, 350, 700, 1_200, 2_000])
+    #expect(
+      windowCloseRetryIsCurrent(
+        intentTimestamp: 10,
+        latestInputTimestamp: 10,
+        latestCloseIntentTimestamp: 10
+      )
+    )
+    #expect(
+      windowCloseRetryIsCurrent(
+        intentTimestamp: 10,
+        latestInputTimestamp: 11,
+        latestCloseIntentTimestamp: 10
+      ) == false
+    )
+    #expect(
+      windowCloseRetryIsCurrent(
+        intentTimestamp: 10,
+        latestInputTimestamp: 11,
+        latestCloseIntentTimestamp: 11
+      ) == false
+    )
+  }
+
+  @Test
   func backgroundSnapshotWaitsForTheCurrentCommandAnimation() {
     #expect(
       desktopSnapshotWaitsForCommandAnimation(

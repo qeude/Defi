@@ -254,8 +254,38 @@ struct PlatformEventTests {
         == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
     )
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
-    #expect(windowTopologyRefreshDelays(for: .windows) == [50, 150, 350])
-    #expect(windowTopologyRefreshDelays(for: .frame).isEmpty)
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windowCreated,
+        latestInputTimestamp: 9.5,
+        latestCloseIntentTimestamp: 0,
+        now: 10
+      ) == [50, 150, 350]
+    )
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windowCreated,
+        latestInputTimestamp: 8.5,
+        latestCloseIntentTimestamp: 0,
+        now: 10
+      ).isEmpty
+    )
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windows,
+        latestInputTimestamp: 9.5,
+        latestCloseIntentTimestamp: 0,
+        now: 10
+      ).isEmpty
+    )
+    #expect(
+      windowTopologyRefreshDelays(
+        for: .windowCreated,
+        latestInputTimestamp: 9.5,
+        latestCloseIntentTimestamp: 9.5,
+        now: 10
+      ).isEmpty
+    )
   }
 
   @Test @MainActor

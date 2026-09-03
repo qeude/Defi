@@ -45,7 +45,8 @@ extension MacOSPlatform {
     guard eventMonitor == nil else { return }
     let monitor = PlatformEventMonitor(
       handler: { [weak self] kind, processID in
-        let eventInputTimestamp = self?.userInputTracker.latestEventTimestamp
+        let eventInput = self?.userInputTracker.snapshot
+        let eventInputTimestamp = eventInput?.latestEventTimestamp
         let previousWindowCount = processID.flatMap {
           self?.applicationWindowCounts[$0]
         }
@@ -66,7 +67,7 @@ extension MacOSPlatform {
             "window-event kind=\(String(describing: kind)) pid=\(processID)"
           )
         case .full:
-          if kind == .windows || kind == .application
+          if kind == .windowCreated || kind == .windows || kind == .application
             || kind == .applicationTerminated
           {
             self?.windowTopologyEventPending = true
@@ -151,7 +152,12 @@ extension MacOSPlatform {
           }
         }
         if let processID, let previousWindowCount {
-          for delay in windowTopologyRefreshDelays(for: kind) {
+          for delay in windowTopologyRefreshDelays(
+            for: kind,
+            latestInputTimestamp: eventInputTimestamp,
+            latestCloseIntentTimestamp: eventInput?.latestCloseIntent ?? 0,
+            now: ProcessInfo.processInfo.systemUptime
+          ) {
             DispatchQueue.main.asyncAfter(
               deadline: .now() + .milliseconds(delay)
             ) { [weak self] in

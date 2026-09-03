@@ -6,6 +6,17 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
+let windowCloseRefreshDelays = [50, 150, 350, 700, 1_200, 2_000]
+
+func windowCloseRetryIsCurrent(
+  intentTimestamp: TimeInterval,
+  latestInputTimestamp: TimeInterval,
+  latestCloseIntentTimestamp: TimeInterval
+) -> Bool {
+  latestCloseIntentTimestamp == intentTimestamp
+    && latestInputTimestamp <= intentTimestamp
+}
+
 @MainActor
 final class ConfigFileWatcher {
   private let configURL: URL
@@ -188,22 +199,48 @@ extension Daemon {
       tapReenabledHandler: { [weak self] timestamp in
         self?.handleEventTapReenabled(at: timestamp)
       },
-      closeIntentHandler: { [weak self] timestamp in
+      closeIntentHandler: { [weak self] timestamp, targetProcessID in
         guard let self, desktopSessionActive else { return }
-        let selectedProcessID = activeMonitorID
+        let selectedWindowID = activeMonitorID
           .flatMap { state.selectedWindowID(on: $0) }
+        let selectedProcessID = selectedWindowID
           .flatMap { state.windows[$0]?.processID }
-        guard let processID = NSWorkspace.shared.frontmostApplication?
-          .processIdentifier ?? selectedProcessID
+        guard let processID = targetProcessID
+          ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+          ?? selectedProcessID
         else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
-          guard self.desktopSessionActive else { return }
-          self.platform.requestWindowTopologyRefresh(
-            processID: processID,
-            inputTimestamp: timestamp
-          )
-          self.needsDesktopSync = true
-          self.scheduleTick()
+        let previousWindowCount = state.windows.values.lazy.filter {
+          $0.processID == processID
+        }.count
+        let trackedWindowID = selectedProcessID == processID
+          ? selectedWindowID
+          : nil
+        for delay in windowCloseRefreshDelays {
+          DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(delay)
+          ) {
+            let input = self.platform.userInputTracker.snapshot
+            guard self.desktopSessionActive,
+              windowCloseRetryIsCurrent(
+                intentTimestamp: timestamp,
+                latestInputTimestamp: input.latestEventTimestamp,
+                latestCloseIntentTimestamp: input.latestCloseIntent
+              ),
+              trackedWindowID.map({ self.state.windows[$0] != nil }) ?? true,
+              self.state.windows.values.lazy.filter({
+                $0.processID == processID
+              }).count >= previousWindowCount
+            else { return }
+            self.platform.recordPerformanceTrace(
+              "window-close-retry pid=\(processID) delay=\(delay)"
+            )
+            self.platform.requestWindowTopologyRefresh(
+              processID: processID,
+              inputTimestamp: timestamp
+            )
+            self.needsDesktopSync = true
+            self.scheduleTick()
+          }
         }
       },
       overviewHandler: { [weak self] action in
