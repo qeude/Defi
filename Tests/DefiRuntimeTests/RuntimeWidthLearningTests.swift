@@ -185,6 +185,69 @@ struct RuntimeWidthConstraintTests {
     )
     #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
   }
+
+  @Test
+  func stackedWindowsKeepIndependentWidthConstraints() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let fixedID = WindowID(rawValue: 1)
+    let wideID = WindowID(rawValue: 2)
+    let followingID = WindowID(rawValue: 3)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.layout = LayoutSettings(
+      innerHorizontalGap: 0,
+      innerVerticalGap: 0,
+      outerTopGap: 0,
+      outerRightGap: 0,
+      outerBottomGap: 0,
+      outerLeftGap: 0
+    )
+    state.windows = [
+      fixedID: Window(
+        id: fixedID,
+        appID: "fixed",
+        title: "Fixed",
+        frame: Rect(x: 0, y: 0, width: 500, height: 350),
+        maximumTiledWidth: 500
+      ),
+      wideID: Window(
+        id: wideID,
+        appID: "wide",
+        title: "Wide",
+        frame: Rect(x: 0, y: 350, width: 600, height: 350),
+        minimumTiledWidth: 600
+      ),
+      followingID: Window(
+        id: followingID,
+        appID: "following",
+        title: "Following",
+        frame: Rect(x: 800, y: 0, width: 500, height: 700)
+      ),
+    ]
+    state.monitors[0].workspaces[0].columns = [
+      Column(windows: [fixedID, wideID], focusedWindow: 0, width: .fraction(0.8)),
+      Column(window: followingID, width: .fraction(0.5)),
+    ]
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+
+    try reduce(
+      .cycleWidth(.previous),
+      on: monitorID,
+      state: &state,
+      viewports: [monitorID: viewport]
+    )
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.66))
+    let frames = computeLayout(
+      workspace: state.monitors[0].workspaces[0],
+      viewport: viewport,
+      windows: Array(state.windows.values),
+      settings: state.layout
+    ).frames
+    #expect(frames.first { $0.windowID == fixedID }?.frame.width == 500)
+    #expect(frames.first { $0.windowID == wideID }?.frame.width == 660)
+    #expect(frames.first { $0.windowID == followingID }?.frame.x == 660)
+  }
 }
 
 struct RuntimeWidthLearningTests {

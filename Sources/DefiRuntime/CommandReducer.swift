@@ -153,10 +153,11 @@ public func reduce(
         let maximumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
           viewport in
           guard viewport.width > 0 else { return nil }
-          let maximumWidth = column.windows.compactMap {
+          let maximumWidths = column.windows.compactMap {
             state.windows[$0]?.maximumTiledWidth
-          }.min()
-          return maximumWidth.map { $0 / viewport.width }
+          }
+          guard maximumWidths.count == column.windows.count else { return nil }
+          return maximumWidths.max().map { $0 / viewport.width }
         }
         cycleWidth(
           of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],

@@ -168,9 +168,13 @@ private func tiledWindowWidthLearning(
       let minimumTiledWidth = workspace.columns[columnIndex].windows.compactMap {
         state.windows[$0]?.minimumTiledWidth
       }.max() ?? 0
-      let maximumTiledWidth = workspace.columns[columnIndex].windows.compactMap {
+      let maximumTiledWidths = workspace.columns[columnIndex].windows.compactMap {
         state.windows[$0]?.maximumTiledWidth
-      }.min()
+      }
+      let maximumTiledWidth =
+        maximumTiledWidths.count == workspace.columns[columnIndex].windows.count
+        ? maximumTiledWidths.max()
+        : nil
       let currentSlotWidth = max(
         min(configuredSlotWidth, maximumTiledWidth ?? configuredSlotWidth),
         minimumTiledWidth
