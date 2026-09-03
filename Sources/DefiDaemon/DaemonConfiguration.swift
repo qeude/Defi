@@ -1,4 +1,3 @@
-import AppKit
 import Darwin
 import DefiConfig
 import DefiMacOS
@@ -7,6 +6,13 @@ import DefiRuntime
 import Foundation
 
 let windowCloseRefreshDelays = [50, 150, 350, 700, 1_200, 2_000]
+
+func windowCloseTargetProcessID(
+  eventTargetProcessID: pid_t?,
+  selectedProcessID: pid_t?
+) -> pid_t? {
+  eventTargetProcessID ?? selectedProcessID
+}
 
 func windowCloseRetryIsCurrent(
   intentTimestamp: TimeInterval,
@@ -205,9 +211,10 @@ extension Daemon {
           .flatMap { state.selectedWindowID(on: $0) }
         let selectedProcessID = selectedWindowID
           .flatMap { state.windows[$0]?.processID }
-        guard let processID = targetProcessID
-          ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
-          ?? selectedProcessID
+        guard let processID = windowCloseTargetProcessID(
+          eventTargetProcessID: targetProcessID,
+          selectedProcessID: selectedProcessID
+        )
         else { return }
         let previousWindowCount = state.windows.values.lazy.filter {
           $0.processID == processID

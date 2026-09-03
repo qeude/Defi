@@ -7,6 +7,19 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test(
+    "Close fallback keeps the selected process",
+    .bug("https://github.com/qeude/Defi/pull/49#discussion_r3925069182")
+  )
+  func closeFallbackKeepsSelectedProcess() {
+    #expect(
+      windowCloseTargetProcessID(
+        eventTargetProcessID: nil,
+        selectedProcessID: 42
+      ) == 42
+    )
+  }
+
   @Test
   func closeTopologyRetriesAreBoundedAndLatestWins() {
     #expect(windowCloseRefreshDelays == [50, 150, 350, 700, 1_200, 2_000])
