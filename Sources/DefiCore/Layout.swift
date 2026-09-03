@@ -156,6 +156,9 @@ func columnLayoutWidth(
   let minimumTiledWidth = column.windows
     .compactMap { windowsByID[$0]?.minimumTiledWidth }
     .max() ?? 0
+  let maximumTiledWidth = column.windows
+    .compactMap { windowsByID[$0]?.maximumTiledWidth }
+    .min()
   let requestedWidth: Double
   switch column.width {
   case .fraction(let fraction):
@@ -163,7 +166,7 @@ func columnLayoutWidth(
   case .pixels(let width):
     requestedWidth = width
   }
-  return max(requestedWidth, minimumTiledWidth)
+  return max(min(requestedWidth, maximumTiledWidth ?? requestedWidth), minimumTiledWidth)
 }
 
 private func applyGaps(

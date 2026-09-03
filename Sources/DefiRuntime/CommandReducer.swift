@@ -140,6 +140,7 @@ public func reduce(
         for windowID in column.windows
         where state.pendingNativeFullscreenWidthResetWindowIDs.remove(windowID) != nil {
           state.windows[windowID]?.minimumTiledWidth = nil
+          state.windows[windowID]?.maximumTiledWidth = nil
         }
         let minimumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
           viewport in
@@ -149,11 +150,20 @@ public func reduce(
           }.max()
           return minimumWidth.map { $0 / viewport.width }
         }
+        let maximumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
+          viewport in
+          guard viewport.width > 0 else { return nil }
+          let maximumWidth = column.windows.compactMap {
+            state.windows[$0]?.maximumTiledWidth
+          }.min()
+          return maximumWidth.map { $0 / viewport.width }
+        }
         cycleWidth(
           of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
           direction: direction,
           presets: layout.presetColumnWidths,
-          minimumFraction: minimumFraction
+          minimumFraction: minimumFraction,
+          maximumFraction: maximumFraction
         )
         state.monitors[monitorIndex].workspaces[index].targetScrollOffset =
           focusedColumnLeftScrollOffset(

@@ -282,7 +282,7 @@ extension Daemon {
           }
           if !state.pendingNativeFullscreenWidthResetWindowIDs.contains(windowID),
             !platform.isInitialFrameSettlementActive(for: windowID),
-            learnTiledWindowMinimumWidth(
+            learnTiledWindowWidthConstraint(
               windowID,
               actualFrame: frame,
               state: &state,
