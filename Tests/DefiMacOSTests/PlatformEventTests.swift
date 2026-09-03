@@ -429,6 +429,36 @@ struct PlatformEventTests {
   }
 
   @Test
+  func foregroundRaiseRetriesOnceAndStopsWhenStale() {
+    var current = true
+    var timeouts: [Float] = []
+    let recovered = performForegroundRaise(
+      isCurrent: { current },
+      attempt: { timeout in
+        timeouts.append(timeout)
+        return timeouts.count == 1 ? .cannotComplete : .success
+      }
+    )
+    #expect(recovered.succeeded)
+    #expect(recovered.retried)
+    #expect(recovered.cancelled == false)
+    #expect(timeouts == [0.016, 0.05])
+
+    timeouts = []
+    let stale = performForegroundRaise(
+      isCurrent: { current },
+      attempt: { timeout in
+        timeouts.append(timeout)
+        current = false
+        return .cannotComplete
+      }
+    )
+    #expect(stale.cancelled)
+    #expect(stale.retried == false)
+    #expect(timeouts == [0.016])
+  }
+
+  @Test
   func focusedExplicitTargetSkipsNoOpNativeWrite() {
     #expect(
       specificWindowFocusWriteIsRequired(

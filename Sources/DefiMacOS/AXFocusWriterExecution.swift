@@ -180,17 +180,29 @@ extension AXFocusWriter {
             cancelled = true
             break
           }
-          AXMessagingTimeoutAccess.shared.withTimeout(
-            0.016,
-            elements: [element]
-          ) {
-            let raiseStartedAt = ProcessInfo.processInfo.systemUptime
-            _ = AXUIElementPerformAction(
-              element,
-              kAXRaiseAction as CFString
-            )
-            raiseDurationMS +=
-              (ProcessInfo.processInfo.systemUptime - raiseStartedAt) * 1_000
+          let raiseStartedAt = ProcessInfo.processInfo.systemUptime
+          let outcome = performForegroundRaise(
+            isCurrent: {
+              isCurrent(queued) && inputGuardIsCurrent(request)
+            },
+            attempt: { timeout in
+              AXMessagingTimeoutAccess.shared.withTimeout(
+                timeout,
+                elements: [element]
+              ) {
+                AXUIElementPerformAction(
+                  element,
+                  kAXRaiseAction as CFString
+                )
+              }
+            }
+          )
+          raiseDurationMS +=
+            (ProcessInfo.processInfo.systemUptime - raiseStartedAt) * 1_000
+          retried = retried || outcome.retried
+          if outcome.cancelled {
+            cancelled = true
+            break
           }
         }
       }
