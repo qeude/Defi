@@ -216,6 +216,35 @@ struct WindowSnapshotStabilityTests {
       ) == false)
   }
 
+  @Test func cachedAndKnownFrameSnapshotsReuseTheCGWindowInventory() {
+    #expect(
+      cgWindowInventoryCanBeReused(
+        snapshotUsesCachedWindows: true,
+        snapshotRefreshesOnlyKnownFrames: false,
+        cachedInventoryAvailable: true
+      )
+    )
+    #expect(
+      cgWindowInventoryCanBeReused(
+        snapshotUsesCachedWindows: false,
+        snapshotRefreshesOnlyKnownFrames: true,
+        cachedInventoryAvailable: true
+      )
+    )
+    #expect(
+      cgWindowInventoryCanBeReused(
+        snapshotUsesCachedWindows: false,
+        snapshotRefreshesOnlyKnownFrames: false,
+        cachedInventoryAvailable: true
+      ) == false)
+    #expect(
+      cgWindowInventoryCanBeReused(
+        snapshotUsesCachedWindows: true,
+        snapshotRefreshesOnlyKnownFrames: true,
+        cachedInventoryAvailable: false
+      ) == false)
+  }
+
   @Test func snapshotDurationPercentilesAreBoundedAndDeterministic() {
     let samples = [1.0, 5.0, 2.0, 4.0, 3.0]
 
