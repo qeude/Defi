@@ -152,6 +152,7 @@ public final class OverviewController: NSObject {
   private var previewRevealStartedAt: [WindowID: TimeInterval] = [:]
   private var previewFadeTimer: Timer?
   private var attemptedPreviewWindowIDs = Set<WindowID>()
+  private var attemptedDesktopMonitorIDs = Set<MonitorID>()
   private var hasRequestedPreviewPermission = false
   private var previewPendingCount = 0
   private var alignSelectionOnNextUpdate = false
@@ -274,6 +275,7 @@ public final class OverviewController: NSObject {
     restoreRememberedPreviews(for: snapshot)
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
+    attemptedDesktopMonitorIDs.removeAll(keepingCapacity: true)
     previewPendingCount = 0
     previewPermissionState = windowPreviewsEnabled ? .notDetermined : .disabled
     selection = initialSelection(in: snapshot)
@@ -476,6 +478,7 @@ public final class OverviewController: NSObject {
     previewCache.removeAll(keepingCapacity: true)
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
+    attemptedDesktopMonitorIDs.removeAll(keepingCapacity: true)
     previewPendingCount = 0
     stopOverviewAnimations()
     openStateHandler(false)
@@ -894,7 +897,7 @@ public final class OverviewController: NSObject {
 
     let results = await captureOverviewImages(
       previews: requests,
-      desktops: []
+      desktops: desktopCaptureRequests()
     )
     guard windowPreviewsEnabled, isOpen, generation == sessionGeneration,
       !Task.isCancelled
@@ -1088,6 +1091,20 @@ public final class OverviewController: NSObject {
     }
     var seen = Set<WindowID>()
     return requests.filter { seen.insert($0.windowID).inserted }
+  }
+
+  private func desktopCaptureRequests() -> [OverviewDesktopCaptureRequest] {
+    panels.compactMap { monitorID, panel in
+      guard attemptedDesktopMonitorIDs.insert(monitorID).inserted,
+        let displayID = CGDirectDisplayID(exactly: monitorID.rawValue)
+      else { return nil }
+      return OverviewDesktopCaptureRequest(
+        monitorID: monitorID,
+        displayID: displayID,
+        width: max(Int(panel.window.frame.width.rounded(.up)), 1),
+        height: max(Int(panel.window.frame.height.rounded(.up)), 1)
+      )
+    }
   }
 
   private func screen(for monitorID: MonitorID) -> NSScreen? {
@@ -1712,11 +1729,13 @@ private final class OverviewPanel {
     desktopView.layer?.contentsScale = screen.backingScaleFactor
     desktopView.layer?.masksToBounds = true
     desktopView.autoresizingMask = [.width, .height]
-    if usesCapturedDesktop,
-      let url = NSWorkspace.shared.desktopImageURL(for: screen),
+    if let url = NSWorkspace.shared.desktopImageURL(for: screen),
       let image = NSImage(contentsOf: url)
     {
-      desktopView.layer?.contents = image
+      if usesCapturedDesktop {
+        desktopView.layer?.contents = image
+      }
+      view.setDesktopImage(image)
     }
     let glassView = NSGlassEffectView(
       frame: NSRect(origin: .zero, size: screen.frame.size)
@@ -1734,6 +1753,7 @@ private final class OverviewPanel {
 
   func setDesktopImage(_ image: NSImage) {
     desktopView.layer?.contents = image
+    view.setDesktopImage(image)
   }
 
   func show(animated: Bool) {
@@ -1786,6 +1806,7 @@ private final class OverviewView: NSView {
   private var drag: OverviewDragPresentation?
   private var borderStyle = WindowBorderStyle(config: BordersConfig())
   private var windowCornerRadius = 12.0
+  private var desktopImage: NSImage?
   private var previews: [WindowID: NSImage] = [:]
   private var previewOpacities: [WindowID: Double] = [:]
   private var mouseDownPoint: NSPoint?
@@ -1808,6 +1829,11 @@ private final class OverviewView: NSView {
 
   func discardPreviewImages() {
     previews.removeAll(keepingCapacity: false)
+  }
+
+  func setDesktopImage(_ image: NSImage) {
+    desktopImage = image
+    needsDisplay = true
   }
 
   @available(*, unavailable)
@@ -1897,10 +1923,23 @@ private final class OverviewView: NSView {
   ) {
     let frame = nsRect(workspace.frame)
     let scale = contentScale(for: workspace, snapshot: snapshot)
+    drawVisibleDesktop(for: workspace)
     NSGraphicsContext.saveGraphicsState()
     frame.clip()
     for window in workspace.windows
-    where drag?.windowID != window.windowID
+    where window.layer != .floating
+      && drag?.windowID != window.windowID
+      && projection?.overlayWindowID != window.windowID
+    {
+      drawWindow(window, snapshot: snapshot)
+    }
+    NSGraphicsContext.restoreGraphicsState()
+
+    NSGraphicsContext.saveGraphicsState()
+    nsRect(workspace.visibleFrame).clip()
+    for window in workspace.windows
+    where window.layer == .floating
+      && drag?.windowID != window.windowID
       && projection?.overlayWindowID != window.windowID
     {
       drawWindow(window, snapshot: snapshot)
@@ -1911,13 +1950,78 @@ private final class OverviewView: NSView {
     let borderWidth = borderStyle.width * scale
     frame.insetBy(dx: -borderWidth, dy: -borderWidth).clip()
     for window in workspace.windows
-    where drag?.windowID != window.windowID
+    where window.layer != .floating
+      && drag?.windowID != window.windowID
+      && projection?.overlayWindowID != window.windowID
+    {
+      drawWindowBorder(window, scale: scale)
+    }
+    NSGraphicsContext.restoreGraphicsState()
+
+    NSGraphicsContext.saveGraphicsState()
+    nsRect(workspace.visibleFrame).insetBy(
+      dx: -borderWidth,
+      dy: -borderWidth
+    ).clip()
+    for window in workspace.windows
+    where window.layer == .floating
+      && drag?.windowID != window.windowID
       && projection?.overlayWindowID != window.windowID
     {
       drawWindowBorder(window, scale: scale)
     }
     NSGraphicsContext.restoreGraphicsState()
     drawHorizontalOverflowIndicators(for: workspace)
+  }
+
+  private func drawVisibleDesktop(for workspace: OverviewWorkspaceProjection) {
+    let frame = nsRect(workspace.visibleFrame)
+    let path = NSBezierPath(
+      roundedRect: frame,
+      xRadius: windowCornerRadius,
+      yRadius: windowCornerRadius
+    )
+    NSGraphicsContext.saveGraphicsState()
+    path.addClip()
+    if let desktopImage {
+      desktopImage.draw(
+        in: frame,
+        from: aspectFillSourceRect(for: desktopImage, in: frame),
+        operation: .sourceOver,
+        fraction: 1,
+        respectFlipped: true,
+        hints: [.interpolation: NSImageInterpolation.high]
+      )
+    } else {
+      NSColor.windowBackgroundColor.setFill()
+      path.fill()
+    }
+    NSColor.black.withAlphaComponent(0.12).setFill()
+    path.fill()
+    NSGraphicsContext.restoreGraphicsState()
+  }
+
+  private func aspectFillSourceRect(for image: NSImage, in frame: NSRect) -> NSRect {
+    guard image.size.width > 0, image.size.height > 0, frame.width > 0, frame.height > 0
+    else { return .zero }
+    let imageRatio = image.size.width / image.size.height
+    let frameRatio = frame.width / frame.height
+    if imageRatio > frameRatio {
+      let width = image.size.height * frameRatio
+      return NSRect(
+        x: (image.size.width - width) / 2,
+        y: 0,
+        width: width,
+        height: image.size.height
+      )
+    }
+    let height = image.size.width / frameRatio
+    return NSRect(
+      x: 0,
+      y: (image.size.height - height) / 2,
+      width: image.size.width,
+      height: height
+    )
   }
 
   private func drawWindow(
