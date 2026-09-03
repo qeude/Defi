@@ -164,7 +164,8 @@ enum DisplacedPointerFocusRecovery: Equatable {
 
 @MainActor
 final class Daemon: NSObject {
-  let config: Config
+  let configURL: URL
+  var config: Config
   let platform = MacOSPlatform()
   let server: UnixSocketServer
   let placementStore: PlacementStore
@@ -202,6 +203,8 @@ final class Daemon: NSObject {
   var layoutPlansByMonitor: [MonitorID: MonitorLayoutPlan] = [:]
   var shouldShutdown = false
   var signalSources: [DispatchSourceSignal] = []
+  var configWatcher: ConfigFileWatcher?
+  var configGeneration: UInt64 = 0
   var pendingHotKeyCommands: [HotKeyInvocation] = []
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
@@ -283,7 +286,8 @@ final class Daemon: NSObject {
   var followUpBackoffSteps = 0
 
   fileprivate init(options: DaemonOptions) throws {
-    config = try Config.load(from: options.configURL)
+    configURL = options.configURL ?? Config.defaultURL
+    config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
     placementStore = PlacementStore()
     topologyStore = WorkspaceTopologyStore()
@@ -333,46 +337,9 @@ final class Daemon: NSObject {
       }
     )
 
-    let manager = HotKeyManager(
-      config: config,
-      userInputTracker: platform.userInputTracker,
-      pointerMotionTracker: platform.pointerMotionTracker,
-      pointerMotionHandler: { [weak self] invocation in
-        guard self?.desktopSessionActive == true else { return }
-        self?.handlePointerMotion(invocation)
-      },
-      tapReenabledHandler: { [weak self] timestamp in
-        self?.handleEventTapReenabled(at: timestamp)
-      },
-      overviewHandler: { [weak self] action in
-        guard self?.desktopSessionActive == true else { return }
-        self?.overviewController?.handleKey(action)
-      }
-    ) { [weak self] invocation in
-      self?.enqueueHotKey(invocation)
-    }
-    do {
-      try manager.start()
-      hotKeys = manager
-      if let bindingError = manager.bindingError {
-        if manager.tracksPointerMotion {
-          log("hotkeys unavailable: \(bindingError); pointer tracking remains enabled")
-        } else {
-          log("hotkeys unavailable: \(bindingError)")
-        }
-      }
-    } catch {
-      log("input event tap unavailable: \(error)")
-    }
-    if config.menuBar.enabled {
-      menuBar = MenuBarController { [weak self] command in
-        if command == "quit" {
-          self?.requestShutdown()
-        } else {
-          _ = self?.handle(command)
-        }
-      }
-    }
+    installHotKeys()
+    updateMenuBarAvailability()
+    startConfigWatcher()
     installIPCSource()
 
     synchronizeDesktop(

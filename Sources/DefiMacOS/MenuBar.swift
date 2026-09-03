@@ -46,6 +46,10 @@ public final class MenuBarController: NSObject {
     rebuildMenu()
   }
 
+  public func remove() {
+    NSStatusBar.system.removeStatusItem(statusItem)
+  }
+
   private func updateButton() {
     guard let button = statusItem.button else { return }
     button.image = nil

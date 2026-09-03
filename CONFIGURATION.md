@@ -14,12 +14,11 @@ Launch the daemon with another file when needed:
 ~/Applications/Defi.app/Contents/MacOS/defi-daemon --config /path/to/config.toml
 ```
 
-Config loads once when the daemon starts. Restart the installed service after
-editing the default file:
-
-```sh
-~/Applications/Defi.app/Contents/MacOS/defi service restart
-```
+Defi reloads the file after each save. Invalid changes keep the last valid
+configuration active and write an error to `~/Library/Logs/Defi.log` when using
+the installed service. Reloading preserves workspace contents, focus, column
+widths, and scroll positions. Geometry is recalculated only when a changed
+setting affects the current layout.
 
 Invalid TOML, invalid values, unknown workspaces in rules or commands, and
 invalid command strings stop config loading. An invalid accelerator or modifier
@@ -468,8 +467,8 @@ windows keep observed size and position, park with their workspace, and remain
 isolated per monitor. Use `force_tiling = true` only for windows known to behave
 correctly when resized.
 
-Rules apply when a window is first discovered. Config hot reload is unsupported;
-restart Defi after changing rules.
+Rules apply when a window is first discovered. Reloaded rules affect windows
+discovered afterward without moving windows already managed by Defi.
 
 ## Built-in defaults
 
@@ -563,8 +562,8 @@ names = []
 
 ## Unsupported configuration
 
-Startup commands, dimming, per-edge gaps, removing generated keybindings, and
-config hot reload are not implemented. No compatibility aliases exist before
+Startup commands, dimming, per-edge gaps, and removing generated keybindings are
+not implemented. No compatibility aliases exist before
 the first stable release; use setting names exactly as documented.
 
 ## Full example

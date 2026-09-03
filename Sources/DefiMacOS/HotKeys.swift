@@ -147,6 +147,7 @@ public final class HotKeyManager {
         }
       }
     }
+    let callbackContext = Unmanaged.passRetained(context)
     guard
       let tap = CGEvent.tapCreate(
         tap: .cgSessionEventTap,
@@ -154,18 +155,24 @@ public final class HotKeyManager {
         options: .defaultTap,
         eventsOfInterest: mask,
         callback: callback,
-        userInfo: Unmanaged.passUnretained(context).toOpaque()
+        userInfo: callbackContext.toOpaque()
       )
     else {
+      callbackContext.release()
       throw HotKeyError.eventTapUnavailable
     }
     guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
     else {
       CGEvent.tapEnable(tap: tap, enable: false)
       CFMachPortInvalidate(tap)
+      callbackContext.release()
       throw HotKeyError.eventTapUnavailable
     }
-    context.install(tap: tap, source: source)
+    context.install(
+      tap: tap,
+      source: source,
+      callbackContext: callbackContext
+    )
     let thread = Thread { context.run() }
     thread.name = "com.quentin.defi.hotkeys"
     thread.qualityOfService = .userInteractive
@@ -186,6 +193,12 @@ public final class HotKeyManager {
 
   public func setOverviewModeEnabled(_ enabled: Bool) {
     context?.setOverviewModeEnabled(enabled)
+  }
+
+  public func stop() {
+    context?.stop()
+    context = nil
+    thread = nil
   }
 
   isolated deinit {
@@ -210,6 +223,7 @@ final class HotKeyTapContext: @unchecked Sendable {
   private var tap: CFMachPort?
   private var source: CFRunLoopSource?
   private var runLoop: CFRunLoop?
+  private var callbackContext: Unmanaged<HotKeyTapContext>?
   private var captured = 0
   private var reenables = 0
   private var pointerTransitions = 0
@@ -241,10 +255,15 @@ final class HotKeyTapContext: @unchecked Sendable {
     self.tapReenabled = tapReenabled
   }
 
-  func install(tap: CFMachPort, source: CFRunLoopSource) {
+  func install(
+    tap: CFMachPort,
+    source: CFRunLoopSource,
+    callbackContext: Unmanaged<HotKeyTapContext>
+  ) {
     lock.lock()
     self.tap = tap
     self.source = source
+    self.callbackContext = callbackContext
     lock.unlock()
   }
 
@@ -494,12 +513,20 @@ final class HotKeyTapContext: @unchecked Sendable {
     let tap = tap
     let source = source
     let runLoop = runLoop
+    let callbackContext = callbackContext
+    self.tap = nil
+    self.source = nil
+    self.callbackContext = nil
     lock.unlock()
+    guard let callbackContext else { return }
+    if let tap {
+      CGEvent.tapEnable(tap: tap, enable: false)
+    }
     guard let runLoop else {
       if let tap {
-        CGEvent.tapEnable(tap: tap, enable: false)
         CFMachPortInvalidate(tap)
       }
+      callbackContext.release()
       return
     }
     CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
@@ -510,6 +537,7 @@ final class HotKeyTapContext: @unchecked Sendable {
         CGEvent.tapEnable(tap: tap, enable: false)
         CFMachPortInvalidate(tap)
       }
+      callbackContext.release()
       CFRunLoopStop(runLoop)
     }
     CFRunLoopWakeUp(runLoop)

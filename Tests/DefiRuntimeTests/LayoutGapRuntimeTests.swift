@@ -92,4 +92,51 @@ struct LayoutGapRuntimeTests {
 
     #expect(leftAlignedFrame.x == 4)
   }
+
+  @Test
+  func configReloadPreservesLayoutStateAndOnlyRequestsNecessaryReflows() {
+    let monitorID = MonitorID(rawValue: 1)
+    let windowID = WindowID(rawValue: 1)
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
+    )
+    state.attachMonitor(monitorID)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: windowID, width: .pixels(640))
+    ]
+    state.monitors[0].workspaces[0].scrollOffset = 0.25
+    state.windows[windowID] = Window(
+      id: windowID,
+      appID: "test",
+      title: "Test",
+      frame: Rect(x: 0, y: 0, width: 640, height: 800)
+    )
+
+    let defaultsOnly = state.applyConfiguration(
+      Config(
+        layout: LayoutConfig(
+          defaultColumnWidth: 0.5,
+          presetColumnWidths: [0.5, 1]
+        ),
+        workspaces: WorkspacesConfig(names: ["dev"])
+      )
+    )
+
+    #expect(defaultsOnly == false)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(640))
+    #expect(state.monitors[0].workspaces[0].scrollOffset == 0.25)
+
+    let geometryChanged = state.applyConfiguration(
+      Config(
+        layout: LayoutConfig(gaps: 20),
+        workspaces: WorkspacesConfig(names: ["dev", "web"])
+      )
+    )
+
+    #expect(geometryChanged)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(640))
+    #expect(state.monitors[0].workspaces[0].columns[0].windows == [windowID])
+    #expect(state.monitors[0].workspaces[0].scrollOffset == 0.25)
+    #expect(state.monitors[0].workspaces.contains { $0.id == WorkspaceID(rawValue: "web") })
+  }
 }
