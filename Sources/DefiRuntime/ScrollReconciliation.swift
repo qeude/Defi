@@ -1,6 +1,30 @@
 import DefiCore
 import DefiModel
 
+@discardableResult
+public func applyOverviewScrollOffsets(
+  _ offsets: [MonitorID: [WorkspaceID: Double]],
+  state: inout RuntimeState
+) -> Set<MonitorID> {
+  var changedMonitorIDs = Set<MonitorID>()
+  for monitorIndex in state.monitors.indices {
+    let monitorID = state.monitors[monitorIndex].id
+    guard let workspaceOffsets = offsets[monitorID] else { continue }
+    for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+      let workspaceID = state.monitors[monitorIndex].workspaces[workspaceIndex].id
+      guard let offset = workspaceOffsets[workspaceID], offset.isFinite else { continue }
+      let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+      guard workspace.scrollOffset != offset || workspace.targetScrollOffset != offset else {
+        continue
+      }
+      state.monitors[monitorIndex].workspaces[workspaceIndex].scrollOffset = offset
+      state.monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset = offset
+      changedMonitorIDs.insert(monitorID)
+    }
+  }
+  return changedMonitorIDs
+}
+
 public func synchronizeScrollOffsets(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]

@@ -162,6 +162,52 @@ struct OverviewTests {
   }
 
   @Test
+  func `Desktop stays centered while the ribbon pans`() {
+    let windowID = WindowID(rawValue: 1)
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "web"),
+      columns: [Column(window: windowID, width: .fraction(1))],
+      scrollOffset: 0.1,
+      targetScrollOffset: 0.25
+    )
+    let snapshot = OverviewSnapshot(
+      monitors: [
+        Monitor(
+          id: monitorID,
+          workspaces: [workspace],
+          activeWorkspace: workspace.id
+        )
+      ],
+      monitorFrames: [monitorID: monitorFrame],
+      windows: [
+        windowID: Window(
+          id: windowID,
+          appID: "app",
+          title: "window",
+          frame: monitorFrame
+        )
+      ]
+    )
+    let real = projectOverview(
+      snapshot: snapshot,
+      monitorID: monitorID,
+      bounds: monitorFrame,
+      viewport: OverviewViewport(horizontalOffsets: [workspace.id: 0.25]),
+      layout: LayoutSettings()
+    ).workspaces[0]
+    let panned = projectOverview(
+      snapshot: snapshot,
+      monitorID: monitorID,
+      bounds: monitorFrame,
+      viewport: OverviewViewport(horizontalOffsets: [workspace.id: 0.5]),
+      layout: LayoutSettings()
+    ).workspaces[0]
+
+    #expect(panned.visibleFrame == real.visibleFrame)
+    #expect(panned.windows[0].frame.x < real.windows[0].frame.x)
+  }
+
+  @Test
   func `Adjacent workspaces remain half visible`() {
     let workspaces = (0..<3).map { Workspace(id: WorkspaceID(rawValue: "\($0)")) }
     let bounds = Rect(x: 0, y: 20, width: 1_200, height: 600)

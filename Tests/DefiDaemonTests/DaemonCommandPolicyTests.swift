@@ -261,6 +261,19 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func staleAcceptedSizeCannotBecomeAWidthConstraint() {
+    let previous = Rect(x: 0, y: 0, width: 1_200, height: 900)
+
+    #expect(!acceptedFrameChangedWidth(previous, from: previous))
+    #expect(
+      acceptedFrameChangedWidth(
+        Rect(x: 0, y: 0, width: 800, height: 900),
+        from: previous
+      )
+    )
+  }
+
+  @Test
   func staticFrameOrDeferredFocusKeepsCommandFollowUpResponsive() {
     #expect(
       commandFollowUpIsPending(

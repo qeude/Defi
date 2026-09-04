@@ -4,6 +4,8 @@ import DefiCore
 import DefiModel
 import QuartzCore
 
+private let overviewTransitionDuration: TimeInterval = 0.16
+
 private struct OverviewViewportAnimation {
   let from: OverviewViewport
   let to: OverviewViewport
@@ -124,12 +126,16 @@ public final class OverviewController: NSObject {
   ) -> Void
   public typealias MonitorHandler = @MainActor @Sendable (MonitorID) -> Void
   public typealias OpenStateHandler = @MainActor @Sendable (Bool) -> Void
+  public typealias ScrollCommitHandler = @MainActor @Sendable (
+    [MonitorID: [WorkspaceID: Double]]
+  ) -> Void
 
   private let focusWindowHandler: WindowHandler
   private let focusWorkspaceHandler: WorkspaceHandler
   private let dropHandler: DropHandler
   private let activateMonitorHandler: MonitorHandler
   private let openStateHandler: OpenStateHandler
+  private let scrollCommitHandler: ScrollCommitHandler
   private var panels: [MonitorID: OverviewPanel] = [:]
   private var snapshot: OverviewSnapshot?
   private var layout = LayoutSettings()
@@ -182,13 +188,15 @@ public final class OverviewController: NSObject {
     focusWorkspace: @escaping WorkspaceHandler,
     drop: @escaping DropHandler,
     activateMonitor: @escaping MonitorHandler,
-    openStateChanged: @escaping OpenStateHandler
+    openStateChanged: @escaping OpenStateHandler,
+    commitScrollOffsets: @escaping ScrollCommitHandler
   ) {
     focusWindowHandler = focusWindow
     focusWorkspaceHandler = focusWorkspace
     dropHandler = drop
     activateMonitorHandler = activateMonitor
     openStateHandler = openStateChanged
+    scrollCommitHandler = commitScrollOffsets
     super.init()
     let center = NSWorkspace.shared.notificationCenter
     center.addObserver(
@@ -407,6 +415,21 @@ public final class OverviewController: NSObject {
         viewportTargets[monitor.id] = viewport
       }
       activeWorkspaceByMonitor[monitor.id] = monitor.activeWorkspace
+      guard let previousMonitor = previousSnapshot?.monitors.first(where: {
+        $0.id == monitor.id
+      }) else { continue }
+      for workspace in monitor.workspaces {
+        guard let previousWorkspace = previousMonitor.workspaces.first(where: {
+          $0.id == workspace.id
+        }),
+          previousWorkspace.targetScrollOffset != workspace.targetScrollOffset
+        else { continue }
+        var target = viewportTargets[monitor.id]
+          ?? viewports[monitor.id]
+          ?? OverviewViewport()
+        target.horizontalOffsets[workspace.id] = workspace.targetScrollOffset
+        viewportTargets[monitor.id] = target
+      }
     }
     if alignSelectionOnNextUpdate,
       let location = selection?.location,
@@ -426,7 +449,7 @@ public final class OverviewController: NSObject {
         pendingTarget: viewportTargets[location.monitorID],
         animationTarget: viewportAnimations[location.monitorID]?.to,
         workspaceID: location.workspaceID,
-        scrollOffset: workspace.scrollOffset,
+        scrollOffset: workspace.targetScrollOffset,
         sourceWorkspaceID: sourceWorkspaceID,
         sourceMaximumHorizontalOffset: sourceWorkspaceID.flatMap {
           maximumHorizontalOffset(for: $0, on: monitor)
@@ -464,6 +487,10 @@ public final class OverviewController: NSObject {
   }
 
   public func close() {
+    close(commitScrollOffsets: true)
+  }
+
+  private func close(commitScrollOffsets: Bool) {
     guard isOpen else { return }
     isOpen = false
     sessionGeneration &+= 1
@@ -481,6 +508,9 @@ public final class OverviewController: NSObject {
     capturedDesktopMonitorIDs.removeAll(keepingCapacity: true)
     previewPendingCount = 0
     stopOverviewAnimations()
+    if commitScrollOffsets {
+      scrollCommitHandler(viewports.mapValues(\.horizontalOffsets))
+    }
     openStateHandler(false)
     let closingPanels = Array(panels.values)
     for panel in closingPanels {
@@ -526,14 +556,30 @@ public final class OverviewController: NSObject {
 
   private func chooseSelection() {
     guard let snapshot, let selection else { return }
+    alignSelectionOnNextUpdate = true
     switch selection {
     case .window(let windowID, let monitorID, let workspaceID):
       guard let window = snapshot.windows[windowID] else { return }
-      close()
+      expectActivation(of: window.processID)
       focusWindowHandler(windowID, window.appID, monitorID, workspaceID)
     case .workspace(let monitorID, let workspaceID):
-      close()
       focusWorkspaceHandler(monitorID, workspaceID)
+    }
+    closeAfterSelectionAlignment()
+  }
+
+  private func closeAfterSelectionAlignment() {
+    guard animationsEnabled,
+      !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    else {
+      close(commitScrollOffsets: false)
+      return
+    }
+    let generation = sessionGeneration
+    DispatchQueue.main.asyncAfter(deadline: .now() + overviewTransitionDuration) {
+      [weak self] in
+      guard let self, isOpen, sessionGeneration == generation else { return }
+      close(commitScrollOffsets: false)
     }
   }
 
@@ -1145,7 +1191,7 @@ public final class OverviewController: NSObject {
       from: current,
       to: target,
       startedAt: CACurrentMediaTime(),
-      duration: 0.16
+      duration: overviewTransitionDuration
     )
     projectionAnimations[monitorID] = nil
     link.isPaused = false
@@ -1169,7 +1215,7 @@ public final class OverviewController: NSObject {
       from: source,
       to: target,
       startedAt: CACurrentMediaTime(),
-      duration: 0.16
+      duration: overviewTransitionDuration
     )
     link.isPaused = false
   }
@@ -1779,7 +1825,7 @@ private final class OverviewPanel {
     DispatchQueue.main.asyncAfter(deadline: .now() + displayInterval) { [weak self] in
       guard let self else { return }
       NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.16
+        context.duration = overviewTransitionDuration
         context.timingFunction = CAMediaTimingFunction(name: .easeOut)
         self.window.animator().alphaValue = 1
         self.view.layer?.setAffineTransform(.identity)

@@ -38,6 +38,10 @@ func layoutWindowIDsOutsideSubmissionScope(
     : []
 }
 
+func acceptedFrameChangedWidth(_ accepted: Rect, from previous: Rect?) -> Bool {
+  previous.map { abs($0.width - accepted.width) >= 1 } ?? false
+}
+
 @MainActor
 extension Daemon {
   func applyCurrentLayout(
@@ -277,10 +281,12 @@ extension Daemon {
         for (windowID, frame) in acceptedFrames.sorted(by: {
           $0.key.rawValue < $1.key.rawValue
         }) {
+          let previousFrame = state.windows[windowID]?.frame
           if let monitorID = state.monitorID(containing: windowID) {
             affectedMonitorIDs.insert(monitorID)
           }
-          if !state.pendingNativeFullscreenWidthResetWindowIDs.contains(windowID),
+          if acceptedFrameChangedWidth(frame, from: previousFrame),
+            !state.pendingNativeFullscreenWidthResetWindowIDs.contains(windowID),
             !platform.isInitialFrameSettlementActive(for: windowID),
             learnTiledWindowWidthConstraint(
               windowID,
