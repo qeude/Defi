@@ -20,6 +20,27 @@ struct OverviewPreviewTests {
     )
   }
 
+  @Test
+  func `Failed desktop capture remains retryable`() {
+    let monitorID = MonitorID(rawValue: 1)
+    let existingID = MonitorID(rawValue: 2)
+
+    #expect(
+      overviewRecordedDesktopCaptureMonitorIDs(
+        existing: [],
+        requested: [monitorID],
+        captured: []
+      ).isEmpty
+    )
+    #expect(
+      overviewRecordedDesktopCaptureMonitorIDs(
+        existing: [existingID],
+        requested: [monitorID],
+        captured: [monitorID]
+      ) == [existingID, monitorID]
+    )
+  }
+
   @Test("Overview parks windows when captured desktop is unavailable")
   func overviewBackdropFallbackPolicy() {
     #expect(

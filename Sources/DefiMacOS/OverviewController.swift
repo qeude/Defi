@@ -152,7 +152,7 @@ public final class OverviewController: NSObject {
   private var previewRevealStartedAt: [WindowID: TimeInterval] = [:]
   private var previewFadeTimer: Timer?
   private var attemptedPreviewWindowIDs = Set<WindowID>()
-  private var attemptedDesktopMonitorIDs = Set<MonitorID>()
+  private var capturedDesktopMonitorIDs = Set<MonitorID>()
   private var hasRequestedPreviewPermission = false
   private var previewPendingCount = 0
   private var alignSelectionOnNextUpdate = false
@@ -275,7 +275,7 @@ public final class OverviewController: NSObject {
     restoreRememberedPreviews(for: snapshot)
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
-    attemptedDesktopMonitorIDs.removeAll(keepingCapacity: true)
+    capturedDesktopMonitorIDs.removeAll(keepingCapacity: true)
     previewPendingCount = 0
     previewPermissionState = windowPreviewsEnabled ? .notDetermined : .disabled
     selection = initialSelection(in: snapshot)
@@ -478,7 +478,7 @@ public final class OverviewController: NSObject {
     previewCache.removeAll(keepingCapacity: true)
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
-    attemptedDesktopMonitorIDs.removeAll(keepingCapacity: true)
+    capturedDesktopMonitorIDs.removeAll(keepingCapacity: true)
     previewPendingCount = 0
     stopOverviewAnimations()
     openStateHandler(false)
@@ -752,7 +752,7 @@ public final class OverviewController: NSObject {
       ?? .workspace(monitorID: monitor.id, workspaceID: workspace.id)
   }
 
-  private func updatePanels() {
+  private func updatePanels(scheduleCaptures: Bool = true) {
     guard let snapshot else { return }
     var projections: [MonitorID: OverviewProjection] = [:]
     let now = CACurrentMediaTime()
@@ -790,7 +790,7 @@ public final class OverviewController: NSObject {
       )
     }
     self.projections = projections
-    schedulePreviewsIfNeeded()
+    if scheduleCaptures { schedulePreviewsIfNeeded() }
   }
 
   private func projection(
@@ -850,7 +850,7 @@ public final class OverviewController: NSObject {
       !attemptedPreviewWindowIDs.contains($0.windowID)
     }
     let hasPendingDesktopCapture = panels.keys.contains {
-      !attemptedDesktopMonitorIDs.contains($0)
+      !capturedDesktopMonitorIDs.contains($0)
     }
     guard overviewCaptureBatchNeeded(
       previewRequestCount: requests.count,
@@ -901,9 +901,10 @@ public final class OverviewController: NSObject {
       return
     }
 
+    let desktopRequests = desktopCaptureRequests()
     let results = await captureOverviewImages(
       previews: requests,
-      desktops: desktopCaptureRequests()
+      desktops: desktopRequests
     )
     guard windowPreviewsEnabled, isOpen, generation == sessionGeneration,
       !Task.isCancelled
@@ -911,6 +912,11 @@ public final class OverviewController: NSObject {
       finishPreviewBatch(generation: generation)
       return
     }
+    capturedDesktopMonitorIDs = overviewRecordedDesktopCaptureMonitorIDs(
+      existing: capturedDesktopMonitorIDs,
+      requested: Set(desktopRequests.map(\.monitorID)),
+      captured: Set(results.desktops.keys)
+    )
     let currentRequests = Dictionary(
       uniqueKeysWithValues: visiblePreviewRequests().map { ($0.windowID, $0) }
     )
@@ -959,7 +965,7 @@ public final class OverviewController: NSObject {
     }
     finishPreviewBatch(generation: generation)
     if didAddPreview { startPreviewFadeAnimation() }
-    updatePanels()
+    updatePanels(scheduleCaptures: false)
   }
 
   private func finishPreviewBatch(generation: UInt64) {
@@ -1101,7 +1107,7 @@ public final class OverviewController: NSObject {
 
   private func desktopCaptureRequests() -> [OverviewDesktopCaptureRequest] {
     panels.compactMap { monitorID, panel in
-      guard attemptedDesktopMonitorIDs.insert(monitorID).inserted,
+      guard !capturedDesktopMonitorIDs.contains(monitorID),
         let displayID = CGDirectDisplayID(exactly: monitorID.rawValue)
       else { return nil }
       return OverviewDesktopCaptureRequest(

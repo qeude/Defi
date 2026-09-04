@@ -69,6 +69,14 @@ func overviewCaptureBatchNeeded(
   previewRequestCount > 0 || hasPendingDesktopCapture
 }
 
+func overviewRecordedDesktopCaptureMonitorIDs(
+  existing: Set<MonitorID>,
+  requested: Set<MonitorID>,
+  captured: Set<MonitorID>
+) -> Set<MonitorID> {
+  existing.union(captured.intersection(requested))
+}
+
 struct OverviewPreviewRequest: Equatable, Sendable {
   let windowID: WindowID
   let expectedAppID: String
