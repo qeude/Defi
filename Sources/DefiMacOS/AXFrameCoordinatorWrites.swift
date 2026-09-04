@@ -561,12 +561,6 @@ extension AXFrameCoordinator {
         lock.unlock()
         continue
       }
-      if recordFinalSuccess, !intermediate, progress >= 1, appliedWrite {
-        lock.lock()
-        successfulFinalWritesByGeneration[frame.generation, default: []]
-          .insert(item.key)
-        lock.unlock()
-      }
       let requiresReadback =
         item.value.isParked
         || item.value.requiresVerifiedOffscreenWrite
@@ -594,6 +588,15 @@ extension AXFrameCoordinator {
           windowID: item.key,
           expectedPoint: item.value.point
         )
+      }
+      if recordFinalSuccess, !intermediate, progress >= 1, appliedWrite {
+        lock.lock()
+        // Publish readiness only after its completed geometry is available.
+        if latestGeneration == frame.generation {
+          successfulFinalWritesByGeneration[frame.generation, default: []]
+            .insert(item.key)
+        }
+        lock.unlock()
       }
       if !intermediate, progress >= 1, appliedWrite {
         frame.cursorWarpAfterWindowCommit?(item.key, frame.generation)
@@ -840,6 +843,7 @@ extension AXFrameCoordinator {
   func recordCompletedActiveSizeWrite(windowID: WindowID) {
     lock.lock()
     activeWrites.removeValue(forKey: windowID)
+    activeAnimatedSizeWindowIDs.remove(windowID)
     lock.unlock()
   }
 }

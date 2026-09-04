@@ -290,12 +290,11 @@ final class Daemon: NSObject {
       commandGeneration &+= 1
       mouseGestureGeneration &+= 1
       pendingHotKeyCommands.removeAll(keepingCapacity: true)
-      focus.queueCommand(nil)
+      focus.interrupt()
       invalidateSubmittedCommandFocus()
-      focus.queueWorkspace(nil)
       invalidateSubmittedWorkspaceFocus()
-      focus.discardDisplacedFocus()
-      invalidatePointerFocusIntent()
+      cancelSubmittedPointerFocus()
+      rearmPointerFocusTransition()
       scrollAnimations.removeAll(keepingCapacity: true)
       finishMouseGestureTracking()
       mouseReorderAnimationActive = false

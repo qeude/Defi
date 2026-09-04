@@ -117,6 +117,17 @@ public struct FocusState: Equatable, Sendable {
 
   public init() {}
 
+  /// Retires every old intent before native cancellation can deliver callbacks.
+  /// Submission identities deliberately survive interruption and session changes.
+  public mutating func interrupt() {
+    pendingAnimatedFocus = nil
+    cancelSubmittedCommand()
+    queueWorkspace(nil)
+    invalidatePointer()
+    discardDisplacedFocus()
+    rearmPointer()
+  }
+
   public mutating func queueCommand(_ request: PendingAnimatedFocus?) {
     pendingAnimatedFocus = request
   }

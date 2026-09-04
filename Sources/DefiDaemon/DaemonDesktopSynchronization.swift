@@ -431,6 +431,7 @@ extension Daemon {
         nativeCursorWarpWindowID = focusedWindowID
       }
       if nativeFocusAccepted {
+        focus.interrupt()
         nativeFocusFrameMonitorID = state.monitorID(containing: focusedWindowID)
         if let keyboardFocusIntentTimestamp = snapshot.keyboardFocusIntentTimestamp {
           platform.userInputTracker.consumeFocusIntent(
@@ -440,11 +441,8 @@ extension Daemon {
         platform.invalidateFocusRecovery(recoveringTo: focusedWindowID)
         invalidateSubmittedCommandFocus(recoveringTo: focusedWindowID)
         invalidateSubmittedWorkspaceFocus(recoveringTo: focusedWindowID)
-        invalidatePointerFocusIntent(recoveringTo: focusedWindowID)
+        cancelSubmittedPointerFocus(recoveringTo: focusedWindowID)
         rearmPointerFocusTransition()
-        focus.queueCommand(nil)
-        focus.queueWorkspace(nil)
-        focus.cancelSubmittedWorkspace()
       }
       if keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: nativeFocusAccepted,

@@ -4,6 +4,25 @@ import Numerics
 import Testing
 
 struct AnimationTests {
+  @Test(arguments: [60.0, 120.0])
+  func delayedClockPreservesEveryMotionStep(refreshRate: Double) throws {
+    let interval = 1 / refreshRate
+    var clock = FrameAnimationClock(startedAt: 10, interval: interval, sampleCount: 8)
+    for index in 0..<8 {
+      // A scheduler stall must not fast-forward the animation or its final write.
+      let now = 10 + Double(index + 1) * interval + (index >= 1 ? 0.1 : 0)
+      let next = clock.next(at: now)
+      let tick = try #require(next)
+      #expect(tick.index == index)
+      #expect(tick.elapsed.isApproximatelyEqual(
+        to: Double(index + 1) * interval, absoluteTolerance: 0.000_001))
+      #expect(tick.lateness.isApproximatelyEqual(
+        to: index >= 1 ? 0.1 : 0, absoluteTolerance: 0.000_001))
+    }
+    let exhausted = clock.next(at: 11)
+    #expect(exhausted == nil)
+  }
+
   @Test
   func `Speculative navigation settlement waits past visual animation`() {
     #expect(

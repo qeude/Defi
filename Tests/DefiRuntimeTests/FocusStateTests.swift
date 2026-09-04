@@ -11,6 +11,54 @@ struct FocusStateTests {
   private let b = WindowID(rawValue: 2)
   private let c = WindowID(rawValue: 3)
 
+  @Test(arguments: [
+    NativeFocusResult.completed, .completedWithoutMutation, .frameSuperseded,
+    .superseded, .supersededAfterMutation, .cancelled, .cancelledAfterMutation,
+    .cancelledAfterInputMutation, .failed, .failedAfterMutation,
+  ])
+  func interruptionRejectsEveryLateResultWithoutRetiringNewFocus(result: NativeFocusResult) {
+    var state = makeState()
+    var focus = FocusState()
+    let oldCommand = command()
+    let commandSubmission = focus.submitCommand(oldCommand)
+    let oldWorkspace = PendingWorkspaceFocus(
+      monitorID: monitor, requestedWorkspaceID: first, previousWorkspaceID: second,
+      requestedWindowID: b, restoresPreviousWorkspaceOnCancellation: true,
+      commandGeneration: 10, focusInputTimestamp: 10, cursorWarpInputTimestamp: 10
+    )
+    let workspaceSubmission = focus.submitWorkspace(oldWorkspace)
+    let oldPointer = PendingPointerFocus(windowID: a, generation: 0, timestamp: 20)
+    let pointerSubmission = focus.submitPointer(oldPointer)
+
+    // A native activation or sleep interrupts all three lanes, including a
+    // command displaced by hover. No wall clock, daemon, or AX permission needed.
+    focus.interrupt()
+    #expect(focus.pendingAnimatedFocus == nil)
+    #expect(focus.pendingWorkspaceFocus == nil)
+    #expect(focus.pendingPointerFocus == nil)
+    #expect(focus.displacedPointerFocusRecovery == nil)
+    _ = focusWindow(c, state: &state)
+
+    // Use the same request again to catch accidental submission-ID reuse.
+    let newSubmission = focus.submitCommand(oldCommand)
+    let expectedState = state
+    let expectedFocus = focus
+    #expect(focus.completeCommand(
+      oldCommand, submission: commandSubmission, result: result,
+      commandGeneration: 10, keepsRequestedWindow: false, state: &state
+    ) == .stale)
+    #expect(focus.completeWorkspace(
+      oldWorkspace, submission: workspaceSubmission, result: result,
+      commandGeneration: 10, keepsRequestedWindow: false, state: &state
+    ) == .stale)
+    #expect(completePointer(
+      &focus, oldPointer, submission: pointerSubmission, result: result, state: &state
+    ) == .stale)
+    #expect(state == expectedState)
+    #expect(focus == expectedFocus)
+    #expect(focus.commandCompletionIsCurrent(oldCommand, submission: newSubmission))
+  }
+
   @Test func lateCommandCompletionCannotRollbackNewerSelectionOrRetry() throws {
     var state = makeState()
     var focus = FocusState()
