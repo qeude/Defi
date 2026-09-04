@@ -4,6 +4,21 @@ import DefiModel
 import Foundation
 import ScreenCaptureKit
 
+// Small placeholders survive between sessions; full-resolution captures stay session-local.
+func compactOverviewPreview(_ image: CGImage) -> CGImage? {
+  let scale = min(512.0 / Double(max(image.width, image.height)), 1)
+  let width = max(Int(Double(image.width) * scale), 1)
+  let height = max(Int(Double(image.height) * scale), 1)
+  guard let context = CGContext(
+    data: nil, width: width, height: height, bitsPerComponent: 8,
+    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+  ) else { return nil }
+  context.interpolationQuality = .medium
+  context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+  return context.makeImage()
+}
+
 func overviewPreviewBlurFadeHeight(
   titleBandHeight: CGFloat,
   imageScale: CGFloat,
@@ -95,6 +110,7 @@ struct OverviewPreviewRequest: Equatable, Sendable {
 struct OverviewPreviewCaptureResult: Sendable {
   let request: OverviewPreviewRequest
   let image: CGImage?
+  var rememberedImage: CGImage? = nil
 }
 
 struct OverviewDesktopCaptureRequest: Sendable {
@@ -249,14 +265,17 @@ private final class OverviewScreenCaptureBatch {
         configuration: configuration
       )
       let renderingContext = renderingContext
-      let styledImage = await Task.detached(priority: .userInitiated) {
-        progressivelyBlurredOverviewPreview(
+      return await Task.detached(priority: .userInitiated) {
+        let styledImage = progressivelyBlurredOverviewPreview(
           image,
           fadeHeight: CGFloat(request.blurFadeHeight),
           context: renderingContext
         ) ?? image
+        return OverviewPreviewCaptureResult(
+          request: request, image: styledImage,
+          rememberedImage: compactOverviewPreview(styledImage)
+        )
       }.value
-      return OverviewPreviewCaptureResult(request: request, image: styledImage)
     } catch {
       return OverviewPreviewCaptureResult(request: request, image: nil)
     }

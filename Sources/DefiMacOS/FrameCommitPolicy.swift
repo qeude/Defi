@@ -339,11 +339,12 @@ struct CommandLatencyAccumulator {
   }
 
   private func percentiles(_ samples: [Double]) -> LatencyPercentiles {
-    LatencyPercentiles(
+    let sorted = samples.sorted()
+    return LatencyPercentiles(
       count: samples.count,
-      p50MS: durationPercentile(0.50, samples: samples),
-      p95MS: durationPercentile(0.95, samples: samples),
-      p99MS: durationPercentile(0.99, samples: samples)
+      p50MS: durationPercentile(0.50, sortedSamples: sorted),
+      p95MS: durationPercentile(0.95, sortedSamples: sorted),
+      p99MS: durationPercentile(0.99, sortedSamples: sorted)
     )
   }
 }

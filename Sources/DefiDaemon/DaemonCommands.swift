@@ -430,7 +430,7 @@ extension Daemon {
       }
       let animatedManagedResize =
         resizesManagedLayout
-        && config.animation.enabled
+        && animationsEnabled
         && config.animation.durationMS > 0
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         let activationMonitorID =

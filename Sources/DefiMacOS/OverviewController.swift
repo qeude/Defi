@@ -4,7 +4,7 @@ import DefiCore
 import DefiModel
 import QuartzCore
 
-private let overviewTransitionDuration: TimeInterval = 0.16
+let overviewTransitionDuration: TimeInterval = 0.16
 
 private struct OverviewViewportAnimation {
   let from: OverviewViewport
@@ -20,11 +20,7 @@ private struct OverviewProjectionAnimation {
   let duration: TimeInterval
 }
 
-private struct RememberedOverviewPreview {
-  let image: NSImage
-  let appID: String
-  let processID: pid_t
-}
+
 
 enum OverviewScrollAxis: Equatable {
   case horizontal
@@ -113,7 +109,6 @@ func overviewViewportTransitionAfterSelectionAlignment(
 
 @MainActor
 public final class OverviewController: NSObject {
-  private static let rememberedPreviewByteLimit = 16 * 1_024 * 1_024
 
   public typealias WindowHandler = @MainActor @Sendable (
     WindowID, String, MonitorID, WorkspaceID
@@ -154,10 +149,10 @@ public final class OverviewController: NSObject {
   private var previewTask: Task<Void, Never>?
   private var desktopCaptureRetryTask: Task<Void, Never>?
   private var previewCache: [WindowID: NSImage] = [:]
-  private var rememberedPreviews: [WindowID: RememberedOverviewPreview] = [:]
-  private var rememberedPreviewByteCosts: [WindowID: Int] = [:]
+  private let rememberedPreviews = OverviewPreviewCache()
   private var previewRevealStartedAt: [WindowID: TimeInterval] = [:]
-  private var previewFadeTimer: Timer?
+  private var previewCacheExpiry: DispatchWorkItem?
+  private var memoryPressureSource: DispatchSourceMemoryPressure?
   private var attemptedPreviewWindowIDs = Set<WindowID>()
   private var capturedDesktopMonitorIDs = Set<MonitorID>()
   private var hasRequestedPreviewPermission = false
@@ -174,11 +169,12 @@ public final class OverviewController: NSObject {
   public private(set) var isOpen = false
   public private(set) var usesWorkspaceParking = false
   public var panelCount: Int { isOpen ? panels.count : 0 }
+  public var retainedPanelCount: Int { panels.count }
   public private(set) var previewPermissionState: OverviewPreviewPermissionState = .disabled
   public private(set) var previewFailureCount = 0
   public var previewCacheCount: Int { previewCache.count }
   public var rememberedPreviewMemoryBytes: Int {
-    rememberedPreviewByteCosts.values.reduce(0, +)
+    rememberedPreviews.byteCount
   }
   public var inFlightPreviewCount: Int {
     previewTask == nil ? 0 : min(previewPendingCount, 2)
@@ -199,6 +195,17 @@ public final class OverviewController: NSObject {
     openStateHandler = openStateChanged
     scrollCommitHandler = commitScrollOffsets
     super.init()
+    let pressure = DispatchSource.makeMemoryPressureSource(
+      eventMask: [.warning, .critical], queue: .main
+    )
+    pressure.setEventHandler { [weak self] in
+      MainActor.assumeIsolated {
+        self?.removeAllRememberedPreviews()
+        self?.releaseIdleOverviewResources()
+      }
+    }
+    pressure.resume()
+    memoryPressureSource = pressure
     let center = NSWorkspace.shared.notificationCenter
     center.addObserver(
       self,
@@ -222,7 +229,8 @@ public final class OverviewController: NSObject {
 
   isolated deinit {
     desktopCaptureRetryTask?.cancel()
-    previewFadeTimer?.invalidate()
+    previewCacheExpiry?.cancel()
+    memoryPressureSource?.cancel()
     for link in viewportDisplayLinks.values { link.invalidate() }
     NSWorkspace.shared.notificationCenter.removeObserver(self)
   }
@@ -264,6 +272,8 @@ public final class OverviewController: NSObject {
     self.snapshot = snapshot
     self.layout = layout
     borderStyle = WindowBorderStyle(config: borders)
+    previewCacheExpiry?.cancel()
+    previewCacheExpiry = nil
     animationsEnabled = animation.enabled
     overviewZoom = zoom
     self.windowCornerRadius = windowCornerRadius
@@ -481,11 +491,20 @@ public final class OverviewController: NSObject {
     for (monitorID, viewport) in viewportTargets {
       animateViewport(on: monitorID, to: viewport)
     }
-    if let movedSelectionMonitorID = movedSelectionPositions?.next.monitorID {
-      animateProjection(
-        on: movedSelectionMonitorID,
-        from: previousProjections[movedSelectionMonitorID]
+    for (monitorID, panel) in panels {
+      guard let source = previousProjections[monitorID] else { continue }
+      let resizesCards = overviewProjectionResizesExistingCards(
+        from: source, to: projection(for: panel, snapshot: snapshot)
       )
+      if resizesCards {
+        // Size and position changes use one projection timeline.
+        if let viewportAnimation = viewportAnimations.removeValue(forKey: monitorID) {
+          viewports[monitorID] = viewportAnimation.to
+        }
+      }
+      if resizesCards || movedSelectionPositions?.next.monitorID == monitorID {
+        animateProjection(on: monitorID, from: source)
+      }
     }
     updatePanels()
   }
@@ -497,6 +516,16 @@ public final class OverviewController: NSObject {
   private func close(commitScrollOffsets: Bool) {
     guard isOpen else { return }
     isOpen = false
+    previewCacheExpiry?.cancel()
+    let expiry = DispatchWorkItem { [weak self] in
+      MainActor.assumeIsolated {
+        guard let self, !self.isOpen else { return }
+        self.releaseIdleOverviewResources()
+        self.previewCacheExpiry = nil
+      }
+    }
+    previewCacheExpiry = expiry
+    DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: expiry)
     sessionGeneration &+= 1
     edgeScrollTimer?.invalidate()
     edgeScrollTimer = nil
@@ -803,9 +832,12 @@ public final class OverviewController: NSObject {
       ?? .workspace(monitorID: monitor.id, workspaceID: workspace.id)
   }
 
-  private func updatePanels(scheduleCaptures: Bool = true) {
+  private func updatePanels(
+    scheduleCaptures: Bool = true,
+    only requestedMonitorID: MonitorID? = nil
+  ) {
     guard let snapshot else { return }
-    var projections: [MonitorID: OverviewProjection] = [:]
+    var projections = self.projections.filter { panels[$0.key] != nil }
     let now = CACurrentMediaTime()
     let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     let previewOpacities = Dictionary(
@@ -820,7 +852,8 @@ public final class OverviewController: NSObject {
         )
       }
     )
-    for (monitorID, panel) in panels {
+    for (monitorID, panel) in panels
+    where requestedMonitorID == nil || requestedMonitorID == monitorID {
       let target = projection(for: panel, snapshot: snapshot)
       let projection = displayedProjection(
         target: target,
@@ -1007,10 +1040,12 @@ public final class OverviewController: NSObject {
       )
       let hadPreview = previewCache[result.request.windowID] != nil
       previewCache[result.request.windowID] = preview
-      if let window = snapshot?.windows[result.request.windowID] {
+      if let window = snapshot?.windows[result.request.windowID],
+        let rememberedImage = result.rememberedImage
+      {
         rememberPreview(
-          preview,
-          cgImage: image,
+          NSImage(cgImage: rememberedImage, size: preview.size),
+          cgImage: rememberedImage,
           for: window
         )
       }
@@ -1056,36 +1091,48 @@ public final class OverviewController: NSObject {
   }
 
   private func startPreviewFadeAnimation() {
-    previewFadeTimer?.invalidate()
     guard animationsEnabled,
       !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     else {
-      previewFadeTimer = nil
-      previewRevealStartedAt.removeAll(keepingCapacity: true)
+      resetPreviewFadeAnimation()
       return
     }
-    let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated {
-        guard let self else { return }
-        guard self.isOpen else { return self.resetPreviewFadeAnimation() }
-        let now = CACurrentMediaTime()
-        let isAnimating = self.previewRevealStartedAt.values.contains {
-          overviewPreviewOpacity(startedAt: $0, now: now, reduceMotion: false) < 1
-        }
-        if !isAnimating {
-          self.resetPreviewFadeAnimation()
-        }
-        self.updatePanels()
+    for (monitorID, projection) in projections {
+      let windowIDs = projection.workspaces.flatMap(\.windows).map(\.windowID)
+      guard windowIDs.contains(where: { previewRevealStartedAt[$0] != nil }) else { continue }
+      if let link = displayLink(on: monitorID) {
+        link.isPaused = false
+      } else {
+        for windowID in windowIDs { previewRevealStartedAt[windowID] = nil }
       }
     }
-    previewFadeTimer = timer
-    RunLoop.main.add(timer, forMode: .common)
   }
 
   private func resetPreviewFadeAnimation() {
-    previewFadeTimer?.invalidate()
-    previewFadeTimer = nil
     previewRevealStartedAt.removeAll(keepingCapacity: true)
+  }
+
+  private func updatePreviewFade(on monitorID: MonitorID) -> Bool {
+    guard let projection = projections[monitorID] else { return false }
+    let now = CACurrentMediaTime()
+    let reduceMotion = !animationsEnabled
+      || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    var opacities: [WindowID: Double] = [:]
+    var pending = false
+    for card in projection.workspaces.flatMap(\.windows) {
+      let opacity = overviewPreviewOpacity(
+        startedAt: previewRevealStartedAt[card.windowID],
+        now: now, reduceMotion: reduceMotion
+      )
+      opacities[card.windowID] = opacity
+      if opacity < 1 {
+        pending = true
+      } else {
+        previewRevealStartedAt[card.windowID] = nil
+      }
+    }
+    panels[monitorID]?.view.updatePreviewOpacities(opacities)
+    return pending
   }
 
   private func restoreRememberedPreviews(for snapshot: OverviewSnapshot) {
@@ -1094,58 +1141,32 @@ public final class OverviewController: NSObject {
       return
     }
     pruneRememberedPreviews(for: snapshot)
-    for (windowID, remembered) in rememberedPreviews {
-      previewCache[windowID] = remembered.image
-    }
+    previewCache.merge(rememberedPreviews.images) { _, remembered in remembered }
   }
 
   private func pruneRememberedPreviews(for snapshot: OverviewSnapshot) {
-    for (windowID, remembered) in rememberedPreviews {
-      guard let window = snapshot.windows[windowID],
-        window.appID == remembered.appID,
-        window.processID == remembered.processID
-      else {
-        previewCache[windowID] = nil
-        forgetRememberedPreview(for: windowID)
-        continue
-      }
+    for windowID in rememberedPreviews.prune(windows: snapshot.windows) {
+      previewCache[windowID] = nil
     }
   }
 
-  private func rememberPreview(
-    _ image: NSImage,
-    cgImage: CGImage,
-    for window: Window
-  ) {
-    guard let processID = window.processID else {
-      forgetRememberedPreview(for: window.id)
-      return
-    }
-    let byteCost = cgImage.bytesPerRow * cgImage.height
-    let canStore = overviewPreviewCacheCanStore(
-      windowID: window.id,
-      byteCost: byteCost,
-      currentByteCosts: rememberedPreviewByteCosts,
-      maximumBytes: Self.rememberedPreviewByteLimit
-    )
-    forgetRememberedPreview(for: window.id)
-    guard canStore else { return }
-    rememberedPreviews[window.id] = RememberedOverviewPreview(
-      image: image,
-      appID: window.appID,
-      processID: processID
-    )
-    rememberedPreviewByteCosts[window.id] = byteCost
+  private func rememberPreview(_ image: NSImage, cgImage: CGImage, for window: Window) {
+    rememberedPreviews.store(image, byteCost: cgImage.bytesPerRow * cgImage.height, for: window)
   }
 
   private func forgetRememberedPreview(for windowID: WindowID) {
-    rememberedPreviews[windowID] = nil
-    rememberedPreviewByteCosts[windowID] = nil
+    rememberedPreviews.remove(windowID)
+  }
+
+  private func releaseIdleOverviewResources() {
+    guard !isOpen else { return }
+    closePanelsImmediately()
+    snapshot = nil
+    projections.removeAll()
   }
 
   private func removeAllRememberedPreviews() {
-    rememberedPreviews.removeAll(keepingCapacity: true)
-    rememberedPreviewByteCosts.removeAll(keepingCapacity: true)
+    rememberedPreviews.removeAll()
   }
 
   private func visiblePreviewRequests() -> [OverviewPreviewRequest] {
@@ -1238,6 +1259,7 @@ public final class OverviewController: NSObject {
   ) {
     guard let source, let snapshot, let panel = panels[monitorID] else { return }
     let target = projection(for: panel, snapshot: snapshot)
+    guard projectionAnimations[monitorID]?.to != target else { return }
     guard source != target,
       animationsEnabled,
       !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
@@ -1273,6 +1295,8 @@ public final class OverviewController: NSObject {
       link.isPaused = true
       return
     }
+    let geometryChanged = viewportAnimations[monitorID] != nil
+      || projectionAnimations[monitorID] != nil
     let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     if let animation = viewportAnimations[monitorID] {
       let elapsed = CACurrentMediaTime() - animation.startedAt
@@ -1293,8 +1317,9 @@ public final class OverviewController: NSObject {
         )
       }
     }
-    updatePanels()
-    if viewportAnimations[monitorID] == nil,
+    if geometryChanged { updatePanels(only: monitorID) }
+    let fadePending = updatePreviewFade(on: monitorID)
+    if !fadePending, viewportAnimations[monitorID] == nil,
       projectionAnimations[monitorID] == nil
     {
       link.isPaused = true
@@ -1304,7 +1329,7 @@ public final class OverviewController: NSObject {
   private func cancelAnimations(on monitorID: MonitorID) {
     viewportAnimations[monitorID] = nil
     projectionAnimations[monitorID] = nil
-    viewportDisplayLinks[monitorID]?.isPaused = true
+    viewportDisplayLinks[monitorID]?.isPaused = !updatePreviewFade(on: monitorID)
   }
 
   private func stopOverviewAnimations() {
@@ -1350,7 +1375,7 @@ public final class OverviewController: NSObject {
 
 @MainActor
 extension OverviewController: OverviewViewDelegate {
-  fileprivate func overviewView(
+  func overviewView(
     _ view: OverviewView,
     clickedAt point: NSPoint
   ) {
@@ -1370,7 +1395,7 @@ extension OverviewController: OverviewViewDelegate {
     }
   }
 
-  fileprivate func overviewView(
+  func overviewView(
     _ view: OverviewView,
     beganDragging windowID: WindowID,
     at screenPoint: NSPoint
@@ -1397,14 +1422,14 @@ extension OverviewController: OverviewViewDelegate {
     updateDrag(at: screenPoint)
   }
 
-  fileprivate func overviewView(
+  func overviewView(
     _ view: OverviewView,
     draggedTo screenPoint: NSPoint
   ) {
     updateDrag(at: screenPoint)
   }
 
-  fileprivate func overviewView(
+  func overviewView(
     _ view: OverviewView,
     endedDraggingAt screenPoint: NSPoint
   ) {
@@ -1423,7 +1448,7 @@ extension OverviewController: OverviewViewDelegate {
     )
   }
 
-  fileprivate func overviewView(
+  func overviewView(
     _ view: OverviewView,
     scrolled delta: NSPoint,
     hasPreciseScrollingDeltas: Bool,
@@ -1473,7 +1498,7 @@ extension OverviewController: OverviewViewDelegate {
     }
   }
 
-  fileprivate func overviewView(
+  func overviewView(
     _ view: OverviewView,
     rightDraggedBy deltaX: Double,
     at point: NSPoint
@@ -1505,7 +1530,7 @@ extension OverviewController: OverviewViewDelegate {
     updatePanels()
   }
 
-  fileprivate func overviewView(
+  func overviewView(
     _ view: OverviewView,
     pageWorkspace workspaceID: WorkspaceID,
     direction: Int
@@ -1618,7 +1643,7 @@ extension OverviewController: OverviewViewDelegate {
   }
 }
 
-private enum OverviewSelection: Equatable {
+enum OverviewSelection: Equatable {
   case window(windowID: WindowID, monitorID: MonitorID, workspaceID: WorkspaceID)
   case workspace(monitorID: MonitorID, workspaceID: WorkspaceID)
 
@@ -1722,7 +1747,7 @@ private struct OverviewDrag {
   }
 }
 
-private struct OverviewDragPresentation {
+struct OverviewDragPresentation: Equatable {
   let windowID: WindowID
   let localPoint: NSPoint?
   let cardSize: NSSize
@@ -1746,819 +1771,5 @@ private extension OverviewDropTarget {
       .floating(let monitorID, let workspaceID, _):
       (monitorID, workspaceID)
     }
-  }
-}
-
-@MainActor
-private protocol OverviewViewDelegate: AnyObject {
-  func overviewView(_ view: OverviewView, clickedAt point: NSPoint)
-  func overviewView(_ view: OverviewView, beganDragging windowID: WindowID, at: NSPoint)
-  func overviewView(_ view: OverviewView, draggedTo: NSPoint)
-  func overviewView(_ view: OverviewView, endedDraggingAt: NSPoint)
-  func overviewView(
-    _ view: OverviewView,
-    scrolled delta: NSPoint,
-    hasPreciseScrollingDeltas: Bool,
-    at: NSPoint
-  )
-  func overviewView(_ view: OverviewView, rightDraggedBy deltaX: Double, at: NSPoint)
-  func overviewView(_ view: OverviewView, pageWorkspace: WorkspaceID, direction: Int)
-}
-
-@MainActor
-private final class OverviewPanel {
-  let monitorID: MonitorID
-  let usesCapturedDesktop: Bool
-  let window: NSPanel
-  let view: OverviewView
-  private let desktopView: NSView
-
-  init(
-    monitorID: MonitorID,
-    screen: NSScreen,
-    usesCapturedDesktop: Bool,
-    delegate: OverviewViewDelegate
-  ) {
-    self.monitorID = monitorID
-    self.usesCapturedDesktop = usesCapturedDesktop
-    view = OverviewView(monitorID: monitorID, delegate: delegate)
-    desktopView = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
-    window = NSPanel(
-      contentRect: screen.frame,
-      styleMask: [.borderless, .nonactivatingPanel],
-      backing: .buffered,
-      defer: false,
-      screen: screen
-    )
-    window.setFrame(screen.frame, display: false)
-    window.title = "Defi Overview"
-    window.setAccessibilityLabel("Defi Overview")
-    window.isOpaque = usesCapturedDesktop
-    window.backgroundColor = usesCapturedDesktop ? .black : .clear
-    window.hasShadow = false
-    window.hidesOnDeactivate = false
-    window.isReleasedWhenClosed = false
-    window.isExcludedFromWindowsMenu = true
-    window.animationBehavior = .none
-    window.level = .statusBar
-    window.collectionBehavior = [
-      .canJoinAllSpaces,
-      .fullScreenAuxiliary,
-      .stationary,
-      .ignoresCycle,
-    ]
-    window.sharingType = .readOnly
-    let rootView = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
-    rootView.wantsLayer = true
-    rootView.layer?.backgroundColor = usesCapturedDesktop
-      ? NSColor.black.cgColor
-      : NSColor.clear.cgColor
-    rootView.autoresizingMask = [.width, .height]
-    desktopView.wantsLayer = true
-    desktopView.layer?.backgroundColor = usesCapturedDesktop
-      ? NSColor.black.cgColor
-      : NSColor.clear.cgColor
-    desktopView.layer?.contentsGravity = .resizeAspectFill
-    desktopView.layer?.contentsScale = screen.backingScaleFactor
-    desktopView.layer?.masksToBounds = true
-    desktopView.autoresizingMask = [.width, .height]
-    if let url = NSWorkspace.shared.desktopImageURL(for: screen),
-      let image = NSImage(contentsOf: url)
-    {
-      if usesCapturedDesktop {
-        desktopView.layer?.contents = image
-      }
-      view.setDesktopImage(image)
-    }
-    let glassView = NSGlassEffectView(
-      frame: NSRect(origin: .zero, size: screen.frame.size)
-    )
-    glassView.style = .regular
-    glassView.appearance = NSAppearance(named: .darkAqua)
-    glassView.autoresizingMask = [.width, .height]
-    view.frame = glassView.bounds
-    view.autoresizingMask = [.width, .height]
-    glassView.contentView = view
-    rootView.addSubview(desktopView)
-    rootView.addSubview(glassView)
-    window.contentView = rootView
-  }
-
-  func setDesktopImage(_ image: NSImage) {
-    desktopView.layer?.contents = image
-    view.setDesktopImage(image)
-  }
-
-  func show(animated: Bool) {
-    window.alphaValue = animated ? 0.001 : 1
-    view.wantsLayer = true
-    view.layer?.setAffineTransform(animated ? CGAffineTransform(scaleX: 0.97, y: 0.97) : .identity)
-    window.orderFrontRegardless()
-    guard animated else { return }
-    window.displayIfNeeded()
-    let displayInterval = 1 / Double(max(window.screen?.maximumFramesPerSecond ?? 60, 60))
-    DispatchQueue.main.asyncAfter(deadline: .now() + displayInterval) { [weak self] in
-      guard let self else { return }
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = overviewTransitionDuration
-        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        self.window.animator().alphaValue = 1
-        self.view.layer?.setAffineTransform(.identity)
-      }
-    }
-  }
-
-  func hide() {
-    orderOut()
-  }
-
-  func localPoint(fromScreen point: NSPoint) -> NSPoint {
-    let windowPoint = window.convertPoint(fromScreen: point)
-    return view.convert(windowPoint, from: nil)
-  }
-
-  func close() {
-    orderOut()
-    desktopView.layer?.contents = nil
-    window.close()
-  }
-
-  private func orderOut() {
-    view.discardPreviewImages()
-    window.orderOut(nil)
-  }
-}
-
-@MainActor
-private final class OverviewView: NSView {
-  let monitorID: MonitorID
-  private weak var delegate: OverviewViewDelegate?
-  private var snapshot: OverviewSnapshot?
-  private var projection: OverviewProjection?
-  private var selection: OverviewSelection?
-  private var drag: OverviewDragPresentation?
-  private var borderStyle = WindowBorderStyle(config: BordersConfig())
-  private var windowCornerRadius = 12.0
-  private var desktopImage: NSImage?
-  private var previews: [WindowID: NSImage] = [:]
-  private var previewOpacities: [WindowID: Double] = [:]
-  private var mouseDownPoint: NSPoint?
-  private var mouseDownWindowID: WindowID?
-  private var mouseDownOverflow: (workspaceID: WorkspaceID, direction: Int)?
-  private var leftDragStarted = false
-  private var rightDragPoint: NSPoint?
-  private var iconCache: [String: NSImage] = [:]
-
-  override var isFlipped: Bool { true }
-
-  init(monitorID: MonitorID, delegate: OverviewViewDelegate) {
-    self.monitorID = monitorID
-    self.delegate = delegate
-    super.init(frame: .zero)
-    setAccessibilityElement(true)
-    setAccessibilityRole(.group)
-    setAccessibilityLabel("Defi Overview")
-  }
-
-  func discardPreviewImages() {
-    previews.removeAll(keepingCapacity: false)
-  }
-
-  func setDesktopImage(_ image: NSImage) {
-    desktopImage = image
-    needsDisplay = true
-  }
-
-  @available(*, unavailable)
-  required init?(coder: NSCoder) { nil }
-
-  func update(
-    snapshot: OverviewSnapshot,
-    projection: OverviewProjection,
-    selection: OverviewSelection?,
-    drag: OverviewDragPresentation?,
-    borderStyle: WindowBorderStyle,
-    windowCornerRadius: Double,
-    previews: [WindowID: NSImage],
-    previewOpacities: [WindowID: Double]
-  ) {
-    self.snapshot = snapshot
-    self.projection = projection
-    self.selection = selection
-    self.drag = drag
-    self.borderStyle = borderStyle
-    self.windowCornerRadius = windowCornerRadius
-    self.previews = previews
-    self.previewOpacities = previewOpacities
-    needsDisplay = true
-  }
-
-  override func draw(_ dirtyRect: NSRect) {
-    guard let projection, let snapshot else { return }
-    for workspace in projection.workspaces {
-      drawWorkspace(workspace, snapshot: snapshot)
-    }
-    if let overlayWindowID = projection.overlayWindowID,
-      let workspace = projection.workspaces.first(where: {
-        $0.windows.contains { $0.windowID == overlayWindowID }
-      }),
-      let overlay = workspace.windows.first(where: { $0.windowID == overlayWindowID })
-    {
-      drawWindow(overlay, snapshot: snapshot)
-      drawWindowBorder(overlay, scale: contentScale(for: workspace, snapshot: snapshot))
-    }
-    drawDraggedCard(snapshot: snapshot)
-    drawDropTarget()
-  }
-
-  override func accessibilityChildren() -> [Any]? {
-    guard let projection, let snapshot, let window else { return [] }
-    return projection.workspaces.flatMap { workspace -> [NSAccessibilityElement] in
-      let workspaceElement = NSAccessibilityElement()
-      workspaceElement.setAccessibilityParent(self)
-      workspaceElement.setAccessibilityRole(.group)
-      workspaceElement.setAccessibilityEnabled(true)
-      workspaceElement.setAccessibilityLabel("Workspace \(workspace.label)")
-      workspaceElement.setAccessibilityFrame(
-        window.convertToScreen(convert(nsRect(workspace.frame), to: nil))
-      )
-      let windowElements = workspace.windows.compactMap { card -> NSAccessibilityElement? in
-        guard let managedWindow = snapshot.windows[card.windowID] else { return nil }
-        let visibleFrame = nsRect(card.frame).intersection(nsRect(workspace.frame))
-        guard !visibleFrame.isEmpty else { return nil }
-        let element = OverviewAccessibilityElement { [weak self] in
-          guard let self else { return }
-          self.delegate?.overviewView(
-            self,
-            clickedAt: NSPoint(x: visibleFrame.midX, y: visibleFrame.midY)
-          )
-        }
-        element.setAccessibilityParent(self)
-        element.setAccessibilityRole(.button)
-        element.setAccessibilityEnabled(true)
-        element.setAccessibilityLabel(
-          managedWindow.title.isEmpty ? managedWindow.appID : managedWindow.title
-        )
-        element.setAccessibilityHelp("Workspace \(workspace.label)")
-        element.setAccessibilitySelected(selection?.windowID == card.windowID)
-        element.setAccessibilityFrame(
-          window.convertToScreen(convert(visibleFrame, to: nil))
-        )
-        return element
-      }
-      return [workspaceElement] + windowElements
-    }
-  }
-
-  private func drawWorkspace(
-    _ workspace: OverviewWorkspaceProjection,
-    snapshot: OverviewSnapshot
-  ) {
-    let frame = nsRect(workspace.frame)
-    let scale = contentScale(for: workspace, snapshot: snapshot)
-    drawVisibleDesktop(for: workspace)
-    NSGraphicsContext.saveGraphicsState()
-    frame.clip()
-    for window in workspace.windows
-    where window.layer != .floating
-      && drag?.windowID != window.windowID
-      && projection?.overlayWindowID != window.windowID
-    {
-      drawWindow(window, snapshot: snapshot)
-    }
-    NSGraphicsContext.restoreGraphicsState()
-
-    NSGraphicsContext.saveGraphicsState()
-    nsRect(workspace.visibleFrame).clip()
-    for window in workspace.windows
-    where window.layer == .floating
-      && drag?.windowID != window.windowID
-      && projection?.overlayWindowID != window.windowID
-    {
-      drawWindow(window, snapshot: snapshot)
-    }
-    NSGraphicsContext.restoreGraphicsState()
-
-    NSGraphicsContext.saveGraphicsState()
-    let borderWidth = borderStyle.width * scale
-    frame.insetBy(dx: -borderWidth, dy: -borderWidth).clip()
-    for window in workspace.windows
-    where window.layer != .floating
-      && drag?.windowID != window.windowID
-      && projection?.overlayWindowID != window.windowID
-    {
-      drawWindowBorder(window, scale: scale)
-    }
-    NSGraphicsContext.restoreGraphicsState()
-
-    NSGraphicsContext.saveGraphicsState()
-    nsRect(workspace.visibleFrame).insetBy(
-      dx: -borderWidth,
-      dy: -borderWidth
-    ).clip()
-    for window in workspace.windows
-    where window.layer == .floating
-      && drag?.windowID != window.windowID
-      && projection?.overlayWindowID != window.windowID
-    {
-      drawWindowBorder(window, scale: scale)
-    }
-    NSGraphicsContext.restoreGraphicsState()
-    drawHorizontalOverflowIndicators(for: workspace)
-  }
-
-  private func drawVisibleDesktop(for workspace: OverviewWorkspaceProjection) {
-    let frame = nsRect(workspace.visibleFrame)
-    let path = NSBezierPath(
-      roundedRect: frame,
-      xRadius: windowCornerRadius,
-      yRadius: windowCornerRadius
-    )
-    NSGraphicsContext.saveGraphicsState()
-    path.addClip()
-    if let desktopImage {
-      desktopImage.draw(
-        in: frame,
-        from: aspectFillSourceRect(for: desktopImage, in: frame),
-        operation: .sourceOver,
-        fraction: 1,
-        respectFlipped: true,
-        hints: [.interpolation: NSImageInterpolation.high]
-      )
-    } else {
-      NSColor.windowBackgroundColor.setFill()
-      path.fill()
-    }
-    NSColor.black.withAlphaComponent(0.12).setFill()
-    path.fill()
-    NSGraphicsContext.restoreGraphicsState()
-  }
-
-  private func aspectFillSourceRect(
-    for image: NSImage,
-    in frame: NSRect,
-    horizontalAlignment: CGFloat = 0.5
-  ) -> NSRect {
-    guard image.size.width > 0, image.size.height > 0, frame.width > 0, frame.height > 0
-    else { return .zero }
-    let imageRatio = image.size.width / image.size.height
-    let frameRatio = frame.width / frame.height
-    if imageRatio > frameRatio {
-      let width = image.size.height * frameRatio
-      return NSRect(
-        x: (image.size.width - width) * horizontalAlignment,
-        y: 0,
-        width: width,
-        height: image.size.height
-      )
-    }
-    let height = image.size.width / frameRatio
-    return NSRect(
-      x: 0,
-      y: (image.size.height - height) / 2,
-      width: image.size.width,
-      height: height
-    )
-  }
-
-  private func drawWindow(
-    _ card: OverviewWindowProjection,
-    snapshot: OverviewSnapshot
-  ) {
-    guard let window = snapshot.windows[card.windowID] else { return }
-    let frame = nsRect(card.frame)
-    let path = NSBezierPath(
-      roundedRect: frame,
-      xRadius: windowCornerRadius,
-      yRadius: windowCornerRadius
-    )
-    NSColor(calibratedWhite: card.isNativeFullscreen ? 0.19 : 0.15, alpha: 1).setFill()
-    path.fill()
-    let iconSize = overviewWindowTitleIconSize(cardHeight: frame.height)
-    let titleBandHeight = overviewWindowTitleBandHeight(iconSize: iconSize)
-    let titleFadeHeight = overviewPreviewBlurFadeHeight(
-      titleBandHeight: titleBandHeight,
-      imageScale: 1,
-      imageHeight: frame.height
-    )
-    if let preview = previews[card.windowID] {
-      let opacity = previewOpacities[card.windowID] ?? 1
-      NSGraphicsContext.saveGraphicsState()
-      path.addClip()
-      preview.draw(
-        in: frame,
-        from: aspectFillSourceRect(for: preview, in: frame, horizontalAlignment: 0),
-        operation: .sourceOver,
-        fraction: opacity,
-        respectFlipped: true,
-        hints: [.interpolation: NSImageInterpolation.high]
-      )
-      NSGradient(
-        colorsAndLocations:
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0, opacity: CGFloat(opacity))
-          ), 0),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.25, opacity: CGFloat(opacity))
-          ), 0.25),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.5, opacity: CGFloat(opacity))
-          ), 0.5),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.75, opacity: CGFloat(opacity))
-          ), 0.75),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.9, opacity: CGFloat(opacity))
-          ), 0.9),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.97, opacity: CGFloat(opacity))
-          ), 0.97),
-          (NSColor.clear, 1)
-      )?.draw(
-        from: NSPoint(x: frame.midX, y: frame.minY),
-        to: NSPoint(x: frame.midX, y: frame.minY + titleFadeHeight),
-        options: []
-      )
-      NSGraphicsContext.restoreGraphicsState()
-    }
-    let title = (window.title.isEmpty ? window.appID : window.title) as NSString
-    let titleAttributes: [NSAttributedString.Key: Any] = [
-      .font: NSFont.systemFont(ofSize: min(13, max(frame.height * 0.09, 10)), weight: .medium),
-      .foregroundColor: NSColor.white.withAlphaComponent(0.9),
-    ]
-    let titleLayout = overviewWindowTitleLayout(
-      cardFrame: frame,
-      iconSize: iconSize,
-      titleSize: title.size(withAttributes: titleAttributes),
-      blurHeight: titleBandHeight
-    )
-    let icon = icon(for: window)
-    icon.draw(in: titleLayout.iconFrame)
-    title.draw(in: titleLayout.titleFrame, withAttributes: titleAttributes)
-    if card.isNativeFullscreen {
-      let label = "Full Screen" as NSString
-      label.draw(
-        at: NSPoint(x: frame.minX + 10, y: frame.maxY - 26),
-        withAttributes: [
-          .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-          .foregroundColor: NSColor.white.withAlphaComponent(0.58),
-        ]
-      )
-    }
-  }
-
-  private func drawWindowBorder(_ card: OverviewWindowProjection, scale: Double) {
-    let selected = selection == .window(
-      windowID: card.windowID,
-      monitorID: monitorID,
-      workspaceID: selection?.location?.workspaceID ?? WorkspaceID(rawValue: "")
-    )
-    if let border = overviewWindowBorderAppearance(
-      isSelected: selected,
-      style: borderStyle,
-      scale: scale
-    ) {
-      overviewBorderColor(border.color).setStroke()
-      let geometry = overviewWindowBorderGeometry(
-        cardFrame: card.frame,
-        cardRadius: windowCornerRadius,
-        width: border.width,
-        placement: borderStyle.placement
-      )
-      let borderPath = NSBezierPath(
-        roundedRect: nsRect(geometry.frame),
-        xRadius: geometry.radius,
-        yRadius: geometry.radius
-      )
-      borderPath.lineWidth = border.width
-      borderPath.stroke()
-    }
-  }
-
-  private func contentScale(
-    for workspace: OverviewWorkspaceProjection,
-    snapshot: OverviewSnapshot
-  ) -> Double {
-    guard let monitorFrame = snapshot.monitorFrames[monitorID], monitorFrame.height > 0 else {
-      return 1
-    }
-    return workspace.frame.height / monitorFrame.height
-  }
-
-  private func drawHorizontalOverflowIndicators(
-    for workspace: OverviewWorkspaceProjection
-  ) {
-    if workspace.hiddenTiledWindowCountBefore > 0 {
-      drawHorizontalOverflowIndicator(
-        "\u{2190} \(workspace.hiddenTiledWindowCountBefore)",
-        leading: true,
-        in: nsRect(workspace.frame)
-      )
-    }
-    if workspace.hiddenTiledWindowCountAfter > 0 {
-      drawHorizontalOverflowIndicator(
-        "\(workspace.hiddenTiledWindowCountAfter) \u{2192}",
-        leading: false,
-        in: nsRect(workspace.frame)
-      )
-    }
-  }
-
-  private func drawHorizontalOverflowIndicator(
-    _ label: String,
-    leading: Bool,
-    in frame: NSRect
-  ) {
-    let indicatorFrame = horizontalOverflowIndicatorFrame(leading: leading, in: frame)
-    let path = NSBezierPath(roundedRect: indicatorFrame, xRadius: 15, yRadius: 15)
-    NSColor.black.withAlphaComponent(0.72).setFill()
-    path.fill()
-    (label as NSString).draw(
-      in: indicatorFrame.insetBy(dx: 8, dy: 6),
-      withAttributes: [
-        .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
-        .foregroundColor: NSColor.white.withAlphaComponent(0.92),
-        .paragraphStyle: centeredParagraphStyle,
-      ]
-    )
-  }
-
-  private var centeredParagraphStyle: NSParagraphStyle {
-    let style = NSMutableParagraphStyle()
-    style.alignment = .center
-    return style
-  }
-
-  private func icon(for window: Window) -> NSImage {
-    if let cached = iconCache[window.appID] { return cached }
-    let icon = window.processID.flatMap {
-      NSRunningApplication(processIdentifier: pid_t($0))?.icon
-    } ?? NSImage(systemSymbolName: "app", accessibilityDescription: window.appID)
-      ?? NSImage(size: NSSize(width: 24, height: 24))
-    iconCache[window.appID] = icon
-    return icon
-  }
-
-  private func overviewBorderColor(_ value: UInt32) -> NSColor {
-    NSColor(
-      srgbRed: CGFloat((value >> 16) & 0xff) / 255,
-      green: CGFloat((value >> 8) & 0xff) / 255,
-      blue: CGFloat(value & 0xff) / 255,
-      alpha: CGFloat(windowBorderAlpha(of: value)) / 255
-    )
-  }
-
-  private func drawDropTarget() {
-    guard let target = drag?.target, let projection else { return }
-    NSColor.controlAccentColor.setStroke()
-    switch target {
-    case .newColumn(_, let workspaceID, let columnIndex):
-      guard let workspace = projection.workspaces.first(where: {
-        $0.workspaceID == workspaceID
-      }) else { return }
-      let columns = workspace.windows.compactMap { window -> (Int, Rect)? in
-        guard case .tiled(let index, _) = window.layer else { return nil }
-        return (index, window.frame)
-      }
-      let x = columns.filter { $0.0 == columnIndex }.map(\.1.x).min()
-        ?? columns.map { $0.1.x + $0.1.width }.max()
-        ?? workspace.frame.x + 8
-      let band = NSBezierPath(
-        roundedRect: NSRect(
-          x: x - 10,
-          y: workspace.frame.y + 8,
-          width: 20,
-          height: workspace.frame.height - 16
-        ),
-        xRadius: 10,
-        yRadius: 10
-      )
-      NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-      band.fill()
-      NSColor.controlAccentColor.setStroke()
-      let path = NSBezierPath()
-      path.move(to: NSPoint(x: x, y: workspace.frame.y + 12))
-      path.line(to: NSPoint(x: x, y: workspace.frame.y + workspace.frame.height - 12))
-      path.lineWidth = 3
-      path.stroke()
-    case .stack(_, let workspaceID, let columnIndex, let windowIndex):
-      let cards = projection.workspaces.first(where: {
-        $0.workspaceID == workspaceID
-      })?.windows.filter {
-        if case .tiled(let index, _) = $0.layer { return index == columnIndex }
-        return false
-      }.sorted { $0.frame.y < $1.frame.y } ?? []
-      guard let first = cards.first, let last = cards.last else { return }
-      let y = windowIndex < cards.count
-        ? cards[windowIndex].frame.y
-        : last.frame.y + last.frame.height
-      let path = NSBezierPath()
-      path.move(to: NSPoint(x: first.frame.x + 8, y: y))
-      path.line(to: NSPoint(x: first.frame.x + first.frame.width - 8, y: y))
-      path.lineWidth = 4
-      path.stroke()
-    case .floating:
-      break
-    }
-  }
-
-  private func drawDraggedCard(snapshot: OverviewSnapshot) {
-    guard let drag, let point = drag.localPoint,
-      let window = snapshot.windows[drag.windowID]
-    else { return }
-    let frame = NSRect(
-      x: point.x - drag.cardSize.width / 2,
-      y: point.y - drag.cardSize.height / 2,
-      width: drag.cardSize.width,
-      height: drag.cardSize.height
-    )
-    let path = NSBezierPath(
-      roundedRect: frame,
-      xRadius: windowCornerRadius,
-      yRadius: windowCornerRadius
-    )
-    NSColor(calibratedWhite: 0.18, alpha: 0.94).setFill()
-    path.fill()
-    NSColor.controlAccentColor.setStroke()
-    path.lineWidth = 3
-    path.stroke()
-    ((window.title.isEmpty ? window.appID : window.title) as NSString).draw(
-      in: frame.insetBy(dx: 12, dy: 10),
-      withAttributes: [
-        .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-        .foregroundColor: NSColor.white,
-      ]
-    )
-  }
-
-  override func mouseDown(with event: NSEvent) {
-    let point = convert(event.locationInWindow, from: nil)
-    mouseDownPoint = point
-    mouseDownOverflow = horizontalOverflowAction(at: point)
-    if mouseDownOverflow == nil {
-      mouseDownWindowID = projection?.hitTest(
-        OverviewPoint(x: point.x, y: point.y)
-      ).flatMap { hit in
-        if case .window(let windowID, _, _) = hit { return windowID }
-        return nil
-      }
-    } else {
-      mouseDownWindowID = nil
-    }
-    leftDragStarted = false
-  }
-
-  override func mouseDragged(with event: NSEvent) {
-    guard let start = mouseDownPoint, let windowID = mouseDownWindowID else { return }
-    let point = convert(event.locationInWindow, from: nil)
-    let screenPoint = window?.convertPoint(toScreen: event.locationInWindow) ?? .zero
-    if !leftDragStarted, hypot(point.x - start.x, point.y - start.y) >= 5 {
-      leftDragStarted = true
-      delegate?.overviewView(self, beganDragging: windowID, at: screenPoint)
-    }
-    if leftDragStarted {
-      delegate?.overviewView(self, draggedTo: screenPoint)
-    }
-  }
-
-  override func mouseUp(with event: NSEvent) {
-    let point = convert(event.locationInWindow, from: nil)
-    if leftDragStarted {
-      let screenPoint = window?.convertPoint(toScreen: event.locationInWindow) ?? .zero
-      delegate?.overviewView(self, endedDraggingAt: screenPoint)
-    } else if let pressed = mouseDownOverflow,
-      let released = horizontalOverflowAction(at: point),
-      pressed.workspaceID == released.workspaceID,
-      pressed.direction == released.direction
-    {
-      delegate?.overviewView(
-        self,
-        pageWorkspace: released.workspaceID,
-        direction: released.direction
-      )
-    } else {
-      delegate?.overviewView(self, clickedAt: point)
-    }
-    mouseDownPoint = nil
-    mouseDownWindowID = nil
-    mouseDownOverflow = nil
-    leftDragStarted = false
-  }
-
-  override func rightMouseDown(with event: NSEvent) {
-    rightDragPoint = convert(event.locationInWindow, from: nil)
-  }
-
-  override func rightMouseDragged(with event: NSEvent) {
-    let point = convert(event.locationInWindow, from: nil)
-    guard let previous = rightDragPoint else { return }
-    delegate?.overviewView(self, rightDraggedBy: point.x - previous.x, at: point)
-    rightDragPoint = point
-  }
-
-  override func rightMouseUp(with event: NSEvent) {
-    rightDragPoint = nil
-  }
-
-  override func scrollWheel(with event: NSEvent) {
-    let point = convert(event.locationInWindow, from: nil)
-    delegate?.overviewView(
-      self,
-      scrolled: NSPoint(x: event.scrollingDeltaX, y: event.scrollingDeltaY),
-      hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
-      at: point
-    )
-  }
-
-  private func nsRect(_ rect: Rect) -> NSRect {
-    NSRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
-  }
-
-  private func horizontalOverflowAction(
-    at point: NSPoint
-  ) -> (workspaceID: WorkspaceID, direction: Int)? {
-    guard let projection else { return nil }
-    for workspace in projection.workspaces.reversed() {
-      let frame = nsRect(workspace.frame)
-      if workspace.hiddenTiledWindowCountBefore > 0,
-        horizontalOverflowIndicatorFrame(leading: true, in: frame).contains(point)
-      {
-        return (workspace.workspaceID, -1)
-      }
-      if workspace.hiddenTiledWindowCountAfter > 0,
-        horizontalOverflowIndicatorFrame(leading: false, in: frame).contains(point)
-      {
-        return (workspace.workspaceID, 1)
-      }
-    }
-    return nil
-  }
-
-  private func horizontalOverflowIndicatorFrame(
-    leading: Bool,
-    in frame: NSRect
-  ) -> NSRect {
-    let size = NSSize(width: 46, height: 30)
-    return NSRect(
-      x: leading ? frame.minX + 12 : frame.maxX - size.width - 12,
-      y: frame.midY - size.height / 2,
-      width: size.width,
-      height: size.height
-    )
-  }
-}
-
-func overviewWindowTitleIconSize(cardHeight: CGFloat) -> CGFloat {
-  min(24, max(cardHeight * 0.16, 14))
-}
-
-func overviewWindowTitleBandHeight(iconSize: CGFloat) -> CGFloat {
-  iconSize + 20
-}
-
-func overviewTitleScrimAlpha(progress: CGFloat, opacity: CGFloat) -> CGFloat {
-  let remaining = 1 - min(max(progress, 0), 1)
-  return 0.48 * opacity * remaining * remaining
-}
-
-func overviewWindowTitleLayout(
-  cardFrame: CGRect,
-  iconSize: CGFloat,
-  titleSize: CGSize,
-  blurHeight: CGFloat
-) -> (iconFrame: CGRect, titleFrame: CGRect) {
-  let spacing = 8.0
-  let titleWidth = min(titleSize.width, max(cardFrame.width - iconSize - spacing - 20, 1))
-  let iconX = cardFrame.minX + 10
-  let centerY = cardFrame.minY + blurHeight / 2
-  return (
-    CGRect(
-      x: iconX,
-      y: centerY - iconSize / 2,
-      width: iconSize,
-      height: iconSize
-    ),
-    CGRect(
-      x: iconX + iconSize + spacing,
-      y: centerY - titleSize.height / 2,
-      width: titleWidth,
-      height: titleSize.height
-    )
-  )
-}
-
-@MainActor
-private final class OverviewAccessibilityElement: NSAccessibilityElement {
-  private nonisolated let press: @MainActor @Sendable () -> Void
-
-  init(press: @escaping @MainActor @Sendable () -> Void) {
-    self.press = press
-    super.init()
-  }
-
-  nonisolated override func accessibilityPerformPress() -> Bool {
-    let press = press
-    Task { @MainActor in press() }
-    return true
   }
 }

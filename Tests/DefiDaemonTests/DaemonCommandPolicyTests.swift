@@ -7,6 +7,37 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test
+  func inactiveDesktopNeverArmsRecurringTimer() {
+    #expect(desktopTimerFrequency(requested: 240, sessionActive: false) == 0)
+    #expect(desktopTimerFrequency(requested: 2, sessionActive: true) == 2)
+    #expect(desktopTimerFrequency(requested: 0, sessionActive: true) == 1)
+    #expect(desktopTimerFrequency(requested: 500, sessionActive: true) == 240)
+  }
+
+  @Test
+  func stalledRepairsBackOffWhileFocusRemainsResponsive() {
+    #expect(followUpTimerFrequency(backoffSteps: 2, unchangedDuration: 3, focusPending: false) == 2)
+    #expect(followUpTimerFrequency(backoffSteps: 2, unchangedDuration: 3, focusPending: true) == 15)
+    #expect(followUpTimerFrequency(backoffSteps: 0, unchangedDuration: 0, focusPending: false) == 60)
+  }
+
+  @Test
+  func idleWatchdogUsesEarliestDeadlineWithoutDelayingFallbackReads() {
+    #expect(idleDesktopRefreshDelay(
+      now: 10, latestInputAt: 0,
+      deadlinesAndIntervals: [(40, 30), (25, 30)]
+    ) == 15)
+    #expect(idleDesktopRefreshDelay(
+      now: 10, latestInputAt: 9.8,
+      deadlinesAndIntervals: [(9, 30)]
+    ) > 0.79)
+    #expect(idleDesktopRefreshDelay(
+      now: 10, latestInputAt: 10,
+      deadlinesAndIntervals: [(9, 0.3), (40, 30)]
+    ) == 0.3)
+  }
+
   @Test(
     "Close fallback keeps the selected process",
     .bug("https://github.com/qeude/Defi/pull/49#discussion_r3925069182")

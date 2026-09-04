@@ -1,4 +1,5 @@
 import DefiConfig
+import DefiCore
 import DefiModel
 import DefiRuntime
 import Testing
@@ -62,9 +63,15 @@ struct PointerFocusTests {
   private let monitorID = MonitorID(rawValue: 1)
   private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 800)
 
-  @Test
-  func pointerFocusChangesVisibleSelectionWithoutScrolling() throws {
+  @Test(arguments: [false, true])
+  func pointerFocusChangesVisibleSelectionWithoutScrolling(sameProcess: Bool) throws {
     var state = try makeState(columnWidths: [0.4, 0.4])
+    if sameProcess {
+      for id in [WindowID(rawValue: 1), WindowID(rawValue: 2)] {
+        state.windows[id]?.appID = "same.app"
+        state.windows[id]?.processID = 42
+      }
+    }
     let originalOffset = state.monitors[0].workspaces[0].targetScrollOffset
 
     let focusedMonitor = focusWindowFromPointer(
@@ -78,6 +85,58 @@ struct PointerFocusTests {
     #expect(focusedMonitor == monitorID)
     #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 2))
     #expect(state.monitors[0].workspaces[0].targetScrollOffset == originalOffset)
+  }
+
+  @Test(arguments: [0.0, 4.0, 8.0, 12.0])
+  func halfWidthPointerFocusNeverMovesTheStrip(gaps: Double) throws {
+    var state = try makeState(columnWidths: [0.8, 0.5, 0.5], gaps: gaps)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 1), width: .fraction(0.8)),
+      Column(window: WindowID(rawValue: 2), width: .fraction(0.5)),
+      Column(window: WindowID(rawValue: 3), width: .fraction(0.5)),
+    ]
+    for id in [WindowID(rawValue: 2), WindowID(rawValue: 3)] {
+      state.windows[id]?.appID = "same.app"
+      state.windows[id]?.processID = 42
+    }
+    _ = focusWindow(WindowID(rawValue: 2), state: &state)
+    let originalOffset = focusedColumnLeftScrollOffset(
+      workspace: state.monitors[0].workspaces[0], viewport: viewport,
+      windows: Array(state.windows.values), settings: state.layout
+    )
+    state.monitors[0].workspaces[0].scrollOffset = originalOffset
+    state.monitors[0].workspaces[0].targetScrollOffset = originalOffset
+    let originalFrames = computeLayout(
+      workspace: state.monitors[0].workspaces[0], viewport: viewport,
+      windows: Array(state.windows.values), settings: state.layout
+    ).frames
+    for target in [3, 2, 3, 2] {
+      #expect(focusWindowFromPointer(
+        WindowID(rawValue: UInt64(target)), activeMonitorID: monitorID,
+        state: &state, viewports: [monitorID: viewport], maximumScrollAmount: 0
+      ) == monitorID)
+      #expect(state.monitors[0].workspaces[0].targetScrollOffset == originalOffset)
+      state.monitors[0].workspaces[0].scrollOffset =
+        state.monitors[0].workspaces[0].targetScrollOffset
+      #expect(computeLayout(
+        workspace: state.monitors[0].workspaces[0], viewport: viewport,
+        windows: Array(state.windows.values), settings: state.layout
+      ).frames == originalFrames)
+    }
+  }
+
+  @Test
+  func pointerFocusStillRejectsClippedContent() throws {
+    var state = try makeState(columnWidths: [0.5, 0.51, 0.5], gaps: 0)
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: WindowID(rawValue: 1), width: .fraction(0.5)),
+      Column(window: WindowID(rawValue: 2), width: .fraction(0.51)),
+      Column(window: WindowID(rawValue: 3), width: .fraction(0.5)),
+    ]
+    #expect(pointerFocusMonitor(
+      WindowID(rawValue: 2), activeMonitorID: monitorID,
+      state: state, viewports: [monitorID: viewport], maximumScrollAmount: 0
+    ) == nil)
   }
 
   @Test
@@ -565,10 +624,11 @@ struct PointerFocusTests {
 
   private func makeState(
     columnWidths: [Double],
+    gaps: Double = 8,
     centerFocusedColumn: CenterFocusedColumnConfig = .never
   ) throws -> RuntimeState {
     let config = Config(
-      layout: LayoutConfig(centerFocusedColumn: centerFocusedColumn)
+      layout: LayoutConfig(centerFocusedColumn: centerFocusedColumn, gaps: gaps)
     )
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)

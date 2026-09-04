@@ -45,6 +45,7 @@ struct LayoutGapRuntimeTests {
 
     let layout = RuntimeState(config: config).layout
 
+    #expect(layout.innerHorizontalGap == 2)
     #expect(layout.outerTopGap == 4)
     #expect(layout.outerRightGap == 4)
     #expect(layout.outerBottomGap == 4)
@@ -78,7 +79,8 @@ struct LayoutGapRuntimeTests {
       settings: state.layout
     ).frames[1].frame
 
-    #expect(frame.x + frame.width == 996)
+    #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0)
+    #expect(frame.x + frame.width == 998)
 
     state.monitors[0].workspaces[workspaceIndex].scrollOffset = 0.5
     synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
@@ -90,7 +92,8 @@ struct LayoutGapRuntimeTests {
       settings: state.layout
     ).frames[1].frame
 
-    #expect(leftAlignedFrame.x == 4)
+    #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0.5)
+    #expect(leftAlignedFrame.x == 2)
   }
 
   @Test

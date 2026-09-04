@@ -7,6 +7,32 @@ struct OverviewTests {
   let monitorFrame = Rect(x: 0, y: 0, width: 1_000, height: 800)
 
   @Test
+  func resizedCardsAnimateSizeAndPositionTogether() {
+    func projection(x: Double, width: Double) -> OverviewProjection {
+      OverviewProjection(monitorID: monitorID, workspaces: [
+        OverviewWorkspaceProjection(
+          workspaceID: WorkspaceID(rawValue: "dev"), frame: monitorFrame,
+          windows: [OverviewWindowProjection(
+            windowID: WindowID(rawValue: 1),
+            frame: Rect(x: x, y: 0, width: width, height: 100),
+            layer: .tiled(columnIndex: 0, windowIndex: 0),
+            isNativeFullscreen: false, canDrag: true
+          )]
+        )
+      ])
+    }
+    let from = projection(x: 0, width: 100)
+    let to = projection(x: 50, width: 200)
+    #expect(overviewProjectionResizesExistingCards(from: from, to: to))
+    #expect(!overviewProjectionResizesExistingCards(from: from, to: from))
+    #expect(!overviewProjectionResizesExistingCards(
+      from: from, to: projection(x: 50, width: 100)))
+    let middle = interpolateOverviewProjection(from: from, to: to, progress: 0.5)
+    #expect(middle.workspaces[0].windows[0].frame == Rect(
+      x: 25, y: 0, width: 150, height: 100))
+  }
+
+  @Test
   func `Projection culls workspaces without mutating real scroll`() {
     let workspaceIDs = (1...9).map { WorkspaceID(rawValue: String($0)) }
     var active = Workspace(

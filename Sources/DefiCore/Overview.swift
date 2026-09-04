@@ -76,6 +76,18 @@ public func interpolateOverviewViewport(
   )
 }
 
+public func overviewProjectionResizesExistingCards(
+  from: OverviewProjection, to: OverviewProjection
+) -> Bool {
+  guard from.monitorID == to.monitorID else { return false }
+  let previous = Dictionary(uniqueKeysWithValues:
+    from.workspaces.flatMap(\.windows).map { ($0.windowID, $0.frame) })
+  return to.workspaces.flatMap(\.windows).contains { card in
+    guard let frame = previous[card.windowID] else { return false }
+    return frame.width != card.frame.width || frame.height != card.frame.height
+  }
+}
+
 public func interpolateOverviewProjection(
   from: OverviewProjection,
   to: OverviewProjection,

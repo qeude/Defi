@@ -1,9 +1,84 @@
+import AppKit
 import CoreGraphics
+import DefiConfig
+import DefiCore
 import DefiModel
 import Testing
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @Test @MainActor
+  func compactPreviewsKeepTwentyFourLargeWindowsWithinTheCacheBudget() throws {
+    let context = try #require(CGContext(
+      data: nil, width: 1600, height: 1200, bitsPerComponent: 8,
+      bytesPerRow: 6400, space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ))
+    let original = try #require(context.makeImage())
+    let compact = try #require(compactOverviewPreview(original))
+    #expect(compact.width == 512)
+    #expect(compact.height == 384)
+    let cache = OverviewPreviewCache()
+    for id in 1...24 {
+      let window = Window(
+        id: WindowID(rawValue: UInt64(id)), appID: "test", title: "Test",
+        frame: Rect(x: 0, y: 0, width: 1600, height: 1200), processID: 42
+      )
+      cache.store(
+        NSImage(cgImage: compact, size: .zero),
+        byteCost: compact.bytesPerRow * compact.height, for: window
+      )
+    }
+    #expect(cache.images.count == 24)
+    #expect(cache.byteCount < 32 * 1024 * 1024)
+  }
+
+  @Test @MainActor
+  func unchangedOverviewPresentationDoesNotRequestAnotherDraw() {
+    let controller = OverviewController(
+      focusWindow: { _, _, _, _ in }, focusWorkspace: { _, _ in },
+      drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, commitScrollOffsets: { _ in }
+    )
+    let monitorID = MonitorID(rawValue: 1)
+    let view = OverviewView(monitorID: monitorID, delegate: controller)
+    let snapshot = OverviewSnapshot(monitors: [], monitorFrames: [:], windows: [:])
+    let projection = OverviewProjection(monitorID: monitorID, workspaces: [])
+    func update(radius: Double) -> Bool {
+      view.update(
+        snapshot: snapshot, projection: projection, selection: nil, drag: nil,
+        borderStyle: WindowBorderStyle(config: BordersConfig()),
+        windowCornerRadius: radius, previews: [:], previewOpacities: [:]
+      )
+    }
+    #expect(update(radius: 12))
+    #expect(update(radius: 12) == false)
+    #expect(update(radius: 14))
+  }
+
+  @Test @MainActor
+  func rememberedCacheBoundsReplacementsAndPrunesReusedWindowIDs() {
+    let cache = OverviewPreviewCache(maximumBytes: 100)
+    var window = Window(
+      id: WindowID(rawValue: 1), appID: "test.app", title: "Test",
+      frame: Rect(x: 0, y: 0, width: 10, height: 10), processID: 42
+    )
+    let image = NSImage(size: NSSize(width: 10, height: 10))
+    cache.store(image, byteCost: 80, for: window)
+    cache.store(image, byteCost: 90, for: window)
+    #expect(cache.byteCount == 90)
+    #expect(cache.images.count == 1)
+    window.processID = 43
+    #expect(cache.prune(windows: [window.id: window]) == [window.id])
+    #expect(cache.byteCount == 0)
+    cache.store(image, byteCost: 101, for: window)
+    #expect(cache.images.isEmpty)
+    cache.store(image, byteCost: 80, for: window)
+    cache.removeAll()
+    #expect(cache.images.isEmpty)
+    #expect(cache.byteCount == 0)
+  }
+
   @Test
   func `Desktop capture schedules without window previews`() {
     #expect(

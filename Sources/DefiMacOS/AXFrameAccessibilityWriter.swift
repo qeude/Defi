@@ -36,7 +36,9 @@ final class AXFrameAccessibilityWriter {
       // WindowServer can animate a successful offscreen-to-visible AX write.
       if !enhancedUIManagedByBatch {
         setEnhancedUserInterface(false, application: write.application)
-        defer {
+      }
+      defer {
+        if !enhancedUIManagedByBatch {
           setEnhancedUserInterface(true, application: write.application)
         }
       }
@@ -45,10 +47,10 @@ final class AXFrameAccessibilityWriter {
     if write.isParked || forceOffscreenAccess {
       if !enhancedUIManagedByBatch {
         setEnhancedUserInterface(false, application: write.application)
-        defer {
-          if write.enhancedUIWasEnabled {
-            setEnhancedUserInterface(true, application: write.application)
-          }
+      }
+      defer {
+        if !enhancedUIManagedByBatch, write.enhancedUIWasEnabled {
+          setEnhancedUserInterface(true, application: write.application)
         }
       }
       for _ in 0..<2 {

@@ -96,6 +96,8 @@ extension Daemon {
   ) {
     defer {
       desktopSnapshotInFlight = false
+      // Recompute the idle deadline without recursively requesting another snapshot.
+      if timerFrequencyHz == 0 { scheduleIdleTick() }
       if let pending = supersededDesktopSnapshotRequest {
         supersededDesktopSnapshotRequest = nil
         synchronizeDesktop(
@@ -663,7 +665,7 @@ extension Daemon {
     let animatesMouseReorder =
       mouseReordered
       && snapshot.leftMouseButtonDown
-      && config.animation.enabled
+      && animationsEnabled
       && config.animation.durationMS > 0
     if animatesMouseReorder {
       mouseReorderAnimationActive = true
@@ -672,9 +674,10 @@ extension Daemon {
     let nativeFocusSkippedWindowIDs: Set<WindowID>
     if nativeFocusWasPending {
       if let nativeFocusFrameMonitorID {
+        let locations = state.windowLocationMap()
         nativeFocusSkippedWindowIDs = Set(
           state.windows.keys.filter {
-            state.monitorID(containing: $0) != nativeFocusFrameMonitorID
+            locations[$0]?.monitorID != nativeFocusFrameMonitorID
           }
         )
       } else {

@@ -63,6 +63,8 @@ final class DiagnosticRecorder: @unchecked Sendable {
   )
   private let sessionID = UUID().uuidString
   private let build: String
+  // Configured once; all encoding stays on the serial diagnostics queue.
+  private let encoder: JSONEncoder
   private var commands: [UInt64: CommandDiagnosticMetadata] = [:]
 
   init(
@@ -75,6 +77,9 @@ final class DiagnosticRecorder: @unchecked Sendable {
     self.maximumFileSize = maximumFileSize
     self.fileCount = fileCount
     self.build = build
+    encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.sortedKeys]
   }
 
   func beginCommand(_ metadata: CommandDiagnosticMetadata) {
@@ -183,9 +188,6 @@ final class DiagnosticRecorder: @unchecked Sendable {
 
   private func append(_ record: PersistentDiagnosticRecord) {
     do {
-      let encoder = JSONEncoder()
-      encoder.dateEncodingStrategy = .iso8601
-      encoder.outputFormatting = [.sortedKeys]
       var data = try encoder.encode(record)
       data.append(0x0A)
       guard data.count <= maximumFileSize else {
