@@ -91,7 +91,7 @@ mouse_follows_focus = false
 | `focus_follows_mouse_max_scroll_amount` | `0` | number from `0` to `1` | Maximum scroll as fraction of monitor width. `0` accepts only targets needing no scroll; `0.1` permits up to 10%. |
 | `mouse_follows_focus` | `false` | boolean | Warps pointer to focused window center after keyboard focus changes, unless pointer is already inside it. |
 
-This follows niri semantics: bare `focus_follows_mouse = true` never scrolls.
+Bare `focus_follows_mouse = true` does not scroll.
 Raise `focus_follows_mouse_max_scroll_amount` to allow bounded scrolling. Both
 options can run together. Pointer-driven focus never triggers cursor warp.
 Programmatic cursor warp uses a CoreGraphics API that emits no mouse-moved
@@ -102,6 +102,8 @@ cursor movement. CLI commands and native app focus changes never warp pointer.
 ## `[animation]`
 
 Controls scrolling-column focus and managed column-resize animation.
+The macOS Reduce Motion preference also disables these animations, including
+workspace transitions and mouse-driven reordering.
 
 ```toml
 [animation]
@@ -138,10 +140,14 @@ image. Denial, revocation, protected content, and capture errors leave the
 icon-and-title cards fully usable and do not trigger repeated prompts in the
 same daemon session.
 
-Previews are memory-only, contain no audio or cursor, and use at most 16 MiB
+Previews are memory-only, contain no audio or cursor, and use at most 32 MiB
 between Overview sessions. Defi validates the window and process identity before
 reuse, requests a fresh image immediately, and removes the remembered image if
-that capture fails. A full-display screen share can include the Overview and the
+that capture fails. Remembered previews are limited to 512 pixels on their longest
+edge and retained until macOS signals memory pressure or their window identity
+changes. Full-resolution previews are released on close. Closed Overview panels
+and their desktop images are released after 60 seconds or under memory pressure. A full-display
+screen share can include the Overview and the
 content shown in its cards; sharing one selected application or window does not
 normally include Defi's overlay.
 
@@ -175,11 +181,10 @@ placement = "outside"
 | `capture_enabled` | `false` | boolean | Makes border surfaces visible to screenshots and screen capture for debugging. |
 | `placement` | `"outside"` | `"inside"` or `"outside"` | Draws the stroke inside the window edge (overlapping the first pixels of content) or just past it. |
 
-With `placement = "outside"`, the stroke no longer overlaps window content, but
-the ring extends into gaps between adjacent windows; a neighboring window drawn
-above the border panel can clip it there. Defi reserves enough space
-at monitor edges to keep the full stroke visible without changing gaps between
-windows.
+With `placement = "outside"`, the stroke extends into the gaps. Defi reserves
+one border width at monitor edges and between columns. These insets are
+deducted from each column slot, so two 50% columns fit with their borders
+without scrolling when focus changes.
 
 Colors require exactly eight hexadecimal digits. First byte is alpha, followed
 by red, green, and blue. Both prefixes accept uppercase or lowercase digits.

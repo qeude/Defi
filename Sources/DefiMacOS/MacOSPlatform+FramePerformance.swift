@@ -298,20 +298,23 @@ extension MacOSPlatform {
       maximumCGCopyDurationMS: Double
     )
   {
-    (
+    let snapshotSamples = windowSnapshotDurationSamplesMS.sorted()
+    let inventorySamples = applicationInventoryDurationSamplesMS.sorted()
+    let windowListSamples = applicationWindowListDurationSamplesMS.sorted()
+    return (
       lastWindowSnapshotDurationMS,
       maximumWindowSnapshotDurationMS,
-      durationPercentile(0.50, samples: windowSnapshotDurationSamplesMS),
-      durationPercentile(0.95, samples: windowSnapshotDurationSamplesMS),
+      durationPercentile(0.50, sortedSamples: snapshotSamples),
+      durationPercentile(0.95, sortedSamples: snapshotSamples),
       fullWindowSnapshotCount,
       incrementalWindowSnapshotCount,
       cachedWindowSnapshotCount,
       applicationInventorySnapshotCount,
       applicationWindowListReadCount,
-      durationPercentile(0.50, samples: applicationInventoryDurationSamplesMS),
-      durationPercentile(0.95, samples: applicationInventoryDurationSamplesMS),
-      durationPercentile(0.50, samples: applicationWindowListDurationSamplesMS),
-      durationPercentile(0.95, samples: applicationWindowListDurationSamplesMS),
+      durationPercentile(0.50, sortedSamples: inventorySamples),
+      durationPercentile(0.95, sortedSamples: inventorySamples),
+      durationPercentile(0.50, sortedSamples: windowListSamples),
+      durationPercentile(0.95, sortedSamples: windowListSamples),
       snapshotCGWindowCopyCount,
       lastSnapshotCGWindowCopyDurationMS,
       maximumSnapshotCGWindowCopyDurationMS

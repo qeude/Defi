@@ -73,6 +73,7 @@ extension Daemon {
     var hiddenWindowIDs = Set<WindowID>()
     var outOfScopeWindowIDs = Set<WindowID>()
     let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
+    let viewports = viewportsByMonitor
     let overviewParksWindows = overviewController?.isOpen == true
       && overviewController?.usesWorkspaceParking == true
     let liveMonitorIDs = Set(state.monitors.map(\.id))
@@ -98,7 +99,7 @@ extension Daemon {
       else {
         continue
       }
-      guard let viewport = viewportsByMonitor[monitor.id] else { continue }
+      guard let viewport = viewports[monitor.id] else { continue }
       let physicalFrame = monitorSnapshot.physicalFrame
       let activeWorkspaceIndex =
         monitor.workspaces.firstIndex {

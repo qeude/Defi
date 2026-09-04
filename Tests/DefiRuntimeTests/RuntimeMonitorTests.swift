@@ -9,6 +9,22 @@ struct RuntimeMonitorTests {
   private let monitorID = MonitorID(rawValue: 1)
 
   @Test
+  func singleWindowLocationMatchesBulkLookup() {
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.attachMonitor(MonitorID(rawValue: 2))
+    let tiled = WindowID(rawValue: 1)
+    let floating = WindowID(rawValue: 2)
+    state.monitors[0].workspaces[0].columns = [Column(window: tiled, width: .fraction(1))]
+    state.monitors[1].workspaces[0].floatingWindows = [floating, tiled]
+    let locations = state.windowLocationMap()
+    for id in [tiled, floating, WindowID(rawValue: 999)] {
+      #expect(state.location(containing: id)?.monitorID == locations[id]?.monitorID)
+      #expect(state.location(containing: id)?.workspaceID == locations[id]?.workspaceID)
+    }
+  }
+
+  @Test
   func `Reserved edges are reduced per monitor`() throws {
     let externalID = MonitorID(rawValue: 2)
     var state = RuntimeState(config: Config())

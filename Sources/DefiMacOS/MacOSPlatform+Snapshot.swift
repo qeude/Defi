@@ -53,16 +53,17 @@ extension SnapshotEngine {
     let topologyInputTimestamp = observations.topologyInputTimestamp
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
-    let processIDsWithoutReliableFrameCoverage =
-      (onMain { ($0.eventMonitor?.processIDsWithoutReliableFrameCoverage) ?? [] })
-    let uncoveredProcessIDs =
-      processIDsWithoutReliableFrameCoverage
-      .union(onMain { $0.processIDsWithoutReliableTopologyCoverage() })
-    // Processes that exhausted their notification-subscription attempts read
-    // at watchdog cadence instead of every pass: their reads are the slowest
-    // (hundreds of ms) and they no longer produce AX events to justify the
-    // per-pass tax. App-level lifecycle events still trigger fresh reads.
-    let incompatiblePIDs = onMain { $0.incompatibleObservationProcessIDs }
+    let platformInputs = onMain { platform in
+      (
+        frameCoverage: platform.eventMonitor?.processIDsWithoutReliableFrameCoverage ?? [],
+        topologyCoverage: platform.processIDsWithoutReliableTopologyCoverage(),
+        incompatible: platform.incompatibleObservationProcessIDs,
+        monitors: platform.discoverMonitors()
+      )
+    }
+    let uncoveredProcessIDs = platformInputs.frameCoverage.union(platformInputs.topologyCoverage)
+    // Exhausted observer subscriptions use the watchdog instead of taxing every pass.
+    let incompatiblePIDs = platformInputs.incompatible
     let fallbackNow = ProcessInfo.processInfo.systemUptime
     incompatibleFreshReadDeadlines =
       incompatibleFreshReadDeadlines
@@ -205,7 +206,7 @@ extension SnapshotEngine {
       snapshotMode = "incremental"
       incrementalWindowSnapshotCount += 1
     }
-    let monitors = onMain { $0.discoverMonitors() }
+    let monitors = platformInputs.monitors
     lastMonitorFrames = monitors.map(\.frame)
     var hasResolvedCGWindows = false
     var cachedCGWindows: [CGWindowRecord]?
@@ -562,6 +563,7 @@ extension SnapshotEngine {
     var targetMismatches: [FrameMismatch] = []
     var deferredMismatchCount = 0
     var settledCommitLatenciesMS: [Double] = []
+    var commandObservations: [(CommandPerformanceContext, WindowID, Rect, Rect, Rect)] = []
     for window in windows
     where freshObservationIDs.contains(window.id)
       && !nativeFullscreenWindowIDs.contains(window.id)
@@ -571,16 +573,9 @@ extension SnapshotEngine {
         let target = targetFrames[window.id]
       {
         if let command = expectation.command {
-          onMain {
-            $0.recordCommandObservation(
-              command,
-              windowID: window.id,
-              from: expectation.from,
-              actual: window.frame,
-              target: expectation.target,
-              at: now
-            )
-          }
+          commandObservations.append((
+            command, window.id, expectation.from, window.frame, expectation.target
+          ))
         }
         if now >= expectation.deadline {
           frameCommitExpectations[window.id] = nil
@@ -652,6 +647,16 @@ extension SnapshotEngine {
         externallyChangedFrames[window.id] = window.frame
       }
     }
+    if !commandObservations.isEmpty {
+      onMain { platform in
+        for (command, windowID, from, actual, target) in commandObservations {
+          platform.recordCommandObservation(
+            command, windowID: windowID, from: from,
+            actual: actual, target: target, at: now
+          )
+        }
+      }
+    }
     pendingFrameDebtWindowIDs = prunedFrameDebtWindowIDs(
       debtWindowIDs: pendingFrameDebtWindowIDs,
       liveWindowIDs: Set(nextElements.keys),
@@ -680,8 +685,8 @@ extension SnapshotEngine {
       )
     }
     let frontmostProcessID = onMain {
-      _ in NSWorkspace.shared.frontmostApplication
-    }?.processIdentifier
+      _ in NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
     let focusedWindowID = focusedWindowID(
       in: windows,
       frontmostProcessID: frontmostProcessID

@@ -78,13 +78,18 @@ func outgoingWorkspaceVerticalRibbonOffset(
 
 @MainActor
 extension Daemon {
+  var animationsEnabled: Bool {
+    config.animation.enabled
+      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+  }
+
   func safeWorkspaceVerticalTransition(
     _ intent: WorkspaceTransitionIntent
   ) -> WorkspaceVerticalTransition? {
     let duration = workspaceVerticalTransitionDuration(
       configuredDurationMS: config.animation.durationMS
     )
-    guard config.animation.enabled, duration > 0,
+    guard animationsEnabled, duration > 0,
       pendingDisplaySyncDeadlines.isEmpty,
       latestMonitors.count == state.monitors.count,
       let monitor = state.monitors.first(where: { $0.id == intent.monitorID }),
@@ -181,7 +186,7 @@ extension Daemon {
         let current = state.monitors[monitorIndex].workspaces[workspaceIndex].scrollOffset
         let target = state.monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset
         guard state.monitors[monitorIndex].workspaces[workspaceIndex].id == activeWorkspace,
-          config.animation.enabled,
+          animationsEnabled,
           duration > 0,
           abs(current - target) >= 0.000_1
         else {
@@ -263,7 +268,7 @@ extension Daemon {
     commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
     let duration = TimeInterval(config.animation.durationMS) / 1_000
-    guard config.animation.enabled, duration > 0 else { return false }
+    guard animationsEnabled, duration > 0 else { return false }
     snapScrollOffsetsToTargets()
     beginFrameAnimationActivity()
     applyCurrentLayout(

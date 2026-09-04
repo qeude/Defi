@@ -65,7 +65,7 @@ public func nativeFocusChangesSelection(
 
 /// Focuses a pointer target when its required horizontal movement is within
 /// the configured fraction of the viewport. `nil` permits any movement, while
-/// zero matches niri's `max-scroll-amount="0%"` behavior.
+/// zero permits only targets that require no scrolling.
 public func focusWindowFromPointer(
   _ windowID: WindowID,
   activeMonitorID: MonitorID?,

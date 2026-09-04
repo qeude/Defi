@@ -214,6 +214,7 @@ final class Daemon: NSObject {
   var pendingDisplaySyncDeadlines: [TimeInterval] = []
   var followUpTickSignature: String?
   var followUpBackoffSteps = 0
+  var followUpUnchangedSince: TimeInterval = 0
 
   fileprivate init(options: DaemonOptions) throws {
     configURL = options.configURL ?? Config.defaultURL
@@ -305,11 +306,12 @@ final class Daemon: NSObject {
       followUpTickSignature = nil
       followUpBackoffSteps = 0
       platform.invalidateStateForDesktopSessionChange()
-      setTimerFrequency(2)
+      replaceTimer(frequencyHz: 2)
       log("desktop session inactive")
       return
     }
 
+    replaceTimer(frequencyHz: 2)
     needsDesktopSync = true
     synchronizeDesktop(
       forceFullWindowRefresh: true,
@@ -389,6 +391,7 @@ final class Daemon: NSObject {
         || !pendingDisplaySyncDeadlines.isEmpty
         || pendingAnimatedFocus != nil
         || pendingWorkspaceFocus != nil
+        || pendingPointerFocus != nil
         || platform.hasPendingFocusWrite
         || platform.hasPendingFrameWrites
         || platform.hasPendingFrameDebt
@@ -396,19 +399,26 @@ final class Daemon: NSObject {
       // A single stuck slow-app write must not pin the timer at 60 Hz:
       // decay while the pending set is unchanged, reset on any movement.
       if followUpPending {
+        let focusPending = pendingAnimatedFocus != nil || pendingWorkspaceFocus != nil
+          || pendingPointerFocus != nil || platform.hasPendingFocusWrite
         let signature =
-          "\(needsDesktopSync)|\(mouseGestureSettlement != nil)|\(pendingDisplaySyncDeadlines.count)|\(pendingAnimatedFocus != nil)|\(pendingWorkspaceFocus != nil)|\(platform.hasPendingFocusWrite)|\(platform.hasPendingFrameWrites)|\(platform.hasPendingFrameDebt)|\(platform.hasPendingTransientOwnerResolution)"
+          "\(needsDesktopSync)|\(mouseGestureSettlement != nil)|\(pendingDisplaySyncDeadlines.count)|\(pendingAnimatedFocus != nil)|\(pendingWorkspaceFocus != nil)|\(pendingPointerFocus != nil)|\(platform.hasPendingFocusWrite)|\(platform.hasPendingFrameWrites)|\(platform.hasPendingFrameDebt)|\(platform.hasPendingTransientOwnerResolution)|\(observedPlatformEventCount)|\(platform.successfulPositionWriteCount)"
         if signature == followUpTickSignature {
           followUpBackoffSteps = min(followUpBackoffSteps + 1, 2)
         } else {
           followUpTickSignature = signature
           followUpBackoffSteps = 0
+          followUpUnchangedSince = now
         }
-        setTimerFrequency([60.0, 30.0, 15.0][followUpBackoffSteps])
+        setTimerFrequency(followUpTimerFrequency(
+          backoffSteps: followUpBackoffSteps,
+          unchangedDuration: now - followUpUnchangedSince,
+          focusPending: focusPending
+        ))
       } else {
         followUpTickSignature = nil
         followUpBackoffSteps = 0
-        setTimerFrequency(2)
+        scheduleIdleTick()
       }
     }
     let userInputIdleDuration =

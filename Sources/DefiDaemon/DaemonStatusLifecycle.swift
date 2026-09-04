@@ -168,7 +168,7 @@ extension Daemon {
       "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
     }.joined(separator: ",")
     return
-      "running session=\(desktopSessionActive ? "active" : "inactive") monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) floating=\(floatingCount) workspace=\(workspace) focused=\(focused) fullscreenSuspended=\(state.nativeFullscreenWindowIDs.count)[\(fullscreenWindowIDs)] columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) overview=\(overviewOpen ? "open" : "closed") overviewPanels=\(overviewPanels) overviewPreviewConfig=\(config.overview.windowPreviews) overviewPermission=\(overviewPermission) overviewCaptures=\(overviewCaptures) overviewPreviews=\(overviewPreviews) overviewPreviewCacheMiB=\(overviewPreviewCacheMiB) overviewPreviewFailures=\(overviewPreviewFailures) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) closeFocusPreserved=\(preservedWindowRemovalFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) hidden=\(platform.hiddenWindowCount) borders=\(borders.visible) borderNodes=\(borders.allocated) borderDormant=\(borders.dormant) borderOpacity=\(borderOpacity) borderSurfaceMiB=\(borderSurfaceMiB) borderCapture=\(borders.captureEnabled) borderPlans=\(borders.appliedPlans) borderSkips=\(borders.skippedPlans) borderGeometry=\(borders.geometryUpdates) snapshots=\(snapshotPerformance.full)/\(snapshotPerformance.incremental)/\(snapshotPerformance.cached) appInventories=\(snapshotPerformance.applicationInventories) snapshotMs=\(snapshotMS) snapshotMaxMs=\(snapshotMaxMS) snapshotCG=\(snapshotPerformance.cgCopies)/\(snapshotCGMS)/\(snapshotCGMaxMS) axReads=\(attributeReads.batched)/\(attributeReads.fallback) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) initialChecks=\(initialSettlement.checks) initialRepairs=\(initialSettlement.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) slowApps=\(platform.latencySensitiveProcessCount) slowAppDetails=[\(platform.latencySensitiveProcessDescription)] axAppDetails=[\(platform.processLatencyDescription)] posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) focusFast=\(focusPerformance.fastPaths) focusCancelled=\(focusPerformance.cancelled) focusRetries=\(focusPerformance.retries) focusMainMs=\(focusMainMS) focusRaiseMs=\(focusRaiseMS) focusActivateMs=\(focusActivateMS) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
+      "running session=\(desktopSessionActive ? "active" : "inactive") monitors=\(state.monitors.count)[\(displaySizes)] windows=\(managedCount) floating=\(floatingCount) workspace=\(workspace) focused=\(focused) fullscreenSuspended=\(state.nativeFullscreenWindowIDs.count)[\(fullscreenWindowIDs)] columnWidth=\(focusedColumnState) menuBar=\(menuBar == nil ? "missing" : "installed") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) overview=\(overviewOpen ? "open" : "closed") overviewPanels=\(overviewPanels) overviewRetainedPanels=\(overviewController?.retainedPanelCount ?? 0) overviewPreviewConfig=\(config.overview.windowPreviews) overviewPermission=\(overviewPermission) overviewCaptures=\(overviewCaptures) overviewPreviews=\(overviewPreviews) overviewPreviewCacheMiB=\(overviewPreviewCacheMiB) overviewPreviewFailures=\(overviewPreviewFailures) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) closeFocusPreserved=\(preservedWindowRemovalFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatchCount)[\(driftDetails)] resize=\(resize) visibility=\(visibility) hidden=\(platform.hiddenWindowCount) borders=\(borders.visible) borderNodes=\(borders.allocated) borderDormant=\(borders.dormant) borderOpacity=\(borderOpacity) borderSurfaceMiB=\(borderSurfaceMiB) borderCapture=\(borders.captureEnabled) borderPlans=\(borders.appliedPlans) borderSkips=\(borders.skippedPlans) borderGeometry=\(borders.geometryUpdates) snapshots=\(snapshotPerformance.full)/\(snapshotPerformance.incremental)/\(snapshotPerformance.cached) appInventories=\(snapshotPerformance.applicationInventories) snapshotMs=\(snapshotMS) snapshotMaxMs=\(snapshotMaxMS) snapshotCG=\(snapshotPerformance.cgCopies)/\(snapshotCGMS)/\(snapshotCGMaxMS) axReads=\(attributeReads.batched)/\(attributeReads.fallback) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) initialChecks=\(initialSettlement.checks) initialRepairs=\(initialSettlement.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) slowApps=\(platform.latencySensitiveProcessCount) slowAppDetails=[\(platform.latencySensitiveProcessDescription)] axAppDetails=[\(platform.processLatencyDescription)] posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.hasPendingAnimatedFrameWrites) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) focusFast=\(focusPerformance.fastPaths) focusCancelled=\(focusPerformance.cancelled) focusRetries=\(focusPerformance.retries) focusMainMs=\(focusMainMS) focusRaiseMs=\(focusRaiseMS) focusActivateMs=\(focusActivateMS) animating=\(platform.hasPendingAnimatedFrameWrites) animationFrames=\(axFramePerformance.animationFrames) animationMs=\(coordinatorAnimationMS) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
       + " topologyObservers=\(platform.hasReliableWindowTopologyObservation) appWindowLists=\(snapshotPerformance.applicationWindowListReads)"
       + " appLifecycleObservers=\(platform.hasReliableApplicationLifecycleObservation) appInventoryInterval=\(Int(platform.recommendedApplicationInventoryRefreshInterval))"
       + " desktopObservers=\(platform.hasReliableDesktopObservation)"
@@ -228,6 +228,24 @@ extension Daemon {
     return min(max(refreshRate, 30), 240)
   }
 
+  func scheduleIdleTick() {
+    let now = ProcessInfo.processInfo.systemUptime
+    let userInputAt = platform.userInputTracker.latestEventTimestamp
+    let delay = idleDesktopRefreshDelay(
+      now: now,
+      latestInputAt: userInputAt,
+      deadlinesAndIntervals: [
+        (nextPeriodicWindowRefreshAt, desktopSnapshotRefreshInterval(
+          reliableDesktopObservation: platform.hasReliableDesktopObservation)),
+        (nextWindowListRefreshAt, platform.recommendedWindowListRefreshInterval),
+        (nextApplicationInventoryRefreshAt,
+          platform.recommendedApplicationInventoryRefreshInterval),
+      ]
+    )
+    timer?.schedule(deadline: .now() + delay, leeway: .milliseconds(30))
+    timerFrequencyHz = 0
+  }
+
   func setTimerFrequency(_ frequencyHz: Double) {
     let frequencyHz = min(max(frequencyHz, 1), 240)
     guard abs(timerFrequencyHz - frequencyHz) >= 0.5 else { return }
@@ -235,6 +253,14 @@ extension Daemon {
   }
 
   func replaceTimer(frequencyHz: Double) {
+    let frequencyHz = desktopTimerFrequency(
+      requested: frequencyHz, sessionActive: desktopSessionActive
+    )
+    guard frequencyHz > 0 else {
+      timer?.schedule(deadline: .distantFuture)
+      timerFrequencyHz = 0
+      return
+    }
     let intervalNanoseconds = max(Int(1_000_000_000 / frequencyHz), 1)
     let leewayNanoseconds = frequencyHz <= 10
       ? intervalNanoseconds / 10
@@ -327,4 +353,30 @@ extension Daemon {
   func log(_ message: String) {
     FileHandle.standardError.write(Data("[defi] \(message)\n".utf8))
   }
+}
+
+/// Event callbacks wake the daemon immediately; this deadline only drives
+/// watchdog discovery when the desktop has no work in flight.
+func idleDesktopRefreshDelay(
+  now: TimeInterval,
+  latestInputAt: TimeInterval,
+  deadlinesAndIntervals: [(deadline: TimeInterval, interval: TimeInterval)]
+) -> TimeInterval {
+  let deadline = deadlinesAndIntervals.map { entry in
+    entry.interval >= 1
+      ? max(entry.deadline, latestInputAt + 1)
+      : entry.deadline
+  }.min() ?? now + 30
+  return max(deadline - now, 0.3)
+}
+
+func followUpTimerFrequency(
+  backoffSteps: Int, unchangedDuration: TimeInterval, focusPending: Bool
+) -> Double {
+  if !focusPending && unchangedDuration >= 2 { return 2 }
+  return [60.0, 30.0, 15.0][min(max(backoffSteps, 0), 2)]
+}
+
+func desktopTimerFrequency(requested: Double, sessionActive: Bool) -> Double {
+  sessionActive ? min(max(requested, 1), 240) : 0
 }

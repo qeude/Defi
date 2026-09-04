@@ -154,7 +154,7 @@ func columnLayoutWidth(
   viewport: Rect,
   windowsByID: [WindowID: Window]
 ) -> Double {
-  let intrinsicWidth = column.windows
+  let intrinsicWidth = column.windows.lazy
     .compactMap { windowsByID[$0] }
     .filter(\.intrinsicSize)
     .map { max($0.frame.width, 1) }
@@ -164,7 +164,7 @@ func columnLayoutWidth(
     return intrinsicWidth
   }
 
-  let minimumTiledWidth = column.windows
+  let minimumTiledWidth = column.windows.lazy
     .compactMap { windowsByID[$0]?.minimumTiledWidth }
     .max() ?? 0
   let maximumTiledWidths = column.windows

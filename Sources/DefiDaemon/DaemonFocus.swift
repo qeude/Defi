@@ -11,9 +11,13 @@ extension Daemon {
     invalidatePointerFocusIntent()
     rearmPointerFocusTransition()
     needsDesktopSync = true
+    scheduleTick()
   }
 
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
+    defer {
+      if pendingPointerFocus != nil { scheduleTick() }
+    }
     if pointerRawWindowTransitionRequiresRefresh(
       previousRawWindowID: lastRawPointerWindowID,
       currentRawWindowID: invocation.windowID

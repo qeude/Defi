@@ -41,6 +41,16 @@ focus. Installed-build validation separately checks the visible result.
 
 ## Interaction invariants
 
+When idle, the daemon schedules its next discovery watchdog deadline instead
+of running a repeating heartbeat. Platform events still wake it immediately.
+`timerHz=0` reports this one-shot mode or an inactive desktop session, whose
+timer is disarmed. Pending repairs without progress fall back to 2 Hz after
+two seconds; pending focus retains the faster follow-up cadence.
+
+Overview preview fades share the screen's display link with viewport motion.
+Opacity-only frames reuse the current projection, and unchanged presentations
+do not request another draw.
+
 - Speculative navigation is latest-wins.
 - A stale completion cannot restore older focus, layout, frames, or visibility.
 - The latest human focus intent wins. Without new human intent, delayed or

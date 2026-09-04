@@ -18,8 +18,14 @@ func durationPercentile(
   _ percentile: Double,
   samples: [Double]
 ) -> Double {
-  guard !samples.isEmpty else { return 0 }
-  let sorted = samples.sorted()
+  durationPercentile(percentile, sortedSamples: samples.sorted())
+}
+
+func durationPercentile(
+  _ percentile: Double,
+  sortedSamples sorted: [Double]
+) -> Double {
+  guard !sorted.isEmpty else { return 0 }
   let boundedPercentile = min(max(percentile, 0), 1)
   let index = Int(
     (Double(sorted.count - 1) * boundedPercentile).rounded(.up)

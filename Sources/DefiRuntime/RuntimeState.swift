@@ -559,13 +559,22 @@ public struct RuntimeState: Equatable, Sendable {
   }
 
   public mutating func updateWindowFrame(_ frame: Rect, for windowID: WindowID) {
+    guard let window = windows[windowID], window.frame != frame else { return }
     windows[windowID]?.frame = frame
   }
 
   public func location(
     containing windowID: WindowID
   ) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {
-    windowLocationMap()[windowID]
+    for monitor in monitors {
+      for workspace in monitor.workspaces
+      where workspace.columns.contains(where: { $0.windows.contains(windowID) })
+        || workspace.floatingWindows.contains(windowID)
+      {
+        return (monitor.id, workspace.id)
+      }
+    }
+    return nil
   }
 
   public func windowLocationMap() -> WindowLocationMap {
@@ -741,13 +750,13 @@ extension LayoutSettings {
       defaultColumnWidth: config.layout.defaultColumnWidth,
       presetColumnWidths: config.layout.presetColumnWidths,
       centerFocusedColumn: config.layout.centerFocusedColumn == .always ? .always : .never,
-      innerHorizontalGap: config.layout.gaps / 2,
+      innerHorizontalGap: max(config.layout.gaps / 2, borderPadding / 2),
       innerVerticalGap: config.layout.gaps / 2,
       outerTopGap: max(config.layout.outerTopGap ?? config.layout.gaps, borderPadding),
       outerRightGap: max(config.layout.outerRightGap ?? config.layout.gaps, borderPadding),
       outerBottomGap: max(config.layout.outerBottomGap ?? config.layout.gaps, borderPadding),
       outerLeftGap: max(config.layout.outerLeftGap ?? config.layout.gaps, borderPadding),
-      horizontalViewportPadding: borderPadding
+      horizontalViewportPadding: borderPadding / 2
     )
   }
 

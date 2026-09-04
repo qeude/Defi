@@ -17,7 +17,7 @@ focus_id() {
 wait_until_ready() {
   for _ in $(jot 50); do
     status="$($cli status 2>/dev/null || true)"
-    if printf '%s\n' "$status" | grep -q ' timerHz=2 ' \
+    if printf '%s\n' "$status" | grep -Eq ' timerHz=(0|2) ' \
       && printf '%s\n' "$status" | grep -q ' axPending=false ' \
       && printf '%s\n' "$status" | grep -q ' focusPending=false '
     then
