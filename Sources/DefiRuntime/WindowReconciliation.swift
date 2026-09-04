@@ -238,12 +238,18 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
-        updated.minimumTiledWidth = nativeFullscreenWindowIDs.contains(window.id)
-          ? nil
-          : existing.minimumTiledWidth
-        updated.maximumTiledWidth = nativeFullscreenWindowIDs.contains(window.id)
-          ? nil
-          : existing.maximumTiledWidth
+        if nativeFullscreenWindowIDs.contains(window.id) {
+          updated.minimumTiledWidth = nil
+          updated.maximumTiledWidth = nil
+        } else if window.minimumTiledWidth != nil
+          || window.maximumTiledWidth != nil
+        {
+          updated.minimumTiledWidth = window.minimumTiledWidth
+          updated.maximumTiledWidth = window.maximumTiledWidth
+        } else {
+          updated.minimumTiledWidth = existing.minimumTiledWidth
+          updated.maximumTiledWidth = existing.maximumTiledWidth
+        }
         if existing.intrinsicSize,
           !externallyChangedWindowIDs.contains(window.id)
         {

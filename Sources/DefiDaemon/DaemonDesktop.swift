@@ -272,35 +272,9 @@ extension Daemon {
       focusRequestIDAfterCommit: focusRequestIDAfterCommit,
       acceptedFrameHandler: { [weak self] acceptedFrames in
         guard let self else { return }
-        var learnedMinimum = false
-        var affectedMonitorIDs = Set<MonitorID>()
-        for (windowID, frame) in acceptedFrames.sorted(by: {
-          $0.key.rawValue < $1.key.rawValue
-        }) {
-          if let monitorID = state.monitorID(containing: windowID) {
-            affectedMonitorIDs.insert(monitorID)
-          }
-          if !state.pendingNativeFullscreenWidthResetWindowIDs.contains(windowID),
-            !platform.isInitialFrameSettlementActive(for: windowID),
-            learnTiledWindowWidthConstraint(
-              windowID,
-              actualFrame: frame,
-              state: &state,
-              viewports: viewportsByMonitor
-            )
-          {
-            learnedMinimum = true
-          }
+        for (windowID, frame) in acceptedFrames {
           state.updateWindowFrame(frame, for: windowID)
         }
-        guard learnedMinimum else { return }
-        applyCurrentLayout(
-          monitorIDs: affectedMonitorIDs,
-          asynchronousPositions: true,
-          updateVisibility: false,
-          positionTimeoutSeconds: 0.05,
-          source: "accepted-size-reflow"
-        )
       },
       commandPerformance: commandPerformance,
       source: source

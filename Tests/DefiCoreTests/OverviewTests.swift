@@ -146,9 +146,65 @@ struct OverviewTests {
     #expect(ribbon.width == bounds.width)
     #expect(ribbon.height == (bounds.height - 56) / 2)
     #expect(ribbon.y == bounds.y + (bounds.height - ribbon.height) / 2)
-    #expect(tiled.frame.x > ribbon.x + 28)
-    #expect(tiled.frame.x < ribbon.x + ribbon.width / 4)
+    #expect(projection.workspaces[0].visibleFrame == Rect(
+      x: ribbon.x
+        + (ribbon.width - monitorFrame.width * ribbon.height / monitorFrame.height) / 2,
+      y: ribbon.y,
+      width: monitorFrame.width * ribbon.height / monitorFrame.height,
+      height: ribbon.height
+    ))
+    #expect(tiled.frame.x > projection.workspaces[0].visibleFrame.x)
+    #expect(tiled.frame.x < projection.workspaces[0].visibleFrame.x + ribbon.width / 4)
+    #expect(floating.frame.x == projection.workspaces[0].visibleFrame.x
+      + 200 * ribbon.height / monitorFrame.height)
+    #expect(floating.frame.y == ribbon.y + 100 * ribbon.height / monitorFrame.height)
     #expect(floating.frame.width / floating.frame.height == 2)
+  }
+
+  @Test
+  func `Desktop stays centered while the ribbon pans`() {
+    let windowID = WindowID(rawValue: 1)
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "web"),
+      columns: [Column(window: windowID, width: .fraction(1))],
+      scrollOffset: 0.1,
+      targetScrollOffset: 0.25
+    )
+    let snapshot = OverviewSnapshot(
+      monitors: [
+        Monitor(
+          id: monitorID,
+          workspaces: [workspace],
+          activeWorkspace: workspace.id
+        )
+      ],
+      monitorFrames: [monitorID: monitorFrame],
+      windows: [
+        windowID: Window(
+          id: windowID,
+          appID: "app",
+          title: "window",
+          frame: monitorFrame
+        )
+      ]
+    )
+    let real = projectOverview(
+      snapshot: snapshot,
+      monitorID: monitorID,
+      bounds: monitorFrame,
+      viewport: OverviewViewport(horizontalOffsets: [workspace.id: 0.25]),
+      layout: LayoutSettings()
+    ).workspaces[0]
+    let panned = projectOverview(
+      snapshot: snapshot,
+      monitorID: monitorID,
+      bounds: monitorFrame,
+      viewport: OverviewViewport(horizontalOffsets: [workspace.id: 0.5]),
+      layout: LayoutSettings()
+    ).workspaces[0]
+
+    #expect(panned.visibleFrame == real.visibleFrame)
+    #expect(panned.windows[0].frame.x < real.windows[0].frame.x)
   }
 
   @Test
@@ -317,7 +373,7 @@ struct OverviewTests {
       snapshot: snapshot,
       monitorID: monitorID,
       bounds: monitorFrame,
-      viewport: OverviewViewport(horizontalOffsets: [workspace.id: 1]),
+      viewport: OverviewViewport(horizontalOffsets: [workspace.id: 2]),
       layout: LayoutSettings()
     ).workspaces[0]
 

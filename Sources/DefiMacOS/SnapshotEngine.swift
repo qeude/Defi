@@ -709,10 +709,17 @@ extension SnapshotEngine {
     guard let resolvedWindowID = record?.id else {
       return .unmatched
     }
+    let windowID = WindowID(rawValue: UInt64(resolvedWindowID))
+    let widthConstraints = onMain { platform in
+      if let ownedWindowID = platform.borderManager.ownedSurfaceWindowID {
+        platform.borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
+      }
+      return platform.borderBoundsProvider.widthConstraints(for: windowID)
+    }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
     return .discovered(
       Window(
-        id: WindowID(rawValue: UInt64(resolvedWindowID)),
+        id: windowID,
         appID: appID,
         title: title,
         frame: frame,
@@ -721,7 +728,9 @@ extension SnapshotEngine {
         processID: processID,
         isModal: attributes.modal == true,
         monitorID: monitorID,
-        forceTiling: false
+        forceTiling: false,
+        minimumTiledWidth: widthConstraints?.minimum,
+        maximumTiledWidth: widthConstraints?.maximum
       ), resolvedWindowID, decision
     )
   }

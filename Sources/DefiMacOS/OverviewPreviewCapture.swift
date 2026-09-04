@@ -62,6 +62,28 @@ public enum OverviewPreviewPermissionState: String, Sendable {
   case denied
 }
 
+func overviewCaptureBatchNeeded(
+  previewRequestCount: Int,
+  hasPendingDesktopCapture: Bool
+) -> Bool {
+  previewRequestCount > 0 || hasPendingDesktopCapture
+}
+
+func overviewRecordedDesktopCaptureMonitorIDs(
+  existing: Set<MonitorID>,
+  requested: Set<MonitorID>,
+  captured: Set<MonitorID>
+) -> Set<MonitorID> {
+  existing.union(captured.intersection(requested))
+}
+
+func overviewDesktopCaptureRetryNeeded(
+  requested: Set<MonitorID>,
+  captured: Set<MonitorID>
+) -> Bool {
+  !requested.isSubset(of: captured)
+}
+
 struct OverviewPreviewRequest: Equatable, Sendable {
   let windowID: WindowID
   let expectedAppID: String
@@ -266,6 +288,6 @@ func overviewPreviewRequestIsCurrent(
   currentAppID: String?
 ) -> Bool {
   generation == currentGeneration
-    && currentRequest == request
+    && currentRequest?.windowID == request.windowID
     && currentAppID == request.expectedAppID
 }

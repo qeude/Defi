@@ -551,6 +551,18 @@ public final class MacOSPlatform {
     borderBoundsProvider.failureCount
   }
 
+  public var isPrivateWindowConstraintLookupAvailable: Bool {
+    borderBoundsProvider.constraintsAreAvailable
+  }
+
+  public var successfulPrivateWindowConstraintLookupCount: Int {
+    borderBoundsProvider.successfulConstraintLookupCount
+  }
+
+  public var privateWindowConstraintLookupFallbackCount: Int {
+    borderBoundsProvider.constraintFallbackCount
+  }
+
   var cursorWarpAppliedCount = 0
   var cursorWarpSkippedCount = 0
   var cursorWarpFailedCount = 0

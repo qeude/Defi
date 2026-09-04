@@ -228,31 +228,22 @@ extension Daemon {
   }
 
   func learnPersistentWidthConstraints(_ mismatches: [FrameMismatch]) {
-    let mismatchedIDs = Set(mismatches.map(\.windowID))
-    persistentWidthDriftCounts = persistentWidthDriftCounts.filter {
-      mismatchedIDs.contains($0.key)
-    }
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
         state.windows[mismatch.windowID]?.intrinsicSize != true,
+        state.windows[mismatch.windowID]?.minimumTiledWidth == nil,
+        state.windows[mismatch.windowID]?.maximumTiledWidth == nil,
         !state.pendingNativeFullscreenWidthResetWindowIDs.contains(mismatch.windowID),
         !platform.isInitialFrameSettlementActive(for: mismatch.windowID)
       else {
         continue
       }
-      let count = persistentWidthDriftCounts[mismatch.windowID, default: 0] + 1
-      persistentWidthDriftCounts[mismatch.windowID] = count
-      if count >= 3,
-        learnTiledWindowWidthConstraint(
-          mismatch.windowID,
-          actualFrame: mismatch.actual,
-          state: &state,
-          viewports: viewportsByMonitor
-        )
-      {
-        persistentWidthDriftCounts[mismatch.windowID] = 0
-      }
+      _ = learnTiledWindowWidthConstraint(
+        mismatch.windowID,
+        actualFrame: mismatch.actual,
+        state: &state,
+        viewports: viewportsByMonitor
+      )
     }
   }
-
 }

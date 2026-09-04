@@ -12,6 +12,28 @@ struct OverviewRuntimeTests {
   let remoteWorkspace = WorkspaceID(rawValue: "remote")
 
   @Test
+  func `Commits overview ribbon positions once without touching other workspaces`() {
+    var state = makeState()
+
+    let changed = applyOverviewScrollOffsets(
+      [firstMonitor: [firstWorkspace: 0.5]],
+      state: &state
+    )
+
+    #expect(changed == Set([firstMonitor]))
+    #expect(state.monitors[0].workspaces[0].scrollOffset == 0.5)
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset == 0.5)
+    #expect(state.monitors[0].workspaces[1].scrollOffset == 0)
+    #expect(state.monitors[1].workspaces[0].scrollOffset == 0)
+    #expect(
+      applyOverviewScrollOffsets(
+        [firstMonitor: [firstWorkspace: 0.5]],
+        state: &state
+      ).isEmpty
+    )
+  }
+
+  @Test
   func `Moves a tiled window to an exact stack atomically`() throws {
     let moving = WindowID(rawValue: 1)
     let target = WindowID(rawValue: 2)

@@ -4,6 +4,61 @@ import Testing
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @Test
+  func `Desktop capture schedules without window previews`() {
+    #expect(
+      overviewCaptureBatchNeeded(
+        previewRequestCount: 0,
+        hasPendingDesktopCapture: true
+      )
+    )
+    #expect(
+      !overviewCaptureBatchNeeded(
+        previewRequestCount: 0,
+        hasPendingDesktopCapture: false
+      )
+    )
+  }
+
+  @Test
+  func `Failed desktop capture remains retryable`() {
+    let monitorID = MonitorID(rawValue: 1)
+    let existingID = MonitorID(rawValue: 2)
+
+    #expect(
+      overviewRecordedDesktopCaptureMonitorIDs(
+        existing: [],
+        requested: [monitorID],
+        captured: []
+      ).isEmpty
+    )
+    #expect(
+      overviewRecordedDesktopCaptureMonitorIDs(
+        existing: [existingID],
+        requested: [monitorID],
+        captured: [monitorID]
+      ) == [existingID, monitorID]
+    )
+  }
+
+  @Test
+  func `Missing desktop capture schedules an idle retry`() {
+    let monitorID = MonitorID(rawValue: 1)
+
+    #expect(
+      overviewDesktopCaptureRetryNeeded(
+        requested: [monitorID],
+        captured: []
+      )
+    )
+    #expect(
+      !overviewDesktopCaptureRetryNeeded(
+        requested: [monitorID],
+        captured: [monitorID]
+      )
+    )
+  }
+
   @Test("Overview parks windows when captured desktop is unavailable")
   func overviewBackdropFallbackPolicy() {
     #expect(
@@ -101,6 +156,34 @@ struct OverviewPreviewTests {
         expectedAppID: "com.example.original",
         capturedAppID: nil
       ) == false
+    )
+  }
+
+  @Test
+  func `Preview capture remains valid after its card is resized`() {
+    let original = OverviewPreviewRequest(
+      windowID: WindowID(rawValue: 1),
+      expectedAppID: "app",
+      width: 800,
+      height: 500,
+      blurFadeHeight: 80
+    )
+    let resized = OverviewPreviewRequest(
+      windowID: original.windowID,
+      expectedAppID: original.expectedAppID,
+      width: 1_000,
+      height: 500,
+      blurFadeHeight: original.blurFadeHeight
+    )
+
+    #expect(
+      overviewPreviewRequestIsCurrent(
+        original,
+        generation: 1,
+        currentGeneration: 1,
+        currentRequest: resized,
+        currentAppID: "app"
+      )
     )
   }
 

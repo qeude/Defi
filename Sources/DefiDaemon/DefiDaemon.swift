@@ -232,7 +232,6 @@ final class Daemon: NSObject {
   var mouseGestureSettlement: MouseGestureSettlement?
   var mouseGesturePreempted = false
   var mouseReorderAnimationActive = false
-  var persistentWidthDriftCounts: [WindowID: Int] = [:]
   var floatingWindowFrames: [WindowID: Rect] = [:]
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
   var animationFrameCount = 0

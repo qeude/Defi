@@ -132,6 +132,11 @@ public func interpolateOverviewProjection(
           to: targetWorkspace.frame,
           progress: progress
         ),
+        visibleFrame: interpolateOverviewRect(
+          from: sourceWorkspace.visibleFrame,
+          to: targetWorkspace.visibleFrame,
+          progress: progress
+        ),
         windows: windows,
         hiddenTiledWindowCountBefore: targetWorkspace.hiddenTiledWindowCountBefore,
         hiddenTiledWindowCountAfter: targetWorkspace.hiddenTiledWindowCountAfter
@@ -205,6 +210,7 @@ public struct OverviewWorkspaceProjection: Equatable, Sendable {
   public let workspaceID: WorkspaceID
   public let label: String
   public let frame: Rect
+  public let visibleFrame: Rect
   public let windows: [OverviewWindowProjection]
   public let hiddenTiledWindowCountBefore: Int
   public let hiddenTiledWindowCountAfter: Int
@@ -213,6 +219,7 @@ public struct OverviewWorkspaceProjection: Equatable, Sendable {
     workspaceID: WorkspaceID,
     label: String? = nil,
     frame: Rect,
+    visibleFrame: Rect? = nil,
     windows: [OverviewWindowProjection],
     hiddenTiledWindowCountBefore: Int = 0,
     hiddenTiledWindowCountAfter: Int = 0
@@ -220,6 +227,7 @@ public struct OverviewWorkspaceProjection: Equatable, Sendable {
     self.workspaceID = workspaceID
     self.label = label ?? workspaceID.rawValue
     self.frame = frame
+    self.visibleFrame = visibleFrame ?? frame
     self.windows = windows
     self.hiddenTiledWindowCountBefore = hiddenTiledWindowCountBefore
     self.hiddenTiledWindowCountAfter = hiddenTiledWindowCountAfter
@@ -342,9 +350,16 @@ public func projectOverview(
         settings: layout
       ).frames.map { ($0.windowID, $0.frame) }
     )
-    let tiledTarget = Rect(
-      x: workspaceFrame.x + workspaceGap,
+    let visibleFrame = Rect(
+      x: workspaceFrame.x
+        + (workspaceFrame.width - monitorFrame.width * contentScale) / 2,
       y: workspaceFrame.y,
+      width: monitorFrame.width * contentScale,
+      height: workspaceFrame.height
+    )
+    let tiledTarget = Rect(
+      x: visibleFrame.x,
+      y: visibleFrame.y,
       width: workspaceFrame.width,
       height: workspaceFrame.height
     )
@@ -392,14 +407,10 @@ public func projectOverview(
         width: frame.width,
         height: frame.height
       )
-      let projectedWidth = localFrame.width * contentScale
-      let sourceRange = max(sourceViewport.width - localFrame.width, 1)
-      let targetRange = max(workspaceFrame.width - projectedWidth, 0)
       let projectedFrame = Rect(
-        x: workspaceFrame.x
-          + min(max(localFrame.x / sourceRange, 0), 1) * targetRange,
-        y: workspaceFrame.y + localFrame.y * contentScale,
-        width: projectedWidth,
+        x: visibleFrame.x + localFrame.x * contentScale,
+        y: visibleFrame.y + localFrame.y * contentScale,
+        width: localFrame.width * contentScale,
         height: localFrame.height * contentScale
       )
       guard projectedFrame.intersects(workspaceFrame) else { continue }
@@ -421,6 +432,7 @@ public func projectOverview(
         label: originalWorkspace.name
           ?? (originalWorkspace.kind == .trailing ? "+" : String(workspaceIndex + 1)),
         frame: workspaceFrame,
+        visibleFrame: visibleFrame,
         windows: projectedWindows,
         hiddenTiledWindowCountBefore: hiddenTiledWindowCountBefore,
         hiddenTiledWindowCountAfter: hiddenTiledWindowCountAfter
@@ -461,8 +473,8 @@ public func overviewDropTarget(
     let scale = workspaceProjection.frame.height / monitorFrame.height
     let width = max(sourceFrame.width * scale, 1)
     let height = max(sourceFrame.height * scale, 1)
-    let horizontalRange = max(workspaceProjection.frame.width - width, 1)
-    let verticalRange = max(workspaceProjection.frame.height - height, 1)
+    let horizontalRange = max(workspaceProjection.visibleFrame.width - width, 1)
+    let verticalRange = max(workspaceProjection.visibleFrame.height - height, 1)
     let relativeWidth = min(sourceFrame.width / monitorFrame.width, 1)
     let relativeHeight = min(sourceFrame.height / monitorFrame.height, 1)
     return .floating(
@@ -470,11 +482,11 @@ public func overviewDropTarget(
       workspaceID: workspace.id,
       relativeFrame: Rect(
         x: min(max(
-          (point.x - workspaceProjection.frame.x - width / 2) / horizontalRange,
+          (point.x - workspaceProjection.visibleFrame.x - width / 2) / horizontalRange,
           0
         ), 1) * (1 - relativeWidth),
         y: min(max(
-          (point.y - workspaceProjection.frame.y - height / 2) / verticalRange,
+          (point.y - workspaceProjection.visibleFrame.y - height / 2) / verticalRange,
           0
         ), 1) * (1 - relativeHeight),
         width: relativeWidth,

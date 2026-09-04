@@ -86,6 +86,20 @@ extension Daemon {
             source: isOpen ? "overview-park" : "overview-restore"
           )
         }
+      },
+      commitScrollOffsets: { [weak self] offsets in
+        guard let self else { return }
+        let changedMonitorIDs = applyOverviewScrollOffsets(offsets, state: &state)
+        guard !changedMonitorIDs.isEmpty else { return }
+        persistPlacements()
+        guard overviewController?.usesWorkspaceParking != true else { return }
+        applyCurrentLayout(
+          monitorIDs: changedMonitorIDs,
+          asynchronousPositions: true,
+          updateVisibility: false,
+          positionTimeoutSeconds: 0.05,
+          source: "overview-scroll-commit"
+        )
       }
     )
   }

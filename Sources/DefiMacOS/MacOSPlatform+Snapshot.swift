@@ -416,6 +416,7 @@ extension SnapshotEngine {
     applicationWindowCounts = applicationWindows.mapValues(\.count)
     lastSnapshotWindows = windows
     lastSnapshotWindowIDs = Set(windows.lazy.map(\.id))
+    onMain { $0.borderBoundsProvider.retainConstraints(for: nextWindowIDs) }
     lastSnapshotProcessIDs = Set(windows.lazy.compactMap(\.processID))
     lastApplicationWindowElements = applicationWindows
     minimizedWindowElementsByProcess =
