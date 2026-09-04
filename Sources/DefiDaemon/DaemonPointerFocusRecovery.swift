@@ -3,193 +3,23 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
-func reboundPendingAnimatedFocus(
-  _ request: PendingAnimatedFocus,
-  using replacements: [WindowID: WindowID]
-) -> PendingAnimatedFocus {
-  PendingAnimatedFocus(
-    windowID: replacements[request.windowID] ?? request.windowID,
-    previousSelectedWindowID: request.previousSelectedWindowID.map {
-      replacements[$0] ?? $0
-    },
-    monitorID: request.monitorID,
-    sourceWorkspaceID: request.sourceWorkspaceID,
-    commandGeneration: request.commandGeneration,
-    focusInputTimestamp: request.focusInputTimestamp,
-    cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
-    retryCount: request.retryCount
-  )
-}
-
-func reboundPendingWorkspaceFocus(
-  _ request: PendingWorkspaceFocus,
-  using replacements: [WindowID: WindowID]
-) -> PendingWorkspaceFocus {
-  PendingWorkspaceFocus(
-    monitorID: request.monitorID,
-    requestedWorkspaceID: request.requestedWorkspaceID,
-    previousWorkspaceID: request.previousWorkspaceID,
-    requestedWindowID:
-      replacements[request.requestedWindowID] ?? request.requestedWindowID,
-    restoresPreviousWorkspaceOnCancellation:
-      request.restoresPreviousWorkspaceOnCancellation,
-    commandGeneration: request.commandGeneration,
-    focusInputTimestamp: request.focusInputTimestamp,
-    cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
-    retryCount: request.retryCount
-  )
-}
-
-func reboundDisplacedPointerFocusRecovery(
-  _ recovery: DisplacedPointerFocusRecovery,
-  using replacements: [WindowID: WindowID]
-) -> DisplacedPointerFocusRecovery {
-  switch recovery {
-  case .command(let request, let timestamp):
-    .command(
-      reboundPendingAnimatedFocus(request, using: replacements),
-      timestamp: timestamp
-    )
-  case .workspace(let request, let timestamp):
-    .workspace(
-      reboundPendingWorkspaceFocus(request, using: replacements),
-      timestamp: timestamp
-    )
-  }
-}
-
 @MainActor
 extension Daemon {
   func rebindFocusRequests(using replacements: [WindowID: WindowID]) {
-    guard replacements.isEmpty == false else { return }
-
-    if let submittedCommandFocus {
-      let rebound = reboundPendingAnimatedFocus(
-        submittedCommandFocus,
-        using: replacements
-      )
-      if rebound != submittedCommandFocus {
-        invalidateSubmittedCommandFocus(recoveringTo: rebound.windowID)
-        pendingAnimatedFocus = rebound
-      }
+    let recovery = focus.rebind(
+      using: replacements,
+      workspaceWritePending: submittedWorkspaceFocusRequestID != nil
+    )
+    if let windowID = recovery.command {
+      invalidateSubmittedCommandFocus(recoveringTo: windowID)
     }
-    pendingAnimatedFocus = pendingAnimatedFocus.map {
-      reboundPendingAnimatedFocus($0, using: replacements)
-    }
-
-    if let pendingWorkspaceFocus {
-      let rebound = reboundPendingWorkspaceFocus(
-        pendingWorkspaceFocus,
-        using: replacements
-      )
-      if rebound != pendingWorkspaceFocus,
-        submittedWorkspaceFocusGeneration != nil
-          || submittedWorkspaceFocusRequestID != nil
-      {
-        invalidateSubmittedWorkspaceFocus(
-          recoveringTo: rebound.requestedWindowID
-        )
-      }
-      self.pendingWorkspaceFocus = rebound
-    }
-
-    displacedPointerFocusRecovery = displacedPointerFocusRecovery.map {
-      reboundDisplacedPointerFocusRecovery($0, using: replacements)
-    }
-  }
-
-  func requeueDisplacedPointerFocusAfterDisplayChange(
-    _ recovery: DisplacedPointerFocusRecovery
-  ) {
-    switch recovery {
-    case .command(let request, let timestamp):
-      guard let monitorID = state.reboundFocusMonitorID(
-        for: request.windowID
-      ) else { return }
-      pendingAnimatedFocus = PendingAnimatedFocus(
-        windowID: request.windowID,
-        previousSelectedWindowID: request.previousSelectedWindowID,
-        monitorID: monitorID,
-        sourceWorkspaceID: request.sourceWorkspaceID,
-        commandGeneration: request.commandGeneration,
-        focusInputTimestamp: pointerDisplacedFocusInputTimestamp(
-          commandInputTimestamp: request.focusInputTimestamp,
-          pointerInputTimestamp: timestamp
-        ),
-        cursorWarpInputTimestamp: nil,
-        retryCount: request.retryCount
-      )
-    case .workspace(let request, let timestamp):
-      guard let monitorID = state.reboundFocusMonitorID(
-        for: request.requestedWindowID,
-        requestedWorkspaceID: request.requestedWorkspaceID
-      ) else { return }
-      pendingWorkspaceFocus = PendingWorkspaceFocus(
-        monitorID: monitorID,
-        requestedWorkspaceID: request.requestedWorkspaceID,
-        previousWorkspaceID: request.previousWorkspaceID,
-        requestedWindowID: request.requestedWindowID,
-        restoresPreviousWorkspaceOnCancellation:
-          request.restoresPreviousWorkspaceOnCancellation,
-        commandGeneration: request.commandGeneration,
-        focusInputTimestamp: pointerDisplacedFocusInputTimestamp(
-          commandInputTimestamp: request.focusInputTimestamp,
-          pointerInputTimestamp: timestamp
-        ),
-        cursorWarpInputTimestamp: nil,
-        retryCount: request.retryCount
-      )
-      submittedWorkspaceFocusGeneration = nil
-    }
-  }
-
-  func requeuePreservedFocusAfterMonitorRetention(
-    command: PendingAnimatedFocus?,
-    workspace: PendingWorkspaceFocus?,
-    displaced: DisplacedPointerFocusRecovery?
-  ) {
-    if let displaced {
-      requeueDisplacedPointerFocusAfterDisplayChange(displaced)
-      return
-    }
-    if let command,
-      let monitorID = state.reboundFocusMonitorID(for: command.windowID)
-    {
-      pendingAnimatedFocus = PendingAnimatedFocus(
-        windowID: command.windowID,
-        previousSelectedWindowID: command.previousSelectedWindowID,
-        monitorID: monitorID,
-        sourceWorkspaceID: command.sourceWorkspaceID,
-        commandGeneration: command.commandGeneration,
-        focusInputTimestamp: command.focusInputTimestamp,
-        cursorWarpInputTimestamp: command.cursorWarpInputTimestamp,
-        retryCount: command.retryCount
-      )
-    }
-    if let workspace,
-      let monitorID = state.reboundFocusMonitorID(
-        for: workspace.requestedWindowID,
-        requestedWorkspaceID: workspace.requestedWorkspaceID
-      )
-    {
-      pendingWorkspaceFocus = PendingWorkspaceFocus(
-        monitorID: monitorID,
-        requestedWorkspaceID: workspace.requestedWorkspaceID,
-        previousWorkspaceID: workspace.previousWorkspaceID,
-        requestedWindowID: workspace.requestedWindowID,
-        restoresPreviousWorkspaceOnCancellation:
-          workspace.restoresPreviousWorkspaceOnCancellation,
-        commandGeneration: workspace.commandGeneration,
-        focusInputTimestamp: workspace.focusInputTimestamp,
-        cursorWarpInputTimestamp: workspace.cursorWarpInputTimestamp,
-        retryCount: workspace.retryCount
-      )
-      submittedWorkspaceFocusGeneration = nil
+    if let windowID = recovery.workspace {
+      invalidateSubmittedWorkspaceFocus(recoveringTo: windowID)
     }
   }
 
   func rearmPointerFocusTransition() {
-    lastPointerWindowID = nil
+    focus.rearmPointer()
     lastRawPointerWindowID = nil
     hotKeys?.resetPointerWindowTransition()
   }
@@ -197,14 +27,15 @@ extension Daemon {
   func invalidateSubmittedCommandFocus(
     recoveringTo windowID: WindowID? = nil
   ) {
+    let timestamp =
+      submittedCommandFocus?.focusInputTimestamp
+      ?? submittedCommandFocusRequestTimestamp
+    focus.cancelSubmittedCommand()
     guard let requestID = submittedCommandFocusRequestID else {
       submittedCommandFocusRequestTimestamp = nil
       submittedCommandFocusRecoveryGeneration = nil
-      submittedCommandFocus = nil
       return
     }
-    let timestamp = submittedCommandFocus?.focusInputTimestamp
-      ?? submittedCommandFocusRequestTimestamp
     let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
     if !cancelled, let windowID, let timestamp {
       nextCommandFocusRecoveryGeneration &+= 1
@@ -232,20 +63,20 @@ extension Daemon {
       submittedCommandFocusRequestTimestamp = nil
       submittedCommandFocusRecoveryGeneration = nil
     }
-    submittedCommandFocus = nil
   }
 
   func invalidateSubmittedWorkspaceFocus(
     recoveringTo windowID: WindowID? = nil
   ) {
+    let timestamp =
+      pendingWorkspaceFocus?.focusInputTimestamp
+      ?? submittedWorkspaceFocusRequestTimestamp
+    focus.cancelSubmittedWorkspace()
     guard let requestID = submittedWorkspaceFocusRequestID else {
       submittedWorkspaceFocusRequestTimestamp = nil
-      submittedWorkspaceFocusGeneration = nil
       submittedWorkspaceFocusRecoveryGeneration = nil
       return
     }
-    let timestamp = pendingWorkspaceFocus?.focusInputTimestamp
-      ?? submittedWorkspaceFocusRequestTimestamp
     let cancelled = platform.cancelFocus(requestID, recoveringTo: windowID)
     if !cancelled, let windowID, let timestamp {
       nextWorkspaceFocusRecoveryGeneration &+= 1
@@ -273,12 +104,14 @@ extension Daemon {
       submittedWorkspaceFocusRequestTimestamp = nil
       submittedWorkspaceFocusRecoveryGeneration = nil
     }
-    submittedWorkspaceFocusGeneration = nil
   }
 
   func invalidatePointerFocusIntent(recoveringTo windowID: WindowID? = nil) {
-    pointerFocusGeneration &+= 1
-    pendingPointerFocus = nil
+    focus.invalidatePointer()
+    cancelSubmittedPointerFocus(recoveringTo: windowID)
+  }
+
+  func cancelSubmittedPointerFocus(recoveringTo windowID: WindowID? = nil) {
     invalidateSubmittedPointerFocusRecovery(recoveringTo: windowID)
     if let submittedPointerFocusRequestID {
       let timestamp = submittedPointerFocusTimestamp
@@ -289,8 +122,7 @@ extension Daemon {
       if let recoveryWindowID = pointerFocusRecoveryTargetAfterCancellation(
         cancellationSucceeded: cancelled,
         logicalFocusWindowID: windowID
-      ), let timestamp
-      {
+      ), let timestamp {
         recoverPointerFocus(
           to: recoveryWindowID,
           unlessUserInputAfter: timestamp
@@ -298,7 +130,6 @@ extension Daemon {
       }
       self.submittedPointerFocusRequestID = nil
       self.submittedPointerFocusTimestamp = nil
-      self.submittedPointerFocusGeneration = nil
     }
   }
 

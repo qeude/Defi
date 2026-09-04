@@ -71,72 +71,6 @@ private enum DaemonError: Error, CustomStringConvertible {
   }
 }
 
-struct PendingAnimatedFocus: Equatable {
-  let windowID: WindowID
-  let previousSelectedWindowID: WindowID?
-  let monitorID: MonitorID
-  let sourceWorkspaceID: WorkspaceID
-  let commandGeneration: UInt64
-  let focusInputTimestamp: TimeInterval
-  let cursorWarpInputTimestamp: TimeInterval?
-  let retryCount: Int
-
-  init(
-    windowID: WindowID,
-    previousSelectedWindowID: WindowID?,
-    monitorID: MonitorID,
-    sourceWorkspaceID: WorkspaceID,
-    commandGeneration: UInt64,
-    focusInputTimestamp: TimeInterval,
-    cursorWarpInputTimestamp: TimeInterval?,
-    retryCount: Int = 0
-  ) {
-    self.windowID = windowID
-    self.previousSelectedWindowID = previousSelectedWindowID
-    self.monitorID = monitorID
-    self.sourceWorkspaceID = sourceWorkspaceID
-    self.commandGeneration = commandGeneration
-    self.focusInputTimestamp = focusInputTimestamp
-    self.cursorWarpInputTimestamp = cursorWarpInputTimestamp
-    self.retryCount = retryCount
-  }
-}
-
-struct PendingWorkspaceFocus: Equatable {
-  let monitorID: MonitorID
-  let requestedWorkspaceID: WorkspaceID
-  let previousWorkspaceID: WorkspaceID?
-  let requestedWindowID: WindowID
-  let restoresPreviousWorkspaceOnCancellation: Bool
-  let commandGeneration: UInt64
-  let focusInputTimestamp: TimeInterval
-  let cursorWarpInputTimestamp: TimeInterval?
-  let retryCount: Int
-
-  init(
-    monitorID: MonitorID,
-    requestedWorkspaceID: WorkspaceID,
-    previousWorkspaceID: WorkspaceID?,
-    requestedWindowID: WindowID,
-    restoresPreviousWorkspaceOnCancellation: Bool,
-    commandGeneration: UInt64,
-    focusInputTimestamp: TimeInterval,
-    cursorWarpInputTimestamp: TimeInterval?,
-    retryCount: Int = 0
-  ) {
-    self.monitorID = monitorID
-    self.requestedWorkspaceID = requestedWorkspaceID
-    self.previousWorkspaceID = previousWorkspaceID
-    self.requestedWindowID = requestedWindowID
-    self.restoresPreviousWorkspaceOnCancellation =
-      restoresPreviousWorkspaceOnCancellation
-    self.commandGeneration = commandGeneration
-    self.focusInputTimestamp = focusInputTimestamp
-    self.cursorWarpInputTimestamp = cursorWarpInputTimestamp
-    self.retryCount = retryCount
-  }
-}
-
 struct MonitorLayoutPlan {
   let assignments: [FrameAssignment]
   let borderAssignments: [FrameAssignment]
@@ -157,11 +91,6 @@ struct WorkspaceVerticalTransition: Equatable {
   let direction: Int
 }
 
-enum DisplacedPointerFocusRecovery: Equatable {
-  case command(PendingAnimatedFocus, timestamp: TimeInterval)
-  case workspace(PendingWorkspaceFocus, timestamp: TimeInterval)
-}
-
 @MainActor
 final class Daemon: NSObject {
   let configURL: URL
@@ -173,6 +102,7 @@ final class Daemon: NSObject {
   let topologySessionID: String
   let diagnostics = DiagnosticRecorder()
   let readResponseCache = DaemonReadResponseCache()
+  var focus = FocusState()
   var state: RuntimeState
   var placementPreferences: PlacementPreferences
   var placementPreferencesDirty = false
@@ -212,12 +142,13 @@ final class Daemon: NSObject {
   var desktopSessionActive = true
   var desktopSessionGeneration: UInt64 = 0
   var desktopSnapshotInFlight = false
-  var supersededDesktopSnapshotRequest: (
-    forceFullWindowRefresh: Bool,
-    forceWindowListRefresh: Bool,
-    forceApplicationInventoryRefresh: Bool,
-    consumePeriodicWindowRefresh: Bool
-  )?
+  var supersededDesktopSnapshotRequest:
+    (
+      forceFullWindowRefresh: Bool,
+      forceWindowListRefresh: Bool,
+      forceApplicationInventoryRefresh: Bool,
+      consumePeriodicWindowRefresh: Bool
+    )?
   var axPrefetchInvalidationRetries = 0
   var cgPrefetchInvalidationRetries = 0
   var bypassPrefetchOnce = false
@@ -249,21 +180,21 @@ final class Daemon: NSObject {
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
   var preservedWindowRemovalFocusCount = 0
-  var pendingAnimatedFocus: PendingAnimatedFocus?
-  var submittedCommandFocus: PendingAnimatedFocus?
-  var pendingWorkspaceFocus: PendingWorkspaceFocus?
-  var submittedWorkspaceFocusGeneration: UInt64?
+  var pendingAnimatedFocus: PendingAnimatedFocus? { focus.pendingAnimatedFocus }
+  var submittedCommandFocus: PendingAnimatedFocus? { focus.submittedCommandFocus }
+  var pendingWorkspaceFocus: PendingWorkspaceFocus? { focus.pendingWorkspaceFocus }
+  var submittedWorkspaceFocusGeneration: UInt64? { focus.submittedWorkspaceFocusGeneration }
   var submittedWorkspaceFocusRequestID: NativeFocusRequestID?
   var submittedWorkspaceFocusRequestTimestamp: TimeInterval?
   var submittedWorkspaceFocusRecoveryGeneration: UInt64?
   var nextWorkspaceFocusRecoveryGeneration: UInt64 = 0
-  var displacedPointerFocusRecovery: DisplacedPointerFocusRecovery?
-  var lastPointerWindowID: WindowID?
-  var pendingPointerFocus: PendingPointerFocus?
-  var pointerFocusGeneration: UInt64 = 0
+  var displacedPointerFocusRecovery: DisplacedPointerFocusRecovery? {
+    focus.displacedPointerFocusRecovery
+  }
+  var lastPointerWindowID: WindowID? { focus.lastPointerWindowID }
+  var pendingPointerFocus: PendingPointerFocus? { focus.pendingPointerFocus }
   var submittedPointerFocusRequestID: NativeFocusRequestID?
   var submittedPointerFocusTimestamp: TimeInterval?
-  var submittedPointerFocusGeneration: UInt64?
   var submittedPointerFocusRecoveryRequestID: NativeFocusRequestID?
   var submittedPointerFocusRecoveryTimestamp: TimeInterval?
   var submittedPointerFocusRecoveryGeneration: UInt64?
@@ -359,11 +290,11 @@ final class Daemon: NSObject {
       commandGeneration &+= 1
       mouseGestureGeneration &+= 1
       pendingHotKeyCommands.removeAll(keepingCapacity: true)
-      pendingAnimatedFocus = nil
+      focus.queueCommand(nil)
       invalidateSubmittedCommandFocus()
-      pendingWorkspaceFocus = nil
+      focus.queueWorkspace(nil)
       invalidateSubmittedWorkspaceFocus()
-      displacedPointerFocusRecovery = nil
+      focus.discardDisplacedFocus()
       invalidatePointerFocusIntent()
       scrollAnimations.removeAll(keepingCapacity: true)
       finishMouseGestureTracking()
@@ -440,9 +371,10 @@ final class Daemon: NSObject {
     ].compactMap { $0 }.max()
     let latestFocusIntentTimestamp = platform.userInputTracker.snapshot
       .latestFocusIntent?.timestamp
-    let nativeFocusHasNewerHumanIntent = pendingCommandFocusInputTimestamp.map {
-      (latestFocusIntentTimestamp ?? 0) > $0
-    } ?? true
+    let nativeFocusHasNewerHumanIntent =
+      pendingCommandFocusInputTimestamp.map {
+        (latestFocusIntentTimestamp ?? 0) > $0
+      } ?? true
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
@@ -452,7 +384,8 @@ final class Daemon: NSObject {
         frameNotificationsSuspended = false
         needsDesktopSync = true
       }
-      let followUpPending = needsDesktopSync
+      let followUpPending =
+        needsDesktopSync
         || mouseGestureSettlement != nil
         || !pendingDisplaySyncDeadlines.isEmpty
         || pendingAnimatedFocus != nil
@@ -519,13 +452,17 @@ final class Daemon: NSObject {
       frameDebtPending: platform.hasPendingFrameDebt,
       lifecycleEventPending: platform.hasPendingWindowTopologyEvent
     ) {
-      let forcesWindowInventory = !nativeFocusSyncPending
+      let forcesWindowInventory =
+        !nativeFocusSyncPending
         && (windowListRefreshDue || applicationInventoryRefreshDue)
-      let forceWindowListRefresh = !nativeFocusSyncPending
+      let forceWindowListRefresh =
+        !nativeFocusSyncPending
         && windowListRefreshDue
-      let forceApplicationInventoryRefresh = !nativeFocusSyncPending
+      let forceApplicationInventoryRefresh =
+        !nativeFocusSyncPending
         && applicationInventoryRefreshDue
-      let forcesFullWindowRefresh = !nativeFocusSyncPending
+      let forcesFullWindowRefresh =
+        !nativeFocusSyncPending
         && (forcesWindowInventory
           || (periodicWindowRefreshDue
             && !platform.hasReliableWindowTopologyObservation))

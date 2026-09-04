@@ -16,11 +16,68 @@ struct WindowSnapshotStabilityTests {
     let consumed = WindowID(rawValue: 1)
     let arrivedDuringSnapshot = WindowID(rawValue: 2)
 
-    engine.recordExplicitlyDestroyedWindow(consumed)
-    #expect(engine.consumeExplicitlyDestroyedWindows() == [consumed])
-    engine.recordExplicitlyDestroyedWindow(arrivedDuringSnapshot)
+    engine.recordObservation(.windows, processID: 42, windowID: consumed)
+    #expect(engine.consumeObservations().destroyedWindowIDs == [consumed])
+    engine.recordObservation(.windows, processID: 42, windowID: arrivedDuringSnapshot)
 
-    #expect(engine.explicitlyDestroyedWindowIDs == [arrivedDuringSnapshot])
+    #expect(engine.pendingObservations.destroyedWindowIDs == [arrivedDuringSnapshot])
+  }
+
+  @Test func snapshotCompletionPreservesNewObservationsAndRetainedFrames() {
+    let engine = SnapshotEngine(
+      frameCoordinator: AXFrameCoordinator(),
+      userInputTracker: UserInputTracker()
+    )
+    let retained = WindowID(rawValue: 1)
+    engine.recordObservation(.frame, processID: 42, windowID: retained)
+    let first = engine.consumeObservations()
+    #expect(first.frameWindowIDs == [retained])
+    #expect(first.frameProcessIDs == [42])
+    #expect(engine.pendingObservations == SnapshotObservations())
+
+    let generation = engine.windowSnapshotObservationGeneration
+    engine.recordObservation(.frame, processID: 99)
+    engine.recordObservation(.frame, processID: nil)
+    engine.recordObservation(.windows, processID: 99, inputTimestamp: 20)
+    engine.recordObservation(.windows, processID: 42, inputTimestamp: 10)
+    engine.recordFrameRefresh(
+      windowIDs: first.frameWindowIDs,
+      processIDs: first.frameProcessIDs,
+      requiresFullSnapshot: false,
+      invalidatesPreparedObservations: false
+    )
+
+    let next = engine.consumeObservations()
+    #expect(next.framePending)
+    #expect(next.frameWindowIDs == [retained])
+    #expect(next.frameProcessIDs == [42, 99])
+    #expect(next.frameRequiresFullSnapshot)
+    #expect(next.topologyPending)
+    #expect(next.topologyProcessIDs == [42, 99])
+    #expect(next.topologyInputTimestamp == 20)
+    #expect(engine.windowSnapshotObservationGeneration > generation)
+    #expect(engine.consumeObservations() == SnapshotObservations())
+  }
+
+  @Test func normalizedWindowObservationsKeepTheirRefreshScope() {
+    let engine = SnapshotEngine(
+      frameCoordinator: AXFrameCoordinator(),
+      userInputTracker: UserInputTracker()
+    )
+    let windowID = WindowID(rawValue: 1)
+    for processID: pid_t? in [42, nil] {
+      engine.recordObservation(.frame, processID: processID, windowID: windowID)
+      let frame = engine.consumeObservations()
+      #expect(frame.frameWindowIDs == [windowID])
+      #expect(frame.frameProcessIDs == Set(processID.map { [$0] } ?? []))
+      #expect(frame.frameRequiresFullSnapshot == (processID == nil))
+
+      engine.recordObservation(.windows, processID: processID, windowID: windowID)
+      let destroyed = engine.consumeObservations()
+      #expect(destroyed.destroyedWindowIDs == [windowID])
+      #expect(destroyed.topologyPending)
+      #expect(destroyed.topologyRequiresFullSnapshot == (processID == nil))
+    }
   }
 
   @Test func staleCGWindowInventoryIsRejected() {

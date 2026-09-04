@@ -189,18 +189,18 @@ extension Daemon {
       let preservedLogicalFocusWindowID = activeMonitorID.flatMap {
         state.selectedWindowID(on: $0)
       }
-      pendingAnimatedFocus = nil
+      focus.queueCommand(nil)
       invalidateSubmittedCommandFocus()
       invalidateSubmittedWorkspaceFocus()
-      pendingWorkspaceFocus = nil
-      submittedWorkspaceFocusGeneration = nil
-      displacedPointerFocusRecovery = nil
+      focus.queueWorkspace(nil)
+      focus.cancelSubmittedWorkspace()
+      focus.discardDisplacedFocus()
       platform.invalidateFrameStateForDisplayChange()
       platform.invalidateFocusStateForDisplayChange()
       invalidatePointerFocusIntent(recoveringTo: preservedLogicalFocusWindowID)
       rearmPointerFocusTransition()
       scrollAnimations.removeAll(keepingCapacity: true)
-      submittedWorkspaceFocusGeneration = nil
+      focus.cancelSubmittedWorkspace()
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
       finishMouseGestureTracking()
@@ -214,10 +214,11 @@ extension Daemon {
       nextViewports: viewportsByMonitor
     )
     if displayGeometryChanged {
-      requeuePreservedFocusAfterMonitorRetention(
+      focus.requeuePreservedFocusAfterMonitorRetention(
         command: preservedCommandFocus,
         workspace: preservedWorkspaceFocus,
-        displaced: preservedDisplacedFocus
+        displaced: preservedDisplacedFocus,
+        state: state
       )
     }
     var nativelyFocusedMonitorID: MonitorID?
@@ -225,9 +226,10 @@ extension Daemon {
     var nativeCursorWarpWindowID: WindowID?
     var nativeCursorWarpInputTimestamp: TimeInterval?
     var nativeFocusFrameMonitorID: MonitorID?
-    let previouslyManagedWindowIDs = Set(state.windows.keys.map {
-      snapshot.windowIDReplacements[$0] ?? $0
-    })
+    let previouslyManagedWindowIDs = Set(
+      state.windows.keys.map {
+        snapshot.windowIDReplacements[$0] ?? $0
+      })
     let enteringNativeFullscreenWindowIDs = snapshot.nativeFullscreenWindowIDs
       .subtracting(state.nativeFullscreenWindowIDs)
     platform.updateNativeFullscreenWindowIDs(
@@ -238,7 +240,7 @@ extension Daemon {
     if pendingAnimatedFocus.map({
       enteringNativeFullscreenWindowIDs.contains($0.windowID)
     }) == true {
-      pendingAnimatedFocus = nil
+      focus.queueCommand(nil)
     }
     if submittedCommandFocus.map({
       enteringNativeFullscreenWindowIDs.contains($0.windowID)
@@ -440,9 +442,9 @@ extension Daemon {
         invalidateSubmittedWorkspaceFocus(recoveringTo: focusedWindowID)
         invalidatePointerFocusIntent(recoveringTo: focusedWindowID)
         rearmPointerFocusTransition()
-        pendingAnimatedFocus = nil
-        pendingWorkspaceFocus = nil
-        submittedWorkspaceFocusGeneration = nil
+        focus.queueCommand(nil)
+        focus.queueWorkspace(nil)
+        focus.cancelSubmittedWorkspace()
       }
       if keyboardFocusPreemptsMouseGesture(
         nativeFocusAccepted: nativeFocusAccepted,
@@ -683,8 +685,7 @@ extension Daemon {
     } else {
       nativeFocusSkippedWindowIDs = []
     }
-    let nativeCursorWarpIsCurrentAfterCommit:
-      (@MainActor @Sendable () -> Bool)?
+    let nativeCursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?
     if let nativeCursorWarpWindowID {
       nativeCursorWarpIsCurrentAfterCommit = { [weak self] in
         guard let self,

@@ -347,3 +347,113 @@ private func validatedDestination(
   else { throw OverviewRuntimeError.unknownWorkspace(workspaceID) }
   return (monitorID, workspaceID)
 }
+
+public func logicalOverviewMonitors(state: RuntimeState) -> [Monitor] {
+  var monitors = state.monitors
+  for monitorIndex in monitors.indices {
+    for workspaceIndex in monitors[monitorIndex].workspaces.indices {
+      for windowID in state.nativeFullscreenWindowIDs {
+        removeWindow(
+          windowID,
+          from: &monitors[monitorIndex].workspaces[workspaceIndex],
+          settings: state.layout
+        )
+      }
+    }
+  }
+
+  for windowID in state.nativeFullscreenFloatingWindowIDs {
+    guard let location = state.location(containing: windowID),
+      let monitorIndex = monitors.firstIndex(where: { $0.id == location.monitorID }),
+      let workspaceIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
+        $0.id == location.workspaceID
+      })
+    else { continue }
+    monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(windowID)
+  }
+
+  let groupedPlacements = Dictionary(grouping: state.nativeFullscreenTiledPlacements) {
+    _, placement in
+    OverviewPlacementGroup(
+      monitorID: placement.monitorID,
+      workspaceID: placement.workspaceID,
+      columnIndex: placement.columnIndex
+    )
+  }
+  for (group, placements) in groupedPlacements.sorted(by: {
+    $0.key.columnIndex < $1.key.columnIndex
+  }) {
+    guard let placement = placements.first?.value,
+      let monitorIndex = monitors.firstIndex(where: { $0.id == group.monitorID }),
+      let workspaceIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
+        $0.id == group.workspaceID
+      })
+    else { continue }
+    let desiredWindowIDs = placement.column.windows.filter {
+      state.windows[$0] != nil
+    }
+    guard !desiredWindowIDs.isEmpty else { continue }
+    if let existingColumnIndex = monitors[monitorIndex].workspaces[workspaceIndex]
+      .columns.firstIndex(where: { column in
+        column.windows.contains(where: desiredWindowIDs.contains)
+      })
+    {
+      monitors[monitorIndex].workspaces[workspaceIndex]
+        .columns[existingColumnIndex].windows = desiredWindowIDs
+      monitors[monitorIndex].workspaces[workspaceIndex]
+        .columns[existingColumnIndex].width = placement.column.width
+      monitors[monitorIndex].workspaces[workspaceIndex]
+        .columns[existingColumnIndex].preMaximizedWidth =
+        placement.column.preMaximizedWidth
+    } else {
+      let insertionIndex = min(
+        max(group.columnIndex, 0),
+        monitors[monitorIndex].workspaces[workspaceIndex].columns.count
+      )
+      monitors[monitorIndex].workspaces[workspaceIndex].columns.insert(
+        Column(
+          windows: desiredWindowIDs,
+          focusedWindow: min(
+            placement.windowIndex,
+            desiredWindowIDs.count - 1
+          ),
+          width: placement.column.width,
+          preMaximizedWidth: placement.column.preMaximizedWidth
+        ),
+        at: insertionIndex
+      )
+    }
+  }
+  for originalMonitor in state.monitors {
+    guard
+      let monitorIndex = monitors.firstIndex(where: {
+        $0.id == originalMonitor.id
+      })
+    else { continue }
+    for originalWorkspace in originalMonitor.workspaces {
+      guard
+        let workspaceIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
+          $0.id == originalWorkspace.id
+        })
+      else { continue }
+      let selectedWindowID = selectedWindowID(in: originalWorkspace)
+      monitors[monitorIndex].workspaces[workspaceIndex].scrollOffset =
+        originalWorkspace.scrollOffset
+      monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset =
+        originalWorkspace.targetScrollOffset
+      if let selectedWindowID {
+        restoreSelection(
+          selectedWindowID,
+          in: &monitors[monitorIndex].workspaces[workspaceIndex]
+        )
+      }
+    }
+  }
+  return monitors
+}
+
+private struct OverviewPlacementGroup: Hashable {
+  let monitorID: MonitorID
+  let workspaceID: WorkspaceID
+  let columnIndex: Int
+}

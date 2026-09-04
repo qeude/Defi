@@ -482,34 +482,6 @@ struct PointerFocusTests {
   }
 
   @Test
-  func supersededCommandFocusCompletionCannotRollbackSelection() {
-    let windowID = WindowID(rawValue: 42)
-
-    #expect(
-      commandFocusCompletionIsCurrent(
-        submittedWindowID: windowID,
-        submittedGeneration: 4,
-        completedWindowID: windowID,
-        completedGeneration: 4
-      )
-    )
-    #expect(
-      commandFocusCompletionIsCurrent(
-        submittedWindowID: nil,
-        submittedGeneration: nil,
-        completedWindowID: windowID,
-        completedGeneration: 4
-      ) == false)
-    #expect(
-      commandFocusCompletionIsCurrent(
-        submittedWindowID: WindowID(rawValue: 43),
-        submittedGeneration: 5,
-        completedWindowID: windowID,
-        completedGeneration: 4
-      ) == false)
-  }
-
-  @Test
   func pointerFocusRetryIsBoundedAndRequiresCurrentIntent() {
     #expect(
       nextPointerFocusRetryCount(

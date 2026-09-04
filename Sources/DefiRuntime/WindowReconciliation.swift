@@ -650,7 +650,7 @@ private func normalizeNativeFullscreenColumns(
   restoreSelection(selectedWindowID, in: &workspace)
 }
 
-private func selectedWindowID(in workspace: Workspace) -> WindowID? {
+func selectedWindowID(in workspace: Workspace) -> WindowID? {
   if workspace.focusedLayer == .floating,
     workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
   {
@@ -662,7 +662,7 @@ private func selectedWindowID(in workspace: Workspace) -> WindowID? {
   return column.windows[column.focusedWindow]
 }
 
-private func restoreSelection(
+func restoreSelection(
   _ windowID: WindowID?,
   in workspace: inout Workspace
 ) {

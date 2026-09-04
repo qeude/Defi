@@ -284,13 +284,15 @@ extension Daemon {
 
   func cancelAnimationForMouseGesture() {
     needsDesktopSync = true
-    guard mouseGestureAnimationCancellationIsNeeded(
-      mouseReorderAnimationActive: mouseReorderAnimationActive,
-      scrollAnimationActive: !scrollAnimations.isEmpty,
-      animatedWritesPending:
-        platform.hasPendingAnimatedFrameWrites
-        || platform.hasPendingDeferredParkingWrites
-    ) else {
+    guard
+      mouseGestureAnimationCancellationIsNeeded(
+        mouseReorderAnimationActive: mouseReorderAnimationActive,
+        scrollAnimationActive: !scrollAnimations.isEmpty,
+        animatedWritesPending:
+          platform.hasPendingAnimatedFrameWrites
+          || platform.hasPendingDeferredParkingWrites
+      )
+    else {
       return
     }
     rebaseActiveScrollOffsetToDisplayedFrames()
@@ -313,11 +315,11 @@ extension Daemon {
       )
     }
     scrollAnimations.removeAll(keepingCapacity: true)
-    pendingAnimatedFocus = nil
+    focus.queueCommand(nil)
     invalidateSubmittedCommandFocus()
     invalidateSubmittedWorkspaceFocus()
-    pendingWorkspaceFocus = nil
-    submittedWorkspaceFocusGeneration = nil
+    focus.queueWorkspace(nil)
+    focus.cancelSubmittedWorkspace()
     platform.cancelPendingFrameWrites()
   }
 
@@ -357,7 +359,7 @@ extension Daemon {
         targetWindowID: pendingAnimatedFocus.windowID
       )
     {
-      self.pendingAnimatedFocus = nil
+      self.focus.queueCommand(nil)
       commitCommandFocus(
         pendingAnimatedFocus.windowID,
         previousSelectedWindowID:
@@ -381,7 +383,7 @@ extension Daemon {
       )
     else { return }
 
-    submittedWorkspaceFocusGeneration = request.commandGeneration
+    let submission = focus.submitWorkspace(request)
     submittedWorkspaceFocusRecoveryGeneration = nil
     submittedWorkspaceFocusRequestID = platform.focus(
       request.requestedWindowID,
@@ -389,20 +391,17 @@ extension Daemon {
       cursorWarpUnlessPointerMovedAfter: request.cursorWarpInputTimestamp,
       cursorWarpIsCurrent: { [weak self] in
         guard let self else { return false }
-        return self.pendingWorkspaceFocus?.commandGeneration
-            == request.commandGeneration
-          && self.submittedWorkspaceFocusGeneration
-            == request.commandGeneration
+        return self.focus.workspaceCompletionIsCurrent(request, submission: submission)
       },
       allowsNativeFullscreen: true,
       completion: { [weak self] result in
-        self?.commitWorkspaceCommandFocus(result: result, request: request)
+        self?.commitWorkspaceCommandFocus(result: result, request: request, submission: submission)
       }
     )
     submittedWorkspaceFocusRequestTimestamp =
       submittedWorkspaceFocusRequestID == nil
-        ? nil
-        : request.focusInputTimestamp
+      ? nil
+      : request.focusInputTimestamp
   }
 
   func focusIsReady(

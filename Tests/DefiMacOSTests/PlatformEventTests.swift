@@ -296,8 +296,8 @@ struct PlatformEventTests {
     platform.requestWindowTopologyRefresh(processID: 101, inputTimestamp: 10)
 
     #expect(platform.hasPendingWindowTopologyEvent)
-    #expect(platform.pendingWindowTopologyProcessIDs == [101])
-    #expect(platform.pendingWindowTopologyInputTimestamp == 12)
+    #expect(platform.snapshotEngine.pendingObservations.topologyProcessIDs == [101])
+    #expect(platform.snapshotEngine.pendingObservations.topologyInputTimestamp == 12)
   }
 
   @Test
@@ -1846,10 +1846,10 @@ struct PlatformEventTests {
 
     platform.requestFrameRefresh(for: windowID)
 
-    #expect(platform.frameEventPending)
-    #expect(platform.pendingFrameProcessIDs == [101])
-    #expect(platform.observedFrameEventWindowIDs == [windowID])
-    #expect(platform.pendingFrameRequiresFullSnapshot == false)
+    #expect(platform.snapshotEngine.pendingObservations.framePending)
+    #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs == [101])
+    #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [windowID])
+    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot == false)
   }
 
   @Test @MainActor
@@ -1858,10 +1858,10 @@ struct PlatformEventTests {
 
     platform.requestFrameRefresh(for: WindowID(rawValue: 42))
 
-    #expect(platform.frameEventPending)
-    #expect(platform.pendingFrameProcessIDs.isEmpty)
-    #expect(platform.observedFrameEventWindowIDs == [WindowID(rawValue: 42)])
-    #expect(platform.pendingFrameRequiresFullSnapshot)
+    #expect(platform.snapshotEngine.pendingObservations.framePending)
+    #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs.isEmpty)
+    #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [WindowID(rawValue: 42)])
+    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot)
   }
 
   @Test @MainActor
@@ -1885,10 +1885,10 @@ struct PlatformEventTests {
 
     platform.setFrameNotificationsEnabled(true)
 
-    #expect(platform.frameEventPending)
-    #expect(platform.pendingFrameProcessIDs == [101, 202])
-    #expect(platform.pendingFrameRequiresFullSnapshot)
-    #expect(platform.observedFrameEventWindowIDs == [windowID])
+    #expect(platform.snapshotEngine.pendingObservations.framePending)
+    #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs == [101, 202])
+    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot)
+    #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [windowID])
   }
 
   @Test
