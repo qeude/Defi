@@ -281,6 +281,6 @@ func overviewPreviewRequestIsCurrent(
   currentAppID: String?
 ) -> Bool {
   generation == currentGeneration
-    && currentRequest == request
+    && currentRequest?.windowID == request.windowID
     && currentAppID == request.expectedAppID
 }

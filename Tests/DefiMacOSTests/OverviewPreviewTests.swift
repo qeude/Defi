@@ -142,6 +142,34 @@ struct OverviewPreviewTests {
   }
 
   @Test
+  func `Preview capture remains valid after its card is resized`() {
+    let original = OverviewPreviewRequest(
+      windowID: WindowID(rawValue: 1),
+      expectedAppID: "app",
+      width: 800,
+      height: 500,
+      blurFadeHeight: 80
+    )
+    let resized = OverviewPreviewRequest(
+      windowID: original.windowID,
+      expectedAppID: original.expectedAppID,
+      width: 1_000,
+      height: 500,
+      blurFadeHeight: original.blurFadeHeight
+    )
+
+    #expect(
+      overviewPreviewRequestIsCurrent(
+        original,
+        generation: 1,
+        currentGeneration: 1,
+        currentRequest: resized,
+        currentAppID: "app"
+      )
+    )
+  }
+
+  @Test
   func `Remembered previews stay inside their memory budget`() {
     let first = WindowID(rawValue: 1)
     let second = WindowID(rawValue: 2)

@@ -1071,7 +1071,7 @@ public final class OverviewController: NSObject {
     guard let snapshot else { return [] }
     var requests: [OverviewPreviewRequest] = []
     for (monitorID, projection) in projections {
-      let scale = min(panels[monitorID]?.window.backingScaleFactor ?? 1, 1)
+      let scale = max(panels[monitorID]?.window.backingScaleFactor ?? 1, 1)
       for card in projection.workspaces.flatMap(\.windows) {
         guard let window = snapshot.windows[card.windowID] else { continue }
         let width = min(max(Int((card.frame.width * scale).rounded(.up)), 32), 1_600)
@@ -2062,7 +2062,7 @@ private final class OverviewView: NSView {
       path.addClip()
       preview.draw(
         in: frame,
-        from: .zero,
+        from: aspectFillSourceRect(for: preview, in: frame),
         operation: .sourceOver,
         fraction: opacity,
         respectFlipped: true,
