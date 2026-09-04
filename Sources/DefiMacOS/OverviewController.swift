@@ -152,6 +152,7 @@ public final class OverviewController: NSObject {
   private var expectedActivationGeneration: UInt64 = 0
   private var windowPreviewsEnabled = false
   private var previewTask: Task<Void, Never>?
+  private var desktopCaptureRetryTask: Task<Void, Never>?
   private var previewCache: [WindowID: NSImage] = [:]
   private var rememberedPreviews: [WindowID: RememberedOverviewPreview] = [:]
   private var rememberedPreviewByteCosts: [WindowID: Int] = [:]
@@ -220,6 +221,7 @@ public final class OverviewController: NSObject {
   }
 
   isolated deinit {
+    desktopCaptureRetryTask?.cancel()
     previewFadeTimer?.invalidate()
     for link in viewportDisplayLinks.values { link.invalidate() }
     NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -279,6 +281,7 @@ public final class OverviewController: NSObject {
     if !canReusePanels { closePanelsImmediately() }
     previewTask?.cancel()
     previewTask = nil
+    cancelDesktopCaptureRetry()
     previewCache.removeAll(keepingCapacity: true)
     restoreRememberedPreviews(for: snapshot)
     resetPreviewFadeAnimation()
@@ -341,6 +344,7 @@ public final class OverviewController: NSObject {
       self.windowPreviewsEnabled = windowPreviewsEnabled
       previewTask?.cancel()
       previewTask = nil
+      cancelDesktopCaptureRetry()
       previewCache.removeAll(keepingCapacity: true)
       if windowPreviewsEnabled {
         restoreRememberedPreviews(for: snapshot)
@@ -502,6 +506,7 @@ public final class OverviewController: NSObject {
     expectedActivationProcessID = nil
     previewTask?.cancel()
     previewTask = nil
+    cancelDesktopCaptureRetry()
     previewCache.removeAll(keepingCapacity: true)
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
@@ -904,6 +909,7 @@ public final class OverviewController: NSObject {
     ) else { return }
     attemptedPreviewWindowIDs.formUnion(requests.map(\.windowID))
     previewPendingCount = requests.count
+    cancelDesktopCaptureRetry()
     let generation = sessionGeneration
     previewTask = Task { @MainActor [weak self] in
       await Task.yield()
@@ -963,6 +969,10 @@ public final class OverviewController: NSObject {
       requested: Set(desktopRequests.map(\.monitorID)),
       captured: Set(results.desktops.keys)
     )
+    let shouldRetryDesktopCapture = overviewDesktopCaptureRetryNeeded(
+      requested: Set(desktopRequests.map(\.monitorID)),
+      captured: Set(results.desktops.keys)
+    )
     let currentRequests = Dictionary(
       uniqueKeysWithValues: visiblePreviewRequests().map { ($0.windowID, $0) }
     )
@@ -1011,6 +1021,9 @@ public final class OverviewController: NSObject {
     }
     finishPreviewBatch(generation: generation)
     if didAddPreview { startPreviewFadeAnimation() }
+    if shouldRetryDesktopCapture {
+      scheduleDesktopCaptureRetry(generation: generation)
+    }
     updatePanels(scheduleCaptures: false)
   }
 
@@ -1018,6 +1031,28 @@ public final class OverviewController: NSObject {
     guard generation == sessionGeneration else { return }
     previewTask = nil
     previewPendingCount = 0
+  }
+
+  private func scheduleDesktopCaptureRetry(generation: UInt64) {
+    cancelDesktopCaptureRetry()
+    desktopCaptureRetryTask = Task { @MainActor [weak self] in
+      do {
+        try await Task.sleep(for: .seconds(1))
+      } catch {
+        return
+      }
+      guard let self else { return }
+      self.desktopCaptureRetryTask = nil
+      guard self.windowPreviewsEnabled, self.isOpen,
+        generation == self.sessionGeneration
+      else { return }
+      self.schedulePreviewsIfNeeded()
+    }
+  }
+
+  private func cancelDesktopCaptureRetry() {
+    desktopCaptureRetryTask?.cancel()
+    desktopCaptureRetryTask = nil
   }
 
   private func startPreviewFadeAnimation() {

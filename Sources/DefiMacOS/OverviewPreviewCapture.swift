@@ -77,6 +77,13 @@ func overviewRecordedDesktopCaptureMonitorIDs(
   existing.union(captured.intersection(requested))
 }
 
+func overviewDesktopCaptureRetryNeeded(
+  requested: Set<MonitorID>,
+  captured: Set<MonitorID>
+) -> Bool {
+  !requested.isSubset(of: captured)
+}
+
 struct OverviewPreviewRequest: Equatable, Sendable {
   let windowID: WindowID
   let expectedAppID: String

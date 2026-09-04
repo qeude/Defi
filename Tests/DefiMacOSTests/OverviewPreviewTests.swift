@@ -41,6 +41,24 @@ struct OverviewPreviewTests {
     )
   }
 
+  @Test
+  func `Missing desktop capture schedules an idle retry`() {
+    let monitorID = MonitorID(rawValue: 1)
+
+    #expect(
+      overviewDesktopCaptureRetryNeeded(
+        requested: [monitorID],
+        captured: []
+      )
+    )
+    #expect(
+      !overviewDesktopCaptureRetryNeeded(
+        requested: [monitorID],
+        captured: [monitorID]
+      )
+    )
+  }
+
   @Test("Overview parks windows when captured desktop is unavailable")
   func overviewBackdropFallbackPolicy() {
     #expect(
