@@ -18,6 +18,7 @@ struct AsyncFocusRequest: @unchecked Sendable {
   let selectsSpecificWindow: Bool
   let validatesSpecificWindowFocus: Bool
   let activatesApplication: Bool
+  let foregroundWindowElements: [AXUIElement]
   let inputGuard: FocusInputGuard?
   let recoveryRequest: NativeFocusRecoveryRequest?
 }
@@ -104,6 +105,46 @@ func nativeFocusRecoveryFallbackTarget(
 struct NativeFocusCompletion: Equatable, Sendable {
   let result: NativeFocusResult
   let recoveryRequest: NativeFocusRecoveryRequest?
+}
+
+struct ForegroundRaiseOutcome: Equatable {
+  let succeeded: Bool
+  let retried: Bool
+  let cancelled: Bool
+}
+
+func performForegroundRaise(
+  isCurrent: () -> Bool,
+  attempt: (Float) -> AXError
+) -> ForegroundRaiseOutcome {
+  guard isCurrent() else {
+    return ForegroundRaiseOutcome(
+      succeeded: false,
+      retried: false,
+      cancelled: true
+    )
+  }
+  let initialResult = attempt(0.016)
+  guard isCurrent() else {
+    return ForegroundRaiseOutcome(
+      succeeded: false,
+      retried: false,
+      cancelled: true
+    )
+  }
+  guard initialResult != .success else {
+    return ForegroundRaiseOutcome(
+      succeeded: true,
+      retried: false,
+      cancelled: false
+    )
+  }
+  let retryResult = attempt(0.05)
+  return ForegroundRaiseOutcome(
+    succeeded: retryResult == .success,
+    retried: true,
+    cancelled: !isCurrent()
+  )
 }
 
 struct NativeFocusRecoveryTransfer: Equatable, Sendable {

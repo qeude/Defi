@@ -169,6 +169,43 @@ extension AXFocusWriter {
       } else if activationRequired == nil {
         cancelled = true
       }
+      if !cancelled,
+        windowSelectionSucceeded,
+        activationSucceeded,
+        isCurrent(queued),
+        inputGuardIsCurrent(request)
+      {
+        for element in request.foregroundWindowElements {
+          guard isCurrent(queued), inputGuardIsCurrent(request) else {
+            cancelled = true
+            break
+          }
+          let raiseStartedAt = ProcessInfo.processInfo.systemUptime
+          let outcome = performForegroundRaise(
+            isCurrent: {
+              isCurrent(queued) && inputGuardIsCurrent(request)
+            },
+            attempt: { timeout in
+              AXMessagingTimeoutAccess.shared.withTimeout(
+                timeout,
+                elements: [element]
+              ) {
+                AXUIElementPerformAction(
+                  element,
+                  kAXRaiseAction as CFString
+                )
+              }
+            }
+          )
+          raiseDurationMS +=
+            (ProcessInfo.processInfo.systemUptime - raiseStartedAt) * 1_000
+          retried = retried || outcome.retried
+          if outcome.cancelled {
+            cancelled = true
+            break
+          }
+        }
+      }
       if activationAttempted, !isCurrent(queued) {
         markRecoveryActivationNeeded()
         cancelled = true

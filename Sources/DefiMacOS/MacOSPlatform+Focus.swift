@@ -206,6 +206,9 @@ extension MacOSPlatform {
         selectsSpecificWindow: selectsSpecificWindow,
         validatesSpecificWindowFocus: !selectsSpecificWindow,
         activatesApplication: activatesApplication,
+        foregroundWindowElements: foregroundFloatingWindowElements(
+          above: windowID
+        ),
         inputGuard: maximumUserInputTimestamp.map {
           FocusInputGuard(
             tracker: userInputTracker,
@@ -407,6 +410,7 @@ extension MacOSPlatform {
         activatesApplication:
           NSWorkspace.shared.frontmostApplication?.processIdentifier
           != processID,
+        foregroundWindowElements: [],
         inputGuard: FocusInputGuard(
           tracker: userInputTracker,
           maximumTimestamp: timestamp
@@ -437,6 +441,33 @@ extension MacOSPlatform {
     submittedFocusRecoveryRequestID = requestID
     submittedFocusRecoveryTimestamp = timestamp
     submittedFocusRecoveryGeneration = recoveryGeneration
+  }
+
+  private func foregroundFloatingWindowElements(
+    above targetWindowID: WindowID
+  ) -> [AXUIElement] {
+    guard !floatingWindowIDs.contains(targetWindowID),
+      let targetFrame = lastSnapshotWindows.first(where: {
+        $0.id == targetWindowID
+      })?.frame,
+      let targetMonitor = lastMonitorFrames.first(where: {
+        targetIntersects(targetFrame, monitor: $0)
+      })
+    else { return [] }
+
+    var remaining = floatingWindowIDs.subtracting(lastHiddenWindowIDs).filter {
+      windowID in
+      lastSnapshotWindows.first(where: { $0.id == windowID }).map {
+        targetIntersects($0.frame, monitor: targetMonitor)
+      } == true
+    }
+    var ordered = (snapshotEngine.lastCGWindowInventory ?? []).reversed()
+      .compactMap { record -> WindowID? in
+        let windowID = WindowID(rawValue: UInt64(record.id))
+        return remaining.remove(windowID) == nil ? nil : windowID
+      }
+    ordered.append(contentsOf: remaining.sorted { $0.rawValue < $1.rawValue })
+    return ordered.compactMap { elements[$0] }
   }
 
   private func submitFocusRecoveryFallback(
