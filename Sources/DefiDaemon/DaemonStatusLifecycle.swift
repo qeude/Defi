@@ -177,6 +177,7 @@ extension Daemon {
       + " windowMetadata=\(attributeReads.metadata)/\(attributeReads.metadataReuses)"
       + " windowIDs=private:\(platform.successfulPrivateWindowIDLookupCount)/fallback:\(platform.publicWindowIDLookupFallbackCount)/available:\(platform.privateWindowIDLookupStatus)"
       + " windowBounds=private:\(platform.successfulPrivateWindowBoundsLookupCount)/fallback:\(platform.privateWindowBoundsLookupFallbackCount)/available:\(platform.isPrivateWindowBoundsLookupAvailable)"
+      + " windowConstraints=private:\(platform.successfulPrivateWindowConstraintLookupCount)/fallback:\(platform.privateWindowConstraintLookupFallbackCount)/available:\(platform.isPrivateWindowConstraintLookupAvailable)"
       + " snapshotP50/P95=\(snapshotP50MS)/\(snapshotP95MS)"
       + " snapshotComponents=\(applicationInventoryP50MS)/\(applicationInventoryP95MS):\(applicationWindowListP50MS)/\(applicationWindowListP95MS)"
       + " focusFollowsMouse=\(config.input.focusFollowsMouse) mouseFollowsFocus=\(config.input.mouseFollowsFocus) pointerTransitions=\(pointerTransitionCount) pointerFocus=\(pointerFocusAppliedCount)/\(pointerFocusObservedCount) pointerIgnored=\(pointerFocusIgnoredCount) cursorWarps=\(cursorWarps.applied)/\(cursorWarps.skipped)/\(cursorWarps.failed)"

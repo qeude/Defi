@@ -333,6 +333,22 @@ struct WindowBorderTests {
   }
 
   @Test
+  func windowServerWidthConstraintsNormalizeUnboundedSentinels() {
+    #expect(
+      normalizedWindowWidthConstraints(minimum: 840, maximum: 100_000)
+        == WindowWidthConstraints(minimum: 840, maximum: nil)
+    )
+    #expect(
+      normalizedWindowWidthConstraints(minimum: 723, maximum: 723)
+        == WindowWidthConstraints(minimum: 723, maximum: 723)
+    )
+    #expect(
+      normalizedWindowWidthConstraints(minimum: 0, maximum: .infinity)
+        == WindowWidthConstraints(minimum: nil, maximum: nil)
+    )
+  }
+
+  @Test
   func nativeBoundsSnapshotQueriesEachWindowOnce() {
     let first = WindowID(rawValue: 1)
     let second = WindowID(rawValue: 2)

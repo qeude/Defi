@@ -6,6 +6,39 @@ import Testing
 
 struct RuntimeWidthConstraintTests {
   @Test
+  func discoveredNativeConstraintsReplaceLearnedBounds() {
+    let monitorID = MonitorID(rawValue: 1)
+    let windowID = WindowID(rawValue: 1)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.windows[windowID] = Window(
+      id: windowID,
+      appID: "editor",
+      title: "Editor",
+      frame: Rect(x: 0, y: 0, width: 900, height: 700),
+      monitorID: monitorID,
+      minimumTiledWidth: 700,
+      maximumTiledWidth: 1_000
+    )
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: windowID, width: .fraction(0.5))
+    ]
+    let observed = Window(
+      id: windowID,
+      appID: "editor",
+      title: "Editor",
+      frame: Rect(x: 0, y: 0, width: 900, height: 700),
+      monitorID: monitorID,
+      minimumTiledWidth: 840
+    )
+
+    reconcileWindows([observed], config: Config(), state: &state)
+
+    #expect(state.windows[windowID]?.minimumTiledWidth == 840)
+    #expect(state.windows[windowID]?.maximumTiledWidth == nil)
+  }
+
+  @Test
   func cycleSkipsPresetWithTheSameEffectiveMinimumWidth() throws {
     let monitorID = MonitorID(rawValue: 1)
     let windowID = WindowID(rawValue: 1)

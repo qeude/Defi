@@ -203,7 +203,6 @@ extension Daemon {
       submittedWorkspaceFocusGeneration = nil
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
-      persistentWidthDriftCounts.removeAll(keepingCapacity: true)
       finishMouseGestureTracking()
     }
     latestMonitors = snapshot.monitors
