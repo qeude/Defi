@@ -2013,7 +2013,11 @@ private final class OverviewView: NSView {
     NSGraphicsContext.restoreGraphicsState()
   }
 
-  private func aspectFillSourceRect(for image: NSImage, in frame: NSRect) -> NSRect {
+  private func aspectFillSourceRect(
+    for image: NSImage,
+    in frame: NSRect,
+    horizontalAlignment: CGFloat = 0.5
+  ) -> NSRect {
     guard image.size.width > 0, image.size.height > 0, frame.width > 0, frame.height > 0
     else { return .zero }
     let imageRatio = image.size.width / image.size.height
@@ -2021,7 +2025,7 @@ private final class OverviewView: NSView {
     if imageRatio > frameRatio {
       let width = image.size.height * frameRatio
       return NSRect(
-        x: (image.size.width - width) / 2,
+        x: (image.size.width - width) * horizontalAlignment,
         y: 0,
         width: width,
         height: image.size.height
@@ -2062,7 +2066,7 @@ private final class OverviewView: NSView {
       path.addClip()
       preview.draw(
         in: frame,
-        from: aspectFillSourceRect(for: preview, in: frame),
+        from: aspectFillSourceRect(for: preview, in: frame, horizontalAlignment: 0),
         operation: .sourceOver,
         fraction: opacity,
         respectFlipped: true,
