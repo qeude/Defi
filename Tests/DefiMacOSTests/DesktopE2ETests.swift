@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import DefiConfig
 import DefiCore
@@ -77,6 +78,108 @@ final class DesktopE2ETests: XCTestCase {
     pumpRunLoop(for: 0.5)
 
     XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
+  }
+
+  func testTiledFocusKeepsFloatingWindowAboveIt() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    let onscreenWindowIDs = Set(
+      copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+        .map { WindowID(rawValue: UInt64($0.id)) }
+    )
+    guard let floating = snapshot.windows.first(where: {
+      $0.floating && onscreenWindowIDs.contains($0.id)
+    }),
+      let monitor = snapshot.monitors.first(where: {
+        $0.frame.x < floating.frame.x + floating.frame.width
+          && floating.frame.x < $0.frame.x + $0.frame.width
+          && $0.frame.y < floating.frame.y + floating.frame.height
+          && floating.frame.y < $0.frame.y + $0.frame.height
+      }),
+      let tiled = snapshot.windows.first(where: {
+        !$0.floating
+          && $0.processID != floating.processID
+          && onscreenWindowIDs.contains($0.id)
+          && monitor.frame.x < $0.frame.x + $0.frame.width
+          && $0.frame.x < monitor.frame.x + monitor.frame.width
+          && monitor.frame.y < $0.frame.y + $0.frame.height
+          && $0.frame.y < monitor.frame.y + monitor.frame.height
+      })
+    else {
+      throw XCTSkip("On-screen floating and tiled windows from different apps required")
+    }
+    let originalFocusedWindowID = snapshot.focusedWindowID
+    defer {
+      if let originalFocusedWindowID {
+        platform.focus(originalFocusedWindowID)
+        pumpRunLoop(for: 0.3)
+      }
+    }
+
+    var focusResult: NativeFocusResult?
+    platform.focus(floating.id, completion: { focusResult = $0 })
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { focusResult != nil },
+        timeout: 1
+      )
+    )
+    XCTAssertTrue(focusResult == .completed || focusResult == .completedWithoutMutation)
+    guard let tiledElement = platform.elements[tiled.id],
+      let processID = tiled.processID,
+      let tiledApplication = platform.applications[processID]
+    else {
+      XCTFail("Tiled test window lost its Accessibility elements")
+      return
+    }
+    focusResult = nil
+    platform.focus(tiled.id, completion: { focusResult = $0 })
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { focusResult != nil },
+        timeout: 1
+      )
+    )
+    XCTAssertEqual(
+      AXUIElementPerformAction(
+        tiledElement,
+        kAXRaiseAction as CFString
+      ),
+      .success
+    )
+    pumpRunLoop(for: 0.1)
+    _ = platform.snapshot(config: Config())
+
+    focusResult = nil
+    platform.focus(tiled.id, completion: { focusResult = $0 })
+    XCTAssertTrue(
+      pumpRunLoop(
+        until: { focusResult != nil },
+        timeout: 1
+      )
+    )
+    XCTAssertTrue(focusResult == .completed || focusResult == .completedWithoutMutation)
+
+    let windowOrder = copyCGWindows(
+      options: [.optionOnScreenOnly, .excludeDesktopElements]
+    ).map { WindowID(rawValue: UInt64($0.id)) }
+    guard let floatingIndex = windowOrder.firstIndex(of: floating.id),
+      let tiledIndex = windowOrder.firstIndex(of: tiled.id)
+    else {
+      XCTFail("Focused test windows disappeared from WindowServer order")
+      return
+    }
+    XCTAssertLessThan(floatingIndex, tiledIndex)
+    var focusedWindow: CFTypeRef?
+    XCTAssertEqual(
+      AXUIElementCopyAttributeValue(
+        tiledApplication,
+        kAXFocusedWindowAttribute as CFString,
+        &focusedWindow
+      ),
+      .success
+    )
+    XCTAssertTrue(focusedWindow.map { CFEqual($0, tiledElement) } == true)
   }
 
   func testAppliedTargetConvergesWithRealWindowFrame() throws {
