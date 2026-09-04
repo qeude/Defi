@@ -9,6 +9,78 @@ import Testing
 @testable import DefiMacOS
 
 struct FrameCommitTests {
+  @Test func completedTargetDoesNotWaitForSlowSibling() {
+    let target = WindowID(rawValue: 1)
+    let sibling = WindowID(rawValue: 2)
+    let coordinator = AXFrameCoordinator()
+    coordinator.latestGeneration = 10
+    coordinator.activeWindowIDs = [target, sibling]
+    #expect(coordinator.pendingWindowIDs == [target, sibling])
+
+    coordinator.successfulFinalWritesByGeneration[10] = [target]
+    #expect(coordinator.pendingWindowIDs == [sibling])
+    #expect(coordinator.isBusy(for: target) == false)
+    #expect(coordinator.isBusy(for: sibling))
+
+    // A final position must still wait for its deferred size write.
+    coordinator.activeAnimatedSizeWindowIDs = [target]
+    #expect(coordinator.pendingWindowIDs == [target, sibling])
+    coordinator.activeAnimatedSizeWindowIDs = []
+    coordinator.activeWrites[target] = makeMotionWrite(fromX: 900, toX: 100, sizeChanged: true)
+    #expect(coordinator.pendingWindowIDs == [target, sibling])
+    coordinator.recordCompletedActiveSizeWrite(windowID: target)
+    #expect(coordinator.pendingWindowIDs == [sibling])
+    coordinator.deferredParkingWriteGenerations[target] = 10
+    #expect(coordinator.pendingWindowIDs == [target, sibling])
+    coordinator.deferredParkingWriteGenerations = [:]
+
+    // Completion of an older generation cannot release a replacement target.
+    coordinator.latestGeneration = 11
+    #expect(coordinator.pendingWindowIDs == [target, sibling])
+  }
+
+  @Test(arguments: [-100.0, 900.0])
+  func interruptedRibbonStartsAtCompletedPositionAndKeepsOnlyForwardVelocity(targetX: Double) {
+    let windowID = WindowID(rawValue: 1)
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordCompletedPosition(CGPoint(x: 400, y: 40), windowID: windowID)
+    coordinator.retargetHorizontalVelocities[windowID] = -500
+    let frame = QueuedPositionFrame(
+      generation: 2, source: "test-retarget",
+      writes: [windowID: makeMotionWrite(fromX: 900, toX: targetX)],
+      animatedWindowIDs: [windowID], animationDuration: 0.18,
+      refreshRateHz: 120, displayIDs: [], initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false, completion: nil
+    )
+    let rebased = coordinator.rebaseFrameToCompletedPositionsLocked(frame)
+    #expect(rebased.frame.writes[windowID]?.fromPoint.x == 400)
+    #expect(rebased.frame.writes[windowID]?.point.x == CGFloat(targetX))
+    #expect(rebased.frame.initialProgressVelocity == (targetX < 400 ? 1 : 0))
+    let samples = completedFrameSpringSamples(
+      duration: 0.18, refreshRateHz: 120,
+      initialVelocity: rebased.frame.initialProgressVelocity
+    )
+    let positions = samples.map { 400 + (targetX - 400) * $0.progress }
+    #expect(positions.allSatisfy { $0 >= min(400, targetX) && $0 <= max(400, targetX) })
+    #expect(positions == positions.sorted(by: targetX < 400 ? (>) : (<)))
+  }
+
+  private func makeMotionWrite(
+    fromX: Double, toX: Double, sizeChanged: Bool = false
+  ) -> AsyncPositionWrite {
+    // Handles only: these tests never read or mutate the real desktop.
+    let element = AXUIElementCreateSystemWide()
+    return AsyncPositionWrite(
+      element: element, application: element, processID: 42,
+      fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: 40),
+      fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
+      positionChanged: true, sizeChanged: sizeChanged, animatesSize: false,
+      synchronousSizeWriteSucceeded: !sizeChanged, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: false, isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+  }
+
   private let expectation = FrameCommitExpectation(
     from: Rect(x: 900, y: 40, width: 800, height: 700),
     target: Rect(x: 100, y: 40, width: 800, height: 700),

@@ -33,6 +33,31 @@ public struct SpringProgressSample: Equatable, Sendable {
   }
 }
 
+/// Advances the shared ribbon timeline and reports scheduling delay separately.
+public struct FrameAnimationClock: Sendable {
+  private let startedAt: TimeInterval
+  private let interval: TimeInterval
+  private let sampleCount: Int
+  private var nextIndex = 0
+
+  public init(startedAt: TimeInterval, interval: TimeInterval, sampleCount: Int) {
+    self.startedAt = startedAt
+    self.interval = interval
+    self.sampleCount = sampleCount
+  }
+
+  public mutating func next(at now: TimeInterval)
+    -> (index: Int, elapsed: TimeInterval, lateness: TimeInterval)?
+  {
+    guard nextIndex < sampleCount else { return nil }
+    let index = nextIndex
+    nextIndex += 1
+    let elapsed = Double(nextIndex) * interval
+    return (index, elapsed, max(now - startedAt - elapsed, 0))
+  }
+}
+
+
 public func criticallyDampedSpringStep(
   value: Double,
   target: Double,

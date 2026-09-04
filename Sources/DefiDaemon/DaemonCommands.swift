@@ -390,7 +390,7 @@ extension Daemon {
       platform.recordPerformanceTrace(
         "command-start cg=\(currentCommandGeneration) command=\(rawCommand) validationMs=\(String(format: "%.2f", validationMS))"
       )
-      displacedPointerFocusRecovery = nil
+      focus.discardDisplacedFocus()
       invalidatePointerFocusIntent(recoveringTo: previouslySelectedWindowID)
       let focusInputTimestamp = commandFocusInputTimestamp(
         capturedInputTimestamp: inputTimestamp,
@@ -457,10 +457,10 @@ extension Daemon {
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
-        pendingAnimatedFocus = nil
+        focus.queueCommand(nil)
         invalidateSubmittedCommandFocus()
         invalidateSubmittedWorkspaceFocus()
-        pendingWorkspaceFocus = nil
+        focus.queueWorkspace(nil)
       }
       let previousWindowMonitorIDs =
         movesAcrossMonitors
@@ -483,8 +483,8 @@ extension Daemon {
           state.workspaceLocation(for: $0).map { state.monitors[$0.monitorIndex].id }
         }
         ?? (movesAcrossMonitors && command.followsWindowMove
-        ? crossMonitorWindowID.flatMap { nextWindowMonitorIDsMap[$0]?.monitorID }
-          ?? commandMonitorID
+          ? crossMonitorWindowID.flatMap { nextWindowMonitorIDsMap[$0]?.monitorID }
+            ?? commandMonitorID
           : commandMonitorID)
       let nextWindowMonitorIDs =
         movesAcrossMonitors
@@ -664,34 +664,30 @@ extension Daemon {
         workspaceFocusRequest = nil
       }
       invalidateSubmittedWorkspaceFocus()
-      pendingWorkspaceFocus = workspaceFocusRequest
+      focus.queueWorkspace(workspaceFocusRequest)
       if switchesWorkspace || !dispatchedAnimation {
         let focusWindowIDAfterCommit = workspaceFocusRequest?.requestedWindowID
         let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?
         let cursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?
         let focusRequestIDAfterCommit: (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?
         if let workspaceFocusRequest {
-          submittedWorkspaceFocusGeneration =
-            workspaceFocusRequest.commandGeneration
+          let submission = focus.submitWorkspace(workspaceFocusRequest)
           focusCompletionAfterCommit = { [weak self] result in
             self?.commitWorkspaceCommandFocus(
               result: result,
-              request: workspaceFocusRequest
+              request: workspaceFocusRequest,
+              submission: submission
             )
           }
           cursorWarpIsCurrentAfterCommit = { [weak self] in
             guard let self else { return false }
-            return self.pendingWorkspaceFocus?.commandGeneration
-              == workspaceFocusRequest.commandGeneration
-              && self.submittedWorkspaceFocusGeneration
-                == workspaceFocusRequest.commandGeneration
+            return self.focus.workspaceCompletionIsCurrent(
+              workspaceFocusRequest, submission: submission
+            )
           }
           focusRequestIDAfterCommit = { [weak self] requestID in
             guard let self,
-              self.pendingWorkspaceFocus?.commandGeneration
-                == workspaceFocusRequest.commandGeneration,
-              self.submittedWorkspaceFocusGeneration
-                == workspaceFocusRequest.commandGeneration
+              self.focus.workspaceCompletionIsCurrent(workspaceFocusRequest, submission: submission)
             else { return }
             self.submittedWorkspaceFocusRequestID = requestID
             self.submittedWorkspaceFocusRequestTimestamp =
@@ -767,15 +763,16 @@ extension Daemon {
             cursorWarpInputTimestamp: cursorWarpInputTimestamp
           )
         } else {
-          pendingAnimatedFocus = PendingAnimatedFocus(
-            windowID: selected,
-            previousSelectedWindowID: previouslySelectedWindowID,
-            monitorID: monitorID,
-            sourceWorkspaceID: sourceWorkspaceID,
-            commandGeneration: currentCommandGeneration,
-            focusInputTimestamp: focusInputTimestamp,
-            cursorWarpInputTimestamp: cursorWarpInputTimestamp
-          )
+          focus.queueCommand(
+            PendingAnimatedFocus(
+              windowID: selected,
+              previousSelectedWindowID: previouslySelectedWindowID,
+              monitorID: monitorID,
+              sourceWorkspaceID: sourceWorkspaceID,
+              commandGeneration: currentCommandGeneration,
+              focusInputTimestamp: focusInputTimestamp,
+              cursorWarpInputTimestamp: cursorWarpInputTimestamp
+            ))
         }
       } else if !switchesWorkspace,
         let monitorID = resultMonitorID ?? state.monitors.first?.id,
@@ -792,16 +789,17 @@ extension Daemon {
         let previousCommandFocus =
           pendingAnimatedFocus
           ?? submittedCommandFocus
-        pendingAnimatedFocus = PendingAnimatedFocus(
-          windowID: selected,
-          previousSelectedWindowID:
-            previousCommandFocus?.previousSelectedWindowID,
-          monitorID: monitorID,
-          sourceWorkspaceID: sourceWorkspaceID,
-          commandGeneration: currentCommandGeneration,
-          focusInputTimestamp: focusInputTimestamp,
-          cursorWarpInputTimestamp: cursorWarpInputTimestamp
-        )
+        focus.queueCommand(
+          PendingAnimatedFocus(
+            windowID: selected,
+            previousSelectedWindowID:
+              previousCommandFocus?.previousSelectedWindowID,
+            monitorID: monitorID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            commandGeneration: currentCommandGeneration,
+            focusInputTimestamp: focusInputTimestamp,
+            cursorWarpInputTimestamp: cursorWarpInputTimestamp
+          ))
       }
       if focusBearingMonitorMove,
         let selectedWindowID = resultMonitorID.flatMap({ state.selectedWindowID(on: $0) }),
@@ -873,11 +871,11 @@ func floatingWindowIDsMovedBetweenMonitors(
 ) -> Set<WindowID> {
   Set(
     previousWindowMonitorIDs.compactMap { windowID, previousMonitorID in
-    guard nextWindowMonitorIDs[windowID] != previousMonitorID,
-      windows[windowID]?.floating == true
-    else { return nil }
-    return windowID
-  })
+      guard nextWindowMonitorIDs[windowID] != previousMonitorID,
+        windows[windowID]?.floating == true
+      else { return nil }
+      return windowID
+    })
 }
 
 private func monitorIDsByWindow(

@@ -37,24 +37,26 @@ extension SnapshotEngine {
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
-    let explicitlyDestroyedWindowIDs = consumeExplicitlyDestroyedWindows()
-    let tracesWindowTopology = windowTopologyEventPending
+    let observations = consumeObservations()
+    let explicitlyDestroyedWindowIDs = observations.destroyedWindowIDs
+    let tracesWindowTopology = observations.topologyPending
     let capturedTopologyRequiresFullSnapshot =
-      windowTopologyRequiresFullSnapshot
-    let topologyProcessIDs = pendingWindowTopologyProcessIDs
-    let frameRequiresFullSnapshot = pendingFrameRequiresFullSnapshot
-    let frameProcessIDs = pendingFrameProcessIDs
-    let frameWindowIDs = observedFrameEventWindowIDs
+      observations.topologyRequiresFullSnapshot
+    let topologyProcessIDs = observations.topologyProcessIDs
+    let frameRequiresFullSnapshot = observations.frameRequiresFullSnapshot
+    let frameProcessIDs = observations.frameProcessIDs
+    let frameWindowIDs = observations.frameWindowIDs
     let retainedProcessIDs = retainedWindowRefreshProcessIDs(
       retainedWindowIDs: retainedWindowIDs,
       processIDs: processIDs
     )
-    let topologyInputTimestamp = pendingWindowTopologyInputTimestamp
+    let topologyInputTimestamp = observations.topologyInputTimestamp
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
     let processIDsWithoutReliableFrameCoverage =
       (onMain { ($0.eventMonitor?.processIDsWithoutReliableFrameCoverage) ?? [] })
-    let uncoveredProcessIDs = processIDsWithoutReliableFrameCoverage
+    let uncoveredProcessIDs =
+      processIDsWithoutReliableFrameCoverage
       .union(onMain { $0.processIDsWithoutReliableTopologyCoverage() })
     // Processes that exhausted their notification-subscription attempts read
     // at watchdog cadence instead of every pass: their reads are the slowest
@@ -62,7 +64,8 @@ extension SnapshotEngine {
     // per-pass tax. App-level lifecycle events still trigger fresh reads.
     let incompatiblePIDs = onMain { $0.incompatibleObservationProcessIDs }
     let fallbackNow = ProcessInfo.processInfo.systemUptime
-    incompatibleFreshReadDeadlines = incompatibleFreshReadDeadlines
+    incompatibleFreshReadDeadlines =
+      incompatibleFreshReadDeadlines
       .filter { $0.value > fallbackNow }
     var fallbackFreshReadProcessIDs = Set<pid_t>()
     for processID in uncoveredProcessIDs {
@@ -101,23 +104,25 @@ extension SnapshotEngine {
         unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
       }
     }
-    let incrementalProcessIDs = forceFullWindowRefresh
+    let incrementalProcessIDs =
+      forceFullWindowRefresh
       ? nil
       : incrementalWindowRefreshProcessIDs(
         hasCompletedSnapshot: hasCompletedWindowSnapshot,
         eventPending: tracesWindowTopology,
         requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
-        processIDs: pendingWindowTopologyProcessIDs,
-        coalescedProcessIDs: frameProcessIDs
+        processIDs: observations.topologyProcessIDs,
+        coalescedProcessIDs:
+          frameProcessIDs
           .union(fallbackFreshReadProcessIDs)
           .union(deferredFreshReadProcessIDs)
           .union(retainedProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
-          frameEventPending || mouseResizeGesturePending
-            || !fallbackFreshReadProcessIDs.isEmpty
-            || !deferredFreshReadProcessIDs.isEmpty
-            || !retainedProcessIDs.isEmpty,
+          observations.framePending || mouseResizeGesturePending
+          || !fallbackFreshReadProcessIDs.isEmpty
+          || !deferredFreshReadProcessIDs.isEmpty
+          || !retainedProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )
     var effectiveIncrementalProcessIDs = incrementalProcessIDs
@@ -200,18 +205,12 @@ extension SnapshotEngine {
       snapshotMode = "incremental"
       incrementalWindowSnapshotCount += 1
     }
-    windowTopologyEventPending = false
-    pendingWindowTopologyProcessIDs.removeAll(keepingCapacity: true)
-    windowTopologyRequiresFullSnapshot = false
-    pendingWindowTopologyInputTimestamp = nil
-    pendingFrameProcessIDs.removeAll(keepingCapacity: true)
-    observedFrameEventWindowIDs.removeAll(keepingCapacity: true)
-    pendingFrameRequiresFullSnapshot = false
     let monitors = onMain { $0.discoverMonitors() }
     lastMonitorFrames = monitors.map(\.frame)
     var hasResolvedCGWindows = false
     var cachedCGWindows: [CGWindowRecord]?
-    let refreshesOnlyKnownFrames = !frameWindowIDs.isEmpty
+    let refreshesOnlyKnownFrames =
+      !frameWindowIDs.isEmpty
       && frameWindowIDs.isSubset(of: Set(elements.keys))
       && effectiveIncrementalProcessIDs?.isSubset(of: frameProcessIDs) == true
       && !forceWindowListRefreshEffective
@@ -256,7 +255,7 @@ extension SnapshotEngine {
         updatedWindowListReadRetryAttempts(
           previousAttempts: cgWindowInventoryRetryAttempts,
           readSucceeded: copied != nil
-      )
+        )
       return copied
     }
     if cgWindowInventoryRetryIsRequired(
@@ -265,7 +264,8 @@ extension SnapshotEngine {
     ) {
       _ = publicCGWindows()
     }
-    let preparedAXIsCurrent = preparedAXWindowAttributesAvailable
+    let preparedAXIsCurrent =
+      preparedAXWindowAttributesAvailable
       && preparedAXWindowAttributesGeneration.map {
         preparedAXWindowAttributesAreCurrent(
           capturedGeneration: $0,
@@ -278,13 +278,16 @@ extension SnapshotEngine {
           currentProcessIDs: Set(applications.keys)
         )
       } ?? false
-    let preparedWindowAttributes = preparedAXIsCurrent
+    let preparedWindowAttributes =
+      preparedAXIsCurrent
       ? preparedAXWindowAttributes
       : [:]
-    let preparedTransientOwners = preparedAXIsCurrent
+    let preparedTransientOwners =
+      preparedAXIsCurrent
       ? preparedTransientOwnerWindowIDs
       : [:]
-    let preparedApplicationWindows = preparedAXIsCurrent
+    let preparedApplicationWindows =
+      preparedAXIsCurrent
       ? preparedAXApplicationWindows
       : [:]
     preparedAXWindowAttributes.removeAll(keepingCapacity: true)
@@ -428,11 +431,14 @@ extension SnapshotEngine {
       observedFrameEventWindowIDs: frameWindowIDs,
       retainedWindowIDs: nextRetainedWindowIDs
     )
-    observedFrameEventWindowIDs.formUnion(deferredFrameEventWindowIDs)
-    pendingFrameProcessIDs.formUnion(
-      deferredFrameEventWindowIDs.compactMap { nextProcessIDs[$0] }
-    )
-    frameEventPending = !observedFrameEventWindowIDs.isEmpty
+    if !deferredFrameEventWindowIDs.isEmpty {
+      recordFrameRefresh(
+        windowIDs: deferredFrameEventWindowIDs,
+        processIDs: Set(deferredFrameEventWindowIDs.compactMap { nextProcessIDs[$0] }),
+        requiresFullSnapshot: false,
+        invalidatesPreparedObservations: false
+      )
+    }
     retainedWindowDeadlines = retainedWindowDeadlines.filter {
       nextRetainedWindowIDs.contains($0.key)
     }
@@ -441,9 +447,10 @@ extension SnapshotEngine {
       multipleAttributeReadsSupportedByProcess.filter {
         nextApplications[$0.key] != nil
       }
-    let liveWindowElements = Set(applicationWindows.flatMap { processID, elements in
-      elements.map { AXWindowElementIdentity(processID: processID, element: $0) }
-    })
+    let liveWindowElements = Set(
+      applicationWindows.flatMap { processID, elements in
+        elements.map { AXWindowElementIdentity(processID: processID, element: $0) }
+      })
     failedBatchedWindowAttributeReadsByElement =
       failedBatchedWindowAttributeReadsByElement.filter {
         liveWindowElements.contains($0.key)
@@ -480,18 +487,21 @@ extension SnapshotEngine {
       previouslyManagedWindows: previouslyManagedApplicationWindows,
       minimizedWindows: minimizedWindows
     )
-    let observationInputs = AssumedThreadSafe((
-      apps: observedApplicationWindows,
-      topo: topologyWindowsRequiredForObservation,
-      frames: requiredFrameWindows,
-      transient: transientGeometryWindows
-    ))
-    onMain { $0.eventMonitor?.refresh(
-      applications: observationInputs.value.apps,
-      requiredTopologyWindows: observationInputs.value.topo,
-      requiredFrameWindows: observationInputs.value.frames,
-      transientGeometryWindows: observationInputs.value.transient
-    ) }
+    let observationInputs = AssumedThreadSafe(
+      (
+        apps: observedApplicationWindows,
+        topo: topologyWindowsRequiredForObservation,
+        frames: requiredFrameWindows,
+        transient: transientGeometryWindows
+      ))
+    onMain {
+      $0.eventMonitor?.refresh(
+        applications: observationInputs.value.apps,
+        requiredTopologyWindows: observationInputs.value.topo,
+        requiredFrameWindows: observationInputs.value.frames,
+        transientGeometryWindows: observationInputs.value.transient
+      )
+    }
     frameCoordinator.pruneRecentInternalFrameWrites(
       liveWindowIDs: Set(nextElements.keys),
       now: ProcessInfo.processInfo.systemUptime
@@ -527,7 +537,8 @@ extension SnapshotEngine {
       && nativeFocusEventGeneration
         > (mouseFocusReleaseEventGeneration ?? nativeFocusEventGeneration)
     let userInput = userInputTracker.snapshot
-    let mouseGestureWindowID = mouseResizeGestureObserved
+    let mouseGestureWindowID =
+      mouseResizeGestureObserved
       ? mouseGestureRefreshProcessID(
         latestFocusIntent: userInput.latestFocusIntent,
         focusedWindowID: lastNativeFocusedWindowID,
@@ -551,7 +562,8 @@ extension SnapshotEngine {
     var targetMismatches: [FrameMismatch] = []
     var deferredMismatchCount = 0
     var settledCommitLatenciesMS: [Double] = []
-    for window in windows where freshObservationIDs.contains(window.id)
+    for window in windows
+    where freshObservationIDs.contains(window.id)
       && !nativeFullscreenWindowIDs.contains(window.id)
     {
       latestObservedFrames[window.id] = window.frame
@@ -559,14 +571,16 @@ extension SnapshotEngine {
         let target = targetFrames[window.id]
       {
         if let command = expectation.command {
-          onMain { $0.recordCommandObservation(
-            command,
-            windowID: window.id,
-            from: expectation.from,
-            actual: window.frame,
-            target: expectation.target,
-            at: now
-          ) }
+          onMain {
+            $0.recordCommandObservation(
+              command,
+              windowID: window.id,
+              from: expectation.from,
+              actual: window.frame,
+              target: expectation.target,
+              at: now
+            )
+          }
         }
         if now >= expectation.deadline {
           frameCommitExpectations[window.id] = nil
@@ -628,11 +642,13 @@ extension SnapshotEngine {
             actual: window.frame,
             now: now
           )
-      ) || windowIsMouseResizeGestureCandidate(
-        window.id,
-        mouseGestureWindowID: mouseGestureWindowID,
-        mouseResizeGestureObserved: mouseResizeGestureObserved
-      ) {
+      )
+        || windowIsMouseResizeGestureCandidate(
+          window.id,
+          mouseGestureWindowID: mouseGestureWindowID,
+          mouseResizeGestureObserved: mouseResizeGestureObserved
+        )
+      {
         externallyChangedFrames[window.id] = window.frame
       }
     }
@@ -642,7 +658,6 @@ extension SnapshotEngine {
       targetFrames: targetFrames,
       observedFrames: latestObservedFrames
     )
-    frameEventPending = !observedFrameEventWindowIDs.isEmpty
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
     mouseFocusReleaseEventGeneration = nil

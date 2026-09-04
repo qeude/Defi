@@ -72,7 +72,8 @@ extension Daemon {
       openStateChanged: { [weak self] isOpen in
         guard let self else { return }
         let parksWindows = overviewController?.usesWorkspaceParking == true
-        overviewOpenedAt = isOpen && parksWindows
+        overviewOpenedAt =
+          isOpen && parksWindows
           ? ProcessInfo.processInfo.systemUptime
           : nil
         hotKeys?.setOverviewModeEnabled(isOpen)
@@ -106,7 +107,7 @@ extension Daemon {
 
   private func makeOverviewSnapshot() -> OverviewSnapshot {
     OverviewSnapshot(
-      monitors: logicalOverviewMonitors(),
+      monitors: logicalOverviewMonitors(state: state),
       monitorFrames: Dictionary(
         uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.frame) }
       ),
@@ -115,106 +116,6 @@ extension Daemon {
       activeMonitorID: activeMonitorID,
       nativeFullscreenWindowIDs: state.nativeFullscreenWindowIDs
     )
-  }
-
-  private func logicalOverviewMonitors() -> [Monitor] {
-    var monitors = state.monitors
-    for monitorIndex in monitors.indices {
-      for workspaceIndex in monitors[monitorIndex].workspaces.indices {
-        for windowID in state.nativeFullscreenWindowIDs {
-          removeWindow(
-            windowID,
-            from: &monitors[monitorIndex].workspaces[workspaceIndex],
-            settings: state.layout
-          )
-        }
-      }
-    }
-
-    for windowID in state.nativeFullscreenFloatingWindowIDs {
-      guard let location = state.location(containing: windowID),
-        let monitorIndex = monitors.firstIndex(where: { $0.id == location.monitorID }),
-        let workspaceIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
-          $0.id == location.workspaceID
-        })
-      else { continue }
-      monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(windowID)
-    }
-
-    let groupedPlacements = Dictionary(grouping: state.nativeFullscreenTiledPlacements) {
-      _, placement in
-      OverviewPlacementGroup(
-        monitorID: placement.monitorID,
-        workspaceID: placement.workspaceID,
-        columnIndex: placement.columnIndex
-      )
-    }
-    for (group, placements) in groupedPlacements.sorted(by: {
-      $0.key.columnIndex < $1.key.columnIndex
-    }) {
-      guard let placement = placements.first?.value,
-        let monitorIndex = monitors.firstIndex(where: { $0.id == group.monitorID }),
-        let workspaceIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
-          $0.id == group.workspaceID
-        })
-      else { continue }
-      let desiredWindowIDs = placement.column.windows.filter {
-        state.windows[$0] != nil
-      }
-      guard !desiredWindowIDs.isEmpty else { continue }
-      if let existingColumnIndex = monitors[monitorIndex].workspaces[workspaceIndex]
-        .columns.firstIndex(where: { column in
-          column.windows.contains(where: desiredWindowIDs.contains)
-        })
-      {
-        monitors[monitorIndex].workspaces[workspaceIndex]
-          .columns[existingColumnIndex].windows = desiredWindowIDs
-        monitors[monitorIndex].workspaces[workspaceIndex]
-          .columns[existingColumnIndex].width = placement.column.width
-        monitors[monitorIndex].workspaces[workspaceIndex]
-          .columns[existingColumnIndex].preMaximizedWidth =
-            placement.column.preMaximizedWidth
-      } else {
-        let insertionIndex = min(
-          max(group.columnIndex, 0),
-          monitors[monitorIndex].workspaces[workspaceIndex].columns.count
-        )
-        monitors[monitorIndex].workspaces[workspaceIndex].columns.insert(
-          Column(
-            windows: desiredWindowIDs,
-            focusedWindow: min(
-              placement.windowIndex,
-              desiredWindowIDs.count - 1
-            ),
-            width: placement.column.width,
-            preMaximizedWidth: placement.column.preMaximizedWidth
-          ),
-          at: insertionIndex
-        )
-      }
-    }
-    for originalMonitor in state.monitors {
-      guard let monitorIndex = monitors.firstIndex(where: {
-        $0.id == originalMonitor.id
-      }) else { continue }
-      for originalWorkspace in originalMonitor.workspaces {
-        guard let workspaceIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
-          $0.id == originalWorkspace.id
-        }) else { continue }
-        let selectedWindowID = overviewSelectedWindowID(in: originalWorkspace)
-        monitors[monitorIndex].workspaces[workspaceIndex].scrollOffset =
-          originalWorkspace.scrollOffset
-        monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset =
-          originalWorkspace.targetScrollOffset
-        if let selectedWindowID {
-          selectOverviewWindow(
-            selectedWindowID,
-            in: &monitors[monitorIndex].workspaces[workspaceIndex]
-          )
-        }
-      }
-    }
-    return monitors
   }
 
   private func focusFromOverview(
@@ -242,10 +143,10 @@ extension Daemon {
       latestCommandInputTimestamp = inputTimestamp
       platform.userInputTracker.record(timestamp: inputTimestamp)
       pendingWindowRemovalFocusGuard = nil
-      displacedPointerFocusRecovery = nil
+      focus.discardDisplacedFocus()
       invalidatePointerFocusIntent(recoveringTo: previousSelectedWindowID)
       invalidateSubmittedWorkspaceFocus()
-      pendingWorkspaceFocus = nil
+      focus.queueWorkspace(nil)
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
       startScrollAnimationsIfNeeded()
       let animated = dispatchScrollAnimationIfNeeded(
@@ -274,17 +175,18 @@ extension Daemon {
             : nil
         )
       } else {
-        pendingAnimatedFocus = PendingAnimatedFocus(
-          windowID: windowID,
-          previousSelectedWindowID: previousSelectedWindowID,
-          monitorID: focusedMonitorID,
-          sourceWorkspaceID: workspaceID,
-          commandGeneration: commandGeneration,
-          focusInputTimestamp: inputTimestamp,
-          cursorWarpInputTimestamp: config.input.mouseFollowsFocus
-            ? inputTimestamp
-            : nil
-        )
+        focus.queueCommand(
+          PendingAnimatedFocus(
+            windowID: windowID,
+            previousSelectedWindowID: previousSelectedWindowID,
+            monitorID: focusedMonitorID,
+            sourceWorkspaceID: workspaceID,
+            commandGeneration: commandGeneration,
+            focusInputTimestamp: inputTimestamp,
+            cursorWarpInputTimestamp: config.input.mouseFollowsFocus
+              ? inputTimestamp
+              : nil
+          ))
       }
       persistPlacements()
       updateMenuBar()
@@ -359,10 +261,10 @@ extension Daemon {
       for (windowID, frame) in result.floatingFrameUpdates {
         floatingWindowFrames[windowID] = frame
       }
-      pendingAnimatedFocus = nil
+      focus.queueCommand(nil)
       invalidateSubmittedCommandFocus()
       invalidateSubmittedWorkspaceFocus()
-      pendingWorkspaceFocus = nil
+      focus.queueWorkspace(nil)
       preemptMouseGesture()
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
       snapScrollOffsetsToTargets()
@@ -387,38 +289,4 @@ extension Daemon {
       updateOverviewIfOpen()
     }
   }
-}
-
-private struct OverviewPlacementGroup: Hashable {
-  let monitorID: MonitorID
-  let workspaceID: WorkspaceID
-  let columnIndex: Int
-}
-
-private func overviewSelectedWindowID(in workspace: Workspace) -> WindowID? {
-  if workspace.focusedLayer == .floating,
-    workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
-  {
-    return workspace.floatingWindows[workspace.focusedFloatingWindow]
-  }
-  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
-  let column = workspace.columns[workspace.focusedColumn]
-  guard column.windows.indices.contains(column.focusedWindow) else { return nil }
-  return column.windows[column.focusedWindow]
-}
-
-private func selectOverviewWindow(_ windowID: WindowID, in workspace: inout Workspace) {
-  if let index = workspace.floatingWindows.firstIndex(of: windowID) {
-    workspace.focusedLayer = .floating
-    workspace.focusedFloatingWindow = index
-    return
-  }
-  guard let columnIndex = workspace.columns.firstIndex(where: {
-    $0.windows.contains(windowID)
-  }),
-    let windowIndex = workspace.columns[columnIndex].windows.firstIndex(of: windowID)
-  else { return }
-  workspace.focusedLayer = .tiled
-  workspace.focusedColumn = columnIndex
-  workspace.columns[columnIndex].focusedWindow = windowIndex
 }

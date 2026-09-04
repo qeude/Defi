@@ -1,7 +1,8 @@
 import DefiModel
+import DefiRuntime
 import Testing
 
-@testable import DefiDaemon
+@testable import DefiRuntime
 
 struct DaemonPointerFocusRecoveryTests {
   @Test(

@@ -9,11 +9,10 @@ final class PlatformEventMonitor {
   private let userInputTracker: UserInputTracker
   private let desktopSessionHandler: (DesktopSessionActivityChange) -> Void
   private let desktopSessionStateProvider: () -> DesktopSessionState
-  private let frameHandler: (AXUIElement) -> Void
+  private let windowEventHandler: (PlatformEventKind, pid_t?, AXUIElement) -> Void
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
   private let mouseGestureStartedHandler: () -> Void
-  private let windowDestroyedHandler: (AXUIElement) -> Void
   private var workspaceTokens: [NSObjectProtocol] = []
   private var sessionTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
@@ -21,8 +20,7 @@ final class PlatformEventMonitor {
   private var mouseGestureNormalizer = MouseGestureEventNormalizer()
   private var observers: [pid_t: AXObserver] = [:]
   private var topologyObservedProcessIDs = Set<pid_t>()
-  private var notificationObservationFailureCounts:
-    NotificationObservationFailureCounts = [:]
+  private var notificationObservationFailureCounts: NotificationObservationFailureCounts = [:]
   private var observedWindows: [pid_t: [AXUIElement]] = [:]
   private var topologyRequiredWindows: [pid_t: [AXUIElement]] = [:]
   private var frameRequiredWindows: [pid_t: [AXUIElement]] = [:]
@@ -41,21 +39,22 @@ final class PlatformEventMonitor {
     desktopSessionHandler: @escaping (DesktopSessionActivityChange) -> Void = { _ in },
     desktopSessionStateProvider: @escaping () -> DesktopSessionState =
       currentDesktopSessionState,
-    frameHandler: @escaping (AXUIElement) -> Void = { _ in },
+    windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
     liveFrameHandler: @escaping () -> Void = {},
     borderStackingHandler: @escaping () -> Void = {},
-    mouseGestureStartedHandler: @escaping () -> Void = {},
-    windowDestroyedHandler: @escaping (AXUIElement) -> Void = { _ in }
+    mouseGestureStartedHandler: @escaping () -> Void = {}
   ) {
     self.handler = handler
     self.userInputTracker = userInputTracker
     self.desktopSessionHandler = desktopSessionHandler
     self.desktopSessionStateProvider = desktopSessionStateProvider
-    self.frameHandler = frameHandler
+    self.windowEventHandler =
+      windowEventHandler ?? { kind, processID, _ in
+        handler(kind, processID)
+      }
     self.liveFrameHandler = liveFrameHandler
     self.borderStackingHandler = borderStackingHandler
     self.mouseGestureStartedHandler = mouseGestureStartedHandler
-    self.windowDestroyedHandler = windowDestroyedHandler
   }
 
   func start() {
@@ -340,10 +339,12 @@ final class PlatformEventMonitor {
     processID: pid_t,
     application: AXUIElement
   ) {
-    guard !isIncompatibleWithNotificationObservation(
-      .applicationTopology,
-      processID: processID
-    ) else { return }
+    guard
+      !isIncompatibleWithNotificationObservation(
+        .applicationTopology,
+        processID: processID
+      )
+    else { return }
     guard let observer = observer(for: processID) else { return }
     prepareForWindowDiscovery(
       processID: processID,
@@ -397,9 +398,7 @@ final class PlatformEventMonitor {
     }
   }
 
-  var notificationObservationFailureCountsValue:
-    NotificationObservationFailureCounts
-  {
+  var notificationObservationFailureCountsValue: NotificationObservationFailureCounts {
     notificationObservationFailureCounts
   }
 
@@ -546,11 +545,9 @@ final class PlatformEventMonitor {
               )
               return
             }
-            monitor.frameHandler(element)
-            monitor.handler(.frame, normalizedProcessID)
+            monitor.windowEventHandler(.frame, normalizedProcessID, element)
           case kAXUIElementDestroyedNotification:
-            monitor.windowDestroyedHandler(element)
-            monitor.handler(.windows, normalizedProcessID)
+            monitor.windowEventHandler(.windows, normalizedProcessID, element)
           case kAXWindowCreatedNotification:
             monitor.handler(.windowCreated, normalizedProcessID)
           default:

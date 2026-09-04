@@ -141,6 +141,11 @@ benchmark reports CPU and memory after returning to the initial focus.
 
 ## Measured result
 
+Revalidation on 2026-09-04 with 10 windows and one 120 Hz display did not
+establish a general latency gain from the focus and animation fixes. Planning
+and observed-convergence P95 remained above budget. The historical measurements
+below describe a different hardware setup.
+
 The final installed-build run on 2026-08-19 used one 2560×1362 viewport at
 120 Hz, 14 managed windows across nine applications, and 20 ordinary column
 navigation commands. It reported:
@@ -204,6 +209,28 @@ restore the initial workspace, and leave exactly one `defi-daemon` process.
 
 Native fullscreen, trackpad gestures, overview, Settings UI, and visual polish
 are outside this initiative.
+
+## Deterministic interaction checks
+
+The first-version interaction checks run without a daemon or Accessibility
+permission. Swift Testing runs independent cases in parallel:
+
+```sh
+swift test --filter 'FocusStateTests|NativeFocusTests|AnimationTests|FrameCommitTests'
+```
+
+The scenarios cover late focus results after native activation or session
+interruption, forward and reverse animation retargeting from completed frames,
+clock stalls at 60/120 Hz, and a completed target alongside an unfinished AX
+lane. Deferred sizes, parking, and newer frame generations must still block
+readiness. Clock delay extends motion instead of skipping directly toward its
+final frame.
+
+Use `swift test` for the full parallelizable logic suite. Reserve
+`./script/test_desktop.sh` and installed-build interaction checks for a serial
+integration pass: only one desktop test run or daemon may own the session.
+These deterministic checks establish ordering and readiness guarantees, not a
+measured end-to-end latency gain. Trackpad navigation remains outside V1.
 
 ## Persistent diagnostics
 

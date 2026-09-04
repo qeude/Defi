@@ -208,37 +208,9 @@ public final class MacOSPlatform {
     get { snapshotEngine.hasCompletedWindowSnapshot }
     set { snapshotEngine.hasCompletedWindowSnapshot = newValue }
   }
-  var windowTopologyEventPending: Bool {
-    get { snapshotEngine.windowTopologyEventPending }
-    set { snapshotEngine.windowTopologyEventPending = newValue }
-  }
 
   public var hasPendingWindowTopologyEvent: Bool {
-    windowTopologyEventPending
-  }
-  var pendingWindowTopologyProcessIDs: Set<pid_t> {
-    get { snapshotEngine.pendingWindowTopologyProcessIDs }
-    set { snapshotEngine.pendingWindowTopologyProcessIDs = newValue }
-  }
-  var windowTopologyRequiresFullSnapshot: Bool {
-    get { snapshotEngine.windowTopologyRequiresFullSnapshot }
-    set { snapshotEngine.windowTopologyRequiresFullSnapshot = newValue }
-  }
-  var pendingWindowTopologyInputTimestamp: TimeInterval? {
-    get { snapshotEngine.pendingWindowTopologyInputTimestamp }
-    set { snapshotEngine.pendingWindowTopologyInputTimestamp = newValue }
-  }
-  var pendingFrameProcessIDs: Set<pid_t> {
-    get { snapshotEngine.pendingFrameProcessIDs }
-    set { snapshotEngine.pendingFrameProcessIDs = newValue }
-  }
-  var observedFrameEventWindowIDs: Set<WindowID> {
-    get { snapshotEngine.observedFrameEventWindowIDs }
-    set { snapshotEngine.observedFrameEventWindowIDs = newValue }
-  }
-  var pendingFrameRequiresFullSnapshot: Bool {
-    get { snapshotEngine.pendingFrameRequiresFullSnapshot }
-    set { snapshotEngine.pendingFrameRequiresFullSnapshot = newValue }
+    snapshotEngine.pendingObservations.topologyPending
   }
   var lastSnapshotWindows: [Window] {
     get { snapshotEngine.lastSnapshotWindows }
@@ -287,10 +259,6 @@ public final class MacOSPlatform {
   var retainedWindowDeadlines: [WindowID: TimeInterval] {
     get { snapshotEngine.retainedWindowDeadlines }
     set { snapshotEngine.retainedWindowDeadlines = newValue }
-  }
-  var explicitlyDestroyedWindowIDs: Set<WindowID> {
-    get { snapshotEngine.explicitlyDestroyedWindowIDs }
-    set { snapshotEngine.explicitlyDestroyedWindowIDs = newValue }
   }
   var lastWindowSnapshotDurationMS: Double {
     get { snapshotEngine.lastWindowSnapshotDurationMS }
@@ -413,17 +381,12 @@ public final class MacOSPlatform {
     set { snapshotEngine.maximumObservedFrameCommitLatencyMS = newValue }
   }
   var commandLatency = CommandLatencyAccumulator()
-  var commandDiagnosticHandler:
-    (@MainActor @Sendable (CommandDiagnosticSample) -> Void)?
+  var commandDiagnosticHandler: (@MainActor @Sendable (CommandDiagnosticSample) -> Void)?
   var lastHiddenWindowIDs: Set<WindowID> {
     get { snapshotEngine.lastHiddenWindowIDs }
     set { snapshotEngine.lastHiddenWindowIDs = newValue }
   }
   var eventMonitor: PlatformEventMonitor?
-  var frameEventPending: Bool {
-    get { snapshotEngine.frameEventPending }
-    set { snapshotEngine.frameEventPending = newValue }
-  }
   var mouseResizeGesturePending: Bool {
     get { snapshotEngine.mouseResizeGesturePending }
     set { snapshotEngine.mouseResizeGesturePending = newValue }
@@ -619,13 +582,11 @@ public final class MacOSPlatform {
 
   public func requestFrameRefresh(for windowID: WindowID) {
     invalidatePreparedAXWindowAttributes()
-    frameEventPending = true
-    observedFrameEventWindowIDs.insert(windowID)
-    guard let processID = processIDs[windowID] else {
-      pendingFrameRequiresFullSnapshot = true
-      return
-    }
-    pendingFrameProcessIDs.insert(processID)
+    snapshotEngine.recordObservation(
+      .frame,
+      processID: processIDs[windowID],
+      windowID: windowID
+    )
   }
 
   func invalidatePreparedAXWindowAttributes() {

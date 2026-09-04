@@ -14,14 +14,11 @@ extension MacOSPlatform {
     inputTimestamp: TimeInterval? = nil
   ) {
     invalidatePreparedAXWindowAttributes()
-    windowTopologyEventPending = true
-    pendingWindowTopologyProcessIDs.insert(processID)
-    if let inputTimestamp {
-      pendingWindowTopologyInputTimestamp = max(
-        pendingWindowTopologyInputTimestamp ?? inputTimestamp,
-        inputTimestamp
-      )
-    }
+    snapshotEngine.recordObservation(
+      .windows,
+      processID: processID,
+      inputTimestamp: inputTimestamp
+    )
   }
 
   public func invalidateInputAfterEventTapReenabled(
@@ -43,158 +40,134 @@ extension MacOSPlatform {
     mouseGestureHandler: @escaping () -> Void = {}
   ) {
     guard eventMonitor == nil else { return }
-    let monitor = PlatformEventMonitor(
-      handler: { [weak self] kind, processID in
-        let eventInput = self?.userInputTracker.snapshot
-        let eventInputTimestamp = eventInput?.latestEventTimestamp
-        let previousWindowCount = processID.flatMap {
-          self?.applicationWindowCounts[$0]
+    let handleEvent: (PlatformEventKind, pid_t?, AXUIElement?) -> Void = {
+      [weak self] kind, processID, element in
+      let eventInput = self?.userInputTracker.snapshot
+      let eventInputTimestamp = eventInput?.latestEventTimestamp
+      let previousWindowCount = processID.flatMap {
+        self?.applicationWindowCounts[$0]
+      }
+      self?.invalidatePreparedAXWindowAttributes()
+      let windowID = element.flatMap { element in
+        self?.elements.first(where: { CFEqual($0.value, element) })?.key
+      }
+      let refreshProcessID =
+        kind == .mouse
+        ? self.flatMap {
+          mouseGestureRefreshProcessID(
+            latestFocusIntent: $0.userInputTracker.snapshot.latestFocusIntent,
+            focusedWindowID: $0.lastNativeFocusedWindowID,
+            processIDs: $0.processIDs
+          )
         }
-        self?.invalidatePreparedAXWindowAttributes()
+        : processID
+      self?.snapshotEngine.recordObservation(
+        kind,
+        processID: refreshProcessID,
+        windowID: windowID,
+        inputTimestamp: eventInputTimestamp
+      )
+      if kind == .windowCreated || kind == .windows, let processID {
+        self?.frameCoordinator.recordTrace(
+          "window-event kind=\(String(describing: kind)) pid=\(processID)"
+        )
+      }
+      if kind == .frame, let element {
+        self?.refreshWindowBorderGeometry(for: element)
+        if let windowID {
+          self?.frameCoordinator.requestInitialSettlementVerification(windowID: windowID)
+        }
+      }
+      if kind == .mouse {
+        self?.mouseResizeGesturePending = true
+        if self?.isLeftMouseButtonDown == true {
+          self?.frameCoordinator.suspendInitialSettlementRepairs()
+        }
+      }
+      if kind == .mouseRelease {
+        self?.mouseFocusReleasePending = true
+        self?.mouseFocusReleaseEventGeneration =
+          self?.nativeFocusEventGeneration
+      }
+      if kind == .focus {
         if let self {
-          pendingWindowTopologyInputTimestamp =
-            updatedWindowTopologyInputTimestamp(
-              for: kind,
-              latestInputTimestamp: userInputTracker.latestEventTimestamp,
-              previousTimestamp: pendingWindowTopologyInputTimestamp
+          self.nativeFocusEventGeneration &+= 1
+        }
+        self?.verifiedNativeFocusedWindowID = nil
+        self?.lastNativeFocusedWindowID = nativeFocusedWindowIDAfterEvent(
+          kind,
+          cachedWindowID: self?.lastNativeFocusedWindowID
+        )
+        self?.userInputTracker.recordObservedFocus(
+          windowID: nil,
+          processID: processID
+            ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+        )
+        self?.nativeFocusEventPending = true
+        if let processID {
+          self?.nativeFocusEventProcessIDs.insert(processID)
+        } else {
+          self?.nativeFocusEventHasUnknownProcess = true
+        }
+        for delay in [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000] {
+          DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(delay)
+          ) { [weak self] in
+            guard self?.nativeFocusEventPending == true else { return }
+            handler()
+          }
+        }
+      }
+      let lifecycleRefreshDelays = applicationLifecycleRefreshDelays(for: kind)
+      if !lifecycleRefreshDelays.isEmpty {
+        for delay in lifecycleRefreshDelays {
+          DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(delay)
+          ) { [weak self] in
+            guard let self else { return }
+            self.invalidatePreparedAXWindowAttributes()
+            self.snapshotEngine.recordObservation(.windows, processID: nil)
+            handler()
+          }
+        }
+      }
+      if let processID, let previousWindowCount {
+        for delay in windowTopologyRefreshDelays(
+          for: kind,
+          latestInputTimestamp: eventInputTimestamp,
+          latestCloseIntentTimestamp: eventInput?.latestCloseIntent ?? 0,
+          now: ProcessInfo.processInfo.systemUptime
+        ) {
+          DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(delay)
+          ) { [weak self] in
+            guard let self,
+              self.applicationWindowCounts[processID] == previousWindowCount
+            else { return }
+            self.requestWindowTopologyRefresh(
+              processID: processID,
+              inputTimestamp: eventInputTimestamp
             )
-        }
-        switch windowSnapshotInvalidation(for: kind, processID: processID) {
-        case .process(let processID):
-          self?.windowTopologyEventPending = true
-          self?.pendingWindowTopologyProcessIDs.insert(processID)
-          self?.frameCoordinator.recordTrace(
-            "window-event kind=\(String(describing: kind)) pid=\(processID)"
-          )
-        case .full:
-          if kind == .windowCreated || kind == .windows || kind == .application
-            || kind == .applicationTerminated
-          {
-            self?.windowTopologyEventPending = true
-          }
-          self?.windowTopologyRequiresFullSnapshot = true
-        case .none:
-          break
-        }
-        if kind == .frame || kind == .mouse {
-          self?.frameEventPending = true
-        }
-        if kind == .frame {
-          if let processID {
-            self?.pendingFrameProcessIDs.insert(processID)
-          } else {
-            self?.pendingFrameRequiresFullSnapshot = true
+            handler()
           }
         }
-        if kind == .mouse {
-          self?.mouseResizeGesturePending = true
-          if let self,
-            let processID = mouseGestureRefreshProcessID(
-              latestFocusIntent: userInputTracker.snapshot.latestFocusIntent,
-              focusedWindowID: lastNativeFocusedWindowID,
-              processIDs: processIDs
-            )
-          {
-            pendingFrameProcessIDs.insert(processID)
-          } else {
-            self?.pendingFrameRequiresFullSnapshot = true
-          }
-          if self?.isLeftMouseButtonDown == true {
-            self?.frameCoordinator.suspendInitialSettlementRepairs()
-          }
-        }
-        if kind == .mouseRelease {
-          self?.mouseFocusReleasePending = true
-          self?.mouseFocusReleaseEventGeneration =
-            self?.nativeFocusEventGeneration
-        }
-        if kind == .focus {
-          if let self {
-            self.nativeFocusEventGeneration &+= 1
-          }
-          self?.verifiedNativeFocusedWindowID = nil
-          self?.lastNativeFocusedWindowID = nativeFocusedWindowIDAfterEvent(
-            kind,
-            cachedWindowID: self?.lastNativeFocusedWindowID
-          )
-          self?.userInputTracker.recordObservedFocus(
-            windowID: nil,
-            processID: processID
-              ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
-          )
-          self?.nativeFocusEventPending = true
-          if let processID {
-            self?.nativeFocusEventProcessIDs.insert(processID)
-          } else {
-            self?.nativeFocusEventHasUnknownProcess = true
-          }
-          for delay in [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000] {
-            DispatchQueue.main.asyncAfter(
-              deadline: .now() + .milliseconds(delay)
-            ) { [weak self] in
-              guard self?.nativeFocusEventPending == true else { return }
-              handler()
-            }
-          }
-        }
-        let lifecycleRefreshDelays = applicationLifecycleRefreshDelays(for: kind)
-        if !lifecycleRefreshDelays.isEmpty {
-          for delay in lifecycleRefreshDelays {
-            DispatchQueue.main.asyncAfter(
-              deadline: .now() + .milliseconds(delay)
-            ) { [weak self] in
-              guard let self else { return }
-              self.invalidatePreparedAXWindowAttributes()
-              self.windowTopologyEventPending = true
-              self.windowTopologyRequiresFullSnapshot = true
-              handler()
-            }
-          }
-        }
-        if let processID, let previousWindowCount {
-          for delay in windowTopologyRefreshDelays(
-            for: kind,
-            latestInputTimestamp: eventInputTimestamp,
-            latestCloseIntentTimestamp: eventInput?.latestCloseIntent ?? 0,
-            now: ProcessInfo.processInfo.systemUptime
-          ) {
-            DispatchQueue.main.asyncAfter(
-              deadline: .now() + .milliseconds(delay)
-            ) { [weak self] in
-              guard let self,
-                self.applicationWindowCounts[processID] == previousWindowCount
-              else { return }
-              self.requestWindowTopologyRefresh(
-                processID: processID,
-                inputTimestamp: eventInputTimestamp
-              )
-              handler()
-            }
-          }
-        }
-        if kind == .screens {
-          displayConfigurationHandler()
-        }
-        if platformEventCancelsMouseAnimation(kind) {
-          mouseGestureHandler()
-        }
-        handler()
-      },
+      }
+      if kind == .screens {
+        displayConfigurationHandler()
+      }
+      if platformEventCancelsMouseAnimation(kind) {
+        mouseGestureHandler()
+      }
+      handler()
+    }
+    let monitor = PlatformEventMonitor(
+      handler: { kind, processID in handleEvent(kind, processID, nil) },
       userInputTracker: userInputTracker,
       desktopSessionHandler: { change in
         desktopSessionHandler(change == .becameActive)
       },
-      frameHandler: { [weak self] element in
-        guard let self else { return }
-        self.refreshWindowBorderGeometry(for: element)
-        if let windowID = self.elements.first(where: {
-          CFEqual($0.value, element)
-        })?.key {
-          self.observedFrameEventWindowIDs.insert(windowID)
-          self.frameCoordinator.requestInitialSettlementVerification(
-            windowID: windowID
-          )
-        }
+      windowEventHandler: { kind, processID, element in
+        handleEvent(kind, processID, element)
       },
       liveFrameHandler: { [weak self] in
         guard let self else { return }
@@ -205,17 +178,7 @@ extension MacOSPlatform {
       borderStackingHandler: { [weak self] in
         self?.scheduleWindowBorderStackingRefresh()
       },
-      mouseGestureStartedHandler: mouseGestureStartedHandler,
-      windowDestroyedHandler: { [weak self] element in
-        guard let self,
-          let windowID = self.elements.first(where: {
-            CFEqual($0.value, element)
-          })?.key
-        else {
-          return
-        }
-        self.snapshotEngine.recordExplicitlyDestroyedWindow(windowID)
-      }
+      mouseGestureStartedHandler: mouseGestureStartedHandler
     )
     monitor.start()
     eventMonitor = monitor
@@ -245,20 +208,21 @@ extension MacOSPlatform {
       let monitorFrames = lastMonitorFrames
       let knownWindowIDs = Set(elements.keys)
       let targetProcessID = processIDs[request.windowID]
-      let targetFrame: Rect? = {
-        guard
-          let point = frameCoordinator.completedPosition(for: request.windowID),
-          let size = frameCoordinator.completedSize(for: request.windowID)
-        else {
-          return nil
-        }
-        return Rect(
-          x: point.x,
-          y: point.y,
-          width: size.width,
-          height: size.height
-        )
-      }()
+      let targetFrame: Rect? =
+        {
+          guard
+            let point = frameCoordinator.completedPosition(for: request.windowID),
+            let size = frameCoordinator.completedSize(for: request.windowID)
+          else {
+            return nil
+          }
+          return Rect(
+            x: point.x,
+            y: point.y,
+            width: size.width,
+            height: size.height
+          )
+        }()
         ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
         ?? latestObservedFrames[request.windowID]
       let stacking = await copyWindowBorderStackingOffMain(
@@ -309,8 +273,7 @@ extension MacOSPlatform {
     borderLiveWindowID = liveWindowID
     borderStyle = WindowBorderStyle(config: config)
     refreshWindowBorders()
-    if let ownedWindowID = borderManager.ownedSurfaceWindowID
-    {
+    if let ownedWindowID = borderManager.ownedSurfaceWindowID {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
     scheduleWindowBorderStackingRefresh()
@@ -388,9 +351,11 @@ extension MacOSPlatform {
     if frameCoordinator.isBusy {
       let displayedFrames: [WindowID: Rect] = Dictionary(
         uniqueKeysWithValues: liveGeometryWindowIDs.compactMap { windowID in
-          guard let assignment = borderFrames.first(where: {
-            $0.windowID == windowID
-          }) else { return nil }
+          guard
+            let assignment = borderFrames.first(where: {
+              $0.windowID == windowID
+            })
+          else { return nil }
           return (
             windowID,
             displayedBorderFrame(for: assignment, nativeFrame: nil)
@@ -605,18 +570,13 @@ extension MacOSPlatform {
     // Notifications were ignored while animated writes ran. Force fresh reads
     // before trusting the final committed frames.
     let committedWindowIDs = Set(frameCommitExpectations.keys)
-    observedFrameEventWindowIDs.formUnion(committedWindowIDs)
     let committedProcessIDs = Set(committedWindowIDs.compactMap { processIDs[$0] })
-    frameEventPending = true
-    pendingFrameProcessIDs.formUnion(
-      committedProcessIDs.isEmpty ? lastSnapshotProcessIDs : committedProcessIDs
+    snapshotEngine.recordFrameRefresh(
+      windowIDs: committedWindowIDs,
+      processIDs: (committedProcessIDs.isEmpty ? lastSnapshotProcessIDs : committedProcessIDs)
+        .union(suppressedRefresh?.processIDs ?? []),
+      requiresFullSnapshot: suppressedRefresh?.requiresFullSnapshot ?? false
     )
-    if let suppressedRefresh {
-      pendingFrameProcessIDs.formUnion(suppressedRefresh.processIDs)
-      pendingFrameRequiresFullSnapshot =
-        pendingFrameRequiresFullSnapshot
-        || suppressedRefresh.requiresFullSnapshot
-    }
   }
 
   public var isLeftMouseButtonDown: Bool {

@@ -8,7 +8,7 @@ import OSLog
 import Synchronization
 
 private struct AnimationClockState: Sendable {
-  var nextProgressIndex = 0
+  var timeline: FrameAnimationClock
   var frames = 0
   var previousDispatchAt: TimeInterval?
   var maximumDispatchGapMS = 0.0
@@ -208,7 +208,12 @@ extension AXFrameCoordinator {
         )
       }
     )
-    let clockState = Mutex<AnimationClockState>(AnimationClockState())
+    let clockState = Mutex<AnimationClockState>(AnimationClockState(
+      timeline: FrameAnimationClock(
+        startedAt: startedAt, interval: interval,
+        sampleCount: availableIntermediateSamples.count
+      )
+    ))
     let laneAccumulator = FrameResultAccumulator()
     let finalGroup = DispatchGroup()
 
@@ -268,25 +273,15 @@ extension AXFrameCoordinator {
         return
       }
       let now = ProcessInfo.processInfo.systemUptime
-      let progressIndex = clockState.withLock { state -> Int? in
-        guard state.nextProgressIndex < availableIntermediateSamples.count
-        else { return nil }
-        let elapsedIntervals = max(
-          Int(floor((now - startedAt) / interval)),
-          state.nextProgressIndex + 1
-        )
-        let index = min(
-          elapsedIntervals - 1,
-          availableIntermediateSamples.count - 1
-        )
-        state.nextProgressIndex = index + 1
+      let tick = clockState.withLock { state in
+        let tick = state.timeline.next(at: now)
         state.maximumLatenessMS = max(
           state.maximumLatenessMS,
-          max(now - startedAt - Double(index + 1) * interval, 0) * 1_000
+          (tick?.lateness ?? 0) * 1_000
         )
-        return index
+        return tick
       }
-      guard let progressIndex else {
+      guard let tick else {
         let shouldSignal = clockState.withLock { state in
           guard !state.finished else { return false }
           state.finished = true
@@ -298,8 +293,8 @@ extension AXFrameCoordinator {
         }
         return
       }
-      let springSample = availableIntermediateSamples[progressIndex]
-      let elapsed = now - startedAt
+      let springSample = availableIntermediateSamples[tick.index]
+      let elapsed = tick.elapsed
       let (finalBatches, finalizedProcessIDs) = clockState.withLock { state in
         let due = batches.filter {
           !state.finalizedProcessIDs.contains($0.processID)
@@ -361,13 +356,10 @@ extension AXFrameCoordinator {
       }
     }
     clock.resume()
-    let clockTimeout =
-      DispatchTime.now()
-      + .milliseconds(Int(frame.animationDuration * 1_000) + 100)
-    if clockDone.wait(timeout: clockTimeout) == .timedOut {
-      clockState.withLock { $0.finished = true }
-      clock.cancel()
-    }
+    // The clock runs independently of AX lanes. Scheduler delay extends the
+    // motion; it must not force an abrupt final frame. Supersession stops it
+    // on the next tick without waiting for slow applications.
+    clockDone.wait()
     animationClockQueue.sync {}
     stagingGroup.wait()
     let stagingResult = stagingAccumulator.result

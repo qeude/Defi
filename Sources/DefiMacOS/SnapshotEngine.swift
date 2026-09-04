@@ -90,19 +90,95 @@ final class SnapshotEngine: @unchecked Sendable {
       Thread.isMainThread
       ? MainActor.assumeIsolated { MainHopBox(work(host!)) }
       : DispatchQueue.main.sync {
-          MainActor.assumeIsolated { MainHopBox(work(host!)) }
-        }
+        MainActor.assumeIsolated { MainHopBox(work(host!)) }
+      }
     return box.value
+  }
+
+  var pendingObservations: SnapshotObservations {
+    read { $0.pendingObservations }
+  }
+
+  func recordObservation(
+    _ kind: PlatformEventKind,
+    processID: pid_t?,
+    windowID: WindowID? = nil,
+    inputTimestamp: TimeInterval? = nil
+  ) {
+    read {
+      $0.windowSnapshotObservationGeneration &+= 1
+      switch windowSnapshotInvalidation(for: kind, processID: processID) {
+      case .process(let processID):
+        $0.pendingObservations.topologyPending = true
+        $0.pendingObservations.topologyProcessIDs.insert(processID)
+      case .full:
+        $0.pendingObservations.topologyRequiresFullSnapshot = true
+        if kind == .windowCreated || kind == .windows || kind == .application
+          || kind == .applicationTerminated
+        {
+          $0.pendingObservations.topologyPending = true
+        }
+      case .none:
+        break
+      }
+      if let inputTimestamp,
+        let timestamp = updatedWindowTopologyInputTimestamp(
+          for: kind,
+          latestInputTimestamp: inputTimestamp,
+          previousTimestamp: $0.pendingObservations.topologyInputTimestamp
+        )
+      {
+        $0.pendingObservations.topologyInputTimestamp = max(
+          $0.pendingObservations.topologyInputTimestamp ?? timestamp,
+          timestamp
+        )
+      }
+      if kind == .windows, let windowID {
+        $0.pendingObservations.destroyedWindowIDs.insert(windowID)
+      }
+      if kind == .frame || kind == .mouse {
+        $0.pendingObservations.framePending = true
+        if let processID {
+          $0.pendingObservations.frameProcessIDs.insert(processID)
+        } else {
+          $0.pendingObservations.frameRequiresFullSnapshot = true
+        }
+        if let windowID {
+          $0.pendingObservations.frameWindowIDs.insert(windowID)
+        }
+      }
+    }
+  }
+
+  func consumeObservations() -> SnapshotObservations {
+    read {
+      let observations = $0.pendingObservations
+      $0.pendingObservations = SnapshotObservations()
+      return observations
+    }
+  }
+
+  func recordFrameRefresh(
+    windowIDs: Set<WindowID>,
+    processIDs: Set<pid_t>,
+    requiresFullSnapshot: Bool,
+    invalidatesPreparedObservations: Bool = true
+  ) {
+    read {
+      if invalidatesPreparedObservations {
+        $0.windowSnapshotObservationGeneration &+= 1
+      }
+      $0.pendingObservations.framePending = true
+      $0.pendingObservations.frameWindowIDs.formUnion(windowIDs)
+      $0.pendingObservations.frameProcessIDs.formUnion(processIDs)
+      $0.pendingObservations.frameRequiresFullSnapshot =
+        $0.pendingObservations.frameRequiresFullSnapshot || requiresFullSnapshot
+    }
   }
 
   var initialFrameSettlementDeadlines: [WindowID: TimeInterval] {
     get { read { $0.initialFrameSettlementDeadlines } }
     set { read { $0.initialFrameSettlementDeadlines = newValue } }
-  }
-
-  var frameEventPending: Bool {
-    get { read { $0.frameEventPending } }
-    set { read { $0.frameEventPending = newValue } }
   }
 
   var mouseResizeGesturePending: Bool {
@@ -273,23 +349,6 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.retainedWindowDeadlines = newValue } }
   }
 
-  var explicitlyDestroyedWindowIDs: Set<WindowID> {
-    get { read { $0.explicitlyDestroyedWindowIDs } }
-    set { read { $0.explicitlyDestroyedWindowIDs = newValue } }
-  }
-
-  func recordExplicitlyDestroyedWindow(_ windowID: WindowID) {
-    _ = read { $0.explicitlyDestroyedWindowIDs.insert(windowID) }
-  }
-
-  func consumeExplicitlyDestroyedWindows() -> Set<WindowID> {
-    read {
-      let windowIDs = $0.explicitlyDestroyedWindowIDs
-      $0.explicitlyDestroyedWindowIDs.removeAll(keepingCapacity: true)
-      return windowIDs
-    }
-  }
-
   var transientOwnerWindowIDs: [WindowID: WindowID] {
     get { read { $0.transientOwnerWindowIDs } }
     set { read { $0.transientOwnerWindowIDs = newValue } }
@@ -325,8 +384,7 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.multipleAttributeReadsSupportedByProcess = newValue } }
   }
 
-  var failedBatchedWindowAttributeReadsByElement:
-    [AXWindowElementIdentity: Int]
+  var failedBatchedWindowAttributeReadsByElement: [AXWindowElementIdentity: Int]
   {
     get { read { $0.failedBatchedWindowAttributeReadsByElement } }
     set { read { $0.failedBatchedWindowAttributeReadsByElement = newValue } }
@@ -365,41 +423,6 @@ final class SnapshotEngine: @unchecked Sendable {
   }
 
   // MARK: pending observation events
-
-  var windowTopologyEventPending: Bool {
-    get { read { $0.windowTopologyEventPending } }
-    set { read { $0.windowTopologyEventPending = newValue } }
-  }
-
-  var pendingWindowTopologyProcessIDs: Set<pid_t> {
-    get { read { $0.pendingWindowTopologyProcessIDs } }
-    set { read { $0.pendingWindowTopologyProcessIDs = newValue } }
-  }
-
-  var windowTopologyRequiresFullSnapshot: Bool {
-    get { read { $0.windowTopologyRequiresFullSnapshot } }
-    set { read { $0.windowTopologyRequiresFullSnapshot = newValue } }
-  }
-
-  var pendingWindowTopologyInputTimestamp: TimeInterval? {
-    get { read { $0.pendingWindowTopologyInputTimestamp } }
-    set { read { $0.pendingWindowTopologyInputTimestamp = newValue } }
-  }
-
-  var pendingFrameProcessIDs: Set<pid_t> {
-    get { read { $0.pendingFrameProcessIDs } }
-    set { read { $0.pendingFrameProcessIDs = newValue } }
-  }
-
-  var observedFrameEventWindowIDs: Set<WindowID> {
-    get { read { $0.observedFrameEventWindowIDs } }
-    set { read { $0.observedFrameEventWindowIDs = newValue } }
-  }
-
-  var pendingFrameRequiresFullSnapshot: Bool {
-    get { read { $0.pendingFrameRequiresFullSnapshot } }
-    set { read { $0.pendingFrameRequiresFullSnapshot = newValue } }
-  }
 
   var windowSnapshotObservationGeneration: UInt64 {
     get { read { $0.windowSnapshotObservationGeneration } }
@@ -622,8 +645,6 @@ final class SnapshotEngine: @unchecked Sendable {
   }
 }
 
-
-
 extension SnapshotEngine {
   func makeWindow(
     element: AXUIElement,
@@ -636,7 +657,8 @@ extension SnapshotEngine {
     excluding usedCGWindowIDs: Set<CGWindowID>,
     preparedAttributes: AXWindowAttributes? = nil
   ) -> WindowDiscoveryResult {
-    let attributes = preparedAttributes
+    let attributes =
+      preparedAttributes
       ?? windowAttributes(element, processID: processID)
     let geometry = windowGeometryDiscovery(
       minimized: attributes.minimized,
@@ -678,32 +700,36 @@ extension SnapshotEngine {
       $0.processID == processID && !usedCGWindowIDs.contains($0.id)
     }
     let supportsExactWindowID = role == kAXWindowRole || role == kAXSheetRole
-    if supportsExactWindowID && ((publicRecord == nil && hasEligiblePublicCandidate) || cgWindowDiscoveryNeedsExactID(
-      processID: processID,
-      title: title,
-      frame: frame,
-      records: eligibleCGWindows,
-      excluding: usedCGWindowIDs
-    )) {
+    if supportsExactWindowID
+      && ((publicRecord == nil && hasEligiblePublicCandidate)
+        || cgWindowDiscoveryNeedsExactID(
+          processID: processID,
+          title: title,
+          frame: frame,
+          records: eligibleCGWindows,
+          excluding: usedCGWindowIDs
+        ))
+    {
       let axWindowID = {
-          let assumedElement = AssumedThreadSafe(element)
-          return onMain { $0.windowIDProvider.windowID(for: assumedElement.value) }
-        }()
+        let assumedElement = AssumedThreadSafe(element)
+        return onMain { $0.windowIDProvider.windowID(for: assumedElement.value) }
+      }()
       if axWindowID == nil {
         publicWindowIDFallbackCount += 1
       } else {
         privateWindowIDLookupCount += 1
       }
       if let axWindowID {
-        record = cgWindowRecordForDiscovery(
-          axWindowID: axWindowID,
-          preferredWindowID: nil,
-          processID: processID,
-          title: title,
-          frame: frame,
-          records: eligibleCGWindows,
-          excluding: usedCGWindowIDs
-        ) ?? record
+        record =
+          cgWindowRecordForDiscovery(
+            axWindowID: axWindowID,
+            preferredWindowID: nil,
+            processID: processID,
+            title: title,
+            frame: frame,
+            records: eligibleCGWindows,
+            excluding: usedCGWindowIDs
+          ) ?? record
       }
     }
     guard let resolvedWindowID = record?.id else {
@@ -818,11 +844,13 @@ extension SnapshotEngine {
       kAXModalAttribute as CFString,
       &modalValue
     )
-    guard let isModal = resolvedWindowModalState(
-      error: modalError,
-      observedValue: modalValue as? Bool,
-      cachedValue: windowManagementCapabilities[window.id]?.isModal
-    ) else {
+    guard
+      let isModal = resolvedWindowModalState(
+        error: modalError,
+        observedValue: modalValue as? Bool,
+        cachedValue: windowManagementCapabilities[window.id]?.isModal
+      )
+    else {
       return previousDisposition ?? .unavailable
     }
     if !configuredFloating,
@@ -873,11 +901,13 @@ extension SnapshotEngine {
         elements: [system]
       ) {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-          system,
-          kAXFocusedApplicationAttribute as CFString,
-          &value
-        ) == .success else {
+        guard
+          AXUIElementCopyAttributeValue(
+            system,
+            kAXFocusedApplicationAttribute as CFString,
+            &value
+          ) == .success
+        else {
           return nil
         }
         return value
@@ -917,9 +947,10 @@ extension SnapshotEngine {
       return nil
     }
     if resolvedProcessID != focusedProcessID {
-      let verifiedProcessHasSingleWindow = windows.filter {
-        $0.processID == resolvedProcessID
-      }.count == 1
+      let verifiedProcessHasSingleWindow =
+        windows.filter {
+          $0.processID == resolvedProcessID
+        }.count == 1
       return stableWindowID(
         processID: resolvedProcessID,
         in: windows,
@@ -931,11 +962,13 @@ extension SnapshotEngine {
       elements: [focusedApplicationElement]
     ) {
       var value: CFTypeRef?
-      guard AXUIElementCopyAttributeValue(
-        focusedApplicationElement,
-        kAXFocusedWindowAttribute as CFString,
-        &value
-      ) == .success else {
+      guard
+        AXUIElementCopyAttributeValue(
+          focusedApplicationElement,
+          kAXFocusedWindowAttribute as CFString,
+          &value
+        ) == .success
+      else {
         return nil
       }
       return value
@@ -947,11 +980,13 @@ extension SnapshotEngine {
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
       return exact.key
     }
-    guard let focusedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
-      focusSnapshotAccessibilityTimeoutSeconds,
-      elements: [focusedElement],
-      perform: { frame(of: focusedElement) }
-    ) else {
+    guard
+      let focusedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
+        focusSnapshotAccessibilityTimeoutSeconds,
+        elements: [focusedElement],
+        perform: { frame(of: focusedElement) }
+      )
+    else {
       return stableWindowID(processID: focusedProcessID, in: windows)
     }
     return focusedWindowIDMatchingFrame(
@@ -1154,8 +1189,8 @@ extension SnapshotEngine {
   }
 }
 
-
 private struct Storage {
+  var pendingObservations = SnapshotObservations()
   var elements: [WindowID: AXUIElement] = [:]
   var processIDs: [WindowID: pid_t] = [:]
   var transientOwnerWindowIDs: [WindowID: WindowID] = [:]
@@ -1167,8 +1202,7 @@ private struct Storage {
   var applicationWindowCounts: [pid_t: Int] = [:]
   var enhancedUIByProcess: [pid_t: Bool] = [:]
   var multipleAttributeReadsSupportedByProcess: [pid_t: Bool] = [:]
-  var failedBatchedWindowAttributeReadsByElement:
-    [AXWindowElementIdentity: Int] = [:]
+  var failedBatchedWindowAttributeReadsByElement: [AXWindowElementIdentity: Int] = [:]
   var batchedWindowAttributeReadCount = 0
   var fallbackWindowAttributeReadCount = 0
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] =
@@ -1184,13 +1218,6 @@ private struct Storage {
   var pendingFrameCorrections: [WindowID: Rect] = [:]
   var newlyDiscoveredWindowIDs = Set<WindowID>()
   var hasCompletedWindowSnapshot = false
-  var windowTopologyEventPending = false
-  var pendingWindowTopologyProcessIDs = Set<pid_t>()
-  var windowTopologyRequiresFullSnapshot = false
-  var pendingWindowTopologyInputTimestamp: TimeInterval?
-  var pendingFrameProcessIDs = Set<pid_t>()
-  var observedFrameEventWindowIDs = Set<WindowID>()
-  var pendingFrameRequiresFullSnapshot = false
   var lastSnapshotWindows: [Window] = []
   var lastSnapshotWindowIDs = Set<WindowID>()
   var lastSnapshotProcessIDs = Set<pid_t>()
@@ -1203,7 +1230,6 @@ private struct Storage {
   var cgWindowInventoryRetryAttempts: Int?
   var retainedWindowIDs = Set<WindowID>()
   var retainedWindowDeadlines: [WindowID: TimeInterval] = [:]
-  var explicitlyDestroyedWindowIDs = Set<WindowID>()
   var lastWindowSnapshotDurationMS = 0.0
   var maximumWindowSnapshotDurationMS = 0.0
   var windowSnapshotDurationSamplesMS: [Double] = []
@@ -1241,7 +1267,6 @@ private struct Storage {
   var chunkedFullRefreshRemainingProcessIDs: Set<pid_t>?
   var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] = [:]
   var initialFrameSettlementDeadlines: [WindowID: TimeInterval] = [:]
-  var frameEventPending: Bool = false
   var mouseResizeGesturePending: Bool = false
   var mouseFocusReleasePending: Bool = false
   var nativeFocusEventGeneration: UInt64 = 0
@@ -1257,4 +1282,17 @@ private struct Storage {
   var pendingFrameDebtWindowIDs: Set<WindowID> = Set<WindowID>()
   var lastNativeFocusedWindowID: WindowID? = nil
   var verifiedNativeFocusedWindowID: WindowID? = nil
+}
+
+/// A discovery cutoff. Observations recorded after consumption belong to the next pass.
+struct SnapshotObservations: Equatable, Sendable {
+  var topologyPending = false
+  var topologyProcessIDs = Set<pid_t>()
+  var topologyRequiresFullSnapshot = false
+  var topologyInputTimestamp: TimeInterval?
+  var framePending = false
+  var frameProcessIDs = Set<pid_t>()
+  var frameWindowIDs = Set<WindowID>()
+  var frameRequiresFullSnapshot = false
+  var destroyedWindowIDs = Set<WindowID>()
 }

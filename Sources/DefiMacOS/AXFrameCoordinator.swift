@@ -347,9 +347,20 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func isBusy(for windowID: WindowID) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    return activeWindowIDs.contains(windowID)
+    return activeWriteIsPendingLocked(for: windowID)
       || pending?.writes[windowID] != nil
       || deferredParkingWriteGenerations[windowID] != nil
+  }
+
+  private func activeWriteIsPendingLocked(for windowID: WindowID) -> Bool {
+    guard activeWindowIDs.contains(windowID) else { return false }
+    if let write = activeWrites[windowID], asynchronousSizeWriteIsRequired(
+      sizeChanged: write.sizeChanged,
+      synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
+      animatesSize: write.animatesSize
+    ) { return true }
+    return activeAnimatedSizeWindowIDs.contains(windowID)
+      || successfulFinalWritesByGeneration[latestGeneration]?.contains(windowID) != true
   }
 
   var animatedSizeWindowIDs: Set<WindowID> {
@@ -386,7 +397,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var pendingWindowIDs: Set<WindowID> {
     lock.lock()
     defer { lock.unlock() }
-    var windowIDs = activeWindowIDs
+    // A completed target must not wait for another application's AX lane.
+    var windowIDs = activeWindowIDs.filter { activeWriteIsPendingLocked(for: $0) }
     if let pending {
       windowIDs.formUnion(pending.writes.keys)
     }

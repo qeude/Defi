@@ -18,19 +18,6 @@ extension Daemon {
     )
   }
 
-  private func focusCompletionRequiresLogicalRollback(
-    _ result: NativeFocusResult
-  ) -> Bool {
-    switch result {
-    case .failedAfterMutation, .cancelledAfterInputMutation:
-      true
-    case .completed, .completedWithoutMutation, .frameSuperseded,
-      .superseded, .supersededAfterMutation, .cancelled,
-      .cancelledAfterMutation, .failed:
-      false
-    }
-  }
-
   func commitCommandFocus(
     _ windowID: WindowID,
     previousSelectedWindowID: WindowID?,
@@ -52,7 +39,7 @@ extension Daemon {
       cursorWarpInputTimestamp: cursorWarpInputTimestamp,
       retryCount: retryCount
     )
-    submittedCommandFocus = request
+    let submission = focus.submitCommand(request)
     let committedCursorWarpInputTimestamp =
       platform.cursorWarpFrameIsReady(for: windowID)
       ? cursorWarpInputTimestamp
@@ -63,20 +50,22 @@ extension Daemon {
       cursorWarpUnlessPointerMovedAfter: committedCursorWarpInputTimestamp,
       cursorWarpIsCurrent: { [weak self] in
         guard let self else { return false }
-        return self.submittedCommandFocus?.windowID == request.windowID
-          && self.submittedCommandFocus?.commandGeneration
-            == request.commandGeneration
+        return self.focus.commandCompletionIsCurrent(request, submission: submission)
       },
       allowsNativeFullscreen: true,
       completion: { [weak self] result in
         guard let self else { return }
-        guard commandFocusCompletionIsCurrent(
-          submittedWindowID: self.submittedCommandFocus?.windowID,
-          submittedGeneration:
-            self.submittedCommandFocus?.commandGeneration,
-          completedWindowID: request.windowID,
-          completedGeneration: request.commandGeneration
-        ) else { return }
+        let effect = self.focus.completeCommand(
+          request,
+          submission: submission,
+          result: result,
+          commandGeneration: self.commandGeneration,
+          keepsRequestedWindow: self.cancellationKeepsRequestedWindow(
+            request.windowID, requestInputTimestamp: request.focusInputTimestamp
+          ),
+          state: &self.state
+        )
+        guard effect != .stale else { return }
         self.platform.recordCommandFocus(
           CommandPerformanceContext(
             generation: request.commandGeneration,
@@ -84,62 +73,14 @@ extension Daemon {
           ),
           result: result
         )
-        self.submittedCommandFocus = nil
         self.submittedCommandFocusRequestID = nil
         self.submittedCommandFocusRequestTimestamp = nil
         self.submittedCommandFocusRecoveryGeneration = nil
-        if result == .failed || result == .failedAfterMutation,
-          let nextRetryCount = nextCommandFocusRetryCount(
-            currentRetryCount: request.retryCount,
-            maximumRetryCount: 1,
-            requestGeneration: request.commandGeneration,
-            currentGeneration: self.commandGeneration,
-            requestedWindowID: request.windowID,
-            selectedWindowID: self.state.selectedWindowID(on: request.monitorID)
-          )
-        {
-          self.pendingAnimatedFocus = PendingAnimatedFocus(
-            windowID: request.windowID,
-            previousSelectedWindowID: request.previousSelectedWindowID,
-            monitorID: request.monitorID,
-            sourceWorkspaceID: request.sourceWorkspaceID,
-            commandGeneration: request.commandGeneration,
-            focusInputTimestamp: request.focusInputTimestamp,
-            cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
-            retryCount: nextRetryCount
-          )
-          return
+        if case .selectionChanged(let monitorID) = effect {
+          self.activeMonitorID = monitorID
+          self.needsDesktopSync = true
+          self.updateMenuBar()
         }
-        guard !self.cancellationKeepsRequestedWindow(
-          windowID,
-          requestInputTimestamp: focusInputTimestamp
-        ),
-          let fallbackWindowID = commandFocusCancellationFallback(
-            cancelledBeforeMutation:
-              result == .cancelled || result == .failed,
-            rollbackAfterMutation:
-              self.focusCompletionRequiresLogicalRollback(result),
-            requestGeneration: commandGeneration,
-            currentGeneration: self.commandGeneration,
-            requestedWindowID: windowID,
-            selectedWindowID: self.state.selectedWindowID(on: monitorID),
-            previousSelectedWindowID: previousSelectedWindowID,
-            sourceWorkspaceID: sourceWorkspaceID,
-            previousSelectedWindowWorkspaceID:
-              previousSelectedWindowID.flatMap {
-                self.state.location(containing: $0)?.workspaceID
-              }
-          ),
-          self.state.location(containing: fallbackWindowID)?.monitorID == monitorID
-        else {
-          return
-        }
-        _ = focusWindow(fallbackWindowID, state: &self.state)
-        self.activeMonitorID = self.state.monitorID(
-          containing: fallbackWindowID
-        )
-        self.needsDesktopSync = true
-        self.updateMenuBar()
       }
     )
     submittedCommandFocusRequestTimestamp =
@@ -149,10 +90,20 @@ extension Daemon {
 
   func commitWorkspaceCommandFocus(
     result: NativeFocusResult,
-    request: PendingWorkspaceFocus
+    request: PendingWorkspaceFocus,
+    submission: FocusSubmissionID
   ) {
-    guard pendingWorkspaceFocus?.commandGeneration == request.commandGeneration
-    else { return }
+    let effect = focus.completeWorkspace(
+      request,
+      submission: submission,
+      result: result,
+      commandGeneration: commandGeneration,
+      keepsRequestedWindow: cancellationKeepsRequestedWindow(
+        request.requestedWindowID, requestInputTimestamp: request.focusInputTimestamp
+      ),
+      state: &state
+    )
+    guard effect != .stale else { return }
     platform.recordCommandFocus(
       CommandPerformanceContext(
         generation: request.commandGeneration,
@@ -163,70 +114,7 @@ extension Daemon {
     submittedWorkspaceFocusRequestID = nil
     submittedWorkspaceFocusRequestTimestamp = nil
     submittedWorkspaceFocusRecoveryGeneration = nil
-    if result == .frameSuperseded {
-      submittedWorkspaceFocusGeneration = nil
-      return
-    }
-    if result == .failed || result == .failedAfterMutation,
-      let nextRetryCount = nextCommandFocusRetryCount(
-        currentRetryCount: request.retryCount,
-        maximumRetryCount: 1,
-        requestGeneration: request.commandGeneration,
-        currentGeneration: commandGeneration,
-        requestedWindowID: request.requestedWindowID,
-        selectedWindowID: state.selectedWindowID(on: request.monitorID)
-      )
-    {
-      submittedWorkspaceFocusGeneration = nil
-      pendingWorkspaceFocus = PendingWorkspaceFocus(
-        monitorID: request.monitorID,
-        requestedWorkspaceID: request.requestedWorkspaceID,
-        previousWorkspaceID: request.previousWorkspaceID,
-        requestedWindowID: request.requestedWindowID,
-        restoresPreviousWorkspaceOnCancellation:
-          request.restoresPreviousWorkspaceOnCancellation,
-        commandGeneration: request.commandGeneration,
-        focusInputTimestamp: request.focusInputTimestamp,
-        cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
-        retryCount: nextRetryCount
-      )
-      return
-    }
-    pendingWorkspaceFocus = nil
-    submittedWorkspaceFocusGeneration = nil
-    guard !cancellationKeepsRequestedWindow(
-      request.requestedWindowID,
-      requestInputTimestamp: request.focusInputTimestamp
-    ) else { return }
-    guard let monitor = state.monitors.first(where: { $0.id == request.monitorID }),
-      let fallbackWorkspaceID = workspaceFocusCancellationFallback(
-        cancelledBeforeMutation:
-          result == .cancelled || result == .failed,
-        rollbackAfterMutation:
-          focusCompletionRequiresLogicalRollback(result),
-        requestGeneration: request.commandGeneration,
-        currentGeneration: self.commandGeneration,
-        requestedWorkspaceID: request.requestedWorkspaceID,
-        activeWorkspaceID: monitor.activeWorkspace,
-        previousWorkspaceID: request.previousWorkspaceID,
-        requestedWindowID: request.requestedWindowID,
-        selectedWindowID: state.selectedWindowID(on: request.monitorID),
-        restoresPreviousWorkspace:
-          request.restoresPreviousWorkspaceOnCancellation
-      )
-    else {
-      return
-    }
-    do {
-      try reduce(
-        .switchWorkspace(fallbackWorkspaceID),
-        on: request.monitorID,
-        state: &state
-      )
-    } catch {
-      return
-    }
-
+    guard case .selectionChanged = effect else { return }
     activeMonitorID = request.monitorID
     persistPlacements()
     updateMenuBar()
