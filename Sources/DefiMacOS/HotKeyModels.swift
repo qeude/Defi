@@ -174,3 +174,12 @@ struct Key: Hashable, Sendable {
     "left": 123, "right": 124, "down": 125, "up": 126,
   ]
 }
+
+func configuredHotKeys(_ config: Config) throws(HotKeyError) -> [Key: (accelerator: String, command: String)] {
+  var bindings: [Key: (accelerator: String, command: String)] = [:]
+  for (accelerator, command) in config.keys.sorted(by: { $0.key < $1.key }) {
+    let key = try Key(accelerator: accelerator, aliases: config.modifierCombinations)
+    bindings[key] = (accelerator, command)
+  }
+  return bindings
+}

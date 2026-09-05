@@ -40,6 +40,7 @@ public enum Command: Equatable, Codable, Sendable {
   case activateFloating
   case joinWindow(Direction)
   case unjoinWindows
+  case toggleCheatsheet
   case toggleOverview
   case runStartupCommands
 

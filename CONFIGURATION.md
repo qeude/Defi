@@ -269,6 +269,30 @@ hyper = "Alt + Cmd + Ctrl"
 Changing this value moves all generated navigation, layout, floating-window,
 stacking, and first-nine-workspace bindings to the new prefix.
 
+## `show_cheatsheet_on_modifier_hold`
+
+Defaults to `true`. Hold `default_key_modifier` alone for 600 ms to show the
+configured shortcuts on the active monitor without changing focus. Releasing the
+modifier closes the help. Pressing another key before the delay cancels it.
+
+Set this root-level option to `false` to disable hold-to-show. The
+`toggle-cheatsheet` action remains available independently, so both triggers can
+be used together:
+
+```toml
+show_cheatsheet_on_modifier_hold = false
+
+[keys]
+"alt-slash" = "toggle-cheatsheet"
+```
+
+There is no default binding for `toggle-cheatsheet`. It keeps the help open after
+modifier release. Toggle again, press Escape, click, or execute any Defi shortcut
+to close it. After a shortcut, release the modifiers before holding again.
+Configuration reload and display or session changes also dismiss the help.
+The cheatsheet displays the `hyper` modifier alias as `✦`. Other aliases expand
+to their modifier symbols. Its fade respects `[animation].enabled` and Reduce Motion.
+
 ## `[modifier_combinations]`
 
 Defines reusable modifier aliases for accelerators.
@@ -372,6 +396,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `join-window left` | Join focused window into stack on left. | `<mod>-semicolon` |
 | `join-window right` | Join focused window into stack on right. | `<mod>-quote` |
 | `unjoin-windows` | Split focused window from stack into new column. | `<mod>-r` |
+| `toggle-cheatsheet` | Open or close keyboard shortcut help. | Unbound |
 | `toggle-overview` | Open or close the interactive workspace Overview. | `<mod>-o` |
 | `diagnostic-mark` | Record current status and recent trace without changing managed windows. | unset |
 
@@ -482,6 +507,7 @@ only.
 
 ```toml
 default_key_modifier = "alt"
+show_cheatsheet_on_modifier_hold = true
 
 [layout]
 default_column_width = 0.80

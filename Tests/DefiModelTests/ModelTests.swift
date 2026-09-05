@@ -82,6 +82,7 @@ struct ModelTests {
     ("toggle-floating", Command.toggleFloating),
     ("activate-floating", Command.activateFloating),
     ("toggle-overview", Command.toggleOverview),
+    ("toggle-cheatsheet", Command.toggleCheatsheet),
   ])
   func `Parses shared commands`(
     testCase: (input: String, expected: Command)
