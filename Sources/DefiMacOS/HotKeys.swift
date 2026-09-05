@@ -25,6 +25,8 @@ public final class HotKeyManager {
   private let tapReenabledHandler: TapReenabledHandler
   private let closeIntentHandler: CloseIntentHandler
   private let overviewHandler: OverviewHandler
+  private let cheatsheetHandler: @MainActor @Sendable (CheatsheetInput) -> Void
+  private let cheatsheetModifierBits: UInt64?
   private let userInputTracker: UserInputTracker
   private let pointerMotionTracker: PointerMotionTracker
   private var context: HotKeyTapContext?
@@ -60,6 +62,7 @@ public final class HotKeyManager {
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
+    cheatsheetHandler: @escaping @MainActor @Sendable (CheatsheetInput) -> Void = { _ in },
     handler: @escaping Handler
   ) {
     self.handler = handler
@@ -71,18 +74,17 @@ public final class HotKeyManager {
     self.tapReenabledHandler = tapReenabledHandler
     self.closeIntentHandler = closeIntentHandler
     self.overviewHandler = overviewHandler
+    self.cheatsheetHandler = cheatsheetHandler
+    cheatsheetModifierBits = try? Key(
+      accelerator: "\(config.defaultKeyModifier)-a",
+      aliases: config.modifierCombinations
+    ).modifierBits
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     var bindings: [Key: String] = [:]
     var bindingError: HotKeyError?
     do {
-      for (accelerator, command) in config.keys {
-        let key = try Key(
-          accelerator: accelerator,
-          aliases: config.modifierCombinations
-        )
-        bindings[key] = command
-      }
+      bindings = try configuredHotKeys(config).mapValues(\.command)
     } catch let error {
       bindings.removeAll(keepingCapacity: false)
       bindingError = error
@@ -125,11 +127,18 @@ public final class HotKeyManager {
     let tapReenabledHandler = self.tapReenabledHandler
     let closeIntentHandler = self.closeIntentHandler
     let overviewHandler = self.overviewHandler
+    let cheatsheetHandler = self.cheatsheetHandler
     let context = HotKeyTapContext(
       bindings: bindings,
       userInputTracker: userInputTracker,
       pointerMotionTracker: pointerMotionTracker,
-      tracksPointerWindowTransitions: pointerMotionHandler != nil
+      tracksPointerWindowTransitions: pointerMotionHandler != nil,
+      cheatsheetModifierBits: bindingError == nil ? cheatsheetModifierBits : nil,
+      deliverCheatsheet: { input in
+        DispatchQueue.main.async {
+          MainActor.assumeIsolated { cheatsheetHandler(input) }
+        }
+      }
     ) { invocation in
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
@@ -207,6 +216,10 @@ public final class HotKeyManager {
     context?.setOverviewModeEnabled(enabled)
   }
 
+  public func setCheatsheetVisible(_ visible: Bool) {
+    context?.setCheatsheetVisible(visible)
+  }
+
   public func stop() {
     context?.stop()
     context = nil
@@ -247,12 +260,17 @@ final class HotKeyTapContext: @unchecked Sendable {
   private var lastPointerDeliveryTimestamp: TimeInterval?
   private var capturedModifierReleaseState = CapturedHotKeyModifierReleaseState()
   private var overviewModeEnabled = false
+  private var cheatsheetVisible = false
+  private let cheatsheetModifierBits: UInt64?
+  private let deliverCheatsheet: @Sendable (CheatsheetInput) -> Void
 
   init(
     bindings: [Key: String],
     userInputTracker: UserInputTracker,
     pointerMotionTracker: PointerMotionTracker,
     tracksPointerWindowTransitions: Bool,
+    cheatsheetModifierBits: UInt64? = nil,
+    deliverCheatsheet: @escaping @Sendable (CheatsheetInput) -> Void = { _ in },
     deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
     deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
@@ -260,6 +278,8 @@ final class HotKeyTapContext: @unchecked Sendable {
     closeIntent: @escaping @Sendable (TimeInterval, pid_t?) -> Void = { _, _ in }
   ) {
     self.bindings = bindings
+    self.cheatsheetModifierBits = cheatsheetModifierBits
+    self.deliverCheatsheet = deliverCheatsheet
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     self.tracksPointerWindowTransitions = tracksPointerWindowTransitions
@@ -324,6 +344,7 @@ final class HotKeyTapContext: @unchecked Sendable {
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: true)
       }
+      deliverCheatsheet(.dismiss)
       tapReenabled(timestamp)
       return Unmanaged.passUnretained(event)
     }
@@ -398,6 +419,17 @@ final class HotKeyTapContext: @unchecked Sendable {
         self.closeIntent(timestamp, processID)
       }
     }
+    if type == .flagsChanged {
+      let bits = hotKeyModifierBits(event.flags)
+      deliverCheatsheet(.modifiersChanged(
+        matches: bits != 0 && bits == cheatsheetModifierBits,
+        released: bits == 0
+      ))
+    } else if type == .keyDown {
+      deliverCheatsheet(.keyDown(modifiersHeld: hotKeyModifierBits(event.flags) != 0))
+    } else if eventIsMouseButtonDown(type) {
+      deliverCheatsheet(.dismiss)
+    }
     guard isKeyDown else {
       return Unmanaged.passUnretained(event)
     }
@@ -405,7 +437,12 @@ final class HotKeyTapContext: @unchecked Sendable {
     let key = Key(code: code, flags: event.flags.rawValue)
     lock.lock()
     let overviewModeEnabled = overviewModeEnabled
+    let cheatsheetVisible = cheatsheetVisible
     lock.unlock()
+    if cheatsheetVisible && code == 53 {
+      deliverCheatsheet(.dismiss)
+      return nil
+    }
     if overviewModeEnabled,
       event.flags.contains(.maskCommand),
       code == Self.commandTabKeyCode
@@ -429,6 +466,11 @@ final class HotKeyTapContext: @unchecked Sendable {
     }
     guard let command = bindings[key] else {
       return Unmanaged.passUnretained(event)
+    }
+    if command == "toggle-cheatsheet",
+      event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+    {
+      return nil
     }
     lock.lock()
     captured += 1
@@ -469,6 +511,12 @@ final class HotKeyTapContext: @unchecked Sendable {
     pendingPointerMotion = nil
     pointerDeliveryGeneration &+= 1
     pointerDeliveryScheduled = false
+    lock.unlock()
+  }
+
+  func setCheatsheetVisible(_ visible: Bool) {
+    lock.lock()
+    cheatsheetVisible = visible
     lock.unlock()
   }
 

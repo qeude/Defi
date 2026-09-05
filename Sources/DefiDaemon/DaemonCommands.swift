@@ -204,6 +204,9 @@ extension Daemon {
   func enqueueHotKey(_ invocation: HotKeyInvocation) {
     guard desktopSessionActive else { return }
     guard pendingHotKeyCommands.count < 64 else { return }
+    if (try? parseCommand(invocation.command)) != .toggleCheatsheet {
+      handleCheatsheetInput(.dismiss)
+    }
     pendingHotKeyCommands.append(invocation)
     processPendingHotKeys()
   }
@@ -275,6 +278,18 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
+      if command == .toggleCheatsheet {
+        guard desktopSessionActive, !state.monitors.isEmpty else {
+          return .failure("cheatsheet unavailable before monitor discovery or during an inactive session")
+        }
+        let targetMonitorID = monitorIndex.flatMap { monitorID(atAppKitIndex: $0) }
+        if let monitorIndex, targetMonitorID == nil {
+          return .failure("unknown monitor index: \(monitorIndex)")
+        }
+        handleCheatsheetInput(.toggle, monitorID: targetMonitorID)
+        return .success()
+      }
+      handleCheatsheetInput(.dismiss)
       if command == .toggleOverview {
         return toggleOverview()
       }

@@ -141,6 +141,8 @@ extension Daemon {
     config = nextConfig
     configGeneration &+= 1
 
+    handleCheatsheetInput(.dismiss)
+    cheatsheetController = nil
     if hotKeyConfigurationChanged(from: previousConfig, to: nextConfig) {
       hotKeys?.stop()
       hotKeys = nil
@@ -189,11 +191,15 @@ extension Daemon {
   private func hotKeyConfigurationChanged(from previous: Config, to next: Config) -> Bool {
     previous.keys != next.keys
       || previous.modifierCombinations != next.modifierCombinations
+      || previous.defaultKeyModifier != next.defaultKeyModifier
+      || previous.showCheatsheetOnModifierHold != next.showCheatsheetOnModifierHold
       || previous.input.focusFollowsMouse != next.input.focusFollowsMouse
       || previous.input.mouseFollowsFocus != next.input.mouseFollowsFocus
   }
 
   func installHotKeys() {
+    hotKeyGeneration &+= 1
+    let generation = hotKeyGeneration
     let manager = HotKeyManager(
       config: config,
       userInputTracker: platform.userInputTracker,
@@ -252,7 +258,12 @@ extension Daemon {
       },
       overviewHandler: { [weak self] action in
         guard self?.desktopSessionActive == true else { return }
+        self?.handleCheatsheetInput(.dismiss)
         self?.overviewController?.handleKey(action)
+      },
+      cheatsheetHandler: { [weak self] input in
+        guard let self, self.hotKeyGeneration == generation else { return }
+        self.handleCheatsheetInput(input)
       }
     ) { [weak self] invocation in
       self?.enqueueHotKey(invocation)
@@ -273,18 +284,14 @@ extension Daemon {
   }
 
   func updateMenuBarAvailability() {
-    guard config.menuBar.enabled else {
-      menuBar?.remove()
-      menuBar = nil
-      return
-    }
-    guard menuBar == nil else { return }
-    menuBar = MenuBarController { [weak self] command in
-      if command == "quit" {
-        self?.requestShutdown()
-      } else {
-        _ = self?.handle(command)
-      }
+    menuBar.isInserted = config.menuBar.enabled
+  }
+
+  func handleMenuCommand(_ command: String) {
+    if command == "quit" {
+      requestShutdown()
+    } else {
+      _ = handle(command)
     }
   }
 }

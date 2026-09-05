@@ -12,6 +12,7 @@ public struct Config: Equatable, Sendable {
   public var workspaces: WorkspacesConfig
   public var modifierCombinations: [String: String]
   public var defaultKeyModifier: String
+  public var showCheatsheetOnModifierHold: Bool
   public var keys: [String: String]
   public var rules: [Rule]
 
@@ -25,6 +26,7 @@ public struct Config: Equatable, Sendable {
     workspaces: WorkspacesConfig = WorkspacesConfig(),
     modifierCombinations: [String: String] = [:],
     defaultKeyModifier: String = "alt",
+    showCheatsheetOnModifierHold: Bool = true,
     keys: [String: String]? = nil,
     rules: [Rule] = []
   ) {
@@ -37,6 +39,7 @@ public struct Config: Equatable, Sendable {
     self.workspaces = workspaces
     self.modifierCombinations = modifierCombinations
     self.defaultKeyModifier = defaultKeyModifier
+    self.showCheatsheetOnModifierHold = showCheatsheetOnModifierHold
     self.keys = Self.defaultKeys(
       modifier: defaultKeyModifier,
       workspaceNames: workspaces.names
@@ -58,6 +61,7 @@ public struct Config: Equatable, Sendable {
       workspaces: workspaces,
       modifierCombinations: raw.modifierCombinations ?? [:],
       defaultKeyModifier: modifier,
+      showCheatsheetOnModifierHold: raw.showCheatsheetOnModifierHold ?? true,
       keys: raw.keys,
       rules: raw.rules ?? []
     )
@@ -303,6 +307,7 @@ private struct RawConfig: Decodable {
   var workspaces: WorkspacesConfig?
   var modifierCombinations: [String: String]?
   var defaultKeyModifier: String?
+  var showCheatsheetOnModifierHold: Bool?
   var keys: [String: String]?
   var rules: [Rule]?
 
@@ -316,6 +321,7 @@ private struct RawConfig: Decodable {
     case workspaces
     case modifierCombinations = "modifier_combinations"
     case defaultKeyModifier = "default_key_modifier"
+    case showCheatsheetOnModifierHold = "show_cheatsheet_on_modifier_hold"
     case keys
     case rules
   }
