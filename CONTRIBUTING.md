@@ -69,6 +69,7 @@ installed service, but do not run them while important unsaved work is exposed.
 | `resolve_signing_identity.sh` | Select the signing identity for the build script. |
 | `setup_release_certificate.sh` | Create the stable local release certificate. |
 | `package_release.sh` | Package the signed app as a ZIP with a checksum. |
+| `update_homebrew_release.sh` | Open a Cask update PR using a published release checksum. |
 | `test_desktop.sh` | Stop Defi, run desktop tests, and restore the app. |
 
 ## Code boundaries
@@ -110,7 +111,45 @@ Create the stable self-signed release identity once:
 ```
 
 Back up `Defi Release` from Keychain Access to encrypted offline storage. Never
-commit or upload the exported private key.
+commit the exported private key or attach it to a release. The encrypted export
+may be stored only as a protected GitHub Actions secret for automated signing.
+
+### Automated releases
+
+After merging the version and build-number changes in `Support/Defi-Info.plist`,
+push a matching tag from `main`, for example `v0.2.2`. The Release workflow checks
+the version and ancestry, runs the build and tests, then waits for approval of
+the `release` environment. Inspect the tagged commit before approving it.
+
+The signing job uses a temporary keychain, verifies the existing certificate
+fingerprint, packages the app, and removes the signing files. It publishes only
+the ZIP and checksum. Stable tags then open a PR in `qeude/homebrew-tap`, which
+must be reviewed and merged separately. Prerelease tags do not update the Cask.
+
+Configure the `release` environment with a required maintainer reviewer and
+deployment rules allowing only `v*` tags and `main`. Store these environment secrets:
+
+- `DEFI_RELEASE_P12_BASE64`: Base64-encoded encrypted export of the existing
+  `Defi Release` certificate **and private key**.
+- `DEFI_RELEASE_P12_PASSWORD`: the export password.
+- `HOMEBREW_TAP_TOKEN`: a fine-grained token restricted to `qeude/homebrew-tap`,
+  with Contents and Pull requests read/write access. Renew it before expiration.
+
+The maintainer can approve their own deployment, so a solo-maintained repository
+does not require a second account. Homebrew is a separate job and may require
+another environment approval. If it fails, rerun only that failed job; it reads
+the published checksum and does not rebuild or replace the release.
+
+Use **Actions → Release → Run workflow** on `main` to verify signing and
+packaging without publishing a release or creating a Homebrew PR. A published
+release cannot be overwritten by a workflow retry. A failed draft upload can
+be retried before publication.
+
+See GitHub's [certificate setup](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)
+and [environment protection](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+documentation for secret storage and approval controls.
+
+### Local packaging
 
 After the required checks pass, create the non-notarized arm64 ZIP and checksum:
 

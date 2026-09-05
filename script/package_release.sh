@@ -23,8 +23,8 @@ DEFI_BUILD_ARCH=arm64 \
 DEFI_CODESIGN_IDENTITY="$IDENTITY" \
   "$ROOT_DIR/script/build_and_run.sh" --stage
 
-[[ "$(lipo -archs "$APP_BUNDLE/Contents/MacOS/defi-daemon")" == "arm64" ]]
-[[ "$(lipo -archs "$APP_BUNDLE/Contents/MacOS/defi")" == "arm64" ]]
+[[ "$(lipo -archs "$APP_BUNDLE/Contents/MacOS/defi-daemon")" == "arm64" ]] || exit 1
+[[ "$(lipo -archs "$APP_BUNDLE/Contents/MacOS/defi")" == "arm64" ]] || exit 1
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 codesign -dvv "$APP_BUNDLE" 2>&1 \
   | grep -F "Authority=$IDENTITY" >/dev/null
