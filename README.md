@@ -11,7 +11,7 @@
 <p align="center">A scrolling window manager for macOS.</p>
 
 <p align="center">
-  Apple Silicon · macOS 26+ · Alpha
+macOS 26+ · Alpha
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-<!-- Add the approved continuous demo here once its hosting is settled. -->
+https://github.com/user-attachments/assets/518653d2-efe9-445a-aee6-22d9876cd535
 
 Defi arranges your windows in columns on a horizontal strip. Open another
 window and the strip grows. Move to a window beyond the edge of your screen
