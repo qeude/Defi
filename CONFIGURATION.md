@@ -14,8 +14,8 @@ Launch the daemon with another file when needed:
 ~/Applications/Defi.app/Contents/MacOS/defi-daemon --config /path/to/config.toml
 ```
 
-After creating your first config file, quit and reopen Defi so it can watch
-the config directory. Defi then reloads the file after each save. Invalid changes keep the last valid
+Defi creates the config directory if needed, without creating a config file.
+It reloads the file after each save, including its first creation. Invalid changes keep the last valid
 configuration active and write an error to `~/Library/Logs/Defi.log` when using
 the installed service. Reloading preserves workspace contents, focus, column
 widths, and scroll positions. Geometry is recalculated only when a changed

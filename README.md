@@ -82,8 +82,8 @@ Defi works without a config file. Add overrides to
 `~/.config/defi/config.toml` for gaps, shortcuts, named workspaces, and app rules.
 
 Existing config files are preserved when you rebuild or update Defi.
-After creating your first config file, quit and reopen Defi. Subsequent
-changes reload automatically when you save. The
+Defi creates the config directory if needed, but no config file.
+Changes reload automatically when you save, including your first config. The
 [example configuration](config.example.toml) is the maintainer's setup;
 copy only the parts you want.
 
@@ -117,8 +117,9 @@ Run the CLI from your installed app:
 ```
 
 Use `/Applications/Defi.app` instead for an app installed there.
-This removes Defi, its configuration, saved workspace state, logs, login item,
-and privacy permissions.
+This removes the app containing the invoked CLI, plus Defi's shared
+configuration, saved workspace state, logs, login item, and privacy permissions.
+Other Defi app bundles are preserved, but they share the removed user data.
 
 </details>
 

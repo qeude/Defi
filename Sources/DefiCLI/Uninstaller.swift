@@ -22,7 +22,7 @@ enum Uninstaller {
     print("Defi was completely uninstalled")
   }
 
-  static func purgeTargets() -> [URL] {
+  static func purgeTargets(executableURL: URL? = Bundle.main.executableURL) -> [URL] {
     let home = FileManager.default.homeDirectoryForCurrentUser
     var targets = [
       home.appending(path: ".config/defi"),
@@ -36,13 +36,11 @@ enum Uninstaller {
       SocketPath.defaultURL,
       DaemonLockPath.defaultURL,
     ]
-    if let executableURL = Bundle.main.executableURL,
+    if let executableURL,
        let currentApp = appBundleURL(from: executableURL)
     {
       targets.append(currentApp)
     }
-    targets.append(URL(filePath: "/Applications/Defi.app"))
-    targets.append(home.appending(path: "Applications/Defi.app"))
     return targets
   }
 

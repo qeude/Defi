@@ -39,6 +39,10 @@ final class ConfigFileWatcher {
   func start() throws {
     guard directorySource == nil else { return }
     let directoryURL = configURL.deletingLastPathComponent()
+    try FileManager.default.createDirectory(
+      at: directoryURL,
+      withIntermediateDirectories: true
+    )
     let descriptor = open(directoryURL.path, O_EVTONLY)
     guard descriptor >= 0 else {
       throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))

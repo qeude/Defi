@@ -10,6 +10,23 @@ private final class ReloadCounter {
 
 struct ConfigFileWatcherTests {
   @Test @MainActor
+  func observesFirstConfigCreatedAfterStartup() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configURL = directory.appending(path: "defi/config.toml")
+    let counter = ReloadCounter()
+    let watcher = ConfigFileWatcher(configURL: configURL) { counter.value += 1 }
+    defer { watcher.stop() }
+
+    try watcher.start()
+    #expect(FileManager.default.fileExists(atPath: configURL.path) == false)
+    try Data("[layout]\ngaps = 10\n".utf8).write(to: configURL, options: .atomic)
+    try await waitForReloadCount(1, counter: counter)
+    #expect(counter.value >= 1)
+  }
+
+  @Test @MainActor
   func observesInPlaceAndAtomicConfigSavesAfterDebouncing() async throws {
     let directory = FileManager.default.temporaryDirectory
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)

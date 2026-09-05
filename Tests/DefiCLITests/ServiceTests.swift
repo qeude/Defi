@@ -37,6 +37,26 @@ struct ServiceTests {
     #expect(paths.contains(where: { $0.hasSuffix("/.config/defi") }))
     #expect(paths.contains(where: { $0.hasSuffix("/Library/Application Support/Defi") }))
     #expect(paths.contains(where: { $0.hasSuffix("/Library/Logs/Defi") }))
-    #expect(paths.contains("/Applications/Defi.app"))
+  }
+
+  @Test(arguments: [
+    "/Applications/Defi.app",
+    "/Users/test/Applications/Defi.app",
+    "/Users/test/Applications/Defi Development.app",
+  ])
+  func purgeTargetsOnlyTheInvokingBundle(appPath: String) {
+    let executable = URL(filePath: appPath).appending(path: "Contents/MacOS/defi")
+    let apps = Uninstaller.purgeTargets(executableURL: executable)
+      .filter { $0.pathExtension == "app" }.map(\.path)
+    #expect(apps == [appPath])
+  }
+
+  @Test
+  func standalonePurgeDoesNotGuessAnAppLocation() {
+    let executable = URL(filePath: "/tmp/defi-build/debug/defi")
+    #expect(Uninstaller.purgeTargets(executableURL: executable)
+      .contains { $0.pathExtension == "app" } == false)
+    #expect(Uninstaller.purgeTargets(executableURL: nil)
+      .contains { $0.pathExtension == "app" } == false)
   }
 }
