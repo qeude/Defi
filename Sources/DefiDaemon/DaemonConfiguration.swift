@@ -202,6 +202,7 @@ extension Daemon {
   }
 
   func installHotKeys() {
+    guard windowManagementStarted else { return }
     hotKeyGeneration &+= 1
     let generation = hotKeyGeneration
     let manager = HotKeyManager(
