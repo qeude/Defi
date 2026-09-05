@@ -1,6 +1,6 @@
 # Contributing
 
-Defi is `0.2.0-alpha`: experimental macOS software. APIs, behavior, and
+Defi is experimental macOS software. APIs, behavior, and
 configuration may change before the first stable release.
 
 ## Prerequisites
@@ -121,7 +121,7 @@ After the required checks pass, create the non-notarized arm64 ZIP and checksum:
 The script validates the bundle signature and architecture, rejects private
 key material, provisioning profiles, personal source paths, and email addresses,
 then writes `Defi-v<version>.zip` and its SHA-256 file under `dist/`. Upload only
-those two files to the matching prerelease tag.
+those two files to the matching release tag.
 
 Finally, update `qeude/homebrew-tap` with the release URL and SHA-256. The Cask
 must install `Defi.app`, remove `com.apple.quarantine` in `postflight`, and zap:
