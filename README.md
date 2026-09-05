@@ -20,7 +20,8 @@ macOS 26+ · Alpha
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-https://github.com/user-attachments/assets/518653d2-efe9-445a-aee6-22d9876cd535
+https://github.com/user-attachments/assets/3d21bd27-d5ef-477b-826f-1f9abca32a95
+
 
 Defi arranges your windows in columns on a horizontal strip. Open another
 window and the strip grows. Move to a window beyond the edge of your screen
