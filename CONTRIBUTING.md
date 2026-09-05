@@ -90,7 +90,7 @@ focused branch and conventional prefix such as `feat/`, `fix/`, `docs/`, or
 ## Release packaging
 
 Release archives are signed with a stable self-signed certificate and are not
-notarized. The planned Homebrew Cask removes quarantine automatically. For a
+notarized. The Homebrew Cask removes quarantine automatically. For a
 manual installation of an official release, move `Defi.app` to
 `/Applications`, then run:
 
@@ -99,9 +99,9 @@ xattr -dr com.apple.quarantine /Applications/Defi.app
 open /Applications/Defi.app
 ```
 
-Only use archives from the official Defi repository. Homebrew distribution
-should document `brew install --cask qeude/tap/defi` and
-`brew uninstall --cask --zap defi` once the Cask is published.
+Only use archives from the official Defi repository. Install through Homebrew
+with `brew install --cask qeude/tap/defi`; remove the app and its user data with
+`brew uninstall --cask --zap defi`.
 
 Create the stable self-signed release identity once:
 

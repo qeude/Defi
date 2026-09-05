@@ -43,8 +43,20 @@ windows. Click a window, select it in the Dock, or use Command-Tab as usual.
 ## Get started
 
 Defi supports **Apple Silicon Macs running macOS 26 or newer**.
-The first public `v0.2.0-alpha` package is being prepared. For now, follow the
-[build from source guide](CONTRIBUTING.md#build-and-run).
+Install with Homebrew:
+
+```sh
+brew install --cask qeude/tap/defi
+open /Applications/Defi.app
+```
+
+The app is signed with a self-signed certificate and is not notarized. The
+Cask removes its quarantine attribute to allow it to open; only install if
+you trust this source.
+
+For manual installation, download the ZIP and follow the instructions in
+[the release notes](https://github.com/qeude/Defi/releases/tag/v0.2.0-alpha).
+You can also [build from source](CONTRIBUTING.md#build-and-run).
 
 The alpha is experimental. Behavior and configuration may change before the
 first stable release.
@@ -110,7 +122,10 @@ See the [command reference](CONFIGURATION.md#commands) for the full list.
 <details>
 <summary>Uninstall completely</summary>
 
-Run the CLI from your installed app:
+For a Homebrew installation, use `brew uninstall --cask --zap defi`.
+This also removes your configuration and saved state.
+
+For a manual or source installation, run the CLI from your installed app:
 
 ```sh
 ~/Applications/Defi.app/Contents/MacOS/defi uninstall --purge
