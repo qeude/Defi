@@ -5,6 +5,16 @@ import Testing
 
 struct ConfigTests {
   @Test
+  func `Missing config uses defaults without creating files`() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "defi-missing-config-\(UUID().uuidString)")
+    let config = try Config.load(from: directory.appending(path: "config.toml"))
+
+    #expect(config == Config())
+    #expect(FileManager.default.fileExists(atPath: directory.path) == false)
+  }
+
+  @Test
   func `Empty config uses defaults`() throws {
     let config = try Config.decode(Data())
 
@@ -273,11 +283,11 @@ struct ConfigTests {
       .deletingLastPathComponent()
       .deletingLastPathComponent()
       .deletingLastPathComponent()
-    let config = try Config.load(from: repository.appending(path: "defi.example.toml"))
+    let config = try Config.load(from: repository.appending(path: "config.example.toml"))
 
     #expect(config.workspaces.names.first == "dev")
-    #expect(config.workspaces.monitors["dev-secondary"] == 2)
+    #expect(config.workspaces.monitors.isEmpty)
     #expect(config.keys["hyper-left"] == "focus-column left")
-    #expect(config.rules.count == 9)
+    #expect(config.rules.count == 12)
   }
 }

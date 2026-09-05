@@ -2,7 +2,6 @@ import ApplicationServices
 import Darwin
 import DefiCore
 import DefiModel
-import Numerics
 import Synchronization
 import Testing
 
@@ -822,26 +821,26 @@ struct FrameCommitTests {
   @Test
   func `Initial window commit uses short quarantine for fast retries`() {
     #expect(
-      frameCommitQuarantineDuration(
+      abs(frameCommitQuarantineDuration(
         animationDuration: 0,
         initialFrameSettlement: true
-      ).isApproximatelyEqual(to: 0.18, absoluteTolerance: 0.000_1)
+      ) - 0.18) <= 0.000_1
     )
     #expect(
-      frameCommitQuarantineDuration(
+      abs(frameCommitQuarantineDuration(
         animationDuration: 0,
         initialFrameSettlement: false
-      ).isApproximatelyEqual(to: 0.8, absoluteTolerance: 0.000_1)
+      ) - 0.8) <= 0.000_1
     )
   }
 
   @Test
   func `Initial window commit still covers animation`() {
     #expect(
-      frameCommitQuarantineDuration(
+      abs(frameCommitQuarantineDuration(
         animationDuration: 0.35,
         initialFrameSettlement: true
-      ).isApproximatelyEqual(to: 0.47, absoluteTolerance: 0.000_1)
+      ) - 0.47) <= 0.000_1
     )
   }
 
@@ -941,8 +940,8 @@ struct FrameCommitTests {
   @Test
   func `Initial settlement schedules stable follow up before expiration`() {
     #expect(
-      initialSettlementFollowUpDelay(now: 12.1, deadline: 12.5)!
-        .isApproximatelyEqual(to: 0.06, absoluteTolerance: 0.000_1)
+      abs((initialSettlementFollowUpDelay(now: 12.1, deadline: 12.5) ?? 0) - 0.06)
+        <= 0.000_1
     )
     #expect(initialSettlementFollowUpDelay(now: 12.48, deadline: 12.5) == nil)
     #expect(initialSettlementFollowUpDelay(now: 12.5, deadline: 12.5) == nil)

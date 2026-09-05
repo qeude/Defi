@@ -1,3 +1,4 @@
+import ApplicationServices
 import Observation
 
 public struct MenuWorkspace: Equatable, Sendable {
@@ -16,8 +17,17 @@ public final class MenuBarState {
   public var isInserted = true
   public private(set) var workspaces: [MenuWorkspace] = []
   public private(set) var activeWorkspace = ""
+  public private(set) var needsAccessibilityPermission: Bool
+  private let accessibilityTrusted: () -> Bool
 
-  public init() {}
+  public init(accessibilityTrusted: @escaping () -> Bool = { AXIsProcessTrusted() }) {
+    self.accessibilityTrusted = accessibilityTrusted
+    needsAccessibilityPermission = !accessibilityTrusted()
+  }
+
+  public func refreshAccessibilityPermission() {
+    needsAccessibilityPermission = !accessibilityTrusted()
+  }
 
   public var activeLabel: String {
     workspaces.first { $0.id == activeWorkspace }?.label ?? "–"

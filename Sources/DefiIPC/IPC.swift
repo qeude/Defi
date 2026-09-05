@@ -192,6 +192,13 @@ public enum SocketPath {
   }
 }
 
+public enum DaemonLockPath {
+  public static var defaultURL: URL {
+    URL(filePath: NSTemporaryDirectory())
+      .appending(path: "defi-\(getuid()).lock")
+  }
+}
+
 public final class UnixSocketServer: @unchecked Sendable {
   public let url: URL
   private let descriptor: Int32

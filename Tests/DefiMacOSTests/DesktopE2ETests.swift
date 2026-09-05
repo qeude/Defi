@@ -721,15 +721,24 @@ final class DesktopE2ETests: XCTestCase {
   func testSwiftUIMenuKeepsWorkspaceSelectionAndCommandRouting() throws {
     _ = try makePlatform()
     var commands: [String] = []
-    let menu = NSHostingMenu(rootView: MenuBarContent(
+    let state = MenuBarState(accessibilityTrusted: { true })
+    state.update(
       activeWorkspace: "dev",
-      workspaces: [MenuWorkspace(id: "dev", label: "Dev"), MenuWorkspace(id: "web", label: "Web")],
+      workspaces: [MenuWorkspace(id: "dev", label: "Dev"), MenuWorkspace(id: "web", label: "Web")]
+    )
+    let menu = NSHostingMenu(rootView: MenuBarContent(
+      state: state,
       commandHandler: { commands.append($0) }
     ))
     menu.update()
-    XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), ["✓ Dev", "Web", "Quit Defi"])
-    let workspaceIndex = try XCTUnwrap(menu.items.firstIndex { $0.title == "Web" })
-    menu.performActionForItem(at: workspaceIndex)
+    XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), [
+      "Workspaces", "Launch at Login", "Configuration Guide…", "About Defi", "Quit Defi",
+    ])
+    let workspaces = try XCTUnwrap(menu.items.first { $0.title == "Workspaces" }?.submenu)
+    workspaces.update()
+    XCTAssertEqual(workspaces.items.first { $0.title == "Dev" }?.state, .on)
+    let workspaceIndex = try XCTUnwrap(workspaces.items.firstIndex { $0.title == "Web" })
+    workspaces.performActionForItem(at: workspaceIndex)
     pumpRunLoop(for: 0.05)
     let quitIndex = try XCTUnwrap(menu.items.firstIndex { $0.title == "Quit Defi" })
     menu.performActionForItem(at: quitIndex)

@@ -1,18 +1,31 @@
 default_key_modifier = "hyper"
 
+[input]
+focus_follows_mouse = true
+mouse_follows_focus = true
+
 [layout]
 gaps = 4
+
+[decorations.borders]
+capture_enabled = true
+
+[overview]
+zoom = 0.5
+window_previews = true
+real_windows = true
 
 [workspaces]
 names = ["dev", "web", "dev-secondary", "tools"]
 default = "dev"
-monitors = { dev-secondary = 2 }
 
 [modifier_combinations]
 hyper = "Alt + Cmd + Ctrl"
 
 [keys]
 "hyper-d" = "diagnostic-mark"
+
+# Dev
 
 [[rules]]
 app_id = "com.apple.dt.Xcode"
@@ -25,7 +38,17 @@ workspace = "dev"
 follow_focus = true
 
 [[rules]]
+app_id = "com.t3tools.t3code"
+workspace = "dev"
+follow_focus = true
+
+[[rules]]
 app_id = "dev.zed.Zed"
+workspace = "dev"
+follow_focus = true
+
+[[rules]]
+app_id = "com.microsoft.VSCode"
 workspace = "dev"
 follow_focus = true
 
@@ -36,25 +59,36 @@ follow_focus = true
 force_tiling = true
 intrinsic_size = true
 
+# Web
+
 [[rules]]
 app_id = "app.zen-browser.zen"
 workspace = "web"
 follow_focus = true
 
 [[rules]]
-app_id = "fun.tw93.kaku"
-workspace = "dev-secondary"
+app_id = "net.imput.helium"
+workspace = "web"
 follow_focus = true
 
 [[rules]]
-app_id = "com.DanPristupov.Fork"
-workspace = "tools"
+app_id = "com.tinyspeck.slackmacgap"
+workspace = "web"
 follow_focus = true
 
 [[rules]]
 app_id = "md.obsidian"
-workspace = "tools"
+workspace = "web"
 follow_focus = true
+
+# Dev Secondary
+
+[[rules]]
+app_id = "com.mitchellh.ghostty"
+workspace = "dev-secondary"
+follow_focus = true
+
+# Tools
 
 [[rules]]
 app_id = "com.proxyman.NSProxy"

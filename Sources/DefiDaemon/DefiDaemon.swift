@@ -78,6 +78,7 @@ struct WorkspaceVerticalTransition: Equatable {
 
 @MainActor
 final class Daemon: NSObject {
+  let instanceLock: DaemonInstanceLock
   let configURL: URL
   var config: Config
   let platform = MacOSPlatform()
@@ -201,6 +202,7 @@ final class Daemon: NSObject {
   var followUpUnchangedSince: TimeInterval = 0
 
   init(options: DaemonOptions) throws {
+    instanceLock = try DaemonInstanceLock()
     configURL = options.configURL ?? Config.defaultURL
     config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
@@ -222,9 +224,10 @@ final class Daemon: NSObject {
 
   func start() {
     installSignalHandlers()
-    let trusted = platform.accessibilityTrusted(prompt: true)
+    let trusted = platform.accessibilityTrusted(prompt: false)
     if !trusted {
       log("Accessibility permission pending. Grant Defi access in System Settings.")
+      showAccessibilityOnboardingIfNeeded()
     }
     platform.startObserving(
       { [weak self] in

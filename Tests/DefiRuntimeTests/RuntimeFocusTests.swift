@@ -1,7 +1,6 @@
 import DefiConfig
 import DefiModel
 import DefiRuntime
-import Numerics
 import Testing
 
 struct RuntimeFocusTests {
@@ -99,10 +98,7 @@ struct RuntimeFocusTests {
     )
 
     #expect(
-      state.monitors[0].workspaces[0].targetScrollOffset.isApproximatelyEqual(
-        to: 0.1,
-        absoluteTolerance: 0.001
-      )
+      abs(state.monitors[0].workspaces[0].targetScrollOffset - 0.1) <= 0.001
     )
   }
 
@@ -131,10 +127,7 @@ struct RuntimeFocusTests {
     )
 
     #expect(
-      state.monitors[0].workspaces[0].targetScrollOffset.isApproximatelyEqual(
-        to: 0,
-        absoluteTolerance: 0.001
-      )
+      abs(state.monitors[0].workspaces[0].targetScrollOffset) <= 0.001
     )
   }
 

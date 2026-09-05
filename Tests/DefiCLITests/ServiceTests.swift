@@ -1,29 +1,10 @@
+import DefiIPC
 import Foundation
 import Testing
 
 @testable import DefiCLI
 
 struct ServiceTests {
-  @Test(
-    "An unloaded service refreshes its plist before bootstrap"
-  )
-  func unloadedServiceRefreshesPlist() {
-    #expect(
-      serviceStartActions(
-        isLoaded: false
-      ) == [.install, .bootstrap]
-    )
-  }
-
-  @Test
-  func loadedServiceOnlyKickstartsExistingJob() {
-    #expect(
-      serviceStartActions(
-        isLoaded: true
-    ) == [.kickstart]
-    )
-  }
-
   @Test
   func resolvesApplicationBundleFromInstalledCLIPath() {
     #expect(
@@ -45,5 +26,17 @@ struct ServiceTests {
         from: URL(filePath: "/Users/test/Defi/.build/debug/defi")
       ) == nil
     )
+  }
+
+  @Test
+  func purgeIncludesAllPersistentState() {
+    let paths = Set(Uninstaller.purgeTargets().map(\.path))
+
+    #expect(paths.contains(SocketPath.defaultURL.path))
+    #expect(paths.contains(DaemonLockPath.defaultURL.path))
+    #expect(paths.contains(where: { $0.hasSuffix("/.config/defi") }))
+    #expect(paths.contains(where: { $0.hasSuffix("/Library/Application Support/Defi") }))
+    #expect(paths.contains(where: { $0.hasSuffix("/Library/Logs/Defi") }))
+    #expect(paths.contains("/Applications/Defi.app"))
   }
 }

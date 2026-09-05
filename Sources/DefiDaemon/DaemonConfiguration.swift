@@ -272,6 +272,7 @@ extension Daemon {
       try manager.start()
       hotKeys = manager
       if let bindingError = manager.bindingError {
+        presentDefiConfigurationError(bindingError)
         if manager.tracksPointerMotion {
           log("hotkeys unavailable: \(bindingError); pointer tracking remains enabled")
         } else {

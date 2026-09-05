@@ -21,9 +21,6 @@ INSTALLED_BINARY="$INSTALL_BUNDLE/Contents/MacOS/$PROCESS_NAME"
 INSTALLED_CLI="$INSTALL_BUNDLE/Contents/MacOS/defi"
 INFO_PLIST_SOURCE="$ROOT_DIR/Support/Defi-Info.plist"
 ICON_SOURCE="$ROOT_DIR/Support/Defi.icon"
-DEFAULT_CONFIG_SOURCE="$ROOT_DIR/defi.example.toml"
-CONFIG_DIR="$HOME/.config/defi"
-CONFIG_FILE="$CONFIG_DIR/config.toml"
 SERVICE_LABEL="com.quentin.defi"
 SERVICE_DOMAIN="gui/$(id -u)"
 
@@ -33,8 +30,12 @@ BUILD_CONFIGURATION="release"
 if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
   BUILD_CONFIGURATION="debug"
 fi
-swift build -c "$BUILD_CONFIGURATION"
-BIN_DIR="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)"
+BUILD_ARGUMENTS=(-c "$BUILD_CONFIGURATION")
+if [[ -n "${DEFI_BUILD_ARCH:-}" ]]; then
+  BUILD_ARGUMENTS+=(--arch "$DEFI_BUILD_ARCH")
+fi
+swift build "${BUILD_ARGUMENTS[@]}"
+BIN_DIR="$(swift build "${BUILD_ARGUMENTS[@]}" --show-bin-path)"
 
 rm -rf "$STAGING_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -78,9 +79,14 @@ codesign --force \
   "$STAGING_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$STAGING_BUNDLE"
 
-SERVICE_WAS_LOADED=0
+if [[ "$MODE" == "--stage" || "$MODE" == "stage" ]]; then
+  echo "Staged $STAGING_BUNDLE"
+  exit 0
+fi
+
+LAUNCH_AT_LOGIN_WAS_ENABLED=0
 if /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1; then
-  SERVICE_WAS_LOADED=1
+  LAUNCH_AT_LOGIN_WAS_ENABLED=1
   "$INSTALLED_CLI" service stop
   for _ in {1..50}; do
     pgrep -x "$PROCESS_NAME" >/dev/null 2>&1 || break
@@ -90,15 +96,23 @@ if /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1; then
     echo "$PROCESS_NAME did not stop before bundle replacement" >&2
     exit 1
   fi
-else
-  if [[ -x "$INSTALLED_CLI" ]]; then
-    "$INSTALLED_CLI" quit >/dev/null 2>&1 || true
-    for _ in {1..20}; do
-      pgrep -x "$PROCESS_NAME" >/dev/null 2>&1 || break
-      sleep 0.1
-    done
+fi
+if [[ -x "$INSTALLED_CLI" ]]; then
+  if "$INSTALLED_CLI" service status 2>/dev/null \
+    | grep -q 'launch-at-login=enabled'
+  then
+    LAUNCH_AT_LOGIN_WAS_ENABLED=1
   fi
-  pkill -x "$PROCESS_NAME" >/dev/null 2>&1 || true
+  "$INSTALLED_CLI" service stop >/dev/null 2>&1 || true
+  "$INSTALLED_CLI" quit >/dev/null 2>&1 || true
+  for _ in {1..50}; do
+    pgrep -x "$PROCESS_NAME" >/dev/null 2>&1 || break
+    sleep 0.1
+  done
+fi
+pkill -x "$PROCESS_NAME" >/dev/null 2>&1 || true
+if [[ -e "$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist" ]]; then
+  unlink "$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
 fi
 
 mkdir -p "$INSTALL_ROOT"
@@ -106,26 +120,11 @@ rm -rf "$INSTALL_BUNDLE"
 ditto "$STAGING_BUNDLE" "$INSTALL_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$INSTALL_BUNDLE"
 
-if [[ ! -e "$CONFIG_FILE" ]]; then
-  mkdir -p "$CONFIG_DIR"
-  cp "$DEFAULT_CONFIG_SOURCE" "$CONFIG_FILE"
-  echo "Installed default config: $CONFIG_FILE"
-fi
-
-open_app() {
-  /usr/bin/open -n "$INSTALL_BUNDLE"
-}
-
 start_runtime() {
-  if [[ "$SERVICE_WAS_LOADED" -eq 1 ]]; then
-    "$INSTALLED_CLI" service start
-    sleep 0.2
-    if ! /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1; then
-      "$INSTALLED_CLI" service start
-    fi
-  else
-    open_app
+  if [[ "$LAUNCH_AT_LOGIN_WAS_ENABLED" -eq 1 ]]; then
+    "$INSTALLED_CLI" service enable
   fi
+  "$INSTALLED_CLI" service start
 }
 
 case "$MODE" in
@@ -133,7 +132,7 @@ case "$MODE" in
     start_runtime
     ;;
   --debug|debug)
-    if [[ "$SERVICE_WAS_LOADED" -eq 1 ]]; then
+    if [[ "$LAUNCH_AT_LOGIN_WAS_ENABLED" -eq 1 ]]; then
       set +e
       lldb -- "$INSTALLED_BINARY"
       DEBUG_STATUS=$?
@@ -154,15 +153,15 @@ case "$MODE" in
   --verify|verify)
     start_runtime
     for _ in {1..100}; do
-      if [[ "$SERVICE_WAS_LOADED" -eq 1 ]] \
-        && ! /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1
-      then
-        "$INSTALLED_CLI" service start >/dev/null
-      fi
       if pgrep -x "$PROCESS_NAME" >/dev/null 2>&1; then
         if STATUS_OUTPUT="$("$INSTALLED_CLI" status 2>/dev/null)" \
           && [[ -n "$STATUS_OUTPUT" ]]
         then
+          DAEMON_COUNT="$(pgrep -x "$PROCESS_NAME" | wc -l | tr -d ' ')"
+          if [[ "$DAEMON_COUNT" -ne 1 ]]; then
+            echo "expected exactly one $PROCESS_NAME, found $DAEMON_COUNT" >&2
+            exit 1
+          fi
           echo "$STATUS_OUTPUT"
           exit 0
         fi
@@ -173,7 +172,7 @@ case "$MODE" in
     exit 1
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--stage]" >&2
     exit 2
     ;;
 esac

@@ -10,6 +10,10 @@ struct DefiCLI {
         try ServiceManager.run(service)
         return
       }
+      if options.purge {
+        try Uninstaller.purge()
+        return
+      }
       guard !options.command.isEmpty else {
         print(Options.usage)
         exit(2)
@@ -33,7 +37,8 @@ struct Options {
   static let usage = """
     usage:
       defi [--socket <path>] [--monitor <index>] <command> [arguments]
-      defi service install|start|stop|restart|status|uninstall
+      defi service enable|disable|start|stop|restart|status
+      defi uninstall --purge
 
     examples:
       defi focus-column left
@@ -49,6 +54,7 @@ struct Options {
   let monitorIndex: Int?
   let command: [String]
   let service: String?
+  let purge: Bool
 
   init(arguments: [String]) throws {
     var socketURL = SocketPath.defaultURL
@@ -73,11 +79,17 @@ struct Options {
       }
       index += 1
     }
-    if remaining.first == "service" {
+    if remaining == ["uninstall", "--purge"] {
+      purge = true
+      service = nil
+      command = []
+    } else if remaining.first == "service" {
       guard remaining.count == 2 else { throw CLIError.usage }
+      purge = false
       service = remaining[1]
       command = []
     } else {
+      purge = false
       service = nil
       command = remaining
     }

@@ -19,4 +19,12 @@ struct OptionsTests {
       try Options(arguments: ["--monitor", value, "workspace", "web"])
     }
   }
+
+  @Test
+  func requiresExplicitPurgeForCompleteUninstall() throws {
+    let options = try Options(arguments: ["uninstall", "--purge"])
+
+    #expect(options.purge)
+    #expect(options.command.isEmpty)
+  }
 }
