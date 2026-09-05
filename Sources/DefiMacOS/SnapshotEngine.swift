@@ -884,7 +884,8 @@ extension SnapshotEngine {
 
   func focusedWindowID(
     in windows: [Window],
-    frontmostProcessID: pid_t?
+    frontmostProcessID: pid_t?,
+    requiresConfirmedWindow: Bool = false
   ) -> WindowID? {
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
@@ -907,7 +908,7 @@ extension SnapshotEngine {
     guard
       let focusedApplication
     else {
-      return stableWindowID(processID: frontmostProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: frontmostProcessID, in: windows)
     }
     var focusedProcessID: pid_t = 0
     let focusedApplicationElement = focusedApplication as! AXUIElement
@@ -921,7 +922,7 @@ extension SnapshotEngine {
       ) == .success
     }
     guard readFocusedProcessID else {
-      return stableWindowID(processID: frontmostProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: frontmostProcessID, in: windows)
     }
     let resolvedProcessID = consistentFocusedProcessID(
       accessibilityProcessID: focusedProcessID,
@@ -938,6 +939,7 @@ extension SnapshotEngine {
     guard let resolvedProcessID else {
       return nil
     }
+    if requiresConfirmedWindow && focusedProcessID != frontmostProcessID { return nil }
     if resolvedProcessID != focusedProcessID {
       let verifiedProcessHasSingleWindow =
         windows.filter {
@@ -966,7 +968,7 @@ extension SnapshotEngine {
       return value
     }
     guard let focusedWindow else {
-      return stableWindowID(processID: focusedProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: focusedProcessID, in: windows)
     }
     let focusedElement = focusedWindow as! AXUIElement
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
@@ -979,7 +981,7 @@ extension SnapshotEngine {
         perform: { frame(of: focusedElement) }
       )
     else {
-      return stableWindowID(processID: focusedProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: focusedProcessID, in: windows)
     }
     return focusedWindowIDMatchingFrame(
       processID: focusedProcessID,

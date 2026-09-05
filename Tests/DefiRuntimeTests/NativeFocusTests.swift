@@ -5,6 +5,40 @@ import Testing
 @testable import DefiRuntime
 
 struct NativeFocusTests {
+  @Test(arguments: [false, true])
+  func confirmedActivationRevealsWorkspaceWithoutClickButNeverOverridesNewerCommand(newerCommand: Bool) throws {
+    var fixture = try makeRemovalFixture()
+    let accepted = nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      nativeFocusSuppressed: true,
+      applicationActivationTimestamp: 10,
+      latestCommandInputTimestamp: newerCommand ? 11 : 9
+    )
+    #expect(accepted == !newerCommand)
+    if accepted { _ = focusWindow(fixture.external.id, state: &fixture.state) }
+    #expect(fixture.state.selectedWindowID(on: monitorID)
+      == (newerCommand ? fixture.selected.id : fixture.external.id))
+    #expect(fixture.state.monitors[0].activeWorkspace
+      == (newerCommand ? fixture.devWorkspace : WorkspaceID(rawValue: "web")))
+  }
+
+  @Test(arguments: [false, true])
+  func externalActivationRequiresConfirmationAndMouseRelease(mouseHeld: Bool) {
+    #expect(nativeFocusMutationIsReady(
+      nativeFocusChanged: mouseHeld,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: mouseHeld,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: 10,
+      latestCommandInputTimestamp: 9
+    ) == false)
+  }
+
   private let monitorID = MonitorID(rawValue: 1)
 
   @Test
@@ -270,6 +304,66 @@ struct NativeFocusTests {
         mouseInteractionEnded: false
       ) == nil
     )
+  }
+
+  @Test
+  func linkFocusObservedBeforeReleaseSurvivesTheReleaseSnapshot() throws {
+    let source = WindowID(rawValue: 1)
+    let target = WindowID(rawValue: 2)
+    let pressed = updatedDeferredMouseFocusIntent(
+      current: nil,
+      mouseFocusIntentWindowID: source,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: target,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      nativeFocusIsApplicationActivation: true
+    )
+    let released = try #require(updatedDeferredMouseFocusIntent(
+      current: pressed,
+      mouseFocusIntentWindowID: source,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: target,
+      nativeFocusChanged: false,
+      mouseInteractionEnded: true
+    ))
+    #expect(released.windowID == target)
+    #expect(released.focusObserved)
+  }
+
+  @Test(arguments: [false, true])
+  func delayedLinkActivationSurvivesConsumedSourceClick(applicationActivation: Bool) throws {
+    let source = WindowID(rawValue: 1)
+    let target = WindowID(rawValue: 2)
+    let released = try #require(updatedDeferredMouseFocusIntent(
+      current: nil,
+      mouseFocusIntentWindowID: source,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: source,
+      nativeFocusChanged: false,
+      mouseInteractionEnded: true
+    ))
+    let redirected = try #require(updatedDeferredMouseFocusIntent(
+      current: nil,
+      consumedMouseFocusIntentTimestamp: released.timestamp,
+      mouseFocusIntentWindowID: source,
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: target,
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      nativeFocusEventAfterMouseRelease: !applicationActivation,
+      nativeFocusIsApplicationActivation: applicationActivation
+    ))
+    #expect(redirected.windowID == target)
+    #expect(redirected.focusObserved)
+    #expect(redirected.mouseInteractionEnded)
+    #expect(mouseReleaseFocusIntentIsCurrent(
+      focusedWindowID: target,
+      mouseFocusIntentWindowID: redirected.windowID,
+      mouseFocusIntentTimestamp: redirected.timestamp,
+      latestCommandInputTimestamp: 13,
+      nativeFocusChanged: true
+    ) == false)
   }
 
   @Test

@@ -240,6 +240,24 @@ func nativeFocusEventShouldRemainPending(
   eventPending && !targetMatched
 }
 
+func nativeFocusFollowsRecentMouseRelease(
+  eventGeneration: UInt64,
+  releaseGeneration: UInt64?,
+  input: UserInputTracker.Snapshot,
+  now: TimeInterval
+) -> Bool {
+  guard let releaseGeneration, eventGeneration > releaseGeneration,
+    let intent = input.latestFocusIntent,
+    case .mouse = intent.source,
+    input.latestEventTimestamp == intent.timestamp,
+    intent.timestamp > input.latestCloseIntent,
+    now >= intent.timestamp
+  else { return false }
+  // ponytail: correlate redirects for two seconds; explicit activation tokens
+  // would be needed to support longer handoffs without reviving old clicks.
+  return now - intent.timestamp <= 2
+}
+
 func windowSnapshotInvalidation(
   for kind: PlatformEventKind,
   processID: pid_t?

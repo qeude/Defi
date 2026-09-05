@@ -57,6 +57,8 @@ public struct DesktopSnapshot: Sendable {
   public let activeNativeFullscreenWindowIDs: Set<WindowID>
   public let focusedWindowID: WindowID?
   public let nativeFocusChanged: Bool
+  public let nativeFocusIsApplicationActivation: Bool
+  public let applicationActivationTimestamp: TimeInterval?
   public let removedWindowIDs: Set<WindowID>
   public let windowIDReplacements: [WindowID: WindowID]
   public let latestUserInputTimestamp: TimeInterval
@@ -79,6 +81,8 @@ public struct DesktopSnapshot: Sendable {
     activeNativeFullscreenWindowIDs: Set<WindowID> = [],
     focusedWindowID: WindowID?,
     nativeFocusChanged: Bool = false,
+    nativeFocusIsApplicationActivation: Bool = false,
+    applicationActivationTimestamp: TimeInterval? = nil,
     removedWindowIDs: Set<WindowID> = [],
     windowIDReplacements: [WindowID: WindowID] = [:],
     latestUserInputTimestamp: TimeInterval = 0,
@@ -100,6 +104,8 @@ public struct DesktopSnapshot: Sendable {
     self.activeNativeFullscreenWindowIDs = activeNativeFullscreenWindowIDs
     self.focusedWindowID = focusedWindowID
     self.nativeFocusChanged = nativeFocusChanged
+    self.nativeFocusIsApplicationActivation = nativeFocusIsApplicationActivation
+    self.applicationActivationTimestamp = applicationActivationTimestamp
     self.removedWindowIDs = removedWindowIDs
     self.windowIDReplacements = windowIDReplacements
     self.latestUserInputTimestamp = latestUserInputTimestamp

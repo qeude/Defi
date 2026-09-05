@@ -79,6 +79,7 @@ extension MacOSPlatform {
         }
       }
       if kind == .mouse {
+        self?.mouseFocusReleaseEventGeneration = nil
         self?.mouseResizeGesturePending = true
         if self?.isLeftMouseButtonDown == true {
           self?.frameCoordinator.suspendInitialSettlementRepairs()

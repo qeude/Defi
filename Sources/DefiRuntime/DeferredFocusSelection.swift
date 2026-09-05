@@ -29,18 +29,26 @@ public func updatedDeferredMouseFocusIntent(
   nativeFocusChanged: Bool,
   mouseInteractionEnded: Bool,
   nativeFocusTargetIsNew: Bool = false,
-  nativeFocusEventAfterMouseRelease: Bool = false
+  nativeFocusEventAfterMouseRelease: Bool = false,
+  nativeFocusIsApplicationActivation: Bool = false
 ) -> DeferredMouseFocusIntent? {
+  // A link may activate its destination after the source click was committed.
+  let redirectsConsumedClick = nativeFocusChanged
+    && (nativeFocusEventAfterMouseRelease || nativeFocusIsApplicationActivation)
+    && focusedWindowID != nil
+    && focusedWindowID != mouseFocusIntentWindowID
+    && mouseFocusIntentTimestamp == consumedMouseFocusIntentTimestamp
   var intent = current.flatMap {
     $0.timestamp > consumedMouseFocusIntentTimestamp ? $0 : nil
   }
   if let timestamp = mouseFocusIntentTimestamp,
-    timestamp > consumedMouseFocusIntentTimestamp,
+    (timestamp > consumedMouseFocusIntentTimestamp || redirectsConsumedClick),
     intent.map({ timestamp > $0.timestamp }) ?? true
   {
     intent = DeferredMouseFocusIntent(
       timestamp: timestamp,
-      windowID: mouseFocusIntentWindowID
+      windowID: mouseFocusIntentWindowID,
+      mouseInteractionEnded: redirectsConsumedClick
     )
   }
   guard var intent else { return nil }
@@ -48,6 +56,7 @@ public func updatedDeferredMouseFocusIntent(
   if nativeFocusChanged, let focusedWindowID {
     let canRebindToNativeFocus = intent.windowID == nil
       || intent.windowID == focusedWindowID
+      || nativeFocusIsApplicationActivation
       || (interactionEnded
         && (nativeFocusTargetIsNew || nativeFocusEventAfterMouseRelease))
     if canRebindToNativeFocus {
