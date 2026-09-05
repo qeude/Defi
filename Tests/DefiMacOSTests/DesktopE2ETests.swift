@@ -82,6 +82,59 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
   }
 
+  func testKeyboardActivationAfterCompletedFocusSurvivesSnapshot() throws {
+    let platform = try makePlatform()
+    let initial = platform.snapshot(config: Config())
+    let originalApplication = NSWorkspace.shared.frontmostApplication
+    guard let window = testWindows(in: initial).first(where: {
+      $0.processID != originalApplication?.processIdentifier
+    }), let processID = window.processID else {
+      throw XCTSkip("A window in another application is required")
+    }
+    defer { originalApplication?.activate() }
+
+    var result: NativeFocusResult?
+    platform.focus(window.id, completion: { result = $0 })
+    let deadline = ProcessInfo.processInfo.systemUptime + 2
+    while result == nil && ProcessInfo.processInfo.systemUptime < deadline {
+      pumpRunLoop(for: 0.01)
+    }
+    XCTAssertEqual(result, .completed)
+    let suppression = try XCTUnwrap(platform.internalFocusSuppressions[window.id])
+    XCTAssertNotNil(suppression.completedAt)
+
+    // Inject the normalized keyboard/activation events; resolve the target via real AX.
+    let inputTimestamp = ProcessInfo.processInfo.systemUptime
+    platform.userInputTracker.record(timestamp: inputTimestamp, focusIntent: .keyboard)
+    platform.userInputTracker.recordApplicationActivation(processID: processID)
+    let snapshot = platform.snapshot(config: Config())
+    XCTAssertEqual(snapshot.focusedWindowID, window.id)
+    XCTAssertTrue(snapshot.nativeFocusChanged)
+    XCTAssertTrue(snapshot.nativeFocusIsApplicationActivation)
+    XCTAssertNil(platform.internalFocusSuppressions[window.id])
+  }
+
+  func testFailedApplicationConnectionIsRenewedWithoutRestart() throws {
+    let platform = try makePlatform()
+    let initial = platform.snapshot(config: Config())
+    guard let window = testWindows(in: initial).first,
+      let processID = window.processID
+    else { throw XCTSkip("No manageable desktop application") }
+
+    // Simulate a cached connection that cannot serve the application's windows.
+    platform.snapshotEngine.applications[processID] = AXUIElementCreateApplication(-1)
+    platform.requestWindowTopologyRefresh(processID: processID)
+    _ = platform.snapshot(config: Config())
+    let renewed = try XCTUnwrap(platform.snapshotEngine.applications[processID])
+    var renewedProcessID: pid_t = 0
+    XCTAssertEqual(AXUIElementGetPid(renewed, &renewedProcessID), .success)
+    XCTAssertEqual(renewedProcessID, processID)
+
+    platform.requestWindowTopologyRefresh(processID: processID)
+    let recovered = platform.snapshot(config: Config())
+    XCTAssertTrue(recovered.windows.contains { $0.id == window.id })
+  }
+
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())

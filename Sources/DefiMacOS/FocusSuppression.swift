@@ -10,25 +10,27 @@ struct InternalFocusSuppression: Equatable, Sendable {
   let requestID: UInt64
   let deadline: TimeInterval
   let maximumInputTimestamp: TimeInterval
-  let isInFlight: Bool
+  let completedAt: TimeInterval?
+  var isInFlight: Bool { completedAt == nil }
 
   init(
     requestID: UInt64,
     deadline: TimeInterval,
     maximumInputTimestamp: TimeInterval,
-    isInFlight: Bool = true
+    completedAt: TimeInterval? = nil
   ) {
     self.requestID = requestID
     self.deadline = deadline
     self.maximumInputTimestamp = maximumInputTimestamp
-    self.isInFlight = isInFlight
+    self.completedAt = completedAt
   }
 }
 
 func internalFocusSuppressionConsumesEvent(
   _ suppression: InternalFocusSuppression,
   suppressedWindowID: WindowID,
-  latestFocusIntent: UserInputTracker.FocusIntent?
+  latestFocusIntent: UserInputTracker.FocusIntent?,
+  applicationActivation: Bool = false
 ) -> Bool {
   guard let latestFocusIntent,
     latestFocusIntent.timestamp > suppression.maximumInputTimestamp
@@ -37,7 +39,11 @@ func internalFocusSuppressionConsumesEvent(
   }
   switch latestFocusIntent.source {
   case .keyboard:
-    return false
+    // Only input after successful completion can supersede an activation echo.
+    // Input during an outstanding or failed write cannot establish its origin.
+    guard applicationActivation else { return false }
+    guard let completedAt = suppression.completedAt else { return true }
+    return latestFocusIntent.timestamp <= completedAt
   case .mouse(let windowID):
     return windowID != suppressedWindowID
   }
@@ -55,14 +61,15 @@ func extendingInternalFocusSuppression(
       suppression.maximumInputTimestamp,
       inputTimestamp
     ),
-    isInFlight: suppression.isInFlight
+    completedAt: suppression.completedAt
   )
 }
 
 func internalFocusSuppressionAfterCompletion(
   _ suppression: InternalFocusSuppression?,
   requestID: UInt64,
-  result: NativeFocusResult
+  result: NativeFocusResult,
+  at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
 ) -> InternalFocusSuppression? {
   guard let suppression, suppression.requestID == requestID else {
     return suppression
@@ -75,7 +82,7 @@ func internalFocusSuppressionAfterCompletion(
       requestID: suppression.requestID,
       deadline: suppression.deadline,
       maximumInputTimestamp: suppression.maximumInputTimestamp,
-      isInFlight: false
+      completedAt: timestamp
     )
   case .supersededAfterMutation, .cancelledAfterMutation,
     .cancelledAfterInputMutation, .failed, .failedAfterMutation:

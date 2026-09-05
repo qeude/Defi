@@ -7,6 +7,17 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test(arguments: [9.0, 11.0])
+  func externalActivationOnlyPreemptsOlderCommandAnimation(timestamp: Double) {
+    #expect(desktopSnapshotWaitsForCommandAnimation(
+      animationPending: true,
+      latestCommandInputTimestamp: 10,
+      mouseFocusIntentTimestamp: nil,
+      keyboardFocusIntentTimestamp: nil,
+      applicationActivationTimestamp: timestamp
+    ) == (timestamp < 10))
+  }
+
   @Test
   func inactiveDesktopNeverArmsRecurringTimer() {
     #expect(desktopTimerFrequency(requested: 240, sessionActive: false) == 0)

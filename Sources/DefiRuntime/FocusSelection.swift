@@ -446,8 +446,17 @@ public func nativeFocusMutationIsReady(
   deferredMouseFocusReady: Bool? = nil,
   mouseReleaseFocusIntentCurrent: Bool,
   keyboardFocusIntentCurrent: Bool,
-  nativeFocusSuppressed: Bool = false
+  nativeFocusSuppressed: Bool = false,
+  applicationActivationTimestamp: Double? = nil,
+  latestCommandInputTimestamp: Double = 0
 ) -> Bool {
+  if nativeFocusChanged,
+    let applicationActivationTimestamp,
+    applicationActivationTimestamp > latestCommandInputTimestamp,
+    !leftMouseButtonDown
+  {
+    return true
+  }
   if nativeFocusSuppressed
     && !mouseReleaseFocusIntentCurrent
     && !keyboardFocusIntentCurrent

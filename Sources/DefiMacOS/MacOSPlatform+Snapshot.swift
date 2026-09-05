@@ -533,11 +533,11 @@ extension SnapshotEngine {
     )
     let mouseResizeGestureObserved = mouseResizeGesturePending
     let mouseFocusReleaseObserved = mouseFocusReleasePending
+    let userInput = userInputTracker.snapshot
     let nativeFocusObservedAfterMouseRelease =
       mouseFocusReleasePending
       && nativeFocusEventGeneration
         > (mouseFocusReleaseEventGeneration ?? nativeFocusEventGeneration)
-    let userInput = userInputTracker.snapshot
     let mouseGestureWindowID =
       mouseResizeGestureObserved
       ? mouseGestureRefreshProcessID(
@@ -687,9 +687,13 @@ extension SnapshotEngine {
     let frontmostProcessID = onMain {
       _ in NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
+    let activation = userInputTracker.pendingApplicationActivation(
+      frontmostProcessID: frontmostProcessID
+    )
     let focusedWindowID = focusedWindowID(
       in: windows,
-      frontmostProcessID: frontmostProcessID
+      frontmostProcessID: frontmostProcessID,
+      requiresConfirmedWindow: activation != nil
     )
     lastNativeFocusedWindowID = focusedWindowID
     verifiedNativeFocusedWindowID = focusedWindowID
@@ -706,13 +710,21 @@ extension SnapshotEngine {
       $0.value.deadline >= now
     }
     let focusedProcessID = focusedWindowID.flatMap { nextProcessIDs[$0] }
+    let currentActivation = userInputTracker.pendingApplicationActivation(
+      frontmostProcessID: onMain { _ in
+        NSWorkspace.shared.frontmostApplication?.processIdentifier
+      }
+    )
+    var nativeFocusIsApplicationActivation = activation != nil
+      && activation == currentActivation
+      && focusedProcessID == activation?.processID
     let nativeFocusTargetMatched = nativeFocusEventMatchesTarget(
       eventPending: nativeFocusEventPending,
       eventProcessIDs: nativeFocusEventProcessIDs,
       hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
       focusedProcessID: focusedProcessID
     )
-    var nativeFocusChanged = nativeFocusTargetMatched
+    var nativeFocusChanged = nativeFocusTargetMatched || nativeFocusIsApplicationActivation
     if nativeFocusChanged,
       let focusedWindowID,
       let suppression = internalFocusSuppressions[focusedWindowID]
@@ -720,9 +732,18 @@ extension SnapshotEngine {
       if internalFocusSuppressionConsumesEvent(
         suppression,
         suppressedWindowID: focusedWindowID,
-        latestFocusIntent: userInput.latestFocusIntent
+        latestFocusIntent: userInput.latestFocusIntent,
+        applicationActivation: nativeFocusIsApplicationActivation
       ) {
         nativeFocusChanged = false
+        nativeFocusIsApplicationActivation = false
+        // Retire our own activation echo now; it must not reappear after suppression expires.
+        if let activation {
+          frameCoordinator.recordTrace("native-activation-retired reason=internal-focus-echo target=\(focusedWindowID.rawValue)")
+          userInputTracker.consumeApplicationActivation(
+            processID: activation.processID, at: activation.timestamp
+          )
+        }
       } else {
         internalFocusSuppressions.removeValue(forKey: focusedWindowID)
       }
@@ -787,6 +808,8 @@ extension SnapshotEngine {
       activeNativeFullscreenWindowIDs: activeNativeFullscreenWindowIDs,
       focusedWindowID: focusedWindowID,
       nativeFocusChanged: nativeFocusChanged,
+      nativeFocusIsApplicationActivation: nativeFocusIsApplicationActivation,
+      applicationActivationTimestamp: nativeFocusIsApplicationActivation ? activation?.timestamp : nil,
       removedWindowIDs: removedWindowIDs,
       windowIDReplacements: windowIDReplacements,
       latestUserInputTimestamp: userInput.latestEventTimestamp,

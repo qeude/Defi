@@ -293,6 +293,9 @@ final class Daemon: NSObject {
       return
     }
 
+    // Wake may arrive before AX services are ready. Do not reuse references
+    // obtained while the desktop was unavailable.
+    platform.invalidateStateForDesktopSessionChange()
     replaceTimer(frequencyHz: 2)
     needsDesktopSync = true
     synchronizeDesktop(
@@ -352,11 +355,15 @@ final class Daemon: NSObject {
       submittedWorkspaceFocusRequestTimestamp,
       recentCommandAnimationInputTimestamp,
     ].compactMap { $0 }.max()
-    let latestFocusIntentTimestamp = platform.userInputTracker.snapshot
-      .latestFocusIntent?.timestamp
+    let latestFocusIntentTimestamp = max(
+      platform.userInputTracker.snapshot.latestFocusIntent?.timestamp ?? 0,
+      platform.userInputTracker.pendingApplicationActivation(
+        frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+      )?.timestamp ?? 0
+    )
     let nativeFocusHasNewerHumanIntent =
       pendingCommandFocusInputTimestamp.map {
-        (latestFocusIntentTimestamp ?? 0) > $0
+        latestFocusIntentTimestamp > $0
       } ?? true
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))

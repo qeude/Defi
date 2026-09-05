@@ -142,8 +142,28 @@ final class SnapshotEngine: @unchecked Sendable {
     }
   }
 
+  func invalidateAccessibilitySession() {
+    read { $0.accessibilitySessionResetPending = true }
+  }
+
   func consumeObservations() -> SnapshotObservations {
     read {
+      if $0.accessibilitySessionResetPending {
+        // Reset on the snapshot queue, after any pass from the previous session.
+        // Keep window identities and logical observations for reconciliation.
+        $0.accessibilitySessionResetPending = false
+        $0.applications.removeAll(keepingCapacity: true)
+        $0.lastApplicationWindowElements.removeAll(keepingCapacity: true)
+        $0.unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
+        $0.unmatchedWindowRetryAttemptsByProcess.removeAll(keepingCapacity: true)
+        $0.windowListReadRetryAttemptsByProcess.removeAll(keepingCapacity: true)
+        $0.incompatibleFreshReadDeadlines.removeAll(keepingCapacity: true)
+        $0.enhancedUIByProcess.removeAll(keepingCapacity: true)
+        $0.multipleAttributeReadsSupportedByProcess.removeAll(keepingCapacity: true)
+        $0.failedBatchedWindowAttributeReadsByElement.removeAll(keepingCapacity: true)
+        $0.chunkedFullRefreshRemainingProcessIDs = nil
+        $0.hasCompletedWindowSnapshot = false
+      }
       let observations = $0.pendingObservations
       $0.pendingObservations = SnapshotObservations()
       return observations
@@ -884,7 +904,8 @@ extension SnapshotEngine {
 
   func focusedWindowID(
     in windows: [Window],
-    frontmostProcessID: pid_t?
+    frontmostProcessID: pid_t?,
+    requiresConfirmedWindow: Bool = false
   ) -> WindowID? {
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
@@ -907,7 +928,7 @@ extension SnapshotEngine {
     guard
       let focusedApplication
     else {
-      return stableWindowID(processID: frontmostProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: frontmostProcessID, in: windows)
     }
     var focusedProcessID: pid_t = 0
     let focusedApplicationElement = focusedApplication as! AXUIElement
@@ -921,7 +942,7 @@ extension SnapshotEngine {
       ) == .success
     }
     guard readFocusedProcessID else {
-      return stableWindowID(processID: frontmostProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: frontmostProcessID, in: windows)
     }
     let resolvedProcessID = consistentFocusedProcessID(
       accessibilityProcessID: focusedProcessID,
@@ -938,6 +959,7 @@ extension SnapshotEngine {
     guard let resolvedProcessID else {
       return nil
     }
+    if requiresConfirmedWindow && focusedProcessID != frontmostProcessID { return nil }
     if resolvedProcessID != focusedProcessID {
       let verifiedProcessHasSingleWindow =
         windows.filter {
@@ -966,7 +988,7 @@ extension SnapshotEngine {
       return value
     }
     guard let focusedWindow else {
-      return stableWindowID(processID: focusedProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: focusedProcessID, in: windows)
     }
     let focusedElement = focusedWindow as! AXUIElement
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
@@ -979,7 +1001,7 @@ extension SnapshotEngine {
         perform: { frame(of: focusedElement) }
       )
     else {
-      return stableWindowID(processID: focusedProcessID, in: windows)
+      return requiresConfirmedWindow ? nil : stableWindowID(processID: focusedProcessID, in: windows)
     }
     return focusedWindowIDMatchingFrame(
       processID: focusedProcessID,
@@ -1198,6 +1220,7 @@ private struct Storage {
   var frameCommitExpectations: [WindowID: FrameCommitExpectation] = [:]
   var pendingFrameCorrections: [WindowID: Rect] = [:]
   var newlyDiscoveredWindowIDs = Set<WindowID>()
+  var accessibilitySessionResetPending = false
   var hasCompletedWindowSnapshot = false
   var lastSnapshotWindows: [Window] = []
   var lastSnapshotWindowIDs = Set<WindowID>()

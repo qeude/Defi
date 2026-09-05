@@ -70,6 +70,11 @@ final class PlatformEventMonitor {
             NSWorkspace.applicationUserInfoKey
           ] as? NSRunningApplication)?.processIdentifier
         MainActor.assumeIsolated {
+          if let processID,
+            NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
+          {
+            self?.userInputTracker.recordApplicationActivation(processID: processID)
+          }
           self?.handler(.focus, processID)
         }
       }
@@ -494,6 +499,7 @@ final class PlatformEventMonitor {
   }
 
   func resetAccessibilityObservers() {
+    notificationObservationFailureCounts.removeAll(keepingCapacity: true)
     for observer in observers.values {
       CFRunLoopRemoveSource(
         CFRunLoopGetMain(),

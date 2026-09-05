@@ -24,11 +24,15 @@ func desktopSnapshotWaitsForCommandAnimation(
   latestCommandInputTimestamp: TimeInterval,
   mouseFocusIntentTimestamp: TimeInterval?,
   keyboardFocusIntentTimestamp: TimeInterval?,
-  mouseGestureActive: Bool = false
+  mouseGestureActive: Bool = false,
+  applicationActivationTimestamp: TimeInterval? = nil
 ) -> Bool {
   guard animationPending, !mouseGestureActive else { return false }
-  return max(mouseFocusIntentTimestamp ?? 0, keyboardFocusIntentTimestamp ?? 0)
-    <= latestCommandInputTimestamp
+  return max(
+    mouseFocusIntentTimestamp ?? 0,
+    keyboardFocusIntentTimestamp ?? 0,
+    applicationActivationTimestamp ?? 0
+  ) <= latestCommandInputTimestamp
 }
 
 @MainActor
@@ -404,6 +408,13 @@ extension Daemon {
         deferredMouseFocusIntent?.mouseInteractionEnded == true
         && (deferredMouseFocusIntent?.focusObserved == true
           || deferredMouseFocusIntent?.windowID == focusedWindowID)
+      let currentActivation = platform.userInputTracker.pendingApplicationActivation(
+        frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+      )
+      let activationTimestamp = snapshot.nativeFocusIsApplicationActivation
+        && currentActivation?.processID == snapshot.frontmostProcessID
+        && currentActivation?.timestamp == snapshot.applicationActivationTimestamp
+        ? snapshot.applicationActivationTimestamp : nil
       let nativeFocusAccepted =
         nativeFocusMutationIsReady(
           nativeFocusChanged: snapshot.nativeFocusChanged,
@@ -414,7 +425,9 @@ extension Daemon {
           mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent,
           keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
           nativeFocusSuppressed:
-            ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil
+            ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil,
+          applicationActivationTimestamp: activationTimestamp,
+          latestCommandInputTimestamp: latestCommandInputTimestamp
         )
         && !preservesWorkspaceAfterRemoval
       let selectionChanged = nativeFocusChangesSelection(
@@ -422,6 +435,11 @@ extension Daemon {
         activeMonitorID: activeMonitorID,
         state: state
       )
+      if snapshot.nativeFocusChanged && selectionChanged {
+        platform.recordPerformanceTrace(
+          "native-focus target=\(focusedWindowID.rawValue) activation=\(snapshot.nativeFocusIsApplicationActivation) accepted=\(nativeFocusAccepted) mouseDown=\(snapshot.leftMouseButtonDown) mouseIntent=\(mouseReleaseFocusIntentCurrent) keyboardIntent=\(keyboardFocusIntentCurrent)"
+        )
+      }
       nativeCursorWarpInputTimestamp = nativeFocusCursorWarpTimestamp(
         mouseFollowsFocus: config.input.mouseFollowsFocus,
         nativeFocusAccepted: nativeFocusAccepted,
@@ -432,6 +450,11 @@ extension Daemon {
         nativeCursorWarpWindowID = focusedWindowID
       }
       if nativeFocusAccepted {
+        if let activationTimestamp, let processID = snapshot.frontmostProcessID {
+          platform.userInputTracker.consumeApplicationActivation(
+            processID: processID, at: activationTimestamp
+          )
+        }
         focus.interrupt()
         nativeFocusFrameMonitorID = state.monitorID(containing: focusedWindowID)
         if let keyboardFocusIntentTimestamp = snapshot.keyboardFocusIntentTimestamp {
@@ -481,6 +504,11 @@ extension Daemon {
         ignoredRedundantNativeFocusCount += 1
       }
       if nativeFocusAccepted && deferredMouseFocusReady {
+        if focusedWindowID != snapshot.mouseFocusIntentWindowID,
+          let timestamp = deferredMouseFocusIntent?.timestamp
+        {
+          platform.userInputTracker.consumeFocusIntent(at: timestamp)
+        }
         consumeDeferredMouseFocusIntent()
       } else if deferredMouseFocusPending
         && snapshot.nativeFocusChanged
@@ -705,7 +733,9 @@ extension Daemon {
       latestCommandInputTimestamp: latestCommandInputTimestamp,
       mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
-      mouseGestureActive: mouseResizeGestureActive
+      mouseGestureActive: mouseResizeGestureActive,
+      applicationActivationTimestamp: nativeFocusFrameMonitorID != nil
+        ? snapshot.applicationActivationTimestamp : nil
     ) {
       needsDesktopSync = true
     } else {

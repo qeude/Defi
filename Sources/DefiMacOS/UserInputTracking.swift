@@ -19,10 +19,17 @@ public final class UserInputTracker: @unchecked Sendable {
     public let processID: pid_t?
   }
 
+  public struct ApplicationActivation: Equatable, Sendable {
+    public let processID: pid_t
+    public let timestamp: TimeInterval
+  }
+
   public struct Snapshot: Equatable, Sendable {
     public let latestEventTimestamp: TimeInterval
     public let latestFocusIntent: FocusIntent?
     public let latestCloseIntent: TimeInterval
+    public let applicationActivation: ApplicationActivation?
+    public var activatedProcessID: pid_t? { applicationActivation?.processID }
   }
 
   private struct ObservedFocusTarget: Equatable {
@@ -36,6 +43,7 @@ public final class UserInputTracker: @unchecked Sendable {
   private var latestCloseIntentTimestamp: TimeInterval = 0
   private var observedFocusIntentTimestamp: TimeInterval = 0
   private var observedFocusTargets: [ObservedFocusTarget] = []
+  private var applicationActivation: ApplicationActivation?
 
   public init() {}
 
@@ -45,6 +53,9 @@ public final class UserInputTracker: @unchecked Sendable {
     closeIntent: Bool = false
   ) {
     lock.lock()
+    if timestamp > latestTimestamp && (focusIntent != nil || closeIntent) {
+      applicationActivation = nil
+    }
     latestTimestamp = max(latestTimestamp, timestamp)
     if let focusIntent,
       latestFocusIntent.map({ timestamp >= $0.timestamp }) ?? true
@@ -68,6 +79,7 @@ public final class UserInputTracker: @unchecked Sendable {
     lock.lock()
     latestTimestamp = max(latestTimestamp, timestamp).nextUp
     latestFocusIntent = nil
+    applicationActivation = nil
     observedFocusIntentTimestamp = 0
     observedFocusTargets.removeAll(keepingCapacity: true)
     lock.unlock()
@@ -111,6 +123,45 @@ public final class UserInputTracker: @unchecked Sendable {
     lock.unlock()
   }
 
+  public func recordApplicationActivation(
+    processID: pid_t,
+    at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard timestamp >= latestTimestamp,
+      timestamp > (applicationActivation?.timestamp ?? 0)
+    else { return }
+    applicationActivation = ApplicationActivation(processID: processID, timestamp: timestamp)
+  }
+
+  /// Pending resolution is bounded and belongs only to the current frontmost app.
+  public func pendingApplicationActivation(
+    frontmostProcessID: pid_t?,
+    at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) -> ApplicationActivation? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let activation = applicationActivation else { return nil }
+    guard activation.processID == frontmostProcessID,
+      timestamp >= activation.timestamp,
+      timestamp - activation.timestamp <= 2
+    else {
+      applicationActivation = nil
+      return nil
+    }
+    return activation
+  }
+
+  public func consumeApplicationActivation(processID: pid_t, at timestamp: TimeInterval) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard applicationActivation?.processID == processID,
+      applicationActivation?.timestamp == timestamp
+    else { return }
+    applicationActivation = nil
+  }
+
   public func consumeFocusIntent(at timestamp: TimeInterval) {
     lock.lock()
     guard latestFocusIntent?.timestamp == timestamp else {
@@ -118,6 +169,7 @@ public final class UserInputTracker: @unchecked Sendable {
       return
     }
     latestFocusIntent = nil
+    applicationActivation = nil
     observedFocusIntentTimestamp = 0
     observedFocusTargets.removeAll(keepingCapacity: true)
     lock.unlock()
@@ -221,7 +273,8 @@ public final class UserInputTracker: @unchecked Sendable {
     return Snapshot(
       latestEventTimestamp: latestTimestamp,
       latestFocusIntent: latestFocusIntent,
-      latestCloseIntent: latestCloseIntentTimestamp
+      latestCloseIntent: latestCloseIntentTimestamp,
+      applicationActivation: applicationActivation
     )
   }
 }

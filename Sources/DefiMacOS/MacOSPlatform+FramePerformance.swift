@@ -493,7 +493,9 @@ extension MacOSPlatform {
   }
 
   public var hasPendingNativeFocusEvent: Bool {
-    nativeFocusEventPending
+    nativeFocusEventPending || userInputTracker.pendingApplicationActivation(
+      frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+    ) != nil
   }
 }
 

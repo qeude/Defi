@@ -15,6 +15,148 @@ private final class TestAXElement: @unchecked Sendable {
 }
 
 struct PlatformEventTests {
+  @Test @MainActor
+  func sessionChangeDiscardsCachedAXConnectionsBeforeNextDiscovery() {
+    let platform = MacOSPlatform()
+    let engine = platform.snapshotEngine
+    let stale = AXUIElementCreateApplication(42)
+    engine.applications = [42: stale]
+    engine.lastApplicationWindowElements = [42: [stale]]
+    engine.unmatchedWindowElementsByProcess = [42: [stale]]
+    engine.windowListReadRetryAttemptsByProcess = [42: 3]
+    engine.hasCompletedWindowSnapshot = true
+    engine.elements = [WindowID(rawValue: 1): stale]
+    platform.invalidateStateForDesktopSessionChange()
+    // A snapshot already running during suspension may still publish its caches.
+    engine.lastApplicationWindowElements = [42: [stale]]
+    _ = engine.consumeObservations()
+    #expect(engine.applications.isEmpty)
+    #expect(engine.lastApplicationWindowElements.isEmpty)
+    #expect(engine.unmatchedWindowElementsByProcess.isEmpty)
+    #expect(engine.windowListReadRetryAttemptsByProcess.isEmpty)
+    #expect(!engine.hasCompletedWindowSnapshot)
+    #expect(engine.elements[WindowID(rawValue: 1)] != nil)
+    engine.applications = [42: AXUIElementCreateApplication(42)]
+    _ = engine.consumeObservations()
+    #expect(engine.applications[42] != nil)
+  }
+
+  @Test(arguments: [false, true], [false, true])
+  func delayedInternalActivationCannotBorrowNewerInput(keyboard: Bool, inFlight: Bool) throws {
+    let tracker = UserInputTracker()
+    let oldTarget = WindowID(rawValue: 2)
+    let request = InternalFocusSuppression(
+      requestID: 1, deadline: 30, maximumInputTimestamp: 10
+    )
+    tracker.record(timestamp: 11, focusIntent: keyboard ? .keyboard : .mouse(windowID: WindowID(rawValue: 3)))
+    let suppression = try #require(inFlight ? request : internalFocusSuppressionAfterCompletion(
+      request, requestID: 1, result: .completed, at: 11.5
+    ))
+    tracker.recordApplicationActivation(processID: 20, at: 12)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 12.1) != nil)
+    #expect(internalFocusSuppressionConsumesEvent(
+      suppression, suppressedWindowID: oldTarget,
+      latestFocusIntent: tracker.snapshot.latestFocusIntent,
+      applicationActivation: true
+    ))
+  }
+
+  @Test(arguments: [10.5, 11.0, 12.0])
+  func keyboardActivationAfterCompletedFocusIsNotConsumed(inputTimestamp: TimeInterval) throws {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 10, focusIntent: .keyboard)
+    let completed = try #require(internalFocusSuppressionAfterCompletion(
+      InternalFocusSuppression(requestID: 1, deadline: 30, maximumInputTimestamp: 10),
+      requestID: 1,
+      result: .completed,
+      at: 11
+    ))
+    tracker.record(timestamp: inputTimestamp, focusIntent: .keyboard)
+    tracker.recordApplicationActivation(processID: 20, at: 13)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 13.1) != nil)
+    #expect(internalFocusSuppressionConsumesEvent(
+      completed,
+      suppressedWindowID: WindowID(rawValue: 2),
+      latestFocusIntent: tracker.snapshot.latestFocusIntent,
+      applicationActivation: true
+    ) == (inputTimestamp <= 11))
+  }
+
+  @Test
+  func externalActivationWithoutRecentClickRemainsAvailableForWindowResolution() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 1, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
+    tracker.consumeFocusIntent(at: 1)
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    #expect(tracker.snapshot.activatedProcessID == 20)
+  }
+
+  @Test(arguments: [0.0, 2.1, 60.0])
+  func applicationActivationDoesNotDependOnClickAge(age: TimeInterval) {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 100 - age, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
+    tracker.recordApplicationActivation(processID: 20, at: 100)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 101)?.processID == 20)
+  }
+
+  @Test
+  func applicationActivationResolutionIsBoundedAndLatestWins() {
+    let tracker = UserInputTracker()
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    tracker.record(timestamp: 10.1) // Typing does not invalidate native activation.
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 11)?.processID == 20)
+    tracker.recordApplicationActivation(processID: 30, at: 11)
+    tracker.consumeApplicationActivation(processID: 20, at: 10)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 11.1)?.processID == 30)
+    tracker.recordApplicationActivation(processID: 30, at: 11.2)
+    tracker.consumeApplicationActivation(processID: 30, at: 11)
+    #expect(tracker.snapshot.applicationActivation?.timestamp == 11.2)
+    tracker.consumeApplicationActivation(processID: 30, at: 11.2)
+    #expect(tracker.snapshot.activatedProcessID == nil)
+    tracker.recordApplicationActivation(processID: 30, at: 12)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 14.1) == nil)
+    tracker.recordApplicationActivation(processID: 30, at: 15)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 15.1) == nil)
+    tracker.recordApplicationActivation(processID: 30, at: 16)
+    tracker.record(timestamp: 16.1, focusIntent: .keyboard)
+    #expect(tracker.snapshot.activatedProcessID == nil)
+    tracker.recordApplicationActivation(processID: 30, at: 16)
+    #expect(tracker.snapshot.activatedProcessID == nil)
+    tracker.recordApplicationActivation(processID: 30, at: 17)
+    tracker.invalidate(at: 17.1)
+    #expect(tracker.snapshot.activatedProcessID == nil)
+  }
+
+  @Test(arguments: [nil, 13.0] as [TimeInterval?])
+  func onlyDirectClickOnSuppressedTargetOverridesItsActivationEcho(completedAt: TimeInterval?) {
+    let tracker = UserInputTracker()
+    let suppression = InternalFocusSuppression(
+      requestID: 1, deadline: 30, maximumInputTimestamp: 10, completedAt: completedAt
+    )
+    tracker.record(timestamp: 11, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
+    #expect(internalFocusSuppressionConsumesEvent(
+      suppression, suppressedWindowID: WindowID(rawValue: 2),
+      latestFocusIntent: tracker.snapshot.latestFocusIntent,
+      applicationActivation: true
+    ))
+    #expect(internalFocusSuppressionConsumesEvent(
+      suppression, suppressedWindowID: WindowID(rawValue: 2),
+      latestFocusIntent: tracker.snapshot.latestFocusIntent
+    ))
+    tracker.record(timestamp: 12, focusIntent: .mouse(windowID: WindowID(rawValue: 2)))
+    #expect(internalFocusSuppressionConsumesEvent(
+      suppression, suppressedWindowID: WindowID(rawValue: 2),
+      latestFocusIntent: tracker.snapshot.latestFocusIntent,
+      applicationActivation: true
+    ) == false)
+    tracker.consumeFocusIntent(at: 12)
+    #expect(internalFocusSuppressionConsumesEvent(
+      suppression, suppressedWindowID: WindowID(rawValue: 2),
+      latestFocusIntent: tracker.snapshot.latestFocusIntent,
+      applicationActivation: true
+    ))
+  }
+
   @Test
   func desktopSessionOnlyReactivatesAfterEveryWakeSignal() {
     var normalizer = DesktopSessionEventNormalizer()
@@ -885,7 +1027,7 @@ struct PlatformEventTests {
       requestID: 7,
       deadline: 20,
       maximumInputTimestamp: 10,
-      isInFlight: false
+      completedAt: 11
     )
 
     #expect(
