@@ -43,7 +43,7 @@ extension Daemon {
     forceApplicationInventoryRefresh: Bool = false,
     consumePeriodicWindowRefresh: Bool = false
   ) {
-    guard desktopSessionActive else { return }
+    guard windowManagementStarted, desktopSessionActive else { return }
     let sessionGeneration = desktopSessionGeneration
     let requestedConfigGeneration = configGeneration
     let nativeFocusWasPending = platform.hasPendingNativeFocusEvent

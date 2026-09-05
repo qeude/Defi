@@ -1,26 +1,6 @@
 import AppKit
 
 @MainActor
-public func showAccessibilityOnboardingIfNeeded() {
-  let defaults = UserDefaults.standard
-  let key = "didShowAccessibilityOnboarding"
-  guard defaults.bool(forKey: key) == false else { return }
-  defaults.set(true, forKey: key)
-
-  let alert = NSAlert()
-  alert.alertStyle = .informational
-  alert.messageText = "Allow Defi to Manage Windows"
-  alert.informativeText =
-    "Defi needs Accessibility permission to discover, focus, move, and resize windows."
-  alert.addButton(withTitle: "Open Accessibility Settings")
-  alert.addButton(withTitle: "Later")
-  NSApplication.shared.activate(ignoringOtherApps: true)
-  if alert.runModal() == .alertFirstButtonReturn {
-    openDefiAccessibilitySettings()
-  }
-}
-
-@MainActor
 public func presentDefiStartupError(_ error: Error) {
   guard Bundle.main.bundleURL.pathExtension == "app" else { return }
   NSApplication.shared.setActivationPolicy(.accessory)
