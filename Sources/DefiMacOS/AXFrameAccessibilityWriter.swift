@@ -29,21 +29,8 @@ final class AXFrameAccessibilityWriter {
     _ write: AsyncPositionWrite,
     point: CGPoint,
     forceOffscreenAccess: Bool = false,
-    suppressNativeAnimation: Bool = false,
     enhancedUIManagedByBatch: Bool = false
   ) -> Bool {
-    if suppressNativeAnimation, write.enhancedUIWasEnabled {
-      // WindowServer can animate a successful offscreen-to-visible AX write.
-      if !enhancedUIManagedByBatch {
-        setEnhancedUserInterface(false, application: write.application)
-      }
-      defer {
-        if !enhancedUIManagedByBatch {
-          setEnhancedUserInterface(true, application: write.application)
-        }
-      }
-      return apply(write, point: point) == .success
-    }
     if write.isParked || forceOffscreenAccess {
       if !enhancedUIManagedByBatch {
         setEnhancedUserInterface(false, application: write.application)

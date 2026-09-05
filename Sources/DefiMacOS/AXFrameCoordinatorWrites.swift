@@ -362,14 +362,14 @@ extension AXFrameCoordinator {
     let pendingEnhancedUIRestore = hasDeferredEnhancedUIRestore(
       processID: batch.processID
     )
+    // Keep native animation disabled through every position sample and its
+    // asynchronous consumption, including horizontal navigation.
     let defersEnhancedUIRestore =
       enhancedUIWasEnabled
       && (
         pendingEnhancedUIRestore
           || batch.writes.contains {
             DefiMacOS.defersEnhancedUIRestore(
-              stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-              isIntermediate: intermediate,
               enhancedUIWasEnabled: $0.value.enhancedUIWasEnabled,
               positionChanged: $0.value.positionChanged
             )
@@ -490,11 +490,6 @@ extension AXFrameCoordinator {
                 point: point,
                 forceOffscreenAccess: (stagingReentry && item.value.isReentering)
                   || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
-                suppressNativeAnimation: suppressesNativePositionAnimation(
-                  stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-                  isParked: item.value.isParked,
-                  isIntermediate: intermediate
-                ),
                 enhancedUIManagedByBatch: managesEnhancedUI
                   || defersEnhancedUIRestore
               )
