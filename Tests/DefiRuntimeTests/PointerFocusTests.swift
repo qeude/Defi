@@ -109,7 +109,7 @@ struct PointerFocusTests {
     let originalFrames = computeLayout(
       workspace: state.monitors[0].workspaces[0], viewport: viewport,
       windows: Array(state.windows.values), settings: state.layout
-    ).frames
+    )
     for target in [3, 2, 3, 2] {
       #expect(focusWindowFromPointer(
         WindowID(rawValue: UInt64(target)), activeMonitorID: monitorID,
@@ -121,7 +121,7 @@ struct PointerFocusTests {
       #expect(computeLayout(
         workspace: state.monitors[0].workspaces[0], viewport: viewport,
         windows: Array(state.windows.values), settings: state.layout
-      ).frames == originalFrames)
+      ) == originalFrames)
     }
   }
 

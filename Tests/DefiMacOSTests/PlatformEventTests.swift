@@ -1028,31 +1028,6 @@ struct PlatformEventTests {
   }
 
   @Test
-  func guardedFocusMutationRecoversOnlyFromNewerInput() {
-    #expect(
-      guardedFocusMutationNeedsRecovery(
-        mutationApplied: true,
-        generationCurrent: true,
-        inputCurrent: false
-      )
-    )
-    #expect(
-      guardedFocusMutationNeedsRecovery(
-        mutationApplied: false,
-        generationCurrent: true,
-        inputCurrent: false
-      ) == false
-    )
-    #expect(
-      guardedFocusMutationNeedsRecovery(
-        mutationApplied: true,
-        generationCurrent: false,
-        inputCurrent: false
-      ) == false
-    )
-  }
-
-  @Test
   func nativeFocusEventRequiresMatchingFocusedProcess() {
     #expect(
       nativeFocusEventMatchesTarget(
@@ -1943,8 +1918,8 @@ struct PlatformEventTests {
           startsGesture: true
         )
     )
-    #expect(mouseUp.synchronization == nil)
-    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
+    #expect(mouseUp.needsGestureSynchronization == false)
+    #expect(mouseUp.endsFocusInteraction)
     #expect(platformEventCancelsMouseAnimation(.mouseRelease) == false)
     #expect(platformEventCancelsMouseAnimation(.mouse))
   }
@@ -1969,11 +1944,11 @@ struct PlatformEventTests {
     )
 
     #expect(mouseDown.refreshBorderStacking)
-    #expect(mouseDown.synchronization == nil)
-    #expect(firstMouseDragged.synchronization == .gesture)
-    #expect(secondMouseDragged.synchronization == .gesture)
-    #expect(firstMouseUp.synchronization == .gesture)
-    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
+    #expect(mouseDown.needsGestureSynchronization == false)
+    #expect(firstMouseDragged.needsGestureSynchronization)
+    #expect(secondMouseDragged.needsGestureSynchronization)
+    #expect(firstMouseUp.needsGestureSynchronization)
+    #expect(firstMouseUp.endsFocusInteraction)
     #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
   }
 
@@ -2006,16 +1981,6 @@ struct PlatformEventTests {
   }
 
   @Test
-  func everyMouseButtonReleaseEndsFocusInteraction() {
-    #expect(eventEndsMouseFocusInteraction(.leftMouseUp))
-    #expect(eventEndsMouseFocusInteraction(.rightMouseUp))
-    #expect(eventEndsMouseFocusInteraction(.otherMouseUp))
-    #expect(eventEndsMouseFocusInteraction(.leftMouseDown) == false)
-    #expect(eventEndsMouseFocusInteraction(.rightMouseDown) == false)
-    #expect(eventEndsMouseFocusInteraction(.otherMouseDown) == false)
-  }
-
-  @Test
   func everyMouseButtonDownStartsFocusInteraction() {
     #expect(eventStartsMouseFocusInteraction(.leftMouseDown))
     #expect(eventStartsMouseFocusInteraction(.rightMouseDown))
@@ -2035,7 +2000,7 @@ struct PlatformEventTests {
     let nextMouseDown = normalizer.actions(for: .leftMouseDown)
 
     #expect(nextMouseDown.startsGesture)
-    #expect(nextMouseDown.synchronization == nil)
+    #expect(nextMouseDown.needsGestureSynchronization == false)
   }
 
   @Test

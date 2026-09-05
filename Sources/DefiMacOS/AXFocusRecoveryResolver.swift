@@ -117,28 +117,10 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
     ) {
       guard let positionValue = copyAttribute(element, name: kAXPositionAttribute),
         let sizeValue = copyAttribute(element, name: kAXSizeAttribute),
-        CFGetTypeID(positionValue) == AXValueGetTypeID(),
-        CFGetTypeID(sizeValue) == AXValueGetTypeID()
-      else {
-        return nil
-      }
-      var position = CGPoint.zero
-      var size = CGSize.zero
-      guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
-      else {
-        return nil
-      }
+        let frame = frameFromAXValues(positionValue: positionValue, sizeValue: sizeValue)
+      else { return nil }
       let title = copyAttribute(element, name: kAXTitleAttribute) as? String ?? ""
-      return (
-        Rect(
-          x: position.x,
-          y: position.y,
-          width: size.width,
-          height: size.height
-        ),
-        title
-      )
+      return (frame, title)
     }
   }
 

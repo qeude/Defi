@@ -11,29 +11,15 @@ Samples daemon %CPU / RSS / thread count at 2.5 Hz and polls the
 border-audit probe at 1 Hz throughout. Prints a per-phase report.
 """
 
-import glob
-import json
-import os
-import socket
 import statistics
 import subprocess
 import sys
 import threading
 import time
 
+from defi_ipc import Connection, find_socket
+
 SCALE = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
-
-
-def find_socket():
-    candidates = (
-        glob.glob("/tmp/defi-*.sock")
-        + glob.glob("/var/folders/*/*/T/defi-*.sock")
-        + glob.glob(os.path.join(os.environ.get("TMPDIR", ""), "defi-*.sock"))
-    )
-    live = [c for c in candidates if os.path.exists(c)]
-    if not live:
-        sys.exit("defi socket not found")
-    return max(live, key=os.path.getmtime)
 
 
 SOCK = find_socket()
@@ -42,19 +28,6 @@ DAEMON_PID = int(
         ["pgrep", "-x", "defi-daemon"], capture_output=True, text=True
     ).stdout.split()[0]
 )
-
-
-class Connection:
-    def __init__(self):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(SOCK)
-        self.file = self.sock.makefile("rb")
-
-    def command(self, command):
-        payload = json.dumps({"command": command, "monitorIndex": None})
-        self.sock.sendall((payload + "\n").encode())
-        line = self.file.readline()
-        return json.loads(line) if line else {"ok": False}
 
 
 def sample_resources():
@@ -75,7 +48,7 @@ def sample_resources():
 
 samples = []          # (phase, t, cpu, rss_kb, threads)
 audits = []           # (phase, worst_pt, mismatches)
-cmd_stats = {"sent": 0, "errors": 0, "rejected": 0, "recycled": 0}
+cmd_stats = {"sent": 0, "rejected": 0, "recycled": 0}
 stop_sampler = threading.Event()
 
 
@@ -90,9 +63,9 @@ def sampler(phase_box):
 def audit_loop(phase_box):
     while not stop_sampler.is_set():
         try:
-            conn = Connection()
+            conn = Connection(SOCK)
             answer = conn.command("border-audit")
-            conn.sock.close()
+            conn.close()
             message = answer.get("message", "")
             worst = mismatches = acceptance = 0
             for token in message.replace("pt", "").split():
@@ -110,7 +83,7 @@ def audit_loop(phase_box):
 
 def drive_load(duration, rate, commands):
     try:
-        conn = Connection()
+        conn = Connection(SOCK)
     except Exception:
         return
     interval = 1.0 / rate
@@ -126,12 +99,12 @@ def drive_load(duration, rate, commands):
         except Exception:
             cmd_stats["recycled"] += 1
             try:
-                conn.sock.close()
+                conn.close()
             except Exception:
                 pass
             time.sleep(0.05)
             try:
-                conn = Connection()
+                conn = Connection(SOCK)
             except Exception:
                 return
         next_send += interval
@@ -140,19 +113,18 @@ def drive_load(duration, rate, commands):
             time.sleep(sleep_for)
         else:
             next_send = time.time()
-    conn.sock.close()
+    conn.close()
 
 
 navigation = ["focus-column left", "focus-column right"]
-import glob as _glob
 _ws = []
 try:
-    _probe = Connection()
+    _probe = Connection(SOCK)
     for line in _probe.command("list-workspaces")["message"].split("\n"):
         name = line.strip()
         if name:
             _ws.append("workspace " + name)
-    _probe.sock.close()
+    _probe.close()
 except Exception:
     pass
 if len(_ws) < 2:

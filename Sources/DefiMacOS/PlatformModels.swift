@@ -69,7 +69,6 @@ public struct DesktopSnapshot: Sendable {
   public let mouseFocusIntentWindowID: WindowID?
   public let mouseFocusIntentTimestamp: TimeInterval?
   public let keyboardFocusIntentTimestamp: TimeInterval?
-  public let targetMismatchCount: Int
   public let targetMismatches: [FrameMismatch]
   public let frontmostProcessID: pid_t?
 
@@ -92,7 +91,6 @@ public struct DesktopSnapshot: Sendable {
     mouseFocusIntentWindowID: WindowID? = nil,
     mouseFocusIntentTimestamp: TimeInterval? = nil,
     keyboardFocusIntentTimestamp: TimeInterval? = nil,
-    targetMismatchCount: Int = 0,
     targetMismatches: [FrameMismatch] = [],
     frontmostProcessID: pid_t? = nil
   ) {
@@ -115,7 +113,6 @@ public struct DesktopSnapshot: Sendable {
     self.mouseFocusIntentWindowID = mouseFocusIntentWindowID
     self.mouseFocusIntentTimestamp = mouseFocusIntentTimestamp
     self.keyboardFocusIntentTimestamp = keyboardFocusIntentTimestamp
-    self.targetMismatchCount = targetMismatchCount
     self.targetMismatches = targetMismatches
     self.frontmostProcessID = frontmostProcessID
   }
@@ -130,25 +127,5 @@ public struct FrameMismatch: Equatable, Sendable {
     self.windowID = windowID
     self.actual = actual
     self.target = target
-  }
-}
-
-public enum PlatformError: Error, CustomStringConvertible {
-  case accessibilityPermissionMissing
-  case attribute(String, AXError)
-  case action(String, AXError)
-  case windowUnavailable(WindowID)
-
-  public var description: String {
-    switch self {
-    case .accessibilityPermissionMissing:
-      "Accessibility permission missing"
-    case .attribute(let name, let error):
-      "AX attribute \(name) failed: \(error.rawValue)"
-    case .action(let name, let error):
-      "AX action \(name) failed: \(error.rawValue)"
-    case .windowUnavailable(let id):
-      "window unavailable: \(id.rawValue)"
-    }
   }
 }

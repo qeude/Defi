@@ -30,33 +30,11 @@ struct WindowLayoutTests {
     )
 
     #expect(
-      diff.frames[0]
+      diff[0]
         == FrameAssignment(
           windowID: WindowID(rawValue: 1),
           frame: Rect(x: 8, y: 88, width: 304, height: 624)
         ))
-  }
-
-  @Test
-  func `Frame batch skips unchanged assignments`() {
-    let first = FrameAssignment(
-      windowID: WindowID(rawValue: 1),
-      frame: Rect(x: 0, y: 0, width: 500, height: 800)
-    )
-    let second = FrameAssignment(
-      windowID: WindowID(rawValue: 2),
-      frame: Rect(x: 500, y: 0, width: 500, height: 800)
-    )
-    let moved = FrameAssignment(
-      windowID: WindowID(rawValue: 2),
-      frame: Rect(x: 600, y: 0, width: 500, height: 800)
-    )
-
-    let batch = planFrameBatch(previous: [first, second], next: [first, moved])
-
-    #expect(batch.frames == [moved])
-    #expect(batch.stats.plannedWrites == 1)
-    #expect(batch.stats.skippedUnchanged == 1)
   }
 
   @Test
@@ -79,12 +57,12 @@ struct WindowLayoutTests {
       workspace: workspace,
       viewport: Rect(x: 0, y: 0, width: 1_500, height: 900),
       settings: noGaps
-    ).frames[0].frame
+    )[0].frame
     let external = computeLayout(
       workspace: workspace,
       viewport: Rect(x: 1_500, y: 30, width: 2_560, height: 1_362),
       settings: noGaps
-    ).frames[0].frame
+    )[0].frame
 
     #expect(laptop == Rect(x: 0, y: 0, width: 1_200, height: 900))
     #expect(external == Rect(x: 1_500, y: 30, width: 2_048, height: 1_362))

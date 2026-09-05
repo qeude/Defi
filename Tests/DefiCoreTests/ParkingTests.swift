@@ -4,18 +4,7 @@ import Testing
 
 struct ParkingTests {
   @Test
-  func `Parking uses stable unique slots`() {
-    let diff = parkOffscreen([
-      WindowID(rawValue: 1),
-      WindowID(rawValue: 2),
-    ])
-
-    #expect(diff.frames[0].frame == Rect(x: -10_000, y: -10_000, width: 1, height: 1))
-    #expect(diff.frames[1].frame == Rect(x: -10_000, y: -10_020, width: 1, height: 1))
-  }
-
-  @Test
-  func `Continuous strip anchors every offscreen column and prefetches neighbors`() {
+  func `Continuous strip anchors every offscreen column`() {
     let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let frames = (0..<10).map { index in
       FrameAssignment(
@@ -31,26 +20,19 @@ struct ParkingTests {
 
     let plan = continuousStripFramesForActiveWorkspace(
       frames,
-      viewport: viewport,
-      prefetchViewports: 0,
-      prefetchColumnsPerSide: 1
+      viewport: viewport
     )
     let byID = Dictionary(
       uniqueKeysWithValues: plan.frames.map { ($0.windowID, $0.frame) }
     )
 
-    #expect(byID[WindowID(rawValue: 4)]?.x == -499)
-    #expect(byID[WindowID(rawValue: 3)]?.x == -499)
-    #expect(byID[WindowID(rawValue: 3)]?.y == 0)
-    #expect(byID[WindowID(rawValue: 9)]?.x == 999)
-    #expect(byID[WindowID(rawValue: 10)]?.x == 999)
-    #expect(byID[WindowID(rawValue: 10)]?.y == 0)
-    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 3)))
-    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 10)))
-    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 4)))
-    #expect(plan.parkedWindowIDs.contains(WindowID(rawValue: 9)))
-    #expect(plan.visibilityByWindowID[WindowID(rawValue: 4)] == .prefetched)
-    #expect(plan.visibilityByWindowID[WindowID(rawValue: 3)] == .parked)
+    #expect(byID.count == frames.count)
+    for index in 0..<10 {
+      let id = WindowID(rawValue: UInt64(index + 1))
+      let expectedX = index < 5 ? -499.0 : index > 6 ? 999.0 : Double(index - 5) * 500
+      #expect(byID[id] == Rect(x: expectedX, y: 0, width: 500, height: 700))
+      #expect(plan.parkedWindowIDs.contains(id) == (index < 5 || index > 6))
+    }
   }
 
   @Test

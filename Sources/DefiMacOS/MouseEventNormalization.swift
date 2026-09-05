@@ -3,7 +3,6 @@ import ApplicationServices
 import CoreGraphics
 import DefiModel
 
-
 func eventTracksPhysicalPointerMotion(_ type: CGEventType) -> Bool {
   switch type {
   case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
@@ -29,15 +28,6 @@ func eventTracksGeneralUserInput(
   type == .keyDown || type == .flagsChanged
     || (type == .scrollWheel && (scrollMomentumPhase ?? 0) == 0)
     || eventIsMouseButtonDown(type)
-}
-
-func eventEndsMouseFocusInteraction(_ type: NSEvent.EventType) -> Bool {
-  switch type {
-  case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-    true
-  default:
-    false
-  }
 }
 
 func eventStartsMouseFocusInteraction(_ type: NSEvent.EventType) -> Bool {
@@ -72,14 +62,10 @@ struct MouseGestureEventNormalizer {
     }
   }
 
-  enum Synchronization: Equatable {
-    case gesture
-  }
-
   struct Actions: Equatable {
     var refreshBorderStacking = false
     var startsGesture = false
-    var synchronization: Synchronization?
+    var needsGestureSynchronization = false
     var endsFocusInteraction = false
   }
 
@@ -105,7 +91,7 @@ struct MouseGestureEventNormalizer {
       dragged = true
       // Platform sync demand is a Boolean, so repeated drag events coalesce
       // while still scheduling fresh snapshots after live reorder animations.
-      return Actions(synchronization: .gesture)
+      return Actions(needsGestureSynchronization: true)
     case .leftMouseUp, .rightMouseUp, .otherMouseUp:
       let button = Button(eventType: eventType, buttonNumber: buttonNumber)
       guard heldButtons.remove(button) != nil else { return Actions() }
@@ -114,7 +100,7 @@ struct MouseGestureEventNormalizer {
         dragged = false
       }
       return Actions(
-        synchronization: wasDragged ? .gesture : nil,
+        needsGestureSynchronization: wasDragged,
         endsFocusInteraction: heldButtons.isEmpty
       )
     default:

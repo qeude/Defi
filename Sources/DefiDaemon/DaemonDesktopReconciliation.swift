@@ -195,7 +195,7 @@ extension Daemon {
       windows: windows,
       settings: state.layout,
       excludingWindowIDs: state.nativeFullscreenWindowIDs
-    ).frames.map(preserveIntrinsicSize)
+    ).map(preserveIntrinsicSize)
     let deltas = assignments.compactMap { assignment -> Double? in
       guard horizontalIntersection(assignment.frame, viewport) > 0.5,
         let completed = platform.completedPosition(for: assignment.windowID)

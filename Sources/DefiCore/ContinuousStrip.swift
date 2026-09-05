@@ -2,7 +2,6 @@ import DefiModel
 
 public enum WindowVisibilityState: Equatable, Sendable {
   case visible
-  case prefetched
   case parked
 }
 
@@ -32,18 +31,11 @@ public func continuousStripFramesForActiveWorkspace(
   viewport: Rect,
   ownerFrame: Rect? = nil,
   parkingFrame: Rect? = nil,
-  allMonitorFrames: [Rect]? = nil,
-  prefetchViewports: Double = 1,
-  prefetchColumnsPerSide: Int = 2
+  allMonitorFrames: [Rect]? = nil
 ) -> ContinuousStripPlan {
   let parkingOwnerFrame = ownerFrame ?? viewport
   let parkingMonitorFrames = allMonitorFrames ?? [parkingOwnerFrame]
-  let minX = viewport.x - viewport.width * max(prefetchViewports, 0)
-  let maxX =
-    viewport.x + viewport.width * (1 + max(prefetchViewports, 0))
   var strip: [FrameAssignment] = []
-  var nearLeft: [FrameAssignment] = []
-  var nearRight: [FrameAssignment] = []
   var left: [FrameAssignment] = []
   var right: [FrameAssignment] = []
 
@@ -56,109 +48,30 @@ public func continuousStripFramesForActiveWorkspace(
     if visibleWidth > parkedSliverWidth {
       strip.append(assignment)
     } else if assignment.frame.x + assignment.frame.width <= viewport.x {
-      if assignment.frame.x + assignment.frame.width >= minX {
-        nearLeft.append(assignment)
-      } else {
-        left.append(assignment)
-      }
+      left.append(assignment)
     } else {
-      if assignment.frame.x <= maxX {
-        nearRight.append(assignment)
-      } else {
-        right.append(assignment)
-      }
+      right.append(assignment)
     }
   }
-  nearLeft.sort {
-    ($0.frame.x + $0.frame.width) > ($1.frame.x + $1.frame.width)
-  }
-  nearRight.sort { $0.frame.x < $1.frame.x }
   left.sort {
     ($0.frame.x + $0.frame.width) > ($1.frame.x + $1.frame.width)
   }
   right.sort { $0.frame.x < $1.frame.x }
 
-  let leftSplit = splitPrefetchColumns(
-    left,
-    maximumColumns: prefetchColumnsPerSide
-  )
-  let rightSplit = splitPrefetchColumns(
-    right,
-    maximumColumns: prefetchColumnsPerSide
-  )
-  let leftPrefetched = nearLeft + leftSplit.prefetched
-  let rightPrefetched = nearRight + rightSplit.prefetched
-  let anchoredLeftPrefetched = parkFramesInSafeCorner(
-    leftPrefetched,
-    ownerFrame: parkingOwnerFrame,
-    parkingFrame: parkingFrame,
-    allMonitorFrames: parkingMonitorFrames,
-    preferredSide: .left
-  ).frames
-  let anchoredRightPrefetched = parkFramesInSafeCorner(
-    rightPrefetched,
-    ownerFrame: parkingOwnerFrame,
-    parkingFrame: parkingFrame,
-    allMonitorFrames: parkingMonitorFrames,
-    preferredSide: .right
-  ).frames
-  strip.append(contentsOf: anchoredLeftPrefetched)
-  strip.append(contentsOf: anchoredRightPrefetched)
-  strip.append(
-    contentsOf: parkFramesInSafeCorner(
-      leftSplit.parked,
-      ownerFrame: parkingOwnerFrame,
-      parkingFrame: parkingFrame,
-      allMonitorFrames: parkingMonitorFrames,
-      preferredSide: .left
-    ).frames
-  )
-  strip.append(
-    contentsOf: parkFramesInSafeCorner(
-      rightSplit.parked,
-      ownerFrame: parkingOwnerFrame,
-      parkingFrame: parkingFrame,
-      allMonitorFrames: parkingMonitorFrames,
-      preferredSide: .right
-    ).frames
-  )
   var visibility = Dictionary(
     uniqueKeysWithValues: strip.map { ($0.windowID, WindowVisibilityState.visible) }
   )
-  for assignment in leftPrefetched + rightPrefetched {
-    visibility[assignment.windowID] = .prefetched
-  }
-  for assignment in leftSplit.parked + rightSplit.parked {
-    visibility[assignment.windowID] = .parked
-  }
-  return ContinuousStripPlan(
-    frames: strip,
-    visibilityByWindowID: visibility
-  )
-}
-
-private func splitPrefetchColumns(
-  _ frames: [FrameAssignment],
-  maximumColumns: Int
-) -> (
-  prefetched: [FrameAssignment],
-  parked: [FrameAssignment]
-) {
-  var prefetched: [FrameAssignment] = []
-  var parked: [FrameAssignment] = []
-  var columns: [Rect] = []
-  for assignment in frames {
-    if columns.contains(where: {
-      abs($0.x - assignment.frame.x) <= 1
-        && abs($0.width - assignment.frame.width) <= 1
-    }) {
-      prefetched.append(assignment)
-    } else if columns.count < max(maximumColumns, 0) {
-      columns.append(assignment.frame)
-      prefetched.append(assignment)
-    } else {
-      parked.append(assignment)
+  for (assignments, side) in [(left, ParkingSide.left), (right, ParkingSide.right)] {
+    strip.append(contentsOf: parkFramesInSafeCorner(
+      assignments,
+      ownerFrame: parkingOwnerFrame,
+      parkingFrame: parkingFrame,
+      allMonitorFrames: parkingMonitorFrames,
+      preferredSide: side
+    ))
+    for assignment in assignments {
+      visibility[assignment.windowID] = .parked
     }
   }
-  return (prefetched, parked)
+  return ContinuousStripPlan(frames: strip, visibilityByWindowID: visibility)
 }

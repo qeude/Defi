@@ -57,7 +57,6 @@ public struct FrameAnimationClock: Sendable {
   }
 }
 
-
 public func criticallyDampedSpringStep(
   value: Double,
   target: Double,
@@ -76,16 +75,6 @@ public func criticallyDampedSpringStep(
     value: target + (displacement + velocityTerm * deltaTime) * decay,
     velocity: (velocity - omega * velocityTerm * deltaTime) * decay
   )
-}
-
-public func completedFrameSpringProgresses(
-  duration: TimeInterval,
-  refreshRateHz: Double
-) -> [Double] {
-  completedFrameSpringSamples(
-    duration: duration,
-    refreshRateHz: refreshRateHz
-  ).map(\.progress)
 }
 
 public func completedFrameSpringSamples(
@@ -148,13 +137,6 @@ public func anticipatedFinalFrameDispatchDelay(
   predictedFrameLatency: TimeInterval
 ) -> TimeInterval {
   max(animationDuration - max(predictedFrameLatency, 0), 0)
-}
-
-
-public func speculativeNavigationSettlementDelay(
-  animationDuration: TimeInterval
-) -> TimeInterval {
-  min(max(max(animationDuration, 0) + 0.04, 0.075), 0.12)
 }
 
 public struct DisplayedScalarRebase: Equatable, Sendable {

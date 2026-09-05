@@ -1,7 +1,5 @@
 import DefiModel
 
-public let offscreenParkingOriginX = -10_000.0
-public let offscreenParkingOriginY = -10_000.0
 public let parkedSliverWidth = 1.0
 
 public enum CenterFocusedColumn: Equatable, Sendable {
@@ -53,34 +51,6 @@ public struct FrameAssignment: Equatable, Sendable {
   public init(windowID: WindowID, frame: Rect) {
     self.windowID = windowID
     self.frame = frame
-  }
-}
-
-public struct LayoutDiff: Equatable, Sendable {
-  public let frames: [FrameAssignment]
-
-  public init(frames: [FrameAssignment]) {
-    self.frames = frames
-  }
-}
-
-public struct FrameBatchStats: Equatable, Sendable {
-  public let plannedWrites: Int
-  public let skippedUnchanged: Int
-
-  public init(plannedWrites: Int, skippedUnchanged: Int) {
-    self.plannedWrites = plannedWrites
-    self.skippedUnchanged = skippedUnchanged
-  }
-}
-
-public struct FrameBatch: Equatable, Sendable {
-  public let frames: [FrameAssignment]
-  public let stats: FrameBatchStats
-
-  public init(frames: [FrameAssignment], stats: FrameBatchStats) {
-    self.frames = frames
-    self.stats = stats
   }
 }
 

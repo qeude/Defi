@@ -132,12 +132,6 @@ final class AXFocusWriter: @unchecked Sendable {
       || pending.map { $0.request.processID != processID } == true
   }
 
-  var durationMS: Double {
-    lock.lock()
-    defer { lock.unlock() }
-    return lastDurationMS
-  }
-
   var performance:
     (
       durationMS: Double,

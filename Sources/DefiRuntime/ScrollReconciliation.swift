@@ -179,7 +179,7 @@ private func tiledWindowWidthLearning(
         windows: windows,
         settings: state.layout,
         excludingWindowIDs: state.nativeFullscreenWindowIDs
-      ).frames.first(where: { $0.windowID == windowID })?.frame
+      ).first(where: { $0.windowID == windowID })?.frame
       guard let target else { return nil }
 
       let configuredSlotWidth: Double

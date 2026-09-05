@@ -16,13 +16,6 @@ func applicationInventoryRefreshIsRequired(
 
 func durationPercentile(
   _ percentile: Double,
-  samples: [Double]
-) -> Double {
-  durationPercentile(percentile, sortedSamples: samples.sorted())
-}
-
-func durationPercentile(
-  _ percentile: Double,
   sortedSamples sorted: [Double]
 ) -> Double {
   guard !sorted.isEmpty else { return 0 }

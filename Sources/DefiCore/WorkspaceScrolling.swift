@@ -1,22 +1,5 @@
 import DefiModel
 
-public func focusedColumnScrollOffset(
-  workspace: Workspace,
-  viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
-  windows: [Window] = [],
-  settings: LayoutSettings = LayoutSettings(),
-  excludingWindowIDs: Set<WindowID> = []
-) -> Double {
-  focusedColumnTargetScrollOffset(
-    workspace: workspace,
-    viewport: viewport,
-    windows: windows,
-    settings: settings,
-    excludingWindowIDs: excludingWindowIDs,
-    centerFocusedColumn: .never
-  )
-}
-
 public func focusedColumnLeftScrollOffset(
   workspace: Workspace,
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),

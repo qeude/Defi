@@ -78,7 +78,7 @@ struct OverviewRuntimeTests {
       )
     )
     #expect(
-      layout.frames.map(\.frame) == [
+      layout.map(\.frame) == [
         Rect(x: 0, y: 0, width: 500, height: 400),
         Rect(x: 0, y: 400, width: 500, height: 400),
       ])

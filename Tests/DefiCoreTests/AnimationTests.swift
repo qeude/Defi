@@ -24,18 +24,6 @@ struct AnimationTests {
   }
 
   @Test
-  func `Speculative navigation settlement waits past visual animation`() {
-    #expect(
-      speculativeNavigationSettlementDelay(animationDuration: 0.035)
-        .isApproximatelyEqual(to: 0.075, absoluteTolerance: 0.000_1)
-    )
-    #expect(
-      speculativeNavigationSettlementDelay(animationDuration: 0.1)
-        .isApproximatelyEqual(to: 0.12, absoluteTolerance: 0.000_1)
-    )
-  }
-
-  @Test
   func `Scroll animation uses ease out cubic and finishes exactly`() {
     #expect(animatedScalar(from: 0, to: 1, elapsed: 0, duration: 0.08) == 0)
     #expect(
@@ -68,14 +56,14 @@ struct AnimationTests {
 
   @Test
   func `Completed frame spring keeps multiple monotonic samples`() {
-    let at120Hz = completedFrameSpringProgresses(
+    let at120Hz = completedFrameSpringSamples(
       duration: 0.035,
       refreshRateHz: 120
-    )
-    let at60Hz = completedFrameSpringProgresses(
+    ).map(\.progress)
+    let at60Hz = completedFrameSpringSamples(
       duration: 0.035,
       refreshRateHz: 60
-    )
+    ).map(\.progress)
 
     #expect(at120Hz.count == 4)
     #expect(at60Hz.count == 2)
@@ -89,10 +77,10 @@ struct AnimationTests {
 
   @Test
   func `Completed frame spring uses the full refresh budget`() {
-    let progresses = completedFrameSpringProgresses(
+    let progresses = completedFrameSpringSamples(
       duration: 0.08,
       refreshRateHz: 120
-    )
+    ).map(\.progress)
 
     #expect(progresses.count == 9)
     #expect(progresses.last ?? 0 > 0.85)

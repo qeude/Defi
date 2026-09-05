@@ -9,6 +9,19 @@ struct WindowDiscoveryTests {
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
   @Test
+  func axFrameConversionValidatesValueTypes() throws {
+    var point = CGPoint(x: 4, y: 34)
+    var size = CGSize(width: 800, height: 700)
+    let positionValue = try #require(AXValueCreate(.cgPoint, &point))
+    let sizeValue = try #require(AXValueCreate(.cgSize, &size))
+    #expect(frameFromAXValues(positionValue: positionValue, sizeValue: sizeValue)
+      == Rect(x: 4, y: 34, width: 800, height: 700))
+    #expect(frameFromAXValues(positionValue: nil, sizeValue: sizeValue) == nil)
+    #expect(frameFromAXValues(positionValue: "invalid" as CFString, sizeValue: sizeValue) == nil)
+    #expect(frameFromAXValues(positionValue: sizeValue, sizeValue: positionValue) == nil)
+  }
+
+  @Test
   func `Transient window omission expires after grace period`() {
     let windowID = WindowID(rawValue: 42)
     let first = retainedWindowIDsWithinGracePeriod(

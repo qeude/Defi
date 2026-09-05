@@ -441,7 +441,7 @@ final class DesktopE2ETests: XCTestCase {
     let actual = platform.snapshot(config: Config()).windows
       .first(where: { $0.id == window.id })?.frame
     let performance = platform.frameCoordinatorPerformance
-    let maximumAnimationFrames = completedFrameSpringProgresses(
+    let maximumAnimationFrames = completedFrameSpringSamples(
       duration: 0.05,
       refreshRateHz: 120
     ).count + 1
@@ -584,7 +584,7 @@ final class DesktopE2ETests: XCTestCase {
     )
     pumpRunLoop(for: 0.08)
 
-    XCTAssertEqual(delayedSnapshot.targetMismatchCount, 0)
+    XCTAssertTrue(delayedSnapshot.targetMismatches.isEmpty)
     XCTAssertGreaterThan(platform.frameCommitPerformance.deferred, 0)
     XCTAssertEqual(
       platform.successfulPositionWriteCount,

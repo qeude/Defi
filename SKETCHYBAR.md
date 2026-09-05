@@ -11,7 +11,7 @@ The example requires `jq`. Scripts find Defi in `~/Applications`, then
 
 ```sh
 mkdir -p ~/.config/sketchybar/plugins
-cp contrib/sketchybar/plugins/defi_workspace*.sh ~/.config/sketchybar/plugins/
+cp contrib/sketchybar/plugins/defi_*.sh ~/.config/sketchybar/plugins/
 chmod +x ~/.config/sketchybar/plugins/defi_workspace*.sh
 cp contrib/sketchybar/defi.sh ~/.config/sketchybar/defi.sh
 chmod +x ~/.config/sketchybar/defi.sh

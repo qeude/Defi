@@ -360,7 +360,7 @@ public func projectOverview(
         viewport: sourceViewport,
         windows: windows,
         settings: layout
-      ).frames.map { ($0.windowID, $0.frame) }
+      ).map { ($0.windowID, $0.frame) }
     )
     let visibleFrame = Rect(
       x: workspaceFrame.x

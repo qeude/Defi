@@ -7,7 +7,7 @@ public func computeLayout(
   windows: [Window] = [],
   settings: LayoutSettings,
   excludingWindowIDs: Set<WindowID> = []
-) -> LayoutDiff {
+) -> [FrameAssignment] {
   let workspace = workspaceForLayout(
     workspace,
     excludingWindowIDs: excludingWindowIDs
@@ -69,7 +69,7 @@ public func computeLayout(
     x += width
   }
 
-  return LayoutDiff(frames: frames)
+  return frames
 }
 
 func workspaceForLayout(
@@ -112,41 +112,6 @@ func workspaceForLayout(
     ? 0
     : min(focusedColumn ?? visibleColumnsBeforeFocus, columns.count - 1)
   return result
-}
-
-public func diffLayout(
-  previous: [FrameAssignment],
-  next: [FrameAssignment]
-) -> LayoutDiff {
-  let previousByWindow = Dictionary(uniqueKeysWithValues: previous.map { ($0.windowID, $0.frame) })
-  return LayoutDiff(frames: next.filter { previousByWindow[$0.windowID] != $0.frame })
-}
-
-public func planFrameBatch(
-  previous: [FrameAssignment],
-  next: [FrameAssignment]
-) -> FrameBatch {
-  let diff = diffLayout(previous: previous, next: next)
-  return FrameBatch(
-    frames: diff.frames,
-    stats: FrameBatchStats(
-      plannedWrites: diff.frames.count,
-      skippedUnchanged: max(next.count - diff.frames.count, 0)
-    )
-  )
-}
-
-public func snapshotLayout(_ diff: LayoutDiff) -> String {
-  diff.frames.map {
-    String(
-      format: "%llu:%.1f,%.1f,%.1f,%.1f",
-      $0.windowID.rawValue,
-      $0.frame.x,
-      $0.frame.y,
-      $0.frame.width,
-      $0.frame.height
-    )
-  }.joined(separator: "\n")
 }
 
 func columnLayoutWidth(

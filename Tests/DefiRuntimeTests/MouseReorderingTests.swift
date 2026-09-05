@@ -758,7 +758,7 @@ struct MouseReorderingTests {
         viewport: viewport,
         windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
         settings: state.layout
-      ).frames.first(where: { $0.windowID == windowID })?.frame
+      ).first(where: { $0.windowID == windowID })?.frame
     )
   }
 }

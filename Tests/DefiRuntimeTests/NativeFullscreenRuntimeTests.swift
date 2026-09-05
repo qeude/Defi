@@ -34,7 +34,7 @@ struct NativeFullscreenRuntimeTests {
       settings: state.layout,
       excludingWindowIDs: state.nativeFullscreenWindowIDs
     )
-    #expect(layout.frames.map(\.windowID) == [WindowID(rawValue: 1), WindowID(rawValue: 3)])
+    #expect(layout.map(\.windowID) == [WindowID(rawValue: 1), WindowID(rawValue: 3)])
   }
 
   @Test
@@ -138,7 +138,7 @@ struct NativeFullscreenRuntimeTests {
       viewport: viewport,
       windows: orderedWindows(in: state),
       settings: state.layout
-    ).frames.first { $0.windowID == fullscreenID }?.frame
+    ).first { $0.windowID == fullscreenID }?.frame
     #expect(placeholderFrame.map { $0.x < viewport.width } == true)
     #expect(placeholderFrame.map { $0.x + $0.width > viewport.x } == true)
   }

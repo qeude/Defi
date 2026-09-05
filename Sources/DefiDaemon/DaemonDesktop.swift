@@ -121,7 +121,7 @@ extension Daemon {
           settings: state.layout,
           excludingWindowIDs: state.nativeFullscreenWindowIDs
         )
-        let sizedFrames = layout.frames.map(preserveIntrinsicSize)
+        let sizedFrames = layout.map(preserveIntrinsicSize)
         if workspace.id == monitor.activeWorkspace && !overviewParksWindows {
           let strip = continuousStripFramesForActiveWorkspace(
             sizedFrames,
@@ -143,7 +143,7 @@ extension Daemon {
                 viewport: viewport,
                 windows: workspaceWindows,
                 settings: state.layout
-              ).frames,
+              ),
               viewport: viewport,
               ownerFrame: physicalFrame,
               parkingFrame: viewport,
@@ -198,8 +198,8 @@ extension Daemon {
             preferredSide: workspaceIndex < activeWorkspaceIndex ? .left : .right
           )
           monitorHiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
-          monitorAssignments.append(contentsOf: parked.frames)
-          monitorBorderAssignments.append(contentsOf: parked.frames)
+          monitorAssignments.append(contentsOf: parked)
+          monitorBorderAssignments.append(contentsOf: parked)
         }
       }
       let plan = MonitorLayoutPlan(

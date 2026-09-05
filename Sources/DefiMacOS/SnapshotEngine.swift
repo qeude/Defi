@@ -26,14 +26,6 @@ final class AssumedThreadSafe<T>: @unchecked Sendable {
   }
 }
 
-private final class MainHopBox<T>: @unchecked Sendable {
-  let value: T
-
-  init(_ value: T) {
-    self.value = value
-  }
-}
-
 final class SnapshotEngine: @unchecked Sendable {
   private let lock = NSLock()
   private var storage = Storage()
@@ -86,11 +78,11 @@ final class SnapshotEngine: @unchecked Sendable {
       host != nil,
       "SnapshotEngine.host must be assigned before snapshotting"
     )
-    let box: MainHopBox<T> =
+    let box: AssumedThreadSafe<T> =
       Thread.isMainThread
-      ? MainActor.assumeIsolated { MainHopBox(work(host!)) }
+      ? MainActor.assumeIsolated { AssumedThreadSafe(work(host!)) }
       : DispatchQueue.main.sync {
-        MainActor.assumeIsolated { MainHopBox(work(host!)) }
+        MainActor.assumeIsolated { AssumedThreadSafe(work(host!)) }
       }
     return box.value
   }
@@ -1025,20 +1017,9 @@ extension SnapshotEngine {
 
   func frame(of element: AXUIElement) -> Rect? {
     guard let positionValue = copyAttribute(element, name: kAXPositionAttribute),
-      let sizeValue = copyAttribute(element, name: kAXSizeAttribute),
-      CFGetTypeID(positionValue) == AXValueGetTypeID(),
-      CFGetTypeID(sizeValue) == AXValueGetTypeID()
-    else {
-      return nil
-    }
-    var position = CGPoint.zero
-    var size = CGSize.zero
-    guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-      AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
-    else {
-      return nil
-    }
-    return Rect(x: position.x, y: position.y, width: size.width, height: size.height)
+      let sizeValue = copyAttribute(element, name: kAXSizeAttribute)
+    else { return nil }
+    return frameFromAXValues(positionValue: positionValue, sizeValue: sizeValue)
   }
 
   func nativeWindowTabGroup(

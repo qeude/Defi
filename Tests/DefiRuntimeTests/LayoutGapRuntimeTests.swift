@@ -77,7 +77,7 @@ struct LayoutGapRuntimeTests {
       workspace: state.monitors[0].workspaces[workspaceIndex],
       viewport: viewport,
       settings: state.layout
-    ).frames[1].frame
+    )[1].frame
 
     #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0)
     #expect(frame.x + frame.width == 998)
@@ -90,7 +90,7 @@ struct LayoutGapRuntimeTests {
       workspace: state.monitors[0].workspaces[workspaceIndex],
       viewport: viewport,
       settings: state.layout
-    ).frames[1].frame
+    )[1].frame
 
     #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0.5)
     #expect(leftAlignedFrame.x == 2)
