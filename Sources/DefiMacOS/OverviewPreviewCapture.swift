@@ -282,23 +282,6 @@ private final class OverviewScreenCaptureBatch {
   }
 }
 
-func overviewPreviewResultIsCurrent(
-  _ result: OverviewPreviewCaptureResult,
-  generation: UInt64,
-  currentGeneration: UInt64,
-  currentRequest: OverviewPreviewRequest?,
-  currentAppID: String?
-) -> Bool {
-  overviewPreviewRequestIsCurrent(
-    result.request,
-    generation: generation,
-    currentGeneration: currentGeneration,
-    currentRequest: currentRequest,
-    currentAppID: currentAppID
-  )
-    && (result.image.map { $0.width > 1 && $0.height > 1 } ?? false)
-}
-
 func overviewPreviewRequestIsCurrent(
   _ request: OverviewPreviewRequest,
   generation: UInt64,

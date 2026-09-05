@@ -806,7 +806,6 @@ extension SnapshotEngine {
       mouseFocusIntentWindowID: mouseFocusIntentWindowID,
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
-      targetMismatchCount: targetMismatches.count,
       targetMismatches: targetMismatches,
       frontmostProcessID: frontmostProcessID
     )

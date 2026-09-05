@@ -75,8 +75,8 @@ func observedWindowCount(
 }
 
 func displayReconfigurationCallback(
-  _ display: CGDirectDisplayID,
-  _ flags: CGDisplayChangeSummaryFlags,
+  _: CGDirectDisplayID,
+  _: CGDisplayChangeSummaryFlags,
   _ context: UnsafeMutableRawPointer?
 ) {
   guard let context else { return }
@@ -84,15 +84,6 @@ func displayReconfigurationCallback(
     .fromOpaque(context)
     .takeUnretainedValue()
   Task { @MainActor [weak monitor] in
-    monitor?.handleDisplayReconfiguration(display: display, flags: flags)
-  }
-}
-
-extension PlatformEventMonitor {
-  fileprivate func handleDisplayReconfiguration(
-    display _: CGDirectDisplayID,
-    flags _: CGDisplayChangeSummaryFlags
-  ) {
-    handler(.screens, nil)
+    monitor?.handler(.screens, nil)
   }
 }

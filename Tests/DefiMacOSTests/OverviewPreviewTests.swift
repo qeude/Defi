@@ -181,34 +181,29 @@ struct OverviewPreviewTests {
     #expect(results.map(\.request) == requests)
   }
 
-  @Test
-  func `Stale or empty preview results are rejected`() {
+  @Test(arguments: [
+    (UInt64(2), WindowID(rawValue: 1), "app", false),
+    (UInt64(1), WindowID(rawValue: 2), "app", false),
+    (UInt64(1), WindowID(rawValue: 1), "other", false),
+    (UInt64(1), WindowID(rawValue: 1), "app", true),
+  ])
+  func previewRequestMatchesCurrentCapture(
+    currentGeneration: UInt64, currentWindowID: WindowID,
+    currentAppID: String, expected: Bool
+  ) {
     let request = OverviewPreviewRequest(
-      windowID: WindowID(rawValue: 1),
-      expectedAppID: "app",
-      width: 100,
-      height: 80,
-      blurFadeHeight: 40
+      windowID: WindowID(rawValue: 1), expectedAppID: "app",
+      width: 100, height: 80, blurFadeHeight: 40
     )
-    let result = OverviewPreviewCaptureResult(request: request, image: nil)
-
-    #expect(
-      !overviewPreviewResultIsCurrent(
-        result,
-        generation: 1,
-        currentGeneration: 2,
-        currentRequest: request,
-        currentAppID: "app"
-      )
+    let currentRequest = OverviewPreviewRequest(
+      windowID: currentWindowID, expectedAppID: currentAppID,
+      width: 100, height: 80, blurFadeHeight: 40
     )
     #expect(
-      !overviewPreviewResultIsCurrent(
-        result,
-        generation: 1,
-        currentGeneration: 1,
-        currentRequest: request,
-        currentAppID: "app"
-      )
+      overviewPreviewRequestIsCurrent(
+        request, generation: 1, currentGeneration: currentGeneration,
+        currentRequest: currentRequest, currentAppID: currentAppID
+      ) == expected
     )
   }
 

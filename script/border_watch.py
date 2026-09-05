@@ -3,45 +3,28 @@
 captures ground truth (on-screen frames + engine view + trace tail) to
 /tmp/border-stuck-<ts>.txt once per episode. Run while reproducing."""
 
-import glob
-import json
 import os
 import re
 import subprocess
-import sys
 import time
+
+from defi_ipc import Connection, find_socket
 
 CLI = os.path.join(os.path.dirname(__file__), "..", ".build", "release", "defi")
 THRESHOLD_PT = 8.0
-
-
-def find_socket():
-    candidates = (
-        glob.glob("/var/folders/*/*/T/defi-*.sock")
-        + glob.glob("/tmp/defi-*.sock")
-    )
-    return max((c for c in candidates if os.path.exists(c)), key=os.path.getmtime)
 
 
 SOCK = find_socket()
 
 
 def command(name):
-    import socket
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(SOCK)
-    s.sendall((json.dumps({"command": name, "monitorIndex": None}) + "\n").encode())
-    line = b""
-    while not line.endswith(b"\n"):
-        chunk = s.recv(65536)
-        if not chunk:
-            break
-        line += chunk
-    s.close()
+    conn = Connection(SOCK)
     try:
-        return json.loads(line).get("message", "")
-    except Exception:
+        return conn.command(name).get("message", "")
+    except (ValueError, TypeError):
         return ""
+    finally:
+        conn.close()
 
 
 def daemon_frames():

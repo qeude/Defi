@@ -208,7 +208,6 @@ extension Daemon {
       finishMouseGestureTracking()
     }
     latestMonitors = snapshot.monitors
-    targetMismatchCount = displayGeometryChanged ? 0 : snapshot.targetMismatchCount
     targetMismatches = displayGeometryChanged ? [] : snapshot.targetMismatches
     state.retainMonitors(
       snapshot.monitors.map(\.id),

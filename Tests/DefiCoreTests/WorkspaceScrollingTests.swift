@@ -28,7 +28,7 @@ struct WorkspaceScrollingTests {
       )
     )
     #expect(
-      diff.frames[1].frame.x.isApproximatelyEqual(to: 407.2, absoluteTolerance: 0.001)
+      diff[1].frame.x.isApproximatelyEqual(to: 407.2, absoluteTolerance: 0.001)
     )
   }
 
@@ -45,20 +45,29 @@ struct WorkspaceScrollingTests {
       focusedColumn: 1
     )
     #expect(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+      focusedColumnTargetScrollOffset(
+        workspace: workspace, viewport: viewport, settings: LayoutSettings(),
+        centerFocusedColumn: .never
+      )
         .isApproximatelyEqual(to: 0, absoluteTolerance: 0.001)
     )
 
     workspace.focusedColumn = 2
     #expect(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+      focusedColumnTargetScrollOffset(
+        workspace: workspace, viewport: viewport, settings: LayoutSettings(),
+        centerFocusedColumn: .never
+      )
         .isApproximatelyEqual(to: 0.5, absoluteTolerance: 0.001)
     )
 
     workspace.focusedColumn = 3
     workspace.scrollOffset = 0.5
     #expect(
-      focusedColumnScrollOffset(workspace: workspace, viewport: viewport)
+      focusedColumnTargetScrollOffset(
+        workspace: workspace, viewport: viewport, settings: LayoutSettings(),
+        centerFocusedColumn: .never
+      )
         .isApproximatelyEqual(to: 1, absoluteTolerance: 0.001)
     )
   }
@@ -96,7 +105,7 @@ struct WorkspaceScrollingTests {
       )
     )
     #expect(
-      diff.frames[1].frame.x.isApproximatelyEqual(to: 250, absoluteTolerance: 0.001)
+      diff[1].frame.x.isApproximatelyEqual(to: 250, absoluteTolerance: 0.001)
     )
   }
 

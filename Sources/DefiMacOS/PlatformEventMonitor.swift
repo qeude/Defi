@@ -205,11 +205,8 @@ final class PlatformEventMonitor {
         if actions.startsGesture {
           self.mouseGestureStartedHandler()
         }
-        switch actions.synchronization {
-        case .gesture:
+        if actions.needsGestureSynchronization {
           self.handler(.mouse, nil)
-        case nil:
-          break
         }
         if actions.endsFocusInteraction {
           self.handler(.mouseRelease, nil)

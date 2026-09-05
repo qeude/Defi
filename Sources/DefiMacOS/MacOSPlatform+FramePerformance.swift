@@ -438,10 +438,6 @@ extension MacOSPlatform {
     )
   }
 
-  public var focusDurationMS: Double {
-    focusWriter.durationMS
-  }
-
   public var focusPerformance:
     (
       durationMS: Double,

@@ -83,14 +83,14 @@ func windowBorderStacking(
     })?.frame
   {
     targetMonitorFrames = monitorFrames.filter {
-      framesIntersect($0, targetFrame)
+      targetIntersects($0, monitor: targetFrame)
     }
   } else {
     targetMonitorFrames = monitorFrames
   }
   let relevantEntries = externalEntries.filter { entry in
     targetMonitorFrames.isEmpty
-      || targetMonitorFrames.contains { framesIntersect($0, entry.frame) }
+      || targetMonitorFrames.contains { targetIntersects($0, monitor: entry.frame) }
   }
   let targetProcessID = relevantEntries.first(where: {
     $0.windowID == targetWindowID
@@ -108,7 +108,7 @@ func windowBorderStacking(
     else { return false }
     if entry.windowID == targetWindowID { return true }
     if let targetEntryFrame,
-      !framesIntersect(entry.frame, targetEntryFrame)
+      !targetIntersects(entry.frame, monitor: targetEntryFrame)
     {
       return false
     }
@@ -133,11 +133,4 @@ func windowBorderStacking(
     upperBoundWindowID: upperBound?.windowID,
     upperBoundLevel: upperBound?.layer
   )
-}
-
-private func framesIntersect(_ lhs: Rect, _ rhs: Rect) -> Bool {
-  lhs.x + lhs.width > rhs.x
-    && lhs.x < rhs.x + rhs.width
-    && lhs.y + lhs.height > rhs.y
-    && lhs.y < rhs.y + rhs.height
 }

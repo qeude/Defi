@@ -326,11 +326,6 @@ final class AXWindowIDProvider {
     }
   }
 
-  var isAvailable: Bool {
-    ensureProbe()
-    return getWindow != nil && probeSucceeded && !disabled
-  }
-
   var probeResult: Bool? {
     guard probeCompleted else { return nil }
     return getWindow != nil && probeSucceeded && !disabled
@@ -550,7 +545,7 @@ func copyTransientOwnerRelationships(
   return (parent, sheets)
 }
 
-private func frameFromAXValues(
+func frameFromAXValues(
   positionValue: CFTypeRef?,
   sizeValue: CFTypeRef?
 ) -> Rect? {

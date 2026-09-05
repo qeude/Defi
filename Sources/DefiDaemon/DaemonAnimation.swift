@@ -218,8 +218,6 @@ extension Daemon {
 
   func beginFrameAnimationActivity() {
     if !frameNotificationsSuspended {
-      currentAnimationFrameCount = 0
-      maximumAnimationStepDurationMS = 0
       platform.setFrameNotificationsEnabled(false)
       frameNotificationsSuspended = true
     }

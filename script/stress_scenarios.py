@@ -4,26 +4,16 @@ tabs, macOS activation events. Self-restoring: windows opened for the test
 are closed by it. Polls border-audit, resources, and window-count pop-in
 latency throughout."""
 
-import json
 import os
-import socket
-import glob
 import statistics
 import subprocess
 import sys
 import threading
 import time
 
+from defi_ipc import Connection, find_socket
+
 SCALE = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
-
-
-def find_socket():
-    candidates = (
-        glob.glob("/var/folders/*/*/T/defi-*.sock")
-        + glob.glob("/tmp/defi-*.sock")
-        + glob.glob(os.path.join(os.environ.get("TMPDIR", ""), "defi-*.sock"))
-    )
-    return max((c for c in candidates if os.path.exists(c)), key=os.path.getmtime)
 
 
 SOCK = find_socket()
@@ -33,19 +23,6 @@ DAEMON_PID = int(
     ).stdout.split()[0]
 )
 CLI = os.path.join(os.path.dirname(__file__), "..", ".build", "release", "defi")
-
-
-class Connection:
-    def __init__(self):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(SOCK)
-        self.file = self.sock.makefile("rb")
-
-    def command(self, command):
-        payload = json.dumps({"command": command, "monitorIndex": None})
-        self.sock.sendall((payload + "\n").encode())
-        line = self.file.readline()
-        return json.loads(line) if line else {"ok": False, "message": "eof"}
 
 
 def cli(command):
@@ -69,9 +46,9 @@ def window_count():
 
 
 def border_audit():
-    conn = Connection()
+    conn = Connection(SOCK)
     message = conn.command("border-audit").get("message", "")
-    conn.sock.close()
+    conn.close()
     worst = mismatches = acceptance = 0
     compared = 0
     for token in message.replace("pt", "").split():

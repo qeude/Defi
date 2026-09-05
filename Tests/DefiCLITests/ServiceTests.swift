@@ -5,13 +5,11 @@ import Testing
 
 struct ServiceTests {
   @Test(
-    "An unloaded service refreshes its plist before bootstrap",
-    arguments: [false, true]
+    "An unloaded service refreshes its plist before bootstrap"
   )
-  func unloadedServiceRefreshesPlist(plistExists: Bool) {
+  func unloadedServiceRefreshesPlist() {
     #expect(
       serviceStartActions(
-        plistExists: plistExists,
         isLoaded: false
       ) == [.install, .bootstrap]
     )
@@ -21,16 +19,8 @@ struct ServiceTests {
   func loadedServiceOnlyKickstartsExistingJob() {
     #expect(
       serviceStartActions(
-        plistExists: true,
         isLoaded: true
     ) == [.kickstart]
-    )
-  }
-
-  @Test
-  func restartStopsAndReplacesLoadedService() {
-    #expect(
-      serviceRestartActions() == [.stop, .quit, .waitForStop, .install, .bootstrap]
     )
   }
 

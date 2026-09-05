@@ -268,7 +268,7 @@ public func mouseTranslatedTiledWindowID(
         windows: windows,
         settings: state.layout,
         excludingWindowIDs: state.nativeFullscreenWindowIDs
-      ).frames.map { ($0.windowID, $0.frame) }
+      ).map { ($0.windowID, $0.frame) }
     )
     guard let actual = externallyChangedFrames[windowID],
       let target = targets[windowID],
@@ -332,7 +332,7 @@ public func reorderTiledWindowAfterMouseDrag(
       windows: windows,
       settings: state.layout,
       excludingWindowIDs: state.nativeFullscreenWindowIDs
-    ).frames.map { ($0.windowID, $0.frame) }
+    ).map { ($0.windowID, $0.frame) }
   )
 
   guard let sourceFrame = frames[windowID]

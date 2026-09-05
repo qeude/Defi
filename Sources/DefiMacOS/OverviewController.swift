@@ -137,7 +137,6 @@ public final class OverviewController: NSObject {
   private var borderStyle = WindowBorderStyle(config: BordersConfig())
   private var viewports: [MonitorID: OverviewViewport] = [:]
   private var projections: [MonitorID: OverviewProjection] = [:]
-  private var activeWorkspaceByMonitor: [MonitorID: WorkspaceID] = [:]
   private var selection: OverviewSelection?
   private var drag: OverviewDrag?
   private var edgeScrollTimer: Timer?
@@ -200,7 +199,7 @@ public final class OverviewController: NSObject {
     )
     pressure.setEventHandler { [weak self] in
       MainActor.assumeIsolated {
-        self?.removeAllRememberedPreviews()
+        self?.rememberedPreviews.removeAll()
         self?.releaseIdleOverviewResources()
       }
     }
@@ -300,9 +299,6 @@ public final class OverviewController: NSObject {
     previewPendingCount = 0
     previewPermissionState = windowPreviewsEnabled ? .notDetermined : .disabled
     selection = initialSelection(in: snapshot)
-    activeWorkspaceByMonitor = Dictionary(
-      uniqueKeysWithValues: snapshot.monitors.map { ($0.id, $0.activeWorkspace) }
-    )
     viewports = Dictionary(uniqueKeysWithValues: snapshot.monitors.map { monitor in
       (
         monitor.id,
@@ -359,7 +355,7 @@ public final class OverviewController: NSObject {
       if windowPreviewsEnabled {
         restoreRememberedPreviews(for: snapshot)
       } else {
-        removeAllRememberedPreviews()
+        rememberedPreviews.removeAll()
       }
       resetPreviewFadeAnimation()
       attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
@@ -405,6 +401,7 @@ public final class OverviewController: NSObject {
     }
     var viewportTargets: [MonitorID: OverviewViewport] = [:]
     for monitor in snapshot.monitors {
+      let previousMonitor = previousSnapshot?.monitors.first { $0.id == monitor.id }
       if viewports[monitor.id] == nil {
         viewports[monitor.id] = OverviewViewport()
       }
@@ -412,7 +409,7 @@ public final class OverviewController: NSObject {
       where viewports[monitor.id]?.horizontalOffsets[workspace.id] == nil {
         viewports[monitor.id]?.horizontalOffsets[workspace.id] = workspace.scrollOffset
       }
-      if let previousWorkspaceID = activeWorkspaceByMonitor[monitor.id],
+      if let previousWorkspaceID = previousMonitor?.activeWorkspace,
         previousWorkspaceID != monitor.activeWorkspace,
         let previousIndex = monitor.workspaces.firstIndex(where: {
           $0.id == previousWorkspaceID
@@ -428,10 +425,7 @@ public final class OverviewController: NSObject {
         viewport.workspaceOffset = 0
         viewportTargets[monitor.id] = viewport
       }
-      activeWorkspaceByMonitor[monitor.id] = monitor.activeWorkspace
-      guard let previousMonitor = previousSnapshot?.monitors.first(where: {
-        $0.id == monitor.id
-      }) else { continue }
+      guard let previousMonitor else { continue }
       for workspace in monitor.workspaces {
         guard let previousWorkspace = previousMonitor.workspaces.first(where: {
           $0.id == workspace.id
@@ -591,15 +585,20 @@ public final class OverviewController: NSObject {
   private func chooseSelection() {
     guard let snapshot, let selection else { return }
     alignSelectionOnNextUpdate = true
+    guard focusSelection(selection, in: snapshot) else { return }
+    closeAfterSelectionAlignment()
+  }
+
+  private func focusSelection(_ selection: OverviewSelection, in snapshot: OverviewSnapshot) -> Bool {
     switch selection {
     case .window(let windowID, let monitorID, let workspaceID):
-      guard let window = snapshot.windows[windowID] else { return }
+      guard let window = snapshot.windows[windowID] else { return false }
       expectActivation(of: window.processID)
       focusWindowHandler(windowID, window.appID, monitorID, workspaceID)
     case .workspace(let monitorID, let workspaceID):
       focusWorkspaceHandler(monitorID, workspaceID)
     }
-    closeAfterSelectionAlignment()
+    return true
   }
 
   private func closeAfterSelectionAlignment() {
@@ -627,14 +626,7 @@ public final class OverviewController: NSObject {
     else { return }
     selection = target
     alignSelectionOnNextUpdate = true
-    switch target {
-    case .window(let windowID, let monitorID, let workspaceID):
-      guard let window = snapshot.windows[windowID] else { return }
-      expectActivation(of: window.processID)
-      focusWindowHandler(windowID, window.appID, monitorID, workspaceID)
-    case .workspace(let monitorID, let workspaceID):
-      focusWorkspaceHandler(monitorID, workspaceID)
-    }
+    guard focusSelection(target, in: snapshot) else { return }
     updatePanels()
   }
 
@@ -720,9 +712,9 @@ public final class OverviewController: NSObject {
     action: OverviewKeyAction,
     snapshot: OverviewSnapshot
   ) -> OverviewSelection? {
-    guard let selection,
-      let location = selection.location,
-      let monitor = snapshot.monitors.first(where: { $0.id == location.monitorID }),
+    guard let selection else { return initialSelection(in: snapshot) }
+    let location = selection.location
+    guard let monitor = snapshot.monitors.first(where: { $0.id == location.monitorID }),
       let workspaceIndex = monitor.workspaces.firstIndex(where: {
         $0.id == location.workspaceID
       })
@@ -1030,7 +1022,7 @@ public final class OverviewController: NSObject {
       }
       guard let image = result.image, image.width > 1, image.height > 1 else {
         previewCache[result.request.windowID] = nil
-        forgetRememberedPreview(for: result.request.windowID)
+        rememberedPreviews.remove(result.request.windowID)
         previewFailureCount += 1
         continue
       }
@@ -1043,9 +1035,9 @@ public final class OverviewController: NSObject {
       if let window = snapshot?.windows[result.request.windowID],
         let rememberedImage = result.rememberedImage
       {
-        rememberPreview(
+        rememberedPreviews.store(
           NSImage(cgImage: rememberedImage, size: preview.size),
-          cgImage: rememberedImage,
+          byteCost: rememberedImage.bytesPerRow * rememberedImage.height,
           for: window
         )
       }
@@ -1137,7 +1129,7 @@ public final class OverviewController: NSObject {
 
   private func restoreRememberedPreviews(for snapshot: OverviewSnapshot) {
     guard windowPreviewsEnabled, CGPreflightScreenCaptureAccess() else {
-      removeAllRememberedPreviews()
+      rememberedPreviews.removeAll()
       return
     }
     pruneRememberedPreviews(for: snapshot)
@@ -1150,23 +1142,11 @@ public final class OverviewController: NSObject {
     }
   }
 
-  private func rememberPreview(_ image: NSImage, cgImage: CGImage, for window: Window) {
-    rememberedPreviews.store(image, byteCost: cgImage.bytesPerRow * cgImage.height, for: window)
-  }
-
-  private func forgetRememberedPreview(for windowID: WindowID) {
-    rememberedPreviews.remove(windowID)
-  }
-
   private func releaseIdleOverviewResources() {
     guard !isOpen else { return }
     closePanelsImmediately()
     snapshot = nil
     projections.removeAll()
-  }
-
-  private func removeAllRememberedPreviews() {
-    rememberedPreviews.removeAll()
   }
 
   private func visiblePreviewRequests() -> [OverviewPreviewRequest] {
@@ -1647,7 +1627,7 @@ enum OverviewSelection: Equatable {
   case window(windowID: WindowID, monitorID: MonitorID, workspaceID: WorkspaceID)
   case workspace(monitorID: MonitorID, workspaceID: WorkspaceID)
 
-  var location: (monitorID: MonitorID, workspaceID: WorkspaceID)? {
+  var location: (monitorID: MonitorID, workspaceID: WorkspaceID) {
     switch self {
     case .window(_, let monitorID, let workspaceID),
       .workspace(let monitorID, let workspaceID):
@@ -1661,8 +1641,7 @@ enum OverviewSelection: Equatable {
   }
 
   func isValid(in snapshot: OverviewSnapshot) -> Bool {
-    guard let location,
-      let workspace = snapshot.monitors.first(where: {
+    guard let workspace = snapshot.monitors.first(where: {
         $0.id == location.monitorID
       })?.workspaces.first(where: { $0.id == location.workspaceID })
     else { return false }

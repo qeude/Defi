@@ -126,10 +126,10 @@ struct RuntimeWidthConstraintTests {
       settings: state.layout
     )
     let constrained = try #require(
-      layout.frames.first { $0.windowID == constrainedID }
+      layout.first { $0.windowID == constrainedID }
     )
     let following = try #require(
-      layout.frames.first { $0.windowID == followingID }
+      layout.first { $0.windowID == followingID }
     )
     #expect(constrained.frame.width == 560)
     #expect(following.frame.x == 560)
@@ -186,10 +186,10 @@ struct RuntimeWidthConstraintTests {
       settings: state.layout
     )
     let constrained = try #require(
-      layout.frames.first { $0.windowID == constrainedID }
+      layout.first { $0.windowID == constrainedID }
     )
     let following = try #require(
-      layout.frames.first { $0.windowID == followingID }
+      layout.first { $0.windowID == followingID }
     )
     #expect(constrained.frame.width == 560)
     #expect(following.frame.x == 560)
@@ -276,7 +276,7 @@ struct RuntimeWidthConstraintTests {
       viewport: viewport,
       windows: Array(state.windows.values),
       settings: state.layout
-    ).frames
+    )
     #expect(frames.first { $0.windowID == fixedID }?.frame.width == 500)
     #expect(frames.first { $0.windowID == wideID }?.frame.width == 660)
     #expect(frames.first { $0.windowID == followingID }?.frame.x == 660)

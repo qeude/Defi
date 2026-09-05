@@ -898,50 +898,20 @@ struct NativeFocusTests {
     )
   }
 
-  @Test
-  func nativeFocusPreservesTwoVisibleColumns() throws {
-    var state = try makeState(windowCount: 2)
+  @Test(arguments: [(2, UInt64(2), 0.0, 0.0), (4, UInt64(3), 0.5, 0.5), (4, UInt64(4), 0.0, 1.0)])
+  func nativeFocusKeepsVisibleColumnsAndClampsToStripEnd(
+    windowCount: Int, focusedWindow: UInt64, scrollOffset: Double, expectedOffset: Double
+  ) throws {
+    var state = try makeState(windowCount: windowCount)
     setColumnWidths(.fraction(0.5), state: &state)
-    focusWindow(WindowID(rawValue: 2), state: &state)
-
+    focusWindow(WindowID(rawValue: focusedWindow), state: &state)
+    state.monitors[0].workspaces[0].scrollOffset = scrollOffset
     alignFocusedColumnLeft(
       on: monitorID,
       state: &state,
       viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     )
-
-    #expect(state.monitors[0].workspaces[0].targetScrollOffset == 0)
-  }
-
-  @Test
-  func nativeFocusPreservesVisibleColumnInsideOverflowingStrip() throws {
-    var state = try makeState(windowCount: 4)
-    setColumnWidths(.fraction(0.5), state: &state)
-    focusWindow(WindowID(rawValue: 3), state: &state)
-    state.monitors[0].workspaces[0].scrollOffset = 0.5
-
-    alignFocusedColumnLeft(
-      on: monitorID,
-      state: &state,
-      viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
-    )
-
-    #expect(state.monitors[0].workspaces[0].targetScrollOffset == 0.5)
-  }
-
-  @Test
-  func nativeFocusAlignmentCannotOverscrollPastStripEnd() throws {
-    var state = try makeState(windowCount: 4)
-    setColumnWidths(.fraction(0.5), state: &state)
-    focusWindow(WindowID(rawValue: 4), state: &state)
-
-    alignFocusedColumnLeft(
-      on: monitorID,
-      state: &state,
-      viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
-    )
-
-    #expect(state.monitors[0].workspaces[0].targetScrollOffset == 1)
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset == expectedOffset)
   }
 
   private func makeState(windowCount: Int = 2) throws -> RuntimeState {

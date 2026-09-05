@@ -15,22 +15,6 @@ public struct ParkingPlacement: Equatable, Sendable {
   }
 }
 
-public func parkOffscreen(_ windowIDs: [WindowID]) -> LayoutDiff {
-  LayoutDiff(
-    frames: windowIDs.enumerated().map { index, windowID in
-      FrameAssignment(
-        windowID: windowID,
-        frame: Rect(
-          x: offscreenParkingOriginX,
-          y: offscreenParkingOriginY - Double(index) * 20,
-          width: 1,
-          height: 1
-        )
-      )
-    }
-  )
-}
-
 public func resolveParkingPlacement(
   for frame: Rect,
   ownerFrame: Rect,
@@ -68,21 +52,12 @@ public func resolveParkingPlacement(
     }
   }
   return candidates.min {
-    isParkingScore(
-      parkingScore(
-        $0,
-        ownerFrame: ownerFrame,
-        otherFrames: otherFrames,
-        targetY: targetY,
-        preferredSide: preferredSide
-      ),
-      betterThan: parkingScore(
-        $1,
-        ownerFrame: ownerFrame,
-        otherFrames: otherFrames,
-        targetY: targetY,
-        preferredSide: preferredSide
-      )
+    parkingScore(
+      $0, ownerFrame: ownerFrame, otherFrames: otherFrames,
+      targetY: targetY, preferredSide: preferredSide
+    ) < parkingScore(
+      $1, ownerFrame: ownerFrame, otherFrames: otherFrames,
+      targetY: targetY, preferredSide: preferredSide
     )
   } ?? candidates[0]
 }
@@ -93,22 +68,20 @@ public func parkFramesInSafeCorner(
   parkingFrame: Rect? = nil,
   allMonitorFrames: [Rect],
   preferredSide: ParkingSide
-) -> LayoutDiff {
-  LayoutDiff(
-    frames: frames.map { assignment in
-      let placement = resolveParkingPlacement(
-        for: assignment.frame,
-        ownerFrame: ownerFrame,
-        parkingFrame: parkingFrame,
-        allMonitorFrames: allMonitorFrames,
-        preferredSide: preferredSide
-      )
-      return FrameAssignment(
-        windowID: assignment.windowID,
-        frame: placement.frame
-      )
-    }
-  )
+) -> [FrameAssignment] {
+  frames.map { assignment in
+    let placement = resolveParkingPlacement(
+      for: assignment.frame,
+      ownerFrame: ownerFrame,
+      parkingFrame: parkingFrame,
+      allMonitorFrames: allMonitorFrames,
+      preferredSide: preferredSide
+    )
+    return FrameAssignment(
+      windowID: assignment.windowID,
+      frame: placement.frame
+    )
+  }
 }
 
 private func opposite(_ side: ParkingSide) -> ParkingSide {
@@ -133,32 +106,6 @@ private func parkingScore(
   let verticalDistance = abs(placement.frame.y - targetY)
   let sidePenalty = placement.side == preferredSide ? 0 : 1
   return (lanePenalty, otherOverlap, verticalDistance, sidePenalty)
-}
-
-private func isParkingScore(
-  _ lhs: (
-    lanePenalty: Int,
-    otherOverlap: Double,
-    verticalDistance: Double,
-    sidePenalty: Int
-  ),
-  betterThan rhs: (
-    lanePenalty: Int,
-    otherOverlap: Double,
-    verticalDistance: Double,
-    sidePenalty: Int
-  )
-) -> Bool {
-  if lhs.lanePenalty != rhs.lanePenalty {
-    return lhs.lanePenalty < rhs.lanePenalty
-  }
-  if lhs.otherOverlap != rhs.otherOverlap {
-    return lhs.otherOverlap < rhs.otherOverlap
-  }
-  if lhs.verticalDistance != rhs.verticalDistance {
-    return lhs.verticalDistance < rhs.verticalDistance
-  }
-  return lhs.sidePenalty < rhs.sidePenalty
 }
 
 private func parkingVerticalOrigins(

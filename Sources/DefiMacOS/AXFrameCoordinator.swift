@@ -363,12 +363,6 @@ final class AXFrameCoordinator: @unchecked Sendable {
       || successfulFinalWritesByGeneration[latestGeneration]?.contains(windowID) != true
   }
 
-  var animatedSizeWindowIDs: Set<WindowID> {
-    lock.lock()
-    defer { lock.unlock() }
-    return activeAnimatedSizeWindowIDs
-  }
-
   var isAnimating: Bool {
     lock.lock()
     defer { lock.unlock() }

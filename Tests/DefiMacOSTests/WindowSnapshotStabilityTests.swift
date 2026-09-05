@@ -80,20 +80,6 @@ struct WindowSnapshotStabilityTests {
     }
   }
 
-  @Test func staleCGWindowInventoryIsRejected() {
-    #expect(
-      preparedCGWindowInventoryIsCurrent(
-        capturedGeneration: 4,
-        currentGeneration: 4
-      )
-    )
-    #expect(
-      preparedCGWindowInventoryIsCurrent(
-        capturedGeneration: 4,
-        currentGeneration: 5
-      ) == false)
-  }
-
   @Test func preparedAttributesAreRejectedAfterInputOrObservationChanges() {
     let windowIDs: Set<WindowID> = [WindowID(rawValue: 1)]
     #expect(
@@ -303,13 +289,13 @@ struct WindowSnapshotStabilityTests {
   }
 
   @Test func snapshotDurationPercentilesAreBoundedAndDeterministic() {
-    let samples = [1.0, 5.0, 2.0, 4.0, 3.0]
+    let samples = [1.0, 2.0, 3.0, 4.0, 5.0]
 
-    #expect(durationPercentile(0.5, samples: samples) == 3)
-    #expect(durationPercentile(0.95, samples: samples) == 5)
-    #expect(durationPercentile(-1, samples: samples) == 1)
-    #expect(durationPercentile(2, samples: samples) == 5)
-    #expect(durationPercentile(0.5, samples: []) == 0)
+    #expect(durationPercentile(0.5, sortedSamples: samples) == 3)
+    #expect(durationPercentile(0.95, sortedSamples: samples) == 5)
+    #expect(durationPercentile(-1, sortedSamples: samples) == 1)
+    #expect(durationPercentile(2, sortedSamples: samples) == 5)
+    #expect(durationPercentile(0.5, sortedSamples: []) == 0)
   }
 
   @Test func transientGeometryFailureRemainsUnavailable() {

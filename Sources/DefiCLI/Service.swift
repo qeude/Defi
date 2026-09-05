@@ -14,7 +14,6 @@ enum ServiceManager {
       print("uninstalled")
     case "start":
       for action in serviceStartActions(
-        plistExists: FileManager.default.fileExists(atPath: plistURL.path),
         isLoaded: isLoaded()
       ) {
         switch action {
@@ -31,20 +30,11 @@ enum ServiceManager {
       try stop(ignoreFailure: false)
       print("stopped")
     case "restart":
-      for action in serviceRestartActions() {
-        switch action {
-        case .stop:
-          try stop(ignoreFailure: true)
-        case .quit:
-          _ = try? sendCommand("quit")
-        case .waitForStop:
-          try waitForDaemonToStop()
-        case .install:
-          try install()
-        case .bootstrap:
-          try bootstrapWithRetry()
-        }
-      }
+      try stop(ignoreFailure: true)
+      _ = try? sendCommand("quit")
+      try waitForDaemonToStop()
+      try install()
+      try bootstrapWithRetry()
       print("restarted")
     case "status":
       try launchctl(["print", "\(domain)/\(label)"])
@@ -196,18 +186,6 @@ func appBundleURL(from executableURL: URL) -> URL? {
   return appURL
 }
 
-enum ServiceRestartAction: Equatable, Sendable {
-  case stop
-  case quit
-  case waitForStop
-  case install
-  case bootstrap
-}
-
-func serviceRestartActions() -> [ServiceRestartAction] {
-  [.stop, .quit, .waitForStop, .install, .bootstrap]
-}
-
 enum ServiceStartAction: Equatable, Sendable {
   case install
   case bootstrap
@@ -215,7 +193,6 @@ enum ServiceStartAction: Equatable, Sendable {
 }
 
 func serviceStartActions(
-  plistExists _: Bool,
   isLoaded: Bool
 ) -> [ServiceStartAction] {
   isLoaded ? [.kickstart] : [.install, .bootstrap]

@@ -59,7 +59,6 @@ struct WorkspaceStateTests {
     #expect(webSnapshot.kind == .named)
     #expect(webSnapshot.occupied)
     #expect(webSnapshot.windowCount == 1)
-    #expect(webSnapshot.occupied)
     #expect(webSnapshot.applications == ["com.apple.Safari"])
     #expect(webSnapshot.focusedApplication == "com.apple.Safari")
 

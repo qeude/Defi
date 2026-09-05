@@ -53,12 +53,10 @@ public final class MacOSPlatform {
   }
 
   public func accessibilityTrusted(prompt: Bool) -> Bool {
-    snapshotEngine.host = self
     return snapshotEngine.accessibilityTrusted(prompt: prompt)
   }
 
   public func snapshot(config: Config) -> DesktopSnapshot {
-    snapshotEngine.host = self
     return snapshotEngine.snapshot(config: config)
   }
 
@@ -69,7 +67,6 @@ public final class MacOSPlatform {
     forceApplicationInventoryRefresh: Bool,
     completion: @escaping @MainActor @Sendable (DesktopSnapshot) -> Void
   ) {
-    snapshotEngine.host = self
     snapshotEngine.beginSnapshot(
       config: config,
       forceFullWindowRefresh: forceFullWindowRefresh,
@@ -85,7 +82,6 @@ public final class MacOSPlatform {
     forceWindowListRefresh: Bool = false,
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
-    snapshotEngine.host = self
     return snapshotEngine.snapshot(
       config: config,
       forceFullWindowRefresh: forceFullWindowRefresh,
@@ -165,14 +161,8 @@ public final class MacOSPlatform {
   let focusWriter = AXFocusWriter()
   let focusRecoveryResolver = AXFocusRecoveryResolver()
   let windowIDProvider = AXWindowIDProvider()
-  var privateWindowIDLookupCount: Int {
-    get { snapshotEngine.privateWindowIDLookupCount }
-    set { snapshotEngine.privateWindowIDLookupCount = newValue }
-  }
-  var publicWindowIDFallbackCount: Int {
-    get { snapshotEngine.publicWindowIDFallbackCount }
-    set { snapshotEngine.publicWindowIDFallbackCount = newValue }
-  }
+
+
   let borderManager = WindowBorderManager()
   let nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
   let borderBoundsProvider = WindowServerBoundsProvider()
@@ -482,10 +472,6 @@ public final class MacOSPlatform {
     captureEnabled: false
   )
 
-  public var isPrivateWindowIDLookupAvailable: Bool {
-    windowIDProvider.isAvailable
-  }
-
   public var privateWindowIDLookupStatus: String {
     switch windowIDProvider.probeResult {
     case .none: "unprobed"
@@ -495,11 +481,11 @@ public final class MacOSPlatform {
   }
 
   public var successfulPrivateWindowIDLookupCount: Int {
-    privateWindowIDLookupCount
+    snapshotEngine.privateWindowIDLookupCount
   }
 
   public var publicWindowIDLookupFallbackCount: Int {
-    publicWindowIDFallbackCount
+    snapshotEngine.publicWindowIDFallbackCount
   }
 
   public var isPrivateWindowBoundsLookupAvailable: Bool {

@@ -57,13 +57,6 @@ func copyCGWindowsIfAvailable(
   return info.compactMap(cgWindowRecord)
 }
 
-func preparedCGWindowInventoryIsCurrent(
-  capturedGeneration: UInt64,
-  currentGeneration: UInt64
-) -> Bool {
-  capturedGeneration == currentGeneration
-}
-
 @MainActor
 extension MacOSPlatform {
   public func prepareCGWindowInventoryIfNeeded(
@@ -82,10 +75,7 @@ extension MacOSPlatform {
         MainActor.assumeIsolated {
           guard let self else { return }
           self.cgWindowInventoryPreparationPending = false
-          guard preparedCGWindowInventoryIsCurrent(
-            capturedGeneration: capturedGeneration,
-            currentGeneration: self.windowSnapshotObservationGeneration
-          ) else {
+          guard capturedGeneration == self.windowSnapshotObservationGeneration else {
             completion(false)
             return
           }
@@ -772,12 +762,7 @@ func targetIntersectsAnyMonitor(
   _ frame: Rect,
   monitors: [MonitorSnapshot]
 ) -> Bool {
-  monitors.contains { monitor in
-    frame.x + frame.width > monitor.frame.x
-      && frame.x < monitor.frame.x + monitor.frame.width
-      && frame.y + frame.height > monitor.frame.y
-      && frame.y < monitor.frame.y + monitor.frame.height
-  }
+  monitors.contains { targetIntersects(frame, monitor: $0.frame) }
 }
 
 func targetIntersects(_ frame: Rect, monitor: Rect) -> Bool {

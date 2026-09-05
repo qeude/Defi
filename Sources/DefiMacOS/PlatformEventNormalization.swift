@@ -221,14 +221,6 @@ func guardedFocusIsCurrent(
   latestInputTimestamp <= maximumInputTimestamp
 }
 
-func guardedFocusMutationNeedsRecovery(
-  mutationApplied: Bool,
-  generationCurrent: Bool,
-  inputCurrent: Bool
-) -> Bool {
-  mutationApplied && generationCurrent && !inputCurrent
-}
-
 func nativeFocusEventMatchesTarget(
   eventPending: Bool,
   eventProcessIDs: Set<pid_t>,

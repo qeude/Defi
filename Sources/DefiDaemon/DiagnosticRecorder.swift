@@ -94,19 +94,13 @@ final class DiagnosticRecorder: @unchecked Sendable {
       var record = makeRecord(
         kind: "command",
         timestamp: metadata?.timestamp ?? Date(),
-        uptime: sample.inputTimestamp
+        uptime: sample.inputTimestamp,
+        metadata: metadata
       )
-      record.command = metadata?.command
       record.generation = sample.generation
-      record.monitorID = metadata?.monitorID?.rawValue
-      record.workspaceID = metadata?.workspaceID?.rawValue
-      record.windowID = metadata?.windowID?.rawValue
-      record.applicationID = metadata?.applicationID
-      record.processID = metadata?.processID
       record.outcome = sample.outcome.rawValue
       record.expectedWindowCount = sample.expectedWindowCount
       record.expectsFocus = sample.expectsFocus
-      record.queueWaitMS = metadata?.queueWaitMS
       record.planMS = sample.planMS
       record.firstWriteMS = sample.firstWriteMS
       record.firstObservationMS = sample.firstObservationMS
@@ -124,19 +118,13 @@ final class DiagnosticRecorder: @unchecked Sendable {
       var record = makeRecord(
         kind: "command",
         timestamp: metadata.timestamp,
-        uptime: metadata.inputTimestamp
+        uptime: metadata.inputTimestamp,
+        metadata: metadata
       )
-      record.command = metadata.command
       record.generation = metadata.generation
-      record.monitorID = metadata.monitorID?.rawValue
-      record.workspaceID = metadata.workspaceID?.rawValue
-      record.windowID = metadata.windowID?.rawValue
-      record.applicationID = metadata.applicationID
-      record.processID = metadata.processID
       record.outcome = "no-op"
       record.expectedWindowCount = 0
       record.expectsFocus = false
-      record.queueWaitMS = metadata.queueWaitMS
       record.planMS = durationMS
       record.convergenceMS = durationMS
       append(record)
@@ -175,15 +163,24 @@ final class DiagnosticRecorder: @unchecked Sendable {
   private func makeRecord(
     kind: String,
     timestamp: Date,
-    uptime: TimeInterval
+    uptime: TimeInterval,
+    metadata: CommandDiagnosticMetadata? = nil
   ) -> PersistentDiagnosticRecord {
-    PersistentDiagnosticRecord(
+    var record = PersistentDiagnosticRecord(
       kind: kind,
       timestamp: timestamp,
       uptimeSeconds: uptime,
       sessionID: sessionID,
       build: build
     )
+    record.command = metadata?.command
+    record.monitorID = metadata?.monitorID?.rawValue
+    record.workspaceID = metadata?.workspaceID?.rawValue
+    record.windowID = metadata?.windowID?.rawValue
+    record.applicationID = metadata?.applicationID
+    record.processID = metadata?.processID
+    record.queueWaitMS = metadata?.queueWaitMS
+    return record
   }
 
   private func append(_ record: PersistentDiagnosticRecord) {

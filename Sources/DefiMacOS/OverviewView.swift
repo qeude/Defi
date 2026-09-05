@@ -342,7 +342,7 @@ final class OverviewView: NSView {
     let selected = selection == .window(
       windowID: card.windowID,
       monitorID: monitorID,
-      workspaceID: selection?.location?.workspaceID ?? WorkspaceID(rawValue: "")
+      workspaceID: selection?.location.workspaceID ?? WorkspaceID(rawValue: "")
     )
     if let border = overviewWindowBorderAppearance(
       isSelected: selected,

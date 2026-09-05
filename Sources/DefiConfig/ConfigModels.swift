@@ -26,15 +26,16 @@ public struct InputConfig: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
+    let defaults = InputConfig()
     focusFollowsMouse =
-      try values.decodeIfPresent(Bool.self, forKey: .focusFollowsMouse) ?? false
+      try values.decodeIfPresent(Bool.self, forKey: .focusFollowsMouse) ?? defaults.focusFollowsMouse
     focusFollowsMouseMaxScrollAmount =
       try values.decodeIfPresent(
         Double.self,
         forKey: .focusFollowsMouseMaxScrollAmount
-      ) ?? 0
+      ) ?? defaults.focusFollowsMouseMaxScrollAmount
     mouseFollowsFocus =
-      try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? false
+      try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? defaults.mouseFollowsFocus
   }
 }
 
@@ -149,8 +150,9 @@ public struct AnimationConfig: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-    durationMS = try values.decodeIfPresent(Int.self, forKey: .durationMS) ?? 35
+    let defaults = AnimationConfig()
+    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+    durationMS = try values.decodeIfPresent(Int.self, forKey: .durationMS) ?? defaults.durationMS
   }
 }
 
@@ -177,11 +179,12 @@ public struct OverviewConfig: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    zoom = try values.decodeIfPresent(Double.self, forKey: .zoom) ?? 0.5
+    let defaults = OverviewConfig()
+    zoom = try values.decodeIfPresent(Double.self, forKey: .zoom) ?? defaults.zoom
     windowPreviews =
-      try values.decodeIfPresent(Bool.self, forKey: .windowPreviews) ?? false
+      try values.decodeIfPresent(Bool.self, forKey: .windowPreviews) ?? defaults.windowPreviews
     windowCornerRadius =
-      try values.decodeIfPresent(Double.self, forKey: .windowCornerRadius) ?? 12
+      try values.decodeIfPresent(Double.self, forKey: .windowCornerRadius) ?? defaults.windowCornerRadius
   }
 }
 
@@ -236,23 +239,24 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
+    let defaults = LayoutConfig()
     defaultColumnWidth =
-      try values.decodeIfPresent(Double.self, forKey: .defaultColumnWidth) ?? 0.80
+      try values.decodeIfPresent(Double.self, forKey: .defaultColumnWidth) ?? defaults.defaultColumnWidth
     presetColumnWidths =
       try values.decodeIfPresent([Double].self, forKey: .presetColumnWidths)
-      ?? [0.33, 0.50, 0.66, 0.80]
+      ?? defaults.presetColumnWidths
     centerFocusedColumn =
       try values.decodeIfPresent(
         CenterFocusedColumnConfig.self,
         forKey: .centerFocusedColumn
-      ) ?? .never
-    gaps = try values.decodeIfPresent(Double.self, forKey: .gaps) ?? 8
+      ) ?? defaults.centerFocusedColumn
+    gaps = try values.decodeIfPresent(Double.self, forKey: .gaps) ?? defaults.gaps
     outerTopGap = try values.decodeIfPresent(Double.self, forKey: .outerTopGap)
     outerRightGap = try values.decodeIfPresent(Double.self, forKey: .outerRightGap)
     outerBottomGap = try values.decodeIfPresent(Double.self, forKey: .outerBottomGap)
     outerLeftGap = try values.decodeIfPresent(Double.self, forKey: .outerLeftGap)
-    reservedTop = try values.decodeIfPresent(Double.self, forKey: .reservedTop) ?? 0
-    reservedBottom = try values.decodeIfPresent(Double.self, forKey: .reservedBottom) ?? 0
+    reservedTop = try values.decodeIfPresent(Double.self, forKey: .reservedTop) ?? defaults.reservedTop
+    reservedBottom = try values.decodeIfPresent(Double.self, forKey: .reservedBottom) ?? defaults.reservedBottom
   }
 }
 
@@ -269,7 +273,8 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+    let defaults = MenuBarConfig()
+    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
   }
 }
 
@@ -301,15 +306,16 @@ public struct WorkspacesConfig: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
+    let defaults = WorkspacesConfig()
     names =
       try values.decodeIfPresent([String].self, forKey: .names)
-      ?? []
+      ?? defaults.names
     defaultName =
       try values.decodeIfPresent(String.self, forKey: .defaultName)
       ?? names.first
     monitors =
       try values.decodeIfPresent([String: Int].self, forKey: .monitors)
-      ?? [:]
+      ?? defaults.monitors
   }
 }
 
@@ -356,14 +362,15 @@ public struct Rule: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
+    let defaults = Rule()
     appID = try values.decodeIfPresent(String.self, forKey: .appID)
     title = try values.decodeIfPresent(String.self, forKey: .title)
     role = try values.decodeIfPresent(String.self, forKey: .role)
     workspace = try values.decodeIfPresent(String.self, forKey: .workspace)
-    followFocus = try values.decodeIfPresent(Bool.self, forKey: .followFocus) ?? false
-    floating = try values.decodeIfPresent(Bool.self, forKey: .floating) ?? false
-    forceTiling = try values.decodeIfPresent(Bool.self, forKey: .forceTiling) ?? false
-    intrinsicSize = try values.decodeIfPresent(Bool.self, forKey: .intrinsicSize) ?? false
+    followFocus = try values.decodeIfPresent(Bool.self, forKey: .followFocus) ?? defaults.followFocus
+    floating = try values.decodeIfPresent(Bool.self, forKey: .floating) ?? defaults.floating
+    forceTiling = try values.decodeIfPresent(Bool.self, forKey: .forceTiling) ?? defaults.forceTiling
+    intrinsicSize = try values.decodeIfPresent(Bool.self, forKey: .intrinsicSize) ?? defaults.intrinsicSize
   }
 
   func matches(appID actualAppID: String, title actualTitle: String, role actualRole: String?)

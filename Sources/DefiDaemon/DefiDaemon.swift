@@ -153,7 +153,6 @@ final class Daemon: NSObject {
   var cgPrefetchInvalidationRetries = 0
   var bypassPrefetchOnce = false
   var observedPlatformEventCount = 0
-  var targetMismatchCount = 0
   var targetMismatches: [FrameMismatch] = []
   var activelyResizedWindowID: WindowID?
   var mouseGestureInitialFrame: Rect?
@@ -165,11 +164,7 @@ final class Daemon: NSObject {
   var mouseReorderAnimationActive = false
   var floatingWindowFrames: [WindowID: Rect] = [:]
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
-  var animationFrameCount = 0
-  var currentAnimationFrameCount = 0
   var lastAnimationFrameCount = 0
-  var lastAnimationStepDurationMS = 0.0
-  var maximumAnimationStepDurationMS = 0.0
   var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0

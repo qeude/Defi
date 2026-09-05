@@ -5,11 +5,6 @@ import DefiConfig
 import DefiCore
 import DefiModel
 
-struct WindowBorderAssignment: Equatable, Sendable {
-  let windowID: WindowID
-  let frame: Rect
-}
-
 struct WindowBorderStyle: Equatable, Sendable {
   let enabled: Bool
   let width: Double
@@ -51,9 +46,9 @@ struct WindowBorderStyle: Equatable, Sendable {
 }
 
 struct WindowBorderRenderPlan: Equatable, Sendable {
-  let active: WindowBorderAssignment?
-  let inactive: [WindowBorderAssignment]
-  let tracked: [WindowBorderAssignment]
+  let active: FrameAssignment?
+  let inactive: [FrameAssignment]
+  let tracked: [FrameAssignment]
   let style: WindowBorderStyle
 }
 
@@ -106,19 +101,13 @@ func planWindowBorders(
       style: style
     )
   }
-  let isVisible: (FrameAssignment) -> Bool = {
-    (!hiddenWindowIDs.contains($0.windowID)
-      || $0.windowID == selectedWindowID)
-      && frameIntersectsAnyMonitor($0.frame, monitorFrames: monitorFrames)
+  let isVisible: (FrameAssignment) -> Bool = { assignment in
+    (!hiddenWindowIDs.contains(assignment.windowID)
+      || assignment.windowID == selectedWindowID)
+      && monitorFrames.contains { targetIntersects(assignment.frame, monitor: $0) }
   }
-  let tracked = frames.compactMap { assignment -> WindowBorderAssignment? in
-    guard isVisible(assignment) else { return nil }
-    return WindowBorderAssignment(
-      windowID: assignment.windowID,
-      frame: assignment.frame
-    )
-  }.sorted { $0.windowID.rawValue < $1.windowID.rawValue }
-  let active: WindowBorderAssignment?
+  let tracked = frames.filter(isVisible).sorted { $0.windowID.rawValue < $1.windowID.rawValue }
+  let active: FrameAssignment?
   if windowBorderAlpha(of: style.activeColor) > 0 {
     active = tracked.first { $0.windowID == selectedWindowID }
   } else {
@@ -192,18 +181,6 @@ func resolvedWindowBorderFrame(
   plannedFrame: Rect?
 ) -> Rect? {
   nativeFrame ?? observedFrame ?? plannedFrame
-}
-
-private func frameIntersectsAnyMonitor(
-  _ frame: Rect,
-  monitorFrames: [Rect]
-) -> Bool {
-  monitorFrames.contains {
-    frame.x + frame.width > $0.x
-      && frame.x < $0.x + $0.width
-      && frame.y + frame.height > $0.y
-      && frame.y < $0.y + $0.height
-  }
 }
 
 func windowBorderAlpha(of color: UInt32) -> UInt8 {
