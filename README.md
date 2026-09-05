@@ -102,7 +102,7 @@ Changes reload automatically when you save, including your first config. The
 copy only the parts you want.
 
 [Configuration and commands](CONFIGURATION.md) ·
-[SketchyBar integration](SKETCHYBAR.md)
+[SketchyBar integration](contrib/sketchybar/README.md)
 
 <details>
 <summary>Command-line control</summary>

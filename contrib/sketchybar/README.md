@@ -6,6 +6,7 @@ event `defi_workspace_change`. No polling is needed after initial setup.
 
 ## Install the example
 
+Run the installation commands from the Defi repository root.
 The example requires `jq`. Scripts find Defi in `~/Applications`, then
 `/Applications`, then `PATH`.
 
