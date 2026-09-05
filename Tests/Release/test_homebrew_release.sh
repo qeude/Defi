@@ -24,9 +24,9 @@ gh() {
       done
       local updated
       updated="$(printf '%s' "$content" | base64 --decode)"
-      [[ "$updated" == *'version "0.2.2"'* ]]
-      [[ "$updated" == *"sha256 \"$CHECKSUM\""* ]]
-      [[ "$updated" == *'# preserve this'* ]]
+      [[ "$updated" == *'version "0.2.2"'* &&
+         "$updated" == *"sha256 \"$CHECKSUM\""* &&
+         "$updated" == *'# preserve this'* ]] || return 1
       ;;
     'pr list '*) printf '0\n' ;;
     'pr create '*) printf 'PR created\n' ;;
@@ -37,7 +37,7 @@ export -f gh
 export CHECKSUM
 
 result="$(GH_TOKEN=test bash "$ROOT/script/update_homebrew_release.sh" 0.2.2 "$TEST_DIR/checksum")"
-[[ "$result" == 'PR created' ]]
+[[ "$result" == 'PR created' ]] || exit 1
 if BAD_FORMAT=1 GH_TOKEN=test bash "$ROOT/script/update_homebrew_release.sh" 0.2.2 "$TEST_DIR/checksum" 2>/dev/null; then
   echo 'Accepted an unexpected Cask format' >&2; exit 1
 fi
