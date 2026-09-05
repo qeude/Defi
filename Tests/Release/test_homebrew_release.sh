@@ -11,6 +11,9 @@ printf '%s  Defi-v0.2.2.zip\n' "$CHECKSUM" > "$TEST_DIR/checksum"
 gh() {
   case "$*" in
     'api repos/qeude/homebrew-tap/git/ref/heads/'*) printf 'base-sha\n' ;;
+    'api repos/qeude/homebrew-tap/merges '*)
+      [[ "${MERGE_CONFLICT:-0}" == 0 ]] || return 1
+      ;;
     'api repos/qeude/homebrew-tap/contents/'*)
       local fixture
       fixture=$'cask "defi" do\n  version "0.2.1"\n  sha256 "old"\n  # preserve this\nend\n'
@@ -40,6 +43,9 @@ result="$(GH_TOKEN=test bash "$ROOT/script/update_homebrew_release.sh" 0.2.2 "$T
 [[ "$result" == 'PR created' ]] || exit 1
 if BAD_FORMAT=1 GH_TOKEN=test bash "$ROOT/script/update_homebrew_release.sh" 0.2.2 "$TEST_DIR/checksum" 2>/dev/null; then
   echo 'Accepted an unexpected Cask format' >&2; exit 1
+fi
+if MERGE_CONFLICT=1 GH_TOKEN=test bash "$ROOT/script/update_homebrew_release.sh" 0.2.2 "$TEST_DIR/checksum"; then
+  echo 'Continued after a retry merge conflict' >&2; exit 1
 fi
 for version in '0.2.2-alpha' '../main' '0.2.3'; do
   if GH_TOKEN=test bash "$ROOT/script/update_homebrew_release.sh" "$version" "$TEST_DIR/checksum"; then

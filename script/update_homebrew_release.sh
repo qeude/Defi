@@ -14,6 +14,9 @@ BRANCH="release/defi-$VERSION"
 BASE_SHA="$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)"
 if ! gh api "repos/$REPO/git/ref/heads/$BRANCH" >/dev/null 2>&1; then
   gh api "repos/$REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$BASE_SHA" >/dev/null
+else
+  # Preserve existing edits on retry; conflicts require maintainer resolution.
+  gh api "repos/$REPO/merges" -f base="$BRANCH" -f head="$BASE_SHA" >/dev/null
 fi
 FILE_JSON="$(gh api "repos/$REPO/contents/Casks/defi.rb?ref=$BRANCH")"
 FILE_SHA="$(printf '%s' "$FILE_JSON" | jq -r .sha)"
