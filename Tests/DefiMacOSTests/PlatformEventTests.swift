@@ -15,6 +15,32 @@ private final class TestAXElement: @unchecked Sendable {
 }
 
 struct PlatformEventTests {
+  @Test @MainActor
+  func sessionChangeDiscardsCachedAXConnectionsBeforeNextDiscovery() {
+    let platform = MacOSPlatform()
+    let engine = platform.snapshotEngine
+    let stale = AXUIElementCreateApplication(42)
+    engine.applications = [42: stale]
+    engine.lastApplicationWindowElements = [42: [stale]]
+    engine.unmatchedWindowElementsByProcess = [42: [stale]]
+    engine.windowListReadRetryAttemptsByProcess = [42: 3]
+    engine.hasCompletedWindowSnapshot = true
+    engine.elements = [WindowID(rawValue: 1): stale]
+    platform.invalidateStateForDesktopSessionChange()
+    // A snapshot already running during suspension may still publish its caches.
+    engine.lastApplicationWindowElements = [42: [stale]]
+    _ = engine.consumeObservations()
+    #expect(engine.applications.isEmpty)
+    #expect(engine.lastApplicationWindowElements.isEmpty)
+    #expect(engine.unmatchedWindowElementsByProcess.isEmpty)
+    #expect(engine.windowListReadRetryAttemptsByProcess.isEmpty)
+    #expect(!engine.hasCompletedWindowSnapshot)
+    #expect(engine.elements[WindowID(rawValue: 1)] != nil)
+    engine.applications = [42: AXUIElementCreateApplication(42)]
+    _ = engine.consumeObservations()
+    #expect(engine.applications[42] != nil)
+  }
+
   @Test(arguments: [false, true], [false, true])
   func delayedInternalActivationCannotBorrowNewerInput(keyboard: Bool, inFlight: Bool) {
     let tracker = UserInputTracker()

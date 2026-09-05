@@ -499,6 +499,7 @@ final class PlatformEventMonitor {
   }
 
   func resetAccessibilityObservers() {
+    notificationObservationFailureCounts.removeAll(keepingCapacity: true)
     for observer in observers.values {
       CFRunLoopRemoveSource(
         CFRunLoopGetMain(),

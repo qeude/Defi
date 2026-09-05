@@ -293,6 +293,9 @@ final class Daemon: NSObject {
       return
     }
 
+    // Wake may arrive before AX services are ready. Do not reuse references
+    // obtained while the desktop was unavailable.
+    platform.invalidateStateForDesktopSessionChange()
     replaceTimer(frequencyHz: 2)
     needsDesktopSync = true
     synchronizeDesktop(

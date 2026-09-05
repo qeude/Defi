@@ -280,6 +280,11 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               previousAttempts: windowListReadRetryAttemptsByProcess[processID],
               readSucceeded: copiedWindows != nil
             )
+          if copiedWindows == nil {
+            // A session transition can invalidate an existing AX connection.
+            // Renew it for the already scheduled retry, without an extra read.
+            nextApplications[processID] = AXUIElementCreateApplication(processID)
+          }
           appWindows = copiedWindows ?? cachedApplicationWindows
         } else {
           appWindows = cachedApplicationWindows

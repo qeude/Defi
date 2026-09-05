@@ -16,6 +16,8 @@ extension MacOSPlatform {
 
   public func invalidateStateForDesktopSessionChange() {
     invalidatePreparedAXWindowAttributes()
+    snapshotEngine.invalidateAccessibilitySession()
+    eventMonitor?.resetAccessibilityObservers()
     frameCoordinator.invalidate(reason: "desktop-session-change")
     clearFrameState()
     invalidateFocusStateForDisplayChange()

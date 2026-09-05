@@ -82,6 +82,27 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
   }
 
+  func testFailedApplicationConnectionIsRenewedWithoutRestart() throws {
+    let platform = try makePlatform()
+    let initial = platform.snapshot(config: Config())
+    guard let window = testWindows(in: initial).first,
+      let processID = window.processID
+    else { throw XCTSkip("No manageable desktop application") }
+
+    // Simulate a cached connection that cannot serve the application's windows.
+    platform.snapshotEngine.applications[processID] = AXUIElementCreateApplication(-1)
+    platform.requestWindowTopologyRefresh(processID: processID)
+    _ = platform.snapshot(config: Config())
+    let renewed = try XCTUnwrap(platform.snapshotEngine.applications[processID])
+    var renewedProcessID: pid_t = 0
+    XCTAssertEqual(AXUIElementGetPid(renewed, &renewedProcessID), .success)
+    XCTAssertEqual(renewedProcessID, processID)
+
+    platform.requestWindowTopologyRefresh(processID: processID)
+    let recovered = platform.snapshot(config: Config())
+    XCTAssertTrue(recovered.windows.contains { $0.id == window.id })
+  }
+
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
