@@ -1,9 +1,11 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import DefiConfig
 import DefiCore
 import DefiModel
 import XCTest
+import class SwiftUI.NSHostingMenu
 
 @testable import DefiMacOS
 
@@ -661,6 +663,112 @@ final class DesktopE2ETests: XCTestCase {
         "process \(String(describing: processID)) mapped multiple AX windows to one CG window"
       )
     }
+  }
+
+  func testSwiftUIMenuKeepsWorkspaceSelectionAndCommandRouting() throws {
+    _ = try makePlatform()
+    var commands: [String] = []
+    let menu = NSHostingMenu(rootView: MenuBarContent(
+      activeWorkspace: "dev",
+      workspaces: [MenuWorkspace(id: "dev", label: "Dev"), MenuWorkspace(id: "web", label: "Web")],
+      commandHandler: { commands.append($0) }
+    ))
+    menu.update()
+    XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), ["✓ Dev", "Web", "Quit Defi"])
+    let workspaceIndex = try XCTUnwrap(menu.items.firstIndex { $0.title == "Web" })
+    menu.performActionForItem(at: workspaceIndex)
+    pumpRunLoop(for: 0.05)
+    let quitIndex = try XCTUnwrap(menu.items.firstIndex { $0.title == "Quit Defi" })
+    menu.performActionForItem(at: quitIndex)
+    pumpRunLoop(for: 0.05)
+    XCTAssertEqual(commands, ["workspace web", "quit"])
+  }
+
+  func testCheatsheetFitsContentAndNeverRestoresAClosedPanelOrTakesFocus() throws {
+    _ = try makePlatform()
+    let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let controller = CheatsheetController(config: Config(
+      modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], defaultKeyModifier: "hyper"
+    ))
+    defer { controller.close() }
+    controller.show(on: nil)
+    let first = try XCTUnwrap(NSApplication.shared.windows.first {
+      $0.title == "Defi keyboard shortcuts" && $0.isVisible
+    })
+    XCTAssertFalse(first.canBecomeKey)
+    XCTAssertFalse(first.canBecomeMain)
+    XCTAssertFalse(first.styleMask.contains(.titled))
+    controller.close()
+    controller.show(on: nil)
+    pumpRunLoop(for: 0.3)
+    XCTAssertFalse(first.isVisible)
+    let current = try XCTUnwrap(NSApplication.shared.windows.first {
+      $0.title == "Defi keyboard shortcuts" && $0.isVisible
+    })
+    XCTAssertEqual(current.alphaValue, 1, accuracy: 0.01)
+    XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, frontmost)
+    let screen = try XCTUnwrap(current.screen)
+    XCTAssertLessThan(current.frame.height, screen.visibleFrame.height - 48)
+    XCTAssertLessThan(current.frame.width, screen.visibleFrame.width - 48)
+    XCTAssertGreaterThan(current.frame.width, 600)
+    let fittedFrame = current.frame
+    pumpRunLoop(for: 0.2)
+    XCTAssertEqual(current.frame, fittedFrame)
+    XCTAssertEqual(current.frame.midX, screen.visibleFrame.midX, accuracy: 1)
+    XCTAssertEqual(current.frame.midY, screen.visibleFrame.midY, accuracy: 1)
+    controller.close()
+    pumpRunLoop(for: 0.2)
+    XCTAssertFalse(current.isVisible)
+  }
+
+  func testCheatsheetReceivesHeldModifierAndCapturesItsShortcut() throws {
+    _ = try makePlatform()
+    var inputs: [CheatsheetInput] = []
+    var commands: [String] = []
+    let manager = HotKeyManager(
+      config: Config(
+        modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
+        defaultKeyModifier: "hyper",
+        keys: ["hyper-slash": "toggle-cheatsheet"]
+      ),
+      cheatsheetHandler: { inputs.append($0) }
+    ) { commands.append($0.command) }
+    try manager.start()
+    defer { manager.stop() }
+    let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
+    let modifier = try XCTUnwrap(CGEvent(
+      keyboardEventSource: source, virtualKey: 58, keyDown: true
+    ))
+    modifier.type = .flagsChanged
+    modifier.flags = [.maskAlternate, .maskCommand, .maskControl]
+    defer {
+      modifier.flags = []
+      modifier.post(tap: .cghidEventTap)
+      pumpRunLoop(for: 0.1)
+    }
+    modifier.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: {
+      inputs.contains(.modifiersChanged(matches: true, released: false))
+    }, timeout: 1))
+    pumpRunLoop(for: 0.65)
+    XCTAssertEqual(inputs.last, .modifiersChanged(matches: true, released: false))
+    let shortcut = try XCTUnwrap(CGEvent(
+      keyboardEventSource: source, virtualKey: 44, keyDown: true
+    ))
+    shortcut.flags = modifier.flags
+    shortcut.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: { commands == ["toggle-cheatsheet"] }, timeout: 1))
+    shortcut.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+    shortcut.post(tap: .cghidEventTap)
+    pumpRunLoop(for: 0.1)
+    XCTAssertEqual(commands, ["toggle-cheatsheet"])
+    manager.setCheatsheetVisible(true)
+    let escape = try XCTUnwrap(CGEvent(
+      keyboardEventSource: source, virtualKey: 53, keyDown: true
+    ))
+    escape.flags = modifier.flags
+    escape.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: { inputs.last == .dismiss }, timeout: 1))
   }
 
   func testHotKeysAreCapturedWhileMainActorIsBlocked() throws {

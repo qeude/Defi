@@ -1122,55 +1122,21 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Only incoming workspace writes suppress native position animation`() {
-    #expect(
-      suppressesNativePositionAnimation(
-        stagesVisibleBeforeParking: true,
-        isParked: false,
-        isIntermediate: false
-      ))
-    #expect(
-      suppressesNativePositionAnimation(
-        stagesVisibleBeforeParking: true,
-        isParked: true,
-        isIntermediate: false
-      ) == false)
-    #expect(
-      suppressesNativePositionAnimation(
-        stagesVisibleBeforeParking: false,
-        isParked: false,
-        isIntermediate: false
-      ) == false)
-    #expect(
-      suppressesNativePositionAnimation(
-        stagesVisibleBeforeParking: true,
-        isParked: false,
-        isIntermediate: true
-      ) == false)
-  }
-
-  @Test
-  func `Final workspace writes defer enhanced UI restoration`() {
+  func `Position writes defer enhanced UI restoration throughout navigation`() {
     #expect(
       defersEnhancedUIRestore(
-        stagesVisibleBeforeParking: true,
-        isIntermediate: false,
         enhancedUIWasEnabled: true,
         positionChanged: true
       ))
     #expect(
       defersEnhancedUIRestore(
-        stagesVisibleBeforeParking: true,
-        isIntermediate: true,
-        enhancedUIWasEnabled: true,
+        enhancedUIWasEnabled: false,
         positionChanged: true
       ) == false)
     #expect(
       defersEnhancedUIRestore(
-        stagesVisibleBeforeParking: false,
-        isIntermediate: false,
         enhancedUIWasEnabled: true,
-        positionChanged: true
+        positionChanged: false
       ) == false)
   }
 

@@ -8,6 +8,7 @@ struct ConfigTests {
   func `Empty config uses defaults`() throws {
     let config = try Config.decode(Data())
 
+    #expect(config.showCheatsheetOnModifierHold)
     #expect(config.workspaces.names.isEmpty)
     #expect(config.workspaces.defaultName == nil)
     #expect(config.layout.defaultColumnWidth == 0.8)

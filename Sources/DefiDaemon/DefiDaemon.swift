@@ -13,22 +13,7 @@ let performanceLogger = Logger(
   category: "Performance"
 )
 
-@main
-struct DefiDaemonMain {
-  @MainActor
-  static func main() {
-    do {
-      let options = try DaemonOptions(arguments: Array(CommandLine.arguments.dropFirst()))
-      let daemon = try Daemon(options: options)
-      daemon.run()
-    } catch {
-      FileHandle.standardError.write(Data("defi-daemon: \(error)\n".utf8))
-      exit(1)
-    }
-  }
-}
-
-private struct DaemonOptions {
+struct DaemonOptions {
   let configURL: URL?
   let socketURL: URL
 
@@ -115,8 +100,12 @@ final class Daemon: NSObject {
   var lastPersistedTopology: WorkspaceTopology?
   var hotKeys: HotKeyManager?
   var overviewController: OverviewController?
+  var cheatsheetState = CheatsheetState()
+  var cheatsheetController: CheatsheetController?
+  var cheatsheetHoldTask: Task<Void, Never>?
+  var hotKeyGeneration: UInt64 = 0
   var overviewOpenedAt: TimeInterval?
-  var menuBar: MenuBarController?
+  let menuBar = MenuBarState()
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
   var lastWorkspacePublishState: RuntimeState?
   var lastWorkspacePublishDisplayOrder: [MonitorID] = []
@@ -211,7 +200,7 @@ final class Daemon: NSObject {
   var followUpBackoffSteps = 0
   var followUpUnchangedSince: TimeInterval = 0
 
-  fileprivate init(options: DaemonOptions) throws {
+  init(options: DaemonOptions) throws {
     configURL = options.configURL ?? Config.defaultURL
     config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
@@ -231,9 +220,7 @@ final class Daemon: NSObject {
     }
   }
 
-  fileprivate func run() {
-    NSApplication.shared.setActivationPolicy(.accessory)
-    NSApplication.shared.finishLaunching()
+  func start() {
     installSignalHandlers()
     let trusted = platform.accessibilityTrusted(prompt: true)
     if !trusted {
@@ -275,12 +262,12 @@ final class Daemon: NSObject {
     )
     replaceTimer(frequencyHz: 2)
     log("running; socket=\(server.url.path)")
-    NSApplication.shared.run()
   }
 
   func handleDesktopSessionActivity(_ active: Bool) {
     guard desktopSessionActive != active else { return }
     desktopSessionActive = active
+    if !active { handleCheatsheetInput(.dismiss) }
     desktopSessionGeneration &+= 1
     guard active else {
       commandGeneration &+= 1

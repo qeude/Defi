@@ -396,22 +396,11 @@ func positionWritePhases(
     .filter { !$0.isEmpty }
 }
 
-func suppressesNativePositionAnimation(
-  stagesVisibleBeforeParking: Bool,
-  isParked: Bool,
-  isIntermediate: Bool
-) -> Bool {
-  stagesVisibleBeforeParking && !isParked && !isIntermediate
-}
-
 func defersEnhancedUIRestore(
-  stagesVisibleBeforeParking: Bool,
-  isIntermediate: Bool,
   enhancedUIWasEnabled: Bool,
   positionChanged: Bool
 ) -> Bool {
-  stagesVisibleBeforeParking && !isIntermediate
-    && enhancedUIWasEnabled && positionChanged
+  enhancedUIWasEnabled && positionChanged
 }
 
 func shouldApplyDeferredFocus(
