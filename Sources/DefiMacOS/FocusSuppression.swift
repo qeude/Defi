@@ -36,10 +36,11 @@ func internalFocusSuppressionConsumesEvent(
   else {
     return true
   }
-  if applicationActivation { return false }
   switch latestFocusIntent.source {
   case .keyboard:
-    return false
+    // An activation notification does not identify its origin. A newer
+    // keyboard event cannot turn a matching internal echo into external focus.
+    return applicationActivation
   case .mouse(let windowID):
     return windowID != suppressedWindowID
   }

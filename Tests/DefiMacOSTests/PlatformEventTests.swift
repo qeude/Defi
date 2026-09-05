@@ -15,6 +15,23 @@ private final class TestAXElement: @unchecked Sendable {
 }
 
 struct PlatformEventTests {
+  @Test(arguments: [false, true], [false, true])
+  func delayedInternalActivationCannotBorrowNewerInput(keyboard: Bool, inFlight: Bool) {
+    let tracker = UserInputTracker()
+    let oldTarget = WindowID(rawValue: 2)
+    let suppression = InternalFocusSuppression(
+      requestID: 1, deadline: 30, maximumInputTimestamp: 10, isInFlight: inFlight
+    )
+    tracker.record(timestamp: 11, focusIntent: keyboard ? .keyboard : .mouse(windowID: WindowID(rawValue: 3)))
+    tracker.recordApplicationActivation(processID: 20, at: 12)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 12.1) != nil)
+    #expect(internalFocusSuppressionConsumesEvent(
+      suppression, suppressedWindowID: oldTarget,
+      latestFocusIntent: tracker.snapshot.latestFocusIntent,
+      applicationActivation: true
+    ))
+  }
+
   @Test
   func externalActivationWithoutRecentClickRemainsAvailableForWindowResolution() {
     let tracker = UserInputTracker()
@@ -61,7 +78,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func newerApplicationActivationBypassesOldTargetSuppressionOnly() {
+  func onlyDirectClickOnSuppressedTargetOverridesItsActivationEcho() {
     let tracker = UserInputTracker()
     let suppression = InternalFocusSuppression(requestID: 1, deadline: 30, maximumInputTimestamp: 10)
     tracker.record(timestamp: 11, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
@@ -69,47 +86,23 @@ struct PlatformEventTests {
       suppression, suppressedWindowID: WindowID(rawValue: 2),
       latestFocusIntent: tracker.snapshot.latestFocusIntent,
       applicationActivation: true
-    ) == false)
+    ))
     #expect(internalFocusSuppressionConsumesEvent(
       suppression, suppressedWindowID: WindowID(rawValue: 2),
       latestFocusIntent: tracker.snapshot.latestFocusIntent
     ))
-    tracker.consumeFocusIntent(at: 11)
+    tracker.record(timestamp: 12, focusIntent: .mouse(windowID: WindowID(rawValue: 2)))
+    #expect(internalFocusSuppressionConsumesEvent(
+      suppression, suppressedWindowID: WindowID(rawValue: 2),
+      latestFocusIntent: tracker.snapshot.latestFocusIntent,
+      applicationActivation: true
+    ) == false)
+    tracker.consumeFocusIntent(at: 12)
     #expect(internalFocusSuppressionConsumesEvent(
       suppression, suppressedWindowID: WindowID(rawValue: 2),
       latestFocusIntent: tracker.snapshot.latestFocusIntent,
       applicationActivation: true
     ))
-  }
-
-  @Test
-  func delayedNativeFocusRequiresAnUninterruptedRecentReleasedClick() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 10, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
-    #expect(nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: 5, releaseGeneration: 4, input: tracker.snapshot, now: 10.5
-    ))
-    #expect(nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: 4, releaseGeneration: 4, input: tracker.snapshot, now: 10.5
-    ) == false)
-    #expect(nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: 5, releaseGeneration: nil, input: tracker.snapshot, now: 10.5
-    ) == false)
-    #expect(nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: 5, releaseGeneration: 4, input: tracker.snapshot, now: 12.1
-    ) == false)
-    tracker.record(timestamp: 10.2)
-    #expect(nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: 5, releaseGeneration: 4, input: tracker.snapshot, now: 10.5
-    ) == false)
-    tracker.record(timestamp: 11, focusIntent: .keyboard)
-    #expect(nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: 5, releaseGeneration: 4, input: tracker.snapshot, now: 11.5
-    ) == false)
-    tracker.consumeFocusIntent(at: 11)
-    #expect(nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: 5, releaseGeneration: 4, input: tracker.snapshot, now: 11.5
-    ) == false)
   }
 
   @Test

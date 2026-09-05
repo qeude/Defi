@@ -534,12 +534,10 @@ extension SnapshotEngine {
     let mouseResizeGestureObserved = mouseResizeGesturePending
     let mouseFocusReleaseObserved = mouseFocusReleasePending
     let userInput = userInputTracker.snapshot
-    let nativeFocusObservedAfterMouseRelease = nativeFocusFollowsRecentMouseRelease(
-      eventGeneration: nativeFocusEventGeneration,
-      releaseGeneration: mouseFocusReleaseEventGeneration,
-      input: userInput,
-      now: now
-    )
+    let nativeFocusObservedAfterMouseRelease =
+      mouseFocusReleasePending
+      && nativeFocusEventGeneration
+        > (mouseFocusReleaseEventGeneration ?? nativeFocusEventGeneration)
     let mouseGestureWindowID =
       mouseResizeGestureObserved
       ? mouseGestureRefreshProcessID(
@@ -667,6 +665,7 @@ extension SnapshotEngine {
     )
     mouseResizeGesturePending = false
     mouseFocusReleasePending = false
+    mouseFocusReleaseEventGeneration = nil
     pendingFrameCorrections = frameCorrectionsPreservingDebt(
       existing: pendingFrameCorrections,
       observed: Dictionary(

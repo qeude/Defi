@@ -297,8 +297,7 @@ extension Daemon {
         !previouslyManagedWindowIDs.contains($0)
       } ?? false,
       nativeFocusEventAfterMouseRelease:
-        snapshot.nativeFocusObservedAfterMouseRelease,
-      nativeFocusIsApplicationActivation: snapshot.nativeFocusIsApplicationActivation
+        snapshot.nativeFocusObservedAfterMouseRelease
     )
     if displayGeometryChanged {
       rebaseFloatingWindowFrames(

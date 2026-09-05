@@ -6,6 +6,31 @@ import Testing
 
 struct NativeFocusTests {
   @Test(arguments: [false, true])
+  func consumedClickCannotAuthorizeLaterFocus(applicationActivation: Bool) {
+    let deferred = updatedDeferredMouseFocusIntent(
+      current: nil,
+      consumedMouseFocusIntentTimestamp: 12,
+      mouseFocusIntentWindowID: WindowID(rawValue: 1),
+      mouseFocusIntentTimestamp: 12,
+      focusedWindowID: WindowID(rawValue: 2),
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      nativeFocusEventAfterMouseRelease: true
+    )
+    #expect(deferred == nil)
+    #expect(nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      deferredMouseFocusPending: deferred != nil,
+      deferredMouseFocusReady: deferred?.mouseInteractionEnded == true,
+      mouseReleaseFocusIntentCurrent: deferred?.windowID == WindowID(rawValue: 2),
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: applicationActivation ? 13 : nil
+    ) == applicationActivation)
+  }
+
+  @Test(arguments: [false, true])
   func confirmedActivationRevealsWorkspaceWithoutClickButNeverOverridesNewerCommand(newerCommand: Bool) throws {
     var fixture = try makeRemovalFixture()
     let accepted = nativeFocusMutationIsReady(
@@ -307,7 +332,7 @@ struct NativeFocusTests {
   }
 
   @Test
-  func linkFocusObservedBeforeReleaseSurvivesTheReleaseSnapshot() throws {
+  func activationBeforeReleaseDoesNotRebindUnfinishedSourceClick() throws {
     let source = WindowID(rawValue: 1)
     let target = WindowID(rawValue: 2)
     let pressed = updatedDeferredMouseFocusIntent(
@@ -316,8 +341,7 @@ struct NativeFocusTests {
       mouseFocusIntentTimestamp: 12,
       focusedWindowID: target,
       nativeFocusChanged: true,
-      mouseInteractionEnded: false,
-      nativeFocusIsApplicationActivation: true
+      mouseInteractionEnded: false
     )
     let released = try #require(updatedDeferredMouseFocusIntent(
       current: pressed,
@@ -327,12 +351,20 @@ struct NativeFocusTests {
       nativeFocusChanged: false,
       mouseInteractionEnded: true
     ))
-    #expect(released.windowID == target)
-    #expect(released.focusObserved)
+    #expect(released.windowID == source)
+    #expect(!released.focusObserved)
+    #expect(nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: true,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: 13
+    ))
   }
 
-  @Test(arguments: [false, true])
-  func delayedLinkActivationSurvivesConsumedSourceClick(applicationActivation: Bool) throws {
+  @Test
+  func delayedLinkActivationSurvivesConsumedSourceClick() throws {
     let source = WindowID(rawValue: 1)
     let target = WindowID(rawValue: 2)
     let released = try #require(updatedDeferredMouseFocusIntent(
@@ -343,27 +375,26 @@ struct NativeFocusTests {
       nativeFocusChanged: false,
       mouseInteractionEnded: true
     ))
-    let redirected = try #require(updatedDeferredMouseFocusIntent(
+    let redirected = updatedDeferredMouseFocusIntent(
       current: nil,
       consumedMouseFocusIntentTimestamp: released.timestamp,
       mouseFocusIntentWindowID: source,
       mouseFocusIntentTimestamp: 12,
       focusedWindowID: target,
       nativeFocusChanged: true,
+      mouseInteractionEnded: false
+    )
+    #expect(redirected == nil)
+    #expect(nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
       mouseInteractionEnded: false,
-      nativeFocusEventAfterMouseRelease: !applicationActivation,
-      nativeFocusIsApplicationActivation: applicationActivation
+      leftMouseButtonDown: false,
+      deferredMouseFocusPending: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: 13,
+      latestCommandInputTimestamp: 12
     ))
-    #expect(redirected.windowID == target)
-    #expect(redirected.focusObserved)
-    #expect(redirected.mouseInteractionEnded)
-    #expect(mouseReleaseFocusIntentIsCurrent(
-      focusedWindowID: target,
-      mouseFocusIntentWindowID: redirected.windowID,
-      mouseFocusIntentTimestamp: redirected.timestamp,
-      latestCommandInputTimestamp: 13,
-      nativeFocusChanged: true
-    ) == false)
   }
 
   @Test
