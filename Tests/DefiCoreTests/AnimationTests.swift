@@ -1,6 +1,5 @@
 import DefiCore
 import DefiModel
-import Numerics
 import Testing
 
 struct AnimationTests {
@@ -14,10 +13,8 @@ struct AnimationTests {
       let next = clock.next(at: now)
       let tick = try #require(next)
       #expect(tick.index == index)
-      #expect(tick.elapsed.isApproximatelyEqual(
-        to: Double(index + 1) * interval, absoluteTolerance: 0.000_001))
-      #expect(tick.lateness.isApproximatelyEqual(
-        to: index >= 1 ? 0.1 : 0, absoluteTolerance: 0.000_001))
+      #expect(abs((tick.elapsed) - (Double(index + 1) * interval)) <= 0.000_001)
+      #expect(abs((tick.lateness) - (index >= 1 ? 0.1 : 0)) <= 0.000_001)
     }
     let exhausted = clock.next(at: 11)
     #expect(exhausted == nil)
@@ -26,10 +23,7 @@ struct AnimationTests {
   @Test
   func `Scroll animation uses ease out cubic and finishes exactly`() {
     #expect(animatedScalar(from: 0, to: 1, elapsed: 0, duration: 0.08) == 0)
-    #expect(
-      animatedScalar(from: 0, to: 1, elapsed: 0.04, duration: 0.08)
-        .isApproximatelyEqual(to: 0.875, absoluteTolerance: 0.000_1)
-    )
+    #expect(abs((animatedScalar(from: 0, to: 1, elapsed: 0.04, duration: 0.08)) - (0.875)) <= 0.000_1)
     #expect(animatedScalar(from: 0, to: 1, elapsed: 0.08, duration: 0.08) == 1)
   }
 
@@ -50,8 +44,8 @@ struct AnimationTests {
       value = step.value
       velocity = step.velocity
     }
-    #expect(value.isApproximatelyEqual(to: 500, absoluteTolerance: 0.01))
-    #expect(velocity.isApproximatelyEqual(to: 0, absoluteTolerance: 0.5))
+    #expect(abs((value) - (500)) <= 0.01)
+    #expect(abs((velocity) - (0)) <= 0.5)
   }
 
   @Test
@@ -67,9 +61,7 @@ struct AnimationTests {
 
     #expect(at120Hz.count == 4)
     #expect(at60Hz.count == 2)
-    #expect(
-      (at120Hz.first ?? 0).isApproximatelyEqual(to: 0.247, absoluteTolerance: 0.002)
-    )
+    #expect(abs(((at120Hz.first ?? 0)) - (0.247)) <= 0.002)
     #expect(at120Hz.last ?? 0 > 0.85)
     #expect(at120Hz.last ?? 1 < 1)
     #expect(at120Hz == at120Hz.sorted())
@@ -143,12 +135,10 @@ struct AnimationTests {
 
   @Test
   func `Final AX frame is dispatched early enough to finish on animation deadline`() {
-    #expect(
-      anticipatedFinalFrameDispatchDelay(
+    #expect(abs((anticipatedFinalFrameDispatchDelay(
         animationDuration: 0.035,
         predictedFrameLatency: 0.012
-      ).isApproximatelyEqual(to: 0.023, absoluteTolerance: 0.000_1)
-    )
+      )) - (0.023)) <= 0.000_1)
     #expect(
       anticipatedFinalFrameDispatchDelay(
         animationDuration: 0.035,

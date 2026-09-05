@@ -2,7 +2,6 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import DefiRuntime
-import Numerics
 import Testing
 
 struct MouseReorderingTests {
@@ -553,10 +552,7 @@ struct MouseReorderingTests {
 
     #expect(update.shouldFinish == false)
     #expect(
-      update.settlement.nextCheckAt.isApproximatelyEqual(
-        to: 10.35,
-        absoluteTolerance: 0.000_1
-      )
+      abs(update.settlement.nextCheckAt - 10.35) <= 0.000_1
     )
   }
 

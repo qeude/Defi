@@ -19,7 +19,6 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/dduan/TOMLDecoder.git", from: "0.4.5"),
-    .package(url: "https://github.com/apple/swift-numerics.git", from: "1.1.1"),
   ],
   targets: [
     .target(name: "DefiModel"),
@@ -67,11 +66,7 @@ let package = Package(
     ),
     .testTarget(
       name: "DefiCoreTests",
-      dependencies: [
-        "DefiCore",
-        "DefiModel",
-        .product(name: "Numerics", package: "swift-numerics"),
-      ]
+      dependencies: ["DefiCore", "DefiModel"]
     ),
     .testTarget(
       name: "DefiConfigTests",
@@ -83,7 +78,6 @@ let package = Package(
         "DefiRuntime",
         "DefiConfig",
         "DefiModel",
-        .product(name: "Numerics", package: "swift-numerics"),
       ]
     ),
     .testTarget(
@@ -101,7 +95,6 @@ let package = Package(
         "DefiConfig",
         "DefiCore",
         "DefiModel",
-        .product(name: "Numerics", package: "swift-numerics"),
       ]
     ),
     .testTarget(

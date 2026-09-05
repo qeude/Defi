@@ -1,6 +1,5 @@
 import DefiCore
 import DefiModel
-import Numerics
 import Testing
 
 struct WorkspaceScrollingTests {
@@ -21,15 +20,8 @@ struct WorkspaceScrollingTests {
       settings: compact
     )
 
-    #expect(
-      workspace.targetScrollOffset.isApproximatelyEqual(
-        to: 0.44,
-        absoluteTolerance: 0.001
-      )
-    )
-    #expect(
-      diff[1].frame.x.isApproximatelyEqual(to: 407.2, absoluteTolerance: 0.001)
-    )
+    #expect(abs((workspace.targetScrollOffset) - (0.44)) <= 0.001)
+    #expect(abs((diff[1].frame.x) - (407.2)) <= 0.001)
   }
 
   @Test
@@ -44,32 +36,23 @@ struct WorkspaceScrollingTests {
       columns: columns,
       focusedColumn: 1
     )
-    #expect(
-      focusedColumnTargetScrollOffset(
+    #expect(abs((focusedColumnTargetScrollOffset(
         workspace: workspace, viewport: viewport, settings: LayoutSettings(),
         centerFocusedColumn: .never
-      )
-        .isApproximatelyEqual(to: 0, absoluteTolerance: 0.001)
-    )
+      )) - (0)) <= 0.001)
 
     workspace.focusedColumn = 2
-    #expect(
-      focusedColumnTargetScrollOffset(
+    #expect(abs((focusedColumnTargetScrollOffset(
         workspace: workspace, viewport: viewport, settings: LayoutSettings(),
         centerFocusedColumn: .never
-      )
-        .isApproximatelyEqual(to: 0.5, absoluteTolerance: 0.001)
-    )
+      )) - (0.5)) <= 0.001)
 
     workspace.focusedColumn = 3
     workspace.scrollOffset = 0.5
-    #expect(
-      focusedColumnTargetScrollOffset(
+    #expect(abs((focusedColumnTargetScrollOffset(
         workspace: workspace, viewport: viewport, settings: LayoutSettings(),
         centerFocusedColumn: .never
-      )
-        .isApproximatelyEqual(to: 1, absoluteTolerance: 0.001)
-    )
+      )) - (1)) <= 0.001)
   }
 
   @Test
@@ -98,15 +81,8 @@ struct WorkspaceScrollingTests {
       settings: centered
     )
 
-    #expect(
-      workspace.targetScrollOffset.isApproximatelyEqual(
-        to: 0.25,
-        absoluteTolerance: 0.001
-      )
-    )
-    #expect(
-      diff[1].frame.x.isApproximatelyEqual(to: 250, absoluteTolerance: 0.001)
-    )
+    #expect(abs((workspace.targetScrollOffset) - (0.25)) <= 0.001)
+    #expect(abs((diff[1].frame.x) - (250)) <= 0.001)
   }
 
 }

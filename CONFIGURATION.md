@@ -14,17 +14,17 @@ Launch the daemon with another file when needed:
 ~/Applications/Defi.app/Contents/MacOS/defi-daemon --config /path/to/config.toml
 ```
 
-Defi reloads the file after each save. Invalid changes keep the last valid
+Defi creates the config directory if needed, without creating a config file.
+It reloads the file after each save, including its first creation. Invalid changes keep the last valid
 configuration active and write an error to `~/Library/Logs/Defi.log` when using
 the installed service. Reloading preserves workspace contents, focus, column
 widths, and scroll positions. Geometry is recalculated only when a changed
 setting affects the current layout.
 
-Invalid TOML, invalid values, unknown workspaces in rules or commands, and
-invalid command strings stop config loading. An invalid accelerator or modifier
-alias disables hotkeys for that daemon run and writes an error to
-`~/Library/Logs/Defi.log` when using the installed service. Configured mouse
-focus and cursor-motion tracking remain active.
+Invalid TOML, values, workspace references, commands, accelerators, and modifier
+aliases are shown in an app alert. Errors that prevent decoding stop startup;
+invalid hotkeys disable keyboard capture for that run. Configured mouse focus
+and cursor-motion tracking remain active when possible.
 
 ## `[layout]`
 
@@ -546,20 +546,20 @@ names = []
 [keys]
 "alt-left" = "focus-column left"
 "alt-right" = "focus-column right"
-"alt-up" = "focus-workspace up"
-"alt-down" = "focus-workspace down"
 "alt-j" = "focus-window down"
 "alt-k" = "focus-window up"
+"alt-up" = "focus-workspace up"
+"alt-down" = "focus-workspace down"
 "alt-o" = "toggle-overview"
 "alt-leftbracket" = "focus-column first"
 "alt-rightbracket" = "focus-column last"
 
 "alt-shift-left" = "move-column left"
 "alt-shift-right" = "move-column right"
-"alt-shift-up" = "move-column-to-workspace up"
-"alt-shift-down" = "move-column-to-workspace down"
 "alt-shift-j" = "move-window down"
 "alt-shift-k" = "move-window up"
+"alt-shift-up" = "move-column-to-workspace up"
+"alt-shift-down" = "move-column-to-workspace down"
 "alt-shift-leftbracket" = "move-column first"
 "alt-shift-rightbracket" = "move-column last"
 
@@ -599,5 +599,5 @@ the first stable release; use setting names exactly as documented.
 
 ## Full example
 
-See [defi.example.toml](defi.example.toml) for a daily-use config with named
+See [config.example.toml](config.example.toml) for a daily-use config with named
 workspaces, a Hyper modifier, and application rules.

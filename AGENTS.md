@@ -28,15 +28,20 @@ Never import AppKit, ApplicationServices, or CoreGraphics from pure modules.
 
 ## Private platform API policy
 
-Use private macOS APIs only when public APIs have been demonstrated unable to
-meet a user-visible correctness, stability, or latency invariant.
+Private macOS APIs fall into two categories:
+
+- optional read-only metadata may be used when it materially improves a
+  user-visible result and a public-API fallback remains fully functional
+- private mutation requires evidence that public APIs cannot meet a
+  user-visible correctness, stability, or latency invariant
 
 - isolate private API use inside `DefiMacOS` behind a narrow backend interface
 - resolve private symbols dynamically; missing or changed symbols must never prevent startup
 - always keep a fully functional, tested public-API fallback
-- probe private capabilities using Defi-owned surfaces, never by mutating user windows
-- downgrade to the public backend for the rest of the session after a private operation fails
-- expose the active backend and fallback count through status or telemetry
+- probe mutating private capabilities using Defi-owned surfaces, never by mutating user windows
+- downgrade a mutating private backend for the rest of the session after failure
+- fall back immediately when optional private metadata is unavailable or invalid
+- expose active private mutation backends and fallback counts through status or telemetry
 - third-party position and size mutation is approved only for Defi's
   experimental frame backend after explicit user opt-in; keep it disabled by
   default, while focus, lifecycle, Spaces, and compositor control remain on
@@ -66,8 +71,8 @@ All state mutation passes through `DefiRuntime`.
 Run exactly one `defi-daemon` instance per user session. Multiple daemons create
 competing event taps, socket ownership, AX writes, and visible layout glitches.
 
-- check for an existing daemon or loaded `com.quentin.defi` LaunchAgent before launch
-- when the LaunchAgent is loaded, use `defi service restart`; never also use `open -n`
+- acquire the per-user instance lock before creating the IPC socket
+- use `defi service restart` for an installed build; never also use `open -n`
 - before replacing an installed bundle, preserve its code-signing identity; set
   `DEFI_CODESIGN_IDENTITY` in the ignored `.env.local` when needed and verify
   the replacement has the same designated requirement, because macOS treats a
@@ -153,7 +158,7 @@ swift test
 
 Platform smoke tests must report whether Accessibility permission was available.
 Run real-desktop tests with `./script/test_desktop.sh`; it temporarily stops the
-LaunchAgent so no second daemon can fight test frame writes, then restores it.
+installed app so no second daemon can fight test frame writes, then restores it.
 
 For user-visible changes to animation, focus, parking, hotkeys, native Dock or
 Command-Tab interactions, mouse behavior, or multi-monitor routing, also validate
