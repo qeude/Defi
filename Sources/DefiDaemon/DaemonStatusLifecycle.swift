@@ -335,6 +335,7 @@ extension Daemon {
   }
 
   func shutdown() -> Never {
+    accessibilityPermissionMonitor.stop()
     handleCheatsheetInput(.dismiss)
     configWatcher?.stop()
     timer?.cancel()

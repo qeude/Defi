@@ -38,3 +38,13 @@ jobs:
       - name: Deterministic tests
         # DesktopE2ETests require a real interactive session and Accessibility permission.
         run: swift test --skip DesktopE2ETests
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+
+      - name: Release automation checks
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
+          bash Tests/Release/test_homebrew_release.sh

@@ -60,6 +60,22 @@ if [[ -n "${DEFI_CODESIGN_IDENTITY:-}" ]]; then
 fi
 
 IDENTITY_OUTPUT="$(security find-identity -p codesigning -v)"
+
+# Worktrees share one installed app and must reuse its certificate for TCC.
+INSTALLED_APP="$HOME/Applications/Defi.app"
+if [[ -d "$INSTALLED_APP" && -z "${DEFI_DEVELOPMENT_TEAM:-}" ]]; then
+  CERTIFICATE_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/defi-installed-signing.XXXXXX")"
+  trap 'rm -rf -- "$CERTIFICATE_DIRECTORY"' EXIT
+  codesign -d --extract-certificates="$CERTIFICATE_DIRECTORY/cert-" "$INSTALLED_APP" >&2
+  [[ -f "$CERTIFICATE_DIRECTORY/cert-0" ]] || { echo "Installed app has no signing certificate" >&2; exit 1; }
+  INSTALLED_IDENTITY="$(openssl x509 -inform DER -in "$CERTIFICATE_DIRECTORY/cert-0" -noout -fingerprint -sha1 | awk -F= '{ gsub(":", "", $2); print toupper($2) }')"
+  if ! printf '%s\n' "$IDENTITY_OUTPUT" | awk '{ print $2 }' | grep -Fqx "$INSTALLED_IDENTITY"; then
+    echo "Installed signing certificate is unavailable; refusing to choose a different identity" >&2
+    exit 1
+  fi
+  printf '%s\n' "$INSTALLED_IDENTITY"
+  exit 0
+fi
 DEVELOPMENT_IDENTITIES="$(
   printf '%s\n' "$IDENTITY_OUTPUT" |
     awk '$0 ~ /Apple Development:/ { print $2 }'

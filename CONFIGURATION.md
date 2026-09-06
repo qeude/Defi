@@ -61,7 +61,7 @@ Widths are monitor-relative fractions. Existing pixel widths learned from
 manual resize remain pixel-based and scale when monitor geometry changes.
 
 Reserved values are extra insets, not raw bar dimensions. See
-[SKETCHYBAR.md](SKETCHYBAR.md) for overlap calculation and live commands.
+[SketchyBar integration](contrib/sketchybar/README.md) for overlap calculation and live commands.
 
 ## `[menu_bar]`
 
@@ -433,7 +433,7 @@ CLI-only integration commands:
 | `set-reserved-area top\|bottom <points>` | Override extra reserved edge on every display, or targeted `--monitor`. |
 | `clear-reserved-area` | Restore configured reserved edges. |
 
-See [SKETCHYBAR.md](SKETCHYBAR.md) for event contract and example scripts.
+See [SketchyBar integration](contrib/sketchybar/README.md) for event contract and example scripts.
 
 ### Native macOS fullscreen
 

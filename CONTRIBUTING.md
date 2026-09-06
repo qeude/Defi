@@ -1,6 +1,6 @@
 # Contributing
 
-Defi is `0.2.0-alpha`: experimental macOS software. APIs, behavior, and
+Defi is experimental macOS software. APIs, behavior, and
 configuration may change before the first stable release.
 
 ## Prerequisites
@@ -42,33 +42,125 @@ the maintainer's optional setup, not an installation default.
 
 ## Checks
 
-Run deterministic checks before opening a pull request:
+Run the complete automated verification:
 
 ```sh
-swift build
-swift test --skip DesktopE2ETests
+python3 script/verify.py full --filter DesktopE2ETests/testSnapshotUsesUniqueWindowIDsPerProcess
 ```
 
-Verify the installed build with `./script/build_and_run.sh --verify`, using
-the same signing identity as your existing installation.
+Omit `--filter` for the full native suite. Preparation happens locally; installation
+and native tests wait for the shared desktop reservation. A failed preparation
+never installs. The loop requires one running installed daemon for its session
+checkpoint. Visual inspection remains a separate check when required by the change.
 
-Run desktop checks only on a development Mac with a disposable desktop state:
+Inspect live progress from another terminal:
 
 ```sh
-./script/test_desktop.sh
+python3 script/verify.py status
+python3 script/verify.py status dist/verification/<run-directory>
 ```
 
-Desktop tests move real windows. They restore changed windows and restart the
-installed service, but do not run them while important unsaved work is exposed.
+Reports update atomically at each phase and step completion. Status includes the
+desktop owner's PID, project directory and report path, and elapsed time in the current
+phase. A killed process can leave a running report; `process_alive` distinguishes
+that case. The OS lock, rather than the retained owner metadata, determines availability.
+
+Run the local loop while continuing to use your desktop:
+
+```sh
+python3 script/verify.py local
+```
+
+It builds and runs Swift tests excluding `DesktopE2ETests`, plus the workflow
+checks. It forces `DEFI_E2E=0` even if your shell enabled it. Tests using AppKit
+notification centers or fake AX elements stay local; actual window mutation,
+event posting, and global hotkey capture belong in `DesktopE2ETests`.
+
+Prepare a signed app without stopping the installed daemon:
+
+```sh
+python3 script/verify.py local --stage
+```
+
+The command prints a run directory under `dist/verification/` with `result.json`,
+step logs, source identity, and the staged bundle's SHA-256. Use that directory
+for the exclusive desktop phase:
+
+```sh
+python3 script/verify.py desktop dist/verification/<run-directory> --wait
+# Or target one native scenario:
+python3 script/verify.py desktop dist/verification/<run-directory> --wait --filter DesktopE2ETests/testSnapshotUsesUniqueWindowIDsPerProcess
+```
+
+This installs the exact prepared bundle without rebuilding it. It rejects source
+or artifact changes, compiles test code before reserving the desktop, and records
+normalized XCTest XML plus status and trace logs. XCTest case events are read
+from the serial runner: SwiftPM's parallel XML writer can hide skipped cases. Zero executed tests or skipped tests
+produce an incomplete result, not a full pass. Visual inspection remains separate
+and is always reported as `not-run`; automated checks do not certify animation
+quality or realistic Dock and Command-Tab interactions.
+
+Without an explicit identity override, signing reuses the installed app's
+certificate when available. Installation requires both the same certificate and
+the same designated requirement, checked before stopping the daemon. If its key
+is unavailable, restore that signing identity rather than selecting another one.
+The checks do not reset or grant privacy permissions.
+
+Before installation, verification stops the daemon to flush and checkpoint its
+existing topology and placement stores. After tests, including failures, it
+restores those files with the daemon stopped, restarts it, and checks every
+monitor's workspace structure, logical focus, column widths, scroll and managed
+frame convergence. The checkpoint and observed restoration are retained with the
+run. Closed windows, changed monitors, or intervening human input can prevent exact
+restoration; that produces a failed check instead of a pass. These checks do not
+certify native focus or visual appearance.
+Session identity uses the boot UUID and audit session ID, so restarts retain the
+same topology while another login or boot cannot reuse stale window identities.
+
+The installer copies and verifies a candidate before stopping the app, keeps the
+previous bundle during startup, and recovers it if replacement or readiness fails.
+If a daemon refuses to stop during recovery, it retains the backup and reports its
+path rather than replacing a running bundle. Debug mode commits the installation
+before handing control to LLDB.
+
+A per-user file lock serializes installation and desktop tests.
+Busy commands exit with code 75; the OS releases the lock when its
+owning processes exit. Do not delete the lock file to bypass contention.
+With `desktop --wait`, the command waits and resumes automatically when the
+reservation becomes available. It rechecks source and bundle hashes before
+installation; changes during the wait invalidate the run. Waiting does not
+guarantee FIFO ordering. Cancel with Ctrl-C.
+
+For manual visual validation, reserve the desktop in an interactive shell:
+
+```sh
+python3 script/desktop_lock.py --wait bash
+# Run installation/desktop commands here, then inspect the app while this shell lives.
+# Restore the original workspace, confirm one daemon, and exit to release the desktop.
+```
+
+The lock does not prevent human input. Desktop tests still move real application
+windows and need a development desktop. Keep realistic interaction checks focused
+on the changed behavior and the final build.
+
+`./script/build_and_run.sh --verify` remains a build/install/readiness shortcut;
+`./script/test_desktop.sh [DesktopE2ETests/testName]` remains available for native
+tests. Both use the same desktop reservation. The test script restores a previously
+running service on success, failure, or handled interruption.
 
 ## Development scripts
 
 | Script | Purpose |
 | --- | --- |
-| `build_and_run.sh` | Build, sign, install, and launch Defi. |
+| `verify.py` | Local preparation or exclusive desktop verification with recorded results. |
+| `desktop_lock.py` | Reserve the desktop across concurrent and nested commands. |
+| `desktop_session.py` | Checkpoint and restore existing session stores under the desktop reservation. |
+| `check_signing.sh` | Compare certificates and designated requirements without mutation. |
+| `build_and_run.sh` | Build, sign, install, and launch Defi; `--install-staged` reuses a prepared bundle. |
 | `resolve_signing_identity.sh` | Select the signing identity for the build script. |
 | `setup_release_certificate.sh` | Create the stable local release certificate. |
 | `package_release.sh` | Package the signed app as a ZIP with a checksum. |
+| `update_homebrew_release.sh` | Open a Cask update PR using a published release checksum. |
 | `test_desktop.sh` | Stop Defi, run desktop tests, and restore the app. |
 
 ## Code boundaries
@@ -110,7 +202,45 @@ Create the stable self-signed release identity once:
 ```
 
 Back up `Defi Release` from Keychain Access to encrypted offline storage. Never
-commit or upload the exported private key.
+commit the exported private key or attach it to a release. The encrypted export
+may be stored only as a protected GitHub Actions secret for automated signing.
+
+### Automated releases
+
+After merging the version and build-number changes in `Support/Defi-Info.plist`,
+push a matching tag from `main`, for example `v0.2.2`. The Release workflow checks
+the version and ancestry, runs the build and tests, then waits for approval of
+the `release` environment. Inspect the tagged commit before approving it.
+
+The signing job uses a temporary keychain, verifies the existing certificate
+fingerprint, packages the app, and removes the signing files. It publishes only
+the ZIP and checksum. Stable tags then open a PR in `qeude/homebrew-tap`, which
+must be reviewed and merged separately. Prerelease tags do not update the Cask.
+
+Configure the `release` environment with a required maintainer reviewer and
+deployment rules allowing only `v*` tags and `main`. Store these environment secrets:
+
+- `DEFI_RELEASE_P12_BASE64`: Base64-encoded encrypted export of the existing
+  `Defi Release` certificate **and private key**.
+- `DEFI_RELEASE_P12_PASSWORD`: the export password.
+- `HOMEBREW_TAP_TOKEN`: a fine-grained token restricted to `qeude/homebrew-tap`,
+  with Contents and Pull requests read/write access. Renew it before expiration.
+
+The maintainer can approve their own deployment, so a solo-maintained repository
+does not require a second account. Homebrew is a separate job and may require
+another environment approval. If it fails, rerun only that failed job; it reads
+the published checksum and does not rebuild or replace the release.
+
+Use **Actions → Release → Run workflow** on `main` to verify signing and
+packaging without publishing a release or creating a Homebrew PR. A published
+release cannot be overwritten by a workflow retry. A failed draft upload can
+be retried before publication.
+
+See GitHub's [certificate setup](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)
+and [environment protection](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+documentation for secret storage and approval controls.
+
+### Local packaging
 
 After the required checks pass, create the non-notarized arm64 ZIP and checksum:
 
@@ -121,7 +251,7 @@ After the required checks pass, create the non-notarized arm64 ZIP and checksum:
 The script validates the bundle signature and architecture, rejects private
 key material, provisioning profiles, personal source paths, and email addresses,
 then writes `Defi-v<version>.zip` and its SHA-256 file under `dist/`. Upload only
-those two files to the matching prerelease tag.
+those two files to the matching release tag.
 
 Finally, update `qeude/homebrew-tap` with the release URL and SHA-256. The Cask
 must install `Defi.app`, remove `com.apple.quarantine` in `postflight`, and zap:

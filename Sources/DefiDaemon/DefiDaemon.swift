@@ -82,6 +82,8 @@ final class Daemon: NSObject {
   let configURL: URL
   var config: Config
   let platform = MacOSPlatform()
+  let accessibilityPermissionMonitor = AccessibilityPermissionMonitor()
+  var windowManagementStarted = false
   let server: UnixSocketServer
   let placementStore: PlacementStore
   let topologyStore: WorkspaceTopologyStore
@@ -208,7 +210,9 @@ final class Daemon: NSObject {
     server = try UnixSocketServer(url: options.socketURL)
     placementStore = PlacementStore()
     topologyStore = WorkspaceTopologyStore()
-    topologySessionID = String(audit_session_self())
+    // An unavailable session identity must never match a previous process's state.
+    topologySessionID = WorkspaceTopologyStore.currentSessionID()
+      ?? "unavailable:\(UUID().uuidString)"
     placementPreferences = (try? placementStore.load()) ?? PlacementPreferences()
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
@@ -224,11 +228,22 @@ final class Daemon: NSObject {
 
   func start() {
     installSignalHandlers()
-    let trusted = platform.accessibilityTrusted(prompt: false)
-    if !trusted {
-      log("Accessibility permission pending. Grant Defi access in System Settings.")
-      showAccessibilityOnboardingIfNeeded()
+    updateMenuBarAvailability()
+    startConfigWatcher()
+    installIPCSource()
+    accessibilityPermissionMonitor.start { [weak self] in
+      self?.startWindowManagement()
     }
+    if !windowManagementStarted {
+      log("Accessibility permission pending. Grant Defi access in System Settings.")
+    }
+    log("running; socket=\(server.url.path)")
+  }
+
+  private func startWindowManagement() {
+    guard !windowManagementStarted else { return }
+    windowManagementStarted = true
+    menuBar.refreshAccessibilityPermission()
     platform.startObserving(
       { [weak self] in
         guard let self, desktopSessionActive else { return }
@@ -254,9 +269,6 @@ final class Daemon: NSObject {
     )
 
     installHotKeys()
-    updateMenuBarAvailability()
-    startConfigWatcher()
-    installIPCSource()
 
     synchronizeDesktop(
       forceFullWindowRefresh: true,
@@ -264,7 +276,7 @@ final class Daemon: NSObject {
       forceApplicationInventoryRefresh: true
     )
     replaceTimer(frequencyHz: 2)
-    log("running; socket=\(server.url.path)")
+    log("Accessibility permission granted; window management started")
   }
 
   func handleDesktopSessionActivity(_ active: Bool) {
@@ -311,7 +323,7 @@ final class Daemon: NSObject {
   }
 
   func tick() {
-    guard desktopSessionActive else { return }
+    guard windowManagementStarted, desktopSessionActive else { return }
     processPendingHotKeys()
     finishPendingAnimatedFocusIfReady()
     finishPendingWorkspaceFocusIfReady()

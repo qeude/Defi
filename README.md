@@ -20,7 +20,8 @@ macOS 26+ · Alpha
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-https://github.com/user-attachments/assets/518653d2-efe9-445a-aee6-22d9876cd535
+https://github.com/user-attachments/assets/3d21bd27-d5ef-477b-826f-1f9abca32a95
+
 
 Defi arranges your windows in columns on a horizontal strip. Open another
 window and the strip grows. Move to a window beyond the edge of your screen
@@ -56,7 +57,7 @@ windows. Click a window, select it in the Dock, or use Command-Tab as usual.
   and expose workspace state in your bar.
 
 [Configuration and commands](CONFIGURATION.md) ·
-[SketchyBar integration](SKETCHYBAR.md)
+[SketchyBar integration](contrib/sketchybar/README.md)
 
 ## Get started
 
@@ -79,8 +80,9 @@ You can also [build from source](CONTRIBUTING.md#build-and-run).
 The alpha is experimental. Behavior and configuration may change before the
 first stable release.
 
-On first launch, grant Defi **Accessibility** access in System Settings, then
-quit and reopen it. Defi needs this permission to focus and arrange windows.
+On first launch, Defi requests **Accessibility** access. Grant it in System
+Settings; Defi starts managing windows automatically, without a restart.
+Defi needs this permission to focus and arrange windows.
 Screen Recording is only needed if you enable window previews in Overview.
 
 Enable **Launch at Login** in the menu bar if you want Defi to start with macOS.
@@ -156,7 +158,8 @@ Other Defi app bundles are preserved, but they share the removed user data.
 ## Troubleshooting
 
 If shortcuts do not respond, check Accessibility permission for the installed
-Defi app, then quit and reopen it. Check `default_key_modifier` in your config:
+Defi app; newly granted access is detected automatically. Check
+`default_key_modifier` in your config:
 custom Hyper bindings require a matching keyboard remap. Temporarily quit
 other window managers to rule out conflicting shortcuts or window moves.
 
