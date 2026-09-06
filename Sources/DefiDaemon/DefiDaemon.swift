@@ -210,7 +210,9 @@ final class Daemon: NSObject {
     server = try UnixSocketServer(url: options.socketURL)
     placementStore = PlacementStore()
     topologyStore = WorkspaceTopologyStore()
-    topologySessionID = String(audit_session_self())
+    // An unavailable session identity must never match a previous process's state.
+    topologySessionID = WorkspaceTopologyStore.currentSessionID()
+      ?? "unavailable:\(UUID().uuidString)"
     placementPreferences = (try? placementStore.load()) ?? PlacementPreferences()
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
