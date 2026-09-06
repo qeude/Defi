@@ -6,7 +6,9 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
+import tempfile
 import time
 
 from desktop_lock import inherited_lock
@@ -77,6 +79,48 @@ def close_enough(actual, expected):
     return actual == expected
 
 
+def replace_stores(directory):
+    transaction = Path(tempfile.mkdtemp(prefix='.restore-', dir=STATE))
+    stopped = changed = restart_attempted = retain_backup = False
+    try:
+        # Prepare both files on the destination filesystem before stopping the app.
+        for name in STORES:
+            data = (directory / name).read_bytes()
+            json.loads(data)
+            (transaction / name).write_bytes(data)
+        stop()
+        stopped = True
+        for name in STORES:
+            (transaction / (name + '.backup')).write_bytes((STATE / name).read_bytes())
+        changed = True
+        for name in STORES:
+            (transaction / name).replace(STATE / name)
+        restart_attempted = True
+        start()
+    except BaseException as error:
+        if stopped:
+            try:
+                # A failed readiness check can leave a live, partially started daemon.
+                if restart_attempted:
+                    stop()
+                if changed:
+                    for name in STORES:
+                        temporary = transaction / name
+                        temporary.write_bytes((transaction / (name + '.backup')).read_bytes())
+                        temporary.replace(STATE / name)
+                start()
+            except BaseException as recovery_error:
+                retain_backup = True
+                raise RuntimeError(
+                    f'Session restore failed ({error}); recovery failed ({recovery_error}); '
+                    f'backup retained at {transaction}'
+                ) from error
+        raise
+    finally:
+        if not retain_backup:
+            shutil.rmtree(transaction, ignore_errors=True)
+
+
 def restore(directory):
     if not (directory / 'ready').exists():
         raise RuntimeError('No complete session checkpoint available')
@@ -84,14 +128,7 @@ def restore(directory):
     current = json.loads((STATE / STORES[0]).read_text())
     if current['sessionID'] != expected['sessionID']:
         raise RuntimeError('Login session changed; refusing stale session restoration')
-    try:
-        stop()
-        for name in STORES:
-            temporary = STATE / (name + '.verification.tmp')
-            temporary.write_bytes((directory / name).read_bytes())
-            temporary.replace(STATE / name)
-    finally:
-        start()
+    replace_stores(directory)
     workspaces = json.loads((directory / 'workspaces.json').read_text())
     # Restore other monitors first, then the initially focused monitor.
     for monitor in sorted(workspaces['monitors'], key=lambda m: m['focused']):

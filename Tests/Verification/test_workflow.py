@@ -249,6 +249,52 @@ class WorkflowTests(unittest.TestCase):
             self.assertFalse(desktop_session.close_enough([{"width": 1}], [{"width": 0.8}]))
             self.assertFalse(desktop_session.close_enough([{"id": 1}], [{"id": 2}]))
 
+    def test_session_restore_recovers_both_stores_on_failure(self):
+        for failure in ['second-replace', 'start', 'recovery-stop']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                state, saved = root / 'state', root / 'saved'
+                state.mkdir()
+                saved.mkdir()
+                for name in desktop_session.STORES:
+                    (state / name).write_text('{"version": "old"}')
+                    (saved / name).write_text('{"version": "new"}')
+                real_replace = Path.replace
+                replacements = []
+                events = []
+                def replace(path, destination):
+                    replacements.append(path.name)
+                    if failure == 'second-replace' and len(replacements) == 2:
+                        raise OSError('second replacement failed')
+                    return real_replace(path, destination)
+                def start():
+                    events.append('start')
+                    versions = [json.loads((state / name).read_text())['version'] for name in desktop_session.STORES]
+                    self.assertEqual(len(set(versions)), 1, 'Never start with mixed stores')
+                    if versions == ['new', 'new']:
+                        raise RuntimeError('startup failed')
+                def stop():
+                    events.append('stop')
+                    if failure == 'recovery-stop' and events.count('stop') == 2:
+                        raise RuntimeError('daemon refuses to stop')
+                with patch.object(desktop_session, 'STATE', state), \
+                     patch.object(desktop_session, 'start', side_effect=start), \
+                     patch.object(desktop_session, 'stop', side_effect=stop), \
+                     patch.object(Path, 'replace', replace):
+                    with self.assertRaisesRegex((OSError, RuntimeError), 'failed'):
+                        desktop_session.replace_stores(saved)
+                if failure == 'recovery-stop':
+                    backup = next(state.glob('.restore-*'))
+                    self.assertEqual(events, ['stop', 'start', 'stop'])
+                    for name in desktop_session.STORES:
+                        self.assertEqual(json.loads((backup / (name + '.backup')).read_text())['version'], 'old')
+                        self.assertEqual(json.loads((state / name).read_text())['version'], 'new')
+                else:
+                    for name in desktop_session.STORES:
+                        self.assertEqual(json.loads((state / name).read_text())['version'], 'old')
+                    self.assertEqual(events, ['stop', 'start'] if failure == 'second-replace' else ['stop', 'start', 'stop', 'start'])
+                    self.assertFalse(list(state.glob('.restore-*')))
+
     def test_signing_requires_same_certificate_and_requirement(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
