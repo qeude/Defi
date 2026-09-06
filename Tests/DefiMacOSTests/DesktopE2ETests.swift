@@ -17,8 +17,10 @@ final class DesktopE2ETests: XCTestCase {
     }
     let platform = MacOSPlatform()
     guard platform.accessibilityTrusted(prompt: false) else {
+      print("DEFI_E2E accessibility=unavailable")
       throw XCTSkip("Accessibility permission unavailable to test process")
     }
+    print("DEFI_E2E accessibility=available")
     return platform
   }
 

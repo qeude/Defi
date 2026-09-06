@@ -1,4 +1,5 @@
 import DefiConfig
+import DefiCore
 import DefiModel
 import DefiRuntime
 import Testing
@@ -10,6 +11,87 @@ struct FocusStateTests {
   private let a = WindowID(rawValue: 1)
   private let b = WindowID(rawValue: 2)
   private let c = WindowID(rawValue: 3)
+
+  @Test(arguments: [false, true])
+  func workspaceRoundTripRejectsOldCompletionForTheSameTarget(newestCompletesFirst: Bool) throws {
+    var state = makeState()
+    var focus = FocusState()
+    var requests: [(PendingWorkspaceFocus, FocusSubmissionID)] = []
+    for (offset, target) in [second, first, second].enumerated() {
+      let previous = state.monitors[0].activeWorkspace
+      try reduce(.switchWorkspace(target), on: monitor, state: &state)
+      let request = PendingWorkspaceFocus(
+        monitorID: monitor, requestedWorkspaceID: target,
+        previousWorkspaceID: previous,
+        requestedWindowID: try #require(state.selectedWindowID(on: monitor)),
+        restoresPreviousWorkspaceOnCancellation: true,
+        commandGeneration: UInt64(10 + offset), focusInputTimestamp: Double(10 + offset),
+        cursorWarpInputTimestamp: nil
+      )
+      requests.append((request, focus.submitWorkspace(request)))
+    }
+    let newest = try #require(requests.last)
+    let expectedState = state
+    if newestCompletesFirst {
+      #expect(focus.completeWorkspace(
+        newest.0, submission: newest.1, result: .completed,
+        commandGeneration: 12, keepsRequestedWindow: false, state: &state
+      ) == .settled)
+    }
+    let expectedFocus = focus
+    for (request, submission) in requests.dropLast().reversed() {
+      #expect(focus.completeWorkspace(
+        request, submission: submission, result: .failedAfterMutation,
+        commandGeneration: 12, keepsRequestedWindow: false, state: &state
+      ) == .stale)
+      #expect(state == expectedState)
+      #expect(focus == expectedFocus)
+    }
+    if !newestCompletesFirst {
+      #expect(focus.completeWorkspace(
+        newest.0, submission: newest.1, result: .completed,
+        commandGeneration: 12, keepsRequestedWindow: false, state: &state
+      ) == .settled)
+    }
+    #expect(state.monitors[0].activeWorkspace == second)
+    #expect(state.selectedWindowID(on: monitor) == c)
+    #expect(focus.pendingWorkspaceFocus == nil)
+  }
+
+  @Test func delayedParkedFramesCannotReorderOrReactivateThePreviousWorkspace() throws {
+    var state = makeState()
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["first", "second"], defaultName: "first")
+    )
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 800)
+    let originalWorkspace = state.monitors[0].workspaces[0]
+    let expectedLayout = computeLayout(
+      workspace: originalWorkspace, viewport: viewport,
+      windows: Array(state.windows.values), settings: state.layout
+    )
+    try reduce(.switchWorkspace(second), on: monitor, state: &state)
+    let expectedMonitors = state.monitors
+    // Replay late parking and pre-parking observations after the workspace switch.
+    for observedX in [-10_000.0, 0, -10_000.0] {
+      var snapshot = Array(state.windows.values).sorted { $0.id.rawValue > $1.id.rawValue }
+      for index in snapshot.indices where snapshot[index].id != c {
+        snapshot[index].frame.x = observedX
+        snapshot[index].frame.width = 320
+      }
+      reconcileWindows(
+        snapshot, config: config, viewports: [monitor: viewport],
+        nativeFocusedWindowID: b, state: &state
+      )
+      #expect(state.monitors == expectedMonitors)
+      #expect(state.selectedWindowID(on: monitor) == c)
+    }
+    try reduce(.switchWorkspace(first), on: monitor, state: &state)
+    #expect(state.selectedWindowID(on: monitor) == b)
+    #expect(computeLayout(
+      workspace: state.monitors[0].workspaces[0], viewport: viewport,
+      windows: Array(state.windows.values), settings: state.layout
+    ) == expectedLayout)
+  }
 
   @Test(arguments: [
     NativeFocusResult.completed, .completedWithoutMutation, .frameSuperseded,

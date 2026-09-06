@@ -148,13 +148,42 @@ No compatibility aliases before first stable release. Ask before preserving obso
 
 ## Verification
 
-Before handoff:
+Choose verification by the changed behavior:
 
-```sh
-swift build
-swift test
-./script/build_and_run.sh --verify
-```
+- Documentation-only changes: check the diff and any changed links or commands;
+  no build, app launch, or desktop validation is needed.
+- Code, tests, or build configuration: run `python3 script/verify.py local`.
+  This runs `swift build`, non-desktop Swift tests, and workflow tests.
+- Platform integration, daemon startup, packaging, or desktop-visible behavior:
+  prepare with `python3 script/verify.py local --stage`, then run
+  `python3 script/verify.py desktop <run-directory>` for installation and native
+  tests. A focused `--filter DesktopE2ETests/testName` is appropriate when the
+  affected interaction is covered; report that scope.
+  `python3 script/verify.py full [--filter DesktopE2ETests/testName]` chains both
+  phases and waits for the desktop automatically. Inspect progress with
+  `python3 script/verify.py status [run-directory]`.
+
+Complete the applicable checks and fix failures caused by the requested change
+before handoff. Report any check that could not run and why.
+
+Use a separate worktree per concurrent code writer. Prepared bundles and results
+live under the ignored `dist/verification/`; source drift invalidates a run.
+Local verification never enables desktop E2E tests or installs the app.
+Desktop verification checkpoints the running daemon's session stores and restores
+them afterward, checking all monitor workspaces, logical focus, widths, scroll,
+and managed-frame convergence. An incomplete restoration fails the run; inspect
+the checkpoint artifacts before further desktop work. Native focus remains part
+of Computer Use validation.
+
+All installation, desktop tests, and Computer Use validation must share the
+per-user desktop reservation. Scripts acquire it automatically and exit 75
+when busy. Use `verify.py desktop <run-directory> --wait` to resume automatically
+when available; sources and the bundle are rechecked after acquiring the reservation.
+For Computer Use, hold
+`python3 script/desktop_lock.py --wait bash` in a persistent interactive terminal,
+run any installation from that shell, inspect the desktop while it remains
+open, and exit the shell after restoration. Other agents can continue local
+work. This lock coordinates cooperating agents, not the user's mouse or keyboard.
 
 Platform smoke tests must report whether Accessibility permission was available.
 Run real-desktop tests with `./script/test_desktop.sh`; it temporarily stops the

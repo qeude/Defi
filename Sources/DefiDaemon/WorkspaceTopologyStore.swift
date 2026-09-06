@@ -1,3 +1,4 @@
+import Darwin
 import DefiRuntime
 import Foundation
 
@@ -29,6 +30,22 @@ struct WorkspaceTopologyStore {
     try encoder.encode(
       StoredWorkspaceTopology(sessionID: sessionID, topology: topology)
     ).write(to: url, options: .atomic)
+  }
+
+  static func currentSessionID() -> String? {
+    // audit_session_self() returns a process-local Mach port, not an audit session ID.
+    var audit = auditinfo_addr_t()
+    guard getaudit_addr(&audit, Int32(MemoryLayout.size(ofValue: audit))) == 0 else {
+      return nil
+    }
+    var bootID = [UInt8](repeating: 0, count: 128)
+    var size = bootID.count
+    guard sysctlbyname("kern.bootsessionuuid", &bootID, &size, nil, 0) == 0,
+      size > 1, size <= bootID.count, bootID[size - 1] == 0
+    else {
+      return nil
+    }
+    return "\(String(decoding: bootID.prefix(size - 1), as: UTF8.self)):\(audit.ai_asid)"
   }
 
   static var defaultURL: URL {
