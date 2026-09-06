@@ -29,16 +29,34 @@ and the desktop scrolls to bring it into view.
 Inspired by [Niri](https://github.com/YaLTeR/niri), built for native macOS
 windows. Click a window, select it in the Dock, or use Command-Tab as usual.
 
-## How it works
+## Features
 
-- Arrange windows side by side, stack them vertically, and adjust each column's
-  width. Keep floating windows for apps that need their own space.
-- Give each monitor its own workspaces. An empty workspace is always ready;
-  keep named ones for projects or recurring tasks.
-- Open Overview to see your workspaces, pick a window, or move it to another
-  workspace.
-- Navigate and rearrange with the keyboard. Hold your shortcut modifier to see
-  the available commands.
+- **Automatic tiling**: Open a window and Defi places it in the layout. Close
+  one and the remaining windows reflow automatically.
+- **Scrolling columns**: Arrange windows on a
+  horizontal strip, stack them vertically, and adjust column widths.
+- **Dynamic workspaces**: Always have an empty
+  workspace ready, and keep named workspaces for recurring tasks.
+- **Independent monitors**: Each display has its own workspaces and layout.
+- **Overview**: Browse workspaces, select windows,
+  and drag them between workspaces, with optional window previews.
+- **Window borders**: Highlight the focused
+  window, with configurable colors, width, and optional inactive borders.
+- **Keyboard controls & cheatsheet**: Customize shortcuts and hold your
+  modifier key to see available commands.
+- **Mouse reordering**: Rearrange tiled
+  windows by dragging them.
+- **Floating windows & app rules**: Keep selected apps
+  floating and route them to named workspaces.
+- **Native macOS interaction**: Keep using window clicks, the Dock, and
+  Command-Tab.
+- **Live configuration**: Customize gaps,
+  animations, shortcuts, and rules in TOML; changes reload automatically.
+- **CLI & SketchyBar integration**: Control Defi from scripts
+  and expose workspace state in your bar.
+
+[Configuration and commands](CONFIGURATION.md) ·
+[SketchyBar integration](SKETCHYBAR.md)
 
 ## Get started
 
@@ -98,9 +116,6 @@ Defi creates the config directory if needed, but no config file.
 Changes reload automatically when you save, including your first config. The
 [example configuration](config.example.toml) is the maintainer's setup;
 copy only the parts you want.
-
-[Configuration and commands](CONFIGURATION.md) ·
-[SketchyBar integration](SKETCHYBAR.md)
 
 <details>
 <summary>Command-line control</summary>
