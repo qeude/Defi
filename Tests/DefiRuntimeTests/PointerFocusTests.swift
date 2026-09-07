@@ -287,6 +287,44 @@ struct PointerFocusTests {
   }
 
   @Test
+  func focusedModalOfAnotherAppBlocksPointerFocus() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5])
+    let documentID = WindowID(rawValue: 1)
+    let modalID = WindowID(rawValue: 2)
+    state.windows[documentID]?.appID = "editor"
+    state.windows[modalID]?.appID = "com.apple.finder"
+    state.windows[modalID]?.isModal = true
+    _ = focusWindow(modalID, state: &state)
+    #expect(state.selectedWindowID(on: monitorID) == modalID)
+
+    #expect(modalAllowsPointerFocus(documentID, state: state) == false)
+    #expect(modalAllowsPointerFocus(modalID, state: state))
+  }
+
+  @Test
+  func pointerFocusFromTransitOverDocumentKeepsFocusedModal() throws {
+    var state = try makeState(columnWidths: [0.5, 0.5])
+    let documentID = WindowID(rawValue: 1)
+    let modalID = WindowID(rawValue: 2)
+    state.windows[documentID]?.appID = "editor"
+    state.windows[modalID]?.appID = "com.apple.finder"
+    state.windows[modalID]?.isModal = true
+    _ = focusWindow(modalID, state: &state)
+    let original = state
+
+    #expect(
+      focusWindowFromPointer(
+        documentID,
+        activeMonitorID: monitorID,
+        state: &state,
+        viewports: [monitorID: viewport],
+        maximumScrollAmount: 0
+      ) == nil
+    )
+    #expect(state == original)
+  }
+
+  @Test
   func alreadySelectedPointerTargetCanRestoreNativeFocus() throws {
     var state = try makeState(columnWidths: [0.4, 0.4])
     let original = state
