@@ -167,6 +167,20 @@ public func modalAllowsPointerFocus(
   while let current = candidate, ancestry.insert(current).inserted {
     candidate = state.windows[current]?.transientOwnerID
   }
+  // A focused modal holds an open decision: pointer travel toward its buttons
+  // crosses other windows, and that transit must not refocus them in another
+  // application, where activation would bury the dialog behind the new
+  // frontmost app. Same-application targets keep the existing below, since
+  // no app switch can demote the modal.
+  if let selectedID = state.selectedWindowID(on: location.monitorID),
+    selectedID != windowID,
+    let selected = state.windows[selectedID],
+    selected.isModal,
+    selected.appID != target.appID,
+    !ancestry.contains(selectedID)
+  {
+    return false
+  }
   let ownerlessModalIDs = Set(state.windows.values.lazy.filter { modal in
     modal.appID == target.appID
       && (target.processID.map { modal.processID == $0 } ?? true)
