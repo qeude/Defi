@@ -70,9 +70,14 @@ final class PlatformEventMonitor {
             NSWorkspace.applicationUserInfoKey
           ] as? NSRunningApplication)?.processIdentifier
         MainActor.assumeIsolated {
-          if let processID,
-            NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
-          {
+          // The notification PID is authoritative. Do not gate on the current
+          // frontmost app here: slow-activating apps (e.g. Electron) lag
+          // behind the notification, and dropping the token strands Dock and
+          // Cmd-Tab focus with no usable intent. Snapshot-time
+          // pendingApplicationActivation revalidates against the current
+          // frontmost app within a 2s bound, so a stale token cannot be
+          // admitted later.
+          if let processID {
             self?.userInputTracker.recordApplicationActivation(processID: processID)
           }
           self?.handler(.focus, processID)

@@ -690,11 +690,31 @@ extension SnapshotEngine {
     let activation = userInputTracker.pendingApplicationActivation(
       frontmostProcessID: frontmostProcessID
     )
-    let focusedWindowID = focusedWindowID(
+    var focusedWindowID = focusedWindowID(
       in: windows,
       frontmostProcessID: frontmostProcessID,
       requiresConfirmedWindow: activation != nil
     )
+    if focusedWindowID == nil, let activation {
+      // AX confirmation lags genuine activation on slow apps. When the
+      // frontmost process owns exactly one managed window there is no
+      // ambiguity to resolve, so admit it without waiting for AX.
+      // Multi-window processes keep requiring AX confirmation.
+      if let fallback = singleManagedWindowID(
+        processID: frontmostProcessID,
+        in: windows
+      ) {
+        focusedWindowID = fallback
+        frameCoordinator.recordTrace(
+          "native-activation-single-window pid=\(activation.processID) target=\(fallback.rawValue)"
+        )
+      } else if lastUnconfirmedActivationTimestamp != activation.timestamp {
+        lastUnconfirmedActivationTimestamp = activation.timestamp
+        frameCoordinator.recordTrace(
+          "native-activation-unconfirmed pid=\(activation.processID)"
+        )
+      }
+    }
     lastNativeFocusedWindowID = focusedWindowID
     verifiedNativeFocusedWindowID = focusedWindowID
     if let focusedWindowID,

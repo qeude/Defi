@@ -267,6 +267,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.verifiedNativeFocusedWindowID = newValue } }
   }
 
+  var lastUnconfirmedActivationTimestamp: TimeInterval? {
+    get { read { $0.lastUnconfirmedActivationTimestamp } }
+    set { read { $0.lastUnconfirmedActivationTimestamp = newValue } }
+  }
+
   // MARK: registries
 
   var elements: [WindowID: AXUIElement] {
@@ -1286,6 +1291,7 @@ private struct Storage {
   var pendingFrameDebtWindowIDs: Set<WindowID> = Set<WindowID>()
   var lastNativeFocusedWindowID: WindowID? = nil
   var verifiedNativeFocusedWindowID: WindowID? = nil
+  var lastUnconfirmedActivationTimestamp: TimeInterval?
 }
 
 /// A discovery cutoff. Observations recorded after consumption belong to the next pass.
