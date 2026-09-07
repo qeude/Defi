@@ -696,12 +696,12 @@ extension SnapshotEngine {
       requiresConfirmedWindow: activation != nil
     )
     if focusedWindowID == nil, let activation {
-      // AX confirmation lags genuine activation on slow apps. When the
-      // frontmost process owns exactly one managed window there is no
+      // AX confirmation lags genuine activation on slow apps. A fresh read
+      // proving the frontmost process owns exactly one window leaves no
       // ambiguity to resolve, so admit it without waiting for AX.
-      // Multi-window processes keep requiring AX confirmation.
-      if let fallback = singleManagedWindowID(
-        processID: frontmostProcessID,
+      // Anything else keeps requiring AX confirmation.
+      if let fallback = singleFreshWindowID(
+        frontmostProcessID: frontmostProcessID,
         in: windows
       ) {
         focusedWindowID = fallback
