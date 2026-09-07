@@ -267,6 +267,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.verifiedNativeFocusedWindowID = newValue } }
   }
 
+  var lastUnconfirmedActivationTimestamp: TimeInterval? {
+    get { read { $0.lastUnconfirmedActivationTimestamp } }
+    set { read { $0.lastUnconfirmedActivationTimestamp = newValue } }
+  }
+
   // MARK: registries
 
   var elements: [WindowID: AXUIElement] {
@@ -1010,6 +1015,35 @@ extension SnapshotEngine {
     )
   }
 
+  /// Activation fallback for slow-AX processes. When AX focus confirmation
+  /// lags a genuine app activation, performs one bounded fresh read of the
+  /// frontmost process's AX window list and admits its window only when that
+  /// read proves there is exactly one window and it is the single managed
+  /// one. A sibling created but not yet discovered appears in the fresh
+  /// list, forcing nil so multi-window cases keep requiring AX
+  /// confirmation. Returns nil for unknown processes and on AX timeout.
+  func singleFreshWindowID(
+    frontmostProcessID: pid_t?,
+    in windows: [Window]
+  ) -> WindowID? {
+    guard let frontmostProcessID,
+      let appElement = applications[frontmostProcessID]
+    else { return nil }
+    let rawWindows: [AXUIElement]? = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds,
+      elements: [appElement]
+    ) {
+      copyElements(appElement, attribute: kAXWindowsAttribute)
+    }
+    guard rawWindows?.count == 1,
+      let rawWindow = rawWindows?.first,
+      let match = singleManagedWindowID(processID: frontmostProcessID, in: windows),
+      let element = elements[match],
+      CFEqual(rawWindow, element)
+    else { return nil }
+    return match
+  }
+
   func stableWindowID(
     processID: pid_t?,
     in windows: [Window],
@@ -1286,6 +1320,7 @@ private struct Storage {
   var pendingFrameDebtWindowIDs: Set<WindowID> = Set<WindowID>()
   var lastNativeFocusedWindowID: WindowID? = nil
   var verifiedNativeFocusedWindowID: WindowID? = nil
+  var lastUnconfirmedActivationTimestamp: TimeInterval?
 }
 
 /// A discovery cutoff. Observations recorded after consumption belong to the next pass.

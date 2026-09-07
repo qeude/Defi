@@ -138,4 +138,28 @@ struct ModelTests {
   ) {
     #expect(testCase.command.explicitlyFocusesFloating == testCase.expected)
   }
+
+  @Test
+  func `Single-window activation fallback is unambiguous`() {
+    let frame = Rect(x: 0, y: 0, width: 10, height: 10)
+    let solo = Window(
+      id: WindowID(rawValue: 1), appID: "a", title: "solo",
+      frame: frame, processID: 42
+    )
+    let other = Window(
+      id: WindowID(rawValue: 2), appID: "b", title: "other",
+      frame: frame, processID: 43
+    )
+    let sibling = Window(
+      id: WindowID(rawValue: 3), appID: "a", title: "sibling",
+      frame: frame, processID: 42
+    )
+    // Exactly one managed window: safe to admit without AX confirmation.
+    #expect(singleManagedWindowID(processID: 42, in: [solo, other]) == solo.id)
+    // Several windows for the same process: keep requiring AX confirmation.
+    #expect(singleManagedWindowID(processID: 42, in: [solo, sibling, other]) == nil)
+    #expect(singleManagedWindowID(processID: 99, in: [solo, other]) == nil)
+    #expect(singleManagedWindowID(processID: nil, in: [solo]) == nil)
+    #expect(singleManagedWindowID(processID: 42, in: []) == nil)
+  }
 }
