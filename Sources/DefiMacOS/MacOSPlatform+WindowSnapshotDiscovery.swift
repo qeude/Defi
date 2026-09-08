@@ -243,6 +243,7 @@ extension SnapshotEngine {
             || capturedTopologyRequiresFullSnapshot
             || forceWindowListRefresh,
           topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
+            || retainedWindowIDs.contains { previousProcessIDs[$0] == processID }
         )
         let appWindows: [AXUIElement]?
         if refreshesWindowList {
@@ -501,17 +502,20 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             }
           }
         }
+        let retentionCGWindows = needsCachedWindowValidation ? publicCGWindows() : []
         let retainableWindowIDs = cachedWindowIDsToRetain(
           processID: processID,
           previousWindows: previousWindows,
           discoveredWindowIDs: discoveredWindowIDs,
           ignoredWindowIDs: ignoredPreviousWindowIDs,
-          cgWindows: needsCachedWindowValidation ? publicCGWindows() : [],
+          cgWindows: retentionCGWindows,
           cachedMinimizedState: cachedMinimizedState
         )
         let retention = retainedWindowIDsWithinGracePeriod(
           retainableWindowIDs,
-          previousDeadlines: retainedWindowDeadlines,
+          // Confirmed live windows must survive AX recovery after wake. Only
+          // unconfirmed existence uses the bounded omission grace period.
+          previousDeadlines: retentionCGWindows == nil ? retainedWindowDeadlines : [:],
           now: ProcessInfo.processInfo.systemUptime
         )
         let processRetainedWindowIDs = retention.windowIDs
