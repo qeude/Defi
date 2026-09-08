@@ -1,4 +1,5 @@
 import ApplicationServices
+import DefiConfig
 import DefiModel
 import Testing
 
@@ -369,6 +370,49 @@ struct WindowSnapshotStabilityTests {
     #expect(
       windowGeometryDiscovery(minimized: false, frame: { frame }) == .usable(frame)
     )
+  }
+
+  @Test func sessionRecoveryRefreshesReferencesAndKeepsLiveWindowsPastGrace() {
+    let engine = SnapshotEngine(
+      frameCoordinator: AXFrameCoordinator(),
+      userInputTracker: UserInputTracker()
+    )
+    let window = makeWindow(id: 42)
+    let stale = AXUIElementCreateApplication(-1)
+    engine.elements = [window.id: stale]
+    engine.processIDs = [window.id: processID]
+    engine.applications = [processID: stale]
+    engine.applicationIDsByProcess = [processID: window.appID]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.hasCompletedWindowSnapshot = true
+    engine.lastSnapshotWindows = [window]
+    engine.lastApplicationWindowElements = [processID: [stale]]
+    engine.retainedWindowIDs = [window.id]
+    engine.retainedWindowDeadlines = [window.id: 0]
+
+    // AX still omits the window after wake, but WindowServer confirms it exists.
+    let result = engine.discoverSnapshotWindows(
+      monitors: [],
+      config: Config(),
+      incrementalProcessIDs: [processID],
+      forceWindowListRefresh: false,
+      forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false,
+      topologyProcessIDs: [],
+      preparedWindowAttributes: [window.id: AXWindowAttributes(
+        minimized: nil, frame: nil, title: "", role: nil, subrole: nil
+      )],
+      preparedTransientOwnerWindowIDs: [:],
+      preparedApplicationWindows: [processID: PreparedAXApplicationWindows(
+        elements: [], durationMS: 0
+      )],
+      explicitlyDestroyedWindowIDs: [],
+      publicCGWindows: { [makeCGWindow(id: 42)] }
+    )
+
+    #expect(engine.applicationWindowListReadCount == 1)
+    #expect(result.windows.map(\.id) == [window.id])
+    #expect(result.nextRetainedWindowIDs == [window.id])
   }
 
   @Test func existingCGWindowSurvivesTransientAccessibilityOmission() {
