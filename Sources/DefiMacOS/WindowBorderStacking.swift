@@ -37,6 +37,24 @@ struct WindowStackEntry: Equatable, Sendable {
   let frame: Rect
 }
 
+func windowBorderStackEntries(
+  inventory: [CGWindowRecord], targetWindowID: WindowID,
+  targetProcessID: pid_t?, targetFrame: Rect?
+) -> [WindowStackEntry]? {
+  guard let index = inventory.firstIndex(where: { UInt64($0.id) == targetWindowID.rawValue }),
+    inventory[index].isOnscreen, inventory[index].processID == targetProcessID,
+    inventory[index].layer == NSWindow.Level.normal.rawValue,
+    inventory[index].frame == targetFrame
+  else { return nil }
+  return inventory[...index].compactMap { record in
+    guard record.isOnscreen else { return nil }
+    return WindowStackEntry(
+      windowID: WindowID(rawValue: UInt64(record.id)), processID: record.processID,
+      layer: record.layer, frame: record.frame
+    )
+  }
+}
+
 struct WindowBorderStacking: Equatable, Sendable {
   let targetWindowID: WindowID?
   let activeWindowIsFrontmost: Bool

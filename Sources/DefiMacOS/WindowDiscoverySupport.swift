@@ -427,22 +427,6 @@ final class AXWindowIDProvider {
   }
 }
 
-func preparedAXWindowAttributesAreCurrent(
-  capturedGeneration: UInt64,
-  currentGeneration: UInt64,
-  capturedInputTimestamp: TimeInterval,
-  currentInputTimestamp: TimeInterval,
-  capturedWindowIDs: Set<WindowID>,
-  currentWindowIDs: Set<WindowID>,
-  capturedProcessIDs: Set<pid_t>,
-  currentProcessIDs: Set<pid_t>
-) -> Bool {
-  capturedGeneration == currentGeneration
-    && capturedInputTimestamp == currentInputTimestamp
-    && capturedWindowIDs == currentWindowIDs
-    && capturedProcessIDs == currentProcessIDs
-}
-
 func transientOwnerWindowIDsFromPreparedRelationships(
   elements: [WindowID: AXUIElement],
   parents: [WindowID: AXUIElement],

@@ -84,10 +84,10 @@ final class WindowBorderManager {
     guard !isSuppressed else { return }
     let activeStacking = stacking ?? .inactive(for: windowID)
     if activeWindowID == windowID {
-      if let windowID {
+      if let windowID, let stacking {
         updateActiveStacking(
           for: windowID,
-          stacking: activeStacking
+          stacking: stacking
         )
       }
       return
@@ -101,11 +101,20 @@ final class WindowBorderManager {
       let overlay = overlays[previousActiveWindowID],
       overlay.isVisible
     {
-      overlay.setStacking(.inactive(for: previousActiveWindowID))
-      if style.inactiveEnabled {
-        overlay.updateAppearance(to: style.inactiveColor)
+      if !style.inactiveEnabled, style.enabled, style.width > 0,
+        windowBorderAlpha(of: style.activeColor) > 0,
+        let windowID, displayedFrame != nil, overlays[windowID] == nil
+      {
+        overlay.retarget(to: windowID, preservingBacking: true)
+        overlays[previousActiveWindowID] = nil
+        overlays[windowID] = overlay
       } else {
-        overlay.hide()
+        overlay.setStacking(.inactive(for: previousActiveWindowID))
+        if style.inactiveEnabled {
+          overlay.updateAppearance(to: style.inactiveColor)
+        } else {
+          overlay.hide()
+        }
       }
     }
     if style.enabled,

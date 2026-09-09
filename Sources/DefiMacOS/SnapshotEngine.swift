@@ -446,76 +446,22 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.windowSnapshotObservationGeneration = newValue } }
   }
 
-  // MARK: prepared AX prefetch
-
-  var preparedCGWindowInventory: [CGWindowRecord]? {
-    get { read { $0.preparedCGWindowInventory } }
-    set { read { $0.preparedCGWindowInventory = newValue } }
-  }
+  // MARK: window inventory
 
   var lastCGWindowInventory: [CGWindowRecord]? {
-    get { read { $0.lastCGWindowInventory } }
-    set { read { $0.lastCGWindowInventory = newValue } }
+    read { $0.lastCGWindowInventory?.records }
   }
 
-  var preparedCGWindowInventoryDurationMS: Double {
-    get { read { $0.preparedCGWindowInventoryDurationMS } }
-    set { read { $0.preparedCGWindowInventoryDurationMS = newValue } }
+  func publishCGWindowInventory(_ inventory: CGWindowInventory?) {
+    read { $0.lastCGWindowInventory = inventory }
   }
 
-  var preparedCGWindowInventoryAvailable: Bool {
-    get { read { $0.preparedCGWindowInventoryAvailable } }
-    set { read { $0.preparedCGWindowInventoryAvailable = newValue } }
-  }
-
-  var cgWindowInventoryPreparationPending: Bool {
-    get { read { $0.cgWindowInventoryPreparationPending } }
-    set { read { $0.cgWindowInventoryPreparationPending = newValue } }
-  }
-
-  var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] {
-    get { read { $0.preparedAXWindowAttributes } }
-    set { read { $0.preparedAXWindowAttributes = newValue } }
-  }
-
-  var preparedTransientOwnerWindowIDs: [WindowID: WindowID] {
-    get { read { $0.preparedTransientOwnerWindowIDs } }
-    set { read { $0.preparedTransientOwnerWindowIDs = newValue } }
-  }
-
-  var preparedAXApplicationWindows: [pid_t: PreparedAXApplicationWindows] {
-    get { read { $0.preparedAXApplicationWindows } }
-    set { read { $0.preparedAXApplicationWindows = newValue } }
-  }
-
-  var preparedAXWindowAttributesAvailable: Bool {
-    get { read { $0.preparedAXWindowAttributesAvailable } }
-    set { read { $0.preparedAXWindowAttributesAvailable = newValue } }
-  }
-
-  var preparedAXWindowAttributesGeneration: UInt64? {
-    get { read { $0.preparedAXWindowAttributesGeneration } }
-    set { read { $0.preparedAXWindowAttributesGeneration = newValue } }
-  }
-
-  var preparedAXWindowAttributesInputTimestamp: TimeInterval? {
-    get { read { $0.preparedAXWindowAttributesInputTimestamp } }
-    set { read { $0.preparedAXWindowAttributesInputTimestamp = newValue } }
-  }
-
-  var preparedAXWindowAttributesWindowIDs: Set<WindowID> {
-    get { read { $0.preparedAXWindowAttributesWindowIDs } }
-    set { read { $0.preparedAXWindowAttributesWindowIDs = newValue } }
-  }
-
-  var preparedAXWindowAttributesProcessIDs: Set<pid_t> {
-    get { read { $0.preparedAXWindowAttributesProcessIDs } }
-    set { read { $0.preparedAXWindowAttributesProcessIDs = newValue } }
-  }
-
-  var axWindowAttributePreparationPending: Bool {
-    get { read { $0.axWindowAttributePreparationPending } }
-    set { read { $0.axWindowAttributePreparationPending = newValue } }
+  func borderStackingInventory(now: TimeInterval) -> [CGWindowRecord]? {
+    read {
+      $0.lastCGWindowInventory?.recordsForBorderStacking(
+        generation: $0.windowSnapshotObservationGeneration, now: now
+      )
+    }
   }
 
   // MARK: freshness budgets
@@ -1281,20 +1227,7 @@ private struct Storage {
   var snapshotCGWindowCopyCount = 0
   var lastSnapshotCGWindowCopyDurationMS = 0.0
   var maximumSnapshotCGWindowCopyDurationMS = 0.0
-  var preparedCGWindowInventory: [CGWindowRecord]?
-  var lastCGWindowInventory: [CGWindowRecord]?
-  var preparedCGWindowInventoryDurationMS = 0.0
-  var preparedCGWindowInventoryAvailable = false
-  var cgWindowInventoryPreparationPending = false
-  var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] = [:]
-  var preparedTransientOwnerWindowIDs: [WindowID: WindowID] = [:]
-  var preparedAXApplicationWindows: [pid_t: PreparedAXApplicationWindows] = [:]
-  var preparedAXWindowAttributesAvailable = false
-  var preparedAXWindowAttributesGeneration: UInt64?
-  var preparedAXWindowAttributesInputTimestamp: TimeInterval?
-  var preparedAXWindowAttributesWindowIDs = Set<WindowID>()
-  var preparedAXWindowAttributesProcessIDs = Set<pid_t>()
-  var axWindowAttributePreparationPending = false
+  var lastCGWindowInventory: CGWindowInventory?
   var windowSnapshotObservationGeneration: UInt64 = 0
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0

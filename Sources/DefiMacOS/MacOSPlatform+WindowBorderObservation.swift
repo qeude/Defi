@@ -13,7 +13,7 @@ extension MacOSPlatform {
     processID: pid_t,
     inputTimestamp: TimeInterval? = nil
   ) {
-    invalidatePreparedAXWindowAttributes()
+    invalidateWindowSnapshot()
     snapshotEngine.recordObservation(
       .windows,
       processID: processID,
@@ -47,7 +47,7 @@ extension MacOSPlatform {
       let previousWindowCount = processID.flatMap {
         self?.applicationWindowCounts[$0]
       }
-      self?.invalidatePreparedAXWindowAttributes()
+      self?.invalidateWindowSnapshot()
       let windowID = element.flatMap { element in
         self?.elements.first(where: { CFEqual($0.value, element) })?.key
       }
@@ -126,19 +126,14 @@ extension MacOSPlatform {
             deadline: .now() + .milliseconds(delay)
           ) { [weak self] in
             guard let self else { return }
-            self.invalidatePreparedAXWindowAttributes()
+            self.invalidateWindowSnapshot()
             self.snapshotEngine.recordObservation(.windows, processID: nil)
             handler()
           }
         }
       }
       if let processID, let previousWindowCount {
-        for delay in windowTopologyRefreshDelays(
-          for: kind,
-          latestInputTimestamp: eventInputTimestamp,
-          latestCloseIntentTimestamp: eventInput?.latestCloseIntent ?? 0,
-          now: ProcessInfo.processInfo.systemUptime
-        ) {
+        for delay in windowTopologyRefreshDelays(for: kind) {
           DispatchQueue.main.asyncAfter(
             deadline: .now() + .milliseconds(delay)
           ) { [weak self] in
@@ -194,7 +189,8 @@ extension MacOSPlatform {
     monitor.refresh(applications: windowsByProcess)
   }
 
-  func scheduleWindowBorderStackingRefresh() {
+  func scheduleWindowBorderStackingRefresh(reusingSnapshot: Bool = false) {
+    if !reusingSnapshot { invalidateWindowSnapshot() }
     let request = borderStackingRefreshState.request(
       for: borderManager.activeWindowID
     )
@@ -226,6 +222,22 @@ extension MacOSPlatform {
         }()
         ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
         ?? latestObservedFrames[request.windowID]
+      if reusingSnapshot, !hasPendingFrameWrites,
+        let inventory = snapshotEngine.borderStackingInventory(now: ProcessInfo.processInfo.systemUptime),
+        let entries = windowBorderStackEntries(
+          inventory: inventory, targetWindowID: request.windowID,
+          targetProcessID: targetProcessID, targetFrame: targetFrame
+        )
+      {
+        let stacking = DefiMacOS.windowBorderStacking(
+          targetWindowID: request.windowID,
+          ownProcessID: ProcessInfo.processInfo.processIdentifier,
+          floatingLevel: NSWindow.Level.floating.rawValue, entries: entries,
+          monitorFrames: monitorFrames, knownWindowIDs: knownWindowIDs
+        )
+        refreshWindowBorderStacking(request, stacking: stacking)
+        return
+      }
       let stacking = await copyWindowBorderStackingOffMain(
         targetWindowID: request.windowID,
         targetProcessID: targetProcessID,
@@ -277,7 +289,7 @@ extension MacOSPlatform {
     if let ownedWindowID = borderManager.ownedSurfaceWindowID {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
-    scheduleWindowBorderStackingRefresh()
+    scheduleWindowBorderStackingRefresh(reusingSnapshot: true)
     revealWindowBordersIfReady()
   }
 
@@ -567,7 +579,7 @@ extension MacOSPlatform {
   public func setFrameNotificationsEnabled(_ enabled: Bool) {
     let suppressedRefresh = eventMonitor?.setFrameNotificationsEnabled(enabled)
     guard enabled else { return }
-    invalidatePreparedAXWindowAttributes()
+    invalidateWindowSnapshot()
     // Notifications were ignored while animated writes ran. Force fresh reads
     // before trusting the final committed frames.
     let committedWindowIDs = Set(frameCommitExpectations.keys)

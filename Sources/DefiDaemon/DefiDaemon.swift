@@ -141,9 +141,6 @@ final class Daemon: NSObject {
       forceApplicationInventoryRefresh: Bool,
       consumePeriodicWindowRefresh: Bool
     )?
-  var axPrefetchInvalidationRetries = 0
-  var cgPrefetchInvalidationRetries = 0
-  var bypassPrefetchOnce = false
   var observedPlatformEventCount = 0
   var targetMismatches: [FrameMismatch] = []
   var activelyResizedWindowID: WindowID?
@@ -479,51 +476,6 @@ final class Daemon: NSObject {
         && (forcesWindowInventory
           || (periodicWindowRefreshDue
             && !platform.hasReliableWindowTopologyObservation))
-      if !mouseGestureSyncPending,
-        !nativeFocusSyncPending,
-        forcesFullWindowRefresh,
-        !bypassPrefetchOnce,
-        platform.prepareAXWindowAttributesIfNeeded(
-          completion: { [weak self] published in
-            guard let self else { return }
-            if published {
-              self.axPrefetchInvalidationRetries = 0
-            } else {
-              self.axPrefetchInvalidationRetries += 1
-              if self.axPrefetchInvalidationRetries >= 2 {
-                self.bypassPrefetchOnce = true
-              }
-            }
-            self.needsDesktopSync = true
-            self.scheduleTick()
-          }
-        )
-      {
-        return
-      }
-      if !mouseGestureSyncPending,
-        !nativeFocusSyncPending,
-        forcesFullWindowRefresh,
-        !bypassPrefetchOnce,
-        platform.prepareCGWindowInventoryIfNeeded(
-          completion: { [weak self] published in
-            guard let self else { return }
-            if published {
-              self.cgPrefetchInvalidationRetries = 0
-            } else {
-              self.cgPrefetchInvalidationRetries += 1
-              if self.cgPrefetchInvalidationRetries >= 2 {
-                self.bypassPrefetchOnce = true
-              }
-            }
-            self.needsDesktopSync = true
-            self.scheduleTick()
-          }
-        )
-      {
-        return
-      }
-      bypassPrefetchOnce = false
       needsDesktopSync = false
       synchronizeDesktop(
         forceFullWindowRefresh: forcesFullWindowRefresh,
@@ -531,13 +483,6 @@ final class Daemon: NSObject {
         forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
-      if platform.hasDeferredFreshWindowReads
-        || platform.hasChunkedFullRefreshPending
-      {
-        needsDesktopSync = true
-        setTimerFrequency(30)
-        scheduleTick()
-      }
     }
     if liveBorderGesture || animatedWritesPending {
       platform.refreshWindowBorders()
