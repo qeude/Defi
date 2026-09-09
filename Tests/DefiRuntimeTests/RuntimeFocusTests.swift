@@ -25,10 +25,8 @@ struct RuntimeFocusTests {
       )
     }
 
-    // Policy (ADR 0002): discovery inside the active workspace focuses the
-    // newest window (which also runs scroll repair), so the rejection check
-    // targets the semantic outcome - the selection stays pinned at the
-    // boundary - rather than whole-structure equality.
+    // Discovery also repairs scroll state; assert the boundary selection
+    // rather than whole-state equality.
     state.monitors[0].workspaces[0].focusedColumn = 0
     let rejected = try changedState(
       after: .focusColumn(.left), on: monitorID, from: state

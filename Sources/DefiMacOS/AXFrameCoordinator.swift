@@ -18,8 +18,7 @@ func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
 }
 
 final class AXFrameCoordinator: @unchecked Sendable {
-  /// Publishes interpolated frames of animated windows each animation tick so
-  /// border overlays ride the motion instead of snapping to targets.
+  /// Reports completed geometry so borders cannot outrun window writes.
   var borderLiveGeometryHandler: (@Sendable ([WindowID: Rect]) -> Void)?
 
   let queue = DispatchQueue(
