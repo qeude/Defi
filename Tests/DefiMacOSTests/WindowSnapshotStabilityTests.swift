@@ -18,7 +18,6 @@ struct WindowSnapshotStabilityTests {
     engine.applications = [processID: application]
     #expect(engine.chunkedFullRefreshRemainingProcessIDs == [processID])
 
-    // Snapshot discovery publishes an empty inventory after the last app exits.
     engine.applications = [:]
     #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
     #expect(engine.chunkedFullRefreshRemainingProcessIDs?.isEmpty != false)

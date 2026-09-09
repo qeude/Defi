@@ -353,7 +353,6 @@ struct FrameCommitTransitionTests {
     let windowID = WindowID(rawValue: 7)
     let liveWindowIDs: Set<WindowID> = [windowID]
 
-    // Unresolved and inside the deadline: replanning waits.
     #expect(
       borderRefreshBlockedBySettling(
         liveWindowIDs: liveWindowIDs,
@@ -370,7 +369,6 @@ struct FrameCommitTransitionTests {
         now: 10.8
       ) == false
     )
-    // Observed expectations do not gate either.
     var observed = expectation
     observed.observedAt = 10.4
     #expect(
@@ -380,7 +378,6 @@ struct FrameCommitTransitionTests {
         now: 10.5
       ) == false
     )
-    // Windows without expectations never gate.
     #expect(
       borderRefreshBlockedBySettling(
         liveWindowIDs: [WindowID(rawValue: 9)],

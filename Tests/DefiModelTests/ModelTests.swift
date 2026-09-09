@@ -154,9 +154,7 @@ struct ModelTests {
       id: WindowID(rawValue: 3), appID: "a", title: "sibling",
       frame: frame, processID: 42
     )
-    // Exactly one managed window: safe to admit without AX confirmation.
     #expect(singleManagedWindowID(processID: 42, in: [solo, other]) == solo.id)
-    // Several windows for the same process: keep requiring AX confirmation.
     #expect(singleManagedWindowID(processID: 42, in: [solo, sibling, other]) == nil)
     #expect(singleManagedWindowID(processID: 99, in: [solo, other]) == nil)
     #expect(singleManagedWindowID(processID: nil, in: [solo]) == nil)

@@ -61,16 +61,9 @@ public enum FloatingOrigin: String, Equatable, Codable, Sendable {
   case user
 }
 
-/// Resolves an activated process to its window only when there is no
-/// ambiguity to get wrong: exactly one managed window belongs to it.
-/// Multi-window processes return nil so callers keep requiring AX
-/// confirmation instead of picking an arbitrary window by PID.
-///
-/// The supplied array must be a complete set for the process. Discovery
-/// snapshots can temporarily omit sibling windows (cached passes, deferred
-/// fresh reads), so snapshot callers must prove completeness with a fresh
-/// read (see `SnapshotEngine.singleFreshWindowID`) instead of relying on
-/// this alone.
+/// Requires a complete window list for the process. Cached or partial snapshots
+/// can hide siblings; discovery callers must prove uniqueness with a fresh read
+/// (see `SnapshotEngine.singleFreshWindowID`) before using this fallback.
 public func singleManagedWindowID(
   processID: Int32?,
   in windows: [Window]

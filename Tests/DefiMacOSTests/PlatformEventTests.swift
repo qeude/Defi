@@ -439,7 +439,6 @@ struct PlatformEventTests {
 
   @Test
   func windowCreationRetriesWithoutInputHistoryAfterRestart() {
-    // The policy must not depend on a recent keyboard/mouse/close timestamp.
     #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
     #expect(windowTopologyRefreshDelays(for: .frame).isEmpty)
   }

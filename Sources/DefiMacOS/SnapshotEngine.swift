@@ -4,14 +4,6 @@ import DefiConfig
 import DefiCore
 import DefiModel
 
-/// Owns the desktop-snapshot state domain: window/process registries,
-/// discovery caches, retry bookkeeping, freshness budgets, and snapshot
-/// telemetry.
-///
-/// Every property is lock-guarded so the snapshot pass can run on its own
-/// serial queue while the main thread keeps reading published values. This is
-/// the first strangler branch of ADR 0002; the endgame converts this class
-/// into an actor once no synchronous cross-domain reader remains.
 /// Unchecked sendable envelope for a value produced on the main thread and
 /// consumed synchronously by the waiting engine queue.
 /// AXUIElement handles are remote-object ports, safe to touch from any
@@ -26,6 +18,8 @@ final class AssumedThreadSafe<T>: @unchecked Sendable {
   }
 }
 
+/// Snapshot passes run on a serial queue; shared snapshot state is lock-guarded
+/// for concurrent main-thread readers.
 final class SnapshotEngine: @unchecked Sendable {
   private let lock = NSLock()
   private var storage = Storage()
@@ -46,9 +40,6 @@ final class SnapshotEngine: @unchecked Sendable {
     qos: .userInitiated
   )
 
-  /// Runs a full desktop-snapshot pass off the main thread and publishes the
-  /// result back to it. Serialized by the queue; main-thread readers only
-  /// ever touch lock-guarded state.
   func beginSnapshot(
     config: Config,
     forceFullWindowRefresh: Bool,

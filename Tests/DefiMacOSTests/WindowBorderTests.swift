@@ -479,7 +479,6 @@ struct WindowBorderTests {
     for (panel, path) in zip(panels, paths) {
       #expect((panel.contentView?.layer?.sublayers?.first as? CAShapeLayer)?.path === path)
     }
-    // A same-size handoff preserves paths, but resizing must still rebuild them.
     let resized = Rect(x: 180, y: 130, width: 900, height: 650)
     #expect(manager.updateGeometry(frames: [second: resized], style: style))
     for (panel, path) in zip(panels, paths) {
