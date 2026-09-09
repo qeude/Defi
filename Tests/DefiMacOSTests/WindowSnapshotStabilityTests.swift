@@ -9,6 +9,100 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func emptyApplicationInventoryDrainsPendingFullRefreshChunks() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let application = AXUIElementCreateApplication(processID)
+    engine.applications = [processID: application]
+    engine.chunkedFullRefreshRemainingProcessIDs = [processID]
+
+    engine.applications = [processID: application]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == [processID])
+
+    // Snapshot discovery publishes an empty inventory after the last app exits.
+    engine.applications = [:]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs?.isEmpty != false)
+
+    engine.applications = [processID: application]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
+  }
+
+  @Test func deferredUnmatchedWindowsExhaustRetriesAcrossFullSnapshotChunks() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let first = AXUIElementCreateApplication(41)
+    let deferred = AXUIElementCreateApplication(42)
+    engine.unmatchedWindowElementsByProcess = [41: [first], 42: [deferred]]
+    engine.unmatchedWindowRetryAttemptsByProcess = [41: 0, 42: 0]
+    for attempt in 1...3 {
+      engine.retryUnmatchedWindows(processIDs: [41])
+      #expect(engine.unmatchedWindowElementsByProcess[42]?.count == 1)
+      #expect(engine.unmatchedWindowRetryAttemptsByProcess[42] == attempt - 1)
+      cacheWindowElementForShortRetry(
+        first, processID: 41, elementsByProcess: &engine.unmatchedWindowElementsByProcess,
+        attemptsByProcess: &engine.unmatchedWindowRetryAttemptsByProcess
+      )
+      engine.retryUnmatchedWindows(processIDs: [42])
+      cacheWindowElementForShortRetry(
+        deferred, processID: 42, elementsByProcess: &engine.unmatchedWindowElementsByProcess,
+        attemptsByProcess: &engine.unmatchedWindowRetryAttemptsByProcess
+      )
+      #expect(engine.unmatchedWindowRetryAttemptsByProcess[42] == attempt)
+    }
+    #expect(!unmatchedWindowRetryIsPending(attempts: engine.unmatchedWindowRetryAttemptsByProcess[42] ?? 0))
+  }
+
+  @Test func snapshotPreparationDoesNotVisitDeferredApplications() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    // No host is attached: visiting a deferred application's observer would fail.
+    let element = AXUIElementCreateApplication(processID)
+    engine.applications = [processID: element]
+    engine.elements = [WindowID(rawValue: 1): element]
+    engine.processIDs = [WindowID(rawValue: 1): processID]
+    let prepared = engine.prepareWindowAttributes(processIDs: [])
+    #expect(prepared.attributes.isEmpty)
+    #expect(prepared.owners.isEmpty)
+    #expect(prepared.applications.isEmpty)
+  }
+
+  @Test func borderInventoryRejectsEventsDuringCaptureAndExpiredSnapshots() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let inventory = CGWindowInventory(records: [], generation: 0, capturedAt: 10)
+    engine.publishCGWindowInventory(inventory)
+    #expect(engine.borderStackingInventory(now: 10.01) != nil)
+    #expect(engine.borderStackingInventory(now: 10.1) == nil)
+    #expect(engine.borderStackingInventory(now: 9) == nil)
+    engine.recordObservation(.focus, processID: processID)
+    // Even a result published after an intervening event must remain invalid.
+    engine.publishCGWindowInventory(inventory)
+    #expect(engine.borderStackingInventory(now: 10.01) == nil)
+  }
+
+  @Test func borderInventoryPreservesVisibleOrderAndRequiresMatchingTarget() {
+    let target = WindowID(rawValue: 3)
+    let inventory = [
+      CGWindowRecord(id: 1, processID: 7, layer: 0, title: "", frame: frame),
+      CGWindowRecord(id: 2, processID: 7, layer: 0, title: "", frame: frame, isOnscreen: false),
+      CGWindowRecord(id: 3, processID: processID, layer: 0, title: "", frame: frame),
+      CGWindowRecord(id: 4, processID: 7, layer: 0, title: "", frame: frame),
+    ]
+    let entries = windowBorderStackEntries(
+      inventory: inventory, targetWindowID: target, targetProcessID: processID, targetFrame: frame
+    )
+    #expect(entries?.map(\.windowID.rawValue) == [1, 3])
+    for id in [2, 5] {
+      #expect(windowBorderStackEntries(
+        inventory: inventory, targetWindowID: WindowID(rawValue: UInt64(id)),
+        targetProcessID: 7, targetFrame: frame
+      ) == nil)
+    }
+    #expect(windowBorderStackEntries(
+      inventory: inventory, targetWindowID: target, targetProcessID: 99, targetFrame: frame
+    ) == nil)
+    #expect(windowBorderStackEntries(
+      inventory: inventory, targetWindowID: target, targetProcessID: processID, targetFrame: nil
+    ) == nil)
+  }
+
   @Test func destroyedWindowsArrivingDuringSnapshotRemainPending() {
     let engine = SnapshotEngine(
       frameCoordinator: AXFrameCoordinator(),
@@ -79,44 +173,6 @@ struct WindowSnapshotStabilityTests {
       #expect(destroyed.topologyPending)
       #expect(destroyed.topologyRequiresFullSnapshot == (processID == nil))
     }
-  }
-
-  @Test func preparedAttributesAreRejectedAfterInputOrObservationChanges() {
-    let windowIDs: Set<WindowID> = [WindowID(rawValue: 1)]
-    #expect(
-      preparedAXWindowAttributesAreCurrent(
-        capturedGeneration: 4,
-        currentGeneration: 4,
-        capturedInputTimestamp: 10,
-        currentInputTimestamp: 10,
-        capturedWindowIDs: windowIDs,
-        currentWindowIDs: windowIDs,
-        capturedProcessIDs: [42],
-        currentProcessIDs: [42]
-      )
-    )
-    #expect(
-      preparedAXWindowAttributesAreCurrent(
-        capturedGeneration: 4,
-        currentGeneration: 5,
-        capturedInputTimestamp: 10,
-        currentInputTimestamp: 10,
-        capturedWindowIDs: windowIDs,
-        currentWindowIDs: windowIDs,
-        capturedProcessIDs: [42],
-        currentProcessIDs: [42]
-      ) == false)
-    #expect(
-      preparedAXWindowAttributesAreCurrent(
-        capturedGeneration: 4,
-        currentGeneration: 4,
-        capturedInputTimestamp: 10,
-        currentInputTimestamp: 11,
-        capturedWindowIDs: windowIDs,
-        currentWindowIDs: windowIDs,
-        capturedProcessIDs: [42],
-        currentProcessIDs: [42]
-      ) == false)
   }
 
   @Test func applicationInventoryUsesEventsAndBoundedWatchdog() {

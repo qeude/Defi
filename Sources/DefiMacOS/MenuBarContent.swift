@@ -5,7 +5,7 @@ import SwiftUI
 public struct MenuBarContent: View {
   let state: MenuBarState
   let commandHandler: (String) -> Void
-  @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+  @State private var launchAtLogin = false
 
   public init(state: MenuBarState, commandHandler: @escaping (String) -> Void) {
     self.state = state

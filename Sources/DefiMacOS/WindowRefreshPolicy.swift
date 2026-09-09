@@ -160,3 +160,15 @@ func budgetedFreshReadPartition(
     stillDeferred.isEmpty ? nil : (deferredSince ?? now)
   return (allowed, stillDeferred, nextDeferredSince)
 }
+
+extension SnapshotEngine {
+  func retryUnmatchedWindows(processIDs refreshingProcessIDs: Set<pid_t>?) {
+    // A deferred app keeps its cache and retry count until its own chunk runs.
+    // Clearing it early makes snapshot cleanup discard the count and retry forever.
+    for processID in unmatchedWindowElementsByProcess.keys
+    where refreshingProcessIDs?.contains(processID) ?? true {
+      unmatchedWindowRetryAttemptsByProcess[processID, default: 0] += 1
+      unmatchedWindowElementsByProcess[processID] = nil
+    }
+  }
+}

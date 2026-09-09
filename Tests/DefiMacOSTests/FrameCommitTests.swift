@@ -8,6 +8,39 @@ import Testing
 @testable import DefiMacOS
 
 struct FrameCommitTests {
+  @Test func supersededFramesSkipQueueAndEnhancedUISetup() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.latestGeneration = 2
+    // An invalid process handle keeps the pre-fix failure independent of desktop permission.
+    let element = AXUIElementCreateApplication(-1)
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: CGPoint(x: 0, y: 40), point: CGPoint(x: 100, y: 40),
+      fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 800, height: 700),
+      positionChanged: true, sizeChanged: false, animatesSize: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: true,
+      timeoutSeconds: 0.016, isParked: false, isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let windowID = WindowID(rawValue: 1)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "stale-setup-test", writes: [windowID: write],
+      animatedWindowIDs: [], animationDuration: 0, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    let batch = coordinator.applyBatch(
+      ProcessWriteBatch(processID: -1, writes: [(windowID, write)]), frame: frame,
+      progress: 1, intermediate: false, stagingReentry: false, recordFinalSuccess: true
+    )
+    #expect(batch.applied == 0 && batch.stale == 1 && !batch.attempted)
+    #expect(coordinator.deferredEnhancedUIRestores.isEmpty)
+    let result = coordinator.applyFrame(frame, progress: 1, skippedProcesses: [])
+    #expect(result.applied == 0 && result.stale == 1 && result.frames == 0)
+    #expect(coordinator.processWriteQueues.isEmpty)
+    let excluded = coordinator.applyFrame(frame, progress: 1, skippedProcesses: [-1])
+    #expect(excluded.stale == 0)
+  }
+
   @Test func completedTargetDoesNotWaitForSlowSibling() {
     let target = WindowID(rawValue: 1)
     let sibling = WindowID(rawValue: 2)

@@ -15,6 +15,30 @@ private final class TestAXElement: @unchecked Sendable {
 }
 
 struct PlatformEventTests {
+  @Test
+  func activationOnlyQueriesFrontmostForLiveIntentAndRejectsSupersededReads() {
+    let tracker = UserInputTracker()
+    var queries = 0
+    func frontmost() -> pid_t? {
+      queries += 1
+      return 20
+    }
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: frontmost(), at: 10) == nil)
+    #expect(queries == 0)
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: frontmost(), at: 13) == nil)
+    #expect(queries == 0)
+    tracker.recordApplicationActivation(processID: 20, at: 14)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: frontmost(), at: 15)?.processID == 20)
+    #expect(queries == 1)
+    func supersededFrontmost() -> pid_t? {
+      tracker.recordApplicationActivation(processID: 30, at: 15.5)
+      return 20
+    }
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: supersededFrontmost(), at: 15) == nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 16)?.processID == 30)
+  }
+
   @Test @MainActor
   func sessionChangeDiscardsCachedAXConnectionsBeforeNextDiscovery() {
     let platform = MacOSPlatform()
@@ -396,38 +420,9 @@ struct PlatformEventTests {
         == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
     )
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
-    #expect(
-      windowTopologyRefreshDelays(
-        for: .windowCreated,
-        latestInputTimestamp: 9.5,
-        latestCloseIntentTimestamp: 0,
-        now: 10
-      ) == [50, 150, 350]
-    )
-    #expect(
-      windowTopologyRefreshDelays(
-        for: .windowCreated,
-        latestInputTimestamp: 8.5,
-        latestCloseIntentTimestamp: 0,
-        now: 10
-      ).isEmpty
-    )
-    #expect(
-      windowTopologyRefreshDelays(
-        for: .windows,
-        latestInputTimestamp: 9.5,
-        latestCloseIntentTimestamp: 0,
-        now: 10
-      ).isEmpty
-    )
-    #expect(
-      windowTopologyRefreshDelays(
-        for: .windowCreated,
-        latestInputTimestamp: 9.5,
-        latestCloseIntentTimestamp: 9.5,
-        now: 10
-      ).isEmpty
-    )
+    #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
+    #expect(windowTopologyRefreshDelays(for: .windows).isEmpty)
+    #expect(windowTopologyRefreshDelays(for: .focus).isEmpty)
   }
 
   @Test @MainActor
@@ -440,6 +435,13 @@ struct PlatformEventTests {
     #expect(platform.hasPendingWindowTopologyEvent)
     #expect(platform.snapshotEngine.pendingObservations.topologyProcessIDs == [101])
     #expect(platform.snapshotEngine.pendingObservations.topologyInputTimestamp == 12)
+  }
+
+  @Test
+  func windowCreationRetriesWithoutInputHistoryAfterRestart() {
+    // The policy must not depend on a recent keyboard/mouse/close timestamp.
+    #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
+    #expect(windowTopologyRefreshDelays(for: .frame).isEmpty)
   }
 
   @Test

@@ -137,16 +137,29 @@ public final class UserInputTracker: @unchecked Sendable {
 
   /// Pending resolution is bounded and belongs only to the current frontmost app.
   public func pendingApplicationActivation(
-    frontmostProcessID: pid_t?,
+    frontmostProcessID: @autoclosure () -> pid_t?,
     at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
   ) -> ApplicationActivation? {
     lock.lock()
-    defer { lock.unlock() }
-    guard let activation = applicationActivation else { return nil }
-    guard activation.processID == frontmostProcessID,
-      timestamp >= activation.timestamp,
+    guard let activation = applicationActivation else {
+      lock.unlock()
+      return nil
+    }
+    guard timestamp >= activation.timestamp,
       timestamp - activation.timestamp <= 2
     else {
+      applicationActivation = nil
+      lock.unlock()
+      return nil
+    }
+    lock.unlock()
+    // LaunchServices can block. Keep input recording responsive during this read
+    // and reject its result if newer human intent superseded the activation.
+    let processID = frontmostProcessID()
+    lock.lock()
+    defer { lock.unlock() }
+    guard applicationActivation == activation else { return nil }
+    guard activation.processID == processID else {
       applicationActivation = nil
       return nil
     }

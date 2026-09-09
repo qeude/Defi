@@ -37,6 +37,20 @@ struct CGWindowRecord: Sendable {
   }
 }
 
+struct CGWindowInventory: Sendable {
+  let records: [CGWindowRecord]
+  let generation: UInt64
+  let capturedAt: TimeInterval
+
+  func recordsForBorderStacking(generation: UInt64, now: TimeInterval) -> [CGWindowRecord]? {
+    // Only share a recent snapshot pass; native order events still force a read.
+    guard self.generation == generation, now >= capturedAt,
+      now - capturedAt <= 0.05
+    else { return nil }
+    return records
+  }
+}
+
 func copyCGWindows(
   options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
 ) -> [CGWindowRecord] {
@@ -55,39 +69,6 @@ func copyCGWindowsIfAvailable(
     return nil
   }
   return info.compactMap(cgWindowRecord)
-}
-
-@MainActor
-extension MacOSPlatform {
-  public func prepareCGWindowInventoryIfNeeded(
-    completion: @escaping @MainActor @Sendable (Bool) -> Void
-  ) -> Bool {
-    if preparedCGWindowInventoryAvailable { return false }
-    guard !cgWindowInventoryPreparationPending else { return true }
-    let capturedGeneration = windowSnapshotObservationGeneration
-    cgWindowInventoryPreparationPending = true
-    DispatchQueue.global(qos: .utility).async {
-      let startedAt = ProcessInfo.processInfo.systemUptime
-      let windows = copyCGWindowsIfAvailable()
-      let durationMS =
-        (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
-      DispatchQueue.main.async { [weak self] in
-        MainActor.assumeIsolated {
-          guard let self else { return }
-          self.cgWindowInventoryPreparationPending = false
-          guard capturedGeneration == self.windowSnapshotObservationGeneration else {
-            completion(false)
-            return
-          }
-          self.preparedCGWindowInventory = windows
-          self.preparedCGWindowInventoryDurationMS = durationMS
-          self.preparedCGWindowInventoryAvailable = true
-          completion(true)
-        }
-      }
-    }
-    return true
-  }
 }
 
 func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {

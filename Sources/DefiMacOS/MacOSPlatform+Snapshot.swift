@@ -98,12 +98,6 @@ extension SnapshotEngine {
         unmatchedWindowElementsByProcess[processID] = nil
         unmatchedWindowRetryAttemptsByProcess[processID] = nil
       }
-      if retriesAllUnmatchedWindows {
-        for processID in unmatchedWindowElementsByProcess.keys {
-          unmatchedWindowRetryAttemptsByProcess[processID, default: 0] += 1
-        }
-        unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
-      }
     }
     let incrementalProcessIDs =
       forceFullWindowRefresh
@@ -193,6 +187,9 @@ extension SnapshotEngine {
       deferredFreshReadProcessIDs.removeAll(keepingCapacity: true)
       deferredFreshReadsStartedAt = nil
     }
+    if !eventRequiresFullSnapshot, retriesAllUnmatchedWindows || chunkedFullActive {
+      retryUnmatchedWindows(processIDs: effectiveIncrementalProcessIDs)
+    }
     let forceWindowListRefreshEffective =
       forceWindowListRefresh || chunkedFullActive
     let snapshotMode: String
@@ -230,19 +227,11 @@ extension SnapshotEngine {
         cachedCGWindows = reusableCGWindows
         return cachedCGWindows
       }
-      let copied: [CGWindowRecord]?
-      let copyDurationMS: Double
-      if preparedCGWindowInventoryAvailable {
-        copied = preparedCGWindowInventory
-        copyDurationMS = preparedCGWindowInventoryDurationMS
-      } else {
-        let copyStartedAt = ProcessInfo.processInfo.systemUptime
-        copied = copyCGWindowsIfAvailable()
-        copyDurationMS =
-          (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
-      }
-      preparedCGWindowInventory = nil
-      preparedCGWindowInventoryAvailable = false
+      let copyStartedAt = ProcessInfo.processInfo.systemUptime
+      let inventoryGeneration = windowSnapshotObservationGeneration
+      let copied = copyCGWindowsIfAvailable()
+      let copyDurationMS =
+        (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
       snapshotCGWindowCopyCount += 1
       lastSnapshotCGWindowCopyDurationMS = copyDurationMS
       maximumSnapshotCGWindowCopyDurationMS = max(
@@ -251,7 +240,9 @@ extension SnapshotEngine {
       )
       hasResolvedCGWindows = true
       cachedCGWindows = copied
-      lastCGWindowInventory = copied
+      publishCGWindowInventory(copied.map {
+        CGWindowInventory(records: $0, generation: inventoryGeneration, capturedAt: copyStartedAt)
+      })
       cgWindowInventoryRetryAttempts =
         updatedWindowListReadRetryAttempts(
           previousAttempts: cgWindowInventoryRetryAttempts,
@@ -265,36 +256,11 @@ extension SnapshotEngine {
     ) {
       _ = publicCGWindows()
     }
-    let preparedAXIsCurrent =
-      preparedAXWindowAttributesAvailable
-      && preparedAXWindowAttributesGeneration.map {
-        preparedAXWindowAttributesAreCurrent(
-          capturedGeneration: $0,
-          currentGeneration: windowSnapshotObservationGeneration,
-          capturedInputTimestamp: preparedAXWindowAttributesInputTimestamp ?? .nan,
-          currentInputTimestamp: userInputTracker.latestEventTimestamp,
-          capturedWindowIDs: preparedAXWindowAttributesWindowIDs,
-          currentWindowIDs: Set(elements.keys),
-          capturedProcessIDs: preparedAXWindowAttributesProcessIDs,
-          currentProcessIDs: Set(applications.keys)
-        )
-      } ?? false
-    let preparedWindowAttributes =
-      preparedAXIsCurrent
-      ? preparedAXWindowAttributes
-      : [:]
-    let preparedTransientOwners =
-      preparedAXIsCurrent
-      ? preparedTransientOwnerWindowIDs
-      : [:]
-    let preparedApplicationWindows =
-      preparedAXIsCurrent
-      ? preparedAXApplicationWindows
-      : [:]
-    preparedAXWindowAttributes.removeAll(keepingCapacity: true)
-    preparedTransientOwnerWindowIDs.removeAll(keepingCapacity: true)
-    preparedAXApplicationWindows.removeAll(keepingCapacity: true)
-    preparedAXWindowAttributesAvailable = false
+    // Prepare only this chunk, on the snapshot queue. Deferred applications
+    // must not be read here and then read again when their chunk runs.
+    let prepared = chunkedFullActive
+      ? prepareWindowAttributes(processIDs: effectiveIncrementalProcessIDs ?? Set(applications.keys))
+      : (attributes: [:], owners: [:], applications: [:])
     let previousElements = elements
     let discovery = discoverSnapshotWindows(
       monitors: monitors,
@@ -304,14 +270,12 @@ extension SnapshotEngine {
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
-      preparedWindowAttributes: preparedWindowAttributes,
-      preparedTransientOwnerWindowIDs: preparedTransientOwners,
-      preparedApplicationWindows: preparedApplicationWindows,
+      preparedWindowAttributes: prepared.attributes,
+      preparedTransientOwnerWindowIDs: prepared.owners,
+      preparedApplicationWindows: prepared.applications,
       explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
       publicCGWindows: publicCGWindows
     )
-    preparedCGWindowInventory = nil
-    preparedCGWindowInventoryAvailable = false
     var nextElements = discovery.nextElements
     var nextProcessIDs = discovery.nextProcessIDs
     let nextApplications = discovery.nextApplications

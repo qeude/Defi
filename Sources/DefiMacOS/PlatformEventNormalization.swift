@@ -118,19 +118,10 @@ func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   }
 }
 
-func windowTopologyRefreshDelays(
-  for kind: PlatformEventKind,
-  latestInputTimestamp: TimeInterval?,
-  latestCloseIntentTimestamp: TimeInterval,
-  now: TimeInterval
-) -> [Int] {
-  guard let latestInputTimestamp,
-    kind == .windowCreated,
-    latestCloseIntentTimestamp < latestInputTimestamp,
-    latestInputTimestamp <= now,
-    now - latestInputTimestamp <= 1
-  else { return [] }
-  return [50, 150, 350]
+func windowTopologyRefreshDelays(for kind: PlatformEventKind) -> [Int] {
+  // Window creation can precede AXWindows/geometry readiness, including without
+  // input history after a daemon restart. Discovery is independent of focus intent.
+  kind == .windowCreated ? [50, 150, 350] : []
 }
 
 func nativeFocusedWindowIDAfterEvent(

@@ -110,6 +110,13 @@ extension Daemon {
           forceApplicationInventoryRefresh: pending.forceApplicationInventoryRefresh,
           consumePeriodicWindowRefresh: pending.consumePeriodicWindowRefresh
         )
+      } else if platform.hasDeferredFreshWindowReads
+        || platform.hasChunkedFullRefreshPending
+      {
+        // Continue when the preceding chunk completes, never by spinning ticks
+        // that can only supersede a snapshot still waiting on Accessibility.
+        needsDesktopSync = true
+        scheduleTick()
       }
     }
     let snapshotCompletedAt = ProcessInfo.processInfo.systemUptime

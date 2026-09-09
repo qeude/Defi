@@ -302,58 +302,6 @@ public final class MacOSPlatform {
     get { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS }
     set { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS = newValue }
   }
-  var preparedCGWindowInventory: [CGWindowRecord]? {
-    get { snapshotEngine.preparedCGWindowInventory }
-    set { snapshotEngine.preparedCGWindowInventory = newValue }
-  }
-  var preparedCGWindowInventoryDurationMS: Double {
-    get { snapshotEngine.preparedCGWindowInventoryDurationMS }
-    set { snapshotEngine.preparedCGWindowInventoryDurationMS = newValue }
-  }
-  var preparedCGWindowInventoryAvailable: Bool {
-    get { snapshotEngine.preparedCGWindowInventoryAvailable }
-    set { snapshotEngine.preparedCGWindowInventoryAvailable = newValue }
-  }
-  var cgWindowInventoryPreparationPending: Bool {
-    get { snapshotEngine.cgWindowInventoryPreparationPending }
-    set { snapshotEngine.cgWindowInventoryPreparationPending = newValue }
-  }
-  var preparedAXWindowAttributes: [WindowID: AXWindowAttributes] {
-    get { snapshotEngine.preparedAXWindowAttributes }
-    set { snapshotEngine.preparedAXWindowAttributes = newValue }
-  }
-  var preparedTransientOwnerWindowIDs: [WindowID: WindowID] {
-    get { snapshotEngine.preparedTransientOwnerWindowIDs }
-    set { snapshotEngine.preparedTransientOwnerWindowIDs = newValue }
-  }
-  var preparedAXApplicationWindows: [pid_t: PreparedAXApplicationWindows] {
-    get { snapshotEngine.preparedAXApplicationWindows }
-    set { snapshotEngine.preparedAXApplicationWindows = newValue }
-  }
-  var preparedAXWindowAttributesAvailable: Bool {
-    get { snapshotEngine.preparedAXWindowAttributesAvailable }
-    set { snapshotEngine.preparedAXWindowAttributesAvailable = newValue }
-  }
-  var preparedAXWindowAttributesGeneration: UInt64? {
-    get { snapshotEngine.preparedAXWindowAttributesGeneration }
-    set { snapshotEngine.preparedAXWindowAttributesGeneration = newValue }
-  }
-  var preparedAXWindowAttributesInputTimestamp: TimeInterval? {
-    get { snapshotEngine.preparedAXWindowAttributesInputTimestamp }
-    set { snapshotEngine.preparedAXWindowAttributesInputTimestamp = newValue }
-  }
-  var preparedAXWindowAttributesWindowIDs: Set<WindowID> {
-    get { snapshotEngine.preparedAXWindowAttributesWindowIDs }
-    set { snapshotEngine.preparedAXWindowAttributesWindowIDs = newValue }
-  }
-  var preparedAXWindowAttributesProcessIDs: Set<pid_t> {
-    get { snapshotEngine.preparedAXWindowAttributesProcessIDs }
-    set { snapshotEngine.preparedAXWindowAttributesProcessIDs = newValue }
-  }
-  var axWindowAttributePreparationPending: Bool {
-    get { snapshotEngine.axWindowAttributePreparationPending }
-    set { snapshotEngine.axWindowAttributePreparationPending = newValue }
-  }
   var windowSnapshotObservationGeneration: UInt64 {
     get { snapshotEngine.windowSnapshotObservationGeneration }
     set { snapshotEngine.windowSnapshotObservationGeneration = newValue }
@@ -567,7 +515,7 @@ public final class MacOSPlatform {
   }
 
   public func requestFrameRefresh(for windowID: WindowID) {
-    invalidatePreparedAXWindowAttributes()
+    invalidateWindowSnapshot()
     snapshotEngine.recordObservation(
       .frame,
       processID: processIDs[windowID],
@@ -575,18 +523,9 @@ public final class MacOSPlatform {
     )
   }
 
-  func invalidatePreparedAXWindowAttributes() {
+  func invalidateWindowSnapshot() {
     windowSnapshotObservationGeneration &+= 1
-    preparedCGWindowInventory = nil
-    preparedCGWindowInventoryAvailable = false
-    preparedAXWindowAttributes.removeAll(keepingCapacity: true)
-    preparedTransientOwnerWindowIDs.removeAll(keepingCapacity: true)
-    preparedAXApplicationWindows.removeAll(keepingCapacity: true)
-    preparedAXWindowAttributesAvailable = false
-    preparedAXWindowAttributesGeneration = nil
-    preparedAXWindowAttributesInputTimestamp = nil
-    preparedAXWindowAttributesWindowIDs.removeAll(keepingCapacity: true)
-    preparedAXWindowAttributesProcessIDs.removeAll(keepingCapacity: true)
+
   }
 
 }

@@ -425,6 +425,81 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func unchangedSelectionPreservesStackingUntilExplicitObservation() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let windowID = WindowID(rawValue: 1)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    let plan = planWindowBorders(
+      frames: [FrameAssignment(windowID: windowID, frame: frame)],
+      selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+    )
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    manager.sync(plan, displayedFrames: [windowID: frame], stacking: frontmostStacking(for: windowID))
+    let panels = NSApp.windows.filter {
+      manager.transparentSurfaceWindowIDs.contains(CGWindowID($0.windowNumber))
+    }
+    #expect(panels.count == 4)
+    #expect(panels.allSatisfy { $0.level == .floating })
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    #expect(panels.allSatisfy { $0.level == .floating })
+    manager.prepareForSelection(windowID, displayedFrame: frame, stacking: .inactive(for: windowID))
+    #expect(panels.allSatisfy { $0.level == .normal })
+  }
+
+  @Test @MainActor
+  func translationReusesBorderPathsAndSelectionBacking() {
+    let manager = WindowBorderManager()
+    let first = WindowID(rawValue: 1)
+    let second = WindowID(rawValue: 2)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    let plan = planWindowBorders(
+      frames: [FrameAssignment(windowID: first, frame: frame)],
+      selectedWindowID: first, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+    )
+    manager.prepareForSelection(first, displayedFrame: frame)
+    manager.sync(plan, displayedFrames: [first: frame], stacking: frontmostStacking(for: first))
+    manager.revealPendingBorders()
+    let panels = NSApp.windows.filter {
+      manager.transparentSurfaceWindowIDs.contains(CGWindowID($0.windowNumber))
+    }
+    let paths = panels.map { $0.contentView?.layer?.sublayers?.first as? CAShapeLayer }
+      .compactMap { $0?.path }
+    #expect(paths.count == 4)
+    let translated = Rect(x: 180, y: 130, width: 800, height: 600)
+    manager.updateGeometry(frames: [first: translated], style: style)
+    for (panel, path) in zip(panels, paths) {
+      #expect((panel.contentView?.layer?.sublayers?.first as? CAShapeLayer)?.path === path)
+    }
+    let pixels = manager.performance.estimatedSurfacePixels
+    manager.prepareForSelection(second, displayedFrame: translated)
+    manager.revealPendingBorders()
+    #expect(manager.performance.allocated == 1)
+    #expect(manager.performance.estimatedSurfacePixels == pixels)
+    for (panel, path) in zip(panels, paths) {
+      #expect((panel.contentView?.layer?.sublayers?.first as? CAShapeLayer)?.path === path)
+    }
+    // A same-size handoff preserves paths, but resizing must still rebuild them.
+    let resized = Rect(x: 180, y: 130, width: 900, height: 650)
+    #expect(manager.updateGeometry(frames: [second: resized], style: style))
+    for (panel, path) in zip(panels, paths) {
+      #expect((panel.contentView?.layer?.sublayers?.first as? CAShapeLayer)?.path !== path)
+    }
+    #expect(!manager.updateGeometry(frames: [second: resized], style: style))
+    // Reassert native geometry if AppKit moved one of our panels independently.
+    if let panel = panels.first {
+      let expected = panel.frame
+      panel.setFrameOrigin(NSPoint(x: expected.minX + 20, y: expected.minY))
+      manager.revealPendingBorders()
+      #expect(panel.frame == expected)
+    }
+    manager.prepareForSelection(nil, displayedFrame: nil)
+    #expect(manager.performance.estimatedSurfacePixels == 0)
+    #expect(manager.performance.visible == 0)
+    manager.hide()
+  }
+
+  @Test @MainActor
   func activeSelectionReusesDormantBorderPanels() {
     let manager = WindowBorderManager()
     let first = WindowID(rawValue: 1)

@@ -23,6 +23,10 @@ extension AXFrameCoordinator {
     completionSpreadMS: Double,
     frames: Int
   ) {
+    guard isCurrent(generation: frame.generation) else {
+      let stale = frame.writes.values.lazy.filter { !skippedProcesses.contains($0.processID) }.count
+      return (0, stale, [], 0, 0)
+    }
     let accumulator = FrameResultAccumulator()
     let parkedWindowIDs = Set(
       frame.writes.compactMap { windowID, write in
@@ -351,6 +355,9 @@ extension AXFrameCoordinator {
     slowProcesses: Set<pid_t>,
     attempted: Bool
   ) {
+    guard isCurrent(generation: frame.generation) else {
+      return (0, batch.writes.count, [], false)
+    }
     var applied = 0
     var stale = 0
     var slowProcesses = Set<pid_t>()

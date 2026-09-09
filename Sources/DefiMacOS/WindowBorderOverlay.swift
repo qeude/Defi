@@ -15,6 +15,7 @@ final class BorderOverlay {
   private var visible = false
   private var opacityValue: Float = 0
   private var pendingOpacityReveal: Float?
+  private var geometryNeedsRefresh = false
 
   var isVisible: Bool { visible }
 
@@ -33,10 +34,11 @@ final class BorderOverlay {
   }
 
   var windowIDs: Set<CGWindowID> {
-    Set(segments.values.compactMap { panel in
-      guard panel.windowNumber > 0 else { return nil }
-      return CGWindowID(panel.windowNumber)
-    })
+    Set(
+      segments.values.compactMap { panel in
+        guard panel.windowNumber > 0 else { return nil }
+        return CGWindowID(panel.windowNumber)
+      })
   }
 
   init(windowID: WindowID) {
@@ -48,8 +50,17 @@ final class BorderOverlay {
     )
   }
 
-  func retarget(to windowID: WindowID) {
-    compactBacking()
+  func retarget(to windowID: WindowID, preservingBacking: Bool = false) {
+    if preservingBacking {
+      // Reuse only during a synchronous selection handoff, never as a hidden cache.
+      for segment in segments.values { segment.orderOut() }
+      opacityValue = 0
+      pendingOpacityReveal = nil
+      visible = false
+      geometryNeedsRefresh = true
+    } else {
+      compactBacking()
+    }
     let targetWindowNumber = Int(windowID.rawValue)
     for segment in segments.values {
       segment.retarget(to: targetWindowNumber)
@@ -86,9 +97,14 @@ final class BorderOverlay {
     // its corner radius grows by the same outset so the stroke keeps hugging
     // the real window curvature.
     let radius = placement == .outside ? baseRadius + width : baseRadius
+    let drawingChanged =
+      windowFrame?.width != frame.width
+      || windowFrame?.height != frame.height || self.width != width
+      || self.radius != radius || self.placement != placement
     guard
       windowFrame != frame || self.width != width || self.radius != radius
         || self.captureEnabled != captureEnabled || self.placement != placement
+        || geometryNeedsRefresh
     else {
       return false
     }
@@ -119,7 +135,7 @@ final class BorderOverlay {
         width: width,
         radius: radius,
         captureEnabled: captureEnabled,
-        directMovementEnabled: false
+        drawingChanged: drawingChanged
       )
     }
     windowFrame = frame
@@ -127,6 +143,7 @@ final class BorderOverlay {
     self.radius = radius
     self.captureEnabled = captureEnabled
     self.placement = placement
+    geometryNeedsRefresh = false
     return true
   }
 
@@ -277,7 +294,7 @@ private final class BorderSegment {
     width: Double,
     radius: Double,
     captureEnabled: Bool,
-    directMovementEnabled: Bool
+    drawingChanged: Bool
   ) {
     let previousFrame = frame
     let sizeChanged =
@@ -291,37 +308,37 @@ private final class BorderSegment {
       width: geometry.frame.width,
       height: geometry.frame.height
     )
-    if previousFrame == nil || sizeChanged || scaleChanged
-      || !directMovementEnabled
-    {
+    if previousFrame != geometry.frame || scaleChanged {
       panel.setFrame(appKitRect(for: geometry.frame), display: false)
     }
 
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    rootView.layer?.contentsScale = scale
-    shapeLayer.contentsScale = scale
-    if previousFrame == nil || sizeChanged {
-      rootView.frame = localBounds
-      rootView.layer?.frame = localBounds
-      shapeLayer.frame = localBounds
+    if drawingChanged || previousFrame == nil || sizeChanged || scaleChanged {
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      rootView.layer?.contentsScale = scale
+      shapeLayer.contentsScale = scale
+      if previousFrame == nil || sizeChanged {
+        rootView.frame = localBounds
+        rootView.layer?.frame = localBounds
+        shapeLayer.frame = localBounds
+      }
+      let strokeInset = width / 2
+      let pathRect = CGRect(
+        x: strokeInset - geometry.pathOriginFromWindowBottom.x,
+        y: strokeInset - geometry.pathOriginFromWindowBottom.y,
+        width: max(windowFrame.width - width, 0),
+        height: max(windowFrame.height - width, 0)
+      )
+      let strokeRadius = max(radius - strokeInset, 0)
+      shapeLayer.path = CGPath(
+        roundedRect: pathRect,
+        cornerWidth: strokeRadius,
+        cornerHeight: strokeRadius,
+        transform: nil
+      )
+      shapeLayer.lineWidth = width
+      CATransaction.commit()
     }
-    let strokeInset = width / 2
-    let pathRect = CGRect(
-      x: strokeInset - geometry.pathOriginFromWindowBottom.x,
-      y: strokeInset - geometry.pathOriginFromWindowBottom.y,
-      width: max(windowFrame.width - width, 0),
-      height: max(windowFrame.height - width, 0)
-    )
-    let strokeRadius = max(radius - strokeInset, 0)
-    shapeLayer.path = CGPath(
-      roundedRect: pathRect,
-      cornerWidth: strokeRadius,
-      cornerHeight: strokeRadius,
-      transform: nil
-    )
-    shapeLayer.lineWidth = width
-    CATransaction.commit()
 
     if panel.sharingType != (captureEnabled ? .readOnly : .none) {
       panel.sharingType = captureEnabled ? .readOnly : .none
@@ -344,6 +361,7 @@ private final class BorderSegment {
   }
 
   func setOpacityImmediately(_ opacity: Float) {
+    guard shapeLayer.opacity != opacity else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     shapeLayer.opacity = opacity
@@ -377,17 +395,25 @@ private final class BorderSegment {
 
   func applyCompositorFallback() {
     guard let frame else { return }
-    panel.setFrame(appKitRect(for: frame), display: false)
+    let expectedFrame = appKitRect(for: frame)
+    if panel.frame != expectedFrame { panel.setFrame(expectedFrame, display: false) }
+    let wasOrderedIn = orderedIn
     ensureOrderedIn()
-    panel.alphaValue = 1
-    orderForCurrentStacking()
+    if panel.alphaValue != 1 { panel.alphaValue = 1 }
+    if wasOrderedIn { orderForCurrentStacking() }
   }
 
-  func compactBacking() {
-    panel.alphaValue = 0
+  func orderOut() {
+    if panel.alphaValue != 0 { panel.alphaValue = 0 }
     if orderedIn {
       panel.orderOut(nil)
     }
+    orderedIn = false
+  }
+
+  func compactBacking() {
+    guard frame != nil else { return }
+    orderOut()
     let compactBounds = CGRect(x: 0, y: 0, width: 1, height: 1)
     CATransaction.begin()
     CATransaction.setDisableActions(true)
