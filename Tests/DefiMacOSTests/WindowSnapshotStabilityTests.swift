@@ -9,6 +9,24 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func emptyApplicationInventoryDrainsPendingFullRefreshChunks() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let application = AXUIElementCreateApplication(processID)
+    engine.applications = [processID: application]
+    engine.chunkedFullRefreshRemainingProcessIDs = [processID]
+
+    engine.applications = [processID: application]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == [processID])
+
+    // Snapshot discovery publishes an empty inventory after the last app exits.
+    engine.applications = [:]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs?.isEmpty != false)
+
+    engine.applications = [processID: application]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
+  }
+
   @Test func deferredUnmatchedWindowsExhaustRetriesAcrossFullSnapshotChunks() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     let first = AXUIElementCreateApplication(41)

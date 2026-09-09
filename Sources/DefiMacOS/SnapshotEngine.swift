@@ -286,7 +286,15 @@ final class SnapshotEngine: @unchecked Sendable {
 
   var applications: [pid_t: AXUIElement] {
     get { read { $0.applications } }
-    set { read { $0.applications = newValue } }
+    set {
+      read {
+        $0.applications = newValue
+        // An empty inventory cannot leave a full-refresh continuation pending.
+        if newValue.isEmpty {
+          $0.chunkedFullRefreshRemainingProcessIDs = nil
+        }
+      }
+    }
   }
 
   var applicationIDsByProcess: [pid_t: String] {
