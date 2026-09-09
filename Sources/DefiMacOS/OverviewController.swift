@@ -142,8 +142,6 @@ public final class OverviewController: NSObject {
   private var edgeScrollTimer: Timer?
   private var edgeScrollDirection: Double?
   private var sessionGeneration: UInt64 = 0
-  private var expectedActivationProcessID: pid_t?
-  private var expectedActivationGeneration: UInt64 = 0
   private var windowPreviewsEnabled = false
   private var previewTask: Task<Void, Never>?
   private var desktopCaptureRetryTask: Task<Void, Never>?
@@ -206,12 +204,6 @@ public final class OverviewController: NSObject {
     pressure.resume()
     memoryPressureSource = pressure
     let center = NSWorkspace.shared.notificationCenter
-    center.addObserver(
-      self,
-      selector: #selector(applicationActivated(_:)),
-      name: NSWorkspace.didActivateApplicationNotification,
-      object: nil
-    )
     for name in [
       NSWorkspace.screensDidSleepNotification,
       NSWorkspace.sessionDidResignActiveNotification,
@@ -526,7 +518,6 @@ public final class OverviewController: NSObject {
     edgeScrollDirection = nil
     drag = nil
     alignSelectionOnNextUpdate = false
-    expectedActivationProcessID = nil
     previewTask?.cancel()
     previewTask = nil
     cancelDesktopCaptureRetry()
@@ -560,24 +551,6 @@ public final class OverviewController: NSObject {
     }
   }
 
-  @objc private func applicationActivated(_ notification: Notification) {
-    guard isOpen else { return }
-    let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-      as? NSRunningApplication
-    if application?.processIdentifier == expectedActivationProcessID {
-      expectedActivationProcessID = nil
-      return
-    }
-    if let processID = application?.processIdentifier,
-      let snapshot,
-      let selectedWindowID = selection?.windowID,
-      snapshot.windows[selectedWindowID]?.processID == processID
-    {
-      return
-    }
-    close()
-  }
-
   @objc private func closeForSystemTransition(_ notification: Notification) {
     close()
   }
@@ -593,7 +566,6 @@ public final class OverviewController: NSObject {
     switch selection {
     case .window(let windowID, let monitorID, let workspaceID):
       guard let window = snapshot.windows[windowID] else { return false }
-      expectActivation(of: window.processID)
       focusWindowHandler(windowID, window.appID, monitorID, workspaceID)
     case .workspace(let monitorID, let workspaceID):
       focusWorkspaceHandler(monitorID, workspaceID)
@@ -622,7 +594,7 @@ public final class OverviewController: NSObject {
         from: selection ?? initialSelection(in: snapshot),
         action: action,
         snapshot: snapshot
-      )
+      ), target != selection
     else { return }
     selection = target
     alignSelectionOnNextUpdate = true
@@ -694,17 +666,6 @@ public final class OverviewController: NSObject {
       sourceWorkspaceID: workspaceID,
       target: target
     )
-  }
-
-  private func expectActivation(of processID: Int32?) {
-    guard let processID else { return }
-    expectedActivationGeneration &+= 1
-    let generation = expectedActivationGeneration
-    expectedActivationProcessID = pid_t(processID)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-      guard let self, self.expectedActivationGeneration == generation else { return }
-      self.expectedActivationProcessID = nil
-    }
   }
 
   private func navigationTarget(
@@ -1570,7 +1531,6 @@ extension OverviewController: OverviewViewDelegate {
       workspaceID: location.workspaceID
     )
     alignSelectionOnNextUpdate = true
-    expectActivation(of: snapshot?.windows[windowID]?.processID)
     activateMonitorHandler(location.monitorID)
     dropHandler(
       windowID,

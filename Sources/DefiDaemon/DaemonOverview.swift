@@ -73,7 +73,7 @@ extension Daemon {
         guard let self else { return }
         let parksWindows = overviewController?.usesWorkspaceParking == true
         overviewOpenedAt =
-          isOpen && parksWindows
+          isOpen
           ? ProcessInfo.processInfo.systemUptime
           : nil
         hotKeys?.setOverviewModeEnabled(isOpen)
