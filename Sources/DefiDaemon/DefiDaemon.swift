@@ -273,9 +273,9 @@ final class Daemon: NSObject {
 
   func handleDesktopSessionActivity(_ active: Bool) {
     guard desktopSessionActive != active else { return }
-    desktopSessionActive = active
     if active { displayArrangement.invalidate() }
     displayArrangement.pointerRouter.setActive(active)
+    desktopSessionActive = active
     if !active { handleCheatsheetInput(.dismiss) }
     desktopSessionGeneration &+= 1
     guard active else {

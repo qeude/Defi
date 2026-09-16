@@ -203,6 +203,23 @@ struct WindowDiscoveryTests {
   }
 
   @Test
+  func stalePreferredIdentityRequiresVerificationAgainstCurrentGeometry() {
+    let stale = CGWindowRecord(
+      id: 56, processID: processID, layer: 0, title: "",
+      frame: Rect(x: 3_000, y: 37, width: 1_200, height: 800)
+    )
+    let current = CGWindowRecord(id: 19609, processID: processID, layer: 0, title: "", frame: frame)
+    #expect(cgWindowDiscoveryNeedsExactID(
+      preferredWindowID: WindowID(rawValue: 56), processID: processID,
+      title: "Window", frame: frame, records: [stale, current], excluding: []
+    ))
+    #expect(!cgWindowDiscoveryNeedsExactID(
+      preferredWindowID: WindowID(rawValue: 19609), processID: processID,
+      title: "Window", frame: frame, records: [stale, current], excluding: []
+    ))
+  }
+
+  @Test
   func `Identical public windows require an exact identifier`() {
     let records = [1, 2].map {
       CGWindowRecord(

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 struct ConfigTests {
-  @Test(arguments: ["-left", "alt--left", "alt-left-", ""])
+  @Test(arguments: ["a", "alt-fn", "typo-left", "-left", "alt--left", "alt-left-", ""])
   func malformedAcceleratorsAreRejectedWithoutReplacingDefaults(accelerator: String) throws {
     let config = Config(keys: [accelerator: "diagnostic-mark"])
     #expect(config.keys["alt-left"] == "focus-column left")

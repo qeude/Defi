@@ -519,6 +519,7 @@ func bestCGWindow(
 }
 
 func cgWindowDiscoveryNeedsExactID(
+  preferredWindowID: WindowID? = nil,
   processID: pid_t,
   title: String,
   frame: Rect,
@@ -534,6 +535,9 @@ func cgWindowDiscoveryNeedsExactID(
     excluding: usedWindowIDs,
     maximumDistance: maximumDistance
   ) else { return false }
+  if let preferredWindowID, preferredWindowID.rawValue != UInt64(closest.id) {
+    return true
+  }
   let closestDistance = frameDistance(closest.frame, frame)
   let closestTitleRank = windowTitleMatchRank(closest.title, title)
   return records.contains { candidate in

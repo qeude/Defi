@@ -665,6 +665,7 @@ extension SnapshotEngine {
     if supportsExactWindowID
       && ((publicRecord == nil && hasEligiblePublicCandidate)
         || cgWindowDiscoveryNeedsExactID(
+          preferredWindowID: preferredWindowID,
           processID: processID,
           title: title,
           frame: frame,

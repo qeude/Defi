@@ -509,6 +509,8 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           discoveredWindowIDs: discoveredWindowIDs,
           ignoredWindowIDs: ignoredPreviousWindowIDs,
           cgWindows: retentionCGWindows,
+          previousElements: previousElements,
+          discoveredElements: nextElements,
           cachedWindowState: cachedWindowState
         )
         let confirmedWindowIDs = Set((retentionCGWindows ?? []).filter { record in

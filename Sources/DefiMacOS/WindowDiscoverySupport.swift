@@ -626,11 +626,18 @@ func cachedWindowIDsToRetain(
   discoveredWindowIDs: Set<WindowID>,
   ignoredWindowIDs: Set<WindowID>,
   cgWindows: [CGWindowRecord]?,
+  previousElements: [WindowID: AXUIElement] = [:],
+  discoveredElements: [WindowID: AXUIElement] = [:],
   cachedWindowState: ((WindowID) -> (error: AXError, minimized: Bool?))?
 ) -> Set<WindowID> {
   var retainedWindowIDs = Set(previousWindows.map(\.id))
     .subtracting(discoveredWindowIDs)
     .subtracting(ignoredWindowIDs)
+  let liveElements = Set(discoveredElements.values)
+  retainedWindowIDs = retainedWindowIDs.filter { windowID in
+    // One AX element cannot own both a newly discovered ID and a cached ID.
+    previousElements[windowID].map { !liveElements.contains($0) } ?? true
+  }
   if let cgWindows {
     let liveWindowIDs = Set(
       cgWindows.lazy

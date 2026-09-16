@@ -483,6 +483,24 @@ struct WindowSnapshotStabilityTests {
     #expect(result.nextRetainedWindowIDs == (isOnscreen ? [window.id] : []))
   }
 
+  @Test func reusedAccessibilityElementCannotRetainTwoWindowIdentities() {
+    let old = makeWindow(id: 42), replacement = makeWindow(id: 43)
+    let staleElement = AXUIElementCreateApplication(processID)
+    let refreshedElement = AXUIElementCreateApplication(processID)
+    #expect(CFEqual(staleElement, refreshedElement))
+    let retained = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [old, replacement],
+      discoveredWindowIDs: [replacement.id],
+      ignoredWindowIDs: [],
+      cgWindows: [makeCGWindow(id: 42), makeCGWindow(id: 43)],
+      previousElements: [old.id: staleElement, replacement.id: refreshedElement],
+      discoveredElements: [replacement.id: refreshedElement],
+      cachedWindowState: { _ in (.success, false) }
+    )
+    #expect(retained.isEmpty)
+  }
+
   @Test func existingCGWindowSurvivesTransientAccessibilityOmission() {
     let window = makeWindow(id: 42)
 

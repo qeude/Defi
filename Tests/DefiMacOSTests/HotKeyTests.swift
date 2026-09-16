@@ -72,7 +72,7 @@ struct OverviewHotKeyTests {
 }
 
 struct HotKeyTests {
-  @Test(arguments: ["-left", "alt--left", "alt-left-", "", "broken-left"])
+  @Test(arguments: ["a", "alt-fn", "typo-left", "-left", "alt--left", "alt-left-", "", "broken-left"])
   func malformedAcceleratorsCannotBecomeNativeShortcuts(accelerator: String) {
     #expect(throws: HotKeyError.invalidAccelerator(accelerator)) {
       try Key(accelerator: accelerator, aliases: ["broken": "Ctrl + + Alt"])

@@ -168,6 +168,34 @@ struct DisplayArrangementControllerTests {
   }
 
   @Test
+  func partialDisplayFailureDoesNotReapplyAfterInvalidation() {
+    let original = [
+      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+    ]
+    var current = original
+    var writes = 0
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { requested in
+        writes += 1
+        current = writes == 1
+          ? [first: original[first]!, second: Rect(x: 900, y: 0, width: 1_000, height: 700)]
+          : requested
+        return .failure
+      }, primaryDisplay: { first }
+    )
+    #expect(controller.reconcile())
+    #expect(writes == 2)
+    for _ in 0..<5 {
+      controller.invalidate()
+      #expect(!controller.reconcile())
+    }
+    #expect(writes == 2)
+    #expect(current == original)
+  }
+
+  @Test
   func `Refused display transaction leaves native routing and does not retry every tick`() {
     let original = [
       first: Rect(x: 0, y: 0, width: 1_000, height: 700),
