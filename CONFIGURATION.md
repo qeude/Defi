@@ -481,6 +481,8 @@ intrinsic_size = true
 | `follow_focus` | `false` | boolean | Activates the target workspace when the newly discovered matching window has native focus. |
 | `floating` | `false` | boolean | Places matching window in workspace floating layer. |
 | `force_tiling` | `false` | boolean | Tiles matching window even when platform classification would normally float or ignore it. Overrides `floating`. |
+| `include_initial_width_in_cycle` | `false` | boolean | Adds the matching initial width to `cycle-width` for the focused tiled window. |
+| `initial_column_width` | unset | number from `0.05` to `1.0` | Initial tiled column width as a monitor-relative fraction; defaults to `layout.default_column_width`. Does not resize floating windows or override `intrinsic_size`. |
 | `intrinsic_size` | `false` | boolean | Preserves observed window width and height inside its tile. |
 
 At least one matcher (`app_id`, `title`, or `role`) must be set for a rule to
@@ -489,6 +491,7 @@ match. When multiple matchers exist in one rule, all must match.
 Multiple matching rules combine in file order:
 
 - last matching `workspace` wins
+- last matching `initial_column_width` that specifies a value wins
 - boolean values combine with OR; later `false` cannot clear an earlier `true`
 
 Defi automatically floats sheets, dialogs, system dialogs, native floating
@@ -498,7 +501,27 @@ isolated per monitor. Use `force_tiling = true` only for windows known to behave
 correctly when resized.
 
 Rules apply when a window is first discovered. Reloaded rules affect windows
-discovered afterward without moving windows already managed by Defi.
+discovered afterward without moving windows already managed by Defi. Initial
+width rules do not override later manual resizing or widths restored from the
+session on daemon restart. Tiled windows still fill the available height.
+
+The opt-in `include_initial_width_in_cycle` adds the resolved initial width
+only when `initial_column_width` is explicitly set by a matching rule. Without
+that explicit value the option has no effect; it never adds the global default
+column width. It avoids duplicate presets and inserts before the first larger
+preset (or at the end), preserving the global preset order. Cycling uses the
+focused window's rules, including in a shared column; other applications keep
+the global cycle. Rule reloads affect subsequent cycling commands immediately,
+without resizing existing windows.
+
+For example, open Device Hub at 44% and include that width in its cycle:
+
+```toml
+[[rules]]
+app_id = "com.apple.dt.Devices"
+initial_column_width = 0.44
+include_initial_width_in_cycle = true
+```
 
 ## Built-in defaults
 

@@ -41,6 +41,7 @@ public struct RuntimeState: Equatable, Sendable {
   public var monitors: [Monitor]
   public var windows: [WindowID: Window]
   public var layout: LayoutSettings
+  public var windowRules: [Rule]
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID?
   public var workspaceMonitorPositions: [WorkspaceID: Int]
@@ -58,6 +59,7 @@ public struct RuntimeState: Equatable, Sendable {
     self.monitors = []
     self.windows = [:]
     self.layout = LayoutSettings(config: config)
+    self.windowRules = config.rules
     self.workspaceNames = names
     self.defaultWorkspace = config.workspaces.defaultName.map(WorkspaceID.init(rawValue:))
     self.workspaceMonitorPositions = Dictionary(
@@ -109,6 +111,7 @@ public struct RuntimeState: Equatable, Sendable {
       || workspaceMonitorPositions != nextWorkspaceMonitorPositions
 
     layout = LayoutSettings(config: config)
+    windowRules = config.rules
     workspaceNames = nextWorkspaceNames
     defaultWorkspace = config.workspaces.defaultName.map(WorkspaceID.init(rawValue:))
     workspaceMonitorPositions = nextWorkspaceMonitorPositions
