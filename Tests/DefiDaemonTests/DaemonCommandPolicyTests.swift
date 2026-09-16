@@ -313,6 +313,34 @@ struct DaemonCommandPolicyTests {
     )
   }
 
+  @Test(arguments: [Command.switchWorkspace(WorkspaceID(rawValue: "dev-secondary")),
+    .focusWorkspace(.named("dev-secondary"))])
+  func alreadyVisibleWorkspaceStillFocusesItsOwningMonitor(command: Command) throws {
+    let local = MonitorID(rawValue: 1), remote = MonitorID(rawValue: 2)
+    let dev = WorkspaceID(rawValue: "dev"), secondary = WorkspaceID(rawValue: "dev-secondary")
+    var state = RuntimeState(config: Config())
+    state.monitors = [
+      Monitor(id: local, workspaces: [Workspace(id: dev)], activeWorkspace: dev),
+      Monitor(id: remote, workspaces: [Workspace(id: secondary)], activeWorkspace: secondary),
+    ]
+    state.maintainWorkspaceLifecycle()
+    let validationState = try changedState(after: command, on: local, from: state)
+    #expect(validationState == nil)
+    let target = try #require(workspaceTargetID(for: command, on: local, state: state))
+    let location = try #require(state.workspaceLocation(for: target))
+    let destination = state.monitors[location.monitorIndex].id
+    #expect(destination == remote)
+    for activeMonitor in [local, remote] {
+      #expect(commandValidationIsNoOp(
+        hasValidationState: validationState != nil,
+        rebasesPendingFrame: false,
+        explicitlyFocusesFloating: false,
+        workspaceFocusMonitorID: destination,
+        activeMonitorID: activeMonitor
+      ) == (activeMonitor == remote))
+    }
+  }
+
   @Test
   func localLayoutSubmissionSkipsCachedMonitorAssignments() {
     let included = MonitorID(rawValue: 1)

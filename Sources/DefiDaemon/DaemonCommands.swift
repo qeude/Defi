@@ -365,7 +365,12 @@ extension Daemon {
       if commandValidationIsNoOp(
         hasValidationState: validationState != nil,
         rebasesPendingFrame: rebasesPendingFrame,
-        explicitlyFocusesFloating: command.explicitlyFocusesFloating
+        explicitlyFocusesFloating: command.explicitlyFocusesFloating,
+        workspaceFocusMonitorID: command.activatesWorkspace
+          ? intendedWorkspaceID.flatMap { id in
+            state.workspaceLocation(for: id).map { state.monitors[$0.monitorIndex].id }
+          } : nil,
+        activeMonitorID: activeMonitorID
       ) {
         commandGeneration &+= 1
         lastCommandDurationMS =
@@ -859,9 +864,14 @@ func commandLayoutMonitorIDs(
 func commandValidationIsNoOp(
   hasValidationState: Bool,
   rebasesPendingFrame: Bool,
-  explicitlyFocusesFloating: Bool
+  explicitlyFocusesFloating: Bool,
+  workspaceFocusMonitorID: MonitorID? = nil,
+  activeMonitorID: MonitorID? = nil
 ) -> Bool {
+  // Runtime state does not include the daemon's focused monitor. An already
+  // visible workspace can still require a native focus transfer.
   !hasValidationState && !rebasesPendingFrame && !explicitlyFocusesFloating
+    && (workspaceFocusMonitorID == nil || workspaceFocusMonitorID == activeMonitorID)
 }
 
 func affectedMonitorIDsForWindowMove(
