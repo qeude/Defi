@@ -6,6 +6,66 @@ import Testing
 
 struct RuntimeWidthConstraintTests {
   @Test
+  func initialWidthCyclingIsOptInAndUsesOnlyTheFocusedWindowRules() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let deviceID = WindowID(rawValue: 1)
+    let otherID = WindowID(rawValue: 2)
+    var config = Config(rules: [Rule(appID: "device", initialColumnWidth: 0.44)])
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    for (id, appID) in [(deviceID, "device"), (otherID, "other")] {
+      state.windows[id] = Window(
+        id: id, appID: appID, title: appID,
+        frame: Rect(x: 0, y: 0, width: 824, height: 800)
+      )
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: deviceID, width: .fraction(0.33))
+    ]
+    try reduce(.cycleWidth(.next), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
+
+    config.rules[0].includeInitialWidthInCycle = true
+    let optInReflows = state.applyConfiguration(config)
+    #expect(!optInReflows)
+    try reduce(.cycleWidth(.previous), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.44))
+    try reduce(.cycleWidth(.next), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
+    #expect(state.layout.presetColumnWidths == [0.33, 0.5, 0.66, 0.8])
+
+    state.monitors[0].workspaces[0].columns[0].windows.append(otherID)
+    state.monitors[0].workspaces[0].columns[0].focusedWindow = 1
+    try reduce(.cycleWidth(.previous), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.33))
+
+    state.monitors[0].workspaces[0].columns[0].focusedWindow = 0
+    config.rules[0].initialColumnWidth = 0.5
+    let widthReflows = state.applyConfiguration(config)
+    #expect(!widthReflows)
+    try reduce(.cycleWidth(.next), on: monitorID, state: &state)
+    try reduce(.cycleWidth(.next), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.66))
+
+    config.rules[0].initialColumnWidth = nil
+    config.layout.defaultColumnWidth = 0.44
+    _ = state.applyConfiguration(config)
+    state.monitors[0].workspaces[0].columns[0].width = .fraction(0.33)
+    try reduce(.cycleWidth(.next), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
+
+    config.layout.presetColumnWidths = [0.8, 0.33, 0.5]
+    config.rules[0].initialColumnWidth = 0.44
+    _ = state.applyConfiguration(config)
+    state = RuntimeState(config: config, topology: state.topology)
+    state.monitors[0].workspaces[0].columns[0].width = .fraction(0.44)
+    try reduce(.cycleWidth(.next), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.8))
+    try reduce(.cycleWidth(.previous), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.44))
+  }
+
+  @Test
   func discoveredNativeConstraintsReplaceLearnedBounds() {
     let monitorID = MonitorID(rawValue: 1)
     let windowID = WindowID(rawValue: 1)

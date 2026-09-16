@@ -5,6 +5,45 @@ import Testing
 
 struct BackgroundWindowDiscoveryTests {
   @Test
+  func initialColumnWidthAppliesOnlyToNewTiledWindows() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    var config = Config(rules: [Rule(appID: "device", initialColumnWidth: 0.44)])
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1), appID: "device", title: "Phone",
+      frame: Rect(x: 0, y: 0, width: 824, height: 800), monitorID: monitorID
+    )
+    try discoverWindow(window, decision: config.decision(for: window), state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.44))
+    state.monitors[0].workspaces[0].columns[0].width = .pixels(900)
+    config.rules[0].initialColumnWidth = 0.6
+    reconcileWindows([window], config: config, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(900))
+    state = RuntimeState(config: config, topology: state.topology)
+    reconcileWindows([window], config: config, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(900))
+
+    let other = Window(
+      id: WindowID(rawValue: 2), appID: "other", title: "Other",
+      frame: window.frame, monitorID: monitorID
+    )
+    try discoverWindow(other, decision: config.decision(for: other), state: &state)
+    #expect(state.monitors[0].workspaces[0].columns.last?.width == .fraction(config.layout.defaultColumnWidth))
+
+    let floating = Window(
+      id: WindowID(rawValue: 3), appID: "device", title: "Floating",
+      frame: window.frame, monitorID: monitorID
+    )
+    try discoverWindow(
+      floating, decision: RuleDecision(floating: true, initialColumnWidth: 0.6), state: &state
+    )
+    #expect(state.windows[floating.id]?.frame == floating.frame)
+    #expect(state.monitors[0].workspaces[0].columns.count == 2)
+    #expect(state.monitors[0].workspaces[0].floatingWindows == [floating.id])
+  }
+
+  @Test
   func followFocusRuleDoesNotActivateUnfocusedBackgroundWindow() throws {
     let monitorID = MonitorID(rawValue: 1)
     let tools = WorkspaceID(rawValue: "tools")
