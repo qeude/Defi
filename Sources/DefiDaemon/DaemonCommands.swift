@@ -362,15 +362,18 @@ extension Daemon {
           monitorFrames: routingMonitorFrames,
           viewports: commandViewports
         )
+      let workspaceFocusMonitorID = intendedWorkspaceID.flatMap { id in
+        state.workspaceLocation(for: id).map { state.monitors[$0.monitorIndex].id }
+      }
       if commandValidationIsNoOp(
         hasValidationState: validationState != nil,
         rebasesPendingFrame: rebasesPendingFrame,
-        explicitlyFocusesFloating: command.explicitlyFocusesFloating,
-        workspaceFocusMonitorID: command.activatesWorkspace
-          ? intendedWorkspaceID.flatMap { id in
-            state.workspaceLocation(for: id).map { state.monitors[$0.monitorIndex].id }
-          } : nil,
-        activeMonitorID: activeMonitorID
+        command: command,
+        workspaceFocusMonitorID: workspaceFocusMonitorID,
+        activeMonitorID: activeMonitorID,
+        selectedWindowIsNativelyFocused: workspaceFocusMonitorID
+          .flatMap { state.selectedWindowID(on: $0) }
+          .map { platform.isWindowNativelyFocused($0) }
       ) {
         commandGeneration &+= 1
         lastCommandDurationMS =
@@ -864,14 +867,23 @@ func commandLayoutMonitorIDs(
 func commandValidationIsNoOp(
   hasValidationState: Bool,
   rebasesPendingFrame: Bool,
-  explicitlyFocusesFloating: Bool,
+  command: Command,
   workspaceFocusMonitorID: MonitorID? = nil,
-  activeMonitorID: MonitorID? = nil
+  activeMonitorID: MonitorID? = nil,
+  selectedWindowIsNativelyFocused: Bool? = nil
 ) -> Bool {
-  // Runtime state does not include the daemon's focused monitor. An already
-  // visible workspace can still require a native focus transfer.
-  !hasValidationState && !rebasesPendingFrame && !explicitlyFocusesFloating
-    && (workspaceFocusMonitorID == nil || workspaceFocusMonitorID == activeMonitorID)
+  guard !hasValidationState, !rebasesPendingFrame, !command.explicitlyFocusesFloating else {
+    return false
+  }
+  switch command {
+  case .switchWorkspace, .focusWorkspace:
+    // Logical monitor selection is optimistic. A repeated activation must retry
+    // native focus when the selected window has not actually received it.
+    return workspaceFocusMonitorID == nil
+      || (workspaceFocusMonitorID == activeMonitorID && selectedWindowIsNativelyFocused != false)
+  default:
+    return true
+  }
 }
 
 func affectedMonitorIDsForWindowMove(

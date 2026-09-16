@@ -301,14 +301,14 @@ struct DaemonCommandPolicyTests {
       !commandValidationIsNoOp(
         hasValidationState: false,
         rebasesPendingFrame: true,
-        explicitlyFocusesFloating: false
+        command: .focusColumn(.left)
       )
     )
     #expect(
       commandValidationIsNoOp(
         hasValidationState: false,
         rebasesPendingFrame: false,
-        explicitlyFocusesFloating: false
+        command: .focusColumn(.left)
       )
     )
   }
@@ -330,15 +330,40 @@ struct DaemonCommandPolicyTests {
     let location = try #require(state.workspaceLocation(for: target))
     let destination = state.monitors[location.monitorIndex].id
     #expect(destination == remote)
-    for activeMonitor in [local, remote] {
+    for (activeMonitor, nativeFocus) in [(local, nil), (remote, nil), (remote, true), (remote, false)] as [(MonitorID, Bool?)] {
       #expect(commandValidationIsNoOp(
         hasValidationState: validationState != nil,
         rebasesPendingFrame: false,
-        explicitlyFocusesFloating: false,
+        command: command,
         workspaceFocusMonitorID: destination,
-        activeMonitorID: activeMonitor
-      ) == (activeMonitor == remote))
+        activeMonitorID: activeMonitor,
+        selectedWindowIsNativelyFocused: nativeFocus
+      ) == (activeMonitor == remote && nativeFocus != false))
     }
+  }
+
+  @Test(arguments: [false, true])
+  func impossibleWorkspaceMonitorMoveDoesNotStealFocus(trailing: Bool) throws {
+    let local = MonitorID(rawValue: 1), remote = MonitorID(rawValue: 2)
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["dev"])))
+    state.attachMonitor(local)
+    state.attachMonitor(remote)
+    let source = trailing ? remote : local
+    let frames = [local: Rect(x: 0, y: 0, width: 1000, height: 700),
+      remote: Rect(x: 1000, y: 0, width: 1000, height: 700)]
+    let command = Command.moveWorkspaceToMonitor(.left)
+    let changed = try changedState(after: command, on: source, from: state, monitorFrames: frames)
+    #expect(changed == nil)
+    let target = try #require(workspaceTargetID(for: command, on: source, state: state))
+    let location = try #require(state.workspaceLocation(for: target))
+    #expect(commandValidationIsNoOp(
+      hasValidationState: changed != nil,
+      rebasesPendingFrame: false,
+      command: command,
+      workspaceFocusMonitorID: state.monitors[location.monitorIndex].id,
+      activeMonitorID: trailing ? local : remote,
+      selectedWindowIsNativelyFocused: false
+    ))
   }
 
   @Test
