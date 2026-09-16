@@ -361,12 +361,11 @@ func moveActiveWorkspaceToMonitor(
   var workspace = state.monitors[sourceMonitorIndex].workspaces.remove(
     at: sourceWorkspaceIndex
   )
+  let sourceViewport = viewports[sourceMonitorID] ?? monitorFrames[sourceMonitorID]
+  let targetViewport = viewports[targetMonitorID] ?? monitorFrames[targetMonitorID]
   let scale =
-    (viewports[targetMonitorID] ?? monitorFrames[targetMonitorID]).flatMap {
-      target in
-      (viewports[sourceMonitorID] ?? monitorFrames[sourceMonitorID]).map {
-        target.width / max($0.width, 1)
-      }
+    targetViewport.flatMap { target in
+      sourceViewport.map { target.width / max($0.width, 1) }
     } ?? 1
   for columnIndex in workspace.columns.indices {
     scalePixelWidths(in: &workspace.columns[columnIndex], by: scale)
@@ -388,6 +387,14 @@ func moveActiveWorkspaceToMonitor(
   let movedWindowIDs = workspace.columns.flatMap(\.windows) + workspace.floatingWindows
   for windowID in movedWindowIDs {
     state.windows[windowID]?.monitorID = targetMonitorID
+    if state.windows[windowID]?.floating == true,
+      let sourceViewport, let targetViewport,
+      let frame = state.windows[windowID]?.frame
+    {
+      state.windows[windowID]?.frame = rebasedFloatingFrame(
+        frame, from: sourceViewport, to: targetViewport
+      )
+    }
     if let placement = state.suspendedTiledPlacements[windowID] {
       var column = placement.column
       scalePixelWidths(in: &column, by: scale)
@@ -415,4 +422,3 @@ func moveActiveWorkspaceToMonitor(
   state.refreshAffinityPositions(on: targetMonitorIndex)
   state.maintainWorkspaceLifecycle()
 }
-

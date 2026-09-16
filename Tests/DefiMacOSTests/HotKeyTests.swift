@@ -1,3 +1,5 @@
+import DefiCore
+import DefiModel
 import ApplicationServices
 import DefiConfig
 import Synchronization
@@ -70,6 +72,59 @@ struct OverviewHotKeyTests {
 }
 
 struct HotKeyTests {
+  @Test(arguments: ["-left", "alt--left", "alt-left-", "", "broken-left"])
+  func malformedAcceleratorsCannotBecomeNativeShortcuts(accelerator: String) {
+    #expect(throws: HotKeyError.invalidAccelerator(accelerator)) {
+      try Key(accelerator: accelerator, aliases: ["broken": "Ctrl + + Alt"])
+    }
+  }
+
+  @Test(arguments: ["combo", "zzcombo", "shift-control-option"])
+  func equivalentAcceleratorsRespectConfigurationPrecedence(modifier: String) throws {
+    let aliases = ["combo": "Ctrl + Alt + Shift", "zzcombo": "Ctrl + Alt + Shift"]
+    let config = Config(modifierCombinations: aliases, defaultKeyModifier: modifier)
+    let key = try Key(accelerator: "ctrl-alt-shift-left", aliases: aliases)
+    #expect(try configuredHotKeys(config)[key]?.command == "focus-column left")
+    // An explicit binding wins even when its spelling sorts before the default.
+    let overridden = Config(
+      modifierCombinations: aliases, defaultKeyModifier: modifier,
+      keys: ["combo-left": "focus-column first"]
+    )
+    #expect(try configuredHotKeys(overridden)[key]?.command == "focus-column first")
+  }
+
+  @Test(arguments: [CGEventType.mouseMoved, .leftMouseDragged])
+  func routedPointerEventsWarpAndMouseMovementSuppressesSourceFocus(type: CGEventType) async throws {
+    let first = MonitorID(rawValue: 1), second = MonitorID(rawValue: 2)
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+    ]
+    let router = DisplayPointerRouter(warpPointer: { _ in .success })
+    router.update(technical: isolatedDisplayArrangement(desk, primary: first), desk: desk)
+    let context = HotKeyTapContext(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), displayPointerRouter: router,
+      tracksPointerWindowTransitions: true,
+      deliver: { _ in }, deliverOverview: { _ in },
+      deliverPointerMotion: { _ in Issue.record("Delivered stale pre-warp window focus") },
+      tapReenabled: { _ in }
+    )
+    let event = try #require(CGEvent(
+      mouseEventSource: nil, mouseType: type,
+      mouseCursorPosition: CGPoint(x: 999, y: 350), mouseButton: .left
+    ))
+    event.setDoubleValueField(.mouseEventDeltaX, value: 5)
+    event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 42)
+    #expect(context.handle(type: type, event: event) != nil)
+    #expect(router.warpCount == 1)
+    #expect(event.location == CGPoint(x: 1_002, y: -350))
+    if type == .mouseMoved {
+      try await Task.sleep(for: .milliseconds(30))
+      #expect(context.pointerTransitionCount == 0)
+    }
+  }
+
   private let aliases = [
     "hyper": "Alt + Cmd + Ctrl"
   ]

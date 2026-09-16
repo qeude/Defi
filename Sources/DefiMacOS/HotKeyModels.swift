@@ -124,26 +124,15 @@ struct Key: Hashable, Sendable {
     accelerator: String,
     aliases: [String: String]
   ) throws(HotKeyError) {
-    var parts = accelerator.lowercased().split(separator: "-").map(String.init)
+    guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
+      throw HotKeyError.invalidAccelerator(accelerator)
+    }
+    var parts = normalized.split(separator: "-").map(String.init)
     guard let keyName = parts.popLast(), let code = Self.keyCodes[keyName] else {
       throw HotKeyError.invalidAccelerator(accelerator)
     }
-    var modifierNames: [String] = []
-    for part in parts {
-      if let alias = aliases[part] {
-        modifierNames.append(
-          contentsOf:
-            alias
-            .lowercased()
-            .split(separator: "+")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-        )
-      } else {
-        modifierNames.append(part)
-      }
-    }
     var modifiers: CGEventFlags = []
-    for name in modifierNames {
+    for name in parts {
       switch name {
       case "cmd", "command":
         modifiers.insert(.maskCommand)

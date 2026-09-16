@@ -1,5 +1,6 @@
 import DefiConfig
 import DefiCore
+import DefiMacOS
 import DefiModel
 import DefiRuntime
 import Testing
@@ -7,6 +8,47 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test
+  func deferredSnapshotPreservesRefreshesAcrossOrdinaryAndForcedRequests() {
+    let reload: DesktopSnapshotRequest = (true, true, true, false)
+    let periodic: DesktopSnapshotRequest = (false, false, false, true)
+    let pending = coalescedDesktopSnapshotRequest(periodic, pending: reload)
+    let replay = coalescedDesktopSnapshotRequest((false, false, false, false), pending: pending)
+    #expect(replay.forceFullWindowRefresh)
+    #expect(replay.forceWindowListRefresh)
+    #expect(replay.forceApplicationInventoryRefresh)
+    #expect(replay.consumePeriodicWindowRefresh)
+    let ordinary = coalescedDesktopSnapshotRequest((false, false, false, false), pending: nil)
+    #expect(!ordinary.forceFullWindowRefresh && !ordinary.forceWindowListRefresh
+      && !ordinary.forceApplicationInventoryRefresh && !ordinary.consumePeriodicWindowRefresh)
+  }
+
+  @Test(arguments: [0.0, -700.0])
+  func shutdownUsesObservedDisplayOriginsForTiledAndFloatingWindows(restoredY: Double) {
+    let monitorID = MonitorID(rawValue: 1), workspaceID = WorkspaceID(rawValue: "dev")
+    let tiled = WindowID(rawValue: 1), floating = WindowID(rawValue: 2)
+    var state = RuntimeState(config: Config(layout: LayoutConfig(gaps: 0)))
+    state.monitors = [Monitor(id: monitorID, workspaces: [Workspace(
+      id: workspaceID, columns: [Column(window: tiled, width: .fraction(0.8))],
+      floatingWindows: [floating], scrollOffset: 0.6
+    )], activeWorkspace: workspaceID)]
+    let floatingFrame = Rect(x: 1_400, y: -570, width: 200, height: 200)
+    let assignments = windowRestorationAssignments(
+      state: state,
+      monitors: [MonitorSnapshot(
+        id: monitorID, frame: Rect(x: 1_000, y: -670, width: 1_000, height: 650),
+        physicalFrame: Rect(x: 1_000, y: -700, width: 1_000, height: 700)
+      )],
+      restoredDisplayFrames: [monitorID: Rect(x: 1_000, y: restoredY, width: 1_000, height: 700)],
+      floatingFrames: [floating: floatingFrame]
+    )
+    #expect(assignments.first { $0.windowID == tiled }?.frame
+      == Rect(x: 1_004, y: restoredY + 34, width: 792, height: 642))
+    #expect(assignments.first { $0.windowID == floating }?.frame
+      == Rect(x: 1_400, y: restoredY + 130, width: 200, height: 200))
+    #expect(state.monitors[0].workspaces[0].scrollOffset == 0.6)
+  }
+
   @Test(arguments: [9.0, 11.0])
   func externalActivationOnlyPreemptsOlderCommandAnimation(timestamp: Double) {
     #expect(desktopSnapshotWaitsForCommandAnimation(

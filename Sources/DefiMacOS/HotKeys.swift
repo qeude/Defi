@@ -28,6 +28,7 @@ public final class HotKeyManager {
   private let cheatsheetHandler: @MainActor @Sendable (CheatsheetInput) -> Void
   private let cheatsheetModifierBits: UInt64?
   private let userInputTracker: UserInputTracker
+  private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
   private var context: HotKeyTapContext?
   private var thread: Thread?
@@ -59,6 +60,7 @@ public final class HotKeyManager {
     userInputTracker: UserInputTracker = UserInputTracker(),
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
+    displayPointerRouter: DisplayPointerRouter? = nil,
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
@@ -67,7 +69,7 @@ public final class HotKeyManager {
   ) {
     self.handler = handler
     tracksPointerMotion =
-      config.input.focusFollowsMouse || config.input.mouseFollowsFocus
+      displayPointerRouter != nil || config.input.focusFollowsMouse || config.input.mouseFollowsFocus
     self.pointerMotionHandler = config.input.focusFollowsMouse
       ? pointerMotionHandler
       : nil
@@ -81,6 +83,7 @@ public final class HotKeyManager {
     ).modifierBits
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
+    self.displayPointerRouter = displayPointerRouter
     var bindings: [Key: String] = [:]
     var bindingError: HotKeyError?
     do {
@@ -132,6 +135,7 @@ public final class HotKeyManager {
       bindings: bindings,
       userInputTracker: userInputTracker,
       pointerMotionTracker: pointerMotionTracker,
+      displayPointerRouter: displayPointerRouter,
       tracksPointerWindowTransitions: pointerMotionHandler != nil,
       cheatsheetModifierBits: bindingError == nil ? cheatsheetModifierBits : nil,
       deliverCheatsheet: { input in
@@ -237,6 +241,7 @@ final class HotKeyTapContext: @unchecked Sendable {
 
   private let bindings: [Key: String]
   private let userInputTracker: UserInputTracker
+  private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
   private let tracksPointerWindowTransitions: Bool
   private let deliver: @Sendable (HotKeyInvocation) -> Void
@@ -268,6 +273,7 @@ final class HotKeyTapContext: @unchecked Sendable {
     bindings: [Key: String],
     userInputTracker: UserInputTracker,
     pointerMotionTracker: PointerMotionTracker,
+    displayPointerRouter: DisplayPointerRouter? = nil,
     tracksPointerWindowTransitions: Bool,
     cheatsheetModifierBits: UInt64? = nil,
     deliverCheatsheet: @escaping @Sendable (CheatsheetInput) -> Void = { _ in },
@@ -282,6 +288,7 @@ final class HotKeyTapContext: @unchecked Sendable {
     self.deliverCheatsheet = deliverCheatsheet
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
+    self.displayPointerRouter = displayPointerRouter
     self.tracksPointerWindowTransitions = tracksPointerWindowTransitions
     self.deliver = deliver
     self.deliverOverview = deliverOverview
@@ -351,6 +358,9 @@ final class HotKeyTapContext: @unchecked Sendable {
     let timestamp = Double(event.timestamp) / 1_000_000_000
     if eventTracksPhysicalPointerMotion(type) {
       pointerMotionTracker.record(timestamp: timestamp)
+      if displayPointerRouter?.route(event) == true {
+        return Unmanaged.passUnretained(event)
+      }
       if type == .mouseMoved, tracksPointerWindowTransitions {
         let rawWindowID = event.getIntegerValueField(
           .mouseEventWindowUnderMousePointer

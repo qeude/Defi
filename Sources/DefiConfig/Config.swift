@@ -40,10 +40,13 @@ public struct Config: Equatable, Sendable {
     self.modifierCombinations = modifierCombinations
     self.defaultKeyModifier = defaultKeyModifier
     self.showCheatsheetOnModifierHold = showCheatsheetOnModifierHold
-    self.keys = Self.defaultKeys(
-      modifier: defaultKeyModifier,
-      workspaceNames: workspaces.names
-    ).merging(keys ?? [:]) { _, override in override }
+    self.keys = mergingKeyBindings(
+      Self.defaultKeys(
+        modifier: defaultKeyModifier, workspaceNames: workspaces.names,
+        aliases: modifierCombinations
+      ),
+      overrides: keys ?? [:], aliases: modifierCombinations
+    )
     self.rules = rules
   }
 
@@ -165,7 +168,10 @@ public struct Config: Equatable, Sendable {
       }
     }
 
-    for (_, command) in keys {
+    for (accelerator, command) in keys {
+      guard normalizedAccelerator(accelerator, aliases: modifierCombinations) != nil else {
+        throw ConfigError.invalidValue("keys.\(accelerator)")
+      }
       if command == "diagnostic-mark" { continue }
       do {
         try validateCommandWorkspace(try parseCommand(command))
@@ -225,7 +231,8 @@ public struct Config: Equatable, Sendable {
 
   private static func defaultKeys(
     modifier: String,
-    workspaceNames: [String]
+    workspaceNames: [String],
+    aliases: [String: String]
   ) -> [String: String] {
     var result = [
       "\(modifier)-left": "focus-column left",
@@ -244,14 +251,6 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-shift-down": "move-column-to-workspace down",
       "\(modifier)-shift-leftbracket": "move-column first",
       "\(modifier)-shift-rightbracket": "move-column last",
-      "ctrl-cmd-left": "focus-monitor left",
-      "ctrl-cmd-right": "focus-monitor right",
-      "ctrl-cmd-up": "focus-monitor up",
-      "ctrl-cmd-down": "focus-monitor down",
-      "ctrl-cmd-shift-left": "move-column-to-monitor left",
-      "ctrl-cmd-shift-right": "move-column-to-monitor right",
-      "ctrl-cmd-shift-up": "move-column-to-monitor up",
-      "ctrl-cmd-shift-down": "move-column-to-monitor down",
       "\(modifier)-minus": "cycle-width previous",
       "\(modifier)-equal": "cycle-width next",
       "\(modifier)-f": "maximize-column",
@@ -264,10 +263,25 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-r": "unjoin-windows",
       "\(modifier)-o": "toggle-overview",
     ]
+    // Configured navigation takes precedence over colliding fixed monitor keys.
+    let monitorKeys = [
+      "ctrl-cmd-left": "focus-monitor left",
+      "ctrl-cmd-right": "focus-monitor right",
+      "ctrl-cmd-up": "focus-monitor up",
+      "ctrl-cmd-down": "focus-monitor down",
+      "ctrl-cmd-shift-left": "move-column-to-monitor left",
+      "ctrl-cmd-shift-right": "move-column-to-monitor right",
+      "ctrl-cmd-shift-up": "move-column-to-monitor up",
+      "ctrl-cmd-shift-down": "move-column-to-monitor down",
+      "ctrl-alt-shift-left": "move-workspace-to-monitor left",
+      "ctrl-alt-shift-right": "move-workspace-to-monitor right",
+      "ctrl-alt-shift-up": "move-workspace-to-monitor up",
+      "ctrl-alt-shift-down": "move-workspace-to-monitor down",
+    ]
     for number in 1...9 {
       if workspaceNames.indices.contains(number - 1) {
         let workspace = workspaceNames[number - 1]
-      result["\(modifier)-\(number)"] = "workspace \(workspace)"
+        result["\(modifier)-\(number)"] = "workspace \(workspace)"
         result["\(modifier)-shift-\(number)"] =
           "move-column-to-workspace-name \(workspace)"
       } else {
@@ -276,7 +290,11 @@ public struct Config: Equatable, Sendable {
           "move-column-to-workspace-position \(number)"
       }
     }
-    return result
+    // If the modifier already includes Shift, preserve base navigation.
+    let shifted = result.filter { $0.key.hasPrefix("\(modifier)-shift-") }
+    let base = result.filter { !$0.key.hasPrefix("\(modifier)-shift-") }
+    let generated = mergingKeyBindings(shifted, overrides: base, aliases: aliases)
+    return mergingKeyBindings(monitorKeys, overrides: generated, aliases: aliases)
   }
 }
 

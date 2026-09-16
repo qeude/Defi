@@ -240,7 +240,11 @@ func windowSnapshotInvalidation(
     return processID.map(WindowSnapshotInvalidation.process) ?? .full
   case .application, .applicationTerminated, .screens, .space:
     return .full
-  case .focus, .frame, .mouse, .mouseRelease:
+  case .focus:
+    // Closing a window can emit only a focus change. Refresh that application's
+    // inventory so its closed column does not survive until the watchdog.
+    return processID.map(WindowSnapshotInvalidation.process) ?? .full
+  case .frame, .mouse, .mouseRelease:
     return .none
   }
 }

@@ -2042,8 +2042,9 @@ struct PlatformEventTests {
       windowSnapshotInvalidation(for: .application, processID: 7) == .full
     )
     #expect(
-      windowSnapshotInvalidation(for: .focus, processID: 7) == .none
+      windowSnapshotInvalidation(for: .focus, processID: 7) == .process(7)
     )
+    #expect(windowSnapshotInvalidation(for: .focus, processID: nil) == .full)
   }
 
   @Test

@@ -304,8 +304,10 @@ extension Daemon {
       }
       let commandInputTimestamp = inputTimestamp ?? commandStartedAt
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
-      let physicalMonitorFrames = Dictionary(
-        uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }
+      let routingMonitorFrames = Dictionary(
+        uniqueKeysWithValues: latestMonitors.map {
+          ($0.id, displayArrangement.deskFrames[$0.id] ?? $0.physicalFrame)
+        }
       )
       let commandViewports = viewportsByMonitor
       if case .focusMonitor(let direction) = command {
@@ -313,7 +315,7 @@ extension Daemon {
           let targetMonitorID = spatialMonitor(
             from: sourceMonitorID,
             toward: direction,
-            frames: physicalMonitorFrames
+            frames: routingMonitorFrames
           )
         else { return .success() }
         commandGeneration &+= 1
@@ -357,7 +359,7 @@ extension Daemon {
           after: command,
           on: commandMonitorID,
           from: state,
-          monitorFrames: physicalMonitorFrames,
+          monitorFrames: routingMonitorFrames,
           viewports: commandViewports
         )
       if commandValidationIsNoOp(
@@ -486,7 +488,7 @@ extension Daemon {
           command,
           on: commandMonitorID,
           state: &state,
-          monitorFrames: physicalMonitorFrames,
+          monitorFrames: routingMonitorFrames,
           viewports: commandViewports
         )
       } else if let validationState {
