@@ -182,6 +182,9 @@ public struct Config: Equatable, Sendable {
       }
     }
     for rule in rules {
+      if let width = rule.initialColumnWidth, !(0.05...1).contains(width) {
+        throw ConfigError.invalidValue("rules.initial_column_width")
+      }
       if let workspace = rule.workspace, !workspaces.names.contains(workspace) {
         throw ConfigError.unknownWorkspace(workspace)
       }
@@ -197,15 +200,26 @@ public struct Config: Equatable, Sendable {
     title: String,
     role: String?
   ) -> RuleDecision {
+    Self.decision(appID: appID, title: title, role: role, rules: rules)
+  }
+
+  public static func decision(
+    appID: String, title: String, role: String?, rules: [Rule]
+  ) -> RuleDecision {
     var result = RuleDecision()
     for rule in rules where rule.matches(appID: appID, title: title, role: role) {
       if let workspace = rule.workspace {
         result.workspace = WorkspaceID(rawValue: workspace)
       }
+      if let width = rule.initialColumnWidth {
+        result.initialColumnWidth = width
+      }
       result.followFocus = result.followFocus || rule.followFocus
       result.floating = result.floating || rule.floating
       result.forceTiling = result.forceTiling || rule.forceTiling
       result.intrinsicSize = result.intrinsicSize || rule.intrinsicSize
+      result.includeInitialWidthInCycle =
+        result.includeInitialWidthInCycle || rule.includeInitialWidthInCycle
     }
     return result
   }

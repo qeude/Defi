@@ -1,3 +1,4 @@
+import DefiConfig
 import DefiCore
 import DefiModel
 
@@ -159,10 +160,24 @@ public func reduce(
           guard maximumWidths.count == column.windows.count else { return nil }
           return maximumWidths.max().map { $0 / viewport.width }
         }
+        var presets = layout.presetColumnWidths
+        if column.windows.indices.contains(column.focusedWindow),
+          let window = state.windows[column.windows[column.focusedWindow]]
+        {
+          let decision = Config.decision(
+            appID: window.appID, title: window.title, role: window.role, rules: state.windowRules
+          )
+          if decision.includeInitialWidthInCycle,
+            let width = decision.initialColumnWidth,
+            !presets.contains(width)
+          {
+            presets.insert(width, at: presets.firstIndex(where: { $0 > width }) ?? presets.endIndex)
+          }
+        }
         cycleWidth(
           of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
           direction: direction,
-          presets: layout.presetColumnWidths,
+          presets: presets,
           minimumFraction: minimumFraction,
           maximumFraction: maximumFraction
         )

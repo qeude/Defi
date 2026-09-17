@@ -80,6 +80,7 @@ public func discoverWindow(
   } else {
     insertNewWindow(
       window.id,
+      width: .fraction(decision.initialColumnWidth ?? state.layout.defaultColumnWidth),
       into: &state.monitors[monitorIndex].workspaces[workspaceIndex],
       settings: state.layout,
       focusInsertedWindow: followsFocus

@@ -328,6 +328,8 @@ public struct Rule: Codable, Equatable, Sendable {
   public var floating: Bool
   public var forceTiling: Bool
   public var intrinsicSize: Bool
+  public var initialColumnWidth: Double?
+  public var includeInitialWidthInCycle: Bool
 
   public init(
     appID: String? = nil,
@@ -337,7 +339,9 @@ public struct Rule: Codable, Equatable, Sendable {
     followFocus: Bool = false,
     floating: Bool = false,
     forceTiling: Bool = false,
-    intrinsicSize: Bool = false
+    intrinsicSize: Bool = false,
+    initialColumnWidth: Double? = nil,
+    includeInitialWidthInCycle: Bool = false
   ) {
     self.appID = appID
     self.title = title
@@ -347,6 +351,8 @@ public struct Rule: Codable, Equatable, Sendable {
     self.floating = floating
     self.forceTiling = forceTiling
     self.intrinsicSize = intrinsicSize
+    self.initialColumnWidth = initialColumnWidth
+    self.includeInitialWidthInCycle = includeInitialWidthInCycle
   }
 
   enum CodingKeys: String, CodingKey {
@@ -358,6 +364,8 @@ public struct Rule: Codable, Equatable, Sendable {
     case floating
     case forceTiling = "force_tiling"
     case intrinsicSize = "intrinsic_size"
+    case initialColumnWidth = "initial_column_width"
+    case includeInitialWidthInCycle = "include_initial_width_in_cycle"
   }
 
   public init(from decoder: Decoder) throws {
@@ -371,6 +379,9 @@ public struct Rule: Codable, Equatable, Sendable {
     floating = try values.decodeIfPresent(Bool.self, forKey: .floating) ?? defaults.floating
     forceTiling = try values.decodeIfPresent(Bool.self, forKey: .forceTiling) ?? defaults.forceTiling
     intrinsicSize = try values.decodeIfPresent(Bool.self, forKey: .intrinsicSize) ?? defaults.intrinsicSize
+    initialColumnWidth = try values.decodeIfPresent(Double.self, forKey: .initialColumnWidth)
+    includeInitialWidthInCycle =
+      try values.decodeIfPresent(Bool.self, forKey: .includeInitialWidthInCycle) ?? false
   }
 
   func matches(appID actualAppID: String, title actualTitle: String, role actualRole: String?)
@@ -403,18 +414,24 @@ public struct RuleDecision: Equatable, Sendable {
   public var floating: Bool
   public var forceTiling: Bool
   public var intrinsicSize: Bool
+  public var initialColumnWidth: Double?
+  public var includeInitialWidthInCycle: Bool
 
   public init(
     workspace: WorkspaceID? = nil,
     followFocus: Bool = false,
     floating: Bool = false,
     forceTiling: Bool = false,
-    intrinsicSize: Bool = false
+    intrinsicSize: Bool = false,
+    initialColumnWidth: Double? = nil,
+    includeInitialWidthInCycle: Bool = false
   ) {
     self.workspace = workspace
     self.followFocus = followFocus
     self.floating = floating
     self.forceTiling = forceTiling
     self.intrinsicSize = intrinsicSize
+    self.initialColumnWidth = initialColumnWidth
+    self.includeInitialWidthInCycle = includeInitialWidthInCycle
   }
 }

@@ -23,6 +23,35 @@ struct ConfigTests {
   }
 
   @Test
+  func initialColumnWidthRulesDecodeCombineAndValidate() throws {
+    let config = try Config.decode(Data("""
+      [[rules]]
+      app_id = "device"
+      initial_column_width = 0.5
+      include_initial_width_in_cycle = true
+      [[rules]]
+      title = "Phone"
+      initial_column_width = 0.44
+      [[rules]]
+      app_id = "device"
+      follow_focus = true
+      """.utf8))
+    #expect(config.decision(appID: "device", title: "Phone", role: nil).initialColumnWidth == 0.44)
+    #expect(config.decision(appID: "device", title: "Other", role: nil).initialColumnWidth == 0.5)
+    #expect(config.decision(appID: "other", title: "Other", role: nil).initialColumnWidth == nil)
+    #expect(config.decision(appID: "device", title: "Phone", role: nil).includeInitialWidthInCycle)
+    #expect(!config.decision(appID: "other", title: "Phone", role: nil).includeInitialWidthInCycle)
+    for width in ["0", "0.049", "1.01", "nan", "inf", "-inf"] {
+      #expect(throws: ConfigError.invalidValue("rules.initial_column_width")) {
+        try Config.decode(Data("[[rules]]\napp_id = \"device\"\ninitial_column_width = \(width)".utf8))
+      }
+    }
+    for width in [0.05, 1.0] {
+      try Config(rules: [Rule(appID: "device", initialColumnWidth: width)]).validate()
+    }
+  }
+
+  @Test
   func `Missing config uses defaults without creating files`() throws {
     let directory = FileManager.default.temporaryDirectory
       .appending(path: "defi-missing-config-\(UUID().uuidString)")
