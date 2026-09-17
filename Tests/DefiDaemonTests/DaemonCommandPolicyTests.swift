@@ -348,9 +348,14 @@ struct DaemonCommandPolicyTests {
     var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["dev"])))
     state.attachMonitor(local)
     state.attachMonitor(remote)
+    state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "dev")
     let source = trailing ? remote : local
     let frames = [local: Rect(x: 0, y: 0, width: 1000, height: 700),
       remote: Rect(x: 1000, y: 0, width: 1000, height: 700)]
+    #expect(spatialMonitor(from: source, toward: .left, frames: frames) == (trailing ? local : nil))
+    let sourceMonitor = try #require(state.monitors.first { $0.id == source })
+    #expect(sourceMonitor.workspaces.first { $0.id == sourceMonitor.activeWorkspace }?.kind
+      == (trailing ? .trailing : .named))
     let command = Command.moveWorkspaceToMonitor(.left)
     let changed = try changedState(after: command, on: source, from: state, monitorFrames: frames)
     #expect(changed == nil)

@@ -196,19 +196,32 @@ struct DisplayArrangementControllerTests {
   }
 
   @Test
-  func `Refused display transaction leaves native routing and does not retry every tick`() {
+  func `Refused display transaction leaves native routing and does not retry every tick`() throws {
     let original = [
       first: Rect(x: 0, y: 0, width: 1_000, height: 700),
       second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
     ]
+    let router = DisplayPointerRouter(warpPointer: { _ in .success })
+    router.update(technical: isolatedDisplayArrangement(original, primary: first), desk: original)
+    let point = CGPoint(x: 999, y: 350)
+    let crossing = try #require(CGEvent(
+      mouseEventSource: nil, mouseType: .mouseMoved,
+      mouseCursorPosition: point, mouseButton: .left
+    ))
+    crossing.setDoubleValueField(.mouseEventDeltaX, value: 5)
+    #expect(router.route(crossing)) // Prove the old map would warp this crossing.
+    crossing.location = point
     var writes = 0
     let controller = DisplayArrangementController(
       readFrames: { original }, applyFrames: { _ in writes += 1; return .failure },
-      primaryDisplay: { first }
+      primaryDisplay: { first }, pointerRouter: router
     )
     #expect(!controller.reconcile())
     #expect(controller.deskFrames == original)
     #expect(controller.status.hasPrefix("failed:"))
+    #expect(!router.route(crossing))
+    #expect(crossing.location == point)
+    #expect(router.warpCount == 1)
     #expect(!controller.reconcile())
     #expect(writes == 1)
   }
