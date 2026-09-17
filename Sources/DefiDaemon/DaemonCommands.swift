@@ -304,8 +304,10 @@ extension Daemon {
       }
       let commandInputTimestamp = inputTimestamp ?? commandStartedAt
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
-      let physicalMonitorFrames = Dictionary(
-        uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }
+      let routingMonitorFrames = Dictionary(
+        uniqueKeysWithValues: latestMonitors.map {
+          ($0.id, displayArrangement.deskFrames[$0.id] ?? $0.physicalFrame)
+        }
       )
       let commandViewports = viewportsByMonitor
       if case .focusMonitor(let direction) = command {
@@ -313,7 +315,7 @@ extension Daemon {
           let targetMonitorID = spatialMonitor(
             from: sourceMonitorID,
             toward: direction,
-            frames: physicalMonitorFrames
+            frames: routingMonitorFrames
           )
         else { return .success() }
         commandGeneration &+= 1
@@ -357,13 +359,21 @@ extension Daemon {
           after: command,
           on: commandMonitorID,
           from: state,
-          monitorFrames: physicalMonitorFrames,
+          monitorFrames: routingMonitorFrames,
           viewports: commandViewports
         )
+      let workspaceFocusMonitorID = intendedWorkspaceID.flatMap { id in
+        state.workspaceLocation(for: id).map { state.monitors[$0.monitorIndex].id }
+      }
       if commandValidationIsNoOp(
         hasValidationState: validationState != nil,
         rebasesPendingFrame: rebasesPendingFrame,
-        explicitlyFocusesFloating: command.explicitlyFocusesFloating
+        command: command,
+        workspaceFocusMonitorID: workspaceFocusMonitorID,
+        activeMonitorID: activeMonitorID,
+        selectedWindowIsNativelyFocused: workspaceFocusMonitorID
+          .flatMap { state.selectedWindowID(on: $0) }
+          .map { platform.isWindowNativelyFocused($0) }
       ) {
         commandGeneration &+= 1
         lastCommandDurationMS =
@@ -486,7 +496,7 @@ extension Daemon {
           command,
           on: commandMonitorID,
           state: &state,
-          monitorFrames: physicalMonitorFrames,
+          monitorFrames: routingMonitorFrames,
           viewports: commandViewports
         )
       } else if let validationState {
@@ -857,9 +867,23 @@ func commandLayoutMonitorIDs(
 func commandValidationIsNoOp(
   hasValidationState: Bool,
   rebasesPendingFrame: Bool,
-  explicitlyFocusesFloating: Bool
+  command: Command,
+  workspaceFocusMonitorID: MonitorID? = nil,
+  activeMonitorID: MonitorID? = nil,
+  selectedWindowIsNativelyFocused: Bool? = nil
 ) -> Bool {
-  !hasValidationState && !rebasesPendingFrame && !explicitlyFocusesFloating
+  guard !hasValidationState, !rebasesPendingFrame, !command.explicitlyFocusesFloating else {
+    return false
+  }
+  switch command {
+  case .switchWorkspace, .focusWorkspace:
+    // Logical monitor selection is optimistic. A repeated activation must retry
+    // native focus when the selected window has not actually received it.
+    return workspaceFocusMonitorID == nil
+      || (workspaceFocusMonitorID == activeMonitorID && selectedWindowIsNativelyFocused != false)
+  default:
+    return true
+  }
 }
 
 func affectedMonitorIDsForWindowMove(

@@ -4,6 +4,24 @@ import Foundation
 import Testing
 
 struct ConfigTests {
+  @Test(arguments: ["a", "alt-fn", "typo-left", "-left", "alt--left", "alt-left-", ""])
+  func malformedAcceleratorsAreRejectedWithoutReplacingDefaults(accelerator: String) throws {
+    let config = Config(keys: [accelerator: "diagnostic-mark"])
+    #expect(config.keys["alt-left"] == "focus-column left")
+    #expect(throws: ConfigError.invalidValue("keys.\(accelerator)")) {
+      try config.validate()
+    }
+  }
+
+  @Test(arguments: ["ctrl-alt", "ctrl-alt-shift", "ctrl-cmd", "ctrl-cmd-shift"])
+  func collidingMonitorKeysPreserveConfiguredNavigation(modifier: String) throws {
+    let config = try Config.decode(Data("default_key_modifier = \"\(modifier)\"".utf8))
+    #expect(config.keys["\(modifier)-left"] == "focus-column left")
+    #expect(config.keys["\(modifier)-shift-left"] == (modifier.contains("shift") ? nil : "move-column left"))
+    let overridden = Config(defaultKeyModifier: modifier, keys: ["\(modifier)-left": "focus-monitor left"])
+    #expect(overridden.keys["\(modifier)-left"] == "focus-monitor left")
+  }
+
   @Test
   func initialColumnWidthRulesDecodeCombineAndValidate() throws {
     let config = try Config.decode(Data("""
@@ -71,6 +89,9 @@ struct ConfigTests {
     #expect(config.keys["alt-shift-1"] == "move-column-to-workspace-position 1")
     #expect(config.keys["ctrl-cmd-left"] == "focus-monitor left")
     #expect(config.keys["ctrl-cmd-shift-down"] == "move-column-to-monitor down")
+    for direction in ["left", "right", "up", "down"] {
+      #expect(config.keys["ctrl-alt-shift-\(direction)"] == "move-workspace-to-monitor \(direction)")
+    }
     #expect(config.keys["alt-o"] == "toggle-overview")
   }
 

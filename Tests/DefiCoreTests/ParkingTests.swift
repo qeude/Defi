@@ -4,6 +4,26 @@ import Testing
 
 struct ParkingTests {
   @Test
+  func `Side by side strip parking stays outside the neighboring monitor`() {
+    let owner = Rect(x: 0, y: 0, width: 1_512, height: 982)
+    let neighbor = Rect(x: 1_512, y: 0, width: 1_920, height: 1_080)
+    let frames = [-1_210.0, 1_512.0].enumerated().map { index, x in
+      FrameAssignment(
+        windowID: WindowID(rawValue: UInt64(index + 1)),
+        frame: Rect(x: x, y: 38, width: 1_210, height: 900)
+      )
+    }
+    let plan = continuousStripFramesForActiveWorkspace(
+      frames, viewport: owner, ownerFrame: owner,
+      allMonitorFrames: [owner, neighbor]
+    )
+    #expect(plan.parkedWindowIDs.count == 2)
+    for assignment in plan.frames {
+      #expect(intersectionArea(assignment.frame, neighbor) == 0)
+    }
+  }
+
+  @Test
   func `Continuous strip anchors every offscreen column`() {
     let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let frames = (0..<10).map { index in

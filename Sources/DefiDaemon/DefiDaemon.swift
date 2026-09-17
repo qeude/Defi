@@ -82,6 +82,7 @@ final class Daemon: NSObject {
   let configURL: URL
   var config: Config
   let platform = MacOSPlatform()
+  let displayArrangement = DisplayArrangementController()
   let accessibilityPermissionMonitor = AccessibilityPermissionMonitor()
   var windowManagementStarted = false
   let server: UnixSocketServer
@@ -134,13 +135,7 @@ final class Daemon: NSObject {
   var desktopSessionActive = true
   var desktopSessionGeneration: UInt64 = 0
   var desktopSnapshotInFlight = false
-  var supersededDesktopSnapshotRequest:
-    (
-      forceFullWindowRefresh: Bool,
-      forceWindowListRefresh: Bool,
-      forceApplicationInventoryRefresh: Bool,
-      consumePeriodicWindowRefresh: Bool
-    )?
+  var supersededDesktopSnapshotRequest: DesktopSnapshotRequest?
   var observedPlatformEventCount = 0
   var targetMismatches: [FrameMismatch] = []
   var activelyResizedWindowID: WindowID?
@@ -278,6 +273,8 @@ final class Daemon: NSObject {
 
   func handleDesktopSessionActivity(_ active: Bool) {
     guard desktopSessionActive != active else { return }
+    if active { displayArrangement.invalidate() }
+    displayArrangement.pointerRouter.setActive(active)
     desktopSessionActive = active
     if !active { handleCheatsheetInput(.dismiss) }
     desktopSessionGeneration &+= 1

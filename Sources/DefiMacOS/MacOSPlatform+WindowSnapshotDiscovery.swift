@@ -484,21 +484,21 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           !discoveredWindowIDs.contains($0.id)
             && !ignoredPreviousWindowIDs.contains($0.id)
         }
-        let cachedMinimizedState: ((WindowID) -> Bool?)?
+        let cachedWindowState: ((WindowID) -> (error: AXError, minimized: Bool?))?
         if appWindows == nil {
-          cachedMinimizedState = nil
+          cachedWindowState = nil
         } else {
-          cachedMinimizedState = { windowID in
-            guard let element = previousElements[windowID] else { return nil }
+          cachedWindowState = { windowID in
+            guard let element = previousElements[windowID] else { return (.invalidUIElement, nil) }
             return AXMessagingTimeoutAccess.shared.withTimeout(
               snapshotAccessibilityTimeoutSeconds,
               elements: [element]
             ) {
-              self.value(
-                element,
-                attribute: kAXMinimizedAttribute,
-                as: Bool.self
+              var minimized: CFTypeRef?
+              let error = AXUIElementCopyAttributeValue(
+                element, kAXMinimizedAttribute as CFString, &minimized
               )
+              return (error, minimized as? Bool)
             }
           }
         }
@@ -509,13 +509,26 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           discoveredWindowIDs: discoveredWindowIDs,
           ignoredWindowIDs: ignoredPreviousWindowIDs,
           cgWindows: retentionCGWindows,
-          cachedMinimizedState: cachedMinimizedState
+          previousElements: previousElements,
+          discoveredElements: nextElements,
+          cachedWindowState: cachedWindowState
         )
+        let confirmedWindowIDs = Set((retentionCGWindows ?? []).filter { record in
+          guard record.processID == processID else { return false }
+          if record.isOnscreen || appWindows == nil { return true }
+          let windowID = WindowID(rawValue: UInt64(record.id))
+          return previousElements[windowID].map { previous in
+            appWindows?.contains(where: { CFEqual($0, previous) }) == true
+          } ?? false
+        }.map { WindowID(rawValue: UInt64($0.id)) })
         let retention = retainedWindowIDsWithinGracePeriod(
           retainableWindowIDs,
-          // Confirmed live windows must survive AX recovery after wake. Only
-          // unconfirmed existence uses the bounded omission grace period.
-          previousDeadlines: retentionCGWindows == nil ? retainedWindowDeadlines : [:],
+          // WindowServer can retain closed, ordered-out surfaces. A successful AX
+          // inventory omitting a hidden window must eventually retire its column.
+          // Keep visible windows and failed AX inventories recoverable after wake.
+          previousDeadlines: retainedWindowDeadlines.filter {
+            !confirmedWindowIDs.contains($0.key)
+          },
           now: ProcessInfo.processInfo.systemUptime
         )
         let processRetainedWindowIDs = retention.windowIDs

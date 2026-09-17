@@ -9,6 +9,15 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func unknownFocusSourceRequestsFullInventoryUntilConsumed() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    engine.recordObservation(.focus, processID: nil)
+    engine.recordObservation(.focus, processID: processID)
+    #expect(engine.pendingObservations.topologyRequiresFullSnapshot)
+    #expect(engine.consumeObservations().topologyRequiresFullSnapshot)
+    #expect(!engine.pendingObservations.topologyRequiresFullSnapshot)
+  }
+
   @Test func emptyApplicationInventoryDrainsPendingFullRefreshChunks() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     let application = AXUIElementCreateApplication(processID)
@@ -427,7 +436,8 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
-  @Test func sessionRecoveryRefreshesReferencesAndKeepsLiveWindowsPastGrace() {
+  @Test(arguments: [true, false])
+  func sessionRecoveryRetainsVisibleWindowsButExpiresHiddenOmissions(isOnscreen: Bool) {
     let engine = SnapshotEngine(
       frameCoordinator: AXFrameCoordinator(),
       userInputTracker: UserInputTracker()
@@ -462,12 +472,33 @@ struct WindowSnapshotStabilityTests {
         elements: [], durationMS: 0
       )],
       explicitlyDestroyedWindowIDs: [],
-      publicCGWindows: { [makeCGWindow(id: 42)] }
+      publicCGWindows: { [CGWindowRecord(
+        id: 42, processID: processID, layer: 0, title: "Window",
+        frame: frame, isOnscreen: isOnscreen
+      )] }
     )
 
     #expect(engine.applicationWindowListReadCount == 1)
-    #expect(result.windows.map(\.id) == [window.id])
-    #expect(result.nextRetainedWindowIDs == [window.id])
+    #expect(result.windows.map(\.id) == (isOnscreen ? [window.id] : []))
+    #expect(result.nextRetainedWindowIDs == (isOnscreen ? [window.id] : []))
+  }
+
+  @Test func reusedAccessibilityElementCannotRetainTwoWindowIdentities() {
+    let old = makeWindow(id: 42), replacement = makeWindow(id: 43)
+    let staleElement = AXUIElementCreateApplication(processID)
+    let refreshedElement = AXUIElementCreateApplication(processID)
+    #expect(CFEqual(staleElement, refreshedElement))
+    let retained = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [old, replacement],
+      discoveredWindowIDs: [replacement.id],
+      ignoredWindowIDs: [],
+      cgWindows: [makeCGWindow(id: 42), makeCGWindow(id: 43)],
+      previousElements: [old.id: staleElement, replacement.id: refreshedElement],
+      discoveredElements: [replacement.id: refreshedElement],
+      cachedWindowState: { _ in (.success, false) }
+    )
+    #expect(retained.isEmpty)
   }
 
   @Test func existingCGWindowSurvivesTransientAccessibilityOmission() {
@@ -480,7 +511,7 @@ struct WindowSnapshotStabilityTests {
         discoveredWindowIDs: [],
         ignoredWindowIDs: [],
         cgWindows: [makeCGWindow(id: 42)],
-        cachedMinimizedState: { _ in nil }
+        cachedWindowState: { _ in (.cannotComplete, nil) }
       ) == [window.id]
     )
   }
@@ -495,7 +526,7 @@ struct WindowSnapshotStabilityTests {
         discoveredWindowIDs: [],
         ignoredWindowIDs: [],
         cgWindows: nil,
-        cachedMinimizedState: { _ in nil }
+        cachedWindowState: { _ in (.cannotComplete, nil) }
       ) == [window.id]
     )
   }
@@ -643,9 +674,23 @@ struct WindowSnapshotStabilityTests {
         discoveredWindowIDs: [],
         ignoredWindowIDs: [],
         cgWindows: [makeCGWindow(id: 42)],
-        cachedMinimizedState: { _ in true }
+        cachedWindowState: { _ in (.success, true) }
       ).isEmpty
     )
+  }
+
+  @Test(arguments: [AXError.invalidUIElement, .cannotComplete, .success], [true, false])
+  func invalidHiddenCachedWindowIsRemovedWithoutGrace(error: AXError, isOnscreen: Bool) {
+    let window = makeWindow(id: 42)
+    let retained = cachedWindowIDsToRetain(
+      processID: processID, previousWindows: [window], discoveredWindowIDs: [],
+      ignoredWindowIDs: [], cgWindows: [CGWindowRecord(
+        id: 42, processID: processID, layer: 0, title: "Window",
+        frame: frame, isOnscreen: isOnscreen
+      )],
+      cachedWindowState: { _ in (error, nil) }
+    )
+    #expect(retained.isEmpty == (error == .invalidUIElement && !isOnscreen))
   }
 
   @Test func applicationAccessibilityFailureDoesNotProbeCachedWindows() {
@@ -658,7 +703,7 @@ struct WindowSnapshotStabilityTests {
         discoveredWindowIDs: [],
         ignoredWindowIDs: [],
         cgWindows: [makeCGWindow(id: 42)],
-        cachedMinimizedState: nil
+        cachedWindowState: nil
       ) == [window.id]
     )
   }
@@ -674,7 +719,7 @@ struct WindowSnapshotStabilityTests {
         discoveredWindowIDs: [window.id],
         ignoredWindowIDs: [],
         cgWindows: cgWindows,
-        cachedMinimizedState: { _ in nil }
+        cachedWindowState: { _ in (.cannotComplete, nil) }
       ).isEmpty
     )
     #expect(
@@ -684,7 +729,7 @@ struct WindowSnapshotStabilityTests {
         discoveredWindowIDs: [],
         ignoredWindowIDs: [window.id],
         cgWindows: cgWindows,
-        cachedMinimizedState: { _ in nil }
+        cachedWindowState: { _ in (.cannotComplete, nil) }
       ).isEmpty
     )
     #expect(
@@ -694,7 +739,7 @@ struct WindowSnapshotStabilityTests {
         discoveredWindowIDs: [],
         ignoredWindowIDs: [],
         cgWindows: [],
-        cachedMinimizedState: { _ in nil }
+        cachedWindowState: { _ in (.cannotComplete, nil) }
       ).isEmpty
     )
   }

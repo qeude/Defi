@@ -7,6 +7,25 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
+typealias DesktopSnapshotRequest = (
+  forceFullWindowRefresh: Bool,
+  forceWindowListRefresh: Bool,
+  forceApplicationInventoryRefresh: Bool,
+  consumePeriodicWindowRefresh: Bool
+)
+
+func coalescedDesktopSnapshotRequest(
+  _ request: DesktopSnapshotRequest,
+  pending: DesktopSnapshotRequest?
+) -> DesktopSnapshotRequest {
+  (
+    request.forceFullWindowRefresh || pending?.forceFullWindowRefresh == true,
+    request.forceWindowListRefresh || pending?.forceWindowListRefresh == true,
+    request.forceApplicationInventoryRefresh || pending?.forceApplicationInventoryRefresh == true,
+    request.consumePeriodicWindowRefresh || pending?.consumePeriodicWindowRefresh == true
+  )
+}
+
 func shouldCloseOverviewAfterNativeFocusChange(
   nativeFocusChanged: Bool,
   overviewOpenedAt: TimeInterval?,
@@ -44,18 +63,31 @@ extension Daemon {
     consumePeriodicWindowRefresh: Bool = false
   ) {
     guard windowManagementStarted, desktopSessionActive else { return }
+    let (forceFullWindowRefresh, forceWindowListRefresh,
+      forceApplicationInventoryRefresh, consumePeriodicWindowRefresh) = coalescedDesktopSnapshotRequest(
+        (forceFullWindowRefresh, forceWindowListRefresh,
+          forceApplicationInventoryRefresh, consumePeriodicWindowRefresh),
+        pending: supersededDesktopSnapshotRequest
+      )
+    // Both an in-flight snapshot and display reconciliation can defer this request.
+    supersededDesktopSnapshotRequest = (
+      forceFullWindowRefresh, forceWindowListRefresh,
+      forceApplicationInventoryRefresh, consumePeriodicWindowRefresh
+    )
     let sessionGeneration = desktopSessionGeneration
     let requestedConfigGeneration = configGeneration
     let nativeFocusWasPending = platform.hasPendingNativeFocusEvent
     if desktopSnapshotInFlight {
-      supersededDesktopSnapshotRequest = (
-        forceFullWindowRefresh,
-        forceWindowListRefresh,
-        forceApplicationInventoryRefresh,
-        consumePeriodicWindowRefresh
-      )
       return
     }
+    if hotKeys?.isEnabled == true, displayArrangement.needsReconciliation {
+      platform.invalidateFrameStateForDisplayChange()
+      if displayArrangement.reconcile() {
+        scheduleDisplayReconciliation()
+        return
+      }
+    }
+    supersededDesktopSnapshotRequest = nil
     desktopSnapshotInFlight = true
     platform.beginSnapshot(
       config: config,

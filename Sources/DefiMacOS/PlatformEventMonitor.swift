@@ -21,6 +21,7 @@ final class PlatformEventMonitor {
   private var observers: [pid_t: AXObserver] = [:]
   private var topologyObservedProcessIDs = Set<pid_t>()
   private var notificationObservationFailureCounts: NotificationObservationFailureCounts = [:]
+  private var windowNotificationFailureCounts: [NotificationObservationKind: [AXUIElement: Int]] = [:]
   private var observedWindows: [pid_t: [AXUIElement]] = [:]
   private var topologyRequiredWindows: [pid_t: [AXUIElement]] = [:]
   private var frameRequiredWindows: [pid_t: [AXUIElement]] = [:]
@@ -237,6 +238,10 @@ final class PlatformEventMonitor {
   ) {
     guard desktopSessionActive else { return }
     let activeProcessIDs = Set(applications.keys)
+    let liveElements = Set(applications.values.flatMap { $0 })
+    windowNotificationFailureCounts = windowNotificationFailureCounts.mapValues {
+      $0.filter { liveElements.contains($0.key) }
+    }
     notificationObservationFailureCounts = updatedNotificationObservationFailureCounts(
       notificationObservationFailureCounts,
       activeProcessIDs: activeProcessIDs
@@ -276,7 +281,8 @@ final class PlatformEventMonitor {
       for window in requiredTopology
       where !isIncompatibleWithNotificationObservation(
         .windowTopology,
-        processID: processID
+        processID: processID,
+        element: window
       ) {
         if !topologyObserved.contains(where: { CFEqual($0, window) }),
           subscribe(
@@ -297,7 +303,8 @@ final class PlatformEventMonitor {
       for window in windows {
         if !isIncompatibleWithNotificationObservation(
           .frame,
-          processID: processID
+          processID: processID,
+          element: window
         ),
           frameNotificationsEnabled,
           requiredFrames.contains(where: { CFEqual($0, window) }),
@@ -411,9 +418,14 @@ final class PlatformEventMonitor {
 
   private func isIncompatibleWithNotificationObservation(
     _ kind: NotificationObservationKind,
-    processID: pid_t
+    processID: pid_t,
+    element: AXUIElement? = nil
   ) -> Bool {
-    incompatibleNotificationProcessIDs(for: kind).contains(processID)
+    if let element {
+      return (windowNotificationFailureCounts[kind]?[element] ?? 0)
+        >= notificationObservationMaxAttempts
+    }
+    return incompatibleNotificationProcessIDs(for: kind).contains(processID)
   }
 
   private func incompatibleNotificationProcessIDs(
@@ -505,6 +517,7 @@ final class PlatformEventMonitor {
 
   func resetAccessibilityObservers() {
     notificationObservationFailureCounts.removeAll(keepingCapacity: true)
+    windowNotificationFailureCounts.removeAll(keepingCapacity: true)
     for observer in observers.values {
       CFRunLoopRemoveSource(
         CFRunLoopGetMain(),
@@ -623,6 +636,10 @@ final class PlatformEventMonitor {
       }
     )
     if !registered {
+      // One obsolete or unsupported window must not disable observation of its siblings.
+      if kind != .applicationTopology {
+        windowNotificationFailureCounts[kind, default: [:]][element, default: 0] += 1
+      }
       notificationObservationFailureCounts = updatedNotificationObservationFailureCounts(
         notificationObservationFailureCounts,
         activeProcessIDs: Set(observers.keys),

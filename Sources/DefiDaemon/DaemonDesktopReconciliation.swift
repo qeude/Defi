@@ -149,6 +149,7 @@ extension Daemon {
   }
 
   func scheduleDisplayReconciliation() {
+    displayArrangement.invalidate()
     overviewController?.close()
     handleCheatsheetInput(.dismiss)
     displayConfigurationEventCount += 1

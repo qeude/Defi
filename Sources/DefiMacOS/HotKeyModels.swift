@@ -124,26 +124,15 @@ struct Key: Hashable, Sendable {
     accelerator: String,
     aliases: [String: String]
   ) throws(HotKeyError) {
-    var parts = accelerator.lowercased().split(separator: "-").map(String.init)
-    guard let keyName = parts.popLast(), let code = Self.keyCodes[keyName] else {
+    guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
       throw HotKeyError.invalidAccelerator(accelerator)
     }
-    var modifierNames: [String] = []
-    for part in parts {
-      if let alias = aliases[part] {
-        modifierNames.append(
-          contentsOf:
-            alias
-            .lowercased()
-            .split(separator: "+")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-        )
-      } else {
-        modifierNames.append(part)
-      }
+    var parts = normalized.split(separator: "-").map(String.init)
+    guard let keyName = parts.popLast(), let code = acceleratorKeyCodes[keyName] else {
+      throw HotKeyError.invalidAccelerator(accelerator)
     }
     var modifiers: CGEventFlags = []
-    for name in modifierNames {
+    for name in parts {
       switch name {
       case "cmd", "command":
         modifiers.insert(.maskCommand)
@@ -160,19 +149,6 @@ struct Key: Hashable, Sendable {
     self.code = code
     modifierBits = modifiers.rawValue
   }
-
-  private static let keyCodes: [String: CGKeyCode] = [
-    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5,
-    "z": 6, "x": 7, "c": 8, "v": 9, "b": 11,
-    "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17,
-    "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23,
-    "equal": 24, "9": 25, "7": 26, "minus": 27, "8": 28, "0": 29,
-    "rightbracket": 30, "o": 31, "u": 32, "leftbracket": 33,
-    "i": 34, "p": 35, "l": 37, "j": 38, "quote": 39,
-    "k": 40, "semicolon": 41, "backslash": 42, "comma": 43,
-    "slash": 44, "n": 45, "m": 46, "period": 47,
-    "left": 123, "right": 124, "down": 125, "up": 126,
-  ]
 }
 
 func configuredHotKeys(_ config: Config) throws(HotKeyError) -> [Key: (accelerator: String, command: String)] {

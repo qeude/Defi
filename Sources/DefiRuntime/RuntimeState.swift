@@ -181,6 +181,22 @@ public struct RuntimeState: Equatable, Sendable {
     nextViewports: [MonitorID: Rect] = [:]
   ) {
     guard !monitorIDs.isEmpty else { return }
+    let initialPrimaryTransfer = monitors.count == 1 && monitorIDs.count > 1
+      && monitorIDs.contains(monitors[0].id)
+      && monitorIDs.first != monitors[0].id
+      && disconnectedMonitors[monitorIDs[0]] == nil
+      && !monitors[0].workspaces.contains(where: { $0.affinity == monitorIDs[0] })
+    let previousActiveWorkspace = initialPrimaryTransfer ? monitors[0].activeWorkspace : nil
+    if initialPrimaryTransfer {
+      for index in monitors[0].workspaces.indices {
+        let workspace = monitors[0].workspaces[index]
+        guard workspace.kind != .trailing,
+          workspace.affinity == monitors[0].id,
+          workspaceMonitorPositions[workspace.id] == nil
+        else { continue }
+        monitors[0].workspaces[index].affinity = monitorIDs[0]
+      }
+    }
     for monitorIndex in monitors.indices
     where monitorIDs.contains(monitors[monitorIndex].id) {
       let monitorID = monitors[monitorIndex].id
@@ -264,15 +280,20 @@ public struct RuntimeState: Equatable, Sendable {
     for monitorID in monitorIDs where !monitors.contains(where: { $0.id == monitorID }) {
       attachMonitor(
         monitorID,
-        previousViewports: previousViewports,
+        previousViewports: previousViewports.merging(nextViewports) { _, next in next },
         nextViewports: nextViewports
       )
-      }
+    }
     monitors.sort {
       (monitorIDs.firstIndex(of: $0.id) ?? .max)
         < (monitorIDs.firstIndex(of: $1.id) ?? .max)
     }
     redistributeConfiguredNamedWorkspaces()
+    if let previousActiveWorkspace,
+      monitors[0].workspaces.contains(where: { $0.id == previousActiveWorkspace })
+    {
+      monitors[0].activeWorkspace = previousActiveWorkspace
+    }
     maintainWorkspaceLifecycle()
   }
 

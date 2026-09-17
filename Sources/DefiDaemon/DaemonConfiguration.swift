@@ -213,6 +213,7 @@ extension Daemon {
         guard self?.desktopSessionActive == true else { return }
         self?.handlePointerMotion(invocation)
       },
+      displayPointerRouter: displayArrangement.pointerRouter,
       tapReenabledHandler: { [weak self] timestamp in
         self?.handleEventTapReenabled(at: timestamp)
       },

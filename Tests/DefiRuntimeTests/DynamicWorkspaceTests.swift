@@ -1,4 +1,5 @@
 import DefiConfig
+import DefiCore
 import DefiModel
 import Testing
 
@@ -7,6 +8,94 @@ import Testing
 struct DynamicWorkspaceTests {
   private let primary = MonitorID(rawValue: 1)
   private let secondary = MonitorID(rawValue: 2)
+
+  @Test
+  func `First primary display connection adopts workspaces and remembers affinity`() throws {
+    let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(primary)
+    let window = makeWindow(1, monitorID: primary)
+    try discoverWindow(window, decision: RuleDecision(workspace: WorkspaceID(rawValue: "dev")), state: &state)
+    state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "dev")
+    state.monitors[0].workspaces[0].columns[0].width = .pixels(600)
+    state.monitors[0].workspaces[0].scrollOffset = 0.2
+    let oldViewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let newViewport = Rect(x: 0, y: 0, width: 2_000, height: 1_000)
+
+    state.retainMonitors(
+      [secondary, primary], previousViewports: [primary: oldViewport],
+      nextViewports: [primary: oldViewport, secondary: newViewport]
+    )
+
+    #expect(state.monitors[0].workspaces.compactMap(\.name) == ["dev", "web"])
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "dev"))
+    #expect(state.monitors[0].workspaces[0].affinity == secondary)
+    #expect(state.monitors[0].workspaces[0].columns.first?.width == .pixels(1_200))
+    #expect(state.monitors[0].workspaces[0].scrollOffset == 0.2)
+    #expect(state.monitors[1].workspaces.map(\.kind) == [.trailing])
+    #expect(state.windows[window.id]?.monitorID == secondary)
+
+    state.retainMonitors([primary])
+    state = RuntimeState(config: config, topology: state.topology)
+    state.retainMonitors([secondary, primary])
+    #expect(state.monitors[0].workspaces.compactMap(\.name) == ["dev", "web"])
+    #expect(state.monitors[0].activeWorkspace == WorkspaceID(rawValue: "dev"))
+  }
+
+  @Test(arguments: [false, true])
+  func `Secondary or remembered display does not take the existing stack`(remembered: Bool) {
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["dev"])))
+    state.attachMonitor(primary)
+    if remembered {
+      state.attachMonitor(secondary)
+      state.retainMonitors([primary])
+    }
+    state.retainMonitors(remembered ? [secondary, primary] : [primary, secondary])
+    #expect(state.monitors.first(where: { $0.id == primary })?.workspaces.compactMap(\.name) == ["dev"])
+  }
+
+  @Test
+  func `Initial primary transfer preserves configured and disconnected affinities`() {
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(
+      names: ["dev", "pinned", "returning"], monitors: ["pinned": 1]
+    )))
+    state.attachMonitor(primary)
+    let absent = MonitorID(rawValue: 3)
+    state.monitors[0].workspaces[2].affinity = absent
+    state.retainMonitors([secondary, primary])
+    #expect(state.monitors[0].workspaces.compactMap(\.name) == ["dev"])
+    #expect(state.monitors[1].workspaces.compactMap(\.name) == ["pinned", "returning"])
+    #expect(state.monitors[1].workspaces[1].affinity == absent)
+  }
+
+  @Test
+  func `Workspace monitor command carries tiled and floating windows and updates affinity`() throws {
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["dev"])))
+    state.attachMonitor(primary)
+    state.attachMonitor(secondary)
+    let tiled = makeWindow(1, monitorID: primary)
+    var floating = makeWindow(2, monitorID: primary)
+    floating.floating = true
+    let dev = WorkspaceID(rawValue: "dev")
+    try discoverWindow(tiled, decision: RuleDecision(workspace: dev), state: &state)
+    try discoverWindow(floating, decision: RuleDecision(workspace: dev, floating: true), state: &state)
+    state.monitors[0].activeWorkspace = dev
+    let frames = [
+      primary: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      secondary: Rect(x: 1_000, y: 0, width: 2_000, height: 1_400),
+    ]
+    let technical = isolatedDisplayArrangement(frames, primary: primary)
+    try reduce(.moveWorkspaceToMonitor(.right), on: primary, state: &state,
+               monitorFrames: frames, viewports: technical)
+    #expect(state.monitors[1].activeWorkspace == dev)
+    #expect(state.monitors[1].workspaces[0].affinity == secondary)
+    #expect(state.location(containing: tiled.id)?.monitorID == secondary)
+    #expect(state.location(containing: floating.id)?.monitorID == secondary)
+    #expect(state.windows[floating.id]?.frame.x == technical[secondary]?.x)
+    state.retainMonitors([primary])
+    state.retainMonitors([primary, secondary])
+    #expect(state.monitors[1].activeWorkspace == dev)
+  }
 
   @Test
   func `Named workspaces are global and every monitor gets one trailing workspace`() {

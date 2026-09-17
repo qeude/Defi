@@ -74,6 +74,33 @@ enabled = true
 
 Set `enabled = false` when SketchyBar owns workspace presentation.
 
+## Multiple displays
+
+Vertically separated displays keep their native arrangement and native pointer
+movement. If display heights overlap, Defi uses a temporary corner-to-corner
+staircase in macOS. Each horizontal ribbon keeps real partial-window previews
+without spilling onto another display. Defi remembers the original desk arrangement for
+`focus-monitor`, window/column/workspace monitor moves, and pointer crossings.
+This applies to ordinary mouse movement and dragging, independently of the
+focus-follows-mouse and mouse-follows-focus options. Mirrored displays are left
+unchanged.
+
+The native arrangement is restored when Defi stops. Configuration uses the public
+CoreGraphics application-lifetime scope, so WindowServer also reverts to the
+session configuration when the process terminates unexpectedly. Reconnected
+combinations reuse their desk map within the daemon session. A native rearrangement
+of the same displays becomes the new desk map; resolution and main-display
+changes preserve the existing desk relationships.
+
+System Settings shows the technical arrangement while Defi runs. Other apps see
+these native coordinates too. Change the arrangement directly in System Settings;
+Defi adopts it without restarting. A vertical arrangement remains as selected,
+with native pointer crossings. Arrangements requiring isolation return to the
+technical staircase while retaining the selected desk map for navigation.
+`defi status` reports `displayArrangement=isolated` and `displayPointerWarps`.
+If macOS refuses the transaction, Defi reports `failed:<code>` and keeps native
+pointer routing; isolation is then unavailable until a successful reconfiguration.
+
 ## `[input]`
 
 Controls focus transfer between managed windows and pointer.
@@ -231,7 +258,10 @@ Workspace identity, ownership, order, focus, widths, and scroll position persist
 across daemon restarts in the current macOS login session. If a display
 disconnects, its workspaces move temporarily to a fallback display and return
 when the same display identity reconnects. An explicit workspace-to-monitor move
-updates its affinity.
+updates its affinity. When a second display connects as the primary display for
+the first time in this session, it adopts the existing stack, active workspace,
+and scroll state. Existing display affinities and explicit `[workspaces].monitors`
+assignments take precedence; the empty trailing workspace stays on each display.
 
 Use stable, whitespace-free names. Workspace command arguments are separated by
 whitespace, so names containing spaces cannot be addressed by keybindings or the
@@ -267,7 +297,11 @@ hyper = "Alt + Cmd + Ctrl"
 | `default_key_modifier` | `"alt"` | modifier name, hyphen-separated modifiers, or alias | Prefix used for every generated default binding. |
 
 Changing this value moves all generated navigation, layout, floating-window,
-stacking, and first-nine-workspace bindings to the new prefix.
+stacking, and first-nine-workspace bindings to the new prefix. If a generated
+accelerator matches a fixed monitor shortcut, the generated binding takes
+precedence, including when aliases or modifier ordering differ. If the modifier
+already includes Shift, base navigation wins over the equivalent Shift binding.
+Explicit `[keys]` overrides still take precedence over both.
 
 ## `show_cheatsheet_on_modifier_hold`
 
@@ -383,7 +417,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `move-column-to-monitor left\|right\|up\|down` | Move focused column to the nearest monitor. | `ctrl-cmd-shift-<arrow>` |
 | `move-window-to-monitor left\|right\|up\|down` | Move only the focused window to the nearest monitor in that direction. | unset |
 | `reorder-workspace up\|down` | Reorder the active workspace inside its monitor stack. | unset |
-| `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace and update its monitor affinity. | unset |
+| `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace and update its monitor affinity. | `ctrl-alt-shift-<arrow>` |
 | `cycle-width previous` | Select previous width preset, wrapping. | `<mod>-minus` |
 | `cycle-width next` | Select next width preset, wrapping. | `<mod>-equal` |
 | `maximize-column` | Toggle focused column between full width and previous width. | `<mod>-f` |
@@ -599,6 +633,10 @@ names = []
 "ctrl-cmd-shift-right" = "move-column-to-monitor right"
 "ctrl-cmd-shift-up" = "move-column-to-monitor up"
 "ctrl-cmd-shift-down" = "move-column-to-monitor down"
+"ctrl-alt-shift-left" = "move-workspace-to-monitor left"
+"ctrl-alt-shift-right" = "move-workspace-to-monitor right"
+"ctrl-alt-shift-up" = "move-workspace-to-monitor up"
+"ctrl-alt-shift-down" = "move-workspace-to-monitor down"
 
 "alt-minus" = "cycle-width previous"
 "alt-equal" = "cycle-width next"
