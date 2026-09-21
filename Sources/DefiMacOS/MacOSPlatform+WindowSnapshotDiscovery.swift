@@ -179,8 +179,30 @@ extension SnapshotEngine {
       if refreshesApplicationInventory {
         applicationInventorySnapshotCount += 1
         let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
-        runningApplications = NSWorkspace.shared.runningApplications.map {
-          ($0.processIdentifier, $0)
+        let workspaceApplications = NSWorkspace.shared.runningApplications
+        let workspaceProcessIDs = workspaceApplications.map(\.processIdentifier)
+        let needsWindowServerFallback = workspaceProcessIDs.contains { $0 <= 0 }
+        let windowProcessIDs = needsWindowServerFallback
+          ? (publicCGWindows() ?? []).map(\.processID)
+          : []
+        let processIDs = discoveryProcessIDs(
+          runningApplicationProcessIDs: workspaceProcessIDs,
+          windowProcessIDs: windowProcessIDs,
+          ownProcessID: ProcessInfo.processInfo.processIdentifier
+        )
+        let applicationsByProcessID: [pid_t: NSRunningApplication] = Dictionary(
+          workspaceApplications.compactMap { application in
+            let processID = application.processIdentifier
+            guard processID > 0 else { return nil }
+            return (processID, application)
+          }, uniquingKeysWith: { current, _ in current }
+        )
+        runningApplications = processIDs.map { processID in
+          (
+            processID,
+            applicationsByProcessID[processID]
+              ?? NSRunningApplication(processIdentifier: processID)
+          )
         }
         recordDurationSample(
           (ProcessInfo.processInfo.systemUptime - inventoryStartedAt) * 1_000,

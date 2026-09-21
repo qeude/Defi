@@ -6,6 +6,17 @@ import DefiCore
 import DefiModel
 import OSLog
 
+func discoveryProcessIDs(
+  runningApplicationProcessIDs: some Sequence<pid_t>,
+  windowProcessIDs: some Sequence<pid_t>,
+  ownProcessID: pid_t
+) -> [pid_t] {
+  Set(runningApplicationProcessIDs)
+    .union(windowProcessIDs)
+    .filter { $0 > 0 && $0 != ownProcessID }
+    .sorted()
+}
+
 enum WindowGeometryDiscovery: Equatable {
   case unavailable
   case ignored

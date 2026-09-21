@@ -9,6 +9,17 @@ struct WindowDiscoveryTests {
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
   @Test
+  func `WindowServer process IDs recover invalid application inventory IDs`() {
+    #expect(
+      discoveryProcessIDs(
+        runningApplicationProcessIDs: [-1, 42],
+        windowProcessIDs: [7, 42, 0],
+        ownProcessID: 42
+      ) == [7]
+    )
+  }
+
+  @Test
   func axFrameConversionValidatesValueTypes() throws {
     var point = CGPoint(x: 4, y: 34)
     var size = CGSize(width: 800, height: 700)
