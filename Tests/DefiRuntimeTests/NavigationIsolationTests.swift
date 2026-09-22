@@ -13,6 +13,10 @@ private struct ReplayResult: Sendable {
   let milliseconds: Double
 }
 
+private final class ArrivalRecorder: Sendable {
+  let values = Mutex<[Int]>([])
+}
+
 struct NavigationIsolationTests {
   /// A stalled AppKit executor must not delay command reduction or placement.
   /// Semaphore handshakes make this a dependency test, not a speed threshold.
@@ -80,16 +84,16 @@ struct NavigationIsolationTests {
 
   @Test
   func callbackMessagesPreserveArrivalOrder() async {
-    let received = Mutex<[Int]>([])
+    let received = ArrivalRecorder()
     await withCheckedContinuation { continuation in
       for sequence in 0..<500 {
         NavigationActor.enqueue {
-          received.withLock { $0.append(sequence) }
+          received.values.withLock { $0.append(sequence) }
         }
       }
       NavigationActor.enqueue { continuation.resume() }
     }
-    #expect(received.withLock { $0 } == Array(0..<500))
+    #expect(received.values.withLock { $0 } == Array(0..<500))
   }
 }
 
