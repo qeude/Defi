@@ -29,6 +29,14 @@ struct DaemonCommandPolicyTests {
     #expect(!timedOut.wait(timeout: .now()).ok)
     timedOut.perform { ran = true; return .success() }
     #expect(!ran)
+
+    let inFlight = DeferredCommandReply()
+    inFlight.deferResponse()
+    inFlight.perform {
+      inFlight.fail("window geometry read timed out; command was not applied")
+      return .success("applied")
+    }
+    #expect(inFlight.wait() == .success("applied"))
   }
 
   @Test

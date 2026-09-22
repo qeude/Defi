@@ -13,6 +13,7 @@ final class DeferredCommandReply: @unchecked Sendable {
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
   private var deferred = false
+  private var executing = false
   private var response: CommandResponse?
 
   var wasDeferred: Bool {
@@ -29,15 +30,20 @@ final class DeferredCommandReply: @unchecked Sendable {
 
   @NavigationActor func perform(_ command: () -> CommandResponse) {
     lock.lock()
-    guard response == nil else { lock.unlock(); return }
-    response = command()
+    guard response == nil, !executing else { lock.unlock(); return }
+    executing = true
+    lock.unlock()
+    let result = command()
+    lock.lock()
+    response = result
+    executing = false
     lock.unlock()
     ready.signal()
   }
 
   func fail(_ message: String) {
     lock.lock()
-    guard response == nil else { lock.unlock(); return }
+    guard response == nil, !executing else { lock.unlock(); return }
     response = .failure(message)
     lock.unlock()
     ready.signal()
@@ -47,6 +53,10 @@ final class DeferredCommandReply: @unchecked Sendable {
     // The Unix socket's response timeout is two seconds.
     if ready.wait(timeout: timeout) == .timedOut {
       fail("window geometry read timed out; command was not applied")
+      lock.lock()
+      let stillExecuting = executing
+      lock.unlock()
+      if stillExecuting { ready.wait() }
     }
     lock.lock()
     defer { lock.unlock() }
@@ -386,9 +396,9 @@ extension Daemon {
         command.activatesWorkspace || command.movesWindowBetweenWorkspaces || command.movesWindowsAcrossMonitors,
         commandMonitorID != nil
       {
-        let windowIDs = Set(state.monitors.flatMap {
-          floatingWindowIDsForWorkspaceMutation(monitors: state.monitors, monitorID: $0.id)
-        })
+        let windowIDs = commandMonitorID.map {
+          floatingWindowIDsForWorkspaceMutation(monitors: state.monitors, monitorID: $0)
+        } ?? []
         if !windowIDs.isEmpty {
           deferredResponse?.deferResponse()
           if let deferredResponse { deferredFrameReplies.append(deferredResponse) }
