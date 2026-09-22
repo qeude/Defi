@@ -96,7 +96,7 @@ final class OverviewPanel {
   func setDesktopImage(_ image: NSImage) {
     desktopImageTask?.cancel()
     desktopImageTask = nil
-    desktopView.layer?.contents = image
+    if usesCapturedDesktop { desktopView.layer?.contents = image }
     view.setDesktopImage(image)
   }
 
@@ -115,6 +115,7 @@ final class OverviewPanel {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil as CGImage? }
         return CGImageSourceCreateThumbnailAtIndex(source, 0, [
           kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
           kCGImageSourceThumbnailMaxPixelSize: maximumSize,
           kCGImageSourceShouldCacheImmediately: true,
         ] as CFDictionary)

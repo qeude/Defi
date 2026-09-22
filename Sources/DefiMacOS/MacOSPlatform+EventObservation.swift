@@ -30,6 +30,9 @@ extension MacOSPlatform {
   }
 
   public func prepareForRestore() async {
+    frameSubmissionGeneration &+= 1
+    invalidateFocusStateForDisplayChange()
+    while focusWriter.isBusy { try? await Task.sleep(for: .milliseconds(10)) }
     let coordinator = frameCoordinator
     await Task.detached { coordinator.invalidateAndWaitForWrites() }.value
     clearFrameState()

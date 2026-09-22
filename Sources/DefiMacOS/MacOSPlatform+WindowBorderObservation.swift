@@ -25,8 +25,6 @@ extension MacOSPlatform {
   public func presentInvalidateInputAfterEventTapReenabled(
     at timestamp: TimeInterval
   ) {
-    userInputTracker.invalidate(at: timestamp)
-    pointerMotionTracker.invalidate(at: timestamp)
     invalidatePointerCacheFromPresentation()
     if eventMonitor?.resetMouseGestureState() == true {
       mouseFocusReleasePending = true
@@ -41,6 +39,12 @@ extension MacOSPlatform {
     mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {}
   ) {
     guard eventMonitor == nil else { return }
+    accessibilityDisplayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+      object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.publishPresentationStatus() }
+    }
     let handleEvent: (PlatformEventKind, pid_t?, AXUIElement?) -> Void = {
       [weak self] kind, processID, element in
       defer { self?.publishPresentationStatus() }

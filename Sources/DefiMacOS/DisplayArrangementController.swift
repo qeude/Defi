@@ -205,6 +205,10 @@ public final class DisplayPointerRouter: @unchecked Sendable {
     lock.unlock()
   }
 
+  public func invalidate() {
+    update(technical: [:], desk: [:])
+  }
+
   public func setActive(_ active: Bool) {
     lock.lock()
     self.active = active

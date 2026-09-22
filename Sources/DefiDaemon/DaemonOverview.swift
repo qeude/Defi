@@ -16,15 +16,6 @@ extension Daemon {
   }
 
   func updateOverviewIfOpen() {
-    guard overviewState.isOpen else {
-      let previews = config.overview.windowPreviews
-      DispatchQueue.main.async { [self] in
-        let controller = overviewController ?? makeOverviewController()
-        overviewController = controller
-        controller.prepare(windowPreviewsEnabled: previews)
-      }
-      return
-    }
     presentOverview(toggling: false)
   }
 
@@ -43,6 +34,8 @@ extension Daemon {
           animation: config.animation, zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
           windowPreviewsEnabled: config.overview.windowPreviews)
+      } else {
+        controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews)
       }
       publishOverviewState()
     }
@@ -80,13 +73,14 @@ extension Daemon {
       },
       openStateChanged: { [weak self] isOpen in
         guard let self else { return }
+        overviewInputMode(isOpen)
+        publishOverviewState()
         let parksWindows = overviewController?.usesWorkspaceParking == true
         let timestamp = ProcessInfo.processInfo.systemUptime
         NavigationActor.enqueue { [self] in
           overviewState.isOpen = isOpen
           overviewState.usesWorkspaceParking = parksWindows
           overviewOpenedAt = isOpen ? timestamp : nil
-          hotKeys?.setOverviewModeEnabled(isOpen)
           platform.setWindowBordersSuppressed(isOpen)
           if parksWindows {
             applyCurrentLayout(asynchronousPositions: true, updateVisibility: true,
@@ -95,6 +89,7 @@ extension Daemon {
           }
         }
       },
+      presentationChanged: { [weak self] in self?.publishOverviewState() },
       commitScrollOffsets: { [weak self] offsets in
         NavigationActor.enqueue { [weak self] in
           guard let self else { return }

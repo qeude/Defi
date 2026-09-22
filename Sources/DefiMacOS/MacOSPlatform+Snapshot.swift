@@ -37,6 +37,7 @@ extension SnapshotEngine {
     forceWindowListRefresh: Bool = false,
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
+    defer { DispatchQueue.main.async { [weak host] in host?.publishPresentationStatus() } }
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
     let observations = consumeObservations()
     let explicitlyDestroyedWindowIDs = observations.destroyedWindowIDs

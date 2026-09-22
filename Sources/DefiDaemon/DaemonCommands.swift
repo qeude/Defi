@@ -204,7 +204,7 @@ extension Daemon {
   }
 
   func enqueueHotKey(_ invocation: HotKeyInvocation) {
-    guard desktopSessionActive else { return }
+    guard desktopSessionActive, !shouldShutdown, !restorationInFlight else { return }
     guard pendingHotKeyCommands.count < 64 else { return }
     if (try? parseCommand(invocation.command)) != .toggleCheatsheet {
       handleCheatsheetInput(.dismiss)
@@ -214,7 +214,7 @@ extension Daemon {
   }
 
   func processPendingHotKeys() {
-    guard !processingHotKeyCommands else { return }
+    guard !processingHotKeyCommands, !shouldShutdown, !restorationInFlight else { return }
     processingHotKeyCommands = true
     defer { processingHotKeyCommands = false }
     for _ in 0..<min(pendingHotKeyCommands.count, 8) {
@@ -232,7 +232,8 @@ extension Daemon {
     _ rawCommand: String,
     monitorIndex: Int? = nil,
     inputTimestamp: TimeInterval? = nil,
-    receivedAt: TimeInterval? = nil
+    receivedAt: TimeInterval? = nil,
+    floatingFramesRefreshed: Bool = false
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
       let lines = currentWorkspaceState().monitors.map { monitor in
@@ -271,7 +272,8 @@ extension Daemon {
       return .success("marked \(diagnostics.currentFileURL.path)")
     }
     if rawCommand == "restore", !shouldShutdown {
-      Task { await restoreAllWindows() }
+      guard beginWindowRestoration() else { return .failure("window restoration in progress") }
+      Task { await restoreAllWindows(alreadyClaimed: true) }
       return .success("restoration scheduled")
     }
     if rawCommand == "quit" {
@@ -279,6 +281,14 @@ extension Daemon {
       return .success("stopping")
     }
     guard !shouldShutdown, !restorationInFlight else { return .failure("window restoration in progress") }
+    if commandFrameReadTask != nil {
+      guard commandsAfterFrameRead.count < 64 else { return .failure("command queue full") }
+      commandsAfterFrameRead.append { [weak self] in
+        self?.handle(rawCommand, monitorIndex: monitorIndex,
+          inputTimestamp: inputTimestamp, receivedAt: receivedAt)
+      }
+      return .success("queued for current window geometry")
+    }
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
@@ -305,6 +315,34 @@ extension Daemon {
         commandMonitorID = monitorID
       } else {
         commandMonitorID = activeMonitorID ?? state.monitors.first?.id
+      }
+      if !floatingFramesRefreshed, platform.hasPendingMouseResizeGesture,
+        command.activatesWorkspace || command.movesWindowBetweenWorkspaces || command.movesWindowsAcrossMonitors,
+        let monitorID = commandMonitorID
+      {
+        let windowIDs = floatingWindowIDsForWorkspaceMutation(monitors: state.monitors, monitorID: monitorID)
+        if !windowIDs.isEmpty {
+          commandFrameReadTask = Task { [weak self] in
+            guard let self else { return }
+            let frames = await platform.userAdjustedFrames(for: windowIDs)
+            guard !Task.isCancelled else { return }
+            commandFrameReadTask = nil
+            guard !shouldShutdown, !restorationInFlight else {
+              commandsAfterFrameRead.removeAll(keepingCapacity: true)
+              return
+            }
+            for (windowID, frame) in frames where state.windows[windowID]?.floating == true {
+              floatingWindowFrames[windowID] = frame
+              platform.acceptObservedFrame(frame, for: windowID)
+            }
+            let queued = commandsAfterFrameRead
+            commandsAfterFrameRead.removeAll(keepingCapacity: true)
+            handle(rawCommand, monitorIndex: monitorIndex, inputTimestamp: inputTimestamp,
+              receivedAt: receivedAt, floatingFramesRefreshed: true)
+            for command in queued { command() }
+          }
+          return .success("queued for current window geometry")
+        }
       }
       let commandInputTimestamp = inputTimestamp ?? receivedAt ?? commandStartedAt
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
@@ -480,9 +518,6 @@ extension Daemon {
       )
       if rebasesPendingFrame {
         rebaseActiveScrollOffsetToDisplayedFrames()
-      }
-      if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors {
-        refreshFloatingWindowFramesBeforeWorkspaceMutation(on: commandMonitorID)
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25

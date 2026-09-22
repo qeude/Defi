@@ -110,6 +110,7 @@ final class Daemon {
   var lastPersistedTopology: WorkspaceTopology?
   var pointerHitTestTask: Task<Void, Never>?
   var pointerResumeTask: Task<Void, Never>?
+  @MainActor var overviewInputMode: @Sendable (Bool) -> Void = { _ in }
   var hotKeys: HotKeyManager?
   var overviewState = OverviewPresentationState()
   @MainActor var overviewController: OverviewController?
@@ -141,6 +142,8 @@ final class Daemon {
   var configReloadTask: Task<Void, Never>?
   var configGeneration: UInt64 = 0
   var pendingHotKeyCommands: [HotKeyInvocation] = []
+  var commandFrameReadTask: Task<Void, Never>?
+  var commandsAfterFrameRead: [@NavigationActor @Sendable () -> Void] = []
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true
@@ -247,7 +250,7 @@ final class Daemon {
   }
 
   private func startWindowManagement() {
-    guard !windowManagementStarted else { return }
+    guard !windowManagementStarted, !shouldShutdown else { return }
     windowManagementStarted = true
     DispatchQueue.main.async { [menuBar] in menuBar.refreshAccessibilityPermission() }
     platform.startObserving(
@@ -293,6 +296,7 @@ final class Daemon {
     if !active { handleCheatsheetInput(.dismiss) }
     desktopSessionGeneration &+= 1
     guard active else {
+      cancelPendingCommandFrameRead()
       pointerHitTestTask?.cancel()
       pointerHitTestTask = nil
       pointerResumeTask?.cancel()

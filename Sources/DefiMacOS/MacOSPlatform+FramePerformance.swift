@@ -30,11 +30,18 @@ extension MacOSPlatform {
     latestObservedFrames[windowID] = frame
   }
 
-  public func userAdjustedFrames(
+  public var hasPendingMouseResizeGesture: Bool { mouseResizeGesturePending }
+
+  public nonisolated func userAdjustedFrames(
     for windowIDs: Set<WindowID>
-  ) -> [WindowID: Rect] {
-    guard mouseResizeGesturePending, !windowIDs.isEmpty else { return [:] }
-    return latestObservedFrames.filter { windowIDs.contains($0.key) }
+  ) async -> [WindowID: Rect] {
+    guard !windowIDs.isEmpty else { return [:] }
+    return await Task.detached(priority: .userInitiated) {
+      Dictionary(uniqueKeysWithValues: copyCGWindows().compactMap { window in
+        let id = WindowID(rawValue: UInt64(window.id))
+        return windowIDs.contains(id) ? (id, window.frame) : nil
+      })
+    }.value
   }
 
   public var latencySensitiveWindowIDs: Set<WindowID> {

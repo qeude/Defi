@@ -15,6 +15,7 @@ extension Daemon {
   }
 
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
+    guard !shouldShutdown, !restorationInFlight else { return }
     defer {
       if pendingPointerFocus != nil { scheduleTick() }
     }
@@ -28,7 +29,8 @@ extension Daemon {
     guard
       pointerFocusIntentIsCurrent(
         pointerTimestamp: invocation.timestamp,
-        latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
+        latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp,
+        latestPointerMotionTimestamp: platform.pointerMotionTracker.latestTimestamp
       )
     else {
       invalidatePointerFocusIntent()
@@ -45,10 +47,11 @@ extension Daemon {
       let hit = await platform.managedWindowID(
         at: invocation.location, rawWindowID: invocation.windowID, retaining: previousWindowID
       )
-      guard !Task.isCancelled, desktopSessionActive,
+      guard !Task.isCancelled, desktopSessionActive, !shouldShutdown, !restorationInFlight,
         desktopSessionGeneration == session, commandGeneration == generation,
         pointerFocusIntentIsCurrent(pointerTimestamp: invocation.timestamp,
-          latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp)
+          latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp,
+          latestPointerMotionTimestamp: platform.pointerMotionTracker.latestTimestamp)
       else { return }
       applyPointerMotion(invocation, pointerWindowID: normalizedPointerWindowID(
         rawWindowID: invocation.windowID, hitTestedWindowID: hit
@@ -103,9 +106,12 @@ extension Daemon {
       pointerFocusIsReady(for: pendingPointerFocus.windowID) else { return }
     pointerResumeTask = Task { [weak self] in
       guard let self else { return }
-      defer { pointerResumeTask = nil }
+      defer { if !Task.isCancelled { pointerResumeTask = nil } }
       let hit = await platform.managedWindowIDUnderPointer(retaining: pendingPointerFocus.windowID)
-      guard !Task.isCancelled, desktopSessionActive,
+      guard !Task.isCancelled, desktopSessionActive, !shouldShutdown, !restorationInFlight,
+        pointerFocusIntentIsCurrent(pointerTimestamp: pendingPointerFocus.timestamp,
+          latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp,
+          latestPointerMotionTimestamp: platform.pointerMotionTracker.latestTimestamp),
         self.pendingPointerFocus == pendingPointerFocus else { return }
       resumePointerFocus(windowUnderPointerID: hit)
     }

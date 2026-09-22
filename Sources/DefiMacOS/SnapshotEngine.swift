@@ -71,12 +71,10 @@ final class SnapshotEngine: @unchecked Sendable {
     let box: AssumedThreadSafe<T> =
       Thread.isMainThread
       ? MainActor.assumeIsolated {
-          defer { host!.publishPresentationStatus() }
           return AssumedThreadSafe(work(host!))
         }
       : DispatchQueue.main.sync {
         MainActor.assumeIsolated {
-          defer { host!.publishPresentationStatus() }
           return AssumedThreadSafe(work(host!))
         }
       }
@@ -156,6 +154,7 @@ final class SnapshotEngine: @unchecked Sendable {
         // Reset on the snapshot queue, after any pass from the previous session.
         // Keep window identities and logical observations for reconciliation.
         $0.accessibilitySessionResetPending = false
+        $0.pendingObservations.createdElements.removeAll(keepingCapacity: true)
         $0.applications.removeAll(keepingCapacity: true)
         $0.lastApplicationWindowElements.removeAll(keepingCapacity: true)
         $0.unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)

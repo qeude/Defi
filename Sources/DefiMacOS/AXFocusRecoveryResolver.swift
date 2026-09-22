@@ -17,7 +17,7 @@ struct AXFocusRecoveryResolution: @unchecked Sendable {
 
 private struct AXFocusRecoveryLookup: Sendable {
   let windowID: WindowID
-  let processID: pid_t
+  let processID: pid_t?
 }
 
 final class AXFocusRecoveryResolver: @unchecked Sendable {
@@ -30,8 +30,8 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
 
   func resolve(
     windowID: WindowID,
-    processID: pid_t,
-    completion: @escaping @Sendable (AXFocusRecoveryResolution?) -> Void
+    processID: pid_t?,
+    completion: @escaping @Sendable (pid_t?, AXFocusRecoveryResolution?) -> Void
   ) {
     let lookup = AXFocusRecoveryLookup(
       windowID: windowID,
@@ -43,12 +43,15 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
     lock.unlock()
     queue.async { [weak self] in
       guard let self else { return }
-      let resolution = self.resolveElement(
-        windowID: lookup.windowID,
-        processID: lookup.processID
-      )
       guard self.isCurrent(requestGeneration) else { return }
-      completion(resolution)
+      let processID = lookup.processID ?? copyCGWindows().first {
+        $0.id == CGWindowID(exactly: lookup.windowID.rawValue)
+      }?.processID
+      let resolution = processID.flatMap {
+        self.resolveElement(windowID: lookup.windowID, processID: $0)
+      }
+      guard self.isCurrent(requestGeneration) else { return }
+      completion(processID, resolution)
     }
   }
 

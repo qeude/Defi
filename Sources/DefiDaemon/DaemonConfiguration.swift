@@ -160,6 +160,7 @@ extension Daemon {
     let requiresLayout = state.applyConfiguration(nextConfig)
     config = nextConfig
     configGeneration &+= 1
+    cancelPendingCommandFrameRead()
 
     handleCheatsheetInput(.dismiss)
     DispatchQueue.main.async { [self] in cheatsheetController = nil }
@@ -298,6 +299,11 @@ extension Daemon {
     do {
       try manager.start()
       hotKeys = manager
+      let setOverviewMode = manager.overviewModeSetter
+      DispatchQueue.main.async { [self] in
+        overviewInputMode = setOverviewMode
+        setOverviewMode(overviewController?.isOpen == true)
+      }
       if let bindingError = manager.bindingError {
         DispatchQueue.main.async { presentDefiConfigurationError(bindingError) }
         if manager.tracksPointerMotion {

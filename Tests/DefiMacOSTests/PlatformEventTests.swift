@@ -16,6 +16,31 @@ private final class TestAXElement: @unchecked Sendable {
 }
 
 struct PlatformEventTests {
+  @Test @NavigationActor
+  func fullscreenRetiresQueuedFrameAndCursorCompletionsEvenWithIdleWriter() {
+    let platform = MacOSPlatform()
+    let frameGeneration = platform.frameSubmissionGeneration
+    let warpGeneration = platform.cursorWarpGeneration.withLock { $0 }
+    #expect(!platform.hasPendingFrameWrites)
+    platform.updateNativeFullscreenWindowIDs([WindowID(rawValue: 42)])
+    #expect(platform.frameSubmissionGeneration != frameGeneration)
+    #expect(platform.cursorWarpGeneration.withLock { $0 } != warpGeneration)
+    let nextWarpGeneration = platform.cursorWarpGeneration.withLock { $0 }
+    platform.invalidateFocusRecovery()
+    #expect(platform.cursorWarpGeneration.withLock { $0 } != nextWarpGeneration)
+  }
+
+  @Test @MainActor
+  func delayedTapPresentationDoesNotInvalidateNewerInput() async {
+    let platform = await MacOSPlatform()
+    await platform.invalidateInputAfterEventTapReenabled(at: 10)
+    platform.userInputTracker.record(timestamp: 11, focusIntent: .keyboard)
+    platform.pointerMotionTracker.record(timestamp: 11)
+    platform.presentInvalidateInputAfterEventTapReenabled(at: 10)
+    #expect(platform.userInputTracker.latestEventTimestamp == 11)
+    #expect(platform.pointerMotionTracker.latestTimestamp == 11)
+  }
+
   @Test
   func activationOnlyQueriesFrontmostForLiveIntentAndRejectsSupersededReads() {
     let tracker = UserInputTracker()
@@ -51,10 +76,12 @@ struct PlatformEventTests {
     engine.windowListReadRetryAttemptsByProcess = [42: 3]
     engine.hasCompletedWindowSnapshot = true
     engine.elements = [WindowID(rawValue: 1): stale]
+    engine.recordObservation(.windowCreated, processID: 42, createdElement: stale)
     platform.invalidateStateForDesktopSessionChange()
     // A snapshot already running during suspension may still publish its caches.
     engine.lastApplicationWindowElements = [42: [stale]]
-    _ = engine.consumeObservations()
+    let observations = engine.consumeObservations()
+    #expect(observations.createdElements.isEmpty)
     #expect(engine.applications.isEmpty)
     #expect(engine.lastApplicationWindowElements.isEmpty)
     #expect(engine.unmatchedWindowElementsByProcess.isEmpty)

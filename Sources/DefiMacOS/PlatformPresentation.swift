@@ -42,6 +42,15 @@ extension MacOSPlatform {
   }
 
   @MainActor func publishPresentationStatus() {
+    guard !presentationStatusPending else { return }
+    presentationStatusPending = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [self] in
+      presentationStatusPending = false
+      collectPresentationStatus()
+    }
+  }
+
+  @MainActor private func collectPresentationStatus() {
     let status = PlatformPresentationStatus(
       windowIDStatus: windowIDProvider.probeResult.map(String.init) ?? "unprobed",
       boundsAvailable: borderBoundsProvider.isAvailable,

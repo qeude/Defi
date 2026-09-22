@@ -209,6 +209,11 @@ public final class HotKeyManager {
     context?.resetPointerWindowTransition()
   }
 
+  public var overviewModeSetter: @Sendable (Bool) -> Void {
+    let context = context
+    return { context?.setOverviewModeEnabled($0) }
+  }
+
   public func setOverviewModeEnabled(_ enabled: Bool) {
     context?.setOverviewModeEnabled(enabled)
   }

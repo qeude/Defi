@@ -77,6 +77,12 @@ final class OverviewView: NSView {
     return true
   }
 
+  func updatePreview(_ image: NSImage, for windowID: WindowID, opacity: Double) {
+    previews[windowID] = image
+    previewOpacities[windowID] = opacity
+    needsDisplay = true
+  }
+
   func updatePreviewOpacities(_ opacities: [WindowID: Double]) {
     let visible = opacities.filter { previews[$0.key] != nil }
     guard visible != previewOpacities else { return }

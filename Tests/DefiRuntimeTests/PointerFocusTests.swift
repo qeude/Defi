@@ -512,6 +512,10 @@ struct PointerFocusTests {
 
   @Test
   func pointerFocusIntentOnlyYieldsToNewerInput() {
+    #expect(!pointerFocusIntentIsCurrent(pointerTimestamp: 12,
+      latestUserInputTimestamp: 10, latestPointerMotionTimestamp: 13))
+    #expect(pointerFocusIntentIsCurrent(pointerTimestamp: 12,
+      latestUserInputTimestamp: 10, latestPointerMotionTimestamp: 12))
     #expect(
       pointerFocusIntentIsCurrent(
         pointerTimestamp: 12,

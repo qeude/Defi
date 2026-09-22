@@ -1,5 +1,6 @@
 import DefiRuntime
 import AppKit
+import Synchronization
 import ApplicationServices
 import Darwin
 import DefiConfig
@@ -300,6 +301,8 @@ public final class MacOSPlatform {
     get { snapshotEngine.lastHiddenWindowIDs }
     set { snapshotEngine.lastHiddenWindowIDs = newValue }
   }
+  @MainActor var presentationStatusPending = false
+  @MainActor var accessibilityDisplayObserver: NSObjectProtocol?
   @MainActor var eventMonitor: PlatformEventMonitor?
   nonisolated var mouseResizeGesturePending: Bool {
     get { snapshotEngine.mouseResizeGesturePending }
@@ -346,8 +349,13 @@ public final class MacOSPlatform {
   var submittedFocusRecoveryTimestamp: TimeInterval?
   var submittedFocusRecoveryGeneration: UInt64?
   var nextFocusRecoveryGeneration: UInt64 = 0
-  var focusRecoveryIntentGeneration: UInt64 = 0
-  var frameSubmissionGeneration: UInt64 = 0
+  nonisolated let cursorWarpGeneration = Mutex<UInt64>(0)
+  var focusRecoveryIntentGeneration: UInt64 = 0 {
+    didSet { cursorWarpGeneration.withLock { $0 &+= 1 } }
+  }
+  var frameSubmissionGeneration: UInt64 = 0 {
+    didSet { cursorWarpGeneration.withLock { $0 &+= 1 } }
+  }
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
@@ -444,9 +452,11 @@ public final class MacOSPlatform {
     nativeFullscreenWindowIDs = windowIDs
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
     let now = ProcessInfo.processInfo.systemUptime
-    if entered.contains(where: frameCoordinator.isBusy(for:)) {
+    if !entered.isEmpty {
       frameSubmissionGeneration &+= 1
-      frameCoordinator.invalidate(reason: "native-fullscreen")
+      if entered.contains(where: frameCoordinator.isBusy(for:)) {
+        frameCoordinator.invalidate(reason: "native-fullscreen")
+      }
     }
     for windowID in entered {
       frameCommitExpectations[windowID] = nil

@@ -149,6 +149,7 @@ extension Daemon {
   }
 
   func invalidateDisplayArrangement() {
+    displayPointerRouter.invalidate()
     displayReconciliationPending = true
     displayReconciliationGeneration &+= 1
     DispatchQueue.main.async { [self] in displayArrangement.invalidate() }

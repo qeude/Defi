@@ -66,6 +66,7 @@ extension Daemon {
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "layout"
   ) {
+    guard !restorationInFlight, !shouldShutdown else { return }
     let layoutStartedAt = ProcessInfo.processInfo.systemUptime
     var assignments: [FrameAssignment] = []
     var borderAssignments: [FrameAssignment] = []

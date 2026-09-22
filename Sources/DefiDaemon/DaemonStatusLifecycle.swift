@@ -301,10 +301,41 @@ extension Daemon {
     }
   }
 
-  func restoreAllWindows(restoringDisplays: Bool = false) async {
-    while restorationInFlight { try? await Task.sleep(for: .milliseconds(10)) }
+  @discardableResult
+  func beginWindowRestoration() -> Bool {
+    guard !restorationInFlight else { return false }
     restorationInFlight = true
-    defer { restorationInFlight = false }
+    cancelPendingCommandFrameRead()
+    commandGeneration &+= 1
+    desktopSessionGeneration &+= 1
+    pointerHitTestTask?.cancel()
+    pointerHitTestTask = nil
+    pointerResumeTask?.cancel()
+    pointerResumeTask = nil
+    focus.interrupt()
+    invalidateSubmittedCommandFocus()
+    invalidateSubmittedWorkspaceFocus()
+    cancelSubmittedPointerFocus()
+    platform.invalidateFocusStateForDisplayChange()
+    pendingHotKeyCommands.removeAll(keepingCapacity: true)
+    scrollAnimations.removeAll(keepingCapacity: true)
+    return true
+  }
+
+  func restoreAllWindows(restoringDisplays: Bool = false, alreadyClaimed: Bool = false) async {
+    if !alreadyClaimed {
+      while !beginWindowRestoration() { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+    defer {
+      restorationInFlight = false
+      if !shouldShutdown, desktopSessionActive {
+        needsDesktopSync = true
+        synchronizeDesktop(forceFullWindowRefresh: true, forceWindowListRefresh: true,
+          forceApplicationInventoryRefresh: true)
+        scheduleTick()
+        if timerFrequencyHz == 0 { scheduleIdleTick() }
+      }
+    }
 
     await platform.prepareForRestore()
     let restoredDisplayFrames = restoringDisplays

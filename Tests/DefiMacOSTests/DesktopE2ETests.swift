@@ -371,6 +371,21 @@ final class DesktopE2ETests: XCTestCase {
     XCTFail("No resizable AX window converged: \(failures.joined(separator: "; "))")
   }
 
+  func testUserAdjustedFramesReadFreshGeometryOffNavigationExecutor() async throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    let window = try XCTUnwrap(testWindows(in: snapshot).first)
+    onNavigation {
+      platform.latestObservedFrames[window.id] = Rect(x: -20_000, y: -20_000, width: 1, height: 1)
+    }
+    let frames = await platform.userAdjustedFrames(for: [window.id])
+    let actual = try XCTUnwrap(frames[window.id])
+    XCTAssertEqual(actual.x, window.frame.x, accuracy: 2)
+    XCTAssertEqual(actual.y, window.frame.y, accuracy: 2)
+    XCTAssertEqual(actual.width, window.frame.width, accuracy: 2)
+    XCTAssertEqual(actual.height, window.frame.height, accuracy: 2)
+  }
+
   func testHorizontalAnimationFrameWritesPositionWithoutSize() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
@@ -383,6 +398,7 @@ final class DesktopE2ETests: XCTestCase {
       pumpRunLoop(for: 0.3)
     }
     onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 1))
     let positionWrites = onNavigation { platform.successfulPositionWriteCount }
     let sizeWrites = onNavigation { platform.successfulSizeWriteCount }
 
@@ -427,6 +443,7 @@ final class DesktopE2ETests: XCTestCase {
       onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
       pumpRunLoop(for: 0.3)
     }
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 1))
     let sizeWrites = onNavigation { platform.successfulSizeWriteCount }
 
     onNavigation { platform.apply(

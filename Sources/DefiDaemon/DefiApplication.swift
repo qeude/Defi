@@ -12,9 +12,13 @@ struct DefiDaemonMain: App {
     do {
       let options = try DaemonOptions(arguments: Array(CommandLine.arguments.dropFirst()))
       let menuBar = MenuBarState()
-      let daemon = try NavigationActor.shared.queue.sync {
-        try NavigationActor.assumeIsolated { try Daemon(options: options, menuBar: menuBar) }
+      let (daemon, menuBarEnabled) = try NavigationActor.shared.queue.sync {
+        try NavigationActor.assumeIsolated {
+          let daemon = try Daemon(options: options, menuBar: menuBar)
+          return (daemon, daemon.config.menuBar.enabled)
+        }
       }
+      menuBar.isInserted = menuBarEnabled
       self.daemon = daemon
       _menuBar = State(initialValue: menuBar)
       NavigationActor.enqueue { daemon.start() }

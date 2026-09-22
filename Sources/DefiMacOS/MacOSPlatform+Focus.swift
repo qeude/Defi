@@ -75,7 +75,7 @@ extension MacOSPlatform {
 
   public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {
     guard let processID = processIDs[windowID] else { return false }
-    return lastNativeFocusedWindowID == windowID
+    return !nativeFocusEventPending && lastNativeFocusedWindowID == windowID
       && frontmostProcessID == processID
   }
 
@@ -340,25 +340,14 @@ extension MacOSPlatform {
         requestID == nil ? nil : recoveryGeneration
       return
     }
-    let processID =
-      target.processID
-      ?? target.windowID.flatMap { windowID in
-        (snapshotEngine.lastCGWindowInventory ?? []).first {
-          $0.id == CGWindowID(exactly: windowID.rawValue)
-        }?.processID
-      }
-    guard let processID,
-      userInputTracker.latestEventTimestamp <= target.timestamp
-    else {
-      return
-    }
+    guard userInputTracker.latestEventTimestamp <= target.timestamp else { return }
     if let windowID = target.windowID {
       focusRecoveryResolver.resolve(
         windowID: windowID,
-        processID: processID
-      ) { [weak self] resolution in
+        processID: target.processID
+      ) { [weak self] processID, resolution in
         NavigationActor.enqueue { [weak self] in
-          guard let self,
+          guard let self, let processID,
             focusRecoveryIntentIsCurrent(
               requestGeneration: intentGeneration,
               currentGeneration: self.focusRecoveryIntentGeneration
@@ -383,7 +372,7 @@ extension MacOSPlatform {
       }
       return
     }
-    activateFocusRecoveryProcess(processID)
+    if let processID = target.processID { activateFocusRecoveryProcess(processID) }
   }
 
   private func submitAuxiliaryFocusRecovery(
