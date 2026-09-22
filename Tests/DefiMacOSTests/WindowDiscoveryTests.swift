@@ -1,3 +1,4 @@
+import DefiRuntime
 import ApplicationServices
 import DefiModel
 import Testing
@@ -88,7 +89,7 @@ struct WindowDiscoveryTests {
       ) == 42)
   }
 
-  @MainActor
+  @NavigationActor
   @Test
   func `Pending native focus reuses stable window only after process verification`() {
     let platform = MacOSPlatform()
@@ -114,7 +115,7 @@ struct WindowDiscoveryTests {
       ) == window.id)
   }
 
-  @MainActor
+  @NavigationActor
   @Test
   func `Pending native focus accepts verified single window fallback`() {
     let platform = MacOSPlatform()

@@ -1,6 +1,7 @@
 import AppKit
 import DefiCore
 import DefiModel
+import ImageIO
 
 @MainActor
 protocol OverviewViewDelegate: AnyObject {
@@ -25,6 +26,7 @@ final class OverviewPanel {
   let window: NSPanel
   let view: OverviewView
   private let desktopView: NSView
+  private var desktopImageTask: Task<Void, Never>?
 
   init(
     monitorID: MonitorID,
@@ -75,14 +77,6 @@ final class OverviewPanel {
     desktopView.layer?.contentsScale = screen.backingScaleFactor
     desktopView.layer?.masksToBounds = true
     desktopView.autoresizingMask = [.width, .height]
-    if let url = NSWorkspace.shared.desktopImageURL(for: screen),
-      let image = NSImage(contentsOf: url)
-    {
-      if usesCapturedDesktop {
-        desktopView.layer?.contents = image
-      }
-      view.setDesktopImage(image)
-    }
     let glassView = NSGlassEffectView(
       frame: NSRect(origin: .zero, size: screen.frame.size)
     )
@@ -90,39 +84,56 @@ final class OverviewPanel {
     glassView.appearance = NSAppearance(named: .darkAqua)
     glassView.autoresizingMask = [.width, .height]
     view.frame = glassView.bounds
+    view.wantsLayer = true
     view.autoresizingMask = [.width, .height]
     glassView.contentView = view
     rootView.addSubview(desktopView)
     rootView.addSubview(glassView)
     window.contentView = rootView
+    rootView.layoutSubtreeIfNeeded()
   }
 
   func setDesktopImage(_ image: NSImage) {
+    desktopImageTask?.cancel()
+    desktopImageTask = nil
     desktopView.layer?.contents = image
     view.setDesktopImage(image)
   }
 
-  func show(animated: Bool) {
-    window.alphaValue = animated ? 0.001 : 1
+  func show() {
+    window.alphaValue = 1
     view.wantsLayer = true
-    view.layer?.setAffineTransform(animated ? CGAffineTransform(scaleX: 0.97, y: 0.97) : .identity)
     window.orderFrontRegardless()
-    guard animated else { return }
-    window.displayIfNeeded()
-    let displayInterval = 1 / Double(max(window.screen?.maximumFramesPerSecond ?? 60, 60))
-    DispatchQueue.main.asyncAfter(deadline: .now() + displayInterval) { [weak self] in
-      guard let self else { return }
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = overviewTransitionDuration
-        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        self.window.animator().alphaValue = 1
-        self.view.layer?.setAffineTransform(.identity)
-      }
+    guard desktopView.layer?.contents == nil else { return }
+    desktopImageTask?.cancel()
+    desktopImageTask = Task { @MainActor [weak self] in
+      guard !Task.isCancelled, let screen = self?.window.screen,
+        let url = NSWorkspace.shared.desktopImageURL(for: screen)
+      else { return }
+      let maximumSize = max(screen.frame.width, screen.frame.height) * screen.backingScaleFactor
+      let image = await Task.detached(priority: .utility) {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil as CGImage? }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceThumbnailMaxPixelSize: maximumSize,
+          kCGImageSourceShouldCacheImmediately: true,
+        ] as CFDictionary)
+      }.value
+      guard !Task.isCancelled, let self, self.window.isVisible, let image else { return }
+      self.setDesktopImage(NSImage(cgImage: image, size: screen.frame.size))
     }
   }
 
   func hide() {
     orderOut()
+  }
+
+  func discardImages() {
+    desktopImageTask?.cancel()
+    desktopImageTask = nil
+    desktopView.layer?.contents = nil
+    view.discardPreviewImages()
+    view.setDesktopImage(nil)
   }
 
   func localPoint(fromScreen point: NSPoint) -> NSPoint {
@@ -132,13 +143,14 @@ final class OverviewPanel {
 
   func close() {
     orderOut()
-    desktopView.layer?.contents = nil
+    discardImages()
     window.close()
   }
 
   private func orderOut() {
+    desktopImageTask?.cancel()
+    desktopImageTask = nil
     view.discardPreviewImages()
     window.orderOut(nil)
   }
 }
-

@@ -8,7 +8,7 @@ import DefiRuntime
 import Foundation
 import OSLog
 
-@MainActor
+@NavigationActor
 extension Daemon {
 func updateFloatingWindowFrames(
     from windows: [Window],

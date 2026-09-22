@@ -38,7 +38,7 @@ func layoutWindowIDsOutsideSubmissionScope(
     : []
 }
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func applyCurrentLayout(
     monitorIDs: Set<MonitorID>? = nil,
@@ -55,11 +55,11 @@ extension Daemon {
     cursorWarpWindowIDAfterCommit: WindowID? = nil,
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
-      (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+      (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil,
     cursorWarpIsCurrentAfterCommit:
-      (@MainActor @Sendable () -> Bool)? = nil,
+      (@NavigationActor @Sendable () -> Bool)? = nil,
     focusRequestIDAfterCommit:
-      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
+      (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     forceFloatingFrameWrites: Bool = false,
     forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     workspaceTransition: WorkspaceVerticalTransition? = nil,
@@ -74,8 +74,8 @@ extension Daemon {
     var outOfScopeWindowIDs = Set<WindowID>()
     let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
     let viewports = viewportsByMonitor
-    let overviewParksWindows = overviewController?.isOpen == true
-      && overviewController?.usesWorkspaceParking == true
+    let overviewParksWindows = overviewState.isOpen
+      && overviewState.usesWorkspaceParking
     let liveMonitorIDs = Set(state.monitors.map(\.id))
     layoutPlansByMonitor = layoutPlansByMonitor.filter {
       liveMonitorIDs.contains($0.key)
@@ -254,7 +254,6 @@ extension Daemon {
       platformAssignments,
       hiddenWindowIDs: hiddenWindowIDs,
       skipping: skipped,
-      asynchronousPositions: asynchronousPositions,
       asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
       animationDuration: animationDuration,
       animationRefreshRateHz: animationTiming.refreshRateHz,

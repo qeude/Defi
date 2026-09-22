@@ -1,4 +1,5 @@
 import DefiMacOS
+import DefiRuntime
 import Foundation
 import SwiftUI
 
@@ -10,11 +11,13 @@ struct DefiDaemonMain: App {
   init() {
     do {
       let options = try DaemonOptions(arguments: Array(CommandLine.arguments.dropFirst()))
-      let daemon = try Daemon(options: options)
+      let menuBar = MenuBarState()
+      let daemon = try NavigationActor.shared.queue.sync {
+        try NavigationActor.assumeIsolated { try Daemon(options: options, menuBar: menuBar) }
+      }
       self.daemon = daemon
-      daemon.menuBar.isInserted = daemon.config.menuBar.enabled
-      _menuBar = State(initialValue: daemon.menuBar)
-      Task { @MainActor in daemon.start() }
+      _menuBar = State(initialValue: menuBar)
+      NavigationActor.enqueue { daemon.start() }
     } catch DaemonInstanceLockError.alreadyRunning {
       exit(0)
     } catch {
@@ -28,7 +31,7 @@ struct DefiDaemonMain: App {
     MenuBarExtra(isInserted: $menuBar.isInserted) {
       MenuBarContent(
         state: menuBar,
-        commandHandler: daemon.handleMenuCommand
+        commandHandler: { command in NavigationActor.enqueue { daemon.handleMenuCommand(command) } }
       )
     } label: {
       Text(menuBar.activeLabel)

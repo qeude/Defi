@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import Darwin
@@ -6,7 +7,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
-@MainActor
+@NavigationActor
 extension MacOSPlatform {
 
   public func invalidateFrameStateForDisplayChange() {
@@ -17,22 +18,25 @@ extension MacOSPlatform {
   public func invalidateStateForDesktopSessionChange() {
     invalidateWindowSnapshot()
     snapshotEngine.invalidateAccessibilitySession()
-    eventMonitor?.resetAccessibilityObservers()
+    DispatchQueue.main.async { [self] in eventMonitor?.resetAccessibilityObservers() }
     frameCoordinator.invalidate(reason: "desktop-session-change")
     clearFrameState()
     invalidateFocusStateForDisplayChange()
   }
 
   public func cancelPendingFrameWrites() {
+    frameSubmissionGeneration &+= 1
     frameCoordinator.invalidate(reason: "mouse-gesture")
   }
 
-  public func prepareForSynchronousRestore() {
-    frameCoordinator.invalidateAndWaitForWrites()
+  public func prepareForRestore() async {
+    let coordinator = frameCoordinator
+    await Task.detached { coordinator.invalidateAndWaitForWrites() }.value
     clearFrameState()
   }
 
   private func clearFrameState() {
+    frameSubmissionGeneration &+= 1
     targetFrames.removeAll(keepingCapacity: true)
     pendingFrameDebtWindowIDs.removeAll(keepingCapacity: true)
     pendingFrameCorrections.removeAll(keepingCapacity: true)
@@ -40,13 +44,15 @@ extension MacOSPlatform {
     frameCommitExpectations.removeAll(keepingCapacity: true)
     initialFrameSettlementDeadlines.removeAll(keepingCapacity: true)
     lastHiddenWindowIDs.removeAll(keepingCapacity: true)
-    borderFrames.removeAll(keepingCapacity: true)
     desiredSelectedWindowID = nil
     lastNativeFocusedWindowID = nil
     verifiedNativeFocusedWindowID = nil
-    borderHiddenWindowIDs.removeAll(keepingCapacity: true)
-    borderLiveWindowID = nil
-    borderManager.hide()
+    DispatchQueue.main.async { [self] in
+      borderFrames.removeAll(keepingCapacity: true)
+      borderHiddenWindowIDs.removeAll(keepingCapacity: true)
+      borderLiveWindowID = nil
+      borderManager.hide()
+    }
   }
 
 }

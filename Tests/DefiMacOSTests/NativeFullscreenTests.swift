@@ -1,3 +1,4 @@
+import DefiRuntime
 import DefiCore
 import DefiModel
 import Testing
@@ -270,7 +271,7 @@ struct NativeFullscreenTests {
     )
   }
 
-  @MainActor
+  @NavigationActor
   @Test
   func `Automatic focus write is skipped for fullscreen window`() {
     let windowID = WindowID(rawValue: 1)
@@ -287,7 +288,7 @@ struct NativeFullscreenTests {
     #expect(result == .completedWithoutMutation)
   }
 
-  @MainActor
+  @NavigationActor
   @Test
   func `Frame application preserves fullscreen target`() {
     let windowID = WindowID(rawValue: 1)
@@ -306,7 +307,7 @@ struct NativeFullscreenTests {
     #expect(platform.targetFrames[windowID] == original)
   }
 
-  @MainActor
+  @NavigationActor
   @Test
   func `Fullscreen exit starts frame settlement`() {
     let windowID = WindowID(rawValue: 1)

@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import CoreGraphics
 import DefiModel
@@ -178,13 +179,13 @@ func transparentPointerOverlayWindowIDs(
   })
 }
 
-@MainActor
+@NavigationActor
 extension MacOSPlatform {
   public func invalidatePointerHitTestCache() {
-    pointerHitTestSnapshotTimestamp = nil
+    enqueuePresentation { $0.pointerHitTestSnapshotTimestamp = nil }
   }
 
-  private func pointerHitTestSnapshot() -> (
+  @MainActor private func pointerHitTestSnapshot() -> (
     records: [CGWindowRecord],
     dockProcessIDs: Set<pid_t>
   ) {
@@ -212,14 +213,14 @@ extension MacOSPlatform {
     return (records, dockProcessIDs)
   }
 
-  public func managedWindowIDUnderPointer(
+  @MainActor public func managedWindowIDUnderPointer(
     retaining previousWindowID: WindowID? = nil
   ) -> WindowID? {
     guard let location = CGEvent(source: nil)?.location else { return nil }
     return managedWindowID(at: location, retaining: previousWindowID)
   }
 
-  public func managedWindowID(
+  @MainActor public func managedWindowID(
     at location: CGPoint,
     rawWindowID: WindowID? = nil,
     retaining previousWindowID: WindowID? = nil
@@ -288,41 +289,38 @@ extension MacOSPlatform {
     return nil
   }
 
-  @discardableResult
   public func warpCursor(
     to windowID: WindowID,
     unlessUserInputAfter maximumInputTimestamp: TimeInterval,
     preferringTargetFrame: Bool = false
-  ) -> Bool {
-    guard cursorWarpIsCurrent(
-      latestPointerMotionTimestamp: pointerMotionTracker.latestTimestamp,
-      latestUserInputTimestamp: userInputTracker.latestEventTimestamp,
-      maximumInputTimestamp: maximumInputTimestamp,
-      mouseButtonDown: anyMouseButtonIsDown { button in
-        CGEventSource.buttonState(.combinedSessionState, button: button)
-      }
-    ),
-      !lastHiddenWindowIDs.contains(windowID),
-      let frame = cursorWarpFrame(
-        for: windowID,
-        preferringTargetFrame: preferringTargetFrame
-      ),
-      let currentLocation = CGEvent(source: nil)?.location,
-      let destination = cursorWarpDestination(
-        frame: frame,
-        currentLocation: currentLocation
-      )
+  ) {
+    guard !lastHiddenWindowIDs.contains(windowID),
+      let frame = cursorWarpFrame(for: windowID, preferringTargetFrame: preferringTargetFrame)
     else {
       cursorWarpSkippedCount += 1
-      return false
+      return
     }
-
-    guard CGWarpMouseCursorPosition(destination) == .success else {
-      cursorWarpFailedCount += 1
-      return false
+    DispatchQueue.main.async { [self] in
+      guard cursorWarpIsCurrent(
+        latestPointerMotionTimestamp: pointerMotionTracker.latestTimestamp,
+        latestUserInputTimestamp: userInputTracker.latestEventTimestamp,
+        maximumInputTimestamp: maximumInputTimestamp,
+        mouseButtonDown: anyMouseButtonIsDown { button in
+          CGEventSource.buttonState(.combinedSessionState, button: button)
+        }
+      ), !lastHiddenWindowIDs.contains(windowID),
+        let currentLocation = CGEvent(source: nil)?.location,
+        let destination = cursorWarpDestination(frame: frame, currentLocation: currentLocation)
+      else {
+        NavigationActor.enqueue { [self] in cursorWarpSkippedCount += 1 }
+        return
+      }
+      let succeeded = CGWarpMouseCursorPosition(destination) == .success
+      NavigationActor.enqueue { [self] in
+        if succeeded { cursorWarpAppliedCount += 1 }
+        else { cursorWarpFailedCount += 1 }
+      }
     }
-    cursorWarpAppliedCount += 1
-    return true
   }
 
   public var cursorWarpPerformance:
@@ -335,7 +333,7 @@ extension MacOSPlatform {
     )
   }
 
-  private func cursorWarpFrame(
+  nonisolated private func cursorWarpFrame(
     for windowID: WindowID,
     preferringTargetFrame: Bool = false
   ) -> Rect? {

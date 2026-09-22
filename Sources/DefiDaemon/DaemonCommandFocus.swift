@@ -3,7 +3,7 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
-@MainActor
+@NavigationActor
 extension Daemon {
   private func cancellationKeepsRequestedWindow(
     _ windowID: WindowID,

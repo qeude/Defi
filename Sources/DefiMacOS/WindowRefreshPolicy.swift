@@ -133,7 +133,8 @@ func budgetedFreshReadPartition(
   stillDeferred: Set<pid_t>,
   deferredSince: TimeInterval?
 ) {
-  let pending = requestedProcessIDs.union(deferredProcessIDs)
+  // A new event may arrive after this process's full-refresh chunk was consumed.
+  let pending = requestedProcessIDs.union(deferredProcessIDs).union(eventPendingProcessIDs)
   guard !pending.isEmpty else { return ([], [], nil) }
   if let deferredSince,
     now - deferredSince >= maximumDeferredAgeSeconds

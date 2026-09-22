@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import Darwin
@@ -6,37 +7,12 @@ import DefiCore
 import DefiModel
 import OSLog
 
-@MainActor
+@NavigationActor
 public final class MacOSPlatform {
-  lazy var snapshotEngine: SnapshotEngine = {
-    let engine = SnapshotEngine(
-      frameCoordinator: frameCoordinator,
-      userInputTracker: userInputTracker
-    )
-    engine.host = self
-    engine.frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-          guard let self else { return }
-          // The overlay follows the frame actually displayed by the Window
-          // Server - never the planned one - so clamping apps keep borders
-          // matched to their real geometry.
-          var resolvedFrames: [WindowID: Rect] = [:]
-          for (windowID, completed) in frames {
-            resolvedFrames[windowID] =
-              self.borderBoundsProvider.frame(for: windowID) ?? completed
-          }
-          _ = self.borderManager.updateGeometry(
-            frames: resolvedFrames,
-            style: self.borderStyle
-          )
-        }
-      }
-    }
-    return engine
-  }()
+  nonisolated let snapshotEngine: SnapshotEngine
 
-  func frame(of element: AXUIElement) -> Rect? {
+
+  @MainActor func frame(of element: AXUIElement) -> Rect? {
     snapshotEngine.frame(of: element)
   }
 
@@ -52,11 +28,11 @@ public final class MacOSPlatform {
     )
   }
 
-  public func accessibilityTrusted(prompt: Bool) -> Bool {
+  nonisolated public func accessibilityTrusted(prompt: Bool) -> Bool {
     return snapshotEngine.accessibilityTrusted(prompt: prompt)
   }
 
-  public func snapshot(config: Config) -> DesktopSnapshot {
+  @MainActor public func snapshot(config: Config) -> DesktopSnapshot {
     return snapshotEngine.snapshot(config: config)
   }
 
@@ -65,7 +41,7 @@ public final class MacOSPlatform {
     forceFullWindowRefresh: Bool,
     forceWindowListRefresh: Bool,
     forceApplicationInventoryRefresh: Bool,
-    completion: @escaping @MainActor @Sendable (DesktopSnapshot) -> Void
+    completion: @escaping @NavigationActor @Sendable (DesktopSnapshot) -> Void
   ) {
     snapshotEngine.beginSnapshot(
       config: config,
@@ -76,7 +52,7 @@ public final class MacOSPlatform {
     )
   }
 
-  public func snapshot(
+  @MainActor public func snapshot(
     config: Config,
     forceFullWindowRefresh: Bool,
     forceWindowListRefresh: Bool = false,
@@ -89,112 +65,112 @@ public final class MacOSPlatform {
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
     )
   }
-  var elements: [WindowID: AXUIElement] {
+  nonisolated var elements: [WindowID: AXUIElement] {
     get { snapshotEngine.elements }
     set { snapshotEngine.elements = newValue }
   }
-  var processIDs: [WindowID: pid_t] {
+  nonisolated var processIDs: [WindowID: pid_t] {
     get { snapshotEngine.processIDs }
     set { snapshotEngine.processIDs = newValue }
   }
-  var transientOwnerWindowIDs: [WindowID: WindowID] {
+  nonisolated var transientOwnerWindowIDs: [WindowID: WindowID] {
     get { snapshotEngine.transientOwnerWindowIDs }
     set { snapshotEngine.transientOwnerWindowIDs = newValue }
   }
-  var transientOwnerResolutionAttempts: [WindowID: Int] {
+  nonisolated var transientOwnerResolutionAttempts: [WindowID: Int] {
     get { snapshotEngine.transientOwnerResolutionAttempts }
     set { snapshotEngine.transientOwnerResolutionAttempts = newValue }
   }
-  var transientOwnerResolutionRetryAfter: [WindowID: TimeInterval] {
+  nonisolated var transientOwnerResolutionRetryAfter: [WindowID: TimeInterval] {
     get { snapshotEngine.transientOwnerResolutionRetryAfter }
     set { snapshotEngine.transientOwnerResolutionRetryAfter = newValue }
   }
-  var floatingWindowIDs: Set<WindowID> {
+  nonisolated var floatingWindowIDs: Set<WindowID> {
     get { snapshotEngine.floatingWindowIDs }
     set { snapshotEngine.floatingWindowIDs = newValue }
   }
-  var applications: [pid_t: AXUIElement] {
+  nonisolated var applications: [pid_t: AXUIElement] {
     get { snapshotEngine.applications }
     set { snapshotEngine.applications = newValue }
   }
-  var applicationIDsByProcess: [pid_t: String] {
+  nonisolated var applicationIDsByProcess: [pid_t: String] {
     get { snapshotEngine.applicationIDsByProcess }
     set { snapshotEngine.applicationIDsByProcess = newValue }
   }
-  var applicationWindowCounts: [pid_t: Int] {
+  nonisolated var applicationWindowCounts: [pid_t: Int] {
     get { snapshotEngine.applicationWindowCounts }
     set { snapshotEngine.applicationWindowCounts = newValue }
   }
-  var enhancedUIByProcess: [pid_t: Bool] {
+  nonisolated var enhancedUIByProcess: [pid_t: Bool] {
     get { snapshotEngine.enhancedUIByProcess }
     set { snapshotEngine.enhancedUIByProcess = newValue }
   }
-  var multipleAttributeReadsSupportedByProcess: [pid_t: Bool] {
+  nonisolated var multipleAttributeReadsSupportedByProcess: [pid_t: Bool] {
     get { snapshotEngine.multipleAttributeReadsSupportedByProcess }
     set { snapshotEngine.multipleAttributeReadsSupportedByProcess = newValue }
   }
-  var failedBatchedWindowAttributeReadsByElement: [AXWindowElementIdentity: Int] {
+  nonisolated var failedBatchedWindowAttributeReadsByElement: [AXWindowElementIdentity: Int] {
     get { snapshotEngine.failedBatchedWindowAttributeReadsByElement }
     set { snapshotEngine.failedBatchedWindowAttributeReadsByElement = newValue }
   }
-  var batchedWindowAttributeReadCount: Int {
+  nonisolated var batchedWindowAttributeReadCount: Int {
     get { snapshotEngine.batchedWindowAttributeReadCount }
     set { snapshotEngine.batchedWindowAttributeReadCount = newValue }
   }
-  var fallbackWindowAttributeReadCount: Int {
+  nonisolated var fallbackWindowAttributeReadCount: Int {
     get { snapshotEngine.fallbackWindowAttributeReadCount }
     set { snapshotEngine.fallbackWindowAttributeReadCount = newValue }
   }
-  var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] {
+  nonisolated var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] {
     get { snapshotEngine.windowManagementCapabilities }
     set { snapshotEngine.windowManagementCapabilities = newValue }
   }
-  var windowManagementMetadataReadCount: Int {
+  nonisolated var windowManagementMetadataReadCount: Int {
     get { snapshotEngine.windowManagementMetadataReadCount }
     set { snapshotEngine.windowManagementMetadataReadCount = newValue }
   }
-  var windowManagementMetadataReuseCount: Int {
+  nonisolated var windowManagementMetadataReuseCount: Int {
     get { snapshotEngine.windowManagementMetadataReuseCount }
     set { snapshotEngine.windowManagementMetadataReuseCount = newValue }
   }
-  let frameCoordinator = AXFrameCoordinator()
-  let focusWriter = AXFocusWriter()
-  let focusRecoveryResolver = AXFocusRecoveryResolver()
-  let windowIDProvider = AXWindowIDProvider()
+  nonisolated let frameCoordinator = AXFrameCoordinator()
+  nonisolated let focusWriter = AXFocusWriter()
+  nonisolated let focusRecoveryResolver = AXFocusRecoveryResolver()
+  @MainActor lazy var windowIDProvider = AXWindowIDProvider()
 
 
-  let borderManager = WindowBorderManager()
-  let nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
-  let borderBoundsProvider = WindowServerBoundsProvider()
-  var targetFrames: [WindowID: Rect] {
+  @MainActor lazy var borderManager = WindowBorderManager()
+  @MainActor lazy var nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
+  @MainActor lazy var borderBoundsProvider = WindowServerBoundsProvider()
+  nonisolated var targetFrames: [WindowID: Rect] {
     get { snapshotEngine.targetFrames }
     set { snapshotEngine.targetFrames = newValue }
   }
-  var pendingFrameDebtWindowIDs: Set<WindowID> {
+  nonisolated var pendingFrameDebtWindowIDs: Set<WindowID> {
     get { snapshotEngine.pendingFrameDebtWindowIDs }
     set { snapshotEngine.pendingFrameDebtWindowIDs = newValue }
   }
-  var pendingFrameCorrections: [WindowID: Rect] {
+  nonisolated var pendingFrameCorrections: [WindowID: Rect] {
     get { snapshotEngine.pendingFrameCorrections }
     set { snapshotEngine.pendingFrameCorrections = newValue }
   }
-  var latestObservedFrames: [WindowID: Rect] {
+  nonisolated var latestObservedFrames: [WindowID: Rect] {
     get { snapshotEngine.latestObservedFrames }
     set { snapshotEngine.latestObservedFrames = newValue }
   }
-  var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
+  nonisolated var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
     get { snapshotEngine.frameCommitExpectations }
     set { snapshotEngine.frameCommitExpectations = newValue }
   }
-  var initialFrameSettlementDeadlines: [WindowID: TimeInterval] {
+  nonisolated var initialFrameSettlementDeadlines: [WindowID: TimeInterval] {
     get { snapshotEngine.initialFrameSettlementDeadlines }
     set { snapshotEngine.initialFrameSettlementDeadlines = newValue }
   }
-  var newlyDiscoveredWindowIDs: Set<WindowID> {
+  nonisolated var newlyDiscoveredWindowIDs: Set<WindowID> {
     get { snapshotEngine.newlyDiscoveredWindowIDs }
     set { snapshotEngine.newlyDiscoveredWindowIDs = newValue }
   }
-  var hasCompletedWindowSnapshot: Bool {
+  nonisolated var hasCompletedWindowSnapshot: Bool {
     get { snapshotEngine.hasCompletedWindowSnapshot }
     set { snapshotEngine.hasCompletedWindowSnapshot = newValue }
   }
@@ -202,166 +178,166 @@ public final class MacOSPlatform {
   public var hasPendingWindowTopologyEvent: Bool {
     snapshotEngine.pendingObservations.topologyPending
   }
-  var lastSnapshotWindows: [Window] {
+  nonisolated var lastSnapshotWindows: [Window] {
     get { snapshotEngine.lastSnapshotWindows }
     set { snapshotEngine.lastSnapshotWindows = newValue }
   }
-  var lastSnapshotWindowIDs: Set<WindowID> {
+  nonisolated var lastSnapshotWindowIDs: Set<WindowID> {
     get { snapshotEngine.lastSnapshotWindowIDs }
     set { snapshotEngine.lastSnapshotWindowIDs = newValue }
   }
-  var lastSnapshotProcessIDs: Set<pid_t> {
+  nonisolated var lastSnapshotProcessIDs: Set<pid_t> {
     get { snapshotEngine.lastSnapshotProcessIDs }
     set { snapshotEngine.lastSnapshotProcessIDs = newValue }
   }
-  var lastApplicationWindowElements: [pid_t: [AXUIElement]] {
+  nonisolated var lastApplicationWindowElements: [pid_t: [AXUIElement]] {
     get { snapshotEngine.lastApplicationWindowElements }
     set { snapshotEngine.lastApplicationWindowElements = newValue }
   }
-  var minimizedWindowElementsByProcess: [pid_t: [AXUIElement]] {
+  nonisolated var minimizedWindowElementsByProcess: [pid_t: [AXUIElement]] {
     get { snapshotEngine.minimizedWindowElementsByProcess }
     set { snapshotEngine.minimizedWindowElementsByProcess = newValue }
   }
-  var transientGeometryWindowElementsByProcess: [pid_t: [AXUIElement]] {
+  nonisolated var transientGeometryWindowElementsByProcess: [pid_t: [AXUIElement]] {
     get { snapshotEngine.transientGeometryWindowElementsByProcess }
     set { snapshotEngine.transientGeometryWindowElementsByProcess = newValue }
   }
-  var unmatchedWindowElementsByProcess: [pid_t: [AXUIElement]] {
+  nonisolated var unmatchedWindowElementsByProcess: [pid_t: [AXUIElement]] {
     get { snapshotEngine.unmatchedWindowElementsByProcess }
     set { snapshotEngine.unmatchedWindowElementsByProcess = newValue }
   }
-  var unmatchedWindowRetryAttemptsByProcess: [pid_t: Int] {
+  nonisolated var unmatchedWindowRetryAttemptsByProcess: [pid_t: Int] {
     get { snapshotEngine.unmatchedWindowRetryAttemptsByProcess }
     set { snapshotEngine.unmatchedWindowRetryAttemptsByProcess = newValue }
   }
-  var windowListReadRetryAttemptsByProcess: [pid_t: Int] {
+  nonisolated var windowListReadRetryAttemptsByProcess: [pid_t: Int] {
     get { snapshotEngine.windowListReadRetryAttemptsByProcess }
     set { snapshotEngine.windowListReadRetryAttemptsByProcess = newValue }
   }
-  var cgWindowInventoryRetryAttempts: Int? {
+  nonisolated var cgWindowInventoryRetryAttempts: Int? {
     get { snapshotEngine.cgWindowInventoryRetryAttempts }
     set { snapshotEngine.cgWindowInventoryRetryAttempts = newValue }
   }
-  var retainedWindowIDs: Set<WindowID> {
+  nonisolated var retainedWindowIDs: Set<WindowID> {
     get { snapshotEngine.retainedWindowIDs }
     set { snapshotEngine.retainedWindowIDs = newValue }
   }
-  var retainedWindowDeadlines: [WindowID: TimeInterval] {
+  nonisolated var retainedWindowDeadlines: [WindowID: TimeInterval] {
     get { snapshotEngine.retainedWindowDeadlines }
     set { snapshotEngine.retainedWindowDeadlines = newValue }
   }
-  var lastWindowSnapshotDurationMS: Double {
+  nonisolated var lastWindowSnapshotDurationMS: Double {
     get { snapshotEngine.lastWindowSnapshotDurationMS }
     set { snapshotEngine.lastWindowSnapshotDurationMS = newValue }
   }
-  var maximumWindowSnapshotDurationMS: Double {
+  nonisolated var maximumWindowSnapshotDurationMS: Double {
     get { snapshotEngine.maximumWindowSnapshotDurationMS }
     set { snapshotEngine.maximumWindowSnapshotDurationMS = newValue }
   }
-  var windowSnapshotDurationSamplesMS: [Double] {
+  nonisolated var windowSnapshotDurationSamplesMS: [Double] {
     get { snapshotEngine.windowSnapshotDurationSamplesMS }
     set { snapshotEngine.windowSnapshotDurationSamplesMS = newValue }
   }
-  var fullWindowSnapshotCount: Int {
+  nonisolated var fullWindowSnapshotCount: Int {
     get { snapshotEngine.fullWindowSnapshotCount }
     set { snapshotEngine.fullWindowSnapshotCount = newValue }
   }
-  var incrementalWindowSnapshotCount: Int {
+  nonisolated var incrementalWindowSnapshotCount: Int {
     get { snapshotEngine.incrementalWindowSnapshotCount }
     set { snapshotEngine.incrementalWindowSnapshotCount = newValue }
   }
-  var cachedWindowSnapshotCount: Int {
+  nonisolated var cachedWindowSnapshotCount: Int {
     get { snapshotEngine.cachedWindowSnapshotCount }
     set { snapshotEngine.cachedWindowSnapshotCount = newValue }
   }
-  var applicationInventorySnapshotCount: Int {
+  nonisolated var applicationInventorySnapshotCount: Int {
     get { snapshotEngine.applicationInventorySnapshotCount }
     set { snapshotEngine.applicationInventorySnapshotCount = newValue }
   }
-  var applicationWindowListReadCount: Int {
+  nonisolated var applicationWindowListReadCount: Int {
     get { snapshotEngine.applicationWindowListReadCount }
     set { snapshotEngine.applicationWindowListReadCount = newValue }
   }
-  var applicationInventoryDurationSamplesMS: [Double] {
+  nonisolated var applicationInventoryDurationSamplesMS: [Double] {
     get { snapshotEngine.applicationInventoryDurationSamplesMS }
     set { snapshotEngine.applicationInventoryDurationSamplesMS = newValue }
   }
-  var applicationWindowListDurationSamplesMS: [Double] {
+  nonisolated var applicationWindowListDurationSamplesMS: [Double] {
     get { snapshotEngine.applicationWindowListDurationSamplesMS }
     set { snapshotEngine.applicationWindowListDurationSamplesMS = newValue }
   }
-  var snapshotCGWindowCopyCount: Int {
+  nonisolated var snapshotCGWindowCopyCount: Int {
     get { snapshotEngine.snapshotCGWindowCopyCount }
     set { snapshotEngine.snapshotCGWindowCopyCount = newValue }
   }
-  var lastSnapshotCGWindowCopyDurationMS: Double {
+  nonisolated var lastSnapshotCGWindowCopyDurationMS: Double {
     get { snapshotEngine.lastSnapshotCGWindowCopyDurationMS }
     set { snapshotEngine.lastSnapshotCGWindowCopyDurationMS = newValue }
   }
-  var maximumSnapshotCGWindowCopyDurationMS: Double {
+  nonisolated var maximumSnapshotCGWindowCopyDurationMS: Double {
     get { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS }
     set { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS = newValue }
   }
-  var windowSnapshotObservationGeneration: UInt64 {
+  nonisolated var windowSnapshotObservationGeneration: UInt64 {
     get { snapshotEngine.windowSnapshotObservationGeneration }
     set { snapshotEngine.windowSnapshotObservationGeneration = newValue }
   }
-  var deferredFrameCommitMismatchCount: Int {
+  nonisolated var deferredFrameCommitMismatchCount: Int {
     get { snapshotEngine.deferredFrameCommitMismatchCount }
     set { snapshotEngine.deferredFrameCommitMismatchCount = newValue }
   }
-  var observedFrameCommitCount: Int {
+  nonisolated var observedFrameCommitCount: Int {
     get { snapshotEngine.observedFrameCommitCount }
     set { snapshotEngine.observedFrameCommitCount = newValue }
   }
-  var maximumObservedFrameCommitLatencyMS: Double {
+  nonisolated var maximumObservedFrameCommitLatencyMS: Double {
     get { snapshotEngine.maximumObservedFrameCommitLatencyMS }
     set { snapshotEngine.maximumObservedFrameCommitLatencyMS = newValue }
   }
   var commandLatency = CommandLatencyAccumulator()
-  var commandDiagnosticHandler: (@MainActor @Sendable (CommandDiagnosticSample) -> Void)?
-  var lastHiddenWindowIDs: Set<WindowID> {
+  var commandDiagnosticHandler: (@NavigationActor @Sendable (CommandDiagnosticSample) -> Void)?
+  nonisolated var lastHiddenWindowIDs: Set<WindowID> {
     get { snapshotEngine.lastHiddenWindowIDs }
     set { snapshotEngine.lastHiddenWindowIDs = newValue }
   }
-  var eventMonitor: PlatformEventMonitor?
-  var mouseResizeGesturePending: Bool {
+  @MainActor var eventMonitor: PlatformEventMonitor?
+  nonisolated var mouseResizeGesturePending: Bool {
     get { snapshotEngine.mouseResizeGesturePending }
     set { snapshotEngine.mouseResizeGesturePending = newValue }
   }
-  var mouseFocusReleasePending: Bool {
+  nonisolated var mouseFocusReleasePending: Bool {
     get { snapshotEngine.mouseFocusReleasePending }
     set { snapshotEngine.mouseFocusReleasePending = newValue }
   }
-  var nativeFocusEventGeneration: UInt64 {
+  nonisolated var nativeFocusEventGeneration: UInt64 {
     get { snapshotEngine.nativeFocusEventGeneration }
     set { snapshotEngine.nativeFocusEventGeneration = newValue }
   }
-  var mouseFocusReleaseEventGeneration: UInt64? {
+  nonisolated var mouseFocusReleaseEventGeneration: UInt64? {
     get { snapshotEngine.mouseFocusReleaseEventGeneration }
     set { snapshotEngine.mouseFocusReleaseEventGeneration = newValue }
   }
-  var nativeFocusEventPending: Bool {
+  nonisolated var nativeFocusEventPending: Bool {
     get { snapshotEngine.nativeFocusEventPending }
     set { snapshotEngine.nativeFocusEventPending = newValue }
   }
-  var nativeFocusEventProcessIDs: Set<pid_t> {
+  nonisolated var nativeFocusEventProcessIDs: Set<pid_t> {
     get { snapshotEngine.nativeFocusEventProcessIDs }
     set { snapshotEngine.nativeFocusEventProcessIDs = newValue }
   }
-  var nativeFocusEventHasUnknownProcess: Bool {
+  nonisolated var nativeFocusEventHasUnknownProcess: Bool {
     get { snapshotEngine.nativeFocusEventHasUnknownProcess }
     set { snapshotEngine.nativeFocusEventHasUnknownProcess = newValue }
   }
-  var lastFocusedWindowByProcess: [pid_t: WindowID] {
+  nonisolated var lastFocusedWindowByProcess: [pid_t: WindowID] {
     get { snapshotEngine.lastFocusedWindowByProcess }
     set { snapshotEngine.lastFocusedWindowByProcess = newValue }
   }
-  var verifiedNativeFocusedWindowID: WindowID? {
+  nonisolated var verifiedNativeFocusedWindowID: WindowID? {
     get { snapshotEngine.verifiedNativeFocusedWindowID }
     set { snapshotEngine.verifiedNativeFocusedWindowID = newValue }
   }
-  var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
+  nonisolated var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
     get { snapshotEngine.internalFocusSuppressions }
     set { snapshotEngine.internalFocusSuppressions = newValue }
   }
@@ -371,47 +347,48 @@ public final class MacOSPlatform {
   var submittedFocusRecoveryGeneration: UInt64?
   var nextFocusRecoveryGeneration: UInt64 = 0
   var focusRecoveryIntentGeneration: UInt64 = 0
+  var frameSubmissionGeneration: UInt64 = 0
   var positionWriteCount = 0
   var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
-  var lastMonitorFrames: [Rect] {
+  nonisolated var lastMonitorFrames: [Rect] {
     get { snapshotEngine.lastMonitorFrames }
     set { snapshotEngine.lastMonitorFrames = newValue }
   }
-  var deferredFreshReadProcessIDs: Set<pid_t> {
+  nonisolated var deferredFreshReadProcessIDs: Set<pid_t> {
     get { snapshotEngine.deferredFreshReadProcessIDs }
     set { snapshotEngine.deferredFreshReadProcessIDs = newValue }
   }
-  var deferredFreshReadsStartedAt: TimeInterval? {
+  nonisolated var deferredFreshReadsStartedAt: TimeInterval? {
     get { snapshotEngine.deferredFreshReadsStartedAt }
     set { snapshotEngine.deferredFreshReadsStartedAt = newValue }
   }
-  var chunkedFullRefreshRemainingProcessIDs: Set<pid_t>? {
+  nonisolated var chunkedFullRefreshRemainingProcessIDs: Set<pid_t>? {
     get { snapshotEngine.chunkedFullRefreshRemainingProcessIDs }
     set { snapshotEngine.chunkedFullRefreshRemainingProcessIDs = newValue }
   }
-  var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] {
+  nonisolated var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] {
     get { snapshotEngine.incompatibleFreshReadDeadlines }
     set { snapshotEngine.incompatibleFreshReadDeadlines = newValue }
   }
-  var pointerHitTestRecords: [CGWindowRecord] = []
-  var pointerHitTestDockProcessIDs = Set<pid_t>()
-  var pointerHitTestSnapshotTimestamp: TimeInterval?
-  var borderFrames: [FrameAssignment] = []
-  var borderSelectedWindowID: WindowID?
+  @MainActor var pointerHitTestRecords: [CGWindowRecord] = []
+  @MainActor var pointerHitTestDockProcessIDs = Set<pid_t>()
+  @MainActor var pointerHitTestSnapshotTimestamp: TimeInterval?
+  @MainActor var borderFrames: [FrameAssignment] = []
+  @MainActor var borderSelectedWindowID: WindowID?
   var desiredSelectedWindowID: WindowID?
-  var lastNativeFocusedWindowID: WindowID? {
+  nonisolated var lastNativeFocusedWindowID: WindowID? {
     get { snapshotEngine.lastNativeFocusedWindowID }
     set { snapshotEngine.lastNativeFocusedWindowID = newValue }
   }
-  var borderHiddenWindowIDs = Set<WindowID>()
-  var borderLiveWindowID: WindowID?
+  @MainActor var borderHiddenWindowIDs = Set<WindowID>()
+  @MainActor var borderLiveWindowID: WindowID?
   public private(set) var nativeFullscreenWindowIDs = Set<WindowID>()
   public private(set) var activeNativeFullscreenWindowIDs = Set<WindowID>()
-  var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
-  var borderStackingRefreshState = WindowBorderStackingRefreshState()
-  var borderStackingRefreshTask: Task<Void, Never>?
-  var borderStyle = WindowBorderStyle(
+  @MainActor var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
+  @MainActor var borderStackingRefreshState = WindowBorderStackingRefreshState()
+  @MainActor var borderStackingRefreshTask: Task<Void, Never>?
+  @MainActor var borderStyle = WindowBorderStyle(
     enabled: true,
     width: 4,
     activeColor: 0xffc0_99ff,
@@ -420,54 +397,43 @@ public final class MacOSPlatform {
     captureEnabled: false
   )
 
-  public var privateWindowIDLookupStatus: String {
-    switch windowIDProvider.probeResult {
-    case .none: "unprobed"
-    case .some(true): "true"
-    case .some(false): "false"
-    }
-  }
-
-  public var successfulPrivateWindowIDLookupCount: Int {
-    snapshotEngine.privateWindowIDLookupCount
-  }
-
-  public var publicWindowIDLookupFallbackCount: Int {
-    snapshotEngine.publicWindowIDFallbackCount
-  }
-
-  public var isPrivateWindowBoundsLookupAvailable: Bool {
-    borderBoundsProvider.isAvailable
-  }
-
-  public var successfulPrivateWindowBoundsLookupCount: Int {
-    borderBoundsProvider.successfulLookupCount
-  }
-
-  public var privateWindowBoundsLookupFallbackCount: Int {
-    borderBoundsProvider.failureCount
-  }
-
-  public var isPrivateWindowConstraintLookupAvailable: Bool {
-    borderBoundsProvider.constraintsAreAvailable
-  }
-
-  public var successfulPrivateWindowConstraintLookupCount: Int {
-    borderBoundsProvider.successfulConstraintLookupCount
-  }
-
-  public var privateWindowConstraintLookupFallbackCount: Int {
-    borderBoundsProvider.constraintFallbackCount
-  }
+  var presentationStatus = PlatformPresentationStatus()
+  public var privateWindowIDLookupStatus: String { presentationStatus.windowIDStatus }
+  public var successfulPrivateWindowIDLookupCount: Int { snapshotEngine.privateWindowIDLookupCount }
+  public var publicWindowIDLookupFallbackCount: Int { snapshotEngine.publicWindowIDFallbackCount }
+  public var isPrivateWindowBoundsLookupAvailable: Bool { presentationStatus.boundsAvailable }
+  public var successfulPrivateWindowBoundsLookupCount: Int { presentationStatus.boundsSuccesses }
+  public var privateWindowBoundsLookupFallbackCount: Int { presentationStatus.boundsFallbacks }
+  public var isPrivateWindowConstraintLookupAvailable: Bool { presentationStatus.constraintsAvailable }
+  public var successfulPrivateWindowConstraintLookupCount: Int { presentationStatus.constraintsSuccesses }
+  public var privateWindowConstraintLookupFallbackCount: Int { presentationStatus.constraintsFallbacks }
+  @MainActor var presentedNativeFullscreenWindowIDs = Set<WindowID>()
+  @MainActor var presentedActiveNativeFullscreenWindowIDs = Set<WindowID>()
+  @MainActor var presentedSelectedWindowID: WindowID?
+  var plannedBorderFrames: [FrameAssignment] = []
 
   var cursorWarpAppliedCount = 0
   var cursorWarpSkippedCount = 0
   var cursorWarpFailedCount = 0
 
-  public let userInputTracker = UserInputTracker()
-  public let pointerMotionTracker = PointerMotionTracker()
+  public nonisolated let userInputTracker = UserInputTracker()
+  public nonisolated let pointerMotionTracker = PointerMotionTracker()
 
-  public init() {}
+  public init() {
+    snapshotEngine = SnapshotEngine(
+      frameCoordinator: frameCoordinator, userInputTracker: userInputTracker
+    )
+    snapshotEngine.host = self
+    frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
+      self?.enqueuePresentation { platform in
+        var observed: [WindowID: Rect] = [:]
+        for (windowID, completed) in frames {
+          observed[windowID] = platform.borderBoundsProvider.frame(for: windowID) ?? completed
+        }
+        _ = platform.borderManager.updateGeometry(frames: observed, style: platform.borderStyle)
+      }
+    }
+  }
 
   public func updateNativeFullscreenWindowIDs(
     _ windowIDs: Set<WindowID>,
@@ -479,6 +445,7 @@ public final class MacOSPlatform {
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
     let now = ProcessInfo.processInfo.systemUptime
     if entered.contains(where: frameCoordinator.isBusy(for:)) {
+      frameSubmissionGeneration &+= 1
       frameCoordinator.invalidate(reason: "native-fullscreen")
     }
     for windowID in entered {
@@ -490,10 +457,12 @@ public final class MacOSPlatform {
     for windowID in exited {
       initialFrameSettlementDeadlines[windowID] = now + 2.5
     }
-    if let activeWindowID = borderManager.activeWindowID,
-      windowIDs.contains(activeWindowID)
-    {
-      hideWindowBorders()
+    let activeIDs = activeNativeFullscreenWindowIDs
+    enqueuePresentation { platform in
+      platform.presentedNativeFullscreenWindowIDs = windowIDs
+      platform.presentedActiveNativeFullscreenWindowIDs = activeIDs
+      if let activeWindowID = platform.borderManager.activeWindowID,
+        windowIDs.contains(activeWindowID) { platform.borderManager.hide() }
     }
     if !entered.isEmpty {
       let ids = entered.sorted { $0.rawValue < $1.rawValue }
@@ -523,9 +492,8 @@ public final class MacOSPlatform {
     )
   }
 
-  func invalidateWindowSnapshot() {
-    windowSnapshotObservationGeneration &+= 1
-
+  nonisolated func invalidateWindowSnapshot() {
+    snapshotEngine.invalidateWindowSnapshot()
   }
 
 }

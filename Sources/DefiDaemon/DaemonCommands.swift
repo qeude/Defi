@@ -28,14 +28,16 @@ private func ipcEventHandler(
             {
               return cached
             }
-            return DispatchQueue.main.sync {
-              MainActor.assumeIsolated {
+            let receivedAt = ProcessInfo.processInfo.systemUptime
+            return NavigationActor.shared.queue.sync {
+              NavigationActor.assumeIsolated {
                 guard let daemon else {
                   return CommandResponse.failure("daemon unavailable")
                 }
                 let response = daemon.handle(
                   request.command,
-                  monitorIndex: request.monitorIndex
+                  monitorIndex: request.monitorIndex,
+                  receivedAt: receivedAt
                 )
                 if DaemonReadResponseCache.isReadCommand(request.command),
                   response.ok
@@ -52,7 +54,7 @@ private func ipcEventHandler(
           },
           completion: { [weak daemon] request in
             guard request.command == "quit" else { return }
-            DispatchQueue.main.async {
+            NavigationActor.enqueue {
               guard let daemon, daemon.shouldShutdown else { return }
               daemon.shutdown()
             }
@@ -62,7 +64,7 @@ private func ipcEventHandler(
       }
     } catch {
       let message = "IPC error: \(error)"
-      DispatchQueue.main.async { [weak daemon] in
+      NavigationActor.enqueue { [weak daemon] in
         daemon?.log(message)
       }
     }
@@ -166,7 +168,7 @@ func commandDiagnosticMetadata(
   )
 }
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func installIPCSource() {
     let server = server
@@ -194,7 +196,7 @@ extension Daemon {
   func scheduleTick() {
     guard !tickScheduled else { return }
     tickScheduled = true
-    DispatchQueue.main.async { [weak self] in
+    NavigationActor.enqueue { [weak self] in
       guard let self else { return }
       self.tickScheduled = false
       self.tick()
@@ -229,7 +231,8 @@ extension Daemon {
   func handle(
     _ rawCommand: String,
     monitorIndex: Int? = nil,
-    inputTimestamp: TimeInterval? = nil
+    inputTimestamp: TimeInterval? = nil,
+    receivedAt: TimeInterval? = nil
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
       let lines = currentWorkspaceState().monitors.map { monitor in
@@ -267,14 +270,15 @@ extension Daemon {
       diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
       return .success("marked \(diagnostics.currentFileURL.path)")
     }
-    if rawCommand == "restore" {
-      restoreAllWindows()
-      return .success("restored")
+    if rawCommand == "restore", !shouldShutdown {
+      Task { await restoreAllWindows() }
+      return .success("restoration scheduled")
     }
     if rawCommand == "quit" {
       shouldShutdown = true
       return .success("stopping")
     }
+    guard !shouldShutdown, !restorationInFlight else { return .failure("window restoration in progress") }
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let command = try parseCommand(rawCommand)
@@ -302,11 +306,11 @@ extension Daemon {
       } else {
         commandMonitorID = activeMonitorID ?? state.monitors.first?.id
       }
-      let commandInputTimestamp = inputTimestamp ?? commandStartedAt
+      let commandInputTimestamp = inputTimestamp ?? receivedAt ?? commandStartedAt
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
       let routingMonitorFrames = Dictionary(
         uniqueKeysWithValues: latestMonitors.map {
-          ($0.id, displayArrangement.deskFrames[$0.id] ?? $0.physicalFrame)
+          ($0.id, displayDeskFrames[$0.id] ?? $0.physicalFrame)
         }
       )
       let commandViewports = viewportsByMonitor
@@ -692,9 +696,9 @@ extension Daemon {
       focus.queueWorkspace(workspaceFocusRequest)
       if switchesWorkspace || !dispatchedAnimation {
         let focusWindowIDAfterCommit = workspaceFocusRequest?.requestedWindowID
-        let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?
-        let cursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?
-        let focusRequestIDAfterCommit: (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?
+        let focusCompletionAfterCommit: (@NavigationActor @Sendable (NativeFocusResult) -> Void)?
+        let cursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?
+        let focusRequestIDAfterCommit: (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)?
         if let workspaceFocusRequest {
           let submission = focus.submitWorkspace(workspaceFocusRequest)
           focusCompletionAfterCommit = { [weak self] result in

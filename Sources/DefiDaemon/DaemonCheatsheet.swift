@@ -1,8 +1,9 @@
+import DefiRuntime
 import DefiMacOS
 import DefiModel
 import Foundation
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func handleCheatsheetInput(_ input: CheatsheetInput, monitorID: MonitorID? = nil) {
     let wasPending = cheatsheetState.holdPending
@@ -20,7 +21,7 @@ extension Daemon {
         do { try await Task.sleep(for: .milliseconds(600)) }
         catch { return }
         guard !Task.isCancelled, let self else { return }
-        // Input is recorded on the tap thread before its main-actor delivery.
+        // Input is recorded on the tap thread before its navigation delivery.
         // Do not flash the panel if a newer key or release is already waiting.
         guard self.platform.userInputTracker.latestEventTimestamp == inputTimestamp else {
           self.handleCheatsheetInput(.keyDown(modifiersHeld: true))
@@ -31,12 +32,17 @@ extension Daemon {
     }
     guard wasVisible != cheatsheetState.isVisible else { return }
     hotKeys?.setCheatsheetVisible(cheatsheetState.isVisible)
-    if cheatsheetState.isVisible {
-      let controller = cheatsheetController ?? CheatsheetController(config: config)
-      cheatsheetController = controller
-      controller.show(on: monitorID ?? activeMonitorID ?? state.monitors.first?.id)
-    } else {
-      cheatsheetController?.close()
+    let visible = cheatsheetState.isVisible
+    let config = config
+    let targetMonitor = monitorID ?? activeMonitorID ?? state.monitors.first?.id
+    DispatchQueue.main.async { [self] in
+      if visible {
+        let controller = cheatsheetController ?? CheatsheetController(config: config)
+        cheatsheetController = controller
+        controller.show(on: targetMonitor)
+      } else {
+        cheatsheetController?.close()
+      }
     }
   }
 }

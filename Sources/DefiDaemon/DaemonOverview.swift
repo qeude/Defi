@@ -5,104 +5,120 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func toggleOverview() -> CommandResponse {
     guard !state.monitors.isEmpty else {
       return .failure("overview unavailable before monitor discovery")
     }
-    let controller = overviewController ?? makeOverviewController()
-    overviewController = controller
-    controller.toggle(
-      snapshot: makeOverviewSnapshot(),
-      layout: state.layout,
-      borders: config.decorations.borders,
-      animation: config.animation,
-      zoom: config.overview.zoom,
-      windowCornerRadius: config.overview.windowCornerRadius,
-      windowPreviewsEnabled: config.overview.windowPreviews
-    )
+    presentOverview(toggling: true)
     return .success()
   }
 
   func updateOverviewIfOpen() {
-    guard overviewController?.isOpen == true else { return }
-    overviewController?.update(
-      snapshot: makeOverviewSnapshot(),
-      layout: state.layout,
-      borders: config.decorations.borders,
-      animation: config.animation,
-      zoom: config.overview.zoom,
-      windowCornerRadius: config.overview.windowCornerRadius,
-      windowPreviewsEnabled: config.overview.windowPreviews
-    )
+    guard overviewState.isOpen else {
+      let previews = config.overview.windowPreviews
+      DispatchQueue.main.async { [self] in
+        let controller = overviewController ?? makeOverviewController()
+        overviewController = controller
+        controller.prepare(windowPreviewsEnabled: previews)
+      }
+      return
+    }
+    presentOverview(toggling: false)
   }
 
-  private func makeOverviewController() -> OverviewController {
+  private func presentOverview(toggling: Bool) {
+    let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
+    DispatchQueue.main.async { [self] in
+      let controller = overviewController ?? makeOverviewController()
+      overviewController = controller
+      if toggling {
+        controller.toggle(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
+          animation: config.animation, zoom: config.overview.zoom,
+          windowCornerRadius: config.overview.windowCornerRadius,
+          windowPreviewsEnabled: config.overview.windowPreviews)
+      } else if controller.isOpen {
+        controller.update(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
+          animation: config.animation, zoom: config.overview.zoom,
+          windowCornerRadius: config.overview.windowCornerRadius,
+          windowPreviewsEnabled: config.overview.windowPreviews)
+      }
+      publishOverviewState()
+    }
+  }
+
+  func closeOverview() {
+    DispatchQueue.main.async { [self] in
+      overviewController?.close()
+      publishOverviewState()
+    }
+  }
+
+  @MainActor private func makeOverviewController() -> OverviewController {
     OverviewController(
       focusWindow: { [weak self] windowID, appID, monitorID, workspaceID in
-        self?.focusFromOverview(
-          windowID: windowID,
-          appID: appID,
-          monitorID: monitorID,
-          workspaceID: workspaceID
-        )
+        NavigationActor.enqueue {
+          self?.focusFromOverview(windowID: windowID, appID: appID,
+            monitorID: monitorID, workspaceID: workspaceID)
+        }
       },
       focusWorkspace: { [weak self] monitorID, workspaceID in
-        self?.focusWorkspaceFromOverview(
-          monitorID: monitorID,
-          workspaceID: workspaceID
-        )
+        NavigationActor.enqueue { self?.focusWorkspaceFromOverview(monitorID: monitorID, workspaceID: workspaceID) }
       },
-      drop: {
-        [weak self] windowID, appID, sourceMonitorID, sourceWorkspaceID, target in
-        self?.dropFromOverview(
-          windowID: windowID,
-          appID: appID,
-          sourceMonitorID: sourceMonitorID,
-          sourceWorkspaceID: sourceWorkspaceID,
-          target: target
-        )
+      drop: { [weak self] windowID, appID, sourceMonitorID, sourceWorkspaceID, target in
+        NavigationActor.enqueue {
+          self?.dropFromOverview(windowID: windowID, appID: appID,
+            sourceMonitorID: sourceMonitorID, sourceWorkspaceID: sourceWorkspaceID, target: target)
+        }
       },
       activateMonitor: { [weak self] monitorID in
-        guard self?.state.monitors.contains(where: { $0.id == monitorID }) == true
-        else { return }
-        self?.activeMonitorID = monitorID
+        NavigationActor.enqueue {
+          guard self?.state.monitors.contains(where: { $0.id == monitorID }) == true else { return }
+          self?.activeMonitorID = monitorID
+        }
       },
       openStateChanged: { [weak self] isOpen in
         guard let self else { return }
         let parksWindows = overviewController?.usesWorkspaceParking == true
-        overviewOpenedAt =
-          isOpen
-          ? ProcessInfo.processInfo.systemUptime
-          : nil
-        hotKeys?.setOverviewModeEnabled(isOpen)
-        platform.setWindowBordersSuppressed(isOpen)
-        if parksWindows {
-          applyCurrentLayout(
-            asynchronousPositions: true,
-            updateVisibility: true,
-            positionTimeoutSeconds: 0.05,
-            stagesVisibleBeforeParking: !isOpen,
-            source: isOpen ? "overview-park" : "overview-restore"
-          )
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        NavigationActor.enqueue { [self] in
+          overviewState.isOpen = isOpen
+          overviewState.usesWorkspaceParking = parksWindows
+          overviewOpenedAt = isOpen ? timestamp : nil
+          hotKeys?.setOverviewModeEnabled(isOpen)
+          platform.setWindowBordersSuppressed(isOpen)
+          if parksWindows {
+            applyCurrentLayout(asynchronousPositions: true, updateVisibility: true,
+              positionTimeoutSeconds: 0.05, stagesVisibleBeforeParking: !isOpen,
+              source: isOpen ? "overview-park" : "overview-restore")
+          }
         }
       },
       commitScrollOffsets: { [weak self] offsets in
-        guard let self else { return }
-        let changedMonitorIDs = applyOverviewScrollOffsets(offsets, state: &state)
-        guard !changedMonitorIDs.isEmpty else { return }
-        persistPlacements()
-        guard overviewController?.usesWorkspaceParking != true else { return }
-        applyCurrentLayout(
-          monitorIDs: changedMonitorIDs,
-          asynchronousPositions: true,
-          updateVisibility: false,
-          positionTimeoutSeconds: 0.05,
-          source: "overview-scroll-commit"
-        )
+        NavigationActor.enqueue { [weak self] in
+          guard let self else { return }
+          let changedMonitorIDs = applyOverviewScrollOffsets(offsets, state: &state)
+          guard !changedMonitorIDs.isEmpty else { return }
+          persistPlacements()
+          guard !overviewState.usesWorkspaceParking else { return }
+          applyCurrentLayout(monitorIDs: changedMonitorIDs, asynchronousPositions: true,
+            updateVisibility: false, positionTimeoutSeconds: 0.05, source: "overview-scroll-commit")
+        }
       }
     )
+  }
+
+  @MainActor func publishOverviewState() {
+    guard let controller = overviewController else { return }
+    let projection = OverviewPresentationState(
+      isOpen: controller.isOpen, usesWorkspaceParking: controller.usesWorkspaceParking,
+      panelCount: controller.panelCount, retainedPanelCount: controller.retainedPanelCount,
+      permission: controller.previewPermissionState.rawValue,
+      captures: controller.inFlightPreviewCount, previews: controller.previewCacheCount,
+      memoryBytes: controller.rememberedPreviewMemoryBytes, failures: controller.previewFailureCount
+    )
+    NavigationActor.enqueue { [self] in overviewState = projection }
   }
 
   private func makeOverviewSnapshot() -> OverviewSnapshot {
@@ -289,4 +305,16 @@ extension Daemon {
       updateOverviewIfOpen()
     }
   }
+}
+
+struct OverviewPresentationState: Sendable {
+  var isOpen = false
+  var usesWorkspaceParking = false
+  var panelCount = 0
+  var retainedPanelCount = 0
+  var permission: String?
+  var captures = 0
+  var previews = 0
+  var memoryBytes = 0
+  var failures = 0
 }

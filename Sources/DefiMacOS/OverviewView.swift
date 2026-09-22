@@ -38,7 +38,7 @@ final class OverviewView: NSView {
     previews.removeAll(keepingCapacity: false)
   }
 
-  func setDesktopImage(_ image: NSImage) {
+  func setDesktopImage(_ image: NSImage?) {
     desktopImage = image
     needsDisplay = true
   }
@@ -422,11 +422,19 @@ final class OverviewView: NSView {
 
   private func icon(for window: Window) -> NSImage {
     if let cached = iconCache[window.appID] { return cached }
-    let icon = window.processID.flatMap {
-      NSRunningApplication(processIdentifier: pid_t($0))?.icon
-    } ?? NSImage(systemSymbolName: "app", accessibilityDescription: window.appID)
+    let icon = NSImage(systemSymbolName: "app", accessibilityDescription: window.appID)
       ?? NSImage(size: NSSize(width: 24, height: 24))
     iconCache[window.appID] = icon
+    if let processID = window.processID {
+      Task { @MainActor [weak self] in
+        let loaded = await Task.detached(priority: .utility) {
+          NSRunningApplication(processIdentifier: processID)?.icon
+        }.value
+        guard let self, let loaded else { return }
+        self.iconCache[window.appID] = loaded
+        self.needsDisplay = true
+      }
+    }
     return icon
   }
 

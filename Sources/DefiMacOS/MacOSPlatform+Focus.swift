@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import Darwin
@@ -75,7 +76,7 @@ extension MacOSPlatform {
   public func isWindowNativelyFocused(_ windowID: WindowID) -> Bool {
     guard let processID = processIDs[windowID] else { return false }
     return lastNativeFocusedWindowID == windowID
-      && NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
+      && frontmostProcessID == processID
   }
 
   @discardableResult
@@ -85,9 +86,9 @@ extension MacOSPlatform {
     focusRecoveryFallbackWindowID: WindowID? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
-    cursorWarpIsCurrent: (@MainActor @Sendable () -> Bool)? = nil,
+    cursorWarpIsCurrent: (@NavigationActor @Sendable () -> Bool)? = nil,
     allowsNativeFullscreen: Bool = false,
-    completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
+    completion: (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
     guard allowsNativeFullscreen || !nativeFullscreenWindowIDs.contains(windowID) else {
       completion?(.completedWithoutMutation)
@@ -120,11 +121,11 @@ extension MacOSPlatform {
     focusRecoveryFallbackWindowID: WindowID? = nil,
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
-    cursorWarpIsCurrent: (@MainActor @Sendable () -> Bool)? = nil,
+    cursorWarpIsCurrent: (@NavigationActor @Sendable () -> Bool)? = nil,
     focusRecoveryFallback providedFocusRecoveryFallback:
       NativeFocusRecoveryFallback? = nil,
     createsRecoveryRequest: Bool = true,
-    completion: (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil
+    completion: (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
     guard let element = elements[windowID],
       let processID = processIDs[windowID],
@@ -180,7 +181,7 @@ extension MacOSPlatform {
     let focusWritePending = focusWriter.isBusy
     let activatesApplication =
       focusWriter.hasInFlightRequest(forDifferentProcess: processID)
-      || NSWorkspace.shared.frontmostApplication?.processIdentifier != processID
+      || frontmostProcessID != processID
     let trackedWindowCount = processIDs.values.lazy.filter { $0 == processID }.count
     let hasMultipleManagedWindows = trackedWindowCount > 1
     let hasTrackedAuxiliaryWindows = floatingWindowIDs.contains {
@@ -218,7 +219,7 @@ extension MacOSPlatform {
         recoveryRequest: focusRecoveryRequest
       )
     ) { [weak self] nativeCompletion in
-      Task { @MainActor [weak self] in
+      NavigationActor.enqueue { [weak self] in
         let result = nativeCompletion.result
         if let internalFocusRequestID, let self {
           self.internalFocusSuppressions[windowID] =
@@ -242,6 +243,10 @@ extension MacOSPlatform {
         }
         switch result {
         case .completed, .completedWithoutMutation:
+          guard self?.focusRecoveryIntentGeneration == recoveryIntentGeneration else {
+            completion?(.superseded)
+            return
+          }
           self?.verifiedNativeFocusedWindowID = windowID
           self?.scheduleWindowBorderStackingRefresh()
           self?.revealWindowBordersIfReady()
@@ -338,7 +343,7 @@ extension MacOSPlatform {
     let processID =
       target.processID
       ?? target.windowID.flatMap { windowID in
-        copyCGWindows().first {
+        (snapshotEngine.lastCGWindowInventory ?? []).first {
           $0.id == CGWindowID(exactly: windowID.rawValue)
         }?.processID
       }
@@ -352,7 +357,7 @@ extension MacOSPlatform {
         windowID: windowID,
         processID: processID
       ) { [weak self] resolution in
-        Task { @MainActor [weak self] in
+        NavigationActor.enqueue { [weak self] in
           guard let self,
             focusRecoveryIntentIsCurrent(
               requestGeneration: intentGeneration,
@@ -408,7 +413,7 @@ extension MacOSPlatform {
         selectsSpecificWindow: true,
         validatesSpecificWindowFocus: false,
         activatesApplication:
-          NSWorkspace.shared.frontmostApplication?.processIdentifier
+          frontmostProcessID
           != processID,
         foregroundWindowElements: [],
         inputGuard: FocusInputGuard(
@@ -418,7 +423,7 @@ extension MacOSPlatform {
         recoveryRequest: recoveryRequest
       )
     ) { [weak self] completion in
-      Task { @MainActor [weak self] in
+      NavigationActor.enqueue { [weak self] in
         guard let self else { return }
         if self.submittedFocusRecoveryGeneration == recoveryGeneration {
           self.submittedFocusRecoveryRequestID = nil
@@ -505,13 +510,32 @@ extension MacOSPlatform {
 
   private func activateFocusRecoveryProcess(_ processID: pid_t) {
     frameCoordinator.recordTrace("focus-recovery pid=\(processID)")
-    NSRunningApplication(processIdentifier: processID)?.activate()
+    let application = applications[processID] ?? AXUIElementCreateApplication(processID)
+    nextFocusRecoveryGeneration &+= 1
+    let generation = nextFocusRecoveryGeneration
+    let timestamp = userInputTracker.latestEventTimestamp
+    submittedFocusRecoveryRequestID = focusWriter.submit(
+      AsyncFocusRequest(element: application, application: application, processID: processID,
+        selectsSpecificWindow: false, validatesSpecificWindowFocus: false,
+        activatesApplication: true, foregroundWindowElements: [],
+        inputGuard: FocusInputGuard(tracker: userInputTracker,
+          maximumTimestamp: timestamp), recoveryRequest: nil)
+    ) { [weak self] _ in
+      NavigationActor.enqueue {
+        guard let self, self.submittedFocusRecoveryGeneration == generation else { return }
+        self.submittedFocusRecoveryRequestID = nil
+        self.submittedFocusRecoveryTimestamp = nil
+        self.submittedFocusRecoveryGeneration = nil
+      }
+    }
+    submittedFocusRecoveryTimestamp = timestamp
+    submittedFocusRecoveryGeneration = generation
   }
 
   private func capturedNativeFocusRecoveryFallback()
     -> NativeFocusRecoveryFallback?
   {
-    let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let processID = frontmostProcessID
     let windowID = lastNativeFocusedWindowID.flatMap { windowID in
       processIDs[windowID] == processID ? windowID : nil
     }

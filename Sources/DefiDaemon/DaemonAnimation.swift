@@ -76,11 +76,11 @@ func outgoingWorkspaceVerticalRibbonOffset(
   )
 }
 
-@MainActor
+@NavigationActor
 extension Daemon {
   var animationsEnabled: Bool {
     config.animation.enabled
-      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      && !platform.reduceMotion
   }
 
   func safeWorkspaceVerticalTransition(
@@ -143,10 +143,10 @@ extension Daemon {
     focusInputTimestampAfterCommit: TimeInterval?,
     cursorWarpInputTimestampAfterCommit: TimeInterval?,
     focusCompletionAfterCommit:
-      (@MainActor @Sendable (NativeFocusResult) -> Void)?,
-    cursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?,
+      (@NavigationActor @Sendable (NativeFocusResult) -> Void)?,
+    cursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?,
     focusRequestIDAfterCommit:
-      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?,
+      (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)?,
     commandPerformance: CommandPerformanceContext
   ) {
     let duration = workspaceVerticalTransitionDuration(

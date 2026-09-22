@@ -76,14 +76,20 @@ struct WorkspaceVerticalTransition: Equatable {
   let direction: Int
 }
 
-@MainActor
-final class Daemon: NSObject {
+@NavigationActor
+final class Daemon {
   let instanceLock: DaemonInstanceLock
   let configURL: URL
   var config: Config
   let platform = MacOSPlatform()
-  let displayArrangement = DisplayArrangementController()
-  let accessibilityPermissionMonitor = AccessibilityPermissionMonitor()
+  nonisolated let displayPointerRouter = DisplayPointerRouter()
+  @MainActor lazy var displayArrangement = DisplayArrangementController(pointerRouter: displayPointerRouter)
+  var displayDeskFrames: [MonitorID: Rect] = [:]
+  var displayArrangementStatus = "native"
+  var displayReconciliationPending = true
+  var displayReconciliationInFlight = false
+  var displayReconciliationGeneration: UInt64 = 0
+  @MainActor lazy var accessibilityPermissionMonitor = AccessibilityPermissionMonitor()
   var windowManagementStarted = false
   let server: UnixSocketServer
   let placementStore: PlacementStore
@@ -102,14 +108,17 @@ final class Daemon: NSObject {
   var placementSaveWorkItem: DispatchWorkItem?
   var topologySaveWorkItem: DispatchWorkItem?
   var lastPersistedTopology: WorkspaceTopology?
+  var pointerHitTestTask: Task<Void, Never>?
+  var pointerResumeTask: Task<Void, Never>?
   var hotKeys: HotKeyManager?
-  var overviewController: OverviewController?
+  var overviewState = OverviewPresentationState()
+  @MainActor var overviewController: OverviewController?
   var cheatsheetState = CheatsheetState()
-  var cheatsheetController: CheatsheetController?
+  @MainActor var cheatsheetController: CheatsheetController?
   var cheatsheetHoldTask: Task<Void, Never>?
   var hotKeyGeneration: UInt64 = 0
   var overviewOpenedAt: TimeInterval?
-  let menuBar = MenuBarState()
+  nonisolated let menuBar: MenuBarState
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
   var lastWorkspacePublishState: RuntimeState?
   var lastWorkspacePublishDisplayOrder: [MonitorID] = []
@@ -125,8 +134,11 @@ final class Daemon: NSObject {
   var latestMonitors: [MonitorSnapshot] = []
   var layoutPlansByMonitor: [MonitorID: MonitorLayoutPlan] = [:]
   var shouldShutdown = false
+  var restorationInFlight = false
+  var shutdownTask: Task<Void, Never>?
   var signalSources: [DispatchSourceSignal] = []
-  var configWatcher: ConfigFileWatcher?
+  @MainActor var configWatcher: ConfigFileWatcher?
+  var configReloadTask: Task<Void, Never>?
   var configGeneration: UInt64 = 0
   var pendingHotKeyCommands: [HotKeyInvocation] = []
   var processingHotKeyCommands = false
@@ -195,7 +207,8 @@ final class Daemon: NSObject {
   var followUpBackoffSteps = 0
   var followUpUnchangedSince: TimeInterval = 0
 
-  init(options: DaemonOptions) throws {
+  init(options: DaemonOptions, menuBar: MenuBarState) throws {
+    self.menuBar = menuBar
     instanceLock = try DaemonInstanceLock()
     configURL = options.configURL ?? Config.defaultURL
     config = try Config.load(from: configURL)
@@ -209,7 +222,6 @@ final class Daemon: NSObject {
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
     lastPersistedTopology = restoredTopology
-    super.init()
     platform.setCommandDiagnosticHandler { [weak diagnostics] sample in
       diagnostics?.record(sample)
     }
@@ -223,8 +235,10 @@ final class Daemon: NSObject {
     updateMenuBarAvailability()
     startConfigWatcher()
     installIPCSource()
-    accessibilityPermissionMonitor.start { [weak self] in
-      self?.startWindowManagement()
+    DispatchQueue.main.async { [self] in
+      accessibilityPermissionMonitor.start { [weak self] in
+        NavigationActor.enqueue { self?.startWindowManagement() }
+      }
     }
     if !windowManagementStarted {
       log("Accessibility permission pending. Grant Defi access in System Settings.")
@@ -235,7 +249,7 @@ final class Daemon: NSObject {
   private func startWindowManagement() {
     guard !windowManagementStarted else { return }
     windowManagementStarted = true
-    menuBar.refreshAccessibilityPermission()
+    DispatchQueue.main.async { [menuBar] in menuBar.refreshAccessibilityPermission() }
     platform.startObserving(
       { [weak self] in
         guard let self, desktopSessionActive else { return }
@@ -273,12 +287,16 @@ final class Daemon: NSObject {
 
   func handleDesktopSessionActivity(_ active: Bool) {
     guard desktopSessionActive != active else { return }
-    if active { displayArrangement.invalidate() }
-    displayArrangement.pointerRouter.setActive(active)
+    if active { invalidateDisplayArrangement() }
+    displayPointerRouter.setActive(active)
     desktopSessionActive = active
     if !active { handleCheatsheetInput(.dismiss) }
     desktopSessionGeneration &+= 1
     guard active else {
+      pointerHitTestTask?.cancel()
+      pointerHitTestTask = nil
+      pointerResumeTask?.cancel()
+      pointerResumeTask = nil
       commandGeneration &+= 1
       mouseGestureGeneration &+= 1
       pendingHotKeyCommands.removeAll(keepingCapacity: true)
@@ -317,7 +335,7 @@ final class Daemon: NSObject {
   }
 
   func tick() {
-    guard windowManagementStarted, desktopSessionActive else { return }
+    guard windowManagementStarted, desktopSessionActive, !shouldShutdown, !restorationInFlight else { return }
     processPendingHotKeys()
     finishPendingAnimatedFocusIfReady()
     finishPendingWorkspaceFocusIfReady()
@@ -367,7 +385,7 @@ final class Daemon: NSObject {
     let latestFocusIntentTimestamp = max(
       platform.userInputTracker.snapshot.latestFocusIntent?.timestamp ?? 0,
       platform.userInputTracker.pendingApplicationActivation(
-        frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+        frontmostProcessID: platform.frontmostProcessID
       )?.timestamp ?? 0
     )
     let nativeFocusHasNewerHumanIntent =

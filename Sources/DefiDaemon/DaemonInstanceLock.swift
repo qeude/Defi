@@ -6,7 +6,7 @@ final class DaemonInstanceLock {
   private let descriptor: Int32
 
   init(url: URL = DaemonLockPath.defaultURL) throws {
-    descriptor = Darwin.open(
+    let descriptor = Darwin.open(
       url.path,
       O_CREAT | O_RDWR,
       mode_t(S_IRUSR | S_IWUSR)
@@ -22,6 +22,9 @@ final class DaemonInstanceLock {
       }
       throw DaemonInstanceLockError.systemCall("flock", code)
     }
+    // Acquire ownership only after success; a throwing initialized class runs
+    // deinit and would otherwise close the failed descriptor a second time.
+    self.descriptor = descriptor
   }
 
   deinit {

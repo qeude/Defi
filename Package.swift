@@ -43,7 +43,7 @@ let package = Package(
     ),
     .target(
       name: "DefiMacOS",
-      dependencies: ["DefiModel", "DefiCore", "DefiConfig"]
+      dependencies: ["DefiModel", "DefiCore", "DefiConfig", "DefiRuntime"]
     ),
     .executableTarget(
       name: "DefiDaemon",

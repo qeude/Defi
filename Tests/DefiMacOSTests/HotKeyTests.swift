@@ -1,3 +1,4 @@
+import DefiRuntime
 import DefiCore
 import DefiModel
 import ApplicationServices
@@ -178,7 +179,7 @@ struct HotKeyTests {
     #expect(key.modifierBits == expectedModifiers.rawValue)
   }
 
-  @MainActor
+  @NavigationActor
   @Test
   func `Invalid binding disables hot keys but keeps pointer tracking configured`() {
     let config = Config(

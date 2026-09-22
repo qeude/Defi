@@ -3,6 +3,7 @@ import ApplicationServices
 import DefiConfig
 import DefiCore
 import DefiModel
+import DefiRuntime
 
 /// Unchecked sendable envelope for a value produced on the main thread and
 /// consumed synchronously by the waiting engine queue.
@@ -45,7 +46,7 @@ final class SnapshotEngine: @unchecked Sendable {
     forceFullWindowRefresh: Bool,
     forceWindowListRefresh: Bool,
     forceApplicationInventoryRefresh: Bool,
-    completion: @escaping @MainActor @Sendable (DesktopSnapshot) -> Void
+    completion: @escaping @NavigationActor @Sendable (DesktopSnapshot) -> Void
   ) {
     precondition(host != nil, "host must be assigned")
     snapshotQueue.async { [weak self] in
@@ -56,9 +57,7 @@ final class SnapshotEngine: @unchecked Sendable {
         forceWindowListRefresh: forceWindowListRefresh,
         forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
       )
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated { completion(result) }
-      }
+      NavigationActor.enqueue { completion(result) }
     }
   }
 
@@ -71,11 +70,21 @@ final class SnapshotEngine: @unchecked Sendable {
     )
     let box: AssumedThreadSafe<T> =
       Thread.isMainThread
-      ? MainActor.assumeIsolated { AssumedThreadSafe(work(host!)) }
+      ? MainActor.assumeIsolated {
+          defer { host!.publishPresentationStatus() }
+          return AssumedThreadSafe(work(host!))
+        }
       : DispatchQueue.main.sync {
-        MainActor.assumeIsolated { AssumedThreadSafe(work(host!)) }
+        MainActor.assumeIsolated {
+          defer { host!.publishPresentationStatus() }
+          return AssumedThreadSafe(work(host!))
+        }
       }
     return box.value
+  }
+
+  func invalidateWindowSnapshot() {
+    read { $0.windowSnapshotObservationGeneration &+= 1 }
   }
 
   var pendingObservations: SnapshotObservations {
@@ -86,10 +95,14 @@ final class SnapshotEngine: @unchecked Sendable {
     _ kind: PlatformEventKind,
     processID: pid_t?,
     windowID: WindowID? = nil,
+    createdElement: AXUIElement? = nil,
     inputTimestamp: TimeInterval? = nil
   ) {
     read {
       $0.windowSnapshotObservationGeneration &+= 1
+      if kind == .windowCreated, let processID, let createdElement {
+        $0.pendingObservations.createdElements[processID, default: []].append(createdElement)
+      }
       switch windowSnapshotInvalidation(for: kind, processID: processID) {
       case .process(let processID):
         $0.pendingObservations.topologyPending = true
@@ -502,7 +515,10 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.observedFrameCommitCount = newValue } }
   }
 
-  var maximumObservedFrameCommitLatencyMS = 0.0
+  var maximumObservedFrameCommitLatencyMS: Double {
+    get { read { $0.maximumObservedFrameCommitLatencyMS } }
+    set { read { $0.maximumObservedFrameCommitLatencyMS = newValue } }
+  }
 
   var batchedWindowAttributeReadCount: Int {
     get { read { $0.batchedWindowAttributeReadCount } }
@@ -1257,7 +1273,9 @@ private struct Storage {
 }
 
 /// A discovery cutoff. Observations recorded after consumption belong to the next pass.
-struct SnapshotObservations: Equatable, Sendable {
+// AX handles identify remote objects; only the serial snapshot queue reads their attributes.
+struct SnapshotObservations: Equatable, @unchecked Sendable {
+  var createdElements: [pid_t: [AXUIElement]] = [:]
   var topologyPending = false
   var topologyProcessIDs = Set<pid_t>()
   var topologyRequiresFullSnapshot = false
