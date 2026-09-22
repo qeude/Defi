@@ -1810,78 +1810,115 @@ struct PlatformEventTests {
       remove: { removed.append($0) }
     )
 
-    #expect(registered == false)
+    #expect(registered == .cannotComplete)
     #expect(removed == ["moved"])
   }
 
-  @Test
-  func failedFrameObservationDoesNotQuarantineWindowTopology() {
-    let failedProcessID: pid_t = 101
-    var counts = updatedNotificationObservationFailureCounts(
-      [:],
-      activeProcessIDs: [failedProcessID],
-      failedProcessID: failedProcessID,
-      kind: .frame
+  @Test(arguments: [AXError.cannotComplete, .invalidUIElement]) @MainActor
+  func windowObservationRecoversAfterTransientFailures(error: AXError) {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let window = AXUIElementCreateApplication(pid)
+    var time: TimeInterval = 0
+    var unavailable = true
+    var frameAttempts = 0
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in }, now: { time },
+      addNotification: { _, _, notification, _ in
+        if notification as String == kAXMovedNotification {
+          frameAttempts += 1
+          if unavailable { return error }
+        }
+        return .success
+      },
+      removeNotification: { _, _, _ in .success }
     )
-
-    #expect(counts == [.frame: [failedProcessID: 1]])
-    #expect(
-      processIDsIncompatibleWithNotificationObservation(
-        counts,
-        kind: .frame
-      ).isEmpty
-    )
-    for _ in 1..<(notificationObservationMaxAttempts - 1) {
-      counts = updatedNotificationObservationFailureCounts(
-        counts,
-        activeProcessIDs: [failedProcessID],
-        failedProcessID: failedProcessID,
-        kind: .frame
-      )
+    defer { monitor.stop() }
+    for _ in 0..<notificationObservationMaxAttempts {
+      monitor.refresh(applications: [pid: [window]])
     }
-    #expect(
-      processIDsIncompatibleWithNotificationObservation(
-        counts,
-        kind: .frame
-      ).isEmpty
+    #expect(frameAttempts == notificationObservationMaxAttempts)
+    #expect(monitor.hasReliableFrameCoverage() == false)
+    #expect(monitor.observationCoverage.topologyWindows == 1)
+    time = 29
+    monitor.refresh(applications: [pid: [window]])
+    #expect(frameAttempts == notificationObservationMaxAttempts)
+    time = 30
+    monitor.refresh(applications: [pid: [window]])
+    #expect(frameAttempts == notificationObservationMaxAttempts + 1)
+    unavailable = false
+    time = 31
+    for _ in 0..<10 { monitor.refresh(applications: [pid: [window]]) }
+    #expect(frameAttempts == notificationObservationMaxAttempts + 1)
+    time = 60
+    monitor.refresh(applications: [pid: [window]])
+    #expect(monitor.hasReliableFrameCoverage())
+    #expect(frameAttempts == notificationObservationMaxAttempts + 2)
+    #expect(monitor.incompatibleNotificationProcessIDs.isEmpty)
+  }
+
+  @Test @MainActor
+  func unsupportedWindowObservationDoesNotDisableItsSiblingOrKeepRetrying() {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let unsupported = AXUIElementCreateApplication(-1)
+    let sibling = AXUIElementCreateApplication(pid)
+    var time: TimeInterval = 0
+    var attempts = 0
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in }, now: { time },
+      addNotification: { _, element, notification, _ in
+        if CFEqual(element, unsupported), notification as String == kAXMovedNotification {
+          attempts += 1
+          return .notificationUnsupported
+        }
+        return .success
+      },
+      removeNotification: { _, _, _ in .success }
     )
-    counts = updatedNotificationObservationFailureCounts(
-      counts,
-      activeProcessIDs: [failedProcessID],
-      failedProcessID: failedProcessID,
-      kind: .frame
+    defer { monitor.stop() }
+    for _ in 0..<notificationObservationMaxAttempts {
+      monitor.refresh(applications: [pid: [unsupported, sibling]])
+    }
+    time = 300
+    monitor.refresh(applications: [pid: [unsupported, sibling]])
+    #expect(attempts == notificationObservationMaxAttempts)
+    #expect(monitor.observationCoverage.frameWindows == 1)
+    #expect(monitor.observationCoverage.topologyWindows == 2)
+    #expect(monitor.notificationObservationErrors(kind: .frame, processID: pid)
+      == [AXError.notificationUnsupported.rawValue])
+    monitor.refresh(applications: [pid: [sibling]])
+    #expect(monitor.hasReliableFrameCoverage())
+    #expect(monitor.incompatibleNotificationProcessIDs.isEmpty)
+    #expect(monitor.notificationObservationFailureCountsValue.isEmpty)
+  }
+
+  @Test @MainActor
+  func applicationObservationAlsoRecoversAfterBackoff() {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let application = AXUIElementCreateApplication(pid)
+    var time: TimeInterval = 0
+    var attempts = 0
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in }, now: { time },
+      addNotification: { _, _, notification, _ in
+        if notification as String == kAXFocusedWindowChangedNotification {
+          attempts += 1
+          if time < 30 { return .cannotComplete }
+        }
+        return .success
+      },
+      removeNotification: { _, _, _ in .success }
     )
-    #expect(
-      processIDsIncompatibleWithNotificationObservation(
-        counts,
-        kind: .frame
-      )
-        == [failedProcessID]
-    )
-    #expect(
-      processIDsIncompatibleWithNotificationObservation(
-        counts,
-        kind: .applicationTopology
-      ).isEmpty
-    )
-    #expect(
-      processIDsIncompatibleWithNotificationObservation(
-        counts,
-        kind: .windowTopology
-      ).isEmpty
-    )
-    #expect(
-      updatedNotificationObservationFailureCounts(
-        counts,
-        activeProcessIDs: [failedProcessID]
-      ) == counts
-    )
-    #expect(
-      updatedNotificationObservationFailureCounts(
-        counts,
-        activeProcessIDs: []
-      ).isEmpty
-    )
+    defer { monitor.stop() }
+    for _ in 0..<10 {
+      monitor.prepareForWindowDiscovery(processID: pid, application: application)
+      monitor.refresh(applications: [pid: []])
+    }
+    #expect(attempts == notificationObservationMaxAttempts)
+    #expect(monitor.observationCoverage.applicationObservers == 0)
+    time = 30
+    monitor.refresh(applications: [pid: []])
+    #expect(monitor.observationCoverage.applicationObservers == 1)
+    #expect(monitor.notificationObservationFailureCountsValue.isEmpty)
   }
 
   @Test

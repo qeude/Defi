@@ -53,7 +53,7 @@ final class BorderOverlay {
   func retarget(to windowID: WindowID, preservingBacking: Bool = false) {
     if preservingBacking {
       // Reuse only during a synchronous selection handoff, never as a hidden cache.
-      for segment in segments.values { segment.orderOut() }
+      for segment in segments.values { segment.makeTransparent() }
       opacityValue = 0
       pendingOpacityReveal = nil
       visible = false
@@ -404,11 +404,15 @@ private final class BorderSegment {
   }
 
   func orderOut() {
-    if panel.alphaValue != 0 { panel.alphaValue = 0 }
+    makeTransparent()
     if orderedIn {
       panel.orderOut(nil)
     }
     orderedIn = false
+  }
+
+  func makeTransparent() {
+    if panel.alphaValue != 0 { panel.alphaValue = 0 }
   }
 
   func compactBacking() {

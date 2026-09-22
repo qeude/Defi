@@ -448,6 +448,32 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func selectionHandoffKeepsNativeBorderPanelsOrderedAndTransparent() {
+    let overlay = BorderOverlay(windowID: WindowID(rawValue: 1))
+    defer { overlay.hide() }
+    overlay.sync(
+      frame: Rect(x: 100, y: 100, width: 800, height: 600),
+      width: 4, color: 0xffff_ffff, windowRadius: 12,
+      captureEnabled: false, placement: .inside
+    )
+    overlay.applyCompositorFallback()
+    overlay.revealPendingOpacity()
+    let panels = NSApp.windows.filter {
+      overlay.windowIDs.contains(CGWindowID($0.windowNumber))
+    }
+    #expect(panels.count == 4)
+    #expect(panels.allSatisfy { $0.isVisible })
+
+    overlay.retarget(to: WindowID(rawValue: 2), preservingBacking: true)
+
+    #expect(panels.allSatisfy { $0.isVisible })
+    #expect(panels.allSatisfy { $0.alphaValue == 0 })
+    overlay.hide()
+    #expect(panels.allSatisfy { $0.isVisible == false })
+    #expect(overlay.estimatedSurfacePixels == 0)
+  }
+
+  @Test @MainActor
   func translationReusesBorderPathsAndSelectionBacking() {
     let manager = WindowBorderManager()
     let first = WindowID(rawValue: 1)

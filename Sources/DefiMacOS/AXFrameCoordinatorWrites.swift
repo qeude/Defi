@@ -477,18 +477,18 @@ extension AXFrameCoordinator {
                   || defersEnhancedUIRestore
               )
           )
-        let sizeApplied = frameSizeWriteSucceeded(
+        var sizeApplied = frameSizeWriteSucceeded(
           sizeChanged: item.value.sizeChanged,
           synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
           animatesSize: item.value.animatesSize,
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
-        let acceptedSize =
+        var acceptedSize =
           sizeApplied && requiresAsynchronousSizeWrite && !intermediate
             && progress >= 1
           ? accessibilityWriter.readSize(item.value.element)
           : nil
-        let positionApplied =
+        var positionApplied =
           generationIsCurrent
           && (
             !item.value.positionChanged
@@ -501,6 +501,27 @@ extension AXFrameCoordinator {
                   || defersEnhancedUIRestore
               )
             )
+        // AppKit can clamp a resize to the source display before accepting
+        // the move. Retry once at the destination, only after a measured clamp.
+        if positionApplied, item.value.positionChanged,
+          let observedSize = acceptedSize,
+          abs(observedSize.width - size.width) >= 0.5
+            || abs(observedSize.height - size.height) >= 0.5,
+          isCurrent(generation: frame.generation)
+        {
+          sizeApplied = accessibilityWriter.applySize(
+            item.value, size: size,
+            enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
+          )
+          acceptedSize = sizeApplied ? accessibilityWriter.readSize(item.value.element) : nil
+          if isCurrent(generation: frame.generation) {
+            positionApplied = accessibilityWriter.applyPosition(
+              item.value, point: point,
+              forceOffscreenAccess: item.value.requiresVerifiedOffscreenWrite,
+              enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
+            )
+          }
+        }
         let acceptedPosition =
           positionApplied && readsLiveBorderPosition
             ? accessibilityWriter.readPosition(item.value.element)

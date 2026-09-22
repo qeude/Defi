@@ -7,6 +7,22 @@ struct DisplayArrangementTests {
   let external = MonitorID(rawValue: 2)
 
   @Test
+  func fastPointerCrossingDoesNotWaitForAnotherEventAtTheClampedEdge() throws {
+    let desk = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      external: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+    ]
+    let technical = isolatedDisplayArrangement(desk, primary: laptop)
+    let destination = try #require(displayPointerDestination(
+      x: 1_008, y: 350, deltaX: 16, deltaY: 0,
+      technical: technical, desk: desk
+    ))
+    #expect(destination.monitorID == external)
+    #expect(destination.x == 1_008)
+    #expect(destination.y == -350)
+  }
+
+  @Test
   func `Pointer crosses the physical desk edge without bouncing or crossing a gap`() throws {
     let desk = [
       laptop: Rect(x: -1_512, y: 50, width: 1_512, height: 982),

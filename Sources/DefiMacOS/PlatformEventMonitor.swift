@@ -13,6 +13,9 @@ final class PlatformEventMonitor {
   private let liveFrameHandler: () -> Void
   private let borderStackingHandler: () -> Void
   private let mouseGestureStartedHandler: () -> Void
+  private let now: () -> TimeInterval
+  private let addNotification: (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError
+  private let removeNotification: (AXObserver, AXUIElement, CFString) -> AXError
   private var workspaceTokens: [NSObjectProtocol] = []
   private var sessionTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
@@ -20,8 +23,7 @@ final class PlatformEventMonitor {
   private var mouseGestureNormalizer = MouseGestureEventNormalizer()
   private var observers: [pid_t: AXObserver] = [:]
   private var topologyObservedProcessIDs = Set<pid_t>()
-  private var notificationObservationFailureCounts: NotificationObservationFailureCounts = [:]
-  private var windowNotificationFailureCounts: [NotificationObservationKind: [AXUIElement: Int]] = [:]
+  private var notificationFailures: [NotificationObservationKind: [AXUIElement: NotificationObservationFailure]] = [:]
   private var observedWindows: [pid_t: [AXUIElement]] = [:]
   private var topologyRequiredWindows: [pid_t: [AXUIElement]] = [:]
   private var frameRequiredWindows: [pid_t: [AXUIElement]] = [:]
@@ -43,7 +45,10 @@ final class PlatformEventMonitor {
     windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
     liveFrameHandler: @escaping () -> Void = {},
     borderStackingHandler: @escaping () -> Void = {},
-    mouseGestureStartedHandler: @escaping () -> Void = {}
+    mouseGestureStartedHandler: @escaping () -> Void = {},
+    now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    addNotification: @escaping (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError = AXObserverAddNotification,
+    removeNotification: @escaping (AXObserver, AXUIElement, CFString) -> AXError = AXObserverRemoveNotification
   ) {
     self.handler = handler
     self.userInputTracker = userInputTracker
@@ -56,6 +61,9 @@ final class PlatformEventMonitor {
     self.liveFrameHandler = liveFrameHandler
     self.borderStackingHandler = borderStackingHandler
     self.mouseGestureStartedHandler = mouseGestureStartedHandler
+    self.now = now
+    self.addNotification = addNotification
+    self.removeNotification = removeNotification
   }
 
   func start() {
@@ -239,13 +247,12 @@ final class PlatformEventMonitor {
     guard desktopSessionActive else { return }
     let activeProcessIDs = Set(applications.keys)
     let liveElements = Set(applications.values.flatMap { $0 })
-    windowNotificationFailureCounts = windowNotificationFailureCounts.mapValues {
-      $0.filter { liveElements.contains($0.key) }
+    for kind in NotificationObservationKind.allCases {
+      notificationFailures[kind] = notificationFailures[kind]?.filter {
+        activeProcessIDs.contains($0.value.processID)
+          && (kind == .applicationTopology || liveElements.contains($0.key))
+      }
     }
-    notificationObservationFailureCounts = updatedNotificationObservationFailureCounts(
-      notificationObservationFailureCounts,
-      activeProcessIDs: activeProcessIDs
-    )
     for processID in observers.keys where !activeProcessIDs.contains(processID) {
       observers[processID] = nil
       topologyObservedProcessIDs.remove(processID)
@@ -279,7 +286,7 @@ final class PlatformEventMonitor {
         applicationWindows: windows
       )
       for window in requiredTopology
-      where !isIncompatibleWithNotificationObservation(
+      where !notificationObservationIsDeferred(
         .windowTopology,
         processID: processID,
         element: window
@@ -301,7 +308,7 @@ final class PlatformEventMonitor {
         }
       }
       for window in windows {
-        if !isIncompatibleWithNotificationObservation(
+        if !notificationObservationIsDeferred(
           .frame,
           processID: processID,
           element: window
@@ -328,7 +335,7 @@ final class PlatformEventMonitor {
       }
       for window in obsoleteFrameWindows {
         for notification in [kAXMovedNotification, kAXResizedNotification] {
-          AXObserverRemoveNotification(
+          _ = removeNotification(
             observer,
             window,
             notification as CFString
@@ -354,7 +361,7 @@ final class PlatformEventMonitor {
     application: AXUIElement
   ) {
     guard
-      !isIncompatibleWithNotificationObservation(
+      !notificationObservationIsDeferred(
         .applicationTopology,
         processID: processID
       )
@@ -413,28 +420,34 @@ final class PlatformEventMonitor {
   }
 
   var notificationObservationFailureCountsValue: NotificationObservationFailureCounts {
-    notificationObservationFailureCounts
+    notificationFailures.mapValues { failures in
+      failures.values.reduce(into: [pid_t: Int]()) {
+        $0[$1.processID, default: 0] += $1.attempts
+      }
+    }.filter { !$0.value.isEmpty }
   }
 
-  private func isIncompatibleWithNotificationObservation(
+  func notificationObservationErrors(kind: NotificationObservationKind, processID: pid_t) -> [Int32] {
+    Set((notificationFailures[kind] ?? [:]).values.compactMap {
+      $0.processID == processID ? $0.error.rawValue : nil
+    }).sorted()
+  }
+
+  private func notificationObservationIsDeferred(
     _ kind: NotificationObservationKind,
     processID: pid_t,
     element: AXUIElement? = nil
   ) -> Bool {
-    if let element {
-      return (windowNotificationFailureCounts[kind]?[element] ?? 0)
-        >= notificationObservationMaxAttempts
-    }
-    return incompatibleNotificationProcessIDs(for: kind).contains(processID)
+    let element = element ?? AXUIElementCreateApplication(processID)
+    return notificationFailures[kind]?[element].map { now() < $0.retryAfter } ?? false
   }
 
   private func incompatibleNotificationProcessIDs(
     for kind: NotificationObservationKind
   ) -> Set<pid_t> {
-    processIDsIncompatibleWithNotificationObservation(
-      notificationObservationFailureCounts,
-      kind: kind
-    )
+    Set((notificationFailures[kind] ?? [:]).values.compactMap {
+      $0.attempts >= notificationObservationMaxAttempts ? $0.processID : nil
+    })
   }
 
   func hasReliableFrameCoverage() -> Bool {
@@ -516,8 +529,7 @@ final class PlatformEventMonitor {
   }
 
   func resetAccessibilityObservers() {
-    notificationObservationFailureCounts.removeAll(keepingCapacity: true)
-    windowNotificationFailureCounts.removeAll(keepingCapacity: true)
+    notificationFailures.removeAll(keepingCapacity: true)
     for observer in observers.values {
       CFRunLoopRemoveSource(
         CFRunLoopGetMain(),
@@ -593,7 +605,9 @@ final class PlatformEventMonitor {
     application: AXUIElement,
     observer: AXObserver
   ) {
-    guard !topologyObservedProcessIDs.contains(processID) else { return }
+    guard !topologyObservedProcessIDs.contains(processID),
+      !notificationObservationIsDeferred(.applicationTopology, processID: processID)
+    else { return }
     if subscribe(
       observer,
       processID: processID,
@@ -617,10 +631,10 @@ final class PlatformEventMonitor {
     notifications: [String]
   ) -> Bool {
     let context = Unmanaged.passUnretained(self).toOpaque()
-    let registered = registerNotificationBatch(
+    let result = registerNotificationBatch(
       notifications: notifications,
       add: { notification in
-        AXObserverAddNotification(
+        addNotification(
           observer,
           element,
           notification as CFString,
@@ -628,26 +642,28 @@ final class PlatformEventMonitor {
         )
       },
       remove: { notification in
-        AXObserverRemoveNotification(
+        _ = removeNotification(
           observer,
           element,
           notification as CFString
         )
       }
     )
-    if !registered {
-      // One obsolete or unsupported window must not disable observation of its siblings.
-      if kind != .applicationTopology {
-        windowNotificationFailureCounts[kind, default: [:]][element, default: 0] += 1
-      }
-      notificationObservationFailureCounts = updatedNotificationObservationFailureCounts(
-        notificationObservationFailureCounts,
-        activeProcessIDs: Set(observers.keys),
-        failedProcessID: processID,
-        kind: kind
+    if result == .success {
+      notificationFailures[kind]?[element] = nil
+    } else {
+      let attempts = min(
+        (notificationFailures[kind]?[element]?.attempts ?? 0) + 1,
+        notificationObservationMaxAttempts
+      )
+      let permanentlyUnsupported = result == .notificationUnsupported || result == .notImplemented
+      notificationFailures[kind, default: [:]][element] = NotificationObservationFailure(
+        processID: processID, attempts: attempts, error: result,
+        retryAfter: attempts < notificationObservationMaxAttempts ? now()
+          : (permanentlyUnsupported ? .infinity : now() + reliableObservationWatchdogInterval)
       )
     }
-    return registered
+    return result == .success
   }
 
   func stop() {

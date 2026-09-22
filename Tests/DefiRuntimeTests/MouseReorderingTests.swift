@@ -8,6 +8,36 @@ struct MouseReorderingTests {
   private let monitorID = MonitorID(rawValue: 1)
   private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
 
+  @Test(arguments: [700.0, 500.0])
+  func completedDragTilesOnDestinationMonitor(height: Double) throws {
+    var state = try makeState(windowCount: 2)
+    let destination = MonitorID(rawValue: 2)
+    state.attachMonitor(destination)
+    let windowID = WindowID(rawValue: 1)
+    let initial = try targetFrame(for: windowID, state: state)
+    let target = Rect(x: 1_000, y: -height, width: 800, height: height)
+    let workspaceID = state.monitors[1].activeWorkspace
+    let released = Rect(x: target.x + 30, y: target.y + 20,
+                        width: initial.width, height: min(initial.height, height - 20))
+    #expect(mouseTranslatedTiledWindowID(
+      candidateWindowIDs: [windowID], externallyChangedFrames: [windowID: released],
+      state: state, viewports: [monitorID: viewport, destination: target]
+    ) == windowID)
+
+    #expect(reorderTiledWindowAfterCompletedMouseDrag(
+      windowID,
+      actualFrame: released,
+      initialFrame: initial, state: &state,
+      viewports: [monitorID: viewport, destination: target]
+    ))
+    #expect(state.location(containing: windowID)?.monitorID == destination)
+    #expect(state.location(containing: windowID)?.workspaceID == workspaceID)
+    #expect(state.selectedWindowID(on: destination) == windowID)
+    #expect(state.windows[windowID]?.floating == false)
+    #expect(state.monitors[1].workspaces.filter { $0.kind == .trailing }.count == 1)
+    #expect(state.monitors[0].workspaces.flatMap(\.columns).flatMap(\.windows) == [WindowID(rawValue: 2)])
+  }
+
   @Test
   func `Horizontal drag reorders columns after crossing neighbor center`() throws {
     var state = try makeState(windowCount: 3)

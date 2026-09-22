@@ -1,6 +1,7 @@
 import CoreGraphics
 import DefiCore
 import DefiModel
+import Foundation
 import Testing
 @testable import DefiMacOS
 
@@ -10,6 +11,103 @@ struct DisplayArrangementControllerTests {
   let second = MonitorID(rawValue: 2)
 
   @Test
+  func shutdownRestorationSurvivesExitAndReopeningReappliesIsolation() {
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+    ]
+    var current = desk
+    var session = desk
+    var scopes: [CGConfigureOption] = []
+    func controller() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current },
+        applyFrames: { frames, scope in
+          scopes.append(scope)
+          current = frames
+          if scope == .forSession { session = frames }
+          return .success
+        }, primaryDisplay: { first }
+      )
+    }
+    let initial = controller()
+    #expect(initial.reconcile())
+    let technical = current
+    #expect(scopes == [.forAppOnly])
+    session = technical // macOS committed the staircase during a display change.
+    #expect(initial.restore() == desk)
+    current = session // WindowServer reverts app-scoped transactions on exit.
+    #expect(current == desk)
+    let reopened = controller()
+    #expect(reopened.reconcile())
+    #expect(current == technical)
+    #expect(scopes == [.forAppOnly, .forSession, .forAppOnly])
+    // Do not overwrite a newer user arrangement that has not been reconciled.
+    current[second]?.x = 0
+    current[second]?.y = -700
+    let userArrangement = current
+    #expect(reopened.restore() == userArrangement)
+    #expect(scopes.count == 3)
+  }
+
+  @Test
+  func restartRetainsPointerCrossingsWhenMacOSKeepsTheTechnicalArrangement() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    let desk = [
+      first: Rect(x: -1_512, y: 50, width: 1_512, height: 982),
+      second: Rect(x: 0, y: 0, width: 1_920, height: 1_080),
+    ]
+    var current = desk
+    func controller(_ router: DisplayPointerRouter, sessionID: String = "session-a") -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current }, applyFrames: { frames, _ in current = frames; return .success },
+        primaryDisplay: { second }, pointerRouter: router,
+        stateURL: stateURL, sessionID: sessionID
+      )
+    }
+    let initial = controller(DisplayPointerRouter(warpPointer: { _ in .success }))
+    #expect(initial.reconcile())
+    current[second]?.width = 2_560
+    current[second]?.height = 1_440
+    initial.invalidate()
+    _ = initial.reconcile()
+    let retainedByMacOS = current
+    initial.restore()
+    // A system display-mode change can retain the technical origins at exit.
+    current = retainedByMacOS
+    let router = DisplayPointerRouter(warpPointer: { _ in .success })
+    let restarted = controller(router)
+    _ = restarted.reconcile()
+    let laptop = try #require(current[first])
+    let crossing = try #require(CGEvent(
+      mouseEventSource: nil, mouseType: .mouseMoved,
+      mouseCursorPosition: CGPoint(x: laptop.x + laptop.width - 1, y: laptop.y + 200),
+      mouseButton: .left
+    ))
+    crossing.setDoubleValueField(.mouseEventDeltaX, value: 5)
+    #expect(router.route(crossing))
+    #expect(restarted.deskFrames == desk)
+    #expect(crossing.location.x == 2)
+    crossing.location.x = 0
+    crossing.setDoubleValueField(.mouseEventDeltaX, value: -5)
+    #expect(router.route(crossing))
+    #expect(abs(crossing.location.y - laptop.y - 200) < 0.001)
+    // Another login must not reuse the saved map, even with identical geometry.
+    let otherSession = controller(DisplayPointerRouter(warpPointer: { _ in .success }), sessionID: "session-b")
+    _ = otherSession.reconcile()
+    #expect(otherSession.deskFrames == retainedByMacOS)
+    // A newer native arrangement also takes precedence within the same login.
+    current[first]?.x = 0
+    current[first]?.y = -982
+    let rearranged = current
+    let native = controller(DisplayPointerRouter(warpPointer: { _ in .success }), sessionID: "session-b")
+    _ = native.reconcile()
+    #expect(native.deskFrames == rearranged)
+  }
+
+  @Test
   func invalidationSuspendsRoutingUntilGeometryIsReconciled() throws {
     var current = [
       first: Rect(x: 0, y: 0, width: 1_000, height: 700),
@@ -17,7 +115,7 @@ struct DisplayArrangementControllerTests {
     ]
     let router = DisplayPointerRouter(warpPointer: { _ in .success })
     let controller = DisplayArrangementController(
-      readFrames: { current }, applyFrames: { current = $0; return .success },
+      readFrames: { current }, applyFrames: { frames, _ in current = frames; return .success },
       primaryDisplay: { first }, pointerRouter: router
     )
     func crossing() throws -> CGEvent {
@@ -70,7 +168,7 @@ struct DisplayArrangementControllerTests {
       second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
     ]
     let controller = DisplayArrangementController(
-      readFrames: { current }, applyFrames: { _ in .success },
+      readFrames: { current }, applyFrames: { _, _ in .success },
       primaryDisplay: { first }
     )
     #expect(!controller.reconcile())
@@ -87,7 +185,7 @@ struct DisplayArrangementControllerTests {
     var writes = 0
     let controller = DisplayArrangementController(
       readFrames: { current },
-      applyFrames: { current = $0; writes += 1; return .success },
+      applyFrames: { frames, _ in current = frames; writes += 1; return .success },
       primaryDisplay: { first }
     )
     #expect(controller.reconcile())
@@ -118,7 +216,7 @@ struct DisplayArrangementControllerTests {
     ]
     var primary = first
     let controller = DisplayArrangementController(
-      readFrames: { current }, applyFrames: { current = $0; return .success },
+      readFrames: { current }, applyFrames: { frames, _ in current = frames; return .success },
       primaryDisplay: { primary }
     )
     _ = controller.reconcile()
@@ -150,7 +248,7 @@ struct DisplayArrangementControllerTests {
     var writes = 0
     let controller = DisplayArrangementController(
       readFrames: { current },
-      applyFrames: { current = $0; writes += 1; return .success },
+      applyFrames: { frames, _ in current = frames; writes += 1; return .success },
       primaryDisplay: { first }
     )
     #expect(controller.reconcile())
@@ -179,7 +277,7 @@ struct DisplayArrangementControllerTests {
     var writes = 0
     let controller = DisplayArrangementController(
       readFrames: { current },
-      applyFrames: { requested in
+      applyFrames: { requested, _ in
         writes += 1
         current = writes == 1
           ? [first: original[first]!, second: Rect(x: 900, y: 0, width: 1_000, height: 700)]
@@ -215,7 +313,7 @@ struct DisplayArrangementControllerTests {
     crossing.location = point
     var writes = 0
     let controller = DisplayArrangementController(
-      readFrames: { original }, applyFrames: { _ in writes += 1; return .failure },
+      readFrames: { original }, applyFrames: { _, _ in writes += 1; return .failure },
       primaryDisplay: { first }, pointerRouter: router
     )
     #expect(!controller.reconcile())

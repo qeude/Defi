@@ -14,31 +14,49 @@ public final class DisplayArrangementController {
   private var savedArrangements: [Set<MonitorID>: [MonitorID: Rect]] = [:]
   private var pending = true
   private let readFrames: () -> [MonitorID: Rect]
-  private let applyFrames: ([MonitorID: Rect]) -> CGError
+  private let applyFrames: ([MonitorID: Rect], CGConfigureOption) -> CGError
   private let primaryDisplay: () -> MonitorID
   private let isMirrored: (MonitorID) -> Bool
+  private let stateURL: URL?
+  private let sessionID: String?
+  private var savedState: StoredDisplayArrangement?
 
-  public convenience init(pointerRouter: DisplayPointerRouter = DisplayPointerRouter()) {
+  public convenience init(
+    pointerRouter: DisplayPointerRouter = DisplayPointerRouter(), sessionID: String? = nil
+  ) {
     self.init(
       readFrames: Self.currentFrames, applyFrames: Self.apply,
       primaryDisplay: { MonitorID(rawValue: UInt64(CGMainDisplayID())) },
       isMirrored: { CGDisplayIsInMirrorSet(CGDirectDisplayID($0.rawValue)) != 0 },
-      pointerRouter: pointerRouter
+      pointerRouter: pointerRouter,
+      stateURL: sessionID == nil ? nil : FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Library/Application Support/Defi/display-arrangement.json"),
+      sessionID: sessionID
     )
   }
 
   init(
     readFrames: @escaping () -> [MonitorID: Rect],
-    applyFrames: @escaping ([MonitorID: Rect]) -> CGError,
+    applyFrames: @escaping ([MonitorID: Rect], CGConfigureOption) -> CGError,
     primaryDisplay: @escaping () -> MonitorID,
     isMirrored: @escaping (MonitorID) -> Bool = { _ in false },
-    pointerRouter: DisplayPointerRouter = DisplayPointerRouter()
+    pointerRouter: DisplayPointerRouter = DisplayPointerRouter(),
+    stateURL: URL? = nil,
+    sessionID: String? = nil
   ) {
     self.readFrames = readFrames
     self.applyFrames = applyFrames
     self.primaryDisplay = primaryDisplay
     self.isMirrored = isMirrored
     self.pointerRouter = pointerRouter
+    self.stateURL = stateURL
+    self.sessionID = sessionID
+    if let stateURL, let data = try? Data(contentsOf: stateURL),
+      let stored = try? JSONDecoder().decode(StoredDisplayArrangement.self, from: data),
+      stored.version == 1, stored.sessionID == sessionID
+    {
+      savedState = stored
+    }
   }
 
   public var needsReconciliation: Bool { pending }
@@ -57,6 +75,21 @@ public final class DisplayArrangementController {
       pending = true
       return false
     }
+    // Display-mode changes can commit our temporary origins to the macOS session.
+    // Recover only our exact last geometry; a new native arrangement wins.
+    if appliedFrames.isEmpty, let savedState, savedState.technical == current,
+      Set(savedState.desk.keys) == Set(current.keys),
+      savedState.desk.values.allSatisfy({ frame in
+        [frame.x, frame.y, frame.width, frame.height].allSatisfy(\.isFinite)
+          && frame.width > 0 && frame.height > 0
+      })
+    {
+      deskFrames = savedState.desk
+      appliedFrames = current
+      savedArrangements[Set(current.keys)] = deskFrames
+      status = current == deskFrames ? "native" : "isolated"
+    }
+    defer { saveArrangement() }
     if current == appliedFrames {
       pointerRouter.update(technical: current, desk: status == "native" ? current : deskFrames)
       return false
@@ -107,11 +140,11 @@ public final class DisplayArrangementController {
       return false
     }
     pointerRouter.update(technical: [:], desk: [:])
-    let result = applyFrames(desired)
+    let result = applyFrames(desired, .forAppOnly)
     let observed = readFrames()
     guard result == .success, observed == desired else {
       // Never run a logical pointer map against geometry the OS did not accept.
-      if observed != current { _ = applyFrames(current) }
+      if observed != current { _ = applyFrames(current, .forAppOnly) }
       appliedFrames = readFrames()
       deskFrames = appliedFrames
       pointerRouter.update(technical: appliedFrames, desk: appliedFrames)
@@ -132,11 +165,30 @@ public final class DisplayArrangementController {
     // Do not undo a newer native arrangement made after our last reconciliation.
     guard current == appliedFrames, Set(current.keys) == Set(deskFrames.keys) else { return current }
     if current != deskFrames {
-      let result = applyFrames(deskFrames)
+      // App-scoped restoration is itself undone at exit if macOS has retained
+      // the staircase in its session configuration (for example after scaling).
+      let result = applyFrames(deskFrames, .forSession)
       status = result == .success ? "restored" : "restore-failed:\(result.rawValue)"
     }
     appliedFrames = readFrames()
     return appliedFrames
+  }
+
+  private func saveArrangement() {
+    guard let stateURL, let sessionID else { return }
+    let updated = StoredDisplayArrangement(
+      sessionID: sessionID, technical: appliedFrames, desk: deskFrames
+    )
+    guard updated != savedState else { return }
+    do {
+      try FileManager.default.createDirectory(
+        at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true
+      )
+      try JSONEncoder().encode(updated).write(to: stateURL, options: .atomic)
+      savedState = updated
+    } catch {
+      FileHandle.standardError.write(Data("[defi] display arrangement persistence failed: \(error)\n".utf8))
+    }
   }
 
   static func currentFrames() -> [MonitorID: Rect] {
@@ -152,7 +204,7 @@ public final class DisplayArrangementController {
     })
   }
 
-  static func apply(_ frames: [MonitorID: Rect]) -> CGError {
+  static func apply(_ frames: [MonitorID: Rect], scope: CGConfigureOption = .forAppOnly) -> CGError {
     var transaction: CGDisplayConfigRef?
     let begin = CGBeginDisplayConfiguration(&transaction)
     guard begin == .success, let transaction else { return begin }
@@ -172,8 +224,15 @@ public final class DisplayArrangementController {
         return result
       }
     }
-    return CGCompleteDisplayConfiguration(transaction, .forAppOnly)
+    return CGCompleteDisplayConfiguration(transaction, scope)
   }
+}
+
+private struct StoredDisplayArrangement: Codable, Equatable {
+  var version = 1
+  let sessionID: String
+  let technical: [MonitorID: Rect]
+  let desk: [MonitorID: Rect]
 }
 
 /// Called on the existing input thread; AX work and main-thread layout cannot

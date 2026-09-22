@@ -630,10 +630,6 @@ extension Daemon {
         if let gestureWindowID,
           let actualFrame,
           let mouseGestureInitialFrame,
-          mouseFrameWasTranslated(
-            from: mouseGestureInitialFrame,
-            to: actualFrame
-          ),
           reorderTiledWindowAfterCompletedMouseDrag(
             gestureWindowID,
             actualFrame: actualFrame,
@@ -643,6 +639,14 @@ extension Daemon {
           )
         {
           mouseReordered = true
+          if let destination = state.monitorID(containing: gestureWindowID),
+            destination != mouseGestureScrollAnchor?.monitorID
+          {
+            mouseGestureScrollAnchor = nil
+            activeMonitorID = destination
+            nativelyFocusedMonitorID = destination
+            if nativeFocusFrameMonitorID != nil { nativeFocusFrameMonitorID = destination }
+          }
           platform.recordPerformanceTrace(
             "mouse-reorder window=\(gestureWindowID.rawValue)"
           )

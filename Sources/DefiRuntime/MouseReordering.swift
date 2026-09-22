@@ -272,8 +272,9 @@ public func mouseTranslatedTiledWindowID(
     )
     guard let actual = externallyChangedFrames[windowID],
       let target = targets[windowID],
-      abs(actual.width - target.width) <= sizeTolerance,
-      abs(actual.height - target.height) <= sizeTolerance,
+      (abs(actual.width - target.width) <= sizeTolerance
+        && abs(actual.height - target.height) <= sizeTolerance)
+        || mouseDropMonitor(actual, viewports: viewports).map({ $0 != monitor.id }) == true,
       abs(actual.x - target.x) > positionTolerance
         || abs(actual.y - target.y) > positionTolerance
     else {
@@ -417,6 +418,35 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> Bool {
+  if let initialFrame,
+    abs(actualFrame.x - initialFrame.x) > 2 || abs(actualFrame.y - initialFrame.y) > 2,
+    let source = state.location(containing: windowID),
+    state.windows[windowID]?.floating == false,
+    !state.nativeFullscreenWindowIDs.contains(windowID),
+    let sourceMonitorIndex = state.monitors.firstIndex(where: { $0.id == source.monitorID }),
+    state.monitors[sourceMonitorIndex].activeWorkspace == source.workspaceID,
+    let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(where: {
+      $0.id == source.workspaceID
+    }),
+    let targetMonitorID = mouseDropMonitor(actualFrame, viewports: viewports),
+    targetMonitorID != source.monitorID,
+    let targetMonitorIndex = state.monitors.firstIndex(where: { $0.id == targetMonitorID }),
+    let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(where: {
+      $0.id == state.monitors[targetMonitorIndex].activeWorkspace
+    })
+  {
+    // The native move can also clamp size on the destination display.
+    // Transfer ownership before the same-monitor translation/resize check.
+    _ = focusWindow(windowID, state: &state)
+    moveFocusedSelection(
+      movesWholeColumn: false, follow: true, preservesUserFloatingPlacement: true,
+      sourceMonitorIndex: sourceMonitorIndex, sourceWorkspaceIndex: sourceWorkspaceIndex,
+      targetMonitorIndex: targetMonitorIndex, targetWorkspaceIndex: targetWorkspaceIndex,
+      monitorFrames: viewports, viewports: viewports, state: &state
+    )
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+    return state.monitorID(containing: windowID) == targetMonitorID
+  }
   let maximumReorders = state.monitors.lazy
     .flatMap(\.workspaces)
     .map(\.columns.count)
@@ -484,6 +514,15 @@ private func activeColumnIndex(
     }
   }
   return nil
+}
+
+private func mouseDropMonitor(_ frame: Rect, viewports: [MonitorID: Rect]) -> MonitorID? {
+  let x = frame.x + frame.width / 2, y = frame.y + frame.height / 2
+  return viewports.keys.sorted { $0.rawValue < $1.rawValue }.first {
+    let viewport = viewports[$0]!
+    return x >= viewport.x && x < viewport.x + viewport.width
+      && y >= viewport.y && y < viewport.y + viewport.height
+  }
 }
 
 private func insertionIndex(coordinate: Double, centers: [Double]) -> Int {
