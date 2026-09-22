@@ -8,6 +8,29 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test @NavigationActor
+  func deferredIPCReplyReportsExecutionOrCancellation() {
+    let executed = DeferredCommandReply()
+    executed.deferResponse()
+    executed.perform { .failure("invalid workspace") }
+    #expect(executed.wasDeferred)
+    #expect(executed.wait() == .failure("invalid workspace"))
+
+    let cancelled = DeferredCommandReply()
+    cancelled.deferResponse()
+    cancelled.fail("desktop session inactive")
+    var ran = false
+    cancelled.perform { ran = true; return .success() }
+    #expect(!ran)
+    #expect(cancelled.wait() == .failure("desktop session inactive"))
+
+    let timedOut = DeferredCommandReply()
+    timedOut.deferResponse()
+    #expect(!timedOut.wait(timeout: .now()).ok)
+    timedOut.perform { ran = true; return .success() }
+    #expect(!ran)
+  }
+
   @Test
   func deferredSnapshotPreservesRefreshesAcrossOrdinaryAndForcedRequests() {
     let reload: DesktopSnapshotRequest = (true, true, true, false)

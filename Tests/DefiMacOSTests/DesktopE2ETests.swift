@@ -374,7 +374,9 @@ final class DesktopE2ETests: XCTestCase {
   func testUserAdjustedFramesReadFreshGeometryOffNavigationExecutor() async throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    let window = try XCTUnwrap(testWindows(in: snapshot).first)
+    guard let window = testWindows(in: snapshot).first else {
+      throw XCTSkip("No manageable desktop window")
+    }
     onNavigation {
       platform.latestObservedFrames[window.id] = Rect(x: -20_000, y: -20_000, width: 1, height: 1)
     }

@@ -8,6 +8,52 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+/// Lets an IPC client wait for a deferred command without occupying navigation.
+final class DeferredCommandReply: @unchecked Sendable {
+  private let lock = NSLock()
+  private let ready = DispatchSemaphore(value: 0)
+  private var deferred = false
+  private var response: CommandResponse?
+
+  var wasDeferred: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return deferred
+  }
+
+  func deferResponse() {
+    lock.lock()
+    deferred = true
+    lock.unlock()
+  }
+
+  @NavigationActor func perform(_ command: () -> CommandResponse) {
+    lock.lock()
+    guard response == nil else { lock.unlock(); return }
+    response = command()
+    lock.unlock()
+    ready.signal()
+  }
+
+  func fail(_ message: String) {
+    lock.lock()
+    guard response == nil else { lock.unlock(); return }
+    response = .failure(message)
+    lock.unlock()
+    ready.signal()
+  }
+
+  func wait(timeout: DispatchTime = .now() + 1.5) -> CommandResponse {
+    // The Unix socket's response timeout is two seconds.
+    if ready.wait(timeout: timeout) == .timedOut {
+      fail("window geometry read timed out; command was not applied")
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    return response ?? .failure("window geometry response unavailable")
+  }
+}
+
 private func ipcEventHandler(
   server: UnixSocketServer,
   clientQueue: DispatchQueue,
@@ -29,7 +75,8 @@ private func ipcEventHandler(
               return cached
             }
             let receivedAt = ProcessInfo.processInfo.systemUptime
-            return NavigationActor.shared.queue.sync {
+            let deferred = DeferredCommandReply()
+            let response = NavigationActor.shared.queue.sync {
               NavigationActor.assumeIsolated {
                 guard let daemon else {
                   return CommandResponse.failure("daemon unavailable")
@@ -37,7 +84,8 @@ private func ipcEventHandler(
                 let response = daemon.handle(
                   request.command,
                   monitorIndex: request.monitorIndex,
-                  receivedAt: receivedAt
+                  receivedAt: receivedAt,
+                  deferredResponse: deferred
                 )
                 if DaemonReadResponseCache.isReadCommand(request.command),
                   response.ok
@@ -51,6 +99,7 @@ private func ipcEventHandler(
                 return response
               }
             }
+            return deferred.wasDeferred ? deferred.wait() : response
           },
           completion: { [weak daemon] request in
             guard request.command == "quit" else { return }
@@ -233,7 +282,8 @@ extension Daemon {
     monitorIndex: Int? = nil,
     inputTimestamp: TimeInterval? = nil,
     receivedAt: TimeInterval? = nil,
-    floatingFramesRefreshed: Bool = false
+    floatingFramesRefreshed: Bool = false,
+    deferredResponse: DeferredCommandReply? = nil
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
       let lines = currentWorkspaceState().monitors.map { monitor in
@@ -282,10 +332,26 @@ extension Daemon {
     }
     guard !shouldShutdown, !restorationInFlight else { return .failure("window restoration in progress") }
     if commandFrameReadTask != nil {
+      do {
+        _ = try parseCommand(rawCommand)
+      } catch {
+        return .failure(String(describing: error))
+      }
+      if let monitorIndex, monitorID(atAppKitIndex: monitorIndex) == nil {
+        return .failure("unknown monitor index: \(monitorIndex)")
+      }
       guard commandsAfterFrameRead.count < 64 else { return .failure("command queue full") }
+      deferredResponse?.deferResponse()
+      if let deferredResponse { deferredFrameReplies.append(deferredResponse) }
       commandsAfterFrameRead.append { [weak self] in
-        self?.handle(rawCommand, monitorIndex: monitorIndex,
-          inputTimestamp: inputTimestamp, receivedAt: receivedAt)
+        let command = {
+          self?.handle(rawCommand, monitorIndex: monitorIndex,
+            inputTimestamp: inputTimestamp ?? receivedAt,
+            receivedAt: receivedAt, floatingFramesRefreshed: true)
+            ?? .failure("daemon unavailable")
+        }
+        if let deferredResponse { deferredResponse.perform(command) }
+        else { _ = command() }
       }
       return .success("queued for current window geometry")
     }
@@ -318,17 +384,21 @@ extension Daemon {
       }
       if !floatingFramesRefreshed, platform.hasPendingMouseResizeGesture,
         command.activatesWorkspace || command.movesWindowBetweenWorkspaces || command.movesWindowsAcrossMonitors,
-        let monitorID = commandMonitorID
+        commandMonitorID != nil
       {
-        let windowIDs = floatingWindowIDsForWorkspaceMutation(monitors: state.monitors, monitorID: monitorID)
+        let windowIDs = Set(state.monitors.flatMap {
+          floatingWindowIDsForWorkspaceMutation(monitors: state.monitors, monitorID: $0.id)
+        })
         if !windowIDs.isEmpty {
+          deferredResponse?.deferResponse()
+          if let deferredResponse { deferredFrameReplies.append(deferredResponse) }
           commandFrameReadTask = Task { [weak self] in
             guard let self else { return }
             let frames = await platform.userAdjustedFrames(for: windowIDs)
             guard !Task.isCancelled else { return }
             commandFrameReadTask = nil
             guard !shouldShutdown, !restorationInFlight else {
-              commandsAfterFrameRead.removeAll(keepingCapacity: true)
+              cancelPendingCommandFrameRead()
               return
             }
             for (windowID, frame) in frames where state.windows[windowID]?.floating == true {
@@ -337,8 +407,14 @@ extension Daemon {
             }
             let queued = commandsAfterFrameRead
             commandsAfterFrameRead.removeAll(keepingCapacity: true)
-            handle(rawCommand, monitorIndex: monitorIndex, inputTimestamp: inputTimestamp,
-              receivedAt: receivedAt, floatingFramesRefreshed: true)
+            deferredFrameReplies.removeAll(keepingCapacity: true)
+            let command = {
+              self.handle(rawCommand, monitorIndex: monitorIndex,
+                inputTimestamp: inputTimestamp ?? receivedAt,
+                receivedAt: receivedAt, floatingFramesRefreshed: true)
+            }
+            if let deferredResponse { deferredResponse.perform(command) }
+            else { _ = command() }
             for command in queued { command() }
           }
           return .success("queued for current window geometry")

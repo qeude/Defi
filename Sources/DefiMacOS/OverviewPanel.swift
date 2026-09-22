@@ -104,7 +104,7 @@ final class OverviewPanel {
     window.alphaValue = 1
     view.wantsLayer = true
     window.orderFrontRegardless()
-    guard desktopView.layer?.contents == nil else { return }
+    guard !view.hasDesktopImage else { return }
     desktopImageTask?.cancel()
     desktopImageTask = Task { @MainActor [weak self] in
       guard !Task.isCancelled, let screen = self?.window.screen,

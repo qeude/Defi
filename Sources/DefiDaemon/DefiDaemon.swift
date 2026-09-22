@@ -144,6 +144,7 @@ final class Daemon {
   var pendingHotKeyCommands: [HotKeyInvocation] = []
   var commandFrameReadTask: Task<Void, Never>?
   var commandsAfterFrameRead: [@NavigationActor @Sendable () -> Void] = []
+  var deferredFrameReplies: [DeferredCommandReply] = []
   var processingHotKeyCommands = false
   var processedHotKeyCount = 0
   var needsDesktopSync = true

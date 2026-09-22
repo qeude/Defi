@@ -105,6 +105,10 @@ func updateFloatingWindowFrames(
     commandFrameReadTask?.cancel()
     commandFrameReadTask = nil
     commandsAfterFrameRead.removeAll(keepingCapacity: true)
+    for reply in deferredFrameReplies {
+      reply.fail("window geometry read cancelled; command was not applied")
+    }
+    deferredFrameReplies.removeAll(keepingCapacity: true)
   }
 
   private func floatingFrame(for windowID: WindowID) -> Rect? {

@@ -14,6 +14,7 @@ final class OverviewView: NSView {
   private var borderStyle = WindowBorderStyle(config: BordersConfig())
   private var windowCornerRadius = 12.0
   private var desktopImage: NSImage?
+  var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: NSImage] = [:]
   private var previewOpacities: [WindowID: Double] = [:]
   private var mouseDownPoint: NSPoint?

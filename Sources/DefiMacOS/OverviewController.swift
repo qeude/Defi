@@ -1078,10 +1078,17 @@ public final class OverviewController: NSObject {
 
   private func startPreviewFadeAnimation(on monitorID: MonitorID) {
     guard animationsEnabled,
-      !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-      let link = displayLink(on: monitorID)
+      !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     else {
       resetPreviewFadeAnimation()
+      return
+    }
+    guard let link = displayLink(on: monitorID) else {
+      if let projection = projections[monitorID] {
+        for card in projection.workspaces.flatMap(\.windows) {
+          previewRevealStartedAt[card.windowID] = nil
+        }
+      }
       return
     }
     link.isPaused = false
