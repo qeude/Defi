@@ -249,13 +249,21 @@ extension Daemon {
       finishMouseGestureTracking()
     }
     latestMonitors = snapshot.monitors
-    let previousTargetMismatches = displayGeometryChanged ? [] : targetMismatches
-    let previousMismatchObservationTimes = targetMismatchObservedSince
+    let previousMismatchObservationState =
+      displayGeometryChanged
+      ? WidthMismatchObservationState()
+      : targetMismatchObservationState
+    let previousTargetMismatches = Array(
+      previousMismatchObservationState.mismatchesByWindowID.values
+    )
     targetMismatches = displayGeometryChanged ? [] : snapshot.targetMismatches
-    targetMismatchObservedSince = widthMismatchObservationTimes(
+    targetMismatchObservationState = updateWidthMismatchObservationState(
+      previous: previousMismatchObservationState,
       current: targetMismatches,
-      previous: previousTargetMismatches,
-      previousObservationTimes: previousMismatchObservationTimes,
+      freshObservationIDs: snapshot.freshFrameObservationIDs,
+      removedWindowIDs: snapshot.removedWindowIDs.union(
+        snapshot.windowIDReplacements.keys
+      ),
       now: snapshotCompletedAt
     )
     state.retainMonitors(
@@ -724,7 +732,7 @@ extension Daemon {
       learnPersistentWidthConstraints(
         targetMismatches,
         previous: previousTargetMismatches,
-        observedSince: targetMismatchObservedSince,
+        observedSince: targetMismatchObservationState.observedSince,
         now: snapshotCompletedAt
       )
     }

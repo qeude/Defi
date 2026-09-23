@@ -26,29 +26,39 @@ func settledWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?) ->
   }
 }
 
-func widthMismatchObservationTimes(
+struct WidthMismatchObservationState {
+  var mismatchesByWindowID: [WindowID: FrameMismatch] = [:]
+  var observedSince: [WindowID: TimeInterval] = [:]
+}
+
+func updateWidthMismatchObservationState(
+  previous: WidthMismatchObservationState,
   current: [FrameMismatch],
-  previous: [FrameMismatch],
-  previousObservationTimes: [WindowID: TimeInterval],
+  freshObservationIDs: Set<WindowID>,
+  removedWindowIDs: Set<WindowID> = [],
   now: TimeInterval
-) -> [WindowID: TimeInterval] {
-  let previousByWindowID = Dictionary(
-    uniqueKeysWithValues: previous.map { ($0.windowID, $0) }
-  )
-  var observationTimes: [WindowID: TimeInterval] = [:]
-  for mismatch in current
-  where abs(mismatch.actual.x - mismatch.target.x) <= 1
-    && abs(mismatch.actual.y - mismatch.target.y) <= 1
-  {
+) -> WidthMismatchObservationState {
+  var next = previous
+  for windowID in freshObservationIDs.union(removedWindowIDs) {
+    next.mismatchesByWindowID[windowID] = nil
+    next.observedSince[windowID] = nil
+  }
+
+  for mismatch in current where freshObservationIDs.contains(mismatch.windowID) {
+    let windowID = mismatch.windowID
     let isSameMismatch = settledWidthMismatch(
       mismatch,
-      previous: previousByWindowID[mismatch.windowID]
+      previous: previous.mismatchesByWindowID[windowID]
     )
-    observationTimes[mismatch.windowID] = isSameMismatch
-      ? previousObservationTimes[mismatch.windowID] ?? now
+    next.mismatchesByWindowID[windowID] = mismatch
+    guard abs(mismatch.actual.x - mismatch.target.x) <= 1,
+      abs(mismatch.actual.y - mismatch.target.y) <= 1
+    else { continue }
+    next.observedSince[windowID] = isSameMismatch
+      ? previous.observedSince[windowID] ?? now
       : now
   }
-  return observationTimes
+  return next
 }
 
 func persistentWidthMismatch(

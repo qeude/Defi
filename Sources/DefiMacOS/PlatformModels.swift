@@ -71,6 +71,7 @@ public struct DesktopSnapshot: Sendable {
   public let mouseFocusIntentWindowID: WindowID?
   public let mouseFocusIntentTimestamp: TimeInterval?
   public let keyboardFocusIntentTimestamp: TimeInterval?
+  public let freshFrameObservationIDs: Set<WindowID>
   public let targetMismatches: [FrameMismatch]
   public let frontmostProcessID: pid_t?
 
@@ -95,6 +96,7 @@ public struct DesktopSnapshot: Sendable {
     mouseFocusIntentWindowID: WindowID? = nil,
     mouseFocusIntentTimestamp: TimeInterval? = nil,
     keyboardFocusIntentTimestamp: TimeInterval? = nil,
+    freshFrameObservationIDs: Set<WindowID>? = nil,
     targetMismatches: [FrameMismatch] = [],
     frontmostProcessID: pid_t? = nil
   ) {
@@ -119,6 +121,8 @@ public struct DesktopSnapshot: Sendable {
     self.mouseFocusIntentWindowID = mouseFocusIntentWindowID
     self.mouseFocusIntentTimestamp = mouseFocusIntentTimestamp
     self.keyboardFocusIntentTimestamp = keyboardFocusIntentTimestamp
+    self.freshFrameObservationIDs =
+      freshFrameObservationIDs ?? Set(windows.map(\.id))
     self.targetMismatches = targetMismatches
     self.frontmostProcessID = frontmostProcessID
   }

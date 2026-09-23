@@ -41,48 +41,67 @@ struct DaemonCommandPolicyTests {
     #expect(!settledWidthMismatch(clamped, previous: changedWidth))
     #expect(!settledWidthMismatch(clamped, previous: changedTarget))
 
-    #expect(
-      widthMismatchObservationTimes(
-        current: [source],
-        previous: [],
-        previousObservationTimes: [:],
-        now: 10
-      ).isEmpty
-    )
-
-    let firstObservation = widthMismatchObservationTimes(
-      current: [clamped],
-      previous: [],
-      previousObservationTimes: [:],
+    let movingObservation = updateWidthMismatchObservationState(
+      previous: WidthMismatchObservationState(),
+      current: [source],
+      freshObservationIDs: [windowID],
       now: 10
     )
-    let repeatedObservation = widthMismatchObservationTimes(
+    #expect(movingObservation.observedSince.isEmpty)
+
+    let firstObservation = updateWidthMismatchObservationState(
+      previous: WidthMismatchObservationState(),
       current: [clamped],
-      previous: [clamped],
-      previousObservationTimes: firstObservation,
-      now: 10.1
+      freshObservationIDs: [windowID],
+      now: 10
     )
-    #expect(repeatedObservation[windowID] == 10)
+    #expect(firstObservation.observedSince[windowID] == 10)
+
+    let cachedObservation = updateWidthMismatchObservationState(
+      previous: firstObservation,
+      current: [],
+      freshObservationIDs: [],
+      now: 10.3
+    )
+    #expect(cachedObservation.mismatchesByWindowID[windowID] == clamped)
+    #expect(cachedObservation.observedSince[windowID] == 10)
     #expect(!persistentWidthMismatch(
       clamped,
-      previous: clamped,
-      observedSince: repeatedObservation[windowID],
-      now: 10.1
+      previous: cachedObservation.mismatchesByWindowID[windowID],
+      observedSince: cachedObservation.observedSince[windowID],
+      now: 10.4
     ))
+
+    let repeatedObservation = updateWidthMismatchObservationState(
+      previous: cachedObservation,
+      current: [clamped],
+      freshObservationIDs: [windowID],
+      now: 10.5
+    )
+    #expect(repeatedObservation.observedSince[windowID] == 10)
     #expect(persistentWidthMismatch(
       clamped,
-      previous: clamped,
-      observedSince: repeatedObservation[windowID],
+      previous: cachedObservation.mismatchesByWindowID[windowID],
+      observedSince: repeatedObservation.observedSince[windowID],
       now: 10.5
     ))
 
-    let clearedObservations = widthMismatchObservationTimes(
-      current: [],
-      previous: [clamped],
-      previousObservationTimes: repeatedObservation,
+    let changedObservation = updateWidthMismatchObservationState(
+      previous: repeatedObservation,
+      current: [changedWidth],
+      freshObservationIDs: [windowID],
       now: 10.6
     )
-    #expect(clearedObservations.isEmpty)
+    #expect(changedObservation.observedSince[windowID] == 10.6)
+
+    let clearedObservations = updateWidthMismatchObservationState(
+      previous: changedObservation,
+      current: [],
+      freshObservationIDs: [windowID],
+      now: 10.7
+    )
+    #expect(clearedObservations.mismatchesByWindowID.isEmpty)
+    #expect(clearedObservations.observedSince.isEmpty)
   }
 
   @Test @NavigationActor
