@@ -507,6 +507,14 @@ extension AXFrameCoordinator {
           let observedSize = acceptedSize,
           abs(observedSize.width - size.width) >= 0.5
             || abs(observedSize.height - size.height) >= 0.5,
+          frameCentersCrossDisplays(
+            from: Rect(
+              x: item.value.fromPoint.x, y: item.value.fromPoint.y,
+              width: item.value.fromSize.width, height: item.value.fromSize.height
+            ),
+            to: interpolated,
+            displayFrames: DisplayArrangementController.currentFrames()
+          ),
           isCurrent(generation: frame.generation)
         {
           sizeApplied = accessibilityWriter.applySize(

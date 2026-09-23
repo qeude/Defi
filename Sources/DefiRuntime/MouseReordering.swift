@@ -275,7 +275,8 @@ public func mouseTranslatedTiledWindowID(
       let target = targets[windowID],
       (abs(actual.width - target.width) <= sizeTolerance
         && abs(actual.height - target.height) <= sizeTolerance)
-        || mouseDropMonitor(actual, monitorFrames: monitorFrames).map({ $0 != monitor.id }) == true,
+        || (mouseDropMonitor(actual, monitorFrames: monitorFrames).map({ $0 != monitor.id }) == true
+          && mouseFrameMovedBothEdges(from: target, to: actual, tolerance: positionTolerance)),
       abs(actual.x - target.x) > positionTolerance
         || abs(actual.y - target.y) > positionTolerance
     else {
@@ -296,6 +297,17 @@ public func mouseFrameWasTranslated(
     && abs(actualFrame.height - initialFrame.height) <= sizeTolerance
     && (abs(actualFrame.x - initialFrame.x) > positionTolerance
       || abs(actualFrame.y - initialFrame.y) > positionTolerance)
+}
+
+private func mouseFrameMovedBothEdges(
+  from initial: Rect,
+  to actual: Rect,
+  tolerance: Double = 2
+) -> Bool {
+  (abs(actual.x - initial.x) > tolerance
+    && abs(actual.x + actual.width - initial.x - initial.width) > tolerance)
+    || (abs(actual.y - initial.y) > tolerance
+      && abs(actual.y + actual.height - initial.y - initial.height) > tolerance)
 }
 
 @discardableResult
@@ -421,7 +433,7 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
   monitorFrames: [MonitorID: Rect]
 ) -> Bool {
   if let initialFrame,
-    abs(actualFrame.x - initialFrame.x) > 2 || abs(actualFrame.y - initialFrame.y) > 2,
+    mouseFrameMovedBothEdges(from: initialFrame, to: actualFrame),
     let source = state.location(containing: windowID),
     state.windows[windowID]?.floating == false,
     !state.nativeFullscreenWindowIDs.contains(windowID),

@@ -66,6 +66,39 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func resizingAcrossMonitorBoundaryDoesNotTransferWindow() throws {
+    var state = try makeState(windowCount: 2)
+    let destination = MonitorID(rawValue: 2)
+    state.attachMonitor(destination)
+    state.monitors[0].workspaces[0].scrollOffset = 0.3
+    let windowID = WindowID(rawValue: 2)
+    let sourceViewport = Rect(x: 0, y: 0, width: 1_300, height: 700)
+    let destinationViewport = Rect(x: 1_300, y: 0, width: 1_000, height: 700)
+    let workspace = state.monitors[0].workspaces[0]
+    let initial = try #require(computeLayout(
+      workspace: workspace, viewport: sourceViewport,
+      windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+      settings: state.layout
+    ).first(where: { $0.windowID == windowID })?.frame)
+    let released = Rect(
+      x: initial.x + initial.width - 250, y: initial.y,
+      width: 250, height: initial.height
+    )
+    let viewports = [monitorID: sourceViewport, destination: destinationViewport]
+    #expect(initial.x + initial.width / 2 < destinationViewport.x)
+    #expect(released.x + released.width / 2 >= destinationViewport.x)
+    #expect(mouseTranslatedTiledWindowID(
+      candidateWindowIDs: [windowID], externallyChangedFrames: [windowID: released],
+      state: state, viewports: viewports, monitorFrames: viewports
+    ) == nil)
+    #expect(!reorderTiledWindowAfterCompletedMouseDrag(
+      windowID, actualFrame: released, initialFrame: initial,
+      state: &state, viewports: viewports, monitorFrames: viewports
+    ))
+    #expect(state.monitorID(containing: windowID) == monitorID)
+  }
+
+  @Test
   func `Horizontal drag reorders columns after crossing neighbor center`() throws {
     var state = try makeState(windowCount: 3)
     let draggedID = WindowID(rawValue: 1)

@@ -66,6 +66,25 @@ func interpolatedFrame(
   )
 }
 
+func frameCentersCrossDisplays(
+  from source: Rect,
+  to target: Rect,
+  displayFrames: [MonitorID: Rect]
+) -> Bool {
+  func display(containing frame: Rect) -> MonitorID? {
+    let x = frame.x + frame.width / 2
+    let y = frame.y + frame.height / 2
+    return displayFrames.first { _, display in
+      x >= display.x && x < display.x + display.width
+        && y >= display.y && y < display.y + display.height
+    }?.key
+  }
+  guard let sourceDisplay = display(containing: source),
+    let targetDisplay = display(containing: target)
+  else { return false }
+  return sourceDisplay != targetDisplay
+}
+
 struct AsyncPositionWrite: @unchecked Sendable {
   let element: AXUIElement
   let application: AXUIElement
