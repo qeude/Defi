@@ -513,7 +513,7 @@ extension AXFrameCoordinator {
               width: item.value.fromSize.width, height: item.value.fromSize.height
             ),
             to: interpolated,
-            displayFrames: DisplayArrangementController.currentFrames()
+            displayFrames: frame.monitorFrames
           ),
           isCurrent(generation: frame.generation)
         {

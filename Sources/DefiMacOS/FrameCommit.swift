@@ -69,18 +69,10 @@ func interpolatedFrame(
 func frameCentersCrossDisplays(
   from source: Rect,
   to target: Rect,
-  displayFrames: [MonitorID: Rect]
+  displayFrames: [Rect]
 ) -> Bool {
-  func display(containing frame: Rect) -> MonitorID? {
-    let x = frame.x + frame.width / 2
-    let y = frame.y + frame.height / 2
-    return displayFrames.first { _, display in
-      x >= display.x && x < display.x + display.width
-        && y >= display.y && y < display.y + display.height
-    }?.key
-  }
-  guard let sourceDisplay = display(containing: source),
-    let targetDisplay = display(containing: target)
+  guard let sourceDisplay = displayFrames.firstIndex(where: { $0.contains(centerOf: source) }),
+    let targetDisplay = displayFrames.firstIndex(where: { $0.contains(centerOf: target) })
   else { return false }
   return sourceDisplay != targetDisplay
 }
@@ -242,6 +234,7 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let animationDuration: TimeInterval
   let refreshRateHz: Double
   let displayIDs: Set<UInt64>
+  let monitorFrames: [Rect]
   let initialProgressVelocity: Double
   let stagesVisibleBeforeParking: Bool
   let successfulWrite: (@Sendable (WindowID, TimeInterval) -> Void)?
@@ -257,6 +250,7 @@ struct QueuedPositionFrame: @unchecked Sendable {
     animationDuration: TimeInterval,
     refreshRateHz: Double,
     displayIDs: Set<UInt64>,
+    monitorFrames: [Rect] = [],
     initialProgressVelocity: Double,
     stagesVisibleBeforeParking: Bool,
     successfulWrite: (@Sendable (WindowID, TimeInterval) -> Void)? = nil,
@@ -271,6 +265,7 @@ struct QueuedPositionFrame: @unchecked Sendable {
     self.animationDuration = animationDuration
     self.refreshRateHz = refreshRateHz
     self.displayIDs = displayIDs
+    self.monitorFrames = monitorFrames
     self.initialProgressVelocity = initialProgressVelocity
     self.stagesVisibleBeforeParking = stagesVisibleBeforeParking
     self.successfulWrite = successfulWrite

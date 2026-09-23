@@ -191,7 +191,7 @@ public final class DisplayArrangementController {
     }
   }
 
-  nonisolated static func currentFrames() -> [MonitorID: Rect] {
+  static func currentFrames() -> [MonitorID: Rect] {
     var count: UInt32 = 0
     guard CGGetActiveDisplayList(0, nil, &count) == .success else { return [:] }
     var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))

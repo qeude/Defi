@@ -531,11 +531,8 @@ private func activeColumnIndex(
 }
 
 private func mouseDropMonitor(_ frame: Rect, monitorFrames: [MonitorID: Rect]) -> MonitorID? {
-  let x = frame.x + frame.width / 2, y = frame.y + frame.height / 2
   return monitorFrames.keys.sorted { $0.rawValue < $1.rawValue }.first {
-    let monitor = monitorFrames[$0]!
-    return x >= monitor.x && x < monitor.x + monitor.width
-      && y >= monitor.y && y < monitor.y + monitor.height
+    monitorFrames[$0]!.contains(centerOf: frame)
   }
 }
 

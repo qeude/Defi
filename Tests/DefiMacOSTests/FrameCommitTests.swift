@@ -1437,8 +1437,8 @@ struct FrameCommitTests {
   @Test
   func `Size clamp retry requires a cross-display move`() {
     let displays = [
-      MonitorID(rawValue: 1): Rect(x: 0, y: 0, width: 1_000, height: 700),
-      MonitorID(rawValue: 2): Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+      Rect(x: 0, y: 0, width: 1_000, height: 700),
+      Rect(x: 1_000, y: 0, width: 1_000, height: 700),
     ]
     let initial = Rect(x: 100, y: 0, width: 800, height: 700)
     #expect(frameCentersCrossDisplays(
