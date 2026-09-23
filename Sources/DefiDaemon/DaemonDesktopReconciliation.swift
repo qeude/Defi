@@ -13,6 +13,17 @@ let displayLogger = Logger(
   category: "Display"
 )
 
+func persistentWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?) -> Bool {
+  guard let previous, previous.windowID == current.windowID,
+    previous.target == current.target,
+    abs(previous.actual.width - current.actual.width) <= 1
+  else { return false }
+  return [previous.actual, current.actual].allSatisfy { frame in
+    abs(frame.x - current.target.x) <= 1
+      && abs(frame.y - current.target.y) <= 1
+  }
+}
+
 func flushPlacementStore(
   _ store: PlacementStore,
   preferences: PlacementPreferences,
@@ -265,9 +276,18 @@ extension Daemon {
     lastDisplayedFrameRebaseDelta = rebase.delta
   }
 
-  func learnPersistentWidthConstraints(_ mismatches: [FrameMismatch]) {
+  func learnPersistentWidthConstraints(
+    _ mismatches: [FrameMismatch],
+    previous: [FrameMismatch]
+  ) {
+    let previousByWindowID = Dictionary(
+      uniqueKeysWithValues: previous.map { ($0.windowID, $0) }
+    )
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
+        persistentWidthMismatch(
+          mismatch, previous: previousByWindowID[mismatch.windowID]
+        ),
         state.windows[mismatch.windowID]?.intrinsicSize != true,
         state.windows[mismatch.windowID]?.minimumTiledWidth == nil,
         state.windows[mismatch.windowID]?.maximumTiledWidth == nil,

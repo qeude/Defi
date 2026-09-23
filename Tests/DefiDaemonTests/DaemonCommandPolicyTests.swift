@@ -8,6 +8,27 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test
+  func widthConstraintRequiresRepeatedSettledMismatch() {
+    let windowID = WindowID(rawValue: 1)
+    let target = Rect(x: 2, y: 34, width: 2_554, height: 1_353)
+    let source = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 1_354, y: 34, width: 1_202, height: 1_353),
+      target: target
+    )
+    let clamped = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: 1_202, height: 1_353),
+      target: target
+    )
+
+    #expect(!persistentWidthMismatch(clamped, previous: nil))
+    #expect(!persistentWidthMismatch(clamped, previous: source))
+    #expect(persistentWidthMismatch(clamped, previous: clamped))
+    #expect(!persistentWidthMismatch(source, previous: source))
+  }
+
   @Test @NavigationActor
   func deferredIPCReplyReportsExecutionOrCancellation() {
     let executed = DeferredCommandReply()
