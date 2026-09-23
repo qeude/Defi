@@ -355,8 +355,10 @@ extension MacOSPlatform {
     var failuresByProcess: [pid_t: [String]] = [:]
     for kind in NotificationObservationKind.allCases {
       for (processID, count) in counts[kind] ?? [:] {
+        let errors = presentationStatus.failureCodes[kind]?[processID] ?? []
+        let codes = errors.map(String.init).joined(separator: ",")
         failuresByProcess[processID, default: []]
-          .append("\(kind.rawValue)x\(count)")
+          .append("\(kind.rawValue)x\(count)(\(codes))")
       }
     }
     return "["

@@ -12,6 +12,13 @@ public struct Rect: Hashable, Codable, Sendable {
     self.width = width
     self.height = height
   }
+
+  public func contains(centerOf frame: Rect) -> Bool {
+    let centerX = frame.x + frame.width / 2
+    let centerY = frame.y + frame.height / 2
+    return centerX >= x && centerX < x + width
+      && centerY >= y && centerY < y + height
+  }
 }
 
 public enum ColumnWidth: Equatable, Codable, Sendable {

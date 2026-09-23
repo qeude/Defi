@@ -7,7 +7,7 @@ func registerNotificationBatch(
   notifications: [String],
   add: (String) -> AXError,
   remove: (String) -> Void
-) -> Bool {
+) -> AXError {
   var registered: [String] = []
   for notification in notifications {
     let result = add(notification)
@@ -15,11 +15,11 @@ func registerNotificationBatch(
       for registeredNotification in registered {
         remove(registeredNotification)
       }
-      return false
+      return result
     }
     registered.append(notification)
   }
-  return true
+  return .success
 }
 
 let notificationObservationMaxAttempts = 3
@@ -34,32 +34,11 @@ typealias NotificationObservationFailureCounts = [
   NotificationObservationKind: [pid_t: Int]
 ]
 
-func updatedNotificationObservationFailureCounts(
-  _ counts: NotificationObservationFailureCounts,
-  activeProcessIDs: Set<pid_t>,
-  failedProcessID: pid_t? = nil,
-  kind: NotificationObservationKind? = nil
-) -> NotificationObservationFailureCounts {
-  var updated = counts.mapValues { failures in
-    failures.filter { activeProcessIDs.contains($0.key) }
-  }.filter { !$0.value.isEmpty }
-  if let failedProcessID, let kind,
-    activeProcessIDs.contains(failedProcessID)
-  {
-    updated[kind, default: [:]][failedProcessID, default: 0] += 1
-  }
-  return updated
-}
-
-func processIDsIncompatibleWithNotificationObservation(
-  _ counts: NotificationObservationFailureCounts,
-  kind: NotificationObservationKind
-) -> Set<pid_t> {
-  Set(
-    (counts[kind] ?? [:])
-      .filter { $0.value >= notificationObservationMaxAttempts }
-      .keys
-  )
+struct NotificationObservationFailure {
+  let processID: pid_t
+  let attempts: Int
+  let error: AXError
+  let retryAfter: TimeInterval
 }
 
 func observedWindowCount(

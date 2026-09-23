@@ -19,6 +19,7 @@ struct PlatformPresentationStatus: Sendable {
   var uncoveredTopologyProcesses = Set<pid_t>()
   var incompatibleProcesses = Set<pid_t>()
   var failures: NotificationObservationFailureCounts = [:]
+  var failureCodes: [NotificationObservationKind: [pid_t: [Int32]]] = [:]
   var coverage = (applicationObservers: 0, applications: 0, topologyWindows: 0,
     requiredTopologyWindows: 0, frameWindows: 0, requiredFrameWindows: 0)
   var frontmostProcessID: pid_t?
@@ -51,6 +52,14 @@ extension MacOSPlatform {
   }
 
   @MainActor private func collectPresentationStatus() {
+    let failures = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
+    var failureCodes: [NotificationObservationKind: [pid_t: [Int32]]] = [:]
+    for (kind, processes) in failures {
+      for processID in processes.keys {
+        failureCodes[kind, default: [:]][processID] =
+          eventMonitor?.notificationObservationErrors(kind: kind, processID: processID) ?? []
+      }
+    }
     let status = PlatformPresentationStatus(
       windowIDStatus: windowIDProvider.probeResult.map(String.init) ?? "unprobed",
       boundsAvailable: borderBoundsProvider.isAvailable,
@@ -64,7 +73,8 @@ extension MacOSPlatform {
       lifecycleReliable: eventMonitor?.hasReliableApplicationLifecycleObservation == true,
       uncoveredTopologyProcesses: eventMonitor?.processIDsWithoutReliableTopologyCoverage(activeProcessIDs: Set(applications.keys)) ?? [],
       incompatibleProcesses: eventMonitor?.incompatibleNotificationProcessIDs ?? [],
-      failures: eventMonitor?.notificationObservationFailureCountsValue ?? [:],
+      failures: failures,
+      failureCodes: failureCodes,
       coverage: eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0, 0),
       frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
       reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,

@@ -214,6 +214,46 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(monitor.observationCoverage.frameWindows, 1)
   }
 
+  func testWindowObservationRecoversAfterTemporaryRegistrationFailure() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    guard let window = testWindows(in: snapshot).first,
+      let processID = window.processID,
+      let element = platform.elements[window.id]
+    else { throw XCTSkip("No manageable desktop window") }
+    var time: TimeInterval = 0
+    var frameEvents = 0
+    let monitor = PlatformEventMonitor(
+      handler: { kind, _ in if kind == .frame { frameEvents += 1 } },
+      now: { time },
+      addNotification: { observer, element, notification, context in
+        if time < 30, notification as String == kAXMovedNotification {
+          return .cannotComplete
+        }
+        return AXObserverAddNotification(observer, element, notification, context)
+      }
+    )
+    defer {
+      monitor.stop()
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
+      pumpRunLoop(for: 0.3)
+    }
+    for _ in 0..<notificationObservationMaxAttempts {
+      monitor.refresh(applications: [processID: [element]])
+    }
+    XCTAssertFalse(monitor.hasReliableFrameCoverage())
+    time = 30
+    monitor.refresh(applications: [processID: [element]])
+    XCTAssertTrue(monitor.hasReliableFrameCoverage())
+    XCTAssertTrue(monitor.notificationObservationFailureCountsValue.isEmpty)
+    var moved = window.frame
+    moved.x += 8
+    moved.width -= 16
+    onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: moved)]) }
+    XCTAssertTrue(pumpRunLoop(until: { frameEvents > 0 }, timeout: 1),
+                  "Recovered observer did not receive native frame notifications")
+  }
+
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try makePlatform()
     let initial = platform.snapshot(config: Config())
@@ -1354,7 +1394,7 @@ final class DesktopE2ETests: XCTestCase {
     let controller = DisplayArrangementController()
     defer {
       controller.restore()
-      XCTAssertEqual(DisplayArrangementController.apply(initialFrames), .success)
+      XCTAssertEqual(DisplayArrangementController.apply(initialFrames, scope: .forSession), .success)
       pumpRunLoop(for: 0.3)
       onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
       if let initialPointer { CGWarpMouseCursorPosition(initialPointer) }
@@ -1426,6 +1466,114 @@ final class DesktopE2ETests: XCTestCase {
       }
     }
     XCTAssertEqual(controller.restore(), deskFrames)
+  }
+
+  func testMonitorTransferFillsDestinationHeight() throws {
+    let platform = try makePlatform()
+    // Match the running daemon's geometry; stopping it now restores the desk.
+    let arrangement = DisplayArrangementController()
+    defer { arrangement.restore() }
+    if arrangement.reconcile() { pumpRunLoop(for: 0.3) }
+    let snapshot = platform.snapshot(config: Config())
+    let monitors = snapshot.monitors.sorted { $0.frame.height < $1.frame.height }
+    guard let smaller = monitors.first, let taller = monitors.last,
+      taller.frame.height - smaller.frame.height > 10
+    else { throw XCTSkip("Requires two monitors with different usable heights") }
+    let window = try XCTUnwrap(testWindows(in: snapshot).first)
+    defer {
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
+      pumpRunLoop(for: 0.3)
+    }
+
+    for invalidatesDisplayState in [false, true] {
+      for monitor in [smaller, taller, smaller] {
+        if invalidatesDisplayState { onNavigation { platform.invalidateFrameStateForDisplayChange() } }
+        let target = Rect(
+          x: monitor.frame.x, y: monitor.frame.y,
+          width: min(window.frame.width, monitor.frame.width),
+          height: monitor.frame.height
+        )
+        onNavigation { platform.apply(
+          [FrameAssignment(windowID: window.id, frame: target)],
+          animationDuration: invalidatesDisplayState ? 0 : 0.035,
+          animateSizeChanges: !invalidatesDisplayState,
+          source: "test-monitor-height"
+        ) }
+        XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 2))
+        let element = try XCTUnwrap(platform.elements[window.id])
+        var actual: Rect?
+        XCTAssertTrue(pumpRunLoop(until: {
+          actual = platform.frame(of: element)
+          return actual.map { abs($0.height - target.height) <= 2 && abs($0.y - target.y) <= 2 } == true
+        }, timeout: 1), "monitor=\(monitor.id) invalidated=\(invalidatesDisplayState) target=\(target) actual=\(String(describing: actual)) trace=\(onNavigation { platform.frameCoordinatorTrace })")
+      }
+    }
+  }
+
+  func testDisplayCrossingDeliversDestinationMotionWithoutAnotherEvent() throws {
+    _ = try makePlatform()
+    let original = DisplayArrangementController.currentFrames()
+    guard original.count == 2 else { throw XCTSkip("Requires two monitors") }
+    let cursor = try XCTUnwrap(CGEvent(source: nil)?.location)
+    let primary = MonitorID(rawValue: UInt64(CGMainDisplayID()))
+    let other = try XCTUnwrap(original.keys.first { $0 != primary })
+    var desk = original
+    let sourceFrame = try XCTUnwrap(original[primary])
+    desk[other]?.x = sourceFrame.x + sourceFrame.width
+    desk[other]?.y = sourceFrame.y
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    func makeController() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: DisplayArrangementController.currentFrames,
+        applyFrames: DisplayArrangementController.apply, primaryDisplay: { primary },
+        stateURL: directory.appending(path: "arrangement.json"), sessionID: "desktop-test"
+      )
+    }
+    var controller = makeController()
+    defer {
+      controller.restore()
+      XCTAssertEqual(DisplayArrangementController.apply(original, scope: .forSession), .success)
+      CGWarpMouseCursorPosition(cursor)
+    }
+    XCTAssertEqual(DisplayArrangementController.apply(desk), .success)
+    pumpRunLoop(for: 0.3)
+    _ = controller.reconcile()
+    let technical = DisplayArrangementController.currentFrames()
+    controller.restore()
+    XCTAssertEqual(DisplayArrangementController.apply(technical), .success)
+    controller = makeController()
+    _ = controller.reconcile()
+    XCTAssertEqual(controller.deskFrames, desk)
+    let source = try XCTUnwrap(technical[primary])
+    let x = source.x + source.width - 1
+    let y = source.y + min(source.height, original[other]!.height) / 2
+    let destination = try XCTUnwrap(displayPointerDestination(
+      x: x, y: y, deltaX: 5, deltaY: 0, technical: technical, desk: desk
+    ))
+    let received = DesktopValue<[PointerMotionInvocation]>([])
+    let pointerRouter = controller.pointerRouter
+    let manager = onNavigation { HotKeyManager(
+      config: Config(input: InputConfig(focusFollowsMouse: true)),
+      pointerMotionHandler: { invocation in
+        DispatchQueue.main.async { received.value.append(invocation) }
+      },
+      displayPointerRouter: pointerRouter
+    ) { _ in } }
+    try onNavigation { try manager.start() }
+    defer { onNavigation { manager.stop() } }
+    let event = try XCTUnwrap(CGEvent(
+      mouseEventSource: CGEventSource(stateID: .hidSystemState),
+      mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: .left
+    ))
+    event.setDoubleValueField(.mouseEventDeltaX, value: 5)
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    event.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: {
+      received.value.contains { $0.location == CGPoint(x: destination.x, y: destination.y) && $0.windowID == nil }
+    }, timeout: 0.5), "First crossing event did not deliver the destination: \(received.value)")
+    print("DEFI_E2E pointer-crossing-delivery-ms=\((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)")
+    XCTAssertEqual(controller.pointerRouter.warpCount, 1)
   }
 
   func testParkingAvoidsEveryOtherConnectedMonitor() throws {

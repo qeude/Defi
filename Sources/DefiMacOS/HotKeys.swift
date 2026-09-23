@@ -356,11 +356,11 @@ final class HotKeyTapContext: @unchecked Sendable {
     let timestamp = Double(event.timestamp) / 1_000_000_000
     if eventTracksPhysicalPointerMotion(type) {
       pointerMotionTracker.record(timestamp: timestamp)
-      if displayPointerRouter?.route(event) == true {
-        return Unmanaged.passUnretained(event)
-      }
+      let crossedDisplay = displayPointerRouter?.route(event) == true
       if type == .mouseMoved, tracksPointerWindowTransitions {
-        let rawWindowID = event.getIntegerValueField(
+        // Hit-test the destination immediately; the event's window ID still
+        // describes the source screen before the warp.
+        let rawWindowID = crossedDisplay ? 0 : event.getIntegerValueField(
           .mouseEventWindowUnderMousePointer
         )
         enqueuePointerMotionIfNeeded(

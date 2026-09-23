@@ -83,7 +83,9 @@ final class Daemon {
   var config: Config
   let platform = MacOSPlatform()
   nonisolated let displayPointerRouter = DisplayPointerRouter()
-  @MainActor lazy var displayArrangement = DisplayArrangementController(pointerRouter: displayPointerRouter)
+  @MainActor lazy var displayArrangement = DisplayArrangementController(
+    pointerRouter: displayPointerRouter, sessionID: topologySessionID
+  )
   var displayDeskFrames: [MonitorID: Rect] = [:]
   var displayArrangementStatus = "native"
   var displayReconciliationPending = true
@@ -94,7 +96,7 @@ final class Daemon {
   let server: UnixSocketServer
   let placementStore: PlacementStore
   let topologyStore: WorkspaceTopologyStore
-  let topologySessionID: String
+  nonisolated let topologySessionID: String
   let diagnostics = DiagnosticRecorder()
   let readResponseCache = DaemonReadResponseCache()
   var focus = FocusState()
