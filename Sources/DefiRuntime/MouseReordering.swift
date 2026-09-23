@@ -243,6 +243,7 @@ public func mouseTranslatedTiledWindowID(
   externallyChangedFrames: [WindowID: Rect],
   state: RuntimeState,
   viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect],
   sizeTolerance: Double = 2,
   positionTolerance: Double = 2
 ) -> WindowID? {
@@ -272,8 +273,10 @@ public func mouseTranslatedTiledWindowID(
     )
     guard let actual = externallyChangedFrames[windowID],
       let target = targets[windowID],
-      abs(actual.width - target.width) <= sizeTolerance,
-      abs(actual.height - target.height) <= sizeTolerance,
+      (abs(actual.width - target.width) <= sizeTolerance
+        && abs(actual.height - target.height) <= sizeTolerance)
+        || (mouseDropMonitor(actual, monitorFrames: monitorFrames).map({ $0 != monitor.id }) == true
+          && mouseFrameMovedBothEdges(from: target, to: actual, tolerance: positionTolerance)),
       abs(actual.x - target.x) > positionTolerance
         || abs(actual.y - target.y) > positionTolerance
     else {
@@ -294,6 +297,17 @@ public func mouseFrameWasTranslated(
     && abs(actualFrame.height - initialFrame.height) <= sizeTolerance
     && (abs(actualFrame.x - initialFrame.x) > positionTolerance
       || abs(actualFrame.y - initialFrame.y) > positionTolerance)
+}
+
+private func mouseFrameMovedBothEdges(
+  from initial: Rect,
+  to actual: Rect,
+  tolerance: Double = 2
+) -> Bool {
+  (abs(actual.x - initial.x) > tolerance
+    && abs(actual.x + actual.width - initial.x - initial.width) > tolerance)
+    || (abs(actual.y - initial.y) > tolerance
+      && abs(actual.y + actual.height - initial.y - initial.height) > tolerance)
 }
 
 @discardableResult
@@ -415,8 +429,47 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
   actualFrame: Rect,
   initialFrame: Rect? = nil,
   state: inout RuntimeState,
-  viewports: [MonitorID: Rect]
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect]
 ) -> Bool {
+  if initialFrame != nil,
+    mouseTranslatedTiledWindowID(
+      candidateWindowIDs: [windowID],
+      externallyChangedFrames: [windowID: actualFrame],
+      state: state,
+      viewports: viewports,
+      monitorFrames: monitorFrames
+    ) == windowID,
+    let source = state.location(containing: windowID),
+    state.windows[windowID]?.floating == false,
+    !state.nativeFullscreenWindowIDs.contains(windowID),
+    let sourceMonitor = state.monitors.first(where: { $0.id == source.monitorID }),
+    sourceMonitor.activeWorkspace == source.workspaceID,
+    let targetMonitorID = mouseDropMonitor(actualFrame, monitorFrames: monitorFrames),
+    targetMonitorID != source.monitorID
+  {
+    // The native move can also clamp size on the destination display.
+    // Transfer ownership before the same-monitor translation/resize check.
+    _ = focusWindow(windowID, state: &state)
+    guard
+      let sourceMonitorIndex = state.monitors.firstIndex(where: { $0.id == source.monitorID }),
+      let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(where: {
+        $0.id == source.workspaceID
+      }),
+      let targetMonitorIndex = state.monitors.firstIndex(where: { $0.id == targetMonitorID }),
+      let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(where: {
+        $0.id == state.monitors[targetMonitorIndex].activeWorkspace
+      })
+    else { return false }
+    moveFocusedSelection(
+      movesWholeColumn: false, follow: true, preservesUserFloatingPlacement: true,
+      sourceMonitorIndex: sourceMonitorIndex, sourceWorkspaceIndex: sourceWorkspaceIndex,
+      targetMonitorIndex: targetMonitorIndex, targetWorkspaceIndex: targetWorkspaceIndex,
+      monitorFrames: monitorFrames, viewports: viewports, state: &state
+    )
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+    return state.monitorID(containing: windowID) == targetMonitorID
+  }
   let maximumReorders = state.monitors.lazy
     .flatMap(\.workspaces)
     .map(\.columns.count)
@@ -484,6 +537,12 @@ private func activeColumnIndex(
     }
   }
   return nil
+}
+
+private func mouseDropMonitor(_ frame: Rect, monitorFrames: [MonitorID: Rect]) -> MonitorID? {
+  return monitorFrames.keys.sorted { $0.rawValue < $1.rawValue }.first {
+    monitorFrames[$0]!.contains(centerOf: frame)
+  }
 }
 
 private func insertionIndex(coordinate: Double, centers: [Double]) -> Int {

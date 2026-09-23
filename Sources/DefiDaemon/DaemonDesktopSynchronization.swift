@@ -576,6 +576,9 @@ extension Daemon {
 
     var mouseReordered = false
     if !displayGeometryChanged && mouseResizeGestureActive {
+      let physicalMonitorFrames = Dictionary(uniqueKeysWithValues: latestMonitors.map {
+        ($0.id, $0.physicalFrame)
+      })
       let mouseGestureCandidateWindowIDs = [
         activelyResizedWindowID,
         snapshot.mouseFocusIntentWindowID,
@@ -585,7 +588,8 @@ extension Daemon {
         candidateWindowIDs: mouseGestureCandidateWindowIDs,
         externallyChangedFrames: snapshot.externallyChangedFrames,
         state: state,
-        viewports: viewportsByMonitor
+        viewports: viewportsByMonitor,
+        monitorFrames: physicalMonitorFrames
       )
       let gestureWindowID = mouseGestureTiledWindowID(
         translatedWindowID: translatedWindowID,
@@ -638,19 +642,24 @@ extension Daemon {
         if let gestureWindowID,
           let actualFrame,
           let mouseGestureInitialFrame,
-          mouseFrameWasTranslated(
-            from: mouseGestureInitialFrame,
-            to: actualFrame
-          ),
           reorderTiledWindowAfterCompletedMouseDrag(
             gestureWindowID,
             actualFrame: actualFrame,
             initialFrame: mouseGestureInitialFrame,
             state: &state,
-            viewports: viewportsByMonitor
+            viewports: viewportsByMonitor,
+            monitorFrames: physicalMonitorFrames
           )
         {
           mouseReordered = true
+          if let destination = state.monitorID(containing: gestureWindowID),
+            destination != mouseGestureScrollAnchor?.monitorID
+          {
+            mouseGestureScrollAnchor = nil
+            activeMonitorID = destination
+            nativelyFocusedMonitorID = destination
+            if nativeFocusFrameMonitorID != nil { nativeFocusFrameMonitorID = destination }
+          }
           platform.recordPerformanceTrace(
             "mouse-reorder window=\(gestureWindowID.rawValue)"
           )

@@ -95,20 +95,21 @@ struct HotKeyTests {
   }
 
   @Test(arguments: [CGEventType.mouseMoved, .leftMouseDragged])
-  func routedPointerEventsWarpAndMouseMovementSuppressesSourceFocus(type: CGEventType) async throws {
+  func routedPointerEventsDeliverDestinationWithoutStaleSourceFocus(type: CGEventType) async throws {
     let first = MonitorID(rawValue: 1), second = MonitorID(rawValue: 2)
     let desk = [
       first: Rect(x: 0, y: 0, width: 1_000, height: 700),
       second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
     ]
     let router = DisplayPointerRouter(warpPointer: { _ in .success })
+    let motions = Mutex<[PointerMotionInvocation]>([])
     router.update(technical: isolatedDisplayArrangement(desk, primary: first), desk: desk)
     let context = HotKeyTapContext(
       bindings: [:], userInputTracker: UserInputTracker(),
       pointerMotionTracker: PointerMotionTracker(), displayPointerRouter: router,
       tracksPointerWindowTransitions: true,
       deliver: { _ in }, deliverOverview: { _ in },
-      deliverPointerMotion: { _ in Issue.record("Delivered stale pre-warp window focus") },
+      deliverPointerMotion: { invocation in motions.withLock { $0.append(invocation) } },
       tapReenabled: { _ in }
     )
     let event = try #require(CGEvent(
@@ -121,8 +122,16 @@ struct HotKeyTests {
     #expect(router.warpCount == 1)
     #expect(event.location == CGPoint(x: 1_002, y: -350))
     if type == .mouseMoved {
-      try await Task.sleep(for: .milliseconds(30))
-      #expect(context.pointerTransitionCount == 0)
+      let deadline = ContinuousClock.now + .seconds(2)
+      while motions.withLock({ $0.isEmpty }), ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      let delivered = motions.withLock { $0 }
+      #expect(delivered.count == 1)
+      #expect(delivered.first?.windowID == nil)
+      #expect(delivered.first?.location == event.location)
+    } else {
+      #expect(motions.withLock { $0.isEmpty })
     }
   }
 

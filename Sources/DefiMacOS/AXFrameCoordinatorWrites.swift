@@ -477,18 +477,29 @@ extension AXFrameCoordinator {
                   || defersEnhancedUIRestore
               )
           )
-        let sizeApplied = frameSizeWriteSucceeded(
+        var sizeApplied = frameSizeWriteSucceeded(
           sizeChanged: item.value.sizeChanged,
           synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
           animatesSize: item.value.animatesSize,
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
-        let acceptedSize =
+        var acceptedSize =
           sizeApplied && requiresAsynchronousSizeWrite && !intermediate
             && progress >= 1
           ? accessibilityWriter.readSize(item.value.element)
           : nil
-        let positionApplied =
+        let clampedSourceFrame: Rect? = acceptedSize.flatMap { observedSize in
+          guard item.value.positionChanged,
+            abs(observedSize.width - size.width) >= 0.5
+              || abs(observedSize.height - size.height) >= 0.5,
+            let source = accessibilityWriter.readPosition(item.value.element)
+          else { return nil }
+          return Rect(
+            x: source.x, y: source.y,
+            width: observedSize.width, height: observedSize.height
+          )
+        }
+        var positionApplied =
           generationIsCurrent
           && (
             !item.value.positionChanged
@@ -501,6 +512,31 @@ extension AXFrameCoordinator {
                   || defersEnhancedUIRestore
               )
             )
+        // AppKit can clamp a resize to the source display before accepting
+        // the move. Retry once at the destination, only after a measured clamp.
+        if positionApplied,
+          let clampedSourceFrame,
+          frameCentersCrossDisplays(
+            from: clampedSourceFrame,
+            to: interpolated,
+            displayFrames: frame.monitorFrames
+          ),
+          isCurrent(generation: frame.generation)
+        {
+          sizeApplied = accessibilityWriter.applySize(
+            item.value, size: size,
+            enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
+          )
+          acceptedSize = sizeApplied ? accessibilityWriter.readSize(item.value.element) : nil
+          if isCurrent(generation: frame.generation) {
+            positionApplied = accessibilityWriter.applyPosition(
+              item.value, point: point,
+              forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+                || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+              enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
+            )
+          }
+        }
         let acceptedPosition =
           positionApplied && readsLiveBorderPosition
             ? accessibilityWriter.readPosition(item.value.element)

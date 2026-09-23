@@ -507,6 +507,7 @@ extension MacOSPlatform {
         animatedWindowIDs.isEmpty ? 0 : animationDuration,
       refreshRateHz: animationRefreshRateHz,
       displayIDs: animationDisplayIDs,
+      monitorFrames: lastMonitorFrames,
       animatedWindowIDs: animatedWindowIDs,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
       successfulWrite: commandSuccessfulWrite,

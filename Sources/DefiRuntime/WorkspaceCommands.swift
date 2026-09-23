@@ -27,7 +27,7 @@ func moveFocusedSelectionToMonitor(
     )
   else { return }
 
-  try moveFocusedSelection(
+  moveFocusedSelection(
     movesWholeColumn: movesWholeColumn,
     follow: true,
     preservesUserFloatingPlacement: true,
@@ -63,7 +63,7 @@ func moveFocusedSelectionToWorkspace(
     sourceMonitorIndex != destination.monitorIndex
       || sourceWorkspaceIndex != destination.workspaceIndex
   else { return }
-  try moveFocusedSelection(
+  moveFocusedSelection(
     movesWholeColumn: movesWholeColumn,
     follow: follow,
     preservesUserFloatingPlacement: false,
@@ -77,7 +77,7 @@ func moveFocusedSelectionToWorkspace(
   )
 }
 
-private func moveFocusedSelection(
+func moveFocusedSelection(
   movesWholeColumn: Bool,
   follow: Bool,
   preservesUserFloatingPlacement: Bool,
@@ -88,7 +88,7 @@ private func moveFocusedSelection(
   monitorFrames: [MonitorID: Rect],
   viewports: [MonitorID: Rect],
   state: inout RuntimeState
-) throws {
+) {
   let sourceMonitorID = state.monitors[sourceMonitorIndex].id
   let targetMonitorID = state.monitors[targetMonitorIndex].id
 
