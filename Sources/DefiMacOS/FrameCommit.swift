@@ -77,6 +77,19 @@ func frameCentersCrossDisplays(
   return sourceDisplay != targetDisplay
 }
 
+func shouldDeferAnimatedSizeUntilMovementCompletes(
+  from source: Rect,
+  to target: Rect,
+  displayFrames: [Rect]
+) -> Bool {
+  abs(source.x - target.x) >= 0.5
+    || frameCentersCrossDisplays(
+      from: source,
+      to: target,
+      displayFrames: displayFrames
+    )
+}
+
 struct AsyncPositionWrite: @unchecked Sendable {
   let element: AXUIElement
   let application: AXUIElement
@@ -378,7 +391,7 @@ func frameAnimationLanePlan(
   processIDs: [WindowID: pid_t],
   reenteringWindowIDs: Set<WindowID>,
   finalOnlyProcessIDs: Set<pid_t>,
-  horizontallyMovingResizeWindowIDs: Set<WindowID>
+  deferredSizeWindowIDs: Set<WindowID>
 ) -> FrameAnimationLanePlan {
   let finalOnlyWindowIDs = Set(
     animatedWindowIDs.filter { windowID in
@@ -392,9 +405,7 @@ func frameAnimationLanePlan(
     stagedFinalOnlyReentryWindowIDs: finalOnlyWindowIDs.intersection(
       reenteringWindowIDs
     ),
-    deferredSizeWindowIDs: horizontallyMovingResizeWindowIDs.intersection(
-      interpolatedWindowIDs
-    )
+    deferredSizeWindowIDs: deferredSizeWindowIDs.intersection(interpolatedWindowIDs)
   )
 }
 

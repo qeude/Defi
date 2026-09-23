@@ -1328,7 +1328,7 @@ struct FrameCommitTests {
         processIDs: [fast: 101, slow: 202],
         reenteringWindowIDs: [],
         finalOnlyProcessIDs: [202],
-        horizontallyMovingResizeWindowIDs: []
+        deferredSizeWindowIDs: []
       )
         == FrameAnimationLanePlan(
           interpolatedWindowIDs: [fast],
@@ -1349,7 +1349,7 @@ struct FrameCommitTests {
         processIDs: [resizing: 101, translating: 202],
         reenteringWindowIDs: [],
         finalOnlyProcessIDs: [],
-        horizontallyMovingResizeWindowIDs: [resizing]
+        deferredSizeWindowIDs: [resizing]
       )
         == FrameAnimationLanePlan(
           interpolatedWindowIDs: [resizing, translating],
@@ -1357,6 +1357,25 @@ struct FrameCommitTests {
           stagedFinalOnlyReentryWindowIDs: [],
           deferredSizeWindowIDs: [resizing]
         ))
+  }
+
+  @Test
+  func `Vertical cross-display resize defers size until movement completes`() {
+    let displays = [
+      Rect(x: 0, y: 0, width: 1_000, height: 700),
+      Rect(x: 0, y: 700, width: 1_000, height: 700),
+    ]
+    let source = Rect(x: 100, y: 100, width: 800, height: 500)
+    let target = Rect(x: 100, y: 800, width: 800, height: 500)
+
+    #expect(shouldDeferAnimatedSizeUntilMovementCompletes(
+      from: source, to: target, displayFrames: displays
+    ))
+    #expect(!shouldDeferAnimatedSizeUntilMovementCompletes(
+      from: source,
+      to: Rect(x: 100, y: 150, width: 800, height: 500),
+      displayFrames: displays
+    ))
   }
 
   @Test
@@ -1370,7 +1389,7 @@ struct FrameCommitTests {
         processIDs: [fast: 101, slowReentry: 202],
         reenteringWindowIDs: [slowReentry],
         finalOnlyProcessIDs: [202],
-        horizontallyMovingResizeWindowIDs: []
+        deferredSizeWindowIDs: []
       ).stagedFinalOnlyReentryWindowIDs == [slowReentry])
   }
 
@@ -1451,6 +1470,16 @@ struct FrameCommitTests {
     ))
     #expect(!frameCentersCrossDisplays(
       from: initial, to: Rect(x: 2_100, y: 0, width: 800, height: 700),
+      displayFrames: displays
+    ))
+    #expect(frameCentersCrossDisplays(
+      from: Rect(x: 600, y: 0, width: 800, height: 700),
+      to: Rect(x: 100, y: 0, width: 800, height: 700),
+      displayFrames: displays
+    ))
+    #expect(!frameCentersCrossDisplays(
+      from: Rect(x: -900, y: 0, width: 800, height: 700),
+      to: Rect(x: 100, y: 0, width: 800, height: 700),
       displayFrames: displays
     ))
   }

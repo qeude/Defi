@@ -432,26 +432,35 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
   viewports: [MonitorID: Rect],
   monitorFrames: [MonitorID: Rect]
 ) -> Bool {
-  if let initialFrame,
-    mouseFrameMovedBothEdges(from: initialFrame, to: actualFrame),
+  if initialFrame != nil,
+    mouseTranslatedTiledWindowID(
+      candidateWindowIDs: [windowID],
+      externallyChangedFrames: [windowID: actualFrame],
+      state: state,
+      viewports: viewports,
+      monitorFrames: monitorFrames
+    ) == windowID,
     let source = state.location(containing: windowID),
     state.windows[windowID]?.floating == false,
     !state.nativeFullscreenWindowIDs.contains(windowID),
-    let sourceMonitorIndex = state.monitors.firstIndex(where: { $0.id == source.monitorID }),
-    state.monitors[sourceMonitorIndex].activeWorkspace == source.workspaceID,
-    let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(where: {
-      $0.id == source.workspaceID
-    }),
+    let sourceMonitor = state.monitors.first(where: { $0.id == source.monitorID }),
+    sourceMonitor.activeWorkspace == source.workspaceID,
     let targetMonitorID = mouseDropMonitor(actualFrame, monitorFrames: monitorFrames),
-    targetMonitorID != source.monitorID,
-    let targetMonitorIndex = state.monitors.firstIndex(where: { $0.id == targetMonitorID }),
-    let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(where: {
-      $0.id == state.monitors[targetMonitorIndex].activeWorkspace
-    })
+    targetMonitorID != source.monitorID
   {
     // The native move can also clamp size on the destination display.
     // Transfer ownership before the same-monitor translation/resize check.
     _ = focusWindow(windowID, state: &state)
+    guard
+      let sourceMonitorIndex = state.monitors.firstIndex(where: { $0.id == source.monitorID }),
+      let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(where: {
+        $0.id == source.workspaceID
+      }),
+      let targetMonitorIndex = state.monitors.firstIndex(where: { $0.id == targetMonitorID }),
+      let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(where: {
+        $0.id == state.monitors[targetMonitorIndex].activeWorkspace
+      })
+    else { return false }
     moveFocusedSelection(
       movesWholeColumn: false, follow: true, preservesUserFloatingPlacement: true,
       sourceMonitorIndex: sourceMonitorIndex, sourceWorkspaceIndex: sourceWorkspaceIndex,

@@ -45,13 +45,28 @@ extension AXFrameCoordinator {
         }
       ),
       finalOnlyProcessIDs: finalOnlyProcessIDs,
-      horizontallyMovingResizeWindowIDs: Set(
+      deferredSizeWindowIDs: Set(
         animatedWrites.compactMap { windowID, write in
-          asynchronousSizeWriteIsRequired(
+          guard asynchronousSizeWriteIsRequired(
             sizeChanged: write.sizeChanged,
             synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
             animatesSize: write.animatesSize
-          ) && abs(write.fromPoint.x - write.point.x) >= 0.5
+          ) else { return nil }
+          return shouldDeferAnimatedSizeUntilMovementCompletes(
+            from: Rect(
+              x: write.fromPoint.x,
+              y: write.fromPoint.y,
+              width: write.fromSize.width,
+              height: write.fromSize.height
+            ),
+            to: Rect(
+              x: write.point.x,
+              y: write.point.y,
+              width: write.size.width,
+              height: write.size.height
+            ),
+            displayFrames: frame.monitorFrames
+          )
             ? windowID
             : nil
         }
