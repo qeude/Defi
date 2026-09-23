@@ -568,6 +568,9 @@ extension Daemon {
 
     var mouseReordered = false
     if !displayGeometryChanged && mouseResizeGestureActive {
+      let physicalMonitorFrames = Dictionary(uniqueKeysWithValues: latestMonitors.map {
+        ($0.id, $0.physicalFrame)
+      })
       let mouseGestureCandidateWindowIDs = [
         activelyResizedWindowID,
         snapshot.mouseFocusIntentWindowID,
@@ -577,7 +580,8 @@ extension Daemon {
         candidateWindowIDs: mouseGestureCandidateWindowIDs,
         externallyChangedFrames: snapshot.externallyChangedFrames,
         state: state,
-        viewports: viewportsByMonitor
+        viewports: viewportsByMonitor,
+        monitorFrames: physicalMonitorFrames
       )
       let gestureWindowID = mouseGestureTiledWindowID(
         translatedWindowID: translatedWindowID,
@@ -635,7 +639,8 @@ extension Daemon {
             actualFrame: actualFrame,
             initialFrame: mouseGestureInitialFrame,
             state: &state,
-            viewports: viewportsByMonitor
+            viewports: viewportsByMonitor,
+            monitorFrames: physicalMonitorFrames
           )
         {
           mouseReordered = true

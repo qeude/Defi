@@ -243,6 +243,7 @@ public func mouseTranslatedTiledWindowID(
   externallyChangedFrames: [WindowID: Rect],
   state: RuntimeState,
   viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect],
   sizeTolerance: Double = 2,
   positionTolerance: Double = 2
 ) -> WindowID? {
@@ -274,7 +275,7 @@ public func mouseTranslatedTiledWindowID(
       let target = targets[windowID],
       (abs(actual.width - target.width) <= sizeTolerance
         && abs(actual.height - target.height) <= sizeTolerance)
-        || mouseDropMonitor(actual, viewports: viewports).map({ $0 != monitor.id }) == true,
+        || mouseDropMonitor(actual, monitorFrames: monitorFrames).map({ $0 != monitor.id }) == true,
       abs(actual.x - target.x) > positionTolerance
         || abs(actual.y - target.y) > positionTolerance
     else {
@@ -416,7 +417,8 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
   actualFrame: Rect,
   initialFrame: Rect? = nil,
   state: inout RuntimeState,
-  viewports: [MonitorID: Rect]
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect]
 ) -> Bool {
   if let initialFrame,
     abs(actualFrame.x - initialFrame.x) > 2 || abs(actualFrame.y - initialFrame.y) > 2,
@@ -428,7 +430,7 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
     let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(where: {
       $0.id == source.workspaceID
     }),
-    let targetMonitorID = mouseDropMonitor(actualFrame, viewports: viewports),
+    let targetMonitorID = mouseDropMonitor(actualFrame, monitorFrames: monitorFrames),
     targetMonitorID != source.monitorID,
     let targetMonitorIndex = state.monitors.firstIndex(where: { $0.id == targetMonitorID }),
     let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(where: {
@@ -442,7 +444,7 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
       movesWholeColumn: false, follow: true, preservesUserFloatingPlacement: true,
       sourceMonitorIndex: sourceMonitorIndex, sourceWorkspaceIndex: sourceWorkspaceIndex,
       targetMonitorIndex: targetMonitorIndex, targetWorkspaceIndex: targetWorkspaceIndex,
-      monitorFrames: viewports, viewports: viewports, state: &state
+      monitorFrames: monitorFrames, viewports: viewports, state: &state
     )
     synchronizeScrollOffsets(state: &state, viewports: viewports)
     return state.monitorID(containing: windowID) == targetMonitorID
@@ -516,12 +518,12 @@ private func activeColumnIndex(
   return nil
 }
 
-private func mouseDropMonitor(_ frame: Rect, viewports: [MonitorID: Rect]) -> MonitorID? {
+private func mouseDropMonitor(_ frame: Rect, monitorFrames: [MonitorID: Rect]) -> MonitorID? {
   let x = frame.x + frame.width / 2, y = frame.y + frame.height / 2
-  return viewports.keys.sorted { $0.rawValue < $1.rawValue }.first {
-    let viewport = viewports[$0]!
-    return x >= viewport.x && x < viewport.x + viewport.width
-      && y >= viewport.y && y < viewport.y + viewport.height
+  return monitorFrames.keys.sorted { $0.rawValue < $1.rawValue }.first {
+    let monitor = monitorFrames[$0]!
+    return x >= monitor.x && x < monitor.x + monitor.width
+      && y >= monitor.y && y < monitor.y + monitor.height
   }
 }
 

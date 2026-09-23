@@ -21,14 +21,16 @@ struct MouseReorderingTests {
                         width: initial.width, height: min(initial.height, height - 20))
     #expect(mouseTranslatedTiledWindowID(
       candidateWindowIDs: [windowID], externallyChangedFrames: [windowID: released],
-      state: state, viewports: [monitorID: viewport, destination: target]
+      state: state, viewports: [monitorID: viewport, destination: target],
+      monitorFrames: [monitorID: viewport, destination: target]
     ) == windowID)
 
     #expect(reorderTiledWindowAfterCompletedMouseDrag(
       windowID,
       actualFrame: released,
       initialFrame: initial, state: &state,
-      viewports: [monitorID: viewport, destination: target]
+      viewports: [monitorID: viewport, destination: target],
+      monitorFrames: [monitorID: viewport, destination: target]
     ))
     #expect(state.location(containing: windowID)?.monitorID == destination)
     #expect(state.location(containing: windowID)?.workspaceID == workspaceID)
@@ -36,6 +38,31 @@ struct MouseReorderingTests {
     #expect(state.windows[windowID]?.floating == false)
     #expect(state.monitors[1].workspaces.filter { $0.kind == .trailing }.count == 1)
     #expect(state.monitors[0].workspaces.flatMap(\.columns).flatMap(\.windows) == [WindowID(rawValue: 2)])
+  }
+
+  @Test
+  func completedDragTransfersFromDestinationReservedBand() throws {
+    var state = try makeState(windowCount: 2)
+    let destination = MonitorID(rawValue: 2)
+    state.attachMonitor(destination)
+    let windowID = WindowID(rawValue: 1)
+    let initial = try targetFrame(for: windowID, state: state)
+    let destinationViewport = Rect(x: 1_000, y: 0, width: 1_000, height: 650)
+    let released = Rect(
+      x: 1_100, y: 690 - (initial.height - 20) / 2,
+      width: initial.width, height: initial.height - 20
+    )
+    #expect(mouseTranslatedTiledWindowID(
+      candidateWindowIDs: [windowID], externallyChangedFrames: [windowID: released],
+      state: state, viewports: [monitorID: viewport, destination: destinationViewport],
+      monitorFrames: [monitorID: viewport, destination: Rect(x: 1_000, y: 0, width: 1_000, height: 700)]
+    ) == windowID)
+    #expect(reorderTiledWindowAfterCompletedMouseDrag(
+      windowID, actualFrame: released, initialFrame: initial, state: &state,
+      viewports: [monitorID: viewport, destination: destinationViewport],
+      monitorFrames: [monitorID: viewport, destination: Rect(x: 1_000, y: 0, width: 1_000, height: 700)]
+    ))
+    #expect(state.monitorID(containing: windowID) == destination)
   }
 
   @Test
@@ -393,7 +420,8 @@ struct MouseReorderingTests {
         ),
         initialFrame: target,
         state: &state,
-        viewports: [monitorID: viewport]
+        viewports: [monitorID: viewport],
+        monitorFrames: [monitorID: viewport]
       ))
     #expect(
       state.monitors[0].workspaces[0].columns.map(\.windows) == [
@@ -657,7 +685,8 @@ struct MouseReorderingTests {
           )
         ],
         state: state,
-        viewports: [monitorID: viewport]
+        viewports: [monitorID: viewport],
+        monitorFrames: [monitorID: viewport]
       ) == nil)
   }
 
@@ -703,7 +732,8 @@ struct MouseReorderingTests {
           )
         ],
         state: state,
-        viewports: [monitorID: viewport]
+        viewports: [monitorID: viewport],
+        monitorFrames: [monitorID: viewport]
       ) == windowID)
   }
 
@@ -733,7 +763,8 @@ struct MouseReorderingTests {
           ),
         ],
         state: state,
-        viewports: [monitorID: viewport]
+        viewports: [monitorID: viewport],
+        monitorFrames: [monitorID: viewport]
       ) == secondID)
   }
 
@@ -750,7 +781,8 @@ struct MouseReorderingTests {
           windowID: Rect(x: 200, y: 100, width: 600, height: 500)
         ],
         state: state,
-        viewports: [monitorID: viewport]
+        viewports: [monitorID: viewport],
+        monitorFrames: [monitorID: viewport]
       ) == nil)
   }
 

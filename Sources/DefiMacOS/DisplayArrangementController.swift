@@ -89,7 +89,6 @@ public final class DisplayArrangementController {
       savedArrangements[Set(current.keys)] = deskFrames
       status = current == deskFrames ? "native" : "isolated"
     }
-    defer { saveArrangement() }
     if current == appliedFrames {
       pointerRouter.update(technical: current, desk: status == "native" ? current : deskFrames)
       return false
@@ -100,6 +99,7 @@ public final class DisplayArrangementController {
       pending = true
       return false
     }
+    defer { saveArrangement() }
     let sameDisplays = ids == Set(appliedFrames.keys)
     let sizesChanged = sameDisplays && current.contains {
       appliedFrames[$0.key]?.width != $0.value.width

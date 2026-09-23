@@ -468,6 +468,14 @@ struct WindowBorderTests {
 
     #expect(panels.allSatisfy { $0.isVisible })
     #expect(panels.allSatisfy { $0.alphaValue == 0 })
+    overlay.sync(
+      frame: Rect(x: 120, y: 100, width: 800, height: 600),
+      width: 4, color: 0xffff_ffff, windowRadius: 12,
+      captureEnabled: false, placement: .inside
+    )
+    overlay.applyCompositorFallback()
+    overlay.revealPendingOpacity()
+    #expect(panels.allSatisfy { $0.isVisible && $0.alphaValue == 1 })
     overlay.hide()
     #expect(panels.allSatisfy { $0.isVisible == false })
     #expect(overlay.estimatedSurfacePixels == 0)

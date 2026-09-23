@@ -52,6 +52,30 @@ struct DisplayArrangementTests {
   }
 
   @Test
+  func diagonalOvershootUsesTheEdgeIntersectionForAdjacency() {
+    let desk = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      external: Rect(x: 1_000, y: 650, width: 1_000, height: 700),
+    ]
+    let technical = [
+      laptop: desk[laptop]!,
+      external: Rect(x: 1_000, y: -700, width: 1_000, height: 700),
+    ]
+    #expect(displayPointerDestination(
+      x: 1_010, y: 720, deltaX: 20, deltaY: 160,
+      technical: technical, desk: desk
+    ) == nil) // The pointer crossed the right edge at y=640, above the neighbor.
+    #expect(displayPointerDestination(
+      x: 1_010, y: 720, deltaX: 20, deltaY: 40,
+      technical: technical, desk: desk
+    ) == nil) // Touching the source's bottom corner is not a shared edge.
+    #expect(displayPointerDestination(
+      x: 1_010, y: 720, deltaX: 20, deltaY: 140,
+      technical: technical, desk: desk
+    )?.monitorID == external) // Here the edge intersection is y=650.
+  }
+
+  @Test
   func `Partial ribbon remains visible without crossing another display`() throws {
     let desk = [
       laptop: Rect(x: -1_512, y: 50, width: 1_512, height: 982),

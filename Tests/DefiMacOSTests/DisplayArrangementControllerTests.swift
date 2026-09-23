@@ -34,7 +34,6 @@ struct DisplayArrangementControllerTests {
     #expect(initial.reconcile())
     let technical = current
     #expect(scopes == [.forAppOnly])
-    session = technical // macOS committed the staircase during a display change.
     #expect(initial.restore() == desk)
     current = session // WindowServer reverts app-scoped transactions on exit.
     #expect(current == desk)
@@ -48,6 +47,32 @@ struct DisplayArrangementControllerTests {
     let userArrangement = current
     #expect(reopened.restore() == userArrangement)
     #expect(scopes.count == 3)
+  }
+
+  @Test
+  func incompleteDisplayListDoesNotOverwriteSavedArrangement() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+    ]
+    var current = desk
+    func controller() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current }, applyFrames: { frames, _ in current = frames; return .success },
+        primaryDisplay: { first }, stateURL: stateURL, sessionID: "session-a"
+      )
+    }
+    let initial = controller()
+    #expect(initial.reconcile())
+    let saved = try Data(contentsOf: stateURL)
+    current = [second: desk[second]!]
+    let pending = controller()
+    #expect(!pending.reconcile())
+    #expect(pending.needsReconciliation)
+    #expect(try Data(contentsOf: stateURL) == saved)
   }
 
   @Test

@@ -1817,6 +1817,7 @@ struct PlatformEventTests {
   @Test(arguments: [AXError.cannotComplete, .invalidUIElement]) @MainActor
   func windowObservationRecoversAfterTransientFailures(error: AXError) {
     let pid = ProcessInfo.processInfo.processIdentifier
+    let watchdog = reliableObservationWatchdogInterval
     let window = AXUIElementCreateApplication(pid)
     var time: TimeInterval = 0
     var unavailable = true
@@ -1839,17 +1840,17 @@ struct PlatformEventTests {
     #expect(frameAttempts == notificationObservationMaxAttempts)
     #expect(monitor.hasReliableFrameCoverage() == false)
     #expect(monitor.observationCoverage.topologyWindows == 1)
-    time = 29
+    time = watchdog - 1
     monitor.refresh(applications: [pid: [window]])
     #expect(frameAttempts == notificationObservationMaxAttempts)
-    time = 30
+    time = watchdog
     monitor.refresh(applications: [pid: [window]])
     #expect(frameAttempts == notificationObservationMaxAttempts + 1)
     unavailable = false
-    time = 31
+    time = watchdog + 1
     for _ in 0..<10 { monitor.refresh(applications: [pid: [window]]) }
     #expect(frameAttempts == notificationObservationMaxAttempts + 1)
-    time = 60
+    time = 2 * watchdog
     monitor.refresh(applications: [pid: [window]])
     #expect(monitor.hasReliableFrameCoverage())
     #expect(frameAttempts == notificationObservationMaxAttempts + 2)
@@ -1894,6 +1895,7 @@ struct PlatformEventTests {
   @Test @MainActor
   func applicationObservationAlsoRecoversAfterBackoff() {
     let pid = ProcessInfo.processInfo.processIdentifier
+    let watchdog = reliableObservationWatchdogInterval
     let application = AXUIElementCreateApplication(pid)
     var time: TimeInterval = 0
     var attempts = 0
@@ -1902,7 +1904,7 @@ struct PlatformEventTests {
       addNotification: { _, _, notification, _ in
         if notification as String == kAXFocusedWindowChangedNotification {
           attempts += 1
-          if time < 30 { return .cannotComplete }
+          if time < watchdog { return .cannotComplete }
         }
         return .success
       },
@@ -1915,7 +1917,7 @@ struct PlatformEventTests {
     }
     #expect(attempts == notificationObservationMaxAttempts)
     #expect(monitor.observationCoverage.applicationObservers == 0)
-    time = 30
+    time = watchdog
     monitor.refresh(applications: [pid: []])
     #expect(monitor.observationCoverage.applicationObservers == 1)
     #expect(monitor.notificationObservationFailureCountsValue.isEmpty)

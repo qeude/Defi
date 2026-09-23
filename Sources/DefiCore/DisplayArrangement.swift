@@ -53,7 +53,8 @@ public func displayPointerDestination(
     }
   }
   // A single event can overshoot into the technical gap before macOS clamps it.
-  guard let sourceID = containing(x, y) ?? containing(x - deltaX, y - deltaY),
+  let currentSourceID = containing(x, y)
+  guard let sourceID = currentSourceID ?? containing(x - deltaX, y - deltaY),
     let source = technical[sourceID], let logical = desk[sourceID]
   else { return nil }
   let localX = x - source.x, localY = y - source.y
@@ -64,10 +65,32 @@ public func displayPointerDestination(
     (.down, localY >= source.height - 2 && deltaY > 0),
   ]
   for (direction, crossing) in edges where crossing {
+    var edgeX = x, edgeY = y
+    if currentSourceID == nil {
+      let previousX = x - deltaX, previousY = y - deltaY
+      let fraction: Double
+      switch direction {
+      case .left: fraction = (source.x - previousX) / deltaX
+      case .right: fraction = (source.x + source.width - previousX) / deltaX
+      case .up: fraction = (source.y - previousY) / deltaY
+      case .down: fraction = (source.y + source.height - previousY) / deltaY
+      default: continue
+      }
+      guard (0...1).contains(fraction) else { continue }
+      edgeX = previousX + deltaX * fraction
+      edgeY = previousY + deltaY * fraction
+      switch direction {
+      case .left, .right:
+        guard edgeY >= source.y, edgeY < source.y + source.height else { continue }
+      case .up, .down:
+        guard edgeX >= source.x, edgeX < source.x + source.width else { continue }
+      default: continue
+      }
+    }
     for id in orderedIDs where id != sourceID {
       guard let target = desk[id], let native = technical[id] else { continue }
-      let deskX = logical.x + localX / source.width * logical.width
-      let deskY = logical.y + localY / source.height * logical.height
+      let deskX = logical.x + (edgeX - source.x) / source.width * logical.width
+      let deskY = logical.y + (edgeY - source.y) / source.height * logical.height
       switch direction {
       case .left where abs(target.x + target.width - logical.x) <= 1
         && deskY >= target.y && deskY < target.y + target.height:

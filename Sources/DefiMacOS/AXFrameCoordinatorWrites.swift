@@ -517,7 +517,8 @@ extension AXFrameCoordinator {
           if isCurrent(generation: frame.generation) {
             positionApplied = accessibilityWriter.applyPosition(
               item.value, point: point,
-              forceOffscreenAccess: item.value.requiresVerifiedOffscreenWrite,
+              forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+                || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
               enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
             )
           }
