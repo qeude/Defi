@@ -41,6 +41,15 @@ struct DaemonCommandPolicyTests {
     #expect(!settledWidthMismatch(clamped, previous: changedWidth))
     #expect(!settledWidthMismatch(clamped, previous: changedTarget))
 
+    #expect(
+      widthMismatchObservationTimes(
+        current: [source],
+        previous: [],
+        previousObservationTimes: [:],
+        now: 10
+      ).isEmpty
+    )
+
     let firstObservation = widthMismatchObservationTimes(
       current: [clamped],
       previous: [],
