@@ -23,7 +23,7 @@ func flushPlacementStore(
   }
 }
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func invalidatePlacementPreference(for window: Window) {
     placementPreferences.invalidatePreference(for: window)
@@ -64,8 +64,8 @@ extension Daemon {
     do {
       try topologyStore.save(topology, sessionID: sessionID)
     } catch {
-      DispatchQueue.main.async { [weak self] in
-        MainActor.assumeIsolated {
+      NavigationActor.enqueue { [weak self] in
+        NavigationActor.assumeIsolated {
           self?.lastPersistedTopology = nil
           self?.log("workspace topology persistence failed: \(error)")
         }
@@ -92,8 +92,8 @@ extension Daemon {
     do {
       try placementStore.save(preferences)
     } catch {
-      DispatchQueue.main.async { [weak self] in
-        MainActor.assumeIsolated {
+      NavigationActor.enqueue { [weak self] in
+        NavigationActor.assumeIsolated {
           guard let self else { return }
           self.placementPreferencesDirty = true
           self.log("placement persistence failed: \(error)")
@@ -148,9 +148,45 @@ extension Daemon {
     }.joined(separator: ",")
   }
 
+  func invalidateDisplayArrangement() {
+    displayPointerRouter.invalidate()
+    displayReconciliationPending = true
+    displayReconciliationGeneration &+= 1
+    DispatchQueue.main.async { [self] in displayArrangement.invalidate() }
+  }
+
+  func reconcileDisplays() {
+    guard !displayReconciliationInFlight else { return }
+    displayReconciliationInFlight = true
+    let generation = displayReconciliationGeneration
+    let session = desktopSessionGeneration
+    platform.invalidateFrameStateForDisplayChange()
+    DispatchQueue.main.async { [self] in
+      let changed = displayArrangement.reconcile()
+      let deskFrames = displayArrangement.deskFrames
+      let status = displayArrangement.status
+      let pending = displayArrangement.needsReconciliation
+      NavigationActor.enqueue { [self] in
+        displayReconciliationInFlight = false
+        guard desktopSessionActive, desktopSessionGeneration == session else { return }
+        displayDeskFrames = deskFrames
+        displayArrangementStatus = status
+        if displayReconciliationGeneration == generation {
+          displayReconciliationPending = pending
+        }
+        if changed {
+          scheduleDisplayReconciliation()
+        } else {
+          needsDesktopSync = true
+          scheduleTick()
+        }
+      }
+    }
+  }
+
   func scheduleDisplayReconciliation() {
-    displayArrangement.invalidate()
-    overviewController?.close()
+    invalidateDisplayArrangement()
+    closeOverview()
     handleCheatsheetInput(.dismiss)
     displayConfigurationEventCount += 1
     let now = ProcessInfo.processInfo.systemUptime

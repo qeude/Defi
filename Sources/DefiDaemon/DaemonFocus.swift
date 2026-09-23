@@ -3,7 +3,7 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func handleEventTapReenabled(at timestamp: TimeInterval) {
     platform.invalidateInputAfterEventTapReenabled(at: timestamp)
@@ -15,6 +15,7 @@ extension Daemon {
   }
 
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
+    guard !shouldShutdown, !restorationInFlight else { return }
     defer {
       if pendingPointerFocus != nil { scheduleTick() }
     }
@@ -28,7 +29,8 @@ extension Daemon {
     guard
       pointerFocusIntentIsCurrent(
         pointerTimestamp: invocation.timestamp,
-        latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp
+        latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp,
+        latestPointerMotionTimestamp: platform.pointerMotionTracker.latestTimestamp
       )
     else {
       invalidatePointerFocusIntent()
@@ -36,14 +38,29 @@ extension Daemon {
       pointerFocusIgnoredCount += 1
       return
     }
-    let pointerWindowID = normalizedPointerWindowID(
-      rawWindowID: invocation.windowID,
-      hitTestedWindowID: platform.managedWindowID(
-        at: invocation.location,
-        rawWindowID: invocation.windowID,
-        retaining: lastPointerWindowID
+    pointerHitTestTask?.cancel()
+    let generation = commandGeneration
+    let session = desktopSessionGeneration
+    let previousWindowID = lastPointerWindowID
+    pointerHitTestTask = Task { [weak self] in
+      guard let self, !Task.isCancelled else { return }
+      let hit = await platform.managedWindowID(
+        at: invocation.location, rawWindowID: invocation.windowID, retaining: previousWindowID
       )
-    )
+      guard !Task.isCancelled, desktopSessionActive, !shouldShutdown, !restorationInFlight,
+        desktopSessionGeneration == session, commandGeneration == generation,
+        pointerFocusIntentIsCurrent(pointerTimestamp: invocation.timestamp,
+          latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp,
+          latestPointerMotionTimestamp: platform.pointerMotionTracker.latestTimestamp)
+      else { return }
+      applyPointerMotion(invocation, pointerWindowID: normalizedPointerWindowID(
+        rawWindowID: invocation.windowID, hitTestedWindowID: hit
+      ))
+    }
+  }
+
+  private func applyPointerMotion(_ invocation: PointerMotionInvocation, pointerWindowID: WindowID?) {
+    defer { if pendingPointerFocus != nil { scheduleTick() } }
     guard lastPointerWindowID != pointerWindowID else {
       pointerFocusObservedCount += 1
       return
@@ -85,12 +102,24 @@ extension Daemon {
   }
 
   func finishPendingPointerFocusIfReady() {
+    guard let pendingPointerFocus, pointerResumeTask == nil,
+      pointerFocusIsReady(for: pendingPointerFocus.windowID) else { return }
+    pointerResumeTask = Task { [weak self] in
+      guard let self else { return }
+      defer { if !Task.isCancelled { pointerResumeTask = nil } }
+      let hit = await platform.managedWindowIDUnderPointer(retaining: pendingPointerFocus.windowID)
+      guard !Task.isCancelled, desktopSessionActive, !shouldShutdown, !restorationInFlight,
+        pointerFocusIntentIsCurrent(pointerTimestamp: pendingPointerFocus.timestamp,
+          latestUserInputTimestamp: platform.userInputTracker.latestEventTimestamp,
+          latestPointerMotionTimestamp: platform.pointerMotionTracker.latestTimestamp),
+        self.pendingPointerFocus == pendingPointerFocus else { return }
+      resumePointerFocus(windowUnderPointerID: hit)
+    }
+  }
+
+  private func resumePointerFocus(windowUnderPointerID: WindowID?) {
     guard let pendingPointerFocus else { return }
     let ready = pointerFocusIsReady(for: pendingPointerFocus.windowID)
-    let windowUnderPointerID =
-      ready
-      ? platform.managedWindowIDUnderPointer(retaining: pendingPointerFocus.windowID)
-      : nil
     switch focus.resumePointer(
       latestInputTimestamp: platform.userInputTracker.latestEventTimestamp,
       ready: ready,
@@ -150,53 +179,58 @@ extension Daemon {
       },
       completion: { [weak self] result in
         guard let self else { return }
-        let windowUnderPointerID =
-          result == .failed || result == .failedAfterMutation
-          ? self.platform.managedWindowIDUnderPointer(retaining: windowID)
-          : nil
-        let effect = self.focus.completePointer(
-          request,
-          submission: submission,
-          result: result,
-          latestInputTimestamp: self.platform.userInputTracker.latestEventTimestamp,
-          windowUnderPointerID: windowUnderPointerID,
-          commandGeneration: self.commandGeneration,
-          activeMonitorID: self.activeMonitorID,
-          viewports: self.viewportsByMonitor,
-          maximumScrollAmount: self.config.input.focusFollowsMouseMaxScrollAmount,
-          acceptsAlreadySelectedWindow: restoresNativeFocus,
-          state: &self.state
-        )
-        guard effect != .stale else {
-          self.pointerFocusIgnoredCount += 1
-          return
-        }
-        self.submittedPointerFocusRequestID = nil
-        self.submittedPointerFocusTimestamp = nil
-        switch effect {
-        case .stale:
-          break
-        case .ignored(let rearm):
-          self.pointerFocusIgnoredCount += 1
-          if rearm { self.rearmPointerFocusTransition() }
-        case .recover(let previousSelection):
-          self.recoverPointerFocus(to: previousSelection, unlessUserInputAfter: timestamp)
-        case .selectionChanged(let monitorID):
-          self.activeMonitorID = monitorID
-          self.pointerFocusAppliedCount += 1
-          self.platform.commitWindowBorderSelection(windowID)
-          self.startScrollAnimationsIfNeeded()
-          _ = self.dispatchScrollAnimationIfNeeded()
-          self.needsDesktopSync = true
-          self.updateMenuBar()
-        case .resumeDisplaced:
-          self.pointerFocusIgnoredCount += 1
-          self.needsDesktopSync = true
-          self.finishPendingAnimatedFocusIfReady()
-          self.finishPendingWorkspaceFocusIfReady()
-        case .refresh:
-          self.pointerFocusIgnoredCount += 1
-          self.needsDesktopSync = true
+        Task { [weak self] in
+          guard let self else { return }
+          let windowUnderPointerID: WindowID?
+          if result == .failed || result == .failedAfterMutation {
+            windowUnderPointerID = await self.platform.managedWindowIDUnderPointer(retaining: windowID)
+          } else {
+            windowUnderPointerID = nil
+          }
+          let effect = self.focus.completePointer(
+            request,
+            submission: submission,
+            result: result,
+            latestInputTimestamp: self.platform.userInputTracker.latestEventTimestamp,
+            windowUnderPointerID: windowUnderPointerID,
+            commandGeneration: self.commandGeneration,
+            activeMonitorID: self.activeMonitorID,
+            viewports: self.viewportsByMonitor,
+            maximumScrollAmount: self.config.input.focusFollowsMouseMaxScrollAmount,
+            acceptsAlreadySelectedWindow: restoresNativeFocus,
+            state: &self.state
+          )
+          guard effect != .stale else {
+            self.pointerFocusIgnoredCount += 1
+            return
+          }
+          self.submittedPointerFocusRequestID = nil
+          self.submittedPointerFocusTimestamp = nil
+          switch effect {
+          case .stale:
+            break
+          case .ignored(let rearm):
+            self.pointerFocusIgnoredCount += 1
+            if rearm { self.rearmPointerFocusTransition() }
+          case .recover(let previousSelection):
+            self.recoverPointerFocus(to: previousSelection, unlessUserInputAfter: timestamp)
+          case .selectionChanged(let monitorID):
+            self.activeMonitorID = monitorID
+            self.pointerFocusAppliedCount += 1
+            self.platform.commitWindowBorderSelection(windowID)
+            self.startScrollAnimationsIfNeeded()
+            _ = self.dispatchScrollAnimationIfNeeded()
+            self.needsDesktopSync = true
+            self.updateMenuBar()
+          case .resumeDisplaced:
+            self.pointerFocusIgnoredCount += 1
+            self.needsDesktopSync = true
+            self.finishPendingAnimatedFocusIfReady()
+            self.finishPendingWorkspaceFocusIfReady()
+          case .refresh:
+            self.pointerFocusIgnoredCount += 1
+            self.needsDesktopSync = true
+          }
         }
       }
     )

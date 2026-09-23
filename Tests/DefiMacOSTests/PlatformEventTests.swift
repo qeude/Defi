@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import DefiModel
@@ -15,6 +16,31 @@ private final class TestAXElement: @unchecked Sendable {
 }
 
 struct PlatformEventTests {
+  @Test @NavigationActor
+  func fullscreenRetiresQueuedFrameAndCursorCompletionsEvenWithIdleWriter() {
+    let platform = MacOSPlatform()
+    let frameGeneration = platform.frameSubmissionGeneration
+    let warpGeneration = platform.cursorWarpGeneration.withLock { $0 }
+    #expect(!platform.hasPendingFrameWrites)
+    platform.updateNativeFullscreenWindowIDs([WindowID(rawValue: 42)])
+    #expect(platform.frameSubmissionGeneration != frameGeneration)
+    #expect(platform.cursorWarpGeneration.withLock { $0 } != warpGeneration)
+    let nextWarpGeneration = platform.cursorWarpGeneration.withLock { $0 }
+    platform.invalidateFocusRecovery()
+    #expect(platform.cursorWarpGeneration.withLock { $0 } != nextWarpGeneration)
+  }
+
+  @Test @MainActor
+  func delayedTapPresentationDoesNotInvalidateNewerInput() async {
+    let platform = await MacOSPlatform()
+    await platform.invalidateInputAfterEventTapReenabled(at: 10)
+    platform.userInputTracker.record(timestamp: 11, focusIntent: .keyboard)
+    platform.pointerMotionTracker.record(timestamp: 11)
+    platform.presentInvalidateInputAfterEventTapReenabled(at: 10)
+    #expect(platform.userInputTracker.latestEventTimestamp == 11)
+    #expect(platform.pointerMotionTracker.latestTimestamp == 11)
+  }
+
   @Test
   func activationOnlyQueriesFrontmostForLiveIntentAndRejectsSupersededReads() {
     let tracker = UserInputTracker()
@@ -39,7 +65,7 @@ struct PlatformEventTests {
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 16)?.processID == 30)
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func sessionChangeDiscardsCachedAXConnectionsBeforeNextDiscovery() {
     let platform = MacOSPlatform()
     let engine = platform.snapshotEngine
@@ -50,10 +76,12 @@ struct PlatformEventTests {
     engine.windowListReadRetryAttemptsByProcess = [42: 3]
     engine.hasCompletedWindowSnapshot = true
     engine.elements = [WindowID(rawValue: 1): stale]
+    engine.recordObservation(.windowCreated, processID: 42, createdElement: stale)
     platform.invalidateStateForDesktopSessionChange()
     // A snapshot already running during suspension may still publish its caches.
     engine.lastApplicationWindowElements = [42: [stale]]
-    _ = engine.consumeObservations()
+    let observations = engine.consumeObservations()
+    #expect(observations.createdElements.isEmpty)
     #expect(engine.applications.isEmpty)
     #expect(engine.lastApplicationWindowElements.isEmpty)
     #expect(engine.unmatchedWindowElementsByProcess.isEmpty)
@@ -397,10 +425,10 @@ struct PlatformEventTests {
     )
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func transientOwnerRetrySchedulesTheWindowListRefresh() {
     let platform = MacOSPlatform()
-    platform.eventMonitor = PlatformEventMonitor(handler: { _, _ in })
+    platform.presentationStatus.topologyReliable = true
     let now = ProcessInfo.processInfo.systemUptime
     platform.transientOwnerResolutionRetryAfter[WindowID(rawValue: 42)] = now + 5
 
@@ -425,7 +453,7 @@ struct PlatformEventTests {
     #expect(windowTopologyRefreshDelays(for: .focus).isEmpty)
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func targetedTopologyRefreshPreservesItsInputTimestamp() {
     let platform = MacOSPlatform()
 
@@ -1748,7 +1776,7 @@ struct PlatformEventTests {
     )
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func failedWindowListReadSchedulesShortRetry() {
     let platform = MacOSPlatform()
     platform.windowListReadRetryAttemptsByProcess[101] = 0
@@ -1756,7 +1784,7 @@ struct PlatformEventTests {
     #expect(platform.recommendedWindowListRefreshInterval == 0.1)
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func failedCGWindowInventorySchedulesShortRetry() {
     let platform = MacOSPlatform()
     platform.cgWindowInventoryRetryAttempts = 0
@@ -1764,7 +1792,7 @@ struct PlatformEventTests {
     #expect(platform.recommendedWindowListRefreshInterval == 0.1)
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func retainedWindowSchedulesShortRetryBeforeGraceExpires() {
     let platform = MacOSPlatform()
     platform.retainedWindowIDs = [WindowID(rawValue: 42)]
@@ -1956,7 +1984,7 @@ struct PlatformEventTests {
     #expect(noLongerTransient.contains(where: { CFEqual($0, current) }))
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func explicitWindowFrameRefreshTargetsOwningProcess() {
     let platform = MacOSPlatform()
     let windowID = WindowID(rawValue: 42)
@@ -1970,7 +1998,7 @@ struct PlatformEventTests {
     #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot == false)
   }
 
-  @Test @MainActor
+  @Test @NavigationActor
   func unknownWindowFrameRefreshFallsBackToFullSnapshot() {
     let platform = MacOSPlatform()
 
@@ -1983,8 +2011,8 @@ struct PlatformEventTests {
   }
 
   @Test @MainActor
-  func resumingFrameNotificationsForcesFreshProcessReads() {
-    let platform = MacOSPlatform()
+  func resumingFrameNotificationsForcesFreshProcessReads() async {
+    let platform = await MacOSPlatform()
     let eventMonitor = PlatformEventMonitor(handler: { _, _ in })
     platform.eventMonitor = eventMonitor
     platform.lastSnapshotProcessIDs = [101, 202]
@@ -1997,11 +2025,11 @@ struct PlatformEventTests {
       deadline: 2,
       observedAt: nil
     )
-    platform.setFrameNotificationsEnabled(false)
+    platform.presentSetFrameNotificationsEnabled(false)
     eventMonitor.recordSuppressedFrameNotification(processID: 202)
     eventMonitor.recordSuppressedFrameNotification(processID: nil)
 
-    platform.setFrameNotificationsEnabled(true)
+    platform.presentSetFrameNotificationsEnabled(true)
 
     #expect(platform.snapshotEngine.pendingObservations.framePending)
     #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs == [101, 202])

@@ -6,6 +6,32 @@ import Testing
 @testable import DefiMacOS
 
 struct WindowSnapshotStabilityTests {
+  @Test func createdWindowBypassesLaggingApplicationWindowList() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let processID: pid_t = 42
+    let created = AXUIElementCreateApplication(-2)
+    engine.applications = [processID: AXUIElementCreateApplication(-1)]
+    engine.applicationIDsByProcess = [processID: "test"]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.lastApplicationWindowElements = [processID: []]
+    engine.hasCompletedWindowSnapshot = true
+    engine.recordObservation(.windowCreated, processID: processID, createdElement: created)
+    let observations = engine.consumeObservations()
+    engine.recordObservation(.windowCreated, processID: processID, createdElement: created)
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: Config(), incrementalProcessIDs: [processID],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: observations.topologyProcessIDs,
+      createdElements: observations.createdElements, preparedWindowAttributes: [:],
+      preparedTransientOwnerWindowIDs: [:], preparedApplicationWindows: [:],
+      explicitlyDestroyedWindowIDs: [], publicCGWindows: { [] }
+    )
+    #expect(engine.applicationWindowListReadCount == 0)
+    #expect(result.applicationWindows[processID] == [created])
+    #expect(engine.consumeObservations().createdElements[processID] == [created])
+    #expect(windowCandidatesIncludingCreatedElements([created], created: [created, created]) == [created])
+  }
+
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
@@ -464,6 +490,7 @@ struct WindowSnapshotStabilityTests {
       forceApplicationInventoryRefresh: false,
       capturedTopologyRequiresFullSnapshot: false,
       topologyProcessIDs: [],
+      createdElements: [:],
       preparedWindowAttributes: [window.id: AXWindowAttributes(
         minimized: nil, frame: nil, title: "", role: nil, subrole: nil
       )],

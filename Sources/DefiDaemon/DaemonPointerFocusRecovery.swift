@@ -3,7 +3,7 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func rebindFocusRequests(using replacements: [WindowID: WindowID]) {
     let recovery = focus.rebind(

@@ -7,6 +7,33 @@ import Testing
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @Test func fastPreviewArrivesBeforeSlowCaptureCompletes() async {
+    let (stream, continuation) = AsyncStream<Bool>.makeStream()
+    let timeout = Task {
+      try? await Task.sleep(for: .milliseconds(500))
+      continuation.yield(false)
+      continuation.finish()
+    }
+    defer { timeout.cancel() }
+    let requests = (1...2).map {
+      OverviewPreviewRequest(windowID: WindowID(rawValue: UInt64($0)), expectedAppID: "test",
+        width: 100, height: 80, blurFadeHeight: 20)
+    }
+    let results = await runOverviewPreviewCaptures(requests, completed: { result in
+      if result.request == requests[0] {
+        continuation.yield(true)
+        continuation.finish()
+      }
+    }) { request in
+      if request == requests[1] {
+        // The slow capture cannot finish until the fast result has been delivered.
+        for await delivered in stream { #expect(delivered); break }
+      }
+      return OverviewPreviewCaptureResult(request: request, image: nil)
+    }
+    #expect(results.map(\.request) == requests)
+  }
+
   @Test @MainActor
   func compactPreviewsKeepTwentyFourLargeWindowsWithinTheCacheBudget() throws {
     let context = try #require(CGContext(

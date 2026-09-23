@@ -30,6 +30,8 @@ struct DisplayArrangementControllerTests {
     }
     #expect(controller.reconcile())
     #expect(router.route(try crossing()))
+    router.invalidate()
+    #expect(!router.route(try crossing())) // Navigation invalidates before main handles reconciliation.
     controller.invalidate()
     #expect(!router.route(try crossing()))
     #expect(!controller.reconcile()) // Unchanged geometry must republish the map.

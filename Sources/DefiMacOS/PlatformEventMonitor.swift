@@ -570,7 +570,7 @@ final class PlatformEventMonitor {
           case kAXUIElementDestroyedNotification:
             monitor.windowEventHandler(.windows, normalizedProcessID, element)
           case kAXWindowCreatedNotification:
-            monitor.handler(.windowCreated, normalizedProcessID)
+            monitor.windowEventHandler(.windowCreated, normalizedProcessID, element)
           default:
             monitor.handler(.windows, normalizedProcessID)
           }

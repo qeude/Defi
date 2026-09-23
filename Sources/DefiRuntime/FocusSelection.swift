@@ -355,9 +355,10 @@ public func pointerFocusRetryIsCurrent(
 
 public func pointerFocusIntentIsCurrent(
   pointerTimestamp: TimeInterval,
-  latestUserInputTimestamp: TimeInterval
+  latestUserInputTimestamp: TimeInterval,
+  latestPointerMotionTimestamp: TimeInterval = 0
 ) -> Bool {
-  latestUserInputTimestamp <= pointerTimestamp
+  max(latestUserInputTimestamp, latestPointerMotionTimestamp) <= pointerTimestamp
 }
 
 public func pointerFocusRequestIsCurrent(

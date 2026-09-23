@@ -1,9 +1,11 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import CoreGraphics
 import DefiConfig
 import DefiCore
 import DefiModel
+import Synchronization
 import XCTest
 import class SwiftUI.NSHostingMenu
 
@@ -11,11 +13,64 @@ import class SwiftUI.NSHostingMenu
 
 @MainActor
 final class DesktopE2ETests: XCTestCase {
+  func testOverviewShowsBothMonitorsBeforeLoadingPreviews() throws {
+    _ = try makePlatform()
+    let screens = NSScreen.screens
+    guard screens.count > 1 else { throw XCTSkip("Requires two connected displays") }
+    var windows: [WindowID: Window] = [:]
+    var frames: [MonitorID: Rect] = [:]
+    let monitors = screens.enumerated().map { index, screen in
+      let id = MonitorID(rawValue: (screen.deviceDescription[
+        NSDeviceDescriptionKey("NSScreenNumber")
+      ] as! NSNumber).uint64Value)
+      frames[id] = Rect(x: 0, y: 0, width: screen.frame.width, height: screen.frame.height)
+      let workspaces = (0..<4).map { row in
+        let columns = (0..<6).map { column in
+          let windowID = WindowID(rawValue: UInt64(1_000_000 + index * 100 + row * 6 + column))
+          windows[windowID] = Window(
+            id: windowID, appID: "test.overview", title: "Window \(column)",
+            frame: Rect(x: 0, y: 0, width: 800, height: 600)
+          )
+          return Column(window: windowID, width: .fraction(0.5))
+        }
+        return Workspace(id: WorkspaceID(rawValue: "\(index)-\(row)"), columns: columns)
+      }
+      return Monitor(id: id, workspaces: workspaces, activeWorkspace: workspaces[0].id)
+    }
+    let controller = OverviewController(
+      focusWindow: { _, _, _, _ in }, focusWorkspace: { _, _ in },
+      drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, commitScrollOffsets: { _ in }
+    )
+    defer { controller.close() }
+    controller.prepare(windowPreviewsEnabled: true)
+    XCTAssertFalse(controller.isOpen)
+    XCTAssertEqual(controller.retainedPanelCount, screens.count)
+    XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.allSatisfy { !$0.isVisible })
+    for sample in 0..<3 {
+      let start = ProcessInfo.processInfo.systemUptime
+      controller.open(
+        snapshot: OverviewSnapshot(monitors: monitors, monitorFrames: frames, windows: windows),
+        layout: LayoutSettings(), windowPreviewsEnabled: true
+      )
+      let panels = NSApplication.shared.windows.filter { $0.title == "Defi Overview" && $0.isVisible }
+      for panel in panels { panel.displayIfNeeded() }
+      let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1_000
+      print("DEFI_E2E overview-open sample=\(sample) monitors=\(screens.count) windows=\(windows.count) ms=\(elapsed)")
+      XCTAssertEqual(panels.count, screens.count)
+      XCTAssertTrue(panels.allSatisfy { $0.alphaValue == 1 }, "Overview must be visible before captures or a delayed fade")
+      XCTAssertEqual(controller.previewCacheCount, 0)
+      controller.handleKey(.cancel)
+      XCTAssertFalse(controller.isOpen)
+      XCTAssertTrue(panels.allSatisfy { !$0.isVisible })
+    }
+  }
+
   private func makePlatform() throws -> MacOSPlatform {
     guard ProcessInfo.processInfo.environment["DEFI_E2E"] == "1" else {
       throw XCTSkip("Set DEFI_E2E=1 to run real-desktop tests")
     }
-    let platform = MacOSPlatform()
+    let platform = onNavigation { MacOSPlatform() }
     guard platform.accessibilityTrusted(prompt: false) else {
       print("DEFI_E2E accessibility=unavailable")
       throw XCTSkip("Accessibility permission unavailable to test process")
@@ -67,18 +122,18 @@ final class DesktopE2ETests: XCTestCase {
     }
     let original = window.frame
     defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
       pumpRunLoop(for: 0.3)
     }
 
-    platform.apply([
+    onNavigation { platform.apply([
       FrameAssignment(
         windowID: window.id,
         frame: Rect(x: -10_000, y: -10_000, width: original.width, height: original.height)
       )
-    ])
+    ]) }
     pumpRunLoop(for: 0.2)
-    platform.focus(window.id)
+    onNavigation { platform.focus(window.id) }
     pumpRunLoop(for: 0.5)
 
     XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
@@ -95,13 +150,13 @@ final class DesktopE2ETests: XCTestCase {
     }
     defer { originalApplication?.activate() }
 
-    var result: NativeFocusResult?
-    platform.focus(window.id, completion: { result = $0 })
+    let result = DesktopValue<NativeFocusResult?>(nil)
+    onNavigation { platform.focus(window.id, completion: { value in DispatchQueue.main.async { result.value = value } }) }
     let deadline = ProcessInfo.processInfo.systemUptime + 2
-    while result == nil && ProcessInfo.processInfo.systemUptime < deadline {
+    while result.value == nil && ProcessInfo.processInfo.systemUptime < deadline {
       pumpRunLoop(for: 0.01)
     }
-    XCTAssertEqual(result, .completed)
+    XCTAssertEqual(result.value, .completed)
     let suppression = try XCTUnwrap(platform.internalFocusSuppressions[window.id])
     XCTAssertNotNil(suppression.completedAt)
 
@@ -161,11 +216,25 @@ final class DesktopE2ETests: XCTestCase {
 
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try makePlatform()
-    let snapshot = platform.snapshot(config: Config())
+    let initial = platform.snapshot(config: Config())
     let onscreenWindowIDs = Set(
       copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
         .map { WindowID(rawValue: UInt64($0.id)) }
     )
+    // Use a regular native window with a local floating rule. AppKit About
+    // panels can hide on deactivation and are not a cross-app stacking fixture.
+    guard let candidate = testWindows(in: initial).first(where: { window in
+      onscreenWindowIDs.contains(window.id) && initial.monitors.contains { monitor in
+        targetIntersects(window.frame, monitor: monitor.frame)
+          && initial.windows.contains { other in
+            other.processID != window.processID && !other.floating
+              && onscreenWindowIDs.contains(other.id)
+              && targetIntersects(other.frame, monitor: monitor.frame)
+          }
+      }
+    }) else { throw XCTSkip("Two on-screen applications on one monitor required") }
+    let config = Config(rules: [Rule(appID: candidate.appID, floating: true)])
+    let snapshot = platform.snapshot(config: config)
     guard let floating = snapshot.windows.first(where: {
       $0.floating && onscreenWindowIDs.contains($0.id)
     }),
@@ -190,20 +259,20 @@ final class DesktopE2ETests: XCTestCase {
     let originalFocusedWindowID = snapshot.focusedWindowID
     defer {
       if let originalFocusedWindowID {
-        platform.focus(originalFocusedWindowID)
+        onNavigation { platform.focus(originalFocusedWindowID) }
         pumpRunLoop(for: 0.3)
       }
     }
 
-    var focusResult: NativeFocusResult?
-    platform.focus(floating.id, completion: { focusResult = $0 })
+    let focusResult = DesktopValue<NativeFocusResult?>(nil)
+    onNavigation { platform.focus(floating.id, completion: { value in DispatchQueue.main.async { focusResult.value = value } }) }
     XCTAssertTrue(
       pumpRunLoop(
-        until: { focusResult != nil },
+        until: { focusResult.value != nil },
         timeout: 1
       )
     )
-    XCTAssertTrue(focusResult == .completed || focusResult == .completedWithoutMutation)
+    XCTAssertTrue(focusResult.value == .completed || focusResult.value == .completedWithoutMutation)
     guard let tiledElement = platform.elements[tiled.id],
       let processID = tiled.processID,
       let tiledApplication = platform.applications[processID]
@@ -211,11 +280,11 @@ final class DesktopE2ETests: XCTestCase {
       XCTFail("Tiled test window lost its Accessibility elements")
       return
     }
-    focusResult = nil
-    platform.focus(tiled.id, completion: { focusResult = $0 })
+    focusResult.value = nil
+    onNavigation { platform.focus(tiled.id, completion: { value in DispatchQueue.main.async { focusResult.value = value } }) }
     XCTAssertTrue(
       pumpRunLoop(
-        until: { focusResult != nil },
+        until: { focusResult.value != nil },
         timeout: 1
       )
     )
@@ -227,28 +296,27 @@ final class DesktopE2ETests: XCTestCase {
       .success
     )
     pumpRunLoop(for: 0.1)
-    _ = platform.snapshot(config: Config())
+    _ = platform.snapshot(config: config)
 
-    focusResult = nil
-    platform.focus(tiled.id, completion: { focusResult = $0 })
+    focusResult.value = nil
+    onNavigation { platform.focus(tiled.id, completion: { value in DispatchQueue.main.async { focusResult.value = value } }) }
     XCTAssertTrue(
       pumpRunLoop(
-        until: { focusResult != nil },
+        until: { focusResult.value != nil },
         timeout: 1
       )
     )
-    XCTAssertTrue(focusResult == .completed || focusResult == .completedWithoutMutation)
+    XCTAssertTrue(focusResult.value == .completed || focusResult.value == .completedWithoutMutation)
 
-    let windowOrder = copyCGWindows(
-      options: [.optionOnScreenOnly, .excludeDesktopElements]
-    ).map { WindowID(rawValue: UInt64($0.id)) }
-    guard let floatingIndex = windowOrder.firstIndex(of: floating.id),
-      let tiledIndex = windowOrder.firstIndex(of: tiled.id)
-    else {
-      XCTFail("Focused test windows disappeared from WindowServer order")
-      return
-    }
-    XCTAssertLessThan(floatingIndex, tiledIndex)
+    // AX success acknowledges the request before WindowServer necessarily
+    // publishes the new order. Assert native convergence, not callback timing.
+    XCTAssertTrue(pumpRunLoop(until: {
+      let order = copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+        .map { WindowID(rawValue: UInt64($0.id)) }
+      guard let floatingIndex = order.firstIndex(of: floating.id),
+        let tiledIndex = order.firstIndex(of: tiled.id) else { return false }
+      return floatingIndex < tiledIndex
+    }, timeout: 0.5), "the floating window must remain above the focused tiled window")
     var focusedWindow: CFTypeRef?
     XCTAssertEqual(
       AXUIElementCopyAttributeValue(
@@ -279,7 +347,7 @@ final class DesktopE2ETests: XCTestCase {
         width: original.width - 80,
         height: original.height
       )
-      platform.apply([FrameAssignment(windowID: window.id, frame: target)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: target)]) }
       let converged = pumpRunLoop(
         until: {
           let actual = platform.snapshot(config: Config()).windows
@@ -291,7 +359,7 @@ final class DesktopE2ETests: XCTestCase {
       )
       let actual = platform.snapshot(config: Config()).windows
         .first(where: { $0.id == window.id })?.frame
-      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
       pumpRunLoop(for: 0.3)
       if converged {
         return
@@ -303,6 +371,23 @@ final class DesktopE2ETests: XCTestCase {
     XCTFail("No resizable AX window converged: \(failures.joined(separator: "; "))")
   }
 
+  func testUserAdjustedFramesReadFreshGeometryOffNavigationExecutor() async throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    guard let window = testWindows(in: snapshot).first else {
+      throw XCTSkip("No manageable desktop window")
+    }
+    onNavigation {
+      platform.latestObservedFrames[window.id] = Rect(x: -20_000, y: -20_000, width: 1, height: 1)
+    }
+    let frames = await platform.userAdjustedFrames(for: [window.id])
+    let actual = try XCTUnwrap(frames[window.id])
+    XCTAssertEqual(actual.x, window.frame.x, accuracy: 2)
+    XCTAssertEqual(actual.y, window.frame.y, accuracy: 2)
+    XCTAssertEqual(actual.width, window.frame.width, accuracy: 2)
+    XCTAssertEqual(actual.height, window.frame.height, accuracy: 2)
+  }
+
   func testHorizontalAnimationFrameWritesPositionWithoutSize() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
@@ -311,14 +396,15 @@ final class DesktopE2ETests: XCTestCase {
     }
     let original = window.frame
     defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
       pumpRunLoop(for: 0.3)
     }
-    platform.apply([FrameAssignment(windowID: window.id, frame: original)])
-    let positionWrites = platform.successfulPositionWriteCount
-    let sizeWrites = platform.successfulSizeWriteCount
+    onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 1))
+    let positionWrites = onNavigation { platform.successfulPositionWriteCount }
+    let sizeWrites = onNavigation { platform.successfulSizeWriteCount }
 
-    platform.apply([
+    onNavigation { platform.apply([
       FrameAssignment(
         windowID: window.id,
         frame: Rect(
@@ -328,11 +414,11 @@ final class DesktopE2ETests: XCTestCase {
           height: original.height
         )
       )
-    ])
+    ]) }
     pumpRunLoop(for: 0.2)
 
-    XCTAssertGreaterThan(platform.successfulPositionWriteCount, positionWrites)
-    XCTAssertEqual(platform.successfulSizeWriteCount, sizeWrites)
+    XCTAssertGreaterThan(onNavigation { platform.successfulPositionWriteCount }, positionWrites)
+    XCTAssertEqual(onNavigation { platform.successfulSizeWriteCount }, sizeWrites)
   }
 
   func testManagedResizeAnimationConvergesWithAdaptiveSizeWrites() throws {
@@ -356,22 +442,22 @@ final class DesktopE2ETests: XCTestCase {
       height: original.height
     )
     defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
       pumpRunLoop(for: 0.3)
     }
-    let sizeWrites = platform.successfulSizeWriteCount
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 1))
+    let sizeWrites = onNavigation { platform.successfulSizeWriteCount }
 
-    platform.apply(
+    onNavigation { platform.apply(
       [FrameAssignment(windowID: window.id, frame: target)],
-      asynchronousPositions: true,
       animationDuration: 0.08,
       animationRefreshRateHz: 120,
       animateSizeChanges: true,
       source: "test-resize-animation"
-    )
+    ) }
     XCTAssertTrue(
       pumpRunLoop(
-        until: { !platform.hasPendingAnimatedFrameWrites },
+        until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } },
         timeout: 1
       )
     )
@@ -387,11 +473,11 @@ final class DesktopE2ETests: XCTestCase {
     )
     XCTAssertTrue(
       converged,
-      "resize animation did not converge; app=\(window.appID) target=\(target) actual=\(String(describing: actual)) trace=\(platform.frameCoordinatorTrace)"
+      "resize animation did not converge; app=\(window.appID) target=\(target) actual=\(String(describing: actual)) trace=\(onNavigation { platform.frameCoordinatorTrace })"
     )
     XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
     XCTAssertGreaterThanOrEqual(
-      platform.successfulSizeWriteCount - sizeWrites,
+      onNavigation { platform.successfulSizeWriteCount } - sizeWrites,
       1
     )
   }
@@ -427,24 +513,22 @@ final class DesktopE2ETests: XCTestCase {
       preferredSide: .right
     ).frame
     defer {
-      platform.apply(
+      onNavigation { platform.apply(
         [FrameAssignment(windowID: window.id, frame: original)],
-        asynchronousPositions: true
-      )
+      ) }
       pumpRunLoop(for: 0.4)
     }
 
-    platform.apply([FrameAssignment(windowID: window.id, frame: staged)])
+    onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: staged)]) }
     pumpRunLoop(for: 0.25)
-    platform.apply(
+    onNavigation { platform.apply(
       [FrameAssignment(windowID: window.id, frame: anchored)],
-      asynchronousPositions: true,
       asynchronousPositionTimeoutSeconds: 0.05,
       source: "test-strip-sliver"
-    )
+    ) }
     XCTAssertTrue(
       pumpRunLoop(
-        until: { !platform.hasPendingAnimatedFrameWrites },
+        until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } },
         timeout: 0.8
       )
     )
@@ -454,7 +538,7 @@ final class DesktopE2ETests: XCTestCase {
       .first(where: { $0.id == window.id })?.frame
     XCTAssertEqual(actual?.x ?? 0, anchored.x, accuracy: 2)
     XCTAssertEqual(actual?.y ?? 0, anchored.y, accuracy: 2)
-    XCTAssertEqual(platform.hiddenWindowCount, 0)
+    XCTAssertEqual(onNavigation { platform.hiddenWindowCount }, 0)
   }
 
   func testReenteringWindowJoinsFirstAnimatedRibbonSample() throws {
@@ -490,36 +574,34 @@ final class DesktopE2ETests: XCTestCase {
       height: neighborOriginal.height
     )
     defer {
-      platform.apply([
+      onNavigation { platform.apply([
         FrameAssignment(windowID: window.id, frame: original),
         FrameAssignment(windowID: neighbor.id, frame: neighborOriginal),
-      ])
+      ]) }
       pumpRunLoop(for: 0.3)
     }
 
-    platform.apply(
+    onNavigation { platform.apply(
       [
         FrameAssignment(windowID: window.id, frame: parked),
         FrameAssignment(windowID: neighbor.id, frame: neighborOriginal),
       ],
       hiddenWindowIDs: [window.id],
-      asynchronousPositions: true
-    )
+    ) }
     pumpRunLoop(for: 0.3)
-    platform.apply(
+    onNavigation { platform.apply(
       [
         FrameAssignment(windowID: window.id, frame: target),
         FrameAssignment(windowID: neighbor.id, frame: neighborTarget),
       ],
-      asynchronousPositions: true,
       animationDuration: 0.05,
       animationRefreshRateHz: 120
-    )
+    ) }
     pumpRunLoop(for: 0.4)
 
     let actual = platform.snapshot(config: Config()).windows
       .first(where: { $0.id == window.id })?.frame
-    let performance = platform.frameCoordinatorPerformance
+    let performance = onNavigation { platform.frameCoordinatorPerformance }
     let maximumAnimationFrames = completedFrameSpringSamples(
       duration: 0.05,
       refreshRateHz: 120
@@ -575,32 +657,31 @@ final class DesktopE2ETests: XCTestCase {
         width: animatedWidth,
         height: original.height
       )
-      platform.apply(
+      onNavigation { platform.apply(
         [FrameAssignment(windowID: window.id, frame: target)],
-        asynchronousPositions: true,
         animationDuration: 0.05,
         animationRefreshRateHz: 120,
         source: "test-animation"
-      )
+      ) }
       guard pumpRunLoop(
-        until: { !platform.hasPendingAnimatedFrameWrites },
+        until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } },
         timeout: 0.5
       ) else {
         failedPreconditions.append("\(window.appID):animation")
-        competingPlatform.apply([
+        onNavigation { competingPlatform.apply([
           FrameAssignment(windowID: window.id, frame: original)
-        ])
+        ]) }
         pumpRunLoop(for: 0.15)
-        platform.acceptObservedFrame(original, for: window.id)
+        onNavigation { platform.acceptObservedFrame(original, for: window.id) }
         continue
       }
 
       var competingWriteConverged = false
       var lastCompetingFrame: Rect?
       for _ in 0..<10 where !competingWriteConverged {
-        competingPlatform.apply([
+        onNavigation { competingPlatform.apply([
           FrameAssignment(windowID: window.id, frame: intermediate)
-        ])
+        ]) }
         competingWriteConverged = pumpRunLoop(
           until: {
             let actual = competingPlatform.snapshot(config: Config()).windows
@@ -620,11 +701,11 @@ final class DesktopE2ETests: XCTestCase {
       failedPreconditions.append(
         "\(window.appID):\(String(describing: lastCompetingFrame))"
       )
-      competingPlatform.apply([
+      onNavigation { competingPlatform.apply([
         FrameAssignment(windowID: window.id, frame: original)
-      ])
+      ]) }
       pumpRunLoop(for: 0.15)
-      platform.acceptObservedFrame(original, for: window.id)
+      onNavigation { platform.acceptObservedFrame(original, for: window.id) }
     }
     guard let selected else {
       XCTFail(
@@ -637,7 +718,7 @@ final class DesktopE2ETests: XCTestCase {
     let target = selected.target
     let expectation = selected.expectation
     defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: original)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
       pumpRunLoop(for: 0.3)
     }
     let observationStartedAt = ProcessInfo.processInfo.systemUptime
@@ -653,24 +734,23 @@ final class DesktopE2ETests: XCTestCase {
       observedAt: expectation.observedAt
     )
 
-    let writesBeforeDesktopSync = platform.successfulPositionWriteCount
-    platform.requestFrameRefresh(for: window.id)
+    let writesBeforeDesktopSync = onNavigation { platform.successfulPositionWriteCount }
+    onNavigation { platform.requestFrameRefresh(for: window.id) }
     let delayedSnapshot = platform.snapshot(config: Config())
-    platform.apply(
+    onNavigation { platform.apply(
       [FrameAssignment(windowID: window.id, frame: target)],
-      asynchronousPositions: true,
       source: "desktop-sync"
-    )
+    ) }
     pumpRunLoop(for: 0.08)
 
     XCTAssertTrue(delayedSnapshot.targetMismatches.isEmpty)
-    XCTAssertGreaterThan(platform.frameCommitPerformance.deferred, 0)
+    XCTAssertGreaterThan(onNavigation { platform.frameCommitPerformance }.deferred, 0)
     XCTAssertEqual(
-      platform.successfulPositionWriteCount,
+      onNavigation { platform.successfulPositionWriteCount },
       writesBeforeDesktopSync
     )
     XCTAssertFalse(
-      platform.frameCoordinatorTrace.contains("source=desktop-sync")
+      onNavigation { platform.frameCoordinatorTrace }.contains("source=desktop-sync")
     )
   }
 
@@ -684,15 +764,15 @@ final class DesktopE2ETests: XCTestCase {
     else {
       throw XCTSkip("Need a non-focused manageable window")
     }
-    var eventCount = 0
-    platform.startObserving {
-      eventCount += 1
-    }
+    let eventCount = DesktopValue(0)
+    onNavigation { platform.startObserving {
+      DispatchQueue.main.async { eventCount.value += 1 }
+    } }
 
-    platform.focus(window.id)
+    onNavigation { platform.focus(window.id) }
     pumpRunLoop(for: 0.6)
 
-    XCTAssertGreaterThan(eventCount, 0)
+    XCTAssertGreaterThan(eventCount.value, 0)
     XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
   }
 
@@ -706,19 +786,19 @@ final class DesktopE2ETests: XCTestCase {
     let originalFocusedWindowID = snapshot.focusedWindowID
     defer {
       if let originalFocusedWindowID {
-        platform.focus(originalFocusedWindowID)
+        onNavigation { platform.focus(originalFocusedWindowID) }
         pumpRunLoop(for: 0.5)
       }
     }
 
     for windowID in [windows[0].id, windows[1].id, windows[0].id, windows[1].id] {
-      platform.focus(windowID)
+      onNavigation { platform.focus(windowID) }
     }
 
     XCTAssertTrue(
       pumpRunLoop(
         until: {
-          !platform.hasPendingFocusWrite
+          !onNavigation { platform.hasPendingFocusWrite }
             && platform.snapshot(config: Config()).focusedWindowID
               == windows[1].id
         },
@@ -744,7 +824,7 @@ final class DesktopE2ETests: XCTestCase {
 
   func testSwiftUIMenuKeepsWorkspaceSelectionAndCommandRouting() throws {
     _ = try makePlatform()
-    var commands: [String] = []
+    let commands = DesktopValue<[String]>([])
     let state = MenuBarState(accessibilityTrusted: { true })
     state.update(
       activeWorkspace: "dev",
@@ -752,7 +832,7 @@ final class DesktopE2ETests: XCTestCase {
     )
     let menu = NSHostingMenu(rootView: MenuBarContent(
       state: state,
-      commandHandler: { commands.append($0) }
+      commandHandler: { commands.value.append($0) }
     ))
     menu.update()
     XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), [
@@ -767,7 +847,7 @@ final class DesktopE2ETests: XCTestCase {
     let quitIndex = try XCTUnwrap(menu.items.firstIndex { $0.title == "Quit Defi" })
     menu.performActionForItem(at: quitIndex)
     pumpRunLoop(for: 0.05)
-    XCTAssertEqual(commands, ["workspace web", "quit"])
+    XCTAssertEqual(commands.value, ["workspace web", "quit"])
   }
 
   func testCheatsheetFitsContentAndNeverRestoresAClosedPanelOrTakesFocus() throws {
@@ -809,18 +889,18 @@ final class DesktopE2ETests: XCTestCase {
 
   func testCheatsheetReceivesHeldModifierAndCapturesItsShortcut() throws {
     _ = try makePlatform()
-    var inputs: [CheatsheetInput] = []
-    var commands: [String] = []
-    let manager = HotKeyManager(
+    let inputs = DesktopValue<[CheatsheetInput]>([])
+    let commands = DesktopValue<[String]>([])
+    let manager = onNavigation { HotKeyManager(
       config: Config(
         modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
         defaultKeyModifier: "hyper",
         keys: ["hyper-slash": "toggle-cheatsheet"]
       ),
-      cheatsheetHandler: { inputs.append($0) }
-    ) { commands.append($0.command) }
-    try manager.start()
-    defer { manager.stop() }
+      cheatsheetHandler: { value in DispatchQueue.main.async { inputs.value.append(value) } }
+    ) { value in DispatchQueue.main.async { commands.value.append(value.command) } } }
+    try onNavigation { try manager.start() }
+    defer { onNavigation { manager.stop() } }
     let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
     let modifier = try XCTUnwrap(CGEvent(
       keyboardEventSource: source, virtualKey: 58, keyDown: true
@@ -834,27 +914,27 @@ final class DesktopE2ETests: XCTestCase {
     }
     modifier.post(tap: .cghidEventTap)
     XCTAssertTrue(pumpRunLoop(until: {
-      inputs.contains(.modifiersChanged(matches: true, released: false))
+      inputs.value.contains(.modifiersChanged(matches: true, released: false))
     }, timeout: 1))
     pumpRunLoop(for: 0.65)
-    XCTAssertEqual(inputs.last, .modifiersChanged(matches: true, released: false))
+    XCTAssertEqual(inputs.value.last, .modifiersChanged(matches: true, released: false))
     let shortcut = try XCTUnwrap(CGEvent(
       keyboardEventSource: source, virtualKey: 44, keyDown: true
     ))
     shortcut.flags = modifier.flags
     shortcut.post(tap: .cghidEventTap)
-    XCTAssertTrue(pumpRunLoop(until: { commands == ["toggle-cheatsheet"] }, timeout: 1))
+    XCTAssertTrue(pumpRunLoop(until: { commands.value == ["toggle-cheatsheet"] }, timeout: 1))
     shortcut.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
     shortcut.post(tap: .cghidEventTap)
     pumpRunLoop(for: 0.1)
-    XCTAssertEqual(commands, ["toggle-cheatsheet"])
-    manager.setCheatsheetVisible(true)
+    XCTAssertEqual(commands.value, ["toggle-cheatsheet"])
+    onNavigation { manager.setCheatsheetVisible(true) }
     let escape = try XCTUnwrap(CGEvent(
       keyboardEventSource: source, virtualKey: 53, keyDown: true
     ))
     escape.flags = modifier.flags
     escape.post(tap: .cghidEventTap)
-    XCTAssertTrue(pumpRunLoop(until: { inputs.last == .dismiss }, timeout: 1))
+    XCTAssertTrue(pumpRunLoop(until: { inputs.value.last == .dismiss }, timeout: 1))
   }
 
   func testHotKeysAreCapturedWhileMainActorIsBlocked() throws {
@@ -864,14 +944,15 @@ final class DesktopE2ETests: XCTestCase {
       keys: ["hyper-left": "focus-column left"]
     )
     let tracker = UserInputTracker()
-    var received: [HotKeyInvocation] = []
-    let manager = HotKeyManager(
+    let received = Mutex<[HotKeyInvocation]>([])
+    let manager = onNavigation { HotKeyManager(
       config: config,
       userInputTracker: tracker
     ) { invocation in
-      received.append(invocation)
-    }
-    try manager.start()
+      received.withLock { $0.append(invocation) }
+    } }
+    try onNavigation { try manager.start() }
+    defer { onNavigation { manager.stop() } }
     let eventCount = 8
 
     DispatchQueue.global(qos: .userInteractive).async {
@@ -909,24 +990,25 @@ final class DesktopE2ETests: XCTestCase {
 
     Thread.sleep(forTimeInterval: 0.35)
     XCTAssertEqual(
-      manager.capturedKeyCount,
+      onNavigation { manager.capturedKeyCount },
       eventCount,
       "event tap must keep capturing while AX/layout blocks the main actor"
     )
-    pumpRunLoop(for: 0.2)
-    XCTAssertEqual(received.count, eventCount)
-    XCTAssertTrue(received.allSatisfy { $0.command == "focus-column left" })
-    XCTAssertTrue(received.allSatisfy { $0.timestamp > 0 })
-    XCTAssertEqual(tracker.latestEventTimestamp, received.last?.timestamp)
-    XCTAssertEqual(manager.tapReenableCount, 0)
+    let invocations = received.withLock { $0 }
+    XCTAssertEqual(invocations.count, eventCount,
+      "commands must be delivered before the main actor resumes")
+    XCTAssertTrue(invocations.allSatisfy { $0.command == "focus-column left" })
+    XCTAssertTrue(invocations.allSatisfy { $0.timestamp > 0 })
+    XCTAssertEqual(tracker.latestEventTimestamp, invocations.last?.timestamp)
+    XCTAssertEqual(onNavigation { manager.tapReenableCount }, 0)
   }
 
   func testWorkspaceMonitorShortcutsAreCaptured() throws {
     _ = try makePlatform()
-    var commands: [String] = []
-    let manager = HotKeyManager(config: Config()) { commands.append($0.command) }
-    try manager.start()
-    defer { manager.stop() }
+    let commands = DesktopValue<[String]>([])
+    let manager = onNavigation { HotKeyManager(config: Config()) { value in DispatchQueue.main.async { commands.value.append(value.command) } } }
+    try onNavigation { try manager.start() }
+    defer { onNavigation { manager.stop() } }
     let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
     for (index, direction) in ["left", "right", "down", "up"].enumerated() {
       let event = try XCTUnwrap(CGEvent(
@@ -934,35 +1016,35 @@ final class DesktopE2ETests: XCTestCase {
       ))
       event.flags = [.maskControl, .maskAlternate, .maskShift]
       event.post(tap: .cghidEventTap)
-      XCTAssertTrue(pumpRunLoop(until: { commands.count == index + 1 }, timeout: 1))
+      XCTAssertTrue(pumpRunLoop(until: { commands.value.count == index + 1 }, timeout: 1))
       event.type = .keyUp
       event.flags = []
       event.post(tap: .cghidEventTap)
-      XCTAssertEqual(commands.last, "move-workspace-to-monitor \(direction)")
+      XCTAssertEqual(commands.value.last, "move-workspace-to-monitor \(direction)")
     }
-    XCTAssertEqual(manager.capturedKeyCount, 4)
+    XCTAssertEqual(onNavigation { manager.capturedKeyCount }, 4)
   }
 
   func testAliasedOverrideWinsOverFixedMonitorShortcut() throws {
     _ = try makePlatform()
-    var commands: [String] = []
-    let manager = HotKeyManager(config: Config(
+    let commands = DesktopValue<[String]>([])
+    let manager = onNavigation { HotKeyManager(config: Config(
       modifierCombinations: ["combo": "Ctrl + Alt + Shift"],
       keys: ["combo-left": "focus-column first"]
-    )) { commands.append($0.command) }
-    try manager.start()
-    defer { manager.stop() }
+    )) { value in DispatchQueue.main.async { commands.value.append(value.command) } } }
+    try onNavigation { try manager.start() }
+    defer { onNavigation { manager.stop() } }
     let event = try XCTUnwrap(CGEvent(
       keyboardEventSource: nil, virtualKey: 123, keyDown: true
     ))
     event.flags = [.maskControl, .maskAlternate, .maskShift]
     event.post(tap: .cghidEventTap)
-    XCTAssertTrue(pumpRunLoop(until: { !commands.isEmpty }, timeout: 1))
+    XCTAssertTrue(pumpRunLoop(until: { !commands.value.isEmpty }, timeout: 1))
     event.type = .keyUp
     event.flags = []
     event.post(tap: .cghidEventTap)
-    XCTAssertEqual(commands, ["focus-column first"])
-    XCTAssertEqual(manager.capturedKeyCount, 1)
+    XCTAssertEqual(commands.value, ["focus-column first"])
+    XCTAssertEqual(onNavigation { manager.capturedKeyCount }, 1)
   }
 
   func testConfiguredHyperArrowNavigatesOverview() throws {
@@ -971,14 +1053,14 @@ final class DesktopE2ETests: XCTestCase {
       modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
       keys: ["hyper-left": "focus-column left"]
     )
-    var commands: [HotKeyInvocation] = []
-    var overviewActions: [OverviewKeyAction] = []
-    let manager = HotKeyManager(
+    let commands = DesktopValue<[HotKeyInvocation]>([])
+    let overviewActions = DesktopValue<[OverviewKeyAction]>([])
+    let manager = onNavigation { HotKeyManager(
       config: config,
-      overviewHandler: { overviewActions.append($0) }
-    ) { commands.append($0) }
-    try manager.start()
-    manager.setOverviewModeEnabled(true)
+      overviewHandler: { value in DispatchQueue.main.async { overviewActions.value.append(value) } }
+    ) { value in DispatchQueue.main.async { commands.value.append(value) } } }
+    try onNavigation { try manager.start() }
+    onNavigation { manager.setOverviewModeEnabled(true) }
 
     DispatchQueue.global(qos: .userInteractive).async {
       Thread.sleep(forTimeInterval: 0.05)
@@ -995,20 +1077,20 @@ final class DesktopE2ETests: XCTestCase {
     }
 
     XCTAssertTrue(
-      pumpRunLoop(until: { overviewActions == [.left] }, timeout: 1)
+      pumpRunLoop(until: { overviewActions.value == [.left] }, timeout: 1)
     )
-    XCTAssertEqual(commands, [])
-    XCTAssertEqual(manager.capturedKeyCount, 1)
+    XCTAssertEqual(commands.value, [])
+    XCTAssertEqual(onNavigation { manager.capturedKeyCount }, 1)
   }
 
   func testScrollWheelAdvancesUserInputTracker() throws {
     _ = try makePlatform()
     let tracker = UserInputTracker()
-    let manager = HotKeyManager(
+    let manager = onNavigation { HotKeyManager(
       config: Config(),
       userInputTracker: tracker
-    ) { _ in }
-    try manager.start()
+    ) { _ in } }
+    try onNavigation { try manager.start() }
     let previousTimestamp = tracker.latestEventTimestamp
 
     guard let source = CGEventSource(stateID: .hidSystemState),
@@ -1057,15 +1139,15 @@ final class DesktopE2ETests: XCTestCase {
         mouseFollowsFocus: true
       )
     )
-    var received: [PointerMotionInvocation] = []
-    let manager = HotKeyManager(
+    let received = DesktopValue<[PointerMotionInvocation]>([])
+    let manager = onNavigation { HotKeyManager(
       config: config,
       pointerMotionTracker: platform.pointerMotionTracker,
       pointerMotionHandler: { invocation in
-        received.append(invocation)
+        DispatchQueue.main.async { received.value.append(invocation) }
       }
-    ) { _ in }
-    try manager.start()
+    ) { _ in } }
+    try onNavigation { try manager.start() }
 
     let focusedCenter = CGPoint(
       x: focusedWindow.frame.x + focusedWindow.frame.width / 2,
@@ -1087,11 +1169,11 @@ final class DesktopE2ETests: XCTestCase {
     movement.post(tap: .cghidEventTap)
 
     XCTAssertTrue(
-      pumpRunLoop(until: { !received.isEmpty }, timeout: 0.5),
+      pumpRunLoop(until: { !received.value.isEmpty }, timeout: 0.5),
       "mouse movement did not reach event tap"
     )
     pumpRunLoop(for: 0.1)
-    let resolvedPointerWindowID = received.last.flatMap {
+    let resolvedPointerWindowID = received.value.last.flatMap {
       $0.windowID ?? platform.managedWindowID(at: $0.location)
     }
     XCTAssertEqual(resolvedPointerWindowID, focusedWindowID)
@@ -1112,19 +1194,17 @@ final class DesktopE2ETests: XCTestCase {
     else {
       throw XCTSkip("Second on-screen managed window required")
     }
-    let transitionsBeforeWarp = manager.pointerTransitionCount
+    let transitionsBeforeWarp = onNavigation { manager.pointerTransitionCount }
 
-    XCTAssertTrue(
-      platform.warpCursor(
-        to: otherWindow.id,
-        unlessUserInputAfter: .greatestFiniteMagnitude
-      )
-    )
+    onNavigation { platform.warpCursor(
+      to: otherWindow.id,
+      unlessUserInputAfter: .greatestFiniteMagnitude
+    ) }
     pumpRunLoop(for: 0.2)
 
-    XCTAssertEqual(platform.cursorWarpPerformance.applied, 1)
+    XCTAssertEqual(onNavigation { platform.cursorWarpPerformance }.applied, 1)
     XCTAssertEqual(
-      manager.pointerTransitionCount,
+      onNavigation { manager.pointerTransitionCount },
       transitionsBeforeWarp,
       "programmatic cursor warp must not emit pointer transitions"
     )
@@ -1167,28 +1247,27 @@ final class DesktopE2ETests: XCTestCase {
       throw XCTSkip("Window covers the usable monitor")
     }
     defer {
-      platform.apply([
+      onNavigation { platform.apply([
         FrameAssignment(windowID: window.id, frame: originalFrame)
-      ])
+      ]) }
       CGWarpMouseCursorPosition(originalCursorLocation)
       pumpRunLoop(for: 0.3)
     }
 
     XCTAssertEqual(CGWarpMouseCursorPosition(outside), .success)
-    platform.apply(
+    onNavigation { platform.apply(
       [FrameAssignment(windowID: window.id, frame: targetFrame)],
-      asynchronousPositions: true,
       cursorWarpWindowIDAfterCommit: window.id,
       cursorWarpInputTimestampAfterCommit: .greatestFiniteMagnitude,
       cursorWarpIsCurrentAfterCommit: { true }
-    )
+    ) }
 
     XCTAssertTrue(
       pumpRunLoop(
-        until: { platform.cursorWarpPerformance.applied == 1 },
+        until: { onNavigation { platform.cursorWarpPerformance }.applied == 1 },
         timeout: 1
       ),
-      "cursor did not warp after the target frame committed; performance=\(platform.cursorWarpPerformance) trace=\(platform.frameCoordinatorTrace)"
+      "cursor did not warp after the target frame committed; performance=\(onNavigation { platform.cursorWarpPerformance }) trace=\(onNavigation { platform.frameCoordinatorTrace })"
     )
   }
 
@@ -1198,16 +1277,16 @@ final class DesktopE2ETests: XCTestCase {
       input: InputConfig(focusFollowsMouse: true),
       keys: ["unknown-no-such-key": "focus-column left"]
     )
-    var received: [PointerMotionInvocation] = []
-    let manager = HotKeyManager(
+    let received = DesktopValue<[PointerMotionInvocation]>([])
+    let manager = onNavigation { HotKeyManager(
       config: config,
       pointerMotionHandler: { invocation in
-        received.append(invocation)
+        DispatchQueue.main.async { received.value.append(invocation) }
       }
-    ) { _ in }
-    XCTAssertNotNil(manager.bindingError)
-    XCTAssertEqual(manager.bindingCount, 0)
-    try manager.start()
+    ) { _ in } }
+    XCTAssertNotNil(onNavigation { manager.bindingError })
+    XCTAssertEqual(onNavigation { manager.bindingCount }, 0)
+    try onNavigation { try manager.start() }
 
     guard let location = CGEvent(source: nil)?.location,
       let source = CGEventSource(stateID: .hidSystemState),
@@ -1224,7 +1303,7 @@ final class DesktopE2ETests: XCTestCase {
     movement.post(tap: .cghidEventTap)
 
     XCTAssertTrue(
-      pumpRunLoop(until: { !received.isEmpty }, timeout: 0.5),
+      pumpRunLoop(until: { !received.value.isEmpty }, timeout: 0.5),
       "pointer movement did not survive invalid hotkey parsing"
     )
   }
@@ -1245,22 +1324,24 @@ final class DesktopE2ETests: XCTestCase {
       preferredSide: .right
     ).frame
     defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
       pumpRunLoop(for: 0.3)
     }
 
-    platform.apply(
+    onNavigation { platform.apply(
       [FrameAssignment(windowID: window.id, frame: target)],
       hiddenWindowIDs: [window.id],
-      asynchronousPositions: true
-    )
-    pumpRunLoop(for: 0.3)
-    let actual = platform.snapshot(config: Config()).windows
-      .first(where: { $0.id == window.id })?.frame
-    XCTAssertFalse(platform.hasPendingAnimatedFrameWrites)
+    ) }
+    let element = try XCTUnwrap(platform.elements[window.id])
+    var actual: Rect?
+    XCTAssertTrue(pumpRunLoop(until: {
+      actual = platform.frame(of: element)
+      return actual.map { abs($0.x - target.x) <= 2 && abs($0.y - target.y) <= 2 } == true
+    }, timeout: 1.5), "the native frame must converge, independently of the snapshot refresh budget")
+    XCTAssertFalse(onNavigation { platform.hasPendingAnimatedFrameWrites })
     XCTAssertEqual(actual?.x ?? 0, target.x, accuracy: 2)
     XCTAssertEqual(actual?.y ?? 0, target.y, accuracy: 2)
-    XCTAssertEqual(platform.hiddenWindowCount, 1)
+    XCTAssertEqual(onNavigation { platform.hiddenWindowCount }, 1)
   }
 
   func testIsolatedDisplayArrangementPreservesPartialRibbonAndRestores() throws {
@@ -1275,7 +1356,7 @@ final class DesktopE2ETests: XCTestCase {
       controller.restore()
       XCTAssertEqual(DisplayArrangementController.apply(initialFrames), .success)
       pumpRunLoop(for: 0.3)
-      platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
       if let initialPointer { CGWarpMouseCursorPosition(initialPointer) }
       XCTAssertEqual(DisplayArrangementController.currentFrames(), initialFrames)
     }
@@ -1329,7 +1410,7 @@ final class DesktopE2ETests: XCTestCase {
         x: frame.x + frame.width * 0.8, y: frame.y,
         width: window.frame.width, height: min(window.frame.height, frame.height)
       )
-      platform.apply([FrameAssignment(windowID: window.id, frame: target)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: target)]) }
       pumpRunLoop(for: 0.2)
       let element = try XCTUnwrap(platform.elements[window.id])
       let actual = try XCTUnwrap(platform.frame(of: element))
@@ -1354,7 +1435,7 @@ final class DesktopE2ETests: XCTestCase {
       let window = testWindows(in: snapshot).first
     else { throw XCTSkip("Requires two connected monitors and a manageable window") }
     defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
       pumpRunLoop(for: 0.3)
     }
     for monitor in snapshot.monitors {
@@ -1365,15 +1446,15 @@ final class DesktopE2ETests: XCTestCase {
           allMonitorFrames: snapshot.monitors.map(\.physicalFrame),
           preferredSide: side
         ).frame
-        platform.apply(
+        onNavigation { platform.apply(
           [FrameAssignment(windowID: window.id, frame: target)],
-          hiddenWindowIDs: [window.id], asynchronousPositions: true
-        )
-        XCTAssertTrue(pumpRunLoop(until: { !platform.hasPendingAnimatedFrameWrites }, timeout: 2))
+          hiddenWindowIDs: [window.id]
+        ) }
+        XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } }, timeout: 2))
         pumpRunLoop(for: 0.2)
         let element = try XCTUnwrap(platform.elements[window.id])
         let actual = try XCTUnwrap(platform.frame(of: element))
-        XCTAssertEqual(actual.x, target.x, accuracy: 2, platform.frameCoordinatorTrace)
+        XCTAssertEqual(actual.x, target.x, accuracy: 2, onNavigation { platform.frameCoordinatorTrace })
         XCTAssertEqual(actual.y, target.y, accuracy: 2)
         let rect = CGRect(x: actual.x, y: actual.y, width: actual.width, height: actual.height)
         for other in snapshot.monitors where other.id != monitor.id {
@@ -1402,42 +1483,40 @@ final class DesktopE2ETests: XCTestCase {
       preferredSide: .right
     ).frame
     defer {
-      platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)])
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
       pumpRunLoop(for: 0.3)
     }
-    platform.apply(
+    onNavigation { platform.apply(
       [FrameAssignment(windowID: window.id, frame: parked)],
       hiddenWindowIDs: [window.id],
-      asynchronousPositions: true
-    )
+    ) }
     pumpRunLoop(for: 0.2)
 
-    let competingPlatform = try makePlatform()
-    _ = competingPlatform.snapshot(config: Config())
-    let rollback = Rect(
-      x: window.frame.x + 40,
-      y: window.frame.y,
-      width: window.frame.width,
-      height: window.frame.height
-    )
-    competingPlatform.apply([
-      FrameAssignment(windowID: window.id, frame: rollback)
-    ])
-    pumpRunLoop(for: 0.2)
+    // Simulate one delayed application write, without starting a second
+    // settlement coordinator that would keep restoring the competing target.
+    let element = try XCTUnwrap(platform.elements[window.id])
+    var rollback = CGPoint(x: window.frame.x + 40, y: window.frame.y)
+    let rollbackValue = try XCTUnwrap(AXValueCreate(.cgPoint, &rollback))
+    XCTAssertEqual(AXUIElementSetAttributeValue(
+      element, kAXPositionAttribute as CFString, rollbackValue
+    ), .success)
 
+    var repaired: Rect?
     XCTAssertTrue(
       pumpRunLoop(
-        until: { platform.parkingPerformance.repairs >= 1 },
+        until: {
+          guard onNavigation({ platform.parkingPerformance }).repairs >= 1 else { return false }
+          repaired = platform.frame(of: element)
+          return repaired.map { abs($0.x - parked.x) <= 2 && abs($0.y - parked.y) <= 2 } == true
+        },
         timeout: 1.6
       ),
-      "parking repair did not run before its 1.4 second backstop"
+      "parking repair did not converge before its 1.4 second backstop"
     )
-    let repaired = platform.snapshot(config: Config()).windows
-      .first(where: { $0.id == window.id })?.frame
     XCTAssertEqual(repaired?.x ?? 0, parked.x, accuracy: 2)
     XCTAssertEqual(repaired?.y ?? 0, parked.y, accuracy: 2)
     XCTAssertGreaterThanOrEqual(
-      platform.parkingPerformance.repairs,
+      onNavigation { platform.parkingPerformance }.repairs,
       1
     )
   }
@@ -1464,4 +1543,19 @@ final class DesktopE2ETests: XCTestCase {
     return condition()
   }
 
+}
+
+/// Desktop tests own AppKit on MainActor; native commands enter the same serial
+/// executor as the installed daemon. Never wrap a synchronous desktop snapshot.
+@discardableResult
+private func onNavigation<T>(_ body: @NavigationActor () throws -> T) rethrows -> T {
+  try NavigationActor.shared.queue.sync {
+    try NavigationActor.assumeIsolated(body)
+  }
+}
+
+@MainActor
+private final class DesktopValue<Value> {
+  var value: Value
+  init(_ value: Value) { self.value = value }
 }

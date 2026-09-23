@@ -8,6 +8,62 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+/// Lets an IPC client wait for a deferred command without occupying navigation.
+final class DeferredCommandReply: @unchecked Sendable {
+  private let lock = NSLock()
+  private let ready = DispatchSemaphore(value: 0)
+  private var deferred = false
+  private var executing = false
+  private var response: CommandResponse?
+
+  var wasDeferred: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return deferred
+  }
+
+  func deferResponse() {
+    lock.lock()
+    deferred = true
+    lock.unlock()
+  }
+
+  @NavigationActor func perform(_ command: () -> CommandResponse) {
+    lock.lock()
+    guard response == nil, !executing else { lock.unlock(); return }
+    executing = true
+    lock.unlock()
+    let result = command()
+    lock.lock()
+    response = result
+    executing = false
+    lock.unlock()
+    ready.signal()
+  }
+
+  func fail(_ message: String) {
+    lock.lock()
+    guard response == nil, !executing else { lock.unlock(); return }
+    response = .failure(message)
+    lock.unlock()
+    ready.signal()
+  }
+
+  func wait(timeout: DispatchTime = .now() + 1.5) -> CommandResponse {
+    // The Unix socket's response timeout is two seconds.
+    if ready.wait(timeout: timeout) == .timedOut {
+      fail("window geometry read timed out; command was not applied")
+      lock.lock()
+      let stillExecuting = executing
+      lock.unlock()
+      if stillExecuting { ready.wait() }
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    return response ?? .failure("window geometry response unavailable")
+  }
+}
+
 private func ipcEventHandler(
   server: UnixSocketServer,
   clientQueue: DispatchQueue,
@@ -28,14 +84,18 @@ private func ipcEventHandler(
             {
               return cached
             }
-            return DispatchQueue.main.sync {
-              MainActor.assumeIsolated {
+            let receivedAt = ProcessInfo.processInfo.systemUptime
+            let deferred = DeferredCommandReply()
+            let response = NavigationActor.shared.queue.sync {
+              NavigationActor.assumeIsolated {
                 guard let daemon else {
                   return CommandResponse.failure("daemon unavailable")
                 }
                 let response = daemon.handle(
                   request.command,
-                  monitorIndex: request.monitorIndex
+                  monitorIndex: request.monitorIndex,
+                  receivedAt: receivedAt,
+                  deferredResponse: deferred
                 )
                 if DaemonReadResponseCache.isReadCommand(request.command),
                   response.ok
@@ -49,10 +109,11 @@ private func ipcEventHandler(
                 return response
               }
             }
+            return deferred.wasDeferred ? deferred.wait() : response
           },
           completion: { [weak daemon] request in
             guard request.command == "quit" else { return }
-            DispatchQueue.main.async {
+            NavigationActor.enqueue {
               guard let daemon, daemon.shouldShutdown else { return }
               daemon.shutdown()
             }
@@ -62,7 +123,7 @@ private func ipcEventHandler(
       }
     } catch {
       let message = "IPC error: \(error)"
-      DispatchQueue.main.async { [weak daemon] in
+      NavigationActor.enqueue { [weak daemon] in
         daemon?.log(message)
       }
     }
@@ -166,7 +227,7 @@ func commandDiagnosticMetadata(
   )
 }
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func installIPCSource() {
     let server = server
@@ -194,7 +255,7 @@ extension Daemon {
   func scheduleTick() {
     guard !tickScheduled else { return }
     tickScheduled = true
-    DispatchQueue.main.async { [weak self] in
+    NavigationActor.enqueue { [weak self] in
       guard let self else { return }
       self.tickScheduled = false
       self.tick()
@@ -202,7 +263,7 @@ extension Daemon {
   }
 
   func enqueueHotKey(_ invocation: HotKeyInvocation) {
-    guard desktopSessionActive else { return }
+    guard desktopSessionActive, !shouldShutdown, !restorationInFlight else { return }
     guard pendingHotKeyCommands.count < 64 else { return }
     if (try? parseCommand(invocation.command)) != .toggleCheatsheet {
       handleCheatsheetInput(.dismiss)
@@ -212,7 +273,7 @@ extension Daemon {
   }
 
   func processPendingHotKeys() {
-    guard !processingHotKeyCommands else { return }
+    guard !processingHotKeyCommands, !shouldShutdown, !restorationInFlight else { return }
     processingHotKeyCommands = true
     defer { processingHotKeyCommands = false }
     for _ in 0..<min(pendingHotKeyCommands.count, 8) {
@@ -229,7 +290,10 @@ extension Daemon {
   func handle(
     _ rawCommand: String,
     monitorIndex: Int? = nil,
-    inputTimestamp: TimeInterval? = nil
+    inputTimestamp: TimeInterval? = nil,
+    receivedAt: TimeInterval? = nil,
+    floatingFramesRefreshed: Bool = false,
+    deferredResponse: DeferredCommandReply? = nil
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
       let lines = currentWorkspaceState().monitors.map { monitor in
@@ -267,13 +331,39 @@ extension Daemon {
       diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
       return .success("marked \(diagnostics.currentFileURL.path)")
     }
-    if rawCommand == "restore" {
-      restoreAllWindows()
-      return .success("restored")
+    if rawCommand == "restore", !shouldShutdown {
+      guard beginWindowRestoration() else { return .failure("window restoration in progress") }
+      Task { await restoreAllWindows(alreadyClaimed: true) }
+      return .success("restoration scheduled")
     }
     if rawCommand == "quit" {
       shouldShutdown = true
       return .success("stopping")
+    }
+    guard !shouldShutdown, !restorationInFlight else { return .failure("window restoration in progress") }
+    if commandFrameReadTask != nil {
+      do {
+        _ = try parseCommand(rawCommand)
+      } catch {
+        return .failure(String(describing: error))
+      }
+      if let monitorIndex, monitorID(atAppKitIndex: monitorIndex) == nil {
+        return .failure("unknown monitor index: \(monitorIndex)")
+      }
+      guard commandsAfterFrameRead.count < 64 else { return .failure("command queue full") }
+      deferredResponse?.deferResponse()
+      if let deferredResponse { deferredFrameReplies.append(deferredResponse) }
+      commandsAfterFrameRead.append { [weak self] in
+        let command = {
+          self?.handle(rawCommand, monitorIndex: monitorIndex,
+            inputTimestamp: inputTimestamp ?? receivedAt,
+            receivedAt: receivedAt, floatingFramesRefreshed: true)
+            ?? .failure("daemon unavailable")
+        }
+        if let deferredResponse { deferredResponse.perform(command) }
+        else { _ = command() }
+      }
+      return .success("queued for current window geometry")
     }
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
@@ -302,11 +392,49 @@ extension Daemon {
       } else {
         commandMonitorID = activeMonitorID ?? state.monitors.first?.id
       }
-      let commandInputTimestamp = inputTimestamp ?? commandStartedAt
+      if !floatingFramesRefreshed, platform.hasPendingMouseResizeGesture,
+        command.activatesWorkspace || command.movesWindowBetweenWorkspaces || command.movesWindowsAcrossMonitors,
+        commandMonitorID != nil
+      {
+        let windowIDs = commandMonitorID.map {
+          floatingWindowIDsForWorkspaceMutation(monitors: state.monitors, monitorID: $0)
+        } ?? []
+        if !windowIDs.isEmpty {
+          deferredResponse?.deferResponse()
+          if let deferredResponse { deferredFrameReplies.append(deferredResponse) }
+          commandFrameReadTask = Task { [weak self] in
+            guard let self else { return }
+            let frames = await platform.userAdjustedFrames(for: windowIDs)
+            guard !Task.isCancelled else { return }
+            commandFrameReadTask = nil
+            guard !shouldShutdown, !restorationInFlight else {
+              cancelPendingCommandFrameRead()
+              return
+            }
+            for (windowID, frame) in frames where state.windows[windowID]?.floating == true {
+              floatingWindowFrames[windowID] = frame
+              platform.acceptObservedFrame(frame, for: windowID)
+            }
+            let queued = commandsAfterFrameRead
+            commandsAfterFrameRead.removeAll(keepingCapacity: true)
+            deferredFrameReplies.removeAll(keepingCapacity: true)
+            let command = {
+              self.handle(rawCommand, monitorIndex: monitorIndex,
+                inputTimestamp: inputTimestamp ?? receivedAt,
+                receivedAt: receivedAt, floatingFramesRefreshed: true)
+            }
+            if let deferredResponse { deferredResponse.perform(command) }
+            else { _ = command() }
+            for command in queued { command() }
+          }
+          return .success("queued for current window geometry")
+        }
+      }
+      let commandInputTimestamp = inputTimestamp ?? receivedAt ?? commandStartedAt
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
       let routingMonitorFrames = Dictionary(
         uniqueKeysWithValues: latestMonitors.map {
-          ($0.id, displayArrangement.deskFrames[$0.id] ?? $0.physicalFrame)
+          ($0.id, displayDeskFrames[$0.id] ?? $0.physicalFrame)
         }
       )
       let commandViewports = viewportsByMonitor
@@ -476,9 +604,6 @@ extension Daemon {
       )
       if rebasesPendingFrame {
         rebaseActiveScrollOffsetToDisplayedFrames()
-      }
-      if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors {
-        refreshFloatingWindowFramesBeforeWorkspaceMutation(on: commandMonitorID)
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25
@@ -692,9 +817,9 @@ extension Daemon {
       focus.queueWorkspace(workspaceFocusRequest)
       if switchesWorkspace || !dispatchedAnimation {
         let focusWindowIDAfterCommit = workspaceFocusRequest?.requestedWindowID
-        let focusCompletionAfterCommit: (@MainActor @Sendable (NativeFocusResult) -> Void)?
-        let cursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?
-        let focusRequestIDAfterCommit: (@MainActor @Sendable (NativeFocusRequestID?) -> Void)?
+        let focusCompletionAfterCommit: (@NavigationActor @Sendable (NativeFocusResult) -> Void)?
+        let cursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?
+        let focusRequestIDAfterCommit: (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)?
         if let workspaceFocusRequest {
           let submission = focus.submitWorkspace(workspaceFocusRequest)
           focusCompletionAfterCommit = { [weak self] result in

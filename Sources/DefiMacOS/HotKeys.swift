@@ -1,21 +1,22 @@
 import ApplicationServices
 import DefiConfig
 import DefiModel
+import DefiRuntime
 import Foundation
 
 let hotKeyEventTapPlacement = CGEventTapPlacement.tailAppendEventTap
 
-@MainActor
+@NavigationActor
 public final class HotKeyManager {
-  public typealias Handler = @MainActor @Sendable (HotKeyInvocation) -> Void
+  public typealias Handler = @NavigationActor @Sendable (HotKeyInvocation) -> Void
   public typealias PointerMotionHandler =
-    @MainActor @Sendable (PointerMotionInvocation) -> Void
+    @NavigationActor @Sendable (PointerMotionInvocation) -> Void
   public typealias TapReenabledHandler =
-    @MainActor @Sendable (TimeInterval) -> Void
+    @NavigationActor @Sendable (TimeInterval) -> Void
   public typealias CloseIntentHandler =
-    @MainActor @Sendable (TimeInterval, pid_t?) -> Void
+    @NavigationActor @Sendable (TimeInterval, pid_t?) -> Void
   public typealias OverviewHandler =
-    @MainActor @Sendable (OverviewKeyAction) -> Void
+    @NavigationActor @Sendable (OverviewKeyAction) -> Void
 
   private let bindings: [Key: String]
   private let handler: Handler
@@ -25,7 +26,7 @@ public final class HotKeyManager {
   private let tapReenabledHandler: TapReenabledHandler
   private let closeIntentHandler: CloseIntentHandler
   private let overviewHandler: OverviewHandler
-  private let cheatsheetHandler: @MainActor @Sendable (CheatsheetInput) -> Void
+  private let cheatsheetHandler: @NavigationActor @Sendable (CheatsheetInput) -> Void
   private let cheatsheetModifierBits: UInt64?
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
@@ -64,7 +65,7 @@ public final class HotKeyManager {
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
-    cheatsheetHandler: @escaping @MainActor @Sendable (CheatsheetInput) -> Void = { _ in },
+    cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
     handler: @escaping Handler
   ) {
     self.handler = handler
@@ -139,37 +140,29 @@ public final class HotKeyManager {
       tracksPointerWindowTransitions: pointerMotionHandler != nil,
       cheatsheetModifierBits: bindingError == nil ? cheatsheetModifierBits : nil,
       deliverCheatsheet: { input in
-        DispatchQueue.main.async {
-          MainActor.assumeIsolated { cheatsheetHandler(input) }
+        NavigationActor.enqueue {
+          cheatsheetHandler(input)
         }
       }
     ) { invocation in
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-          handler(invocation)
-        }
+      NavigationActor.enqueue {
+        handler(invocation)
       }
     } deliverOverview: { action in
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-          overviewHandler(action)
-        }
+      NavigationActor.enqueue {
+        overviewHandler(action)
       }
     } deliverPointerMotion: { invocation in
-      MainActor.assumeIsolated {
+      NavigationActor.enqueue {
         pointerMotionHandler?(invocation)
       }
     } tapReenabled: { timestamp in
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-          tapReenabledHandler(timestamp)
-        }
+      NavigationActor.enqueue {
+        tapReenabledHandler(timestamp)
       }
     } closeIntent: { timestamp, processID in
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-          closeIntentHandler(timestamp, processID)
-        }
+      NavigationActor.enqueue {
+        closeIntentHandler(timestamp, processID)
       }
     }
     let callbackContext = Unmanaged.passRetained(context)
@@ -214,6 +207,11 @@ public final class HotKeyManager {
 
   public func resetPointerWindowTransition() {
     context?.resetPointerWindowTransition()
+  }
+
+  public var overviewModeSetter: @Sendable (Bool) -> Void {
+    let context = context
+    return { context?.setOverviewModeEnabled($0) }
   }
 
   public func setOverviewModeEnabled(_ enabled: Bool) {
@@ -560,7 +558,7 @@ final class HotKeyTapContext: @unchecked Sendable {
     lock.unlock()
 
     guard schedulesDelivery else { return }
-    DispatchQueue.main.asyncAfter(
+    NavigationActor.shared.queue.asyncAfter(
       deadline: .now() + deliveryDelay
     ) { [weak self] in
       self?.flushPointerMotion(generation: deliveryGeneration)

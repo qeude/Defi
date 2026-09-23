@@ -54,7 +54,7 @@ func desktopSnapshotWaitsForCommandAnimation(
   ) <= latestCommandInputTimestamp
 }
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func synchronizeDesktop(
     forceFullWindowRefresh: Bool = false,
@@ -62,7 +62,8 @@ extension Daemon {
     forceApplicationInventoryRefresh: Bool = false,
     consumePeriodicWindowRefresh: Bool = false
   ) {
-    guard windowManagementStarted, desktopSessionActive else { return }
+    guard windowManagementStarted, desktopSessionActive,
+      !shouldShutdown, !restorationInFlight else { return }
     let (forceFullWindowRefresh, forceWindowListRefresh,
       forceApplicationInventoryRefresh, consumePeriodicWindowRefresh) = coalescedDesktopSnapshotRequest(
         (forceFullWindowRefresh, forceWindowListRefresh,
@@ -80,12 +81,9 @@ extension Daemon {
     if desktopSnapshotInFlight {
       return
     }
-    if hotKeys?.isEnabled == true, displayArrangement.needsReconciliation {
-      platform.invalidateFrameStateForDisplayChange()
-      if displayArrangement.reconcile() {
-        scheduleDisplayReconciliation()
-        return
-      }
+    if hotKeys?.isEnabled == true, displayReconciliationPending {
+      reconcileDisplays()
+      return
     }
     supersededDesktopSnapshotRequest = nil
     desktopSnapshotInFlight = true
@@ -96,7 +94,7 @@ extension Daemon {
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
     ) { [weak self] snapshot in
       guard let self else { return }
-      guard desktopSessionActive,
+      guard !shouldShutdown, !restorationInFlight, desktopSessionActive,
         desktopSessionGeneration == sessionGeneration,
         configGeneration == requestedConfigGeneration
       else {
@@ -158,7 +156,7 @@ extension Daemon {
       mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp
     ) {
-      overviewController?.close()
+      closeOverview()
     }
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextPeriodicWindowRefreshAt,
@@ -448,7 +446,7 @@ extension Daemon {
         && (deferredMouseFocusIntent?.focusObserved == true
           || deferredMouseFocusIntent?.windowID == focusedWindowID)
       let currentActivation = platform.userInputTracker.pendingApplicationActivation(
-        frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+        frontmostProcessID: platform.frontmostProcessID
       )
       let activationTimestamp = snapshot.nativeFocusIsApplicationActivation
         && currentActivation?.processID == snapshot.frontmostProcessID
@@ -752,7 +750,7 @@ extension Daemon {
     } else {
       nativeFocusSkippedWindowIDs = []
     }
-    let nativeCursorWarpIsCurrentAfterCommit: (@MainActor @Sendable () -> Bool)?
+    let nativeCursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?
     if let nativeCursorWarpWindowID {
       nativeCursorWarpIsCurrentAfterCommit = { [weak self] in
         guard let self,

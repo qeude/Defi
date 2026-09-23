@@ -4,6 +4,7 @@ import Darwin
 import DefiConfig
 import DefiCore
 import DefiModel
+import DefiRuntime
 import OSLog
 
 private let frameCommitLogger = Logger(
@@ -36,6 +37,7 @@ extension SnapshotEngine {
     forceWindowListRefresh: Bool = false,
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
+    defer { DispatchQueue.main.async { [weak host] in host?.publishPresentationStatus() } }
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
     let observations = consumeObservations()
     let explicitlyDestroyedWindowIDs = observations.destroyedWindowIDs
@@ -56,8 +58,8 @@ extension SnapshotEngine {
     let platformInputs = onMain { platform in
       (
         frameCoverage: platform.eventMonitor?.processIDsWithoutReliableFrameCoverage ?? [],
-        topologyCoverage: platform.processIDsWithoutReliableTopologyCoverage(),
-        incompatible: platform.incompatibleObservationProcessIDs,
+        topologyCoverage: platform.eventMonitor?.processIDsWithoutReliableTopologyCoverage(activeProcessIDs: Set(platform.applications.keys)) ?? [],
+        incompatible: platform.eventMonitor?.incompatibleNotificationProcessIDs ?? [],
         monitors: platform.discoverMonitors()
       )
     }
@@ -270,6 +272,7 @@ extension SnapshotEngine {
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
+      createdElements: observations.createdElements,
       preparedWindowAttributes: prepared.attributes,
       preparedTransientOwnerWindowIDs: prepared.owners,
       preparedApplicationWindows: prepared.applications,
@@ -360,7 +363,7 @@ extension SnapshotEngine {
       || !newlyDiscoveredWindowIDs.isEmpty
       || !removedWindowIDs.isEmpty
     {
-      onMain { $0.invalidatePointerHitTestCache() }
+      onMain { $0.invalidatePointerCacheFromPresentation() }
     }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
       let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
@@ -612,8 +615,10 @@ extension SnapshotEngine {
       }
     }
     if !commandObservations.isEmpty {
-      onMain { platform in
-        for (command, windowID, from, actual, target) in commandObservations {
+      let observations = commandObservations
+      NavigationActor.enqueue { [weak host] in
+        guard let platform = host else { return }
+        for (command, windowID, from, actual, target) in observations {
           platform.recordCommandObservation(
             command, windowID: windowID, from: from,
             actual: actual, target: target, at: now

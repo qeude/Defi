@@ -12,6 +12,16 @@ enum WindowGeometryDiscovery: Equatable {
   case usable(Rect)
 }
 
+func windowCandidatesIncludingCreatedElements(
+  _ listed: [AXUIElement], created: [AXUIElement]
+) -> [AXUIElement] {
+  var candidates = listed
+  for element in created where !candidates.contains(where: { CFEqual($0, element) }) {
+    candidates.append(element)
+  }
+  return candidates
+}
+
 enum WindowDiscoveryResult {
   case unavailable
   case ignored

@@ -8,7 +8,7 @@ import DefiRuntime
 import Foundation
 import OSLog
 
-@MainActor
+@NavigationActor
 extension Daemon {
 func updateFloatingWindowFrames(
     from windows: [Window],
@@ -101,19 +101,14 @@ func updateFloatingWindowFrames(
     }
   }
 
-  func refreshFloatingWindowFramesBeforeWorkspaceMutation(
-    on monitorID: MonitorID?
-  ) {
-    guard let monitorID else { return }
-    for (windowID, frame) in platform.userAdjustedFrames(
-      for: floatingWindowIDsForWorkspaceMutation(
-        monitors: state.monitors,
-        monitorID: monitorID
-      )
-    ) {
-      floatingWindowFrames[windowID] = frame
-      platform.acceptObservedFrame(frame, for: windowID)
+  func cancelPendingCommandFrameRead() {
+    commandFrameReadTask?.cancel()
+    commandFrameReadTask = nil
+    commandsAfterFrameRead.removeAll(keepingCapacity: true)
+    for reply in deferredFrameReplies {
+      reply.fail("window geometry read cancelled; command was not applied")
     }
+    deferredFrameReplies.removeAll(keepingCapacity: true)
   }
 
   private func floatingFrame(for windowID: WindowID) -> Rect? {

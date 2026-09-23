@@ -18,11 +18,12 @@ public final class DisplayArrangementController {
   private let primaryDisplay: () -> MonitorID
   private let isMirrored: (MonitorID) -> Bool
 
-  public convenience init() {
+  public convenience init(pointerRouter: DisplayPointerRouter = DisplayPointerRouter()) {
     self.init(
       readFrames: Self.currentFrames, applyFrames: Self.apply,
       primaryDisplay: { MonitorID(rawValue: UInt64(CGMainDisplayID())) },
-      isMirrored: { CGDisplayIsInMirrorSet(CGDirectDisplayID($0.rawValue)) != 0 }
+      isMirrored: { CGDisplayIsInMirrorSet(CGDirectDisplayID($0.rawValue)) != 0 },
+      pointerRouter: pointerRouter
     )
   }
 
@@ -202,6 +203,10 @@ public final class DisplayPointerRouter: @unchecked Sendable {
     self.technical = technical
     self.desk = desk
     lock.unlock()
+  }
+
+  public func invalidate() {
+    update(technical: [:], desk: [:])
   }
 
   public func setActive(_ active: Bool) {

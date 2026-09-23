@@ -95,6 +95,7 @@ extension SnapshotEngine {
     forceApplicationInventoryRefresh: Bool,
     capturedTopologyRequiresFullSnapshot: Bool,
     topologyProcessIDs: Set<pid_t>,
+    createdElements: [pid_t: [AXUIElement]],
     preparedWindowAttributes: [WindowID: AXWindowAttributes],
     preparedTransientOwnerWindowIDs: [WindowID: WindowID],
     preparedApplicationWindows: [pid_t: PreparedAXApplicationWindows],
@@ -245,8 +246,15 @@ extension SnapshotEngine {
           topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
             || retainedWindowIDs.contains { previousProcessIDs[$0] == processID }
         )
-        let appWindows: [AXUIElement]?
-        if refreshesWindowList {
+        var appWindows: [AXUIElement]?
+        let created = createdElements[processID] ?? []
+        if !created.isEmpty, let cachedApplicationWindows,
+          !forceWindowListRefresh, !refreshesApplicationInventory
+        {
+          // AXWindows can lag AXWindowCreated. Place the reported window now;
+          // the existing 50 ms topology retry reconciles the complete list.
+          appWindows = cachedApplicationWindows
+        } else if refreshesWindowList {
           applicationWindowListReadCount += 1
           let windowListStartedAt = ProcessInfo.processInfo.systemUptime
           let preparedWindows = preparedApplicationWindows[processID]
@@ -289,6 +297,9 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           appWindows = copiedWindows ?? cachedApplicationWindows
         } else {
           appWindows = cachedApplicationWindows
+        }
+        if !created.isEmpty {
+          appWindows = windowCandidatesIncludingCreatedElements(appWindows ?? [], created: created)
         }
         if let appWindows {
           applicationWindows[processID] = appWindows

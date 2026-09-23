@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import Darwin
@@ -29,11 +30,18 @@ extension MacOSPlatform {
     latestObservedFrames[windowID] = frame
   }
 
-  public func userAdjustedFrames(
+  public var hasPendingMouseResizeGesture: Bool { mouseResizeGesturePending }
+
+  public nonisolated func userAdjustedFrames(
     for windowIDs: Set<WindowID>
-  ) -> [WindowID: Rect] {
-    guard mouseResizeGesturePending, !windowIDs.isEmpty else { return [:] }
-    return framesByWindowID(for: windowIDs, in: copyCGWindows())
+  ) async -> [WindowID: Rect] {
+    guard !windowIDs.isEmpty else { return [:] }
+    return await Task.detached(priority: .userInitiated) {
+      Dictionary(uniqueKeysWithValues: copyCGWindows().compactMap { window in
+        let id = WindowID(rawValue: UInt64(window.id))
+        return windowIDs.contains(id) ? (id, window.frame) : nil
+      })
+    }.value
   }
 
   public var latencySensitiveWindowIDs: Set<WindowID> {
@@ -124,7 +132,7 @@ extension MacOSPlatform {
   }
 
   public func setCommandDiagnosticHandler(
-    _ handler: @escaping @MainActor @Sendable (CommandDiagnosticSample) -> Void
+    _ handler: @escaping @NavigationActor @Sendable (CommandDiagnosticSample) -> Void
   ) {
     commandDiagnosticHandler = handler
   }
@@ -322,15 +330,11 @@ extension MacOSPlatform {
   }
 
   public var hasReliableWindowTopologyObservation: Bool {
-    eventMonitor?.hasReliableWindowTopologyCoverage(
-      for: Set(applications.keys)
-    ) == true
+    presentationStatus.topologyReliable
   }
 
   public func processIDsWithoutReliableTopologyCoverage() -> Set<pid_t> {
-    eventMonitor?.processIDsWithoutReliableTopologyCoverage(
-      activeProcessIDs: Set(applications.keys)
-    ) ?? []
+    presentationStatus.uncoveredTopologyProcesses
   }
 
   public var hasDeferredFreshWindowReads: Bool {
@@ -338,7 +342,7 @@ extension MacOSPlatform {
   }
 
   public var incompatibleObservationProcessIDs: Set<pid_t> {
-    eventMonitor?.incompatibleNotificationProcessIDs ?? []
+    presentationStatus.incompatibleProcesses
   }
 
   public var hasChunkedFullRefreshPending: Bool {
@@ -346,7 +350,7 @@ extension MacOSPlatform {
   }
 
   public var notificationObservationFailureSummary: String {
-    let counts = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
+    let counts = presentationStatus.failures
     guard !counts.isEmpty else { return "[]" }
     var failuresByProcess: [pid_t: [String]] = [:]
     for kind in NotificationObservationKind.allCases {
@@ -363,7 +367,7 @@ extension MacOSPlatform {
   }
 
   public var hasReliableApplicationLifecycleObservation: Bool {
-    eventMonitor?.hasReliableApplicationLifecycleObservation == true
+    presentationStatus.lifecycleReliable
   }
 
   public var recommendedApplicationInventoryRefreshInterval: TimeInterval {
@@ -411,7 +415,7 @@ extension MacOSPlatform {
 
   public var hasReliableDesktopObservation: Bool {
     hasReliableWindowTopologyObservation
-      && eventMonitor?.hasReliableFrameCoverage() == true
+      && presentationStatus.framesReliable
   }
 
   public var desktopObservationCoverage:
@@ -424,7 +428,7 @@ extension MacOSPlatform {
       requiredFrameWindows: Int
     )
   {
-    eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0, 0)
+    presentationStatus.coverage
   }
 
   public var windowAttributeReadPerformance:
@@ -494,7 +498,7 @@ extension MacOSPlatform {
 
   public var hasPendingNativeFocusEvent: Bool {
     nativeFocusEventPending || userInputTracker.pendingApplicationActivation(
-      frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+      frontmostProcessID: frontmostProcessID
     ) != nil
   }
 }
@@ -506,7 +510,7 @@ extension MacOSPlatform {
 /// expected (borders follow the plan, applications accept frames late);
 /// sustained large deltas are the regression signal.
   public func auditBorderAlignment() -> String {
-    let assignments = borderFrames
+    let assignments = plannedBorderFrames
     guard !assignments.isEmpty else { return "no-border-assignments" }
     var compared = 0
     var mismatched = 0

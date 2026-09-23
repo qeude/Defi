@@ -50,12 +50,17 @@ final class ConfigFileWatcher {
     let source = DispatchSource.makeFileSystemObjectSource(
       fileDescriptor: descriptor,
       eventMask: [.write, .rename, .delete],
-      queue: .main
+      queue: DispatchQueue.main
     )
     source.setEventHandler { [weak self] in
       MainActor.assumeIsolated {
         self?.scheduleReload()
       }
+    }
+    // Re-read once observation is installed: a save can happen between loading
+    // the configuration and the kernel registering this source.
+    source.setRegistrationHandler { [weak self] in
+      MainActor.assumeIsolated { self?.scheduleReload() }
     }
     source.setCancelHandler {
       close(descriptor)
@@ -74,6 +79,7 @@ final class ConfigFileWatcher {
   }
 
   private func scheduleReload() {
+    guard directorySource != nil else { return }
     reloadGeneration &+= 1
     let generation = reloadGeneration
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -93,7 +99,7 @@ final class ConfigFileWatcher {
     let source = DispatchSource.makeFileSystemObjectSource(
       fileDescriptor: descriptor,
       eventMask: [.write, .rename, .delete],
-      queue: .main
+      queue: DispatchQueue.main
     )
     source.setEventHandler { [weak self] in
       MainActor.assumeIsolated {
@@ -108,28 +114,38 @@ final class ConfigFileWatcher {
   }
 }
 
-@MainActor
+@NavigationActor
 extension Daemon {
   func startConfigWatcher() {
-    let watcher = ConfigFileWatcher(configURL: configURL) { [weak self] in
-      self?.reloadConfiguration()
-    }
-    do {
-      try watcher.start()
-      configWatcher = watcher
-    } catch {
-      log("config watcher unavailable for \(configURL.path): \(error)")
+    DispatchQueue.main.async { [self] in
+      let watcher = ConfigFileWatcher(configURL: configURL) { [weak self] in
+        NavigationActor.enqueue { self?.reloadConfiguration() }
+      }
+      do {
+        try watcher.start()
+        configWatcher = watcher
+      } catch {
+        NavigationActor.enqueue { [self] in
+          log("config watcher unavailable for \(configURL.path): \(error)")
+        }
+      }
     }
   }
 
   func reloadConfiguration() {
-    do {
-      let nextConfig = try Config.load(from: configURL)
-      guard nextConfig != config else { return }
-      applyConfiguration(nextConfig)
-      log("config reloaded")
-    } catch {
-      log("config reload failed; keeping previous configuration: \(error)")
+    configReloadTask?.cancel()
+    let url = configURL
+    configReloadTask = Task { [weak self] in
+      do {
+        let nextConfig = try await Task.detached { try Config.load(from: url) }.value
+        guard !Task.isCancelled, let self, !shouldShutdown,
+          nextConfig != config else { return }
+        applyConfiguration(nextConfig)
+        log("config reloaded")
+      } catch {
+        guard !Task.isCancelled else { return }
+        self?.log("config reload failed; keeping previous configuration: \(error)")
+      }
     }
   }
 
@@ -144,15 +160,16 @@ extension Daemon {
     let requiresLayout = state.applyConfiguration(nextConfig)
     config = nextConfig
     configGeneration &+= 1
+    cancelPendingCommandFrameRead()
 
     handleCheatsheetInput(.dismiss)
-    cheatsheetController = nil
+    DispatchQueue.main.async { [self] in cheatsheetController = nil }
     if hotKeyConfigurationChanged(from: previousConfig, to: nextConfig) {
       hotKeys?.stop()
       hotKeys = nil
       pendingHotKeyCommands.removeAll(keepingCapacity: true)
       installHotKeys()
-      hotKeys?.setOverviewModeEnabled(overviewController?.isOpen == true)
+      hotKeys?.setOverviewModeEnabled(overviewState.isOpen)
     }
     if previousConfig.menuBar != nextConfig.menuBar {
       updateMenuBarAvailability()
@@ -213,7 +230,7 @@ extension Daemon {
         guard self?.desktopSessionActive == true else { return }
         self?.handlePointerMotion(invocation)
       },
-      displayPointerRouter: displayArrangement.pointerRouter,
+      displayPointerRouter: displayPointerRouter,
       tapReenabledHandler: { [weak self] timestamp in
         self?.handleEventTapReenabled(at: timestamp)
       },
@@ -235,37 +252,42 @@ extension Daemon {
           ? selectedWindowID
           : nil
         for delay in windowCloseRefreshDelays {
-          DispatchQueue.main.asyncAfter(
+          NavigationActor.shared.queue.asyncAfter(
             deadline: .now() + .milliseconds(delay)
           ) {
-            let input = self.platform.userInputTracker.snapshot
-            guard self.desktopSessionActive,
-              windowCloseRetryIsCurrent(
-                intentTimestamp: timestamp,
-                latestInputTimestamp: input.latestEventTimestamp,
-                latestCloseIntentTimestamp: input.latestCloseIntent
-              ),
-              trackedWindowID.map({ self.state.windows[$0] != nil }) ?? true,
-              self.state.windows.values.lazy.filter({
-                $0.processID == processID
-              }).count >= previousWindowCount
-            else { return }
-            self.platform.recordPerformanceTrace(
-              "window-close-retry pid=\(processID) delay=\(delay)"
-            )
-            self.platform.requestWindowTopologyRefresh(
-              processID: processID,
-              inputTimestamp: timestamp
-            )
-            self.needsDesktopSync = true
-            self.scheduleTick()
+            NavigationActor.assumeIsolated {
+              let input = self.platform.userInputTracker.snapshot
+              guard self.desktopSessionActive,
+                windowCloseRetryIsCurrent(
+                  intentTimestamp: timestamp,
+                  latestInputTimestamp: input.latestEventTimestamp,
+                  latestCloseIntentTimestamp: input.latestCloseIntent
+                ),
+                trackedWindowID.map({ self.state.windows[$0] != nil }) ?? true,
+                self.state.windows.values.lazy.filter({
+                  $0.processID == processID
+                }).count >= previousWindowCount
+              else { return }
+              self.platform.recordPerformanceTrace(
+                "window-close-retry pid=\(processID) delay=\(delay)"
+              )
+              self.platform.requestWindowTopologyRefresh(
+                processID: processID,
+                inputTimestamp: timestamp
+              )
+              self.needsDesktopSync = true
+              self.scheduleTick()
+            }
           }
         }
       },
       overviewHandler: { [weak self] action in
         guard self?.desktopSessionActive == true else { return }
         self?.handleCheatsheetInput(.dismiss)
-        self?.overviewController?.handleKey(action)
+        DispatchQueue.main.async { [weak self] in
+          self?.overviewController?.handleKey(action)
+          self?.publishOverviewState()
+        }
       },
       cheatsheetHandler: { [weak self] input in
         guard let self, self.hotKeyGeneration == generation else { return }
@@ -277,8 +299,13 @@ extension Daemon {
     do {
       try manager.start()
       hotKeys = manager
+      let setOverviewMode = manager.overviewModeSetter
+      DispatchQueue.main.async { [self] in
+        overviewInputMode = setOverviewMode
+        setOverviewMode(overviewController?.isOpen == true)
+      }
       if let bindingError = manager.bindingError {
-        presentDefiConfigurationError(bindingError)
+        DispatchQueue.main.async { presentDefiConfigurationError(bindingError) }
         if manager.tracksPointerMotion {
           log("hotkeys unavailable: \(bindingError); pointer tracking remains enabled")
         } else {
@@ -291,7 +318,8 @@ extension Daemon {
   }
 
   func updateMenuBarAvailability() {
-    menuBar.isInserted = config.menuBar.enabled
+    let enabled = config.menuBar.enabled
+    DispatchQueue.main.async { [menuBar] in menuBar.isInserted = enabled }
   }
 
   func handleMenuCommand(_ command: String) {

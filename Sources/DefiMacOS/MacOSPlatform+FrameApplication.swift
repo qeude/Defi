@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import Darwin
@@ -30,7 +31,7 @@ func reentryTransitionDelta(
   return CGPoint(x: 0, y: delta.y)
 }
 
-@MainActor
+@NavigationActor
 extension MacOSPlatform {
 
   public func completedSize(for windowID: WindowID) -> CGSize? {
@@ -41,7 +42,6 @@ extension MacOSPlatform {
     _ assignments: [FrameAssignment],
     hiddenWindowIDs: Set<WindowID> = [],
     skipping requestedSkippedWindowIDs: Set<WindowID> = [],
-    asynchronousPositions: Bool = false,
     asynchronousPositionTimeoutSeconds: Float = 0.016,
     animationDuration: TimeInterval = 0,
     animationRefreshRateHz: Double = 60,
@@ -55,16 +55,18 @@ extension MacOSPlatform {
     cursorWarpWindowIDAfterCommit: WindowID? = nil,
     cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
     focusCompletionAfterCommit:
-      (@MainActor @Sendable (NativeFocusResult) -> Void)? = nil,
+      (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil,
     cursorWarpIsCurrentAfterCommit:
-      (@MainActor @Sendable () -> Bool)? = nil,
+      (@NavigationActor @Sendable () -> Bool)? = nil,
     focusRequestIDAfterCommit:
-      (@MainActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
+      (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
     acceptedFrameHandler:
-      (@MainActor @Sendable ([WindowID: Rect]) -> Void)? = nil,
+      (@NavigationActor @Sendable ([WindowID: Rect]) -> Void)? = nil,
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
+    frameSubmissionGeneration &+= 1
+    let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
       nativeFullscreenWindowIDs
     )
@@ -111,7 +113,8 @@ extension MacOSPlatform {
           for: assignment.windowID
         ),
         previousTarget: previousTargetFrames[assignment.windowID],
-        nativeReference: elements[assignment.windowID].flatMap(frame(of:))
+        nativeReference: latestObservedFrames[assignment.windowID]
+          ?? lastSnapshotWindows.first(where: { $0.id == assignment.windowID })?.frame
       )
       guard let reference else { continue }
       let intent = frameWriteIntent(
@@ -260,21 +263,6 @@ extension MacOSPlatform {
         observedAt: nil
       )
     }
-    let affectedProcessIDs =
-      asynchronousPositions
-      ? []
-      : Set(writeIntents.keys.compactMap { processIDs[$0] })
-    let enhancedProcessIDs = affectedProcessIDs.filter {
-      enhancedUIByProcess[$0] == true
-    }
-    for processID in enhancedProcessIDs {
-      setEnhancedUserInterface(false, processID: processID)
-    }
-    defer {
-      for processID in enhancedProcessIDs {
-        setEnhancedUserInterface(true, processID: processID)
-      }
-    }
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
     var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
@@ -285,8 +273,8 @@ extension MacOSPlatform {
       let isParked = hiddenWindowIDs.contains(assignment.windowID)
       let intent = writeIntents[assignment.windowID]
 
-      var position = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
-      var size = CGSize(width: assignment.frame.width, height: assignment.frame.height)
+      let position = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
+      let size = CGSize(width: assignment.frame.width, height: assignment.frame.height)
       guard let processID = processIDs[assignment.windowID],
         let application = applications[processID]
       else {
@@ -317,40 +305,6 @@ extension MacOSPlatform {
         wantsFrameAnimation
         && animateSizeChanges
         && intent?.size == true
-      var synchronousSizeWriteSucceeded = intent?.size != true
-      if intent?.size == true, !animatesSize, !asynchronousPositions {
-        if let sizeValue = AXValueCreate(.cgSize, &size) {
-          let sizeWriteStartedAt = ProcessInfo.processInfo.systemUptime
-          let result = AXUIElementSetAttributeValue(
-            element,
-            kAXSizeAttribute as CFString,
-            sizeValue
-          )
-          synchronousSizeWriteSucceeded = result == .success
-          if result == .success {
-            if let writePerformance = writePerformanceByWindowID[assignment.windowID] {
-              recordCommandFirstWrite(
-                writePerformance,
-                at: ProcessInfo.processInfo.systemUptime
-              )
-            }
-            frameCoordinator.alignCompletedSize(
-              windowID: assignment.windowID,
-              size: size
-            )
-            sizeWriteCount += 1
-          }
-          if newlyDiscoveredWindowIDs.contains(assignment.windowID) {
-            let elapsedMS =
-              (ProcessInfo.processInfo.systemUptime - sizeWriteStartedAt) * 1_000
-            frameCoordinator.recordTrace(
-              "initial-size wid=\(assignment.windowID.rawValue) result=\(result.rawValue) ms=\(String(format: "%.2f", elapsedMS))"
-            )
-          }
-        } else {
-          synchronousSizeWriteSucceeded = false
-        }
-      }
       let write = AsyncPositionWrite(
         element: element,
         application: application,
@@ -362,7 +316,7 @@ extension MacOSPlatform {
         positionChanged: intent?.position == true,
         sizeChanged: intent?.size == true,
         animatesSize: animatesSize,
-        synchronousSizeWriteSucceeded: synchronousSizeWriteSucceeded,
+        synchronousSizeWriteSucceeded: intent?.size != true,
         enhancedUIWasEnabled: enhancedUIByProcess[processID] == true,
         timeoutSeconds: asynchronousPositionTimeoutSeconds,
         isParked: isParked,
@@ -387,24 +341,7 @@ extension MacOSPlatform {
       ) {
         asynchronousWrites[assignment.windowID] = write
       } else if intent?.position == true {
-        if asynchronousPositions || isParked || needsVerifiedOffscreenWrite {
-          asynchronousWrites[assignment.windowID] = write
-        } else if let positionValue = AXValueCreate(.cgPoint, &position) {
-          let result = AXUIElementSetAttributeValue(
-            element,
-            kAXPositionAttribute as CFString,
-            positionValue
-          )
-          if result == .success {
-            positionWriteCount += 1
-            if let writePerformance = writePerformanceByWindowID[assignment.windowID] {
-              recordCommandFirstWrite(
-                writePerformance,
-                at: ProcessInfo.processInfo.systemUptime
-              )
-            }
-          }
-        }
+        asynchronousWrites[assignment.windowID] = write
       }
       pendingFrameCorrections[assignment.windowID] = nil
     }
@@ -423,7 +360,7 @@ extension MacOSPlatform {
     {
       cursorWarpAfterWindowCommit = { [weak self] committedWindowID, generation in
         guard committedWindowID == cursorWarpWindowIDAfterCommit else { return }
-        DispatchQueue.main.async {
+        NavigationActor.enqueue {
           guard let self,
             self.frameCoordinator.isCurrent(generation: generation),
             deferredFocusInputIsCurrent(
@@ -450,12 +387,12 @@ extension MacOSPlatform {
       frameCompletion = nil
     } else {
       frameCompletion = { [weak self] result in
-        DispatchQueue.main.async {
+        NavigationActor.enqueue {
           guard let self else {
             focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
-          guard result.completedLatest else {
+          guard result.completedLatest, self.frameSubmissionGeneration == submissionGeneration else {
             if let focusWindowIDAfterCommit {
               self.pendingFrameDebtWindowIDs.insert(focusWindowIDAfterCommit)
             }
@@ -556,7 +493,7 @@ extension MacOSPlatform {
         guard let writePerformance = writePerformanceByWindowID[windowID] else {
           return
         }
-        DispatchQueue.main.async {
+        NavigationActor.enqueue {
           self?.recordCommandFirstWrite(writePerformance, at: timestamp)
         }
       }
@@ -662,14 +599,6 @@ private func transitionCrossesViewport(
     }
   }
 
-  private func setEnhancedUserInterface(_ enabled: Bool, processID: pid_t) {
-    guard let application = applications[processID] else { return }
-    AXUIElementSetAttributeValue(
-      application,
-      "AXEnhancedUserInterface" as CFString,
-      enabled ? kCFBooleanTrue : kCFBooleanFalse
-    )
-  }
 
 }
 

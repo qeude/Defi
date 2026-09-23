@@ -1,3 +1,4 @@
+import DefiRuntime
 import AppKit
 import ApplicationServices
 import Darwin
@@ -9,7 +10,7 @@ import OSLog
 @MainActor
 extension MacOSPlatform {
 
-  public func requestWindowTopologyRefresh(
+  nonisolated public func requestWindowTopologyRefresh(
     processID: pid_t,
     inputTimestamp: TimeInterval? = nil
   ) {
@@ -21,27 +22,32 @@ extension MacOSPlatform {
     )
   }
 
-  public func invalidateInputAfterEventTapReenabled(
+  public func presentInvalidateInputAfterEventTapReenabled(
     at timestamp: TimeInterval
   ) {
-    userInputTracker.invalidate(at: timestamp)
-    pointerMotionTracker.invalidate(at: timestamp)
-    invalidatePointerHitTestCache()
+    invalidatePointerCacheFromPresentation()
     if eventMonitor?.resetMouseGestureState() == true {
       mouseFocusReleasePending = true
     }
   }
 
-  public func startObserving(
-    _ handler: @escaping () -> Void,
-    desktopSessionHandler: @escaping (Bool) -> Void = { _ in },
-    displayConfigurationHandler: @escaping () -> Void = {},
-    mouseGestureStartedHandler: @escaping () -> Void = {},
-    mouseGestureHandler: @escaping () -> Void = {}
+  public func presentStartObserving(
+    _ handler: @escaping @NavigationActor @Sendable () -> Void,
+    desktopSessionHandler: @escaping @NavigationActor @Sendable (Bool) -> Void = { _ in },
+    displayConfigurationHandler: @escaping @NavigationActor @Sendable () -> Void = {},
+    mouseGestureStartedHandler: @escaping @NavigationActor @Sendable () -> Void = {},
+    mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {}
   ) {
     guard eventMonitor == nil else { return }
+    accessibilityDisplayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+      object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.publishPresentationStatus() }
+    }
     let handleEvent: (PlatformEventKind, pid_t?, AXUIElement?) -> Void = {
       [weak self] kind, processID, element in
+      defer { self?.publishPresentationStatus() }
       let eventInput = self?.userInputTracker.snapshot
       let eventInputTimestamp = eventInput?.latestEventTimestamp
       let previousWindowCount = processID.flatMap {
@@ -65,6 +71,7 @@ extension MacOSPlatform {
         kind,
         processID: refreshProcessID,
         windowID: windowID,
+        createdElement: kind == .windowCreated ? element : nil,
         inputTimestamp: eventInputTimestamp
       )
       if kind == .windowCreated || kind == .windows, let processID {
@@ -115,7 +122,7 @@ extension MacOSPlatform {
             deadline: .now() + .milliseconds(delay)
           ) { [weak self] in
             guard self?.nativeFocusEventPending == true else { return }
-            handler()
+            NavigationActor.enqueue { handler() }
           }
         }
       }
@@ -128,7 +135,7 @@ extension MacOSPlatform {
             guard let self else { return }
             self.invalidateWindowSnapshot()
             self.snapshotEngine.recordObservation(.windows, processID: nil)
-            handler()
+            NavigationActor.enqueue { handler() }
           }
         }
       }
@@ -138,29 +145,29 @@ extension MacOSPlatform {
             deadline: .now() + .milliseconds(delay)
           ) { [weak self] in
             guard let self,
-              self.applicationWindowCounts[processID] == previousWindowCount
+              delay == 50 || self.applicationWindowCounts[processID] == previousWindowCount
             else { return }
             self.requestWindowTopologyRefresh(
               processID: processID,
               inputTimestamp: eventInputTimestamp
             )
-            handler()
+            NavigationActor.enqueue { handler() }
           }
         }
       }
       if kind == .screens {
-        displayConfigurationHandler()
+        NavigationActor.enqueue { displayConfigurationHandler() }
       }
       if platformEventCancelsMouseAnimation(kind) {
-        mouseGestureHandler()
+        NavigationActor.enqueue { mouseGestureHandler() }
       }
-      handler()
+      NavigationActor.enqueue { handler() }
     }
     let monitor = PlatformEventMonitor(
       handler: { kind, processID in handleEvent(kind, processID, nil) },
       userInputTracker: userInputTracker,
       desktopSessionHandler: { change in
-        desktopSessionHandler(change == .becameActive)
+        NavigationActor.enqueue { desktopSessionHandler(change == .becameActive) }
       },
       windowEventHandler: { kind, processID, element in
         handleEvent(kind, processID, element)
@@ -172,9 +179,9 @@ extension MacOSPlatform {
         )
       },
       borderStackingHandler: { [weak self] in
-        self?.scheduleWindowBorderStackingRefresh()
+        self?.presentScheduleWindowBorderStackingRefresh()
       },
-      mouseGestureStartedHandler: mouseGestureStartedHandler
+      mouseGestureStartedHandler: { NavigationActor.enqueue { mouseGestureStartedHandler() } }
     )
     monitor.start()
     eventMonitor = monitor
@@ -189,7 +196,7 @@ extension MacOSPlatform {
     monitor.refresh(applications: windowsByProcess)
   }
 
-  func scheduleWindowBorderStackingRefresh(reusingSnapshot: Bool = false) {
+  func presentScheduleWindowBorderStackingRefresh(reusingSnapshot: Bool = false) {
     if !reusingSnapshot { invalidateWindowSnapshot() }
     let request = borderStackingRefreshState.request(
       for: borderManager.activeWindowID
@@ -222,7 +229,7 @@ extension MacOSPlatform {
         }()
         ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
         ?? latestObservedFrames[request.windowID]
-      if reusingSnapshot, !hasPendingFrameWrites,
+      if reusingSnapshot, !frameCoordinator.isBusy,
         let inventory = snapshotEngine.borderStackingInventory(now: ProcessInfo.processInfo.systemUptime),
         let entries = windowBorderStackEntries(
           inventory: inventory, targetWindowID: request.windowID,
@@ -267,37 +274,37 @@ extension MacOSPlatform {
       for: request.windowID,
       stacking: stacking
     )
-    revealWindowBordersIfReady()
+    presentRevealWindowBordersIfReady()
   }
 
-  public func updateWindowBorders(
+  public func presentUpdateWindowBorders(
     frames: [FrameAssignment],
     selectedWindowID: WindowID?,
     liveWindowID: WindowID?,
     config: BordersConfig
   ) {
     borderFrames = frames.filter {
-      !nativeFullscreenWindowIDs.contains($0.windowID)
+      !presentedNativeFullscreenWindowIDs.contains($0.windowID)
     }
     borderSelectedWindowID = selectedWindowID.flatMap {
-      nativeFullscreenWindowIDs.contains($0) ? nil : $0
+      presentedNativeFullscreenWindowIDs.contains($0) ? nil : $0
     }
     borderHiddenWindowIDs = lastHiddenWindowIDs
     borderLiveWindowID = liveWindowID
     borderStyle = WindowBorderStyle(config: config)
-    refreshWindowBorders()
+    presentRefreshWindowBorders()
     if let ownedWindowID = borderManager.ownedSurfaceWindowID {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
-    scheduleWindowBorderStackingRefresh(reusingSnapshot: true)
-    revealWindowBordersIfReady()
+    presentScheduleWindowBorderStackingRefresh(reusingSnapshot: true)
+    presentRevealWindowBordersIfReady()
   }
 
-  public func stageWindowBorderSelection(_ selectedWindowID: WindowID?) {
+  public func presentStageWindowBorderSelection(_ selectedWindowID: WindowID?) {
     let selectedWindowID = selectedWindowID.flatMap {
-      nativeFullscreenWindowIDs.contains($0) ? nil : $0
+      presentedNativeFullscreenWindowIDs.contains($0) ? nil : $0
     }
-    desiredSelectedWindowID = selectedWindowID
+    presentedSelectedWindowID = selectedWindowID
     frameCoordinator.updateLiveBorderWindowID(selectedWindowID)
     let selectedFrame = selectedWindowID.flatMap { windowID in
       resolvedBorderFrame(for: windowID)
@@ -308,19 +315,19 @@ extension MacOSPlatform {
     )
   }
 
-  public func commitWindowBorderSelection(_ selectedWindowID: WindowID?) {
-    stageWindowBorderSelection(selectedWindowID)
+  public func presentCommitWindowBorderSelection(_ selectedWindowID: WindowID?) {
+    presentStageWindowBorderSelection(selectedWindowID)
     refreshWindowBorderGeometry(
       windowIDs: borderManager.liveGeometryWindowIDs
     )
-    scheduleWindowBorderStackingRefresh()
+    presentScheduleWindowBorderStackingRefresh()
   }
 
-  func revealWindowBordersIfReady() {
+  func presentRevealWindowBordersIfReady() {
     guard
       windowBorderStackingIsReadyForReveal(
         windowBorderStacking,
-        selectedWindowID: desiredSelectedWindowID,
+        selectedWindowID: presentedSelectedWindowID,
         activeWindowID: borderManager.activeWindowID,
         nativeFocusedWindowID:
           verifiedNativeFocusedWindowID ?? lastNativeFocusedWindowID
@@ -331,7 +338,7 @@ extension MacOSPlatform {
 
   private func activeIsMinimizedOrHidden(_ windowID: WindowID) -> Bool {
     if lastHiddenWindowIDs.contains(windowID)
-      || nativeFullscreenWindowIDs.contains(windowID)
+      || presentedNativeFullscreenWindowIDs.contains(windowID)
     {
       return true
     }
@@ -346,14 +353,14 @@ extension MacOSPlatform {
     return false
   }
 
-  public func refreshWindowBorders() {
+  public func presentRefreshWindowBorders() {
     // A selected window that is no longer on screen (minimized, hidden, or
     // parked) must never keep an overlay drawn over whatever is displayed.
     if let active = borderManager.activeWindowID,
       !borderFrames.contains(where: { $0.windowID == active })
         || activeIsMinimizedOrHidden(active)
     {
-      hideWindowBorders()
+      presentHideWindowBorders()
       return
     }
     let liveGeometryWindowIDs = borderManager.liveGeometryWindowIDs
@@ -474,7 +481,7 @@ extension MacOSPlatform {
       frames: [windowID: frame],
       style: borderStyle
     ) {
-      invalidatePointerHitTestCache()
+      invalidatePointerCacheFromPresentation()
     }
   }
 
@@ -495,28 +502,28 @@ extension MacOSPlatform {
       style: borderStyle
     )
     if geometryChanged {
-      invalidatePointerHitTestCache()
+      invalidatePointerCacheFromPresentation()
     }
   }
 
-  public func hideWindowBorders() {
+  public func presentHideWindowBorders() {
     borderManager.hide()
   }
 
-  public func setWindowBordersSuppressed(_ suppressed: Bool) {
+  public func presentSetWindowBordersSuppressed(_ suppressed: Bool) {
     guard borderManager.isSuppressed != suppressed else { return }
     borderManager.setSuppressed(suppressed)
     if suppressed {
       borderStackingRefreshTask?.cancel()
       return
     }
-    stageWindowBorderSelection(borderSelectedWindowID)
-    refreshWindowBorders()
-    scheduleWindowBorderStackingRefresh()
-    revealWindowBordersIfReady()
+    presentStageWindowBorderSelection(borderSelectedWindowID)
+    presentRefreshWindowBorders()
+    presentScheduleWindowBorderStackingRefresh()
+    presentRevealWindowBordersIfReady()
   }
 
-  public func updateNativeFullscreenPlaceholders(
+  public func presentUpdateNativeFullscreenPlaceholders(
     _ placeholders: [NativeFullscreenPlaceholder],
     selectedWindowID: WindowID?,
     stackingWindowID: WindowID?
@@ -525,21 +532,19 @@ extension MacOSPlatform {
       placeholders,
       selectedWindowID: selectedWindowID,
       stackingWindowID: stackingWindowID,
-      suppressedWindowIDs: activeNativeFullscreenWindowIDs,
+      suppressedWindowIDs: presentedActiveNativeFullscreenWindowIDs,
       accentColor: borderStyle.activeColor
     ) {
-      invalidatePointerHitTestCache()
+      invalidatePointerCacheFromPresentation()
     }
   }
 
-  public func hideNativeFullscreenPlaceholders() {
+  public func presentHideNativeFullscreenPlaceholders() {
     nativeFullscreenPlaceholderManager.hide()
-    invalidatePointerHitTestCache()
+    invalidatePointerCacheFromPresentation()
   }
 
-  public var windowBorderPerformance: WindowBorderPerformance {
-    borderManager.performance
-  }
+
 
   private func displayedBorderFrame(
     for assignment: FrameAssignment,
@@ -576,7 +581,7 @@ extension MacOSPlatform {
     )
   }
 
-  public func setFrameNotificationsEnabled(_ enabled: Bool) {
+  public func presentSetFrameNotificationsEnabled(_ enabled: Bool) {
     let suppressedRefresh = eventMonitor?.setFrameNotificationsEnabled(enabled)
     guard enabled else { return }
     invalidateWindowSnapshot()
@@ -592,7 +597,7 @@ extension MacOSPlatform {
     )
   }
 
-  public var isLeftMouseButtonDown: Bool {
+  nonisolated public var isLeftMouseButtonDown: Bool {
     CGEventSource.buttonState(.combinedSessionState, button: .left)
   }
 

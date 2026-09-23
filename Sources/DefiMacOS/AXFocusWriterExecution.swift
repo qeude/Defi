@@ -140,7 +140,8 @@ extension AXFocusWriter {
         cancelled || !isCurrent(queued)
         ? nil
         : activationRequirement(
-          requested: request.activatesApplication,
+          requested: request.activatesApplication
+            || NSRunningApplication(processIdentifier: request.processID)?.isActive != true,
           generation: queued.generation
         )
       if activationRequired == true {

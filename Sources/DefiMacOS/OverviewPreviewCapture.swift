@@ -147,6 +147,7 @@ func overviewPreviewOwnerMatches(
 func runOverviewPreviewCaptures(
   _ requests: [OverviewPreviewRequest],
   maximumConcurrent: Int = 2,
+  completed: @escaping @Sendable (OverviewPreviewCaptureResult) async -> Void = { _ in },
   capture: @escaping @Sendable (OverviewPreviewRequest) async
     -> OverviewPreviewCaptureResult
 ) async -> [OverviewPreviewCaptureResult] {
@@ -164,6 +165,11 @@ func runOverviewPreviewCaptures(
     var results: [(Int, OverviewPreviewCaptureResult)] = []
     while let result = await group.next() {
       results.append(result)
+      await completed(result.1)
+      guard !Task.isCancelled else {
+        group.cancelAll()
+        break
+      }
       if nextIndex < requests.count {
         let index = nextIndex
         nextIndex += 1
@@ -179,7 +185,8 @@ func runOverviewPreviewCaptures(
 @MainActor
 func captureOverviewImages(
   previews requests: [OverviewPreviewRequest],
-  desktops desktopRequests: [OverviewDesktopCaptureRequest]
+  desktops desktopRequests: [OverviewDesktopCaptureRequest],
+  previewCompleted: @escaping @MainActor @Sendable (OverviewPreviewCaptureResult) -> Void
 ) async -> OverviewCaptureResults {
   let renderingContext = CIContext(options: [.cacheIntermediates: false])
   defer { renderingContext.clearCaches() }
@@ -217,11 +224,16 @@ func captureOverviewImages(
       windows: windows,
       renderingContext: renderingContext
     )
-    let previews = await runOverviewPreviewCaptures(requests) { request in
+    let previews = await runOverviewPreviewCaptures(requests, completed: { result in
+      await previewCompleted(result)
+    }) { request in
       await batch.capture(request)
     }
     return OverviewCaptureResults(previews: previews, desktops: desktops)
   } catch {
+    for request in requests where !Task.isCancelled {
+      previewCompleted(OverviewPreviewCaptureResult(request: request, image: nil))
+    }
     return OverviewCaptureResults(
       previews: requests.map {
         OverviewPreviewCaptureResult(request: $0, image: nil)
