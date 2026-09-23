@@ -488,6 +488,17 @@ extension AXFrameCoordinator {
             && progress >= 1
           ? accessibilityWriter.readSize(item.value.element)
           : nil
+        let clampedSourceFrame: Rect? = acceptedSize.flatMap { observedSize in
+          guard item.value.positionChanged,
+            abs(observedSize.width - size.width) >= 0.5
+              || abs(observedSize.height - size.height) >= 0.5,
+            let source = accessibilityWriter.readPosition(item.value.element)
+          else { return nil }
+          return Rect(
+            x: source.x, y: source.y,
+            width: observedSize.width, height: observedSize.height
+          )
+        }
         var positionApplied =
           generationIsCurrent
           && (
@@ -503,15 +514,10 @@ extension AXFrameCoordinator {
             )
         // AppKit can clamp a resize to the source display before accepting
         // the move. Retry once at the destination, only after a measured clamp.
-        if positionApplied, item.value.positionChanged,
-          let observedSize = acceptedSize,
-          abs(observedSize.width - size.width) >= 0.5
-            || abs(observedSize.height - size.height) >= 0.5,
+        if positionApplied,
+          let clampedSourceFrame,
           frameCentersCrossDisplays(
-            from: Rect(
-              x: item.value.fromPoint.x, y: item.value.fromPoint.y,
-              width: item.value.fromSize.width, height: item.value.fromSize.height
-            ),
+            from: clampedSourceFrame,
             to: interpolated,
             displayFrames: frame.monitorFrames
           ),
