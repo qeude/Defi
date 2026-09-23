@@ -154,6 +154,7 @@ final class Daemon {
   var supersededDesktopSnapshotRequest: DesktopSnapshotRequest?
   var observedPlatformEventCount = 0
   var targetMismatches: [FrameMismatch] = []
+  var targetMismatchObservedSince: [WindowID: TimeInterval] = [:]
   var activelyResizedWindowID: WindowID?
   var mouseGestureInitialFrame: Rect?
   var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
@@ -314,9 +315,10 @@ final class Daemon {
       finishMouseGestureTracking()
       mouseReorderAnimationActive = false
       frameNotificationsSuspended = false
-      pendingDisplaySyncDeadlines.removeAll(keepingCapacity: true)
-      supersededDesktopSnapshotRequest = nil
-      needsDesktopSync = false
+    pendingDisplaySyncDeadlines.removeAll(keepingCapacity: true)
+    supersededDesktopSnapshotRequest = nil
+    targetMismatchObservedSince.removeAll(keepingCapacity: true)
+    needsDesktopSync = false
       followUpTickSignature = nil
       followUpBackoffSteps = 0
       platform.invalidateStateForDesktopSessionChange()

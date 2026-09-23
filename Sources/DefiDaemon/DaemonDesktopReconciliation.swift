@@ -13,7 +13,9 @@ let displayLogger = Logger(
   category: "Display"
 )
 
-func persistentWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?) -> Bool {
+let widthMismatchStabilityDuration: TimeInterval = 0.5
+
+func settledWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?) -> Bool {
   guard let previous, previous.windowID == current.windowID,
     previous.target == current.target,
     abs(previous.actual.width - current.actual.width) <= 1
@@ -22,6 +24,43 @@ func persistentWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?)
     abs(frame.x - current.target.x) <= 1
       && abs(frame.y - current.target.y) <= 1
   }
+}
+
+func widthMismatchObservationTimes(
+  current: [FrameMismatch],
+  previous: [FrameMismatch],
+  previousObservationTimes: [WindowID: TimeInterval],
+  now: TimeInterval
+) -> [WindowID: TimeInterval] {
+  let previousByWindowID = Dictionary(
+    uniqueKeysWithValues: previous.map { ($0.windowID, $0) }
+  )
+  var observationTimes: [WindowID: TimeInterval] = [:]
+  for mismatch in current
+  where abs(mismatch.actual.x - mismatch.target.x) <= 1
+    && abs(mismatch.actual.y - mismatch.target.y) <= 1
+  {
+    let isSameMismatch = settledWidthMismatch(
+      mismatch,
+      previous: previousByWindowID[mismatch.windowID]
+    )
+    observationTimes[mismatch.windowID] = isSameMismatch
+      ? previousObservationTimes[mismatch.windowID] ?? now
+      : now
+  }
+  return observationTimes
+}
+
+func persistentWidthMismatch(
+  _ current: FrameMismatch,
+  previous: FrameMismatch?,
+  observedSince: TimeInterval?,
+  now: TimeInterval
+) -> Bool {
+  guard settledWidthMismatch(current, previous: previous),
+    let observedSince
+  else { return false }
+  return now - observedSince >= widthMismatchStabilityDuration
 }
 
 func flushPlacementStore(
@@ -278,7 +317,9 @@ extension Daemon {
 
   func learnPersistentWidthConstraints(
     _ mismatches: [FrameMismatch],
-    previous: [FrameMismatch]
+    previous: [FrameMismatch],
+    observedSince: [WindowID: TimeInterval],
+    now: TimeInterval
   ) {
     let previousByWindowID = Dictionary(
       uniqueKeysWithValues: previous.map { ($0.windowID, $0) }
@@ -286,7 +327,10 @@ extension Daemon {
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
         persistentWidthMismatch(
-          mismatch, previous: previousByWindowID[mismatch.windowID]
+          mismatch,
+          previous: previousByWindowID[mismatch.windowID],
+          observedSince: observedSince[mismatch.windowID],
+          now: now
         ),
         state.windows[mismatch.windowID]?.intrinsicSize != true,
         state.windows[mismatch.windowID]?.minimumTiledWidth == nil,

@@ -23,10 +23,57 @@ struct DaemonCommandPolicyTests {
       target: target
     )
 
-    #expect(!persistentWidthMismatch(clamped, previous: nil))
-    #expect(!persistentWidthMismatch(clamped, previous: source))
-    #expect(persistentWidthMismatch(clamped, previous: clamped))
-    #expect(!persistentWidthMismatch(source, previous: source))
+    #expect(!settledWidthMismatch(clamped, previous: nil))
+    #expect(!settledWidthMismatch(clamped, previous: source))
+    #expect(settledWidthMismatch(clamped, previous: clamped))
+    #expect(!settledWidthMismatch(source, previous: source))
+
+    let changedWidth = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: 1_204, height: 1_353),
+      target: target
+    )
+    let changedTarget = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: 1_202, height: 1_353),
+      target: Rect(x: 2, y: 34, width: 2_552, height: 1_353)
+    )
+    #expect(!settledWidthMismatch(clamped, previous: changedWidth))
+    #expect(!settledWidthMismatch(clamped, previous: changedTarget))
+
+    let firstObservation = widthMismatchObservationTimes(
+      current: [clamped],
+      previous: [],
+      previousObservationTimes: [:],
+      now: 10
+    )
+    let repeatedObservation = widthMismatchObservationTimes(
+      current: [clamped],
+      previous: [clamped],
+      previousObservationTimes: firstObservation,
+      now: 10.1
+    )
+    #expect(repeatedObservation[windowID] == 10)
+    #expect(!persistentWidthMismatch(
+      clamped,
+      previous: clamped,
+      observedSince: repeatedObservation[windowID],
+      now: 10.1
+    ))
+    #expect(persistentWidthMismatch(
+      clamped,
+      previous: clamped,
+      observedSince: repeatedObservation[windowID],
+      now: 10.5
+    ))
+
+    let clearedObservations = widthMismatchObservationTimes(
+      current: [],
+      previous: [clamped],
+      previousObservationTimes: repeatedObservation,
+      now: 10.6
+    )
+    #expect(clearedObservations.isEmpty)
   }
 
   @Test @NavigationActor

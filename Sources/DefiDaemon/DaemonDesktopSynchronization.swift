@@ -249,8 +249,15 @@ extension Daemon {
       finishMouseGestureTracking()
     }
     latestMonitors = snapshot.monitors
-    let previousTargetMismatches = targetMismatches
+    let previousTargetMismatches = displayGeometryChanged ? [] : targetMismatches
+    let previousMismatchObservationTimes = targetMismatchObservedSince
     targetMismatches = displayGeometryChanged ? [] : snapshot.targetMismatches
+    targetMismatchObservedSince = widthMismatchObservationTimes(
+      current: targetMismatches,
+      previous: previousTargetMismatches,
+      previousObservationTimes: previousMismatchObservationTimes,
+      now: snapshotCompletedAt
+    )
     state.retainMonitors(
       snapshot.monitors.map(\.id),
       previousViewports: previousViewports,
@@ -707,7 +714,9 @@ extension Daemon {
       finishMouseGestureTracking()
       learnPersistentWidthConstraints(
         targetMismatches,
-        previous: previousTargetMismatches
+        previous: previousTargetMismatches,
+        observedSince: targetMismatchObservedSince,
+        now: snapshotCompletedAt
       )
     }
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
