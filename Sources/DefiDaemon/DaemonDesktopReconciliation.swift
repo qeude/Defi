@@ -13,6 +13,72 @@ let displayLogger = Logger(
   category: "Display"
 )
 
+let widthMismatchStabilityDuration: TimeInterval = 0.5
+
+func settledWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?) -> Bool {
+  guard let previous, previous.windowID == current.windowID,
+    previous.target == current.target,
+    abs(current.actual.width - current.target.width) >= 2,
+    abs(previous.actual.width - current.actual.width) <= 1
+  else { return false }
+  return [previous.actual, current.actual].allSatisfy { frame in
+    abs(frame.x - current.target.x) <= 1
+      && abs(frame.y - current.target.y) <= 1
+  }
+}
+
+struct WidthMismatchObservationState {
+  var mismatchesByWindowID: [WindowID: FrameMismatch] = [:]
+  var observedSince: [WindowID: TimeInterval] = [:]
+}
+
+func updateWidthMismatchObservationState(
+  previous: WidthMismatchObservationState,
+  current: [FrameMismatch],
+  freshObservationIDs: Set<WindowID>,
+  removedWindowIDs: Set<WindowID> = [],
+  now: TimeInterval
+) -> WidthMismatchObservationState {
+  var next = previous
+  for windowID in freshObservationIDs.union(removedWindowIDs) {
+    next.mismatchesByWindowID[windowID] = nil
+    next.observedSince[windowID] = nil
+  }
+
+  for mismatch in current where freshObservationIDs.contains(mismatch.windowID) {
+    let windowID = mismatch.windowID
+    let previousMismatch = previous.mismatchesByWindowID[windowID]
+    let isSameMismatch = settledWidthMismatch(
+      mismatch,
+      previous: previousMismatch
+    )
+    let continuesObservation =
+      isSameMismatch && previous.observedSince[windowID] != nil
+    next.mismatchesByWindowID[windowID] =
+      continuesObservation ? previousMismatch : mismatch
+    guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
+      abs(mismatch.actual.x - mismatch.target.x) <= 1,
+      abs(mismatch.actual.y - mismatch.target.y) <= 1
+    else { continue }
+    next.observedSince[windowID] = continuesObservation
+      ? previous.observedSince[windowID]
+      : now
+  }
+  return next
+}
+
+func persistentWidthMismatch(
+  _ current: FrameMismatch,
+  previous: FrameMismatch?,
+  observedSince: TimeInterval?,
+  now: TimeInterval
+) -> Bool {
+  guard settledWidthMismatch(current, previous: previous),
+    let observedSince
+  else { return false }
+  return now - observedSince >= widthMismatchStabilityDuration
+}
+
 func flushPlacementStore(
   _ store: PlacementStore,
   preferences: PlacementPreferences,
@@ -265,9 +331,23 @@ extension Daemon {
     lastDisplayedFrameRebaseDelta = rebase.delta
   }
 
-  func learnPersistentWidthConstraints(_ mismatches: [FrameMismatch]) {
+  func learnPersistentWidthConstraints(
+    _ mismatches: [FrameMismatch],
+    previous: [FrameMismatch],
+    observedSince: [WindowID: TimeInterval],
+    now: TimeInterval
+  ) {
+    let previousByWindowID = Dictionary(
+      uniqueKeysWithValues: previous.map { ($0.windowID, $0) }
+    )
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
+        persistentWidthMismatch(
+          mismatch,
+          previous: previousByWindowID[mismatch.windowID],
+          observedSince: observedSince[mismatch.windowID],
+          now: now
+        ),
         state.windows[mismatch.windowID]?.intrinsicSize != true,
         state.windows[mismatch.windowID]?.minimumTiledWidth == nil,
         state.windows[mismatch.windowID]?.maximumTiledWidth == nil,
