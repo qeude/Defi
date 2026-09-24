@@ -22,11 +22,17 @@ struct DaemonCommandPolicyTests {
       actual: Rect(x: 2, y: 34, width: 1_202, height: 1_353),
       target: target
     )
+    let heightOnly = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: target.width, height: 1_200),
+      target: target
+    )
 
     #expect(!settledWidthMismatch(clamped, previous: nil))
     #expect(!settledWidthMismatch(clamped, previous: source))
     #expect(settledWidthMismatch(clamped, previous: clamped))
     #expect(!settledWidthMismatch(source, previous: source))
+    #expect(!settledWidthMismatch(heightOnly, previous: heightOnly))
 
     let changedWidth = FrameMismatch(
       windowID: windowID,
@@ -40,6 +46,38 @@ struct DaemonCommandPolicyTests {
     )
     #expect(!settledWidthMismatch(clamped, previous: changedWidth))
     #expect(!settledWidthMismatch(clamped, previous: changedTarget))
+
+    let heightOnlyObservation = updateWidthMismatchObservationState(
+      previous: WidthMismatchObservationState(),
+      current: [heightOnly],
+      freshObservationIDs: [windowID],
+      now: 9
+    )
+    #expect(heightOnlyObservation.observedSince[windowID] == nil)
+    let subpointWidthMismatch = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: target.width - 1, height: 1_200),
+      target: target
+    )
+    let subpointWidthObservation = updateWidthMismatchObservationState(
+      previous: heightOnlyObservation,
+      current: [subpointWidthMismatch],
+      freshObservationIDs: [windowID],
+      now: 9.1
+    )
+    #expect(subpointWidthObservation.observedSince[windowID] == nil)
+    let gradualWidthMismatch = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: target.width - 2, height: 1_200),
+      target: target
+    )
+    let firstWidthMismatch = updateWidthMismatchObservationState(
+      previous: subpointWidthObservation,
+      current: [gradualWidthMismatch],
+      freshObservationIDs: [windowID],
+      now: 9.2
+    )
+    #expect(firstWidthMismatch.observedSince[windowID] == 9.2)
 
     let movingObservation = updateWidthMismatchObservationState(
       previous: WidthMismatchObservationState(),
@@ -56,6 +94,31 @@ struct DaemonCommandPolicyTests {
       now: 10
     )
     #expect(firstObservation.observedSince[windowID] == 10)
+    let onePixelDrift = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: 1_203, height: 1_353),
+      target: target
+    )
+    let onePixelDriftObservation = updateWidthMismatchObservationState(
+      previous: firstObservation,
+      current: [onePixelDrift],
+      freshObservationIDs: [windowID],
+      now: 10.1
+    )
+    #expect(onePixelDriftObservation.observedSince[windowID] == 10)
+    let twoPixelDriftObservation = updateWidthMismatchObservationState(
+      previous: onePixelDriftObservation,
+      current: [changedWidth],
+      freshObservationIDs: [windowID],
+      now: 10.2
+    )
+    #expect(twoPixelDriftObservation.observedSince[windowID] == 10.2)
+    #expect(!persistentWidthMismatch(
+      changedWidth,
+      previous: onePixelDriftObservation.mismatchesByWindowID[windowID],
+      observedSince: twoPixelDriftObservation.observedSince[windowID],
+      now: 10.7
+    ))
 
     let cachedObservation = updateWidthMismatchObservationState(
       previous: firstObservation,

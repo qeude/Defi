@@ -18,6 +18,7 @@ let widthMismatchStabilityDuration: TimeInterval = 0.5
 func settledWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?) -> Bool {
   guard let previous, previous.windowID == current.windowID,
     previous.target == current.target,
+    abs(current.actual.width - current.target.width) >= 2,
     abs(previous.actual.width - current.actual.width) <= 1
   else { return false }
   return [previous.actual, current.actual].allSatisfy { frame in
@@ -46,16 +47,21 @@ func updateWidthMismatchObservationState(
 
   for mismatch in current where freshObservationIDs.contains(mismatch.windowID) {
     let windowID = mismatch.windowID
+    let previousMismatch = previous.mismatchesByWindowID[windowID]
     let isSameMismatch = settledWidthMismatch(
       mismatch,
-      previous: previous.mismatchesByWindowID[windowID]
+      previous: previousMismatch
     )
-    next.mismatchesByWindowID[windowID] = mismatch
-    guard abs(mismatch.actual.x - mismatch.target.x) <= 1,
+    let continuesObservation =
+      isSameMismatch && previous.observedSince[windowID] != nil
+    next.mismatchesByWindowID[windowID] =
+      continuesObservation ? previousMismatch : mismatch
+    guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
+      abs(mismatch.actual.x - mismatch.target.x) <= 1,
       abs(mismatch.actual.y - mismatch.target.y) <= 1
     else { continue }
-    next.observedSince[windowID] = isSameMismatch
-      ? previous.observedSince[windowID] ?? now
+    next.observedSince[windowID] = continuesObservation
+      ? previous.observedSince[windowID]
       : now
   }
   return next
