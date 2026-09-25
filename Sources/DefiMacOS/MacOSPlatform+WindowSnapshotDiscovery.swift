@@ -176,12 +176,23 @@ extension SnapshotEngine {
         topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         forced: forceApplicationInventoryRefresh
       )
+      var fallbackApplicationIDs: [pid_t: String] = [:]
       let runningApplications: [(processID: pid_t, application: NSRunningApplication?)]
       if refreshesApplicationInventory {
         applicationInventorySnapshotCount += 1
         let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
-        runningApplications = NSWorkspace.shared.runningApplications.map {
+        let workspaceApplications = NSWorkspace.shared.runningApplications
+        let missingProcessIDs = missingApplicationProcessIDs(
+          cgWindows: publicCGWindows() ?? [],
+          knownProcessIDs: Set(workspaceApplications.map(\.processIdentifier))
+        )
+        for processID in missingProcessIDs {
+          fallbackApplicationIDs[processID] = appBundleIdentifier(processID: processID)
+        }
+        runningApplications = workspaceApplications.map {
           ($0.processIdentifier, $0)
+        } + fallbackApplicationIDs.keys.sorted().map {
+          ($0, nil)
         }
         recordDurationSample(
           (ProcessInfo.processInfo.systemUptime - inventoryStartedAt) * 1_000,
@@ -213,6 +224,8 @@ extension SnapshotEngine {
             application.bundleIdentifier
             ?? application.localizedName
             ?? "pid-\(processID)"
+        } else if let fallbackAppID = fallbackApplicationIDs[processID] {
+          appID = fallbackAppID
         } else if let cachedAppID = previousApplicationIDs[processID] {
           appID = cachedAppID
         } else {

@@ -137,6 +137,26 @@ struct WindowSnapshotStabilityTests {
     ) == nil)
   }
 
+  @Test func frontmostProcessFallsBackOnlyToMatchingAccessibilityApplication() {
+    #expect(resolvedFrontmostProcessID(
+      appKitProcessID: 42, appKitBundleID: "com.example.one",
+      accessibilityProcessID: 99, accessibilityBundleID: "com.example.two"
+    ) == 42)
+    #expect(resolvedFrontmostProcessID(
+      appKitProcessID: -1, appKitBundleID: "com.apple.dt.Devices",
+      accessibilityProcessID: 7395, accessibilityBundleID: "com.apple.dt.Devices"
+    ) == 7395)
+    #expect(resolvedFrontmostProcessID(
+      appKitProcessID: -1, appKitBundleID: "com.apple.dt.Devices",
+      accessibilityProcessID: 99, accessibilityBundleID: "com.apple.dt.Xcode"
+    ) == nil)
+    #expect(resolvedFrontmostProcessID(
+      appKitProcessID: -1, appKitBundleID: "com.apple.dt.Devices",
+      accessibilityProcessID: nil, accessibilityBundleID: nil,
+      coreGraphicsProcessID: 7395, coreGraphicsBundleID: "com.apple.dt.Devices"
+    ) == 7395)
+  }
+
   @Test func destroyedWindowsArrivingDuringSnapshotRemainPending() {
     let engine = SnapshotEngine(
       frameCoordinator: AXFrameCoordinator(),
@@ -237,6 +257,45 @@ struct WindowSnapshotStabilityTests {
         topologyRequiresFullSnapshot: false,
         forced: false
       ) == false)
+  }
+
+  @Test func visibleWindowProcessMissingFromWorkspaceInventoryIsDiscovered() {
+    let windows = [
+      CGWindowRecord(id: 1, processID: 42, layer: 0, title: "Device Hub", frame: frame),
+      CGWindowRecord(id: 2, processID: 42, layer: 0, title: "", frame: frame),
+      CGWindowRecord(id: 3, processID: 43, layer: 0, title: "Known", frame: frame),
+      CGWindowRecord(id: 4, processID: 44, layer: 1, title: "Panel", frame: frame),
+    ]
+
+    #expect(
+      missingApplicationProcessIDs(
+        cgWindows: windows,
+        knownProcessIDs: [43]
+      ) == [42]
+    )
+  }
+
+  @Test func missingAppKitApplicationUsesItsExecutableBundle() throws {
+    let appURL = FileManager.default.temporaryDirectory
+      .appending(path: "DefiCGFallback-\(UUID().uuidString).app")
+    defer { try? FileManager.default.removeItem(at: appURL) }
+    let contents = appURL.appending(path: "Contents")
+    let executable = contents.appending(path: "MacOS/DeviceHub")
+    try FileManager.default.createDirectory(
+      at: executable.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    let info: [String: Any] = [
+      "CFBundleIdentifier": "com.apple.dt.Devices",
+      "CFBundlePackageType": "APPL",
+      "CFBundleExecutable": "DeviceHub",
+    ]
+    try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+      .write(to: contents.appending(path: "Info.plist"))
+    try Data().write(to: executable)
+
+    #expect(appBundleIdentifier(executablePath: executable.path) == "com.apple.dt.Devices")
+    #expect(appBundleIdentifier(executablePath: "/usr/bin/open") == nil)
   }
 
   @Test func windowListUsesCacheUntilTopologyOrWatchdogInvalidation() {

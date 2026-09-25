@@ -108,8 +108,7 @@ extension MacOSPlatform {
         )
         self?.userInputTracker.recordObservedFocus(
           windowID: nil,
-          processID: processID
-            ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+          processID: processID ?? currentFrontmostProcessID()
         )
         self?.nativeFocusEventPending = true
         if let processID {

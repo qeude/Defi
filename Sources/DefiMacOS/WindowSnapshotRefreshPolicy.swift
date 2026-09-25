@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CoreGraphics
 import Darwin
 import DefiConfig
 import DefiCore
@@ -12,6 +13,107 @@ func applicationInventoryRefreshIsRequired(
   forced: Bool
 ) -> Bool {
   !hasCompletedSnapshot || topologyRequiresFullSnapshot || forced
+}
+
+func missingApplicationProcessIDs(
+  cgWindows: [CGWindowRecord],
+  knownProcessIDs: Set<pid_t>
+) -> [pid_t] {
+  Set(cgWindows.lazy.filter { $0.layer == 0 && $0.processID > 0 }.map(\.processID))
+    .subtracting(knownProcessIDs)
+    .sorted()
+}
+
+func appBundleIdentifier(executablePath: String) -> String? {
+  let executable = URL(fileURLWithPath: executablePath)
+    .resolvingSymlinksInPath().standardizedFileURL
+  let appURL = executable.deletingLastPathComponent()
+    .deletingLastPathComponent().deletingLastPathComponent()
+  guard appURL.pathExtension == "app",
+    executable.deletingLastPathComponent().path
+      == appURL.appending(path: "Contents/MacOS").path,
+    let bundle = Bundle(url: appURL),
+    bundle.object(forInfoDictionaryKey: "CFBundlePackageType") as? String == "APPL",
+    bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool != true,
+    bundle.object(forInfoDictionaryKey: "LSBackgroundOnly") as? Bool != true
+  else { return nil }
+  return bundle.bundleIdentifier
+}
+
+func appBundleIdentifier(processID: pid_t) -> String? {
+  var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+  guard proc_pidpath(processID, &path, UInt32(path.count)) > 0 else { return nil }
+  return appBundleIdentifier(executablePath: String(cString: path))
+}
+
+func resolvedFrontmostProcessID(
+  appKitProcessID: pid_t?,
+  appKitBundleID: String?,
+  accessibilityProcessID: pid_t?,
+  accessibilityBundleID: String?,
+  coreGraphicsProcessID: pid_t? = nil,
+  coreGraphicsBundleID: String? = nil
+) -> pid_t? {
+  if let appKitProcessID, appKitProcessID > 0 { return appKitProcessID }
+  guard let appKitBundleID else { return nil }
+  if let coreGraphicsProcessID, coreGraphicsProcessID > 0,
+    appKitBundleID == coreGraphicsBundleID
+  { return coreGraphicsProcessID }
+  if let accessibilityProcessID, accessibilityProcessID > 0,
+    appKitBundleID == accessibilityBundleID
+  { return accessibilityProcessID }
+  return nil
+}
+
+@MainActor
+public func currentFrontmostProcessID() -> pid_t? {
+  guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+  let processID = application.processIdentifier
+  if processID > 0 { return processID }
+  let visibleWindows = CGWindowListCopyWindowInfo(
+    [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+  ) as? [[String: Any]] ?? []
+  let frontmostWindow = visibleWindows.first {
+    ($0[kCGWindowLayer as String] as? Int) == 0
+      && ($0[kCGWindowOwnerPID as String] as? pid_t ?? 0) > 0
+  }
+  let coreGraphicsProcessID = frontmostWindow?[kCGWindowOwnerPID as String] as? pid_t
+  let coreGraphicsBundleID = coreGraphicsProcessID.flatMap(appBundleIdentifier(processID:))
+  if let resolved = resolvedFrontmostProcessID(
+    appKitProcessID: processID,
+    appKitBundleID: application.bundleIdentifier,
+    accessibilityProcessID: nil,
+    accessibilityBundleID: nil,
+    coreGraphicsProcessID: coreGraphicsProcessID,
+    coreGraphicsBundleID: coreGraphicsBundleID
+  ) { return resolved }
+  let system = AXUIElementCreateSystemWide()
+  let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
+    focusSnapshotAccessibilityTimeoutSeconds,
+    elements: [system]
+  ) {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+      system, kAXFocusedApplicationAttribute as CFString, &value
+    ) == .success else { return nil }
+    return value
+  }
+  guard let focusedApplication else { return nil }
+  let focusedElement = focusedApplication as! AXUIElement
+  var accessibilityProcessID: pid_t = 0
+  let readProcessID = AXMessagingTimeoutAccess.shared.withTimeout(
+    focusSnapshotAccessibilityTimeoutSeconds,
+    elements: [focusedElement]
+  ) {
+    AXUIElementGetPid(focusedElement, &accessibilityProcessID) == .success
+  }
+  return resolvedFrontmostProcessID(
+    appKitProcessID: processID,
+    appKitBundleID: application.bundleIdentifier,
+    accessibilityProcessID: readProcessID ? accessibilityProcessID : nil,
+    accessibilityBundleID: readProcessID
+      ? appBundleIdentifier(processID: accessibilityProcessID) : nil
+  )
 }
 
 func durationPercentile(

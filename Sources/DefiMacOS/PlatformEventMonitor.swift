@@ -74,10 +74,9 @@ final class PlatformEventMonitor {
         object: nil,
         queue: .main
       ) { [weak self] notification in
-        let processID =
-          (notification.userInfo?[
-            NSWorkspace.applicationUserInfoKey
-          ] as? NSRunningApplication)?.processIdentifier
+        let application = notification.userInfo?[
+          NSWorkspace.applicationUserInfoKey
+        ] as? NSRunningApplication
         MainActor.assumeIsolated {
           // The notification PID is authoritative. Do not gate on the current
           // frontmost app here: slow-activating apps (e.g. Electron) lag
@@ -86,6 +85,14 @@ final class PlatformEventMonitor {
           // pendingApplicationActivation revalidates against the current
           // frontmost app within a 2s bound, so a stale token cannot be
           // admitted later.
+          let frontmostProcessID = currentFrontmostProcessID()
+          let reportedProcessID = application?.processIdentifier
+          let notificationBundleID = application?.bundleIdentifier
+          let processID = reportedProcessID.flatMap { $0 > 0 ? $0 : nil }
+            ?? (notificationBundleID != nil
+              && notificationBundleID
+                == NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+              ? frontmostProcessID : nil)
           if let processID {
             self?.userInputTracker.recordApplicationActivation(processID: processID)
           }
