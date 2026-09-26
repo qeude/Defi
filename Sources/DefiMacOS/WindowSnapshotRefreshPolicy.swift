@@ -49,27 +49,40 @@ func appBundleIdentifier(processID: pid_t) -> String? {
 func resolvedFrontmostProcessID(
   appKitProcessID: pid_t?,
   appKitBundleID: String?,
+  expectedBundleID: String? = nil,
   accessibilityProcessID: pid_t?,
   accessibilityBundleID: String?,
   coreGraphicsProcessID: pid_t? = nil,
   coreGraphicsBundleID: String? = nil
 ) -> pid_t? {
-  if let appKitProcessID, appKitProcessID > 0 { return appKitProcessID }
-  guard let appKitBundleID else { return nil }
+  if let appKitProcessID, appKitProcessID > 0,
+    expectedBundleID == nil || appKitBundleID == expectedBundleID
+  { return appKitProcessID }
+  guard let bundleID = expectedBundleID ?? appKitBundleID else {
+    guard let accessibilityProcessID, accessibilityProcessID > 0,
+      coreGraphicsProcessID == nil
+        || coreGraphicsProcessID == accessibilityProcessID
+    else { return nil }
+    return accessibilityProcessID
+  }
   if let coreGraphicsProcessID, coreGraphicsProcessID > 0,
-    appKitBundleID == coreGraphicsBundleID
+    bundleID == coreGraphicsBundleID
   { return coreGraphicsProcessID }
   if let accessibilityProcessID, accessibilityProcessID > 0,
-    appKitBundleID == accessibilityBundleID
+    bundleID == accessibilityBundleID
   { return accessibilityProcessID }
   return nil
 }
 
-@MainActor
-func currentFrontmostProcessID(cgWindows: [CGWindowRecord]? = nil) -> pid_t? {
-  guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
-  let processID = application.processIdentifier
-  if processID > 0 { return processID }
+func currentFrontmostProcessID(
+  appKitProcessID: pid_t?,
+  appKitBundleID: String?,
+  cgWindows: [CGWindowRecord]? = nil,
+  matchingBundleID: String? = nil
+) -> pid_t? {
+  if let appKitProcessID, appKitProcessID > 0,
+    matchingBundleID == nil || appKitBundleID == matchingBundleID
+  { return appKitProcessID }
   let coreGraphicsProcessID: pid_t?
   if let cgWindows {
     coreGraphicsProcessID = cgWindows.first {
@@ -87,8 +100,9 @@ func currentFrontmostProcessID(cgWindows: [CGWindowRecord]? = nil) -> pid_t? {
   }
   let coreGraphicsBundleID = coreGraphicsProcessID.flatMap(appBundleIdentifier(processID:))
   if let resolved = resolvedFrontmostProcessID(
-    appKitProcessID: processID,
-    appKitBundleID: application.bundleIdentifier,
+    appKitProcessID: appKitProcessID,
+    appKitBundleID: appKitBundleID,
+    expectedBundleID: matchingBundleID,
     accessibilityProcessID: nil,
     accessibilityBundleID: nil,
     coreGraphicsProcessID: coreGraphicsProcessID,
@@ -115,11 +129,14 @@ func currentFrontmostProcessID(cgWindows: [CGWindowRecord]? = nil) -> pid_t? {
     AXUIElementGetPid(focusedElement, &accessibilityProcessID) == .success
   }
   return resolvedFrontmostProcessID(
-    appKitProcessID: processID,
-    appKitBundleID: application.bundleIdentifier,
+    appKitProcessID: appKitProcessID,
+    appKitBundleID: appKitBundleID,
+    expectedBundleID: matchingBundleID,
     accessibilityProcessID: readProcessID ? accessibilityProcessID : nil,
     accessibilityBundleID: readProcessID
-      ? appBundleIdentifier(processID: accessibilityProcessID) : nil
+      ? appBundleIdentifier(processID: accessibilityProcessID) : nil,
+    coreGraphicsProcessID: coreGraphicsProcessID,
+    coreGraphicsBundleID: coreGraphicsBundleID
   )
 }
 

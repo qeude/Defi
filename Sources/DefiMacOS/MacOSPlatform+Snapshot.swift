@@ -653,11 +653,16 @@ extension SnapshotEngine {
         "frame commit observed settled=\(settledCommitLatenciesMS.count) deferred=\(deferredMismatchCount) max_latency_ms=\(maximumSettledLatencyMS, format: .fixed(precision: 2))"
       )
     }
-    let frontmostProcessID = onMain { _ in
-      currentFrontmostProcessID(
-        cgWindows: borderStackingInventory(now: ProcessInfo.processInfo.systemUptime)
-      )
+    let frontmostApplication = onMain { _ in
+      let application = NSWorkspace.shared.frontmostApplication
+      return (application?.processIdentifier, application?.bundleIdentifier)
     }
+    let frontmostProcessID = currentFrontmostProcessID(
+      appKitProcessID: frontmostApplication.0,
+      appKitBundleID: frontmostApplication.1,
+      cgWindows: borderStackingInventory(now: ProcessInfo.processInfo.systemUptime)
+    )
+    lastResolvedFrontmostProcessID = frontmostProcessID
     let activation = userInputTracker.pendingApplicationActivation(
       frontmostProcessID: frontmostProcessID
     )

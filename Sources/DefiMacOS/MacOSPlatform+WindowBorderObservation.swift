@@ -109,7 +109,7 @@ extension MacOSPlatform {
         )
         self?.userInputTracker.recordObservedFocus(
           windowID: nil,
-          processID: processID ?? currentFrontmostProcessID()
+          processID: processID
         )
         self?.nativeFocusEventPending = true
         if let processID {

@@ -137,7 +137,7 @@ struct WindowSnapshotStabilityTests {
     ) == nil)
   }
 
-  @Test func frontmostProcessFallsBackOnlyToMatchingAccessibilityApplication() {
+  @Test func frontmostProcessFallbackRequiresMatchingIdentity() {
     #expect(resolvedFrontmostProcessID(
       appKitProcessID: 42, appKitBundleID: "com.example.one",
       accessibilityProcessID: 99, accessibilityBundleID: "com.example.two"
@@ -155,6 +155,22 @@ struct WindowSnapshotStabilityTests {
       accessibilityProcessID: nil, accessibilityBundleID: nil,
       coreGraphicsProcessID: 7395, coreGraphicsBundleID: "com.apple.dt.Devices"
     ) == 7395)
+    #expect(resolvedFrontmostProcessID(
+      appKitProcessID: 42, appKitBundleID: "com.example.previous",
+      expectedBundleID: "com.apple.dt.Devices",
+      accessibilityProcessID: nil, accessibilityBundleID: nil,
+      coreGraphicsProcessID: 7395, coreGraphicsBundleID: "com.apple.dt.Devices"
+    ) == 7395)
+    #expect(resolvedFrontmostProcessID(
+      appKitProcessID: -1, appKitBundleID: nil,
+      accessibilityProcessID: 7395, accessibilityBundleID: "com.apple.dt.Devices",
+      coreGraphicsProcessID: 7395, coreGraphicsBundleID: "com.apple.dt.Devices"
+    ) == 7395)
+    #expect(resolvedFrontmostProcessID(
+      appKitProcessID: -1, appKitBundleID: nil,
+      accessibilityProcessID: 7395, accessibilityBundleID: "com.apple.dt.Devices",
+      coreGraphicsProcessID: 42, coreGraphicsBundleID: "com.example.previous"
+    ) == nil)
   }
 
   @Test func destroyedWindowsArrivingDuringSnapshotRemainPending() {

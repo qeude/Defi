@@ -325,6 +325,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.lastSnapshotProcessIDs = newValue } }
   }
 
+  var lastResolvedFrontmostProcessID: pid_t? {
+    get { read { $0.lastResolvedFrontmostProcessID } }
+    set { read { $0.lastResolvedFrontmostProcessID = newValue } }
+  }
+
   var floatingWindowIDs: Set<WindowID> {
     get { read { $0.floatingWindowIDs } }
     set { read { $0.floatingWindowIDs = newValue } }
@@ -1210,6 +1215,7 @@ private struct Storage {
   var lastSnapshotWindows: [Window] = []
   var lastSnapshotWindowIDs = Set<WindowID>()
   var lastSnapshotProcessIDs = Set<pid_t>()
+  var lastResolvedFrontmostProcessID: pid_t?
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] = [:]
   var minimizedWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]
   var transientGeometryWindowElementsByProcess: [pid_t: [AXUIElement]] = [:]

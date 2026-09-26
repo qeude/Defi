@@ -65,6 +65,14 @@ struct PlatformEventTests {
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 16)?.processID == 30)
   }
 
+  @Test
+  func activationWaitsForFrontmostApplicationToCatchUp() {
+    let tracker = UserInputTracker()
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 42, at: 10.1) == nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 10.2)?.processID == 20)
+  }
+
   @Test @NavigationActor
   func sessionChangeDiscardsCachedAXConnectionsBeforeNextDiscovery() {
     let platform = MacOSPlatform()
