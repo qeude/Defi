@@ -176,12 +176,31 @@ extension SnapshotEngine {
         topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         forced: forceApplicationInventoryRefresh
       )
+      var fallbackApplicationIDs: [pid_t: String] = [:]
       let runningApplications: [(processID: pid_t, application: NSRunningApplication?)]
       if refreshesApplicationInventory {
         applicationInventorySnapshotCount += 1
         let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
-        runningApplications = NSWorkspace.shared.runningApplications.map {
+        let workspaceApplications = NSWorkspace.shared.runningApplications
+        let missingProcessIDs = missingApplicationProcessIDs(
+          cgWindows: publicCGWindows() ?? [],
+          knownProcessIDs: Set(workspaceApplications.map(\.processIdentifier)),
+          previouslyManagedProcessIDs: Set(previouslyManagedApplicationWindows.keys)
+        )
+        for processID in missingProcessIDs {
+          guard let bundleID = appBundleIdentifier(processID: processID),
+            !workspaceApplications.contains(where: {
+              $0.bundleIdentifier == bundleID
+                && !$0.isTerminated
+                && $0.activationPolicy != .regular
+            })
+          else { continue }
+          fallbackApplicationIDs[processID] = bundleID
+        }
+        runningApplications = workspaceApplications.map {
           ($0.processIdentifier, $0)
+        } + fallbackApplicationIDs.keys.sorted().map {
+          ($0, nil)
         }
         recordDurationSample(
           (ProcessInfo.processInfo.systemUptime - inventoryStartedAt) * 1_000,
@@ -199,7 +218,7 @@ extension SnapshotEngine {
       let ownProcessID = ProcessInfo.processInfo.processIdentifier
       for runningApplication in runningApplications {
         let processID = runningApplication.processID
-        guard processID != ownProcessID else { continue }
+        guard processID > 0, processID != ownProcessID else { continue }
         minimizedWindows[processID] = []
         transientGeometryWindows[processID] = []
         let appID: String
@@ -213,6 +232,8 @@ extension SnapshotEngine {
             application.bundleIdentifier
             ?? application.localizedName
             ?? "pid-\(processID)"
+        } else if let fallbackAppID = fallbackApplicationIDs[processID] {
+          appID = fallbackAppID
         } else if let cachedAppID = previousApplicationIDs[processID] {
           appID = cachedAppID
         } else {

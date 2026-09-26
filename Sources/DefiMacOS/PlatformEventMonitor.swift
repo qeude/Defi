@@ -3,6 +3,14 @@ import ApplicationServices
 import CoreGraphics
 import DefiModel
 
+func delayedApplicationActivationIsCurrent(
+  startedAt: TimeInterval,
+  input: UserInputTracker.Snapshot
+) -> Bool {
+  (input.latestFocusIntent?.timestamp ?? 0) <= startedAt
+    && input.latestCloseIntent <= startedAt
+}
+
 @MainActor
 final class PlatformEventMonitor {
   let handler: (PlatformEventKind, pid_t?) -> Void
@@ -21,6 +29,7 @@ final class PlatformEventMonitor {
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
   private var mouseGestureNormalizer = MouseGestureEventNormalizer()
+  private var activationGeneration: UInt64 = 0
   private var observers: [pid_t: AXObserver] = [:]
   private var topologyObservedProcessIDs = Set<pid_t>()
   private var notificationFailures: [NotificationObservationKind: [AXUIElement: NotificationObservationFailure]] = [:]
@@ -74,22 +83,51 @@ final class PlatformEventMonitor {
         object: nil,
         queue: .main
       ) { [weak self] notification in
-        let processID =
-          (notification.userInfo?[
-            NSWorkspace.applicationUserInfoKey
-          ] as? NSRunningApplication)?.processIdentifier
+        let application = notification.userInfo?[
+          NSWorkspace.applicationUserInfoKey
+        ] as? NSRunningApplication
         MainActor.assumeIsolated {
-          // The notification PID is authoritative. Do not gate on the current
-          // frontmost app here: slow-activating apps (e.g. Electron) lag
-          // behind the notification, and dropping the token strands Dock and
-          // Cmd-Tab focus with no usable intent. Snapshot-time
-          // pendingApplicationActivation revalidates against the current
-          // frontmost app within a 2s bound, so a stale token cannot be
-          // admitted later.
-          if let processID {
-            self?.userInputTracker.recordApplicationActivation(processID: processID)
+          guard let self else { return }
+          self.activationGeneration &+= 1
+          let generation = self.activationGeneration
+          // The notification PID is authoritative. For an invalid PID, match
+          // the notification's bundle against CG or AX; AppKit's frontmost app
+          // may still describe the previous activation.
+          let notificationBundleID = application?.bundleIdentifier
+          if let processID = positiveProcessID(application?.processIdentifier) {
+            self.userInputTracker.recordApplicationActivation(processID: processID)
+            self.handler(.focus, processID)
+            return
           }
-          self?.handler(.focus, processID)
+          guard let notificationBundleID else {
+            self.handler(.focus, nil)
+            return
+          }
+          let timestamp = ProcessInfo.processInfo.systemUptime
+          Task.detached(priority: .userInitiated) { [weak self] in
+            let processID = currentFrontmostProcessID(
+              matchingBundleID: notificationBundleID
+            )
+            await MainActor.run {
+              guard let self, self.desktopSessionActive,
+                self.activationGeneration == generation,
+                delayedApplicationActivationIsCurrent(
+                  startedAt: timestamp,
+                  input: self.userInputTracker.snapshot
+                )
+              else { return }
+              if let processID {
+                let resolvedAt = ProcessInfo.processInfo.systemUptime
+                self.userInputTracker.recordApplicationActivation(
+                  processID: processID, at: resolvedAt
+                )
+                guard self.userInputTracker.snapshot.applicationActivation
+                  == .init(processID: processID, timestamp: resolvedAt)
+                else { return }
+              }
+              self.handler(.focus, processID)
+            }
+          }
         }
       }
     )
@@ -110,6 +148,7 @@ final class PlatformEventMonitor {
             else { return }
             self.desktopSessionActive = change == .becameActive
             if !self.desktopSessionActive {
+              self.activationGeneration &+= 1
               self.resetAccessibilityObservers()
             }
             self.desktopSessionHandler(change)
@@ -667,6 +706,7 @@ final class PlatformEventMonitor {
   }
 
   func stop() {
+    activationGeneration &+= 1
     if displayCallbackRegistered {
       CGDisplayRemoveReconfigurationCallback(
         displayReconfigurationCallback,
