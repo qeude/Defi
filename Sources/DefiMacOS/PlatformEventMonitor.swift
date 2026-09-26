@@ -95,14 +95,9 @@ final class PlatformEventMonitor {
             self.handler(.focus, nil)
             return
           }
-          let frontmostApplication = NSWorkspace.shared.frontmostApplication
-          let appKitProcessID = frontmostApplication?.processIdentifier
-          let appKitBundleID = frontmostApplication?.bundleIdentifier
           let timestamp = ProcessInfo.processInfo.systemUptime
           Task.detached(priority: .userInitiated) { [weak self] in
             let processID = currentFrontmostProcessID(
-              appKitProcessID: appKitProcessID,
-              appKitBundleID: appKitBundleID,
               matchingBundleID: notificationBundleID
             )
             await MainActor.run {

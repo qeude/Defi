@@ -162,6 +162,12 @@ struct WindowSnapshotStabilityTests {
       coreGraphicsProcessID: 7395, coreGraphicsBundleID: "com.apple.dt.Devices"
     ) == 7395)
     #expect(resolvedFrontmostProcessID(
+      appKitProcessID: nil, appKitBundleID: nil,
+      expectedBundleID: "com.apple.dt.Devices",
+      accessibilityProcessID: nil, accessibilityBundleID: nil,
+      coreGraphicsProcessID: 7395, coreGraphicsBundleID: "com.apple.dt.Devices"
+    ) == 7395)
+    #expect(resolvedFrontmostProcessID(
       appKitProcessID: -1, appKitBundleID: nil,
       accessibilityProcessID: 7395, accessibilityBundleID: "com.apple.dt.Devices",
       coreGraphicsProcessID: 7395, coreGraphicsBundleID: "com.apple.dt.Devices"

@@ -75,8 +75,8 @@ func resolvedFrontmostProcessID(
 }
 
 func currentFrontmostProcessID(
-  appKitProcessID: pid_t?,
-  appKitBundleID: String?,
+  appKitProcessID: pid_t? = nil,
+  appKitBundleID: String? = nil,
   cgWindows: [CGWindowRecord]? = nil,
   matchingBundleID: String? = nil
 ) -> pid_t? {
