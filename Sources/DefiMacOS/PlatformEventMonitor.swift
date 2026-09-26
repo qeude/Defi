@@ -85,14 +85,12 @@ final class PlatformEventMonitor {
           // pendingApplicationActivation revalidates against the current
           // frontmost app within a 2s bound, so a stale token cannot be
           // admitted later.
-          let frontmostProcessID = currentFrontmostProcessID()
-          let reportedProcessID = application?.processIdentifier
           let notificationBundleID = application?.bundleIdentifier
-          let processID = reportedProcessID.flatMap { $0 > 0 ? $0 : nil }
+          let processID = positiveProcessID(application?.processIdentifier)
             ?? (notificationBundleID != nil
               && notificationBundleID
                 == NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-              ? frontmostProcessID : nil)
+              ? currentFrontmostProcessID() : nil)
           if let processID {
             self?.userInputTracker.recordApplicationActivation(processID: processID)
           }

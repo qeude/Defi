@@ -66,18 +66,25 @@ func resolvedFrontmostProcessID(
 }
 
 @MainActor
-public func currentFrontmostProcessID() -> pid_t? {
+func currentFrontmostProcessID(cgWindows: [CGWindowRecord]? = nil) -> pid_t? {
   guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
   let processID = application.processIdentifier
   if processID > 0 { return processID }
-  let visibleWindows = CGWindowListCopyWindowInfo(
-    [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-  ) as? [[String: Any]] ?? []
-  let frontmostWindow = visibleWindows.first {
-    ($0[kCGWindowLayer as String] as? Int) == 0
-      && ($0[kCGWindowOwnerPID as String] as? pid_t ?? 0) > 0
+  let coreGraphicsProcessID: pid_t?
+  if let cgWindows {
+    coreGraphicsProcessID = cgWindows.first {
+      $0.isOnscreen && $0.layer == 0 && $0.processID > 0
+    }?.processID
+  } else {
+    let visibleWindows = CGWindowListCopyWindowInfo(
+      [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+    ) as? [[String: Any]] ?? []
+    let frontmostWindow = visibleWindows.first {
+      ($0[kCGWindowLayer as String] as? Int) == 0
+        && ($0[kCGWindowOwnerPID as String] as? pid_t ?? 0) > 0
+    }
+    coreGraphicsProcessID = frontmostWindow?[kCGWindowOwnerPID as String] as? pid_t
   }
-  let coreGraphicsProcessID = frontmostWindow?[kCGWindowOwnerPID as String] as? pid_t
   let coreGraphicsBundleID = coreGraphicsProcessID.flatMap(appBundleIdentifier(processID:))
   if let resolved = resolvedFrontmostProcessID(
     appKitProcessID: processID,

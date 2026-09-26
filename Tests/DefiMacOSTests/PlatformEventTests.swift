@@ -1216,6 +1216,22 @@ struct PlatformEventTests {
         focusedProcessID: 7
       ) == false
     )
+    #expect(
+      nativeFocusEventMatchesTarget(
+        eventPending: true,
+        eventProcessIDs: [-1],
+        hasUnknownEventProcess: false,
+        focusedProcessID: -1
+      ) == false
+    )
+  }
+
+  @Test
+  func invalidProcessDoesNotBecomeObservedFocus() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 11, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: nil, processID: -1)
+    #expect(tracker.focusRecoveryTarget(after: 10) == nil)
   }
 
   @Test

@@ -187,7 +187,13 @@ extension SnapshotEngine {
           knownProcessIDs: Set(workspaceApplications.map(\.processIdentifier))
         )
         for processID in missingProcessIDs {
-          fallbackApplicationIDs[processID] = appBundleIdentifier(processID: processID)
+          guard let bundleID = appBundleIdentifier(processID: processID),
+            !workspaceApplications.contains(where: {
+              $0.bundleIdentifier == bundleID
+                && ($0.isTerminated || $0.activationPolicy != .regular)
+            })
+          else { continue }
+          fallbackApplicationIDs[processID] = bundleID
         }
         runningApplications = workspaceApplications.map {
           ($0.processIdentifier, $0)
@@ -210,7 +216,7 @@ extension SnapshotEngine {
       let ownProcessID = ProcessInfo.processInfo.processIdentifier
       for runningApplication in runningApplications {
         let processID = runningApplication.processID
-        guard processID != ownProcessID else { continue }
+        guard processID > 0, processID != ownProcessID else { continue }
         minimizedWindows[processID] = []
         transientGeometryWindows[processID] = []
         let appID: String

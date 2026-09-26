@@ -917,6 +917,9 @@ extension SnapshotEngine {
     guard let resolvedProcessID else {
       return nil
     }
+    if !readFocusedProcessID && nativeFocusEventPending
+      && verifiedNativeFocusProcessID != resolvedProcessID
+    { return nil }
     if requiresConfirmedWindow && focusedProcessID != resolvedProcessID
       && verifiedNativeFocusProcessID != resolvedProcessID
     { return nil }
@@ -924,13 +927,9 @@ extension SnapshotEngine {
       readFocusedProcessID && focusedProcessID == resolvedProcessID
       ? systemFocusedElement! : AXUIElementCreateApplication(resolvedProcessID)
     if resolvedProcessID != focusedProcessID && !requiresConfirmedWindow {
-      let verifiedProcessHasSingleWindow = windows.filter {
-        $0.processID == resolvedProcessID
-      }.count == 1
       if let stable = stableWindowID(
         processID: resolvedProcessID,
-        in: windows,
-        allowPendingNativeFocus: verifiedProcessHasSingleWindow
+        in: windows
       ) { return stable }
     }
     let focusedWindow: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
@@ -1003,8 +1002,7 @@ extension SnapshotEngine {
 
   func stableWindowID(
     processID: pid_t?,
-    in windows: [Window],
-    allowPendingNativeFocus: Bool = false
+    in windows: [Window]
   ) -> WindowID? {
     guard let processID else { return nil }
     let candidates = windows.filter { $0.processID == processID }
@@ -1015,11 +1013,7 @@ extension SnapshotEngine {
         hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
         focusedProcessID: processID
       ) && candidates.count == 1
-    guard
-      allowPendingNativeFocus
-        || !nativeFocusEventPending
-        || verifiedSingleWindowPendingFocus
-    else { return nil }
+    guard !nativeFocusEventPending || verifiedSingleWindowPendingFocus else { return nil }
     if let previous = lastFocusedWindowByProcess[processID],
       candidates.contains(where: { $0.id == previous })
     {

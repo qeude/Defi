@@ -89,6 +89,7 @@ public final class UserInputTracker: @unchecked Sendable {
     windowID: WindowID?,
     processID: pid_t?
   ) {
+    let processID = positiveProcessID(processID)
     lock.lock()
     guard let focusIntent = latestFocusIntent,
       focusIntent.timestamp > latestCloseIntentTimestamp,

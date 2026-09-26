@@ -107,12 +107,12 @@ struct WindowDiscoveryTests {
 
     platform.nativeFocusEventPending = true
     #expect(platform.stableWindowID(processID: processID, in: [window]) == nil)
-    #expect(
-      platform.stableWindowID(
-        processID: processID,
-        in: [window],
-        allowPendingNativeFocus: true
-      ) == window.id)
+    platform.nativeFocusEventHasUnknownProcess = true
+    #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
+
+    platform.nativeFocusEventHasUnknownProcess = false
+    platform.nativeFocusEventProcessIDs = [99]
+    #expect(platform.stableWindowID(processID: processID, in: [window]) == nil)
   }
 
   @NavigationActor
