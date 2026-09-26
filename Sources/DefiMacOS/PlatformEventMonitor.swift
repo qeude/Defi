@@ -3,6 +3,14 @@ import ApplicationServices
 import CoreGraphics
 import DefiModel
 
+func delayedApplicationActivationIsCurrent(
+  startedAt: TimeInterval,
+  input: UserInputTracker.Snapshot
+) -> Bool {
+  (input.latestFocusIntent?.timestamp ?? 0) <= startedAt
+    && input.latestCloseIntent <= startedAt
+}
+
 @MainActor
 final class PlatformEventMonitor {
   let handler: (PlatformEventKind, pid_t?) -> Void
@@ -103,14 +111,18 @@ final class PlatformEventMonitor {
             await MainActor.run {
               guard let self, self.desktopSessionActive,
                 self.activationGeneration == generation,
-                self.userInputTracker.snapshot.latestEventTimestamp <= timestamp
+                delayedApplicationActivationIsCurrent(
+                  startedAt: timestamp,
+                  input: self.userInputTracker.snapshot
+                )
               else { return }
               if let processID {
+                let resolvedAt = ProcessInfo.processInfo.systemUptime
                 self.userInputTracker.recordApplicationActivation(
-                  processID: processID, at: timestamp
+                  processID: processID, at: resolvedAt
                 )
                 guard self.userInputTracker.snapshot.applicationActivation
-                  == .init(processID: processID, timestamp: timestamp)
+                  == .init(processID: processID, timestamp: resolvedAt)
                 else { return }
               }
               self.handler(.focus, processID)
@@ -136,6 +148,7 @@ final class PlatformEventMonitor {
             else { return }
             self.desktopSessionActive = change == .becameActive
             if !self.desktopSessionActive {
+              self.activationGeneration &+= 1
               self.resetAccessibilityObservers()
             }
             self.desktopSessionHandler(change)

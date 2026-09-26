@@ -797,18 +797,18 @@ final class DesktopE2ETests: XCTestCase {
   func testNativeFocusEmitsPlatformEvent() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    defer {
-      if let originalFocusedWindowID = snapshot.focusedWindowID {
-        onNavigation { platform.focus(originalFocusedWindowID) }
-        pumpRunLoop(for: 0.5)
-      }
-    }
     guard
       let window = testWindows(in: snapshot).first(
         where: { $0.id != snapshot.focusedWindowID }
       )
     else {
       throw XCTSkip("Need a non-focused manageable window")
+    }
+    defer {
+      if let originalFocusedWindowID = snapshot.focusedWindowID {
+        onNavigation { platform.focus(originalFocusedWindowID) }
+        pumpRunLoop(for: 0.5)
+      }
     }
     let eventCount = DesktopValue(0)
     onNavigation { platform.startObserving {
