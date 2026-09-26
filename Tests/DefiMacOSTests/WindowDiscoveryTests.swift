@@ -91,7 +91,7 @@ struct WindowDiscoveryTests {
 
   @NavigationActor
   @Test
-  func `Pending native focus reuses stable window only after process verification`() {
+  func `Pending native focus reuses stable window for unknown but not mismatched process`() {
     let platform = MacOSPlatform()
     let window = Window(
       id: WindowID(rawValue: 1),

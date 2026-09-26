@@ -190,7 +190,8 @@ extension SnapshotEngine {
           guard let bundleID = appBundleIdentifier(processID: processID),
             !workspaceApplications.contains(where: {
               $0.bundleIdentifier == bundleID
-                && ($0.isTerminated || $0.activationPolicy != .regular)
+                && !$0.isTerminated
+                && $0.activationPolicy != .regular
             })
           else { continue }
           fallbackApplicationIDs[processID] = bundleID
