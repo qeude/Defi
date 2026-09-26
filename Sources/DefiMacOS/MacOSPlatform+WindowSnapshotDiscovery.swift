@@ -185,7 +185,7 @@ extension SnapshotEngine {
         let missingProcessIDs = missingApplicationProcessIDs(
           cgWindows: publicCGWindows() ?? [],
           knownProcessIDs: Set(workspaceApplications.map(\.processIdentifier)),
-          previouslyManagedProcessIDs: Set(previousApplications.keys)
+          previouslyManagedProcessIDs: Set(previouslyManagedApplicationWindows.keys)
         )
         for processID in missingProcessIDs {
           guard let bundleID = appBundleIdentifier(processID: processID),
