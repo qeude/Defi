@@ -17,9 +17,13 @@ func applicationInventoryRefreshIsRequired(
 
 func missingApplicationProcessIDs(
   cgWindows: [CGWindowRecord],
-  knownProcessIDs: Set<pid_t>
+  knownProcessIDs: Set<pid_t>,
+  previouslyManagedProcessIDs: Set<pid_t>
 ) -> [pid_t] {
-  Set(cgWindows.lazy.filter { $0.layer == 0 && $0.processID > 0 }.map(\.processID))
+  Set(cgWindows.lazy.filter {
+    $0.layer == 0 && $0.processID > 0
+      && ($0.isOnscreen || previouslyManagedProcessIDs.contains($0.processID))
+  }.map(\.processID))
     .subtracting(knownProcessIDs)
     .sorted()
 }

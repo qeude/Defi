@@ -287,13 +287,18 @@ struct WindowSnapshotStabilityTests {
       CGWindowRecord(id: 2, processID: 42, layer: 0, title: "", frame: frame),
       CGWindowRecord(id: 3, processID: 43, layer: 0, title: "Known", frame: frame),
       CGWindowRecord(id: 4, processID: 44, layer: 1, title: "Panel", frame: frame),
+      CGWindowRecord(id: 5, processID: 45, layer: 0, title: "Hidden", frame: frame,
+        isOnscreen: false),
+      CGWindowRecord(id: 6, processID: 46, layer: 0, title: "Parked", frame: frame,
+        isOnscreen: false),
     ]
 
     #expect(
       missingApplicationProcessIDs(
         cgWindows: windows,
-        knownProcessIDs: [43]
-      ) == [42]
+        knownProcessIDs: [43],
+        previouslyManagedProcessIDs: [46]
+      ) == [42, 46]
     )
   }
 

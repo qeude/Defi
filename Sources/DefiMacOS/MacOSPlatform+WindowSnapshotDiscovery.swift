@@ -184,7 +184,8 @@ extension SnapshotEngine {
         let workspaceApplications = NSWorkspace.shared.runningApplications
         let missingProcessIDs = missingApplicationProcessIDs(
           cgWindows: publicCGWindows() ?? [],
-          knownProcessIDs: Set(workspaceApplications.map(\.processIdentifier))
+          knownProcessIDs: Set(workspaceApplications.map(\.processIdentifier)),
+          previouslyManagedProcessIDs: Set(previousApplications.keys)
         )
         for processID in missingProcessIDs {
           guard let bundleID = appBundleIdentifier(processID: processID),
