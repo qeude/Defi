@@ -326,6 +326,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           applicationWindows[processID] = appWindows
         }
         var usedCGWindowIDs = Set<CGWindowID>()
+        var unresolvedWindowIDs = Set<WindowID>()
         var ignoredPreviousWindowIDs = Set(
           explicitlyDestroyedWindowIDs.filter {
             previousProcessIDs[$0] == processID
@@ -385,8 +386,10 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           let cgWindowID: CGWindowID
           let decision: RuleDecision
           switch discovery {
-          case .unavailable:
-            if previousWindowID == nil {
+          case .unavailable, .unmatched:
+            if let previousWindowID {
+              unresolvedWindowIDs.insert(previousWindowID)
+            } else {
               cacheWindowElementForShortRetry(
                 element,
                 processID: processID,
@@ -405,18 +408,6 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             transientGeometryWindows[processID, default: []].append(element)
             if let previousWindowID {
               ignoredPreviousWindowIDs.insert(previousWindowID)
-            }
-            continue
-          case .unmatched:
-            if let previousWindowID {
-              ignoredPreviousWindowIDs.insert(previousWindowID)
-            } else {
-              cacheWindowElementForShortRetry(
-                element,
-                processID: processID,
-                elementsByProcess: &unmatchedWindowElementsByProcess,
-                attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
-              )
             }
             continue
           case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
@@ -445,12 +436,16 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
           switch disposition {
           case .unavailable:
-            cacheWindowElementForShortRetry(
-              element,
-              processID: processID,
-              elementsByProcess: &unmatchedWindowElementsByProcess,
-              attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
-            )
+            if let previousWindowID {
+              unresolvedWindowIDs.insert(previousWindowID)
+            } else {
+              cacheWindowElementForShortRetry(
+                element,
+                processID: processID,
+                elementsByProcess: &unmatchedWindowElementsByProcess,
+                attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+              )
+            }
             continue
           case .ignored:
             if let previousWindowID {
@@ -540,6 +535,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           previousWindows: previousWindows,
           discoveredWindowIDs: discoveredWindowIDs,
           ignoredWindowIDs: ignoredPreviousWindowIDs,
+          unresolvedWindowIDs: unresolvedWindowIDs,
           cgWindows: retentionCGWindows,
           previousElements: previousElements,
           discoveredElements: nextElements,
