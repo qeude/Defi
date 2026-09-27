@@ -73,6 +73,21 @@ struct PlatformEventTests {
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 10.2)?.processID == 20)
   }
 
+  @Test(arguments: [9.0, 10.0, 10.1])
+  func capturedCommandDuringActivationLookupRevalidatesResult(commandTimestamp: TimeInterval) {
+    let tracker = UserInputTracker()
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    func frontmost() -> pid_t? {
+      tracker.recordCapturedCommand(at: commandTimestamp)
+      return 20
+    }
+    let activation = tracker.pendingApplicationActivation(
+      frontmostProcessID: frontmost(), at: 10.2
+    )
+    #expect((activation != nil) == (commandTimestamp < 10))
+    #expect((tracker.snapshot.applicationActivation != nil) == (commandTimestamp < 10))
+  }
+
   @Test
   func delayedActivationIgnoresPointerActivityButNotNewFocusIntent() {
     let tracker = UserInputTracker()

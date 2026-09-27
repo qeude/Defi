@@ -462,6 +462,10 @@ extension Daemon {
     }
     var acceptedNativeFocusMonitorID: MonitorID?
     if let focusedWindowID = snapshot.focusedWindowID {
+      let currentActivation = platform.userInputTracker.pendingApplicationActivation(
+        frontmostProcessID: platform.frontmostProcessID
+      )
+      // The frontmost application lookup can block while a command is captured.
       let latestFocusIntentTimestamp = max(
         latestCommandInputTimestamp,
         platform.userInputTracker.snapshot.latestCapturedCommandTimestamp
@@ -482,9 +486,6 @@ extension Daemon {
         deferredMouseFocusIntent?.mouseInteractionEnded == true
         && (deferredMouseFocusIntent?.focusObserved == true
           || deferredMouseFocusIntent?.windowID == focusedWindowID)
-      let currentActivation = platform.userInputTracker.pendingApplicationActivation(
-        frontmostProcessID: platform.frontmostProcessID
-      )
       let activationTimestamp = snapshot.nativeFocusIsApplicationActivation
         && currentActivation?.processID == snapshot.frontmostProcessID
         && currentActivation?.timestamp == snapshot.applicationActivationTimestamp

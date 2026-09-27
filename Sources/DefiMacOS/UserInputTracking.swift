@@ -79,6 +79,9 @@ public final class UserInputTracker: @unchecked Sendable {
 
   public func recordCapturedCommand(at timestamp: TimeInterval) {
     lock.lock()
+    if let activation = applicationActivation, timestamp >= activation.timestamp {
+      applicationActivation = nil
+    }
     latestTimestamp = max(latestTimestamp, timestamp)
     latestCapturedCommandTimestamp = max(latestCapturedCommandTimestamp, timestamp)
     lock.unlock()
