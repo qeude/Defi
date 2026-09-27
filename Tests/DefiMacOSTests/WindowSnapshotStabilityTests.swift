@@ -1,6 +1,7 @@
 import ApplicationServices
 import DefiConfig
 import DefiModel
+import DefiRuntime
 import Testing
 
 @testable import DefiMacOS
@@ -30,6 +31,44 @@ struct WindowSnapshotStabilityTests {
     #expect(result.applicationWindows[processID] == [created])
     #expect(engine.consumeObservations().createdElements[processID] == [created])
     #expect(windowCandidatesIncludingCreatedElements([created], created: [created, created]) == [created])
+  }
+
+  @Test func cachelessUnrequestedApplicationDoesNotTriggerAnotherWindowListRead() {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform() }
+    }
+    let engine = platform.snapshotEngine
+    engine.applications = [processID: AXUIElementCreateApplication(-1)]
+    engine.applicationIDsByProcess = [processID: "com.example"]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.windowListReadRetryAttemptsByProcess = [processID: 3]
+    engine.hasCompletedWindowSnapshot = true
+
+    func discover(
+      processIDs: Set<pid_t>, forceReadProcessIDs: Set<pid_t> = []
+    ) -> SnapshotWindowDiscoveryResult {
+      engine.discoverSnapshotWindows(
+        monitors: [], config: Config(), incrementalProcessIDs: processIDs,
+        forceWindowListRefresh: false,
+        forceWindowListRefreshProcessIDs: forceReadProcessIDs,
+        forceApplicationInventoryRefresh: false,
+        capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [],
+        createdElements: [:], preparedWindowAttributes: [:],
+        preparedTransientOwnerWindowIDs: [:], preparedApplicationWindows: [:],
+        explicitlyDestroyedWindowIDs: [], publicCGWindows: { [] }
+      )
+    }
+
+    let partialSnapshot = discover(processIDs: [99])
+
+    #expect(engine.applicationWindowListReadCount == 0)
+    #expect(partialSnapshot.nextApplications[processID] != nil)
+
+    engine.applications = partialSnapshot.nextApplications
+    engine.applicationIDsByProcess = partialSnapshot.nextApplicationIDs
+    engine.lastApplicationWindowElements = partialSnapshot.applicationWindows
+    _ = discover(processIDs: [processID], forceReadProcessIDs: [processID])
+    #expect(engine.applicationWindowListReadCount == 1)
   }
 
   private let processID: pid_t = 42
@@ -597,6 +636,44 @@ struct WindowSnapshotStabilityTests {
     #expect(status.contains("scope=layer0,pid>0,onscreen-or-managed ax=best-effort-not-one-to-one"))
     #expect(status.contains("id=17,pid=42,app=com.apple.dt.Devices,class=unresolved"))
     #expect(status.contains("age=0.25s,retry=2/3,outcome=AX-window-list-empty"))
+  }
+
+  @Test func partialDiscoveryRetainsUnchangedWindowExclusions() {
+    let ignoredIdentity = CGWindowDiscoveryIdentity(
+      windowID: WindowID(rawValue: 20), processID: 42,
+      ownerName: "Example", title: "Unsupported"
+    )
+    let minimizedIdentity = CGWindowDiscoveryIdentity(
+      windowID: WindowID(rawValue: 21), processID: 42,
+      ownerName: "Example", title: "Minimized"
+    )
+    let refreshedIdentity = CGWindowDiscoveryIdentity(
+      windowID: WindowID(rawValue: 22), processID: 43,
+      ownerName: "Example", title: "Changed"
+    )
+    let previous = [
+      CGWindowDiscoveryDiagnostic(
+        identity: ignoredIdentity, appIdentity: "com.example",
+        classification: "ignored", reason: "unsupported-role:AXMenu", retry: nil
+      ),
+      CGWindowDiscoveryDiagnostic(
+        identity: minimizedIdentity, appIdentity: "com.example",
+        classification: "minimized", reason: nil, retry: nil
+      ),
+      CGWindowDiscoveryDiagnostic(
+        identity: refreshedIdentity, appIdentity: "com.example",
+        classification: "ignored", reason: "application-policy", retry: nil
+      ),
+    ]
+
+    let exclusions = retainedCGWindowDiscoveryExclusions(
+      previous, observed: [ignoredIdentity, minimizedIdentity, refreshedIdentity],
+      refreshedProcessIDs: [43]
+    )
+
+    #expect(exclusions.reasonsByWindowID[ignoredIdentity.windowID] == "unsupported-role:AXMenu")
+    #expect(exclusions.minimizedWindowIDs == [minimizedIdentity.windowID])
+    #expect(exclusions.reasonsByWindowID[refreshedIdentity.windowID] == nil)
   }
 
   @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {

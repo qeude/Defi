@@ -231,6 +231,32 @@ func cgWindowDiscoveryClassification(
   return ("unresolved", nil)
 }
 
+func retainedCGWindowDiscoveryExclusions(
+  _ diagnostics: [CGWindowDiscoveryDiagnostic],
+  observed: Set<CGWindowDiscoveryIdentity>,
+  refreshedProcessIDs: Set<pid_t>
+) -> (reasonsByWindowID: [WindowID: String], minimizedWindowIDs: Set<WindowID>) {
+  var reasons: [WindowID: String] = [:]
+  var minimized = Set<WindowID>()
+  for diagnostic in diagnostics
+  where observed.contains(diagnostic.identity)
+    && !refreshedProcessIDs.contains(diagnostic.identity.processID)
+  {
+    let windowID = diagnostic.identity.windowID
+    switch diagnostic.classification {
+    case "ignored":
+      if let reason = diagnostic.reason { reasons[windowID] = reason }
+    case "minimized":
+      minimized.insert(windowID)
+    case "transient":
+      if let reason = diagnostic.reason { reasons[windowID] = reason }
+    default:
+      break
+    }
+  }
+  return (reasons, minimized)
+}
+
 func formattedCGWindowDiscoveryStatus(
   _ diagnostics: [CGWindowDiscoveryDiagnostic], now: TimeInterval,
   detailLimit: Int = 8

@@ -153,10 +153,10 @@ extension SnapshotEngine {
           let cachedElements = cachedWindows.compactMap { window in
             previousElements[window.id].map { (window.id, $0) }
           }
-          guard let cachedApplicationWindows =
-              lastApplicationWindowElements[processID],
-            cachedElements.count == cachedWindows.count
-          else {
+          let cachedApplicationWindows = lastApplicationWindowElements[processID]
+          if cachedElements.count != cachedWindows.count
+            || (cachedApplicationWindows == nil && !cachedWindows.isEmpty)
+          {
             requestedProcessIDs.insert(processID)
             continue
           }
@@ -164,7 +164,9 @@ extension SnapshotEngine {
           if let appID = previousApplicationIDs[processID] {
             nextApplicationIDs[processID] = appID
           }
-          applicationWindows[processID] = cachedApplicationWindows
+          if let cachedApplicationWindows {
+            applicationWindows[processID] = cachedApplicationWindows
+          }
           windows.append(contentsOf: cachedWindows)
           nextRetainedWindowIDs.formUnion(
             retainedWindowIDsForCachedWindows(

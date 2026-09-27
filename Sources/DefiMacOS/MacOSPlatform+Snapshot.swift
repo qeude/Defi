@@ -356,6 +356,11 @@ extension SnapshotEngine {
         $0.transientOwnerID == nil ? nil : $0.id
       })
       let observedIdentities = Set(diagnosticRecords.map(CGWindowDiscoveryIdentity.init(record:)))
+      let cachedExclusions = retainedCGWindowDiscoveryExclusions(
+        cgWindowDiscoveryDiagnostics,
+        observed: observedIdentities,
+        refreshedProcessIDs: discovery.refreshedProcessIDs
+      )
       let diagnosticAppIdentityByProcess = Dictionary(uniqueKeysWithValues: Set(
         diagnosticRecords.map { $0.processID }
       ).map { processID in
@@ -373,6 +378,10 @@ extension SnapshotEngine {
       })
       var unresolvedOutcomes: [CGWindowDiscoveryIdentity: String] = [:]
       var classifications: [CGWindowDiscoveryIdentity: (String, String?)] = [:]
+      var ignoredWindowReasonsByID = cachedExclusions.reasonsByWindowID
+      ignoredWindowReasonsByID.merge(discovery.ignoredWindowReasonsByID) { _, fresh in fresh }
+      let minimizedWindowIDs = cachedExclusions.minimizedWindowIDs
+        .union(discovery.minimizedWindowIDs)
       for record in diagnosticRecords {
         let identity = CGWindowDiscoveryIdentity(record: record)
         let appIdentity = diagnosticAppIdentityByProcess[record.processID]
@@ -389,8 +398,8 @@ extension SnapshotEngine {
           nativeFullscreenProcessIDs: detectedNativeFullscreenProcessIDs,
           monitors: monitors,
           transientWindowIDs: transientWindowIDs,
-          minimizedWindowIDs: discovery.minimizedWindowIDs,
-          ignoredReasonsByWindowID: discovery.ignoredWindowReasonsByID
+          minimizedWindowIDs: minimizedWindowIDs,
+          ignoredReasonsByWindowID: ignoredWindowReasonsByID
         )
         classifications[identity] = classification
         if classification.0 == "unresolved" {
