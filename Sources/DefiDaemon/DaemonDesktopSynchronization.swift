@@ -11,6 +11,7 @@ typealias DesktopSnapshotRequest = (
   forceFullWindowRefresh: Bool,
   forceWindowListRefresh: Bool,
   forceApplicationInventoryRefresh: Bool,
+  targetedWindowRetryRefresh: Bool,
   consumePeriodicWindowRefresh: Bool
 )
 
@@ -22,6 +23,7 @@ func coalescedDesktopSnapshotRequest(
     request.forceFullWindowRefresh || pending?.forceFullWindowRefresh == true,
     request.forceWindowListRefresh || pending?.forceWindowListRefresh == true,
     request.forceApplicationInventoryRefresh || pending?.forceApplicationInventoryRefresh == true,
+    request.targetedWindowRetryRefresh || pending?.targetedWindowRetryRefresh == true,
     request.consumePeriodicWindowRefresh || pending?.consumePeriodicWindowRefresh == true
   )
 }
@@ -89,20 +91,24 @@ extension Daemon {
     forceFullWindowRefresh: Bool = false,
     forceWindowListRefresh: Bool = false,
     forceApplicationInventoryRefresh: Bool = false,
+    targetedWindowRetryRefresh: Bool = false,
     consumePeriodicWindowRefresh: Bool = false
   ) {
     guard windowManagementStarted, desktopSessionActive,
       !shouldShutdown, !restorationInFlight else { return }
     let (forceFullWindowRefresh, forceWindowListRefresh,
-      forceApplicationInventoryRefresh, consumePeriodicWindowRefresh) = coalescedDesktopSnapshotRequest(
+      forceApplicationInventoryRefresh, targetedWindowRetryRefresh,
+      consumePeriodicWindowRefresh) = coalescedDesktopSnapshotRequest(
         (forceFullWindowRefresh, forceWindowListRefresh,
-          forceApplicationInventoryRefresh, consumePeriodicWindowRefresh),
+          forceApplicationInventoryRefresh, targetedWindowRetryRefresh,
+          consumePeriodicWindowRefresh),
         pending: supersededDesktopSnapshotRequest
       )
     // Both an in-flight snapshot and display reconciliation can defer this request.
     supersededDesktopSnapshotRequest = (
       forceFullWindowRefresh, forceWindowListRefresh,
-      forceApplicationInventoryRefresh, consumePeriodicWindowRefresh
+      forceApplicationInventoryRefresh, targetedWindowRetryRefresh,
+      consumePeriodicWindowRefresh
     )
     let sessionGeneration = desktopSessionGeneration
     let requestedConfigGeneration = configGeneration
@@ -144,6 +150,7 @@ extension Daemon {
         forceFullWindowRefresh: forceFullWindowRefresh,
         forceWindowListRefresh: forceWindowListRefresh,
         forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
+        targetedWindowRetryRefresh: targetedWindowRetryRefresh,
         consumePeriodicWindowRefresh: consumePeriodicWindowRefresh
       )
     }
@@ -155,6 +162,7 @@ extension Daemon {
     forceFullWindowRefresh: Bool,
     forceWindowListRefresh: Bool,
     forceApplicationInventoryRefresh: Bool,
+    targetedWindowRetryRefresh: Bool,
     consumePeriodicWindowRefresh: Bool
   ) {
     defer {
@@ -167,6 +175,7 @@ extension Daemon {
           forceFullWindowRefresh: pending.forceFullWindowRefresh,
           forceWindowListRefresh: pending.forceWindowListRefresh,
           forceApplicationInventoryRefresh: pending.forceApplicationInventoryRefresh,
+          targetedWindowRetryRefresh: pending.targetedWindowRetryRefresh,
           consumePeriodicWindowRefresh: pending.consumePeriodicWindowRefresh
         )
       } else if platform.hasDeferredFreshWindowReads
@@ -199,7 +208,7 @@ extension Daemon {
       current: nextWindowListRefreshAt,
       now: snapshotCompletedAt,
       interval: platform.recommendedWindowListRefreshInterval,
-      reset: forceWindowListRefresh
+      reset: forceWindowListRefresh || targetedWindowRetryRefresh
     )
     let applicationInventoryInterval =
       platform.recommendedApplicationInventoryRefreshInterval

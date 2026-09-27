@@ -341,7 +341,7 @@ private func fullscreenSurfaceGroupMatches(
   return !surfaces.contains(where: \.isOnscreen)
 }
 
-private func fullscreenFrameMatches(
+func fullscreenFrameMatches(
   _ candidate: Rect,
   _ physicalFrame: Rect,
   tolerance: Double = 2
@@ -595,6 +595,20 @@ private let ignoredWindowApplicationIDs: Set<String> = [
   "com.apple.systemuiserver",
   "com.raycast.macos",
 ]
+
+func isIgnoredWindowApplication(_ appID: String) -> Bool {
+  ignoredWindowApplicationIDs.contains(appID.lowercased())
+}
+
+func windowExclusionReason(appID: String, role: String?, subrole: String?) -> String {
+  if isIgnoredWindowApplication(appID) {
+    return "application-policy"
+  }
+  if role != kAXWindowRole {
+    return "unsupported-role:\(role ?? "missing")"
+  }
+  return "unsupported-subrole:\(subrole ?? "missing")"
+}
 
 private let automaticFloatingWindowSubroles: Set<String> = [
   "AXDialog",

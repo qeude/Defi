@@ -464,6 +464,9 @@ final class Daemon {
       interval: windowListRefreshInterval,
       userInputIdleDuration: userInputIdleDuration
     )
+    let targetedWindowRetryRefresh = windowListRefreshDue
+      && !platform.dueWindowDiscoveryRetryProcessIDs(now: now).isEmpty
+    let globalWindowListRefreshDue = windowListRefreshDue && !targetedWindowRetryRefresh
     let applicationInventoryRefreshDue = observationWatchdogRefreshIsReady(
       due: now >= nextApplicationInventoryRefreshAt,
       interval: applicationInventoryInterval,
@@ -488,10 +491,10 @@ final class Daemon {
     ) {
       let forcesWindowInventory =
         !nativeFocusSyncPending
-        && (windowListRefreshDue || applicationInventoryRefreshDue)
+        && (globalWindowListRefreshDue || applicationInventoryRefreshDue)
       let forceWindowListRefresh =
         !nativeFocusSyncPending
-        && windowListRefreshDue
+        && globalWindowListRefreshDue
       let forceApplicationInventoryRefresh =
         !nativeFocusSyncPending
         && applicationInventoryRefreshDue
@@ -505,6 +508,7 @@ final class Daemon {
         forceFullWindowRefresh: forcesFullWindowRefresh,
         forceWindowListRefresh: forceWindowListRefresh,
         forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
+        targetedWindowRetryRefresh: targetedWindowRetryRefresh,
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
     }

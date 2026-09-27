@@ -472,6 +472,33 @@ final class SnapshotEngine: @unchecked Sendable {
     read { $0.lastCGWindowInventory = inventory }
   }
 
+  var cgWindowDiscoveryRetries: CGWindowDiscoveryRetryTracker {
+    get { read { $0.cgWindowDiscoveryRetries } }
+    set { read { $0.cgWindowDiscoveryRetries = newValue } }
+  }
+
+  var cgWindowDiscoveryDiagnostics: [CGWindowDiscoveryDiagnostic] {
+    get { read { $0.cgWindowDiscoveryDiagnostics } }
+    set { read { $0.cgWindowDiscoveryDiagnostics = newValue } }
+  }
+
+  var cgWindowDiscoveryTraceSignatures: [CGWindowDiscoveryIdentity: String] {
+    get { read { $0.cgWindowDiscoveryTraceSignatures } }
+    set { read { $0.cgWindowDiscoveryTraceSignatures = newValue } }
+  }
+
+  func cgWindowDiscoveryStatus(now: TimeInterval) -> String {
+    read { formattedCGWindowDiscoveryStatus($0.cgWindowDiscoveryDiagnostics, now: now) }
+  }
+
+  func dueCGWindowDiscoveryRetryProcessIDs(now: TimeInterval) -> Set<pid_t> {
+    read { $0.cgWindowDiscoveryRetries.dueProcessIDs(now: now) }
+  }
+
+  func cgWindowDiscoveryRetryInterval(now: TimeInterval) -> TimeInterval? {
+    read { $0.cgWindowDiscoveryRetries.refreshInterval(now: now) }
+  }
+
   func borderStackingInventory(now: TimeInterval) -> [CGWindowRecord]? {
     read {
       $0.lastCGWindowInventory?.recordsForBorderStacking(
@@ -651,7 +678,10 @@ extension SnapshotEngine {
     case .unavailable:
       return .unavailable
     case .ignored:
-      return attributes.minimized == true ? .ignored : .transientGeometry
+      return .ignored(
+        reason: attributes.minimized == true ? "AX-minimized" : "frame-below-80x60",
+        title: attributes.title
+      )
     case .usable(let usableFrame):
       frame = usableFrame
     }
@@ -716,7 +746,7 @@ extension SnapshotEngine {
       }
     }
     guard let resolvedWindowID = record?.id else {
-      return .unmatched
+      return .unmatched(title: title)
     }
     let windowID = WindowID(rawValue: UInt64(resolvedWindowID))
     let widthConstraints = onMain { platform in
@@ -1239,6 +1269,9 @@ private struct Storage {
   var lastSnapshotCGWindowCopyDurationMS = 0.0
   var maximumSnapshotCGWindowCopyDurationMS = 0.0
   var lastCGWindowInventory: CGWindowInventory?
+  var cgWindowDiscoveryRetries = CGWindowDiscoveryRetryTracker()
+  var cgWindowDiscoveryDiagnostics: [CGWindowDiscoveryDiagnostic] = []
+  var cgWindowDiscoveryTraceSignatures: [CGWindowDiscoveryIdentity: String] = [:]
   var windowSnapshotObservationGeneration: UInt64 = 0
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0

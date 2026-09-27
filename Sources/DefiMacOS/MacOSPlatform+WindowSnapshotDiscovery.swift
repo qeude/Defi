@@ -84,6 +84,18 @@ struct SnapshotWindowDiscoveryResult {
   let cachedSnapshotWindowIDs: Set<WindowID>
   let previouslyManagedApplicationWindows: [pid_t: [AXUIElement]]
   let windowIDReplacements: [WindowID: WindowID]
+  let ignoredWindowCandidates: [pid_t: [IgnoredWindowCandidate]]
+  let ignoredWindowReasonsByID: [WindowID: String]
+  let ignoredProcessReasonsByProcess: [pid_t: String]
+  let minimizedWindowIDs: Set<WindowID>
+  let unresolvedOutcomesByProcess: [pid_t: Set<String>]
+  let refreshedProcessIDs: Set<pid_t>
+
+  func unresolvedOutcome(for processID: pid_t) -> String {
+    let observations = unresolvedOutcomesByProcess[processID, default: []].sorted()
+    guard !observations.isEmpty else { return "AX-no-window-match" }
+    return "AX-no-window-match;process-observations=" + observations.joined(separator: "|")
+  }
 }
 
 extension SnapshotEngine {
@@ -92,6 +104,7 @@ extension SnapshotEngine {
     config: Config,
     incrementalProcessIDs: Set<pid_t>?,
     forceWindowListRefresh: Bool,
+    forceWindowListRefreshProcessIDs: Set<pid_t> = [],
     forceApplicationInventoryRefresh: Bool,
     capturedTopologyRequiresFullSnapshot: Bool,
     topologyProcessIDs: Set<pid_t>,
@@ -127,6 +140,11 @@ extension SnapshotEngine {
       var minimizedWindows = minimizedWindowElementsByProcess
       var transientGeometryWindows = transientGeometryWindowElementsByProcess
       var windows: [Window] = []
+      var ignoredWindowCandidates: [pid_t: [IgnoredWindowCandidate]] = [:]
+      var ignoredWindowReasonsByID: [WindowID: String] = [:]
+      var ignoredProcessReasonsByProcess: [pid_t: String] = [:]
+      var unresolvedOutcomesByProcess: [pid_t: Set<String>] = [:]
+      var refreshedProcessIDs = Set<pid_t>()
       var nextNativeWindowTabGroups: [WindowID: NativeWindowTabGroup] = [:]
       var nextRetainedWindowIDs = Set<WindowID>()
       var cachedSnapshotWindowIDs = Set<WindowID>()
@@ -141,10 +159,10 @@ extension SnapshotEngine {
           let cachedElements = cachedWindows.compactMap { window in
             previousElements[window.id].map { (window.id, $0) }
           }
-          guard let cachedApplicationWindows =
-              lastApplicationWindowElements[processID],
-            cachedElements.count == cachedWindows.count
-          else {
+          let cachedApplicationWindows = lastApplicationWindowElements[processID]
+          if cachedElements.count != cachedWindows.count
+            || (cachedApplicationWindows == nil && !cachedWindows.isEmpty)
+          {
             requestedProcessIDs.insert(processID)
             continue
           }
@@ -152,7 +170,9 @@ extension SnapshotEngine {
           if let appID = previousApplicationIDs[processID] {
             nextApplicationIDs[processID] = appID
           }
-          applicationWindows[processID] = cachedApplicationWindows
+          if let cachedApplicationWindows {
+            applicationWindows[processID] = cachedApplicationWindows
+          }
           windows.append(contentsOf: cachedWindows)
           nextRetainedWindowIDs.formUnion(
             retainedWindowIDsForCachedWindows(
@@ -176,45 +196,73 @@ extension SnapshotEngine {
         topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         forced: forceApplicationInventoryRefresh
       )
+      let observedCGWindows = publicCGWindows() ?? []
+      let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
+      let workspaceApplications = refreshesApplicationInventory
+        ? NSWorkspace.shared.runningApplications : []
       var fallbackApplicationIDs: [pid_t: String] = [:]
-      let runningApplications: [(processID: pid_t, application: NSRunningApplication?)]
       if refreshesApplicationInventory {
         applicationInventorySnapshotCount += 1
-        let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
-        let workspaceApplications = NSWorkspace.shared.runningApplications
-        let missingProcessIDs = missingApplicationProcessIDs(
-          cgWindows: publicCGWindows() ?? [],
-          knownProcessIDs: Set(workspaceApplications.map(\.processIdentifier)),
-          previouslyManagedProcessIDs: Set(previouslyManagedApplicationWindows.keys)
-        )
-        for processID in missingProcessIDs {
-          guard let bundleID = appBundleIdentifier(processID: processID),
-            !workspaceApplications.contains(where: {
-              $0.bundleIdentifier == bundleID
-                && !$0.isTerminated
-                && $0.activationPolicy != .regular
-            })
-          else { continue }
-          fallbackApplicationIDs[processID] = bundleID
-        }
-        runningApplications = workspaceApplications.map {
+      }
+      let baseApplications: [(processID: pid_t, application: NSRunningApplication?)]
+      if refreshesApplicationInventory {
+        baseApplications = workspaceApplications.map {
           ($0.processIdentifier, $0)
-        } + fallbackApplicationIDs.keys.sorted().map {
-          ($0, nil)
         }
-        recordDurationSample(
-          (ProcessInfo.processInfo.systemUptime - inventoryStartedAt) * 1_000,
-          in: &applicationInventoryDurationSamplesMS
-        )
       } else if let processIDsToRefresh {
-        runningApplications = processIDsToRefresh.sorted().map {
+        baseApplications = processIDsToRefresh.sorted().map {
           ($0, previousApplications[$0] == nil
             ? NSRunningApplication(processIdentifier: $0)
             : nil)
         }
       } else {
-        runningApplications = previousApplications.keys.sorted().map { ($0, nil) }
+        baseApplications = previousApplications.keys.sorted().map { ($0, nil) }
       }
+      let knownProcessIDs = refreshesApplicationInventory
+        ? Set(workspaceApplications.map(\.processIdentifier))
+        : Set(previousApplications.keys)
+      let missingProcessIDs = missingApplicationProcessIDs(
+        cgWindows: observedCGWindows,
+        knownProcessIDs: knownProcessIDs,
+        previouslyManagedProcessIDs: Set(previouslyManagedApplicationWindows.keys)
+      )
+      for processID in missingProcessIDs
+      where refreshesApplicationInventory || (processIDsToRefresh?.contains(processID) ?? true) {
+        let processApplication = workspaceApplications.first(where: {
+          $0.processIdentifier == processID
+        }) ?? NSRunningApplication(processIdentifier: processID)
+        let bundleID = processApplication == nil ? appBundleIdentifier(processID: processID) : nil
+        guard missingApplicationFallbackIsEligible(
+          isTerminated: processApplication?.isTerminated ?? false,
+          isRegularApplication: processApplication.map {
+            $0.activationPolicy == .regular
+          },
+          hasValidatedBundle: bundleID != nil
+        ) else {
+          ignoredProcessReasonsByProcess[processID] = processApplication == nil
+            ? "application-identity-unverified"
+            : processApplication?.isTerminated == true
+              ? "terminated-application" : "non-regular-application"
+          continue
+        }
+        let ownerName = observedCGWindows.first(where: {
+          $0.processID == processID && $0.layer == 0
+        })?.ownerName
+        fallbackApplicationIDs[processID] = fallbackApplicationIdentity(
+          bundleIdentifier: bundleID ?? processApplication?.bundleIdentifier,
+          ownerName: processApplication?.localizedName ?? ownerName,
+          processID: processID
+        )
+      }
+      if refreshesApplicationInventory {
+        recordDurationSample(
+          (ProcessInfo.processInfo.systemUptime - inventoryStartedAt) * 1_000,
+          in: &applicationInventoryDurationSamplesMS
+        )
+      }
+      let baseProcessIDs = Set(baseApplications.map(\.processID))
+      let runningApplications = baseApplications + fallbackApplicationIDs.keys
+        .filter { !baseProcessIDs.contains($0) }.sorted().map { ($0, nil) }
       let ownProcessID = ProcessInfo.processInfo.processIdentifier
       for runningApplication in runningApplications {
         let processID = runningApplication.processID
@@ -226,6 +274,7 @@ extension SnapshotEngine {
           guard !application.isTerminated,
             application.activationPolicy == .regular
           else {
+            ignoredProcessReasonsByProcess[processID] = "non-regular-application"
             continue
           }
           appID =
@@ -263,19 +312,23 @@ extension SnapshotEngine {
           refreshesAllWindowLists:
             refreshesApplicationInventory
             || capturedTopologyRequiresFullSnapshot
-            || forceWindowListRefresh,
+            || forceWindowListRefresh
+            || forceWindowListRefreshProcessIDs.contains(processID),
           topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
             || retainedWindowIDs.contains { previousProcessIDs[$0] == processID }
         )
         var appWindows: [AXUIElement]?
         let created = createdElements[processID] ?? []
         if !created.isEmpty, let cachedApplicationWindows,
-          !forceWindowListRefresh, !refreshesApplicationInventory
+          !forceWindowListRefresh,
+          !forceWindowListRefreshProcessIDs.contains(processID),
+          !refreshesApplicationInventory
         {
           // AXWindows can lag AXWindowCreated. Place the reported window now;
           // the existing 50 ms topology retry reconciles the complete list.
           appWindows = cachedApplicationWindows
         } else if refreshesWindowList {
+          refreshedProcessIDs.insert(processID)
           applicationWindowListReadCount += 1
           let windowListStartedAt = ProcessInfo.processInfo.systemUptime
           let preparedWindows = preparedApplicationWindows[processID]
@@ -321,6 +374,11 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         }
         if !created.isEmpty {
           appWindows = windowCandidatesIncludingCreatedElements(appWindows ?? [], created: created)
+        }
+        if appWindows == nil {
+          unresolvedOutcomesByProcess[processID] = ["AX-window-list-unavailable"]
+        } else if appWindows?.isEmpty == true {
+          unresolvedOutcomesByProcess[processID] = ["AX-window-list-empty"]
         }
         if let appWindows {
           applicationWindows[processID] = appWindows
@@ -386,7 +444,8 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           let cgWindowID: CGWindowID
           let decision: RuleDecision
           switch discovery {
-          case .unavailable, .unmatched:
+          case .unavailable:
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-window-attributes-unavailable")
             if let previousWindowID {
               unresolvedWindowIDs.insert(previousWindowID)
             } else {
@@ -398,16 +457,35 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               )
             }
             continue
-          case .ignored:
-            minimizedWindows[processID, default: []].append(element)
+          case .ignored(let reason, let title):
+            ignoredWindowCandidates[processID, default: []].append(
+              IgnoredWindowCandidate(title: title, reason: reason)
+            )
+            if reason == "AX-minimized" {
+              minimizedWindows[processID, default: []].append(element)
+            } else {
+              transientGeometryWindows[processID, default: []].append(element)
+            }
             if let previousWindowID {
               ignoredPreviousWindowIDs.insert(previousWindowID)
+              ignoredWindowReasonsByID[previousWindowID] = reason
             }
             continue
           case .transientGeometry:
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-frame-unavailable")
             transientGeometryWindows[processID, default: []].append(element)
+            continue
+          case .unmatched:
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-candidate-unmatched")
             if let previousWindowID {
-              ignoredPreviousWindowIDs.insert(previousWindowID)
+              unresolvedWindowIDs.insert(previousWindowID)
+            } else {
+              cacheWindowElementForShortRetry(
+                element,
+                processID: processID,
+                elementsByProcess: &unmatchedWindowElementsByProcess,
+                attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+              )
             }
             continue
           case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
@@ -436,6 +514,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
           switch disposition {
           case .unavailable:
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-management-metadata-unavailable")
             if let previousWindowID {
               unresolvedWindowIDs.insert(previousWindowID)
             } else {
@@ -448,6 +527,9 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             }
             continue
           case .ignored:
+            ignoredWindowReasonsByID[candidate.id] = windowExclusionReason(
+              appID: candidate.appID, role: candidate.role, subrole: candidate.subrole
+            )
             if let previousWindowID {
               ignoredPreviousWindowIDs.insert(previousWindowID)
             }
@@ -660,6 +742,11 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       groupsByRepresentativeID: liveNativeWindowTabGroups
     )
     nativeWindowTabGroupsByWindowID = liveNativeWindowTabGroups
+    let titleMatchedIgnoredReasons = uniquelyMatchedCGWindowReasons(
+      records: publicCGWindows() ?? [], candidatesByProcess: ignoredWindowCandidates
+    )
+    var allIgnoredReasons = titleMatchedIgnoredReasons
+    allIgnoredReasons.merge(ignoredWindowReasonsByID) { _, exact in exact }
     return SnapshotWindowDiscoveryResult(
       nextElements: nextElements,
       nextProcessIDs: nextProcessIDs,
@@ -673,7 +760,15 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       cachedSnapshotWindowIDs: cachedSnapshotWindowIDs,
       previouslyManagedApplicationWindows:
         previouslyManagedApplicationWindows,
-      windowIDReplacements: windowIDReplacements
+      windowIDReplacements: windowIDReplacements,
+      ignoredWindowCandidates: ignoredWindowCandidates,
+      ignoredWindowReasonsByID: allIgnoredReasons,
+      ignoredProcessReasonsByProcess: ignoredProcessReasonsByProcess,
+      minimizedWindowIDs: Set(allIgnoredReasons.compactMap {
+        $0.value == "AX-minimized" ? $0.key : nil
+      }),
+      unresolvedOutcomesByProcess: unresolvedOutcomesByProcess,
+      refreshedProcessIDs: refreshedProcessIDs
     )
   }
 

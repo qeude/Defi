@@ -39,6 +39,9 @@ extension SnapshotEngine {
   ) -> DesktopSnapshot {
     defer { DispatchQueue.main.async { [weak host] in host?.publishPresentationStatus() } }
     let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
+    let dueCGWindowRetryProcessIDs = cgWindowDiscoveryRetries.dueProcessIDs(
+      now: snapshotStartedAt
+    )
     let observations = consumeObservations()
     let explicitlyDestroyedWindowIDs = observations.destroyedWindowIDs
     let tracesWindowTopology = observations.topologyPending
@@ -101,7 +104,7 @@ extension SnapshotEngine {
         unmatchedWindowRetryAttemptsByProcess[processID] = nil
       }
     }
-    let incrementalProcessIDs =
+    var incrementalProcessIDs =
       forceFullWindowRefresh
       ? nil
       : incrementalWindowRefreshProcessIDs(
@@ -122,6 +125,10 @@ extension SnapshotEngine {
           || !retainedProcessIDs.isEmpty,
         allowsCachedRefresh: true
       )
+    if var requestedProcessIDs = incrementalProcessIDs {
+      requestedProcessIDs.formUnion(dueCGWindowRetryProcessIDs)
+      incrementalProcessIDs = requestedProcessIDs
+    }
     var effectiveIncrementalProcessIDs = incrementalProcessIDs
     let chunkedFullActive =
       !applications.isEmpty
@@ -138,7 +145,8 @@ extension SnapshotEngine {
         chunkedFullRefreshRemainingProcessIDs = liveProcessIDs
       }
       chunkedFullRefreshRemainingProcessIDs?.formIntersection(liveProcessIDs)
-      let remaining = chunkedFullRefreshRemainingProcessIDs ?? []
+      let remaining = (chunkedFullRefreshRemainingProcessIDs ?? [])
+        .union(dueCGWindowRetryProcessIDs)
       let cachelessProcessIDs = remaining.subtracting(
         Set(lastApplicationWindowElements.keys)
       )
@@ -189,7 +197,9 @@ extension SnapshotEngine {
       deferredFreshReadProcessIDs.removeAll(keepingCapacity: true)
       deferredFreshReadsStartedAt = nil
     }
-    if !eventRequiresFullSnapshot, retriesAllUnmatchedWindows || chunkedFullActive {
+    if !eventRequiresFullSnapshot,
+      retriesAllUnmatchedWindows || chunkedFullActive || !dueCGWindowRetryProcessIDs.isEmpty
+    {
       retryUnmatchedWindows(processIDs: effectiveIncrementalProcessIDs)
     }
     let forceWindowListRefreshEffective =
@@ -269,6 +279,7 @@ extension SnapshotEngine {
       config: config,
       incrementalProcessIDs: effectiveIncrementalProcessIDs,
       forceWindowListRefresh: forceWindowListRefreshEffective,
+      forceWindowListRefreshProcessIDs: dueCGWindowRetryProcessIDs,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
@@ -287,7 +298,8 @@ extension SnapshotEngine {
     let minimizedWindows = discovery.minimizedWindows
     let transientGeometryWindows = discovery.transientGeometryWindows
     let windows = discovery.windows
-    let fullscreenCGWindows = publicCGWindows() ?? []
+    let currentCGWindows = publicCGWindows()
+    let fullscreenCGWindows = currentCGWindows ?? []
     let detectedNativeFullscreenProcessIDs = nativeFullscreenProcessIDs(
       cgWindows: fullscreenCGWindows,
       monitors: monitors
@@ -333,6 +345,119 @@ extension SnapshotEngine {
       cgWindows: fullscreenCGWindows,
       monitors: monitors
     ).intersection(nativeFullscreenWindowIDs)
+    var retries = cgWindowDiscoveryRetries
+    var diagnostics = cgWindowDiscoveryDiagnostics
+    var unresolvedOutcomes: [CGWindowDiscoveryIdentity: String] = [:]
+    if let currentCGWindows {
+      let diagnosticRecords = relevantCGWindowDiscoveryRecords(
+        currentCGWindows,
+        ownProcessID: ProcessInfo.processInfo.processIdentifier,
+        previouslyManagedProcessIDs: Set(processIDs.values)
+          .union(nextProcessIDs.values)
+      )
+      let transientWindowIDs = Set(windows.compactMap {
+        $0.transientOwnerID == nil ? nil : $0.id
+      })
+      let observedIdentities = Set(diagnosticRecords.map(CGWindowDiscoveryIdentity.init(record:)))
+      let cachedExclusions = retainedCGWindowDiscoveryExclusions(
+        cgWindowDiscoveryDiagnostics,
+        observed: observedIdentities,
+        refreshedProcessIDs: discovery.refreshedProcessIDs,
+        destroyedWindowIDs: explicitlyDestroyedWindowIDs
+      )
+      let diagnosticAppIdentityByProcess = Dictionary(uniqueKeysWithValues: Set(
+        diagnosticRecords.map { $0.processID }
+      ).map { processID in
+        let record = diagnosticRecords.first { $0.processID == processID }
+        return (
+          processID,
+          nextApplicationIDs[processID]
+            ?? applicationIDsByProcess[processID]
+            ?? fallbackApplicationIdentity(
+              bundleIdentifier: nil,
+              ownerName: record?.ownerName,
+              processID: processID
+            )
+        )
+      })
+      var classifications: [CGWindowDiscoveryIdentity: (String, String?)] = [:]
+      var ignoredWindowReasonsByID = cachedExclusions.reasonsByWindowID
+      ignoredWindowReasonsByID.merge(discovery.ignoredWindowReasonsByID) { _, fresh in fresh }
+      let minimizedWindowIDs = cachedExclusions.minimizedWindowIDs
+        .union(discovery.minimizedWindowIDs)
+      for record in diagnosticRecords {
+        let identity = CGWindowDiscoveryIdentity(record: record)
+        let appIdentity = diagnosticAppIdentityByProcess[record.processID]
+          ?? "pid-\(record.processID)"
+        let classification = cgWindowDiscoveryClassification(
+          record: record,
+          windows: windows,
+          processIDsByWindowID: nextProcessIDs,
+          appIdentity: appIdentity,
+          ignoredProcessReason: discovery.ignoredProcessReasonsByProcess[
+            record.processID
+          ],
+          nativeFullscreenWindowIDs: nativeFullscreenWindowIDs,
+          nativeFullscreenProcessIDs: detectedNativeFullscreenProcessIDs,
+          monitors: monitors,
+          transientWindowIDs: transientWindowIDs,
+          minimizedWindowIDs: minimizedWindowIDs,
+          ignoredReasonsByWindowID: ignoredWindowReasonsByID
+        )
+        classifications[identity] = classification
+        if classification.0 == "unresolved" {
+          unresolvedOutcomes[identity] = discovery.unresolvedOutcome(for: record.processID)
+        }
+      }
+      retries.observe(
+        observed: observedIdentities,
+        unresolved: unresolvedOutcomes,
+        now: snapshotStartedAt
+      )
+      diagnostics = diagnosticRecords.map { record in
+        let identity = CGWindowDiscoveryIdentity(record: record)
+        let appIdentity = diagnosticAppIdentityByProcess[record.processID]
+          ?? "pid-\(record.processID)"
+        let classification = classifications[identity] ?? ("unresolved", nil)
+        return CGWindowDiscoveryDiagnostic(
+          identity: identity,
+          appIdentity: appIdentity,
+          classification: classification.0,
+          reason: classification.1,
+          retry: retries.entries[identity]
+        )
+      }
+    }
+    retries.completeRetries(
+      processIDs: currentCGWindows == nil
+        ? dueCGWindowRetryProcessIDs
+        : dueCGWindowRetryProcessIDs.intersection(discovery.refreshedProcessIDs),
+      now: ProcessInfo.processInfo.systemUptime,
+      unresolved: currentCGWindows == nil ? nil : unresolvedOutcomes
+    )
+    cgWindowDiscoveryRetries = retries
+    for index in diagnostics.indices {
+      diagnostics[index].retry = retries.entries[diagnostics[index].identity]
+    }
+    let previousSignatures = cgWindowDiscoveryTraceSignatures
+    let nextSignatures: [CGWindowDiscoveryIdentity: String] = Dictionary(
+      uniqueKeysWithValues: diagnostics.map {
+      ($0.identity, $0.traceSignature)
+      }
+    )
+    for diagnostic in diagnostics
+    where previousSignatures[diagnostic.identity] != diagnostic.traceSignature {
+      frameCoordinator.recordTrace(
+        "window-discovery \(diagnostic.detail(now: ProcessInfo.processInfo.systemUptime))"
+      )
+    }
+    for identity in previousSignatures.keys where nextSignatures[identity] == nil {
+      frameCoordinator.recordTrace(
+        "window-discovery id=\(identity.windowID.rawValue) pid=\(identity.processID) class=gone"
+      )
+    }
+    cgWindowDiscoveryDiagnostics = diagnostics
+    cgWindowDiscoveryTraceSignatures = nextSignatures
     let nextRetainedWindowIDs = discovery.nextRetainedWindowIDs
     let cachedSnapshotWindowIDs = discovery.cachedSnapshotWindowIDs
     let previouslyManagedApplicationWindows =

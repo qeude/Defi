@@ -379,16 +379,22 @@ extension MacOSPlatform {
   }
 
   public var recommendedWindowListRefreshInterval: TimeInterval {
+    let now = ProcessInfo.processInfo.systemUptime
+    let cgRetryProcessIDs = Set(snapshotEngine.cgWindowDiscoveryRetries.entries.compactMap {
+      identity, retry in retry.nextRetryAt == nil ? nil : identity.processID
+    })
     let hasPendingUnmatchedRetry = unmatchedWindowElementsByProcess.contains {
       processID, elements in
       elements.isEmpty == false
+        && !cgRetryProcessIDs.contains(processID)
         && unmatchedWindowRetryIsPending(
           attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0
         )
     }
     let hasPendingWindowListReadRetry =
-      windowListReadRetryAttemptsByProcess.values.contains {
-        unmatchedWindowRetryIsPending(attempts: $0)
+      windowListReadRetryAttemptsByProcess.contains { processID, attempts in
+        !cgRetryProcessIDs.contains(processID)
+          && unmatchedWindowRetryIsPending(attempts: attempts)
       }
     let hasPendingCGWindowInventoryRetry =
       cgWindowInventoryRetryAttempts.map {
@@ -402,13 +408,20 @@ extension MacOSPlatform {
         || !retainedWindowIDs.isEmpty,
       reliableTopologyObservation: hasReliableWindowTopologyObservation
     )
-    return min(
-      baseInterval,
-      transientOwnerResolutionRefreshInterval(
-        retryAfter: Array(transientOwnerResolutionRetryAfter.values),
-        now: ProcessInfo.processInfo.systemUptime
-      ) ?? baseInterval
-    )
+    let transientRetryInterval = transientOwnerResolutionRefreshInterval(
+      retryAfter: Array(transientOwnerResolutionRetryAfter.values), now: now
+    ) ?? baseInterval
+    let discoveryRetryInterval = snapshotEngine.cgWindowDiscoveryRetryInterval(now: now)
+      ?? baseInterval
+    return min(baseInterval, min(transientRetryInterval, discoveryRetryInterval))
+  }
+
+  public var windowDiscoveryStatus: String {
+    snapshotEngine.cgWindowDiscoveryStatus(now: ProcessInfo.processInfo.systemUptime)
+  }
+
+  public func dueWindowDiscoveryRetryProcessIDs(now: TimeInterval) -> Set<pid_t> {
+    snapshotEngine.dueCGWindowDiscoveryRetryProcessIDs(now: now)
   }
 
   public var hasPendingTransientOwnerResolution: Bool {
