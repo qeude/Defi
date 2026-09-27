@@ -56,6 +56,43 @@ struct WindowSnapshotStabilityTests {
     #expect(retainedWindowIDs.isEmpty)
   }
 
+  @Test func unresolvedWindowSurvivesUnavailableCGInventoryAfterInvalidAXRead() {
+    let window = makeWindow(id: 42)
+    let retainedWindowIDs = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [window],
+      discoveredWindowIDs: [],
+      ignoredWindowIDs: [],
+      unresolvedWindowIDs: [window.id],
+      cgWindows: nil,
+      cachedWindowState: { _ in (.invalidUIElement, nil) }
+    )
+
+    #expect(retainedWindowIDs == [window.id])
+  }
+
+  @Test func unresolvedWindowIsRemovedWhenCGReassignsItsIDToAnotherProcess() {
+    let window = makeWindow(id: 42)
+    let retainedWindowIDs = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [window],
+      discoveredWindowIDs: [],
+      ignoredWindowIDs: [],
+      unresolvedWindowIDs: [window.id],
+      cgWindows: [CGWindowRecord(
+        id: 42,
+        processID: processID + 1,
+        layer: 0,
+        title: window.title,
+        frame: window.frame,
+        isOnscreen: true
+      )],
+      cachedWindowState: { _ in (.cannotComplete, nil) }
+    )
+
+    #expect(retainedWindowIDs.isEmpty)
+  }
+
   @Test func createdWindowBypassesLaggingApplicationWindowList() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     let processID: pid_t = 42
@@ -259,6 +296,7 @@ struct WindowSnapshotStabilityTests {
     engine.lastSnapshotWindows = [window]
     engine.lastApplicationWindowElements = [processID: [element]]
     engine.hasCompletedWindowSnapshot = true
+    engine.retainedWindowDeadlines = [window.id: ProcessInfo.processInfo.systemUptime + 60]
 
     var preparedFrame: Rect?
     var deliveredDestroyDuringSnapshot = false

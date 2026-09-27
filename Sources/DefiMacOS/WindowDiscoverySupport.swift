@@ -656,8 +656,14 @@ func cachedWindowIDsToRetain(
         .filter { $0.processID == processID }
         .map { WindowID(rawValue: UInt64($0.id)) }
     )
+    let foreignWindowIDs = Set(
+      cgWindows.lazy
+        .filter { $0.processID != processID }
+        .map { WindowID(rawValue: UInt64($0.id)) }
+    )
     retainedWindowIDs = retainedWindowIDs.filter {
-      liveWindowIDs.contains($0) || unresolvedWindowIDs.contains($0)
+      !foreignWindowIDs.contains($0)
+        && (liveWindowIDs.contains($0) || unresolvedWindowIDs.contains($0))
     }
   }
   guard let cachedWindowState else { return retainedWindowIDs }
@@ -666,8 +672,10 @@ func cachedWindowIDsToRetain(
     // A stale AX connection after wake can also report invalidUIElement.
     // Require WindowServer to confirm the surface is no longer displayed.
     let windowID = $0
-    let closed = state.error == .invalidUIElement
-      && cgWindows?.contains(where: { $0.id == windowID.rawValue && $0.isOnscreen }) == false
+    let surfaceIsAbsent = cgWindows.map { windows in
+      !windows.contains(where: { $0.id == windowID.rawValue && $0.isOnscreen })
+    } ?? false
+    let closed = state.error == .invalidUIElement && surfaceIsAbsent
     return !closed && state.minimized != true
   })
 }
