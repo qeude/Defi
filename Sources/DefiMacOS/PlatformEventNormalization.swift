@@ -212,6 +212,10 @@ func guardedFocusIsCurrent(
   latestInputTimestamp <= maximumInputTimestamp
 }
 
+func positiveProcessID(_ processID: pid_t?) -> pid_t? {
+  processID.flatMap { $0 > 0 ? $0 : nil }
+}
+
 func nativeFocusEventMatchesTarget(
   eventPending: Bool,
   eventProcessIDs: Set<pid_t>,
@@ -219,7 +223,7 @@ func nativeFocusEventMatchesTarget(
   focusedProcessID: pid_t?
 ) -> Bool {
   guard eventPending else { return false }
-  guard let focusedProcessID else { return false }
+  guard let focusedProcessID = positiveProcessID(focusedProcessID) else { return false }
   if hasUnknownEventProcess { return true }
   return eventProcessIDs.contains(focusedProcessID)
 }

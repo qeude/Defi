@@ -653,9 +653,16 @@ extension SnapshotEngine {
         "frame commit observed settled=\(settledCommitLatenciesMS.count) deferred=\(deferredMismatchCount) max_latency_ms=\(maximumSettledLatencyMS, format: .fixed(precision: 2))"
       )
     }
-    let frontmostProcessID = onMain {
-      _ in NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let frontmostApplication = onMain { _ in
+      let application = NSWorkspace.shared.frontmostApplication
+      return (application?.processIdentifier, application?.bundleIdentifier)
     }
+    let frontmostProcessID = currentFrontmostProcessID(
+      appKitProcessID: frontmostApplication.0,
+      appKitBundleID: frontmostApplication.1,
+      cgWindows: borderStackingInventory(now: ProcessInfo.processInfo.systemUptime)
+    )
+    lastResolvedFrontmostProcessID = frontmostProcessID
     let activation = userInputTracker.pendingApplicationActivation(
       frontmostProcessID: frontmostProcessID
     )
@@ -700,9 +707,7 @@ extension SnapshotEngine {
     }
     let focusedProcessID = focusedWindowID.flatMap { nextProcessIDs[$0] }
     let currentActivation = userInputTracker.pendingApplicationActivation(
-      frontmostProcessID: onMain { _ in
-        NSWorkspace.shared.frontmostApplication?.processIdentifier
-      }
+      frontmostProcessID: frontmostProcessID
     )
     var nativeFocusIsApplicationActivation = activation != nil
       && activation == currentActivation
@@ -748,8 +753,7 @@ extension SnapshotEngine {
     if nativeFocusChanged {
       userInputTracker.recordObservedFocus(
         windowID: focusedWindowID,
-        processID: focusedProcessID
-          ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+        processID: focusedProcessID ?? frontmostProcessID
       )
     }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {

@@ -76,7 +76,9 @@ extension MacOSPlatform {
       failures: failures,
       failureCodes: failureCodes,
       coverage: eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0, 0),
-      frontmostProcessID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+      frontmostProcessID:
+        positiveProcessID(NSWorkspace.shared.frontmostApplication?.processIdentifier)
+        ?? snapshotEngine.lastResolvedFrontmostProcessID,
       reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
       borders: borderManager.performance
     )

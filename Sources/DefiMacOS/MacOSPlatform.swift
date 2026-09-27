@@ -19,13 +19,11 @@ public final class MacOSPlatform {
 
   func stableWindowID(
     processID: pid_t?,
-    in windows: [Window],
-    allowPendingNativeFocus: Bool = false
+    in windows: [Window]
   ) -> WindowID? {
     snapshotEngine.stableWindowID(
       processID: processID,
-      in: windows,
-      allowPendingNativeFocus: allowPendingNativeFocus
+      in: windows
     )
   }
 

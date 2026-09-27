@@ -65,6 +65,28 @@ struct PlatformEventTests {
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 16)?.processID == 30)
   }
 
+  @Test
+  func activationWaitsForFrontmostApplicationToCatchUp() {
+    let tracker = UserInputTracker()
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 42, at: 10.1) == nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 10.2)?.processID == 20)
+  }
+
+  @Test
+  func delayedActivationIgnoresPointerActivityButNotNewFocusIntent() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 10.1)
+    #expect(delayedApplicationActivationIsCurrent(startedAt: 10, input: tracker.snapshot))
+    tracker.record(timestamp: 10.2, focusIntent: .mouse(windowID: nil))
+    #expect(!delayedApplicationActivationIsCurrent(startedAt: 10, input: tracker.snapshot))
+    let closingTracker = UserInputTracker()
+    closingTracker.record(timestamp: 10.1, closeIntent: true)
+    #expect(!delayedApplicationActivationIsCurrent(
+      startedAt: 10, input: closingTracker.snapshot
+    ))
+  }
+
   @Test @NavigationActor
   func sessionChangeDiscardsCachedAXConnectionsBeforeNextDiscovery() {
     let platform = MacOSPlatform()
@@ -1216,6 +1238,22 @@ struct PlatformEventTests {
         focusedProcessID: 7
       ) == false
     )
+    #expect(
+      nativeFocusEventMatchesTarget(
+        eventPending: true,
+        eventProcessIDs: [-1],
+        hasUnknownEventProcess: false,
+        focusedProcessID: -1
+      ) == false
+    )
+  }
+
+  @Test
+  func invalidProcessDoesNotBecomeObservedFocus() {
+    let tracker = UserInputTracker()
+    tracker.record(timestamp: 11, focusIntent: .keyboard)
+    tracker.recordObservedFocus(windowID: nil, processID: -1)
+    #expect(tracker.focusRecoveryTarget(after: 10) == nil)
   }
 
   @Test

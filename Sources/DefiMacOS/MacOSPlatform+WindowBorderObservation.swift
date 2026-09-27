@@ -47,6 +47,7 @@ extension MacOSPlatform {
     }
     let handleEvent: (PlatformEventKind, pid_t?, AXUIElement?) -> Void = {
       [weak self] kind, processID, element in
+      let processID = positiveProcessID(processID)
       defer { self?.publishPresentationStatus() }
       let eventInput = self?.userInputTracker.snapshot
       let eventInputTimestamp = eventInput?.latestEventTimestamp
@@ -109,7 +110,6 @@ extension MacOSPlatform {
         self?.userInputTracker.recordObservedFocus(
           windowID: nil,
           processID: processID
-            ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
         )
         self?.nativeFocusEventPending = true
         if let processID {

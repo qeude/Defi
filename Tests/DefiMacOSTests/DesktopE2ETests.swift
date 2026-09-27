@@ -804,6 +804,12 @@ final class DesktopE2ETests: XCTestCase {
     else {
       throw XCTSkip("Need a non-focused manageable window")
     }
+    defer {
+      if let originalFocusedWindowID = snapshot.focusedWindowID {
+        onNavigation { platform.focus(originalFocusedWindowID) }
+        pumpRunLoop(for: 0.5)
+      }
+    }
     let eventCount = DesktopValue(0)
     onNavigation { platform.startObserving {
       DispatchQueue.main.async { eventCount.value += 1 }
