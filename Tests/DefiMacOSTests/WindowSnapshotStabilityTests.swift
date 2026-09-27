@@ -64,6 +64,7 @@ struct WindowSnapshotStabilityTests {
 
     #expect(engine.applicationWindowListReadCount == 0)
     #expect(partialSnapshot.nextApplications[processID] != nil)
+    #expect(engine.windowListReadRetryAttemptsByProcess[processID] == attempts)
 
     engine.applications = partialSnapshot.nextApplications
     engine.applicationIDsByProcess = partialSnapshot.nextApplicationIDs
@@ -73,6 +74,7 @@ struct WindowSnapshotStabilityTests {
       forceReadProcessIDs: fullRefresh ? [] : [processID], forceFullRead: fullRefresh
     )
     #expect(engine.applicationWindowListReadCount == 1)
+    #expect(engine.windowListReadRetryAttemptsByProcess[processID] == min(attempts + 1, 3))
   }
 
   private let processID: pid_t = 42
@@ -868,6 +870,37 @@ struct WindowSnapshotStabilityTests {
     )
     #expect(result.ignoredWindowReasonsByID[window.id] == (minimized ? "AX-minimized" : "frame-below-80x60"))
     #expect(result.minimizedWindowIDs == (minimized ? [window.id] : []))
+    #expect(result.unresolvedOutcomesByProcess[processID] == nil)
+    #expect(result.unresolvedOutcome(for: processID) == "AX-no-window-match")
+  }
+
+  @Test(arguments: [false, true])
+  func unresolvedDiagnosticsKeepAllProcessObservations(reverseOrder: Bool) {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let first = makeWindow(id: 42), second = makeWindow(id: 43)
+    let unavailable = AXUIElementCreateApplication(-1), unmatched = AXUIElementCreateApplication(-2)
+    engine.elements = [first.id: unavailable, second.id: unmatched]
+    engine.processIDs = [first.id: processID, second.id: processID]
+    engine.applications = [processID: unavailable]
+    engine.applicationIDsByProcess = [processID: first.appID]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.hasCompletedWindowSnapshot = true
+    engine.lastSnapshotWindows = [first, second]
+    engine.lastApplicationWindowElements = [processID: reverseOrder ? [unmatched, unavailable] : [unavailable, unmatched]]
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: Config(), incrementalProcessIDs: [processID],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
+      preparedWindowAttributes: [
+        first.id: AXWindowAttributes(minimized: nil, frame: nil, title: "", role: nil, subrole: nil),
+        second.id: AXWindowAttributes(minimized: false, frame: frame, title: "", role: nil, subrole: nil),
+      ],
+      preparedTransientOwnerWindowIDs: [:], preparedApplicationWindows: [:],
+      explicitlyDestroyedWindowIDs: [], publicCGWindows: { [] }
+    )
+    #expect(result.unresolvedOutcomesByProcess[processID] == ["AX-window-attributes-unavailable", "AX-candidate-unmatched"])
+    #expect(result.unresolvedOutcome(for: processID)
+      == "AX-no-window-match;process-observations=AX-candidate-unmatched|AX-window-attributes-unavailable")
   }
 
   @Test(arguments: [false, true])

@@ -406,9 +406,7 @@ extension SnapshotEngine {
         )
         classifications[identity] = classification
         if classification.0 == "unresolved" {
-          unresolvedOutcomes[identity] = discovery.unresolvedOutcomesByProcess[
-            record.processID
-          ] ?? "AX-no-window-match"
+          unresolvedOutcomes[identity] = discovery.unresolvedOutcome(for: record.processID)
         }
       }
       retries.observe(

@@ -88,8 +88,14 @@ struct SnapshotWindowDiscoveryResult {
   let ignoredWindowReasonsByID: [WindowID: String]
   let ignoredProcessReasonsByProcess: [pid_t: String]
   let minimizedWindowIDs: Set<WindowID>
-  let unresolvedOutcomesByProcess: [pid_t: String]
+  let unresolvedOutcomesByProcess: [pid_t: Set<String>]
   let refreshedProcessIDs: Set<pid_t>
+
+  func unresolvedOutcome(for processID: pid_t) -> String {
+    let observations = unresolvedOutcomesByProcess[processID, default: []].sorted()
+    guard !observations.isEmpty else { return "AX-no-window-match" }
+    return "AX-no-window-match;process-observations=" + observations.joined(separator: "|")
+  }
 }
 
 extension SnapshotEngine {
@@ -137,7 +143,7 @@ extension SnapshotEngine {
       var ignoredWindowCandidates: [pid_t: [IgnoredWindowCandidate]] = [:]
       var ignoredWindowReasonsByID: [WindowID: String] = [:]
       var ignoredProcessReasonsByProcess: [pid_t: String] = [:]
-      var unresolvedOutcomesByProcess: [pid_t: String] = [:]
+      var unresolvedOutcomesByProcess: [pid_t: Set<String>] = [:]
       var refreshedProcessIDs = Set<pid_t>()
       var nextNativeWindowTabGroups: [WindowID: NativeWindowTabGroup] = [:]
       var nextRetainedWindowIDs = Set<WindowID>()
@@ -369,9 +375,11 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         if !created.isEmpty {
           appWindows = windowCandidatesIncludingCreatedElements(appWindows ?? [], created: created)
         }
-        unresolvedOutcomesByProcess[processID] = appWindows.map { windows in
-          windows.isEmpty ? "AX-window-list-empty" : "AX-candidate-unmatched"
-        } ?? "AX-window-list-unavailable"
+        if appWindows == nil {
+          unresolvedOutcomesByProcess[processID] = ["AX-window-list-unavailable"]
+        } else if appWindows?.isEmpty == true {
+          unresolvedOutcomesByProcess[processID] = ["AX-window-list-empty"]
+        }
         if let appWindows {
           applicationWindows[processID] = appWindows
         }
@@ -436,7 +444,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           let decision: RuleDecision
           switch discovery {
           case .unavailable:
-            unresolvedOutcomesByProcess[processID] = "AX-window-attributes-unavailable"
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-window-attributes-unavailable")
             if previousWindowID == nil {
               cacheWindowElementForShortRetry(
                 element,
@@ -461,11 +469,11 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             }
             continue
           case .transientGeometry:
-            unresolvedOutcomesByProcess[processID] = "AX-frame-unavailable"
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-frame-unavailable")
             transientGeometryWindows[processID, default: []].append(element)
             continue
           case .unmatched:
-            unresolvedOutcomesByProcess[processID] = "AX-candidate-unmatched"
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-candidate-unmatched")
             if previousWindowID == nil {
               cacheWindowElementForShortRetry(
                 element,
@@ -501,7 +509,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
           switch disposition {
           case .unavailable:
-            unresolvedOutcomesByProcess[processID] = "AX-management-metadata-unavailable"
+            unresolvedOutcomesByProcess[processID, default: []].insert("AX-management-metadata-unavailable")
             cacheWindowElementForShortRetry(
               element,
               processID: processID,
