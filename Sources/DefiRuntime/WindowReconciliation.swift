@@ -307,12 +307,22 @@ private func adjustNativeFullscreenPlacements(
     state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].windows.count == 1
   else { return }
 
-  for fullscreenID in Array(state.nativeFullscreenTiledPlacements.keys) {
-    guard let placement = state.nativeFullscreenTiledPlacements[fullscreenID],
-      placement.monitorID == location.monitorID,
-      placement.workspaceID == location.workspaceID,
-      placement.columnIndex > columnIndex
-    else { continue }
+  let placements = state.nativeFullscreenTiledPlacements.filter {
+    $0.value.monitorID == location.monitorID && $0.value.workspaceID == location.workspaceID
+  }
+  // A suspended sibling keeps this logical column alive after its last visible window closes.
+  guard !placements.values.contains(where: { $0.column.windows.contains(windowID) }) else { return }
+  let visibleWindowIDs = Set(
+    state.monitors[monitorIndex].workspaces[workspaceIndex].columns.flatMap(\.windows)
+  ).subtracting(state.nativeFullscreenWindowIDs)
+  let suspendedColumnIndices = Set(placements.values.filter {
+    !$0.column.windows.contains(where: visibleWindowIDs.contains)
+  }.map(\.columnIndex))
+  let originalColumnIndex = suspendedColumnIndices.sorted().reduce(columnIndex) {
+    index, suspended in suspended <= index ? index + 1 : index
+  }
+
+  for (fullscreenID, placement) in placements where placement.columnIndex > originalColumnIndex {
     state.nativeFullscreenTiledPlacements[fullscreenID] = SuspendedTiledPlacement(
       monitorID: placement.monitorID,
       workspaceID: placement.workspaceID,
