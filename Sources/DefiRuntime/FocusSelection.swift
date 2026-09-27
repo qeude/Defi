@@ -463,13 +463,11 @@ public func nativeFocusMutationIsReady(
   keyboardFocusIntentCurrent: Bool,
   nativeFocusSuppressed: Bool = false,
   applicationActivationTimestamp: Double? = nil,
-  latestCommandInputTimestamp: Double = 0,
-  latestUserInputTimestamp: Double = 0
+  latestCommandInputTimestamp: Double = 0
 ) -> Bool {
   if nativeFocusChanged,
     let applicationActivationTimestamp,
-    applicationActivationTimestamp
-      > max(latestCommandInputTimestamp, latestUserInputTimestamp),
+    applicationActivationTimestamp > latestCommandInputTimestamp,
     !leftMouseButtonDown
   {
     return true

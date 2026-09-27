@@ -52,16 +52,21 @@ struct NativeFocusTests {
   }
 
   @Test
-  func newerCapturedInputRejectsActivationBeforeCommandRuns() {
+  func newerCapturedCommandRejectsActivationAndEarlierKeyboardIntent() {
+    let latestCommandInputTimestamp = 11.0
+    let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
+      keyboardFocusIntentTimestamp: 10,
+      latestCommandInputTimestamp: latestCommandInputTimestamp
+    )
+    #expect(!keyboardFocusIntentCurrent)
     #expect(!nativeFocusMutationIsReady(
       nativeFocusChanged: true,
       mouseInteractionEnded: false,
       leftMouseButtonDown: false,
       mouseReleaseFocusIntentCurrent: false,
-      keyboardFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
       applicationActivationTimestamp: 10,
-      latestCommandInputTimestamp: 9,
-      latestUserInputTimestamp: 11
+      latestCommandInputTimestamp: latestCommandInputTimestamp
     ))
   }
 

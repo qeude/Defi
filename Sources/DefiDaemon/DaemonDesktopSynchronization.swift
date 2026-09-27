@@ -462,15 +462,19 @@ extension Daemon {
     }
     var acceptedNativeFocusMonitorID: MonitorID?
     if let focusedWindowID = snapshot.focusedWindowID {
+      let latestFocusIntentTimestamp = max(
+        latestCommandInputTimestamp,
+        platform.userInputTracker.snapshot.latestCapturedCommandTimestamp
+      )
       let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
         keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
-        latestCommandInputTimestamp: latestCommandInputTimestamp
+        latestCommandInputTimestamp: latestFocusIntentTimestamp
       )
       let mouseReleaseFocusIntentCurrent = mouseReleaseFocusIntentIsCurrent(
         focusedWindowID: focusedWindowID,
         mouseFocusIntentWindowID: deferredMouseFocusIntent?.windowID,
         mouseFocusIntentTimestamp: deferredMouseFocusIntent?.timestamp,
-        latestCommandInputTimestamp: latestCommandInputTimestamp,
+        latestCommandInputTimestamp: latestFocusIntentTimestamp,
         nativeFocusChanged: deferredMouseFocusIntent?.focusObserved == true
       )
       let deferredMouseFocusPending = deferredMouseFocusIntent != nil
@@ -499,8 +503,7 @@ extension Daemon {
           nativeFocusSuppressed:
             ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil,
           applicationActivationTimestamp: activationTimestamp,
-          latestCommandInputTimestamp: latestCommandInputTimestamp,
-          latestUserInputTimestamp: latestUserInputTimestamp
+          latestCommandInputTimestamp: latestFocusIntentTimestamp
         )
         && !preservesWorkspaceAfterRemoval
       let selectionChanged = nativeFocusChangesSelection(

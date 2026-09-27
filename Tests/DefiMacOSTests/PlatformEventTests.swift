@@ -179,6 +179,7 @@ struct PlatformEventTests {
     tracker.recordApplicationActivation(processID: 20, at: 10)
     tracker.record(timestamp: 10.1) // Typing does not invalidate native activation.
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 11)?.processID == 20)
+    #expect(tracker.snapshot.latestCapturedCommandTimestamp == 0)
     tracker.recordApplicationActivation(processID: 30, at: 11)
     tracker.consumeApplicationActivation(processID: 20, at: 10)
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 11.1)?.processID == 30)
@@ -199,6 +200,40 @@ struct PlatformEventTests {
     tracker.recordApplicationActivation(processID: 30, at: 17)
     tracker.invalidate(at: 17.1)
     #expect(tracker.snapshot.activatedProcessID == nil)
+  }
+
+  @Test
+  func capturedCommandTimestampIgnoresOrdinaryInput() {
+    let tracker = UserInputTracker()
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    tracker.record(timestamp: 10.1)
+    #expect(tracker.snapshot.latestCapturedCommandTimestamp == 0)
+    #expect(nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: 10,
+      latestCommandInputTimestamp: tracker.snapshot.latestCapturedCommandTimestamp
+    ))
+
+    tracker.recordCapturedCommand(at: 10.2)
+    let latestCommandInputTimestamp = tracker.snapshot.latestCapturedCommandTimestamp
+    #expect(latestCommandInputTimestamp == 10.2)
+    let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
+      keyboardFocusIntentTimestamp: 10,
+      latestCommandInputTimestamp: latestCommandInputTimestamp
+    )
+    #expect(!nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
+      applicationActivationTimestamp: 10,
+      latestCommandInputTimestamp: latestCommandInputTimestamp
+    ))
   }
 
   @Test(arguments: [nil, 13.0] as [TimeInterval?])

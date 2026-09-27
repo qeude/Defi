@@ -26,6 +26,7 @@ public final class UserInputTracker: @unchecked Sendable {
 
   public struct Snapshot: Equatable, Sendable {
     public let latestEventTimestamp: TimeInterval
+    public let latestCapturedCommandTimestamp: TimeInterval
     public let latestFocusIntent: FocusIntent?
     public let latestCloseIntent: TimeInterval
     public let applicationActivation: ApplicationActivation?
@@ -39,6 +40,7 @@ public final class UserInputTracker: @unchecked Sendable {
 
   private let lock = NSLock()
   private var latestTimestamp: TimeInterval = 0
+  private var latestCapturedCommandTimestamp: TimeInterval = 0
   private var latestFocusIntent: FocusIntent?
   private var latestCloseIntentTimestamp: TimeInterval = 0
   private var observedFocusIntentTimestamp: TimeInterval = 0
@@ -72,6 +74,13 @@ public final class UserInputTracker: @unchecked Sendable {
     if closeIntent {
       latestCloseIntentTimestamp = max(latestCloseIntentTimestamp, timestamp)
     }
+    lock.unlock()
+  }
+
+  public func recordCapturedCommand(at timestamp: TimeInterval) {
+    lock.lock()
+    latestTimestamp = max(latestTimestamp, timestamp)
+    latestCapturedCommandTimestamp = max(latestCapturedCommandTimestamp, timestamp)
     lock.unlock()
   }
 
@@ -285,6 +294,7 @@ public final class UserInputTracker: @unchecked Sendable {
     defer { lock.unlock() }
     return Snapshot(
       latestEventTimestamp: latestTimestamp,
+      latestCapturedCommandTimestamp: latestCapturedCommandTimestamp,
       latestFocusIntent: latestFocusIntent,
       latestCloseIntent: latestCloseIntentTimestamp,
       applicationActivation: applicationActivation
