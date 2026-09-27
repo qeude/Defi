@@ -38,6 +38,19 @@ func layoutWindowIDsOutsideSubmissionScope(
     : []
 }
 
+func parkedFrameReservations(
+  in plan: ContinuousStripPlan,
+  translatedBy deltaY: Double = 0
+) -> [Rect] {
+  let parkedWindowIDs = plan.parkedWindowIDs
+  return plan.frames.compactMap { assignment in
+    guard parkedWindowIDs.contains(assignment.windowID) else { return nil }
+    var frame = assignment.frame
+    frame.y += deltaY
+    return frame
+  }
+}
+
 @NavigationActor
 extension Daemon {
   func applyCurrentLayout(
@@ -144,9 +157,7 @@ extension Daemon {
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
-          monitorParkingFrames.append(contentsOf: strip.frames.compactMap {
-            strip.parkedWindowIDs.contains($0.windowID) ? $0.frame : nil
-          })
+          monitorParkingFrames.append(contentsOf: parkedFrameReservations(in: strip))
           if workspaceTransition?.monitorID != monitor.id {
             monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
           }
@@ -214,6 +225,9 @@ extension Daemon {
           let leaving = (strip.frames + floatingAssignments(in: workspace)).map {
             translatedAssignment($0, deltaY: deltaY)
           }
+          monitorParkingFrames.append(
+            contentsOf: parkedFrameReservations(in: strip, translatedBy: deltaY)
+          )
           monitorAssignments.append(contentsOf: leaving)
           monitorBorderAssignments.append(contentsOf: leaving)
         } else {

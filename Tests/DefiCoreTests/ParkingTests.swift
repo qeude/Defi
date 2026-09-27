@@ -101,6 +101,7 @@ struct ParkingTests {
         preferredSide: side
       )
 
+      #expect(placement.frame.x == (side == .left ? 501 : 1_999))
       #expect(intersectionArea(placement.frame, left) == 0)
       #expect(intersectionArea(placement.frame, right) == 0)
     }

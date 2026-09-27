@@ -72,7 +72,7 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Display invalidation rejects a late completion for an old parking target`() {
+  func `Display invalidation rejects an old queued frame without replacing its parking target`() {
     let windowID = WindowID(rawValue: 42)
     let coordinator = AXFrameCoordinator()
     coordinator.nextGeneration = 7
@@ -96,6 +96,11 @@ struct FrameCommitTests {
 
     coordinator.invalidate(reason: "display-change")
 
+    let latestWrite = makeMotionWrite(fromX: 100, toX: 900)
+    coordinator.activeWrites[windowID] = latestWrite
+    coordinator.parkingTargets[windowID] = latestWrite
+    coordinator.deferredParkingWriteGenerations[windowID] = coordinator.latestGeneration
+
     let result = coordinator.applyBatch(
       ProcessWriteBatch(processID: 42, writes: [(windowID, oldWrite)]),
       frame: oldFrame,
@@ -106,9 +111,9 @@ struct FrameCommitTests {
     )
     #expect(result.stale == 1)
     #expect(result.applied == 0)
-    #expect(coordinator.activeWrites.isEmpty)
-    #expect(coordinator.parkingTargets.isEmpty)
-    #expect(coordinator.deferredParkingWriteGenerations.isEmpty)
+    #expect(coordinator.activeWrites[windowID]?.point == latestWrite.point)
+    #expect(coordinator.parkingTargets[windowID]?.point == latestWrite.point)
+    #expect(coordinator.deferredParkingWriteGenerations[windowID] == coordinator.latestGeneration)
   }
 
   @Test(arguments: [-100.0, 900.0])
