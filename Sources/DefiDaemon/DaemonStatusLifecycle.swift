@@ -188,6 +188,7 @@ extension Daemon {
       + " inputObservedN/P50/P95/P99=\(latencyStatus(commandLatency.firstObservation))"
       + " inputConvergedN/P50/P95/P99=\(latencyStatus(commandLatency.convergence))"
       + " inputFocusN/P50/P95/P99=\(latencyStatus(commandLatency.focus))"
+      + " windowDiscovery{\(platform.windowDiscoveryStatus)}"
   }
 
   private func columnWidthStatus(_ width: ColumnWidth) -> String {

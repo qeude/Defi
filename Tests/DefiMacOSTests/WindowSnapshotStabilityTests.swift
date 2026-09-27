@@ -283,7 +283,8 @@ struct WindowSnapshotStabilityTests {
 
   @Test func visibleWindowProcessMissingFromWorkspaceInventoryIsDiscovered() {
     let windows = [
-      CGWindowRecord(id: 1, processID: 42, layer: 0, title: "Device Hub", frame: frame),
+      CGWindowRecord(id: 1, processID: 42, ownerName: "Device Hub", layer: 0,
+        title: "Devices", frame: frame),
       CGWindowRecord(id: 2, processID: 42, layer: 0, title: "", frame: frame),
       CGWindowRecord(id: 3, processID: 43, layer: 0, title: "Known", frame: frame),
       CGWindowRecord(id: 4, processID: 44, layer: 1, title: "Panel", frame: frame),
@@ -293,13 +294,26 @@ struct WindowSnapshotStabilityTests {
         isOnscreen: false),
     ]
 
-    #expect(
-      missingApplicationProcessIDs(
-        cgWindows: windows,
-        knownProcessIDs: [43],
-        previouslyManagedProcessIDs: [46]
-      ) == [42, 46]
+    let missingProcessIDs = missingApplicationProcessIDs(
+      cgWindows: windows,
+      knownProcessIDs: [43],
+      previouslyManagedProcessIDs: [46]
     )
+    #expect(missingProcessIDs == [42, 46])
+    #expect(missingApplicationFallbackIsEligible(
+      isTerminated: false, isRegularApplication: nil, hasValidatedBundle: true
+    ))
+    #expect(!missingApplicationFallbackIsEligible(
+      isTerminated: false, isRegularApplication: nil, hasValidatedBundle: false
+    ))
+    #expect(!missingApplicationFallbackIsEligible(
+      isTerminated: false, isRegularApplication: false, hasValidatedBundle: true
+    ))
+    #expect(fallbackApplicationIdentity(
+      bundleIdentifier: "com.apple.dt.Devices",
+      ownerName: windows[0].ownerName,
+      processID: missingProcessIDs[0]
+    ) == "com.apple.dt.Devices")
   }
 
   @Test func missingAppKitApplicationUsesItsExecutableBundle() throws {
@@ -410,6 +424,179 @@ struct WindowSnapshotStabilityTests {
         attempts: attemptsByProcess[processID] ?? 3
       )
     )
+  }
+
+  @Test func unresolvedCGWindowRetriesRecoverExhaustAndFollowIdentity() {
+    let original = CGWindowDiscoveryIdentity(
+      windowID: WindowID(rawValue: 90), processID: 42,
+      ownerName: "Device Hub", title: "Devices"
+    )
+    var tracker = CGWindowDiscoveryRetryTracker()
+    tracker.observe(
+      observed: [original], unresolved: [original: "AX-candidate-unmatched"], now: 10
+    )
+    #expect(tracker.dueProcessIDs(now: 10.099).isEmpty)
+    #expect(tracker.dueProcessIDs(now: 10.1) == [42])
+
+    tracker.completeRetries(
+      processIDs: [42], now: 10.1,
+      unresolved: [original: "AX-window-list-empty"]
+    )
+    #expect(tracker.entries[original]?.attempts == 1)
+    #expect(tracker.dueProcessIDs(now: 10.299).isEmpty)
+    #expect(tracker.dueProcessIDs(now: 10.3) == [42])
+
+    tracker.completeRetries(
+      processIDs: [42], now: 10.3,
+      unresolved: [original: "AX-window-list-empty"]
+    )
+    tracker.completeRetries(
+      processIDs: [42], now: 10.71,
+      unresolved: [original: "AX-window-list-empty"]
+    )
+    #expect(tracker.entries[original]?.attempts == 3)
+    #expect(tracker.entries[original]?.nextRetryAt == nil)
+    #expect(tracker.dueProcessIDs(now: 100).isEmpty)
+    let retitled = CGWindowDiscoveryIdentity(
+      windowID: original.windowID, processID: original.processID,
+      ownerName: original.ownerName, title: "Devices — refreshed"
+    )
+    tracker.observe(
+      observed: [retitled], unresolved: [retitled: "AX-window-list-empty"], now: 50
+    )
+    #expect(tracker.entries[retitled]?.attempts == 3)
+
+    tracker.observe(observed: [], unresolved: [:], now: 100)
+    #expect(tracker.entries.isEmpty)
+
+    tracker.observe(
+      observed: [original], unresolved: [original: "AX-candidate-unmatched"], now: 100
+    )
+    #expect(tracker.entries[original]?.attempts == 0)
+    #expect(tracker.entries[original]?.firstObservedAt == 100)
+
+    let reused = CGWindowDiscoveryIdentity(
+      windowID: original.windowID, processID: 43,
+      ownerName: "Device Hub", title: "Devices"
+    )
+    tracker.observe(observed: [reused], unresolved: [reused: "AX-window-list-empty"], now: 101)
+    #expect(tracker.entries[original] == nil)
+    #expect(tracker.entries[reused]?.attempts == 0)
+
+    tracker.observe(observed: [reused], unresolved: [:], now: 102)
+    #expect(tracker.entries.isEmpty)
+  }
+
+  @Test func cgWindowDiscoveryScopeAndIdentityFallbackStayConservative() {
+    let records = [
+      CGWindowRecord(id: 1, processID: 42, ownerName: "Device Hub", layer: 0,
+        title: "Devices", frame: frame),
+      CGWindowRecord(id: 2, processID: 43, layer: 0, title: "Hidden", frame: frame,
+        isOnscreen: false),
+      CGWindowRecord(id: 3, processID: 44, layer: 1, title: "Panel", frame: frame),
+      CGWindowRecord(id: 4, processID: 45, layer: 0, title: "Defi", frame: frame),
+      CGWindowRecord(id: 5, processID: 0, layer: 0, title: "Unknown", frame: frame),
+    ]
+
+    #expect(
+      relevantCGWindowDiscoveryRecords(
+        records, ownProcessID: 45, previouslyManagedProcessIDs: [43]
+      ).map(\.id) == [1, 2]
+    )
+    #expect(fallbackApplicationIdentity(
+      bundleIdentifier: "com.apple.dt.Devices", ownerName: "Device Hub", processID: 42
+    ) == "com.apple.dt.Devices")
+    #expect(fallbackApplicationIdentity(
+      bundleIdentifier: nil, ownerName: "Device Hub", processID: 42
+    ) == "Device Hub")
+    #expect(fallbackApplicationIdentity(
+      bundleIdentifier: nil, ownerName: "", processID: 42
+    ) == "pid-42")
+  }
+
+  @Test func cgWindowDiscoveryExplainsRepresentedAndExcludedSurfaces() {
+    let tiledID = WindowID(rawValue: 1)
+    let floatingID = WindowID(rawValue: 2)
+    let modalID = WindowID(rawValue: 3)
+    let ignoredID = WindowID(rawValue: 4)
+    let minimizedID = WindowID(rawValue: 5)
+    let unresolvedID = WindowID(rawValue: 6)
+    func record(_ id: WindowID, frame surfaceFrame: Rect? = nil) -> CGWindowRecord {
+      CGWindowRecord(
+        id: CGWindowID(id.rawValue), processID: 42, ownerName: "Example",
+        layer: 0, title: "Window", frame: surfaceFrame ?? frame
+      )
+    }
+    let windows = [
+      Window(id: tiledID, appID: "com.example", title: "Tiled", frame: frame, processID: 42),
+      Window(id: floatingID, appID: "com.example", title: "Floating", frame: frame,
+        processID: 42, floating: true),
+      Window(id: modalID, appID: "com.example", title: "Dialog", frame: frame,
+        processID: 42, isModal: true),
+    ]
+    let processIDs: [WindowID: pid_t] = [
+      tiledID: 42, floatingID: 42, modalID: 42,
+    ]
+    func classification(
+      _ windowID: WindowID,
+      nativeFullscreen: Set<WindowID> = [],
+      nativeFullscreenProcesses: Set<pid_t> = [],
+      minimized: Set<WindowID> = [],
+      ignoredReasons: [WindowID: String] = [:]
+    ) -> (String, String?) {
+      cgWindowDiscoveryClassification(
+        record: record(windowID), windows: windows,
+        processIDsByWindowID: processIDs, appIdentity: "com.example",
+        ignoredProcessReason: nil,
+        nativeFullscreenWindowIDs: nativeFullscreen,
+        nativeFullscreenProcessIDs: nativeFullscreenProcesses,
+        monitors: [MonitorSnapshot(id: MonitorID(rawValue: 1), frame: frame)],
+        transientWindowIDs: [], minimizedWindowIDs: minimized,
+        ignoredReasonsByWindowID: ignoredReasons
+      )
+    }
+
+    #expect(classification(tiledID).0 == "tiled")
+    #expect(classification(floatingID).0 == "floating")
+    #expect(classification(modalID).0 == "transient")
+    #expect(classification(tiledID, nativeFullscreen: [tiledID]).0 == "native-fullscreen")
+    #expect(
+      cgWindowDiscoveryClassification(
+        record: record(unresolvedID, frame: frame), windows: [],
+        processIDsByWindowID: [:], appIdentity: "com.example",
+        ignoredProcessReason: nil, nativeFullscreenWindowIDs: [],
+        nativeFullscreenProcessIDs: [42],
+        monitors: [MonitorSnapshot(id: MonitorID(rawValue: 1), frame: frame)],
+        transientWindowIDs: [], minimizedWindowIDs: [], ignoredReasonsByWindowID: [:]
+      ).classification == "native-fullscreen"
+    )
+    #expect(classification(minimizedID, minimized: [minimizedID]).0 == "minimized")
+    #expect(classification(ignoredID, ignoredReasons: [ignoredID: "unsupported-role:AXMenu"]) ==
+      ("ignored", "unsupported-role:AXMenu"))
+    #expect(classification(
+      ignoredID, ignoredReasons: [ignoredID: "frame-below-80x60"]
+    ) == ("transient", "frame-below-80x60"))
+    #expect(classification(unresolvedID).0 == "unresolved")
+  }
+
+  @Test func unresolvedCGWindowStatusIncludesRetryAgeAndOutcome() {
+    let identity = CGWindowDiscoveryIdentity(
+      windowID: WindowID(rawValue: 17), processID: 42,
+      ownerName: "Device Hub", title: "Devices"
+    )
+    let diagnostic = CGWindowDiscoveryDiagnostic(
+      identity: identity, appIdentity: "com.apple.dt.Devices",
+      classification: "unresolved", reason: nil,
+      retry: CGWindowDiscoveryRetry(
+        firstObservedAt: 12, attempts: 2, nextRetryAt: 12.4,
+        lastOutcome: "AX-window-list-empty"
+      )
+    )
+    let status = formattedCGWindowDiscoveryStatus([diagnostic], now: 12.25)
+
+    #expect(status.contains("scope=layer0,pid>0,onscreen-or-managed ax=best-effort-not-one-to-one"))
+    #expect(status.contains("id=17,pid=42,app=com.apple.dt.Devices,class=unresolved"))
+    #expect(status.contains("age=0.25s,retry=2/3,outcome=AX-window-list-empty"))
   }
 
   @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {

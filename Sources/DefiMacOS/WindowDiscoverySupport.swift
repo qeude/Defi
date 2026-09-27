@@ -24,10 +24,15 @@ func windowCandidatesIncludingCreatedElements(
 
 enum WindowDiscoveryResult {
   case unavailable
-  case ignored
-  case transientGeometry
-  case unmatched
+  case ignored(reason: String, title: String)
+  case transientGeometry(title: String)
+  case unmatched(title: String)
   case discovered(Window, CGWindowID, RuleDecision)
+}
+
+struct IgnoredWindowCandidate: Sendable {
+  let title: String
+  let reason: String
 }
 
 func windowDiscoveryCandidateComesFirst(

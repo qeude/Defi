@@ -200,17 +200,23 @@ struct DaemonCommandPolicyTests {
 
   @Test
   func deferredSnapshotPreservesRefreshesAcrossOrdinaryAndForcedRequests() {
-    let reload: DesktopSnapshotRequest = (true, true, true, false)
-    let periodic: DesktopSnapshotRequest = (false, false, false, true)
+    let reload: DesktopSnapshotRequest = (true, true, true, false, false)
+    let periodic: DesktopSnapshotRequest = (false, false, false, false, true)
     let pending = coalescedDesktopSnapshotRequest(periodic, pending: reload)
-    let replay = coalescedDesktopSnapshotRequest((false, false, false, false), pending: pending)
+    let replay = coalescedDesktopSnapshotRequest((false, false, false, false, false), pending: pending)
     #expect(replay.forceFullWindowRefresh)
     #expect(replay.forceWindowListRefresh)
     #expect(replay.forceApplicationInventoryRefresh)
+    #expect(!replay.targetedWindowRetryRefresh)
     #expect(replay.consumePeriodicWindowRefresh)
-    let ordinary = coalescedDesktopSnapshotRequest((false, false, false, false), pending: nil)
+    let targeted = coalescedDesktopSnapshotRequest(
+      (false, false, false, true, false), pending: periodic
+    )
+    #expect(targeted.targetedWindowRetryRefresh)
+    let ordinary = coalescedDesktopSnapshotRequest((false, false, false, false, false), pending: nil)
     #expect(!ordinary.forceFullWindowRefresh && !ordinary.forceWindowListRefresh
-      && !ordinary.forceApplicationInventoryRefresh && !ordinary.consumePeriodicWindowRefresh)
+      && !ordinary.forceApplicationInventoryRefresh && !ordinary.targetedWindowRetryRefresh
+      && !ordinary.consumePeriodicWindowRefresh)
   }
 
   @Test(arguments: [0.0, -700.0])
