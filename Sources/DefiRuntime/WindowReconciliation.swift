@@ -170,6 +170,7 @@ public func reconcileWindows(
   windowIDReplacements: [WindowID: WindowID] = [:],
   externallyChangedWindowIDs: Set<WindowID> = [],
   nativeFullscreenWindowIDs: Set<WindowID> = [],
+  explicitlyRemovedWindowIDs: Set<WindowID> = [],
   viewports: [MonitorID: Rect] = [:],
   nativeFocusedWindowID: WindowID? = nil,
   frontmostProcessID: pid_t? = nil,
@@ -177,6 +178,9 @@ public func reconcileWindows(
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
   let discoveredIDs = Set(discovered.map(\.id))
+  let fullscreenWindowIDs = nativeFullscreenWindowIDs.subtracting(
+    explicitlyRemovedWindowIDs
+  )
   applyWindowIDReplacements(
     windowIDReplacements,
     discoveredWindows: Dictionary(
@@ -186,9 +190,11 @@ public func reconcileWindows(
     state: &state
   )
   let fullscreenSpaceHidesOtherWindows =
-    !nativeFullscreenWindowIDs.isEmpty || !state.nativeFullscreenWindowIDs.isEmpty
+    !fullscreenWindowIDs.isEmpty || !state.nativeFullscreenWindowIDs.isEmpty
   for existingID in Array(state.windows.keys)
-  where !discoveredIDs.contains(existingID) && !fullscreenSpaceHidesOtherWindows {
+  where !discoveredIDs.contains(existingID)
+    && (!fullscreenSpaceHidesOtherWindows || explicitlyRemovedWindowIDs.contains(existingID))
+  {
     removeWindowFromEveryWorkspace(existingID, state: &state)
     state.windows[existingID] = nil
     state.nativeFullscreenFloatingWindowIDs.remove(existingID)
@@ -206,14 +212,14 @@ public func reconcileWindows(
         isNativelyFocused: window.id == nativeFocusedWindowID,
         isFrontmostAppSpawn: window.processID != nil
           && window.processID == frontmostProcessID,
-        isNativeFullscreen: nativeFullscreenWindowIDs.contains(window.id),
+        isNativeFullscreen: fullscreenWindowIDs.contains(window.id),
         state: &state
       )
     } else {
       var updated = window
       if let existing = state.windows[window.id] {
         if existing.floatingOrigin == .automatic,
-          !nativeFullscreenWindowIDs.contains(window.id)
+          !fullscreenWindowIDs.contains(window.id)
         {
           reclassifyAutomaticWindow(
             window.id,
@@ -227,7 +233,7 @@ public func reconcileWindows(
           !existing.forceTiling,
           updated.floatingOrigin == .automatic,
           updated.floating,
-          !nativeFullscreenWindowIDs.contains(window.id)
+          !fullscreenWindowIDs.contains(window.id)
         {
           reclassifyTiledWindowAsAutomaticFloater(
             window.id,
@@ -239,7 +245,7 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
-        if nativeFullscreenWindowIDs.contains(window.id) {
+        if fullscreenWindowIDs.contains(window.id) {
           updated.minimumTiledWidth = nil
           updated.maximumTiledWidth = nil
         } else if window.minimumTiledWidth != nil
@@ -276,7 +282,8 @@ public func reconcileWindows(
     }
     if relocatedInPass == false { break }
   }
-  reconcileNativeFullscreenWindows(nativeFullscreenWindowIDs, state: &state)
+  reconcileNativeFullscreenWindows(fullscreenWindowIDs, state: &state)
+  state.pendingNativeFullscreenWidthResetWindowIDs.subtract(explicitlyRemovedWindowIDs)
   state.maintainWorkspaceLifecycle()
   return relocatedTransientIDs
 }

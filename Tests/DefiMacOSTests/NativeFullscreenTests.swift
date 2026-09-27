@@ -1,6 +1,7 @@
-import DefiRuntime
+import DefiConfig
 import DefiCore
 import DefiModel
+import DefiRuntime
 import Testing
 
 @testable import DefiMacOS
@@ -23,6 +24,120 @@ struct NativeFullscreenTests {
         monitors: [monitor],
         lastFocusedWindowByProcess: [:]
       ) == [window.id]
+    )
+  }
+
+  @Test
+  func `Late native fullscreen observation is recognized after the transition`() {
+    let windowID = WindowID(rawValue: 1)
+    let beforeEntry = makeWindow(id: 1, processID: 10, frame: monitor.frame)
+    let afterEntry = makeWindow(id: 1, processID: 10, frame: monitor.physicalFrame)
+    let fullscreenSurface = CGWindowRecord(
+      id: 99,
+      processID: 10,
+      layer: 0,
+      title: "Fullscreen",
+      frame: monitor.physicalFrame
+    )
+
+    #expect(
+      nativeFullscreenWindowIDs(
+        windows: [beforeEntry],
+        cgWindows: [],
+        monitors: [monitor],
+        lastFocusedWindowByProcess: [10: windowID]
+      ).isEmpty
+    )
+    #expect(
+      nativeFullscreenWindowIDs(
+        windows: [beforeEntry],
+        cgWindows: [fullscreenSurface],
+        monitors: [monitor],
+        lastFocusedWindowByProcess: [10: windowID]
+      ) == [windowID]
+    )
+    #expect(
+      nativeFullscreenWindowIDs(
+        windows: [afterEntry],
+        cgWindows: [],
+        monitors: [monitor],
+        lastFocusedWindowByProcess: [10: windowID]
+      ) == [windowID]
+    )
+  }
+
+  @NavigationActor
+  @Test
+  func `Discovery grace bridges delayed fullscreen recognition`() throws {
+    let config = Config()
+    let fullscreenID = WindowID(rawValue: 2)
+    let windows = (1...3).map {
+      makeWindow(id: UInt64($0), processID: 10, frame: monitor.frame)
+    }
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitor.id)
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    let originalColumnIndex = try #require(
+      state.monitors[0].workspaces[0].columns.firstIndex {
+        $0.windows.contains(fullscreenID)
+      }
+    )
+
+    let missingIDs = Set([WindowID(rawValue: 1), WindowID(rawValue: 3)])
+    let initialRetention = retainedWindowIDsWithinGracePeriod(
+      missingIDs,
+      previousDeadlines: [:],
+      now: 10
+    )
+    let delayedRetention = retainedWindowIDsWithinGracePeriod(
+      missingIDs,
+      previousDeadlines: initialRetention.deadlines,
+      now: 10.7
+    )
+    #expect(delayedRetention.windowIDs == missingIDs)
+
+    let target = try #require(state.windows[fullscreenID])
+    let delayedSnapshotWindows = windows.filter {
+      $0.id == fullscreenID || delayedRetention.windowIDs.contains($0.id)
+    }
+    reconcileWindows(delayedSnapshotWindows, config: config, state: &state)
+    let fullscreenSurface = CGWindowRecord(
+      id: 99,
+      processID: 10,
+      layer: 0,
+      title: "Fullscreen",
+      frame: monitor.physicalFrame
+    )
+    let detected = nativeFullscreenWindowIDs(
+      windows: [target],
+      cgWindows: [fullscreenSurface],
+      monitors: [monitor],
+      lastFocusedWindowByProcess: [10: fullscreenID]
+    )
+    reconcileWindows(
+      [target],
+      config: config,
+      nativeFullscreenWindowIDs: detected,
+      state: &state
+    )
+    let platform = MacOSPlatform()
+    platform.targetFrames[fullscreenID] = target.frame
+    platform.updateNativeFullscreenWindowIDs(detected)
+    platform.apply([
+      FrameAssignment(windowID: fullscreenID, frame: monitor.frame)
+    ])
+
+    #expect(detected == [fullscreenID])
+    #expect(platform.targetFrames[fullscreenID] == target.frame)
+    #expect(state.nativeFullscreenWindowIDs == [fullscreenID])
+    #expect(
+      state.nativeFullscreenTiledPlacements[fullscreenID]?.columnIndex
+        == originalColumnIndex
+    )
+    #expect(
+      Set(state.windows.keys) == Set([1, 2, 3].map { WindowID(rawValue: $0) })
     )
   }
 
@@ -391,7 +506,7 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func `Transient space gap does not emit a fullscreen exit`() {
+  func `Fullscreen exit observation converges within the 750 ms grace`() {
     let windowID = WindowID(rawValue: 1)
     let entered = stabilizedNativeFullscreenWindowIDs(
       detectedWindowIDs: [windowID],
@@ -409,10 +524,11 @@ struct NativeFullscreenTests {
       detectedWindowIDs: [],
       previousExitDeadlines: transitionGap.exitDeadlines,
       explicitlyRemovedWindowIDs: [],
-      now: 10.8
+      now: 10.75
     )
 
     #expect(transitionGap.windowIDs == [windowID])
+    #expect(entered.exitDeadlines[windowID] == 10.75)
     #expect(exited.windowIDs.isEmpty)
   }
 
