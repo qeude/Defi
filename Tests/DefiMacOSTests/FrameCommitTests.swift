@@ -71,6 +71,46 @@ struct FrameCommitTests {
     #expect(coordinator.pendingWindowIDs == [target, sibling])
   }
 
+  @Test
+  func `Display invalidation rejects a late completion for an old parking target`() {
+    let windowID = WindowID(rawValue: 42)
+    let coordinator = AXFrameCoordinator()
+    coordinator.nextGeneration = 7
+    coordinator.latestGeneration = 7
+    let oldWrite = makeMotionWrite(fromX: 900, toX: 100)
+    let oldFrame = QueuedPositionFrame(
+      generation: 7,
+      source: "old-topology-parking",
+      writes: [windowID: oldWrite],
+      animatedWindowIDs: [],
+      animationDuration: 0,
+      refreshRateHz: 60,
+      displayIDs: [],
+      initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    coordinator.activeWrites[windowID] = oldWrite
+    coordinator.parkingTargets[windowID] = oldWrite
+    coordinator.deferredParkingWriteGenerations[windowID] = 7
+
+    coordinator.invalidate(reason: "display-change")
+
+    let result = coordinator.applyBatch(
+      ProcessWriteBatch(processID: 42, writes: [(windowID, oldWrite)]),
+      frame: oldFrame,
+      progress: 1,
+      intermediate: false,
+      stagingReentry: false,
+      recordFinalSuccess: true
+    )
+    #expect(result.stale == 1)
+    #expect(result.applied == 0)
+    #expect(coordinator.activeWrites.isEmpty)
+    #expect(coordinator.parkingTargets.isEmpty)
+    #expect(coordinator.deferredParkingWriteGenerations.isEmpty)
+  }
+
   @Test(arguments: [-100.0, 900.0])
   func interruptedRibbonStartsAtCompletedPositionAndKeepsOnlyForwardVelocity(targetX: Double) {
     let windowID = WindowID(rawValue: 1)

@@ -87,6 +87,72 @@ struct ParkingTests {
     #expect(intersectionArea(placement.frame, rightNeighbor) == 0)
   }
 
+  @Test
+  func `Parking between aligned displays never enters either neighbor`() {
+    let left = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let owner = Rect(x: 1_000, y: 0, width: 1_000, height: 700)
+    let right = Rect(x: 2_000, y: 0, width: 1_000, height: 700)
+
+    for side in [ParkingSide.left, .right] {
+      let placement = resolveParkingPlacement(
+        for: Rect(x: 1_000, y: 0, width: 500, height: 700),
+        ownerFrame: owner,
+        allMonitorFrames: [left, owner, right],
+        preferredSide: side
+      )
+
+      #expect(intersectionArea(placement.frame, left) == 0)
+      #expect(intersectionArea(placement.frame, right) == 0)
+    }
+  }
+
+  @Test
+  func `Aligned displays keep their reserved parking frames separate`() {
+    let monitors = [
+      Rect(x: 0, y: 0, width: 1_000, height: 700),
+      Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+      Rect(x: 2_000, y: 0, width: 1_000, height: 700),
+    ]
+    let placements = monitors.enumerated().map { index, owner in
+      resolveParkingPlacement(
+        for: Rect(x: owner.x, y: owner.y, width: 500, height: 700),
+        ownerFrame: owner,
+        allMonitorFrames: monitors,
+        preferredSide: index == 0 ? .right : .left
+      ).frame
+    }
+
+    for index in placements.indices {
+      for otherIndex in placements.indices where index != otherIndex {
+        #expect(intersectionArea(placements[index], placements[otherIndex]) == 0)
+      }
+    }
+  }
+
+  @Test
+  func `Parking recalculates after a neighboring display grows`() {
+    let owner = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let oldNeighbor = Rect(x: 1_500, y: 0, width: 1_000, height: 700)
+    let newNeighbor = Rect(x: 999, y: 0, width: 1_500, height: 900)
+    let frame = Rect(x: 0, y: 0, width: 500, height: 700)
+    let oldPlacement = resolveParkingPlacement(
+      for: frame,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, oldNeighbor],
+      preferredSide: .right
+    )
+
+    let updatedPlacement = resolveParkingPlacement(
+      for: frame,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, newNeighbor],
+      preferredSide: .right
+    )
+
+    #expect(intersectionArea(oldPlacement.frame, oldNeighbor) == 0)
+    #expect(intersectionArea(updatedPlacement.frame, newNeighbor) == 0)
+  }
+
   private func intersectionArea(_ lhs: Rect, _ rhs: Rect) -> Double {
     max(
       min(lhs.x + lhs.width, rhs.x + rhs.width) - max(lhs.x, rhs.x),

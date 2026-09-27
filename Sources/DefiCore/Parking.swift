@@ -27,7 +27,10 @@ public func resolveParkingPlacement(
   let writableFrame = parkingFrame ?? ownerFrame
   let targetY =
     writableFrame.y + max(writableFrame.height - frame.height, 0)
-  let otherFrames = allMonitorFrames.filter { $0 != ownerFrame }
+  let ownerIndex = allMonitorFrames.firstIndex(of: ownerFrame)
+  let otherFrames = allMonitorFrames.enumerated().compactMap { index, monitorFrame in
+    index == ownerIndex ? nil : monitorFrame
+  }
   let verticalOrigins = parkingVerticalOrigins(
     for: frame,
     targetY: targetY,
@@ -94,7 +97,7 @@ private func parkingScore(
   otherFrames: [Rect],
   targetY: Double,
   preferredSide: ParkingSide
-) -> (Int, Double, Double, Int) {
+) -> (Double, Int, Double, Int) {
   let ownerVerticalOverlap = verticalIntersectionLength(
     placement.frame,
     ownerFrame
@@ -105,7 +108,8 @@ private func parkingScore(
   }
   let verticalDistance = abs(placement.frame.y - targetY)
   let sidePenalty = placement.side == preferredSide ? 0 : 1
-  return (lanePenalty, otherOverlap, verticalDistance, sidePenalty)
+  // Avoid leaking onto another monitor before preferring the owner's lane.
+  return (otherOverlap, lanePenalty, verticalDistance, sidePenalty)
 }
 
 private func parkingVerticalOrigins(
@@ -131,6 +135,13 @@ private func parkingVerticalOrigins(
     append(otherFrame.y - frame.height)
     append(otherFrame.y + otherFrame.height)
   }
+  let top = otherFrames.reduce(ownerFrame.y) { min($0, $1.y) }
+  let bottom = otherFrames.reduce(ownerFrame.y + ownerFrame.height) {
+    max($0, $1.y + $1.height)
+  }
+  // These outer lanes provide a non-overlapping fallback for aligned displays.
+  append(top - frame.height)
+  append(bottom)
   return origins
 }
 

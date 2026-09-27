@@ -225,6 +225,94 @@ struct DynamicWorkspaceTests {
   }
 
   @Test
+  func `Display resize and reconnect preserve workspace topology state`() throws {
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", "chat"], monitors: ["chat": 2])
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(primary)
+    state.attachMonitor(secondary)
+    let workspaceID = WorkspaceID(rawValue: "chat")
+    let firstWindowID = WindowID(rawValue: 10)
+    let selectedWindowID = WindowID(rawValue: 11)
+    let workspaceIndex = try #require(state.monitors[1].workspaces.firstIndex {
+      $0.id == workspaceID
+    })
+    state.monitors[1].activeWorkspace = workspaceID
+    state.monitors[1].workspaces[workspaceIndex].columns = [
+      Column(window: firstWindowID, width: .pixels(420)),
+      Column(window: selectedWindowID, width: .pixels(620)),
+    ]
+    state.monitors[1].workspaces[workspaceIndex].focusedColumn = 1
+    state.monitors[1].workspaces[workspaceIndex].scrollOffset = 0.4
+    state.monitors[1].workspaces[workspaceIndex].targetScrollOffset = 0.6
+    for id in [firstWindowID, selectedWindowID] {
+      state.windows[id] = makeWindow(id.rawValue, monitorID: secondary)
+    }
+    let primaryViewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let secondaryViewport = Rect(x: 1_000, y: 0, width: 2_000, height: 1_000)
+    let resizedSecondaryViewport = Rect(x: 1_000, y: 0, width: 1_500, height: 800)
+    let initialViewports = [primary: primaryViewport, secondary: secondaryViewport]
+    let resizedViewports = [primary: primaryViewport, secondary: resizedSecondaryViewport]
+
+    state.retainMonitors(
+      [primary, secondary],
+      previousViewports: initialViewports,
+      nextViewports: resizedViewports
+    )
+
+    let resizedWorkspace = try #require(state.monitors[1].workspaces.first {
+      $0.id == workspaceID
+    })
+    #expect(resizedWorkspace.columns.map(\.width) == [.pixels(315), .pixels(465)])
+    #expect(resizedWorkspace.scrollOffset == 0.4)
+    #expect(resizedWorkspace.targetScrollOffset == 0.6)
+    #expect(state.selectedWindowID(on: secondary) == selectedWindowID)
+
+    state.retainMonitors(
+      [primary],
+      previousViewports: resizedViewports,
+      nextViewports: [primary: primaryViewport]
+    )
+
+    #expect(state.workspaceLocation(for: workspaceID)?.monitorIndex == 0)
+    #expect(state.monitors[0].workspaces.first(where: { $0.id == workspaceID })?.affinity == secondary)
+
+    state.retainMonitors(
+      [primary, secondary],
+      previousViewports: [primary: primaryViewport],
+      nextViewports: resizedViewports
+    )
+
+    let returned = try #require(state.monitors[1].workspaces.first { $0.id == workspaceID })
+    #expect(returned == resizedWorkspace)
+    #expect(state.monitors[1].activeWorkspace == workspaceID)
+    #expect(state.selectedWindowID(on: secondary) == selectedWindowID)
+    #expect(state.location(containing: firstWindowID)?.monitorID == secondary)
+    #expect(state.location(containing: selectedWindowID)?.monitorID == secondary)
+  }
+
+  @Test
+  func `Replacement display identity does not claim an ambiguous workspace`() throws {
+    let replacement = MonitorID(rawValue: 3)
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", "chat"], monitors: ["chat": 2])
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(primary)
+    state.attachMonitor(secondary)
+    let chat = WorkspaceID(rawValue: "chat")
+    state.retainMonitors([primary])
+
+    state.retainMonitors([primary, replacement])
+
+    let location = try #require(state.workspaceLocation(for: chat))
+    #expect(location.monitorIndex == 0)
+    #expect(state.monitors[location.monitorIndex].workspaces[location.workspaceIndex].affinity == secondary)
+    #expect(location.monitorIndex != 1)
+  }
+
+  @Test
   func `Moving a column to trailing follows it and creates the next trailing workspace`() throws {
     var state = RuntimeState(
       config: Config(workspaces: WorkspacesConfig(names: ["dev"]))
