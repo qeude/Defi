@@ -91,29 +91,30 @@ struct FrameCommitTests {
       completion: nil
     )
     coordinator.activeWrites[windowID] = oldWrite
-    coordinator.parkingTargets[windowID] = oldWrite
+    coordinator.updateParkingTargets([windowID: oldWrite])
     coordinator.deferredParkingWriteGenerations[windowID] = 7
 
     coordinator.invalidate(reason: "display-change")
 
-    let latestWrite = makeMotionWrite(fromX: 100, toX: 900)
-    coordinator.activeWrites[windowID] = latestWrite
-    coordinator.parkingTargets[windowID] = latestWrite
-    coordinator.deferredParkingWriteGenerations[windowID] = coordinator.latestGeneration
+    #expect(coordinator.latestGeneration != oldFrame.generation)
+    #expect(coordinator.activeWrites.isEmpty)
+    #expect(coordinator.parkingTargets.isEmpty)
+    #expect(coordinator.deferredParkingWriteGenerations.isEmpty)
 
-    let result = coordinator.applyBatch(
-      ProcessWriteBatch(processID: 42, writes: [(windowID, oldWrite)]),
-      frame: oldFrame,
+    let latestWrite = makeMotionWrite(fromX: 100, toX: 900)
+    coordinator.updateParkingTargets([windowID: latestWrite])
+
+    let result = coordinator.applyFrame(
+      oldFrame,
       progress: 1,
-      intermediate: false,
-      stagingReentry: false,
-      recordFinalSuccess: true
+      skippedProcesses: []
     )
     #expect(result.stale == 1)
     #expect(result.applied == 0)
-    #expect(coordinator.activeWrites[windowID]?.point == latestWrite.point)
+    #expect(result.frames == 0)
+    #expect(coordinator.activeWrites.isEmpty)
     #expect(coordinator.parkingTargets[windowID]?.point == latestWrite.point)
-    #expect(coordinator.deferredParkingWriteGenerations[windowID] == coordinator.latestGeneration)
+    #expect(coordinator.deferredParkingWriteGenerations.isEmpty)
   }
 
   @Test(arguments: [-100.0, 900.0])

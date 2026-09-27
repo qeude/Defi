@@ -255,6 +255,7 @@ extension Daemon {
         hiddenWindowIDs: monitorHiddenWindowIDs
       )
       layoutPlansByMonitor[monitor.id] = plan
+      // Workspaces on one monitor share parking anchors; reserve them only across monitors.
       reservedParkingFrames.append(contentsOf: monitorParkingFrames)
       assignments.append(contentsOf: plan.assignments)
       outOfScopeWindowIDs.formUnion(

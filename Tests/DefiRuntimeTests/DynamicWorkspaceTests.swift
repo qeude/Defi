@@ -276,7 +276,9 @@ struct DynamicWorkspaceTests {
     )
 
     #expect(state.workspaceLocation(for: workspaceID)?.monitorIndex == 0)
-    #expect(state.monitors[0].workspaces.first(where: { $0.id == workspaceID })?.affinity == secondary)
+    let migrated = try #require(state.monitors[0].workspaces.first { $0.id == workspaceID })
+    #expect(migrated.affinity == secondary)
+    #expect(migrated.columns.map(\.width) == [.pixels(210), .pixels(310)])
 
     state.retainMonitors(
       [primary, secondary],
