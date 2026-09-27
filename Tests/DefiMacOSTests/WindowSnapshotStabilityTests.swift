@@ -7,6 +7,93 @@ import Testing
 @testable import DefiMacOS
 
 struct WindowSnapshotStabilityTests {
+  @Test func newlyDiscoveredWindowWinsOverAnUnresolvedPreviousIdentity() {
+    let window = makeWindow(id: 42)
+
+    #expect(
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [window.id],
+        ignoredWindowIDs: [],
+        unresolvedWindowIDs: [window.id],
+        cgWindows: nil,
+        cachedWindowState: nil
+      ).isEmpty
+    )
+    #expect(
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [],
+        ignoredWindowIDs: [],
+        unresolvedWindowIDs: [window.id],
+        cgWindows: nil,
+        cachedWindowState: nil
+      ) == [window.id]
+    )
+  }
+
+  @Test("Unresolved discovery cannot revive a confirmed closed window", .bug(id: 89))
+  func unresolvedWindowDoesNotOverrideConfirmedClosure() {
+    let window = makeWindow(id: 42)
+    let retainedWindowIDs = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [window],
+      discoveredWindowIDs: [],
+      ignoredWindowIDs: [],
+      unresolvedWindowIDs: [window.id],
+      cgWindows: [CGWindowRecord(
+        id: 42,
+        processID: processID,
+        layer: 0,
+        title: window.title,
+        frame: window.frame,
+        isOnscreen: false
+      )],
+      cachedWindowState: { _ in (.invalidUIElement, nil) }
+    )
+
+    #expect(retainedWindowIDs.isEmpty)
+  }
+
+  @Test func unresolvedWindowSurvivesUnavailableCGInventoryAfterInvalidAXRead() {
+    let window = makeWindow(id: 42)
+    let retainedWindowIDs = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [window],
+      discoveredWindowIDs: [],
+      ignoredWindowIDs: [],
+      unresolvedWindowIDs: [window.id],
+      cgWindows: nil,
+      cachedWindowState: { _ in (.invalidUIElement, nil) }
+    )
+
+    #expect(retainedWindowIDs == [window.id])
+  }
+
+  @Test func unresolvedWindowIsRemovedWhenCGReassignsItsIDToAnotherProcess() {
+    let window = makeWindow(id: 42)
+    let retainedWindowIDs = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [window],
+      discoveredWindowIDs: [],
+      ignoredWindowIDs: [],
+      unresolvedWindowIDs: [window.id],
+      cgWindows: [CGWindowRecord(
+        id: 42,
+        processID: processID + 1,
+        layer: 0,
+        title: window.title,
+        frame: window.frame,
+        isOnscreen: true
+      )],
+      cachedWindowState: { _ in (.cannotComplete, nil) }
+    )
+
+    #expect(retainedWindowIDs.isEmpty)
+  }
+
   @Test func createdWindowBypassesLaggingApplicationWindowList() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     let processID: pid_t = 42
@@ -237,6 +324,79 @@ struct WindowSnapshotStabilityTests {
     engine.recordObservation(.windows, processID: 42, windowID: arrivedDuringSnapshot)
 
     #expect(engine.pendingObservations.destroyedWindowIDs == [arrivedDuringSnapshot])
+  }
+
+  @Test func incompleteWindowReadKeepsMembershipUntilConfirmedDestroy() {
+    let engine = SnapshotEngine(
+      frameCoordinator: AXFrameCoordinator(),
+      userInputTracker: UserInputTracker()
+    )
+    let window = makeWindow(id: 42)
+    let element = AXUIElementCreateApplication(processID)
+    engine.elements = [window.id: element]
+    engine.processIDs = [window.id: processID]
+    engine.applications = [processID: AXUIElementCreateApplication(processID)]
+    engine.applicationIDsByProcess = [processID: window.appID]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.lastSnapshotWindows = [window]
+    engine.lastApplicationWindowElements = [processID: [element]]
+    engine.hasCompletedWindowSnapshot = true
+    engine.retainedWindowDeadlines = [window.id: ProcessInfo.processInfo.systemUptime + 60]
+
+    var preparedFrame: Rect?
+    var deliveredDestroyDuringSnapshot = false
+    func discover(destroyedWindowIDs: Set<WindowID>) -> SnapshotWindowDiscoveryResult {
+      engine.discoverSnapshotWindows(
+        monitors: [],
+        config: Config(),
+        incrementalProcessIDs: [processID],
+        forceWindowListRefresh: true,
+        forceApplicationInventoryRefresh: false,
+        capturedTopologyRequiresFullSnapshot: false,
+        topologyProcessIDs: [processID],
+        createdElements: [:],
+        preparedWindowAttributes: [window.id: AXWindowAttributes(
+          minimized: nil,
+          frame: preparedFrame,
+          title: window.title,
+          role: kAXWindowRole,
+          subrole: kAXStandardWindowSubrole
+        )],
+        preparedTransientOwnerWindowIDs: [:],
+        preparedApplicationWindows: [processID: PreparedAXApplicationWindows(
+          elements: [element],
+          durationMS: 0
+        )],
+        explicitlyDestroyedWindowIDs: destroyedWindowIDs,
+        publicCGWindows: {
+          if preparedFrame != nil && !deliveredDestroyDuringSnapshot {
+            deliveredDestroyDuringSnapshot = true
+            engine.recordObservation(.windows, processID: processID, windowID: window.id)
+          }
+          return []
+        }
+      )
+    }
+
+    let incomplete = discover(destroyedWindowIDs: [])
+    #expect(incomplete.windows.map(\.id) == [window.id])
+    engine.elements = incomplete.nextElements
+    engine.processIDs = incomplete.nextProcessIDs
+    engine.lastSnapshotWindows = incomplete.windows
+    engine.lastApplicationWindowElements = incomplete.applicationWindows
+
+    preparedFrame = frame
+    let unmatched = discover(destroyedWindowIDs: [])
+    #expect(unmatched.windows.map(\.id) == [window.id])
+    engine.elements = unmatched.nextElements
+    engine.processIDs = unmatched.nextProcessIDs
+    engine.lastSnapshotWindows = unmatched.windows
+    engine.lastApplicationWindowElements = unmatched.applicationWindows
+
+    let confirmedDestroy = engine.consumeObservations()
+    #expect(confirmedDestroy.destroyedWindowIDs == [window.id])
+    let closed = discover(destroyedWindowIDs: confirmedDestroy.destroyedWindowIDs)
+    #expect(closed.windows.isEmpty)
   }
 
   @Test func snapshotCompletionPreservesNewObservationsAndRetainedFrames() {

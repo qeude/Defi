@@ -321,6 +321,7 @@ extension Daemon {
       windowIDReplacements: snapshot.windowIDReplacements,
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       nativeFullscreenWindowIDs: snapshot.nativeFullscreenWindowIDs,
+      explicitlyRemovedWindowIDs: snapshot.explicitlyDestroyedWindowIDs,
       viewports: viewportsByMonitor,
       nativeFocusedWindowID: snapshot.focusedWindowID,
       frontmostProcessID: snapshot.frontmostProcessID,

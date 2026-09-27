@@ -384,6 +384,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           applicationWindows[processID] = appWindows
         }
         var usedCGWindowIDs = Set<CGWindowID>()
+        var unresolvedWindowIDs = Set<WindowID>()
         var ignoredPreviousWindowIDs = Set(
           explicitlyDestroyedWindowIDs.filter {
             previousProcessIDs[$0] == processID
@@ -445,7 +446,9 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           switch discovery {
           case .unavailable:
             unresolvedOutcomesByProcess[processID, default: []].insert("AX-window-attributes-unavailable")
-            if previousWindowID == nil {
+            if let previousWindowID {
+              unresolvedWindowIDs.insert(previousWindowID)
+            } else {
               cacheWindowElementForShortRetry(
                 element,
                 processID: processID,
@@ -474,7 +477,9 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             continue
           case .unmatched:
             unresolvedOutcomesByProcess[processID, default: []].insert("AX-candidate-unmatched")
-            if previousWindowID == nil {
+            if let previousWindowID {
+              unresolvedWindowIDs.insert(previousWindowID)
+            } else {
               cacheWindowElementForShortRetry(
                 element,
                 processID: processID,
@@ -510,12 +515,16 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           switch disposition {
           case .unavailable:
             unresolvedOutcomesByProcess[processID, default: []].insert("AX-management-metadata-unavailable")
-            cacheWindowElementForShortRetry(
-              element,
-              processID: processID,
-              elementsByProcess: &unmatchedWindowElementsByProcess,
-              attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
-            )
+            if let previousWindowID {
+              unresolvedWindowIDs.insert(previousWindowID)
+            } else {
+              cacheWindowElementForShortRetry(
+                element,
+                processID: processID,
+                elementsByProcess: &unmatchedWindowElementsByProcess,
+                attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
+              )
+            }
             continue
           case .ignored:
             ignoredWindowReasonsByID[candidate.id] = windowExclusionReason(
@@ -608,6 +617,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           previousWindows: previousWindows,
           discoveredWindowIDs: discoveredWindowIDs,
           ignoredWindowIDs: ignoredPreviousWindowIDs,
+          unresolvedWindowIDs: unresolvedWindowIDs,
           cgWindows: retentionCGWindows,
           previousElements: previousElements,
           discoveredElements: nextElements,

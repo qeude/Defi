@@ -38,7 +38,7 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
-  func `Fullscreen space does not forget windows hidden from discovery`() throws {
+  func `Late fullscreen observation preserves windows hidden by its space`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
 
@@ -51,6 +51,154 @@ struct NativeFullscreenRuntimeTests {
 
     #expect(Set(state.windows.keys) == Set([1, 2, 3].map { WindowID(rawValue: $0) }))
     #expect(columnWindowIDs(in: state) == [[1], [3], [2]])
+  }
+
+  @Test
+  func `Explicit window closure is applied while a fullscreen space hides discovery`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    let closedID = WindowID(rawValue: 1)
+    let remainingID = WindowID(rawValue: 3)
+
+    reconcileWindows(
+      [state.windows[fullscreenID]!, state.windows[remainingID]!],
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      explicitlyRemovedWindowIDs: [closedID],
+      state: &state
+    )
+
+    #expect(Set(state.windows.keys) == [fullscreenID, remainingID])
+    #expect(state.location(containing: closedID) == nil)
+    #expect(state.nativeFullscreenWindowIDs == [fullscreenID])
+
+    reconcileWindows(
+      [state.windows[remainingID]!],
+      config: Config(),
+      explicitlyRemovedWindowIDs: [fullscreenID],
+      state: &state
+    )
+
+    #expect(Set(state.windows.keys) == [remainingID])
+    #expect(state.nativeFullscreenWindowIDs.isEmpty)
+    #expect(state.nativeFullscreenTiledPlacements.isEmpty)
+    #expect(state.pendingNativeFullscreenWidthResetWindowIDs.isEmpty)
+    #expect(state.location(containing: fullscreenID) == nil)
+  }
+
+  @Test
+  func `Closing an earlier column preserves fullscreen return order`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    let closedID = WindowID(rawValue: 1)
+    let remainingID = WindowID(rawValue: 3)
+
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+    reconcileWindows(
+      [try #require(state.windows[fullscreenID]), try #require(state.windows[remainingID])],
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      explicitlyRemovedWindowIDs: [closedID],
+      state: &state
+    )
+
+    #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.columnIndex == 0)
+
+    reconcileWindows(
+      [try #require(state.windows[fullscreenID]), try #require(state.windows[remainingID])],
+      config: Config(),
+      state: &state
+    )
+
+    #expect(columnWindowIDs(in: state) == [[2], [3]])
+  }
+
+  @Test
+  func `Fullscreen exit preserves the latest workspace and focus intent`() throws {
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["home", "other"], defaultName: "home")
+    )
+    var state = try makeState(config: config)
+    let fullscreenID = WindowID(rawValue: 2)
+    let homeID = WorkspaceID(rawValue: "home")
+    let otherID = WorkspaceID(rawValue: "other")
+    let otherWindowID = WindowID(rawValue: 4)
+    try discoverWindow(
+      Window(
+        id: otherWindowID,
+        appID: "other-app",
+        title: "Other workspace",
+        frame: Rect(x: 0, y: 0, width: 800, height: 700),
+        monitorID: monitorID
+      ),
+      decision: RuleDecision(workspace: otherID),
+      state: &state
+    )
+
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: config,
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+    _ = focusWindow(WindowID(rawValue: 1), state: &state)
+    try reduce(.switchWorkspace(otherID), on: monitorID, state: &state)
+    _ = focusWindow(otherWindowID, state: &state)
+
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: config,
+      nativeFullscreenWindowIDs: [],
+      state: &state
+    )
+
+    #expect(state.monitors[0].activeWorkspace == otherID)
+    #expect(state.selectedWindowID(on: monitorID) == otherWindowID)
+    #expect(state.location(containing: fullscreenID)?.workspaceID == homeID)
+    #expect(columnWindowIDs(in: state) == [[1], [2], [3]])
+  }
+
+  @Test
+  func `Fullscreen placement migrates with its workspace when its monitor disconnects`() throws {
+    var state = try makeState()
+    let fallbackMonitorID = MonitorID(rawValue: 2)
+    let fullscreenID = WindowID(rawValue: 2)
+    state.monitors[0].workspaces[0].columns[1].width = .pixels(420)
+    state.attachMonitor(fallbackMonitorID)
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+
+    state.retainMonitors(
+      [fallbackMonitorID],
+      previousViewports: [
+        monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800),
+        fallbackMonitorID: Rect(x: 1_000, y: 0, width: 1_000, height: 800),
+      ],
+      nextViewports: [fallbackMonitorID: Rect(x: 1_000, y: 0, width: 1_200, height: 900)]
+    )
+
+    #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.monitorID == fallbackMonitorID)
+
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [],
+      state: &state
+    )
+
+    #expect(state.monitorID(containing: fullscreenID) == fallbackMonitorID)
+    #expect(columnWindowIDs(in: state) == [[1], [2], [3]])
+    #expect(state.monitors[0].workspaces[0].columns[1].width == .pixels(504))
+    #expect(state.nativeFullscreenTiledPlacements[fullscreenID] == nil)
   }
 
   @Test
@@ -256,10 +404,66 @@ struct NativeFullscreenRuntimeTests {
     #expect(state == beforeJoin)
   }
 
-  private func makeState() throws -> RuntimeState {
-    var state = RuntimeState(config: Config())
+  @Test(arguments: [1, 2, 3, 4], [[], [1], [3], [1, 3], [1, 2, 3, 4]])
+  func `Closure uses logical column order with multiple fullscreen windows`(
+    closed: Int, nextFullscreen: [Int]
+  ) throws {
+    var state = try makeState(windowCount: 4)
+    let fullscreenIDs = Set([1, 3].map { WindowID(rawValue: $0) })
+    let closedID = WindowID(rawValue: UInt64(closed))
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: fullscreenIDs,
+      state: &state
+    )
+    reconcileWindows(
+      orderedWindows(in: state).filter { $0.id != closedID },
+      config: Config(),
+      nativeFullscreenWindowIDs: Set(nextFullscreen.map { WindowID(rawValue: UInt64($0)) }),
+      explicitlyRemovedWindowIDs: [closedID],
+      state: &state
+    )
+    reconcileWindows(orderedWindows(in: state), config: Config(), state: &state)
+
+    #expect(columnWindowIDs(in: state) == (1...4).filter { $0 != closed }.map { [UInt64($0)] })
+  }
+
+  @Test(arguments: [1, 2], [false, true])
+  func `Closing a sibling keeps its column in the logical order`(
+    closed: Int, bothFullscreen: Bool
+  ) throws {
+    var state = try makeState(windowCount: 5)
+    state.monitors[0].workspaces[0].columns[0].windows.append(WindowID(rawValue: 2))
+    state.monitors[0].workspaces[0].columns.remove(at: 1)
+    let fullscreenIDs = Set((bothFullscreen ? [1, 2, 3] : [1, 3]).map {
+      WindowID(rawValue: UInt64($0))
+    })
+    let closedID = WindowID(rawValue: UInt64(closed))
+    for ids: Set<WindowID> in [[WindowID(rawValue: 3)], fullscreenIDs] {
+      reconcileWindows(
+        orderedWindows(in: state),
+        config: Config(),
+        nativeFullscreenWindowIDs: ids,
+        state: &state
+      )
+    }
+    reconcileWindows(
+      orderedWindows(in: state).filter { $0.id != closedID },
+      config: Config(),
+      nativeFullscreenWindowIDs: fullscreenIDs,
+      explicitlyRemovedWindowIDs: [closedID],
+      state: &state
+    )
+    reconcileWindows(orderedWindows(in: state), config: Config(), state: &state)
+
+    #expect(columnWindowIDs(in: state) == [[UInt64(closed == 1 ? 2 : 1)], [3], [4], [5]])
+  }
+
+  private func makeState(config: Config = Config(), windowCount: Int = 3) throws -> RuntimeState {
+    var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
-    for id in 1...3 {
+    for id in 1...windowCount {
       let window = Window(
         id: WindowID(rawValue: UInt64(id)),
         appID: "app-\(id)",
