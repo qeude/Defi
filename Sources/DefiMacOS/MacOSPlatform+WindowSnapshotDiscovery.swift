@@ -220,7 +220,8 @@ extension SnapshotEngine {
         knownProcessIDs: knownProcessIDs,
         previouslyManagedProcessIDs: Set(previouslyManagedApplicationWindows.keys)
       )
-      for processID in missingProcessIDs {
+      for processID in missingProcessIDs
+      where refreshesApplicationInventory || (processIDsToRefresh?.contains(processID) ?? true) {
         let processApplication = workspaceApplications.first(where: {
           $0.processIdentifier == processID
         }) ?? NSRunningApplication(processIdentifier: processID)
@@ -456,6 +457,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             }
             if let previousWindowID {
               ignoredPreviousWindowIDs.insert(previousWindowID)
+              ignoredWindowReasonsByID[previousWindowID] = reason
             }
             continue
           case .transientGeometry:
@@ -744,7 +746,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       ignoredWindowCandidates: ignoredWindowCandidates,
       ignoredWindowReasonsByID: allIgnoredReasons,
       ignoredProcessReasonsByProcess: ignoredProcessReasonsByProcess,
-      minimizedWindowIDs: Set(titleMatchedIgnoredReasons.compactMap {
+      minimizedWindowIDs: Set(allIgnoredReasons.compactMap {
         $0.value == "AX-minimized" ? $0.key : nil
       }),
       unresolvedOutcomesByProcess: unresolvedOutcomesByProcess,

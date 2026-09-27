@@ -33,7 +33,8 @@ struct WindowSnapshotStabilityTests {
     #expect(windowCandidatesIncludingCreatedElements([created], created: [created, created]) == [created])
   }
 
-  @Test func cachelessUnrequestedApplicationDoesNotTriggerAnotherWindowListRead() {
+  @Test(arguments: 0...3, [false, true])
+  func cachelessUnrequestedApplicationDoesNotTriggerAnotherWindowListRead(attempts: Int, fullRefresh: Bool) {
     let platform = NavigationActor.shared.queue.sync {
       NavigationActor.assumeIsolated { MacOSPlatform() }
     }
@@ -41,15 +42,15 @@ struct WindowSnapshotStabilityTests {
     engine.applications = [processID: AXUIElementCreateApplication(-1)]
     engine.applicationIDsByProcess = [processID: "com.example"]
     engine.enhancedUIByProcess = [processID: false]
-    engine.windowListReadRetryAttemptsByProcess = [processID: 3]
+    engine.windowListReadRetryAttemptsByProcess = [processID: attempts]
     engine.hasCompletedWindowSnapshot = true
 
     func discover(
-      processIDs: Set<pid_t>, forceReadProcessIDs: Set<pid_t> = []
+      processIDs: Set<pid_t>?, forceReadProcessIDs: Set<pid_t> = [], forceFullRead: Bool = false
     ) -> SnapshotWindowDiscoveryResult {
       engine.discoverSnapshotWindows(
         monitors: [], config: Config(), incrementalProcessIDs: processIDs,
-        forceWindowListRefresh: false,
+        forceWindowListRefresh: forceFullRead,
         forceWindowListRefreshProcessIDs: forceReadProcessIDs,
         forceApplicationInventoryRefresh: false,
         capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [],
@@ -67,7 +68,10 @@ struct WindowSnapshotStabilityTests {
     engine.applications = partialSnapshot.nextApplications
     engine.applicationIDsByProcess = partialSnapshot.nextApplicationIDs
     engine.lastApplicationWindowElements = partialSnapshot.applicationWindows
-    _ = discover(processIDs: [processID], forceReadProcessIDs: [processID])
+    _ = discover(
+      processIDs: fullRefresh ? nil : [processID],
+      forceReadProcessIDs: fullRefresh ? [] : [processID], forceFullRead: fullRefresh
+    )
     #expect(engine.applicationWindowListReadCount == 1)
   }
 
@@ -465,6 +469,20 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
+  @Test func unavailableCGInventoryExhaustsDueRetries() {
+    let identity = CGWindowDiscoveryIdentity(
+      windowID: WindowID(rawValue: 90), processID: 42, ownerName: "Example", title: ""
+    )
+    var tracker = CGWindowDiscoveryRetryTracker()
+    tracker.observe(observed: [identity], unresolved: [identity: "AX-no-window-match"], now: 10)
+    for now in [10.1, 10.3, 10.71] {
+      tracker.completeRetries(processIDs: [42], now: now, unresolved: nil)
+    }
+    #expect(tracker.entries[identity]?.attempts == 3)
+    #expect(tracker.entries[identity]?.lastOutcome == "CG-inventory-unavailable")
+    #expect(tracker.refreshInterval(now: 11) == nil)
+  }
+
   @Test func unresolvedCGWindowRetriesRecoverExhaustAndFollowIdentity() {
     let original = CGWindowDiscoveryIdentity(
       windowID: WindowID(rawValue: 90), processID: 42,
@@ -674,6 +692,16 @@ struct WindowSnapshotStabilityTests {
     #expect(exclusions.reasonsByWindowID[ignoredIdentity.windowID] == "unsupported-role:AXMenu")
     #expect(exclusions.minimizedWindowIDs == [minimizedIdentity.windowID])
     #expect(exclusions.reasonsByWindowID[refreshedIdentity.windowID] == nil)
+    let replacement = CGWindowDiscoveryIdentity(
+      windowID: ignoredIdentity.windowID, processID: ignoredIdentity.processID,
+      ownerName: ignoredIdentity.ownerName, title: "Replacement"
+    )
+    let invalidated = retainedCGWindowDiscoveryExclusions(
+      previous, observed: [replacement, minimizedIdentity], refreshedProcessIDs: [],
+      destroyedWindowIDs: [minimizedIdentity.windowID]
+    )
+    #expect(invalidated.reasonsByWindowID.isEmpty)
+    #expect(invalidated.minimizedWindowIDs.isEmpty)
   }
 
   @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {
@@ -810,6 +838,53 @@ struct WindowSnapshotStabilityTests {
     #expect(
       windowGeometryDiscovery(minimized: false, frame: { frame }) == .usable(frame)
     )
+  }
+
+  @Test(arguments: [true, false], ["", "Duplicate"])
+  func ignoredKnownWindowDoesNotRequireUniqueTitle(minimized: Bool, title: String) {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let window = makeWindow(id: 42)
+    let element = AXUIElementCreateApplication(-1)
+    engine.elements = [window.id: element]
+    engine.processIDs = [window.id: processID]
+    engine.applications = [processID: element]
+    engine.applicationIDsByProcess = [processID: window.appID]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.hasCompletedWindowSnapshot = true
+    engine.lastSnapshotWindows = [window]
+    engine.lastApplicationWindowElements = [processID: [element]]
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: Config(), incrementalProcessIDs: [processID],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
+      preparedWindowAttributes: [window.id: AXWindowAttributes(
+        minimized: minimized, frame: Rect(x: 0, y: 0, width: 1, height: 1),
+        title: title, role: nil, subrole: nil
+      )],
+      preparedTransientOwnerWindowIDs: [:], preparedApplicationWindows: [:],
+      explicitlyDestroyedWindowIDs: [], publicCGWindows: {
+        [42, 43].map { CGWindowRecord(id: $0, processID: processID, layer: 0, title: title, frame: frame) }
+      }
+    )
+    #expect(result.ignoredWindowReasonsByID[window.id] == (minimized ? "AX-minimized" : "frame-below-80x60"))
+    #expect(result.minimizedWindowIDs == (minimized ? [window.id] : []))
+  }
+
+  @Test(arguments: [false, true])
+  func missingApplicationFallbackRespectsRequestedProcesses(requested: Bool) {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    engine.hasCompletedWindowSnapshot = true
+    let missingPID = pid_t.max
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: Config(), incrementalProcessIDs: requested ? [missingPID] : [],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
+      preparedWindowAttributes: [:], preparedTransientOwnerWindowIDs: [:], preparedApplicationWindows: [:],
+      explicitlyDestroyedWindowIDs: [], publicCGWindows: {
+        [CGWindowRecord(id: 42, processID: missingPID, layer: 0, title: "Window", frame: frame)]
+      }
+    )
+    #expect(result.ignoredProcessReasonsByProcess[missingPID] == (requested ? "application-identity-unverified" : nil))
   }
 
   @Test(arguments: [true, false])

@@ -6,6 +6,28 @@ import Testing
 @testable import DefiMacOS
 
 struct BudgetedFreshReadPartitionTests {
+  @Test func dueWindowRetriesDrainAcrossBudgetedPasses() {
+    let identities = (1...3).map {
+      CGWindowDiscoveryIdentity(windowID: WindowID(rawValue: UInt64($0)),
+        processID: pid_t($0), ownerName: "Example", title: "")
+    }
+    let unresolved = Dictionary(uniqueKeysWithValues: identities.map { ($0, "AX-no-window-match") })
+    var tracker = CGWindowDiscoveryRetryTracker()
+    tracker.observe(observed: Set(identities), unresolved: unresolved, now: 10)
+    for remaining in (1...3).reversed() {
+      let due = tracker.dueProcessIDs(now: 10.1)
+      #expect(due.count == remaining)
+      let pass = partition(requested: due, budget: 12, now: 10.1)
+      #expect(pass.allowedNow.count == 1)
+      tracker.completeRetries(processIDs: pass.allowedNow, now: 10.1, unresolved: unresolved)
+      for identity in identities where pass.stillDeferred.contains(identity.processID) {
+        #expect(tracker.entries[identity]?.attempts == 0)
+      }
+    }
+    #expect(tracker.dueProcessIDs(now: 10.1).isEmpty)
+    #expect(tracker.entries.values.allSatisfy { $0.attempts == 1 })
+  }
+
   @Test func creationDuringFullRefreshIsNotLostAfterItsProcessWasServed() {
     let result = partition(requested: [2, 3], eventPending: [1])
     #expect(result.allowedNow.contains(1))

@@ -213,6 +213,10 @@ struct DaemonCommandPolicyTests {
       (false, false, false, true, false), pending: periodic
     )
     #expect(targeted.targetedWindowRetryRefresh)
+    let replayedTargeted = coalescedDesktopSnapshotRequest(
+      (false, false, false, false, false), pending: targeted
+    )
+    #expect(replayedTargeted.targetedWindowRetryRefresh)
     let ordinary = coalescedDesktopSnapshotRequest((false, false, false, false, false), pending: nil)
     #expect(!ordinary.forceFullWindowRefresh && !ordinary.forceWindowListRefresh
       && !ordinary.forceApplicationInventoryRefresh && !ordinary.targetedWindowRetryRefresh

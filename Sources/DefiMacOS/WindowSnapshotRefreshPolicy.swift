@@ -118,12 +118,12 @@ struct CGWindowDiscoveryRetryTracker: Sendable {
 
   mutating func completeRetries(
     processIDs: Set<pid_t>, now: TimeInterval,
-    unresolved: [CGWindowDiscoveryIdentity: String]
+    unresolved: [CGWindowDiscoveryIdentity: String]?
   ) {
     for identity in entries.keys where processIDs.contains(identity.processID) {
       guard var retry = entries[identity],
         let dueAt = retry.nextRetryAt, dueAt <= now,
-        let outcome = unresolved[identity]
+        let outcome = (unresolved == nil ? "CG-inventory-unavailable" : unresolved?[identity])
       else { continue }
       retry.attempts += 1
       retry.lastOutcome = outcome
@@ -139,7 +139,7 @@ struct CGWindowDiscoveryDiagnostic: Equatable, Sendable {
   let appIdentity: String
   let classification: String
   let reason: String?
-  let retry: CGWindowDiscoveryRetry?
+  var retry: CGWindowDiscoveryRetry?
 
   func detail(now: TimeInterval) -> String {
     var fields = [
@@ -234,22 +234,25 @@ func cgWindowDiscoveryClassification(
 func retainedCGWindowDiscoveryExclusions(
   _ diagnostics: [CGWindowDiscoveryDiagnostic],
   observed: Set<CGWindowDiscoveryIdentity>,
-  refreshedProcessIDs: Set<pid_t>
+  refreshedProcessIDs: Set<pid_t>,
+  destroyedWindowIDs: Set<WindowID> = []
 ) -> (reasonsByWindowID: [WindowID: String], minimizedWindowIDs: Set<WindowID>) {
   var reasons: [WindowID: String] = [:]
   var minimized = Set<WindowID>()
   for diagnostic in diagnostics
-  where observed.contains(diagnostic.identity)
-    && !refreshedProcessIDs.contains(diagnostic.identity.processID)
+  where !refreshedProcessIDs.contains(diagnostic.identity.processID)
+    && !destroyedWindowIDs.contains(diagnostic.identity.windowID)
   {
+    guard let index = observed.firstIndex(of: diagnostic.identity),
+      observed[index].ownerName == diagnostic.identity.ownerName,
+      observed[index].title == diagnostic.identity.title
+    else { continue }
     let windowID = diagnostic.identity.windowID
     switch diagnostic.classification {
-    case "ignored":
+    case "ignored", "transient":
       if let reason = diagnostic.reason { reasons[windowID] = reason }
     case "minimized":
       minimized.insert(windowID)
-    case "transient":
-      if let reason = diagnostic.reason { reasons[windowID] = reason }
     default:
       break
     }

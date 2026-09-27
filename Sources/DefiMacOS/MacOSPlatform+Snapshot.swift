@@ -345,6 +345,9 @@ extension SnapshotEngine {
       cgWindows: fullscreenCGWindows,
       monitors: monitors
     ).intersection(nativeFullscreenWindowIDs)
+    var retries = cgWindowDiscoveryRetries
+    var diagnostics = cgWindowDiscoveryDiagnostics
+    var unresolvedOutcomes: [CGWindowDiscoveryIdentity: String] = [:]
     if let currentCGWindows {
       let diagnosticRecords = relevantCGWindowDiscoveryRecords(
         currentCGWindows,
@@ -359,7 +362,8 @@ extension SnapshotEngine {
       let cachedExclusions = retainedCGWindowDiscoveryExclusions(
         cgWindowDiscoveryDiagnostics,
         observed: observedIdentities,
-        refreshedProcessIDs: discovery.refreshedProcessIDs
+        refreshedProcessIDs: discovery.refreshedProcessIDs,
+        destroyedWindowIDs: explicitlyDestroyedWindowIDs
       )
       let diagnosticAppIdentityByProcess = Dictionary(uniqueKeysWithValues: Set(
         diagnosticRecords.map { $0.processID }
@@ -376,7 +380,6 @@ extension SnapshotEngine {
             )
         )
       })
-      var unresolvedOutcomes: [CGWindowDiscoveryIdentity: String] = [:]
       var classifications: [CGWindowDiscoveryIdentity: (String, String?)] = [:]
       var ignoredWindowReasonsByID = cachedExclusions.reasonsByWindowID
       ignoredWindowReasonsByID.merge(discovery.ignoredWindowReasonsByID) { _, fresh in fresh }
@@ -408,21 +411,12 @@ extension SnapshotEngine {
           ] ?? "AX-no-window-match"
         }
       }
-      var retries = cgWindowDiscoveryRetries
       retries.observe(
         observed: observedIdentities,
         unresolved: unresolvedOutcomes,
         now: snapshotStartedAt
       )
-      retries.completeRetries(
-        processIDs: dueCGWindowRetryProcessIDs.intersection(
-          discovery.refreshedProcessIDs
-        ),
-        now: ProcessInfo.processInfo.systemUptime,
-        unresolved: unresolvedOutcomes
-      )
-      cgWindowDiscoveryRetries = retries
-      let diagnostics = diagnosticRecords.map { record in
+      diagnostics = diagnosticRecords.map { record in
         let identity = CGWindowDiscoveryIdentity(record: record)
         let appIdentity = diagnosticAppIdentityByProcess[record.processID]
           ?? "pid-\(record.processID)"
@@ -435,26 +429,37 @@ extension SnapshotEngine {
           retry: retries.entries[identity]
         )
       }
-      let previousSignatures = cgWindowDiscoveryTraceSignatures
-      let nextSignatures: [CGWindowDiscoveryIdentity: String] = Dictionary(
-        uniqueKeysWithValues: diagnostics.map {
-        ($0.identity, $0.traceSignature)
-        }
-      )
-      for diagnostic in diagnostics
-      where previousSignatures[diagnostic.identity] != diagnostic.traceSignature {
-        frameCoordinator.recordTrace(
-          "window-discovery \(diagnostic.detail(now: ProcessInfo.processInfo.systemUptime))"
-        )
-      }
-      for identity in previousSignatures.keys where nextSignatures[identity] == nil {
-        frameCoordinator.recordTrace(
-          "window-discovery id=\(identity.windowID.rawValue) pid=\(identity.processID) class=gone"
-        )
-      }
-      cgWindowDiscoveryDiagnostics = diagnostics
-      cgWindowDiscoveryTraceSignatures = nextSignatures
     }
+    retries.completeRetries(
+      processIDs: currentCGWindows == nil
+        ? dueCGWindowRetryProcessIDs
+        : dueCGWindowRetryProcessIDs.intersection(discovery.refreshedProcessIDs),
+      now: ProcessInfo.processInfo.systemUptime,
+      unresolved: currentCGWindows == nil ? nil : unresolvedOutcomes
+    )
+    cgWindowDiscoveryRetries = retries
+    for index in diagnostics.indices {
+      diagnostics[index].retry = retries.entries[diagnostics[index].identity]
+    }
+    let previousSignatures = cgWindowDiscoveryTraceSignatures
+    let nextSignatures: [CGWindowDiscoveryIdentity: String] = Dictionary(
+      uniqueKeysWithValues: diagnostics.map {
+      ($0.identity, $0.traceSignature)
+      }
+    )
+    for diagnostic in diagnostics
+    where previousSignatures[diagnostic.identity] != diagnostic.traceSignature {
+      frameCoordinator.recordTrace(
+        "window-discovery \(diagnostic.detail(now: ProcessInfo.processInfo.systemUptime))"
+      )
+    }
+    for identity in previousSignatures.keys where nextSignatures[identity] == nil {
+      frameCoordinator.recordTrace(
+        "window-discovery id=\(identity.windowID.rawValue) pid=\(identity.processID) class=gone"
+      )
+    }
+    cgWindowDiscoveryDiagnostics = diagnostics
+    cgWindowDiscoveryTraceSignatures = nextSignatures
     let nextRetainedWindowIDs = discovery.nextRetainedWindowIDs
     let cachedSnapshotWindowIDs = discovery.cachedSnapshotWindowIDs
     let previouslyManagedApplicationWindows =
