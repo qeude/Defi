@@ -295,8 +295,7 @@ private func adjustNativeFullscreenPlacements(
   afterRemoving windowID: WindowID,
   state: inout RuntimeState
 ) {
-  guard !state.nativeFullscreenWindowIDs.contains(windowID),
-    let location = state.location(containing: windowID),
+  guard let location = state.location(containing: windowID),
     let monitorIndex = state.monitors.firstIndex(where: { $0.id == location.monitorID }),
     let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
       where: { $0.id == location.workspaceID }
@@ -311,15 +310,25 @@ private func adjustNativeFullscreenPlacements(
     $0.value.monitorID == location.monitorID && $0.value.workspaceID == location.workspaceID
   }
   // A suspended sibling keeps this logical column alive after its last visible window closes.
-  guard !placements.values.contains(where: { $0.column.windows.contains(windowID) }) else { return }
+  guard !placements.contains(where: {
+    $0.key != windowID && $0.value.column.windows.contains(windowID)
+  }) else { return }
   let visibleWindowIDs = Set(
     state.monitors[monitorIndex].workspaces[workspaceIndex].columns.flatMap(\.windows)
   ).subtracting(state.nativeFullscreenWindowIDs)
-  let suspendedColumnIndices = Set(placements.values.filter {
-    !$0.column.windows.contains(where: visibleWindowIDs.contains)
-  }.map(\.columnIndex))
-  let originalColumnIndex = suspendedColumnIndices.sorted().reduce(columnIndex) {
-    index, suspended in suspended <= index ? index + 1 : index
+  let originalColumnIndex: Int
+  if let placement = placements[windowID] {
+    guard !placement.column.windows.contains(where: visibleWindowIDs.contains) else { return }
+    originalColumnIndex = placement.columnIndex
+  } else {
+    // Fullscreen placeholders for floating windows do not occupy a logical tiled column.
+    guard !state.nativeFullscreenWindowIDs.contains(windowID) else { return }
+    let suspendedColumnIndices = Set(placements.values.filter {
+      !$0.column.windows.contains(where: visibleWindowIDs.contains)
+    }.map(\.columnIndex))
+    originalColumnIndex = suspendedColumnIndices.sorted().reduce(columnIndex) {
+      index, suspended in suspended <= index ? index + 1 : index
+    }
   }
 
   for (fullscreenID, placement) in placements where placement.columnIndex > originalColumnIndex {
