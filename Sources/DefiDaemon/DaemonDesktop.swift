@@ -190,12 +190,18 @@ extension Daemon {
             physicalFrame: physicalFrame
           )
         {
+          let transitionParkingFrames = reservedParkingFrames.map {
+            var frame = $0
+            frame.y -= deltaY
+            return frame
+          }
           let strip = continuousStripFramesForActiveWorkspace(
             sizedFrames,
             viewport: viewport,
             ownerFrame: physicalFrame,
             parkingFrame: viewport,
-            allMonitorFrames: allPhysicalMonitorFrames
+            allMonitorFrames: allPhysicalMonitorFrames,
+            reservedParkingFrames: transitionParkingFrames
           )
           let leaving = (strip.frames + floatingAssignments(in: workspace)).map {
             translatedAssignment($0, deltaY: deltaY)

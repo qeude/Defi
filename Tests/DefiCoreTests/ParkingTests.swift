@@ -185,6 +185,50 @@ struct ParkingTests {
   }
 
   @Test
+  func `Outgoing strip parking avoids reservations after its vertical translation`() {
+    let left = Rect(x: -1_200, y: 400, width: 800, height: 600)
+    let right = Rect(x: 0, y: 0, width: 800, height: 600)
+    let deltaY = 400.0
+    let earlierParking = resolveParkingPlacement(
+      for: Rect(x: left.x, y: left.y, width: 300, height: 300),
+      ownerFrame: left,
+      allMonitorFrames: [left, right],
+      preferredSide: .right
+    )
+    let offscreenColumn = FrameAssignment(
+      windowID: WindowID(rawValue: 1),
+      frame: Rect(x: -300, y: 0, width: 300, height: 300)
+    )
+    let unreserved = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: right,
+      ownerFrame: right,
+      allMonitorFrames: [left, right]
+    )
+    #expect(unreserved.frames.count == 1)
+    if var finalFrame = unreserved.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, earlierParking.frame) > 0)
+    }
+
+    var reservationBeforeTranslation = earlierParking.frame
+    reservationBeforeTranslation.y -= deltaY
+    let reserved = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: right,
+      ownerFrame: right,
+      allMonitorFrames: [left, right],
+      reservedParkingFrames: [reservationBeforeTranslation]
+    )
+
+    #expect(reserved.frames.count == 1)
+    if var finalFrame = reserved.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, earlierParking.frame) == 0)
+    }
+  }
+
+  @Test
   func `Parking recalculates after a neighboring display grows`() {
     let owner = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let oldNeighbor = Rect(x: 1_500, y: 0, width: 1_000, height: 700)
