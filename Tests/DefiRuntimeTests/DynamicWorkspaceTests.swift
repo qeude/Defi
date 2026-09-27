@@ -311,7 +311,6 @@ struct DynamicWorkspaceTests {
     let location = try #require(state.workspaceLocation(for: chat))
     #expect(location.monitorIndex == 0)
     #expect(state.monitors[location.monitorIndex].workspaces[location.workspaceIndex].affinity == secondary)
-    #expect(location.monitorIndex != 1)
   }
 
   @Test
