@@ -33,6 +33,20 @@ func shouldCommitNativeFocusSelection(
   nativeFocusAccepted && selectionChanged
 }
 
+func validatedNativeActivationTimestamp(
+  snapshot: DesktopSnapshot,
+  resolvedActivation: UserInputTracker.ApplicationActivation?,
+  input: UserInputTracker.Snapshot
+) -> TimeInterval? {
+  guard let resolvedActivation,
+    input.applicationActivation == resolvedActivation,
+    snapshot.nativeFocusIsApplicationActivation,
+    resolvedActivation.processID == snapshot.frontmostProcessID,
+    resolvedActivation.timestamp == snapshot.applicationActivationTimestamp
+  else { return nil }
+  return resolvedActivation.timestamp
+}
+
 func activeMonitorIDAfterSnapshot(
   activeMonitorID: MonitorID?,
   acceptedNativeFocusMonitorID: MonitorID?,
@@ -465,10 +479,11 @@ extension Daemon {
       let currentActivation = platform.userInputTracker.pendingApplicationActivation(
         frontmostProcessID: platform.frontmostProcessID
       )
-      // The frontmost application lookup can block while a command is captured.
+      // Revalidate the resolved activation and commands against one coherent input snapshot.
+      let liveInput = platform.userInputTracker.snapshot
       let latestFocusIntentTimestamp = max(
         latestCommandInputTimestamp,
-        platform.userInputTracker.snapshot.latestCapturedCommandTimestamp
+        liveInput.latestCapturedCommandTimestamp
       )
       let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
         keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
@@ -486,12 +501,12 @@ extension Daemon {
         deferredMouseFocusIntent?.mouseInteractionEnded == true
         && (deferredMouseFocusIntent?.focusObserved == true
           || deferredMouseFocusIntent?.windowID == focusedWindowID)
-      let activationTimestamp = snapshot.nativeFocusIsApplicationActivation
-        && currentActivation?.processID == snapshot.frontmostProcessID
-        && currentActivation?.timestamp == snapshot.applicationActivationTimestamp
-        ? snapshot.applicationActivationTimestamp : nil
-      let latestUserInputTimestamp =
-        platform.userInputTracker.snapshot.latestEventTimestamp
+      let activationTimestamp = validatedNativeActivationTimestamp(
+        snapshot: snapshot,
+        resolvedActivation: currentActivation,
+        input: liveInput
+      )
+      let latestUserInputTimestamp = liveInput.latestEventTimestamp
       let nativeFocusAccepted =
         nativeFocusMutationIsReady(
           nativeFocusChanged: snapshot.nativeFocusChanged,
