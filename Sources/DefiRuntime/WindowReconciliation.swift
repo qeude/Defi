@@ -170,6 +170,7 @@ public func reconcileWindows(
   windowIDReplacements: [WindowID: WindowID] = [:],
   externallyChangedWindowIDs: Set<WindowID> = [],
   nativeFullscreenWindowIDs: Set<WindowID> = [],
+  explicitlyRemovedWindowIDs: Set<WindowID> = [],
   viewports: [MonitorID: Rect] = [:],
   nativeFocusedWindowID: WindowID? = nil,
   frontmostProcessID: pid_t? = nil,
@@ -177,6 +178,9 @@ public func reconcileWindows(
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
   let discoveredIDs = Set(discovered.map(\.id))
+  let fullscreenWindowIDs = nativeFullscreenWindowIDs.subtracting(
+    explicitlyRemovedWindowIDs
+  )
   applyWindowIDReplacements(
     windowIDReplacements,
     discoveredWindows: Dictionary(
@@ -186,9 +190,14 @@ public func reconcileWindows(
     state: &state
   )
   let fullscreenSpaceHidesOtherWindows =
-    !nativeFullscreenWindowIDs.isEmpty || !state.nativeFullscreenWindowIDs.isEmpty
+    !fullscreenWindowIDs.isEmpty || !state.nativeFullscreenWindowIDs.isEmpty
   for existingID in Array(state.windows.keys)
-  where !discoveredIDs.contains(existingID) && !fullscreenSpaceHidesOtherWindows {
+  where !discoveredIDs.contains(existingID)
+    && (!fullscreenSpaceHidesOtherWindows || explicitlyRemovedWindowIDs.contains(existingID))
+  {
+    if explicitlyRemovedWindowIDs.contains(existingID) {
+      adjustNativeFullscreenPlacements(afterRemoving: existingID, state: &state)
+    }
     removeWindowFromEveryWorkspace(existingID, state: &state)
     state.windows[existingID] = nil
     state.nativeFullscreenFloatingWindowIDs.remove(existingID)
@@ -206,14 +215,14 @@ public func reconcileWindows(
         isNativelyFocused: window.id == nativeFocusedWindowID,
         isFrontmostAppSpawn: window.processID != nil
           && window.processID == frontmostProcessID,
-        isNativeFullscreen: nativeFullscreenWindowIDs.contains(window.id),
+        isNativeFullscreen: fullscreenWindowIDs.contains(window.id),
         state: &state
       )
     } else {
       var updated = window
       if let existing = state.windows[window.id] {
         if existing.floatingOrigin == .automatic,
-          !nativeFullscreenWindowIDs.contains(window.id)
+          !fullscreenWindowIDs.contains(window.id)
         {
           reclassifyAutomaticWindow(
             window.id,
@@ -227,7 +236,7 @@ public func reconcileWindows(
           !existing.forceTiling,
           updated.floatingOrigin == .automatic,
           updated.floating,
-          !nativeFullscreenWindowIDs.contains(window.id)
+          !fullscreenWindowIDs.contains(window.id)
         {
           reclassifyTiledWindowAsAutomaticFloater(
             window.id,
@@ -239,7 +248,7 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
-        if nativeFullscreenWindowIDs.contains(window.id) {
+        if fullscreenWindowIDs.contains(window.id) {
           updated.minimumTiledWidth = nil
           updated.maximumTiledWidth = nil
         } else if window.minimumTiledWidth != nil
@@ -276,9 +285,62 @@ public func reconcileWindows(
     }
     if relocatedInPass == false { break }
   }
-  reconcileNativeFullscreenWindows(nativeFullscreenWindowIDs, state: &state)
+  reconcileNativeFullscreenWindows(fullscreenWindowIDs, state: &state)
+  state.pendingNativeFullscreenWidthResetWindowIDs.subtract(explicitlyRemovedWindowIDs)
   state.maintainWorkspaceLifecycle()
   return relocatedTransientIDs
+}
+
+private func adjustNativeFullscreenPlacements(
+  afterRemoving windowID: WindowID,
+  state: inout RuntimeState
+) {
+  guard let location = state.location(containing: windowID),
+    let monitorIndex = state.monitors.firstIndex(where: { $0.id == location.monitorID }),
+    let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+      where: { $0.id == location.workspaceID }
+    ),
+    let columnIndex = state.monitors[monitorIndex].workspaces[workspaceIndex].columns.firstIndex(
+      where: { $0.windows.contains(windowID) }
+    ),
+    state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].windows.count == 1
+  else { return }
+
+  let placements = state.nativeFullscreenTiledPlacements.filter {
+    $0.value.monitorID == location.monitorID && $0.value.workspaceID == location.workspaceID
+  }
+  // A suspended sibling keeps this logical column alive after its last visible window closes.
+  guard !placements.contains(where: {
+    $0.key != windowID && $0.value.column.windows.contains(windowID)
+  }) else { return }
+  // Columns still reflect the previous fullscreen set; this pass's transitions run after removal.
+  let visibleWindowIDs = Set(
+    state.monitors[monitorIndex].workspaces[workspaceIndex].columns.flatMap(\.windows)
+  ).subtracting(state.nativeFullscreenWindowIDs)
+  let originalColumnIndex: Int
+  if let placement = placements[windowID] {
+    guard !placement.column.windows.contains(where: visibleWindowIDs.contains) else { return }
+    originalColumnIndex = placement.columnIndex
+  } else {
+    // Fullscreen placeholders for floating windows do not occupy a logical tiled column.
+    guard !state.nativeFullscreenWindowIDs.contains(windowID) else { return }
+    let suspendedColumnIndices = Set(placements.values.filter {
+      !$0.column.windows.contains(where: visibleWindowIDs.contains)
+    }.map(\.columnIndex))
+    originalColumnIndex = suspendedColumnIndices.sorted().reduce(columnIndex) {
+      index, suspended in suspended <= index ? index + 1 : index
+    }
+  }
+
+  for (fullscreenID, placement) in placements where placement.columnIndex > originalColumnIndex {
+    state.nativeFullscreenTiledPlacements[fullscreenID] = SuspendedTiledPlacement(
+      monitorID: placement.monitorID,
+      workspaceID: placement.workspaceID,
+      columnIndex: placement.columnIndex - 1,
+      windowIndex: placement.windowIndex,
+      column: placement.column
+    )
+  }
 }
 
 private func applyWindowIDReplacements(

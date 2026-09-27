@@ -804,6 +804,7 @@ extension SnapshotEngine {
       nativeFocusIsApplicationActivation: nativeFocusIsApplicationActivation,
       applicationActivationTimestamp: nativeFocusIsApplicationActivation ? activation?.timestamp : nil,
       removedWindowIDs: removedWindowIDs,
+      explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
       windowIDReplacements: windowIDReplacements,
       latestUserInputTimestamp: userInput.latestEventTimestamp,
       userInputAfterWindowTopology: userInputOccurredAfterWindowTopology(
