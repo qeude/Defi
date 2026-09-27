@@ -87,6 +87,38 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
+  func `Closing an earlier column preserves fullscreen return order`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    let closedID = WindowID(rawValue: 1)
+    let remainingID = WindowID(rawValue: 3)
+
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+    reconcileWindows(
+      [try #require(state.windows[fullscreenID]), try #require(state.windows[remainingID])],
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      explicitlyRemovedWindowIDs: [closedID],
+      state: &state
+    )
+
+    #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.columnIndex == 0)
+
+    reconcileWindows(
+      [try #require(state.windows[fullscreenID]), try #require(state.windows[remainingID])],
+      config: Config(),
+      state: &state
+    )
+
+    #expect(columnWindowIDs(in: state) == [[2], [3]])
+  }
+
+  @Test
   func `Fullscreen exit preserves the latest workspace and focus intent`() throws {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["home", "other"], defaultName: "home")

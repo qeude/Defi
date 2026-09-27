@@ -195,6 +195,9 @@ public func reconcileWindows(
   where !discoveredIDs.contains(existingID)
     && (!fullscreenSpaceHidesOtherWindows || explicitlyRemovedWindowIDs.contains(existingID))
   {
+    if explicitlyRemovedWindowIDs.contains(existingID) {
+      adjustNativeFullscreenPlacements(afterRemoving: existingID, state: &state)
+    }
     removeWindowFromEveryWorkspace(existingID, state: &state)
     state.windows[existingID] = nil
     state.nativeFullscreenFloatingWindowIDs.remove(existingID)
@@ -286,6 +289,38 @@ public func reconcileWindows(
   state.pendingNativeFullscreenWidthResetWindowIDs.subtract(explicitlyRemovedWindowIDs)
   state.maintainWorkspaceLifecycle()
   return relocatedTransientIDs
+}
+
+private func adjustNativeFullscreenPlacements(
+  afterRemoving windowID: WindowID,
+  state: inout RuntimeState
+) {
+  guard !state.nativeFullscreenWindowIDs.contains(windowID),
+    let location = state.location(containing: windowID),
+    let monitorIndex = state.monitors.firstIndex(where: { $0.id == location.monitorID }),
+    let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+      where: { $0.id == location.workspaceID }
+    ),
+    let columnIndex = state.monitors[monitorIndex].workspaces[workspaceIndex].columns.firstIndex(
+      where: { $0.windows.contains(windowID) }
+    ),
+    state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].windows.count == 1
+  else { return }
+
+  for fullscreenID in Array(state.nativeFullscreenTiledPlacements.keys) {
+    guard let placement = state.nativeFullscreenTiledPlacements[fullscreenID],
+      placement.monitorID == location.monitorID,
+      placement.workspaceID == location.workspaceID,
+      placement.columnIndex > columnIndex
+    else { continue }
+    state.nativeFullscreenTiledPlacements[fullscreenID] = SuspendedTiledPlacement(
+      monitorID: placement.monitorID,
+      workspaceID: placement.workspaceID,
+      columnIndex: placement.columnIndex - 1,
+      windowIndex: placement.windowIndex,
+      column: placement.column
+    )
+  }
 }
 
 private func applyWindowIDReplacements(
