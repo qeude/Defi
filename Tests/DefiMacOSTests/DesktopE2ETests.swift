@@ -1614,7 +1614,7 @@ final class DesktopE2ETests: XCTestCase {
         for other in snapshot.monitors where other.id != monitor.id {
           let frame = other.physicalFrame
           let intersection = rect.intersection(CGRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height))
-          XCTAssertTrue(intersection.isNull || intersection.width <= 1 || intersection.height <= 1,
+          XCTAssertTrue(intersection.isNull || intersection.isEmpty,
                         "Parking leaked into \(other.id): \(intersection)")
         }
       }
