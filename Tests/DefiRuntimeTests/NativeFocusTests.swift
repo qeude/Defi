@@ -51,6 +51,20 @@ struct NativeFocusTests {
       == (newerCommand ? fixture.devWorkspace : WorkspaceID(rawValue: "web")))
   }
 
+  @Test
+  func newerCapturedInputRejectsActivationBeforeCommandRuns() {
+    #expect(!nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: 10,
+      latestCommandInputTimestamp: 9,
+      latestUserInputTimestamp: 11
+    ))
+  }
+
   @Test(arguments: [false, true])
   func externalActivationRequiresConfirmationAndMouseRelease(mouseHeld: Bool) {
     #expect(nativeFocusMutationIsReady(

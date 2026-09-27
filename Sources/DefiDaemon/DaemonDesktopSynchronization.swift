@@ -26,6 +26,13 @@ func coalescedDesktopSnapshotRequest(
   )
 }
 
+func shouldCommitNativeFocusSelection(
+  nativeFocusAccepted: Bool,
+  selectionChanged: Bool
+) -> Bool {
+  nativeFocusAccepted && selectionChanged
+}
+
 func shouldCloseOverviewAfterNativeFocusChange(
   nativeFocusChanged: Bool,
   overviewOpenedAt: TimeInterval?,
@@ -469,6 +476,8 @@ extension Daemon {
         && currentActivation?.processID == snapshot.frontmostProcessID
         && currentActivation?.timestamp == snapshot.applicationActivationTimestamp
         ? snapshot.applicationActivationTimestamp : nil
+      let latestUserInputTimestamp =
+        platform.userInputTracker.snapshot.latestEventTimestamp
       let nativeFocusAccepted =
         nativeFocusMutationIsReady(
           nativeFocusChanged: snapshot.nativeFocusChanged,
@@ -481,7 +490,8 @@ extension Daemon {
           nativeFocusSuppressed:
             ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil,
           applicationActivationTimestamp: activationTimestamp,
-          latestCommandInputTimestamp: latestCommandInputTimestamp
+          latestCommandInputTimestamp: latestCommandInputTimestamp,
+          latestUserInputTimestamp: latestUserInputTimestamp
         )
         && !preservesWorkspaceAfterRemoval
       let selectionChanged = nativeFocusChangesSelection(
@@ -491,7 +501,7 @@ extension Daemon {
       )
       if snapshot.nativeFocusChanged && selectionChanged {
         platform.recordPerformanceTrace(
-          "native-focus target=\(focusedWindowID.rawValue) activation=\(snapshot.nativeFocusIsApplicationActivation) accepted=\(nativeFocusAccepted) mouseDown=\(snapshot.leftMouseButtonDown) mouseIntent=\(mouseReleaseFocusIntentCurrent) keyboardIntent=\(keyboardFocusIntentCurrent)"
+          "native-focus target=\(focusedWindowID.rawValue) activation=\(snapshot.nativeFocusIsApplicationActivation) activationTS=\(activationTimestamp.map { String($0) } ?? "none") accepted=\(nativeFocusAccepted) inputTS=\(latestUserInputTimestamp) commandTS=\(latestCommandInputTimestamp) mouseDown=\(snapshot.leftMouseButtonDown) mouseIntent=\(mouseReleaseFocusIntentCurrent) keyboardIntent=\(keyboardFocusIntentCurrent)"
         )
       }
       nativeCursorWarpInputTimestamp = nativeFocusCursorWarpTimestamp(
@@ -543,7 +553,10 @@ extension Daemon {
       }
       if !preservesWorkspaceAfterRemoval
         && (!snapshot.leftMouseButtonDown || nativeFocusAccepted)
-        && (activeMonitorID == nil || (nativeFocusAccepted && selectionChanged))
+        && shouldCommitNativeFocusSelection(
+          nativeFocusAccepted: nativeFocusAccepted,
+          selectionChanged: selectionChanged
+        )
       {
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace

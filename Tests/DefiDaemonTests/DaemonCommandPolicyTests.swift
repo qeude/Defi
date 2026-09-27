@@ -295,6 +295,29 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func staleNativeFocusCannotChangeSelectionBeforeMonitorSelection() {
+    let nativeFocusAccepted = nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false
+    )
+    #expect(!shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: nativeFocusAccepted,
+      selectionChanged: true
+    ))
+    #expect(shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: true,
+      selectionChanged: true
+    ))
+    #expect(!shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: true,
+      selectionChanged: false
+    ))
+  }
+
+  @Test
   func inactiveDesktopNeverArmsRecurringTimer() {
     #expect(desktopTimerFrequency(requested: 240, sessionActive: false) == 0)
     #expect(desktopTimerFrequency(requested: 2, sessionActive: true) == 2)
