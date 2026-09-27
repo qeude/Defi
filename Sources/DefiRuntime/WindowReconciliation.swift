@@ -313,6 +313,7 @@ private func adjustNativeFullscreenPlacements(
   guard !placements.contains(where: {
     $0.key != windowID && $0.value.column.windows.contains(windowID)
   }) else { return }
+  // Columns still reflect the previous fullscreen set; this pass's transitions run after removal.
   let visibleWindowIDs = Set(
     state.monitors[monitorIndex].workspaces[workspaceIndex].columns.flatMap(\.windows)
   ).subtracting(state.nativeFullscreenWindowIDs)

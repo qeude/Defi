@@ -404,8 +404,10 @@ struct NativeFullscreenRuntimeTests {
     #expect(state == beforeJoin)
   }
 
-  @Test(arguments: [1, 2, 3, 4])
-  func `Closure uses logical column order with multiple fullscreen windows`(closed: Int) throws {
+  @Test(arguments: [1, 2, 3, 4], [[], [1], [3], [1, 3], [1, 2, 3, 4]])
+  func `Closure uses logical column order with multiple fullscreen windows`(
+    closed: Int, nextFullscreen: [Int]
+  ) throws {
     var state = try makeState(windowCount: 4)
     let fullscreenIDs = Set([1, 3].map { WindowID(rawValue: $0) })
     let closedID = WindowID(rawValue: UInt64(closed))
@@ -418,7 +420,7 @@ struct NativeFullscreenRuntimeTests {
     reconcileWindows(
       orderedWindows(in: state).filter { $0.id != closedID },
       config: Config(),
-      nativeFullscreenWindowIDs: fullscreenIDs,
+      nativeFullscreenWindowIDs: Set(nextFullscreen.map { WindowID(rawValue: UInt64($0)) }),
       explicitlyRemovedWindowIDs: [closedID],
       state: &state
     )
