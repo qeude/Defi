@@ -31,7 +31,8 @@ public func continuousStripFramesForActiveWorkspace(
   viewport: Rect,
   ownerFrame: Rect? = nil,
   parkingFrame: Rect? = nil,
-  allMonitorFrames: [Rect]? = nil
+  allMonitorFrames: [Rect]? = nil,
+  reservedParkingFrames: [Rect] = []
 ) -> ContinuousStripPlan {
   let parkingOwnerFrame = ownerFrame ?? viewport
   let parkingMonitorFrames = allMonitorFrames ?? [parkingOwnerFrame]
@@ -67,6 +68,7 @@ public func continuousStripFramesForActiveWorkspace(
       ownerFrame: parkingOwnerFrame,
       parkingFrame: parkingFrame,
       allMonitorFrames: parkingMonitorFrames,
+      reservedParkingFrames: reservedParkingFrames,
       preferredSide: side
     ))
     for assignment in assignments {

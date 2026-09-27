@@ -20,6 +20,7 @@ public func resolveParkingPlacement(
   ownerFrame: Rect,
   parkingFrame: Rect? = nil,
   allMonitorFrames: [Rect],
+  reservedParkingFrames: [Rect] = [],
   preferredSide: ParkingSide,
   anchorSize: Double = parkedSliverWidth
 ) -> ParkingPlacement {
@@ -27,12 +28,16 @@ public func resolveParkingPlacement(
   let writableFrame = parkingFrame ?? ownerFrame
   let targetY =
     writableFrame.y + max(writableFrame.height - frame.height, 0)
-  let otherFrames = allMonitorFrames.filter { $0 != ownerFrame }
+  let ownerIndex = allMonitorFrames.firstIndex(of: ownerFrame)
+  let otherFrames = allMonitorFrames.enumerated().compactMap { index, monitorFrame in
+    index == ownerIndex ? nil : monitorFrame
+  }
   let verticalOrigins = parkingVerticalOrigins(
     for: frame,
     targetY: targetY,
     ownerFrame: ownerFrame,
-    otherFrames: otherFrames
+    otherFrames: otherFrames,
+    reservedParkingFrames: reservedParkingFrames
   )
   let candidates = [preferredSide, opposite(preferredSide)].flatMap { side in
     verticalOrigins.map { y in
@@ -54,9 +59,11 @@ public func resolveParkingPlacement(
   return candidates.min {
     parkingScore(
       $0, ownerFrame: ownerFrame, otherFrames: otherFrames,
+      reservedParkingFrames: reservedParkingFrames,
       targetY: targetY, preferredSide: preferredSide
     ) < parkingScore(
       $1, ownerFrame: ownerFrame, otherFrames: otherFrames,
+      reservedParkingFrames: reservedParkingFrames,
       targetY: targetY, preferredSide: preferredSide
     )
   } ?? candidates[0]
@@ -67,6 +74,7 @@ public func parkFramesInSafeCorner(
   ownerFrame: Rect,
   parkingFrame: Rect? = nil,
   allMonitorFrames: [Rect],
+  reservedParkingFrames: [Rect] = [],
   preferredSide: ParkingSide
 ) -> [FrameAssignment] {
   frames.map { assignment in
@@ -75,6 +83,7 @@ public func parkFramesInSafeCorner(
       ownerFrame: ownerFrame,
       parkingFrame: parkingFrame,
       allMonitorFrames: allMonitorFrames,
+      reservedParkingFrames: reservedParkingFrames,
       preferredSide: preferredSide
     )
     return FrameAssignment(
@@ -92,27 +101,32 @@ private func parkingScore(
   _ placement: ParkingPlacement,
   ownerFrame: Rect,
   otherFrames: [Rect],
+  reservedParkingFrames: [Rect],
   targetY: Double,
   preferredSide: ParkingSide
-) -> (Int, Double, Double, Int) {
+) -> (Double, Int, Double, Int) {
   let ownerVerticalOverlap = verticalIntersectionLength(
     placement.frame,
     ownerFrame
   )
   let lanePenalty = ownerVerticalOverlap > 0 ? 0 : 1
-  let otherOverlap = otherFrames.reduce(0) {
+  let protectedOverlap = otherFrames.reduce(0) {
+    $0 + intersectionArea(placement.frame, $1)
+  } + reservedParkingFrames.reduce(0) {
     $0 + intersectionArea(placement.frame, $1)
   }
   let verticalDistance = abs(placement.frame.y - targetY)
   let sidePenalty = placement.side == preferredSide ? 0 : 1
-  return (lanePenalty, otherOverlap, verticalDistance, sidePenalty)
+  // Avoid leaking onto another monitor before preferring the owner's lane.
+  return (protectedOverlap, lanePenalty, verticalDistance, sidePenalty)
 }
 
 private func parkingVerticalOrigins(
   for frame: Rect,
   targetY: Double,
   ownerFrame: Rect,
-  otherFrames: [Rect]
+  otherFrames: [Rect],
+  reservedParkingFrames: [Rect]
 ) -> [Double] {
   var origins: [Double] = []
   func append(_ value: Double) {
@@ -131,6 +145,17 @@ private func parkingVerticalOrigins(
     append(otherFrame.y - frame.height)
     append(otherFrame.y + otherFrame.height)
   }
+  for reservedFrame in reservedParkingFrames {
+    append(reservedFrame.y - frame.height)
+    append(reservedFrame.y + reservedFrame.height)
+  }
+  let top = otherFrames.reduce(ownerFrame.y) { min($0, $1.y) }
+  let bottom = otherFrames.reduce(ownerFrame.y + ownerFrame.height) {
+    max($0, $1.y + $1.height)
+  }
+  // These outer lanes provide a non-overlapping fallback for aligned displays.
+  append(top - frame.height)
+  append(bottom)
   return origins
 }
 

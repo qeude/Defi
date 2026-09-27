@@ -87,6 +87,236 @@ struct ParkingTests {
     #expect(intersectionArea(placement.frame, rightNeighbor) == 0)
   }
 
+  @Test
+  func `Parking between aligned displays never enters either neighbor`() {
+    let left = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let owner = Rect(x: 1_000, y: 0, width: 1_000, height: 700)
+    let right = Rect(x: 2_000, y: 0, width: 1_000, height: 700)
+
+    for side in [ParkingSide.left, .right] {
+      let placement = resolveParkingPlacement(
+        for: Rect(x: 1_000, y: 0, width: 500, height: 700),
+        ownerFrame: owner,
+        allMonitorFrames: [left, owner, right],
+        preferredSide: side
+      )
+
+      #expect(placement.frame.x == (side == .left ? 501 : 1_999))
+      #expect(intersectionArea(placement.frame, left) == 0)
+      #expect(intersectionArea(placement.frame, right) == 0)
+    }
+  }
+
+  @Test
+  func `Aligned displays keep their reserved parking frames separate`() {
+    let monitors = [
+      Rect(x: 0, y: 0, width: 1_000, height: 700),
+      Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+      Rect(x: 2_000, y: 0, width: 1_000, height: 700),
+      Rect(x: 3_000, y: 0, width: 1_000, height: 700),
+    ]
+    var placements: [Rect] = []
+    for (index, owner) in monitors.enumerated() {
+      let placement = resolveParkingPlacement(
+        for: Rect(x: owner.x, y: owner.y, width: 500, height: 700),
+        ownerFrame: owner,
+        allMonitorFrames: monitors,
+        reservedParkingFrames: placements,
+        preferredSide: index == 1 ? .right : .left
+      )
+      placements.append(placement.frame)
+    }
+
+    for index in placements.indices {
+      for otherIndex in placements.indices where index != otherIndex {
+        #expect(intersectionArea(placements[index], placements[otherIndex]) == 0)
+        #expect(intersectionArea(placements[index], monitors[otherIndex]) == 0)
+      }
+    }
+  }
+
+  @Test
+  func `Display gap parking reserves the first monitor target`() {
+    let left = Rect(x: -1_200, y: 0, width: 800, height: 600)
+    let right = Rect(x: 0, y: 0, width: 800, height: 600)
+    let rightPlacement = resolveParkingPlacement(
+      for: Rect(x: 0, y: 0, width: 300, height: 300),
+      ownerFrame: right,
+      allMonitorFrames: [right, left],
+      preferredSide: .left
+    )
+    let leftPlacement = resolveParkingPlacement(
+      for: Rect(x: left.x, y: left.y, width: 300, height: 300),
+      ownerFrame: left,
+      allMonitorFrames: [right, left],
+      reservedParkingFrames: [rightPlacement.frame],
+      preferredSide: .right
+    )
+
+    #expect(intersectionArea(leftPlacement.frame, rightPlacement.frame) == 0)
+    #expect(intersectionArea(leftPlacement.frame, right) == 0)
+    #expect(intersectionArea(rightPlacement.frame, left) == 0)
+  }
+
+  @Test
+  func `Active strip parking avoids earlier monitor reservations`() {
+    let left = Rect(x: -1_200, y: 0, width: 800, height: 600)
+    let right = Rect(x: 0, y: 0, width: 800, height: 600)
+    let earlierParking = resolveParkingPlacement(
+      for: Rect(x: left.x, y: left.y, width: 300, height: 300),
+      ownerFrame: left,
+      allMonitorFrames: [left, right],
+      preferredSide: .right
+    )
+    let activeStrip = continuousStripFramesForActiveWorkspace(
+      [FrameAssignment(
+        windowID: WindowID(rawValue: 1),
+        frame: Rect(x: -300, y: 0, width: 300, height: 300)
+      )],
+      viewport: right,
+      ownerFrame: right,
+      allMonitorFrames: [left, right],
+      reservedParkingFrames: [earlierParking.frame]
+    )
+
+    #expect(activeStrip.frames.count == 1)
+    if let activeFrame = activeStrip.frames.first?.frame {
+      #expect(intersectionArea(activeFrame, earlierParking.frame) == 0)
+    }
+  }
+
+  @Test
+  func `Outgoing strip parking avoids reservations after its vertical translation`() {
+    let left = Rect(x: -1_200, y: 400, width: 800, height: 600)
+    let right = Rect(x: 0, y: 0, width: 800, height: 600)
+    let deltaY = 400.0
+    let earlierParking = resolveParkingPlacement(
+      for: Rect(x: left.x, y: left.y, width: 300, height: 300),
+      ownerFrame: left,
+      allMonitorFrames: [left, right],
+      preferredSide: .right
+    )
+    let offscreenColumn = FrameAssignment(
+      windowID: WindowID(rawValue: 1),
+      frame: Rect(x: -300, y: 0, width: 300, height: 300)
+    )
+    let unreserved = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: right,
+      ownerFrame: right,
+      allMonitorFrames: [left, right]
+    )
+    #expect(unreserved.frames.count == 1)
+    if var finalFrame = unreserved.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, earlierParking.frame) > 0)
+    }
+
+    var reservationBeforeTranslation = earlierParking.frame
+    reservationBeforeTranslation.y -= deltaY
+    let reserved = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: right,
+      ownerFrame: right,
+      allMonitorFrames: [left, right],
+      reservedParkingFrames: [reservationBeforeTranslation]
+    )
+
+    #expect(reserved.frames.count == 1)
+    if var finalFrame = reserved.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, earlierParking.frame) == 0)
+    }
+  }
+
+  @Test
+  func `Outgoing strip parking avoids neighboring displays after its vertical translation`() {
+    let owner = Rect(x: 0, y: 0, width: 800, height: 600)
+    let neighbor = Rect(x: -900, y: -500, width: 800, height: 600)
+    let deltaY = -600.0
+    let offscreenColumn = FrameAssignment(
+      windowID: WindowID(rawValue: 1),
+      frame: Rect(x: -300, y: 0, width: 300, height: 300)
+    )
+    let unshifted = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: owner,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, neighbor]
+    )
+
+    #expect(unshifted.frames.count == 1)
+    if var finalFrame = unshifted.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, neighbor) > 0)
+    }
+
+    var neighborBeforeTranslation = neighbor
+    neighborBeforeTranslation.y -= deltaY
+    let shifted = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: owner,
+      ownerFrame: owner,
+      allMonitorFrames: [neighborBeforeTranslation]
+    )
+
+    #expect(shifted.frames.count == 1)
+    if var finalFrame = shifted.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, neighbor) == 0)
+    }
+  }
+
+  @Test
+  func `Outgoing strip parking keeps a stacked neighbor matching the owner`() {
+    let owner = Rect(x: 0, y: 0, width: 800, height: 600)
+    let neighbor = Rect(x: 0, y: 600, width: 800, height: 600)
+    let deltaY = 600.0
+    var neighborBeforeTranslation = neighbor
+    neighborBeforeTranslation.y -= deltaY
+    #expect(neighborBeforeTranslation == owner)
+
+    let strip = continuousStripFramesForActiveWorkspace(
+      [FrameAssignment(
+        windowID: WindowID(rawValue: 1),
+        frame: Rect(x: -300, y: 0, width: 300, height: 300)
+      )],
+      viewport: owner,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, neighborBeforeTranslation]
+    )
+
+    #expect(strip.frames.count == 1)
+    if var finalFrame = strip.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, neighbor) == 0)
+    }
+  }
+
+  @Test
+  func `Parking recalculates after a neighboring display grows`() {
+    let owner = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let oldNeighbor = Rect(x: 1_500, y: 0, width: 1_000, height: 700)
+    let newNeighbor = Rect(x: 999, y: 0, width: 1_500, height: 900)
+    let frame = Rect(x: 0, y: 0, width: 500, height: 700)
+    let oldPlacement = resolveParkingPlacement(
+      for: frame,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, oldNeighbor],
+      preferredSide: .right
+    )
+
+    let updatedPlacement = resolveParkingPlacement(
+      for: frame,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, newNeighbor],
+      preferredSide: .right
+    )
+
+    #expect(intersectionArea(oldPlacement.frame, oldNeighbor) == 0)
+    #expect(intersectionArea(updatedPlacement.frame, newNeighbor) == 0)
+  }
+
   private func intersectionArea(_ lhs: Rect, _ rhs: Rect) -> Double {
     max(
       min(lhs.x + lhs.width, rhs.x + rhs.width) - max(lhs.x, rhs.x),

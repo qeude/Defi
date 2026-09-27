@@ -9,6 +9,50 @@ import Testing
 
 struct DaemonCommandPolicyTests {
   @Test
+  func outgoingTransitionParkingIsReservedForLaterMonitorLayouts() throws {
+    let outgoingMonitor = Rect(x: -1_200, y: 400, width: 800, height: 600)
+    let laterMonitor = Rect(x: 0, y: 0, width: 800, height: 600)
+    let deltaY = -600.0
+    var shiftedLaterMonitor = laterMonitor
+    shiftedLaterMonitor.y -= deltaY
+    let strip = continuousStripFramesForActiveWorkspace(
+      [
+        FrameAssignment(
+          windowID: WindowID(rawValue: 1),
+          frame: Rect(x: -100, y: 400, width: 300, height: 600)
+        )
+      ],
+      viewport: outgoingMonitor,
+      ownerFrame: outgoingMonitor,
+      allMonitorFrames: [outgoingMonitor, shiftedLaterMonitor]
+    )
+    let reservations = parkedFrameReservations(in: strip, translatedBy: deltaY)
+    let outgoingFrame = try #require(reservations.first)
+    let laterPlacement = resolveParkingPlacement(
+      for: Rect(x: 0, y: 0, width: 300, height: 600),
+      ownerFrame: laterMonitor,
+      allMonitorFrames: [outgoingMonitor, laterMonitor],
+      reservedParkingFrames: reservations,
+      preferredSide: .left
+    )
+    let overlapWidth = max(
+      min(laterPlacement.frame.x + laterPlacement.frame.width,
+          outgoingFrame.x + outgoingFrame.width)
+        - max(laterPlacement.frame.x, outgoingFrame.x),
+      0
+    )
+    let overlapHeight = max(
+      min(laterPlacement.frame.y + laterPlacement.frame.height,
+          outgoingFrame.y + outgoingFrame.height)
+        - max(laterPlacement.frame.y, outgoingFrame.y),
+      0
+    )
+
+    #expect(outgoingFrame == Rect(x: -401, y: -200, width: 300, height: 600))
+    #expect(overlapWidth * overlapHeight == 0)
+  }
+
+  @Test
   func widthConstraintRequiresRepeatedSettledMismatch() {
     let windowID = WindowID(rawValue: 1)
     let target = Rect(x: 2, y: 34, width: 2_554, height: 1_353)
