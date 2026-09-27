@@ -195,12 +195,19 @@ extension Daemon {
             frame.y -= deltaY
             return frame
           }
+          let transitionMonitorFrames: [Rect] = latestMonitors.compactMap {
+            snapshot -> Rect? in
+            guard snapshot.id != monitor.id else { return nil }
+            var frame = snapshot.physicalFrame
+            frame.y -= deltaY
+            return frame
+          }
           let strip = continuousStripFramesForActiveWorkspace(
             sizedFrames,
             viewport: viewport,
             ownerFrame: physicalFrame,
             parkingFrame: viewport,
-            allMonitorFrames: allPhysicalMonitorFrames,
+            allMonitorFrames: transitionMonitorFrames,
             reservedParkingFrames: transitionParkingFrames
           )
           let leaving = (strip.frames + floatingAssignments(in: workspace)).map {

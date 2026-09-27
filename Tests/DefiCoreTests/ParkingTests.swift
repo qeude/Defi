@@ -229,6 +229,44 @@ struct ParkingTests {
   }
 
   @Test
+  func `Outgoing strip parking avoids neighboring displays after its vertical translation`() {
+    let owner = Rect(x: 0, y: 0, width: 800, height: 600)
+    let neighbor = Rect(x: -900, y: -500, width: 800, height: 600)
+    let deltaY = -600.0
+    let offscreenColumn = FrameAssignment(
+      windowID: WindowID(rawValue: 1),
+      frame: Rect(x: -300, y: 0, width: 300, height: 300)
+    )
+    let unshifted = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: owner,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, neighbor]
+    )
+
+    #expect(unshifted.frames.count == 1)
+    if var finalFrame = unshifted.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, neighbor) > 0)
+    }
+
+    var neighborBeforeTranslation = neighbor
+    neighborBeforeTranslation.y -= deltaY
+    let shifted = continuousStripFramesForActiveWorkspace(
+      [offscreenColumn],
+      viewport: owner,
+      ownerFrame: owner,
+      allMonitorFrames: [neighborBeforeTranslation]
+    )
+
+    #expect(shifted.frames.count == 1)
+    if var finalFrame = shifted.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, neighbor) == 0)
+    }
+  }
+
+  @Test
   func `Parking recalculates after a neighboring display grows`() {
     let owner = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let oldNeighbor = Rect(x: 1_500, y: 0, width: 1_000, height: 700)
