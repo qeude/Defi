@@ -267,6 +267,32 @@ struct ParkingTests {
   }
 
   @Test
+  func `Outgoing strip parking keeps a stacked neighbor matching the owner`() {
+    let owner = Rect(x: 0, y: 0, width: 800, height: 600)
+    let neighbor = Rect(x: 0, y: 600, width: 800, height: 600)
+    let deltaY = 600.0
+    var neighborBeforeTranslation = neighbor
+    neighborBeforeTranslation.y -= deltaY
+    #expect(neighborBeforeTranslation == owner)
+
+    let strip = continuousStripFramesForActiveWorkspace(
+      [FrameAssignment(
+        windowID: WindowID(rawValue: 1),
+        frame: Rect(x: -300, y: 0, width: 300, height: 300)
+      )],
+      viewport: owner,
+      ownerFrame: owner,
+      allMonitorFrames: [owner, neighborBeforeTranslation]
+    )
+
+    #expect(strip.frames.count == 1)
+    if var finalFrame = strip.frames.first?.frame {
+      finalFrame.y += deltaY
+      #expect(intersectionArea(finalFrame, neighbor) == 0)
+    }
+  }
+
+  @Test
   func `Parking recalculates after a neighboring display grows`() {
     let owner = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let oldNeighbor = Rect(x: 1_500, y: 0, width: 1_000, height: 700)

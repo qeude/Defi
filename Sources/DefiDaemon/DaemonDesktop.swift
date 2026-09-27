@@ -195,7 +195,8 @@ extension Daemon {
             frame.y -= deltaY
             return frame
           }
-          let transitionMonitorFrames: [Rect] = latestMonitors.compactMap {
+          // A shifted neighbor can match the owner, so keep the owner first.
+          let transitionMonitorFrames = [physicalFrame] + latestMonitors.compactMap {
             snapshot -> Rect? in
             guard snapshot.id != monitor.id else { return nil }
             var frame = snapshot.physicalFrame
