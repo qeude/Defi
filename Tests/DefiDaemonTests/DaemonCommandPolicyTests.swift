@@ -304,6 +304,90 @@ struct DaemonCommandPolicyTests {
     ) == (timestamp < 10))
   }
 
+  @Test(arguments: [false, true])
+  func nativeActivationIsRevalidatedAfterLookup(closeIntent: Bool) throws {
+    let tracker = UserInputTracker()
+    tracker.recordApplicationActivation(processID: 20, at: 10)
+    let resolvedActivation = try #require(tracker.pendingApplicationActivation(
+      frontmostProcessID: 20, at: 10.1
+    ))
+    let snapshot = DesktopSnapshot(
+      monitors: [], windows: [], focusedWindowID: WindowID(rawValue: 1),
+      nativeFocusChanged: true,
+      nativeFocusIsApplicationActivation: true,
+      applicationActivationTimestamp: 10,
+      frontmostProcessID: 20
+    )
+    tracker.record(timestamp: 10.2) // Ordinary input preserves the activation.
+    #expect(validatedNativeActivationTimestamp(
+      snapshot: snapshot, resolvedActivation: resolvedActivation, input: tracker.snapshot
+    ) == 10)
+
+    tracker.record(
+      timestamp: 11,
+      focusIntent: closeIntent ? nil : .keyboard,
+      closeIntent: closeIntent
+    )
+    #expect(validatedNativeActivationTimestamp(
+      snapshot: snapshot, resolvedActivation: resolvedActivation, input: tracker.snapshot
+    ) == nil)
+  }
+
+  @Test(arguments: [nil, 10.0] as [Double?])
+  func staleNativeFocusCannotChangeSelectionBeforeMonitorSelection(activationTimestamp: Double?) {
+    let nativeFocusAccepted = nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: activationTimestamp,
+      latestCommandInputTimestamp: 11
+    )
+    #expect(!shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: nativeFocusAccepted,
+      selectionChanged: true
+    ))
+    #expect(shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: true,
+      selectionChanged: true
+    ))
+    #expect(!shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: true,
+      selectionChanged: false
+    ))
+  }
+
+  @Test(arguments: [nil, 10.0] as [Double?])
+  func staleFocusOnSecondMonitorKeepsDefaultMonitorRouting(activationTimestamp: Double?) {
+    let firstMonitor = MonitorID(rawValue: 1)
+    let staleMonitor = MonitorID(rawValue: 2)
+    let nativeFocusAccepted = nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: activationTimestamp,
+      latestCommandInputTimestamp: 11
+    )
+    let acceptedMonitor = shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: nativeFocusAccepted,
+      selectionChanged: true
+    ) ? staleMonitor : nil
+
+    #expect(activeMonitorIDAfterSnapshot(
+      activeMonitorID: nil,
+      acceptedNativeFocusMonitorID: acceptedMonitor,
+      fallbackMonitorID: firstMonitor
+    ) == firstMonitor)
+    #expect(activeMonitorIDAfterSnapshot(
+      activeMonitorID: nil,
+      acceptedNativeFocusMonitorID: staleMonitor,
+      fallbackMonitorID: firstMonitor
+    ) == staleMonitor)
+  }
+
   @Test
   func inactiveDesktopNeverArmsRecurringTimer() {
     #expect(desktopTimerFrequency(requested: 240, sessionActive: false) == 0)

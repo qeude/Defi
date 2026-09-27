@@ -28,6 +28,35 @@ func coalescedDesktopSnapshotRequest(
   )
 }
 
+func shouldCommitNativeFocusSelection(
+  nativeFocusAccepted: Bool,
+  selectionChanged: Bool
+) -> Bool {
+  nativeFocusAccepted && selectionChanged
+}
+
+func validatedNativeActivationTimestamp(
+  snapshot: DesktopSnapshot,
+  resolvedActivation: UserInputTracker.ApplicationActivation?,
+  input: UserInputTracker.Snapshot
+) -> TimeInterval? {
+  guard let resolvedActivation,
+    input.applicationActivation == resolvedActivation,
+    snapshot.nativeFocusIsApplicationActivation,
+    resolvedActivation.processID == snapshot.frontmostProcessID,
+    resolvedActivation.timestamp == snapshot.applicationActivationTimestamp
+  else { return nil }
+  return resolvedActivation.timestamp
+}
+
+func activeMonitorIDAfterSnapshot(
+  activeMonitorID: MonitorID?,
+  acceptedNativeFocusMonitorID: MonitorID?,
+  fallbackMonitorID: MonitorID?
+) -> MonitorID? {
+  acceptedNativeFocusMonitorID ?? activeMonitorID ?? fallbackMonitorID
+}
+
 func shouldCloseOverviewAfterNativeFocusChange(
   nativeFocusChanged: Bool,
   overviewOpenedAt: TimeInterval?,
@@ -454,16 +483,26 @@ extension Daemon {
         )
       }
     }
+    var acceptedNativeFocusMonitorID: MonitorID?
     if let focusedWindowID = snapshot.focusedWindowID {
+      let currentActivation = platform.userInputTracker.pendingApplicationActivation(
+        frontmostProcessID: platform.frontmostProcessID
+      )
+      // Revalidate the resolved activation and commands against one coherent input snapshot.
+      let liveInput = platform.userInputTracker.snapshot
+      let latestFocusIntentTimestamp = max(
+        latestCommandInputTimestamp,
+        liveInput.latestCapturedCommandTimestamp
+      )
       let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
         keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
-        latestCommandInputTimestamp: latestCommandInputTimestamp
+        latestCommandInputTimestamp: latestFocusIntentTimestamp
       )
       let mouseReleaseFocusIntentCurrent = mouseReleaseFocusIntentIsCurrent(
         focusedWindowID: focusedWindowID,
         mouseFocusIntentWindowID: deferredMouseFocusIntent?.windowID,
         mouseFocusIntentTimestamp: deferredMouseFocusIntent?.timestamp,
-        latestCommandInputTimestamp: latestCommandInputTimestamp,
+        latestCommandInputTimestamp: latestFocusIntentTimestamp,
         nativeFocusChanged: deferredMouseFocusIntent?.focusObserved == true
       )
       let deferredMouseFocusPending = deferredMouseFocusIntent != nil
@@ -471,13 +510,12 @@ extension Daemon {
         deferredMouseFocusIntent?.mouseInteractionEnded == true
         && (deferredMouseFocusIntent?.focusObserved == true
           || deferredMouseFocusIntent?.windowID == focusedWindowID)
-      let currentActivation = platform.userInputTracker.pendingApplicationActivation(
-        frontmostProcessID: platform.frontmostProcessID
+      let activationTimestamp = validatedNativeActivationTimestamp(
+        snapshot: snapshot,
+        resolvedActivation: currentActivation,
+        input: liveInput
       )
-      let activationTimestamp = snapshot.nativeFocusIsApplicationActivation
-        && currentActivation?.processID == snapshot.frontmostProcessID
-        && currentActivation?.timestamp == snapshot.applicationActivationTimestamp
-        ? snapshot.applicationActivationTimestamp : nil
+      let latestUserInputTimestamp = liveInput.latestEventTimestamp
       let nativeFocusAccepted =
         nativeFocusMutationIsReady(
           nativeFocusChanged: snapshot.nativeFocusChanged,
@@ -490,7 +528,7 @@ extension Daemon {
           nativeFocusSuppressed:
             ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil,
           applicationActivationTimestamp: activationTimestamp,
-          latestCommandInputTimestamp: latestCommandInputTimestamp
+          latestCommandInputTimestamp: latestFocusIntentTimestamp
         )
         && !preservesWorkspaceAfterRemoval
       let selectionChanged = nativeFocusChangesSelection(
@@ -500,7 +538,7 @@ extension Daemon {
       )
       if snapshot.nativeFocusChanged && selectionChanged {
         platform.recordPerformanceTrace(
-          "native-focus target=\(focusedWindowID.rawValue) activation=\(snapshot.nativeFocusIsApplicationActivation) accepted=\(nativeFocusAccepted) mouseDown=\(snapshot.leftMouseButtonDown) mouseIntent=\(mouseReleaseFocusIntentCurrent) keyboardIntent=\(keyboardFocusIntentCurrent)"
+          "native-focus target=\(focusedWindowID.rawValue) activation=\(snapshot.nativeFocusIsApplicationActivation) activationTS=\(activationTimestamp.map { String($0) } ?? "none") accepted=\(nativeFocusAccepted) inputTS=\(latestUserInputTimestamp) commandTS=\(latestCommandInputTimestamp) mouseDown=\(snapshot.leftMouseButtonDown) mouseIntent=\(mouseReleaseFocusIntentCurrent) keyboardIntent=\(keyboardFocusIntentCurrent)"
         )
       }
       nativeCursorWarpInputTimestamp = nativeFocusCursorWarpTimestamp(
@@ -552,12 +590,15 @@ extension Daemon {
       }
       if !preservesWorkspaceAfterRemoval
         && (!snapshot.leftMouseButtonDown || nativeFocusAccepted)
-        && (activeMonitorID == nil || (nativeFocusAccepted && selectionChanged))
+        && shouldCommitNativeFocusSelection(
+          nativeFocusAccepted: nativeFocusAccepted,
+          selectionChanged: selectionChanged
+        )
       {
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
-        activeMonitorID = state.monitorID(containing: focusedWindowID)
-        nativelyFocusedMonitorID = activeMonitorID
+        acceptedNativeFocusMonitorID = state.monitorID(containing: focusedWindowID)
+        nativelyFocusedMonitorID = acceptedNativeFocusMonitorID
         if mouseInteractionEnded {
           platform.recordPerformanceTrace(
             "mouse-focus-committed window=\(focusedWindowID.rawValue)"
@@ -587,10 +628,11 @@ extension Daemon {
     {
       self.activeMonitorID = nil
     }
-    activeMonitorID =
-      activeMonitorID
-      ?? snapshot.focusedWindowID.flatMap { state.monitorID(containing: $0) }
-      ?? state.monitors.first?.id
+    activeMonitorID = activeMonitorIDAfterSnapshot(
+      activeMonitorID: activeMonitorID,
+      acceptedNativeFocusMonitorID: acceptedNativeFocusMonitorID,
+      fallbackMonitorID: state.monitors.first?.id
+    )
 
     var mouseReordered = false
     if !displayGeometryChanged && mouseResizeGestureActive {

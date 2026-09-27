@@ -51,6 +51,25 @@ struct NativeFocusTests {
       == (newerCommand ? fixture.devWorkspace : WorkspaceID(rawValue: "web")))
   }
 
+  @Test
+  func newerCapturedCommandRejectsActivationAndEarlierKeyboardIntent() {
+    let latestCommandInputTimestamp = 11.0
+    let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
+      keyboardFocusIntentTimestamp: 10,
+      latestCommandInputTimestamp: latestCommandInputTimestamp
+    )
+    #expect(!keyboardFocusIntentCurrent)
+    #expect(!nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
+      applicationActivationTimestamp: 10,
+      latestCommandInputTimestamp: latestCommandInputTimestamp
+    ))
+  }
+
   @Test(arguments: [false, true])
   func externalActivationRequiresConfirmationAndMouseRelease(mouseHeld: Bool) {
     #expect(nativeFocusMutationIsReady(
