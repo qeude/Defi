@@ -87,6 +87,16 @@ struct PlatformEventTests {
     ))
   }
 
+  @Test(arguments: [9.0, 10.0, 10.1])
+  func delayedActivationRejectsNewerCapturedCommand(commandTimestamp: TimeInterval) {
+    let tracker = UserInputTracker()
+    tracker.recordCapturedCommand(at: commandTimestamp)
+    tracker.record(timestamp: 10.2)
+    #expect(delayedApplicationActivationIsCurrent(
+      startedAt: 10, input: tracker.snapshot
+    ) == (commandTimestamp <= 10))
+  }
+
   @Test @NavigationActor
   func sessionChangeDiscardsCachedAXConnectionsBeforeNextDiscovery() {
     let platform = MacOSPlatform()

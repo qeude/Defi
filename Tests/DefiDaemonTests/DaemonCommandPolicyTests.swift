@@ -294,14 +294,16 @@ struct DaemonCommandPolicyTests {
     ) == (timestamp < 10))
   }
 
-  @Test
-  func staleNativeFocusCannotChangeSelectionBeforeMonitorSelection() {
+  @Test(arguments: [nil, 10.0] as [Double?])
+  func staleNativeFocusCannotChangeSelectionBeforeMonitorSelection(activationTimestamp: Double?) {
     let nativeFocusAccepted = nativeFocusMutationIsReady(
       nativeFocusChanged: true,
       mouseInteractionEnded: false,
       leftMouseButtonDown: false,
       mouseReleaseFocusIntentCurrent: false,
-      keyboardFocusIntentCurrent: false
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: activationTimestamp,
+      latestCommandInputTimestamp: 11
     )
     #expect(!shouldCommitNativeFocusSelection(
       nativeFocusAccepted: nativeFocusAccepted,
@@ -317,8 +319,8 @@ struct DaemonCommandPolicyTests {
     ))
   }
 
-  @Test
-  func staleFocusOnSecondMonitorKeepsDefaultMonitorRouting() {
+  @Test(arguments: [nil, 10.0] as [Double?])
+  func staleFocusOnSecondMonitorKeepsDefaultMonitorRouting(activationTimestamp: Double?) {
     let firstMonitor = MonitorID(rawValue: 1)
     let staleMonitor = MonitorID(rawValue: 2)
     let nativeFocusAccepted = nativeFocusMutationIsReady(
@@ -326,7 +328,9 @@ struct DaemonCommandPolicyTests {
       mouseInteractionEnded: false,
       leftMouseButtonDown: false,
       mouseReleaseFocusIntentCurrent: false,
-      keyboardFocusIntentCurrent: false
+      keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: activationTimestamp,
+      latestCommandInputTimestamp: 11
     )
     let acceptedMonitor = shouldCommitNativeFocusSelection(
       nativeFocusAccepted: nativeFocusAccepted,

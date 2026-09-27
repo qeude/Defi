@@ -9,6 +9,7 @@ func delayedApplicationActivationIsCurrent(
 ) -> Bool {
   (input.latestFocusIntent?.timestamp ?? 0) <= startedAt
     && input.latestCloseIntent <= startedAt
+    && input.latestCapturedCommandTimestamp <= startedAt
 }
 
 @MainActor
