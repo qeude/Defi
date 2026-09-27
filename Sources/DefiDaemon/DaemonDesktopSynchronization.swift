@@ -33,6 +33,14 @@ func shouldCommitNativeFocusSelection(
   nativeFocusAccepted && selectionChanged
 }
 
+func activeMonitorIDAfterSnapshot(
+  activeMonitorID: MonitorID?,
+  acceptedNativeFocusMonitorID: MonitorID?,
+  fallbackMonitorID: MonitorID?
+) -> MonitorID? {
+  acceptedNativeFocusMonitorID ?? activeMonitorID ?? fallbackMonitorID
+}
+
 func shouldCloseOverviewAfterNativeFocusChange(
   nativeFocusChanged: Bool,
   overviewOpenedAt: TimeInterval?,
@@ -452,6 +460,7 @@ extension Daemon {
         )
       }
     }
+    var acceptedNativeFocusMonitorID: MonitorID?
     if let focusedWindowID = snapshot.focusedWindowID {
       let keyboardFocusIntentCurrent = keyboardFocusIntentIsCurrent(
         keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
@@ -560,8 +569,8 @@ extension Daemon {
       {
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
-        activeMonitorID = state.monitorID(containing: focusedWindowID)
-        nativelyFocusedMonitorID = activeMonitorID
+        acceptedNativeFocusMonitorID = state.monitorID(containing: focusedWindowID)
+        nativelyFocusedMonitorID = acceptedNativeFocusMonitorID
         if mouseInteractionEnded {
           platform.recordPerformanceTrace(
             "mouse-focus-committed window=\(focusedWindowID.rawValue)"
@@ -591,10 +600,11 @@ extension Daemon {
     {
       self.activeMonitorID = nil
     }
-    activeMonitorID =
-      activeMonitorID
-      ?? snapshot.focusedWindowID.flatMap { state.monitorID(containing: $0) }
-      ?? state.monitors.first?.id
+    activeMonitorID = activeMonitorIDAfterSnapshot(
+      activeMonitorID: activeMonitorID,
+      acceptedNativeFocusMonitorID: acceptedNativeFocusMonitorID,
+      fallbackMonitorID: state.monitors.first?.id
+    )
 
     var mouseReordered = false
     if !displayGeometryChanged && mouseResizeGestureActive {

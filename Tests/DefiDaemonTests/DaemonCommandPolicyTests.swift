@@ -318,6 +318,34 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func staleFocusOnSecondMonitorKeepsDefaultMonitorRouting() {
+    let firstMonitor = MonitorID(rawValue: 1)
+    let staleMonitor = MonitorID(rawValue: 2)
+    let nativeFocusAccepted = nativeFocusMutationIsReady(
+      nativeFocusChanged: true,
+      mouseInteractionEnded: false,
+      leftMouseButtonDown: false,
+      mouseReleaseFocusIntentCurrent: false,
+      keyboardFocusIntentCurrent: false
+    )
+    let acceptedMonitor = shouldCommitNativeFocusSelection(
+      nativeFocusAccepted: nativeFocusAccepted,
+      selectionChanged: true
+    ) ? staleMonitor : nil
+
+    #expect(activeMonitorIDAfterSnapshot(
+      activeMonitorID: nil,
+      acceptedNativeFocusMonitorID: acceptedMonitor,
+      fallbackMonitorID: firstMonitor
+    ) == firstMonitor)
+    #expect(activeMonitorIDAfterSnapshot(
+      activeMonitorID: nil,
+      acceptedNativeFocusMonitorID: staleMonitor,
+      fallbackMonitorID: firstMonitor
+    ) == staleMonitor)
+  }
+
+  @Test
   func inactiveDesktopNeverArmsRecurringTimer() {
     #expect(desktopTimerFrequency(requested: 240, sessionActive: false) == 0)
     #expect(desktopTimerFrequency(requested: 2, sessionActive: true) == 2)
