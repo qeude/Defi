@@ -668,6 +668,14 @@ func cachedWindowIDsToRetain(
   })
 }
 
+func windowIDsToRetainAfterDiscovery(
+  cachedWindowIDs: Set<WindowID>,
+  unresolvedWindowIDs: Set<WindowID>,
+  discoveredWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  cachedWindowIDs.union(unresolvedWindowIDs).subtracting(discoveredWindowIDs)
+}
+
 func retainedWindowIDsWithinGracePeriod(
   _ candidates: Set<WindowID>,
   previousDeadlines: [WindowID: TimeInterval],
