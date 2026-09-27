@@ -465,6 +465,7 @@ final class HotKeyTapContext: @unchecked Sendable {
         configuredCommand: bindings[key]
       )
     {
+      userInputTracker.recordCapturedCommand(at: timestamp)
       lock.lock()
       captured += 1
       lock.unlock()
@@ -484,6 +485,7 @@ final class HotKeyTapContext: @unchecked Sendable {
     captured += 1
     lock.unlock()
     capturedModifierReleaseState.capture(modifierBits: key.modifierBits)
+    userInputTracker.recordCapturedCommand(at: timestamp)
     deliver(HotKeyInvocation(command: command, timestamp: timestamp))
     return nil
   }
