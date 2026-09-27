@@ -139,7 +139,8 @@ extension Daemon {
             viewport: viewport,
             ownerFrame: physicalFrame,
             parkingFrame: viewport,
-            allMonitorFrames: allPhysicalMonitorFrames
+            allMonitorFrames: allPhysicalMonitorFrames,
+            reservedParkingFrames: reservedParkingFrames
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)

@@ -158,6 +158,33 @@ struct ParkingTests {
   }
 
   @Test
+  func `Active strip parking avoids earlier monitor reservations`() {
+    let left = Rect(x: -1_200, y: 0, width: 800, height: 600)
+    let right = Rect(x: 0, y: 0, width: 800, height: 600)
+    let earlierParking = resolveParkingPlacement(
+      for: Rect(x: left.x, y: left.y, width: 300, height: 300),
+      ownerFrame: left,
+      allMonitorFrames: [left, right],
+      preferredSide: .right
+    )
+    let activeStrip = continuousStripFramesForActiveWorkspace(
+      [FrameAssignment(
+        windowID: WindowID(rawValue: 1),
+        frame: Rect(x: -300, y: 0, width: 300, height: 300)
+      )],
+      viewport: right,
+      ownerFrame: right,
+      allMonitorFrames: [left, right],
+      reservedParkingFrames: [earlierParking.frame]
+    )
+
+    #expect(activeStrip.frames.count == 1)
+    if let activeFrame = activeStrip.frames.first?.frame {
+      #expect(intersectionArea(activeFrame, earlierParking.frame) == 0)
+    }
+  }
+
+  @Test
   func `Parking recalculates after a neighboring display grows`() {
     let owner = Rect(x: 0, y: 0, width: 1_000, height: 700)
     let oldNeighbor = Rect(x: 1_500, y: 0, width: 1_000, height: 700)
