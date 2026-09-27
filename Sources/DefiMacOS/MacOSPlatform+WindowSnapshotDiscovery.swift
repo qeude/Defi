@@ -386,7 +386,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           let cgWindowID: CGWindowID
           let decision: RuleDecision
           switch discovery {
-          case .unavailable:
+          case .unavailable, .unmatched:
             if let previousWindowID {
               unresolvedWindowIDs.insert(previousWindowID)
             } else {
@@ -408,18 +408,6 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             transientGeometryWindows[processID, default: []].append(element)
             if let previousWindowID {
               ignoredPreviousWindowIDs.insert(previousWindowID)
-            }
-            continue
-          case .unmatched:
-            if let previousWindowID {
-              unresolvedWindowIDs.insert(previousWindowID)
-            } else {
-              cacheWindowElementForShortRetry(
-                element,
-                processID: processID,
-                elementsByProcess: &unmatchedWindowElementsByProcess,
-                attemptsByProcess: &unmatchedWindowRetryAttemptsByProcess
-              )
             }
             continue
           case .discovered(let discovered, let discoveredCGWindowID, let ruleDecision):
@@ -542,19 +530,16 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
         }
         let retentionCGWindows = needsCachedWindowValidation ? publicCGWindows() : []
-        let retainableWindowIDs = windowIDsToRetainAfterDiscovery(
-          cachedWindowIDs: cachedWindowIDsToRetain(
-            processID: processID,
-            previousWindows: previousWindows,
-            discoveredWindowIDs: discoveredWindowIDs,
-            ignoredWindowIDs: ignoredPreviousWindowIDs,
-            cgWindows: retentionCGWindows,
-            previousElements: previousElements,
-            discoveredElements: nextElements,
-            cachedWindowState: cachedWindowState
-          ),
+        let retainableWindowIDs = cachedWindowIDsToRetain(
+          processID: processID,
+          previousWindows: previousWindows,
+          discoveredWindowIDs: discoveredWindowIDs,
+          ignoredWindowIDs: ignoredPreviousWindowIDs,
           unresolvedWindowIDs: unresolvedWindowIDs,
-          discoveredWindowIDs: discoveredWindowIDs
+          cgWindows: retentionCGWindows,
+          previousElements: previousElements,
+          discoveredElements: nextElements,
+          cachedWindowState: cachedWindowState
         )
         let confirmedWindowIDs = Set((retentionCGWindows ?? []).filter { record in
           guard record.processID == processID else { return false }

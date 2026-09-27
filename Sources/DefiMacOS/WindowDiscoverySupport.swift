@@ -635,12 +635,14 @@ func cachedWindowIDsToRetain(
   previousWindows: [Window],
   discoveredWindowIDs: Set<WindowID>,
   ignoredWindowIDs: Set<WindowID>,
+  unresolvedWindowIDs: Set<WindowID> = [],
   cgWindows: [CGWindowRecord]?,
   previousElements: [WindowID: AXUIElement] = [:],
   discoveredElements: [WindowID: AXUIElement] = [:],
   cachedWindowState: ((WindowID) -> (error: AXError, minimized: Bool?))?
 ) -> Set<WindowID> {
   var retainedWindowIDs = Set(previousWindows.map(\.id))
+    .union(unresolvedWindowIDs)
     .subtracting(discoveredWindowIDs)
     .subtracting(ignoredWindowIDs)
   let liveElements = Set(discoveredElements.values)
@@ -654,7 +656,9 @@ func cachedWindowIDsToRetain(
         .filter { $0.processID == processID }
         .map { WindowID(rawValue: UInt64($0.id)) }
     )
-    retainedWindowIDs.formIntersection(liveWindowIDs)
+    retainedWindowIDs = retainedWindowIDs.filter {
+      liveWindowIDs.contains($0) || unresolvedWindowIDs.contains($0)
+    }
   }
   guard let cachedWindowState else { return retainedWindowIDs }
   return Set(retainedWindowIDs.filter {
@@ -666,14 +670,6 @@ func cachedWindowIDsToRetain(
       && cgWindows?.contains(where: { $0.id == windowID.rawValue && $0.isOnscreen }) == false
     return !closed && state.minimized != true
   })
-}
-
-func windowIDsToRetainAfterDiscovery(
-  cachedWindowIDs: Set<WindowID>,
-  unresolvedWindowIDs: Set<WindowID>,
-  discoveredWindowIDs: Set<WindowID>
-) -> Set<WindowID> {
-  cachedWindowIDs.union(unresolvedWindowIDs).subtracting(discoveredWindowIDs)
 }
 
 func retainedWindowIDsWithinGracePeriod(

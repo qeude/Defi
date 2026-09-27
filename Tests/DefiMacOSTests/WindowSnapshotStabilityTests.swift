@@ -7,22 +7,53 @@ import Testing
 
 struct WindowSnapshotStabilityTests {
   @Test func newlyDiscoveredWindowWinsOverAnUnresolvedPreviousIdentity() {
-    let windowID = WindowID(rawValue: 42)
+    let window = makeWindow(id: 42)
 
     #expect(
-      windowIDsToRetainAfterDiscovery(
-        cachedWindowIDs: [],
-        unresolvedWindowIDs: [windowID],
-        discoveredWindowIDs: [windowID]
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [window.id],
+        ignoredWindowIDs: [],
+        unresolvedWindowIDs: [window.id],
+        cgWindows: nil,
+        cachedWindowState: nil
       ).isEmpty
     )
     #expect(
-      windowIDsToRetainAfterDiscovery(
-        cachedWindowIDs: [],
-        unresolvedWindowIDs: [windowID],
-        discoveredWindowIDs: []
-      ) == [windowID]
+      cachedWindowIDsToRetain(
+        processID: processID,
+        previousWindows: [window],
+        discoveredWindowIDs: [],
+        ignoredWindowIDs: [],
+        unresolvedWindowIDs: [window.id],
+        cgWindows: nil,
+        cachedWindowState: nil
+      ) == [window.id]
     )
+  }
+
+  @Test("Unresolved discovery cannot revive a confirmed closed window", .bug(id: 89))
+  func unresolvedWindowDoesNotOverrideConfirmedClosure() {
+    let window = makeWindow(id: 42)
+    let retainedWindowIDs = cachedWindowIDsToRetain(
+      processID: processID,
+      previousWindows: [window],
+      discoveredWindowIDs: [],
+      ignoredWindowIDs: [],
+      unresolvedWindowIDs: [window.id],
+      cgWindows: [CGWindowRecord(
+        id: 42,
+        processID: processID,
+        layer: 0,
+        title: window.title,
+        frame: window.frame,
+        isOnscreen: false
+      )],
+      cachedWindowState: { _ in (.invalidUIElement, nil) }
+    )
+
+    #expect(retainedWindowIDs.isEmpty)
   }
 
   @Test func createdWindowBypassesLaggingApplicationWindowList() {
