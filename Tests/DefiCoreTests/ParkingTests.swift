@@ -112,21 +112,49 @@ struct ParkingTests {
       Rect(x: 0, y: 0, width: 1_000, height: 700),
       Rect(x: 1_000, y: 0, width: 1_000, height: 700),
       Rect(x: 2_000, y: 0, width: 1_000, height: 700),
+      Rect(x: 3_000, y: 0, width: 1_000, height: 700),
     ]
-    let placements = monitors.enumerated().map { index, owner in
-      resolveParkingPlacement(
+    var placements: [Rect] = []
+    for (index, owner) in monitors.enumerated() {
+      let placement = resolveParkingPlacement(
         for: Rect(x: owner.x, y: owner.y, width: 500, height: 700),
         ownerFrame: owner,
         allMonitorFrames: monitors,
-        preferredSide: index == 0 ? .right : .left
-      ).frame
+        reservedParkingFrames: placements,
+        preferredSide: index == 1 ? .right : .left
+      )
+      placements.append(placement.frame)
     }
 
     for index in placements.indices {
       for otherIndex in placements.indices where index != otherIndex {
         #expect(intersectionArea(placements[index], placements[otherIndex]) == 0)
+        #expect(intersectionArea(placements[index], monitors[otherIndex]) == 0)
       }
     }
+  }
+
+  @Test
+  func `Display gap parking reserves the first monitor target`() {
+    let left = Rect(x: -1_200, y: 0, width: 800, height: 600)
+    let right = Rect(x: 0, y: 0, width: 800, height: 600)
+    let rightPlacement = resolveParkingPlacement(
+      for: Rect(x: 0, y: 0, width: 300, height: 300),
+      ownerFrame: right,
+      allMonitorFrames: [right, left],
+      preferredSide: .left
+    )
+    let leftPlacement = resolveParkingPlacement(
+      for: Rect(x: left.x, y: left.y, width: 300, height: 300),
+      ownerFrame: left,
+      allMonitorFrames: [right, left],
+      reservedParkingFrames: [rightPlacement.frame],
+      preferredSide: .right
+    )
+
+    #expect(intersectionArea(leftPlacement.frame, rightPlacement.frame) == 0)
+    #expect(intersectionArea(leftPlacement.frame, right) == 0)
+    #expect(intersectionArea(rightPlacement.frame, left) == 0)
   }
 
   @Test

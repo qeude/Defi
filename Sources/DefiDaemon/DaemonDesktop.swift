@@ -81,6 +81,15 @@ extension Daemon {
     layoutPlansByMonitor = layoutPlansByMonitor.filter {
       liveMonitorIDs.contains($0.key)
     }
+    var reservedParkingFrames: [Rect] = []
+    if let monitorIDs {
+      for monitor in state.monitors where !monitorIDs.contains(monitor.id) {
+        guard let cached = layoutPlansByMonitor[monitor.id] else { continue }
+        reservedParkingFrames.append(contentsOf: cached.assignments.compactMap {
+          cached.hiddenWindowIDs.contains($0.windowID) ? $0.frame : nil
+        })
+      }
+    }
     for monitorIndex in state.monitors.indices {
       let monitor = state.monitors[monitorIndex]
       if let monitorIDs, !monitorIDs.contains(monitor.id),
@@ -110,6 +119,7 @@ extension Daemon {
       var monitorBorderAssignments: [FrameAssignment] = []
       var monitorNativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
       var monitorHiddenWindowIDs = Set<WindowID>()
+      var monitorParkingFrames: [Rect] = []
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
         let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
         let workspaceWindows = workspace.columns
@@ -133,6 +143,9 @@ extension Daemon {
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
+          monitorParkingFrames.append(contentsOf: strip.frames.compactMap {
+            strip.parkedWindowIDs.contains($0.windowID) ? $0.frame : nil
+          })
           if workspaceTransition?.monitorID != monitor.id {
             monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
           }
@@ -196,9 +209,11 @@ extension Daemon {
             ownerFrame: physicalFrame,
             parkingFrame: viewport,
             allMonitorFrames: allPhysicalMonitorFrames,
+            reservedParkingFrames: reservedParkingFrames,
             preferredSide: workspaceIndex < activeWorkspaceIndex ? .left : .right
           )
           monitorHiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
+          monitorParkingFrames.append(contentsOf: parked.map(\.frame))
           monitorAssignments.append(contentsOf: parked)
           monitorBorderAssignments.append(contentsOf: parked)
         }
@@ -211,6 +226,7 @@ extension Daemon {
         hiddenWindowIDs: monitorHiddenWindowIDs
       )
       layoutPlansByMonitor[monitor.id] = plan
+      reservedParkingFrames.append(contentsOf: monitorParkingFrames)
       assignments.append(contentsOf: plan.assignments)
       outOfScopeWindowIDs.formUnion(
         layoutWindowIDsOutsideSubmissionScope(
