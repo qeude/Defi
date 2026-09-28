@@ -27,10 +27,13 @@ func overviewPreviewBlurFadeHeight(
   min(max((titleBandHeight + 20) * imageScale, 1), imageHeight)
 }
 
+// Shared so each capture batch does not pay for a new Core Image context.
+let overviewPreviewRenderingContext = CIContext(options: [.cacheIntermediates: false])
+
 func progressivelyBlurredOverviewPreview(
   _ image: CGImage,
   fadeHeight requestedFadeHeight: CGFloat,
-  context: CIContext = CIContext(options: [.cacheIntermediates: false])
+  context: CIContext = overviewPreviewRenderingContext
 ) -> CGImage? {
   let source = CIImage(cgImage: image)
   let extent = source.extent
@@ -55,7 +58,13 @@ func progressivelyBlurredOverviewPreview(
   blur.setValue(source.clampedToExtent(), forKey: kCIInputImageKey)
   blur.setValue(mask, forKey: "inputMask")
   blur.setValue(min(max(extent.height * 0.04, 10), 24), forKey: kCIInputRadiusKey)
-  guard let output = blur.outputImage?.cropped(to: extent) else { return nil }
+  // Only the title band is blurred; the rest of the preview is composited unchanged.
+  let band = CGRect(
+    x: extent.minX, y: extent.maxY - fadeHeight, width: extent.width, height: fadeHeight
+  )
+  guard let output = blur.outputImage?.cropped(to: band).composited(over: source)
+    .cropped(to: extent)
+  else { return nil }
   return context.createCGImage(output, from: extent)
 }
 
@@ -63,7 +72,7 @@ func overviewPreviewOpacity(
   startedAt: TimeInterval?,
   now: TimeInterval,
   reduceMotion: Bool,
-  duration: TimeInterval = 0.32
+  duration: TimeInterval = 0.45
 ) -> Double {
   guard !reduceMotion, let startedAt, duration > 0 else { return 1 }
   let progress = min(max((now - startedAt) / duration, 0), 1)
@@ -144,9 +153,59 @@ func overviewPreviewOwnerMatches(
   capturedAppID == expectedAppID
 }
 
+let overviewPreviewMaximumConcurrentCaptures = 4
+
+// Capping width and height independently distorts the aspect of large cards (full-width
+// windows), so the capture would letterbox and the card would show an empty band.
+func overviewPreviewPixelSize(
+  cardWidth: Double,
+  cardHeight: Double,
+  scale: Double,
+  maximumWidth: Double = 1_600,
+  maximumHeight: Double = 1_200
+) -> (width: Int, height: Int) {
+  let width = max(cardWidth * scale, 1)
+  let height = max(cardHeight * scale, 1)
+  let fit = min(maximumWidth / width, maximumHeight / height, 1)
+  return (
+    max(Int((width * fit).rounded(.up)), 32),
+    max(Int((height * fit).rounded(.up)), 24)
+  )
+}
+
+struct OverviewPreviewCandidate {
+  let request: OverviewPreviewRequest
+  let monitorID: MonitorID
+  let centerX: Double
+  let centerY: Double
+}
+
+// Selected monitor first, then nearest to the anchor, so previews fill in outward.
+func overviewPreviewCaptureOrder(
+  _ candidates: [OverviewPreviewCandidate],
+  selectedMonitorID: MonitorID?,
+  anchor: (x: Double, y: Double)?
+) -> [OverviewPreviewRequest] {
+  func key(_ candidate: OverviewPreviewCandidate) -> (Int, Double) {
+    let monitorRank = candidate.monitorID == selectedMonitorID ? 0 : 1
+    guard let anchor else { return (monitorRank, 0) }
+    let dx = candidate.centerX - anchor.x
+    let dy = candidate.centerY - anchor.y
+    return (monitorRank, dx * dx + dy * dy)
+  }
+  var seen = Set<WindowID>()
+  return candidates.enumerated()
+    .sorted { lhs, rhs in
+      let (l, r) = (key(lhs.element), key(rhs.element))
+      return l != r ? l < r : lhs.offset < rhs.offset
+    }
+    .map(\.element.request)
+    .filter { seen.insert($0.windowID).inserted }
+}
+
 func runOverviewPreviewCaptures(
   _ requests: [OverviewPreviewRequest],
-  maximumConcurrent: Int = 2,
+  maximumConcurrent: Int = overviewPreviewMaximumConcurrentCaptures,
   completed: @escaping @Sendable (OverviewPreviewCaptureResult) async -> Void = { _ in },
   capture: @escaping @Sendable (OverviewPreviewRequest) async
     -> OverviewPreviewCaptureResult
@@ -188,34 +247,37 @@ func captureOverviewImages(
   desktops desktopRequests: [OverviewDesktopCaptureRequest],
   previewCompleted: @escaping @MainActor @Sendable (OverviewPreviewCaptureResult) -> Void
 ) async -> OverviewCaptureResults {
-  let renderingContext = CIContext(options: [.cacheIntermediates: false])
-  defer { renderingContext.clearCaches() }
+  let renderingContext = overviewPreviewRenderingContext
   do {
     let content = try await SCShareableContent.excludingDesktopWindows(
       true,
       onScreenWindowsOnly: false
     )
-    var desktops: [MonitorID: CGImage] = [:]
-    for request in desktopRequests where !Task.isCancelled {
-      guard let display = content.displays.first(where: {
-        $0.displayID == request.displayID
-      }) else { continue }
-      let filter = SCContentFilter(
-        display: display,
-        excludingWindows: content.windows
-      )
-      filter.includeMenuBar = false
-      let configuration = SCStreamConfiguration()
-      configuration.width = request.width
-      configuration.height = request.height
-      configuration.showsCursor = false
-      configuration.capturesAudio = false
-      if let image = try? await SCScreenshotManager.captureImage(
-        contentFilter: filter,
-        configuration: configuration
-      ) {
-        desktops[request.monitorID] = image
+    // Desktop backgrounds capture alongside window previews instead of ahead of them.
+    let desktopTask = Task { @MainActor in
+      var desktops: [MonitorID: CGImage] = [:]
+      for request in desktopRequests where !Task.isCancelled {
+        guard let display = content.displays.first(where: {
+          $0.displayID == request.displayID
+        }) else { continue }
+        let filter = SCContentFilter(
+          display: display,
+          excludingWindows: content.windows
+        )
+        filter.includeMenuBar = false
+        let configuration = SCStreamConfiguration()
+        configuration.width = request.width
+        configuration.height = request.height
+        configuration.showsCursor = false
+        configuration.capturesAudio = false
+        if let image = try? await SCScreenshotManager.captureImage(
+          contentFilter: filter,
+          configuration: configuration
+        ) {
+          desktops[request.monitorID] = image
+        }
       }
+      return desktops
     }
     let windows = Dictionary(
       uniqueKeysWithValues: content.windows.map { ($0.windowID, $0) }
@@ -228,6 +290,11 @@ func captureOverviewImages(
       await previewCompleted(result)
     }) { request in
       await batch.capture(request)
+    }
+    let desktops = await withTaskCancellationHandler {
+      await desktopTask.value
+    } onCancel: {
+      desktopTask.cancel()
     }
     return OverviewCaptureResults(previews: previews, desktops: desktops)
   } catch {

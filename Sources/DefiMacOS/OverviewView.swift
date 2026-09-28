@@ -17,6 +17,8 @@ final class OverviewView: NSView {
   var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: NSImage] = [:]
   private var previewOpacities: [WindowID: Double] = [:]
+  // Image being replaced, kept underneath until the new preview finishes fading in.
+  private var outgoingPreviews: [WindowID: NSImage] = [:]
   private var mouseDownPoint: NSPoint?
   private var mouseDownWindowID: WindowID?
   private var mouseDownOverflow: (workspaceID: WorkspaceID, direction: Int)?
@@ -37,6 +39,7 @@ final class OverviewView: NSView {
 
   func discardPreviewImages() {
     previews.removeAll(keepingCapacity: false)
+    outgoingPreviews.removeAll(keepingCapacity: false)
   }
 
   func setDesktopImage(_ image: NSImage?) {
@@ -74,21 +77,43 @@ final class OverviewView: NSView {
     self.windowCornerRadius = windowCornerRadius
     self.previews = visiblePreviews
     self.previewOpacities = visibleOpacities
+    dropSettledOutgoingPreviews()
     needsDisplay = true
     return true
   }
 
   func updatePreview(_ image: NSImage, for windowID: WindowID, opacity: Double) {
+    if let current = previews[windowID], current !== image, opacity < 1 {
+      outgoingPreviews[windowID] = current
+    }
     previews[windowID] = image
     previewOpacities[windowID] = opacity
-    needsDisplay = true
+    dropSettledOutgoingPreviews()
+    invalidateCards([windowID])
   }
 
   func updatePreviewOpacities(_ opacities: [WindowID: Double]) {
     let visible = opacities.filter { previews[$0.key] != nil }
     guard visible != previewOpacities else { return }
+    let changed = Set(visible.keys).union(previewOpacities.keys).filter {
+      visible[$0] != previewOpacities[$0]
+    }
     previewOpacities = visible
-    needsDisplay = true
+    dropSettledOutgoingPreviews()
+    invalidateCards(changed)
+  }
+
+  private func dropSettledOutgoingPreviews() {
+    outgoingPreviews = outgoingPreviews.filter { (previewOpacities[$0.key] ?? 1) < 1 }
+  }
+
+  // Fades touch only their own cards; redrawing the whole panel each frame is what stutters.
+  private func invalidateCards(_ windowIDs: Set<WindowID>) {
+    guard let projection else { return needsDisplay = true }
+    let outset = borderStyle.width + 2
+    for card in projection.workspaces.flatMap(\.windows) where windowIDs.contains(card.windowID) {
+      setNeedsDisplay(nsRect(card.frame).insetBy(dx: -outset, dy: -outset))
+    }
   }
 
   override func draw(_ dirtyRect: NSRect) {
@@ -207,6 +232,7 @@ final class OverviewView: NSView {
 
   private func drawVisibleDesktop(for workspace: OverviewWorkspaceProjection) {
     let frame = nsRect(workspace.visibleFrame)
+    guard needsToDraw(frame) else { return }
     let path = NSBezierPath(
       roundedRect: frame,
       xRadius: windowCornerRadius,
@@ -265,6 +291,7 @@ final class OverviewView: NSView {
   ) {
     guard let window = snapshot.windows[card.windowID] else { return }
     let frame = nsRect(card.frame)
+    guard needsToDraw(frame) else { return }
     let path = NSBezierPath(
       roundedRect: frame,
       xRadius: windowCornerRadius,
@@ -283,6 +310,19 @@ final class OverviewView: NSView {
       let opacity = previewOpacities[card.windowID] ?? 1
       NSGraphicsContext.saveGraphicsState()
       path.addClip()
+      let outgoing = outgoingPreviews[card.windowID]
+      if let outgoing {
+        outgoing.draw(
+          in: frame,
+          from: aspectFillSourceRect(for: outgoing, in: frame, horizontalAlignment: 0),
+          operation: .sourceOver,
+          fraction: 1,
+          respectFlipped: true,
+          hints: [.interpolation: NSImageInterpolation.high]
+        )
+      }
+      // Cross-fades keep the scrim steady; only a first reveal fades it in.
+      let scrimOpacity = CGFloat(outgoing == nil ? opacity : 1)
       preview.draw(
         in: frame,
         from: aspectFillSourceRect(for: preview, in: frame, horizontalAlignment: 0),
@@ -294,22 +334,22 @@ final class OverviewView: NSView {
       NSGradient(
         colorsAndLocations:
           (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0, opacity: CGFloat(opacity))
+            overviewTitleScrimAlpha(progress: 0, opacity: scrimOpacity)
           ), 0),
           (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.25, opacity: CGFloat(opacity))
+            overviewTitleScrimAlpha(progress: 0.25, opacity: scrimOpacity)
           ), 0.25),
           (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.5, opacity: CGFloat(opacity))
+            overviewTitleScrimAlpha(progress: 0.5, opacity: scrimOpacity)
           ), 0.5),
           (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.75, opacity: CGFloat(opacity))
+            overviewTitleScrimAlpha(progress: 0.75, opacity: scrimOpacity)
           ), 0.75),
           (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.9, opacity: CGFloat(opacity))
+            overviewTitleScrimAlpha(progress: 0.9, opacity: scrimOpacity)
           ), 0.9),
           (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.97, opacity: CGFloat(opacity))
+            overviewTitleScrimAlpha(progress: 0.97, opacity: scrimOpacity)
           ), 0.97),
           (NSColor.clear, 1)
       )?.draw(

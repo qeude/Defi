@@ -177,7 +177,7 @@ public final class OverviewController: NSObject {
     rememberedPreviews.byteCount
   }
   public var inFlightPreviewCount: Int {
-    previewTask == nil ? 0 : min(previewPendingCount, 2)
+    previewTask == nil ? 0 : min(previewPendingCount, overviewPreviewMaximumConcurrentCaptures)
   }
 
   public init(
@@ -1026,7 +1026,6 @@ public final class OverviewController: NSObject {
       cgImage: image,
       size: NSSize(width: result.request.width, height: result.request.height)
     )
-    let hadPreview = previewCache[result.request.windowID] != nil
     previewCache[result.request.windowID] = preview
     if let window = snapshot?.windows[result.request.windowID],
       let rememberedImage = result.rememberedImage
@@ -1037,7 +1036,8 @@ public final class OverviewController: NSObject {
         for: window
       )
     }
-    if !hadPreview {
+    // A replaced preview cross-fades from the remembered image instead of swapping.
+    if previewRevealStartedAt[result.request.windowID] == nil {
       previewRevealStartedAt[result.request.windowID] = CACurrentMediaTime()
       startPreviewFadeAnimation(on: monitorID)
     }
@@ -1146,18 +1146,23 @@ public final class OverviewController: NSObject {
 
   private func visiblePreviewRequests() -> [OverviewPreviewRequest] {
     guard let snapshot else { return [] }
-    var requests: [OverviewPreviewRequest] = []
+    var candidates: [OverviewPreviewCandidate] = []
+    var anchor: (x: Double, y: Double)?
     for (monitorID, projection) in projections {
       let scale = max(panels[monitorID]?.window.backingScaleFactor ?? 1, 1)
       for card in projection.workspaces.flatMap(\.windows) {
         guard let window = snapshot.windows[card.windowID] else { continue }
-        let width = min(max(Int((card.frame.width * scale).rounded(.up)), 32), 1_600)
-        let height = min(max(Int((card.frame.height * scale).rounded(.up)), 24), 1_200)
+        let (width, height) = overviewPreviewPixelSize(
+          cardWidth: card.frame.width, cardHeight: card.frame.height, scale: scale
+        )
         let titleBandHeight = overviewWindowTitleBandHeight(
           iconSize: overviewWindowTitleIconSize(cardHeight: card.frame.height)
         )
-        requests.append(
-          OverviewPreviewRequest(
+        let centerX = card.frame.x + card.frame.width / 2
+        let centerY = card.frame.y + card.frame.height / 2
+        if card.windowID == selection?.windowID { anchor = (centerX, centerY) }
+        candidates.append(OverviewPreviewCandidate(
+          request: OverviewPreviewRequest(
             windowID: card.windowID,
             expectedAppID: window.appID,
             width: width,
@@ -1169,17 +1174,14 @@ public final class OverviewController: NSObject {
                 imageHeight: CGFloat(height)
               ).rounded(.up)
             )
-          )
-        )
+          ),
+          monitorID: monitorID, centerX: centerX, centerY: centerY
+        ))
       }
     }
-    if let selectedWindowID = selection?.windowID,
-      let index = requests.firstIndex(where: { $0.windowID == selectedWindowID })
-    {
-      requests.insert(requests.remove(at: index), at: 0)
-    }
-    var seen = Set<WindowID>()
-    return requests.filter { seen.insert($0.windowID).inserted }
+    return overviewPreviewCaptureOrder(
+      candidates, selectedMonitorID: selection?.location.monitorID, anchor: anchor
+    )
   }
 
   private func desktopCaptureRequests() -> [OverviewDesktopCaptureRequest] {

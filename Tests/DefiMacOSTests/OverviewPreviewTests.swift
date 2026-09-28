@@ -7,6 +7,29 @@ import Testing
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @Test func previewPixelSizeKeepsCardAspectWhenCapped() {
+    let large = overviewPreviewPixelSize(cardWidth: 2_000, cardHeight: 1_040, scale: 2)
+    #expect(large.width <= 1_600 && large.height <= 1_200)
+    #expect(abs(Double(large.width) / Double(large.height) - 2_000.0 / 1_040.0) < 0.01)
+    let small = overviewPreviewPixelSize(cardWidth: 100, cardHeight: 60, scale: 2)
+    #expect(small.width == 200 && small.height == 120)
+  }
+
+  @Test func capturesSelectedMonitorOutwardFromSelection() {
+    func candidate(_ id: UInt64, monitor: UInt64, x: Double) -> OverviewPreviewCandidate {
+      OverviewPreviewCandidate(
+        request: OverviewPreviewRequest(windowID: WindowID(rawValue: id), expectedAppID: "test",
+          width: 100, height: 80, blurFadeHeight: 20),
+        monitorID: MonitorID(rawValue: monitor), centerX: x, centerY: 0)
+    }
+    let order = overviewPreviewCaptureOrder(
+      [candidate(1, monitor: 2, x: 500), candidate(2, monitor: 1, x: 900),
+       candidate(3, monitor: 1, x: 500), candidate(4, monitor: 1, x: 100),
+       candidate(3, monitor: 1, x: 500)],
+      selectedMonitorID: MonitorID(rawValue: 1), anchor: (x: 450, y: 0))
+    #expect(order.map(\.windowID.rawValue) == [3, 4, 2, 1])
+  }
+
   @Test func fastPreviewArrivesBeforeSlowCaptureCompletes() async {
     let (stream, continuation) = AsyncStream<Bool>.makeStream()
     let timeout = Task {
@@ -204,7 +227,7 @@ struct OverviewPreviewTests {
     }
 
     let maximum = await probe.maximum
-    #expect(maximum > 0 && maximum <= 2)
+    #expect(maximum > 0 && maximum <= overviewPreviewMaximumConcurrentCaptures)
     #expect(results.map(\.request) == requests)
   }
 
@@ -313,10 +336,10 @@ struct OverviewPreviewTests {
   @Test
   func `Preview reveal fades in and respects reduced motion`() {
     #expect(overviewPreviewOpacity(startedAt: 10, now: 10, reduceMotion: false) == 0)
-    #expect(overviewPreviewOpacity(startedAt: 10, now: 10.08, reduceMotion: false) < 0.25)
-    let midpoint = overviewPreviewOpacity(startedAt: 10, now: 10.16, reduceMotion: false)
+    #expect(overviewPreviewOpacity(startedAt: 10, now: 10.1, reduceMotion: false) < 0.25)
+    let midpoint = overviewPreviewOpacity(startedAt: 10, now: 10.225, reduceMotion: false)
     #expect(midpoint > 0.45 && midpoint < 0.55)
-    #expect(overviewPreviewOpacity(startedAt: 10, now: 10.32, reduceMotion: false) == 1)
+    #expect(overviewPreviewOpacity(startedAt: 10, now: 10.45, reduceMotion: false) == 1)
     #expect(overviewPreviewOpacity(startedAt: 10, now: 10, reduceMotion: true) == 1)
   }
 
