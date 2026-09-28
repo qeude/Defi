@@ -239,7 +239,7 @@ struct WindowBorderTests {
     )
     platform.frameCoordinator.recordCompletedSize(
       CGSize(width: previous.width, height: previous.height), windowID: windowID,
-      incrementWriteCount: false
+      incrementWriteCount: false, sizeWasReadBack: true
     )
     platform.latestObservedFrames[windowID] = observed
     platform.frameCoordinator.recordObservedBorderFrame(
@@ -281,7 +281,7 @@ struct WindowBorderTests {
     )
     platform.frameCoordinator.recordCompletedSize(
       CGSize(width: completed.width, height: completed.height), windowID: windowID,
-      incrementWriteCount: false
+      incrementWriteCount: false, sizeWasReadBack: true
     )
     // A snapshot that started before the writes must not roll them back when it finishes.
     platform.frameCoordinator.recordObservedBorderFrame(
@@ -291,6 +291,35 @@ struct WindowBorderTests {
     #expect(platform.displayedBorderFrame(
       for: FrameAssignment(windowID: windowID, frame: completed), nativeFrame: nil
     ) == completed)
+  }
+
+  @Test(arguments: [true, false])
+  func unverifiedSizeWriteDoesNotChangeBorderGeometry(hasObservation: Bool) {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 1)
+    let observed = Rect(x: 0, y: 30, width: 400, height: 800)
+    if hasObservation {
+      coordinator.recordObservedBorderFrame(observed, windowID: windowID, sampledAt: 0)
+    }
+    coordinator.recordCompletedPosition(CGPoint(x: observed.x, y: observed.y), windowID: windowID)
+    coordinator.recordCompletedSize(
+      CGSize(width: 900, height: 800), windowID: windowID, incrementWriteCount: true, sizeWasReadBack: false
+    )
+    #expect(coordinator.latestBorderFrame(for: windowID) == (hasObservation ? observed : nil))
+  }
+
+  @Test
+  func removedWindowCannotReuseCompletedBorderGeometry() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 1)
+    coordinator.recordCompletedPosition(CGPoint(x: 100, y: 30), windowID: windowID)
+    coordinator.recordCompletedSize(
+      CGSize(width: 900, height: 800), windowID: windowID, incrementWriteCount: false, sizeWasReadBack: true
+    )
+    coordinator.retainBorderGeometry(for: [])
+    #expect(coordinator.latestBorderFrame(for: windowID) == nil)
+    #expect(coordinator.completedPosition(for: windowID) == nil)
+    #expect(coordinator.completedSize(for: windowID) == nil)
   }
 
   @Test

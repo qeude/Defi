@@ -493,8 +493,8 @@ extension AXFrameCoordinator {
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
         var acceptedSize =
-          sizeApplied && requiresAsynchronousSizeWrite && !intermediate
-            && progress >= 1
+          sizeApplied && requiresAsynchronousSizeWrite
+            && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
           ? accessibilityWriter.readSize(item.value.element)
           : nil
         let clampedSourceFrame: Rect? = acceptedSize.flatMap { observedSize in
@@ -627,7 +627,8 @@ extension AXFrameCoordinator {
         recordCompletedSize(
           acceptedSize ?? size,
           windowID: item.key,
-          incrementWriteCount: true
+          incrementWriteCount: true,
+          sizeWasReadBack: acceptedSize != nil
         )
       }
       if requiresReadback, !intermediate {
@@ -777,7 +778,8 @@ extension AXFrameCoordinator {
           recordCompletedSize(
             writeResult.acceptedSize ?? write.size,
             windowID: windowID,
-            incrementWriteCount: true
+            incrementWriteCount: true,
+            sizeWasReadBack: writeResult.acceptedSize != nil
           )
         }
         committed.add(succeeded)
@@ -790,22 +792,27 @@ extension AXFrameCoordinator {
   func recordCompletedSize(
     _ size: CGSize,
     windowID: WindowID,
-    incrementWriteCount: Bool
+    incrementWriteCount: Bool,
+    sizeWasReadBack: Bool
   ) {
     lock.lock()
+    defer { lock.unlock() }
     completedSizes[windowID] = size
-    let now = ProcessInfo.processInfo.systemUptime
-    borderGeometryWrittenAt[windowID] = now
-    if let geometry = borderGeometries[windowID] {
-      borderGeometries[windowID] = (
-        Rect(x: geometry.frame.x, y: geometry.frame.y, width: size.width, height: size.height),
-        now
-      )
-    }
     if incrementWriteCount {
       completedAnimatedSizeWrites += 1
     }
-    lock.unlock()
+    // A successful AX write can still be clamped by the application.
+    guard sizeWasReadBack else { return }
+    let now = ProcessInfo.processInfo.systemUptime
+    borderGeometryWrittenAt[windowID] = now
+    let point = borderGeometries[windowID].map {
+      CGPoint(x: $0.frame.x, y: $0.frame.y)
+    } ?? completedPositions[windowID]
+    if let point {
+      borderGeometries[windowID] = (
+        Rect(x: point.x, y: point.y, width: size.width, height: size.height), now
+      )
+    }
   }
 
   func readAcceptedFrames(
@@ -848,7 +855,8 @@ extension AXFrameCoordinator {
       recordCompletedSize(
         CGSize(width: accepted.width, height: accepted.height),
         windowID: windowID,
-        incrementWriteCount: false
+        incrementWriteCount: false,
+        sizeWasReadBack: true
       )
       acceptedFrames[windowID] = accepted
     }

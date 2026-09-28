@@ -462,17 +462,15 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func latestBorderFrame(for windowID: WindowID) -> Rect? {
     lock.lock()
     defer { lock.unlock() }
-    if let geometry = borderGeometries[windowID] { return geometry.frame }
-    guard let point = completedPositions[windowID], let size = completedSizes[windowID] else {
-      return nil
-    }
-    return Rect(x: point.x, y: point.y, width: size.width, height: size.height)
+    return borderGeometries[windowID]?.frame
   }
 
   func retainBorderGeometry(for windowIDs: Set<WindowID>) {
     lock.lock()
     borderGeometries = borderGeometries.filter { windowIDs.contains($0.key) }
     borderGeometryWrittenAt = borderGeometryWrittenAt.filter { windowIDs.contains($0.key) }
+    completedPositions = completedPositions.filter { windowIDs.contains($0.key) }
+    completedSizes = completedSizes.filter { windowIDs.contains($0.key) }
     lock.unlock()
   }
 

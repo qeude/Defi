@@ -205,7 +205,8 @@ extension AXFrameCoordinator {
       recordCompletedSize(
         write.size,
         windowID: windowID,
-        incrementWriteCount: true
+        incrementWriteCount: true,
+        sizeWasReadBack: false
       )
     }
     lock.lock()
