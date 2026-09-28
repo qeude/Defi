@@ -159,6 +159,9 @@ extension Daemon {
     )
     let requiresLayout = state.applyConfiguration(nextConfig)
     config = nextConfig
+    Task { @MainActor in
+      DefiSettingsRuntimeStatus.shared.updateConfiguration(nextConfig)
+    }
     configGeneration &+= 1
     cancelPendingCommandFrameRead()
 
@@ -299,6 +302,14 @@ extension Daemon {
     do {
       try manager.start()
       hotKeys = manager
+      let keyboardMessage = manager.bindingError.map {
+        "Keyboard shortcuts unavailable: \($0.description)"
+      } ?? (manager.isHotKeyCaptureEnabled
+        ? "Keyboard shortcuts active"
+        : "Keyboard shortcuts unavailable")
+      Task { @MainActor in
+        DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)
+      }
       let setOverviewMode = manager.overviewModeSetter
       DispatchQueue.main.async { [self] in
         overviewInputMode = setOverviewMode
@@ -314,6 +325,10 @@ extension Daemon {
       }
     } catch {
       log("input event tap unavailable: \(error)")
+      let keyboardMessage = "Keyboard shortcuts unavailable: \(error)"
+      Task { @MainActor in
+        DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)
+      }
     }
   }
 

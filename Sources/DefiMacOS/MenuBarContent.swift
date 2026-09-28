@@ -1,11 +1,8 @@
-import AppKit
-import ServiceManagement
 import SwiftUI
 
 public struct MenuBarContent: View {
   let state: MenuBarState
   let commandHandler: (String) -> Void
-  @State private var launchAtLogin = false
 
   public init(state: MenuBarState, commandHandler: @escaping (String) -> Void) {
     self.state = state
@@ -28,25 +25,16 @@ public struct MenuBarContent: View {
         }
         Divider()
       }
-      Toggle("Launch at Login", systemImage: "power.circle", isOn: Binding(
-        get: { launchAtLogin },
-        set: { _ in toggleLaunchAtLogin() }
-      ))
       if state.needsAccessibilityPermission {
         Button("Grant Accessibility Permission…", systemImage: "accessibility") {
           openDefiAccessibilitySettings()
         }
       }
-      Button("Configuration Guide…", systemImage: "book.closed") {
-        if let url = URL(string: "https://github.com/qeude/Defi/blob/main/CONFIGURATION.md") {
-          NSWorkspace.shared.open(url)
-        }
+      SettingsLink {
+        Text("Settings…")
       }
+      .keyboardShortcut(",", modifiers: .command)
       Divider()
-      Button("About Defi", systemImage: "info.circle") {
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        NSApplication.shared.orderFrontStandardAboutPanel(nil)
-      }
       Button("Quit Defi", systemImage: "power") {
         commandHandler("quit")
       }
@@ -54,23 +42,7 @@ public struct MenuBarContent: View {
     }
     .onAppear {
       state.refreshAccessibilityPermission()
-      launchAtLogin = SMAppService.mainApp.status == .enabled
     }
   }
 
-  private func toggleLaunchAtLogin() {
-    do {
-      switch SMAppService.mainApp.status {
-      case .enabled:
-        try SMAppService.mainApp.unregister()
-      case .requiresApproval:
-        SMAppService.openSystemSettingsLoginItems()
-      default:
-        try SMAppService.mainApp.register()
-      }
-    } catch {
-      presentDefiAlert(title: "Launch at Login", message: String(describing: error))
-    }
-    launchAtLogin = SMAppService.mainApp.status == .enabled
-  }
 }

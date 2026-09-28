@@ -41,7 +41,11 @@ public final class CheatsheetController {
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     self.panel = panel
     let hosting = NSHostingView(rootView: CheatsheetView(
-      groups: shortcutGroups(config: config), size: size,
+      groups: shortcutGroups(
+        config: config,
+        displayHyper: UserDefaults.standard.object(forKey: "displayHyperSymbol") as? Bool ?? true,
+        hyperIncludesShift: UserDefaults.standard.bool(forKey: "displayHyperIncludesShift")
+      ), size: size,
       contentSizeChanged: { [weak self, weak panel] measured in
         DispatchQueue.main.async {
           guard let self, let panel, self.panel === panel else { return }
@@ -88,7 +92,9 @@ struct ShortcutGroup {
   let shortcuts: [(keys: String, command: String)]
 }
 
-func shortcutGroups(config: Config) -> [ShortcutGroup] {
+func shortcutGroups(
+  config: Config, displayHyper: Bool = true, hyperIncludesShift: Bool = false
+) -> [ShortcutGroup] {
   let bindings = ((try? configuredHotKeys(config)) ?? [:]).values.sorted {
     $0.command == $1.command ? $0.accelerator < $1.accelerator : $0.command < $1.command
   }
@@ -101,22 +107,36 @@ func shortcutGroups(config: Config) -> [ShortcutGroup] {
   return ["Navigation", "Movement", "Layout and actions"].compactMap { title in
     guard let bindings = groups[title] else { return nil }
     return ShortcutGroup(title: title, shortcuts: bindings.map { accelerator, command in
-      let parts = accelerator.lowercased().split(separator: "-").map(String.init)
-      let symbols = ["cmd": "⌘", "command": "⌘", "alt": "⌥", "option": "⌥",
-        "ctrl": "⌃", "control": "⌃", "shift": "⇧", "left": "←", "right": "→",
-        "up": "↑", "down": "↓", "leftbracket": "[", "rightbracket": "]",
-        "backslash": "\\", "slash": "/", "semicolon": ";", "quote": "'",
-        "minus": "−", "equal": "=", "comma": ",", "period": "."]
-      let expanded = parts.dropLast().flatMap { part -> [String] in
-        if part == "hyper", config.modifierCombinations[part] != nil { return ["✦"] }
-        return (config.modifierCombinations[part] ?? part).lowercased().split(separator: "+")
-          .map { $0.trimmingCharacters(in: .whitespaces) }
-      } + parts.suffix(1)
-      let keys = expanded.map { symbols[$0] ?? $0.uppercased() }.joined()
+      let keys = shortcutKeyLabel(
+        accelerator, aliases: config.modifierCombinations,
+        displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift)
       let words = command.split(maxSplits: 1, whereSeparator: \.isWhitespace)
       let name = words.first.map { $0.replacingOccurrences(of: "-", with: " ") } ?? command
       let action = name.prefix(1).uppercased() + name.dropFirst()
       return (keys, action + (words.count > 1 ? " " + words[1] : ""))
     })
   }
+}
+
+func shortcutKeyLabel(
+  _ accelerator: String, aliases: [String: String],
+  displayHyper: Bool = true, hyperIncludesShift: Bool = false
+) -> String {
+  guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
+    return accelerator
+  }
+  let parts = normalized.split(separator: "-").map(String.init)
+  var modifiers = Set(parts.dropLast())
+  let hyper: Set<String> = hyperIncludesShift
+    ? ["ctrl", "alt", "cmd", "shift"] : ["ctrl", "alt", "cmd"]
+  let compact = displayHyper && hyper.isSubset(of: modifiers)
+  if compact { modifiers.subtract(hyper) }
+  let symbols = ["cmd": "⌘", "alt": "⌥", "ctrl": "⌃", "shift": "⇧",
+    "left": "←", "right": "→", "up": "↑", "down": "↓",
+    "leftbracket": "[", "rightbracket": "]", "backslash": "\\", "slash": "/",
+    "semicolon": ";", "quote": "'", "minus": "−", "equal": "=",
+    "comma": ",", "period": "."]
+  let displayed = ["ctrl", "alt", "shift", "cmd"].filter { modifiers.contains($0) }
+    + parts.suffix(1)
+  return (compact ? "✦" : "") + displayed.map { symbols[$0] ?? $0.uppercased() }.joined()
 }

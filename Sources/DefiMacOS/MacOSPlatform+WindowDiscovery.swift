@@ -152,6 +152,7 @@ extension MacOSPlatform {
           width: visible.width,
           height: visible.height
         ),
+        stableID: stableDisplayIdentifier(CGDirectDisplayID(number.uint32Value)),
         physicalFrame: Rect(
           x: physical.minX,
           y: mainTop - physical.maxY,

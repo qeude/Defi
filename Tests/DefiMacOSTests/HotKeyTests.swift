@@ -21,6 +21,29 @@ private final class HotKeyInvocationRecorder: Sendable {
 
 @Suite
 struct OverviewHotKeyTests {
+  @Test(arguments: [false, true])
+  func settingsTargetKeyEventsRespectTextFocus(textFocused: Bool) throws {
+    let key = try Key(accelerator: "alt-left", aliases: [:])
+    let invocations = HotKeyInvocationRecorder()
+    let context = HotKeyTapContext(
+      bindings: [key: "focus-column left"], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { invocations.append($0) }, deliverOverview: { _ in },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in },
+      textInputFocused: { textFocused })
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = [.maskAlternate]
+    event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(getpid()))
+    let forwarded = context.handle(type: .keyDown, event: event)
+    if textFocused {
+      #expect(forwarded?.takeUnretainedValue() === event)
+      #expect(invocations.commands.isEmpty)
+    } else {
+      #expect(forwarded == nil)
+      #expect(invocations.commands == ["focus-column left"])
+    }
+  }
+
   @Test
   func `Overview captures navigation arrows but leaves move bindings active`() {
     let hyper = hotKeyModifierBits([

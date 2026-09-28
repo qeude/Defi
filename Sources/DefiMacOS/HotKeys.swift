@@ -2,6 +2,7 @@ import ApplicationServices
 import DefiConfig
 import DefiModel
 import DefiRuntime
+import Darwin
 import Foundation
 
 let hotKeyEventTapPlacement = CGEventTapPlacement.tailAppendEventTap
@@ -37,7 +38,7 @@ public final class HotKeyManager {
   public var bindingCount: Int { bindings.count }
 
   public var isHotKeyCaptureEnabled: Bool {
-    bindingError == nil && isEnabled
+    bindingError == nil && bindingCount > 0 && isEnabled
   }
 
   public var isEnabled: Bool {
@@ -266,6 +267,7 @@ final class HotKeyTapContext: @unchecked Sendable {
   private var cheatsheetVisible = false
   private let cheatsheetModifierBits: UInt64?
   private let deliverCheatsheet: @Sendable (CheatsheetInput) -> Void
+  private let textInputFocused: @Sendable () -> Bool
 
   init(
     bindings: [Key: String],
@@ -279,9 +281,11 @@ final class HotKeyTapContext: @unchecked Sendable {
     deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
     tapReenabled: @escaping @Sendable (TimeInterval) -> Void,
-    closeIntent: @escaping @Sendable (TimeInterval, pid_t?) -> Void = { _, _ in }
+    closeIntent: @escaping @Sendable (TimeInterval, pid_t?) -> Void = { _, _ in },
+    textInputFocused: @escaping @Sendable () -> Bool = { settingsTextInputFocused.withLock { $0 } }
   ) {
     self.bindings = bindings
+    self.textInputFocused = textInputFocused
     self.cheatsheetModifierBits = cheatsheetModifierBits
     self.deliverCheatsheet = deliverCheatsheet
     self.userInputTracker = userInputTracker
@@ -375,6 +379,11 @@ final class HotKeyTapContext: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let isKeyDown = type == .keyDown
+    let eventTargetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
+    let isDefiTextInput = hotKeyTargetIsCurrentApplication(
+      eventTargetPID, currentPID: getpid(),
+      recordingShortcut: ShortcutRecorderButton.capturesKeyboard
+    ) && (ShortcutRecorderButton.capturesKeyboard || textInputFocused())
     let tracksGeneralUserInput: Bool
     if type == .flagsChanged {
       tracksGeneralUserInput = capturedModifierReleaseState.shouldRecord(
@@ -410,6 +419,7 @@ final class HotKeyTapContext: @unchecked Sendable {
       }
       let closeIntent = isKeyDown && commandPressed
         && Self.closeWindowKeyCodes.contains(code)
+        && !isDefiTextInput
       userInputTracker.record(
         timestamp: timestamp,
         focusIntent: focusIntent,
@@ -426,6 +436,15 @@ final class HotKeyTapContext: @unchecked Sendable {
           .flatMap { $0 > 0 ? $0 : nil }
         self.closeIntent(timestamp, processID)
       }
+    }
+    if isKeyDown, let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {
+      record(
+        UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
+        event.flags.rawValue, event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+      return nil
+    }
+    if isDefiTextInput && (isKeyDown || type == .flagsChanged) {
+      return Unmanaged.passUnretained(event)
     }
     if type == .flagsChanged {
       let bits = hotKeyModifierBits(event.flags)

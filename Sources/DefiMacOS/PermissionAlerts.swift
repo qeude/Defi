@@ -31,7 +31,7 @@ func presentDefiAlert(title: String, message: String) {
 }
 
 @MainActor
-func openDefiAccessibilitySettings() {
+public func openDefiAccessibilitySettings() {
   guard let url = URL(
     string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
   ) else { return }
