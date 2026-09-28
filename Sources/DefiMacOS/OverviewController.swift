@@ -1039,8 +1039,9 @@ public final class OverviewController: NSObject {
     // A replaced preview cross-fades from the remembered image instead of swapping.
     if previewRevealStartedAt[result.request.windowID] == nil {
       previewRevealStartedAt[result.request.windowID] = CACurrentMediaTime()
-      startPreviewFadeAnimation(on: monitorID)
     }
+    // Always start the link: a window moved to another monitor mid-fade needs that monitor's link.
+    startPreviewFadeAnimation(on: monitorID)
     panels[monitorID]?.view.updatePreview(preview, for: result.request.windowID,
       opacity: overviewPreviewOpacity(startedAt: previewRevealStartedAt[result.request.windowID],
         now: CACurrentMediaTime(), reduceMotion: !animationsEnabled

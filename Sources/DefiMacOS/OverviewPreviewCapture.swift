@@ -153,7 +153,8 @@ func overviewPreviewOwnerMatches(
   capturedAppID == expectedAppID
 }
 
-let overviewPreviewMaximumConcurrentCaptures = 4
+// Plus one desktop capture running alongside, so at most four ScreenCaptureKit captures at once.
+let overviewPreviewMaximumConcurrentCaptures = 3
 
 // Capping width and height independently distorts the aspect of large cards (full-width
 // windows), so the capture would letterbox and the card would show an empty band.
@@ -180,7 +181,7 @@ struct OverviewPreviewCandidate {
   let centerY: Double
 }
 
-// Selected monitor first, then nearest to the anchor, so previews fill in outward.
+// Selected monitor first, nearest to the anchor outward; other monitors keep their order.
 func overviewPreviewCaptureOrder(
   _ candidates: [OverviewPreviewCandidate],
   selectedMonitorID: MonitorID?,
@@ -188,7 +189,8 @@ func overviewPreviewCaptureOrder(
 ) -> [OverviewPreviewRequest] {
   func key(_ candidate: OverviewPreviewCandidate) -> (Int, Double) {
     let monitorRank = candidate.monitorID == selectedMonitorID ? 0 : 1
-    guard let anchor else { return (monitorRank, 0) }
+    // Coordinates are panel-local, so distance is only meaningful on the anchor's monitor.
+    guard monitorRank == 0, let anchor else { return (monitorRank, 0) }
     let dx = candidate.centerX - anchor.x
     let dy = candidate.centerY - anchor.y
     return (monitorRank, dx * dx + dy * dy)
@@ -286,17 +288,17 @@ func captureOverviewImages(
       windows: windows,
       renderingContext: renderingContext
     )
-    let previews = await runOverviewPreviewCaptures(requests, completed: { result in
-      await previewCompleted(result)
-    }) { request in
-      await batch.capture(request)
-    }
-    let desktops = await withTaskCancellationHandler {
-      await desktopTask.value
+    return await withTaskCancellationHandler {
+      let previews = await runOverviewPreviewCaptures(requests, completed: { result in
+        await previewCompleted(result)
+      }) { request in
+        await batch.capture(request)
+      }
+      let desktops = await desktopTask.value
+      return OverviewCaptureResults(previews: previews, desktops: desktops)
     } onCancel: {
       desktopTask.cancel()
     }
-    return OverviewCaptureResults(previews: previews, desktops: desktops)
   } catch {
     for request in requests where !Task.isCancelled {
       previewCompleted(OverviewPreviewCaptureResult(request: request, image: nil))

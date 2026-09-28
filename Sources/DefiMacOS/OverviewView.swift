@@ -386,6 +386,8 @@ final class OverviewView: NSView {
   }
 
   private func drawWindowBorder(_ card: OverviewWindowProjection, scale: Double) {
+    guard needsToDraw(nsRect(card.frame).insetBy(dx: -borderStyle.width - 2, dy: -borderStyle.width - 2))
+    else { return }
     let selected = selection == .window(
       windowID: card.windowID,
       monitorID: monitorID,

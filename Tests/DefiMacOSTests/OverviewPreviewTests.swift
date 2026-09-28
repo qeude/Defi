@@ -25,9 +25,9 @@ struct OverviewPreviewTests {
     let order = overviewPreviewCaptureOrder(
       [candidate(1, monitor: 2, x: 500), candidate(2, monitor: 1, x: 900),
        candidate(3, monitor: 1, x: 500), candidate(4, monitor: 1, x: 100),
-       candidate(3, monitor: 1, x: 500)],
+       candidate(3, monitor: 1, x: 500), candidate(5, monitor: 2, x: 450)],
       selectedMonitorID: MonitorID(rawValue: 1), anchor: (x: 450, y: 0))
-    #expect(order.map(\.windowID.rawValue) == [3, 4, 2, 1])
+    #expect(order.map(\.windowID.rawValue) == [3, 4, 2, 1, 5])
   }
 
   @Test func fastPreviewArrivesBeforeSlowCaptureCompletes() async {
