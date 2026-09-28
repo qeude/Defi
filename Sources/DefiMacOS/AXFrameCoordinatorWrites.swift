@@ -794,6 +794,14 @@ extension AXFrameCoordinator {
   ) {
     lock.lock()
     completedSizes[windowID] = size
+    let now = ProcessInfo.processInfo.systemUptime
+    borderGeometryWrittenAt[windowID] = now
+    if let geometry = borderGeometries[windowID] {
+      borderGeometries[windowID] = (
+        Rect(x: geometry.frame.x, y: geometry.frame.y, width: size.width, height: size.height),
+        now
+      )
+    }
     if incrementWriteCount {
       completedAnimatedSizeWrites += 1
     }

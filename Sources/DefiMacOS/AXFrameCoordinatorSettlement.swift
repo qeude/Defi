@@ -370,6 +370,14 @@ extension AXFrameCoordinator {
   ) {
     lock.lock()
     completedPositions[windowID] = point
+    let now = ProcessInfo.processInfo.systemUptime
+    borderGeometryWrittenAt[windowID] = now
+    if let geometry = borderGeometries[windowID] {
+      borderGeometries[windowID] = (
+        Rect(x: point.x, y: point.y, width: geometry.frame.width, height: geometry.frame.height),
+        now
+      )
+    }
     lock.unlock()
   }
 

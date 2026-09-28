@@ -433,8 +433,11 @@ public final class MacOSPlatform {
     frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
       self?.enqueuePresentation { platform in
         var observed: [WindowID: Rect] = [:]
-        for (windowID, completed) in frames {
-          observed[windowID] = platform.borderBoundsProvider.frame(for: windowID) ?? completed
+        for windowID in frames.keys {
+          // Resolve on presentation: the queued callback may predate a native resize
+          // or another completed write.
+          observed[windowID] = platform.borderBoundsProvider.frame(for: windowID)
+            ?? platform.frameCoordinator.latestBorderFrame(for: windowID)
         }
         _ = platform.borderManager.updateGeometry(frames: observed, style: platform.borderStyle)
       }

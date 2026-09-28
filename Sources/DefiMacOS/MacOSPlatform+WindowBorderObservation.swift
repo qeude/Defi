@@ -471,12 +471,12 @@ extension MacOSPlatform {
     else {
       return
     }
-    guard
-      let frame = frame(of: element) ?? resolvedBorderFrame(for: windowID)
-    else {
-      return
+    let sampledAt = ProcessInfo.processInfo.systemUptime
+    if let frame = frame(of: element) {
+      latestObservedFrames[windowID] = frame
+      frameCoordinator.recordObservedBorderFrame(frame, windowID: windowID, sampledAt: sampledAt)
     }
-    latestObservedFrames[windowID] = frame
+    guard let frame = resolvedBorderFrame(for: windowID) else { return }
     if borderManager.updateGeometry(
       frames: [windowID: frame],
       style: borderStyle
@@ -553,12 +553,7 @@ extension MacOSPlatform {
     if let nativeFrame {
       return nativeFrame
     }
-    // Completed writes can outlive a native resize. Once this window's lane
-    // is idle, follow its observed bounds rather than an old write target.
-    if assignment.windowID == borderLiveWindowID
-      || !frameCoordinator.isBusy(for: assignment.windowID),
-      let observed = latestObservedFrames[assignment.windowID]
-    {
+    if let observed = frameCoordinator.latestBorderFrame(for: assignment.windowID) {
       return observed
     }
     let point = frameCoordinator.completedPosition(for: assignment.windowID)
@@ -579,7 +574,8 @@ extension MacOSPlatform {
   private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
     resolvedWindowBorderFrame(
       nativeFrame: borderBoundsProvider.frame(for: windowID),
-      observedFrame: latestObservedFrames[windowID],
+      observedFrame: frameCoordinator.latestBorderFrame(for: windowID)
+        ?? latestObservedFrames[windowID],
       plannedFrame: borderFrames.first(where: { $0.windowID == windowID })?.frame
     )
   }

@@ -242,10 +242,55 @@ struct WindowBorderTests {
       incrementWriteCount: false
     )
     platform.latestObservedFrames[windowID] = observed
+    platform.frameCoordinator.recordObservedBorderFrame(
+      observed, windowID: windowID, sampledAt: ProcessInfo.processInfo.systemUptime
+    )
     #expect(platform.frameCoordinator.isBusy == false)
     #expect(platform.displayedBorderFrame(
       for: FrameAssignment(windowID: windowID, frame: previous), nativeFrame: nil
     ) == observed)
+    // A later position-only move must preserve the externally observed size,
+    // rather than resurrecting the last size Defi wrote.
+    platform.frameCoordinator.recordCompletedPosition(
+      CGPoint(x: 200, y: observed.y), windowID: windowID
+    )
+    #expect(platform.displayedBorderFrame(
+      for: FrameAssignment(windowID: windowID, frame: previous), nativeFrame: nil
+    ) == Rect(x: 200, y: observed.y, width: observed.width, height: observed.height))
+    platform.frameCoordinator.invalidate(reason: "test")
+    #expect(platform.frameCoordinator.latestBorderFrame(for: windowID) == nil)
+  }
+
+  @Test(arguments: [true, false]) @MainActor
+  func idleBorderDoesNotRestoreObservationFromBeforeCompletedWrite(hasInitialObservation: Bool) {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform() }
+    }
+    let windowID = WindowID(rawValue: 1)
+    let oldFrame = Rect(x: 0, y: 30, width: 900, height: 800)
+    let completed = Rect(x: 150, y: 30, width: 1024, height: 800)
+    let sampledAt = ProcessInfo.processInfo.systemUptime
+    platform.latestObservedFrames[windowID] = oldFrame
+    if hasInitialObservation {
+      platform.frameCoordinator.recordObservedBorderFrame(
+        oldFrame, windowID: windowID, sampledAt: sampledAt
+      )
+    }
+    platform.frameCoordinator.recordCompletedPosition(
+      CGPoint(x: completed.x, y: completed.y), windowID: windowID
+    )
+    platform.frameCoordinator.recordCompletedSize(
+      CGSize(width: completed.width, height: completed.height), windowID: windowID,
+      incrementWriteCount: false
+    )
+    // A snapshot that started before the writes must not roll them back when it finishes.
+    platform.frameCoordinator.recordObservedBorderFrame(
+      oldFrame, windowID: windowID, sampledAt: sampledAt
+    )
+    #expect(platform.frameCoordinator.isBusy == false)
+    #expect(platform.displayedBorderFrame(
+      for: FrameAssignment(windowID: windowID, frame: completed), nativeFrame: nil
+    ) == completed)
   }
 
   @Test

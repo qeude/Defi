@@ -56,6 +56,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var skippedStaleWrites = 0
   var droppedFrameCount = 0
   var completedPositions: [WindowID: CGPoint] = [:]
+  var borderGeometryWrittenAt: [WindowID: TimeInterval] = [:]
+  var borderGeometries: [WindowID: (frame: Rect, sampledAt: TimeInterval)] = [:]
   var retargetHorizontalVelocities: [WindowID: Double] = [:]
   var deferredParkingWriteGenerations: [WindowID: UInt64] = [:]
   var completedSizes: [WindowID: CGSize] = [:]
@@ -227,6 +229,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     // The generation reset invalidates in-flight geometry too.
     activeWrites.removeAll(keepingCapacity: true)
     completedPositions.removeAll(keepingCapacity: true)
+    borderGeometries.removeAll(keepingCapacity: true)
+    borderGeometryWrittenAt.removeAll(keepingCapacity: true)
     retargetHorizontalVelocities.removeAll(keepingCapacity: true)
     deferredParkingWriteGenerations.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
@@ -439,6 +443,37 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return droppedFrameCount
+  }
+
+  // Use the start of the native read, not callback delivery time: a slow
+  // snapshot may finish after a newer write or frame notification.
+  func recordObservedBorderFrame(
+    _ frame: Rect, windowID: WindowID, sampledAt: TimeInterval
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard sampledAt >= max(
+      borderGeometries[windowID]?.sampledAt ?? -.infinity,
+      borderGeometryWrittenAt[windowID] ?? -.infinity
+    ) else { return }
+    borderGeometries[windowID] = (frame, sampledAt)
+  }
+
+  func latestBorderFrame(for windowID: WindowID) -> Rect? {
+    lock.lock()
+    defer { lock.unlock() }
+    if let geometry = borderGeometries[windowID] { return geometry.frame }
+    guard let point = completedPositions[windowID], let size = completedSizes[windowID] else {
+      return nil
+    }
+    return Rect(x: point.x, y: point.y, width: size.width, height: size.height)
+  }
+
+  func retainBorderGeometry(for windowIDs: Set<WindowID>) {
+    lock.lock()
+    borderGeometries = borderGeometries.filter { windowIDs.contains($0.key) }
+    borderGeometryWrittenAt = borderGeometryWrittenAt.filter { windowIDs.contains($0.key) }
+    lock.unlock()
   }
 
   func completedPosition(for windowID: WindowID) -> CGPoint? {
