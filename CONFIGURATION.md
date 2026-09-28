@@ -695,7 +695,7 @@ exist before the first stable release; use setting names exactly as documented.
 See [config.example.toml](config.example.toml) for a daily-use config with named
 workspaces, a Hyper modifier, and application rules.
 
-### Named workspace icons
+## Named workspace icons
 
 `[workspaces].icons` maps declared workspace names to SF Symbol names. Icons
 follow workspace renames and are removed when a workspace is deleted in Settings.
