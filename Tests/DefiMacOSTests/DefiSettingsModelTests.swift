@@ -8,6 +8,42 @@ import Testing
 
 @MainActor
 struct DefiSettingsModelTests {
+  @Test(arguments: ["up", "down", "1"])
+  func workspaceRenamePreservesDirectionalAndPositionalShortcuts(name: String) throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let url = directory.appending(path: "config.toml")
+    let relative = name == "1" ? "move-window-to-workspace-position 1" : "move-window-to-workspace \(name)"
+    try Data("""
+      [workspaces]
+      names = ["\(name)"]
+      [keys]
+      ctrl-alt-a = "\(relative)"
+      ctrl-alt-b = "focus-workspace-name \(name)"
+      """.utf8).write(to: url)
+    let model = DefiSettingsModel(configURL: url)
+    model.renameWorkspace(name, to: "renamed")
+    #expect(model.message == nil)
+    #expect(model.config.keyOverrides["ctrl-alt-a"] == relative)
+    #expect(model.config.keyOverrides["ctrl-alt-b"] == "focus-workspace-name renamed")
+  }
+
+  @Test
+  func disabledGeneratedShortcutCanRestoreItsDefault() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = DefiSettingsModel(configURL: directory.appending(path: "config.toml"))
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "alt-left" })
+    model.removeShortcut(row)
+    let disabled = try #require(model.shortcutRows.first { $0.accelerator == row.accelerator })
+    #expect(disabled.isEnabled == false)
+    #expect(disabled.canRestore)
+    model.restoreShortcut(disabled)
+    #expect(model.config.keys[row.accelerator] == row.command)
+    #expect(model.config.keyOverrides.isEmpty)
+  }
+
   @Test
   func workspaceIconsPersistAndFollowRenameAndDeletion() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

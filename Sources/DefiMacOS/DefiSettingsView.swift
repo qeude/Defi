@@ -351,6 +351,10 @@ private struct InputSettingsView: View {
 
   var body: some View {
     Form {
+      Section {
+        Text(DefiSettingsRuntimeStatus.shared.keyboardMessage)
+          .foregroundStyle(.secondary)
+      }
       Section("Shortcut display") {
         Toggle("Show Hyper (\(hyperIncludesShift ? "⌃⌥⇧⌘" : "⌃⌥⌘")) as ✦", isOn: $displayHyper)
         Toggle("Include Shift in Hyper", isOn: $hyperIncludesShift)
@@ -443,19 +447,25 @@ private struct SettingsShortcutActionRow: View {
     HStack {
       Text(command.replacingOccurrences(of: "-", with: " ").capitalized)
         .frame(maxWidth: .infinity, alignment: .leading)
-      let bindings = model.shortcutRows.filter { $0.command == command && $0.isEnabled }
+      let bindings = model.shortcutRows.filter { $0.command == command }
       if bindings.isEmpty {
         recorder(nil)
       } else {
         VStack(alignment: .trailing) {
           ForEach(bindings) { row in
             HStack {
-              recorder(row)
+              if row.isEnabled {
+                recorder(row)
+              } else {
+                Text("Disabled").foregroundStyle(.secondary)
+                Button("Reset to Default") { model.restoreShortcut(row) }
+              }
               Button { model.removeShortcut(row) } label: {
                 Image(systemName: "minus.circle")
               }
               .buttonStyle(.borderless)
               .accessibilityLabel("Remove shortcut for \(command)")
+              .disabled(!row.isEnabled)
             }
           }
         }
@@ -1312,6 +1322,8 @@ private struct ShortcutSheet: Identifiable {
 
 @MainActor
 private struct SettingsShortcutEditor: View {
+  @AppStorage("displayHyperSymbol") private var displayHyper = true
+  @AppStorage("displayHyperIncludesShift") private var hyperIncludesShift = false
   let model: DefiSettingsModel
   @Environment(\.dismiss) private var dismiss
   @State private var sourceRow: SettingsShortcutRow?
@@ -1355,7 +1367,8 @@ private struct SettingsShortcutEditor: View {
         SettingsShortcutRecorder(
           label: accelerator.isEmpty
             ? "Record Shortcut…"
-            : shortcutKeyLabel(accelerator, aliases: model.config.modifierCombinations),
+            : shortcutKeyLabel(accelerator, aliases: model.config.modifierCombinations,
+              displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift),
           command: sourceRow?.command ?? "New shortcut",
           onRecord: { accelerator = $0 }
         )
@@ -1611,14 +1624,6 @@ private func stringBinding(
   Binding(get: { value }, set: { model.set(table: table, key: key, value: tomlString($0)) })
 }
 
-private func valueLabel(_ title: String, _ value: String) -> some View {
-  HStack {
-    Text(title)
-    Spacer()
-    Text(value).monospacedDigit().foregroundStyle(.secondary)
-  }
-}
-
 private func percent(_ value: Double) -> String {
   "\(Int((value * 100).rounded()))%"
 }
@@ -1648,11 +1653,15 @@ private func settingsHexColor(_ color: Color) -> String {
 private extension DynamicViewContent {
   @ViewBuilder
   func settingsReorderable() -> some View {
+    #if canImport(SwiftUI, _version: 8.0)
     if #available(macOS 27, *) {
       reorderable()
     } else {
       self
     }
+    #else
+    self
+    #endif
   }
 }
 
@@ -1662,6 +1671,7 @@ private struct SettingsReorderContainer<Item, ID: Hashable & Sendable>: ViewModi
 
   @ViewBuilder
   func body(content: Content) -> some View {
+    #if canImport(SwiftUI, _version: 8.0)
     if #available(macOS 27, *) {
       content.reorderContainer(for: Item.self, itemID: itemID) { difference in
         switch difference.destination.position {
@@ -1672,5 +1682,8 @@ private struct SettingsReorderContainer<Item, ID: Hashable & Sendable>: ViewModi
     } else {
       content
     }
+    #else
+    content
+    #endif
   }
 }

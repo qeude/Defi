@@ -78,6 +78,7 @@ public final class DefiSettingsModel {
   @ObservationIgnored private let configURL: URL
   @ObservationIgnored private var lastWrittenData: Data?
   @ObservationIgnored private var watcherTask: Task<Void, Never>?
+  @ObservationIgnored private var textInputObserver: CFRunLoopObserver?
   @ObservationIgnored private var directoryWatcher: DispatchSourceFileSystemObject?
 
   public init(configURL: URL = Config.defaultURL) {
@@ -148,6 +149,15 @@ public final class DefiSettingsModel {
 
   public func startWatching() {
     guard watcherTask == nil, directoryWatcher == nil else { return }
+    textInputObserver = CFRunLoopObserverCreateWithHandler(
+      nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0
+    ) { _, _ in
+      MainActor.assumeIsolated {
+        let focused = NSApplication.shared.keyWindow?.firstResponder is NSTextView
+        settingsTextInputFocused.withLock { if $0 != focused { $0 = focused } }
+      }
+    }
+    CFRunLoopAddObserver(CFRunLoopGetMain(), textInputObserver, .commonModes)
     refreshExternalChanges()
     let directoryURL = configURL.deletingLastPathComponent()
     let descriptor = open(directoryURL.path, O_EVTONLY)
@@ -175,6 +185,9 @@ public final class DefiSettingsModel {
   }
 
   public func stopWatching() {
+    if let textInputObserver { CFRunLoopObserverInvalidate(textInputObserver) }
+    textInputObserver = nil
+    settingsTextInputFocused.withLock { $0 = false }
     watcherTask?.cancel()
     watcherTask = nil
     directoryWatcher?.cancel()
@@ -720,15 +733,19 @@ public final class DefiSettingsModel {
   }
 
   private func commandByRenamingWorkspace(_ command: String, from oldName: String, to newName: String) -> String? {
+    guard let parsed = try? parseCommand(command) else { return nil }
+    let target: String
+    switch parsed {
+    case .switchWorkspace(let id), .moveWindowToWorkspace(let id), .sendWindowToWorkspace(let id):
+      target = id.rawValue
+    case .focusWorkspace(.named(let name)), .moveColumnToWorkspace(.named(let name), _),
+      .moveWindowToWorkspaceTarget(.named(let name), _):
+      target = name
+    default:
+      return nil
+    }
+    guard target == oldName else { return nil }
     var parts = command.split(whereSeparator: \.isWhitespace).map(String.init)
-    guard parts.count > 1, parts[1] == oldName,
-      ["workspace", "move-window-to-workspace", "send-window-to-workspace",
-        "focus-workspace", "focus-workspace-name", "move-column-to-workspace",
-        "move-column-to-workspace-name", "send-column-to-workspace",
-        "send-column-to-workspace-name", "move-column-to-workspace-position",
-        "move-window-to-workspace-name", "send-window-to-workspace-name",
-        "move-window-to-workspace-position", "send-window-to-workspace-position"].contains(parts[0])
-    else { return nil }
     parts[1] = newName
     return parts.joined(separator: " ")
   }
@@ -748,45 +765,42 @@ public final class DefiSettingsModel {
 
   private func save(_ operations: [SettingsTOMLOperation]) {
     do {
-      var baseData = try? Data(contentsOf: configURL)
+      let baseData = try? Data(contentsOf: configURL)
       guard baseData == lastWrittenData else {
         refreshExternalChanges()
         message =
           "The configuration changed outside Settings. Review the updated values and try again."
         return
       }
-      for _ in 0..<3 {
-        let currentData = baseData ?? Data()
-        guard let source = String(data: currentData, encoding: .utf8) else {
-          message = "The configuration file is not valid UTF-8 and was left unchanged."
-          return
-        }
-        var document = LosslessTOMLDocument(source)
-        for operation in operations { apply(operation, to: &document) }
-        let updatedData = Data(document.render().utf8)
-        let updatedConfig = try Config.decode(updatedData)
-        if updatedData == currentData {
-          lastWrittenData = currentData
-          config = updatedConfig
-          message = nil
-          return
-        }
-        let latestData = try? Data(contentsOf: configURL)
-        guard latestData == baseData else {
-          baseData = latestData
-          continue
-        }
-        try FileManager.default.createDirectory(
-          at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try updatedData.write(to: configURL, options: .atomic)
-        lastWrittenData = updatedData
+      let currentData = baseData ?? Data()
+      guard let source = String(data: currentData, encoding: .utf8) else {
+        message = "The configuration file is not valid UTF-8 and was left unchanged."
+        return
+      }
+      var document = LosslessTOMLDocument(source)
+      for operation in operations { apply(operation, to: &document) }
+      let updatedData = Data(document.render().utf8)
+      let updatedConfig = try Config.decode(updatedData)
+      if updatedData == currentData {
+        lastWrittenData = currentData
         config = updatedConfig
         message = nil
         return
       }
-      refreshExternalChanges()
-      message = "The configuration kept changing while Settings saved. The newest file is shown."
+      let latestData = try? Data(contentsOf: configURL)
+      guard latestData == baseData else {
+        refreshExternalChanges()
+        message = "The configuration changed outside Settings. Review the updated values and try again."
+        return
+      }
+      try FileManager.default.createDirectory(
+        at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true
+      )
+      try updatedData.write(to: configURL, options: .atomic)
+      lastWrittenData = updatedData
+      config = updatedConfig
+      message = nil
+      return
     } catch {
       message = "Settings could not be saved: \(error)"
     }

@@ -46,7 +46,12 @@ struct ConfigTests {
       "alt-left" = "focus-column left"
       "hyper-left" = "focus-monitor left"
       """.utf8)
-    #expect(throws: ConfigError.self) { try Config.decode(data) }
+    #expect {
+      try Config.decode(data)
+    } throws: { error in
+      guard case ConfigError.conflictingAccelerators(let first, let second) = error else { return false }
+      return Set([first, second]) == Set(["alt-left", "hyper-left"])
+    }
   }
 
   @Test

@@ -2,6 +2,9 @@ import ApplicationServices
 import DefiConfig
 import DefiModel
 import Foundation
+import Synchronization
+
+let settingsTextInputFocused = Mutex(false)
 
 func hotKeyTargetIsCurrentApplication(
   _ targetPID: pid_t?, currentPID: pid_t, recordingShortcut: Bool = false

@@ -870,6 +870,7 @@ final class DesktopE2ETests: XCTestCase {
 
   func testShortcutRecorderCapturesKeysAndCancelsWithEscape() throws {
     _ = try makePlatform()
+    let frontmost = NSWorkspace.shared.frontmostApplication
     let window = NSWindow(
       contentRect: NSRect(x: 100, y: 100, width: 240, height: 80),
       styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -882,6 +883,7 @@ final class DesktopE2ETests: XCTestCase {
     defer {
       recorder.stopRecording()
       window.close()
+      frontmost?.activate()
     }
     let originalPolicy = NSApplication.shared.activationPolicy()
     NSApplication.shared.setActivationPolicy(.regular)
@@ -894,7 +896,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(ShortcutRecorderButton.capturesKeyboard)
     let escape = try XCTUnwrap(NSEvent.keyEvent(
       with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-      windowNumber: 0, context: nil, characters: "\u{1b}",
+      windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
       charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
     NSApplication.shared.sendEvent(escape)
     XCTAssertFalse(recorder.isRecording)
@@ -903,7 +905,7 @@ final class DesktopE2ETests: XCTestCase {
     recorder.performClick(nil)
     let shortcut = try XCTUnwrap(NSEvent.keyEvent(
       with: .keyDown, location: .zero, modifierFlags: [.control, .option], timestamp: 0,
-      windowNumber: 0, context: nil, characters: "a",
+      windowNumber: window.windowNumber, context: nil, characters: "a",
       charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
     NSApplication.shared.sendEvent(shortcut)
     XCTAssertEqual(recorded, ["alt-ctrl-a"])

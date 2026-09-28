@@ -39,17 +39,20 @@ public final class MenuBarState {
     workspaces.first { $0.id == activeWorkspace }?.label ?? "–"
   }
 
-  public var activeIcon: String? {
-    guard let icon = workspaces.first(where: { $0.id == activeWorkspace })?.icon else { return nil }
-    return NSImage(systemSymbolName: icon, accessibilityDescription: nil) == nil ? "square.grid.2x2" : icon
-  }
+  public private(set) var activeIcon: String?
+  private var requestedIcon: String?
 
   public func update(activeWorkspace: String, workspaces: [MenuWorkspace], workspaceStyle: WorkspaceLabelStyle = .name) {
-    let previousIcon = activeIcon
+    let icon = workspaces.first(where: { $0.id == activeWorkspace })?.icon
     if self.workspaceStyle != workspaceStyle { self.workspaceStyle = workspaceStyle }
     if self.activeWorkspace != activeWorkspace { self.activeWorkspace = activeWorkspace }
     if self.workspaces != workspaces { self.workspaces = workspaces }
-    if activeIcon != previousIcon { activeIconImage = activeIcon.flatMap(menuBarWorkspaceImage) }
+    if requestedIcon != icon {
+      requestedIcon = icon
+      let image = icon.flatMap(menuBarWorkspaceImage)
+      activeIcon = icon.map { image == nil ? "square.grid.2x2" : $0 }
+      activeIconImage = image ?? activeIcon.flatMap(menuBarWorkspaceImage)
+    }
   }
 }
 

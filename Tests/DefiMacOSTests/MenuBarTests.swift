@@ -23,6 +23,9 @@ struct MenuBarTests {
       MenuWorkspace(id: "ordinary", label: "3")]
     state.update(activeWorkspace: "dev", workspaces: rows, workspaceStyle: .iconAndName)
     #expect(state.activeIcon == "terminal")
+    let image = state.activeIconImage
+    state.update(activeWorkspace: "dev", workspaces: rows, workspaceStyle: .iconAndName)
+    #expect(state.activeIconImage === image)
     #expect(state.workspaceStyle == .iconAndName)
     state.update(activeWorkspace: "web", workspaces: rows, workspaceStyle: .icon)
     #expect(state.activeIcon == "square.grid.2x2")
