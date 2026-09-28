@@ -293,6 +293,11 @@ func captureOverviewImages(
         configuration.showsCursor = false
         configuration.capturesAudio = false
         await limiter.acquire()
+        // A worker cancelled while queued gives its slot back without capturing.
+        guard !Task.isCancelled else {
+          await limiter.release()
+          break
+        }
         let image = try? await SCScreenshotManager.captureImage(
           contentFilter: filter,
           configuration: configuration
@@ -370,6 +375,10 @@ private final class OverviewScreenCaptureBatch {
     configuration.capturesAudio = false
     do {
       await limiter.acquire()
+      guard !Task.isCancelled else {
+        await limiter.release()
+        return OverviewPreviewCaptureResult(request: request, image: nil)
+      }
       let image: CGImage
       do {
         image = try await SCScreenshotManager.captureImage(
