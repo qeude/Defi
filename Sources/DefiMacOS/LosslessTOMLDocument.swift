@@ -33,9 +33,7 @@ struct LosslessTOMLDocument {
     guard let start else { return }
     let sectionStart = table.isEmpty ? 0 : start + 1
     let sectionEnd = end ?? lines.endIndex
-    if let index = lines[sectionStart..<sectionEnd].firstIndex(where: {
-      assignmentKey(in: $0) == key
-    }) {
+    if let index = assignmentIndex(for: key, in: sectionStart..<sectionEnd) {
       guard let equals = firstEquals(in: lines[index]) else { return }
       let (valueEnd, comments) = assignmentEnd(after: index, equals: equals)
       if let value {
@@ -98,7 +96,7 @@ struct LosslessTOMLDocument {
     }
     let sectionStart = table.isEmpty ? 0 : start + 1
     let sectionEnd = end ?? lines.endIndex
-    return lines[sectionStart..<sectionEnd].contains { assignmentKey(in: $0) == key }
+    return assignmentIndex(for: key, in: sectionStart..<sectionEnd) != nil
   }
 
   func render() -> String {
@@ -125,16 +123,17 @@ struct LosslessTOMLDocument {
       return header.name == table && header.isArray
     }
     return starts.enumerated().map { offset, start in
-      let nextArray = starts.dropFirst(offset + 1).first(where: { $0 > start })
       let nextHeader = lines[(start + 1)...].firstIndex(where: isTableHeader)
-      let end = min(nextArray ?? lines.endIndex, nextHeader ?? lines.endIndex)
-      return start..<end
+      let nextArray = starts.dropFirst(offset + 1).first(where: {
+        $0 < (nextHeader ?? lines.endIndex)
+      })
+      let end = nextArray.map(leadingCommentStart(before:)) ?? nextHeader ?? lines.endIndex
+      return leadingCommentStart(before: start)..<end
     }
   }
 
   private func isTableHeader(_ line: String) -> Bool {
-    let value = line.trimmingCharacters(in: .whitespaces)
-    return value.hasPrefix("[") && value.hasSuffix("]")
+    tableHeader(in: line) != nil
   }
 
   private func tableName(in line: String) -> String? {
@@ -143,13 +142,25 @@ struct LosslessTOMLDocument {
   }
 
   private func tableHeader(in line: String) -> (name: String, isArray: Bool)? {
-    let value = line.trimmingCharacters(in: .whitespaces)
-    guard isTableHeader(value) else { return nil }
-    if value.hasPrefix("[["), value.hasSuffix("]]"), value.count > 4 {
-      return (String(value.dropFirst(2).dropLast(2)), true)
+    let uncommented = commentStart(in: line).map { line[..<$0] } ?? line[...]
+    let value = uncommented.trimmingCharacters(in: .whitespaces)
+    guard value.hasPrefix("["), value.hasSuffix("]") else { return nil }
+    let isArray = value.hasPrefix("[[") && value.hasSuffix("]]") && value.count > 4
+    guard isArray || !value.hasPrefix("[[") else { return nil }
+    let rawName = String(value.dropFirst(isArray ? 2 : 1).dropLast(isArray ? 2 : 1))
+    let name = rawName.trimmingCharacters(in: .whitespaces)
+    if name.first == "\"", name.last == "\"", name.count >= 2 {
+      return (
+        String(name.dropFirst().dropLast())
+          .replacingOccurrences(of: "\\\"", with: "\"")
+          .replacingOccurrences(of: "\\\\", with: "\\"),
+        isArray
+      )
     }
-    guard !value.hasPrefix("[[") else { return nil }
-    return (String(value.dropFirst().dropLast()), false)
+    if name.first == "'", name.last == "'", name.count >= 2 {
+      return (String(name.dropFirst().dropLast()), isArray)
+    }
+    return (name, isArray)
   }
 
   private func assignmentKey(in line: String) -> String? {
@@ -161,10 +172,44 @@ struct LosslessTOMLDocument {
         .replacingOccurrences(of: "\\\"", with: "\"")
         .replacingOccurrences(of: "\\\\", with: "\\")
     }
+    if key.first == "'", key.last == "'", key.count >= 2 {
+      return String(key.dropFirst().dropLast())
+    }
     return key
   }
 
-  private func assignmentEnd(after startLine: Int, equals: String.Index) -> (Int, [(line: Int, text: String)]) {
+  private func assignmentIndex(for key: String, in range: Range<Int>) -> Int? {
+    var index = range.lowerBound
+    while index < range.upperBound {
+      if assignmentKey(in: lines[index]) == key { return index }
+      if let equals = firstEquals(in: lines[index]) {
+        index = min(assignmentEnd(after: index, equals: equals).0, range.upperBound)
+      } else {
+        index += 1
+      }
+    }
+    return nil
+  }
+
+  private func leadingCommentStart(before header: Int) -> Int {
+    var commentEnd = header
+    while commentEnd > 0,
+      lines[commentEnd - 1].trimmingCharacters(in: .whitespaces).isEmpty
+    {
+      commentEnd -= 1
+    }
+    var start = commentEnd
+    while start > 0,
+      lines[start - 1].trimmingCharacters(in: .whitespaces).hasPrefix("#")
+    {
+      start -= 1
+    }
+    return start < commentEnd ? start : header
+  }
+
+  private func assignmentEnd(after startLine: Int, equals: String.Index) -> (
+    Int, [(line: Int, text: String)]
+  ) {
     var squareDepth = 0
     var curlyDepth = 0
     var quote: Character?
@@ -224,19 +269,21 @@ struct LosslessTOMLDocument {
   }
 
   private func firstEquals(in line: String) -> String.Index? {
-    var quoted = false
+    var quote: Character?
     var escaped = false
     for index in line.indices {
       let character = line[index]
       if escaped {
         escaped = false
-      } else if character == "\\", quoted {
+      } else if character == "\\", quote == "\"" {
         escaped = true
-      } else if character == "\"" {
-        quoted.toggle()
-      } else if character == "=", !quoted {
+      } else if let currentQuote = quote, character == currentQuote {
+        quote = nil
+      } else if quote == nil, character == "\"" || character == "'" {
+        quote = character
+      } else if character == "=", quote == nil {
         return index
-      } else if character == "#", !quoted {
+      } else if character == "#", quote == nil {
         return nil
       }
     }
@@ -260,17 +307,19 @@ struct LosslessTOMLDocument {
   }
 
   private func commentStart(in line: String) -> String.Index? {
-    var quoted = false
+    var quote: Character?
     var escaped = false
     for index in line.indices {
       let character = line[index]
       if escaped {
         escaped = false
-      } else if character == "\\", quoted {
+      } else if character == "\\", quote == "\"" {
         escaped = true
-      } else if character == "\"" {
-        quoted.toggle()
-      } else if character == "#", !quoted {
+      } else if let currentQuote = quote, character == currentQuote {
+        quote = nil
+      } else if quote == nil, character == "\"" || character == "'" {
+        quote = character
+      } else if character == "#", quote == nil {
         return index
       }
     }
