@@ -260,21 +260,32 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   }
 }
 
+public enum WorkspaceLabelStyle: String, Codable, CaseIterable, Sendable {
+  case name
+  case icon
+  case iconAndName = "icon_and_name"
+}
+
 public struct MenuBarConfig: Codable, Equatable, Sendable {
   public var enabled: Bool
 
-  public init(enabled: Bool = true) {
+  public var workspaceStyle: WorkspaceLabelStyle
+
+  public init(enabled: Bool = true, workspaceStyle: WorkspaceLabelStyle = .name) {
     self.enabled = enabled
+    self.workspaceStyle = workspaceStyle
   }
 
   enum CodingKeys: String, CodingKey {
     case enabled
+    case workspaceStyle = "workspace_style"
   }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     let defaults = MenuBarConfig()
     enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+    workspaceStyle = try values.decodeIfPresent(WorkspaceLabelStyle.self, forKey: .workspaceStyle) ?? defaults.workspaceStyle
   }
 }
 
@@ -284,29 +295,38 @@ public enum CenterFocusedColumnConfig: String, Codable, Sendable {
 }
 
 public struct WorkspacesConfig: Codable, Equatable, Sendable {
+  public var icons: [String: String]
   public var names: [String]
   public var defaultName: String?
   public var monitors: [String: Int]
+  public var monitorIDs: [String: String]
 
   public init(
     names: [String] = [],
+    icons: [String: String] = [:],
     defaultName: String? = nil,
-    monitors: [String: Int] = [:]
+    monitors: [String: Int] = [:],
+    monitorIDs: [String: String] = [:]
   ) {
+    self.icons = icons
     self.names = names
     self.defaultName = defaultName ?? names.first
     self.monitors = monitors
+    self.monitorIDs = monitorIDs
   }
 
   enum CodingKeys: String, CodingKey {
+    case icons
     case names
     case defaultName = "default"
     case monitors
+    case monitorIDs = "monitor_ids"
   }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     let defaults = WorkspacesConfig()
+    icons = try values.decodeIfPresent([String: String].self, forKey: .icons) ?? defaults.icons
     names =
       try values.decodeIfPresent([String].self, forKey: .names)
       ?? defaults.names
@@ -316,6 +336,9 @@ public struct WorkspacesConfig: Codable, Equatable, Sendable {
     monitors =
       try values.decodeIfPresent([String: Int].self, forKey: .monitors)
       ?? defaults.monitors
+    monitorIDs =
+      try values.decodeIfPresent([String: String].self, forKey: .monitorIDs)
+      ?? defaults.monitorIDs
   }
 }
 

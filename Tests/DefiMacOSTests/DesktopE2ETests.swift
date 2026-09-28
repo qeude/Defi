@@ -868,6 +868,107 @@ final class DesktopE2ETests: XCTestCase {
     }
   }
 
+  func testShortcutRecorderCapturesKeysAndCancelsWithEscape() throws {
+    _ = try makePlatform()
+    let window = NSWindow(
+      contentRect: NSRect(x: 100, y: 100, width: 240, height: 80),
+      styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let recorder = ShortcutRecorderButton()
+    recorder.shortcutLabel = "⌥A"
+    var recorded: [String] = []
+    recorder.onRecord = { recorded.append($0) }
+    window.contentView = recorder
+    defer {
+      recorder.stopRecording()
+      window.close()
+    }
+    let originalPolicy = NSApplication.shared.activationPolicy()
+    NSApplication.shared.setActivationPolicy(.regular)
+    defer { NSApplication.shared.setActivationPolicy(originalPolicy) }
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate()
+    pumpRunLoop(for: 0.1)
+    recorder.performClick(nil)
+    XCTAssertTrue(recorder.isRecording)
+    XCTAssertTrue(ShortcutRecorderButton.capturesKeyboard)
+    let escape = try XCTUnwrap(NSEvent.keyEvent(
+      with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+      windowNumber: 0, context: nil, characters: "\u{1b}",
+      charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+    NSApplication.shared.sendEvent(escape)
+    XCTAssertFalse(recorder.isRecording)
+    XCTAssertFalse(ShortcutRecorderButton.capturesKeyboard)
+    XCTAssertTrue(recorded.isEmpty)
+    recorder.performClick(nil)
+    let shortcut = try XCTUnwrap(NSEvent.keyEvent(
+      with: .keyDown, location: .zero, modifierFlags: [.control, .option], timestamp: 0,
+      windowNumber: 0, context: nil, characters: "a",
+      charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
+    NSApplication.shared.sendEvent(shortcut)
+    XCTAssertEqual(recorded, ["alt-ctrl-a"])
+    XCTAssertFalse(recorder.isRecording)
+    recorder.performClick(nil)
+    let physical = try XCTUnwrap(CGEvent(
+      keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: 125, keyDown: true))
+    physical.flags = [.maskControl, .maskAlternate, .maskShift]
+    let tap = HotKeyTapContext(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in })
+    physical.setIntegerValueField(.eventTargetUnixProcessID, value: 0)
+    XCTAssertNil(tap.handle(type: .keyDown, event: physical))
+    XCTAssertTrue(pumpRunLoop(until: { recorded.count == 2 }, timeout: 1))
+    XCTAssertEqual(recorded.last, "alt-ctrl-shift-down")
+    recorder.performClick(nil)
+    let manager = onNavigation { HotKeyManager(config: Config()) { _ in } }
+    try onNavigation { try manager.start() }
+    defer { onNavigation { manager.stop() } }
+    physical.post(tap: .cghidEventTap)
+    physical.type = .keyUp
+    physical.post(tap: .cghidEventTap)
+    let recordingDeadline = Date().addingTimeInterval(1)
+    while recorded.count < 3, Date() < recordingDeadline {
+      if let event = NSApplication.shared.nextEvent(
+        matching: .any, until: recordingDeadline, inMode: .default, dequeue: true)
+      {
+        NSApplication.shared.sendEvent(event)
+      }
+    }
+    XCTAssertEqual(recorded.count, 3)
+    XCTAssertFalse(recorder.isRecording)
+    recorder.performClick(nil)
+    let physicalEscape = try XCTUnwrap(CGEvent(
+      keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: 53, keyDown: true))
+    physicalEscape.post(tap: .cghidEventTap)
+    physicalEscape.type = .keyUp
+    physicalEscape.post(tap: .cghidEventTap)
+    let cancellationDeadline = Date().addingTimeInterval(1)
+    while recorder.isRecording, Date() < cancellationDeadline {
+      if let event = NSApplication.shared.nextEvent(
+        matching: .any, until: cancellationDeadline, inMode: .default, dequeue: true)
+      {
+        NSApplication.shared.sendEvent(event)
+      }
+    }
+    XCTAssertFalse(recorder.isRecording)
+    recorder.performClick(nil)
+    physical.type = .keyDown
+    XCTAssertNil(tap.handle(type: .keyDown, event: physical))
+    recorder.stopRecording()
+    recorder.performClick(nil)
+    pumpRunLoop(for: 0.05)
+    XCTAssertEqual(recorded.count, 3)
+    XCTAssertTrue(recorder.isRecording)
+    window.makeFirstResponder(nil)
+    XCTAssertFalse(ShortcutRecorderButton.capturesKeyboard)
+    XCTAssertNotNil(tap.handle(type: .keyDown, event: physical))
+    recorder.performClick(nil)
+    window.close()
+    XCTAssertFalse(ShortcutRecorderButton.capturesKeyboard)
+  }
+
   func testSwiftUIMenuKeepsWorkspaceSelectionAndCommandRouting() throws {
     _ = try makePlatform()
     let commands = DesktopValue<[String]>([])
@@ -882,8 +983,12 @@ final class DesktopE2ETests: XCTestCase {
     ))
     menu.update()
     XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), [
-      "Workspaces", "Launch at Login", "Configuration Guide…", "About Defi", "Quit Defi",
+      "Workspaces", "Settings…", "Quit Defi",
     ])
+    let settings = try XCTUnwrap(menu.items.first { $0.title == "Settings…" })
+    XCTAssertNil(settings.image)
+    XCTAssertEqual(settings.keyEquivalent, ",")
+    XCTAssertEqual(settings.keyEquivalentModifierMask, .command)
     let workspaces = try XCTUnwrap(menu.items.first { $0.title == "Workspaces" }?.submenu)
     workspaces.update()
     XCTAssertEqual(workspaces.items.first { $0.title == "Dev" }?.state, .on)

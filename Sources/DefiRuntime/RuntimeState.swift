@@ -45,6 +45,8 @@ public struct RuntimeState: Equatable, Sendable {
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID?
   public var workspaceMonitorPositions: [WorkspaceID: Int]
+  public var workspaceMonitorIDs: [WorkspaceID: String]
+  public var monitorStableIDs: [MonitorID: String]
   public var nextOrdinaryWorkspaceNumber: UInt64
   public var disconnectedMonitors: [MonitorID: DisconnectedMonitor]
   public var nativeFullscreenWindowIDs: Set<WindowID>
@@ -67,6 +69,12 @@ public struct RuntimeState: Equatable, Sendable {
         (WorkspaceID(rawValue: $0.key), $0.value)
       }
     )
+    self.workspaceMonitorIDs = Dictionary(
+      uniqueKeysWithValues: config.workspaces.monitorIDs.map {
+        (WorkspaceID(rawValue: $0.key), $0.value)
+      }
+    )
+    self.monitorStableIDs = [:]
     self.nextOrdinaryWorkspaceNumber = 1
     self.disconnectedMonitors = [:]
     self.nativeFullscreenWindowIDs = []
@@ -106,15 +114,22 @@ public struct RuntimeState: Equatable, Sendable {
         (WorkspaceID(rawValue: $0.key), $0.value)
       }
     )
+    let nextWorkspaceMonitorIDs = Dictionary(
+      uniqueKeysWithValues: config.workspaces.monitorIDs.map {
+        (WorkspaceID(rawValue: $0.key), $0.value)
+      }
+    )
     let workspacesChanged =
       workspaceNames != nextWorkspaceNames
       || workspaceMonitorPositions != nextWorkspaceMonitorPositions
+      || workspaceMonitorIDs != nextWorkspaceMonitorIDs
 
     layout = LayoutSettings(config: config)
     windowRules = config.rules
     workspaceNames = nextWorkspaceNames
     defaultWorkspace = config.workspaces.defaultName.map(WorkspaceID.init(rawValue:))
     workspaceMonitorPositions = nextWorkspaceMonitorPositions
+    workspaceMonitorIDs = nextWorkspaceMonitorIDs
     if workspacesChanged {
       reconcileConfiguredWorkspaces()
     }
@@ -136,10 +151,16 @@ public struct RuntimeState: Equatable, Sendable {
     var workspaces: [Workspace] = []
     if isPrimary {
       workspaces = workspaceNames.enumerated().map { index, id in
-        Workspace(
+        let configuredStableID = workspaceMonitorIDs[id]
+        let stableMatch = configuredStableID.flatMap { stableID in
+          monitorStableIDs.first(where: { $0.value == stableID })?.key
+        }
+        return Workspace(
           id: id,
           kind: .named,
-          affinity: (workspaceMonitorPositions[id] ?? 1) == 1 ? monitorID : nil,
+          affinity: stableMatch
+            ?? (configuredStableID == nil
+              && (workspaceMonitorPositions[id] ?? 1) == 1 ? monitorID : nil),
           affinityPosition: index
         )
       }
@@ -159,13 +180,35 @@ public struct RuntimeState: Equatable, Sendable {
         } ?? trailing.id
       )
     )
+    let returningIDs = monitorStableIDs[monitorID].map { returningStableID in
+      monitorStableIDs.compactMap { id, stableID in
+        stableID == returningStableID && id != monitorID ? id : nil
+      }
+    } ?? []
+    for sourceID in returningIDs {
+      for monitorIndex in monitors.indices where monitors[monitorIndex].id != monitorID {
+        for workspaceIndex in monitors[monitorIndex].workspaces.indices
+        where monitors[monitorIndex].workspaces[workspaceIndex].affinity == sourceID {
+          monitors[monitorIndex].workspaces[workspaceIndex].affinity = monitorID
+        }
+      }
+    }
     restoreAffinedWorkspaces(
       to: monitorID,
       previousViewports: previousViewports,
       nextViewports: nextViewports
     )
     redistributeConfiguredNamedWorkspaces()
-    if let disconnected = disconnectedMonitors.removeValue(forKey: monitorID),
+    var disconnected = disconnectedMonitors.removeValue(forKey: monitorID)
+    if disconnected == nil {
+      for returningID in returningIDs {
+        if let saved = disconnectedMonitors.removeValue(forKey: returningID) {
+          disconnected = saved
+          break
+        }
+      }
+    }
+    if let disconnected,
       monitors.last?.workspaces.contains(where: {
         $0.id == disconnected.activeWorkspace
       }) == true
@@ -178,9 +221,11 @@ public struct RuntimeState: Equatable, Sendable {
   public mutating func retainMonitors(
     _ monitorIDs: [MonitorID],
     previousViewports: [MonitorID: Rect] = [:],
-    nextViewports: [MonitorID: Rect] = [:]
+    nextViewports: [MonitorID: Rect] = [:],
+    stableIDs: [MonitorID: String] = [:]
   ) {
     guard !monitorIDs.isEmpty else { return }
+    monitorStableIDs.merge(stableIDs) { _, next in next }
     let initialPrimaryTransfer = monitors.count == 1 && monitorIDs.count > 1
       && monitorIDs.contains(monitors[0].id)
       && monitorIDs.first != monitors[0].id
@@ -193,6 +238,7 @@ public struct RuntimeState: Equatable, Sendable {
         guard workspace.kind != .trailing,
           workspace.affinity == monitors[0].id,
           workspaceMonitorPositions[workspace.id] == nil
+            && workspaceMonitorIDs[workspace.id] == nil
         else { continue }
         monitors[0].workspaces[index].affinity = monitorIDs[0]
       }
@@ -421,7 +467,11 @@ public struct RuntimeState: Equatable, Sendable {
     for sourceIndex in monitors.indices.reversed() where sourceIndex != targetIndex {
       for workspaceIndex in monitors[sourceIndex].workspaces.indices.reversed() {
         let workspace = monitors[sourceIndex].workspaces[workspaceIndex]
-        guard workspace.affinity == monitorID, workspace.kind != .trailing else { continue }
+        let configuredStableID = workspaceMonitorIDs[workspace.id]
+        guard workspace.affinity == monitorID,
+          workspace.kind != .trailing,
+          configuredStableID.map({ monitorStableIDs[monitorID] == $0 }) ?? true
+        else { continue }
         returning.append((workspace, monitors[sourceIndex].id))
         monitors[sourceIndex].workspaces.remove(at: workspaceIndex)
       }
@@ -450,9 +500,15 @@ public struct RuntimeState: Equatable, Sendable {
   private mutating func redistributeConfiguredNamedWorkspaces() {
     for workspaceID in workspaceNames {
       guard let location = workspaceLocation(for: workspaceID) else { continue }
-      let affinity = monitors[location.monitorIndex].workspaces[location.workspaceIndex].affinity
+      let workspace = monitors[location.monitorIndex].workspaces[location.workspaceIndex]
+      let affinity = workspace.affinity
       let targetIndex: Int
-      if let affinity {
+      if let stableID = workspaceMonitorIDs[workspaceID] {
+        guard let connected = monitors.firstIndex(where: {
+          monitorStableIDs[$0.id] == stableID
+        }) else { continue }
+        targetIndex = connected
+      } else if let affinity {
         guard let connected = monitors.firstIndex(where: { $0.id == affinity }) else {
           continue
         }
@@ -502,10 +558,13 @@ public struct RuntimeState: Equatable, Sendable {
         let workspace = Workspace(
           id: workspaceID,
           kind: .named,
-          affinity: workspaceMonitorPositions[workspaceID] == nil
-            || workspaceMonitorPositions[workspaceID] == 1
+          affinity: workspaceMonitorIDs[workspaceID].flatMap { stableID in
+            monitorStableIDs.first(where: { $0.value == stableID })?.key
+          } ?? (workspaceMonitorIDs[workspaceID] == nil
+            && (workspaceMonitorPositions[workspaceID] == nil
+              || workspaceMonitorPositions[workspaceID] == 1)
             ? monitors[primaryIndex].id
-            : nil,
+            : nil),
           affinityPosition: monitors[primaryIndex].workspaces.count
         )
         insertBeforeTrailing(workspace, in: primaryIndex)

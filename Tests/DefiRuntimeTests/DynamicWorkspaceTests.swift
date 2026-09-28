@@ -55,6 +55,28 @@ struct DynamicWorkspaceTests {
   }
 
   @Test
+  func configuredDisplayAffinitySurvivesDisplayIDChanges() {
+    let config = Config(workspaces: WorkspacesConfig(
+      names: ["remote"], monitorIDs: ["remote": "display-b"]
+    ))
+    var state = RuntimeState(config: config)
+    let replacement = MonitorID(rawValue: 3)
+    state.retainMonitors(
+      [primary, secondary],
+      stableIDs: [primary: "display-a", secondary: "display-b"]
+    )
+    #expect(state.monitors.first(where: { $0.id == secondary })?.workspaces.contains(where: { $0.id == WorkspaceID(rawValue: "remote") }) == true)
+
+    state.retainMonitors([primary], stableIDs: [primary: "display-a"])
+    state.retainMonitors(
+      [replacement, primary],
+      stableIDs: [replacement: "display-b", primary: "display-a"]
+    )
+
+    #expect(state.monitors.first(where: { $0.id == replacement })?.workspaces.contains(where: { $0.id == WorkspaceID(rawValue: "remote") }) == true)
+  }
+
+  @Test
   func `Initial primary transfer preserves configured and disconnected affinities`() {
     var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(
       names: ["dev", "pinned", "returning"], monitors: ["pinned": 1]

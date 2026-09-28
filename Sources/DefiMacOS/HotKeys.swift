@@ -2,6 +2,7 @@ import ApplicationServices
 import DefiConfig
 import DefiModel
 import DefiRuntime
+import Darwin
 import Foundation
 
 let hotKeyEventTapPlacement = CGEventTapPlacement.tailAppendEventTap
@@ -375,6 +376,11 @@ final class HotKeyTapContext: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let isKeyDown = type == .keyDown
+    let eventTargetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
+    let isDefiTextInput = hotKeyTargetIsCurrentApplication(
+      eventTargetPID, currentPID: getpid(),
+      recordingShortcut: ShortcutRecorderButton.capturesKeyboard
+    )
     let tracksGeneralUserInput: Bool
     if type == .flagsChanged {
       tracksGeneralUserInput = capturedModifierReleaseState.shouldRecord(
@@ -410,6 +416,7 @@ final class HotKeyTapContext: @unchecked Sendable {
       }
       let closeIntent = isKeyDown && commandPressed
         && Self.closeWindowKeyCodes.contains(code)
+        && !isDefiTextInput
       userInputTracker.record(
         timestamp: timestamp,
         focusIntent: focusIntent,
@@ -426,6 +433,15 @@ final class HotKeyTapContext: @unchecked Sendable {
           .flatMap { $0 > 0 ? $0 : nil }
         self.closeIntent(timestamp, processID)
       }
+    }
+    if isKeyDown, let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {
+      record(
+        UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
+        event.flags.rawValue, event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+      return nil
+    }
+    if isDefiTextInput && (isKeyDown || type == .flagsChanged) {
+      return Unmanaged.passUnretained(event)
     }
     if type == .flagsChanged {
       let bits = hotKeyModifierBits(event.flags)

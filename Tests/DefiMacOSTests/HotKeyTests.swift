@@ -22,6 +22,15 @@ private final class HotKeyInvocationRecorder: Sendable {
 @Suite
 struct OverviewHotKeyTests {
   @Test
+  func settingsTargetKeyEventsPassThroughHotKeyCapture() {
+    #expect(hotKeyTargetIsCurrentApplication(42, currentPID: 42))
+    #expect(!hotKeyTargetIsCurrentApplication(17, currentPID: 42))
+    #expect(!hotKeyTargetIsCurrentApplication(nil, currentPID: 42))
+    #expect(hotKeyTargetIsCurrentApplication(0, currentPID: 42, recordingShortcut: true))
+    #expect(hotKeyTargetIsCurrentApplication(nil, currentPID: 42, recordingShortcut: true))
+  }
+
+  @Test
   func `Overview captures navigation arrows but leaves move bindings active`() {
     let hyper = hotKeyModifierBits([
       .maskAlternate,

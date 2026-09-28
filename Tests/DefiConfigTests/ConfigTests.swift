@@ -23,6 +23,33 @@ struct ConfigTests {
   }
 
   @Test
+  func disabledBuiltInShortcutLeavesOtherDefaultsAndNamedMonitorAffinity() throws {
+    let config = try Config.decode(Data("""
+      disabled_keys = ["alt-left"]
+
+      [workspaces]
+      names = ["dev"]
+      monitor_ids = { dev = "display-uuid" }
+      """.utf8))
+    #expect(config.keys["alt-left"] == nil)
+    #expect(config.keys["alt-right"] == "focus-column right")
+    #expect(config.workspaces.monitorIDs == ["dev": "display-uuid"])
+  }
+
+  @Test
+  func aliasedOverrideAcceleratorCollisionsAreRejected() throws {
+    let data = Data("""
+      [modifier_combinations]
+      hyper = "Alt"
+
+      [keys]
+      "alt-left" = "focus-column left"
+      "hyper-left" = "focus-monitor left"
+      """.utf8)
+    #expect(throws: ConfigError.self) { try Config.decode(data) }
+  }
+
+  @Test
   func initialColumnWidthRulesDecodeCombineAndValidate() throws {
     let config = try Config.decode(Data("""
       [[rules]]

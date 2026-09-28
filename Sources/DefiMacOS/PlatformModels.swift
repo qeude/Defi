@@ -8,6 +8,7 @@ import OSLog
 
 public struct MonitorSnapshot: Equatable, Sendable {
   public let id: MonitorID
+  public let stableID: String?
   public let frame: Rect
   public let physicalFrame: Rect
   public let refreshRateHz: Double
@@ -15,10 +16,12 @@ public struct MonitorSnapshot: Equatable, Sendable {
   public init(
     id: MonitorID,
     frame: Rect,
+    stableID: String? = nil,
     physicalFrame: Rect? = nil,
     refreshRateHz: Double = 60
   ) {
     self.id = id
+    self.stableID = stableID
     self.frame = frame
     self.physicalFrame = physicalFrame ?? frame
     self.refreshRateHz = refreshRateHz

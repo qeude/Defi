@@ -307,7 +307,10 @@ extension Daemon {
     state.retainMonitors(
       snapshot.monitors.map(\.id),
       previousViewports: previousViewports,
-      nextViewports: viewportsByMonitor
+      nextViewports: viewportsByMonitor,
+      stableIDs: Dictionary(uniqueKeysWithValues: snapshot.monitors.compactMap { monitor in
+        monitor.stableID.map { (monitor.id, $0) }
+      })
     )
     if displayGeometryChanged {
       focus.requeuePreservedFocusAfterMonitorRetention(

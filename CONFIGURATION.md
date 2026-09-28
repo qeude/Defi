@@ -252,7 +252,13 @@ monitors = { tools = 2 }
 | --- | --- | --- | --- |
 | `names` | `[]` | array of unique strings | Persistent globally unique workspace names used by rules and stable bindings. |
 | `default` | first entry in `names`, otherwise unset | string present in `names` | Startup workspace on its owning monitor. |
-| `monitors` | `{}` | table from workspace name to 1-based display index | Initial monitor affinity for named workspaces; unspecified names use the primary display. |
+| `monitors` | `{}` | table from workspace name to 1-based display index | Existing positional affinity setting; unspecified names use the primary display. |
+| `monitor_ids` | `{}` | table from workspace name to display UUID | Stable display affinity managed by Settings; an unavailable display remains pending. |
+
+Settings displays the localized screen name and stores its ColorSync display
+UUID in `monitor_ids`, so changing screen order does not move the workspace.
+Existing `monitors` entries continue to use their configured display position;
+choosing a screen in Settings converts that workspace to a UUID affinity.
 
 Each workspace belongs to exactly one monitor. Every monitor keeps one trailing
 empty workspace shown as `+`. Populating it turns it into an ordinary workspace
@@ -329,8 +335,17 @@ There is no default binding for `toggle-cheatsheet`. It keeps the help open afte
 modifier release. Toggle again, press Escape, click, or execute any Defi shortcut
 to close it. After a shortcut, release the modifiers before holding again.
 Configuration reload and display or session changes also dismiss the help.
-The cheatsheet displays the `hyper` modifier alias as `✦`. Other aliases expand
-to their modifier symbols. Its fade respects `[animation].enabled` and Reduce Motion.
+Settings → Input → Shortcut display controls whether matching Control–Option–Command
+combinations appear as `✦`, and whether Shift is included in that abbreviation.
+These display preferences also apply to the cheatsheet; they do not change key
+bindings or modifier aliases. Other combinations show their individual modifier
+symbols. The cheatsheet fade respects `[animation].enabled` and Reduce Motion.
+
+Settings can move a built-in shortcut to a different accelerator while keeping
+the other inherited defaults intact. It records the suppressed built-in
+accelerators in the optional root-level `disabled_keys` array; restoring a
+shortcut removes its override and suppression so the built-in binding is
+inherited again.
 
 ## `[modifier_combinations]`
 
@@ -370,7 +385,16 @@ Binds accelerators to Defi commands.
 
 Custom entries merge with generated defaults. A matching accelerator overrides
 its generated command; unrelated generated bindings remain active. Unbinding a
-generated accelerator is not currently supported.
+generated accelerator is supported through the optional root-level
+`disabled_keys` array:
+
+```toml
+disabled_keys = ["alt-left"]
+```
+
+This suppresses the generated `alt-left` binding while keeping the other
+generated shortcuts. Settings can disable and restore generated shortcuts for
+you.
 
 ### Accelerator syntax
 
@@ -496,8 +520,10 @@ Native fullscreen lifecycle support follows this policy:
 
 ## `[[rules]]`
 
-Application rules assign newly discovered windows to workspaces and override
-normal floating or tiling classification. Add one table per rule.
+Application rules assign new windows to workspaces and override normal floating
+or tiling classification. Defi applies a matching rule when it first discovers
+a window; saving a rule does not change windows already managed by Defi. Add one
+table per rule.
 
 ```toml
 [[rules]]
@@ -516,8 +542,8 @@ intrinsic_size = true
 | `app_id` | unset | string | Case-insensitive bundle ID or application-name match. Exact matches and suffix matches in either direction pass. |
 | `title` | unset | string | Case-insensitive substring match against window title. |
 | `role` | unset | string | Exact, case-sensitive Accessibility role match, such as `AXWindow`. |
-| `workspace` | unset | string present in `[workspaces].names` | Places newly discovered matching window on workspace. |
-| `follow_focus` | `false` | boolean | Activates the target workspace when the newly discovered matching window has native focus. |
+| `workspace` | unset | string present in `[workspaces].names` | Places a newly discovered matching window on this workspace. |
+| `follow_focus` | `false` | boolean | Activates the target workspace when the matching new window has native focus. |
 | `floating` | `false` | boolean | Places matching window in workspace floating layer. |
 | `force_tiling` | `false` | boolean | Tiles matching window even when platform classification would normally float or ignore it. Overrides `floating`. |
 | `include_initial_width_in_cycle` | `false` | boolean | Adds the matching initial width to `cycle-width` for the focused tiled window. |
@@ -539,10 +565,11 @@ windows keep observed size and position, park with their workspace, and remain
 isolated per monitor. Use `force_tiling = true` only for windows known to behave
 correctly when resized.
 
-Rules apply when a window is first discovered. Reloaded rules affect windows
-discovered afterward without moving windows already managed by Defi. Initial
-width rules do not override later manual resizing or widths restored from the
-session on daemon restart. Tiled windows still fill the available height.
+Rules apply once when a window is first discovered, including new windows opened
+later by an app that is already running. Reloaded rules affect subsequently
+discovered windows without moving windows already managed by Defi. Initial width
+rules do not override later manual resizing or widths restored from the session
+on daemon restart. Tiled windows still fill the available height.
 
 The opt-in `include_initial_width_in_cycle` adds the resolved initial width
 only when `initial_column_width` is explicitly set by a matching rule. Without
@@ -659,11 +686,29 @@ names = []
 
 ## Unsupported configuration
 
-Startup commands, dimming, per-edge gaps, and removing generated keybindings are
-not implemented. No compatibility aliases exist before
-the first stable release; use setting names exactly as documented.
+Startup-command configuration and dimming are not implemented. Per-edge gaps
+and disabling generated keybindings are supported. No compatibility aliases
+exist before the first stable release; use setting names exactly as documented.
 
 ## Full example
 
 See [config.example.toml](config.example.toml) for a daily-use config with named
 workspaces, a Hyper modifier, and application rules.
+
+### Named workspace icons
+
+`[workspaces].icons` maps declared workspace names to SF Symbol names. Icons
+follow workspace renames and are removed when a workspace is deleted in Settings.
+`[menu_bar].workspace_style` accepts `"name"` (default), `"icon"`, or
+`"icon_and_name"`. Ordinary workspaces always display their number. Named
+workspaces without an icon, or with a symbol unavailable on this macOS version,
+use `square.grid.2x2` when icons are shown.
+
+```toml
+[workspaces]
+names = ["dev", "web"]
+icons = { dev = "terminal", web = "globe" }
+
+[menu_bar]
+workspace_style = "icon_and_name"
+```

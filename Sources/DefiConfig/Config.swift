@@ -13,7 +13,9 @@ public struct Config: Equatable, Sendable {
   public var modifierCombinations: [String: String]
   public var defaultKeyModifier: String
   public var showCheatsheetOnModifierHold: Bool
+  public var disabledKeys: [String]
   public var keys: [String: String]
+  public var keyOverrides: [String: String]
   public var rules: [Rule]
 
   public init(
@@ -27,6 +29,7 @@ public struct Config: Equatable, Sendable {
     modifierCombinations: [String: String] = [:],
     defaultKeyModifier: String = "alt",
     showCheatsheetOnModifierHold: Bool = true,
+    disabledKeys: [String] = [],
     keys: [String: String]? = nil,
     rules: [Rule] = []
   ) {
@@ -40,11 +43,19 @@ public struct Config: Equatable, Sendable {
     self.modifierCombinations = modifierCombinations
     self.defaultKeyModifier = defaultKeyModifier
     self.showCheatsheetOnModifierHold = showCheatsheetOnModifierHold
+    self.disabledKeys = disabledKeys
+    self.keyOverrides = keys ?? [:]
+    let defaults = Self.defaultKeys(
+      modifier: defaultKeyModifier, workspaceNames: workspaces.names,
+      aliases: modifierCombinations
+    ).filter { accelerator, _ in
+      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierCombinations) else {
+        return true
+      }
+      return !disabledKeys.contains { normalizedAccelerator($0, aliases: modifierCombinations) == normalized }
+    }
     self.keys = mergingKeyBindings(
-      Self.defaultKeys(
-        modifier: defaultKeyModifier, workspaceNames: workspaces.names,
-        aliases: modifierCombinations
-      ),
+      defaults,
       overrides: keys ?? [:], aliases: modifierCombinations
     )
     self.rules = rules
@@ -65,6 +76,7 @@ public struct Config: Equatable, Sendable {
       modifierCombinations: raw.modifierCombinations ?? [:],
       defaultKeyModifier: modifier,
       showCheatsheetOnModifierHold: raw.showCheatsheetOnModifierHold ?? true,
+      disabledKeys: raw.disabledKeys ?? [],
       keys: raw.keys,
       rules: raw.rules ?? []
     )
@@ -159,6 +171,10 @@ public struct Config: Equatable, Sendable {
     {
       throw ConfigError.unknownWorkspace(defaultName)
     }
+    for (name, icon) in workspaces.icons {
+      guard workspaces.names.contains(name) else { throw ConfigError.unknownWorkspace(name) }
+      guard !icon.isEmpty else { throw ConfigError.invalidValue("workspaces.icons.\(name)") }
+    }
     for (name, monitor) in workspaces.monitors {
       guard workspaces.names.contains(name) else {
         throw ConfigError.unknownWorkspace(name)
@@ -167,7 +183,37 @@ public struct Config: Equatable, Sendable {
         throw ConfigError.invalidValue("workspaces.monitors.\(name)")
       }
     }
+    for (name, monitorID) in workspaces.monitorIDs {
+      guard workspaces.names.contains(name) else {
+        throw ConfigError.unknownWorkspace(name)
+      }
+      guard !monitorID.isEmpty else {
+        throw ConfigError.invalidValue("workspaces.monitor_ids.\(name)")
+      }
+      guard workspaces.monitors[name] == nil else {
+        throw ConfigError.invalidValue("workspaces.monitor_ids.\(name)")
+      }
+    }
 
+    var overrideAccelerators: [String: String] = [:]
+    for accelerator in keyOverrides.keys {
+      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierCombinations) else {
+        throw ConfigError.invalidValue("keys.\(accelerator)")
+      }
+      if let existing = overrideAccelerators[normalized] {
+        throw ConfigError.conflictingAccelerators(existing, accelerator)
+      }
+      overrideAccelerators[normalized] = accelerator
+    }
+    var disabledAccelerators = Set<String>()
+    for accelerator in disabledKeys {
+      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierCombinations) else {
+        throw ConfigError.invalidValue("disabled_keys.\(accelerator)")
+      }
+      guard disabledAccelerators.insert(normalized).inserted else {
+        throw ConfigError.invalidValue("disabled_keys.\(accelerator)")
+      }
+    }
     for (accelerator, command) in keys {
       guard normalizedAccelerator(accelerator, aliases: modifierCombinations) != nil else {
         throw ConfigError.invalidValue("keys.\(accelerator)")
@@ -317,6 +363,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
   case invalidWorkspaces
   case unknownWorkspace(String)
   case invalidCommand(String)
+  case conflictingAccelerators(String, String)
 
   public var description: String {
     switch self {
@@ -325,6 +372,8 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
       "workspace names must be unique, contain no whitespace, and not use Defi's reserved prefix"
     case .unknownWorkspace(let name): "unknown workspace: \(name)"
     case .invalidCommand(let command): "invalid command: \(command)"
+    case .conflictingAccelerators(let first, let second):
+      "conflicting key bindings: \(first) and \(second)"
     }
   }
 }
@@ -340,6 +389,7 @@ private struct RawConfig: Decodable {
   var modifierCombinations: [String: String]?
   var defaultKeyModifier: String?
   var showCheatsheetOnModifierHold: Bool?
+  var disabledKeys: [String]?
   var keys: [String: String]?
   var rules: [Rule]?
 
@@ -354,6 +404,7 @@ private struct RawConfig: Decodable {
     case modifierCombinations = "modifier_combinations"
     case defaultKeyModifier = "default_key_modifier"
     case showCheatsheetOnModifierHold = "show_cheatsheet_on_modifier_hold"
+    case disabledKeys = "disabled_keys"
     case keys
     case rules
   }
