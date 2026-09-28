@@ -153,8 +153,27 @@ func overviewPreviewOwnerMatches(
   capturedAppID == expectedAppID
 }
 
-// Plus one desktop capture running alongside, so at most four ScreenCaptureKit captures at once.
-let overviewPreviewMaximumConcurrentCaptures = 3
+// Shared by window and desktop captures (docs/plans/overview.md): at most two at once.
+let overviewPreviewMaximumConcurrentCaptures = 2
+
+actor OverviewCaptureLimiter {
+  private var available: Int
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  init(limit: Int = overviewPreviewMaximumConcurrentCaptures) { available = limit }
+
+  func acquire() async {
+    if available > 0 {
+      available -= 1
+      return
+    }
+    await withCheckedContinuation { waiters.append($0) }
+  }
+
+  func release() {
+    if waiters.isEmpty { available += 1 } else { waiters.removeFirst().resume() }
+  }
+}
 
 // Capping width and height independently distorts the aspect of large cards (full-width
 // windows), so the capture would letterbox and the card would show an empty band.
@@ -250,6 +269,7 @@ func captureOverviewImages(
   previewCompleted: @escaping @MainActor @Sendable (OverviewPreviewCaptureResult) -> Void
 ) async -> OverviewCaptureResults {
   let renderingContext = overviewPreviewRenderingContext
+  let limiter = OverviewCaptureLimiter()
   do {
     let content = try await SCShareableContent.excludingDesktopWindows(
       true,
@@ -272,12 +292,13 @@ func captureOverviewImages(
         configuration.height = request.height
         configuration.showsCursor = false
         configuration.capturesAudio = false
-        if let image = try? await SCScreenshotManager.captureImage(
+        await limiter.acquire()
+        let image = try? await SCScreenshotManager.captureImage(
           contentFilter: filter,
           configuration: configuration
-        ) {
-          desktops[request.monitorID] = image
-        }
+        )
+        await limiter.release()
+        if let image { desktops[request.monitorID] = image }
       }
       return desktops
     }
@@ -286,7 +307,8 @@ func captureOverviewImages(
     )
     let batch = OverviewScreenCaptureBatch(
       windows: windows,
-      renderingContext: renderingContext
+      renderingContext: renderingContext,
+      limiter: limiter
     )
     return await withTaskCancellationHandler {
       let previews = await runOverviewPreviewCaptures(requests, completed: { result in
@@ -316,10 +338,16 @@ func captureOverviewImages(
 private final class OverviewScreenCaptureBatch {
   private let windows: [CGWindowID: SCWindow]
   private let renderingContext: CIContext
+  private let limiter: OverviewCaptureLimiter
 
-  init(windows: [CGWindowID: SCWindow], renderingContext: CIContext) {
+  init(
+    windows: [CGWindowID: SCWindow],
+    renderingContext: CIContext,
+    limiter: OverviewCaptureLimiter
+  ) {
     self.windows = windows
     self.renderingContext = renderingContext
+    self.limiter = limiter
   }
 
   func capture(
@@ -341,10 +369,18 @@ private final class OverviewScreenCaptureBatch {
     configuration.showsCursor = false
     configuration.capturesAudio = false
     do {
-      let image = try await SCScreenshotManager.captureImage(
-        contentFilter: SCContentFilter(desktopIndependentWindow: window),
-        configuration: configuration
-      )
+      await limiter.acquire()
+      let image: CGImage
+      do {
+        image = try await SCScreenshotManager.captureImage(
+          contentFilter: SCContentFilter(desktopIndependentWindow: window),
+          configuration: configuration
+        )
+      } catch {
+        await limiter.release()
+        throw error
+      }
+      await limiter.release()
       let renderingContext = renderingContext
       return await Task.detached(priority: .userInitiated) {
         let styledImage = progressivelyBlurredOverviewPreview(
