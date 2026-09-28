@@ -79,33 +79,8 @@ func persistentWidthMismatch(
   return now - observedSince >= widthMismatchStabilityDuration
 }
 
-func flushPlacementStore(
-  _ store: PlacementStore,
-  preferences: PlacementPreferences,
-  on queue: DispatchQueue
-) throws {
-  try queue.sync {
-    try store.save(preferences)
-  }
-}
-
 @NavigationActor
 extension Daemon {
-  func invalidatePlacementPreference(for window: Window) {
-    placementPreferences.invalidatePreference(for: window)
-    placementPreferencesDirty = true
-  }
-
-  func persistPlacements() {
-    persistTopology()
-    var updated = placementPreferences
-    updated.recordPlacements(from: state)
-    guard placementPreferencesDirty || updated != placementPreferences else { return }
-    placementPreferences = updated
-    placementPreferencesDirty = false
-    schedulePlacementStoreWrite(updated)
-  }
-
   func persistTopology() {
     let topology = state.topology
     guard topology != lastPersistedTopology else { return }
@@ -117,8 +92,8 @@ extension Daemon {
     }
     let item = DispatchWorkItem(block: operation)
     topologySaveWorkItem = item
-    placementSaveQueue.asyncAfter(
-      deadline: .now() + Self.placementSaveDebounce,
+    topologySaveQueue.asyncAfter(
+      deadline: .now() + Self.topologySaveDebounce,
       execute: item
     )
   }
@@ -139,56 +114,14 @@ extension Daemon {
     }
   }
 
-  static let placementSaveDebounce: TimeInterval = 0.5
-
-  func schedulePlacementStoreWrite(_ preferences: PlacementPreferences) {
-    placementSaveWorkItem?.cancel()
-    let operation: @Sendable () -> Void = { [weak self] in
-      self?.writePlacementStore(preferences)
-    }
-    let item = DispatchWorkItem(block: operation)
-    placementSaveWorkItem = item
-    placementSaveQueue.asyncAfter(
-      deadline: .now() + Self.placementSaveDebounce,
-      execute: item
-    )
-  }
-
-  nonisolated private func writePlacementStore(_ preferences: PlacementPreferences) {
-    do {
-      try placementStore.save(preferences)
-    } catch {
-      NavigationActor.enqueue { [weak self] in
-        NavigationActor.assumeIsolated {
-          guard let self else { return }
-          self.placementPreferencesDirty = true
-          self.log("placement persistence failed: \(error)")
-        }
-      }
-    }
-  }
-
-  func flushPendingPlacementWrite() {
-    guard placementSaveWorkItem != nil else { return }
-    placementSaveWorkItem?.cancel()
-    placementSaveWorkItem = nil
-    do {
-      try flushPlacementStore(
-        placementStore,
-        preferences: placementPreferences,
-        on: placementSaveQueue
-      )
-    } catch {
-      log("placement persistence failed: \(error)")
-    }
-  }
+  static let topologySaveDebounce: TimeInterval = 0.5
 
   func flushPendingTopologyWrite() {
     guard topologySaveWorkItem != nil else { return }
     topologySaveWorkItem?.cancel()
     topologySaveWorkItem = nil
     do {
-      try placementSaveQueue.sync {
+      try topologySaveQueue.sync {
         try topologyStore.save(state.topology, sessionID: topologySessionID)
       }
     } catch {

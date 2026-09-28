@@ -205,7 +205,6 @@ private func focusedWindowAfterSuspension(
 func reclassifyAutomaticWindow(
   _ windowID: WindowID,
   observedFloating: Bool,
-  preferredPlacement: WindowPlacementPreference? = nil,
   state: inout RuntimeState
 ) {
   guard !observedFloating,
@@ -295,56 +294,6 @@ func reclassifyAutomaticWindow(
       )
     }
   } else {
-    let destination = preferredPlacement.flatMap { preference -> (Int, Int)? in
-      let destinationMonitorIndex = preference.monitorID.flatMap { preferredMonitorID in
-        state.monitors.firstIndex(where: { $0.id == preferredMonitorID })
-      } ?? monitorIndex
-      guard let workspaceIndex = state.monitors[destinationMonitorIndex].workspaces.firstIndex(
-          where: { $0.id == preference.workspaceID }
-        )
-      else { return nil }
-      return (destinationMonitorIndex, workspaceIndex)
-    }
-    if let (destinationMonitorIndex, destinationWorkspaceIndex) = destination,
-      destinationMonitorIndex != monitorIndex || destinationWorkspaceIndex != workspaceIndex
-    {
-      if let previouslySelectedTiledWindowID,
-        let selectedColumnIndex = workspace.columns.firstIndex(where: {
-          $0.windows.contains(previouslySelectedTiledWindowID)
-        }),
-        let selectedWindowIndex = workspace.columns[selectedColumnIndex].windows.firstIndex(
-          of: previouslySelectedTiledWindowID
-        )
-      {
-        workspace.focusedColumn = selectedColumnIndex
-        workspace.columns[selectedColumnIndex].focusedWindow = selectedWindowIndex
-        workspace.targetScrollOffset = previousTargetScrollOffset
-      }
-      state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
-      var destinationWorkspace = state.monitors[destinationMonitorIndex]
-        .workspaces[destinationWorkspaceIndex]
-      insertNewWindow(
-        windowID,
-        into: &destinationWorkspace,
-        settings: state.layout,
-        focusInsertedWindow: false
-      )
-      if wasFocused,
-        let destinationColumnIndex = destinationWorkspace.columns.firstIndex(where: {
-          $0.windows.contains(windowID)
-        }),
-        let destinationWindowIndex = destinationWorkspace.columns[destinationColumnIndex]
-          .windows.firstIndex(of: windowID)
-      {
-        destinationWorkspace.focusedLayer = .tiled
-        destinationWorkspace.focusedColumn = destinationColumnIndex
-        destinationWorkspace.columns[destinationColumnIndex].focusedWindow = destinationWindowIndex
-        state.monitors[destinationMonitorIndex].activeWorkspace = destinationWorkspace.id
-      }
-      state.monitors[destinationMonitorIndex].workspaces[destinationWorkspaceIndex] =
-        destinationWorkspace
-      return
-    }
     insertNewWindow(windowID, into: &workspace, settings: state.layout)
   }
   if wasFocused {

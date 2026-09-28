@@ -95,7 +95,7 @@ extension Daemon {
           guard let self else { return }
           let changedMonitorIDs = applyOverviewScrollOffsets(offsets, state: &state)
           guard !changedMonitorIDs.isEmpty else { return }
-          persistPlacements()
+          persistTopology()
           guard !overviewState.usesWorkspaceParking else { return }
           applyCurrentLayout(monitorIDs: changedMonitorIDs, asynchronousPositions: true,
             updateVisibility: false, positionTimeoutSeconds: 0.05, source: "overview-scroll-commit")
@@ -199,7 +199,7 @@ extension Daemon {
               : nil
           ))
       }
-      persistPlacements()
+      persistTopology()
       updateMenuBar()
       updateOverviewIfOpen()
     } catch {
@@ -237,7 +237,7 @@ extension Daemon {
           : inputTimestamp,
         source: "overview-workspace"
       )
-      persistPlacements()
+      persistTopology()
       updateMenuBar()
       updateOverviewIfOpen()
     } catch {
@@ -291,7 +291,7 @@ extension Daemon {
         forcingFloatingFrameWritesFor: Set(result.floatingFrameUpdates.keys),
         source: "overview-drop"
       )
-      persistPlacements()
+      persistTopology()
       updateMenuBar()
       updateOverviewIfOpen()
       needsDesktopSync = true

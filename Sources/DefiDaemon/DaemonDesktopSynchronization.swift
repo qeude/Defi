@@ -349,7 +349,6 @@ extension Daemon {
     let relocatedTransientIDs = reconcileWindows(
       snapshot.windows,
       config: config,
-      placementPreferences: placementPreferences,
       windowIDReplacements: snapshot.windowIDReplacements,
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       nativeFullscreenWindowIDs: snapshot.nativeFullscreenWindowIDs,
@@ -888,7 +887,7 @@ extension Daemon {
         unlessUserInputAfter: guardedRemovalFocus.inputTimestamp
       )
     }
-    persistPlacements()
+    persistTopology()
     updateMenuBar()
     updateOverviewIfOpen()
     if !snapshot.leftMouseButtonDown && mouseGestureSettlement == nil {

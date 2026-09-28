@@ -45,11 +45,6 @@ Explicit monitor moves change it, while automatic migration or an unavailable
 configured monitor leaves it pending as the workspace lives elsewhere.
 _Avoid_: Current monitor, original monitor
 
-**Placement preference**:
-The last existing workspace associated with an application when no application
-rule provides a named destination. It never recreates a removed workspace.
-_Avoid_: Application rule
-
 **Workspace topology**:
 The workspace identities, monitor ownership, vertical order, window membership,
 column structure, focus, widths, and scroll state that Defi preserves across
