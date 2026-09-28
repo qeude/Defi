@@ -544,7 +544,7 @@ extension Daemon {
       let validationMS =
         (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
       platform.recordPerformanceTrace(
-        "command-start cg=\(currentCommandGeneration) command=\(rawCommand) source=\(inputTimestamp != nil ? "hotkey" : receivedAt != nil ? "ipc" : "internal") validationMs=\(String(format: "%.2f", validationMS))"
+        "command-start cg=\(currentCommandGeneration) command=\(rawCommand) source=\(receivedAt != nil ? "ipc" : inputTimestamp != nil ? "hotkey" : "internal") validationMs=\(String(format: "%.2f", validationMS))"
       )
       focus.discardDisplacedFocus()
       invalidatePointerFocusIntent(recoveringTo: previouslySelectedWindowID)

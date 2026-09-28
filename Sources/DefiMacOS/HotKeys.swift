@@ -509,6 +509,7 @@ final class HotKeyTapContext: @unchecked Sendable {
       command: command,
       timestamp: timestamp,
       sourceProcessID: Int32(exactly: event.getIntegerValueField(.eventSourceUnixProcessID))
+        .flatMap { $0 == 0 ? nil : $0 }
     ))
     return nil
   }

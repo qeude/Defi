@@ -254,7 +254,7 @@ private func effectiveColumnLayoutWidth(
     .compactMap { windowsByID[$0]?.minimumTiledWidth }
     .max() ?? 0
   let contraction = column.windows.compactMap { acceptedSizes[$0] }
-    .map { max($0.requested.width - $0.accepted.width, 0) }
+    .map { $0.requested.width - $0.accepted.width }
     .min() ?? 0
   return max(preferredWidth - contraction, minimumTiledWidth)
 }

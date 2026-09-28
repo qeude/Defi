@@ -219,6 +219,10 @@ struct WindowLifecycleTests {
     let preferredWidth = state.monitors[0].workspaces[0].columns[0].width
     window.frame = Rect(x: requested.x, y: requested.y, width: 344, height: 738)
     state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id)
+    var cachedBeforeWrite = window
+    cachedBeforeWrite.frame = requested
+    reconcileWindows([cachedBeforeWrite], config: config, state: &state)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance?.accepted == window.frame)
     for _ in 0..<3 {
       reconcileWindows([window], config: config, state: &state)
       let settled = layout(state, viewport: viewport)
@@ -231,7 +235,10 @@ struct WindowLifecycleTests {
     let smallerViewport = Rect(x: 0, y: 0, width: 1200, height: 900)
     #expect(layout(state, viewport: smallerViewport).height != 738)
     window.frame.height = 900
-    reconcileWindows([window], config: config, state: &state)
+    reconcileWindows(
+      [window], config: config,
+      externallyChangedWindowIDs: [window.id], state: &state
+    )
     #expect(layout(state, viewport: viewport) == requested)
   }
 

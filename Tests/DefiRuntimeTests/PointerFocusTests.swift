@@ -244,6 +244,14 @@ struct PointerFocusTests {
     let original = state
     #expect(
       focusWindowFromPointer(
+        ownerID,
+        activeMonitorID: monitorID,
+        state: &state,
+        viewports: [monitorID: viewport]
+      ) == nil
+    )
+    #expect(
+      focusWindowFromPointer(
         otherWindowID,
         activeMonitorID: monitorID,
         state: &state,

@@ -81,8 +81,8 @@ public func singleManagedWindowID(
 /// A successful native resize can still be clamped by the application.
 /// This observation applies only to the same requested size and native mode.
 public struct TiledSizeAcceptance: Equatable, Codable, Sendable {
-  public var requested: Rect
-  public var accepted: Rect
+  public let requested: Rect
+  public let accepted: Rect
 
   public init(requested: Rect, accepted: Rect) {
     self.requested = requested

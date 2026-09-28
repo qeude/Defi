@@ -278,11 +278,23 @@ extension AXFrameCoordinator {
       return
     }
     lock.unlock()
+    var verified = false
     defer {
       if isFinalCheck {
         lock.lock()
         if parkingVerificationSchedules[windowID] == schedule {
-          parkingVerificationSchedules[windowID] = nil
+          if verified {
+            parkingVerificationSchedules[windowID] = nil
+          } else {
+            queue.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+              self?.verifyParkingTarget(
+                windowID: windowID,
+                expectedPoint: expectedPoint,
+                schedule: schedule,
+                isFinalCheck: true
+              )
+            }
+          }
         }
         lock.unlock()
       }
@@ -296,7 +308,10 @@ extension AXFrameCoordinator {
     lock.lock()
     completedParkingChecks += 1
     lock.unlock()
-    guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else { return }
+    guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else {
+      verified = true
+      return
+    }
     guard parkingVerificationIsCurrent(
       windowID: windowID,
       expectedPoint: expectedPoint,
@@ -312,13 +327,16 @@ extension AXFrameCoordinator {
     else {
       return
     }
-    let repaired = accessibilityWriter.readPosition(write.element) ?? expectedPoint
+    guard let repaired = accessibilityWriter.readPosition(write.element),
+      accessibilityWriter.pointDistance(repaired, expectedPoint) <= 1
+    else { return }
     guard parkingVerificationIsCurrent(
       windowID: windowID,
       expectedPoint: expectedPoint,
       schedule: schedule
     ) else { return }
     recordCompletedPosition(repaired, windowID: windowID)
+    verified = true
     lock.lock()
     repairedParkingDrifts += 1
     appendTraceLocked(

@@ -155,6 +155,36 @@ struct FrameCommitTests {
     )
   }
 
+  @Test
+  func failedFinalParkingReadKeepsVerificationScheduled() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 1)
+    let element = AXUIElementCreateApplication(-1)
+    let point = CGPoint(x: 100, y: 200)
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: point, point: point,
+      fromSize: CGSize(width: 800, height: 700),
+      size: CGSize(width: 800, height: 700),
+      positionChanged: true, sizeChanged: false, animatesSize: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: true, isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let schedule = ParkingVerificationSchedule(
+      expectedPoint: point,
+      deadline: ProcessInfo.processInfo.systemUptime + 1.4
+    )
+    coordinator.parkingTargets[windowID] = write
+    coordinator.parkingVerificationSchedules[windowID] = schedule
+
+    coordinator.verifyParkingTarget(
+      windowID: windowID, expectedPoint: point,
+      schedule: schedule, isFinalCheck: true
+    )
+    #expect(coordinator.parkingVerificationSchedules[windowID] == schedule)
+  }
+
   @Test(arguments: [-100.0, 900.0])
   func interruptedRibbonStartsAtCompletedPositionAndKeepsOnlyForwardVelocity(targetX: Double) {
     let windowID = WindowID(rawValue: 1)

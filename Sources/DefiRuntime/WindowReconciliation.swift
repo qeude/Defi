@@ -232,8 +232,9 @@ public func reconcileWindows(
         updated.intrinsicSize = existing.intrinsicSize
         if let acceptance = existing.tiledSizeAcceptance,
           !fullscreenWindowIDs.contains(window.id),
-          abs(window.frame.width - acceptance.accepted.width) < 1,
-          abs(window.frame.height - acceptance.accepted.height) < 1
+          ((abs(window.frame.width - acceptance.accepted.width) < 1
+            && abs(window.frame.height - acceptance.accepted.height) < 1)
+            || !externallyChangedWindowIDs.contains(window.id))
         {
           updated.tiledSizeAcceptance = acceptance
         } else {

@@ -273,7 +273,6 @@ final class AXFrameCoordinator: @unchecked Sendable {
     let animatedWrites = writes.filter { animatedWindowIDs.contains($0.key) }
     // A scrolling strip must not mix instantaneous moves with interpolated neighbors.
     let usesCoherentPositionFallback = animationDuration > 0
-      && animatedWrites.values.allSatisfy { !$0.sizeChanged }
       && !animationSupportsIntermediateFrames(
         processIDs: Set(animatedWrites.values.map(\.processID)),
         animationDuration: animationDuration,

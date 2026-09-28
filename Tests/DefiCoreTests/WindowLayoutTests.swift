@@ -145,4 +145,41 @@ struct WindowLayoutTests {
     #expect(normalLayout[1].frame.x == 661)
   }
 
+  @Test
+  func `Accepted width larger than requested expands the column`() {
+    let noGaps = LayoutSettings(
+      innerHorizontalGap: 0, innerVerticalGap: 0,
+      outerTopGap: 0, outerRightGap: 0,
+      outerBottomGap: 0, outerLeftGap: 0
+    )
+    let firstID = WindowID(rawValue: 1)
+    let secondID = WindowID(rawValue: 2)
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [
+        Column(window: firstID, width: .pixels(500)),
+        Column(window: secondID, width: .pixels(500)),
+      ]
+    )
+    var clamped = Window(
+      id: firstID, appID: "clamped", title: "Clamped",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800)
+    )
+    clamped.tiledSizeAcceptance = TiledSizeAcceptance(
+      requested: Rect(x: 0, y: 0, width: 500, height: 800),
+      accepted: clamped.frame
+    )
+    let neighbor = Window(
+      id: secondID, appID: "neighbor", title: "Neighbor",
+      frame: Rect(x: 0, y: 0, width: 500, height: 800)
+    )
+    let frames = computeLayout(
+      workspace: workspace,
+      viewport: Rect(x: 0, y: 0, width: 1_200, height: 800),
+      windows: [clamped, neighbor], settings: noGaps
+    )
+    #expect(frames[0].frame.width == 600)
+    #expect(frames[1].frame.x == 600)
+  }
+
 }
