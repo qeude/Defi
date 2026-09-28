@@ -27,10 +27,12 @@ public enum HotKeyError: Error, CustomStringConvertible, Equatable {
 public struct HotKeyInvocation: Equatable, Sendable {
   public let command: String
   public let timestamp: TimeInterval
+  public let sourceProcessID: Int32?
 
-  public init(command: String, timestamp: TimeInterval) {
+  public init(command: String, timestamp: TimeInterval, sourceProcessID: Int32? = nil) {
     self.command = command
     self.timestamp = timestamp
+    self.sourceProcessID = sourceProcessID
   }
 }
 

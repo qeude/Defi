@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import DefiCore
 import DefiModel
+import DefiRuntime
 import Testing
 
 @testable import DefiMacOS
@@ -223,6 +224,28 @@ struct WindowBorderTests {
         plannedFrame: planned
       ) == planned
     )
+  }
+
+  @Test @MainActor
+  func idleBorderFollowsObservationAfterCompletedWrite() {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform() }
+    }
+    let windowID = WindowID(rawValue: 1)
+    let previous = Rect(x: 150, y: 30, width: 900, height: 800)
+    let observed = Rect(x: 0, y: 30, width: 1024, height: 800)
+    platform.frameCoordinator.recordCompletedPosition(
+      CGPoint(x: previous.x, y: previous.y), windowID: windowID
+    )
+    platform.frameCoordinator.recordCompletedSize(
+      CGSize(width: previous.width, height: previous.height), windowID: windowID,
+      incrementWriteCount: false
+    )
+    platform.latestObservedFrames[windowID] = observed
+    #expect(platform.frameCoordinator.isBusy == false)
+    #expect(platform.displayedBorderFrame(
+      for: FrameAssignment(windowID: windowID, frame: previous), nativeFrame: nil
+    ) == observed)
   }
 
   @Test

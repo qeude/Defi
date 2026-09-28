@@ -505,7 +505,11 @@ final class HotKeyTapContext: @unchecked Sendable {
     lock.unlock()
     capturedModifierReleaseState.capture(modifierBits: key.modifierBits)
     userInputTracker.recordCapturedCommand(at: timestamp)
-    deliver(HotKeyInvocation(command: command, timestamp: timestamp))
+    deliver(HotKeyInvocation(
+      command: command,
+      timestamp: timestamp,
+      sourceProcessID: Int32(exactly: event.getIntegerValueField(.eventSourceUnixProcessID))
+    ))
     return nil
   }
 

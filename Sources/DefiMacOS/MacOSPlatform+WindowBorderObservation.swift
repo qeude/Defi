@@ -546,14 +546,17 @@ extension MacOSPlatform {
 
 
 
-  private func displayedBorderFrame(
+  func displayedBorderFrame(
     for assignment: FrameAssignment,
     nativeFrame: Rect?
   ) -> Rect {
     if let nativeFrame {
       return nativeFrame
     }
-    if assignment.windowID == borderLiveWindowID,
+    // Completed writes can outlive a native resize. Once this window's lane
+    // is idle, follow its observed bounds rather than an old write target.
+    if assignment.windowID == borderLiveWindowID
+      || !frameCoordinator.isBusy(for: assignment.windowID),
       let observed = latestObservedFrames[assignment.windowID]
     {
       return observed
