@@ -60,7 +60,7 @@ def checkpoint(directory):
     (directory / 'status.txt').write_text(command('status'))
     (directory / 'workspaces.json').write_text(command('list-workspaces', '--json'))
     try:
-        stop()  # Shutdown flushes both stores before unparking windows.
+        stop()  # Shutdown flushes the topology store before unparking windows.
         for name in STORES:
             (directory / name).write_bytes((STATE / name).read_bytes())
         (directory / 'ready').touch()
@@ -83,7 +83,7 @@ def replace_stores(directory):
     transaction = Path(tempfile.mkdtemp(prefix='.restore-', dir=STATE))
     stopped = changed = restart_attempted = retain_backup = False
     try:
-        # Prepare both files on the destination filesystem before stopping the app.
+        # Prepare the store on the destination filesystem before stopping the app.
         for name in STORES:
             data = (directory / name).read_bytes()
             json.loads(data)
