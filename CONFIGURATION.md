@@ -265,6 +265,10 @@ empty workspace shown as `+`. Populating it turns it into an ordinary workspace
 and creates another trailing workspace; an empty ordinary workspace disappears
 after it becomes inactive. Named workspaces persist even when empty.
 
+New windows open in the active workspace on their monitor unless an application
+rule assigns a workspace. Defi does not remember an application’s previous workspace
+after its windows close. Transient windows stay with their owner.
+
 Workspace identity, ownership, order, focus, widths, and scroll position persist
 across daemon restarts in the current macOS login session. If a display
 disconnects, its workspaces move temporarily to a fallback display and return

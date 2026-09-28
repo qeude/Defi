@@ -116,7 +116,7 @@ extension Daemon {
     submittedWorkspaceFocusRecoveryGeneration = nil
     guard case .selectionChanged = effect else { return }
     activeMonitorID = request.monitorID
-    persistPlacements()
+    persistTopology()
     updateMenuBar()
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
     snapScrollOffsetsToTargets()

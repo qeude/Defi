@@ -107,7 +107,7 @@ is unavailable, restore that signing identity rather than selecting another one.
 The checks do not reset or grant privacy permissions.
 
 Before installation, verification stops the daemon to flush and checkpoint its
-existing topology and placement stores. After tests, including failures, it
+existing topology store. After tests, including failures, it
 restores those files with the daemon stopped, restarts it, and checks every
 monitor's workspace structure, logical focus, column widths, scroll and managed
 frame convergence. The checkpoint and observed restoration are retained with the

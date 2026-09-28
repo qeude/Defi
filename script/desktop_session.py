@@ -15,7 +15,7 @@ from desktop_lock import inherited_lock
 
 CLI = Path.home() / 'Applications/Defi.app/Contents/MacOS/defi'
 STATE = Path.home() / 'Library/Application Support/Defi'
-STORES = ('workspace-topology.json', 'placements.json')
+STORES = ('workspace-topology.json',)
 
 
 def command(*args):

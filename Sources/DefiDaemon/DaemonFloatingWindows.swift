@@ -30,11 +30,6 @@ func updateFloatingWindowFrames(
         let targetMonitorID = window.monitorID,
         moveFloatingWindow(window.id, to: targetMonitorID, state: &state)
       {
-        if let movedWindow = state.windows[window.id],
-          movedWindow.floatingOrigin == .automatic
-        {
-          invalidatePlacementPreference(for: movedWindow)
-        }
         reassignedMonitorIDs[window.id] = targetMonitorID
       }
       if displayGeometryChanged {
