@@ -15,6 +15,8 @@ public struct DisconnectedMonitor: Equatable, Codable, Sendable {
 public struct WorkspaceTopology: Equatable, Codable, Sendable {
   // Optional so snapshots written before stable display identities remain readable.
   public var monitorStableIDs: [MonitorID: String]?
+  public var workspaceMonitorIDs: [WorkspaceID: String]?
+  public var workspaceMonitorPositions: [WorkspaceID: Int]?
   public var monitors: [Monitor]
   public var windows: [WindowID: Window]
   public var nextOrdinaryWorkspaceNumber: UInt64
@@ -27,6 +29,8 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
 
   public init(state: RuntimeState) {
     monitorStableIDs = state.monitorStableIDs
+    workspaceMonitorIDs = state.workspaceMonitorIDs
+    workspaceMonitorPositions = state.workspaceMonitorPositions
     monitors = state.monitors
     windows = state.windows
     nextOrdinaryWorkspaceNumber = state.nextOrdinaryWorkspaceNumber
@@ -102,6 +106,12 @@ public struct RuntimeState: Equatable, Sendable {
     pendingNativeFullscreenWidthResetWindowIDs =
       topology.pendingNativeFullscreenWidthResetWindowIDs
     suspendedTiledPlacements = topology.suspendedTiledPlacements
+    clearChangedWorkspaceAffinities(
+      previousIDs: topology.workspaceMonitorIDs ?? workspaceMonitorIDs,
+      nextIDs: workspaceMonitorIDs,
+      previousPositions: topology.workspaceMonitorPositions ?? workspaceMonitorPositions,
+      nextPositions: workspaceMonitorPositions
+    )
     reconcileConfiguredWorkspaces()
   }
 
@@ -128,16 +138,10 @@ public struct RuntimeState: Equatable, Sendable {
       || workspaceMonitorPositions != nextWorkspaceMonitorPositions
       || workspaceMonitorIDs != nextWorkspaceMonitorIDs
 
-    for monitorIndex in monitors.indices {
-      for workspaceIndex in monitors[monitorIndex].workspaces.indices {
-        let id = monitors[monitorIndex].workspaces[workspaceIndex].id
-        if workspaceMonitorIDs[id] != nextWorkspaceMonitorIDs[id]
-          || workspaceMonitorPositions[id] != nextWorkspaceMonitorPositions[id]
-        {
-          monitors[monitorIndex].workspaces[workspaceIndex].affinity = nil
-        }
-      }
-    }
+    clearChangedWorkspaceAffinities(
+      previousIDs: workspaceMonitorIDs, nextIDs: nextWorkspaceMonitorIDs,
+      previousPositions: workspaceMonitorPositions, nextPositions: nextWorkspaceMonitorPositions
+    )
     layout = LayoutSettings(config: config)
     windowRules = config.rules
     workspaceNames = nextWorkspaceNames
@@ -149,6 +153,22 @@ public struct RuntimeState: Equatable, Sendable {
     }
 
     return workspacesChanged || previousLayout.requiresImmediateReflow(comparedTo: layout)
+  }
+
+  private mutating func clearChangedWorkspaceAffinities(
+    previousIDs: [WorkspaceID: String], nextIDs: [WorkspaceID: String],
+    previousPositions: [WorkspaceID: Int], nextPositions: [WorkspaceID: Int]
+  ) {
+    for monitorIndex in monitors.indices {
+      for workspaceIndex in monitors[monitorIndex].workspaces.indices {
+        let id = monitors[monitorIndex].workspaces[workspaceIndex].id
+        if previousIDs[id] != nextIDs[id]
+          || previousPositions[id] != nextPositions[id]
+        {
+          monitors[monitorIndex].workspaces[workspaceIndex].affinity = nil
+        }
+      }
+    }
   }
 
   public mutating func attachMonitor(_ monitorID: MonitorID) {
@@ -319,7 +339,9 @@ public struct RuntimeState: Equatable, Sendable {
       }
       for var workspace in monitor.workspaces {
         if workspace.kind == .trailing && workspace.isEmpty { continue }
-        if workspace.affinity == nil { workspace.affinity = monitor.id }
+        if workspace.affinity == nil && workspaceMonitorIDs[workspace.id] == nil {
+          workspace.affinity = monitor.id
+        }
         migrateSuspendedPlacements(
           from: monitor.id,
           to: monitors[fallbackIndex].id,

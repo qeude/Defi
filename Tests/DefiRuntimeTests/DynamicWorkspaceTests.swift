@@ -96,6 +96,20 @@ struct DynamicWorkspaceTests {
     state = RuntimeState(config: config, topology: state.topology)
     state.retainMonitors([primary, secondary], stableIDs: identities)
     #expect(state.monitors[1].workspaces.contains { $0.name == "dev" })
+    let saved = try JSONDecoder().decode(
+      WorkspaceTopology.self, from: JSONEncoder().encode(state.topology))
+    let third = MonitorID(rawValue: 3)
+    var changedWhileStopped = config
+    changedWhileStopped.workspaces.monitorIDs["dev"] = "display-c"
+    var restored = RuntimeState(config: changedWhileStopped, topology: saved)
+    restored.retainMonitors([primary], stableIDs: [primary: "display-a"])
+    restored.retainMonitors([primary, secondary, third],
+                           stableIDs: identities.merging([third: "display-c"]) { _, next in next })
+    #expect(restored.monitors[2].workspaces.contains { $0.name == "dev" })
+    changedWhileStopped.workspaces.monitorIDs.removeValue(forKey: "dev")
+    changedWhileStopped.workspaces.monitors["dev"] = 1
+    restored = RuntimeState(config: changedWhileStopped, topology: saved)
+    #expect(restored.monitors[0].workspaces.contains { $0.name == "dev" })
     config.workspaces.monitorIDs.removeValue(forKey: "dev")
     state.applyConfiguration(config)
     #expect(state.monitors[0].workspaces.contains { $0.name == "dev" })
@@ -120,6 +134,8 @@ struct DynamicWorkspaceTests {
 
     var legacy = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     legacy.removeValue(forKey: "monitorStableIDs")
+    legacy.removeValue(forKey: "workspaceMonitorIDs")
+    legacy.removeValue(forKey: "workspaceMonitorPositions")
     let legacyTopology = try JSONDecoder().decode(
       WorkspaceTopology.self, from: JSONSerialization.data(withJSONObject: legacy))
     #expect(RuntimeState(config: config, topology: legacyTopology).monitorStableIDs.isEmpty)
