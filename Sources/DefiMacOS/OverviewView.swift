@@ -14,6 +14,11 @@ final class OverviewView: NSView {
   private var borderStyle = WindowBorderStyle(config: BordersConfig())
   private var windowCornerRadius = 12.0
   private var desktopImage: NSImage?
+  // Previous desktop image, kept underneath while the replacement fades in.
+  private var outgoingDesktopImage: NSImage?
+  private var desktopFadeStartedAt: TimeInterval?
+  private var desktopFadeDuration: TimeInterval = 0
+  private var desktopFadeLink: CADisplayLink?
   var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: NSImage] = [:]
   private var previewOpacities: [WindowID: Double] = [:]
@@ -42,8 +47,33 @@ final class OverviewView: NSView {
     outgoingPreviews.removeAll(keepingCapacity: false)
   }
 
-  func setDesktopImage(_ image: NSImage?) {
+  func setDesktopImage(_ image: NSImage?, fadeDuration: TimeInterval = 0) {
+    stopDesktopFade()
+    if fadeDuration > 0, let current = desktopImage, image != nil {
+      outgoingDesktopImage = current
+      desktopFadeStartedAt = CACurrentMediaTime()
+      desktopFadeDuration = fadeDuration
+      let link = displayLink(target: self, selector: #selector(desktopFadeDidTick))
+      link.add(to: .main, forMode: .common)
+      desktopFadeLink = link
+    }
     desktopImage = image
+    needsDisplay = true
+  }
+
+  private func stopDesktopFade() {
+    desktopFadeLink?.invalidate()
+    desktopFadeLink = nil
+    outgoingDesktopImage = nil
+    desktopFadeStartedAt = nil
+  }
+
+  @objc private func desktopFadeDidTick() {
+    let opacity = overviewPreviewOpacity(
+      startedAt: desktopFadeStartedAt, now: CACurrentMediaTime(),
+      reduceMotion: false, duration: desktopFadeDuration
+    )
+    if opacity >= 1 { stopDesktopFade() }
     needsDisplay = true
   }
 
@@ -241,14 +271,21 @@ final class OverviewView: NSView {
     NSGraphicsContext.saveGraphicsState()
     path.addClip()
     if let desktopImage {
-      desktopImage.draw(
-        in: frame,
-        from: aspectFillSourceRect(for: desktopImage, in: frame),
-        operation: .sourceOver,
-        fraction: 1,
-        respectFlipped: true,
-        hints: [.interpolation: NSImageInterpolation.high]
+      let opacity = overviewPreviewOpacity(
+        startedAt: desktopFadeStartedAt, now: CACurrentMediaTime(),
+        reduceMotion: false, duration: desktopFadeDuration
       )
+      for (image, fraction) in [(outgoingDesktopImage, 1.0), (desktopImage, opacity)] {
+        guard let image else { continue }
+        image.draw(
+          in: frame,
+          from: aspectFillSourceRect(for: image, in: frame),
+          operation: .sourceOver,
+          fraction: fraction,
+          respectFlipped: true,
+          hints: [.interpolation: NSImageInterpolation.high]
+        )
+      }
     } else {
       NSColor.windowBackgroundColor.setFill()
       path.fill()

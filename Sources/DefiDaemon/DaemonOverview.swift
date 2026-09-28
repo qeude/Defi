@@ -111,7 +111,9 @@ extension Daemon {
       panelCount: controller.panelCount, retainedPanelCount: controller.retainedPanelCount,
       permission: controller.previewPermissionState.rawValue,
       captures: controller.inFlightPreviewCount, previews: controller.previewCacheCount,
-      memoryBytes: controller.rememberedPreviewMemoryBytes, failures: controller.previewFailureCount
+      memoryBytes: controller.rememberedPreviewMemoryBytes, failures: controller.previewFailureCount,
+      firstPreviewMs: controller.firstPreviewMs, lastPreviewMs: controller.lastPreviewMs,
+      receivedPreviews: controller.receivedPreviewCount
     )
     NavigationActor.enqueue { [self] in overviewState = projection }
   }
@@ -312,4 +314,7 @@ struct OverviewPresentationState: Sendable {
   var previews = 0
   var memoryBytes = 0
   var failures = 0
+  var firstPreviewMs: Double?
+  var lastPreviewMs: Double?
+  var receivedPreviews = 0
 }

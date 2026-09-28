@@ -5,6 +5,8 @@ import DefiModel
 import QuartzCore
 
 let overviewTransitionDuration: TimeInterval = 0.16
+let overviewOpenFadeDuration: TimeInterval = 0.14
+let overviewDesktopFadeDuration: TimeInterval = 0.25
 
 private struct OverviewViewportAnimation {
   let from: OverviewViewport
@@ -172,6 +174,11 @@ public final class OverviewController: NSObject {
   public var retainedPanelCount: Int { panels.count }
   public private(set) var previewPermissionState: OverviewPreviewPermissionState = .disabled
   public private(set) var previewFailureCount = 0
+  private var openedAt: TimeInterval = 0
+  // Milliseconds from open to the first and latest captured preview of the current session.
+  public private(set) var firstPreviewMs: Double?
+  public private(set) var lastPreviewMs: Double?
+  public private(set) var receivedPreviewCount = 0
   public var previewCacheCount: Int { previewCache.count }
   public var rememberedPreviewMemoryBytes: Int {
     rememberedPreviews.byteCount
@@ -285,10 +292,12 @@ public final class OverviewController: NSObject {
     closePanelsImmediately()
     for monitorID in monitorIDs {
       guard let screen = screen(for: monitorID) else { continue }
-      panels[monitorID] = OverviewPanel(
+      let panel = OverviewPanel(
         monitorID: monitorID, screen: screen,
         usesCapturedDesktop: !usesWorkspaceParking, delegate: self
       )
+      panels[monitorID] = panel
+      if panel.usesCapturedDesktop { panel.loadWallpaperIfNeeded() }
     }
   }
 
@@ -341,10 +350,17 @@ public final class OverviewController: NSObject {
       )
     })
     isOpen = true
+    openedAt = CACurrentMediaTime()
+    firstPreviewMs = nil
+    lastPreviewMs = nil
+    receivedPreviewCount = 0
     updatePanels()
     openStateHandler(true)
+    let fadeDuration = animationsEnabled
+      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      ? overviewOpenFadeDuration : 0
     for panel in panels.values {
-      panel.show()
+      panel.show(fadeDuration: fadeDuration)
     }
   }
 
@@ -995,7 +1011,10 @@ public final class OverviewController: NSObject {
     )
     for (monitorID, image) in results.desktops {
       panels[monitorID]?.setDesktopImage(
-        NSImage(cgImage: image, size: panels[monitorID]?.window.frame.size ?? .zero)
+        NSImage(cgImage: image, size: panels[monitorID]?.window.frame.size ?? .zero),
+        fadeDuration: animationsEnabled
+          && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+          ? overviewDesktopFadeDuration : 0
       )
     }
     finishPreviewBatch(generation: generation)
@@ -1022,6 +1041,10 @@ public final class OverviewController: NSObject {
       previewFailureCount += 1
       return
     }
+    let elapsedMs = (CACurrentMediaTime() - openedAt) * 1_000
+    firstPreviewMs = firstPreviewMs ?? elapsedMs
+    lastPreviewMs = elapsedMs
+    receivedPreviewCount += 1
     let preview = NSImage(
       cgImage: image,
       size: NSSize(width: result.request.width, height: result.request.height)
