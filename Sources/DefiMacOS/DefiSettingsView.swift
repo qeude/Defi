@@ -98,7 +98,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .input: "keyboard"
     case .appearance: "paintpalette"
     case .workspaces: "rectangle.3.group"
-    case .appRules: "app.badge"
+    case .appRules: "app"
     }
   }
 }
