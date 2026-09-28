@@ -258,7 +258,8 @@ extension AXFrameCoordinator {
     defer { lock.unlock() }
     return processIDs.allSatisfy {
       adaptiveIntermediateFrameLimit(
-        predictedFrameLatency: (predictedProcessLatencyMS[$0] ?? 0) / 1_000,
+        predictedFrameLatency:
+          (recentProcessLatencySamplesMS[$0]?.max() ?? predictedProcessLatencyMS[$0] ?? 0) / 1_000,
         refreshRateHz: refreshRateHz,
         availableIntermediateFrames: availableIntermediateFrames
       ) >= 2
@@ -277,7 +278,9 @@ extension AXFrameCoordinator {
     lock.lock()
     let predictions = Dictionary(
       uniqueKeysWithValues: processIDs.map { processID in
-        (processID, (predictedProcessLatencyMS[processID] ?? 0) / 1_000)
+        (processID,
+          (recentProcessLatencySamplesMS[processID]?.max()
+            ?? predictedProcessLatencyMS[processID] ?? 0) / 1_000)
       }
     )
     lock.unlock()
@@ -300,6 +303,12 @@ extension AXFrameCoordinator {
     lock.lock()
     for (processID, rawSample) in samplesMS {
       let sample = min(max(rawSample, 0), 120)
+      // Averages recover too quickly after intermittent AX stalls. Require a
+      // bounded history of fast writes before attempting shared animation again.
+      var recent = recentProcessLatencySamplesMS[processID] ?? []
+      recent.append(sample)
+      if recent.count > 16 { recent.removeFirst(recent.count - 16) }
+      recentProcessLatencySamplesMS[processID] = recent
       let prediction: Double
       if let previous = predictedProcessLatencyMS[processID] {
         // Clamp a single outlier so one slow write cannot yank the

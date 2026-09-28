@@ -12,11 +12,29 @@ extension AXFrameCoordinator {
     windowID: WindowID,
     expectedPoint: CGPoint
   ) {
-    for delay in [0.4, 1.4] {
+    let now = ProcessInfo.processInfo.systemUptime
+    let schedule = ParkingVerificationSchedule(
+      expectedPoint: expectedPoint,
+      deadline: now + 1.4
+    )
+    lock.lock()
+    guard parkingVerificationShouldSchedule(
+      current: parkingVerificationSchedules[windowID],
+      expectedPoint: expectedPoint,
+      now: now
+    ) else {
+      lock.unlock()
+      return
+    }
+    parkingVerificationSchedules[windowID] = schedule
+    lock.unlock()
+    for (index, delay) in [0.4, 1.4].enumerated() {
       queue.asyncAfter(deadline: .now() + delay) { [weak self] in
         self?.verifyParkingTarget(
           windowID: windowID,
-          expectedPoint: expectedPoint
+          expectedPoint: expectedPoint,
+          schedule: schedule,
+          isFinalCheck: index == 1
         )
       }
     }
@@ -247,21 +265,43 @@ extension AXFrameCoordinator {
 
   func verifyParkingTarget(
     windowID: WindowID,
-    expectedPoint: CGPoint
+    expectedPoint: CGPoint,
+    schedule: ParkingVerificationSchedule,
+    isFinalCheck: Bool
   ) {
     lock.lock()
-    guard let write = parkingTargets[windowID],
+    guard parkingVerificationSchedules[windowID] == schedule,
+      let write = parkingTargets[windowID],
       accessibilityWriter.pointDistance(write.point, expectedPoint) <= 0.1
     else {
       lock.unlock()
       return
     }
     lock.unlock()
+    defer {
+      if isFinalCheck {
+        lock.lock()
+        if parkingVerificationSchedules[windowID] == schedule {
+          parkingVerificationSchedules[windowID] = nil
+        }
+        lock.unlock()
+      }
+    }
     guard let actual = accessibilityWriter.readPosition(write.element) else { return }
+    guard parkingVerificationIsCurrent(
+      windowID: windowID,
+      expectedPoint: expectedPoint,
+      schedule: schedule
+    ) else { return }
     lock.lock()
     completedParkingChecks += 1
     lock.unlock()
     guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else { return }
+    guard parkingVerificationIsCurrent(
+      windowID: windowID,
+      expectedPoint: expectedPoint,
+      schedule: schedule
+    ) else { return }
     markProcessNeedsImmediateReadback(write.processID)
     guard
       accessibilityWriter.applyPosition(
@@ -273,6 +313,11 @@ extension AXFrameCoordinator {
       return
     }
     let repaired = accessibilityWriter.readPosition(write.element) ?? expectedPoint
+    guard parkingVerificationIsCurrent(
+      windowID: windowID,
+      expectedPoint: expectedPoint,
+      schedule: schedule
+    ) else { return }
     recordCompletedPosition(repaired, windowID: windowID)
     lock.lock()
     repairedParkingDrifts += 1
@@ -280,6 +325,19 @@ extension AXFrameCoordinator {
       "parking-repair wid=\(windowID.rawValue) sliver=\(write.requiresVerifiedOffscreenWrite ? 1 : 0) dx=\(String(format: "%.1f", actual.x - expectedPoint.x)) dy=\(String(format: "%.1f", actual.y - expectedPoint.y))"
     )
     lock.unlock()
+  }
+
+  func parkingVerificationIsCurrent(
+    windowID: WindowID,
+    expectedPoint: CGPoint,
+    schedule: ParkingVerificationSchedule
+  ) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard parkingVerificationSchedules[windowID] == schedule,
+      let current = parkingTargets[windowID]
+    else { return false }
+    return accessibilityWriter.pointDistance(current.point, expectedPoint) <= 0.1
   }
 
   func isCurrent(generation: UInt64) -> Bool {

@@ -71,6 +71,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var lastAnimationFrameCount = 0
   var lastAnimationDurationMS = 0.0
   var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
+  var parkingVerificationSchedules: [WindowID: ParkingVerificationSchedule] = [:]
   var completedParkingChecks = 0
   var repairedParkingDrifts = 0
   var initialSettlementTargets: [WindowID: InitialSettlementTarget] = [:]
@@ -83,6 +84,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedInitialSettlementChecks = 0
   var repairedInitialSettlementDrifts = 0
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
+  var recentProcessLatencySamplesMS: [pid_t: [Double]] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
   var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
@@ -133,6 +135,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func updateParkingTargets(_ targets: [WindowID: AsyncPositionWrite]) {
     lock.lock()
     parkingTargets = targets
+    parkingVerificationSchedules = parkingVerificationSchedules.filter {
+      windowID, schedule in
+      targets[windowID]?.point == schedule.expectedPoint
+    }
     lock.unlock()
   }
 
@@ -230,6 +236,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     )
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
+    parkingVerificationSchedules.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
     initialSettlementDriftSamples.removeAll(keepingCapacity: true)
     initialSettlementRepairsSuspended = false
@@ -263,6 +270,16 @@ final class AXFrameCoordinator: @unchecked Sendable {
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
   ) {
     guard !writes.isEmpty else { return }
+    let animatedWrites = writes.filter { animatedWindowIDs.contains($0.key) }
+    // A scrolling strip must not mix instantaneous moves with interpolated neighbors.
+    let usesCoherentPositionFallback = animationDuration > 0
+      && animatedWrites.values.allSatisfy { !$0.sizeChanged }
+      && !animationSupportsIntermediateFrames(
+        processIDs: Set(animatedWrites.values.map(\.processID)),
+        animationDuration: animationDuration,
+        refreshRateHz: refreshRateHz
+      )
+    let animationDuration = usesCoherentPositionFallback ? 0 : animationDuration
     lock.lock()
     let displacedFrame = pending
     nextGeneration &+= 1
@@ -559,6 +576,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func pruneProcessLatencyState(liveProcessIDs: Set<pid_t>) {
     lock.lock()
     predictedProcessLatencyMS = predictedProcessLatencyMS.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    recentProcessLatencySamplesMS = recentProcessLatencySamplesMS.filter {
       liveProcessIDs.contains($0.key)
     }
     latencySensitiveProcessIDs.formIntersection(liveProcessIDs)
