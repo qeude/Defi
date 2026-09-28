@@ -4,6 +4,39 @@ import DefiRuntime
 import Testing
 
 struct BackgroundWindowDiscoveryTests {
+  @Test(arguments: [false, true])
+  func reopenedApplicationUsesCurrentWorkspaceUnlessRuleAssignsIt(hasRule: Bool) {
+    let monitorID = MonitorID(rawValue: 1)
+    let dev = WorkspaceID(rawValue: "dev")
+    let web = WorkspaceID(rawValue: "web")
+    let config = Config(
+      workspaces: WorkspacesConfig(names: [dev.rawValue, web.rawValue]),
+      rules: hasRule ? [Rule(appID: "mail", workspace: dev.rawValue)] : []
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var window = Window(
+      id: WindowID(rawValue: 1), appID: "mail", title: "Mail",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800),
+      processID: 42, monitorID: monitorID
+    )
+    reconcileWindows([window], config: config, frontmostProcessID: 42, state: &state)
+    #expect(state.location(containing: window.id)?.workspaceID == dev)
+    reconcileWindows([], config: config, state: &state)
+    state.monitors[0].activeWorkspace = web
+    window = Window(
+      id: WindowID(rawValue: 2), appID: window.appID, title: window.title,
+      frame: window.frame, processID: 43, monitorID: monitorID
+    )
+
+    reconcileWindows([window], config: config, frontmostProcessID: 43, state: &state)
+
+    let expectedWorkspace = hasRule ? dev : web
+    #expect(state.location(containing: window.id)?.workspaceID == expectedWorkspace)
+    #expect(state.monitors[0].activeWorkspace == expectedWorkspace)
+    #expect(state.selectedWindowID(on: monitorID) == window.id)
+  }
+
   @Test
   func initialColumnWidthAppliesOnlyToNewTiledWindows() throws {
     let monitorID = MonitorID(rawValue: 1)

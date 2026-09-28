@@ -230,11 +230,10 @@ class WorkflowTests(unittest.TestCase):
             topology = {"sessionID": "same", "topology": {"monitors": [{"id": 1, "workspaces": [{"width": 0.8}]}]}}
             for path in [saved, state]:
                 (path / "workspace-topology.json").write_text(json.dumps(topology))
-                (path / "placements.json").write_text('{}')
             (saved / "ready").touch()
             (saved / "status.txt").write_text('focused=42')
             (saved / "workspaces.json").write_text('{"monitors": []}')
-            (state / "placements.json").write_text('{"changed": true}')
+            (state / "workspace-topology.json").write_text(json.dumps({"sessionID": "same", "topology": {"monitors": []}}))
             with patch.object(desktop_session, "STATE", state), \
                  patch.object(desktop_session, "stop") as stop, \
                  patch.object(desktop_session, "start") as start, \
@@ -244,13 +243,13 @@ class WorkflowTests(unittest.TestCase):
                 desktop_session.restore(saved)
                 stop.assert_called_once()
                 start.assert_called_once()
-                self.assertEqual((state / "placements.json").read_text(), '{}')
+                self.assertEqual(json.loads((state / "workspace-topology.json").read_text()), topology)
                 self.assertTrue((saved / 'restored-topology.json').exists())
             self.assertFalse(desktop_session.close_enough([{"width": 1}], [{"width": 0.8}]))
             self.assertFalse(desktop_session.close_enough([{"id": 1}], [{"id": 2}]))
 
-    def test_session_restore_recovers_both_stores_on_failure(self):
-        for failure in ['second-replace', 'start', 'recovery-stop']:
+    def test_session_restore_recovers_store_on_failure(self):
+        for failure in ['replace', 'start', 'recovery-stop']:
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 state, saved = root / 'state', root / 'saved'
@@ -264,14 +263,14 @@ class WorkflowTests(unittest.TestCase):
                 events = []
                 def replace(path, destination):
                     replacements.append(path.name)
-                    if failure == 'second-replace' and len(replacements) == 2:
-                        raise OSError('second replacement failed')
+                    if failure == 'replace' and len(replacements) == 1:
+                        raise OSError('replacement failed')
                     return real_replace(path, destination)
                 def start():
                     events.append('start')
                     versions = [json.loads((state / name).read_text())['version'] for name in desktop_session.STORES]
                     self.assertEqual(len(set(versions)), 1, 'Never start with mixed stores')
-                    if versions == ['new', 'new']:
+                    if versions == ['new']:
                         raise RuntimeError('startup failed')
                 def stop():
                     events.append('stop')
@@ -292,7 +291,7 @@ class WorkflowTests(unittest.TestCase):
                 else:
                     for name in desktop_session.STORES:
                         self.assertEqual(json.loads((state / name).read_text())['version'], 'old')
-                    self.assertEqual(events, ['stop', 'start'] if failure == 'second-replace' else ['stop', 'start', 'stop', 'start'])
+                    self.assertEqual(events, ['stop', 'start'] if failure == 'replace' else ['stop', 'start', 'stop', 'start'])
                     self.assertFalse(list(state.glob('.restore-*')))
 
     def test_signing_requires_same_certificate_and_requirement(self):

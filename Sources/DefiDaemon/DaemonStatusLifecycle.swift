@@ -376,7 +376,6 @@ extension Daemon {
     await configWatcher?.stop()
     timer?.cancel()
     ipcSource?.cancel()
-    flushPendingPlacementWrite()
     flushPendingTopologyWrite()
     platform.finishCommandDiagnostics()
     diagnostics.flush()

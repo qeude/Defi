@@ -667,9 +667,6 @@ extension Daemon {
           } else {
             floatingWindowFrames[windowID] = window.frame
           }
-          if window.floatingOrigin == .automatic {
-            invalidatePlacementPreference(for: window)
-          }
         }
       }
       let commandTransfersFocus: Bool
@@ -710,13 +707,6 @@ extension Daemon {
       )
       if commandTransfersFocus {
         activeMonitorID = resultMonitorID
-      }
-      if command.movesWindowBetweenWorkspaces,
-        let movedWindowID = previouslySelectedWindowID,
-        let movedWindow = state.windows[movedWindowID],
-        movedWindow.floatingOrigin == .automatic
-      {
-        invalidatePlacementPreference(for: movedWindow)
       }
       if !switchesWorkspace,
         let submittedCommandFocus,
@@ -960,7 +950,7 @@ extension Daemon {
           result: .completedWithoutMutation
         )
       }
-      persistPlacements()
+      persistTopology()
       updateMenuBar()
       if commandFollowUpIsPending(
         frameWrites: platform.hasPendingFrameWrites,

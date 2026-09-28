@@ -94,20 +94,16 @@ final class Daemon {
   @MainActor lazy var accessibilityPermissionMonitor = AccessibilityPermissionMonitor()
   var windowManagementStarted = false
   let server: UnixSocketServer
-  let placementStore: PlacementStore
   let topologyStore: WorkspaceTopologyStore
   nonisolated let topologySessionID: String
   let diagnostics = DiagnosticRecorder()
   let readResponseCache = DaemonReadResponseCache()
   var focus = FocusState()
   var state: RuntimeState
-  var placementPreferences: PlacementPreferences
-  var placementPreferencesDirty = false
-  let placementSaveQueue = DispatchQueue(
-    label: "com.quentin.defi.placements",
+  let topologySaveQueue = DispatchQueue(
+    label: "com.quentin.defi.topology",
     qos: .utility
   )
-  var placementSaveWorkItem: DispatchWorkItem?
   var topologySaveWorkItem: DispatchWorkItem?
   var lastPersistedTopology: WorkspaceTopology?
   var pointerHitTestTask: Task<Void, Never>?
@@ -220,12 +216,10 @@ final class Daemon {
     configURL = options.configURL ?? Config.defaultURL
     config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
-    placementStore = PlacementStore()
     topologyStore = WorkspaceTopologyStore()
     // An unavailable session identity must never match a previous process's state.
     topologySessionID = WorkspaceTopologyStore.currentSessionID()
       ?? "unavailable:\(UUID().uuidString)"
-    placementPreferences = (try? placementStore.load()) ?? PlacementPreferences()
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
     lastPersistedTopology = restoredTopology
