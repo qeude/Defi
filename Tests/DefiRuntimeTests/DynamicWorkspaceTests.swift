@@ -2,6 +2,7 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import Testing
+import Foundation
 
 @testable import DefiRuntime
 
@@ -74,6 +75,54 @@ struct DynamicWorkspaceTests {
     )
 
     #expect(state.monitors.first(where: { $0.id == replacement })?.workspaces.contains(where: { $0.id == WorkspaceID(rawValue: "remote") }) == true)
+  }
+
+  @Test
+  func explicitMonitorMoveOverridesConfiguredDisplayUntilConfigurationChanges() throws {
+    var config = Config(workspaces: WorkspacesConfig(
+      names: ["dev"], monitorIDs: ["dev": "display-a"]
+    ))
+    var state = RuntimeState(config: config)
+    let identities = [primary: "display-a", secondary: "display-b"]
+    state.retainMonitors([primary, secondary], stableIDs: identities)
+    state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "dev")
+    let frames = [primary: Rect(x: 0, y: 0, width: 1_000, height: 700),
+                  secondary: Rect(x: 1_000, y: 0, width: 1_000, height: 700)]
+    try reduce(.moveWorkspaceToMonitor(.right), on: primary, state: &state,
+               monitorFrames: frames, viewports: frames)
+    state.retainMonitors([primary, secondary], stableIDs: identities)
+    #expect(state.monitors[1].workspaces.contains { $0.name == "dev" })
+    state.retainMonitors([primary], stableIDs: [primary: "display-a"])
+    state = RuntimeState(config: config, topology: state.topology)
+    state.retainMonitors([primary, secondary], stableIDs: identities)
+    #expect(state.monitors[1].workspaces.contains { $0.name == "dev" })
+    config.workspaces.monitorIDs.removeValue(forKey: "dev")
+    state.applyConfiguration(config)
+    #expect(state.monitors[0].workspaces.contains { $0.name == "dev" })
+  }
+
+  @Test
+  func disconnectedDisplayIdentitySurvivesSerializedTopology() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.retainMonitors([primary, secondary],
+                         stableIDs: [primary: "display-a", secondary: "display-b"])
+    let workspace = state.monitors[1].activeWorkspace
+    try discoverWindow(makeWindow(1, monitorID: secondary), decision: RuleDecision(), state: &state)
+    state.retainMonitors([primary], stableIDs: [primary: "display-a"])
+    let data = try JSONEncoder().encode(state.topology)
+    state = RuntimeState(config: config, topology: try JSONDecoder().decode(WorkspaceTopology.self, from: data))
+    let replacement = MonitorID(rawValue: 3)
+    state.retainMonitors([primary, replacement],
+                         stableIDs: [primary: "display-a", replacement: "display-b"])
+    #expect(state.monitors[1].activeWorkspace == workspace)
+    #expect(state.monitors[1].workspaces.contains { $0.id == workspace })
+
+    var legacy = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    legacy.removeValue(forKey: "monitorStableIDs")
+    let legacyTopology = try JSONDecoder().decode(
+      WorkspaceTopology.self, from: JSONSerialization.data(withJSONObject: legacy))
+    #expect(RuntimeState(config: config, topology: legacyTopology).monitorStableIDs.isEmpty)
   }
 
   @Test

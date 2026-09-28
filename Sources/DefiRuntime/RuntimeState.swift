@@ -13,6 +13,8 @@ public struct DisconnectedMonitor: Equatable, Codable, Sendable {
 }
 
 public struct WorkspaceTopology: Equatable, Codable, Sendable {
+  // Optional so snapshots written before stable display identities remain readable.
+  public var monitorStableIDs: [MonitorID: String]?
   public var monitors: [Monitor]
   public var windows: [WindowID: Window]
   public var nextOrdinaryWorkspaceNumber: UInt64
@@ -24,6 +26,7 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
 
   public init(state: RuntimeState) {
+    monitorStableIDs = state.monitorStableIDs
     monitors = state.monitors
     windows = state.windows
     nextOrdinaryWorkspaceNumber = state.nextOrdinaryWorkspaceNumber
@@ -88,6 +91,7 @@ public struct RuntimeState: Equatable, Sendable {
   public init(config: Config, topology: WorkspaceTopology?) {
     self.init(config: config)
     guard let topology else { return }
+    monitorStableIDs = topology.monitorStableIDs ?? [:]
     monitors = topology.monitors
     windows = topology.windows
     nextOrdinaryWorkspaceNumber = topology.nextOrdinaryWorkspaceNumber
@@ -124,6 +128,16 @@ public struct RuntimeState: Equatable, Sendable {
       || workspaceMonitorPositions != nextWorkspaceMonitorPositions
       || workspaceMonitorIDs != nextWorkspaceMonitorIDs
 
+    for monitorIndex in monitors.indices {
+      for workspaceIndex in monitors[monitorIndex].workspaces.indices {
+        let id = monitors[monitorIndex].workspaces[workspaceIndex].id
+        if workspaceMonitorIDs[id] != nextWorkspaceMonitorIDs[id]
+          || workspaceMonitorPositions[id] != nextWorkspaceMonitorPositions[id]
+        {
+          monitors[monitorIndex].workspaces[workspaceIndex].affinity = nil
+        }
+      }
+    }
     layout = LayoutSettings(config: config)
     windowRules = config.rules
     workspaceNames = nextWorkspaceNames
@@ -467,10 +481,8 @@ public struct RuntimeState: Equatable, Sendable {
     for sourceIndex in monitors.indices.reversed() where sourceIndex != targetIndex {
       for workspaceIndex in monitors[sourceIndex].workspaces.indices.reversed() {
         let workspace = monitors[sourceIndex].workspaces[workspaceIndex]
-        let configuredStableID = workspaceMonitorIDs[workspace.id]
         guard workspace.affinity == monitorID,
-          workspace.kind != .trailing,
-          configuredStableID.map({ monitorStableIDs[monitorID] == $0 }) ?? true
+          workspace.kind != .trailing
         else { continue }
         returning.append((workspace, monitors[sourceIndex].id))
         monitors[sourceIndex].workspaces.remove(at: workspaceIndex)
@@ -503,15 +515,15 @@ public struct RuntimeState: Equatable, Sendable {
       let workspace = monitors[location.monitorIndex].workspaces[location.workspaceIndex]
       let affinity = workspace.affinity
       let targetIndex: Int
-      if let stableID = workspaceMonitorIDs[workspaceID] {
-        guard let connected = monitors.firstIndex(where: {
-          monitorStableIDs[$0.id] == stableID
-        }) else { continue }
-        targetIndex = connected
-      } else if let affinity {
+      if let affinity {
         guard let connected = monitors.firstIndex(where: { $0.id == affinity }) else {
           continue
         }
+        targetIndex = connected
+      } else if let stableID = workspaceMonitorIDs[workspaceID] {
+        guard let connected = monitors.firstIndex(where: {
+          monitorStableIDs[$0.id] == stableID
+        }) else { continue }
         targetIndex = connected
       } else {
         let targetPosition = workspaceMonitorPositions[workspaceID] ?? 1
