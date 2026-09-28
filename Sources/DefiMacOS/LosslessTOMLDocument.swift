@@ -27,7 +27,9 @@ struct LosslessTOMLDocument {
         end = lines.count
       } else {
         start = 0
-        end = lines.firstIndex(where: isTableHeader) ?? lines.endIndex
+        end =
+          lines.firstIndex(where: isTableHeader).map(leadingCommentStart(before:))
+          ?? lines.endIndex
       }
     }
     guard let start else { return }
@@ -105,7 +107,10 @@ struct LosslessTOMLDocument {
 
   private func range(of table: String, occurrence: Int = 0) -> (Int?, Int?) {
     guard !table.isEmpty else {
-      return (0, lines.firstIndex(where: isTableHeader) ?? lines.endIndex)
+      return (
+        0,
+        lines.firstIndex(where: isTableHeader).map(leadingCommentStart(before:)) ?? lines.endIndex
+      )
     }
     let matches = lines.indices.filter { index in
       guard let header = tableHeader(in: lines[index]) else { return false }
@@ -113,7 +118,9 @@ struct LosslessTOMLDocument {
     }
     guard matches.indices.contains(occurrence) else { return (nil, nil) }
     let header = matches[occurrence]
-    let end = lines[(header + 1)...].firstIndex(where: isTableHeader) ?? lines.endIndex
+    let end =
+      lines[(header + 1)...].firstIndex(where: isTableHeader)
+      .map(leadingCommentStart(before:)) ?? lines.endIndex
     return (header, end)
   }
 
@@ -127,18 +134,13 @@ struct LosslessTOMLDocument {
       let nextArray = starts.dropFirst(offset + 1).first(where: {
         $0 < (nextHeader ?? lines.endIndex)
       })
-      let end = nextArray.map(leadingCommentStart(before:)) ?? nextHeader ?? lines.endIndex
+      let end = (nextArray ?? nextHeader).map(leadingCommentStart(before:)) ?? lines.endIndex
       return leadingCommentStart(before: start)..<end
     }
   }
 
   private func isTableHeader(_ line: String) -> Bool {
     tableHeader(in: line) != nil
-  }
-
-  private func tableName(in line: String) -> String? {
-    guard let header = tableHeader(in: line), !header.isArray else { return nil }
-    return header.name
   }
 
   private func tableHeader(in line: String) -> (name: String, isArray: Bool)? {

@@ -14,7 +14,7 @@ struct LosslessTOMLDocumentTests {
     document.set(table: "input", key: "focus_follows_mouse", value: "true")
     let result = document.render()
 
-    #expect(result.contains("# config comment\ndisabled_keys = [\"alt-left\"]\n[layout]"))
+    #expect(result.contains("disabled_keys = [\"alt-left\"]\n# config comment\n[layout]"))
     #expect(result.contains("gaps = 12 # keep this"))
     #expect(result.contains("unknown_option = 4\n[custom]\nvalue = \"keep\""))
     #expect(result.hasSuffix("[input]\nfocus_follows_mouse = true\n"))
@@ -78,5 +78,32 @@ struct LosslessTOMLDocumentTests {
     )
     #expect(result.contains("# first rule") == false)
     #expect(result.contains("[[rules]]\napp_id = \"third\""))
+  }
+
+  @Test
+  func removingRuleKeepsCommentsBeforeFollowingTable() {
+    var document = LosslessTOMLDocument(
+      "[[rules]]\napp_id = \"example\"\n\n# layout note\n[layout]\ngaps = 8\n")
+
+    document.removeArrayTable("rules", occurrence: 0)
+
+    #expect(document.render() == "# layout note\n[layout]\ngaps = 8\n")
+  }
+
+  @Test
+  func missingKeysAreInsertedBeforeCommentsForFollowingTables() {
+    var tableDocument = LosslessTOMLDocument(
+      "[workspaces]\ndefault = \"main\"\n\n# layout note\n[layout]\ngaps = 8\n")
+    tableDocument.set(table: "workspaces", key: "names", value: "[\"main\"]")
+    #expect(
+      tableDocument.render()
+        == "[workspaces]\ndefault = \"main\"\n\nnames = [\"main\"]\n# layout note\n[layout]\ngaps = 8\n"
+    )
+
+    var rootDocument = LosslessTOMLDocument("# layout note\n[layout]\ngaps = 8\n")
+    rootDocument.set(table: "", key: "disabled_keys", value: "[]")
+    #expect(
+      rootDocument.render() == "disabled_keys = []\n# layout note\n[layout]\ngaps = 8\n"
+    )
   }
 }
