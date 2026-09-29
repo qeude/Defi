@@ -93,19 +93,41 @@ final class OverviewPanel {
     rootView.layoutSubtreeIfNeeded()
   }
 
-  func setDesktopImage(_ image: NSImage) {
+  func setDesktopImage(_ image: NSImage, fadeDuration: TimeInterval = 0) {
     desktopImageTask?.cancel()
     desktopImageTask = nil
-    if usesCapturedDesktop { desktopView.layer?.contents = image }
-    view.setDesktopImage(image)
+    if usesCapturedDesktop {
+      if fadeDuration > 0, desktopView.layer?.contents != nil {
+        let transition = CATransition()
+        transition.type = .fade
+        transition.duration = fadeDuration
+        desktopView.layer?.add(transition, forKey: "desktopImage")
+      }
+      desktopView.layer?.contents = image
+    }
+    view.setDesktopImage(image, fadeDuration: fadeDuration)
   }
 
-  func show() {
-    window.alphaValue = 1
+  func show(fadeDuration: TimeInterval = 0) {
     view.wantsLayer = true
-    window.orderFrontRegardless()
-    guard !view.hasDesktopImage else { return }
-    desktopImageTask?.cancel()
+    if fadeDuration > 0 {
+      window.alphaValue = 0
+      window.orderFrontRegardless()
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = fadeDuration
+        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        window.animator().alphaValue = 1
+      }
+    } else {
+      window.alphaValue = 1
+      window.orderFrontRegardless()
+    }
+    loadWallpaperIfNeeded()
+  }
+
+  // Decoded ahead of the first open so the panel never shows black while the wallpaper loads.
+  func loadWallpaperIfNeeded() {
+    guard !view.hasDesktopImage, desktopImageTask == nil else { return }
     desktopImageTask = Task { @MainActor [weak self] in
       guard !Task.isCancelled, let screen = self?.window.screen,
         let url = NSWorkspace.shared.desktopImageURL(for: screen)
@@ -120,7 +142,9 @@ final class OverviewPanel {
           kCGImageSourceShouldCacheImmediately: true,
         ] as CFDictionary)
       }.value
-      guard !Task.isCancelled, let self, self.window.isVisible, let image else { return }
+      guard !Task.isCancelled, let self else { return }
+      self.desktopImageTask = nil
+      guard !self.view.hasDesktopImage, let image else { return }
       self.setDesktopImage(NSImage(cgImage: image, size: screen.frame.size))
     }
   }

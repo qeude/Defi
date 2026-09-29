@@ -5,6 +5,8 @@ import DefiModel
 import QuartzCore
 
 let overviewTransitionDuration: TimeInterval = 0.16
+let overviewOpenFadeDuration: TimeInterval = 0.14
+let overviewDesktopFadeDuration: TimeInterval = 0.25
 
 private struct OverviewViewportAnimation {
   let from: OverviewViewport
@@ -172,12 +174,17 @@ public final class OverviewController: NSObject {
   public var retainedPanelCount: Int { panels.count }
   public private(set) var previewPermissionState: OverviewPreviewPermissionState = .disabled
   public private(set) var previewFailureCount = 0
+  private var openedAt: TimeInterval = 0
+  // Milliseconds from open to the first and latest captured preview of the current session.
+  public private(set) var firstPreviewMs: Double?
+  public private(set) var lastPreviewMs: Double?
+  public private(set) var receivedPreviewCount = 0
   public var previewCacheCount: Int { previewCache.count }
   public var rememberedPreviewMemoryBytes: Int {
     rememberedPreviews.byteCount
   }
   public var inFlightPreviewCount: Int {
-    previewTask == nil ? 0 : min(previewPendingCount, 2)
+    previewTask == nil ? 0 : min(previewPendingCount, overviewPreviewMaximumConcurrentCaptures)
   }
 
   public init(
@@ -285,10 +292,12 @@ public final class OverviewController: NSObject {
     closePanelsImmediately()
     for monitorID in monitorIDs {
       guard let screen = screen(for: monitorID) else { continue }
-      panels[monitorID] = OverviewPanel(
+      let panel = OverviewPanel(
         monitorID: monitorID, screen: screen,
         usesCapturedDesktop: !usesWorkspaceParking, delegate: self
       )
+      panels[monitorID] = panel
+      if panel.usesCapturedDesktop { panel.loadWallpaperIfNeeded() }
     }
   }
 
@@ -341,10 +350,17 @@ public final class OverviewController: NSObject {
       )
     })
     isOpen = true
+    openedAt = CACurrentMediaTime()
+    firstPreviewMs = nil
+    lastPreviewMs = nil
+    receivedPreviewCount = 0
     updatePanels()
     openStateHandler(true)
+    let fadeDuration = animationsEnabled
+      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      ? overviewOpenFadeDuration : 0
     for panel in panels.values {
-      panel.show()
+      panel.show(fadeDuration: fadeDuration)
     }
   }
 
@@ -995,7 +1011,10 @@ public final class OverviewController: NSObject {
     )
     for (monitorID, image) in results.desktops {
       panels[monitorID]?.setDesktopImage(
-        NSImage(cgImage: image, size: panels[monitorID]?.window.frame.size ?? .zero)
+        NSImage(cgImage: image, size: panels[monitorID]?.window.frame.size ?? .zero),
+        fadeDuration: animationsEnabled
+          && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+          ? overviewDesktopFadeDuration : 0
       )
     }
     finishPreviewBatch(generation: generation)
@@ -1022,11 +1041,14 @@ public final class OverviewController: NSObject {
       previewFailureCount += 1
       return
     }
+    let elapsedMs = (CACurrentMediaTime() - openedAt) * 1_000
+    firstPreviewMs = firstPreviewMs ?? elapsedMs
+    lastPreviewMs = elapsedMs
+    receivedPreviewCount += 1
     let preview = NSImage(
       cgImage: image,
       size: NSSize(width: result.request.width, height: result.request.height)
     )
-    let hadPreview = previewCache[result.request.windowID] != nil
     previewCache[result.request.windowID] = preview
     if let window = snapshot?.windows[result.request.windowID],
       let rememberedImage = result.rememberedImage
@@ -1037,10 +1059,12 @@ public final class OverviewController: NSObject {
         for: window
       )
     }
-    if !hadPreview {
+    // A replaced preview cross-fades from the remembered image instead of swapping.
+    if previewRevealStartedAt[result.request.windowID] == nil {
       previewRevealStartedAt[result.request.windowID] = CACurrentMediaTime()
-      startPreviewFadeAnimation(on: monitorID)
     }
+    // Always start the link: a window moved to another monitor mid-fade needs that monitor's link.
+    startPreviewFadeAnimation(on: monitorID)
     panels[monitorID]?.view.updatePreview(preview, for: result.request.windowID,
       opacity: overviewPreviewOpacity(startedAt: previewRevealStartedAt[result.request.windowID],
         now: CACurrentMediaTime(), reduceMotion: !animationsEnabled
@@ -1146,18 +1170,23 @@ public final class OverviewController: NSObject {
 
   private func visiblePreviewRequests() -> [OverviewPreviewRequest] {
     guard let snapshot else { return [] }
-    var requests: [OverviewPreviewRequest] = []
+    var candidates: [OverviewPreviewCandidate] = []
+    var anchor: (x: Double, y: Double)?
     for (monitorID, projection) in projections {
       let scale = max(panels[monitorID]?.window.backingScaleFactor ?? 1, 1)
       for card in projection.workspaces.flatMap(\.windows) {
         guard let window = snapshot.windows[card.windowID] else { continue }
-        let width = min(max(Int((card.frame.width * scale).rounded(.up)), 32), 1_600)
-        let height = min(max(Int((card.frame.height * scale).rounded(.up)), 24), 1_200)
+        let (width, height) = overviewPreviewPixelSize(
+          cardWidth: card.frame.width, cardHeight: card.frame.height, scale: scale
+        )
         let titleBandHeight = overviewWindowTitleBandHeight(
           iconSize: overviewWindowTitleIconSize(cardHeight: card.frame.height)
         )
-        requests.append(
-          OverviewPreviewRequest(
+        let centerX = card.frame.x + card.frame.width / 2
+        let centerY = card.frame.y + card.frame.height / 2
+        if card.windowID == selection?.windowID { anchor = (centerX, centerY) }
+        candidates.append(OverviewPreviewCandidate(
+          request: OverviewPreviewRequest(
             windowID: card.windowID,
             expectedAppID: window.appID,
             width: width,
@@ -1169,17 +1198,14 @@ public final class OverviewController: NSObject {
                 imageHeight: CGFloat(height)
               ).rounded(.up)
             )
-          )
-        )
+          ),
+          monitorID: monitorID, centerX: centerX, centerY: centerY
+        ))
       }
     }
-    if let selectedWindowID = selection?.windowID,
-      let index = requests.firstIndex(where: { $0.windowID == selectedWindowID })
-    {
-      requests.insert(requests.remove(at: index), at: 0)
-    }
-    var seen = Set<WindowID>()
-    return requests.filter { seen.insert($0.windowID).inserted }
+    return overviewPreviewCaptureOrder(
+      candidates, selectedMonitorID: selection?.location.monitorID, anchor: anchor
+    )
   }
 
   private func desktopCaptureRequests() -> [OverviewDesktopCaptureRequest] {
