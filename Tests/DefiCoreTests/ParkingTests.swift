@@ -4,6 +4,21 @@ import Testing
 
 struct ParkingTests {
   @Test
+  func `Compact windows keep their vertical position when leaving the visible strip`() {
+    let viewport = Rect(x: 0, y: 30, width: 2560, height: 1371)
+    let id = WindowID(rawValue: 1)
+    for x in [-338.0, 500.0, 2560.0] {
+      let frame = Rect(x: x, y: 342, width: 338, height: 748)
+      let plan = continuousStripFramesForActiveWorkspace(
+        [FrameAssignment(windowID: id, frame: frame)], viewport: viewport
+      )
+      #expect(plan.frames[0].frame.y == frame.y)
+      #expect(plan.frames[0].frame.height == frame.height)
+      #expect(plan.parkedWindowIDs.contains(id) == (x != 500))
+    }
+  }
+
+  @Test
   func `Side by side strip parking stays outside the neighboring monitor`() {
     let owner = Rect(x: 0, y: 0, width: 1_512, height: 982)
     let neighbor = Rect(x: 1_512, y: 0, width: 1_920, height: 1_080)
@@ -198,7 +213,7 @@ struct ParkingTests {
     )
     let offscreenColumn = FrameAssignment(
       windowID: WindowID(rawValue: 1),
-      frame: Rect(x: -300, y: 0, width: 300, height: 300)
+      frame: Rect(x: -300, y: 300, width: 300, height: 300)
     )
     let unreserved = continuousStripFramesForActiveWorkspace(
       [offscreenColumn],
@@ -236,7 +251,7 @@ struct ParkingTests {
     let deltaY = -600.0
     let offscreenColumn = FrameAssignment(
       windowID: WindowID(rawValue: 1),
-      frame: Rect(x: -300, y: 0, width: 300, height: 300)
+      frame: Rect(x: -300, y: 300, width: 300, height: 300)
     )
     let unshifted = continuousStripFramesForActiveWorkspace(
       [offscreenColumn],

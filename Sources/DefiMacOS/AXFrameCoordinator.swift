@@ -56,6 +56,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var skippedStaleWrites = 0
   var droppedFrameCount = 0
   var completedPositions: [WindowID: CGPoint] = [:]
+  var borderGeometryWrittenAt: [WindowID: TimeInterval] = [:]
+  var borderGeometries: [WindowID: (frame: Rect, sampledAt: TimeInterval)] = [:]
   var retargetHorizontalVelocities: [WindowID: Double] = [:]
   var deferredParkingWriteGenerations: [WindowID: UInt64] = [:]
   var completedSizes: [WindowID: CGSize] = [:]
@@ -71,6 +73,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var lastAnimationFrameCount = 0
   var lastAnimationDurationMS = 0.0
   var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
+  var parkingVerificationSchedules: [WindowID: ParkingVerificationSchedule] = [:]
   var completedParkingChecks = 0
   var repairedParkingDrifts = 0
   var initialSettlementTargets: [WindowID: InitialSettlementTarget] = [:]
@@ -83,6 +86,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedInitialSettlementChecks = 0
   var repairedInitialSettlementDrifts = 0
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
+  var recentProcessLatencySamplesMS: [pid_t: [Double]] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
   var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
@@ -133,6 +137,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func updateParkingTargets(_ targets: [WindowID: AsyncPositionWrite]) {
     lock.lock()
     parkingTargets = targets
+    parkingVerificationSchedules = parkingVerificationSchedules.filter {
+      windowID, schedule in
+      targets[windowID]?.point == schedule.expectedPoint
+    }
     lock.unlock()
   }
 
@@ -221,6 +229,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     // The generation reset invalidates in-flight geometry too.
     activeWrites.removeAll(keepingCapacity: true)
     completedPositions.removeAll(keepingCapacity: true)
+    borderGeometries.removeAll(keepingCapacity: true)
+    borderGeometryWrittenAt.removeAll(keepingCapacity: true)
     retargetHorizontalVelocities.removeAll(keepingCapacity: true)
     deferredParkingWriteGenerations.removeAll(keepingCapacity: true)
     completedSizes.removeAll(keepingCapacity: true)
@@ -230,6 +240,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     )
     latestWriteSucceededByWindowID.removeAll(keepingCapacity: true)
     parkingTargets.removeAll(keepingCapacity: true)
+    parkingVerificationSchedules.removeAll(keepingCapacity: true)
     initialSettlementTargets.removeAll(keepingCapacity: true)
     initialSettlementDriftSamples.removeAll(keepingCapacity: true)
     initialSettlementRepairsSuspended = false
@@ -263,6 +274,15 @@ final class AXFrameCoordinator: @unchecked Sendable {
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
   ) {
     guard !writes.isEmpty else { return }
+    let animatedWrites = writes.filter { animatedWindowIDs.contains($0.key) }
+    // A scrolling strip must not mix instantaneous moves with interpolated neighbors.
+    let usesCoherentPositionFallback = animationDuration > 0
+      && !animationSupportsIntermediateFrames(
+        processIDs: Set(animatedWrites.values.map(\.processID)),
+        animationDuration: animationDuration,
+        refreshRateHz: refreshRateHz
+      )
+    let animationDuration = usesCoherentPositionFallback ? 0 : animationDuration
     lock.lock()
     let displacedFrame = pending
     nextGeneration &+= 1
@@ -425,6 +445,35 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return droppedFrameCount
   }
 
+  // Use the start of the native read, not callback delivery time: a slow
+  // snapshot may finish after a newer write or frame notification.
+  func recordObservedBorderFrame(
+    _ frame: Rect, windowID: WindowID, sampledAt: TimeInterval
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard sampledAt >= max(
+      borderGeometries[windowID]?.sampledAt ?? -.infinity,
+      borderGeometryWrittenAt[windowID] ?? -.infinity
+    ) else { return }
+    borderGeometries[windowID] = (frame, sampledAt)
+  }
+
+  func latestBorderFrame(for windowID: WindowID) -> Rect? {
+    lock.lock()
+    defer { lock.unlock() }
+    return borderGeometries[windowID]?.frame
+  }
+
+  func retainBorderGeometry(for windowIDs: Set<WindowID>) {
+    lock.lock()
+    borderGeometries = borderGeometries.filter { windowIDs.contains($0.key) }
+    borderGeometryWrittenAt = borderGeometryWrittenAt.filter { windowIDs.contains($0.key) }
+    completedPositions = completedPositions.filter { windowIDs.contains($0.key) }
+    completedSizes = completedSizes.filter { windowIDs.contains($0.key) }
+    lock.unlock()
+  }
+
   func completedPosition(for windowID: WindowID) -> CGPoint? {
     lock.lock()
     defer { lock.unlock() }
@@ -559,6 +608,9 @@ final class AXFrameCoordinator: @unchecked Sendable {
   func pruneProcessLatencyState(liveProcessIDs: Set<pid_t>) {
     lock.lock()
     predictedProcessLatencyMS = predictedProcessLatencyMS.filter {
+      liveProcessIDs.contains($0.key)
+    }
+    recentProcessLatencySamplesMS = recentProcessLatencySamplesMS.filter {
       liveProcessIDs.contains($0.key)
     }
     latencySensitiveProcessIDs.formIntersection(liveProcessIDs)

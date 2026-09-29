@@ -22,12 +22,13 @@ public func resolveParkingPlacement(
   allMonitorFrames: [Rect],
   reservedParkingFrames: [Rect] = [],
   preferredSide: ParkingSide,
-  anchorSize: Double = parkedSliverWidth
+  anchorSize: Double = parkedSliverWidth,
+  preferredY: Double? = nil
 ) -> ParkingPlacement {
   let anchor = max(anchorSize, 1)
   let writableFrame = parkingFrame ?? ownerFrame
-  let targetY =
-    writableFrame.y + max(writableFrame.height - frame.height, 0)
+  let targetY = preferredY
+    ?? (writableFrame.y + max(writableFrame.height - frame.height, 0))
   let ownerIndex = allMonitorFrames.firstIndex(of: ownerFrame)
   let otherFrames = allMonitorFrames.enumerated().compactMap { index, monitorFrame in
     index == ownerIndex ? nil : monitorFrame
@@ -75,7 +76,8 @@ public func parkFramesInSafeCorner(
   parkingFrame: Rect? = nil,
   allMonitorFrames: [Rect],
   reservedParkingFrames: [Rect] = [],
-  preferredSide: ParkingSide
+  preferredSide: ParkingSide,
+  preservingVerticalPosition: Bool = false
 ) -> [FrameAssignment] {
   frames.map { assignment in
     let placement = resolveParkingPlacement(
@@ -84,7 +86,8 @@ public func parkFramesInSafeCorner(
       parkingFrame: parkingFrame,
       allMonitorFrames: allMonitorFrames,
       reservedParkingFrames: reservedParkingFrames,
-      preferredSide: preferredSide
+      preferredSide: preferredSide,
+      preferredY: preservingVerticalPosition ? assignment.frame.y : nil
     )
     return FrameAssignment(
       windowID: assignment.windowID,

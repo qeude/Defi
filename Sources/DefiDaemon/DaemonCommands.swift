@@ -278,6 +278,9 @@ extension Daemon {
     defer { processingHotKeyCommands = false }
     for _ in 0..<min(pendingHotKeyCommands.count, 8) {
       let invocation = pendingHotKeyCommands.removeFirst()
+      platform.recordPerformanceTrace(
+        "hotkey command=\(invocation.command) sourcePID=\(invocation.sourceProcessID.map(String.init) ?? "unknown")"
+      )
       _ = handle(
         invocation.command,
         inputTimestamp: invocation.timestamp
@@ -541,7 +544,7 @@ extension Daemon {
       let validationMS =
         (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
       platform.recordPerformanceTrace(
-        "command-start cg=\(currentCommandGeneration) command=\(rawCommand) validationMs=\(String(format: "%.2f", validationMS))"
+        "command-start cg=\(currentCommandGeneration) command=\(rawCommand) source=\(receivedAt != nil ? "ipc" : inputTimestamp != nil ? "hotkey" : "internal") validationMs=\(String(format: "%.2f", validationMS))"
       )
       focus.discardDisplacedFocus()
       invalidatePointerFocusIntent(recoveringTo: previouslySelectedWindowID)

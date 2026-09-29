@@ -92,6 +92,11 @@ struct FrameCommitTests {
     )
     coordinator.activeWrites[windowID] = oldWrite
     coordinator.updateParkingTargets([windowID: oldWrite])
+    let oldSchedule = ParkingVerificationSchedule(
+      expectedPoint: oldWrite.point,
+      deadline: 10
+    )
+    coordinator.parkingVerificationSchedules[windowID] = oldSchedule
     coordinator.deferredParkingWriteGenerations[windowID] = 7
 
     coordinator.invalidate(reason: "display-change")
@@ -99,10 +104,12 @@ struct FrameCommitTests {
     #expect(coordinator.latestGeneration != oldFrame.generation)
     #expect(coordinator.activeWrites.isEmpty)
     #expect(coordinator.parkingTargets.isEmpty)
+    #expect(coordinator.parkingVerificationSchedules.isEmpty)
     #expect(coordinator.deferredParkingWriteGenerations.isEmpty)
 
     let latestWrite = makeMotionWrite(fromX: 100, toX: 900)
     coordinator.updateParkingTargets([windowID: latestWrite])
+    #expect(coordinator.parkingVerificationSchedules[windowID] == nil)
 
     let result = coordinator.applyFrame(
       oldFrame,
@@ -115,6 +122,67 @@ struct FrameCommitTests {
     #expect(coordinator.activeWrites.isEmpty)
     #expect(coordinator.parkingTargets[windowID]?.point == latestWrite.point)
     #expect(coordinator.deferredParkingWriteGenerations.isEmpty)
+  }
+
+  @Test
+  func unchangedParkingTargetsShareOneVerificationWindow() {
+    let point = CGPoint(x: 100, y: 200)
+    let pending = ParkingVerificationSchedule(
+      expectedPoint: point,
+      deadline: 10
+    )
+
+    #expect(
+      !parkingVerificationShouldSchedule(
+        current: pending,
+        expectedPoint: point,
+        now: 9
+      )
+    )
+    #expect(
+      parkingVerificationShouldSchedule(
+        current: pending,
+        expectedPoint: CGPoint(x: 100, y: 201),
+        now: 9
+      )
+    )
+    #expect(
+      parkingVerificationShouldSchedule(
+        current: pending,
+        expectedPoint: point,
+        now: 10
+      )
+    )
+  }
+
+  @Test
+  func failedFinalParkingReadKeepsVerificationScheduled() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 1)
+    let element = AXUIElementCreateApplication(-1)
+    let point = CGPoint(x: 100, y: 200)
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: point, point: point,
+      fromSize: CGSize(width: 800, height: 700),
+      size: CGSize(width: 800, height: 700),
+      positionChanged: true, sizeChanged: false, animatesSize: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: true, isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let schedule = ParkingVerificationSchedule(
+      expectedPoint: point,
+      deadline: ProcessInfo.processInfo.systemUptime + 1.4
+    )
+    coordinator.parkingTargets[windowID] = write
+    coordinator.parkingVerificationSchedules[windowID] = schedule
+
+    coordinator.verifyParkingTarget(
+      windowID: windowID, expectedPoint: point,
+      schedule: schedule, isFinalCheck: true
+    )
+    #expect(coordinator.parkingVerificationSchedules[windowID] == schedule)
   }
 
   @Test(arguments: [-100.0, 900.0])
@@ -144,12 +212,12 @@ struct FrameCommitTests {
   }
 
   private func makeMotionWrite(
-    fromX: Double, toX: Double, sizeChanged: Bool = false
+    fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42
   ) -> AsyncPositionWrite {
     // Handles only: these tests never read or mutate the real desktop.
     let element = AXUIElementCreateSystemWide()
     return AsyncPositionWrite(
-      element: element, application: element, processID: 42,
+      element: element, application: element, processID: processID,
       fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: 40),
       fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
       positionChanged: true, sizeChanged: sizeChanged, animatesSize: false,
@@ -179,6 +247,46 @@ struct FrameCommitTests {
     #expect(lane.takeNext() == 3)
     #expect(lane.takeNext() == nil)
     #expect(lane.isRunning == false)
+  }
+
+  @Test
+  func `Position transitions do not mix slow jumps with animated neighbors`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.running = true // Inspect submission without starting native writes.
+    let fast = WindowID(rawValue: 1)
+    let slow = WindowID(rawValue: 2)
+    let writes = [
+      fast: makeMotionWrite(fromX: 900, toX: 100, processID: 42),
+      slow: makeMotionWrite(fromX: 1800, toX: 1000, processID: 43)
+    ]
+    coordinator.predictedProcessLatencyMS = [42: 2, 43: 30]
+    coordinator.submit(
+      writes, source: "test-scroll", animationDuration: 0.035,
+      refreshRateHz: 120, animatedWindowIDs: [fast, slow]
+    )
+    #expect(coordinator.pending?.animationDuration == 0)
+    #expect(coordinator.pending?.writes.count == 2)
+
+    coordinator.predictedProcessLatencyMS[43] = 2
+    coordinator.submit(
+      writes, source: "test-scroll", animationDuration: 0.035,
+      refreshRateHz: 120, animatedWindowIDs: [fast, slow]
+    )
+    #expect(coordinator.pending?.animationDuration == 0.035)
+  }
+
+  @Test
+  func `Recent AX stalls prevent animation from restarting after a few fast writes`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordProcessLatencySamples([42: 55])
+    for _ in 0..<6 { coordinator.recordProcessLatencySamples([42: 2]) }
+    #expect(coordinator.animationSupportsIntermediateFrames(
+      processIDs: [42], animationDuration: 0.035, refreshRateHz: 120
+    ) == false)
+    for _ in 0..<16 { coordinator.recordProcessLatencySamples([42: 2]) }
+    #expect(coordinator.animationSupportsIntermediateFrames(
+      processIDs: [42], animationDuration: 0.035, refreshRateHz: 120
+    ))
   }
 
   @Test

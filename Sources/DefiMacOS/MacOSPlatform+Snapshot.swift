@@ -608,6 +608,7 @@ extension SnapshotEngine {
       freshObservationIDs.contains($0.key)
         || cachedSnapshotWindowIDs.contains($0.key)
     }
+    frameCoordinator.retainBorderGeometry(for: nextWindowIDs)
     let now = ProcessInfo.processInfo.systemUptime
     // Expired expectations are dead bookkeeping. The per-window expiry below
     // only runs on fresh observations; applications that stop delivering
@@ -661,6 +662,9 @@ extension SnapshotEngine {
       && !nativeFullscreenWindowIDs.contains(window.id)
     {
       latestObservedFrames[window.id] = window.frame
+      frameCoordinator.recordObservedBorderFrame(
+        window.frame, windowID: window.id, sampledAt: snapshotStartedAt
+      )
       if var expectation = frameCommitExpectations[window.id],
         let target = targetFrames[window.id]
       {

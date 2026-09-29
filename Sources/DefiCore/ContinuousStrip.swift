@@ -69,7 +69,8 @@ public func continuousStripFramesForActiveWorkspace(
       parkingFrame: parkingFrame,
       allMonitorFrames: parkingMonitorFrames,
       reservedParkingFrames: reservedParkingFrames,
-      preferredSide: side
+      preferredSide: side,
+      preservingVerticalPosition: true
     ))
     for assignment in assignments {
       visibility[assignment.windowID] = .parked
