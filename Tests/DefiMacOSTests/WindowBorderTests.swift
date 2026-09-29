@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import DefiCore
 import DefiModel
+import DefiRuntime
 import Testing
 
 @testable import DefiMacOS
@@ -223,6 +224,102 @@ struct WindowBorderTests {
         plannedFrame: planned
       ) == planned
     )
+  }
+
+  @Test @MainActor
+  func idleBorderFollowsObservationAfterCompletedWrite() {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform() }
+    }
+    let windowID = WindowID(rawValue: 1)
+    let previous = Rect(x: 150, y: 30, width: 900, height: 800)
+    let observed = Rect(x: 0, y: 30, width: 1024, height: 800)
+    platform.frameCoordinator.recordCompletedPosition(
+      CGPoint(x: previous.x, y: previous.y), windowID: windowID
+    )
+    platform.frameCoordinator.recordCompletedSize(
+      CGSize(width: previous.width, height: previous.height), windowID: windowID,
+      incrementWriteCount: false, sizeWasReadBack: true
+    )
+    platform.latestObservedFrames[windowID] = observed
+    platform.frameCoordinator.recordObservedBorderFrame(
+      observed, windowID: windowID, sampledAt: ProcessInfo.processInfo.systemUptime
+    )
+    #expect(platform.frameCoordinator.isBusy == false)
+    #expect(platform.displayedBorderFrame(
+      for: FrameAssignment(windowID: windowID, frame: previous), nativeFrame: nil
+    ) == observed)
+    // A later position-only move must preserve the externally observed size,
+    // rather than resurrecting the last size Defi wrote.
+    platform.frameCoordinator.recordCompletedPosition(
+      CGPoint(x: 200, y: observed.y), windowID: windowID
+    )
+    #expect(platform.displayedBorderFrame(
+      for: FrameAssignment(windowID: windowID, frame: previous), nativeFrame: nil
+    ) == Rect(x: 200, y: observed.y, width: observed.width, height: observed.height))
+    platform.frameCoordinator.invalidate(reason: "test")
+    #expect(platform.frameCoordinator.latestBorderFrame(for: windowID) == nil)
+  }
+
+  @Test(arguments: [true, false]) @MainActor
+  func idleBorderDoesNotRestoreObservationFromBeforeCompletedWrite(hasInitialObservation: Bool) {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform() }
+    }
+    let windowID = WindowID(rawValue: 1)
+    let oldFrame = Rect(x: 0, y: 30, width: 900, height: 800)
+    let completed = Rect(x: 150, y: 30, width: 1024, height: 800)
+    let sampledAt = ProcessInfo.processInfo.systemUptime
+    platform.latestObservedFrames[windowID] = oldFrame
+    if hasInitialObservation {
+      platform.frameCoordinator.recordObservedBorderFrame(
+        oldFrame, windowID: windowID, sampledAt: sampledAt
+      )
+    }
+    platform.frameCoordinator.recordCompletedPosition(
+      CGPoint(x: completed.x, y: completed.y), windowID: windowID
+    )
+    platform.frameCoordinator.recordCompletedSize(
+      CGSize(width: completed.width, height: completed.height), windowID: windowID,
+      incrementWriteCount: false, sizeWasReadBack: true
+    )
+    // A snapshot that started before the writes must not roll them back when it finishes.
+    platform.frameCoordinator.recordObservedBorderFrame(
+      oldFrame, windowID: windowID, sampledAt: sampledAt
+    )
+    #expect(platform.frameCoordinator.isBusy == false)
+    #expect(platform.displayedBorderFrame(
+      for: FrameAssignment(windowID: windowID, frame: completed), nativeFrame: nil
+    ) == completed)
+  }
+
+  @Test(arguments: [true, false])
+  func unverifiedSizeWriteDoesNotChangeBorderGeometry(hasObservation: Bool) {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 1)
+    let observed = Rect(x: 0, y: 30, width: 400, height: 800)
+    if hasObservation {
+      coordinator.recordObservedBorderFrame(observed, windowID: windowID, sampledAt: 0)
+    }
+    coordinator.recordCompletedPosition(CGPoint(x: observed.x, y: observed.y), windowID: windowID)
+    coordinator.recordCompletedSize(
+      CGSize(width: 900, height: 800), windowID: windowID, incrementWriteCount: true, sizeWasReadBack: false
+    )
+    #expect(coordinator.latestBorderFrame(for: windowID) == (hasObservation ? observed : nil))
+  }
+
+  @Test
+  func removedWindowCannotReuseCompletedBorderGeometry() {
+    let coordinator = AXFrameCoordinator()
+    let windowID = WindowID(rawValue: 1)
+    coordinator.recordCompletedPosition(CGPoint(x: 100, y: 30), windowID: windowID)
+    coordinator.recordCompletedSize(
+      CGSize(width: 900, height: 800), windowID: windowID, incrementWriteCount: false, sizeWasReadBack: true
+    )
+    coordinator.retainBorderGeometry(for: [])
+    #expect(coordinator.latestBorderFrame(for: windowID) == nil)
+    #expect(coordinator.completedPosition(for: windowID) == nil)
+    #expect(coordinator.completedSize(for: windowID) == nil)
   }
 
   @Test

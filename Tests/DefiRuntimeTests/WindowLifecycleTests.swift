@@ -1,3 +1,4 @@
+import DefiCore
 import DefiConfig
 import DefiModel
 import DefiRuntime
@@ -195,6 +196,50 @@ struct WindowLifecycleTests {
     #expect(workspace.targetScrollOffset == 240)
     #expect(state.selectedWindowID(on: monitorID) == replacement.id)
     #expect(state.windows[original.id] == nil)
+  }
+
+  @Test
+  func `Rejected tile size settles and mode changes retry the preferred tile`() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    var window = Window(
+      id: WindowID(rawValue: 1), appID: "resizable-app", title: "Panel",
+      frame: Rect(x: 0, y: 0, width: 344, height: 738), monitorID: monitorID
+    )
+    try discoverWindow(window, decision: RuleDecision(), state: &state)
+    let viewport = Rect(x: 0, y: 0, width: 2560, height: 1371)
+    func layout(_ state: RuntimeState, viewport: Rect) -> Rect {
+      computeLayout(
+        workspace: state.monitors[0].workspaces[0], viewport: viewport,
+        windows: Array(state.windows.values), settings: state.layout
+      )[0].frame
+    }
+    let requested = layout(state, viewport: viewport)
+    let preferredWidth = state.monitors[0].workspaces[0].columns[0].width
+    window.frame = Rect(x: requested.x, y: requested.y, width: 344, height: 738)
+    state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id)
+    var cachedBeforeWrite = window
+    cachedBeforeWrite.frame = requested
+    reconcileWindows([cachedBeforeWrite], config: config, state: &state)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance?.accepted == window.frame)
+    for _ in 0..<3 {
+      reconcileWindows([window], config: config, state: &state)
+      let settled = layout(state, viewport: viewport)
+      #expect(settled.width == window.frame.width)
+      #expect(settled.height == window.frame.height)
+      state.acceptTiledWindowFrame(window.frame, requested: settled, for: window.id)
+    }
+    #expect(state.monitors[0].workspaces[0].columns[0].width == preferredWidth)
+    // A new layout target must also get a chance to resize the window.
+    let smallerViewport = Rect(x: 0, y: 0, width: 1200, height: 900)
+    #expect(layout(state, viewport: smallerViewport).height != 738)
+    window.frame.height = 900
+    reconcileWindows(
+      [window], config: config,
+      externallyChangedWindowIDs: [window.id], state: &state
+    )
+    #expect(layout(state, viewport: viewport) == requested)
   }
 
   @Test

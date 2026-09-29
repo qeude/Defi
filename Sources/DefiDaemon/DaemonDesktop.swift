@@ -320,7 +320,13 @@ extension Daemon {
       acceptedFrameHandler: { [weak self] acceptedFrames in
         guard let self else { return }
         for (windowID, frame) in acceptedFrames {
-          state.updateWindowFrame(frame, for: windowID)
+          if !positionsOnly,
+            let requested = platformAssignments.first(where: { $0.windowID == windowID })?.frame
+          {
+            state.acceptTiledWindowFrame(frame, requested: requested, for: windowID)
+          } else {
+            state.updateWindowFrame(frame, for: windowID)
+          }
         }
       },
       commandPerformance: commandPerformance,

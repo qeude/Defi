@@ -17,6 +17,7 @@ public struct Window: Equatable, Codable, Sendable {
   public var intrinsicSize: Bool
   public var minimumTiledWidth: Double?
   public var maximumTiledWidth: Double?
+  public var tiledSizeAcceptance: TiledSizeAcceptance?
 
   public init(
     id: WindowID,
@@ -75,4 +76,16 @@ public func singleManagedWindowID(
     match = window.id
   }
   return match
+}
+
+/// A successful native resize can still be clamped by the application.
+/// This observation applies only to the same requested size and native mode.
+public struct TiledSizeAcceptance: Equatable, Codable, Sendable {
+  public let requested: Rect
+  public let accepted: Rect
+
+  public init(requested: Rect, accepted: Rect) {
+    self.requested = requested
+    self.accepted = accepted
+  }
 }

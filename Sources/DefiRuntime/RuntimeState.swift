@@ -680,6 +680,24 @@ public struct RuntimeState: Equatable, Sendable {
     windows[windowID]?.frame = frame
   }
 
+  public mutating func acceptTiledWindowFrame(
+    _ frame: Rect, requested: Rect, for windowID: WindowID
+  ) {
+    guard let window = windows[windowID] else { return }
+    if !window.floating, !window.intrinsicSize,
+      !nativeFullscreenWindowIDs.contains(windowID),
+      frame.width.isFinite, frame.height.isFinite,
+      frame.width > 0, frame.height > 0,
+      abs(frame.width - requested.width) >= 1
+        || abs(frame.height - requested.height) >= 1
+    {
+      windows[windowID]?.tiledSizeAcceptance = TiledSizeAcceptance(
+        requested: requested, accepted: frame
+      )
+    }
+    updateWindowFrame(frame, for: windowID)
+  }
+
   public func location(
     containing windowID: WindowID
   ) -> (monitorID: MonitorID, workspaceID: WorkspaceID)? {

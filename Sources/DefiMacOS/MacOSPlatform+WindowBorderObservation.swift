@@ -471,12 +471,12 @@ extension MacOSPlatform {
     else {
       return
     }
-    guard
-      let frame = frame(of: element) ?? resolvedBorderFrame(for: windowID)
-    else {
-      return
+    let sampledAt = ProcessInfo.processInfo.systemUptime
+    if let frame = frame(of: element) {
+      latestObservedFrames[windowID] = frame
+      frameCoordinator.recordObservedBorderFrame(frame, windowID: windowID, sampledAt: sampledAt)
     }
-    latestObservedFrames[windowID] = frame
+    guard let frame = resolvedBorderFrame(for: windowID) else { return }
     if borderManager.updateGeometry(
       frames: [windowID: frame],
       style: borderStyle
@@ -546,37 +546,19 @@ extension MacOSPlatform {
 
 
 
-  private func displayedBorderFrame(
+  func displayedBorderFrame(
     for assignment: FrameAssignment,
     nativeFrame: Rect?
   ) -> Rect {
-    if let nativeFrame {
-      return nativeFrame
-    }
-    if assignment.windowID == borderLiveWindowID,
-      let observed = latestObservedFrames[assignment.windowID]
-    {
-      return observed
-    }
-    let point = frameCoordinator.completedPosition(for: assignment.windowID)
-    let size = frameCoordinator.completedSize(for: assignment.windowID)
-    if point == nil, size == nil, frameCoordinator.isBusy,
-      let observed = latestObservedFrames[assignment.windowID]
-    {
-      return observed
-    }
-    return Rect(
-      x: point.map { Double($0.x) } ?? assignment.frame.x,
-      y: point.map { Double($0.y) } ?? assignment.frame.y,
-      width: size.map { Double($0.width) } ?? assignment.frame.width,
-      height: size.map { Double($0.height) } ?? assignment.frame.height
-    )
+    nativeFrame
+      ?? frameCoordinator.latestBorderFrame(for: assignment.windowID)
+      ?? assignment.frame
   }
 
   private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
     resolvedWindowBorderFrame(
       nativeFrame: borderBoundsProvider.frame(for: windowID),
-      observedFrame: latestObservedFrames[windowID],
+      observedFrame: frameCoordinator.latestBorderFrame(for: windowID),
       plannedFrame: borderFrames.first(where: { $0.windowID == windowID })?.frame
     )
   }

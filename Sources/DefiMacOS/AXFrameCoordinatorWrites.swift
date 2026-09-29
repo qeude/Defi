@@ -258,7 +258,8 @@ extension AXFrameCoordinator {
     defer { lock.unlock() }
     return processIDs.allSatisfy {
       adaptiveIntermediateFrameLimit(
-        predictedFrameLatency: (predictedProcessLatencyMS[$0] ?? 0) / 1_000,
+        predictedFrameLatency:
+          (recentProcessLatencySamplesMS[$0]?.max() ?? predictedProcessLatencyMS[$0] ?? 0) / 1_000,
         refreshRateHz: refreshRateHz,
         availableIntermediateFrames: availableIntermediateFrames
       ) >= 2
@@ -277,7 +278,9 @@ extension AXFrameCoordinator {
     lock.lock()
     let predictions = Dictionary(
       uniqueKeysWithValues: processIDs.map { processID in
-        (processID, (predictedProcessLatencyMS[processID] ?? 0) / 1_000)
+        (processID,
+          (recentProcessLatencySamplesMS[processID]?.max()
+            ?? predictedProcessLatencyMS[processID] ?? 0) / 1_000)
       }
     )
     lock.unlock()
@@ -300,6 +303,12 @@ extension AXFrameCoordinator {
     lock.lock()
     for (processID, rawSample) in samplesMS {
       let sample = min(max(rawSample, 0), 120)
+      // Averages recover too quickly after intermittent AX stalls. Require a
+      // bounded history of fast writes before attempting shared animation again.
+      var recent = recentProcessLatencySamplesMS[processID] ?? []
+      recent.append(sample)
+      if recent.count > 16 { recent.removeFirst(recent.count - 16) }
+      recentProcessLatencySamplesMS[processID] = recent
       let prediction: Double
       if let previous = predictedProcessLatencyMS[processID] {
         // Clamp a single outlier so one slow write cannot yank the
@@ -484,8 +493,8 @@ extension AXFrameCoordinator {
           asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
         )
         var acceptedSize =
-          sizeApplied && requiresAsynchronousSizeWrite && !intermediate
-            && progress >= 1
+          sizeApplied && requiresAsynchronousSizeWrite
+            && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
           ? accessibilityWriter.readSize(item.value.element)
           : nil
         let clampedSourceFrame: Rect? = acceptedSize.flatMap { observedSize in
@@ -618,7 +627,8 @@ extension AXFrameCoordinator {
         recordCompletedSize(
           acceptedSize ?? size,
           windowID: item.key,
-          incrementWriteCount: true
+          incrementWriteCount: true,
+          sizeWasReadBack: acceptedSize != nil
         )
       }
       if requiresReadback, !intermediate {
@@ -768,7 +778,8 @@ extension AXFrameCoordinator {
           recordCompletedSize(
             writeResult.acceptedSize ?? write.size,
             windowID: windowID,
-            incrementWriteCount: true
+            incrementWriteCount: true,
+            sizeWasReadBack: writeResult.acceptedSize != nil
           )
         }
         committed.add(succeeded)
@@ -781,14 +792,27 @@ extension AXFrameCoordinator {
   func recordCompletedSize(
     _ size: CGSize,
     windowID: WindowID,
-    incrementWriteCount: Bool
+    incrementWriteCount: Bool,
+    sizeWasReadBack: Bool
   ) {
     lock.lock()
+    defer { lock.unlock() }
     completedSizes[windowID] = size
     if incrementWriteCount {
       completedAnimatedSizeWrites += 1
     }
-    lock.unlock()
+    // A successful AX write can still be clamped by the application.
+    guard sizeWasReadBack else { return }
+    let now = ProcessInfo.processInfo.systemUptime
+    borderGeometryWrittenAt[windowID] = now
+    let point = borderGeometries[windowID].map {
+      CGPoint(x: $0.frame.x, y: $0.frame.y)
+    } ?? completedPositions[windowID]
+    if let point {
+      borderGeometries[windowID] = (
+        Rect(x: point.x, y: point.y, width: size.width, height: size.height), now
+      )
+    }
   }
 
   func readAcceptedFrames(
@@ -831,7 +855,8 @@ extension AXFrameCoordinator {
       recordCompletedSize(
         CGSize(width: accepted.width, height: accepted.height),
         windowID: windowID,
-        incrementWriteCount: false
+        incrementWriteCount: false,
+        sizeWasReadBack: true
       )
       acceptedFrames[windowID] = accepted
     }

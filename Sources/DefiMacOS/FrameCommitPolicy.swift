@@ -31,6 +31,20 @@ struct FrameCommitExpectation: Equatable, Sendable {
   }
 }
 
+struct ParkingVerificationSchedule: Equatable {
+  let expectedPoint: CGPoint
+  let deadline: TimeInterval
+}
+
+func parkingVerificationShouldSchedule(
+  current: ParkingVerificationSchedule?,
+  expectedPoint: CGPoint,
+  now: TimeInterval
+) -> Bool {
+  guard let current else { return true }
+  return current.expectedPoint != expectedPoint || current.deadline <= now
+}
+
 public struct CommandPerformanceContext: Equatable, Sendable {
   public let generation: UInt64
   public let inputTimestamp: TimeInterval

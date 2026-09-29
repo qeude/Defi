@@ -15,9 +15,17 @@ public func focusedColumnLeftScrollOffset(
   let focusedLeft = columnsWidth(
     Array(workspace.columns.prefix(workspace.focusedColumn)),
     viewport: viewport,
-    windowsByID: windowsByID
+    windowsByID: windowsByID,
+    settings: settings,
+    totalColumnCount: workspace.columns.count
   )
-  let totalWidth = columnsWidth(workspace.columns, viewport: viewport, windowsByID: windowsByID)
+  let totalWidth = columnsWidth(
+    workspace.columns,
+    viewport: viewport,
+    windowsByID: windowsByID,
+    settings: settings,
+    totalColumnCount: workspace.columns.count
+  )
   let leftGap = workspace.focusedColumn == 0
     ? settings.outerLeftGap
     : settings.innerHorizontalGap
@@ -70,18 +78,29 @@ public func focusedColumnTargetScrollOffset(
   let focusedLeft = columnsWidth(
     Array(workspace.columns.prefix(workspace.focusedColumn)),
     viewport: viewport,
-    windowsByID: windowsByID
+    windowsByID: windowsByID,
+    settings: settings,
+    totalColumnCount: workspace.columns.count
   )
   let focusedWidth =
     workspace.columns.indices.contains(workspace.focusedColumn)
     ? columnWidthInViewports(
       workspace.columns[workspace.focusedColumn],
+      columnIndex: workspace.focusedColumn,
+      columnCount: workspace.columns.count,
       viewport: viewport,
-      windowsByID: windowsByID
+      windowsByID: windowsByID,
+      settings: settings
     )
     : 0
   let focusedRight = focusedLeft + focusedWidth
-  let totalWidth = columnsWidth(workspace.columns, viewport: viewport, windowsByID: windowsByID)
+  let totalWidth = columnsWidth(
+    workspace.columns,
+    viewport: viewport,
+    windowsByID: windowsByID,
+    settings: settings,
+    totalColumnCount: workspace.columns.count
+  )
   let maxContentScroll = max(totalWidth - 1, 0)
   let leftGap = workspace.focusedColumn == 0
     ? settings.outerLeftGap
@@ -113,19 +132,38 @@ public func focusedColumnTargetScrollOffset(
 private func columnsWidth(
   _ columns: [Column],
   viewport: Rect,
-  windowsByID: [WindowID: Window]
+  windowsByID: [WindowID: Window],
+  settings: LayoutSettings,
+  totalColumnCount: Int
 ) -> Double {
-  columns.reduce(0) {
-    $0 + columnWidthInViewports($1, viewport: viewport, windowsByID: windowsByID)
+  columns.enumerated().reduce(0) { total, entry in
+    total + columnWidthInViewports(
+      entry.element,
+      columnIndex: entry.offset,
+      columnCount: totalColumnCount,
+      viewport: viewport,
+      windowsByID: windowsByID,
+      settings: settings
+    )
   }
 }
 
 private func columnWidthInViewports(
   _ column: Column,
+  columnIndex: Int,
+  columnCount: Int,
   viewport: Rect,
-  windowsByID: [WindowID: Window]
+  windowsByID: [WindowID: Window],
+  settings: LayoutSettings
 ) -> Double {
-  columnLayoutWidth(column, viewport: viewport, windowsByID: windowsByID)
+  columnLayoutWidth(
+    column,
+    viewport: viewport,
+    windowsByID: windowsByID,
+    settings: settings,
+    columnIndex: columnIndex,
+    columnCount: columnCount
+  )
     / max(viewport.width, 1)
 }
 

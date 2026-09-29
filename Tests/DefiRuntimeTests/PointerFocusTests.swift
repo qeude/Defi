@@ -226,6 +226,42 @@ struct PointerFocusTests {
   }
 
   @Test
+  func selectedNonmodalTransientHoldsPointerFocus() throws {
+    var state = try makeState(columnWidths: [0.3, 0.3, 0.3])
+    let ownerID = WindowID(rawValue: 1)
+    let popupID = WindowID(rawValue: 2)
+    let otherWindowID = WindowID(rawValue: 3)
+    state.windows[ownerID]?.appID = "browser"
+    state.windows[popupID]?.appID = "browser"
+    state.windows[popupID]?.transientOwnerID = ownerID
+    state.windows[otherWindowID]?.appID = "other-app"
+    _ = focusWindow(popupID, state: &state)
+
+    #expect(state.selectedWindowID(on: monitorID) == popupID)
+    #expect(state.windows[popupID]?.transientOwnerID == ownerID)
+    #expect(state.location(containing: otherWindowID) != nil)
+    #expect(state.windows[popupID]?.isModal == false)
+    let original = state
+    #expect(
+      focusWindowFromPointer(
+        ownerID,
+        activeMonitorID: monitorID,
+        state: &state,
+        viewports: [monitorID: viewport]
+      ) == nil
+    )
+    #expect(
+      focusWindowFromPointer(
+        otherWindowID,
+        activeMonitorID: monitorID,
+        state: &state,
+        viewports: [monitorID: viewport]
+      ) == nil
+    )
+    #expect(state == original)
+  }
+
+  @Test
   func documentModalAllowsPointerFocusInAnUnrelatedDocument() throws {
     var state = try makeState(columnWidths: [0.25, 0.25, 0.25, 0.25])
     let ownerID = WindowID(rawValue: 1)
