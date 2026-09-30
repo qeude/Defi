@@ -22,24 +22,28 @@ func normalizedWindowBorderFrame(_ bounds: CGRect) -> Rect? {
   )
 }
 
-struct WindowWidthConstraints: Equatable, Sendable {
-  let minimum: Double?
-  let maximum: Double?
+struct WindowSizeConstraints: Equatable, Sendable {
+  let minimumWidth: Double?
+  let maximumWidth: Double?
+  let maximumHeight: Double?
 }
 
-func normalizedWindowWidthConstraints(
-  minimum: CGFloat,
-  maximum: CGFloat
-) -> WindowWidthConstraints {
-  let minimum = minimum.isFinite && minimum > 0 ? Double(minimum) : nil
-  var maximum =
-    maximum.isFinite && maximum > 0 && maximum < 100_000
-    ? Double(maximum)
-    : nil
-  if let minimum, let value = maximum, value < minimum {
-    maximum = minimum
+func normalizedWindowSizeConstraints(
+  minimum: CGSize,
+  maximum: CGSize
+) -> WindowSizeConstraints {
+  func dimension(minimum: CGFloat, maximum: CGFloat) -> (Double?, Double?) {
+    let minimum = minimum.isFinite && minimum > 0 ? Double(minimum) : nil
+    let maximum = maximum.isFinite && maximum > 0 && maximum < 100_000
+      ? max(Double(maximum), minimum ?? 0)
+      : nil
+    return (minimum, maximum)
   }
-  return WindowWidthConstraints(minimum: minimum, maximum: maximum)
+  let width = dimension(minimum: minimum.width, maximum: maximum.width)
+  let height = dimension(minimum: minimum.height, maximum: maximum.height)
+  return WindowSizeConstraints(
+    minimumWidth: width.0, maximumWidth: width.1, maximumHeight: height.1
+  )
 }
 
 func windowBorderFrameSnapshot(
@@ -89,7 +93,7 @@ final class WindowServerBoundsProvider {
   private var probeSucceeded = false
   private var constraintProbeSucceeded = false
   private var constraintsDisabled = false
-  private var constraintCache: [WindowID: WindowWidthConstraints] = [:]
+  private var constraintCache: [WindowID: WindowSizeConstraints] = [:]
 
   func probe(ownedWindowID: WindowID) {
     guard let rawWindowID = UInt32(exactly: ownedWindowID.rawValue) else {
@@ -184,7 +188,7 @@ final class WindowServerBoundsProvider {
     return frame
   }
 
-  func widthConstraints(for windowID: WindowID) -> WindowWidthConstraints? {
+  func sizeConstraints(for windowID: WindowID) -> WindowSizeConstraints? {
     guard !constraintsDisabled, constraintProbeSucceeded else {
       constraintFallbackCount += 1
       return nil
@@ -198,9 +202,9 @@ final class WindowServerBoundsProvider {
       constraintFallbackCount += 1
       return nil
     }
-    let constraints = normalizedWindowWidthConstraints(
-      minimum: minimum.width,
-      maximum: maximum.width
+    let constraints = normalizedWindowSizeConstraints(
+      minimum: minimum,
+      maximum: maximum
     )
     constraintCache[windowID] = constraints
     successfulConstraintLookupCount += 1

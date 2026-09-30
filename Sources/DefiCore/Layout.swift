@@ -207,6 +207,7 @@ private func acceptedTiledSizes(
   return Dictionary(
     uniqueKeysWithValues: column.windows.enumerated().compactMap { windowIndex, windowID in
       guard let window = windowsByID[windowID], !window.intrinsicSize,
+        window.maximumTiledHeight != nil,
         let acceptance = window.tiledSizeAcceptance
       else {
         return nil

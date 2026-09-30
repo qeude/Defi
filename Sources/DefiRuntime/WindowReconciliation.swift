@@ -230,7 +230,24 @@ public func reconcileWindows(
         }
         updated.forceTiling = existing.forceTiling
         updated.intrinsicSize = existing.intrinsicSize
+        if fullscreenWindowIDs.contains(window.id) {
+          updated.minimumTiledWidth = nil
+          updated.maximumTiledWidth = nil
+          updated.maximumTiledHeight = nil
+        } else if window.minimumTiledWidth != nil
+          || window.maximumTiledWidth != nil
+          || window.maximumTiledHeight != nil
+        {
+          updated.minimumTiledWidth = window.minimumTiledWidth
+          updated.maximumTiledWidth = window.maximumTiledWidth
+          updated.maximumTiledHeight = window.maximumTiledHeight
+        } else {
+          updated.minimumTiledWidth = existing.minimumTiledWidth
+          updated.maximumTiledWidth = existing.maximumTiledWidth
+          updated.maximumTiledHeight = existing.maximumTiledHeight
+        }
         if let acceptance = existing.tiledSizeAcceptance,
+          updated.maximumTiledHeight != nil,
           !fullscreenWindowIDs.contains(window.id),
           ((abs(window.frame.width - acceptance.accepted.width) < 1
             && abs(window.frame.height - acceptance.accepted.height) < 1)
@@ -239,18 +256,6 @@ public func reconcileWindows(
           updated.tiledSizeAcceptance = acceptance
         } else {
           updated.tiledSizeAcceptance = nil
-        }
-        if fullscreenWindowIDs.contains(window.id) {
-          updated.minimumTiledWidth = nil
-          updated.maximumTiledWidth = nil
-        } else if window.minimumTiledWidth != nil
-          || window.maximumTiledWidth != nil
-        {
-          updated.minimumTiledWidth = window.minimumTiledWidth
-          updated.maximumTiledWidth = window.maximumTiledWidth
-        } else {
-          updated.minimumTiledWidth = existing.minimumTiledWidth
-          updated.maximumTiledWidth = existing.maximumTiledWidth
         }
         if existing.intrinsicSize,
           !externallyChangedWindowIDs.contains(window.id)
@@ -355,6 +360,7 @@ private func applyWindowIDReplacements(
     replacement.intrinsicSize = previous.intrinsicSize
     replacement.minimumTiledWidth = previous.minimumTiledWidth
     replacement.maximumTiledWidth = previous.maximumTiledWidth
+    replacement.maximumTiledHeight = previous.maximumTiledHeight
     if previous.intrinsicSize {
       replacement.frame.width = previous.frame.width
       replacement.frame.height = previous.frame.height

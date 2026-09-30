@@ -430,18 +430,29 @@ struct WindowBorderTests {
   }
 
   @Test
-  func windowServerWidthConstraintsNormalizeUnboundedSentinels() {
+  func windowServerSizeConstraintsNormalizeUnboundedSentinels() {
     #expect(
-      normalizedWindowWidthConstraints(minimum: 840, maximum: 100_000)
-        == WindowWidthConstraints(minimum: 840, maximum: nil)
+      normalizedWindowSizeConstraints(
+        minimum: CGSize(width: 500, height: 446),
+        maximum: CGSize(width: 100_000, height: 100_000)
+      ) == WindowSizeConstraints(minimumWidth: 500, maximumWidth: nil, maximumHeight: nil)
     )
     #expect(
-      normalizedWindowWidthConstraints(minimum: 723, maximum: 723)
-        == WindowWidthConstraints(minimum: 723, maximum: 723)
+      normalizedWindowSizeConstraints(
+        minimum: CGSize(width: 196, height: 464),
+        maximum: CGSize(width: 650, height: 1371)
+      ) == WindowSizeConstraints(minimumWidth: 196, maximumWidth: 650, maximumHeight: 1371)
     )
     #expect(
-      normalizedWindowWidthConstraints(minimum: 0, maximum: .infinity)
-        == WindowWidthConstraints(minimum: nil, maximum: nil)
+      normalizedWindowSizeConstraints(
+        minimum: .zero, maximum: CGSize(width: CGFloat.infinity, height: CGFloat.nan)
+      ) == WindowSizeConstraints(minimumWidth: nil, maximumWidth: nil, maximumHeight: nil)
+    )
+    #expect(
+      normalizedWindowSizeConstraints(
+        minimum: CGSize(width: 723, height: 600),
+        maximum: CGSize(width: 700, height: 500)
+      ) == WindowSizeConstraints(minimumWidth: 723, maximumWidth: 723, maximumHeight: 600)
     )
   }
 
