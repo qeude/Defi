@@ -240,11 +240,10 @@ public func reconcileWindows(
         {
           updated.minimumTiledWidth = window.minimumTiledWidth
           updated.maximumTiledWidth = window.maximumTiledWidth
-          updated.maximumTiledHeight = window.maximumTiledHeight
         } else {
+          // Keep learned width bounds, but retain the current snapshot's height capability.
           updated.minimumTiledWidth = existing.minimumTiledWidth
           updated.maximumTiledWidth = existing.maximumTiledWidth
-          updated.maximumTiledHeight = existing.maximumTiledHeight
         }
         if let acceptance = existing.tiledSizeAcceptance,
           updated.maximumTiledHeight != nil,
@@ -360,7 +359,6 @@ private func applyWindowIDReplacements(
     replacement.intrinsicSize = previous.intrinsicSize
     replacement.minimumTiledWidth = previous.minimumTiledWidth
     replacement.maximumTiledWidth = previous.maximumTiledWidth
-    replacement.maximumTiledHeight = previous.maximumTiledHeight
     if previous.intrinsicSize {
       replacement.frame.width = previous.frame.width
       replacement.frame.height = previous.frame.height

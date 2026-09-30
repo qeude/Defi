@@ -197,7 +197,7 @@ struct WindowLifecycleTests {
     #expect(workspace.targetScrollOffset == 240)
     #expect(state.selectedWindowID(on: monitorID) == replacement.id)
     #expect(state.windows[original.id] == nil)
-    #expect(state.windows[replacement.id]?.maximumTiledHeight == 900)
+    #expect(state.windows[replacement.id]?.maximumTiledHeight == nil)
   }
 
   @Test
@@ -283,7 +283,6 @@ struct WindowLifecycleTests {
 
     window.frame.height = 738
     state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id)
-    window.minimumTiledWidth = 196
     window.maximumTiledHeight = nil
     reconcileWindows([window], config: config, state: &state)
     #expect(state.windows[window.id]?.maximumTiledHeight == nil)
