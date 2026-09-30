@@ -685,6 +685,7 @@ public struct RuntimeState: Equatable, Sendable {
   ) {
     guard let window = windows[windowID] else { return }
     if !window.floating, !window.intrinsicSize,
+      window.maximumTiledHeight != nil,
       !nativeFullscreenWindowIDs.contains(windowID),
       frame.width.isFinite, frame.height.isFinite,
       frame.width > 0, frame.height > 0,

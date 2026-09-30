@@ -749,11 +749,11 @@ extension SnapshotEngine {
       return .unmatched(title: title)
     }
     let windowID = WindowID(rawValue: UInt64(resolvedWindowID))
-    let widthConstraints = onMain { platform in
+    let sizeConstraints = onMain { platform in
       if let ownedWindowID = platform.borderManager.ownedSurfaceWindowID {
         platform.borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
       }
-      return platform.borderBoundsProvider.widthConstraints(for: windowID)
+      return platform.borderBoundsProvider.sizeConstraints(for: windowID)
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
     return .discovered(
@@ -768,8 +768,9 @@ extension SnapshotEngine {
         isModal: attributes.modal == true,
         monitorID: monitorID,
         forceTiling: false,
-        minimumTiledWidth: widthConstraints?.minimum,
-        maximumTiledWidth: widthConstraints?.maximum
+        minimumTiledWidth: sizeConstraints?.minimumWidth,
+        maximumTiledWidth: sizeConstraints?.maximumWidth,
+        maximumTiledHeight: sizeConstraints?.maximumHeight
       ), resolvedWindowID, decision
     )
   }

@@ -169,7 +169,8 @@ struct WindowLifecycleTests {
       appID: "terminal",
       title: "First",
       frame: Rect(x: 0, y: 0, width: 1_200, height: 800),
-      monitorID: monitorID
+      monitorID: monitorID,
+      maximumTiledHeight: 900
     )
     try discoverWindow(original, decision: RuleDecision(), state: &state)
     state.monitors[0].workspaces[0].columns[0].width = .fraction(0.8)
@@ -196,16 +197,55 @@ struct WindowLifecycleTests {
     #expect(workspace.targetScrollOffset == 240)
     #expect(state.selectedWindowID(on: monitorID) == replacement.id)
     #expect(state.windows[original.id] == nil)
+    #expect(state.windows[replacement.id]?.maximumTiledHeight == nil)
   }
 
   @Test
-  func `Rejected tile size settles and mode changes retry the preferred tile`() throws {
+  func `Unbounded windows keep full height after repeated short native frames`() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1), appID: "resizable-app", title: "Window",
+      frame: Rect(x: 0, y: 0, width: 800, height: 738), monitorID: monitorID
+    )
+    try discoverWindow(window, decision: RuleDecision(), state: &state)
+    let viewport = Rect(x: 0, y: 0, width: 2560, height: 1371)
+    func layout(_ state: RuntimeState) -> Rect {
+      computeLayout(
+        workspace: state.monitors[0].workspaces[0], viewport: viewport,
+        windows: Array(state.windows.values), settings: state.layout
+      )[0].frame
+    }
+    let requested = layout(state)
+    var provisional = requested
+    provisional.height = 738
+    for _ in 0..<3 {
+      state.acceptTiledWindowFrame(
+        provisional, requested: requested, for: window.id
+      )
+      var observed = window
+      observed.frame = provisional
+      reconcileWindows([observed], config: config, state: &state)
+      #expect(state.windows[window.id]?.frame == provisional)
+      #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
+      #expect(layout(state) == requested)
+    }
+
+    state.acceptTiledWindowFrame(requested, requested: requested, for: window.id)
+    #expect(layout(state) == requested)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
+  }
+
+  @Test
+  func `Native bounded tile size settles and mode changes retry the preferred tile`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
     var window = Window(
       id: WindowID(rawValue: 1), appID: "resizable-app", title: "Panel",
-      frame: Rect(x: 0, y: 0, width: 344, height: 738), monitorID: monitorID
+      frame: Rect(x: 0, y: 0, width: 344, height: 738), monitorID: monitorID,
+      maximumTiledHeight: 1371
     )
     try discoverWindow(window, decision: RuleDecision(), state: &state)
     let viewport = Rect(x: 0, y: 0, width: 2560, height: 1371)
@@ -240,6 +280,14 @@ struct WindowLifecycleTests {
       externallyChangedWindowIDs: [window.id], state: &state
     )
     #expect(layout(state, viewport: viewport) == requested)
+
+    window.frame.height = 738
+    state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id)
+    window.maximumTiledHeight = nil
+    reconcileWindows([window], config: config, state: &state)
+    #expect(state.windows[window.id]?.maximumTiledHeight == nil)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
+    #expect(layout(state, viewport: viewport).height == requested.height)
   }
 
   @Test

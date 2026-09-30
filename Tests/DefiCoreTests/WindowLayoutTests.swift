@@ -96,7 +96,8 @@ struct WindowLayoutTests {
       title: "Devices",
       frame: Rect(x: 161.5, y: 311.5, width: 338, height: 748),
       minimumTiledWidth: 196,
-      maximumTiledWidth: 661
+      maximumTiledWidth: 661,
+      maximumTiledHeight: 1371
     )
     var compactWithAcceptance = compact
     compactWithAcceptance.tiledSizeAcceptance = TiledSizeAcceptance(
@@ -146,7 +147,7 @@ struct WindowLayoutTests {
   }
 
   @Test
-  func `Accepted width larger than requested expands the column`() {
+  func `Unbounded window ignores a stale accepted compact size`() {
     let noGaps = LayoutSettings(
       innerHorizontalGap: 0, innerVerticalGap: 0,
       outerTopGap: 0, outerRightGap: 0,
@@ -163,7 +164,7 @@ struct WindowLayoutTests {
     )
     var clamped = Window(
       id: firstID, appID: "clamped", title: "Clamped",
-      frame: Rect(x: 0, y: 0, width: 600, height: 800)
+      frame: Rect(x: 0, y: 0, width: 600, height: 738)
     )
     clamped.tiledSizeAcceptance = TiledSizeAcceptance(
       requested: Rect(x: 0, y: 0, width: 500, height: 800),
@@ -178,8 +179,8 @@ struct WindowLayoutTests {
       viewport: Rect(x: 0, y: 0, width: 1_200, height: 800),
       windows: [clamped, neighbor], settings: noGaps
     )
-    #expect(frames[0].frame.width == 600)
-    #expect(frames[1].frame.x == 600)
+    #expect(frames[0].frame == Rect(x: 0, y: 0, width: 500, height: 800))
+    #expect(frames[1].frame.x == 500)
   }
 
 }
