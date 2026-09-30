@@ -236,7 +236,6 @@ public func reconcileWindows(
           updated.maximumTiledHeight = nil
         } else if window.minimumTiledWidth != nil
           || window.maximumTiledWidth != nil
-          || window.maximumTiledHeight != nil
         {
           updated.minimumTiledWidth = window.minimumTiledWidth
           updated.maximumTiledWidth = window.maximumTiledWidth

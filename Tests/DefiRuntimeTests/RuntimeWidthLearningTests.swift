@@ -96,6 +96,15 @@ struct RuntimeWidthConstraintTests {
 
     #expect(state.windows[windowID]?.minimumTiledWidth == 840)
     #expect(state.windows[windowID]?.maximumTiledWidth == nil)
+
+    state.windows[windowID]?.maximumTiledWidth = 1_000
+    var heightOnly = observed
+    heightOnly.minimumTiledWidth = nil
+    heightOnly.maximumTiledHeight = 850
+    reconcileWindows([heightOnly], config: Config(), state: &state)
+    #expect(state.windows[windowID]?.minimumTiledWidth == 840)
+    #expect(state.windows[windowID]?.maximumTiledWidth == 1_000)
+    #expect(state.windows[windowID]?.maximumTiledHeight == 850)
   }
 
   @Test
