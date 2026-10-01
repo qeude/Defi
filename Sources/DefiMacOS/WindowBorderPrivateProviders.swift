@@ -93,7 +93,6 @@ final class WindowServerBoundsProvider {
   private var probeSucceeded = false
   private var constraintProbeSucceeded = false
   private var constraintsDisabled = false
-  private var constraintCache: [WindowID: WindowSizeConstraints] = [:]
 
   func probe(ownedWindowID: WindowID) {
     guard let rawWindowID = UInt32(exactly: ownedWindowID.rawValue) else {
@@ -193,12 +192,10 @@ final class WindowServerBoundsProvider {
       constraintFallbackCount += 1
       return nil
     }
-    if let cached = constraintCache[windowID] { return cached }
     guard let rawWindowID = UInt32(exactly: windowID.rawValue),
       let (minimum, maximum, _) = rawConstraints(for: rawWindowID)
     else {
       constraintsDisabled = true
-      constraintCache.removeAll(keepingCapacity: false)
       constraintFallbackCount += 1
       return nil
     }
@@ -206,13 +203,8 @@ final class WindowServerBoundsProvider {
       minimum: minimum,
       maximum: maximum
     )
-    constraintCache[windowID] = constraints
     successfulConstraintLookupCount += 1
     return constraints
-  }
-
-  func retainConstraints(for windowIDs: Set<WindowID>) {
-    constraintCache = constraintCache.filter { windowIDs.contains($0.key) }
   }
 
   private func rawConstraints(
