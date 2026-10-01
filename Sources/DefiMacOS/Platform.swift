@@ -635,12 +635,14 @@ func classifyWindow(
   if configuredFloating { return .floating }
   if ignoredWindowApplicationIDs.contains(appID.lowercased()) { return .ignored }
   if role == kAXSheetRole { return .floating }
+  guard role != nil else { return .unavailable }
   guard role == kAXWindowRole else { return .ignored }
   if isModal
     || automaticFloatingWindowApplicationIDs.contains(appID.lowercased())
   {
     return .floating
   }
+  guard subrole != nil else { return .unavailable }
   if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {
     return .tiled
   }

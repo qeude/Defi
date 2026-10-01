@@ -7,6 +7,50 @@ import Testing
 @testable import DefiMacOS
 
 struct WindowSnapshotStabilityTests {
+  @MainActor
+  @Test(arguments: [(nil, Optional(kAXStandardWindowSubrole)), (Optional(kAXWindowRole), nil)])
+  func missingRoleMetadataPreservesMaximizedColumn(metadata: (String?, String?)) throws {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform() }
+    }
+    let engine = platform.snapshotEngine
+    let window = makeWindow(id: 42)
+    let element = AXUIElementCreateApplication(-1)
+    engine.elements = [window.id: element]
+    engine.processIDs = [window.id: processID]
+    engine.applications = [processID: element]
+    engine.applicationIDsByProcess = [processID: window.appID]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.hasCompletedWindowSnapshot = true
+    engine.lastSnapshotWindows = [window]
+    engine.lastApplicationWindowElements = [processID: [element]]
+    var config = Config()
+    config.layout.defaultColumnWidth = 0.5
+    var state = RuntimeState(config: config)
+    let monitorID = MonitorID(rawValue: 1)
+    state.attachMonitor(monitorID)
+    reconcileWindows([window], config: config, state: &state)
+    try reduce(.maximizeColumn, on: monitorID, state: &state)
+
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: config, incrementalProcessIDs: [processID],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
+      preparedWindowAttributes: [window.id: AXWindowAttributes(
+        minimized: false, frame: frame, title: window.title,
+        role: metadata.0, subrole: metadata.1
+      )],
+      preparedTransientOwnerWindowIDs: [:], preparedApplicationWindows: [:],
+      explicitlyDestroyedWindowIDs: [], publicCGWindows: { [makeCGWindow(id: 42)] }
+    )
+    #expect(result.nextRetainedWindowIDs == [window.id])
+    #expect(result.ignoredWindowReasonsByID[window.id] == nil)
+    reconcileWindows(result.windows, config: config, state: &state)
+    reconcileWindows([window], config: config, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(1))
+    #expect(state.monitors[0].workspaces[0].columns[0].preMaximizedWidth == .fraction(0.5))
+  }
+
   @Test func newlyDiscoveredWindowWinsOverAnUnresolvedPreviousIdentity() {
     let window = makeWindow(id: 42)
 
