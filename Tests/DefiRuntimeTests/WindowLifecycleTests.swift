@@ -232,7 +232,7 @@ struct WindowLifecycleTests {
       #expect(layout(state) == requested)
     }
 
-    state.acceptTiledWindowFrame(requested, requested: requested, for: window.id)
+    state.acceptTiledWindowFrame(provisional, requested: requested, for: window.id)
     #expect(layout(state) == requested)
     #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
   }

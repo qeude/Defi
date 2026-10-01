@@ -130,7 +130,7 @@ final class SnapshotEngine: @unchecked Sendable {
       if kind == .windows, let windowID {
         $0.pendingObservations.destroyedWindowIDs.insert(windowID)
       }
-      if kind == .frame || kind == .mouse {
+      if kind == .frame || kind == .mouse || kind == .mouseRelease {
         $0.pendingObservations.framePending = true
         if let processID {
           $0.pendingObservations.frameProcessIDs.insert(processID)
