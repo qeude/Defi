@@ -167,6 +167,17 @@ struct WindowSnapshotStabilityTests {
   private let processID: pid_t = 42
   private let frame = Rect(x: 4, y: 34, width: 1_200, height: 800)
 
+  @Test func mouseReleaseRefreshesFramesWithoutADragNotification() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    engine.recordObservation(.mouseRelease, processID: processID)
+    let observations = engine.consumeObservations()
+
+    #expect(observations.framePending)
+    #expect(observations.frameProcessIDs == [processID])
+    #expect(!observations.frameRequiresFullSnapshot)
+    #expect(!observations.topologyPending)
+  }
+
   @Test func unknownFocusSourceRequestsFullInventoryUntilConsumed() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     engine.recordObservation(.focus, processID: nil)

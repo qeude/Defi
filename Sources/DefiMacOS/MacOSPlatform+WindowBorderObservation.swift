@@ -59,7 +59,7 @@ extension MacOSPlatform {
         self?.elements.first(where: { CFEqual($0.value, element) })?.key
       }
       let refreshProcessID =
-        kind == .mouse
+        kind == .mouse || kind == .mouseRelease
         ? self.flatMap {
           mouseGestureRefreshProcessID(
             latestFocusIntent: $0.userInputTracker.snapshot.latestFocusIntent,
