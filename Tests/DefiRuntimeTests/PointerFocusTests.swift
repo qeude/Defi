@@ -261,8 +261,21 @@ struct PointerFocusTests {
     #expect(state == original)
   }
 
-  @Test(arguments: [FloatingOrigin.automatic, .configured, .user])
-  func selectedOwnerlessFloatingWindowProtectsAutomaticPopup(origin: FloatingOrigin) throws {
+  @Test(arguments: [FloatingOrigin.automatic, .configured, .user], [
+    ("AXWindow", "AXStandardWindow", "", true),
+    ("AXWindow", "AXStandardWindow", "Mini player", false),
+    ("AXWindow", "AXDialog", "Dialog", true),
+    ("AXWindow", "AXSystemDialog", "System dialog", true),
+    ("AXWindow", "AXFloatingWindow", "", false),
+    ("AXWindow", "AXFloatingWindow", "Tools", false),
+    ("AXWindow", "AXSystemFloatingWindow", "", false),
+    ("AXSheet", "", "", false),
+    ("AXWindow", "", "", false),
+  ])
+  func selectedOwnerlessFloatingWindowProtectsAutomaticPopup(
+    origin: FloatingOrigin,
+    metadata: (role: String, subrole: String, title: String, popup: Bool)
+  ) throws {
     var state = try makeState(columnWidths: [0.3, 0.3])
     let ownerID = WindowID(rawValue: 1)
     let otherWindowID = WindowID(rawValue: 2)
@@ -272,8 +285,10 @@ struct PointerFocusTests {
       Window(
         id: popupID,
         appID: owner.appID,
-        title: "",
+        title: metadata.title,
         frame: Rect(x: 100, y: 100, width: 480, height: 632),
+        role: metadata.role,
+        subrole: metadata.subrole,
         monitorID: monitorID,
         floating: true,
         floatingOrigin: origin
@@ -289,8 +304,8 @@ struct PointerFocusTests {
         activeMonitorID: monitorID,
         state: &state,
         viewports: [monitorID: viewport]
-      ) == (origin == .automatic ? nil : monitorID))
-      if origin == .automatic { #expect(state == original) }
+      ) == (origin == .automatic && metadata.popup ? nil : monitorID))
+      if origin == .automatic && metadata.popup { #expect(state == original) }
     }
 
     // An explicit click or keyboard command can still leave the popup.
