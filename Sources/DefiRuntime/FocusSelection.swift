@@ -173,7 +173,10 @@ public func modalAllowsPointerFocus(
     !ancestry.contains(selectedID)
   {
     if selected.isModal && selected.appID != target.appID { return false }
-    if !selected.isModal && selected.transientOwnerID != nil { return false }
+    // Some extension popups expose no owner relationship through Accessibility.
+    if !selected.isModal
+      && (selected.transientOwnerID != nil || selected.floatingOrigin == .automatic)
+    { return false }
   }
   let ownerlessModalIDs = Set(state.windows.values.lazy.filter { modal in
     modal.appID == target.appID
