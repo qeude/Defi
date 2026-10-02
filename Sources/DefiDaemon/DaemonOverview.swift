@@ -7,19 +7,19 @@ import Foundation
 
 @NavigationActor
 extension Daemon {
-  func toggleOverview() -> CommandResponse {
+  func toggleOverview(ribbonPrototype: Bool = false) -> CommandResponse {
     guard !state.monitors.isEmpty else {
       return .failure("overview unavailable before monitor discovery")
     }
-    presentOverview(toggling: true)
-    return .success()
+    presentOverview(toggling: true, ribbonPrototype: ribbonPrototype)
+    return .success(ribbonPrototype ? "Requested visual ribbon prototype: Left/Right preview, Escape exits; native selection commit is disabled. Existing Screen Recording access is required." : "")
   }
 
   func updateOverviewIfOpen() {
     presentOverview(toggling: false)
   }
 
-  private func presentOverview(toggling: Bool) {
+  private func presentOverview(toggling: Bool, ribbonPrototype: Bool = false) {
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
     DispatchQueue.main.async { [self] in
       let controller = overviewController ?? makeOverviewController()
@@ -28,7 +28,8 @@ extension Daemon {
         controller.toggle(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
           animation: config.animation, zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
-          windowPreviewsEnabled: config.overview.windowPreviews)
+          windowPreviewsEnabled: config.overview.windowPreviews,
+          ribbonPrototype: ribbonPrototype)
       } else if controller.isOpen {
         controller.update(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
           animation: config.animation, zoom: config.overview.zoom,

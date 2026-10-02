@@ -116,7 +116,8 @@ public let snapshotFreshReadBudgetMS = 12.0
 /// - Processes with pending topology/frame events always go now: freshness
 ///   wins over budget.
 /// - At least one candidate is always served so deferred work makes progress
-///   even when a single expensive process exceeds the whole budget.
+///   even when a single expensive process exceeds the whole budget, unless
+///   animation temporarily defers background reads.
 /// - If deferred processes age past `maximumDeferredAgeSeconds`, everything
 ///   is served at once and the deferral timestamp clears.
 func budgetedFreshReadPartition(
@@ -125,6 +126,7 @@ func budgetedFreshReadPartition(
   eventPendingProcessIDs: Set<pid_t>,
   predictedLatencyMS: (pid_t) -> Double,
   budgetMS: Double,
+  defersBackgroundReads: Bool = false,
   maximumDeferredAgeSeconds: TimeInterval,
   deferredSince: TimeInterval?,
   now: TimeInterval
@@ -142,6 +144,10 @@ func budgetedFreshReadPartition(
     return (pending, [], nil)
   }
   var allowed = pending.intersection(eventPendingProcessIDs)
+  if defersBackgroundReads {
+    let remaining = pending.subtracting(allowed)
+    return (allowed, remaining, remaining.isEmpty ? nil : (deferredSince ?? now))
+  }
   var used = 0.0
   var stillDeferred = Set<pid_t>()
   let candidates = pending.subtracting(eventPendingProcessIDs).sorted {

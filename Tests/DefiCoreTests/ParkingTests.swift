@@ -3,6 +3,34 @@ import DefiModel
 import Testing
 
 struct ParkingTests {
+  @Test(arguments: [0.0, 0.5, 1.0, 1.5])
+  func immediateStripKeepsMainParkingBoundary(overlap: Double) {
+    let viewport = Rect(x: 0, y: 0, width: 2560, height: 1440)
+    let id = WindowID(rawValue: 1)
+    let plan = continuousStripFramesForActiveWorkspace(
+      [FrameAssignment(windowID: id,
+                       frame: Rect(x: -800 + overlap, y: 40, width: 800, height: 700))],
+      viewport: viewport
+    )
+    // origin/main f89d0f1: an overlap up to one point uses the right anchor.
+    let expectedX = overlap == 0 ? -799.0 : overlap <= 1 ? 2559.0 : -800 + overlap
+    #expect(plan.frames[0].frame.x == expectedX)
+    #expect(plan.parkedWindowIDs.contains(id) == (overlap <= 1))
+  }
+
+  @Test
+  func `Left strip exit stays monotonic through its one pixel anchor`() {
+    let viewport = Rect(x: 0, y: 0, width: 2560, height: 1440)
+    let id = WindowID(rawValue: 1)
+    let positions = [8.0, -400, -798, -799, -800, -808].map { x in
+      continuousStripFramesForActiveWorkspace(
+        [FrameAssignment(windowID: id, frame: Rect(x: x, y: 40, width: 800, height: 700))],
+        viewport: viewport, preservingExitSide: true
+      ).frames[0].frame.x
+    }
+    #expect(positions == [8, -400, -798, -799, -799, -799])
+  }
+
   @Test
   func `Compact windows keep their vertical position when leaving the visible strip`() {
     let viewport = Rect(x: 0, y: 30, width: 2560, height: 1371)

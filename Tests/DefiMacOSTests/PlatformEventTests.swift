@@ -4,6 +4,7 @@ import ApplicationServices
 import DefiModel
 import Foundation
 import Testing
+import Synchronization
 
 @testable import DefiMacOS
 
@@ -586,6 +587,47 @@ struct PlatformEventTests {
     }
     let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
     #expect(elapsed < 0.1)
+  }
+
+  @Test
+  func timeoutResetDoesNotSerializeUnrelatedElementsOrEraseANewTimeout() {
+    let first = TestAXElement(AXUIElementCreateApplication(-100))
+    let second = TestAXElement(AXUIElementCreateApplication(-101))
+    let resetStarted = DispatchSemaphore(value: 0)
+    let releaseReset = DispatchSemaphore(value: 0)
+    let unrelatedFinished = DispatchSemaphore(value: 0)
+    let sameElementEntered = DispatchSemaphore(value: 0)
+    let group = DispatchGroup()
+    let transitions = Mutex<[Float]>([])
+    let access = AXMessagingTimeoutAccess(timeoutSetter: { element, timeout in
+      guard CFEqual(element, first.value) else { return }
+      if timeout == 0, transitions.withLock({ $0.count == 1 }) {
+        resetStarted.signal()
+        releaseReset.wait()
+      }
+      transitions.withLock { $0.append(timeout) }
+    })
+    group.enter()
+    DispatchQueue.global().async {
+      access.withTimeout(0.05, elements: [first.value]) {}
+      group.leave()
+    }
+    #expect(resetStarted.wait(timeout: .now() + 1) == .success)
+    group.enter()
+    DispatchQueue.global().async {
+      access.withTimeout(0.016, elements: [second.value]) { unrelatedFinished.signal() }
+      group.leave()
+    }
+    group.enter()
+    DispatchQueue.global().async {
+      access.withTimeout(0.016, elements: [first.value]) { sameElementEntered.signal() }
+      group.leave()
+    }
+    #expect(unrelatedFinished.wait(timeout: .now() + 0.2) == .success)
+    #expect(sameElementEntered.wait(timeout: .now() + 0.02) == .timedOut)
+    releaseReset.signal()
+    #expect(group.wait(timeout: .now() + 1) == .success)
+    #expect(transitions.withLock { $0 } == [0.05, 0, 0.016, 0])
   }
 
   @Test
@@ -2133,6 +2175,7 @@ struct PlatformEventTests {
     #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs == [101])
     #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [windowID])
     #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot == false)
+    #expect(!platform.snapshotEngine.pendingObservations.frameIncludesUnscopedRefresh)
   }
 
   @Test @NavigationActor
@@ -2147,8 +2190,8 @@ struct PlatformEventTests {
     #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot)
   }
 
-  @Test @MainActor
-  func resumingFrameNotificationsForcesFreshProcessReads() async {
+  @Test(arguments: [false, true]) @MainActor
+  func resumingFrameNotificationsForcesFreshProcessReads(unknownScope: Bool) async {
     let platform = await MacOSPlatform()
     let eventMonitor = PlatformEventMonitor(handler: { _, _ in })
     platform.eventMonitor = eventMonitor
@@ -2163,15 +2206,28 @@ struct PlatformEventTests {
       observedAt: nil
     )
     platform.presentSetFrameNotificationsEnabled(false)
+    let revisions = platform.snapshotEngine.preparedWindowReadRevisions
     eventMonitor.recordSuppressedFrameNotification(processID: 202)
-    eventMonitor.recordSuppressedFrameNotification(processID: nil)
+    if unknownScope { eventMonitor.recordSuppressedFrameNotification(processID: nil) }
 
     platform.presentSetFrameNotificationsEnabled(true)
 
     #expect(platform.snapshotEngine.pendingObservations.framePending)
     #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs == [101, 202])
-    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot)
+    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot == unknownScope)
     #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [windowID])
+    #expect(platform.snapshotEngine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: revisions, candidates: [101, 202, 303]
+    ) == (unknownScope ? [101, 202, 303] : [101, 202]))
+  }
+
+  @Test
+  func unscopedFrameEventCannotBeNarrowedByALaterWindowEvent() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    engine.recordObservation(.frame, processID: 101)
+    engine.recordObservation(.frame, processID: 101, windowID: WindowID(rawValue: 42))
+    #expect(engine.consumeObservations().frameIncludesUnscopedRefresh)
+    #expect(!engine.pendingObservations.frameIncludesUnscopedRefresh)
   }
 
   @Test

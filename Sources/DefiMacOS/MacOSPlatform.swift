@@ -132,7 +132,8 @@ public final class MacOSPlatform {
     get { snapshotEngine.windowManagementMetadataReuseCount }
     set { snapshotEngine.windowManagementMetadataReuseCount = newValue }
   }
-  nonisolated let frameCoordinator = AXFrameCoordinator()
+  nonisolated let frameCoordinator: AXFrameCoordinator
+  nonisolated let pendingBorderGeometry = Mutex(PendingBorderGeometry())
   nonisolated let focusWriter = AXFocusWriter()
   nonisolated let focusRecoveryResolver = AXFocusRecoveryResolver()
   @MainActor lazy var windowIDProvider = AXWindowIDProvider()
@@ -140,7 +141,7 @@ public final class MacOSPlatform {
 
   @MainActor lazy var borderManager = WindowBorderManager()
   @MainActor lazy var nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
-  @MainActor lazy var borderBoundsProvider = WindowServerBoundsProvider()
+  nonisolated let borderBoundsProvider: WindowServerBoundsProvider
   nonisolated var targetFrames: [WindowID: Rect] {
     get { snapshotEngine.targetFrames }
     set { snapshotEngine.targetFrames = newValue }
@@ -426,21 +427,23 @@ public final class MacOSPlatform {
   public nonisolated let pointerMotionTracker = PointerMotionTracker()
 
   public init() {
+    let boundsProvider = WindowServerBoundsProvider()
+    borderBoundsProvider = boundsProvider
+    frameCoordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      nativePositionReader: { windowID, processID in
+        if let frame = boundsProvider.frame(for: windowID) {
+          return CGPoint(x: frame.x, y: frame.y)
+        }
+        return AXFrameAccessibilityWriter.readWindowServerPosition(windowID, processID: processID)
+      },
+      independentBorderObservationAvailable: { boundsProvider.isAvailable }
+    ))
     snapshotEngine = SnapshotEngine(
       frameCoordinator: frameCoordinator, userInputTracker: userInputTracker
     )
     snapshotEngine.host = self
     frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
-      self?.enqueuePresentation { platform in
-        var observed: [WindowID: Rect] = [:]
-        for windowID in frames.keys {
-          // Resolve on presentation: the queued callback may predate a native resize
-          // or another completed write.
-          observed[windowID] = platform.borderBoundsProvider.frame(for: windowID)
-            ?? platform.frameCoordinator.latestBorderFrame(for: windowID)
-        }
-        _ = platform.borderManager.updateGeometry(frames: observed, style: platform.borderStyle)
-      }
+      self?.enqueueBorderGeometry(Set(frames.keys))
     }
   }
 
@@ -495,7 +498,6 @@ public final class MacOSPlatform {
   }
 
   public func requestFrameRefresh(for windowID: WindowID) {
-    invalidateWindowSnapshot()
     snapshotEngine.recordObservation(
       .frame,
       processID: processIDs[windowID],

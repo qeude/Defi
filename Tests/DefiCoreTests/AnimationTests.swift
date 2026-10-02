@@ -59,11 +59,11 @@ struct AnimationTests {
       refreshRateHz: 60
     ).map(\.progress)
 
-    #expect(at120Hz.count == 4)
-    #expect(at60Hz.count == 2)
-    #expect(abs(((at120Hz.first ?? 0)) - (0.247)) <= 0.002)
+    #expect(at120Hz.count == 5)
+    #expect(at60Hz.count == 3)
+    #expect(at120Hz.first ?? 0 > 0.2 && at120Hz.first ?? 1 < 0.4)
     #expect(at120Hz.last ?? 0 > 0.85)
-    #expect(at120Hz.last ?? 1 < 1)
+    #expect(at120Hz.last == 1)
     #expect(at120Hz == at120Hz.sorted())
   }
 
@@ -74,7 +74,7 @@ struct AnimationTests {
       refreshRateHz: 120
     ).map(\.progress)
 
-    #expect(progresses.count == 9)
+    #expect(progresses.count == 10)
     #expect(progresses.last ?? 0 > 0.85)
   }
 
@@ -134,16 +134,11 @@ struct AnimationTests {
   }
 
   @Test
-  func `Final AX frame is dispatched early enough to finish on animation deadline`() {
-    #expect(abs((anticipatedFinalFrameDispatchDelay(
-        animationDuration: 0.035,
-        predictedFrameLatency: 0.012
-      )) - (0.023)) <= 0.000_1)
-    #expect(
-      anticipatedFinalFrameDispatchDelay(
-        animationDuration: 0.035,
-        predictedFrameLatency: 0.050
-      ) == 0)
+  func displayedScrollRebaseConvertsPointsToViewportUnits() {
+    #expect(rebaseScalarToDisplayedFrames(
+      logicalValue: 0.5, expectedMinusDisplayedDeltas: [200, 202, 4000],
+      maximumAbsoluteDelta: 2000, logicalScale: 2000
+    ) == DisplayedScalarRebase(value: 0.601, delta: 202))
   }
 
   @Test

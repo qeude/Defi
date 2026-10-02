@@ -132,6 +132,16 @@ public struct FocusState: Equatable, Sendable {
     pendingAnimatedFocus = request
   }
 
+  /// A deferred request must not replace newer native focus when its frames settle.
+  public mutating func discardSupersededPendingFocus(commandGeneration: UInt64) {
+    if let request = pendingAnimatedFocus, request.commandGeneration != commandGeneration {
+      queueCommand(nil)
+    }
+    if let request = pendingWorkspaceFocus, request.commandGeneration != commandGeneration {
+      queueWorkspace(nil)
+    }
+  }
+
   @discardableResult
   public mutating func submitCommand(_ request: PendingAnimatedFocus) -> FocusSubmissionID {
     pendingAnimatedFocus = nil

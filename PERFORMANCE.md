@@ -58,8 +58,9 @@ do not request another draw.
 - Confirmed native focus is followed without issuing a duplicate focus write.
 - Focus moves as soon as its target has a safe visible frame; it does not wait
   for unrelated windows or the full animation.
-- A latency-sensitive application receives a clean final frame instead of
-  irregular intermediate frames, without degrading other applications.
+- Horizontal position-only motion advances on one shared timeline, pausing
+  while any participating application lane is busy. Vertical transitions and
+  resizing retain their conservative latency budget and coherent fallback.
 - A command that changes no state performs no layout, persistence, menu, border,
   focus, or Accessibility work.
 - Monitor state, layout work, animation, and parking remain isolated.

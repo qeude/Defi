@@ -429,6 +429,14 @@ final class DesktopE2ETests: XCTestCase {
   }
 
   func testHorizontalAnimationFrameWritesPositionWithoutSize() throws {
+    try verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: 0.15)
+  }
+
+  func testDisabledHorizontalAnimationWritesOnlyTheFinalPosition() throws {
+    try verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: 0)
+  }
+
+  private func verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: Double) throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     guard let window = testWindows(in: snapshot).first else {
@@ -454,8 +462,14 @@ final class DesktopE2ETests: XCTestCase {
           height: original.height
         )
       )
-    ]) }
-    pumpRunLoop(for: 0.2)
+    ], animationDuration: animationDuration, animationRefreshRateHz: 120,
+       animationDisplayIDs: Set(snapshot.monitors.map { $0.id.rawValue })) }
+    XCTAssertTrue(pumpRunLoop(until: {
+      !onNavigation { platform.hasPendingFrameWrites }
+    }, timeout: 2))
+    let frames = onNavigation { platform.frameCoordinatorPerformance.animationFrames }
+    if animationDuration > 0 { XCTAssertGreaterThan(frames, 1) }
+    else { XCTAssertEqual(frames, 1) }
 
     XCTAssertGreaterThan(onNavigation { platform.successfulPositionWriteCount }, positionWrites)
     XCTAssertEqual(onNavigation { platform.successfulSizeWriteCount }, sizeWrites)
@@ -602,13 +616,13 @@ final class DesktopE2ETests: XCTestCase {
       preferredSide: .right
     ).frame
     let target = Rect(
-      x: original.x + 16,
+      x: monitor.physicalFrame.x + monitor.physicalFrame.width - original.width - 8,
       y: original.y,
       width: original.width,
       height: original.height
     )
     let neighborTarget = Rect(
-      x: neighborOriginal.x + 16,
+      x: neighborOriginal.x - original.width - 16,
       y: neighborOriginal.y,
       width: neighborOriginal.width,
       height: neighborOriginal.height
@@ -635,7 +649,8 @@ final class DesktopE2ETests: XCTestCase {
         FrameAssignment(windowID: neighbor.id, frame: neighborTarget),
       ],
       animationDuration: 0.05,
-      animationRefreshRateHz: 120
+      animationRefreshRateHz: 120,
+      source: "command-animation"
     ) }
     pumpRunLoop(for: 0.4)
 

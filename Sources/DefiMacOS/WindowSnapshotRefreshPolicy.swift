@@ -450,9 +450,16 @@ func retainedWindowIDsForCachedWindows(
 
 func retainedWindowRefreshProcessIDs(
   retainedWindowIDs: Set<WindowID>,
-  processIDs: [WindowID: pid_t]
+  processIDs: [WindowID: pid_t],
+  deadlines: [WindowID: TimeInterval] = [:],
+  deferringUntil: TimeInterval? = nil
 ) -> Set<pid_t> {
-  Set(retainedWindowIDs.compactMap { processIDs[$0] })
+  Set(retainedWindowIDs.compactMap { windowID in
+    if let deferringUntil, let deadline = deadlines[windowID], deadline > deferringUntil {
+      return nil
+    }
+    return processIDs[windowID]
+  })
 }
 
 func windowHasExternalFrameChange(

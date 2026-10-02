@@ -153,7 +153,8 @@ extension Daemon {
             ownerFrame: physicalFrame,
             parkingFrame: viewport,
             allMonitorFrames: allPhysicalMonitorFrames,
-            reservedParkingFrames: reservedParkingFrames
+            reservedParkingFrames: reservedParkingFrames,
+            preservingExitSide: animationsEnabled && config.animation.durationMS > 0
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
@@ -173,7 +174,8 @@ extension Daemon {
               viewport: viewport,
               ownerFrame: physicalFrame,
               parkingFrame: viewport,
-              allMonitorFrames: allPhysicalMonitorFrames
+              allMonitorFrames: allPhysicalMonitorFrames,
+              preservingExitSide: animationsEnabled && config.animation.durationMS > 0
             )
             monitorNativeFullscreenPlaceholderAssignments.append(
               contentsOf: fullscreenStrip.frames.filter {
@@ -220,7 +222,8 @@ extension Daemon {
             ownerFrame: physicalFrame,
             parkingFrame: viewport,
             allMonitorFrames: transitionMonitorFrames,
-            reservedParkingFrames: transitionParkingFrames
+            reservedParkingFrames: transitionParkingFrames,
+            preservingExitSide: animationsEnabled && config.animation.durationMS > 0
           )
           let leaving = (strip.frames + floatingAssignments(in: workspace)).map {
             translatedAssignment($0, deltaY: deltaY)

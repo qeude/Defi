@@ -178,14 +178,18 @@ extension AXFrameCoordinator {
         guard isInitialSettlementTargetCurrent(
           windowID: windowID,
           generation: settlementTarget.generation
-        ), accessibilityWriter.applySize(write, size: write.size)
+        ), accessibilityWriter.applySize(write, size: write.size, shouldApply: {
+          self.isInitialSettlementTargetCurrent(windowID: windowID, generation: settlementTarget.generation)
+        })
         else { return false }
       }
       if positionChanged {
         guard isInitialSettlementTargetCurrent(
           windowID: windowID,
           generation: settlementTarget.generation
-        ), accessibilityWriter.applyPosition(write, point: write.point)
+        ), accessibilityWriter.applyPosition(write, point: write.point, shouldApply: {
+          self.isInitialSettlementTargetCurrent(windowID: windowID, generation: settlementTarget.generation)
+        })
         else { return false }
       }
       return true
@@ -279,71 +283,76 @@ extension AXFrameCoordinator {
       return
     }
     lock.unlock()
-    var verified = false
-    defer {
-      if isFinalCheck {
-        lock.lock()
-        if parkingVerificationSchedules[windowID] == schedule {
-          if verified {
-            parkingVerificationSchedules[windowID] = nil
-          } else {
-            queue.asyncAfter(deadline: .now() + 1.4) { [weak self] in
-              self?.verifyParkingTarget(
-                windowID: windowID,
-                expectedPoint: expectedPoint,
-                schedule: schedule,
-                isFinalCheck: true
-              )
+    AXMessagingTimeoutAccess.shared.withTimeout(0.025, elements: [write.application, write.element]) {
+      var verified = false
+      defer {
+        if isFinalCheck {
+          lock.lock()
+          if parkingVerificationSchedules[windowID] == schedule {
+            if verified {
+              parkingVerificationSchedules[windowID] = nil
+            } else {
+              queue.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+                self?.verifyParkingTarget(
+                  windowID: windowID,
+                  expectedPoint: expectedPoint,
+                  schedule: schedule,
+                  isFinalCheck: true
+                )
+              }
             }
           }
+          lock.unlock()
         }
-        lock.unlock()
       }
-    }
-    guard let actual = accessibilityWriter.readPosition(write.element) else { return }
-    guard parkingVerificationIsCurrent(
-      windowID: windowID,
-      expectedPoint: expectedPoint,
-      schedule: schedule
-    ) else { return }
-    lock.lock()
-    completedParkingChecks += 1
-    lock.unlock()
-    guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else {
+      guard let actual = accessibilityWriter.readPosition(write.element) else { return }
+      guard parkingVerificationIsCurrent(
+        windowID: windowID,
+        expectedPoint: expectedPoint,
+        schedule: schedule
+      ) else { return }
+      lock.lock()
+      completedParkingChecks += 1
+      lock.unlock()
+      guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else {
+        verified = true
+        return
+      }
+      guard parkingVerificationIsCurrent(
+        windowID: windowID,
+        expectedPoint: expectedPoint,
+        schedule: schedule
+      ) else { return }
+      markProcessNeedsImmediateReadback(write.processID)
+      guard
+        accessibilityWriter.applyPosition(
+          write,
+          point: expectedPoint,
+          forceOffscreenAccess: write.requiresVerifiedOffscreenWrite,
+          shouldApply: {
+            self.parkingVerificationIsCurrent(windowID: windowID, expectedPoint: expectedPoint, schedule: schedule)
+          }
+        )
+      else {
+        return
+      }
+      guard let repaired = accessibilityWriter.readPosition(write.element),
+        accessibilityWriter.pointDistance(repaired, expectedPoint) <= 1
+      else { return }
+      guard parkingVerificationIsCurrent(
+        windowID: windowID,
+        expectedPoint: expectedPoint,
+        schedule: schedule
+      ) else { return }
+      recordCompletedPosition(repaired, windowID: windowID)
       verified = true
-      return
-    }
-    guard parkingVerificationIsCurrent(
-      windowID: windowID,
-      expectedPoint: expectedPoint,
-      schedule: schedule
-    ) else { return }
-    markProcessNeedsImmediateReadback(write.processID)
-    guard
-      accessibilityWriter.applyPosition(
-        write,
-        point: expectedPoint,
-        forceOffscreenAccess: write.requiresVerifiedOffscreenWrite
+      lock.lock()
+      repairedParkingDrifts += 1
+      appendTraceLocked(
+        "parking-repair wid=\(windowID.rawValue) sliver=\(write.requiresVerifiedOffscreenWrite ? 1 : 0) dx=\(String(format: "%.1f", actual.x - expectedPoint.x)) dy=\(String(format: "%.1f", actual.y - expectedPoint.y))"
       )
-    else {
-      return
+      lock.unlock()
     }
-    guard let repaired = accessibilityWriter.readPosition(write.element),
-      accessibilityWriter.pointDistance(repaired, expectedPoint) <= 1
-    else { return }
-    guard parkingVerificationIsCurrent(
-      windowID: windowID,
-      expectedPoint: expectedPoint,
-      schedule: schedule
-    ) else { return }
-    recordCompletedPosition(repaired, windowID: windowID)
-    verified = true
-    lock.lock()
-    repairedParkingDrifts += 1
-    appendTraceLocked(
-      "parking-repair wid=\(windowID.rawValue) sliver=\(write.requiresVerifiedOffscreenWrite ? 1 : 0) dx=\(String(format: "%.1f", actual.x - expectedPoint.x)) dy=\(String(format: "%.1f", actual.y - expectedPoint.y))"
-    )
-    lock.unlock()
   }
 
   func parkingVerificationIsCurrent(
@@ -367,13 +376,14 @@ extension AXFrameCoordinator {
 
   func recordCompletedPosition(
     _ point: CGPoint,
-    windowID: WindowID
+    windowID: WindowID,
+    positionWasReadBack: Bool = true
   ) {
     lock.lock()
     completedPositions[windowID] = point
     let now = ProcessInfo.processInfo.systemUptime
     borderGeometryWrittenAt[windowID] = now
-    if let geometry = borderGeometries[windowID] {
+    if positionWasReadBack, let geometry = borderGeometries[windowID] {
       borderGeometries[windowID] = (
         Rect(x: point.x, y: point.y, width: geometry.frame.width, height: geometry.frame.height),
         now

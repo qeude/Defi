@@ -6,6 +6,27 @@ import Testing
 @testable import DefiMacOS
 
 struct BudgetedFreshReadPartitionTests {
+  @Test(arguments: [false, true])
+  func animationDefersBackgroundReadsWithoutDelayingEventsOrStarvingTheWatchdog(expired: Bool) {
+    let pass = budgetedFreshReadPartition(
+      requestedProcessIDs: [1, 2], deferredProcessIDs: [3],
+      eventPendingProcessIDs: [2, 4], predictedLatencyMS: { _ in 2 },
+      budgetMS: 12, defersBackgroundReads: true,
+      maximumDeferredAgeSeconds: 0.5, deferredSince: 10,
+      now: expired ? 10.6 : 10.2
+    )
+    #expect(pass.allowedNow == (expired ? [1, 2, 3, 4] : [2, 4]))
+    #expect(pass.stillDeferred == (expired ? [] : [1, 3]))
+    #expect(pass.deferredSince == (expired ? nil : 10))
+    let resumed = budgetedFreshReadPartition(
+      requestedProcessIDs: [], deferredProcessIDs: pass.stillDeferred,
+      eventPendingProcessIDs: [], predictedLatencyMS: { _ in 2 }, budgetMS: 12,
+      maximumDeferredAgeSeconds: 0.5, deferredSince: pass.deferredSince, now: 10.3
+    )
+    #expect(resumed.allowedNow == pass.stillDeferred)
+    #expect(resumed.stillDeferred.isEmpty)
+  }
+
   @Test func dueWindowRetriesDrainAcrossBudgetedPasses() {
     let identities = (1...3).map {
       CGWindowDiscoveryIdentity(windowID: WindowID(rawValue: UInt64($0)),

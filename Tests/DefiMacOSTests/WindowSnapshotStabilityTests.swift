@@ -3,6 +3,7 @@ import DefiConfig
 import DefiModel
 import DefiRuntime
 import Testing
+import Synchronization
 
 @testable import DefiMacOS
 
@@ -49,6 +50,202 @@ struct WindowSnapshotStabilityTests {
     reconcileWindows([window], config: config, state: &state)
     #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(1))
     #expect(state.monitors[0].workspaces[0].columns[0].preMaximizedWidth == .fraction(0.5))
+  }
+
+  @Test(arguments: [PlatformEventKind.windows, .focus, .frame, .mouseRelease])
+  func preparedReadsSurviveAnUnrelatedProcessObservation(kind: PlatformEventKind) {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let captured = engine.preparedWindowReadRevisions
+    let inventoryGeneration = engine.windowSnapshotObservationGeneration
+    engine.recordObservation(kind, processID: 42)
+    #expect(engine.windowSnapshotObservationGeneration != inventoryGeneration)
+    #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: captured, candidates: [42, 43]
+    ) == [42])
+    engine.invalidateWindowSnapshot()
+    #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: captured, candidates: [42, 43]
+    ) == [42, 43])
+  }
+
+  @Test(arguments: [false, true])
+  func preparedFrameRefreshInvalidationKeepsItsScope(full: Bool) {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let captured = engine.preparedWindowReadRevisions
+    engine.recordFrameRefresh(windowIDs: [], processIDs: [42], requiresFullSnapshot: full)
+    #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: captured, candidates: [42, 43]
+    ) == (full ? [42, 43] : [42]))
+    engine.recordObservation(.frame, processID: nil)
+    #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: captured, candidates: [42, 43]
+    ) == [42, 43])
+  }
+
+  @Test
+  func unknownWindowAndAccessibilityResetInvalidateAllPreparedReads() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    var captured = engine.preparedWindowReadRevisions
+    engine.recordFrameRefresh(
+      windowIDs: [WindowID(rawValue: 99)], processIDs: [42], requiresFullSnapshot: false
+    )
+    #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: captured, candidates: [42, 43]
+    ) == [42, 43])
+    captured = engine.preparedWindowReadRevisions
+    engine.invalidateAccessibilitySession()
+    #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: captured, candidates: [42, 43]
+    ) == [42, 43])
+  }
+
+  @Test
+  func retentionRepairYieldsToMotionOnlyWithinItsExistingGraceDeadline() {
+    let first = WindowID(rawValue: 1), expiring = WindowID(rawValue: 2)
+    let unknown = WindowID(rawValue: 3), sibling = WindowID(rawValue: 4)
+    let ids: Set<WindowID> = [first, expiring, unknown, sibling]
+    let processes: [WindowID: pid_t] = [first: 101, expiring: 102, unknown: 103, sibling: 101]
+    let deadlines: [WindowID: TimeInterval] = [first: 11, expiring: 10.5, sibling: 11]
+    var urgent = retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: ids, processIDs: processes, deadlines: deadlines, deferringUntil: 10.5
+    )
+    #expect(urgent == [102, 103])
+    let partition = budgetedFreshReadPartition(
+      requestedProcessIDs: [101, 102, 103], deferredProcessIDs: [],
+      eventPendingProcessIDs: urgent, predictedLatencyMS: { _ in 50 }, budgetMS: 12,
+      defersBackgroundReads: true, maximumDeferredAgeSeconds: 0.5, deferredSince: nil, now: 10
+    )
+    #expect(partition.allowedNow == [102, 103])
+    #expect(partition.stillDeferred == [101])
+    urgent.formUnion([101]) // A native focus, close, or resize always takes priority.
+    let event = budgetedFreshReadPartition(
+      requestedProcessIDs: [], deferredProcessIDs: partition.stillDeferred,
+      eventPendingProcessIDs: urgent, predictedLatencyMS: { _ in 50 }, budgetMS: 12,
+      defersBackgroundReads: true, maximumDeferredAgeSeconds: 0.5,
+      deferredSince: partition.deferredSince, now: 10.1
+    )
+    #expect(event.allowedNow == [101, 102, 103])
+    #expect(retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: ids, processIDs: processes, deadlines: deadlines
+    ) == [101, 102, 103])
+    #expect(retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: ids, processIDs: processes,
+      deadlines: deadlines.merging([sibling: 10.4]) { _, new in new }, deferringUntil: 10.5
+    ) == [101, 102, 103])
+  }
+
+  @Test(arguments: [2, 4])
+  func preparedReadsOverlapIndependentProcessesAndRecheckQueuedAdmission(limit: Int) {
+    let state = Mutex((active: 0, maximum: 0, started: Set<pid_t>(), permitsNewReads: true))
+    let release = DispatchSemaphore(value: 0)
+    let jobs = (1...(limit + 2)).map {
+      PreparedAXProcessRead(processID: pid_t($0), windows: [], application: nil)
+    }
+    let results = collectPreparedAXProcessReads(
+      jobs, maximumConcurrent: limit,
+      shouldStart: { _ in state.withLock { $0.permitsNewReads } },
+      read: { job in
+        let reachedLimit = state.withLock {
+          $0.active += 1
+          $0.maximum = max($0.maximum, $0.active)
+          $0.started.insert(job.processID)
+          return $0.active == limit
+        }
+        if reachedLimit { for _ in 0..<limit { release.signal() } }
+        #expect(release.wait(timeout: .now() + 0.3) == .success)
+        state.withLock { $0.active -= 1; $0.permitsNewReads = false }
+        return PreparedAXProcessReadResult(processID: job.processID, windows: [], application: nil)
+      }
+    )
+    #expect(state.withLock { $0.maximum } == limit)
+    #expect(state.withLock { $0.started } == Set((1...limit).map { pid_t($0) }))
+    #expect(results.map(\.processID) == (1...limit).map { pid_t($0) })
+  }
+
+  @Test
+  func backgroundDiscoveryDefersWhenMotionStartsBetweenProcesses() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let first = makeWindow(id: 42)
+    var second = makeWindow(id: 43)
+    second.processID = 43
+    let firstElement = AXUIElementCreateApplication(-1)
+    let secondElement = AXUIElementCreateApplication(-2)
+    engine.elements = [first.id: firstElement, second.id: secondElement]
+    engine.processIDs = [first.id: 42, second.id: 43]
+    engine.applications = [42: firstElement, 43: secondElement]
+    engine.applicationIDsByProcess = [42: first.appID, 43: second.appID]
+    engine.enhancedUIByProcess = [42: false, 43: false]
+    engine.multipleAttributeReadsSupportedByProcess = [42: false, 43: false]
+    engine.hasCompletedWindowSnapshot = true
+    engine.lastSnapshotWindows = [first, second]
+    engine.lastApplicationWindowElements = [42: [firstElement], 43: [secondElement]]
+    var visited: [pid_t] = []
+    var deferred = Set<pid_t>()
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: Config(), incrementalProcessIDs: [42, 43],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
+      preparedWindowAttributes: [:], preparedTransientOwnerWindowIDs: [:],
+      preparedApplicationWindows: [42: PreparedAXApplicationWindows(elements: [firstElement], durationMS: 0)],
+      explicitlyDestroyedWindowIDs: [],
+      shouldReadProcess: { pid in
+        visited.append(pid)
+        if visited.count > 1 { deferred.insert(pid); return false }
+        return true
+      },
+      publicCGWindows: { [first, second].map {
+        CGWindowRecord(id: CGWindowID($0.id.rawValue), processID: $0.processID!, layer: 0,
+                       title: $0.title, frame: $0.frame, isOnscreen: true)
+      } }
+    )
+    #expect(visited == [42, 43])
+    #expect(deferred == [43])
+    #expect(engine.fallbackWindowAttributeReadCount == 1)
+    #expect(result.cachedSnapshotWindowIDs == [second.id])
+    #expect(result.windows.first { $0.id == second.id } == second)
+    #expect(result.applicationWindows[43]?.count == 1)
+    let partition = budgetedFreshReadPartition(
+      requestedProcessIDs: [], deferredProcessIDs: deferred, eventPendingProcessIDs: [],
+      predictedLatencyMS: { _ in 100 }, budgetMS: 1, defersBackgroundReads: true,
+      maximumDeferredAgeSeconds: 0.5, deferredSince: 10, now: 10.5
+    )
+    #expect(partition.allowedNow == [43])
+  }
+
+  @Test(arguments: [false, true], [false, true])
+  func targetedFrameRefreshDoesNotReadUnaffectedSiblings(targeted: Bool, refreshList: Bool) {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let first = makeWindow(id: 42), second = makeWindow(id: 43)
+    // Invalid handles count real discovery attempts without touching user windows.
+    let firstElement = AXUIElementCreateApplication(-1), secondElement = AXUIElementCreateApplication(-2)
+    engine.elements = [first.id: firstElement, second.id: secondElement]
+    engine.processIDs = [first.id: processID, second.id: processID]
+    engine.applications = [processID: firstElement]
+    engine.applicationIDsByProcess = [processID: first.appID]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.multipleAttributeReadsSupportedByProcess = [processID: false]
+    engine.hasCompletedWindowSnapshot = true
+    // A native transition can leave duplicate observations in the previous cache.
+    engine.lastSnapshotWindows = [first, second, second]
+    engine.lastApplicationWindowElements = [processID: [firstElement, secondElement]]
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: Config(), incrementalProcessIDs: [processID],
+      forceWindowListRefresh: refreshList, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
+      preparedWindowAttributes: [:], preparedTransientOwnerWindowIDs: [:],
+      preparedApplicationWindows: [processID: PreparedAXApplicationWindows(
+        elements: [firstElement, secondElement], durationMS: 0
+      )], explicitlyDestroyedWindowIDs: [], frameRefreshWindowIDs: targeted ? [first.id] : nil,
+      publicCGWindows: { [first, second].map {
+        CGWindowRecord(id: CGWindowID($0.id.rawValue), processID: processID, layer: 0,
+                       title: $0.title, frame: $0.frame, isOnscreen: true)
+      } }
+    )
+    let reusesSibling = targeted && !refreshList
+    #expect(engine.fallbackWindowAttributeReadCount == (reusesSibling ? 1 : 2))
+    #expect(result.cachedSnapshotWindowIDs == (reusesSibling ? [second.id] : []))
+    #expect(result.nextElements[second.id] != nil)
+    #expect(result.windows.first { $0.id == second.id } == second)
   }
 
   @Test func newlyDiscoveredWindowWinsOverAnUnresolvedPreviousIdentity() {

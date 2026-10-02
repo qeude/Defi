@@ -80,16 +80,17 @@ public func criticallyDampedSpringStep(
 public func completedFrameSpringSamples(
   duration: TimeInterval,
   refreshRateHz: Double,
-  initialVelocity: Double = 0
+  initialVelocity: Double = 0,
+  maximumFrames: Int? = nil
 ) -> [SpringProgressSample] {
   guard duration > 0 else { return [] }
   let refreshRate = min(max(refreshRateHz, 30), 120)
-  let interval = 1 / refreshRate
+  let frameCount = max(min(Int(ceil(duration * refreshRate)), maximumFrames ?? Int.max), 1)
+  let interval = duration / Double(frameCount)
   let response = max(duration * 1.5, 0.04)
-  let frameCount = max(Int(ceil(duration / interval)) - 1, 1)
   var value = 0.0
   var velocity = min(max(initialVelocity, 0), 6 / response)
-  return (0..<frameCount).map { _ in
+  let samples = (0..<frameCount).map { _ in
     let step = criticallyDampedSpringStep(
       value: value,
       target: 1,
@@ -100,6 +101,15 @@ public func completedFrameSpringSamples(
     value = min(max(step.value, value), 1)
     velocity = value >= 1 ? 0 : max(step.velocity, 0)
     return SpringProgressSample(progress: value, velocity: velocity)
+  }
+  // Finish on the movement timeline instead of jumping the unsolved spring
+  // remainder in the final AX verification write.
+  let endpoint = samples.last?.progress ?? 1
+  return samples.enumerated().map { index, sample in
+    SpringProgressSample(
+      progress: min(sample.progress / endpoint, 1),
+      velocity: index == samples.count - 1 ? 0 : sample.velocity / endpoint
+    )
   }
 }
 
@@ -132,13 +142,6 @@ public func adaptiveIntermediateFrameLimit(
   return availableIntermediateFrames
 }
 
-public func anticipatedFinalFrameDispatchDelay(
-  animationDuration: TimeInterval,
-  predictedFrameLatency: TimeInterval
-) -> TimeInterval {
-  max(animationDuration - max(predictedFrameLatency, 0), 0)
-}
-
 public struct DisplayedScalarRebase: Equatable, Sendable {
   public let value: Double
   public let delta: Double
@@ -152,8 +155,10 @@ public struct DisplayedScalarRebase: Equatable, Sendable {
 public func rebaseScalarToDisplayedFrames(
   logicalValue: Double,
   expectedMinusDisplayedDeltas: [Double],
-  maximumAbsoluteDelta: Double
+  maximumAbsoluteDelta: Double,
+  logicalScale: Double = 1
 ) -> DisplayedScalarRebase? {
+  guard logicalScale.isFinite, logicalScale > 0 else { return nil }
   let valid = expectedMinusDisplayedDeltas
     .filter { $0.isFinite && abs($0) <= maximumAbsoluteDelta }
     .sorted()
@@ -161,7 +166,7 @@ public func rebaseScalarToDisplayedFrames(
   let delta = valid[valid.count / 2]
   guard abs(delta) >= 0.5 else { return nil }
   return DisplayedScalarRebase(
-    value: logicalValue + delta,
+    value: logicalValue + delta / logicalScale,
     delta: delta
   )
 }

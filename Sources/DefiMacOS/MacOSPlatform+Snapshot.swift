@@ -43,6 +43,7 @@ extension SnapshotEngine {
       now: snapshotStartedAt
     )
     let observations = consumeObservations()
+    let hadDeferredFreshReads = !deferredFreshReadProcessIDs.isEmpty
     let explicitlyDestroyedWindowIDs = observations.destroyedWindowIDs
     let tracesWindowTopology = observations.topologyPending
     let capturedTopologyRequiresFullSnapshot =
@@ -130,6 +131,23 @@ extension SnapshotEngine {
       incrementalProcessIDs = requestedProcessIDs
     }
     var effectiveIncrementalProcessIDs = incrementalProcessIDs
+    let deferredAgeAtPartition = deferredFreshReadsStartedAt
+    let defersBackgroundReads = frameCoordinator.isAnimating
+      && !eventRequiresFullSnapshot && !forceApplicationInventoryRefresh
+    let eventProcessIDs = topologyProcessIDs.union(frameProcessIDs).union(fallbackFreshReadProcessIDs)
+    let retainedIDs = retainedWindowIDs
+    let retentionDeadlines = retainedWindowDeadlines
+    let retainedWindowProcesses = processIDs
+    func urgentRetentionProcessIDs(at now: TimeInterval) -> Set<pid_t> {
+      retainedWindowRefreshProcessIDs(
+        retainedWindowIDs: retainedIDs, processIDs: retainedWindowProcesses,
+        deadlines: retentionDeadlines,
+        deferringUntil: frameCoordinator.hasPendingHorizontalMotion ? now + 0.5 : nil
+      )
+    }
+    let urgentProcessIDs = eventProcessIDs.union(
+      urgentRetentionProcessIDs(at: ProcessInfo.processInfo.systemUptime)
+    )
     let chunkedFullActive =
       !applications.isEmpty
       && (forceFullWindowRefresh
@@ -153,19 +171,20 @@ extension SnapshotEngine {
       let partition = budgetedFreshReadPartition(
         requestedProcessIDs: remaining,
         deferredProcessIDs: [],
-        eventPendingProcessIDs: topologyProcessIDs.union(frameProcessIDs)
-          .union(cachelessProcessIDs),
+        eventPendingProcessIDs: urgentProcessIDs.union(cachelessProcessIDs),
         predictedLatencyMS: { processID in
           frameCoordinator.predictedProcessLatency(processID: processID)
         },
         budgetMS: snapshotFreshReadBudgetMS,
+        defersBackgroundReads: defersBackgroundReads,
         maximumDeferredAgeSeconds: 0.5,
-        deferredSince: nil,
+        deferredSince: deferredFreshReadsStartedAt,
         now: ProcessInfo.processInfo.systemUptime
       )
       effectiveIncrementalProcessIDs = partition.allowedNow
       chunkedFullRefreshRemainingProcessIDs =
         partition.stillDeferred.isEmpty ? nil : partition.stillDeferred
+      deferredFreshReadsStartedAt = partition.deferredSince
       frameCoordinator.recordTrace(
         "fresh-read-budget kind=full allowed=\(partition.allowedNow.count) deferred=\(partition.stillDeferred.count)"
       )
@@ -176,11 +195,14 @@ extension SnapshotEngine {
       let partition = budgetedFreshReadPartition(
         requestedProcessIDs: requested,
         deferredProcessIDs: deferredFreshReadProcessIDs,
-        eventPendingProcessIDs: topologyProcessIDs.union(frameProcessIDs),
+        eventPendingProcessIDs: urgentProcessIDs.union(
+          requested.subtracting(Set(lastApplicationWindowElements.keys))
+        ),
         predictedLatencyMS: { processID in
           frameCoordinator.predictedProcessLatency(processID: processID)
         },
         budgetMS: snapshotFreshReadBudgetMS,
+        defersBackgroundReads: defersBackgroundReads,
         maximumDeferredAgeSeconds: 0.5,
         deferredSince: deferredFreshReadsStartedAt,
         now: ProcessInfo.processInfo.systemUptime
@@ -227,6 +249,11 @@ extension SnapshotEngine {
       && !forceApplicationInventoryRefresh
       && !tracesWindowTopology
       && !eventRequiresFullSnapshot
+      && !observations.frameIncludesUnscopedRefresh
+      && fallbackFreshReadProcessIDs.isEmpty
+      && !hadDeferredFreshReads
+      && retainedProcessIDs.isEmpty
+      && dueCGWindowRetryProcessIDs.isEmpty
     func publicCGWindows() -> [CGWindowRecord]? {
       if hasResolvedCGWindows { return cachedCGWindows }
       let reusableCGWindows = lastCGWindowInventory
@@ -268,10 +295,34 @@ extension SnapshotEngine {
     ) {
       _ = publicCGWindows()
     }
+    // Recheck at each process boundary: motion can start after partitioning.
+    let alwaysReadsProcesses = eventProcessIDs.union(
+      Set(applications.keys).subtracting(Set(lastApplicationWindowElements.keys))
+    )
+    func shouldReadProcess(_ processID: pid_t) -> Bool {
+      let now = ProcessInfo.processInfo.systemUptime
+      guard !eventRequiresFullSnapshot, !forceApplicationInventoryRefresh,
+        !alwaysReadsProcesses.contains(processID), frameCoordinator.isAnimating,
+        !urgentRetentionProcessIDs(at: now).contains(processID),
+        (deferredAgeAtPartition ?? deferredFreshReadsStartedAt)
+          .map({ now - $0 < 0.5 }) ?? true
+      else { return true }
+      if chunkedFullActive {
+        chunkedFullRefreshRemainingProcessIDs =
+          (chunkedFullRefreshRemainingProcessIDs ?? []).union([processID])
+      } else {
+        deferredFreshReadProcessIDs.insert(processID)
+      }
+      if deferredFreshReadsStartedAt == nil { deferredFreshReadsStartedAt = now }
+      return false
+    }
     // Prepare only this chunk, on the snapshot queue. Deferred applications
     // must not be read here and then read again when their chunk runs.
     let prepared = chunkedFullActive
-      ? prepareWindowAttributes(processIDs: effectiveIncrementalProcessIDs ?? Set(applications.keys))
+      ? prepareWindowAttributes(
+        processIDs: effectiveIncrementalProcessIDs ?? Set(applications.keys),
+        shouldReadProcess: shouldReadProcess
+      )
       : (attributes: [:], owners: [:], applications: [:])
     let previousElements = elements
     let discovery = discoverSnapshotWindows(
@@ -288,6 +339,8 @@ extension SnapshotEngine {
       preparedTransientOwnerWindowIDs: prepared.owners,
       preparedApplicationWindows: prepared.applications,
       explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
+      frameRefreshWindowIDs: refreshesOnlyKnownFrames ? frameWindowIDs : nil,
+      shouldReadProcess: shouldReadProcess,
       publicCGWindows: publicCGWindows
     )
     var nextElements = discovery.nextElements

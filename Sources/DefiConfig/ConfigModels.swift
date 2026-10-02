@@ -138,7 +138,7 @@ public struct AnimationConfig: Codable, Equatable, Sendable {
   public var enabled: Bool
   public var durationMS: Int
 
-  public init(enabled: Bool = true, durationMS: Int = 35) {
+  public init(enabled: Bool = true, durationMS: Int = 220) {
     self.enabled = enabled
     self.durationMS = durationMS
   }

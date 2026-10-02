@@ -8,6 +8,768 @@ import Testing
 @testable import DefiMacOS
 
 struct FrameCommitTests {
+  @Test(arguments: [false, true])
+  func horizontalMotionPromotesOnlyIntermediateLaneWork(intermediate: Bool) {
+    let observed = Mutex<UInt32?>(nil)
+    let finished = DispatchSemaphore(value: 0)
+    let coordinator = AXFrameCoordinator(batchWriter: { _, _, _, _, _, _ in
+      observed.withLock { $0 = qos_class_self().rawValue }
+      return (1, 0, [], true)
+    })
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let write = makeMotionWrite(fromX: 0, toX: -1000)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.125, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    let sample = ProcessAnimationSample(
+      frame: frame, batch: ProcessWriteBatch(processID: write.processID, writes: [(id, write)]),
+      progress: intermediate ? 0.5 : 1, progressVelocity: 0,
+      intermediate: intermediate, stagingReentry: false, recordFinalSuccess: false,
+      accumulator: FrameResultAccumulator(), completion: { finished.signal() }
+    )
+    let origin = coordinator.animationClockQueue
+    origin.async {
+      _ = coordinator.submitAnimationSamples([sample], processQueues: [:])
+    }
+    #expect(finished.wait(timeout: .now() + 1) == .success)
+    #expect(coordinator.animationLaneWriteGroup.wait(timeout: .now() + 1) == .success)
+    #expect(observed.withLock { $0 } == (
+      intermediate ? QOS_CLASS_USER_INTERACTIVE.rawValue : QOS_CLASS_USER_INITIATED.rawValue
+    ))
+  }
+
+  @Test
+  func laneCompletionDuringBusyTickIsRetriedWithoutWaitingForTimer() {
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let retried = DispatchSemaphore(value: 0)
+    let calls = Mutex(0)
+    let queue = DispatchQueue(label: "test.animation-lane-wake")
+    // Keep the fallback out of the test: only the completion can wake this tick.
+    let driver = FrameAnimationDriver(interval: 60, refreshInterval: 1 / 120,
+                                     displayIDs: [], queue: queue) { _ in
+      let first = calls.withLock { $0 += 1; return $0 == 1 }
+      if first {
+        entered.signal()
+        _ = release.wait(timeout: .now() + 1)
+        return false
+      }
+      retried.signal()
+      return true
+    }
+    defer { driver.stop() }
+    driver.requestTick()
+    #expect(entered.wait(timeout: .now() + 1) == .success)
+    driver.requestTick(afterLaneCompletion: true)
+    release.signal()
+    #expect(retried.wait(timeout: .now() + 1) == .success)
+    queue.sync {}
+    #expect(calls.withLock { $0 } == 2)
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func coalescedLaneCompletionDoesNotRepeatAcceptedOrCancelledTick(refreshRate: Double) {
+    let interval = 1 / refreshRate
+    for cancelled in [false, true] {
+      var state = FrameAnimationPulseState()
+      let queued = state.enqueue(now: 10, displayTimestamp: nil,
+                                 interval: interval, refreshInterval: interval)
+      #expect(queued)
+      let completionQueued = state.enqueue(now: 10, displayTimestamp: nil, interval: interval,
+                                           refreshInterval: interval, afterLaneCompletion: true)
+      #expect(!completionQueued)
+      state.stopped = cancelled
+      let retries = state.finishTick(at: 10, advanced: !cancelled)
+      #expect(!retries)
+      let earlyQueued = state.enqueue(now: 10 + interval * 0.9, displayTimestamp: nil,
+                                      interval: interval, refreshInterval: interval,
+                                      afterLaneCompletion: true)
+      #expect(!earlyQueued)
+    }
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func laneCompletionRecoversMissedRefreshWithoutAccelerating(refreshRate: Double) {
+    let interval = 1 / refreshRate
+    var state = FrameAnimationPulseState(lastTick: 10, lastTickExecutedAt: 10)
+    func enqueue(_ time: Double, lane: Bool = true) -> Bool {
+      state.enqueue(now: time, displayTimestamp: nil, interval: interval,
+                    refreshInterval: interval, afterLaneCompletion: lane)
+    }
+    #expect(!enqueue(10 + interval * 0.9))
+    #expect(enqueue(10 + interval, lane: false))
+    state.finishTick(at: 10 + interval, advanced: false) // Still writing.
+    let readyAt = 10 + interval * 1.1
+    #expect(enqueue(readyAt))
+    state.finishTick(at: readyAt, advanced: true)
+    #expect(!enqueue(readyAt + interval * 0.9))
+    state.stopped = true
+    #expect(!enqueue(readyAt + interval * 2))
+  }
+
+  @Test
+  func completedLaneWakesTheClockAfterReleasingReadiness() {
+    let coordinator = AXFrameCoordinator(batchWriter: { _, _, _, _, _, _ in
+      (0, 0, [], true)
+    })
+    coordinator.latestGeneration = 1
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [:],
+      animatedWindowIDs: [], animationDuration: 0.125, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    let ready = DispatchSemaphore(value: 0)
+    let sample = ProcessAnimationSample(
+      frame: frame, batch: ProcessWriteBatch(processID: 42, writes: []),
+      progress: 0.5, progressVelocity: 0, intermediate: true,
+      stagingReentry: false, recordFinalSuccess: false,
+      accumulator: FrameResultAccumulator(), completion: nil,
+      laneReady: {
+        #expect(coordinator.animationLanesAreReady(processIDs: [42]))
+        ready.signal()
+      }
+    )
+    _ = coordinator.submitAnimationSamples([sample], processQueues: [:])
+    #expect(ready.wait(timeout: .now() + 1) == .success)
+    coordinator.animationLaneWriteGroup.wait()
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func firstDisplayPulseIsNotDelayedByConstructionPhase(refreshRate: Double) {
+    let now = ProcessInfo.processInfo.systemUptime
+    var state = FrameAnimationPulseState()
+    let accepted = state.enqueue(
+      now: now, displayTimestamp: now - 1 / refreshRate,
+      interval: 1 / refreshRate, refreshInterval: 1 / refreshRate
+    )
+    #expect(accepted)
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func displayPulseCadenceIgnoresExecutionJitter(refreshRate: Double) {
+    let interval = 1 / refreshRate
+    var state = FrameAnimationPulseState(lastTick: 10 - interval)
+    for step in 0..<8 {
+      let timestamp = 10 + Double(step) * interval
+      let enqueued = state.enqueue(now: timestamp + (step.isMultiple(of: 2) ? interval * 0.5 : 0),
+                                   displayTimestamp: timestamp,
+                                   interval: interval, refreshInterval: interval)
+      #expect(enqueued)
+      let started = state.beginTick()
+      #expect(started)
+      state.finishTick(at: timestamp, advanced: true)
+    }
+    state.stopped = true
+    let stopped = state.enqueue(now: 11, displayTimestamp: 11,
+                                interval: interval, refreshInterval: interval)
+    #expect(!stopped)
+  }
+
+  @Test
+  func displayPulseCoalescesAndTimerRecoversWithoutCatchUp() {
+    var state = FrameAnimationPulseState(lastTick: 10 - 0.01)
+    func enqueue(_ now: Double, display: Double? = nil) -> Bool {
+      state.enqueue(now: now, displayTimestamp: display, interval: 0.01, refreshInterval: 0.01)
+    }
+    #expect(enqueue(10, display: 10))
+    #expect(!enqueue(10.01, display: 10.01))
+    let started = state.beginTick()
+    #expect(started)
+    state.finishTick(at: 10, advanced: true)
+    // A coalesced display callback must not postpone fallback for an unapplied step.
+    #expect(enqueue(10.025))
+    #expect(!enqueue(10.05))
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func timerMaintainsCadenceWhenDisplayCallbacksSkipRefreshes(refreshRate: Double) {
+    let interval = 1 / refreshRate
+    var state = FrameAnimationPulseState()
+    var accepted: [Double] = []
+    // The timer is offset from display refreshes, as it is in production.
+    // Even display callbacks arrive; the missing odd callbacks need fallback.
+    for step in 0..<12 {
+      let displayTime = 10 + Double(step) * interval
+      if step.isMultiple(of: 2), state.enqueue(
+        now: displayTime, displayTimestamp: displayTime,
+        interval: interval, refreshInterval: interval
+      ) {
+        accepted.append(displayTime)
+        state.finishTick(at: displayTime, advanced: true)
+      }
+      let timerTime = displayTime + 0.4 * interval
+      if state.enqueue(now: timerTime, displayTimestamp: nil,
+                       interval: interval, refreshInterval: interval) {
+        accepted.append(timerTime)
+        state.finishTick(at: timerTime, advanced: true)
+      }
+    }
+    #expect(accepted.count == 12)
+    #expect(zip(accepted.dropFirst(), accepted).allSatisfy { $0 - $1 <= 1.5 * interval })
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func fallbackDoesNotReplayDelayedDisplaySamples(refreshRate: Double) {
+    let interval = 1 / refreshRate
+    var state = FrameAnimationPulseState()
+    func enqueue(_ now: Double, display: Double? = nil) -> Bool {
+      state.enqueue(now: now, displayTimestamp: display, interval: interval, refreshInterval: interval)
+    }
+    #expect(enqueue(10, display: 10 - interval))
+    state.finishTick(at: 10 - interval, executedAt: 10, advanced: true)
+    #expect(!enqueue(10 + interval * 0.2))
+    #expect(enqueue(10 + interval))
+    state.finishTick(at: 10 + interval, advanced: true)
+    #expect(!enqueue(10 + interval * 1.1, display: 10))
+    #expect(!enqueue(10 + interval * 1.2))
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func busyLanePollDoesNotDelayTheNextReadyDisplayPulse(refreshRate: Double) {
+    let refresh = 1 / refreshRate
+    let interval = 2 * refresh
+    var state = FrameAnimationPulseState()
+    func enqueue(_ timestamp: TimeInterval) -> Bool {
+      state.enqueue(now: timestamp, displayTimestamp: timestamp,
+                    interval: interval, refreshInterval: refresh)
+    }
+    #expect(enqueue(10))
+    state.finishTick(at: 10, advanced: true)
+    #expect(enqueue(10 + interval))
+    // The AX lane is still busy: this pulse emits no ribbon sample.
+    state.finishTick(at: 10 + interval, advanced: false)
+    #expect(enqueue(10 + interval + refresh))
+    state.finishTick(at: 10 + interval + refresh, advanced: true)
+    #expect(!enqueue(10 + interval + 2 * refresh))
+  }
+
+  @Test(arguments: [true, false])
+  func supersededOffscreenWriteDoesNotRetryAnObsoleteTarget(animated: Bool) {
+    let attempts = Mutex(0)
+    var coordinator: AXFrameCoordinator!
+    let writer = AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in
+        attempts.withLock { $0 += 1 }
+        coordinator.lock.lock()
+        coordinator.latestGeneration = 2
+        coordinator.lock.unlock()
+        return true
+      },
+      positionReader: { _ in CGPoint(x: 2520, y: 40) },
+      nativePositionReader: { _, _ in nil }
+    )
+    coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let write = makeMotionWrite(fromX: 2568, toX: 1700, processID: -1,
+                                isReentering: animated, isParked: !animated)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: write],
+      animatedWindowIDs: animated ? [id] : [], animationDuration: animated ? 0.15 : 0,
+      refreshRateHz: 120, displayIDs: [], initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false, completion: nil
+    )
+    _ = coordinator.applyBatch(
+      ProcessWriteBatch(processID: -1, writes: [(key: id, value: write)]),
+      frame: frame, progress: animated ? 0 : 1, intermediate: animated,
+      stagingReentry: animated, recordFinalSuccess: !animated
+    )
+    #expect(attempts.withLock { $0 } == 1)
+    #expect(coordinator.successfulFinalWritesByGeneration[1] == nil)
+  }
+
+  @Test
+  func failedRetiredEnhancedUIRestoreRemainsRecoverable() {
+    let attempts = Mutex(0)
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      enhancedUIWriter: { _, enabled in
+        guard enabled else { return true }
+        return attempts.withLock { $0 += 1; return $0 > 1 }
+      }
+    ))
+    _ = coordinator.beginDeferredEnhancedUIRestore(
+      processID: -1, application: AXUIElementCreateApplication(-1)
+    )
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [])
+    coordinator.animationLaneWriteGroup.wait()
+    #expect(coordinator.hasDeferredEnhancedUIRestore(processID: -1))
+    coordinator.invalidateAndWaitForWrites()
+    #expect(attempts.withLock { $0 } == 2)
+    #expect(!coordinator.hasDeferredEnhancedUIRestore(processID: -1))
+  }
+
+  @Test
+  func transientDiscoveryLossKeepsTheSameSerializedAXLane() {
+    let enables = Mutex(0)
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      enhancedUIWriter: { _, enabled in
+        if enabled { enables.withLock { $0 += 1 } }
+        return true
+      }
+    ))
+    _ = coordinator.beginDeferredEnhancedUIRestore(
+      processID: 42, application: AXUIElementCreateApplication(-1)
+    )
+    let original = coordinator.processWriteQueue(for: 42)
+    let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+    original.async { started.signal(); release.wait() }
+    #expect(started.wait(timeout: .now() + 1) == .success)
+    defer {
+      release.signal(); original.sync { }
+      #expect(enables.withLock { $0 } == 1)
+    }
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [])
+    #expect(coordinator.processWriteQueue(for: 42) === original)
+    #expect(enables.withLock { $0 } == 0)
+    #expect(coordinator.animationLaneWriteGroup.wait(timeout: .now()) == .timedOut)
+  }
+
+  @Test(arguments: [true, false])
+  func shutdownRestoreRetriesAndRetainsAnUnrestoredApplication(recovers: Bool) {
+    let enables = Mutex(0)
+    let writer = AXFrameAccessibilityWriter(enhancedUIWriter: { _, enabled in
+      guard enabled else { return true }
+      return enables.withLock { $0 += 1; return recovers && $0 == 2 }
+    })
+    let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    _ = coordinator.beginDeferredEnhancedUIRestore(
+      processID: -1, application: AXUIElementCreateApplication(-1)
+    )
+    coordinator.restoreDeferredEnhancedUserInterfaces()
+    #expect(enables.withLock { $0 } == 2)
+    #expect(coordinator.deferredEnhancedUIRestores.isEmpty == recovers)
+  }
+
+  @Test
+  func queuedAnimationAdmitsRecoveredLanesAtExecutionTime() {
+    let coordinator = AXFrameCoordinator(batchWriter: { batch, _, _, _, _, _ in
+      (batch.writes.count, 0, [], true)
+    })
+    coordinator.running = true
+    let id = WindowID(rawValue: 1)
+    coordinator.recordProcessLatencySamples([42: 100], intermediate: true)
+    coordinator.submit(
+      [id: makeMotionWrite(fromX: 900, toX: 100)], source: "command-animation",
+      animationDuration: 0.15, refreshRateHz: 120, animatedWindowIDs: [id]
+    )
+    #expect(coordinator.pending?.animationDuration == 0.15)
+    for _ in 0..<16 { coordinator.recordProcessLatencySamples([42: 2], intermediate: true) }
+    if let frame = coordinator.pending { #expect(coordinator.animate(frame).frames > 1) }
+  }
+
+  @Test(arguments: [false, true])
+  func liveBackpressureReplacesHistoricalHorizontalDecimation(vertical: Bool) {
+    let samples = Mutex<[(Double, Bool)]>([])
+    let coordinator = AXFrameCoordinator(batchWriter: { batch, _, progress, intermediate, _, _ in
+      samples.withLock { $0.append((progress, intermediate)) }
+      return (batch.writes.count, 0, [], true)
+    })
+    coordinator.running = true
+    let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)
+    coordinator.recordProcessLatencySamples([42: 2, 43: 100], intermediate: true)
+    coordinator.submit(
+      [first: makeMotionWrite(fromX: 900, toX: 100, processID: 42, toY: vertical ? 600 : 40),
+       second: makeMotionWrite(fromX: 1800, toX: 1000, processID: 43, toY: vertical ? 600 : 40)],
+      source: "command-animation", animationDuration: 0.15,
+      refreshRateHz: 120, animatedWindowIDs: [first, second]
+    )
+    if let frame = coordinator.pending {
+      let result = coordinator.animate(frame)
+      #expect(vertical ? result.frames == 1 : result.frames >= 18)
+    }
+    let recorded = samples.withLock { $0 }
+    if vertical {
+      #expect(recorded.count == 2)
+      #expect(recorded.allSatisfy { $0.0 == 1 && !$0.1 })
+    } else {
+      #expect(recorded.contains { $0.0 > 0 && $0.0 < 1 && $0.1 })
+      #expect(recorded.count >= 36)
+    }
+  }
+
+  @Test(arguments: [false, true])
+  func disabledAnimationUsesOnlyTheFinalWriteWithoutNativeStaging(independentObservation: Bool) {
+    let nativeReads = Mutex(0), writes = Mutex<[CGPoint]>([])
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      positionWriter: { _, point in writes.withLock { $0.append(point) }; return true },
+      nativePositionReader: { _, _ in nativeReads.withLock { $0 += 1 }; return nil },
+      independentBorderObservationAvailable: { independentObservation }
+    ))
+    coordinator.running = true
+    let id = WindowID(rawValue: 1)
+    coordinator.submit(
+      [id: makeMotionWrite(fromX: 2568, toX: 1700, processID: -1, isReentering: true)],
+      source: "command-animation", animationDuration: 0,
+      refreshRateHz: 120, monitorFrames: [Rect(x: 0, y: 0, width: 2560, height: 1440)],
+      animatedWindowIDs: [id]
+    )
+    coordinator.drain()
+    #expect(writes.withLock { $0 } == [CGPoint(x: 1700, y: 40)])
+    #expect(nativeReads.withLock { $0 } == 0)
+    #expect(coordinator.lastAnimationFrameCount == 1)
+  }
+
+  @Test
+  func failedEnhancedUIRestoreRetriesWithoutLosingTheLatestToken() {
+    let enables = Mutex(0)
+    let restored = DispatchSemaphore(value: 0)
+    let writer = AXFrameAccessibilityWriter(enhancedUIWriter: { _, enabled in
+      guard enabled else { return true }
+      let attempt = enables.withLock { $0 += 1; return $0 }
+      if attempt == 2 { restored.signal() }
+      return attempt == 2
+    })
+    let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    let application = AXUIElementCreateApplication(-1)
+    let old = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+    coordinator.scheduleEnhancedUIRestore(processID: -1, token: old)
+    let latest = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+    coordinator.scheduleEnhancedUIRestore(processID: -1, token: latest)
+    #expect(restored.wait(timeout: .now() + 1) == .success)
+    coordinator.processWriteQueue(for: -1).sync { }
+    #expect(enables.withLock { $0 } == 2)
+    #expect(coordinator.deferredEnhancedUIRestores.isEmpty)
+  }
+
+  @Test
+  func retiredEnhancedUIRestoreInvalidatesARediscoveredDisable() {
+    let disables = Mutex(0)
+    let application = AXUIElementCreateApplication(-1)
+    var coordinator: AXFrameCoordinator!
+    let writer = AXFrameAccessibilityWriter(enhancedUIWriter: { _, enabled in
+      if enabled {
+        _ = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+      } else { disables.withLock { $0 += 1 } }
+      return true
+    })
+    coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    _ = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [])
+    coordinator.processWriteQueue(for: -1).sync { }
+    _ = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+    #expect(disables.withLock { $0 } == 3)
+  }
+
+  @Test(arguments: [true, false])
+  func continuousMotionDisablesEnhancedUIOnceButRetriesFailedDisables(succeeds: Bool) {
+    let disables = Mutex(0)
+    let writer = AXFrameAccessibilityWriter(enhancedUIWriter: { _, enabled in
+      if !enabled { disables.withLock { $0 += 1 } }
+      return succeeds
+    })
+    let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    let application = AXUIElementCreateApplication(-1)
+    let first = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+    let second = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+    #expect(second > first)
+    #expect(disables.withLock { $0 } == (succeeds ? 1 : 2))
+  }
+
+  @Test
+  func reentryDoesNotRepeatAnAcceptedNativeStageWhenAXReadbackLags() {
+    let stagedWrites = Mutex(0)
+    let stagingAXReads = Mutex(0)
+    let nativePoint = Mutex(CGPoint(x: 2520, y: 40))
+    let writer = AXFrameAccessibilityWriter(
+      positionWriter: { _, point in
+        if point.x == 2559 { stagedWrites.withLock { $0 += 1 } }
+        nativePoint.withLock { $0 = point }
+        return true
+      },
+      positionReader: { _ in
+        if nativePoint.withLock({ $0.x == 2559 }) { stagingAXReads.withLock { $0 += 1 } }
+        return CGPoint(x: 2520, y: 40)
+      },
+      nativePositionReader: { _, _ in nativePoint.withLock { $0 } }
+    )
+    let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let write = makeMotionWrite(fromX: 2568, toX: 1700, processID: -1, isReentering: true)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], monitorFrames: [Rect(x: 0, y: 0, width: 2560, height: 1440)],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    let result = coordinator.animate(frame)
+    #expect(stagedWrites.withLock { $0 } == 1)
+    #expect(stagingAXReads.withLock { $0 } == 0)
+    #expect(result.frames > 1)
+    #expect(coordinator.completedPositions[id]?.x == 1700)
+  }
+
+  @Test(arguments: [true, false])
+  func reentryRetainsAXVerificationWhenNativeReadbackCannotVerify(available: Bool) {
+    let attempts = Mutex(0)
+    let writer = AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in attempts.withLock { $0 += 1 }; return true },
+      positionReader: { _ in
+        CGPoint(x: attempts.withLock { $0 } == 1 ? 2520 : 2559, y: 40)
+      }
+    )
+    let applied = writer.applyPosition(
+      makeMotionWrite(fromX: 2568, toX: 1700, processID: -1, isReentering: true),
+      point: CGPoint(x: 2559, y: 40), forceOffscreenAccess: true,
+      nativePositionIsVerified: {
+        let native: CGPoint? = available ? CGPoint(x: 2520, y: 40) : nil
+        return native.map { writer.pointDistance($0, CGPoint(x: 2559, y: 40)) <= 1 } ?? false
+      }
+    )
+    #expect(applied)
+    #expect(attempts.withLock { $0 } == 2)
+  }
+
+  @Test(arguments: [true, false])
+  func intermediateBorderReadbackUsesNativeGeometryWithAXFallback(nativeAvailable: Bool) {
+    let axReads = Mutex(0)
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in true },
+      positionReader: { _ in axReads.withLock { $0 += 1 }; return CGPoint(x: 490, y: 40) },
+      nativePositionReader: { _, _ in nativeAvailable ? CGPoint(x: 480, y: 40) : nil }
+    ))
+    let id = WindowID(rawValue: 1)
+    let write = makeMotionWrite(fromX: 900, toX: 100)
+    coordinator.latestGeneration = 1
+    coordinator.updateLiveBorderWindowID(id)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    _ = coordinator.applyBatch(
+      ProcessWriteBatch(processID: 42, writes: [(key: id, value: write)]),
+      frame: frame, progress: 0.5, intermediate: true,
+      stagingReentry: false, recordFinalSuccess: false
+    )
+    #expect(axReads.withLock { $0 } == (nativeAvailable ? 0 : 1))
+    #expect(coordinator.completedPositions[id] == CGPoint(x: nativeAvailable ? 480 : 490, y: 40))
+  }
+
+  @Test(arguments: [false, true])
+  func horizontalMotionDoesNotWaitForIndependentBorderObservation(available: Bool) {
+    let reads = Mutex(0)
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in true },
+      positionReader: { _ in Issue.record("Unexpected AX fallback"); return nil },
+      nativePositionReader: { _, _ in
+        reads.withLock { $0 += 1 }
+        return CGPoint(x: 480, y: 40)
+      },
+      independentBorderObservationAvailable: { available }
+    ))
+    let id = WindowID(rawValue: 1)
+    let before = Rect(x: 900, y: 40, width: 800, height: 700)
+    coordinator.latestGeneration = 1
+    coordinator.updateLiveBorderWindowID(id)
+    coordinator.recordObservedBorderFrame(before, windowID: id, sampledAt: 0)
+    let write = makeMotionWrite(fromX: 900, toX: 100)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    _ = coordinator.applyBatch(
+      ProcessWriteBatch(processID: 42, writes: [(key: id, value: write)]),
+      frame: frame, progress: 0.5, intermediate: true,
+      stagingReentry: false, recordFinalSuccess: false
+    )
+    #expect(reads.withLock { $0 } == (available ? 0 : 1))
+    #expect(coordinator.completedPosition(for: id)?.x == (available ? 500 : 480))
+    // A successful command point must not become an observed border frame.
+    #expect(coordinator.latestBorderFrame(for: id)?.x == (available ? 900 : 480))
+    coordinator.recordObservedBorderFrame(before, windowID: id, sampledAt: 0)
+    #expect(coordinator.latestBorderFrame(for: id)?.x == (available ? 900 : 480))
+    let observed = Rect(x: 485, y: 40, width: 800, height: 700)
+    coordinator.recordObservedBorderFrame(
+      observed, windowID: id, sampledAt: ProcessInfo.processInfo.systemUptime
+    )
+    #expect(coordinator.latestBorderFrame(for: id) == observed)
+  }
+
+  @Test
+  func ribbonDriverKeepsOneProgressUntilSharedFinal() {
+    let samples = Mutex<[(pid_t, Double)]>([])
+    let coordinator = AXFrameCoordinator(batchWriter: { batch, _, progress, _, _, _ in
+      samples.withLock { $0.append((batch.processID, progress)) }
+      return (batch.writes.count, 0, [], true)
+    })
+    coordinator.latestGeneration = 1
+    coordinator.recordProcessLatencySamples([42: 2, 43: 40], intermediate: true)
+    let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation",
+      writes: [first: makeMotionWrite(fromX: 0, toX: -1000, processID: 42),
+               second: makeMotionWrite(fromX: 800, toX: -200, processID: 43)],
+      animatedWindowIDs: [first, second], animationDuration: 0.15,
+      refreshRateHz: 120, displayIDs: [], initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false, completion: nil
+    )
+    _ = coordinator.animate(frame)
+    let recorded = samples.withLock { $0 }
+    let fast = recorded.filter { $0.0 == 42 }.map { $0.1 }
+    let slow = recorded.filter { $0.0 == 43 }.map { $0.1 }
+    #expect(fast == slow)
+    #expect(fast.count > 2 && fast.last == 1)
+    #expect(fast.count >= 18)
+  }
+
+  @Test
+  func slowFinalWritesCannotPreventFirstHorizontalMotionMeasurement() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.running = true
+    coordinator.predictedProcessLatencyMS[42] = 100
+    let id = WindowID(rawValue: 1)
+    coordinator.submit(
+      [id: makeMotionWrite(fromX: 900, toX: 100, processID: 42)],
+      source: "command-animation", animationDuration: 0.15,
+      refreshRateHz: 120, animatedWindowIDs: [id]
+    )
+    #expect(coordinator.pending?.animationDuration == 0.15)
+  }
+
+  @Test(arguments: [false, true])
+  func offscreenLogicalReentryUsesNativeAnchorWithoutCancellingRibbon(axReadbackLags: Bool) {
+    let points = Mutex<[CGPoint]>([])
+    let writer = AXFrameAccessibilityWriter(
+      positionWriter: { _, point in
+        points.withLock { $0.append(point) }
+        return point.x <= 2559 && !(axReadbackLags && point.x == 2559)
+      },
+      nativePositionReader: { _, _ in axReadbackLags ? CGPoint(x: 2559, y: 40) : nil }
+    )
+    let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let element = AXUIElementCreateApplication(-1)
+    let entering = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: CGPoint(x: 2568, y: 40), point: CGPoint(x: 1700, y: 40),
+      fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 800, height: 700),
+      positionChanged: true, sizeChanged: false, animatesSize: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: false, isReentering: true,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: entering],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], monitorFrames: [Rect(x: 0, y: 0, width: 2560, height: 1440)],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    let result = coordinator.animate(frame)
+    let recorded = points.withLock { $0 }
+    if axReadbackLags {
+      #expect(recorded.allSatisfy { $0.x < 2559 })
+    } else {
+      #expect(recorded.first?.x == 2559)
+    }
+    #expect(result.frames > 1)
+    #expect(recorded.contains { $0.x < 2559 && $0.x > 1700 })
+    #expect(coordinator.completedPositions[id]?.x == 1700)
+  }
+
+  @Test(arguments: [false, true])
+  func ribbonWaitsForReentryBeforeMovingNeighbors(stagingFails: Bool) {
+    let staged = Mutex(false)
+    let movedBeforeStaging = Mutex(false)
+    let coordinator = AXFrameCoordinator(batchWriter: { batch, _, _, _, staging, _ in
+      if staging {
+        Thread.sleep(forTimeInterval: 0.04)
+        staged.withLock { $0 = true }
+      } else if !staged.withLock({ $0 }) {
+        movedBeforeStaging.withLock { $0 = true }
+      }
+      return (staging && stagingFails ? 0 : batch.writes.count, 0, [], true)
+    })
+    coordinator.latestGeneration = 1
+    coordinator.activeAnimationRunning = true
+    let entering = WindowID(rawValue: 1), neighbor = WindowID(rawValue: 2)
+    let base = makeMotionWrite(fromX: 800, toX: -200, processID: 43)
+    let reentry = AsyncPositionWrite(
+      element: base.element, application: base.application, processID: base.processID,
+      fromPoint: base.fromPoint, point: base.point, fromSize: base.fromSize, size: base.size,
+      positionChanged: true, sizeChanged: false, animatesSize: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: false, isReentering: true,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation",
+      writes: [entering: reentry,
+               neighbor: makeMotionWrite(fromX: 0, toX: -1000, processID: 42)],
+      animatedWindowIDs: [entering, neighbor], animationDuration: 0.15,
+      refreshRateHz: 120, displayIDs: [], initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false, completion: nil
+    )
+    _ = coordinator.animate(frame)
+    #expect(staged.withLock { $0 })
+    #expect(!movedBeforeStaging.withLock { $0 })
+    #expect(!coordinator.activeAnimationRunning)
+  }
+
+  @Test
+  func failedMotionClearsVelocityAndUnchangedMotionSkipsAX() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let write = makeMotionWrite(fromX: 0, toX: 100, processID: -1)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    coordinator.retargetHorizontalVelocities[id] = 100
+    let failed = coordinator.applyBatch(
+      ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame,
+      progress: 0.5, intermediate: true, stagingReentry: false,
+      recordFinalSuccess: false, progressVelocity: 5
+    )
+    #expect(failed.applied == 0)
+    #expect(coordinator.retargetHorizontalVelocities[id] == 0)
+    coordinator.completedPositions[id] = CGPoint(x: 50, y: write.fromPoint.y)
+    let unchanged = coordinator.applyBatch(
+      ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame,
+      progress: 0.5, intermediate: true, stagingReentry: false, recordFinalSuccess: false
+    )
+    #expect(!unchanged.attempted)
+  }
+
+  @Test
+  func supersededSuccessfulWriteKeepsPhysicalPositionWithoutFinalReadiness() {
+    var coordinator: AXFrameCoordinator!
+    let writer = AXFrameAccessibilityWriter(positionWriter: { _, _ in
+      coordinator.latestGeneration = 2
+      return true
+    })
+    coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    defer { coordinator = nil }
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let write = makeMotionWrite(fromX: 0, toX: 100, processID: -1)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    let result = coordinator.applyBatch(
+      ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame,
+      progress: 0.5, intermediate: true, stagingReentry: false, recordFinalSuccess: true
+    )
+    #expect(result.stale == 1)
+    #expect(coordinator.completedPositions[id]?.x == 50)
+    #expect(coordinator.successfulFinalWritesByGeneration[1] == nil)
+  }
+
   @Test func supersededFramesSkipQueueAndEnhancedUISetup() {
     let coordinator = AXFrameCoordinator()
     coordinator.latestGeneration = 2
@@ -211,18 +973,66 @@ struct FrameCommitTests {
     #expect(positions == positions.sorted(by: targetX < 400 ? (>) : (<)))
   }
 
+  @Test(arguments: [-300.0, 300.0])
+  func interruptedReentryKeepsItsGapWithTheRebasedNeighbor(offset: Double) {
+    let neighbor = WindowID(rawValue: 1), entering = WindowID(rawValue: 2)
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordCompletedPosition(CGPoint(x: 1700 + offset, y: 40), windowID: neighbor)
+    let frame = QueuedPositionFrame(
+      generation: 2, source: "command-animation",
+      writes: [neighbor: makeMotionWrite(fromX: 1700, toX: 832),
+               entering: makeMotionWrite(fromX: 2568, toX: 1700, isReentering: true)],
+      animatedWindowIDs: [neighbor, entering], animationDuration: 0.15,
+      refreshRateHz: 120, displayIDs: [],
+      monitorFrames: [Rect(x: 0, y: 0, width: 2560, height: 1440)],
+      initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false, completion: nil
+    )
+    let writes = coordinator.rebaseFrameToCompletedPositionsLocked(frame).frame.writes
+    let first = writes[neighbor]!, second = writes[entering]!
+    for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+      let x1 = first.fromPoint.x + (first.point.x - first.fromPoint.x) * progress
+      let x2 = second.fromPoint.x + (second.point.x - second.fromPoint.x) * progress
+      #expect(abs(x2 - x1 - 868) < 0.5)
+    }
+  }
+
+  @Test
+  func `Rapid retarget does not jump on its first frame`() {
+    let windowID = WindowID(rawValue: 1)
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordCompletedPosition(CGPoint(x: 400, y: 40), windowID: windowID)
+    coordinator.retargetHorizontalVelocities[windowID] = 9_000
+    let frame = QueuedPositionFrame(
+      generation: 2, source: "command-animation",
+      writes: [windowID: makeMotionWrite(fromX: 900, toX: 1_000)],
+      animatedWindowIDs: [windowID], animationDuration: 0.22,
+      refreshRateHz: 120, displayIDs: [], initialProgressVelocity: 0,
+      stagesVisibleBeforeParking: false, completion: nil
+    )
+
+    let rebased = coordinator.rebaseFrameToCompletedPositionsLocked(frame)
+    let samples = completedFrameSpringSamples(
+      duration: 0.22, refreshRateHz: 120,
+      initialVelocity: rebased.frame.initialProgressVelocity
+    )
+    #expect(rebased.frame.initialProgressVelocity <= 1 / 0.22)
+    #expect((samples.first?.progress ?? 1) <= 0.05)
+  }
+
   private func makeMotionWrite(
-    fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42
+    fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42,
+    isReentering: Bool = false, isParked: Bool = false, toY: Double = 40
   ) -> AsyncPositionWrite {
     // Handles only: these tests never read or mutate the real desktop.
     let element = AXUIElementCreateSystemWide()
     return AsyncPositionWrite(
       element: element, application: element, processID: processID,
-      fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: 40),
+      fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: toY),
       fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
       positionChanged: true, sizeChanged: sizeChanged, animatesSize: false,
       synchronousSizeWriteSucceeded: !sizeChanged, enhancedUIWasEnabled: false,
-      timeoutSeconds: 0.016, isParked: false, isReentering: false,
+      timeoutSeconds: 0.016, isParked: isParked, isReentering: isReentering,
       requiresVerifiedOffscreenWrite: false
     )
   }
@@ -250,7 +1060,58 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Position transitions do not mix slow jumps with animated neighbors`() {
+  func `Busy animation lane holds the whole ribbon until it recovers`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.latestGeneration = 2 // No native writes from these stale samples.
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "readiness-test", writes: [:],
+      animatedWindowIDs: [], animationDuration: 0.2, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    let queue = DispatchQueue(label: "readiness-test")
+    let queues: [pid_t: DispatchQueue] = [42: queue, 43: queue]
+    let accumulator = FrameResultAccumulator()
+    func sample(_ pid: pid_t, _ progress: Double, intermediate: Bool = true) -> ProcessAnimationSample {
+      ProcessAnimationSample(
+        frame: frame, batch: ProcessWriteBatch(processID: pid, writes: []),
+        progress: progress, progressVelocity: 0, intermediate: intermediate,
+        stagingReentry: false, recordFinalSuccess: !intermediate,
+        accumulator: accumulator, completion: nil
+      )
+    }
+    queue.suspend()
+    _ = coordinator.submitAnimationSamples([sample(42, 0.1)], processQueues: queues)
+    _ = coordinator.submitAnimationSamples([sample(42, 0.2), sample(43, 0.2)], processQueues: queues)
+    coordinator.animationLaneLock.lock()
+    var busyLane = coordinator.processAnimationLanes[42]
+    let heldProgress = busyLane?.takeNext()?.progress
+    let idleSiblingWasQueued = coordinator.processAnimationLanes[43] != nil
+    coordinator.animationLaneLock.unlock()
+    #expect(heldProgress == 0.1)
+    #expect(!idleSiblingWasQueued)
+    #expect(!coordinator.animationLanesAreReady(processIDs: [42, 43]))
+    // Final samples must bypass readiness and replace obsolete intermediate work.
+    _ = coordinator.submitAnimationSamples([sample(42, 1, intermediate: false)], processQueues: queues)
+    coordinator.animationLaneLock.lock()
+    var finalLane = coordinator.processAnimationLanes[42]
+    let finalProgress = finalLane?.takeNext()?.progress
+    coordinator.animationLaneLock.unlock()
+    #expect(finalProgress == 1)
+    queue.resume()
+    coordinator.animationLaneWriteGroup.wait()
+    #expect(coordinator.animationLanesAreReady(processIDs: [42, 43]))
+    queue.suspend()
+    _ = coordinator.submitAnimationSamples([sample(42, 0.3), sample(43, 0.3)], processQueues: queues)
+    coordinator.animationLaneLock.lock()
+    let recovered = [42, 43].allSatisfy { coordinator.processAnimationLanes[pid_t($0)]?.isRunning == true }
+    coordinator.animationLaneLock.unlock()
+    #expect(recovered)
+    queue.resume()
+    coordinator.animationLaneWriteGroup.wait()
+  }
+
+  @Test
+  func `Submission preserves animation intent across transient latency`() {
     let coordinator = AXFrameCoordinator()
     coordinator.running = true // Inspect submission without starting native writes.
     let fast = WindowID(rawValue: 1)
@@ -259,15 +1120,15 @@ struct FrameCommitTests {
       fast: makeMotionWrite(fromX: 900, toX: 100, processID: 42),
       slow: makeMotionWrite(fromX: 1800, toX: 1000, processID: 43)
     ]
-    coordinator.predictedProcessLatencyMS = [42: 2, 43: 30]
+    coordinator.recordProcessLatencySamples([42: 2, 43: 30], intermediate: true)
     coordinator.submit(
       writes, source: "test-scroll", animationDuration: 0.035,
       refreshRateHz: 120, animatedWindowIDs: [fast, slow]
     )
-    #expect(coordinator.pending?.animationDuration == 0)
+    #expect(coordinator.pending?.animationDuration == 0.035)
     #expect(coordinator.pending?.writes.count == 2)
 
-    coordinator.predictedProcessLatencyMS[43] = 2
+    for _ in 0..<16 { coordinator.recordProcessLatencySamples([43: 2], intermediate: true) }
     coordinator.submit(
       writes, source: "test-scroll", animationDuration: 0.035,
       refreshRateHz: 120, animatedWindowIDs: [fast, slow]
@@ -278,11 +1139,113 @@ struct FrameCommitTests {
   @Test
   func `Recent AX stalls prevent animation from restarting after a few fast writes`() {
     let coordinator = AXFrameCoordinator()
-    coordinator.recordProcessLatencySamples([42: 55])
-    for _ in 0..<6 { coordinator.recordProcessLatencySamples([42: 2]) }
+    coordinator.recordProcessLatencySamples([42: 55], intermediate: true)
+    for _ in 0..<6 { coordinator.recordProcessLatencySamples([42: 2], intermediate: true) }
     #expect(coordinator.animationSupportsIntermediateFrames(
       processIDs: [42], animationDuration: 0.035, refreshRateHz: 120
     ) == false)
+    for _ in 0..<16 { coordinator.recordProcessLatencySamples([42: 2], intermediate: true) }
+    #expect(coordinator.animationSupportsIntermediateFrames(
+      processIDs: [42], animationDuration: 0.035, refreshRateHz: 120
+    ))
+  }
+
+  @Test
+  func horizontalReadPriorityExcludesVerticalResizeAndDisabledMotion() {
+    let coordinator = AXFrameCoordinator()
+    let id = WindowID(rawValue: 1)
+    let horizontal = makeMotionWrite(fromX: 0, toX: 100)
+    coordinator.activeAnimatedWindowIDs = [id]
+    coordinator.activeWrites = [id: horizontal]
+    #expect(!coordinator.hasPendingHorizontalMotion)
+    coordinator.activeAnimationRunning = true
+    #expect(coordinator.hasPendingHorizontalMotion)
+    var vertical = horizontal
+    vertical.fromPoint.y -= 100
+    coordinator.activeWrites = [id: vertical]
+    #expect(!coordinator.hasPendingHorizontalMotion)
+    coordinator.activeWrites = [id: makeMotionWrite(fromX: 0, toX: 100, sizeChanged: true)]
+    #expect(!coordinator.hasPendingHorizontalMotion)
+    coordinator.activeAnimationRunning = false
+    coordinator.activeWrites = [:]
+    coordinator.running = true
+    coordinator.submit([id: horizontal], source: "command-animation", animationDuration: 0.125,
+                       refreshRateHz: 120, animatedWindowIDs: [id])
+    #expect(coordinator.hasPendingHorizontalMotion)
+  }
+
+  @Test(arguments: ["motion", "failed", "parked", "reentry"])
+  func onlySuccessfulOrdinaryPositionBatchesSeedColdMotion(kind: String) {
+    let writer = AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in kind != "failed" },
+      positionReader: { _ in CGPoint(x: 100, y: 40) }
+    )
+    let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let write = makeMotionWrite(
+      fromX: 0, toX: 100, processID: -1,
+      isReentering: kind == "reentry", isParked: kind == "parked"
+    )
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command", writes: [id: write],
+      animatedWindowIDs: [], animationDuration: 0, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    _ = coordinator.applyBatch(
+      ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame,
+      progress: 1, intermediate: false, stagingReentry: false, recordFinalSuccess: false
+    )
+    #expect((coordinator.recentIntermediateProcessLatencySamplesMS[-1] != nil) == (kind == "motion"))
+  }
+
+  @Test
+  func firstMotionUsesComparableSuccessfulPositionCostWithoutReplacingMeasuredMotion() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordInitialMotionLatency(processID: 42, latencyMS: 40, sampledAt: 10)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120, sampledAt: 10, motionOnly: true
+    )[42] == 3)
+    coordinator.recordProcessLatencySamples([42: 2], intermediate: true, sampledAt: 10.3)
+    coordinator.recordInitialMotionLatency(processID: 42, latencyMS: 100, sampledAt: 10.3)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120, sampledAt: 10.3, motionOnly: true
+    )[42] == 23)
+    #expect(coordinator.predictedProcessLatencyMS[42] == 2)
+  }
+
+  @Test
+  func isolatedMotionStallRetiresOnlyAfterConfirmedRecovery() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordProcessLatencySamples([42: 55], intermediate: true, sampledAt: 10)
+    for _ in 0..<6 {
+      coordinator.recordProcessLatencySamples([42: 2], intermediate: true, sampledAt: 10)
+    }
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 18, refreshRateHz: 120, sampledAt: 10, motionOnly: true
+    )[42]! < 18)
+    for _ in 0..<2 {
+      coordinator.recordProcessLatencySamples([42: 2], intermediate: true, sampledAt: 10)
+    }
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 18, refreshRateHz: 120, sampledAt: 10, motionOnly: true
+    )[42] == 18)
+    coordinator.recordProcessLatencySamples([42: 55], intermediate: true, sampledAt: 10)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 18, refreshRateHz: 120, sampledAt: 10, motionOnly: true
+    )[42]! < 18)
+  }
+
+  @Test
+  func animationRecoversAfterExpiredIntermediateStall() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordProcessLatencySamples(
+      [42: 55], intermediate: true,
+      sampledAt: ProcessInfo.processInfo.systemUptime - 1
+    )
+    // A disabled lane produces only final writes; it must recover without
+    // requiring an intermediate sample that it can no longer produce.
     for _ in 0..<16 { coordinator.recordProcessLatencySamples([42: 2]) }
     #expect(coordinator.animationSupportsIntermediateFrames(
       processIDs: [42], animationDuration: 0.035, refreshRateHz: 120
@@ -290,10 +1253,93 @@ struct FrameCommitTests {
   }
 
   @Test
+  func verticalAdmissionKeepsGeneralLatencyAfterMotionHistoryExpires() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordProcessLatencySamples([42: 2], intermediate: true, sampledAt: 10)
+    coordinator.predictedProcessLatencyMS[42] = 100
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 18, refreshRateHz: 120, sampledAt: 11
+    )[42] == 0)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 18, refreshRateHz: 120,
+      sampledAt: 11, motionOnly: true
+    )[42] == 18)
+  }
+
+  @Test(arguments: [0.2, 0.28, 0.5, 0.9, 1.1])
+  func horizontalCadenceRetainsMeasuredCostBetweenNavigationCommands(pause: TimeInterval) {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordProcessLatencySamples([42: 40], intermediate: true, sampledAt: 10)
+    let limit = coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120,
+      sampledAt: 10 + pause, motionOnly: true
+    )[42]
+    #expect(limit == (pause < 1 ? 3 : 23))
+    // A real fast movement can retire the old stall; parking cannot.
+    coordinator.recordProcessLatencySamples([42: 2], intermediate: true, sampledAt: 10 + pause)
+    let recovered = coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120,
+      sampledAt: 10 + pause, motionOnly: true
+    )[42]
+    #expect(recovered == (pause <= 0.25 ? 3 : 23))
+  }
+
+  @Test(arguments: [0.2, 0.3])
+  func severeMotionStallStillRecoversWithoutAnIntermediateWrite(pause: TimeInterval) {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordProcessLatencySamples([42: 120], intermediate: true, sampledAt: 10)
+    let limit = coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120,
+      sampledAt: 10 + pause, motionOnly: true
+    )[42]
+    #expect(limit == (pause <= 0.25 ? 0 : 23))
+  }
+
+  @Test
+  func `Slow final verification does not throttle measured fast animation writes`() {
+    let coordinator = AXFrameCoordinator()
+    for _ in 0..<16 {
+      coordinator.recordProcessLatencySamples([42: 2], intermediate: true)
+    }
+    coordinator.recordProcessLatencySamples([42: 40])
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120
+    )[42] == 23)
+    coordinator.recordProcessLatencySamples([42: 40], intermediate: true)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120
+    )[42] == 3)
+  }
+
+  @Test
+  func `Sparse fast samples recover cadence after a transient stall`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordProcessLatencySamples([42: 40], intermediate: true, sampledAt: 10)
+    coordinator.recordProcessLatencySamples([42: 2], intermediate: true, sampledAt: 10.1)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120, sampledAt: 10.1
+    )[42] == 3)
+    coordinator.recordProcessLatencySamples([42: 2], intermediate: true, sampledAt: 10.3)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120, sampledAt: 10.3
+    )[42] == 23)
+    coordinator.recordProcessLatencySamples([42: 40], intermediate: true, sampledAt: 10.31)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120, sampledAt: 10.31
+    )[42] == 3)
+  }
+
+  @Test
   func `Workspace animation accepts an adaptively sampled AX lane`() {
     let coordinator = AXFrameCoordinator()
     coordinator.predictedProcessLatencyMS[42] = 12
     coordinator.predictedProcessLatencyMS[43] = 90
+
+    let limits = coordinator.intermediateFrameLimits(
+      for: [42, 43], availableFrames: 22, refreshRateHz: 120
+    )
+    #expect(limits[42] == 14)
+    #expect(limits[43] == 1)
 
     #expect(
       coordinator.animationSupportsIntermediateFrames(
@@ -343,6 +1389,31 @@ struct FrameCommitTests {
         previousTarget: Rect(x: 100, y: 40, width: 800, height: 700),
         nativeReference: nil
       ) == Rect(x: 100, y: 40, width: 800, height: 700))
+  }
+
+  @Test
+  func `Interrupted ribbon keeps moving windows whose target is unchanged`() {
+    let target = Rect(x: 1_000, y: 40, width: 800, height: 700)
+    let completed = CGPoint(x: 400, y: 40)
+    let reference = frameApplicationReference(
+      pendingCorrection: nil,
+      settlingReference: nil,
+      completedPosition: completed,
+      previousTarget: target,
+      pendingAnimation: true,
+      nativeReference: nil
+    )
+    #expect(reference?.x == 400)
+    #expect(reference.map {
+      frameWriteIntent(reference: $0, target: target, positionsOnly: true).position
+    } == true)
+    #expect(frameApplicationReference(
+      pendingCorrection: nil,
+      settlingReference: nil,
+      completedPosition: completed,
+      previousTarget: target,
+      nativeReference: nil
+    ) == target)
   }
 
   @Test
@@ -1416,6 +2487,33 @@ struct FrameCommitTests {
         frame: Rect(x: -905, y: 40, width: 1_204, height: 860),
         monitorFrames: [monitor]
       ) == false)
+  }
+
+  @Test
+  func `Visible ribbon window moves to its offscreen anchor before parking`() {
+    let monitor = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let id = WindowID(rawValue: 1)
+    let visible = Rect(x: 500, y: 0, width: 500, height: 700)
+    let strip = continuousStripFramesForActiveWorkspace(
+      [FrameAssignment(windowID: id, frame: Rect(x: 1_000, y: 0, width: 500, height: 700))],
+      viewport: monitor
+    )
+
+    #expect(strip.parkedWindowIDs == [id])
+    #expect(shouldAnimateParkedRibbonWindow(
+      source: "command-animation", from: visible, monitorFrames: [monitor]
+    ))
+    #expect(!shouldAnimateParkedRibbonWindow(
+      source: "command-animation", from: strip.frames[0].frame, monitorFrames: [monitor]
+    ))
+    #expect(!shouldAnimateParkedRibbonWindow(
+      source: "command-animation",
+      from: Rect(x: -499, y: 0, width: 500, height: 700),
+      monitorFrames: [monitor]
+    ))
+    #expect(!shouldAnimateParkedRibbonWindow(
+      source: "workspace-transition", from: visible, monitorFrames: [monitor]
+    ))
   }
 
   @Test

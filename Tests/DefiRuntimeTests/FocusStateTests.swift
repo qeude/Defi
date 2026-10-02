@@ -12,6 +12,25 @@ struct FocusStateTests {
   private let b = WindowID(rawValue: 2)
   private let c = WindowID(rawValue: 3)
 
+  @Test(arguments: [UInt64(10), 11])
+  func pendingFocusCannotSupersedeANewerMonitorCommand(currentGeneration: UInt64) {
+    var focus = FocusState()
+    let newer = command(windowID: c, generation: currentGeneration)
+    let submission = focus.submitCommand(newer)
+    let oldCommand = command()
+    let oldWorkspace = PendingWorkspaceFocus(
+      monitorID: monitor, requestedWorkspaceID: first, previousWorkspaceID: second,
+      requestedWindowID: b, restoresPreviousWorkspaceOnCancellation: true,
+      commandGeneration: 10, focusInputTimestamp: 10, cursorWarpInputTimestamp: nil
+    )
+    focus.queueCommand(oldCommand)
+    focus.queueWorkspace(oldWorkspace)
+    focus.discardSupersededPendingFocus(commandGeneration: currentGeneration)
+    #expect(focus.pendingAnimatedFocus == (currentGeneration == 10 ? oldCommand : nil))
+    #expect(focus.pendingWorkspaceFocus == (currentGeneration == 10 ? oldWorkspace : nil))
+    #expect(focus.commandCompletionIsCurrent(newer, submission: submission))
+  }
+
   @Test(arguments: [false, true])
   func workspaceRoundTripRejectsOldCompletionForTheSameTarget(newestCompletesFirst: Bool) throws {
     var state = makeState()

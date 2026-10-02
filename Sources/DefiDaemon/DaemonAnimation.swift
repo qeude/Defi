@@ -356,6 +356,7 @@ extension Daemon {
   }
 
   func finishPendingAnimatedFocusIfReady() {
+    focus.discardSupersededPendingFocus(commandGeneration: commandGeneration)
     if let pendingAnimatedFocus,
       focusIsReady(
         on: pendingAnimatedFocus.monitorID,
@@ -378,6 +379,7 @@ extension Daemon {
   }
 
   func finishPendingWorkspaceFocusIfReady() {
+    focus.discardSupersededPendingFocus(commandGeneration: commandGeneration)
     guard let request = pendingWorkspaceFocus,
       submittedWorkspaceFocusGeneration != request.commandGeneration,
       focusIsReady(

@@ -89,6 +89,8 @@ extension MacOSPlatform {
     var referenceFrames: [WindowID: Rect] = [:]
     var startPositions: [WindowID: CGPoint] = [:]
     let now = ProcessInfo.processInfo.systemUptime
+    let unfinishedRibbonWindowIDs = source == "command-animation"
+      ? frameCoordinator.pendingAnimatedWindowIDs : []
     for assignment in assignments where !skippedWindowIDs.contains(assignment.windowID) {
       let settlingReference = frameCommitExpectations[assignment.windowID]
         .flatMap { expectation -> Rect? in
@@ -113,6 +115,7 @@ extension MacOSPlatform {
           for: assignment.windowID
         ),
         previousTarget: previousTargetFrames[assignment.windowID],
+        pendingAnimation: unfinishedRibbonWindowIDs.contains(assignment.windowID),
         nativeReference: latestObservedFrames[assignment.windowID]
           ?? lastSnapshotWindows.first(where: { $0.id == assignment.windowID })?.frame
       )
@@ -294,7 +297,11 @@ extension MacOSPlatform {
       )
       let wantsFrameAnimation =
         animationDuration > 0
-        && !isParked
+        && (!isParked || shouldAnimateParkedRibbonWindow(
+          source: source,
+          from: startFrame,
+          monitorFrames: lastMonitorFrames
+        ))
         && transitionCrossesViewport(
           from: startFrame,
           to: assignment.frame
@@ -601,6 +608,15 @@ private func transitionCrossesViewport(
   }
 
 
+}
+
+func shouldAnimateParkedRibbonWindow(
+  source: String,
+  from: Rect,
+  monitorFrames: [Rect]
+) -> Bool {
+  source == "command-animation"
+    && !requiresVerifiedOffscreenWrite(frame: from, monitorFrames: monitorFrames)
 }
 
 func frameTransitionIsPending(target: Rect?, observed: Rect?) -> Bool {

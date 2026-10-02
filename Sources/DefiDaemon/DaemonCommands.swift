@@ -384,7 +384,7 @@ extension Daemon {
       }
       handleCheatsheetInput(.dismiss)
       if command == .toggleOverview {
-        return toggleOverview()
+        return toggleOverview(ribbonPrototype: rawCommand.split(separator: " ").map(String.init) == ["toggle-overview", "--ribbon-prototype"])
       }
       let commandMonitorID: MonitorID?
       if let monitorIndex {
@@ -606,7 +606,7 @@ extension Daemon {
         }
       )
       if rebasesPendingFrame {
-        rebaseActiveScrollOffsetToDisplayedFrames()
+        rebaseActiveScrollOffsetToDisplayedFrames(on: commandMonitorID)
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25

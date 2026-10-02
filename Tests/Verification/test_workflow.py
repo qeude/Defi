@@ -16,9 +16,28 @@ sys.path.insert(0, str(ROOT / "script"))
 import desktop_lock
 import verify
 import desktop_session
+import ribbon_stress
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_ribbon_stress_requires_complete_command_motion(self):
+        trace = ('1 submit g=1 source=command-animation windows=2[1,2] animated=2[1,2]\n'
+                 '2 cadence g=99 frames=3 submittedSteps=2 appliedIntermediateWrites=4 maxGapMs=99\n'
+                 '3 cadence g=1 frames=3 submittedSteps=2 appliedIntermediateWrites=4 maxGapMs=12.5')
+        self.assertEqual(ribbon_stress.motion_gaps(trace), [12.5])
+        with self.assertRaisesRegex(RuntimeError, 'incomplete'):
+            ribbon_stress.motion_gaps(trace.rsplit('\n', 1)[0])
+        self.assertEqual(ribbon_stress.motion_gaps(trace.replace('Writes=4 maxGapMs=12.5',
+                                                               'Writes=0 maxGapMs=12.5')), [])
+
+    def test_ribbon_stress_waits_for_stable_observed_convergence(self):
+        idle = 'axPending=false focusPending=false animating=false drift=0[]'
+        with patch.object(ribbon_stress.session, 'command', side_effect=[
+                idle, idle.replace('drift=0', 'drift=1'), idle, idle, idle]) as command, \
+                patch.object(ribbon_stress.time, 'sleep'):
+            self.assertEqual(ribbon_stress.wait_for_settlement(), idle)
+            self.assertEqual(command.call_count, 5)
+
     def test_lock_excludes_other_worktrees_and_survives_nested_exec(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "desktop.lock"
