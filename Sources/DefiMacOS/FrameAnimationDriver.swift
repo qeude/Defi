@@ -31,7 +31,9 @@ struct FrameAnimationPulseState {
     // A callback that cannot advance the ribbon must not starve the fallback.
     // Timer pulses use execution time: a late display timestamp is not elapsed
     // time since the last accepted sample.
-    let elapsed = displayTimestamp.map { $0 - lastTick } ?? (now - lastTickExecutedAt)
+    let elapsed = min(
+      displayTimestamp.map { $0 - lastTick } ?? .infinity, now - lastTickExecutedAt
+    )
     // A lane completion may recover a missed refresh, never start one early.
     let tolerance = afterLaneCompletion ? 0 : min(interval, refreshInterval) * 0.25
     if queued {

@@ -153,8 +153,8 @@ extension AXFrameCoordinator {
             && !$0.value.isParked && !$0.value.sizeChanged
             && $0.value.fromPoint.y == $0.value.point.y
         }.min {
-          let first = abs($0.value.point.x - write.point.x)
-          let second = abs($1.value.point.x - write.point.x)
+          let first = abs($0.value.point.x - write.point.x) + abs($0.value.point.y - write.point.y)
+          let second = abs($1.value.point.x - write.point.x) + abs($1.value.point.y - write.point.y)
           return first == second ? $0.key.rawValue < $1.key.rawValue : first < second
         }?.value
         guard let neighbor else { continue }

@@ -62,10 +62,13 @@ extension MacOSPlatform {
             nativeFrame, windowID: windowID, sampledAt: sampledAt
           )
         }
-        observed[windowID] = nativeFrame
-          ?? platform.frameCoordinator.latestBorderFrame(for: windowID)
+        let acceptedFrame = platform.frameCoordinator.latestBorderFrame(for: windowID)
+        observed[windowID] = acceptedFrame
+        platform.snapshotEngine.recordObservedFrame(acceptedFrame, for: windowID)
       }
-      _ = platform.borderManager.updateGeometry(frames: observed, style: platform.borderStyle)
+      if platform.borderManager.updateGeometry(frames: observed, style: platform.borderStyle) {
+        platform.invalidatePointerCacheFromPresentation()
+      }
     }
   }
 

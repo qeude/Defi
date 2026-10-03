@@ -180,8 +180,8 @@ final class WindowServerBoundsProvider: @unchecked Sendable {
   func frame(for windowID: WindowID) -> Rect? {
     boundsState.withLock { state in
       guard !state.disabled, state.probeSucceeded else { return nil }
-      guard let rawWindowID = UInt32(exactly: windowID.rawValue),
-        let bounds = readBounds(rawWindowID),
+      guard let rawWindowID = UInt32(exactly: windowID.rawValue) else { return nil }
+      guard let bounds = readBounds(rawWindowID),
         let frame = normalizedWindowBorderFrame(bounds)
       else {
         state.disabled = true

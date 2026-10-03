@@ -601,8 +601,10 @@ final class DesktopE2ETests: XCTestCase {
     let windows = testWindows(in: snapshot)
     guard windows.count >= 2,
       let window = windows.first,
-      let neighbor = windows.dropFirst().first,
-      let monitor = snapshot.monitors.first
+      let monitor = snapshot.monitors.first(where: { $0.physicalFrame.contains(centerOf: window.frame) }),
+      let neighbor = windows.dropFirst().first(where: {
+        monitor.physicalFrame.contains(centerOf: $0.frame)
+      })
     else {
       throw XCTSkip("Need two manageable desktop windows")
     }

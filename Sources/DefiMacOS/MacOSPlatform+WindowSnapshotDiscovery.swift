@@ -188,8 +188,6 @@ extension SnapshotEngine {
         for processID in previousApplications.keys where !requestedProcessIDs.contains(processID) {
           if !reuseCachedProcess(processID) {
             requestedProcessIDs.insert(processID)
-          } else if !shouldReadProcess(processID) {
-            deferredReadProcessIDs.insert(processID)
           }
         }
         processIDsToRefresh = requestedProcessIDs
@@ -428,9 +426,9 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           if !refreshesWindowList, let frameRefreshWindowIDs, let previousWindowID,
             !frameRefreshWindowIDs.contains(previousWindowID),
             let cached = previousWindowsByID[previousWindowID],
-            let nativeID = CGWindowID(exactly: previousWindowID.rawValue)
+            let nativeID = CGWindowID(exactly: previousWindowID.rawValue),
+            usedCGWindowIDs.insert(nativeID).inserted
           {
-            guard usedCGWindowIDs.insert(nativeID).inserted else { continue }
             windows.append(cached)
             nextElements[previousWindowID] = element
             nextProcessIDs[previousWindowID] = processID

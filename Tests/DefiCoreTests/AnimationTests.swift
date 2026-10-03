@@ -59,12 +59,19 @@ struct AnimationTests {
       refreshRateHz: 60
     ).map(\.progress)
 
-    #expect(at120Hz.count == 5)
-    #expect(at60Hz.count == 3)
+    #expect(at120Hz.count == 4)
+    #expect(at60Hz.count == 2)
     #expect(at120Hz.first ?? 0 > 0.2 && at120Hz.first ?? 1 < 0.4)
     #expect(at120Hz.last ?? 0 > 0.85)
     #expect(at120Hz.last == 1)
     #expect(at120Hz == at120Hz.sorted())
+  }
+
+  @Test(arguments: [0.035, 0.08, 0.125], [60.0, 120.0])
+  func completedSpringSamplesNeverExceedAvailableRefreshSlots(duration: Double, refreshRate: Double) {
+    let samples = completedFrameSpringSamples(duration: duration, refreshRateHz: refreshRate)
+    #expect(duration / Double(samples.count) >= 1 / refreshRate)
+    #expect(samples.last?.progress == 1)
   }
 
   @Test
@@ -74,7 +81,7 @@ struct AnimationTests {
       refreshRateHz: 120
     ).map(\.progress)
 
-    #expect(progresses.count == 10)
+    #expect(progresses.count == 9)
     #expect(progresses.last ?? 0 > 0.85)
   }
 

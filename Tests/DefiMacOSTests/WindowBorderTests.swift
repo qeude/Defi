@@ -730,6 +730,19 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func invalidWindowIDDoesNotDisableTheOptionalBoundsBackend() {
+    let provider = WindowServerBoundsProvider(boundsReader: { _ in
+      CGRect(x: 20, y: 30, width: 800, height: 500)
+    })
+    let owned = WindowID(rawValue: 1)
+    provider.probe(ownedWindowID: owned)
+    #expect(provider.frame(for: WindowID(rawValue: UInt64.max)) == nil)
+    #expect(provider.isAvailable)
+    #expect(provider.failureCount == 0)
+    #expect(provider.frame(for: owned) == Rect(x: 20, y: 30, width: 800, height: 500))
+  }
+
+  @Test @MainActor
   func boundsReadsCanBeSharedByIndependentFrameLanes() async {
     let provider = WindowServerBoundsProvider(boundsReader: { _ in
       CGRect(x: 20, y: 30, width: 800, height: 500)

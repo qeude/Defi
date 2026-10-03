@@ -108,7 +108,10 @@ final class SnapshotEngine: @unchecked Sendable {
       switch windowSnapshotInvalidation(for: kind, processID: processID) {
       case .full: $0.preparedWindowReadRevisions.invalidate(processID: nil)
       case .process(let processID): $0.preparedWindowReadRevisions.invalidate(processID: processID)
-      case .none: $0.preparedWindowReadRevisions.invalidate(processID: processID)
+      case .none:
+        if let processID {
+          $0.preparedWindowReadRevisions.invalidate(processID: processID)
+        }
       }
       if kind == .windowCreated, let processID, let createdElement {
         $0.pendingObservations.createdElements[processID, default: []].append(createdElement)
@@ -460,6 +463,10 @@ final class SnapshotEngine: @unchecked Sendable {
   var targetFrames: [WindowID: Rect] {
     get { read { $0.targetFrames } }
     set { read { $0.targetFrames = newValue } }
+  }
+
+  func recordObservedFrame(_ frame: Rect?, for windowID: WindowID) {
+    read { $0.latestObservedFrames[windowID] = frame }
   }
 
   var latestObservedFrames: [WindowID: Rect] {

@@ -33,11 +33,15 @@ extension AXFrameCoordinator {
         write.isParked ? windowID : nil
       }
     )
-    let phases = positionWritePhases(
+    let writePhases = positionWritePhases(
       windowIDs: Set(frame.writes.keys),
       parkedWindowIDs: parkedWindowIDs,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking
     )
+    let phases = stagingReentry ? writePhases.flatMap { phase in
+      let entering = phase.filter { frame.writes[$0]?.isReentering == true }
+      return [entering, phase.subtracting(entering)].filter { !$0.isEmpty }
+    } : writePhases
     for phase in phases {
       if frame.stagesVisibleBeforeParking {
         let kind = phase.isSubset(of: parkedWindowIDs) ? "parking" : "visible"
@@ -62,7 +66,7 @@ extension AXFrameCoordinator {
             frame: frame,
             progress: progress,
             intermediate: intermediate,
-            stagingReentry: stagingReentry,
+            stagingReentry: stagingReentry && batch.writes.allSatisfy { $0.value.isReentering },
             recordFinalSuccess: recordFinalSuccess
           )
           let processLatencyMS =
@@ -337,7 +341,9 @@ extension AXFrameCoordinator {
   ) {
     lock.lock()
     defer { lock.unlock() }
-    guard recentIntermediateProcessLatencySamplesMS[processID]?.isEmpty != false else { return }
+    guard !(recentIntermediateProcessLatencySamplesMS[processID] ?? []).contains(where: {
+      sampledAt - $0.sampledAt <= 1
+    }) else { return }
     recentIntermediateProcessLatencySamplesMS[processID] = [
       (sampledAt, min(max(latencyMS, 0), 120))
     ]

@@ -140,13 +140,13 @@ workspace transitions and mouse-driven reordering.
 ```toml
 [animation]
 enabled = true
-duration_ms = 220
+duration_ms = 125
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `enabled` | `true` | boolean | Enables visual scrolling and managed resize animation. |
-| `duration_ms` | `220` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
+| `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
 
 ## `[overview]`
 
@@ -615,7 +615,7 @@ enabled = true
 
 [animation]
 enabled = true
-duration_ms = 220
+duration_ms = 125
 
 [overview]
 zoom = 0.5

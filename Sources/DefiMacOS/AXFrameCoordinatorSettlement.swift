@@ -283,7 +283,7 @@ extension AXFrameCoordinator {
       return
     }
     lock.unlock()
-    AXMessagingTimeoutAccess.shared.withTimeout(0.025, elements: [write.application, write.element]) {
+    AXMessagingTimeoutAccess.shared.withTimeout(max(write.timeoutSeconds, 0.025), elements: [write.application, write.element]) {
       var verified = false
       defer {
         if isFinalCheck {

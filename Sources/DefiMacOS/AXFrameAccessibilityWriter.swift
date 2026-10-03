@@ -27,7 +27,7 @@ final class AXFrameAccessibilityWriter {
     guard let rawID = CGWindowID(exactly: windowID.rawValue),
       let rows = CGWindowListCopyWindowInfo(.optionIncludingWindow, rawID) as? [[String: Any]],
       let record = rows.compactMap(cgWindowRecord).first(where: {
-        $0.id == rawID && $0.processID == processID && $0.layer == 0
+        $0.id == rawID && $0.processID == processID
       }), record.frame.x.isFinite, record.frame.y.isFinite,
       record.frame.width.isFinite, record.frame.height.isFinite,
       record.frame.width > 0, record.frame.height > 0

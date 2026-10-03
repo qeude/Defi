@@ -405,7 +405,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     if let pending, pending.animationDuration > 0 {
       writes.append(contentsOf: pending.animatedWindowIDs.compactMap { pending.writes[$0] })
     }
-    return !writes.isEmpty && writes.allSatisfy {
+    return writes.contains {
       !$0.sizeChanged && $0.fromPoint.y == $0.point.y
     }
   }

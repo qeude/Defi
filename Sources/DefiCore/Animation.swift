@@ -85,7 +85,7 @@ public func completedFrameSpringSamples(
 ) -> [SpringProgressSample] {
   guard duration > 0 else { return [] }
   let refreshRate = min(max(refreshRateHz, 30), 120)
-  let frameCount = max(min(Int(ceil(duration * refreshRate)), maximumFrames ?? Int.max), 1)
+  let frameCount = max(min(Int(floor(duration * refreshRate)), maximumFrames ?? Int.max), 1)
   let interval = duration / Double(frameCount)
   let response = max(duration * 1.5, 0.04)
   var value = 0.0

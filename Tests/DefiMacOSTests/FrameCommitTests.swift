@@ -1174,6 +1174,45 @@ struct FrameCommitTests {
     #expect(coordinator.hasPendingHorizontalMotion)
   }
 
+  @Test
+  func mixedPendingFrameKeepsHorizontalDiscoveryPriority() {
+    let coordinator = AXFrameCoordinator()
+    let horizontal = WindowID(rawValue: 1), vertical = WindowID(rawValue: 2)
+    coordinator.activeAnimationRunning = true
+    coordinator.activeAnimatedWindowIDs = [horizontal]
+    coordinator.activeWrites = [horizontal: makeMotionWrite(fromX: 0, toX: 100)]
+    coordinator.running = true
+    coordinator.submit([vertical: makeMotionWrite(fromX: 0, toX: 0, toY: 200)],
+                       source: "workspace-animation", animationDuration: 0.18,
+                       refreshRateHz: 120, animatedWindowIDs: [vertical])
+    #expect(coordinator.hasPendingHorizontalMotion)
+  }
+
+  @Test
+  func finalFallbackStagesOnlyEnteringWindows() {
+    let stagedIDs = Mutex(Set<WindowID>())
+    let ordinaryIDs = Mutex(Set<WindowID>())
+    let coordinator = AXFrameCoordinator(batchWriter: { batch, _, _, _, staging, _ in
+      let ids = Set(batch.writes.map(\.key))
+      if staging { stagedIDs.withLock { $0.formUnion(ids) } }
+      else { ordinaryIDs.withLock { $0.formUnion(ids) } }
+      return (batch.writes.count, 0, [], true)
+    })
+    let entering = WindowID(rawValue: 1), offscreen = WindowID(rawValue: 2)
+    coordinator.latestGeneration = 1
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-animation",
+      writes: [entering: makeMotionWrite(fromX: 1_000, toX: 100, isReentering: true),
+               offscreen: makeMotionWrite(fromX: -1_000, toX: -1_200)],
+      animatedWindowIDs: [entering], animationDuration: 0.125, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false,
+      completion: nil
+    )
+    _ = coordinator.applyFrame(frame, progress: 1, skippedProcesses: [], stagingReentry: true)
+    #expect(stagedIDs.withLock { $0 } == [entering])
+    #expect(ordinaryIDs.withLock { $0 } == [offscreen])
+  }
+
   @Test(arguments: ["motion", "failed", "parked", "reentry"])
   func onlySuccessfulOrdinaryPositionBatchesSeedColdMotion(kind: String) {
     let writer = AXFrameAccessibilityWriter(
@@ -1198,6 +1237,32 @@ struct FrameCommitTests {
       progress: 1, intermediate: false, stagingReentry: false, recordFinalSuccess: false
     )
     #expect((coordinator.recentIntermediateProcessLatencySamplesMS[-1] != nil) == (kind == "motion"))
+  }
+
+  @Test
+  func expiredMotionCostCanBeReseededByASuccessfulFinalWrite() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordInitialMotionLatency(processID: 42, latencyMS: 2, sampledAt: 10)
+    coordinator.recordInitialMotionLatency(processID: 42, latencyMS: 40, sampledAt: 12)
+    #expect(coordinator.intermediateFrameLimits(
+      for: [42], availableFrames: 23, refreshRateHz: 120, sampledAt: 12, motionOnly: true
+    )[42] == 3)
+  }
+
+  @Test(arguments: [60.0, 120.0])
+  func delayedDisplayExecutionDoesNotBurstOnTheNextPulse(refreshRate: Double) {
+    let interval = 1 / refreshRate
+    var state = FrameAnimationPulseState()
+    let first = state.enqueue(now: 10, displayTimestamp: 10,
+                              interval: interval, refreshInterval: interval)
+    #expect(first)
+    state.finishTick(at: 10, executedAt: 10 + 4 * interval, advanced: true)
+    let immediate = state.enqueue(now: 10 + 4.1 * interval, displayTimestamp: 10 + 4 * interval,
+                                  interval: interval, refreshInterval: interval)
+    #expect(immediate == false)
+    let next = state.enqueue(now: 10 + 5 * interval, displayTimestamp: 10 + 5 * interval,
+                             interval: interval, refreshInterval: interval)
+    #expect(next)
   }
 
   @Test
