@@ -211,9 +211,9 @@ extension Daemon {
     )
   }
 
-  func rebaseActiveScrollOffsetToDisplayedFrames() {
+  func rebaseActiveScrollOffsetToDisplayedFrames(on requestedMonitorID: MonitorID? = nil) {
     guard
-      let monitorID = activeMonitorID,
+      let monitorID = requestedMonitorID ?? activeMonitorID,
       let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }),
       let viewport = viewportsByMonitor[monitorID],
       let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
@@ -245,7 +245,8 @@ extension Daemon {
       let rebase = rebaseScalarToDisplayedFrames(
         logicalValue: workspace.scrollOffset,
         expectedMinusDisplayedDeltas: deltas,
-        maximumAbsoluteDelta: viewport.width
+        maximumAbsoluteDelta: viewport.width,
+        logicalScale: viewport.width
       )
     else {
       return

@@ -9,14 +9,23 @@ import OSLog
 
 let focusSnapshotAccessibilityTimeoutSeconds: Float = 0.05
 extension SnapshotEngine {
-  func prepareWindowAttributes(processIDs refreshingProcessIDs: Set<pid_t>) -> (
+  func prepareWindowAttributes(
+    processIDs refreshingProcessIDs: Set<pid_t>,
+    shouldReadProcess: (pid_t) -> Bool = { _ in true }
+  ) -> (
     attributes: [WindowID: AXWindowAttributes],
     owners: [WindowID: WindowID],
     applications: [pid_t: PreparedAXApplicationWindows]
   ) {
-    let generation = windowSnapshotObservationGeneration
+    let revisions = preparedWindowReadRevisions
     let inputTracker = userInputTracker
     let inputTimestamp = inputTracker.latestEventTimestamp
+    let readIsCurrent: @Sendable (pid_t) -> Bool = { [self] processID in
+      inputTracker.latestEventTimestamp == inputTimestamp
+        && !preparedWindowReadRevisions.invalidatedProcessIDs(
+          since: revisions, candidates: [processID]
+        ).contains(processID)
+    }
     let windowProcessIDs = processIDs
     let batchSupport = multipleAttributeReadsSupportedByProcess
     let candidates = elements.compactMap { windowID, element -> PreparedAXWindowElement? in
@@ -32,46 +41,87 @@ extension SnapshotEngine {
       refreshingProcessIDs.contains(processID)
         ? PreparedAXApplicationElement(processID: processID, element: element) : nil
     }
-    for candidate in applicationCandidates {
-      onMain { platform in
-        platform.eventMonitor?.prepareForWindowDiscovery(
-          processID: candidate.processID, application: candidate.element
+    let windowsByProcess = Dictionary(grouping: candidates, by: \.processID)
+    let applicationsByProcess = Dictionary(uniqueKeysWithValues: applicationCandidates.map {
+      ($0.processID, $0)
+    })
+    let jobs = refreshingProcessIDs.sorted().compactMap { processID -> PreparedAXProcessRead? in
+      let windows = (windowsByProcess[processID] ?? []).sorted { $0.windowID.rawValue < $1.windowID.rawValue }
+      let application = applicationsByProcess[processID]
+      guard !windows.isEmpty || application != nil else { return nil }
+      return PreparedAXProcessRead(processID: processID, windows: windows, application: application)
+    }
+    let collected = collectPreparedAXProcessReads(
+      jobs,
+      shouldStart: { processID in
+        guard readIsCurrent(processID), shouldReadProcess(processID) else { return false }
+        if let candidate = applicationsByProcess[processID] {
+          onMain { platform in
+            platform.eventMonitor?.prepareForWindowDiscovery(
+              processID: processID, application: candidate.element
+            )
+          }
+        }
+        return true
+      },
+      read: { job in
+        let reads = job.windows.compactMap { candidate -> PreparedAXWindowRead? in
+          guard readIsCurrent(candidate.processID) else {
+            return nil
+          }
+          return AXMessagingTimeoutAccess.shared.withTimeout(
+            0.05,
+            elements: [candidate.element]
+          ) {
+            var attributes: AXWindowAttributes?
+            var parent: AXUIElement?
+            var sheets: [AXUIElement]?
+            if candidate.usesBatchedAttributeReads {
+              let read = copyBatchedWindowAttributes(
+                candidate.element,
+                includingTransientRelationships: true
+              )
+              attributes = read.attributes
+              parent = read.parent
+              sheets = read.sheets
+            }
+            if parent == nil || sheets == nil {
+              let fallback = copyTransientOwnerRelationships(candidate.element)
+              parent = parent ?? fallback.parent
+              sheets = sheets ?? fallback.sheets
+            }
+            return PreparedAXWindowRead(
+              windowID: candidate.windowID,
+              attributes: attributes,
+              parent: parent,
+              sheets: sheets ?? []
+            )
+          }
+        }
+        var applicationWindows: PreparedAXApplicationWindows?
+        if let candidate = job.application, readIsCurrent(job.processID) {
+          let readStartedAt = ProcessInfo.processInfo.systemUptime
+          let windows = AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [candidate.element]) {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+              candidate.element, kAXWindowsAttribute as CFString, &value
+            ) == .success else { return nil as [AXUIElement]? }
+            return value as? [AXUIElement]
+          }
+          applicationWindows = windows.map {
+            PreparedAXApplicationWindows(elements: $0,
+              durationMS: (ProcessInfo.processInfo.systemUptime - readStartedAt) * 1_000)
+          }
+        }
+        return PreparedAXProcessReadResult(
+          processID: job.processID, windows: reads, application: applicationWindows
         )
       }
-    }
-    let reads = candidates.compactMap { candidate -> PreparedAXWindowRead? in
-      guard inputTracker.latestEventTimestamp == inputTimestamp else {
-        return nil
-      }
-      return AXMessagingTimeoutAccess.shared.withTimeout(
-        0.05,
-        elements: [candidate.element]
-      ) {
-        var attributes: AXWindowAttributes?
-        var parent: AXUIElement?
-        var sheets: [AXUIElement]?
-        if candidate.usesBatchedAttributeReads {
-          let read = copyBatchedWindowAttributes(
-            candidate.element,
-            includingTransientRelationships: true
-          )
-          attributes = read.attributes
-          parent = read.parent
-          sheets = read.sheets
-        }
-        if parent == nil || sheets == nil {
-          let fallback = copyTransientOwnerRelationships(candidate.element)
-          parent = parent ?? fallback.parent
-          sheets = sheets ?? fallback.sheets
-        }
-        return PreparedAXWindowRead(
-          windowID: candidate.windowID,
-          attributes: attributes,
-          parent: parent,
-          sheets: sheets ?? []
-        )
-      }
-    }
+    )
+    let reads = collected.flatMap(\.windows)
+    let applicationWindows = Dictionary(uniqueKeysWithValues: collected.compactMap { result in
+      result.application.map { (result.processID, $0) }
+    })
     let attributes: [WindowID: AXWindowAttributes] = Dictionary(
       uniqueKeysWithValues: reads.compactMap { read in
         read.attributes.map { (read.windowID, $0) }
@@ -88,44 +138,19 @@ extension SnapshotEngine {
         ($0.windowID, $0.sheets)
       })
     )
-    let applicationWindows: [pid_t: PreparedAXApplicationWindows] =
-      Dictionary(
-        uniqueKeysWithValues: applicationCandidates.compactMap { candidate in
-          guard inputTracker.latestEventTimestamp == inputTimestamp else {
-            return nil
-          }
-          let readStartedAt = ProcessInfo.processInfo.systemUptime
-          let windows = AXMessagingTimeoutAccess.shared.withTimeout(
-            0.05,
-            elements: [candidate.element]
-          ) {
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(
-              candidate.element,
-              kAXWindowsAttribute as CFString,
-              &value
-            ) == .success else {
-              return nil as [AXUIElement]?
-            }
-            return value as? [AXUIElement]
-          }
-          let readDurationMS =
-            (ProcessInfo.processInfo.systemUptime - readStartedAt) * 1_000
-          return windows.map {
-            (
-              candidate.processID,
-              PreparedAXApplicationWindows(
-                elements: $0,
-                durationMS: readDurationMS
-              )
-            )
-          }
-        }
-      )
-    guard generation == windowSnapshotObservationGeneration,
-      inputTimestamp == inputTracker.latestEventTimestamp
+    guard inputTimestamp == inputTracker.latestEventTimestamp
     else { return ([:], [:], [:]) }
-    return (attributes, transientOwnerWindowIDs, applicationWindows)
+    let invalidated = preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: revisions, candidates: refreshingProcessIDs
+    )
+    func isValid(_ windowID: WindowID) -> Bool {
+      windowProcessIDs[windowID].map { !invalidated.contains($0) } ?? false
+    }
+    return (
+      attributes.filter { isValid($0.key) },
+      transientOwnerWindowIDs.filter { isValid($0.key) && isValid($0.value) },
+      applicationWindows.filter { !invalidated.contains($0.key) }
+    )
   }
 }
 

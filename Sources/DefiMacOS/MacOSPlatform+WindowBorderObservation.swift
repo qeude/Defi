@@ -14,7 +14,6 @@ extension MacOSPlatform {
     processID: pid_t,
     inputTimestamp: TimeInterval? = nil
   ) {
-    invalidateWindowSnapshot()
     snapshotEngine.recordObservation(
       .windows,
       processID: processID,
@@ -54,7 +53,6 @@ extension MacOSPlatform {
       let previousWindowCount = processID.flatMap {
         self?.applicationWindowCounts[$0]
       }
-      self?.invalidateWindowSnapshot()
       let windowID = element.flatMap { element in
         self?.elements.first(where: { CFEqual($0.value, element) })?.key
       }
@@ -566,7 +564,6 @@ extension MacOSPlatform {
   public func presentSetFrameNotificationsEnabled(_ enabled: Bool) {
     let suppressedRefresh = eventMonitor?.setFrameNotificationsEnabled(enabled)
     guard enabled else { return }
-    invalidateWindowSnapshot()
     // Notifications were ignored while animated writes ran. Force fresh reads
     // before trusting the final committed frames.
     let committedWindowIDs = Set(frameCommitExpectations.keys)

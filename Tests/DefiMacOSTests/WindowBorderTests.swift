@@ -3,11 +3,32 @@ import CoreGraphics
 import DefiCore
 import DefiModel
 import DefiRuntime
+import Synchronization
 import Testing
 
 @testable import DefiMacOS
 
 struct WindowBorderTests {
+  @Test
+  func pendingGeometryCoalescesProcessesAndCanScheduleAfterDelivery() {
+    let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)
+    var pending = PendingBorderGeometry()
+    let emptyScheduled = pending.enqueue([])
+    let firstScheduled = pending.enqueue([first])
+    let secondScheduled = pending.enqueue([first, second])
+    #expect(!emptyScheduled)
+    #expect(firstScheduled)
+    #expect(!secondScheduled)
+    let delivered = pending.take()
+    #expect(delivered == [first, second])
+    let nextScheduled = pending.enqueue([second])
+    #expect(nextScheduled)
+    let next = pending.take()
+    #expect(next == [second])
+    let empty = pending.take()
+    #expect(empty.isEmpty)
+  }
+
   private let monitor = Rect(x: 0, y: 0, width: 1_512, height: 900)
   private let style = WindowBorderStyle(
     enabled: true,
@@ -682,6 +703,58 @@ struct WindowBorderTests {
 
     #expect(manager.activeWindowID == second)
     #expect(manager.performance.allocated == 1)
+  }
+
+  @Test @MainActor
+  func boundsProbeWaitsForTheOwnedSurfaceToAcquireGeometry() {
+    let nativeFrame = Mutex<CGRect?>(.zero)
+    let provider = WindowServerBoundsProvider(boundsReader: { _ in nativeFrame.withLock { $0 } })
+    let owned = WindowID(rawValue: 1)
+    provider.probe(ownedWindowID: owned)
+    #expect(!provider.isAvailable)
+    let valid = CGRect(x: 20, y: 30, width: 4, height: 500)
+    nativeFrame.withLock { $0 = valid }
+    provider.probe(ownedWindowID: owned)
+    #expect(provider.isAvailable)
+    #expect(provider.frame(for: owned) == Rect(x: 20, y: 30, width: 4, height: 500))
+    // Actual lookup failure still disables the optional path and returns nil
+    // so callers immediately use public metadata/Accessibility.
+    nativeFrame.withLock { $0 = nil }
+    #expect(provider.frame(for: owned) == nil)
+    #expect(!provider.isAvailable)
+    nativeFrame.withLock { $0 = valid }
+    provider.probe(ownedWindowID: owned)
+    #expect(!provider.isAvailable)
+    #expect(provider.frame(for: owned) == nil)
+    #expect(provider.failureCount == 1)
+  }
+
+  @Test @MainActor
+  func invalidWindowIDDoesNotDisableTheOptionalBoundsBackend() {
+    let provider = WindowServerBoundsProvider(boundsReader: { _ in
+      CGRect(x: 20, y: 30, width: 800, height: 500)
+    })
+    let owned = WindowID(rawValue: 1)
+    provider.probe(ownedWindowID: owned)
+    #expect(provider.frame(for: WindowID(rawValue: UInt64.max)) == nil)
+    #expect(provider.isAvailable)
+    #expect(provider.failureCount == 0)
+    #expect(provider.frame(for: owned) == Rect(x: 20, y: 30, width: 800, height: 500))
+  }
+
+  @Test @MainActor
+  func boundsReadsCanBeSharedByIndependentFrameLanes() async {
+    let provider = WindowServerBoundsProvider(boundsReader: { _ in
+      CGRect(x: 20, y: 30, width: 800, height: 500)
+    })
+    let owned = WindowID(rawValue: 1)
+    provider.probe(ownedWindowID: owned)
+    let expected = Rect(x: 20, y: 30, width: 800, height: 500)
+    await withTaskGroup(of: Rect?.self) { group in
+      for _ in 0..<40 { group.addTask { provider.frame(for: owned) } }
+      for await frame in group { #expect(frame == expected) }
+    }
+    #expect(provider.successfulLookupCount == 40)
   }
 
   @Test @MainActor

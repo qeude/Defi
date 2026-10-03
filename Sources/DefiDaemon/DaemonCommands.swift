@@ -384,7 +384,9 @@ extension Daemon {
       }
       handleCheatsheetInput(.dismiss)
       if command == .toggleOverview {
-        return toggleOverview()
+        return toggleOverview(
+          ribbonPrototype: overviewRibbonPrototypeRequested(in: rawCommand)
+        )
       }
       let commandMonitorID: MonitorID?
       if let monitorIndex {
@@ -458,6 +460,10 @@ extension Daemon {
         invalidatePointerFocusIntent(
           recoveringTo: state.selectedWindowID(on: targetMonitorID)
         )
+        focus.queueCommand(nil)
+        invalidateSubmittedCommandFocus()
+        invalidateSubmittedWorkspaceFocus()
+        focus.queueWorkspace(nil)
         preemptMouseGesture()
         activeMonitorID = targetMonitorID
         if let windowID = state.selectedWindowID(on: targetMonitorID) {
@@ -506,7 +512,7 @@ extension Daemon {
           .flatMap { state.selectedWindowID(on: $0) }
           .map { platform.isWindowNativelyFocused($0) }
       ) {
-        commandGeneration &+= 1
+        preserveFocusIntentAfterNoOp(at: commandInputTimestamp)
         lastCommandDurationMS =
           (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
         diagnostics.recordNoOp(
@@ -606,7 +612,14 @@ extension Daemon {
         }
       )
       if rebasesPendingFrame {
-        rebaseActiveScrollOffsetToDisplayedFrames()
+        var rebaseMonitorIDs = inFlightAnimationMonitorIDs
+        rebaseMonitorIDs.formUnion([commandMonitorID, activeMonitorID].compactMap { $0 })
+        if let workspaceFocusMonitorID {
+          rebaseMonitorIDs.insert(workspaceFocusMonitorID)
+        }
+        for monitor in state.monitors where rebaseMonitorIDs.contains(monitor.id) {
+          rebaseActiveScrollOffsetToDisplayedFrames(on: monitor.id)
+        }
       }
       if switchesWorkspace {
         suppressNativeFocusUntil = commandStartedAt + 0.25

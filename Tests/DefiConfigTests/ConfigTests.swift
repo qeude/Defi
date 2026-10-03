@@ -102,7 +102,7 @@ struct ConfigTests {
     #expect(config.workspaces.defaultName == nil)
     #expect(config.layout.defaultColumnWidth == 0.8)
     #expect(config.animation.enabled)
-    #expect(config.animation.durationMS == 35)
+    #expect(config.animation.durationMS == 125)
     #expect(config.overview.zoom == 0.5)
     #expect(config.overview.windowPreviews == false)
     #expect(config.overview.windowCornerRadius == 12)

@@ -86,6 +86,7 @@ extension AXFrameCoordinator {
       activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
       activeWindowIDs.removeAll(keepingCapacity: true)
       activeWrites.removeAll(keepingCapacity: true)
+      retireIdleProcessWriteQueuesLocked()
       lock.unlock()
       let acceptedFrames = readAcceptedFrames(
         for: frame,
@@ -142,6 +143,28 @@ extension AXFrameCoordinator {
       )
       count += 1
     }
+    // Reentry's logical origin must follow neighbors that finished moving while
+    // this command was queued; its native parking point is not a strip origin.
+    if frame.source == "command-animation", frame.monitorFrames.count == 1 {
+      for (windowID, write) in writes where write.isReentering && !write.sizeChanged
+        && write.fromPoint.y == write.point.y
+      {
+        let neighbor = writes.filter {
+          frame.animatedWindowIDs.contains($0.key) && !$0.value.isReentering
+            && !$0.value.isParked && !$0.value.sizeChanged
+            && $0.value.fromPoint.y == $0.value.point.y
+        }.min {
+          let first = abs($0.value.point.x - write.point.x) + abs($0.value.point.y - write.point.y)
+          let second = abs($1.value.point.x - write.point.x) + abs($1.value.point.y - write.point.y)
+          return first == second ? $0.key.rawValue < $1.key.rawValue : first < second
+        }?.value
+        guard let neighbor else { continue }
+        let startX = write.point.x - (neighbor.point.x - neighbor.fromPoint.x)
+        guard abs(startX - write.fromPoint.x) >= 0.5 else { continue }
+        writes[windowID]?.fromPoint.x = startX
+        count += 1
+      }
+    }
     let velocityCandidates: [Double] = frame.animatedWindowIDs.compactMap {
       windowID in
       guard let write = writes[windowID],
@@ -153,7 +176,7 @@ extension AXFrameCoordinator {
     }
     let initialProgressVelocity = retainedSpringProgressVelocity(
       normalizedCandidates: velocityCandidates,
-      maximum: 6 / max(frame.animationDuration, 0.04)
+      maximum: 1 / max(frame.animationDuration, 0.04)
     )
     for windowID in frame.animatedWindowIDs {
       retargetHorizontalVelocities[windowID] = nil

@@ -1,4 +1,5 @@
 import AppKit
+import Synchronization
 import ApplicationServices
 import Darwin
 import DefiConfig
@@ -299,6 +300,54 @@ struct PreparedAXApplicationElement: @unchecked Sendable {
 struct PreparedAXApplicationWindows: @unchecked Sendable {
   let elements: [AXUIElement]
   let durationMS: Double
+}
+
+struct PreparedAXProcessRead: Sendable {
+  let processID: pid_t
+  let windows: [PreparedAXWindowElement]
+  let application: PreparedAXApplicationElement?
+}
+
+struct PreparedAXProcessReadResult: @unchecked Sendable {
+  let processID: pid_t
+  let windows: [PreparedAXWindowRead]
+  let application: PreparedAXApplicationWindows?
+}
+
+func collectPreparedAXProcessReads(
+  _ jobs: [PreparedAXProcessRead],
+  maximumConcurrent: Int = 4,
+  shouldStart: (pid_t) -> Bool,
+  read: @escaping @Sendable (PreparedAXProcessRead) -> PreparedAXProcessReadResult
+) -> [PreparedAXProcessReadResult] {
+  guard !jobs.isEmpty else { return [] }
+  precondition(Set(jobs.map(\.processID)).count == jobs.count)
+  let limit = max(1, min(maximumConcurrent, jobs.count))
+  let completed = Mutex<[(Int, PreparedAXProcessReadResult)]>([])
+  let completion = DispatchSemaphore(value: 0)
+  var nextIndex = 0
+  var active = 0
+  var results: [(Int, PreparedAXProcessReadResult)] = []
+  while nextIndex < jobs.count || active > 0 {
+    while active < limit && nextIndex < jobs.count {
+      let index = nextIndex
+      nextIndex += 1
+      let job = jobs[index]
+      guard shouldStart(job.processID) else { continue }
+      active += 1
+      DispatchQueue.global(qos: .userInitiated).async {
+        let result = read(job)
+        completed.withLock { $0.append((index, result)) }
+        completion.signal()
+      }
+    }
+    if active > 0 {
+      completion.wait()
+      results.append(completed.withLock { $0.removeFirst() })
+      active -= 1
+    }
+  }
+  return results.sorted { $0.0 < $1.0 }.map(\.1)
 }
 
 struct PreparedAXWindowRead {

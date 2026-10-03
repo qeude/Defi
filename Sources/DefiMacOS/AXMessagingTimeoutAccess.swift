@@ -9,6 +9,7 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     var users: Int
     var ownerThread: ObjectIdentifier?
     var ownerDepth: Int
+    var resetting = false
   }
 
   private struct LockAcquisition {
@@ -16,15 +17,26 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     let ownedKeys: Set<UInt>
   }
 
-  private let registryLock = NSLock()
+  private let timeoutSetter: (AXUIElement, Float) -> Void
+
+  init(timeoutSetter: @escaping (AXUIElement, Float) -> Void = { element, timeout in
+    AXUIElementSetMessagingTimeout(element, timeout)
+  }) {
+    self.timeoutSetter = timeoutSetter
+  }
+
+  private let registryLock = NSCondition()
   private var entries: [UInt: LockEntry] = [:]
 
   func withTimeout<Result>(
     _ timeout: Float,
     elements: [AXUIElement],
+    observeWait: ((TimeInterval) -> Void)? = nil,
     perform: () throws -> Result
   ) rethrows -> Result {
+    let waitingSince = observeWait.map { _ in ProcessInfo.processInfo.systemUptime }
     let acquisition = acquireLocks(for: elements)
+    if let waitingSince { observeWait?(ProcessInfo.processInfo.systemUptime - waitingSince) }
     defer {
       releaseLocks(acquisition, elements: elements)
     }
@@ -32,7 +44,7 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     // user releases it; only its owner may mutate that timeout.
     for element in elements
     where acquisition.ownedKeys.contains(elementIdentity(element)) {
-      AXUIElementSetMessagingTimeout(element, timeout)
+      timeoutSetter(element, timeout)
     }
     return try perform()
   }
@@ -43,6 +55,10 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     let keys = Set(elements.map(elementIdentity)).sorted()
     let currentThread = ObjectIdentifier(Thread.current)
     registryLock.lock()
+    // A reset blocks only new users of those elements, never unrelated apps.
+    while keys.contains(where: { entries[$0]?.resetting == true }) {
+      registryLock.wait()
+    }
     let lockCandidates = keys.map { key in
       if var entry = entries[key] {
         entry.users += 1
@@ -83,26 +99,29 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     for element in elements {
       elementsByKey[elementIdentity(element)] = element
     }
+    var resets: [(key: UInt, element: AXUIElement)] = []
     registryLock.lock()
     for item in acquisition.locks {
       guard var entry = entries[item.key] else { continue }
       entry.users -= 1
       if acquisition.ownedKeys.contains(item.key) {
         entry.ownerDepth = max(entry.ownerDepth - 1, 0)
-        if entry.ownerDepth == 0 {
-          entry.ownerThread = nil
-        }
+        if entry.ownerDepth == 0 { entry.ownerThread = nil }
       }
-      if entry.users == 0 {
-        if let element = elementsByKey[item.key] {
-          AXUIElementSetMessagingTimeout(element, 0)
-        }
-        entries[item.key] = nil
-      } else {
-        entries[item.key] = entry
+      if entry.users == 0, let element = elementsByKey[item.key] {
+        entry.resetting = true
+        resets.append((item.key, element))
       }
+      entries[item.key] = entry
     }
     registryLock.unlock()
+    for reset in resets { timeoutSetter(reset.element, 0) }
+    if !resets.isEmpty {
+      registryLock.lock()
+      for reset in resets { entries[reset.key] = nil }
+      registryLock.broadcast()
+      registryLock.unlock()
+    }
     for item in acquisition.locks.reversed()
     where acquisition.ownedKeys.contains(item.key) {
       item.lock.unlock()

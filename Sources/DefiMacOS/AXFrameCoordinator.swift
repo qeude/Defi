@@ -18,6 +18,22 @@ func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
 }
 
 final class AXFrameCoordinator: @unchecked Sendable {
+  typealias BatchResult = (
+    applied: Int, stale: Int, slowProcesses: Set<pid_t>, attempted: Bool
+  )
+  typealias BatchWriter = @Sendable (
+    ProcessWriteBatch, QueuedPositionFrame, Double, Bool, Bool, Bool
+  ) -> BatchResult
+  let batchWriter: BatchWriter?
+
+  init(
+    batchWriter: BatchWriter? = nil,
+    accessibilityWriter: AXFrameAccessibilityWriter = AXFrameAccessibilityWriter()
+  ) {
+    self.batchWriter = batchWriter
+    self.accessibilityWriter = accessibilityWriter
+  }
+
   /// Reports completed geometry so borders cannot outrun window writes.
   var borderLiveGeometryHandler: (@Sendable ([WindowID: Rect]) -> Void)?
 
@@ -29,10 +45,6 @@ final class AXFrameCoordinator: @unchecked Sendable {
     label: "com.quentin.defi.animation-clock",
     qos: .userInteractive
   )
-  let finalOnlyAnimationQueue = DispatchQueue(
-    label: "com.quentin.defi.ax-final-only-animation",
-    qos: .userInitiated
-  )
   let parkingSettlementQueue = DispatchQueue(
     label: "com.quentin.defi.ax-parking-settlement",
     qos: .utility
@@ -41,7 +53,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   let animationLaneWriteGroup = DispatchGroup()
   let lock = NSLock()
   let animationLaneLock = NSLock()
-  let accessibilityWriter = AXFrameAccessibilityWriter()
+  let accessibilityWriter: AXFrameAccessibilityWriter
   var pending: QueuedPositionFrame?
   var nextGeneration: UInt64 = 0
   var latestGeneration: UInt64 = 0
@@ -86,15 +98,18 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedInitialSettlementChecks = 0
   var repairedInitialSettlementDrifts = 0
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
-  var recentProcessLatencySamplesMS: [pid_t: [Double]] = [:]
+  var recentIntermediateProcessLatencySamplesMS:
+    [pid_t: [(sampledAt: TimeInterval, latencyMS: Double)]] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
   var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
+  var processWriteQueueReservations: [pid_t: Int] = [:]
+  var processWriteQueueRetirementRequested = Set<pid_t>()
   var processAnimationLanes:
     [pid_t: LatestAnimationSampleState<ProcessAnimationSample>] = [:]
   var nextEnhancedUIRestoreToken: UInt64 = 0
   var deferredEnhancedUIRestores:
-    [pid_t: (token: UInt64, application: AXUIElement)] = [:]
+    [pid_t: (token: UInt64, application: AXUIElement, disabled: Bool)] = [:]
   var immediateReadbackProcessDeadlines: [pid_t: TimeInterval] = [:]
   var liveBorderWindowID: WindowID?
 
@@ -245,6 +260,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     initialSettlementDriftSamples.removeAll(keepingCapacity: true)
     initialSettlementRepairsSuspended = false
     pendingInitialSettlementEventChecks.removeAll(keepingCapacity: true)
+    retireIdleProcessWriteQueuesLocked()
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
     completeSupersededFrame(displacedFrame)
@@ -274,15 +290,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     completion: (@Sendable (FrameWriteCompletion) -> Void)? = nil
   ) {
     guard !writes.isEmpty else { return }
-    let animatedWrites = writes.filter { animatedWindowIDs.contains($0.key) }
-    // A scrolling strip must not mix instantaneous moves with interpolated neighbors.
-    let usesCoherentPositionFallback = animationDuration > 0
-      && !animationSupportsIntermediateFrames(
-        processIDs: Set(animatedWrites.values.map(\.processID)),
-        animationDuration: animationDuration,
-        refreshRateHz: refreshRateHz
-      )
-    let animationDuration = usesCoherentPositionFallback ? 0 : animationDuration
+    // Preserve requested timing while queued. The worker admits the complete
+    // ribbon using current latency, after preceding native work has finished.
     lock.lock()
     let displacedFrame = pending
     nextGeneration &+= 1
@@ -389,6 +398,19 @@ final class AXFrameCoordinator: @unchecked Sendable {
     defer { lock.unlock() }
     return activeAnimationRunning
       || (pending?.animationDuration ?? 0) > 0
+  }
+
+  var hasPendingHorizontalMotion: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    var writes = activeAnimationRunning
+      ? activeAnimatedWindowIDs.compactMap { activeWrites[$0] } : []
+    if let pending, pending.animationDuration > 0 {
+      writes.append(contentsOf: pending.animatedWindowIDs.compactMap { pending.writes[$0] })
+    }
+    return writes.contains {
+      !$0.sizeChanged && $0.fromPoint.y == $0.point.y
+    }
   }
 
   var hasPendingDeferredParkingWrites: Bool {
@@ -610,7 +632,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     predictedProcessLatencyMS = predictedProcessLatencyMS.filter {
       liveProcessIDs.contains($0.key)
     }
-    recentProcessLatencySamplesMS = recentProcessLatencySamplesMS.filter {
+    recentIntermediateProcessLatencySamplesMS = recentIntermediateProcessLatencySamplesMS.filter {
       liveProcessIDs.contains($0.key)
     }
     latencySensitiveProcessIDs.formIntersection(liveProcessIDs)
@@ -620,29 +642,47 @@ final class AXFrameCoordinator: @unchecked Sendable {
     immediateReadbackProcessDeadlines = immediateReadbackProcessDeadlines.filter {
       liveProcessIDs.contains($0.key)
     }
-    let retiredQueues = processWriteQueues.filter {
-      !liveProcessIDs.contains($0.key)
-    }
+    processWriteQueueRetirementRequested.formUnion(
+      processWriteQueues.keys.filter { !liveProcessIDs.contains($0) }
+    )
+    processWriteQueueRetirementRequested.subtract(liveProcessIDs)
     let retiredEnhancedUIRestores = deferredEnhancedUIRestores.filter {
       !liveProcessIDs.contains($0.key)
     }
-    for processID in retiredQueues.keys {
-      processWriteQueues[processID] = nil
-    }
+    var restoreReservations: [pid_t: ProcessWriteQueueReservation] = [:]
     for processID in retiredEnhancedUIRestores.keys {
+      animationLaneWriteGroup.enter()
+      processWriteQueueRetirementRequested.insert(processID)
       deferredEnhancedUIRestores[processID] = nil
+      restoreReservations[processID] = reserveProcessWriteQueueLocked(for: processID)
     }
+    retireIdleProcessWriteQueuesLocked()
     lock.unlock()
-    for restore in retiredEnhancedUIRestores.values {
-      accessibilityWriter.setEnhancedUserInterface(
-        true,
-        application: restore.application
-      )
-    }
-    // Drain outside the lock: pending work items observe the empty queue map
-    // and their writes are generation-checked, so they become no-ops.
-    for (_, queue) in retiredQueues {
-      queue.async { }
+    for (processID, restore) in retiredEnhancedUIRestores {
+      guard let reservation = restoreReservations[processID] else { continue }
+      reservation.queue.async { [self, reservation] in
+        defer {
+          reservation.release()
+          animationLaneWriteGroup.leave()
+        }
+        lock.lock()
+        let superseded = deferredEnhancedUIRestores[processID] != nil
+        lock.unlock()
+        guard !superseded else { return }
+        let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [restore.application]) {
+          accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
+        }
+        lock.lock()
+        deferredEnhancedUIRestores[processID]?.disabled = false
+        if !restored {
+          // Keep a failed retirement recoverable by rediscovery or shutdown.
+          if deferredEnhancedUIRestores[processID] == nil {
+            deferredEnhancedUIRestores[processID] = (restore.token, restore.application, false)
+          }
+          appendTraceLocked("enhanced-ui-restore-failed pid=\(processID) token=\(restore.token) retired=1")
+        }
+        lock.unlock()
+      }
     }
   }
 

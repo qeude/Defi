@@ -1,11 +1,47 @@
 import ApplicationServices
+import DefiModel
 
 final class AXFrameAccessibilityWriter {
+  private let positionWriter: ((AsyncPositionWrite, CGPoint) -> Bool)?
+  private let positionReader: ((AXUIElement) -> CGPoint?)?
+  private let enhancedUIWriter: ((AXUIElement, Bool) -> Bool)?
+
+  let nativePositionReader: (WindowID, pid_t) -> CGPoint?
+  let independentBorderObservationAvailable: () -> Bool
+
+  init(
+    positionWriter: ((AsyncPositionWrite, CGPoint) -> Bool)? = nil,
+    positionReader: ((AXUIElement) -> CGPoint?)? = nil,
+    enhancedUIWriter: ((AXUIElement, Bool) -> Bool)? = nil,
+    nativePositionReader: @escaping (WindowID, pid_t) -> CGPoint? = readWindowServerPosition,
+    independentBorderObservationAvailable: @escaping () -> Bool = { false }
+  ) {
+    self.positionWriter = positionWriter
+    self.positionReader = positionReader
+    self.enhancedUIWriter = enhancedUIWriter
+    self.nativePositionReader = nativePositionReader
+    self.independentBorderObservationAvailable = independentBorderObservationAvailable
+  }
+
+  static func readWindowServerPosition(_ windowID: WindowID, processID: pid_t) -> CGPoint? {
+    guard let rawID = CGWindowID(exactly: windowID.rawValue),
+      let rows = CGWindowListCopyWindowInfo(.optionIncludingWindow, rawID) as? [[String: Any]],
+      let record = rows.compactMap(cgWindowRecord).first(where: {
+        $0.id == rawID && $0.processID == processID
+      }), record.frame.x.isFinite, record.frame.y.isFinite,
+      record.frame.width.isFinite, record.frame.height.isFinite,
+      record.frame.width > 0, record.frame.height > 0
+    else { return nil }
+    return CGPoint(x: record.frame.x, y: record.frame.y)
+  }
+
   func applySize(
     _ write: AsyncPositionWrite,
     size: CGSize,
-    enhancedUIManagedByBatch: Bool = false
+    enhancedUIManagedByBatch: Bool = false,
+    shouldApply: () -> Bool = { true }
   ) -> Bool {
+    guard shouldApply() else { return false }
     let initialResult = applySizeValue(write, size: size)
     if initialResult == .success {
       return true
@@ -16,22 +52,27 @@ final class AXFrameAccessibilityWriter {
       return false
     }
     if enhancedUIManagedByBatch {
-      return applySizeValue(write, size: size) == .success
+      return shouldApply() && applySizeValue(write, size: size) == .success
     }
+    guard shouldApply() else { return false }
     setEnhancedUserInterface(false, application: write.application)
     defer {
       setEnhancedUserInterface(true, application: write.application)
     }
-    return applySizeValue(write, size: size) == .success
+    return shouldApply() && applySizeValue(write, size: size) == .success
   }
 
   func applyPosition(
     _ write: AsyncPositionWrite,
     point: CGPoint,
     forceOffscreenAccess: Bool = false,
-    enhancedUIManagedByBatch: Bool = false
+    verifyParkedPosition: Bool = true,
+    enhancedUIManagedByBatch: Bool = false,
+    nativePositionIsVerified: (() -> Bool)? = nil,
+    shouldApply: () -> Bool = { true }
   ) -> Bool {
-    if write.isParked || forceOffscreenAccess {
+    guard shouldApply() else { return false }
+    if (write.isParked && verifyParkedPosition) || forceOffscreenAccess {
       if !enhancedUIManagedByBatch {
         setEnhancedUserInterface(false, application: write.application)
       }
@@ -41,7 +82,9 @@ final class AXFrameAccessibilityWriter {
         }
       }
       for _ in 0..<2 {
+        guard shouldApply() else { return false }
         guard apply(write, point: point) == .success else { continue }
+        if nativePositionIsVerified?() == true { return true }
         guard let actual = readPosition(write.element) else { return true }
         if pointDistance(actual, point) <= 1 {
           return true
@@ -59,16 +102,18 @@ final class AXFrameAccessibilityWriter {
       return false
     }
     if enhancedUIManagedByBatch {
-      return apply(write, point: point) == .success
+      return shouldApply() && apply(write, point: point) == .success
     }
+    guard shouldApply() else { return false }
     setEnhancedUserInterface(false, application: write.application)
     defer {
       setEnhancedUserInterface(true, application: write.application)
     }
-    return apply(write, point: point) == .success
+    return shouldApply() && apply(write, point: point) == .success
   }
 
   func readPosition(_ element: AXUIElement) -> CGPoint? {
+    if let positionReader { return positionReader(element) }
     var rawValue: CFTypeRef?
     guard
       AXUIElementCopyAttributeValue(
@@ -116,6 +161,7 @@ final class AXFrameAccessibilityWriter {
     _ write: AsyncPositionWrite,
     point: CGPoint
   ) -> AXError {
+    if let positionWriter { return positionWriter(write, point) ? .success : .cannotComplete }
     var point = point
     guard let value = AXValueCreate(.cgPoint, &point) else {
       return .failure
@@ -140,14 +186,16 @@ final class AXFrameAccessibilityWriter {
     )
   }
 
+  @discardableResult
   func setEnhancedUserInterface(
     _ enabled: Bool,
     application: AXUIElement
-  ) {
-    AXUIElementSetAttributeValue(
+  ) -> Bool {
+    if let enhancedUIWriter { return enhancedUIWriter(application, enabled) }
+    return AXUIElementSetAttributeValue(
       application,
       "AXEnhancedUserInterface" as CFString,
       enabled ? kCFBooleanTrue : kCFBooleanFalse
-    )
+    ) == .success
   }
 }

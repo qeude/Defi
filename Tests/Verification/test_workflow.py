@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline checks for verification isolation, contention, and result reporting."""
+import csv
 import json
 import os
 import plistlib
@@ -9,16 +10,129 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "script"))
 import desktop_lock
 import verify
 import desktop_session
+import ribbon_stress
+import animation_benchmark
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_ribbon_stress_requires_complete_command_motion(self):
+        trace = ('1 submit g=1 source=command-animation windows=2[1,2] animated=2[1,2]\n'
+                 '2 cadence g=99 frames=3 submittedSteps=2 appliedIntermediateWrites=4 maxGapMs=99\n'
+                 '3 cadence g=1 frames=3 submittedSteps=2 appliedIntermediateWrites=4 maxGapMs=12.5')
+        self.assertEqual(ribbon_stress.motion_gaps(trace), [12.5])
+        with self.assertRaisesRegex(RuntimeError, 'incomplete'):
+            ribbon_stress.motion_gaps(trace.rsplit('\n', 1)[0])
+        self.assertEqual(ribbon_stress.motion_gaps(trace.replace('Writes=4 maxGapMs=12.5',
+                                                               'Writes=0 maxGapMs=12.5')), [])
+
+    def test_ribbon_stress_waits_for_stable_observed_convergence(self):
+        idle = 'axPending=false focusPending=false animating=false drift=0[]'
+        clock = [0.0]
+        statuses = iter([idle, idle, idle.replace('drift=0[]', 'drift=1[42]')])
+
+        def advance(seconds):
+            clock[0] += seconds
+
+        with patch.object(ribbon_stress.session, 'command',
+                          side_effect=lambda *_: next(statuses, idle)) as command, \
+                patch.object(ribbon_stress.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(ribbon_stress.time, 'sleep', side_effect=advance):
+            self.assertEqual(ribbon_stress.wait_for_settlement(), idle)
+            self.assertGreaterEqual(clock[0], 0.44)
+            self.assertGreaterEqual(command.call_count, 10)
+
+    def test_ribbon_stress_restores_after_sigterm(self):
+        def terminate_after_start():
+            import signal
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+
+        with patch.object(ribbon_stress, 'inherited_lock', return_value=1), \
+                patch.object(ribbon_stress.session, 'checkpoint') as checkpoint, \
+                patch.object(ribbon_stress.session, 'start', side_effect=terminate_after_start), \
+                patch.object(ribbon_stress.session, 'restore') as restore, \
+                patch.object(ribbon_stress.session, 'daemon_count', return_value=1), \
+                patch.object(sys, 'argv', ['ribbon_stress.py', '--steps', '4']), \
+                self.assertRaises(KeyboardInterrupt):
+            ribbon_stress.main()
+        checkpoint.assert_called_once()
+        restore.assert_called_once()
+
+    def test_benchmark_requires_exact_focus_and_active_workspace(self):
+        self.assertEqual(animation_benchmark.focused_window('workspace=web focused=12').group(1), '12')
+        self.assertNotEqual(animation_benchmark.focused_window('workspace=web focused=123').group(1), '12')
+        monitor, workspace = animation_benchmark.focused_active_workspace({
+            'monitors': [{'focused': True, 'display': 2,
+                          'workspaces': [{'active': True, 'id': 'web'}]}]
+        })
+        self.assertEqual((monitor['display'], workspace['id']), (2, 'web'))
+        with self.assertRaisesRegex(RuntimeError, 'active workspace'):
+            animation_benchmark.focused_active_workspace({'monitors': []})
+        with self.assertRaisesRegex(RuntimeError, 'active workspace'):
+            animation_benchmark.focused_active_workspace({
+                'monitors': [{'focused': True, 'workspaces': []}]
+            })
+
+    def test_benchmark_rejects_incomplete_capture_coverage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'display.csv').write_text('timestamp_s\n1.0\n')
+            (root / 'markers.csv').write_text(
+                'uptime_s,phase,event\n0.9,single-right,start\n2.0,single-right,end\n'
+            )
+            with self.assertRaisesRegex(RuntimeError, 'complete.*phase'):
+                animation_benchmark.summarize(root / 'display.csv', root / 'markers.csv')
+
+    def test_benchmark_marks_stationary_motion_metrics_as_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fields = ['timestamp_s'] + [
+                f'zone{zone}_{field}' for zone in range(4)
+                for field in ('dx_px', 'confidence', 'clipped')
+            ]
+            with (root / 'display.csv').open('w', newline='') as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                for timestamp in (1.0, 1.25, 1.5):
+                    row = {'timestamp_s': str(timestamp)}
+                    for zone in range(4):
+                        row.update({f'zone{zone}_dx_px': '0',
+                                    f'zone{zone}_confidence': '0',
+                                    f'zone{zone}_clipped': 'false'})
+                    writer.writerow(row)
+            (root / 'markers.csv').write_text(
+                'uptime_s,phase,event\n1.0,single-right,start\n1.5,single-right,end\n'
+            )
+            summary = animation_benchmark.summarize(root / 'display.csv', root / 'markers.csv')
+            self.assertIn('maxGapBetweenMovingFramesMs=n/a', summary)
+            self.assertIn('medianZoneOffsetSpreadPx=n/a', summary)
+            self.assertNotIn('nan', summary.lower())
+
+    def test_benchmark_exercise_writes_complete_phase_markers(self):
+        marks = []
+        class Writer:
+            def writerow(self, row):
+                marks.append(row)
+        stream = Mock()
+        with patch.object(animation_benchmark, 'run') as run_command, \
+                patch.object(animation_benchmark.time, 'sleep'):
+            animation_benchmark.exercise('single-right', [('right', 0)], Writer(), stream)
+        self.assertEqual([row[1:] for row in marks], [
+            ('single-right', 'start'), ('single-right', 'end')
+        ])
+        run_command.assert_called_once()
+        self.assertEqual(stream.flush.call_count, 2)
+
+    def test_ribbon_artifact_names_are_unique(self):
+        with patch.object(ribbon_stress.time, 'time_ns', side_effect=[1, 2]):
+            self.assertNotEqual(ribbon_stress.artifact_directory(), ribbon_stress.artifact_directory())
+
     def test_lock_excludes_other_worktrees_and_survives_nested_exec(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "desktop.lock"
