@@ -608,3 +608,49 @@ presentation. Initial workspace, logical focus, widths, scroll, and managed
 frames were restored; config bytes and the installed prepared binary matched,
 and exactly one daemon remained. Artifact:
 `dist/benchmarks/qos-computer-use-1790976160565504000/result.json`.
+
+
+## PR review verification (2026-10-03)
+
+Review fixes preserve the 125 ms default and public Accessibility fallback.
+They cover stale native focus, no-op focus intent, accepted border observations,
+scoped snapshot invalidation, reentry staging, delayed display pulses, and
+benchmark restoration. Process queue retirement waits for queued, delayed,
+and animation work; overview requests track pending intent independently of
+the asynchronously published UI state.
+
+A comparison against the original PR commit (`3bd2947`) used the same saved
+session and 125 ms configuration on one monitor. Each build ran 16 navigation
+steps at 180 ms spacing and 32 at 60 ms spacing in both web and dev workspaces.
+The largest motion-dispatch gaps in each run were:
+
+| Workspace / timing | Original PR | Review candidate |
+| --- | ---: | ---: |
+| Web / ordinary | 16.59 ms | 17.20 ms |
+| Web / rapid | 14.55 ms | 17.06 ms |
+| Dev / ordinary | 14.85 ms | 14.60 ms |
+| Dev / rapid | 13.74 ms | 15.00 ms |
+
+The candidate here is `b9dc3a5`, before the final queue-retirement and overview
+fixes. These are dispatch measurements rather than presented-frame FPS. The
+small mixed changes do not demonstrate a speedup or sustained 120 Hz. Each
+comparison restored workspace topology, logical focus, widths, scroll, and
+managed frames. Local-only artifacts are under
+`dist/benchmarks/pr118-review/`.
+
+The animation-disabled comparison against `origin/main` (`f89d0f1`) deliberately
+did not reach exact parity: after a right command at the ribbon boundary,
+baseline native focus reverted from 72245 to 65242 despite a preserved logical
+selection of 72245. The candidate retained the intended focus; native frames
+matched at that no-op. Later width differences follow the different focused
+window. This is evidence for the no-op focus fix, not a geometry parity pass.
+Configuration bytes and the saved desktop session were restored, with exactly
+one daemon. Artifact:
+`dist/benchmarks/immediate-parity-1791019452101045000/result.json`.
+
+The complete native run at `bacf0be` passed 30 tests with Accessibility available
+and skipped six: five require a second display, and reentry requires two
+eligible native windows on one monitor. Session restoration passed. The focused
+reentry retry at `b9dc3a5` also skipped for fixture availability. These skipped
+cases remain unverified on this desktop; the verification runner correctly
+reports the runs as incomplete rather than fully passed.
