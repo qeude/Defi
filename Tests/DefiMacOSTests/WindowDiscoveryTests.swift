@@ -407,6 +407,44 @@ struct WindowDiscoveryTests {
   }
 
   @Test
+  func `Fresh AX window ID resolves after its old cached ID is occupied`() {
+    let occupied = CGWindowRecord(
+      id: 43,
+      processID: processID,
+      layer: 0,
+      title: "Refreshed",
+      frame: frame
+    )
+    let current = CGWindowRecord(
+      id: 44,
+      processID: processID,
+      layer: 0,
+      title: "Sibling",
+      frame: frame
+    )
+
+    #expect(
+      cgWindowRecordForDiscovery(
+        axWindowID: 44,
+        preferredWindowID: WindowID(rawValue: 43),
+        processID: processID,
+        title: "Sibling",
+        frame: frame,
+        records: [occupied, current],
+        excluding: [43]
+      )?.id == 44)
+    #expect(
+      cgWindowRecordForDiscovery(
+        preferredWindowID: WindowID(rawValue: 43),
+        processID: processID,
+        title: "Sibling",
+        frame: frame,
+        records: [occupied, current],
+        excluding: [43]
+      ) == nil)
+  }
+
+  @Test
   func `AX window ID bypasses redacted window server geometry`() {
     let live = CGWindowRecord(
       id: 42,

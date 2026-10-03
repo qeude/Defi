@@ -218,66 +218,6 @@ struct WindowSnapshotStabilityTests {
     #expect(result.applicationWindows[43] == [omittedElement])
   }
 
-  @MainActor
-  @Test
-  func cachedSiblingCollisionFallsThroughToFreshNativeIDResolution() {
-    let platform = NavigationActor.shared.queue.sync {
-      NavigationActor.assumeIsolated { MacOSPlatform() }
-    }
-    let engine = platform.snapshotEngine
-    var refreshed = makeWindow(id: 42)
-    refreshed.title = "Refreshed"
-    var cachedSibling = makeWindow(id: 43)
-    cachedSibling.title = "Sibling"
-    let refreshedElement = AXUIElementCreateApplication(-1)
-    let siblingElement = AXUIElementCreateApplication(-2)
-    engine.elements = [refreshed.id: refreshedElement, cachedSibling.id: siblingElement]
-    engine.processIDs = [refreshed.id: 42, cachedSibling.id: 42]
-    engine.applications = [42: refreshedElement]
-    engine.applicationIDsByProcess = [42: refreshed.appID]
-    engine.enhancedUIByProcess = [42: false]
-    engine.hasCompletedWindowSnapshot = true
-    engine.lastSnapshotWindows = [refreshed, cachedSibling]
-    engine.lastApplicationWindowElements = [42: [refreshedElement, siblingElement]]
-    let resolvedRefreshedID: CGWindowID = 43
-    let resolvedSiblingID: CGWindowID = 44
-    let attributes: [WindowID: AXWindowAttributes] = [
-      refreshed.id: AXWindowAttributes(
-        minimized: false, frame: refreshed.frame, title: refreshed.title,
-        role: kAXWindowRole, subrole: kAXStandardWindowSubrole
-      ),
-      cachedSibling.id: AXWindowAttributes(
-        minimized: false, frame: cachedSibling.frame, title: cachedSibling.title,
-        role: kAXWindowRole, subrole: kAXStandardWindowSubrole
-      ),
-    ]
-    let result = engine.discoverSnapshotWindows(
-      monitors: [], config: Config(), incrementalProcessIDs: [42],
-      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
-      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
-      preparedWindowAttributes: attributes, preparedTransientOwnerWindowIDs: [:],
-      preparedApplicationWindows: [42: PreparedAXApplicationWindows(
-        elements: [refreshedElement, siblingElement], durationMS: 0
-      )], explicitlyDestroyedWindowIDs: [], frameRefreshWindowIDs: [refreshed.id],
-      publicCGWindows: {
-        [
-          CGWindowRecord(id: resolvedRefreshedID, processID: 42, layer: 0,
-                         title: refreshed.title, frame: refreshed.frame, isOnscreen: true),
-          CGWindowRecord(id: resolvedSiblingID, processID: 42, layer: 0,
-                         title: cachedSibling.title, frame: cachedSibling.frame, isOnscreen: true),
-        ]
-      }
-    )
-
-    #expect(Set(result.windows.map(\.id)) == Set([
-      WindowID(rawValue: UInt64(resolvedRefreshedID)),
-      WindowID(rawValue: UInt64(resolvedSiblingID)),
-    ]))
-    #expect(result.windows.count == 2)
-    #expect(result.nextElements[WindowID(rawValue: UInt64(resolvedSiblingID))] != nil)
-    #expect(result.cachedSnapshotWindowIDs.contains(cachedSibling.id) == false)
-  }
-
   @Test(arguments: [false, true], [false, true])
   func targetedFrameRefreshDoesNotReadUnaffectedSiblings(targeted: Bool, refreshList: Bool) {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
