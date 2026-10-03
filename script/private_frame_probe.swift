@@ -54,17 +54,25 @@ private struct PrivateFrameProbe {
       throw failure("Defi-owned probe surface has no WindowServer ID")
     }
     var original = CGRect.zero
-    guard getBounds(connection, windowID, &original) == 0 else {
-      throw failure("Could not read the probe surface's initial bounds")
+    guard getBounds(connection, windowID, &original) == 0,
+      original.origin.x.isFinite, original.origin.y.isFinite,
+      original.width.isFinite, original.height.isFinite,
+      original.width > 0, original.height > 0
+    else {
+      throw failure("Probe surface's initial bounds are unavailable or unusable")
     }
     var latenciesMS: [Double] = []
     for index in 0..<24 {
-      var point = CGPoint(x: original.minX + CGFloat(index % 2), y: original.minY)
+      var point = CGPoint(x: original.minX + CGFloat((index + 1) % 2), y: original.minY)
       let startedAt = ProcessInfo.processInfo.systemUptime
       let moveResult = withUnsafePointer(to: &point) { move(connection, windowID, $0) }
       var observed = CGRect.zero
       let boundsResult = getBounds(connection, windowID, &observed)
       guard moveResult == 0, boundsResult == 0,
+        observed.width.isFinite, observed.height.isFinite,
+        observed.width > 0, observed.height > 0,
+        abs(observed.width - original.width) <= 0.5,
+        abs(observed.height - original.height) <= 0.5,
         abs(observed.minX - point.x) <= 0.5,
         abs(observed.minY - point.y) <= 0.5
       else {
@@ -82,14 +90,19 @@ private struct PrivateFrameProbe {
     var restored = CGRect.zero
     let verifyRestore = getBounds(connection, windowID, &restored)
     guard restoreResult == 0, verifyRestore == 0,
+      abs(restored.width - original.width) <= 0.5,
+      abs(restored.height - original.height) <= 0.5,
       abs(restored.minX - original.minX) <= 0.5,
       abs(restored.minY - original.minY) <= 0.5
     else { throw failure("Probe surface did not return to its original bounds") }
 
     let ordered = latenciesMS.sorted()
+    let median = ordered.count.isMultiple(of: 2)
+      ? (ordered[ordered.count / 2 - 1] + ordered[ordered.count / 2]) / 2
+      : ordered[ordered.count / 2]
     print("probe=DefiOwnedInvisiblePanel backend=SLSMoveWindow result=verified window=\(windowID)")
     print(String(format: "moveAndReadCount=%d medianMs=%.3f p95Ms=%.3f maxMs=%.3f",
-                 ordered.count, ordered[ordered.count / 2],
+                 ordered.count, median,
                  ordered[min(Int(Double(ordered.count) * 0.95), ordered.count - 1)],
                  ordered.last ?? 0))
   }

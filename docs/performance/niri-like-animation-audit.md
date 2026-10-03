@@ -1,6 +1,6 @@
 # Native scrolling animation audit
 
-Date: 2026-09-30. Scope: the current uncommitted animation implementation,
+Updated through 2026-10-02. Scope: the current uncommitted animation implementation,
 previous Dia captures, and the public macOS frame backend. The original evidence below precedes the implementation.
 The implementation status distinguishes completed fixes from remaining platform limits.
 
@@ -196,7 +196,7 @@ Parallel writes within one application's AX handler are also deliberately
 avoided because they would weaken mutation ordering without proving presentation
 consistency.
 
-- The audited coordinator chose separate final-dispatch deadlines using each
+- Historical audit: the coordinator chose separate final-dispatch deadlines using each
   process's predicted AX latency. Due processes receive progress 1 while their
   siblings still receive spring progress (`AXFrameCoordinatorAnimation.swift`,
   `finalSubmissionDelayByProcess` and `finalizedProcessIDs`).
@@ -205,7 +205,10 @@ consistency.
   spacing error** for a 1,000-point translation over 150 ms, with process
   predictions of 2 ms and 40 ms. This is a generated-position inconsistency,
   not a measurement of actual displayed gaps. Output:
-  `dist/benchmarks/scheduler-gap-audit-20260930.txt`.
+  `dist/benchmarks/scheduler-gap-audit-20260930.txt` (ignored, local-only artifact;
+  its replay used a 1,000-point translation over 150 ms with 2 ms and 40 ms
+  process predictions. The scalar result is stated here because the output file
+  is not distributed with a clean checkout).
 - Audited reentry staging was queued before the timer but joined after it finished.
   There is no completion barrier before the first moving sample. An entering
   window can still be staging while another application's windows move.
@@ -215,34 +218,35 @@ consistency.
   with optimistic targets would risk a rollback.
 - The previous Dia trace contains a **55.19 ms position operation**, compared
   with an 8.33 ms interval at 120 Hz:
-  `dist/benchmarks/dia-run-with-resize-20260929/trace-after.txt`. This is historical
-  evidence, not a fresh benchmark of the latest fixes.
+  `dist/benchmarks/dia-run-with-resize-20260929/trace-after.txt` (ignored,
+  local-only artifact). This is historical evidence, not a fresh benchmark of
+  the latest fixes; the measured value and context are recorded above because
+  the trace file is not distributed with a clean checkout.
 - The owned-window private probe checks bounds immediately after each call.
   Its inconsistent immediate readback does not distinguish API failure from
   delayed acceptance. It does not establish a usable third-party backend.
 
 ## Ranked implementation work
 
-| Priority | Change | Expected benefit and limit |
-| --- | --- | --- |
-| P0 | Remove per-process early finalization from a horizontal ribbon; submit one shared final progress after its shared intermediate sequence. | Removes the reproduced planned spacing error. AX acceptance remains asynchronous. |
-| P0 | Finish successful reentry staging before starting the shared timeline; recheck generation after the barrier. | Prevents siblings from starting ahead of entering columns. Failed staging needs an explicit coherent fallback; a barrier alone can add input-to-motion delay. |
-| P0 | Model horizontal movement as one offset per monitor/ribbon, using stable logical column geometry. Treat clamped offscreen anchors as presentation bounds, not ordinary logical positions. | Makes constant spacing structural in generated geometry. Must preserve widths, stacked columns, and per-monitor isolation. |
-| P0 | Handle retargeting at a complete shared sample boundary, with latest input replacing the next target rather than letting an old sample stop midway without accounting for partial writes. | Reduces mixed-progress starts. Bound old work; never finish an arbitrarily slow obsolete batch merely to preserve symmetry. Failed or delayed native writes still require reconciliation. |
-| P1 | Retain velocity only for windows whose intermediate position was successfully applied, and clear unsupported velocity on failure. | Prevents inherited motion that never occurred. AX success still does not prove presentation. |
-| P1 | Separate motion latency from final verification/size latency; classify the whole process batch, including window count, with stable recovery. | Reduces unexpected animation/immediate toggling. Existing recent-sample expiry helps, but its fallback prediction still includes non-motion writes. |
-| P1 | Diff intermediate positions against the last accepted/requested intermediate geometry, with correct failure handling. | Avoids repeated subpixel-equivalent AX writes at the spring tail. Final verification, reentry, and parking correctness must not be skipped. |
-| P1 | Reuse a per-monitor display-linked clock instead of a free-running timer; callbacks only schedule work and never execute AX. | Improves phase alignment and follows refresh changes. Cannot make slow AX calls meet display deadlines. |
-| P1 | Profile live-border readback and timeout setup/reset on the movement path; move avoidable reads to settlement or the existing bounded observation path. | Reduces AX traffic. Keep accurate border geometry and mandatory offscreen verification; do not delete reads based only on intuition. |
-| P2 | Profile discovery/snapshot contention during movement; defer unrelated inventories while retaining close, focus, display, and user-resize events. | Reduces occasional background interference. Existing caches and bounded refresh policies should be reused. |
+| Priority | Status | Change | Expected benefit and limit |
+| --- | --- | --- | --- |
+| P0 | Done | Remove per-process early finalization from a horizontal ribbon; submit one shared final progress after its shared intermediate sequence. | Removes the reproduced planned spacing error. AX acceptance remains asynchronous. |
+| P0 | Done | Finish successful reentry staging before starting the shared timeline; recheck generation after the barrier. | Prevents siblings from starting ahead of entering columns. Failed staging uses a coherent immediate fallback. |
+| P0 | Pending | Model horizontal movement as one offset per monitor/ribbon, using stable logical column geometry. Treat clamped offscreen anchors as presentation bounds, not ordinary logical positions. | Makes constant spacing structural in generated geometry. Must preserve widths, stacked columns, and per-monitor isolation. |
+| P0 | Pending | Handle retargeting at a complete shared sample boundary, with latest input replacing the next target rather than letting an old sample stop midway without accounting for partial writes. | Reduces mixed-progress starts. Bound old work; never finish an arbitrarily slow obsolete batch merely to preserve symmetry. Failed or delayed native writes still require reconciliation. |
+| P1 | Pending | Retain velocity only for windows whose intermediate position was successfully applied, and clear unsupported velocity on failure. | Prevents inherited motion that never occurred. AX success still does not prove presentation. |
+| P1 | Pending | Separate motion latency from final verification/size latency; classify the whole process batch, including window count, with stable recovery. | Reduces unexpected animation/immediate toggling. Existing recent-sample expiry helps, but its fallback prediction still includes non-motion writes. |
+| P1 | Pending | Diff intermediate positions against the last accepted/requested intermediate geometry, with correct failure handling. | Avoids repeated subpixel-equivalent AX writes at the spring tail. Final verification, reentry, and parking correctness must not be skipped. |
+| P1 | Done | Reuse a per-monitor display-linked clock instead of a free-running timer; callbacks only schedule work and never execute AX. | Improves phase alignment and follows refresh changes. Cannot make slow AX calls meet display deadlines. |
+| P1 | Pending | Profile live-border readback and timeout setup/reset on the movement path; move avoidable reads to settlement or the existing bounded observation path. | Reduces AX traffic. Keep accurate border geometry and mandatory offscreen verification; do not delete reads based only on intuition. |
+| P2 | Pending | Profile discovery/snapshot contention during movement; defer unrelated inventories while retaining close, focus, display, and user-resize events. | Reduces occasional background interference. Existing caches and bounded refresh policies should be reused. |
 
 For display timing, the code already uses `NSScreen.displayLink` in Overview.
 Apple documents its callback as synchronized with that screen's refresh:
 [NSScreen display link](https://developer.apple.com/documentation/appkit/nsscreen/displaylink(target:selector:)).
 
-The smallest first implementation is P0 shared finalization plus the staging
-barrier. Measure that before restructuring retargeting or adding a new backend.
-The scalar model and sample-boundary work are necessary if repeated navigation
+The remaining pending items need measurement before implementation. The scalar
+model and sample-boundary work are still candidates if repeated navigation
 continues to produce incoherent generated geometry.
 
 ## Backend decision

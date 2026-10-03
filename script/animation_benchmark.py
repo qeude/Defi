@@ -3,7 +3,6 @@
 import argparse
 import csv
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -45,7 +44,8 @@ def build_input():
 def summarize(csv_path, markers_path):
     with csv_path.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
-    marks = list(csv.DictReader(markers_path.open(newline="")))
+    with markers_path.open(newline="") as stream:
+        marks = list(csv.DictReader(stream))
     if not rows:
         raise RuntimeError("Screen capture returned no frame measurements")
     lines = [
@@ -59,8 +59,13 @@ def summarize(csv_path, markers_path):
         start = next((float(item["uptime_s"]) for item in events if item["event"] == "start"), None)
         end = next((float(item["uptime_s"]) for item in events if item["event"] == "end"), None)
         if start is None or end is None:
-            continue
+            raise RuntimeError(f"Screen capture markers are incomplete for phase {phase!r}")
+        captured_times = [float(row["timestamp_s"]) for row in rows]
+        if min(captured_times) > start + 0.1 or max(captured_times) < end - 0.1:
+            raise RuntimeError(f"Screen capture did not cover the complete {phase!r} phase")
         phase_rows = [row for row in rows if start <= float(row["timestamp_s"]) <= end]
+        if len(phase_rows) < 2:
+            raise RuntimeError(f"Screen capture has too few samples for phase {phase!r}")
         moving = []
         spreads = []
         for index, row in enumerate(phase_rows):
@@ -71,20 +76,22 @@ def summarize(csv_path, markers_path):
             if len(shifts) >= 2:
                 moving.append((index, float(row["timestamp_s"])))
                 spreads.append(max(shifts) - min(shifts))
-        max_motion_gap = max((b[1] - a[1] for a, b in zip(moving, moving[1:])), default=math.nan)
+        max_motion_gap = max((b[1] - a[1] for a, b in zip(moving, moving[1:])), default=None)
         phase_intervals = [(float(b["timestamp_s"]) - float(a["timestamp_s"])) * 1000
                            for a, b in zip(phase_rows, phase_rows[1:])]
         phase_intervals.sort()
-        phase_p95 = (phase_intervals[min(int(len(phase_intervals) * 0.95), len(phase_intervals) - 1)]
-                     if phase_intervals else math.nan)
-        phase_max = max(phase_intervals, default=math.nan)
+        phase_p95 = phase_intervals[min(int(len(phase_intervals) * 0.95), len(phase_intervals) - 1)]
+        phase_max = max(phase_intervals)
+        median_spread = sorted(spreads)[len(spreads) // 2] if spreads else None
+        max_motion_gap_ms = f"{max_motion_gap * 1000:.2f}" if max_motion_gap is not None else "n/a"
+        median_spread_text = f"{median_spread:.1f}" if median_spread is not None else "n/a"
         lines.append(
             f"phase={phase} durationMs={(end-start)*1000:.0f} "
             f"displayFramesObserved={len(phase_rows)} captureGapP95Ms={phase_p95:.2f} "
             f"captureGapMaxMs={phase_max:.2f} "
             f"capturedMovingFrames={len(moving)} "
-            f"maxGapBetweenMovingFramesMs={max_motion_gap*1000:.2f} "
-            f"medianZoneOffsetSpreadPx={sorted(spreads)[len(spreads)//2] if spreads else math.nan:.1f}"
+            f"maxGapBetweenMovingFramesMs={max_motion_gap_ms} "
+            f"medianZoneOffsetSpreadPx={median_spread_text}"
         )
     return "\n".join(lines) + "\n"
 
@@ -104,6 +111,20 @@ def exercise(phase, directions, marker_writer, marker_stream, settle=0):
         time.sleep(settle)
     record_marker(marker_writer, phase, "end")
     marker_stream.flush()
+
+
+def focused_window(status):
+    return re.search(r"(?:^|\s)focused=(\S+)", status)
+
+
+def focused_active_workspace(workspace_state):
+    monitor = next((item for item in workspace_state["monitors"] if item["focused"]), None)
+    workspace = next((
+        candidate for candidate in (monitor or {}).get("workspaces", []) if candidate["active"]
+    ), None)
+    if monitor is None or workspace is None:
+        raise RuntimeError("No active workspace found for the focused monitor")
+    return monitor, workspace
 
 
 def verify_restored_focus(output, desktop_session):
@@ -127,7 +148,8 @@ def verify_restored_focus(output, desktop_session):
             and current_monitor["focused"]
             and current_monitor["activeWorkspace"] == match.group(1)
             and f"workspace={match.group(1)}" in status
-            and f"focused={match.group(2)}" in status
+            and focused_window(status) is not None
+            and focused_window(status).group(1) == match.group(2)
             and "drift=0[" in status
             and "focusPending=false" in status
             and "axPending=false" in status
@@ -152,7 +174,7 @@ def main():
     parser.add_argument("--workspace", default="web", help="workspace to exercise (default: web)")
     parser.add_argument("--output", type=Path, help="output directory (default: dist/benchmarks/<timestamp>)")
     args = parser.parse_args()
-    output = args.output or ROOT / "dist/benchmarks" / time.strftime("%Y%m%d-%H%M%S")
+    output = args.output or ROOT / "dist/benchmarks" / f"animation-benchmark-{time.time_ns()}"
     output = output.expanduser().resolve()
     if output.exists():
         raise RuntimeError(f"Output directory already exists: {output}")
@@ -172,8 +194,10 @@ def main():
     checkpointed = False
     capture = None
     try:
+        initial_trace = run(str(CLI), "trace").stdout
         desktop_session.checkpoint(output)
         checkpointed = True
+        (output / "trace-before.txt").write_text(initial_trace)
         (output / "initial-status.txt").write_bytes((output / "status.txt").read_bytes())
         (output / "initial-workspaces.json").write_bytes((output / "workspaces.json").read_bytes())
         desktop_session.start()
@@ -187,8 +211,11 @@ def main():
             raise RuntimeError(f"Defi did not settle in workspace {args.workspace!r}")
 
         ready = output / "capture.ready"
+        workspace_state = json.loads(run(str(CLI), "list-workspaces", "--json").stdout)
+        focused_monitor, _ = focused_active_workspace(workspace_state)
         capture = subprocess.Popen(
-            [str(binary), "7.0", str(ready), str(output / "display.csv")],
+            [str(binary), "120", str(focused_monitor["id"]), str(ready),
+             str(output / "display.csv"), str(output / "capture.stop")],
             text=True, stdout=(output / "capture.log").open("w"),
             stderr=subprocess.STDOUT,
         )
@@ -207,16 +234,11 @@ def main():
             exercise("single-left", [("left", 0)], markers, marker_stream, settle=0.22)
             exercise("rapid-reversal", [("right", 0.07)] * 3 + [("left", 0.07)] * 3,
                      markers, marker_stream, settle=0.22)
-            workspace_state = json.loads(run(str(CLI), "list-workspaces", "--json").stdout)
-            active_workspace = next(
-                workspace
-                for monitor in workspace_state["monitors"] if monitor["focused"]
-                for workspace in monitor["workspaces"] if workspace["active"]
-            )
+            focused_monitor, active_workspace = focused_active_workspace(workspace_state)
             if active_workspace.get("focusedApplication") != "company.thebrowser.dia":
                 raise RuntimeError("Mouse resize requires Dia to be the focused app in the test workspace")
-            focused_window = re.search(r"\bfocused=(\d+)", run(str(CLI), "status").stdout)
-            if focused_window is None:
+            focused_window_match = re.search(r"\bfocused=(\d+)", run(str(CLI), "status").stdout)
+            if focused_window_match is None:
                 raise RuntimeError("Could not resolve the focused Dia window ID")
             record_marker(markers, "mouse-resize", "start")
             marker_stream.flush()
@@ -224,7 +246,7 @@ def main():
             for delta in (-80, 80):
                 try:
                     resize_log.append(
-                        run(str(input_binary), focused_window.group(1), str(delta)).stdout.strip()
+                        run(str(input_binary), focused_window_match.group(1), str(delta)).stdout.strip()
                     )
                 except subprocess.CalledProcessError as error:
                     detail = (error.stderr or error.stdout or str(error)).strip()
@@ -237,6 +259,7 @@ def main():
             marker_stream.flush()
             (output / "mouse-resize.txt").write_text("\n".join(resize_log) + "\n")
         time.sleep(0.5)
+        (output / "capture.stop").touch()
         capture.wait(timeout=12)
         if capture.returncode:
             raise RuntimeError((output / "capture.log").read_text().strip())
@@ -263,6 +286,11 @@ def main():
             try:
                 desktop_session.restore(output)
             except RuntimeError:
+                diagnostics = [output / name for name in (
+                    "workspace-topology.json", "restored-topology.json", "restored-status.txt"
+                )]
+                if not all(path.is_file() for path in diagnostics):
+                    raise
                 expected = json.loads((output / "workspace-topology.json").read_text())
                 restored = json.loads((output / "restored-topology.json").read_text())
                 status = (output / "restored-status.txt").read_text()
@@ -278,8 +306,9 @@ def main():
                 for _ in range(30):
                     run(str(CLI), "workspace", match.group(1))
                     status = run(str(CLI), "status").stdout
+                    status_focus = focused_window(status)
                     if (f"workspace={match.group(1)}" in status
-                            and f"focused={match.group(2)}" in status
+                            and status_focus is not None and status_focus.group(1) == match.group(2)
                             and "drift=0[" in status):
                         break
                     time.sleep(0.1)

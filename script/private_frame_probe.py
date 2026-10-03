@@ -25,7 +25,7 @@ def main():
         "swiftc", "-O", "-swift-version", "6", "-parse-as-library", str(SOURCE),
         "-framework", "AppKit", "-framework", "CoreGraphics", "-o", str(BINARY),
     ], check=True, timeout=60)
-    output = ROOT / "dist/benchmarks" / f"private-frame-probe-{time.strftime('%Y%m%d-%H%M%S')}"
+    output = ROOT / "dist/benchmarks" / f"private-frame-probe-{time.time_ns()}"
     output.mkdir(parents=True, exist_ok=False)
     result = subprocess.run([str(BINARY)], check=False, text=True, capture_output=True, timeout=10)
     (output / "stdout.txt").write_text(result.stdout)

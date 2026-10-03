@@ -4,6 +4,7 @@ import argparse
 import os
 from pathlib import Path
 import re
+import signal
 import sys
 import time
 
@@ -13,13 +14,18 @@ from desktop_lock import inherited_lock
 
 def wait_for_settlement(timeout=10):
     deadline = time.monotonic() + timeout
-    stable = 0
+    stable_since = None
     while time.monotonic() < deadline:
         status = session.command('status')
         settled = all(token in status for token in
                       ('axPending=false', 'focusPending=false', 'animating=false', 'drift=0['))
-        stable = stable + 1 if settled else 0
-        if stable >= 3:
+        if settled:
+            stable_since = stable_since or time.monotonic()
+        else:
+            stable_since = None
+        # Read-only daemon status is cached for 250 ms. Require distinct cache
+        # generations before accepting a stable state.
+        if stable_since is not None and time.monotonic() - stable_since >= 0.30:
             return status
         time.sleep(0.05)
     raise RuntimeError(f'Workspace did not settle within {timeout}s: {status}')
@@ -38,6 +44,10 @@ def motion_gaps(trace):
             if generation in generations and int(steps) >= 2 and int(writes) > 0]
 
 
+def artifact_directory():
+    return Path(__file__).resolve().parents[1] / 'dist/benchmarks' / f'ribbon-stress-{time.time_ns()}'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace')
@@ -50,9 +60,17 @@ def main():
     if inherited_lock() is None:
         os.execv(sys.executable, [sys.executable, str(Path(__file__).with_name('desktop_lock.py')),
                                  '--wait', sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]])
-    output = Path(__file__).resolve().parents[1] / 'dist/benchmarks' / f'ribbon-stress-{time.time_ns()}'
-    session.checkpoint(output)
+    output = artifact_directory()
+    previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+    def interrupt_on_sigterm(*_):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupt_on_sigterm)
+    checkpointed = False
     try:
+        session.checkpoint(output)
+        checkpointed = True
         session.start()
         if args.workspace:
             session.command('workspace', args.workspace)
@@ -68,9 +86,13 @@ def main():
         (output / 'trace.txt').write_text(trace)
         (output / 'after-status.txt').write_text(status)
     finally:
-        session.restore(output)
-        if session.daemon_count() != 1:
-            raise RuntimeError('Expected exactly one daemon after restoration')
+        try:
+            if checkpointed or (output / 'ready').exists():
+                session.restore(output)
+                if session.daemon_count() != 1:
+                    raise RuntimeError('Expected exactly one daemon after restoration')
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm_handler)
     gaps = motion_gaps(trace)
     if not gaps:
         raise RuntimeError(f'No moving ribbon samples; choose a workspace with multiple columns. Artifacts: {output}')
@@ -81,4 +103,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)

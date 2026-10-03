@@ -45,9 +45,27 @@ private struct AnimationInput {
       width: width.doubleValue,
       height: height.doubleValue
     )
+    guard let savedCursor = CGEvent(source: nil)?.location else {
+      throw failure("Could not read the current cursor position")
+    }
     let start = CGPoint(x: frame.maxX - 1, y: frame.midY)
     let steps = 12
     let source = CGEventSource(stateID: .hidSystemState)
+    var mouseDownPosted = false
+    var lastPoint = savedCursor
+    defer {
+      if mouseDownPosted,
+        let release = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
+                              mouseCursorPosition: lastPoint, mouseButton: .left)
+      {
+        release.post(tap: .cghidEventTap)
+      }
+      if let restore = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
+                               mouseCursorPosition: savedCursor, mouseButton: .left)
+      {
+        restore.post(tap: .cghidEventTap)
+      }
+    }
     for step in 0...steps {
       let point = CGPoint(
         x: start.x + deltaX * Double(step) / Double(steps),
@@ -65,6 +83,9 @@ private struct AnimationInput {
         throw failure("Could not create the mouse resize event")
       }
       event.post(tap: .cghidEventTap)
+      lastPoint = point
+      if step == 0 { mouseDownPosted = true }
+      if step == steps { mouseDownPosted = false }
       usleep(8_333)
     }
 
@@ -77,7 +98,8 @@ private struct AnimationInput {
       }),
       let updatedBounds = updatedWindow[kCGWindowBounds as String] as? [String: NSNumber],
       let updatedWidth = updatedBounds["Width"]?.doubleValue,
-      abs(updatedWidth - (frame.width + deltaX)) <= 8
+      abs(updatedWidth - (frame.width + deltaX)) <= min(8, abs(deltaX) / 2),
+      (updatedWidth - frame.width) * deltaX > 0
     else {
       throw failure("Dia did not resize to the requested width; windowID=\(rawWindowID)")
     }

@@ -71,29 +71,31 @@ private func bestShift(
   imageWidth: Int = 512, rows: Int = 40, maxShift: Int = 20
 ) -> (shiftSamples: Int, confidence: Double, clipped: Bool) {
   let startX = region * regionWidth
-  var zeroError = 0
-  var bestError = Int.max
+  var zeroError = 0.0
+  var bestError = Double.infinity
   var best = 0
   for shift in -maxShift...maxShift {
     let lower = max(startX, startX - shift)
     let upper = min(startX + regionWidth, startX + regionWidth - shift)
     var error = 0
+    var comparedPixels = 0
     for y in 0..<rows {
       let rowStart = y * imageWidth
       for x in lower..<upper {
         let oldValue = Int(previous[rowStart + x + shift])
         let newValue = Int(current[rowStart + x])
         error += abs(oldValue - newValue)
+        comparedPixels += 1
       }
     }
-    if shift == 0 { zeroError = error }
-    if error < bestError {
-      bestError = error
+    let meanError = Double(error) / Double(max(comparedPixels, 1))
+    if shift == 0 { zeroError = meanError }
+    if meanError < bestError {
+      bestError = meanError
       best = shift
     }
   }
-  let pixelsCompared = rows * (regionWidth - maxShift * 2)
-  let confidence = Double(zeroError - bestError) / Double(max(pixelsCompared, 1))
+  let confidence = zeroError - bestError
   return (best, confidence, abs(best) == maxShift)
 }
 
@@ -105,13 +107,14 @@ private func analyze(_ frames: [CapturedFrame], displayWidth: Int) -> String {
     let previous = frames[index - 1]
     let current = frames[index]
     let interval = (current.timestamp - previous.timestamp) * 1_000
-    var fields = [String(format: "%.6f", current.timestamp), String(format: "%.3f", interval)]
+    var fields = [String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), current.timestamp),
+                  String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), interval)]
     for zone in 0..<4 {
       let estimate = bestShift(previous: previous.pixels, current: current.pixels, region: zone)
       let shift = estimate.confidence >= 3.0 && !estimate.clipped
         ? -Double(estimate.shiftSamples) * scale : 0
-      fields.append(String(format: "%.1f", shift))
-      fields.append(String(format: "%.2f", estimate.confidence))
+      fields.append(String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), shift))
+      fields.append(String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), estimate.confidence))
       fields.append(estimate.clipped ? "true" : "false")
     }
     rows.append(fields.joined(separator: ","))
@@ -124,22 +127,29 @@ private struct AnimationCapture {
   @MainActor
   static func main() async throws {
     let args = Array(CommandLine.arguments.dropFirst())
-    guard args.count == 3, let duration = Double(args[0]), duration > 0 else {
-      fputs("usage: animation-capture <duration-seconds> <ready-file> <output-csv>\n", stderr)
+    guard args.count == 5, let duration = Double(args[0]), duration > 0, duration <= 120,
+      let displayID = UInt32(args[1]), displayID > 0
+    else {
+      fputs(
+        "usage: animation-capture <duration-seconds<=120> <display-id> "
+          + "<ready-file> <output-csv> <stop-file>\n",
+        stderr
+      )
       exit(2)
     }
     guard CGPreflightScreenCaptureAccess() else {
       fputs("Screen Recording is unavailable to this process; no capture was started.\n", stderr)
       exit(3)
     }
-    let readyURL = URL(fileURLWithPath: args[1])
-    let outputURL = URL(fileURLWithPath: args[2])
-    let displayID = CGMainDisplayID()
+    let readyURL = URL(fileURLWithPath: args[2])
+    let outputURL = URL(fileURLWithPath: args[3])
+    let stopURL = URL(fileURLWithPath: args[4])
+    let captureDisplayID = CGDirectDisplayID(displayID)
     let content = try await SCShareableContent.excludingDesktopWindows(
       true, onScreenWindowsOnly: false
     )
-    guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-      throw NSError(domain: "AnimationCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "Main display was not available for capture"])
+    guard let display = content.displays.first(where: { $0.displayID == captureDisplayID }) else {
+      throw NSError(domain: "AnimationCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "Requested display was not available for capture"])
     }
     let filter = SCContentFilter(display: display, excludingWindows: [])
     let configuration = SCStreamConfiguration()
@@ -155,7 +165,12 @@ private struct AnimationCapture {
     let queue = DispatchQueue(label: "com.defi.animation-benchmark.capture", qos: .userInteractive)
     try stream.addStreamOutput(sampler, type: .screen, sampleHandlerQueue: queue)
     try await stream.startCapture()
-    try await Task.sleep(for: .seconds(duration))
+    let deadline = ProcessInfo.processInfo.systemUptime + duration
+    while ProcessInfo.processInfo.systemUptime < deadline,
+      !FileManager.default.fileExists(atPath: stopURL.path)
+    {
+      try await Task.sleep(for: .milliseconds(50))
+    }
     try await stream.stopCapture()
     let frames = sampler.snapshot()
     try analyze(frames, displayWidth: display.width).write(

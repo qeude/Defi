@@ -11,10 +11,10 @@ step and 21.64 ms during the final rapid-reversal run. Both exceed the 8.33 ms
 120 Hz interval; the variation also shows why one capture is not a performance
 guarantee.
 
-The repeat run with the mouse-resize phase changed Dia's native window width
-from 1684 to 1611 points for an 80-point drag, then restored it exactly to 1684
-points with the reverse drag. After the sequence Defi reported `drift=0`,
-`resize=none`, and no pending frame writes.
+The repeat run requested an 80-point narrowing, but Dia's native window width
+changed from 1684 to 1611 points, a 73-point decrease and a 7-point undershoot.
+The reverse drag returned it exactly to 1684 points. After the sequence Defi
+reported `drift=0`, `resize=none`, and no pending frame writes.
 
 ScreenCaptureKit's first run had a 66.67 ms callback gap during a single right
 step; the final repeat had a 16.67 ms maximum in that phase. Rapid reversal's
@@ -23,9 +23,10 @@ These are image-correlation estimates, not presented-frame measurements:
 unchanged frames can be omitted, and page content can weaken matching. The
 mouse-resize phase produced one usable motion sample, so its visual smoothness
 is not quantified by this correlator. The final repeat-run samples and trace
-are in the ignored `dist/benchmarks/dia-run-with-resize-retry-20260929/`
-artifact directory. The earlier run with the 55.19 ms write is in
-`dist/benchmarks/dia-run-with-resize-20260929/`.
+are in the ignored, local-only `dist/benchmarks/dia-run-with-resize-retry-20260929/`
+artifact directory. The earlier run with the 55.19 ms write is in the ignored,
+local-only `dist/benchmarks/dia-run-with-resize-20260929/` directory. The files
+are not available from a clean checkout; the key measurements are recorded above.
 
 The Defi-owned-panel `SLSMoveWindow` probe once verified 24 moves with
 sub-millisecond timings, then failed on two repeat attempts: both private calls
