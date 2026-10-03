@@ -605,11 +605,8 @@ final class DesktopE2ETests: XCTestCase {
       throw XCTSkip("Need two manageable desktop windows on the same monitor")
     }
     let monitorWindows = windows.filter { monitor.physicalFrame.contains(centerOf: $0.frame) }
-    guard let window = monitorWindows.first,
-      let neighbor = monitorWindows.dropFirst().first
-    else {
-      throw XCTSkip("Need two manageable desktop windows")
-    }
+    let window = monitorWindows[0]
+    let neighbor = monitorWindows[1]
     let original = window.frame
     let neighborOriginal = neighbor.frame
     let parked = resolveParkingPlacement(
