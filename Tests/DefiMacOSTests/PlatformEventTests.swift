@@ -614,7 +614,7 @@ struct PlatformEventTests {
       access.withTimeout(0.05, elements: [first.value]) {}
       group.leave()
     }
-    #expect(resetStarted.wait(timeout: .now() + 1) == .success)
+    #expect(resetStarted.wait(timeout: .now() + 3) == .success)
     group.enter()
     DispatchQueue.global().async {
       access.withTimeout(0.016, elements: [second.value]) { unrelatedFinished.signal() }

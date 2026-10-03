@@ -998,6 +998,29 @@ struct FrameCommitTests {
   }
 
   @Test
+  func reentryRebaseUsesTheNearestRowAsWellAsColumn() throws {
+    let sameRow = WindowID(rawValue: 1), otherRow = WindowID(rawValue: 2)
+    let entering = WindowID(rawValue: 3)
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordCompletedPosition(CGPoint(x: 200, y: 40), windowID: sameRow)
+    coordinator.recordCompletedPosition(CGPoint(x: 700, y: 1_040), windowID: otherRow)
+    var distantRow = makeMotionWrite(fromX: 600, toX: 900, toY: 1_040)
+    distantRow.fromPoint.y = 1_040
+    let frame = QueuedPositionFrame(
+      generation: 2, source: "command-animation",
+      writes: [sameRow: makeMotionWrite(fromX: 100, toX: 400), otherRow: distantRow,
+               entering: makeMotionWrite(fromX: 700, toX: 1_000, isReentering: true)],
+      animatedWindowIDs: [sameRow, otherRow, entering], animationDuration: 0.125,
+      refreshRateHz: 120, displayIDs: [],
+      monitorFrames: [Rect(x: 0, y: 0, width: 2_560, height: 1_440)],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    let rebased = coordinator.rebaseFrameToCompletedPositionsLocked(frame).frame
+    let write = try #require(rebased.writes[entering])
+    #expect(write.fromPoint.x == 800)
+  }
+
+  @Test
   func `Rapid retarget does not jump on its first frame`() {
     let windowID = WindowID(rawValue: 1)
     let coordinator = AXFrameCoordinator()
