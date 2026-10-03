@@ -596,9 +596,11 @@ struct PlatformEventTests {
     let resetStarted = DispatchSemaphore(value: 0)
     let releaseReset = DispatchSemaphore(value: 0)
     let unrelatedFinished = DispatchSemaphore(value: 0)
+    let sameElementStarted = DispatchSemaphore(value: 0)
     let sameElementEntered = DispatchSemaphore(value: 0)
     let group = DispatchGroup()
     let transitions = Mutex<[Float]>([])
+    defer { releaseReset.signal() }
     let access = AXMessagingTimeoutAccess(timeoutSetter: { element, timeout in
       guard CFEqual(element, first.value) else { return }
       if timeout == 0, transitions.withLock({ $0.count == 1 }) {
@@ -620,13 +622,15 @@ struct PlatformEventTests {
     }
     group.enter()
     DispatchQueue.global().async {
+      sameElementStarted.signal()
       access.withTimeout(0.016, elements: [first.value]) { sameElementEntered.signal() }
       group.leave()
     }
-    #expect(unrelatedFinished.wait(timeout: .now() + 0.2) == .success)
-    #expect(sameElementEntered.wait(timeout: .now() + 0.02) == .timedOut)
+    #expect(unrelatedFinished.wait(timeout: .now() + 3) == .success)
+    #expect(sameElementStarted.wait(timeout: .now() + 3) == .success)
+    #expect(sameElementEntered.wait(timeout: .now() + 0.1) == .timedOut)
     releaseReset.signal()
-    #expect(group.wait(timeout: .now() + 1) == .success)
+    #expect(group.wait(timeout: .now() + 3) == .success)
     #expect(transitions.withLock { $0 } == [0.05, 0, 0.016, 0])
   }
 

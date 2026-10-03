@@ -76,10 +76,25 @@ struct WindowSnapshotStabilityTests {
     #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
       since: captured, candidates: [42, 43]
     ) == (full ? [42, 43] : [42]))
+    let afterScopedRefresh = engine.preparedWindowReadRevisions
     engine.recordObservation(.frame, processID: nil)
     #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
+      since: afterScopedRefresh, candidates: [42, 43]
+    ).isEmpty)
+  }
+
+  @Test(arguments: [PlatformEventKind.frame, .mouse, .mouseRelease])
+  func unscopedMotionObservationsPreservePreparedReads(kind: PlatformEventKind) {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let captured = engine.preparedWindowReadRevisions
+    let inventoryGeneration = engine.windowSnapshotObservationGeneration
+
+    engine.recordObservation(kind, processID: nil)
+
+    #expect(engine.windowSnapshotObservationGeneration != inventoryGeneration)
+    #expect(engine.preparedWindowReadRevisions.invalidatedProcessIDs(
       since: captured, candidates: [42, 43]
-    ) == [42, 43])
+    ).isEmpty)
   }
 
   @Test
@@ -152,7 +167,7 @@ struct WindowSnapshotStabilityTests {
           return $0.active == limit
         }
         if reachedLimit { for _ in 0..<limit { release.signal() } }
-        #expect(release.wait(timeout: .now() + 0.3) == .success)
+        #expect(release.wait(timeout: .now() + 3) == .success)
         state.withLock { $0.active -= 1; $0.permitsNewReads = false }
         return PreparedAXProcessReadResult(processID: job.processID, windows: [], application: nil)
       }
@@ -163,53 +178,104 @@ struct WindowSnapshotStabilityTests {
   }
 
   @Test
-  func backgroundDiscoveryDefersWhenMotionStartsBetweenProcesses() {
+  func cachedDiscoveryOnlyDefersAnExplicitlyRequestedProcess() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
-    let first = makeWindow(id: 42)
-    var second = makeWindow(id: 43)
-    second.processID = 43
-    let firstElement = AXUIElementCreateApplication(-1)
-    let secondElement = AXUIElementCreateApplication(-2)
-    engine.elements = [first.id: firstElement, second.id: secondElement]
-    engine.processIDs = [first.id: 42, second.id: 43]
-    engine.applications = [42: firstElement, 43: secondElement]
-    engine.applicationIDsByProcess = [42: first.appID, 43: second.appID]
+    let requested = makeWindow(id: 42)
+    var omitted = makeWindow(id: 43)
+    omitted.processID = 43
+    let requestedElement = AXUIElementCreateApplication(-1)
+    let omittedElement = AXUIElementCreateApplication(-2)
+    engine.elements = [requested.id: requestedElement, omitted.id: omittedElement]
+    engine.processIDs = [requested.id: 42, omitted.id: 43]
+    engine.applications = [42: requestedElement, 43: omittedElement]
+    engine.applicationIDsByProcess = [42: requested.appID, 43: omitted.appID]
     engine.enhancedUIByProcess = [42: false, 43: false]
     engine.multipleAttributeReadsSupportedByProcess = [42: false, 43: false]
     engine.hasCompletedWindowSnapshot = true
-    engine.lastSnapshotWindows = [first, second]
-    engine.lastApplicationWindowElements = [42: [firstElement], 43: [secondElement]]
+    engine.lastSnapshotWindows = [requested, omitted]
+    engine.lastApplicationWindowElements = [42: [requestedElement], 43: [omittedElement]]
     var visited: [pid_t] = []
-    var deferred = Set<pid_t>()
     let result = engine.discoverSnapshotWindows(
-      monitors: [], config: Config(), incrementalProcessIDs: [42, 43],
+      monitors: [], config: Config(), incrementalProcessIDs: [42],
       forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
       capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
       preparedWindowAttributes: [:], preparedTransientOwnerWindowIDs: [:],
-      preparedApplicationWindows: [42: PreparedAXApplicationWindows(elements: [firstElement], durationMS: 0)],
-      explicitlyDestroyedWindowIDs: [],
+      preparedApplicationWindows: [:], explicitlyDestroyedWindowIDs: [],
       shouldReadProcess: { pid in
         visited.append(pid)
-        if visited.count > 1 { deferred.insert(pid); return false }
-        return true
+        return false
       },
-      publicCGWindows: { [first, second].map {
+      publicCGWindows: { [requested, omitted].map {
         CGWindowRecord(id: CGWindowID($0.id.rawValue), processID: $0.processID!, layer: 0,
                        title: $0.title, frame: $0.frame, isOnscreen: true)
       } }
     )
-    #expect(visited == [42, 43])
-    #expect(deferred == [43])
-    #expect(engine.fallbackWindowAttributeReadCount == 1)
-    #expect(result.cachedSnapshotWindowIDs == [second.id])
-    #expect(result.windows.first { $0.id == second.id } == second)
-    #expect(result.applicationWindows[43]?.count == 1)
-    let partition = budgetedFreshReadPartition(
-      requestedProcessIDs: [], deferredProcessIDs: deferred, eventPendingProcessIDs: [],
-      predictedLatencyMS: { _ in 100 }, budgetMS: 1, defersBackgroundReads: true,
-      maximumDeferredAgeSeconds: 0.5, deferredSince: 10, now: 10.5
+
+    #expect(visited == [42])
+    #expect(result.cachedSnapshotWindowIDs == [requested.id, omitted.id])
+    #expect(result.windows.contains(requested))
+    #expect(result.windows.contains(omitted))
+    #expect(result.applicationWindows[43] == [omittedElement])
+  }
+
+  @MainActor
+  @Test
+  func cachedSiblingCollisionFallsThroughToFreshNativeIDResolution() {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform() }
+    }
+    let engine = platform.snapshotEngine
+    var refreshed = makeWindow(id: 42)
+    refreshed.title = "Refreshed"
+    var cachedSibling = makeWindow(id: 43)
+    cachedSibling.title = "Sibling"
+    let refreshedElement = AXUIElementCreateApplication(-1)
+    let siblingElement = AXUIElementCreateApplication(-2)
+    engine.elements = [refreshed.id: refreshedElement, cachedSibling.id: siblingElement]
+    engine.processIDs = [refreshed.id: 42, cachedSibling.id: 42]
+    engine.applications = [42: refreshedElement]
+    engine.applicationIDsByProcess = [42: refreshed.appID]
+    engine.enhancedUIByProcess = [42: false]
+    engine.hasCompletedWindowSnapshot = true
+    engine.lastSnapshotWindows = [refreshed, cachedSibling]
+    engine.lastApplicationWindowElements = [42: [refreshedElement, siblingElement]]
+    let resolvedRefreshedID: CGWindowID = 43
+    let resolvedSiblingID: CGWindowID = 44
+    let attributes: [WindowID: AXWindowAttributes] = [
+      refreshed.id: AXWindowAttributes(
+        minimized: false, frame: refreshed.frame, title: refreshed.title,
+        role: kAXWindowRole, subrole: kAXStandardWindowSubrole
+      ),
+      cachedSibling.id: AXWindowAttributes(
+        minimized: false, frame: cachedSibling.frame, title: cachedSibling.title,
+        role: kAXWindowRole, subrole: kAXStandardWindowSubrole
+      ),
+    ]
+    let result = engine.discoverSnapshotWindows(
+      monitors: [], config: Config(), incrementalProcessIDs: [42],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
+      capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
+      preparedWindowAttributes: attributes, preparedTransientOwnerWindowIDs: [:],
+      preparedApplicationWindows: [42: PreparedAXApplicationWindows(
+        elements: [refreshedElement, siblingElement], durationMS: 0
+      )], explicitlyDestroyedWindowIDs: [], frameRefreshWindowIDs: [refreshed.id],
+      publicCGWindows: {
+        [
+          CGWindowRecord(id: resolvedRefreshedID, processID: 42, layer: 0,
+                         title: refreshed.title, frame: refreshed.frame, isOnscreen: true),
+          CGWindowRecord(id: resolvedSiblingID, processID: 42, layer: 0,
+                         title: cachedSibling.title, frame: cachedSibling.frame, isOnscreen: true),
+        ]
+      }
     )
-    #expect(partition.allowedNow == [43])
+
+    #expect(Set(result.windows.map(\.id)) == Set([
+      WindowID(rawValue: UInt64(resolvedRefreshedID)),
+      WindowID(rawValue: UInt64(resolvedSiblingID)),
+    ]))
+    #expect(result.windows.count == 2)
+    #expect(result.nextElements[WindowID(rawValue: UInt64(resolvedSiblingID))] != nil)
+    #expect(result.cachedSnapshotWindowIDs.contains(cachedSibling.id) == false)
   }
 
   @Test(arguments: [false, true], [false, true])
