@@ -276,7 +276,7 @@ final class DesktopE2ETests: XCTestCase {
     let config = Config(rules: [Rule(appID: candidate.appID, floating: true)])
     let snapshot = platform.snapshot(config: config)
     guard let floating = snapshot.windows.first(where: {
-      $0.floating && onscreenWindowIDs.contains($0.id)
+      $0.id == candidate.id && $0.floating && onscreenWindowIDs.contains($0.id)
     }),
       let monitor = snapshot.monitors.first(where: {
         $0.frame.x < floating.frame.x + floating.frame.width
@@ -350,13 +350,40 @@ final class DesktopE2ETests: XCTestCase {
 
     // AX success acknowledges the request before WindowServer necessarily
     // publishes the new order. Assert native convergence, not callback timing.
-    XCTAssertTrue(pumpRunLoop(until: {
-      let order = copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
-        .map { WindowID(rawValue: UInt64($0.id)) }
+    let expectedForegroundIDs = snapshot.windows.filter { window in
+      window.floating && onscreenWindowIDs.contains(window.id)
+        && monitor.frame.x < window.frame.x + window.frame.width
+        && window.frame.x < monitor.frame.x + monitor.frame.width
+        && monitor.frame.y < window.frame.y + window.frame.height
+        && window.frame.y < monitor.frame.y + monitor.frame.height
+    }.map(\.id).sorted { $0.rawValue < $1.rawValue }
+    let relevantWindowIDs = Set(expectedForegroundIDs + [floating.id, tiled.id])
+    var observedRelevantOrder: [String] = []
+    let floatingRemainedAboveTiled = pumpRunLoop(until: {
+      let records = copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+      let relevantRecords = records.filter {
+        relevantWindowIDs.contains(WindowID(rawValue: UInt64($0.id)))
+      }
+      observedRelevantOrder = relevantRecords.map {
+        "\($0.id)/pid=\($0.processID)/\($0.ownerName)/layer=\($0.layer)"
+      }
+      let order = records.map { WindowID(rawValue: UInt64($0.id)) }
       guard let floatingIndex = order.firstIndex(of: floating.id),
         let tiledIndex = order.firstIndex(of: tiled.id) else { return false }
       return floatingIndex < tiledIndex
-    }, timeout: 0.5), "the floating window must remain above the focused tiled window")
+    }, timeout: 0.5)
+    let focusPerformance = platform.focusWriter.performance
+    let cachedWindowClassification = platform.lastSnapshotWindows
+      .filter { relevantWindowIDs.contains($0.id) }
+      .map {
+        "\($0.id.rawValue)/pid=\($0.processID ?? -1)/floating=\($0.floating)/frame=\($0.frame)"
+      }
+    let floatingIDs = platform.floatingWindowIDs.sorted { $0.rawValue < $1.rawValue }
+    let hiddenIDs = platform.lastHiddenWindowIDs.sorted { $0.rawValue < $1.rawValue }
+    XCTAssertTrue(
+      floatingRemainedAboveTiled,
+      "fixture candidate=\(candidate.id.rawValue); floating \(floating.id.rawValue)/pid=\(floating.processID ?? -1) must remain above tiled \(tiled.id.rawValue)/pid=\(tiled.processID ?? -1); expected foreground float IDs=\(expectedForegroundIDs.map(\.rawValue)); cached floating IDs=\(floatingIDs.map(\.rawValue)), hidden IDs=\(hiddenIDs.map(\.rawValue)), relevant cached windows=\(cachedWindowClassification); focus timing ms duration/raise/activation=\(focusPerformance.durationMS)/\(focusPerformance.raiseDurationMS)/\(focusPerformance.activationDurationMS); observed front-to-back relevant CG windows=\(observedRelevantOrder)"
+    )
     var focusedWindow: CFTypeRef?
     XCTAssertEqual(
       AXUIElementCopyAttributeValue(
