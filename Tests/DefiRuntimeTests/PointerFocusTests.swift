@@ -261,6 +261,63 @@ struct PointerFocusTests {
     #expect(state == original)
   }
 
+  @Test(arguments: [FloatingOrigin.automatic, .configured, .user], [
+    ("AXWindow", "AXStandardWindow", "", true),
+    ("AXWindow", "AXStandardWindow", "Mini player", false),
+    ("AXWindow", "AXDialog", "Dialog", true),
+    ("AXWindow", "AXSystemDialog", "System dialog", true),
+    ("AXWindow", "AXFloatingWindow", "", false),
+    ("AXWindow", "AXFloatingWindow", "Tools", false),
+    ("AXWindow", "AXSystemFloatingWindow", "", false),
+    ("AXSheet", "", "", false),
+    ("AXWindow", "", "", false),
+  ])
+  func selectedOwnerlessFloatingWindowProtectsAutomaticPopup(
+    origin: FloatingOrigin,
+    metadata: (role: String, subrole: String, title: String, popup: Bool)
+  ) throws {
+    var state = try makeState(columnWidths: [0.3, 0.3])
+    let ownerID = WindowID(rawValue: 1)
+    let otherWindowID = WindowID(rawValue: 2)
+    let popupID = WindowID(rawValue: 3)
+    let owner = try #require(state.windows[ownerID])
+    try discoverWindow(
+      Window(
+        id: popupID,
+        appID: owner.appID,
+        title: metadata.title,
+        frame: Rect(x: 100, y: 100, width: 480, height: 632),
+        role: metadata.role,
+        subrole: metadata.subrole,
+        monitorID: monitorID,
+        floating: true,
+        floatingOrigin: origin
+      ),
+      decision: RuleDecision(),
+      state: &state
+    )
+    for targetID in [ownerID, otherWindowID] {
+      _ = focusWindow(popupID, state: &state)
+      let original = state
+      #expect(focusWindowFromPointer(
+        targetID,
+        activeMonitorID: monitorID,
+        state: &state,
+        viewports: [monitorID: viewport]
+      ) == (origin == .automatic && metadata.popup ? nil : monitorID))
+      if origin == .automatic && metadata.popup { #expect(state == original) }
+    }
+
+    // An explicit click or keyboard command can still leave the popup.
+    _ = focusWindow(ownerID, state: &state)
+    #expect(focusWindowFromPointer(
+      otherWindowID,
+      activeMonitorID: monitorID,
+      state: &state,
+      viewports: [monitorID: viewport]
+    ) == monitorID)
+  }
+
   @Test
   func documentModalAllowsPointerFocusInAnUnrelatedDocument() throws {
     var state = try makeState(columnWidths: [0.25, 0.25, 0.25, 0.25])

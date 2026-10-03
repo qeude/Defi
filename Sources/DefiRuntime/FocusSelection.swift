@@ -173,7 +173,15 @@ public func modalAllowsPointerFocus(
     !ancestry.contains(selectedID)
   {
     if selected.isModal && selected.appID != target.appID { return false }
-    if !selected.isModal && selected.transientOwnerID != nil { return false }
+    // Some extension popups expose no owner relationship through Accessibility.
+    // ponytail: untitled standard windows approximate popups until AX exposes explicit popup metadata.
+    let ownerlessPopup = selected.floating && selected.floatingOrigin == .automatic
+      && selected.role == "AXWindow"
+      && (selected.subrole == "AXDialog" || selected.subrole == "AXSystemDialog"
+        || (selected.subrole == "AXStandardWindow" && selected.title.isEmpty))
+    if !selected.isModal
+      && (selected.transientOwnerID != nil || ownerlessPopup)
+    { return false }
   }
   let ownerlessModalIDs = Set(state.windows.values.lazy.filter { modal in
     modal.appID == target.appID
