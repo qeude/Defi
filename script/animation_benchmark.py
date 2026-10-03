@@ -234,6 +234,7 @@ def main():
             exercise("single-left", [("left", 0)], markers, marker_stream, settle=0.22)
             exercise("rapid-reversal", [("right", 0.07)] * 3 + [("left", 0.07)] * 3,
                      markers, marker_stream, settle=0.22)
+            workspace_state = json.loads(run(str(CLI), "list-workspaces", "--json").stdout)
             focused_monitor, active_workspace = focused_active_workspace(workspace_state)
             if active_workspace.get("focusedApplication") != "company.thebrowser.dia":
                 raise RuntimeError("Mouse resize requires Dia to be the focused app in the test workspace")

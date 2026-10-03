@@ -60,11 +60,7 @@ private struct AnimationInput {
       {
         release.post(tap: .cghidEventTap)
       }
-      if let restore = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-                               mouseCursorPosition: savedCursor, mouseButton: .left)
-      {
-        restore.post(tap: .cghidEventTap)
-      }
+      CGWarpMouseCursorPosition(savedCursor)
     }
     for step in 0...steps {
       let point = CGPoint(

@@ -216,6 +216,12 @@ struct WindowSnapshotStabilityTests {
     #expect(result.windows.contains(requested))
     #expect(result.windows.contains(omitted))
     #expect(result.applicationWindows[43] == [omittedElement])
+    let expired = budgetedFreshReadPartition(
+      requestedProcessIDs: [], deferredProcessIDs: [42], eventPendingProcessIDs: [],
+      predictedLatencyMS: { _ in 100 }, budgetMS: 1, defersBackgroundReads: true,
+      maximumDeferredAgeSeconds: 0.5, deferredSince: 10, now: 10.5
+    )
+    #expect(expired.allowedNow == [42])
   }
 
   @Test(arguments: [false, true], [false, true])

@@ -206,9 +206,8 @@ consistency.
   predictions of 2 ms and 40 ms. This is a generated-position inconsistency,
   not a measurement of actual displayed gaps. Output:
   `dist/benchmarks/scheduler-gap-audit-20260930.txt` (ignored, local-only artifact;
-  its replay used a 1,000-point translation over 150 ms with 2 ms and 40 ms
-  process predictions. The scalar result is stated here because the output file
-  is not distributed with a clean checkout).
+  the scalar result is stated here because the output file is not distributed
+  with a clean checkout).
 - Audited reentry staging was queued before the timer but joined after it finished.
   There is no completion barrier before the first moving sample. An entering
   window can still be staging while another application's windows move.

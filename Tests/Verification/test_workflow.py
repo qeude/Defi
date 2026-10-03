@@ -34,12 +34,19 @@ class WorkflowTests(unittest.TestCase):
 
     def test_ribbon_stress_waits_for_stable_observed_convergence(self):
         idle = 'axPending=false focusPending=false animating=false drift=0[]'
-        ticks = iter(index / 10 for index in range(100))
-        with patch.object(ribbon_stress.session, 'command', return_value=idle) as command, \
-                patch.object(ribbon_stress.time, 'monotonic', side_effect=lambda: next(ticks)), \
-                patch.object(ribbon_stress.time, 'sleep'):
+        clock = [0.0]
+        statuses = iter([idle, idle, idle.replace('drift=0[]', 'drift=1[42]')])
+
+        def advance(seconds):
+            clock[0] += seconds
+
+        with patch.object(ribbon_stress.session, 'command',
+                          side_effect=lambda *_: next(statuses, idle)) as command, \
+                patch.object(ribbon_stress.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(ribbon_stress.time, 'sleep', side_effect=advance):
             self.assertEqual(ribbon_stress.wait_for_settlement(), idle)
-            self.assertGreaterEqual(command.call_count, 2)
+            self.assertGreaterEqual(clock[0], 0.44)
+            self.assertGreaterEqual(command.call_count, 10)
 
     def test_ribbon_stress_restores_after_sigterm(self):
         def terminate_after_start():
