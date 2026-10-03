@@ -114,22 +114,6 @@ final class DesktopE2ETests: XCTestCase {
       }
   }
 
-  private func visibleFraction(of window: Window, in monitor: MonitorSnapshot) -> Double {
-    let intersectionWidth = max(
-      min(window.frame.x + window.frame.width, monitor.frame.x + monitor.frame.width)
-        - max(window.frame.x, monitor.frame.x),
-      0
-    )
-    let intersectionHeight = max(
-      min(window.frame.y + window.frame.height, monitor.frame.y + monitor.frame.height)
-        - max(window.frame.y, monitor.frame.y),
-      0
-    )
-    let area = window.frame.width * window.frame.height
-    guard area > 0 else { return 0 }
-    return intersectionWidth * intersectionHeight / area
-  }
-
   func testFocusedWindowRemainsResolvableWhileParkedOffscreen() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
@@ -273,46 +257,41 @@ final class DesktopE2ETests: XCTestCase {
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try makePlatform()
     let initial = platform.snapshot(config: Config())
-    let onscreenWindowIDs = Set(copyCGWindows(
-      options: [.optionOnScreenOnly, .excludeDesktopElements]
-    ).map { WindowID(rawValue: UInt64($0.id)) })
+    let onscreenWindowIDs = Set(
+      copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+        .map { WindowID(rawValue: UInt64($0.id)) }
+    )
     // Use a regular native window with a local floating rule. AppKit About
     // panels can hide on deactivation and are not a cross-app stacking fixture.
-    let fixtureAppIDs = ["com.apple.dt.Xcode", "com.apple.finder"]
-    let candidates = testWindows(in: initial).filter {
-      onscreenWindowIDs.contains($0.id)
-    }
-    let candidate = fixtureAppIDs.lazy.compactMap { appID in
-      candidates.first { candidate in
-        candidate.appID == appID
-          && initial.monitors.contains { monitor in
-            self.visibleFraction(of: candidate, in: monitor) >= 0.25
-              && initial.windows.contains { other in
-                other.processID != candidate.processID && !other.floating
-                  && onscreenWindowIDs.contains(other.id)
-                  && self.visibleFraction(of: other, in: monitor) >= 0.25
-              }
+    guard let candidate = testWindows(in: initial).first(where: { window in
+      onscreenWindowIDs.contains(window.id) && initial.monitors.contains { monitor in
+        targetIntersects(window.frame, monitor: monitor.frame)
+          && initial.windows.contains { other in
+            other.processID != window.processID && !other.floating
+              && onscreenWindowIDs.contains(other.id)
+              && targetIntersects(other.frame, monitor: monitor.frame)
           }
       }
-    }.first
-    guard let candidate else {
-      throw XCTSkip(
-        "A visibly onscreen Finder or Xcode window and another app's tiled window are required"
-      )
-    }
+    }) else { throw XCTSkip("Two on-screen applications on one monitor required") }
     let config = Config(rules: [Rule(appID: candidate.appID, floating: true)])
     let snapshot = platform.snapshot(config: config)
     guard let floating = snapshot.windows.first(where: {
       $0.id == candidate.id && $0.floating && onscreenWindowIDs.contains($0.id)
     }),
       let monitor = snapshot.monitors.first(where: {
-        visibleFraction(of: floating, in: $0) >= 0.25
+        $0.frame.x < floating.frame.x + floating.frame.width
+          && floating.frame.x < $0.frame.x + $0.frame.width
+          && $0.frame.y < floating.frame.y + floating.frame.height
+          && floating.frame.y < $0.frame.y + $0.frame.height
       }),
       let tiled = snapshot.windows.first(where: {
         !$0.floating
           && $0.processID != floating.processID
           && onscreenWindowIDs.contains($0.id)
-          && visibleFraction(of: $0, in: monitor) >= 0.25
+          && monitor.frame.x < $0.frame.x + $0.frame.width
+          && $0.frame.x < monitor.frame.x + monitor.frame.width
+          && monitor.frame.y < $0.frame.y + $0.frame.height
+          && $0.frame.y < monitor.frame.y + monitor.frame.height
       })
     else {
       throw XCTSkip("On-screen floating and tiled windows from different apps required")
