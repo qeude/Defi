@@ -599,12 +599,14 @@ final class DesktopE2ETests: XCTestCase {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     let windows = testWindows(in: snapshot)
-    guard windows.count >= 2,
-      let window = windows.first,
-      let monitor = snapshot.monitors.first(where: { $0.physicalFrame.contains(centerOf: window.frame) }),
-      let neighbor = windows.dropFirst().first(where: {
-        monitor.physicalFrame.contains(centerOf: $0.frame)
-      })
+    guard let monitor = snapshot.monitors.first(where: { monitor in
+      windows.filter { monitor.physicalFrame.contains(centerOf: $0.frame) }.count >= 2
+    }) else {
+      throw XCTSkip("Need two manageable desktop windows on the same monitor")
+    }
+    let monitorWindows = windows.filter { monitor.physicalFrame.contains(centerOf: $0.frame) }
+    guard let window = monitorWindows.first,
+      let neighbor = monitorWindows.dropFirst().first
     else {
       throw XCTSkip("Need two manageable desktop windows")
     }
