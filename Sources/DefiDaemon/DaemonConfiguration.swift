@@ -292,6 +292,12 @@ extension Daemon {
           self?.publishOverviewState()
         }
       },
+      overviewCancelHandler: { [weak self] in
+        DispatchQueue.main.async { [weak self] in
+          self?.overviewController?.close()
+          self?.publishOverviewState()
+        }
+      },
       cheatsheetHandler: { [weak self] input in
         guard let self, self.hotKeyGeneration == generation else { return }
         self.handleCheatsheetInput(input)

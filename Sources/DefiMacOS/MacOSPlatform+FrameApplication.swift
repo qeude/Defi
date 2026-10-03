@@ -65,6 +65,17 @@ extension MacOSPlatform {
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
+    if experimentalSurfaceRibbonEnabled && source != "command-animation" {
+      snapshotEngine.onMain { _ in
+        ExperimentalRibbonRenderer.shared.supersedeIfTargetsChanged(assignments)
+      }
+    }
+    let usesSurfaceRibbon = experimentalSurfaceRibbonEnabled && source == "command-animation" && positionsOnly
+      && snapshotEngine.onMain { platform in
+        ExperimentalRibbonRenderer.shared.begin(assignments: assignments, duration: animationDuration,
+          borderStyle: platform.borderStyle, selectedWindowID: platform.borderSelectedWindowID)
+      }
+    let animationDuration = usesSurfaceRibbon ? 0 : animationDuration
     frameSubmissionGeneration &+= 1
     let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(

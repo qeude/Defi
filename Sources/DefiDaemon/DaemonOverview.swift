@@ -21,6 +21,8 @@ extension Daemon {
 
   private func presentOverview(toggling: Bool) {
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
+    // Keep normal ribbon motion on its deterministic native animation path.
+    platform.experimentalSurfaceRibbonEnabled = false
     DispatchQueue.main.async { [self] in
       let controller = overviewController ?? makeOverviewController()
       overviewController = controller
@@ -28,14 +30,17 @@ extension Daemon {
         controller.toggle(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
           animation: config.animation, zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
-          windowPreviewsEnabled: config.overview.windowPreviews)
+          windowPreviewsEnabled: config.overview.windowPreviews,
+          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
       } else if controller.isOpen {
         controller.update(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
           animation: config.animation, zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
           windowPreviewsEnabled: config.overview.windowPreviews)
       } else {
-        controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews)
+        controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews,
+          snapshot: snapshot, layout: layout, zoom: config.overview.zoom,
+          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
       }
       publishOverviewState()
     }
@@ -106,7 +111,7 @@ extension Daemon {
 
   @MainActor func publishOverviewState() {
     guard let controller = overviewController else { return }
-    let projection = OverviewPresentationState(
+    var projection = OverviewPresentationState(
       isOpen: controller.isOpen, usesWorkspaceParking: controller.usesWorkspaceParking,
       panelCount: controller.panelCount, retainedPanelCount: controller.retainedPanelCount,
       permission: controller.previewPermissionState.rawValue,
@@ -115,6 +120,16 @@ extension Daemon {
       firstPreviewMs: controller.firstPreviewMs, lastPreviewMs: controller.lastPreviewMs,
       receivedPreviews: controller.receivedPreviewCount
     )
+    projection.surfaceCapture = controller.surfaceCaptureState
+    projection.surfaceStreams = controller.surfaceStreamCount
+    projection.surfacePoolBytes = controller.surfaceEstimatedPoolBytes
+    projection.surfaceTransitions = controller.surfaceTransitionCount
+    projection.surfaceFallbacks = controller.surfaceFallbackCount
+    projection.previewClosings = controller.previewClosingCount
+    projection.surfaceAcquireMs = controller.surfaceAcquireMs
+    projection.ribbonSurfaceTransitions = controller.ribbonSurfaceTransitions
+    projection.ribbonSurfaceFallbacks = controller.ribbonSurfaceFallbacks
+    projection.ribbonSurfacePresenting = controller.ribbonSurfacePresenting
     NavigationActor.enqueue { [self] in overviewState = projection }
   }
 
@@ -305,6 +320,16 @@ extension Daemon {
 }
 
 struct OverviewPresentationState: Sendable {
+  var surfaceCapture = "disabled"
+  var surfaceStreams = 0
+  var surfacePoolBytes = 0
+  var surfaceTransitions = 0
+  var surfaceFallbacks = 0
+  var previewClosings = 0
+  var surfaceAcquireMs: Double = 0
+  var ribbonSurfaceTransitions = 0
+  var ribbonSurfaceFallbacks = 0
+  var ribbonSurfacePresenting = false
   var isOpen = false
   var usesWorkspaceParking = false
   var panelCount = 0

@@ -159,21 +159,25 @@ public struct AnimationConfig: Codable, Equatable, Sendable {
 public struct OverviewConfig: Codable, Equatable, Sendable {
   public var zoom: Double
   public var windowPreviews: Bool
+  public var experimentalSurfaceTransitions: Bool
   public var windowCornerRadius: Double
 
   public init(
     zoom: Double = 0.5,
     windowPreviews: Bool = false,
+    experimentalSurfaceTransitions: Bool = false,
     windowCornerRadius: Double = 12
   ) {
     self.zoom = zoom
     self.windowPreviews = windowPreviews
+    self.experimentalSurfaceTransitions = experimentalSurfaceTransitions
     self.windowCornerRadius = windowCornerRadius
   }
 
   enum CodingKeys: String, CodingKey {
     case zoom
     case windowPreviews = "window_previews"
+    case experimentalSurfaceTransitions = "experimental_surface_transitions"
     case windowCornerRadius = "window_corner_radius"
   }
 
@@ -183,6 +187,9 @@ public struct OverviewConfig: Codable, Equatable, Sendable {
     zoom = try values.decodeIfPresent(Double.self, forKey: .zoom) ?? defaults.zoom
     windowPreviews =
       try values.decodeIfPresent(Bool.self, forKey: .windowPreviews) ?? defaults.windowPreviews
+    experimentalSurfaceTransitions = try values.decodeIfPresent(
+      Bool.self, forKey: .experimentalSurfaceTransitions
+    ) ?? defaults.experimentalSurfaceTransitions
     windowCornerRadius =
       try values.decodeIfPresent(Double.self, forKey: .windowCornerRadius) ?? defaults.windowCornerRadius
   }

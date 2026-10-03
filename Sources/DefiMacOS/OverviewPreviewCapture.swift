@@ -3,6 +3,7 @@ import CoreImage
 import DefiModel
 import Foundation
 import ScreenCaptureKit
+import os
 
 // Small placeholders survive between sessions; full-resolution captures stay session-local.
 func compactOverviewPreview(_ image: CGImage) -> CGImage? {
@@ -153,25 +154,57 @@ func overviewPreviewOwnerMatches(
   capturedAppID == expectedAppID
 }
 
-// Shared by window and desktop captures (docs/plans/overview.md): at most two at once.
+// Workers may overlap image processing, but only one macOS capture/consent call
+// may be outstanding. Cancellation does not dismiss a system consent dialog.
 let overviewPreviewMaximumConcurrentCaptures = 2
+let overviewCaptureLimiter = OverviewCaptureLimiter(limit: 1)
+private let overviewCaptureLogger = Logger(subsystem: "com.quentin.defi", category: "overview-capture")
 
 actor OverviewCaptureLimiter {
   private var available: Int
-  private var waiters: [CheckedContinuation<Void, Never>] = []
+  private var waiters: [(UUID, CheckedContinuation<Bool, Never>)] = []
+  private(set) var authorizationDeclined = false
+  var waitingCount: Int { waiters.count }
 
   init(limit: Int = overviewPreviewMaximumConcurrentCaptures) { available = limit }
 
-  func acquire() async {
+  @discardableResult
+  func acquire() async -> Bool {
+    guard !authorizationDeclined, !Task.isCancelled else { return false }
     if available > 0 {
       available -= 1
-      return
+      return true
     }
-    await withCheckedContinuation { waiters.append($0) }
+    let id = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        if Task.isCancelled { continuation.resume(returning: false) }
+        else { waiters.append((id, continuation)) }
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(id) }
+    }
   }
 
-  func release() {
-    if waiters.isEmpty { available += 1 } else { waiters.removeFirst().resume() }
+  func release(error: NSError? = nil) {
+    if let error {
+      overviewCaptureLogger.error("Capture failed: domain=\(error.domain, privacy: .public) code=\(error.code)")
+      // SCStreamErrorUserDeclined: no background retry after denied direct access.
+      // A deliberate daemon restart starts a new authorization attempt.
+      if error.domain == SCStreamErrorDomain && error.code == -3801 {
+        authorizationDeclined = true
+        overviewCaptureLogger.notice("Capture suspended until restart after authorization refusal")
+        for (_, waiter) in waiters { waiter.resume(returning: false) }
+        waiters.removeAll()
+      }
+    }
+    if waiters.isEmpty { available += 1 }
+    else { waiters.removeFirst().1.resume(returning: true) }
+  }
+
+  private func cancelWaiter(_ id: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.0 == id }) else { return }
+    waiters.remove(at: index).1.resume(returning: false)
   }
 }
 
@@ -198,6 +231,26 @@ struct OverviewPreviewCandidate {
   let monitorID: MonitorID
   let centerX: Double
   let centerY: Double
+}
+
+// Bound the whole decoded batch, including offscreen cards, rather than only
+// limiting each image. Preserve every preview at lower resolution when needed.
+func boundedOverviewPreviewRequests(_ requests: [OverviewPreviewRequest],
+  maximumBytes: Int = 128 * 1024 * 1024) -> [OverviewPreviewRequest] {
+  let total = requests.reduce(0.0) { $0 + Double($1.width) * Double($1.height) * 4 }
+  guard maximumBytes > 0, total > 0 else { return [] }
+  let scale = min(sqrt(Double(maximumBytes) / total), 1)
+  var remaining = maximumBytes
+  return requests.compactMap { request in
+    let width = max(Int(Double(request.width) * scale), 1)
+    let height = max(Int(Double(request.height) * scale), 1)
+    let bytes = width * height * 4
+    guard bytes <= remaining else { return nil }
+    remaining -= bytes
+    return OverviewPreviewRequest(windowID: request.windowID, expectedAppID: request.expectedAppID,
+      width: width, height: height,
+      blurFadeHeight: max(Int(Double(request.blurFadeHeight) * scale), 1))
+  }
 }
 
 // Selected monitor first, nearest to the anchor outward; other monitors keep their order.
@@ -227,6 +280,7 @@ func overviewPreviewCaptureOrder(
 func runOverviewPreviewCaptures(
   _ requests: [OverviewPreviewRequest],
   maximumConcurrent: Int = overviewPreviewMaximumConcurrentCaptures,
+  retainResults: Bool = true,
   completed: @escaping @Sendable (OverviewPreviewCaptureResult) async -> Void = { _ in },
   capture: @escaping @Sendable (OverviewPreviewRequest) async
     -> OverviewPreviewCaptureResult
@@ -244,7 +298,7 @@ func runOverviewPreviewCaptures(
     }
     var results: [(Int, OverviewPreviewCaptureResult)] = []
     while let result = await group.next() {
-      results.append(result)
+      if retainResults { results.append(result) }
       await completed(result.1)
       guard !Task.isCancelled else {
         group.cancelAll()
@@ -269,12 +323,20 @@ func captureOverviewImages(
   previewCompleted: @escaping @MainActor @Sendable (OverviewPreviewCaptureResult) -> Void
 ) async -> OverviewCaptureResults {
   let renderingContext = overviewPreviewRenderingContext
-  let limiter = OverviewCaptureLimiter()
+  // Old sessions may still be inside a non-cancellable macOS capture. Share
+  // slots across sessions rather than multiplying WindowServer work on reopen.
+  let limiter = overviewCaptureLimiter
   do {
-    let content = try await SCShareableContent.excludingDesktopWindows(
-      true,
-      onScreenWindowsOnly: false
-    )
+    guard await limiter.acquire() else { return OverviewCaptureResults(previews: [], desktops: [:]) }
+    let content: SCShareableContent
+    do {
+      try Task.checkCancellation()
+      content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+    } catch {
+      await limiter.release(error: error is CancellationError ? nil : error as NSError)
+      throw error
+    }
+    await limiter.release()
     // Desktop backgrounds capture alongside window previews instead of ahead of them.
     let desktopTask = Task { @MainActor in
       var desktops: [MonitorID: CGImage] = [:]
@@ -292,18 +354,20 @@ func captureOverviewImages(
         configuration.height = request.height
         configuration.showsCursor = false
         configuration.capturesAudio = false
-        await limiter.acquire()
+        guard await limiter.acquire() else { break }
         // A worker cancelled while queued gives its slot back without capturing.
         guard !Task.isCancelled else {
           await limiter.release()
           break
         }
-        let image = try? await SCScreenshotManager.captureImage(
-          contentFilter: filter,
-          configuration: configuration
-        )
-        await limiter.release()
-        if let image { desktops[request.monitorID] = image }
+        do {
+          let image = try await SCScreenshotManager.captureImage(
+            contentFilter: filter, configuration: configuration)
+          await limiter.release()
+          desktops[request.monitorID] = image
+        } catch {
+          await limiter.release(error: error as NSError)
+        }
       }
       return desktops
     }
@@ -316,7 +380,7 @@ func captureOverviewImages(
       limiter: limiter
     )
     return await withTaskCancellationHandler {
-      let previews = await runOverviewPreviewCaptures(requests, completed: { result in
+      let previews = await runOverviewPreviewCaptures(requests, retainResults: false, completed: { result in
         await previewCompleted(result)
       }) { request in
         await batch.capture(request)
@@ -374,7 +438,9 @@ private final class OverviewScreenCaptureBatch {
     configuration.showsCursor = false
     configuration.capturesAudio = false
     do {
-      await limiter.acquire()
+      guard await limiter.acquire() else {
+        return OverviewPreviewCaptureResult(request: request, image: nil)
+      }
       guard !Task.isCancelled else {
         await limiter.release()
         return OverviewPreviewCaptureResult(request: request, image: nil)
@@ -386,7 +452,7 @@ private final class OverviewScreenCaptureBatch {
           configuration: configuration
         )
       } catch {
-        await limiter.release()
+        await limiter.release(error: error as NSError)
         throw error
       }
       await limiter.release()

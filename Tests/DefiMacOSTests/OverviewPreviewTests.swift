@@ -4,9 +4,130 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import Testing
+import ScreenCaptureKit
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @Test
+  func deniedCaptureStopsAllQueuedAndFutureAttempts() async {
+    let limiter = OverviewCaptureLimiter(limit: 1)
+    #expect(await limiter.acquire())
+    let queued = Task { await limiter.acquire() }
+    for _ in 0..<1_000 {
+      if await limiter.waitingCount == 1 { break }
+      await Task.yield()
+    }
+    #expect(await limiter.waitingCount == 1)
+    await limiter.release(error: NSError(domain: SCStreamErrorDomain, code: -3801))
+    #expect(await queued.value == false)
+    #expect(await limiter.authorizationDeclined)
+    #expect(await limiter.acquire() == false)
+  }
+
+  @Test
+  func cancelledWaiterFinishesWhileNativeCaptureIsStillPending() async {
+    let limiter = OverviewCaptureLimiter(limit: 1)
+    #expect(await limiter.acquire())
+    let queued = Task { await limiter.acquire() }
+    for _ in 0..<1_000 {
+      if await limiter.waitingCount == 1 { break }
+      await Task.yield()
+    }
+    #expect(await limiter.waitingCount == 1)
+    queued.cancel()
+    #expect(await queued.value == false)
+    await limiter.release()
+    #expect(await limiter.acquire())
+    await limiter.release()
+  }
+
+  @Test
+  func ordinaryCaptureFailureDoesNotDisableAuthorization() async {
+    let limiter = OverviewCaptureLimiter(limit: 1)
+    #expect(await limiter.acquire())
+    await limiter.release(error: NSError(domain: "test.transient", code: 1))
+    #expect(await limiter.authorizationDeclined == false)
+    #expect(await limiter.acquire())
+    await limiter.release()
+  }
+  @Test
+  func overlappingBatchesShareCaptureSlotsWithoutRetainingDeliveredImages() async {
+    let limiter = OverviewCaptureLimiter(limit: 2)
+    let probe = CaptureProbe()
+    let delivered = CaptureProbe()
+    let requests = (1...8).map { OverviewPreviewRequest(windowID: WindowID(rawValue: UInt64($0)),
+      expectedAppID: "test", width: 100, height: 80, blurFadeHeight: 20) }
+    let capture: @Sendable (OverviewPreviewRequest) async -> OverviewPreviewCaptureResult = { request in
+      await limiter.acquire()
+      await probe.begin()
+      try? await Task.sleep(for: .milliseconds(5))
+      await probe.end()
+      await limiter.release()
+      return OverviewPreviewCaptureResult(request: request, image: nil)
+    }
+    let complete: @Sendable (OverviewPreviewCaptureResult) async -> Void = { _ in await delivered.begin() }
+    async let first = runOverviewPreviewCaptures(requests, retainResults: false,
+      completed: complete, capture: capture)
+    async let second = runOverviewPreviewCaptures(requests, retainResults: false,
+      completed: complete, capture: capture)
+    let results = await (first, second)
+    #expect(results.0.isEmpty && results.1.isEmpty)
+    #expect(await probe.maximum == 2)
+    #expect(await delivered.maximum == requests.count * 2)
+  }
+  @Test
+  func allWorkspacePreviewBatchFitsDecodedMemoryBudget() {
+    let requests = (1...100).map { OverviewPreviewRequest(
+      windowID: WindowID(rawValue: UInt64($0)), expectedAppID: "test",
+      width: 1600, height: 1200, blurFadeHeight: 100) }
+    let bounded = boundedOverviewPreviewRequests(requests, maximumBytes: 8 * 1024 * 1024)
+    #expect(bounded.count == requests.count)
+    #expect(bounded.reduce(0) { $0 + $1.width * $1.height * 4 } <= 8 * 1024 * 1024)
+    #expect(bounded[0].width < requests[0].width)
+    #expect(bounded.map(\.windowID) == requests.map(\.windowID))
+    #expect(boundedOverviewPreviewRequests(requests, maximumBytes: 0).isEmpty)
+  }
+  @MainActor @Test func titleRasterCacheReusesLabelsAndBoundsMemory() throws {
+    let cache = OverviewTitleCache(maximumBytes: 12_000)
+    let id = WindowID(rawValue: 1)
+    let label = try #require(cache.label(for: id, text: "Finder", fontSize: 13,
+      maximumWidth: 200, scale: 2))
+    for _ in 0..<120 {
+      let repeated = try #require(cache.label(for: id, text: "Finder", fontSize: 13,
+        maximumWidth: 200, scale: 2))
+      #expect(repeated.image === label.image)
+    }
+    #expect(cache.rasterizationCount == 1)
+    let changed = try #require(cache.label(for: id, text: "Downloads", fontSize: 13,
+      maximumWidth: 200, scale: 2))
+    #expect(changed.image !== label.image)
+    #expect(cache.rasterizationCount == 2)
+    for value in 2..<50 {
+      _ = cache.label(for: WindowID(rawValue: UInt64(value)), text: "Downloads",
+        fontSize: 13, maximumWidth: 200, scale: 2)
+      #expect(cache.byteCount <= 12_000)
+    }
+    cache.prune(windowIDs: [])
+    #expect(cache.byteCount == 0)
+  }
+
+  @Test func surfaceCaptureBudgetIncludesProducerLatestAndDisplayedBuffers() {
+    let request = OverviewSurfaceRequest(windowID: WindowID(rawValue: 1),
+      appID: "test", processID: 1, width: 2_560, height: 1_600)
+    #expect(overviewSurfaceRequestsFit([request]))
+    #expect(overviewSurfaceRequestsFit([request, request]))
+    #expect(!overviewSurfaceRequestsFit(Array(repeating: request, count: 12)))
+    #expect(request.estimatedPoolBytes == 2_560 * 1_600 * 6)
+  }
+
+  @MainActor @Test func disabledSurfaceCaptureDoesNotStartStreams() {
+    let capture = OverviewSurfaceCapture()
+    capture.prepare([], enabled: false)
+    #expect(capture.state == "disabled")
+    #expect(capture.streamCount == 0)
+    #expect(capture.estimatedPoolBytes == 0)
+  }
+
   @Test func previewPixelSizeKeepsCardAspectWhenCapped() {
     let large = overviewPreviewPixelSize(cardWidth: 2_000, cardHeight: 1_040, scale: 2)
     #expect(large.width <= 1_600 && large.height <= 1_200)

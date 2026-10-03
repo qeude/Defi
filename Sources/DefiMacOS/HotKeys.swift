@@ -27,6 +27,7 @@ public final class HotKeyManager {
   private let tapReenabledHandler: TapReenabledHandler
   private let closeIntentHandler: CloseIntentHandler
   private let overviewHandler: OverviewHandler
+  private let overviewCancelHandler: (@Sendable () -> Void)?
   private let cheatsheetHandler: @NavigationActor @Sendable (CheatsheetInput) -> Void
   private let cheatsheetModifierBits: UInt64?
   private let userInputTracker: UserInputTracker
@@ -66,6 +67,7 @@ public final class HotKeyManager {
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
+    overviewCancelHandler: (@Sendable () -> Void)? = nil,
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
     handler: @escaping Handler
   ) {
@@ -78,6 +80,7 @@ public final class HotKeyManager {
     self.tapReenabledHandler = tapReenabledHandler
     self.closeIntentHandler = closeIntentHandler
     self.overviewHandler = overviewHandler
+    self.overviewCancelHandler = overviewCancelHandler
     self.cheatsheetHandler = cheatsheetHandler
     cheatsheetModifierBits = try? Key(
       accelerator: "\(config.defaultKeyModifier)-a",
@@ -132,6 +135,7 @@ public final class HotKeyManager {
     let tapReenabledHandler = self.tapReenabledHandler
     let closeIntentHandler = self.closeIntentHandler
     let overviewHandler = self.overviewHandler
+    let overviewCancelHandler = self.overviewCancelHandler
     let cheatsheetHandler = self.cheatsheetHandler
     let context = HotKeyTapContext(
       bindings: bindings,
@@ -150,6 +154,11 @@ public final class HotKeyManager {
         handler(invocation)
       }
     } deliverOverview: { action in
+      // Escape and the overview toggle must not queue behind slow AX work.
+      if action == .cancel, let overviewCancelHandler {
+        overviewCancelHandler()
+        return
+      }
       NavigationActor.enqueue {
         overviewHandler(action)
       }

@@ -21,6 +21,10 @@ private final class HotKeyInvocationRecorder: Sendable {
 
 @Suite
 struct OverviewHotKeyTests {
+  @Test func overviewToggleIsACancelActionWhileOverviewCapturesInput() {
+    #expect(overviewKeyAction(keyCode: 31, modifierBits: UInt64.max,
+      configuredCommand: "toggle-overview") == .cancel)
+  }
   @Test(arguments: [false, true])
   func settingsTargetKeyEventsRespectTextFocus(textFocused: Bool) throws {
     let key = try Key(accelerator: "alt-left", aliases: [:])

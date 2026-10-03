@@ -105,6 +105,7 @@ struct ConfigTests {
     #expect(config.animation.durationMS == 35)
     #expect(config.overview.zoom == 0.5)
     #expect(config.overview.windowPreviews == false)
+    #expect(config.overview.experimentalSurfaceTransitions == false)
     #expect(config.overview.windowCornerRadius == 12)
     #expect(config.decorations.borders.enabled)
     #expect(config.decorations.borders.width == 4)
@@ -135,6 +136,7 @@ struct ConfigTests {
         [overview]
         zoom = 0.25
         window_previews = true
+        experimental_surface_transitions = true
         window_corner_radius = 18
         """.utf8
       )
@@ -142,7 +144,15 @@ struct ConfigTests {
 
     #expect(config.overview.zoom == 0.25)
     #expect(config.overview.windowPreviews)
+    #expect(config.overview.experimentalSurfaceTransitions)
     #expect(config.overview.windowCornerRadius == 18)
+  }
+
+  @Test
+  func `Surface transitions require explicit preview opt in`() {
+    #expect(throws: ConfigError.self) {
+      try Config.decode(Data("[overview]\nexperimental_surface_transitions = true".utf8))
+    }
   }
 
   @Test

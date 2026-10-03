@@ -67,6 +67,7 @@ func overviewKeyAction(
   case 36 where modifierBits == 0: .select
   case 76 where modifierBits == 0: .select
   case 53 where modifierBits == 0: .cancel
+  case _ where commandName == "toggle-overview": .cancel
   default: nil
   }
 }

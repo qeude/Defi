@@ -21,6 +21,10 @@ final class OverviewView: NSView {
   private var desktopFadeLink: CADisplayLink?
   var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: NSImage] = [:]
+  var surfaceWindowIDs = Set<WindowID>()
+  var suppressedSurfaceWindowIDs = Set<WindowID>() {
+    didSet { if oldValue != suppressedSurfaceWindowIDs { needsDisplay = true } }
+  }
   private var previewOpacities: [WindowID: Double] = [:]
   // Image being replaced, kept underneath until the new preview finishes fading in.
   private var outgoingPreviews: [WindowID: NSImage] = [:]
@@ -30,6 +34,9 @@ final class OverviewView: NSView {
   private var leftDragStarted = false
   private var rightDragPoint: NSPoint?
   private var iconCache: [String: NSImage] = [:]
+  private let titleCache = OverviewTitleCache()
+  var titleRasterizationCount: Int { titleCache.rasterizationCount }
+  private(set) var presentationUpdateCount = 0
 
   override var isFlipped: Bool { true }
 
@@ -45,6 +52,9 @@ final class OverviewView: NSView {
   func discardPreviewImages() {
     previews.removeAll(keepingCapacity: false)
     outgoingPreviews.removeAll(keepingCapacity: false)
+    previewOpacities.removeAll()
+    titleCache.prune(windowIDs: [])
+    iconCache.removeAll()
   }
 
   func setDesktopImage(_ image: NSImage?, fadeDuration: TimeInterval = 0) {
@@ -99,6 +109,8 @@ final class OverviewView: NSView {
       || self.borderStyle != borderStyle || self.windowCornerRadius != windowCornerRadius
       || self.previews != visiblePreviews || self.previewOpacities != visibleOpacities
     else { return false }
+    presentationUpdateCount += 1
+    if self.snapshot != snapshot { titleCache.prune(windowIDs: Set(snapshot.windows.keys)) }
     self.snapshot = snapshot
     self.projection = projection
     self.selection = selection
@@ -326,6 +338,7 @@ final class OverviewView: NSView {
     _ card: OverviewWindowProjection,
     snapshot: OverviewSnapshot
   ) {
+    guard !suppressedSurfaceWindowIDs.contains(card.windowID) else { return }
     guard let window = snapshot.windows[card.windowID] else { return }
     let frame = nsRect(card.frame)
     guard needsToDraw(frame) else { return }
@@ -336,6 +349,14 @@ final class OverviewView: NSView {
     )
     NSColor(calibratedWhite: card.isNativeFullscreen ? 0.19 : 0.15, alpha: 1).setFill()
     path.fill()
+    if surfaceWindowIDs.contains(card.windowID), let preview = previews[card.windowID] {
+      NSGraphicsContext.saveGraphicsState()
+      path.addClip()
+      preview.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1,
+        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+      NSGraphicsContext.restoreGraphicsState()
+      return
+    }
     let iconSize = overviewWindowTitleIconSize(cardHeight: frame.height)
     let titleBandHeight = overviewWindowTitleBandHeight(iconSize: iconSize)
     let titleFadeHeight = overviewPreviewBlurFadeHeight(
@@ -401,15 +422,24 @@ final class OverviewView: NSView {
       .font: NSFont.systemFont(ofSize: min(13, max(frame.height * 0.09, 10)), weight: .medium),
       .foregroundColor: NSColor.white.withAlphaComponent(0.9),
     ]
+    let label = titleCache.label(for: card.windowID, text: title as String,
+      fontSize: min(13, max(frame.height * 0.09, 10)),
+      maximumWidth: max(frame.width - iconSize - 28, 1),
+      scale: windowBackingScale)
     let titleLayout = overviewWindowTitleLayout(
       cardFrame: frame,
       iconSize: iconSize,
-      titleSize: title.size(withAttributes: titleAttributes),
+      titleSize: label?.intrinsicSize ?? title.size(withAttributes: titleAttributes),
       blurHeight: titleBandHeight
     )
     let icon = icon(for: window)
     icon.draw(in: titleLayout.iconFrame)
-    title.draw(in: titleLayout.titleFrame, withAttributes: titleAttributes)
+    if let label {
+      label.image.draw(in: titleLayout.titleFrame, from: .zero, operation: .sourceOver,
+        fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+    } else {
+      title.draw(in: titleLayout.titleFrame, withAttributes: titleAttributes)
+    }
     if card.isNativeFullscreen {
       let label = "Full Screen" as NSString
       label.draw(
@@ -510,18 +540,29 @@ final class OverviewView: NSView {
     if let cached = iconCache[window.appID] { return cached }
     let icon = NSImage(systemSymbolName: "app", accessibilityDescription: window.appID)
       ?? NSImage(size: NSSize(width: 24, height: 24))
-    iconCache[window.appID] = icon
+    iconCache[window.appID] = rasterizedIcon(icon)
     if let processID = window.processID {
       Task { @MainActor [weak self] in
         let loaded = await Task.detached(priority: .utility) {
           NSRunningApplication(processIdentifier: processID)?.icon
         }.value
         guard let self, let loaded else { return }
-        self.iconCache[window.appID] = loaded
+        self.iconCache[window.appID] = self.rasterizedIcon(loaded)
         self.needsDisplay = true
       }
     }
-    return icon
+    return iconCache[window.appID] ?? icon
+  }
+
+  private var windowBackingScale: CGFloat { window?.backingScaleFactor ?? 2 }
+
+  private func rasterizedIcon(_ image: NSImage) -> NSImage {
+    let size = CGSize(width: 24, height: 24)
+    return overviewLabelBitmap(size: size, scale: 2) {
+      image.draw(in: CGRect(origin: .zero, size: size), from: .zero,
+        operation: .sourceOver, fraction: 1, respectFlipped: true,
+        hints: [.interpolation: NSImageInterpolation.high])
+    } ?? image
   }
 
   private func overviewBorderColor(_ value: UInt32) -> NSColor {

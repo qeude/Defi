@@ -71,6 +71,12 @@ struct OverviewTests {
     #expect(projection.workspaces.count < monitor.workspaces.count)
     #expect(projection.workspaces.contains(where: { $0.workspaceID == active.id }))
     #expect(snapshot.monitors[0].workspaces[4].scrollOffset == 0.25)
+    let captureProjection = projectOverview(snapshot: snapshot, monitorID: monitorID,
+      bounds: monitorFrame, viewport: OverviewViewport(horizontalOffsets: [active.id: 100]),
+      layout: LayoutSettings(), includeOffscreenContent: true)
+    #expect(captureProjection.workspaces.count == monitor.workspaces.count)
+    #expect(captureProjection.workspaces.flatMap(\.windows).map(\.windowID) == [WindowID(rawValue: 1)])
+    #expect(snapshot.monitors[0].workspaces[4].scrollOffset == 0.25)
   }
 
   @Test

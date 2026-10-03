@@ -26,6 +26,15 @@ final class OverviewPanel {
   let window: NSPanel
   let view: OverviewView
   private let desktopView: NSView
+  private let rootView: NSView
+  private let glassView: NSGlassEffectView
+  private var surfaceScene: OverviewSurfaceScene?
+  private var previewClosingScene: OverviewPreviewClosingScene?
+  var hasSurfaceScene: Bool { surfaceScene != nil || previewClosingScene != nil }
+  var surfacePresentedFrameCount: Int { surfaceScene?.presentedFrameCount ?? 0 }
+  private var surfaceTask: Task<Void, Never>?
+  private var invalidatedSurfaceWindowIDs = Set<WindowID>()
+  private var surfaceGeneration: UInt64 = 0
   private var desktopImageTask: Task<Void, Never>?
 
   init(
@@ -63,7 +72,7 @@ final class OverviewPanel {
       .ignoresCycle,
     ]
     window.sharingType = .readOnly
-    let rootView = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+    rootView = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
     rootView.wantsLayer = true
     rootView.layer?.backgroundColor = usesCapturedDesktop
       ? NSColor.black.cgColor
@@ -77,7 +86,7 @@ final class OverviewPanel {
     desktopView.layer?.contentsScale = screen.backingScaleFactor
     desktopView.layer?.masksToBounds = true
     desktopView.autoresizingMask = [.width, .height]
-    let glassView = NSGlassEffectView(
+    glassView = NSGlassEffectView(
       frame: NSRect(origin: .zero, size: screen.frame.size)
     )
     glassView.style = .regular
@@ -109,6 +118,7 @@ final class OverviewPanel {
   }
 
   func show(fadeDuration: TimeInterval = 0) {
+    cancelSurfaceTransition()
     view.wantsLayer = true
     if fadeDuration > 0 {
       window.alphaValue = 0
@@ -150,10 +160,97 @@ final class OverviewPanel {
   }
 
   func hide() {
+    cancelSurfaceTransition()
     orderOut()
+    discardImages()
+  }
+
+  func showSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>, duration: TimeInterval) {
+    cancelSurfaceTransition()
+    surfaceScene = scene
+    let generation = surfaceGeneration
+    view.suppressedSurfaceWindowIDs = windowIDs
+    glassView.alphaValue = 0
+    rootView.layer?.addSublayer(scene.layer)
+    window.alphaValue = 1
+    window.orderFrontRegardless()
+    scene.animate(opening: true, duration: duration)
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = duration
+      glassView.animator().alphaValue = 1
+    }
+    surfaceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
+      guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      glassView.alphaValue = 1
+      surfaceTask = nil
+    }
+  }
+
+  func hideSurfaceSceneIfUnchanged(duration: TimeInterval) -> Bool {
+    guard let surfaceScene, let screen = window.screen,
+      surfaceScene.matchesNativeFrames(screen: screen) else { return false }
+    surfaceTask?.cancel()
+    surfaceGeneration &+= 1
+    let generation = surfaceGeneration
+    view.suppressedSurfaceWindowIDs = Set(surfaceScene.nativeFrames.keys)
+    rootView.layer?.addSublayer(surfaceScene.layer)
+    surfaceScene.animate(opening: false, duration: duration)
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = duration
+      glassView.animator().alphaValue = 0
+    }
+    surfaceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
+      guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      hide()
+    }
+    return true
+  }
+
+  func hidePreviewScene(_ scene: OverviewPreviewClosingScene, duration: TimeInterval) {
+    cancelSurfaceTransition()
+    previewClosingScene = scene
+    let generation = surfaceGeneration
+    rootView.layer?.addSublayer(scene.layer)
+    scene.animate(duration: duration)
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = duration
+      glassView.animator().alphaValue = 0
+    }
+    surfaceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
+      guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      hide()
+    }
+  }
+
+  private func cancelSurfaceTransition() {
+    surfaceGeneration &+= 1
+    surfaceTask?.cancel()
+    surfaceTask = nil
+    surfaceScene?.layer.removeFromSuperlayer()
+    surfaceScene = nil
+    previewClosingScene?.layer.removeFromSuperlayer()
+    previewClosingScene = nil
+    view.suppressedSurfaceWindowIDs = []
+    glassView.layer?.removeAllAnimations()
+    glassView.alphaValue = 1
+  }
+
+  @discardableResult
+  func invalidateSurfaceScene(ifProjectionChanged projection: OverviewProjection) -> Set<WindowID> {
+    var ids = invalidatedSurfaceWindowIDs
+    invalidatedSurfaceWindowIDs = []
+    if let surfaceScene, surfaceScene.projection != projection {
+      ids.formUnion(surfaceScene.nativeFrames.keys)
+      cancelSurfaceTransition()
+    }
+    return ids
   }
 
   func discardImages() {
+    cancelSurfaceTransition()
     desktopImageTask?.cancel()
     desktopImageTask = nil
     desktopView.layer?.contents = nil
@@ -167,6 +264,7 @@ final class OverviewPanel {
   }
 
   func close() {
+    cancelSurfaceTransition()
     orderOut()
     discardImages()
     window.close()
