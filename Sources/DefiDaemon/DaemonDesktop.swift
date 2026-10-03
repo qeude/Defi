@@ -8,13 +8,6 @@ import DefiRuntime
 import Foundation
 import OSLog
 
-func preservesExitSideForAnimation(
-  animationsEnabled: Bool,
-  animationDuration: TimeInterval
-) -> Bool {
-  animationsEnabled && animationDuration > 0
-}
-
 struct AnimationDisplayTiming: Equatable {
   let refreshRateHz: Double
   let displayIDs: Set<UInt64>
@@ -161,10 +154,7 @@ extension Daemon {
             parkingFrame: viewport,
             allMonitorFrames: allPhysicalMonitorFrames,
             reservedParkingFrames: reservedParkingFrames,
-            preservingExitSide: preservesExitSideForAnimation(
-              animationsEnabled: animationsEnabled,
-              animationDuration: animationDuration
-            )
+            preservingExitSide: animationsEnabled && animationDuration > 0
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
@@ -185,10 +175,7 @@ extension Daemon {
               ownerFrame: physicalFrame,
               parkingFrame: viewport,
               allMonitorFrames: allPhysicalMonitorFrames,
-              preservingExitSide: preservesExitSideForAnimation(
-                animationsEnabled: animationsEnabled,
-                animationDuration: animationDuration
-              )
+              preservingExitSide: animationsEnabled && animationDuration > 0
             )
             monitorNativeFullscreenPlaceholderAssignments.append(
               contentsOf: fullscreenStrip.frames.filter {
@@ -236,10 +223,7 @@ extension Daemon {
             parkingFrame: viewport,
             allMonitorFrames: transitionMonitorFrames,
             reservedParkingFrames: transitionParkingFrames,
-            preservingExitSide: preservesExitSideForAnimation(
-              animationsEnabled: animationsEnabled,
-              animationDuration: animationDuration
-            )
+            preservingExitSide: animationsEnabled && animationDuration > 0
           )
           let leaving = (strip.frames + floatingAssignments(in: workspace)).map {
             translatedAssignment($0, deltaY: deltaY)

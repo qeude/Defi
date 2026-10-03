@@ -85,13 +85,6 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
-  func exitSideParkingRequiresAnActiveAnimation() {
-    #expect(preservesExitSideForAnimation(animationsEnabled: true, animationDuration: 0.2))
-    #expect(!preservesExitSideForAnimation(animationsEnabled: true, animationDuration: 0))
-    #expect(!preservesExitSideForAnimation(animationsEnabled: false, animationDuration: 0.2))
-  }
-
-  @Test
   func outgoingTransitionParkingIsReservedForLaterMonitorLayouts() throws {
     let outgoingMonitor = Rect(x: -1_200, y: 400, width: 800, height: 600)
     let laterMonitor = Rect(x: 0, y: 0, width: 800, height: 600)
