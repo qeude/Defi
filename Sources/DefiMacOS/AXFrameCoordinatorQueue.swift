@@ -86,6 +86,7 @@ extension AXFrameCoordinator {
       activeAnimatedWindowIDs.removeAll(keepingCapacity: true)
       activeWindowIDs.removeAll(keepingCapacity: true)
       activeWrites.removeAll(keepingCapacity: true)
+      retireIdleProcessWriteQueuesLocked()
       lock.unlock()
       let acceptedFrames = readAcceptedFrames(
         for: frame,

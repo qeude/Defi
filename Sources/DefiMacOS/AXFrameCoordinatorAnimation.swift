@@ -167,7 +167,7 @@ extension AXFrameCoordinator {
       )
       for batch in stagingBatches {
         stagingGroup.enter()
-        processWriteQueue(for: batch.processID).async { [self] in
+        enqueueProcessWrite(for: batch.processID) { [self] in
           defer { stagingGroup.leave() }
           let startedAt = ProcessInfo.processInfo.systemUptime
           let result = applyBatch(
@@ -236,11 +236,12 @@ extension AXFrameCoordinator {
       loopWrites,
       windowIDs: Set(loopWrites.keys)
     )
-    let processQueues = Dictionary(
+    let processQueueLeases = Dictionary(
       uniqueKeysWithValues: batches.map {
-        ($0.processID, processWriteQueue(for: $0.processID))
+        ($0.processID, reserveProcessWriteQueue(for: $0.processID))
       }
     )
+    defer { processQueueLeases.values.forEach { $0.release() } }
     let clockState = Mutex<AnimationClockState>(AnimationClockState(
       timeline: FrameAnimationClock(
         startedAt: startedAt, interval: interval,
@@ -254,7 +255,8 @@ extension AXFrameCoordinator {
     let clock = FrameAnimationDriver(
       interval: interval, refreshInterval: 1 / frame.refreshRateHz,
       displayIDs: frame.displayIDs, queue: animationClockQueue
-    ) { [self] driver in
+    ) { [self, processQueueLeases] driver in
+      withExtendedLifetime(processQueueLeases) {}
       guard isCurrent(generation: frame.generation) else {
         let shouldSignal = clockState.withLock { state in
           guard !state.finished else { return false }
@@ -310,8 +312,7 @@ extension AXFrameCoordinator {
             completion: nil,
             laneReady: { [weak driver] in driver?.requestTick(afterLaneCompletion: true) }
           )
-        },
-        processQueues: processQueues
+        }
       )
       let dispatchedAt = ProcessInfo.processInfo.systemUptime
       clockState.withLock { state in
@@ -389,10 +390,7 @@ extension AXFrameCoordinator {
         completion: { finalGroup.leave() }
       )
     }
-    _ = submitAnimationSamples(
-      finalSamples,
-      processQueues: processQueues
-    )
+    _ = submitAnimationSamples(finalSamples)
     finalGroup.wait()
     let laneResult = laneAccumulator.result
     applied += laneResult.applied

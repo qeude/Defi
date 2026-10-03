@@ -103,6 +103,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var latencySensitiveProcessIDs = Set<pid_t>()
   var processLatencyStreaks: [pid_t: ProcessLatencyStreak] = [:]
   var processWriteQueues: [pid_t: DispatchQueue] = [:]
+  var processWriteQueueReservations: [pid_t: Int] = [:]
+  var processWriteQueueRetirementRequested = Set<pid_t>()
   var processAnimationLanes:
     [pid_t: LatestAnimationSampleState<ProcessAnimationSample>] = [:]
   var nextEnhancedUIRestoreToken: UInt64 = 0
@@ -258,6 +260,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     initialSettlementDriftSamples.removeAll(keepingCapacity: true)
     initialSettlementRepairsSuspended = false
     pendingInitialSettlementEventChecks.removeAll(keepingCapacity: true)
+    retireIdleProcessWriteQueuesLocked()
     appendTraceLocked("invalidate g=\(nextGeneration) reason=\(reason)")
     lock.unlock()
     completeSupersededFrame(displacedFrame)
@@ -639,17 +642,28 @@ final class AXFrameCoordinator: @unchecked Sendable {
     immediateReadbackProcessDeadlines = immediateReadbackProcessDeadlines.filter {
       liveProcessIDs.contains($0.key)
     }
+    processWriteQueueRetirementRequested.formUnion(
+      processWriteQueues.keys.filter { !liveProcessIDs.contains($0) }
+    )
+    processWriteQueueRetirementRequested.subtract(liveProcessIDs)
     let retiredEnhancedUIRestores = deferredEnhancedUIRestores.filter {
       !liveProcessIDs.contains($0.key)
     }
+    var restoreReservations: [pid_t: ProcessWriteQueueReservation] = [:]
     for processID in retiredEnhancedUIRestores.keys {
       animationLaneWriteGroup.enter()
       deferredEnhancedUIRestores[processID] = nil
+      restoreReservations[processID] = reserveProcessWriteQueueLocked(for: processID)
     }
+    retireIdleProcessWriteQueuesLocked()
     lock.unlock()
     for (processID, restore) in retiredEnhancedUIRestores {
-      processWriteQueue(for: processID).async { [self] in
-        defer { animationLaneWriteGroup.leave() }
+      guard let reservation = restoreReservations[processID] else { continue }
+      reservation.queue.async { [self, reservation] in
+        defer {
+          animationLaneWriteGroup.leave()
+          reservation.release()
+        }
         lock.lock()
         let superseded = deferredEnhancedUIRestores[processID] != nil
         lock.unlock()

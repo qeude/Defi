@@ -8,6 +8,34 @@ import OSLog
 
 private let enhancedUIRestoreDelay: TimeInterval = 0.12
 
+final class ProcessWriteQueueReservation: @unchecked Sendable {
+  let queue: DispatchQueue
+  private weak var coordinator: AXFrameCoordinator?
+  private let processID: pid_t
+  private let lock = NSLock()
+  private var isReleased = false
+
+  init(queue: DispatchQueue, coordinator: AXFrameCoordinator, processID: pid_t) {
+    self.queue = queue
+    self.coordinator = coordinator
+    self.processID = processID
+  }
+
+  func release() {
+    lock.lock()
+    guard !isReleased else {
+      lock.unlock()
+      return
+    }
+    isReleased = true
+    let coordinator = coordinator
+    lock.unlock()
+    coordinator?.releaseProcessWriteQueueReservation(for: processID)
+  }
+
+  deinit { release() }
+}
+
 extension AXFrameCoordinator {
   func applyFrame(
     _ frame: QueuedPositionFrame,
@@ -59,7 +87,8 @@ extension AXFrameCoordinator {
       let group = DispatchGroup()
       for batch in batches {
         group.enter()
-        processWriteQueue(for: batch.processID).async { [self] in
+        enqueueProcessWrite(for: batch.processID) { [self] in
+          defer { group.leave() }
           let batchStartedAt = ProcessInfo.processInfo.systemUptime
           let result = applyBatch(
             batch,
@@ -80,7 +109,6 @@ extension AXFrameCoordinator {
             attempted: result.attempted,
             completedAt: ProcessInfo.processInfo.systemUptime
           )
-          group.leave()
         }
       }
       group.wait()
@@ -127,8 +155,7 @@ extension AXFrameCoordinator {
   }
 
   func submitAnimationSamples(
-    _ samples: [ProcessAnimationSample],
-    processQueues: [pid_t: DispatchQueue]
+    _ samples: [ProcessAnimationSample]
   ) -> (coalesced: Int, submittedIntermediate: Bool) {
     var displacedSamples: [ProcessAnimationSample] = []
     var startingSamples: [ProcessAnimationSample] = []
@@ -158,18 +185,17 @@ extension AXFrameCoordinator {
       animationLaneWriteGroup.leave()
     }
     for sample in startingSamples {
-      let queue =
-        processQueues[sample.batch.processID]
-        ?? processWriteQueue(for: sample.batch.processID)
+      let reservation = reserveProcessWriteQueue(for: sample.batch.processID)
       let prioritizesMotion = sample.intermediate && !sample.stagingReentry
         && sample.frame.source == "command-animation"
         && sample.batch.writes.allSatisfy {
           !$0.value.sizeChanged && $0.value.fromPoint.y == $0.value.point.y
         }
-      queue.async(
+      reservation.queue.async(
         qos: prioritizesMotion ? .userInteractive : .unspecified,
         flags: prioritizesMotion ? .enforceQoS : []
       ) { [self] in
+        defer { reservation.release() }
         drainAnimationLane(processID: sample.batch.processID)
       }
     }
@@ -228,11 +254,29 @@ extension AXFrameCoordinator {
   func processWriteQueue(for processID: pid_t) -> DispatchQueue {
     lock.lock()
     defer { lock.unlock() }
+    return processWriteQueueLocked(for: processID)
+  }
+
+  func reserveProcessWriteQueue(for processID: pid_t) -> ProcessWriteQueueReservation {
+    lock.lock()
+    defer { lock.unlock() }
+    return reserveProcessWriteQueueLocked(for: processID)
+  }
+
+  func reserveProcessWriteQueueLocked(
+    for processID: pid_t
+  ) -> ProcessWriteQueueReservation {
+    let queue = processWriteQueueLocked(for: processID)
+    processWriteQueueReservations[processID, default: 0] += 1
+    return ProcessWriteQueueReservation(
+      queue: queue, coordinator: self, processID: processID
+    )
+  }
+
+  func processWriteQueueLocked(for processID: pid_t) -> DispatchQueue {
     if let existing = processWriteQueues[processID] {
       return existing
     }
-    // ponytail: keep lane identity for the daemon session; reclaim with explicit
-    // idle tracking only if application churn makes this small cache material.
     let queue = DispatchQueue(
       label: "com.quentin.defi.ax-process-\(processID)",
       qos: .userInitiated,
@@ -240,6 +284,70 @@ extension AXFrameCoordinator {
     )
     processWriteQueues[processID] = queue
     return queue
+  }
+
+  func releaseProcessWriteQueueReservation(for processID: pid_t) {
+    lock.lock()
+    let reservations = processWriteQueueReservations[processID, default: 0]
+    precondition(reservations > 0, "process queue reservation released more than once")
+    if reservations == 1 {
+      processWriteQueueReservations[processID] = nil
+    } else {
+      processWriteQueueReservations[processID] = reservations - 1
+    }
+    retireIdleProcessWriteQueuesLocked()
+    lock.unlock()
+  }
+
+  func retireIdleProcessWriteQueuesLocked() {
+    for processID in Array(processWriteQueueRetirementRequested) {
+      guard processWriteQueueReservations[processID, default: 0] == 0,
+        pending?.writes.values.contains(where: { $0.processID == processID }) != true,
+        !activeWrites.values.contains(where: { $0.processID == processID })
+      else { continue }
+      animationLaneLock.lock()
+      let hasAnimationLane = processAnimationLanes[processID] != nil
+      animationLaneLock.unlock()
+      guard !hasAnimationLane else { continue }
+      processWriteQueues[processID] = nil
+      processWriteQueueRetirementRequested.remove(processID)
+    }
+  }
+
+  func enqueueProcessWrite(
+    for processID: pid_t,
+    qos: DispatchQoS = .unspecified,
+    flags: DispatchWorkItemFlags = [],
+    after deadline: DispatchTime? = nil,
+    operation: @escaping @Sendable () -> Void
+  ) {
+    enqueueProcessWrite(
+      using: reserveProcessWriteQueue(for: processID),
+      qos: qos,
+      flags: flags,
+      after: deadline,
+      operation: operation
+    )
+  }
+
+  func enqueueProcessWrite(
+    using reservation: ProcessWriteQueueReservation,
+    qos: DispatchQoS = .unspecified,
+    flags: DispatchWorkItemFlags = [],
+    after deadline: DispatchTime? = nil,
+    operation: @escaping @Sendable () -> Void
+  ) {
+    let work: @Sendable () -> Void = {
+      defer { reservation.release() }
+      operation()
+    }
+    if let deadline {
+      reservation.queue.asyncAfter(
+        deadline: deadline, qos: qos, flags: flags, execute: work
+      )
+    } else {
+      reservation.queue.async(qos: qos, flags: flags, execute: work)
+    }
   }
 
   func predictedFrameLatency(
@@ -882,8 +990,9 @@ extension AXFrameCoordinator {
     token: UInt64,
     retryFailedRestore: Bool = true
   ) {
-    processWriteQueue(for: processID).asyncAfter(
-      deadline: .now() + enhancedUIRestoreDelay
+    enqueueProcessWrite(
+      for: processID,
+      after: .now() + enhancedUIRestoreDelay
     ) { [weak self] in
       guard let self else { return }
       lock.lock()
@@ -951,7 +1060,7 @@ extension AXFrameCoordinator {
     let committed = WindowIDCollector()
     for entries in byProcess.values {
       group.enter()
-      processWriteQueue(for: entries[0].value.processID).async { [self] in
+      enqueueProcessWrite(for: entries[0].value.processID) { [self] in
         defer { group.leave() }
         var succeeded = Set<WindowID>()
         for (windowID, write) in entries.sorted(by: {

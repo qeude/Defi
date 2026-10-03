@@ -33,7 +33,7 @@ struct FrameCommitTests {
     )
     let origin = coordinator.animationClockQueue
     origin.async {
-      _ = coordinator.submitAnimationSamples([sample], processQueues: [:])
+      _ = coordinator.submitAnimationSamples([sample])
     }
     #expect(finished.wait(timeout: .now() + 1) == .success)
     #expect(coordinator.animationLaneWriteGroup.wait(timeout: .now() + 1) == .success)
@@ -134,7 +134,7 @@ struct FrameCommitTests {
         ready.signal()
       }
     )
-    _ = coordinator.submitAnimationSamples([sample], processQueues: [:])
+    _ = coordinator.submitAnimationSamples([sample])
     #expect(ready.wait(timeout: .now() + 1) == .success)
     coordinator.animationLaneWriteGroup.wait()
   }
@@ -315,18 +315,59 @@ struct FrameCommitTests {
     _ = coordinator.beginDeferredEnhancedUIRestore(
       processID: 42, application: AXUIElementCreateApplication(-1)
     )
-    let original = coordinator.processWriteQueue(for: 42)
+    let pendingReservation = coordinator.reserveProcessWriteQueue(for: 42)
+    let original = pendingReservation.queue
     let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
     original.async { started.signal(); release.wait() }
     #expect(started.wait(timeout: .now() + 1) == .success)
     defer {
       release.signal(); original.sync { }
+      pendingReservation.release()
       #expect(enables.withLock { $0 } == 1)
     }
     coordinator.pruneProcessLatencyState(liveProcessIDs: [])
     #expect(coordinator.processWriteQueue(for: 42) === original)
     #expect(enables.withLock { $0 } == 0)
     #expect(coordinator.animationLaneWriteGroup.wait(timeout: .now()) == .timedOut)
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [42])
+    let rediscoveredReservation = coordinator.reserveProcessWriteQueue(for: 42)
+    #expect(rediscoveredReservation.queue === original)
+    release.signal()
+    original.sync { }
+    pendingReservation.release()
+    rediscoveredReservation.release()
+    #expect(coordinator.processWriteQueues[42] === original)
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [])
+    #expect(coordinator.processWriteQueues[42] == nil)
+  }
+
+  @Test
+  func delayedProcessWorkKeepsItsQueueAcrossRetirementAndRediscovery() {
+    let coordinator = AXFrameCoordinator()
+    let workStarted = DispatchSemaphore(value: 0)
+    let releaseWork = DispatchSemaphore(value: 0)
+    let original = coordinator.processWriteQueue(for: 42)
+    defer { releaseWork.signal() }
+
+    coordinator.enqueueProcessWrite(for: 42, after: .now() + 0.1) {
+      workStarted.signal()
+      releaseWork.wait()
+    }
+    #expect(coordinator.processWriteQueueReservations[42] == 1)
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [])
+    #expect(coordinator.processWriteQueue(for: 42) === original)
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [42])
+    let rediscovered = coordinator.reserveProcessWriteQueue(for: 42)
+    #expect(rediscovered.queue === original)
+
+    #expect(workStarted.wait(timeout: .now() + 3) == .success)
+    releaseWork.signal()
+    original.sync { }
+    rediscovered.release()
+    #expect(coordinator.processWriteQueues[42] === original)
+
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [])
+    #expect(coordinator.processWriteQueues[42] == nil)
   }
 
   @Test(arguments: [true, false])
@@ -1091,8 +1132,12 @@ struct FrameCommitTests {
       animatedWindowIDs: [], animationDuration: 0.2, refreshRateHz: 120,
       displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
     )
-    let queue = DispatchQueue(label: "readiness-test")
-    let queues: [pid_t: DispatchQueue] = [42: queue, 43: queue]
+    let queues: [pid_t: DispatchQueue] = [
+      42: coordinator.processWriteQueue(for: 42),
+      43: coordinator.processWriteQueue(for: 43),
+    ]
+    let queue42 = queues[42]!
+    let queue43 = queues[43]!
     let accumulator = FrameResultAccumulator()
     func sample(_ pid: pid_t, _ progress: Double, intermediate: Bool = true) -> ProcessAnimationSample {
       ProcessAnimationSample(
@@ -1102,9 +1147,10 @@ struct FrameCommitTests {
         accumulator: accumulator, completion: nil
       )
     }
-    queue.suspend()
-    _ = coordinator.submitAnimationSamples([sample(42, 0.1)], processQueues: queues)
-    _ = coordinator.submitAnimationSamples([sample(42, 0.2), sample(43, 0.2)], processQueues: queues)
+    queue42.suspend()
+    queue43.suspend()
+    _ = coordinator.submitAnimationSamples([sample(42, 0.1)])
+    _ = coordinator.submitAnimationSamples([sample(42, 0.2), sample(43, 0.2)])
     coordinator.animationLaneLock.lock()
     var busyLane = coordinator.processAnimationLanes[42]
     let heldProgress = busyLane?.takeNext()?.progress
@@ -1114,22 +1160,25 @@ struct FrameCommitTests {
     #expect(!idleSiblingWasQueued)
     #expect(!coordinator.animationLanesAreReady(processIDs: [42, 43]))
     // Final samples must bypass readiness and replace obsolete intermediate work.
-    _ = coordinator.submitAnimationSamples([sample(42, 1, intermediate: false)], processQueues: queues)
+    _ = coordinator.submitAnimationSamples([sample(42, 1, intermediate: false)])
     coordinator.animationLaneLock.lock()
     var finalLane = coordinator.processAnimationLanes[42]
     let finalProgress = finalLane?.takeNext()?.progress
     coordinator.animationLaneLock.unlock()
     #expect(finalProgress == 1)
-    queue.resume()
+    queue42.resume()
+    queue43.resume()
     coordinator.animationLaneWriteGroup.wait()
     #expect(coordinator.animationLanesAreReady(processIDs: [42, 43]))
-    queue.suspend()
-    _ = coordinator.submitAnimationSamples([sample(42, 0.3), sample(43, 0.3)], processQueues: queues)
+    queue42.suspend()
+    queue43.suspend()
+    _ = coordinator.submitAnimationSamples([sample(42, 0.3), sample(43, 0.3)])
     coordinator.animationLaneLock.lock()
     let recovered = [42, 43].allSatisfy { coordinator.processAnimationLanes[pid_t($0)]?.isRunning == true }
     coordinator.animationLaneLock.unlock()
     #expect(recovered)
-    queue.resume()
+    queue42.resume()
+    queue43.resume()
     coordinator.animationLaneWriteGroup.wait()
   }
 
@@ -1574,10 +1623,13 @@ struct FrameCommitTests {
     let coordinator = AXFrameCoordinator()
     coordinator.predictedProcessLatencyMS = [42: 20, 43: 18]
     coordinator.latencySensitiveProcessIDs = [42, 43]
+    _ = coordinator.processWriteQueue(for: 42)
+    _ = coordinator.processWriteQueue(for: 43)
 
     coordinator.pruneProcessLatencyState(liveProcessIDs: [43])
 
     #expect(coordinator.slowProcessLatenciesMS == [43: 18])
+    #expect(Set(coordinator.processWriteQueues.keys) == [43])
   }
 
   @Test
