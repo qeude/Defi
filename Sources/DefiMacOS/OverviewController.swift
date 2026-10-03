@@ -41,6 +41,14 @@ func overviewUsesWorkspaceParking(
   !windowPreviewsEnabled || !screenCaptureAccessGranted
 }
 
+func overviewShouldRequestCapturePermission(
+  screenCaptureAccessGranted: Bool,
+  ribbonPrototype: Bool,
+  hasRequestedPermission: Bool
+) -> Bool {
+  !screenCaptureAccessGranted && !ribbonPrototype && !hasRequestedPermission
+}
+
 func overviewViewportAfterScroll(
   _ viewport: OverviewViewport,
   delta: NSPoint,
@@ -984,11 +992,20 @@ public final class OverviewController: NSObject {
       return
     }
     let permissionGranted: Bool
-    if CGPreflightScreenCaptureAccess() {
+    let screenCaptureAccessGranted = CGPreflightScreenCaptureAccess()
+    if screenCaptureAccessGranted {
       permissionGranted = true
-    } else if hasRequestedPreviewPermission {
-      permissionGranted = false
     } else {
+      guard overviewShouldRequestCapturePermission(
+        screenCaptureAccessGranted: screenCaptureAccessGranted,
+        ribbonPrototype: ribbonPrototype,
+        hasRequestedPermission: hasRequestedPreviewPermission
+      ) else {
+        permissionGranted = false
+        previewPermissionState = .denied
+        finishPreviewBatch(generation: generation)
+        return
+      }
       hasRequestedPreviewPermission = true
       permissionGranted = await Task.detached(priority: .userInitiated) {
         CGRequestScreenCaptureAccess()

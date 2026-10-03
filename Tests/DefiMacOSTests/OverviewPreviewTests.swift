@@ -206,6 +206,30 @@ struct OverviewPreviewTests {
     )
   }
 
+  @Test("Ribbon prototype never requests Screen Recording access")
+  func ribbonPrototypeDoesNotRequestCapturePermission() {
+    #expect(!overviewShouldRequestCapturePermission(
+      screenCaptureAccessGranted: false,
+      ribbonPrototype: true,
+      hasRequestedPermission: false
+    ))
+    #expect(!overviewShouldRequestCapturePermission(
+      screenCaptureAccessGranted: false,
+      ribbonPrototype: false,
+      hasRequestedPermission: true
+    ))
+    #expect(overviewShouldRequestCapturePermission(
+      screenCaptureAccessGranted: false,
+      ribbonPrototype: false,
+      hasRequestedPermission: false
+    ))
+    #expect(!overviewShouldRequestCapturePermission(
+      screenCaptureAccessGranted: true,
+      ribbonPrototype: false,
+      hasRequestedPermission: false
+    ))
+  }
+
   @Test
   func `Capture scheduler never exceeds its bound and preserves order`() async {
     let probe = CaptureProbe()

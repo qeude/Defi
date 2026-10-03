@@ -9,6 +9,89 @@ import Testing
 
 struct DaemonCommandPolicyTests {
   @Test
+  func supersededSubmittedWorkspaceFocusRequiresNativeCancellation() {
+    #expect(workspaceFocusNeedsNativeCancellation(
+      requestGeneration: 10,
+      submittedGeneration: 10,
+      currentGeneration: 11
+    ))
+    #expect(!workspaceFocusNeedsNativeCancellation(
+      requestGeneration: 10,
+      submittedGeneration: nil,
+      currentGeneration: 11
+    ))
+    #expect(!workspaceFocusNeedsNativeCancellation(
+      requestGeneration: 10,
+      submittedGeneration: 10,
+      currentGeneration: 10
+    ))
+  }
+
+  @Test
+  func noOpRefreshesFocusInputWithoutChangingTheIntent() {
+    let monitor = MonitorID(rawValue: 1)
+    let sourceWorkspace = WorkspaceID(rawValue: "source")
+    let targetWorkspace = WorkspaceID(rawValue: "target")
+    let previousWindow = WindowID(rawValue: 1)
+    let targetWindow = WindowID(rawValue: 2)
+    let command = PendingAnimatedFocus(
+      windowID: targetWindow,
+      previousSelectedWindowID: previousWindow,
+      monitorID: monitor,
+      sourceWorkspaceID: sourceWorkspace,
+      commandGeneration: 8,
+      focusInputTimestamp: 10,
+      cursorWarpInputTimestamp: 9,
+      retryCount: 1
+    )
+    let workspace = PendingWorkspaceFocus(
+      monitorID: monitor,
+      requestedWorkspaceID: targetWorkspace,
+      previousWorkspaceID: sourceWorkspace,
+      requestedWindowID: targetWindow,
+      restoresPreviousWorkspaceOnCancellation: true,
+      commandGeneration: 8,
+      focusInputTimestamp: 10,
+      cursorWarpInputTimestamp: 9,
+      retryCount: 1
+    )
+
+    let refreshedCommand = commandFocusAfterNoOp(command, inputTimestamp: 11)
+    #expect(refreshedCommand.windowID == command.windowID)
+    #expect(refreshedCommand.previousSelectedWindowID == command.previousSelectedWindowID)
+    #expect(refreshedCommand.commandGeneration == command.commandGeneration)
+    #expect(refreshedCommand.focusInputTimestamp == 11)
+    #expect(refreshedCommand.cursorWarpInputTimestamp == command.cursorWarpInputTimestamp)
+    #expect(refreshedCommand.retryCount == command.retryCount)
+
+    let refreshedWorkspace = workspaceFocusAfterNoOp(workspace, inputTimestamp: 11)
+    #expect(refreshedWorkspace.requestedWorkspaceID == workspace.requestedWorkspaceID)
+    #expect(refreshedWorkspace.requestedWindowID == workspace.requestedWindowID)
+    #expect(refreshedWorkspace.commandGeneration == workspace.commandGeneration)
+    #expect(refreshedWorkspace.focusInputTimestamp == 11)
+    #expect(refreshedWorkspace.restoresPreviousWorkspaceOnCancellation)
+    #expect(refreshedWorkspace.retryCount == workspace.retryCount)
+    #expect(focusInputNeedsRefresh(requestTimestamp: 10, newInputTimestamp: 11))
+    #expect(!focusInputNeedsRefresh(requestTimestamp: 10, newInputTimestamp: 10))
+    #expect(!focusInputNeedsRefresh(requestTimestamp: 10, newInputTimestamp: 9))
+  }
+
+  @Test
+  func ribbonPrototypeFlagAcceptsWhitespaceAndAdditionalTokens() {
+    #expect(overviewRibbonPrototypeRequested(in: "  toggle-overview\t--ribbon-prototype  "))
+    #expect(overviewRibbonPrototypeRequested(in: "toggle-overview --monitor 1 --ribbon-prototype"))
+    #expect(!overviewRibbonPrototypeRequested(in: "toggle-overview"))
+    #expect(!overviewRibbonPrototypeRequested(in: "focus-column --ribbon-prototype"))
+  }
+
+  @Test
+  func exitSideParkingRequiresAnActiveAnimation() {
+    #expect(preservesExitSideForAnimation(animationsEnabled: true, animationDuration: 0.2))
+    #expect(!preservesExitSideForAnimation(animationsEnabled: true, animationDuration: 0))
+    #expect(!preservesExitSideForAnimation(animationsEnabled: false, animationDuration: 0.2))
+  }
+
+  @Test
   func outgoingTransitionParkingIsReservedForLaterMonitorLayouts() throws {
     let outgoingMonitor = Rect(x: -1_200, y: 400, width: 800, height: 600)
     let laterMonitor = Rect(x: 0, y: 0, width: 800, height: 600)

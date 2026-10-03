@@ -1,3 +1,4 @@
+import CoreGraphics
 import DefiCore
 import DefiIPC
 import DefiMacOS
@@ -5,14 +6,26 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
+func overviewRibbonPrototypeRequested(in rawCommand: String) -> Bool {
+  let tokens = rawCommand.split(whereSeparator: \.isWhitespace)
+  return tokens.first == "toggle-overview"
+    && tokens.dropFirst().contains("--ribbon-prototype")
+}
+
 @NavigationActor
 extension Daemon {
   func toggleOverview(ribbonPrototype: Bool = false) -> CommandResponse {
     guard !state.monitors.isEmpty else {
       return .failure("overview unavailable before monitor discovery")
     }
+    guard !ribbonPrototype || overviewState.isOpen || CGPreflightScreenCaptureAccess() else {
+      return .failure("ribbon prototype requires existing Screen Recording access")
+    }
     presentOverview(toggling: true, ribbonPrototype: ribbonPrototype)
-    return .success(ribbonPrototype ? "Requested visual ribbon prototype: Left/Right preview, Escape exits; native selection commit is disabled. Existing Screen Recording access is required." : "")
+    guard ribbonPrototype else { return .success() }
+    return .success(
+      "Requested visual ribbon prototype: Left/Right preview, Escape exits; native selection commit is disabled."
+    )
   }
 
   func updateOverviewIfOpen() {
@@ -159,6 +172,8 @@ extension Daemon {
       pendingWindowRemovalFocusGuard = nil
       focus.discardDisplacedFocus()
       invalidatePointerFocusIntent(recoveringTo: previousSelectedWindowID)
+      focus.queueCommand(nil)
+      invalidateSubmittedCommandFocus()
       invalidateSubmittedWorkspaceFocus()
       focus.queueWorkspace(nil)
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
@@ -224,6 +239,10 @@ extension Daemon {
       )
       activeMonitorID = monitorID
       commandGeneration &+= 1
+      focus.queueCommand(nil)
+      invalidateSubmittedCommandFocus()
+      invalidateSubmittedWorkspaceFocus()
+      focus.queueWorkspace(nil)
       latestCommandInputTimestamp = inputTimestamp
       platform.userInputTracker.record(timestamp: inputTimestamp)
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)

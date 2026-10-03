@@ -31,6 +31,79 @@ struct FocusStateTests {
     #expect(focus.commandCompletionIsCurrent(newer, submission: submission))
   }
 
+  @Test
+  func refreshedDeferredFocusRejectsTheOlderNativeCompletion() throws {
+    var state = makeState()
+    var focus = FocusState()
+
+    let oldCommand = command()
+    let oldCommandSubmission = focus.submitCommand(oldCommand)
+    focus.cancelSubmittedCommand()
+    let refreshedCommand = PendingAnimatedFocus(
+      windowID: oldCommand.windowID,
+      previousSelectedWindowID: oldCommand.previousSelectedWindowID,
+      monitorID: oldCommand.monitorID,
+      sourceWorkspaceID: oldCommand.sourceWorkspaceID,
+      commandGeneration: oldCommand.commandGeneration,
+      focusInputTimestamp: 11,
+      cursorWarpInputTimestamp: oldCommand.cursorWarpInputTimestamp,
+      retryCount: oldCommand.retryCount
+    )
+    focus.queueCommand(refreshedCommand)
+    let currentCommandSubmission = focus.submitCommand(refreshedCommand)
+    #expect(focus.completeCommand(
+      oldCommand,
+      submission: oldCommandSubmission,
+      result: .cancelledAfterInputMutation,
+      commandGeneration: oldCommand.commandGeneration,
+      keepsRequestedWindow: false,
+      state: &state
+    ) == .stale)
+    #expect(focus.commandCompletionIsCurrent(
+      refreshedCommand,
+      submission: currentCommandSubmission
+    ))
+
+    let oldWorkspace = PendingWorkspaceFocus(
+      monitorID: monitor,
+      requestedWorkspaceID: first,
+      previousWorkspaceID: nil,
+      requestedWindowID: b,
+      restoresPreviousWorkspaceOnCancellation: false,
+      commandGeneration: 10,
+      focusInputTimestamp: 10,
+      cursorWarpInputTimestamp: nil
+    )
+    let oldWorkspaceSubmission = focus.submitWorkspace(oldWorkspace)
+    focus.cancelSubmittedWorkspace()
+    let refreshedWorkspace = PendingWorkspaceFocus(
+      monitorID: oldWorkspace.monitorID,
+      requestedWorkspaceID: oldWorkspace.requestedWorkspaceID,
+      previousWorkspaceID: oldWorkspace.previousWorkspaceID,
+      requestedWindowID: oldWorkspace.requestedWindowID,
+      restoresPreviousWorkspaceOnCancellation:
+        oldWorkspace.restoresPreviousWorkspaceOnCancellation,
+      commandGeneration: oldWorkspace.commandGeneration,
+      focusInputTimestamp: 11,
+      cursorWarpInputTimestamp: oldWorkspace.cursorWarpInputTimestamp,
+      retryCount: oldWorkspace.retryCount
+    )
+    focus.queueWorkspace(refreshedWorkspace)
+    let currentWorkspaceSubmission = focus.submitWorkspace(refreshedWorkspace)
+    #expect(focus.completeWorkspace(
+      oldWorkspace,
+      submission: oldWorkspaceSubmission,
+      result: .cancelledAfterInputMutation,
+      commandGeneration: oldWorkspace.commandGeneration,
+      keepsRequestedWindow: false,
+      state: &state
+    ) == .stale)
+    #expect(focus.workspaceCompletionIsCurrent(
+      refreshedWorkspace,
+      submission: currentWorkspaceSubmission
+    ))
+  }
+
   @Test(arguments: [false, true])
   func workspaceRoundTripRejectsOldCompletionForTheSameTarget(newestCompletesFirst: Bool) throws {
     var state = makeState()

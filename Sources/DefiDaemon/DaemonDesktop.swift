@@ -8,6 +8,13 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+func preservesExitSideForAnimation(
+  animationsEnabled: Bool,
+  animationDuration: TimeInterval
+) -> Bool {
+  animationsEnabled && animationDuration > 0
+}
+
 struct AnimationDisplayTiming: Equatable {
   let refreshRateHz: Double
   let displayIDs: Set<UInt64>
@@ -154,7 +161,10 @@ extension Daemon {
             parkingFrame: viewport,
             allMonitorFrames: allPhysicalMonitorFrames,
             reservedParkingFrames: reservedParkingFrames,
-            preservingExitSide: animationsEnabled && config.animation.durationMS > 0
+            preservingExitSide: preservesExitSideForAnimation(
+              animationsEnabled: animationsEnabled,
+              animationDuration: animationDuration
+            )
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
@@ -175,7 +185,10 @@ extension Daemon {
               ownerFrame: physicalFrame,
               parkingFrame: viewport,
               allMonitorFrames: allPhysicalMonitorFrames,
-              preservingExitSide: animationsEnabled && config.animation.durationMS > 0
+              preservingExitSide: preservesExitSideForAnimation(
+                animationsEnabled: animationsEnabled,
+                animationDuration: animationDuration
+              )
             )
             monitorNativeFullscreenPlaceholderAssignments.append(
               contentsOf: fullscreenStrip.frames.filter {
@@ -223,7 +236,10 @@ extension Daemon {
             parkingFrame: viewport,
             allMonitorFrames: transitionMonitorFrames,
             reservedParkingFrames: transitionParkingFrames,
-            preservingExitSide: animationsEnabled && config.animation.durationMS > 0
+            preservingExitSide: preservesExitSideForAnimation(
+              animationsEnabled: animationsEnabled,
+              animationDuration: animationDuration
+            )
           )
           let leaving = (strip.frames + floatingAssignments(in: workspace)).map {
             translatedAssignment($0, deltaY: deltaY)
