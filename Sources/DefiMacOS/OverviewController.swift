@@ -178,6 +178,7 @@ public final class OverviewController: NSObject {
 
   public private(set) var isOpen = false
   private var ribbonPrototype = false
+  public var usesRibbonPrototype: Bool { ribbonPrototype }
   public private(set) var usesWorkspaceParking = false
   public var panelCount: Int { isOpen ? panels.count : 0 }
   public var retainedPanelCount: Int { panels.count }

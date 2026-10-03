@@ -12,40 +12,178 @@ func overviewRibbonPrototypeRequested(in rawCommand: String) -> Bool {
     && tokens.dropFirst().contains("--ribbon-prototype")
 }
 
+struct OverviewToggleRequest: Equatable, Sendable {
+  let generation: UInt64
+  let isOpen: Bool
+  let ribbonPrototype: Bool
+}
+
+enum OverviewToggleDecision: Equatable, Sendable {
+  case denied
+  case requested(OverviewToggleRequest)
+}
+
+struct OverviewToggleSnapshot: Equatable, Sendable {
+  let generation: UInt64
+  let actualIsOpen: Bool
+  let desiredIsOpen: Bool?
+}
+
+/// Synchronous bridge for navigation requests and main-actor presentation callbacks.
+final class OverviewToggleState: @unchecked Sendable {
+  private let lock = NSLock()
+  private var generation: UInt64 = 0
+  private var actualIsOpen = false
+  private var desiredIsOpen: Bool?
+  private var applyingGeneration: UInt64?
+
+  func toggle(
+    ribbonPrototype: Bool,
+    screenCaptureAccessGranted: Bool
+  ) -> OverviewToggleDecision {
+    lock.lock()
+    defer { lock.unlock() }
+    let targetIsOpen = !(desiredIsOpen ?? actualIsOpen)
+    guard !targetIsOpen || !ribbonPrototype || screenCaptureAccessGranted else {
+      return .denied
+    }
+    generation &+= 1
+    desiredIsOpen = targetIsOpen
+    return .requested(
+      OverviewToggleRequest(
+        generation: generation,
+        isOpen: targetIsOpen,
+        ribbonPrototype: targetIsOpen && ribbonPrototype
+      )
+    )
+  }
+
+  func requestClose() -> OverviewToggleRequest {
+    lock.lock()
+    defer { lock.unlock() }
+    generation &+= 1
+    desiredIsOpen = false
+    return OverviewToggleRequest(
+      generation: generation,
+      isOpen: false,
+      ribbonPrototype: false
+    )
+  }
+
+  func isCurrent(_ request: OverviewToggleRequest) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return generation == request.generation
+  }
+
+  func beginApplying(_ request: OverviewToggleRequest) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard generation == request.generation else { return false }
+    applyingGeneration = request.generation
+    return true
+  }
+
+  func finishApplying(_ request: OverviewToggleRequest, actualIsOpen: Bool) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard applyingGeneration == request.generation else { return }
+    applyingGeneration = nil
+    self.actualIsOpen = actualIsOpen
+    if generation == request.generation {
+      desiredIsOpen = nil
+    }
+  }
+
+  func recordControllerState(_ isOpen: Bool) {
+    lock.lock()
+    defer { lock.unlock() }
+    actualIsOpen = isOpen
+    guard let applyingGeneration else {
+      generation &+= 1
+      desiredIsOpen = nil
+      return
+    }
+    guard generation == applyingGeneration, desiredIsOpen == isOpen else { return }
+    desiredIsOpen = nil
+  }
+
+  func snapshot() -> OverviewToggleSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+    return OverviewToggleSnapshot(
+      generation: generation,
+      actualIsOpen: actualIsOpen,
+      desiredIsOpen: desiredIsOpen
+    )
+  }
+}
+
 @NavigationActor
 extension Daemon {
   func toggleOverview(ribbonPrototype: Bool = false) -> CommandResponse {
     guard !state.monitors.isEmpty else {
       return .failure("overview unavailable before monitor discovery")
     }
-    guard !ribbonPrototype || overviewState.isOpen || CGPreflightScreenCaptureAccess() else {
+    let decision = overviewToggleState.toggle(
+      ribbonPrototype: ribbonPrototype,
+      screenCaptureAccessGranted: !ribbonPrototype || CGPreflightScreenCaptureAccess()
+    )
+    guard case .requested(let request) = decision else {
       return .failure("ribbon prototype requires existing Screen Recording access")
     }
-    presentOverview(toggling: true, ribbonPrototype: ribbonPrototype)
-    guard ribbonPrototype else { return .success() }
+    applyOverviewToggle(request)
+    guard request.isOpen && request.ribbonPrototype else { return .success() }
     return .success(
       "Requested visual ribbon prototype: Left/Right preview, Escape exits; native selection commit is disabled."
     )
   }
 
   func updateOverviewIfOpen() {
-    presentOverview(toggling: false)
+    presentOverview()
   }
 
-  private func presentOverview(toggling: Bool, ribbonPrototype: Bool = false) {
+  private func applyOverviewToggle(_ request: OverviewToggleRequest) {
+    let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
+    DispatchQueue.main.async { [self] in
+      guard overviewToggleState.beginApplying(request) else { return }
+      let controller = overviewController ?? makeOverviewController()
+      overviewController = controller
+      if request.isOpen {
+        if controller.isOpen && controller.usesRibbonPrototype != request.ribbonPrototype {
+          controller.close()
+        }
+        if controller.isOpen {
+          controller.update(snapshot: snapshot, layout: layout,
+            borders: config.decorations.borders, animation: config.animation,
+            zoom: config.overview.zoom,
+            windowCornerRadius: config.overview.windowCornerRadius,
+            windowPreviewsEnabled: config.overview.windowPreviews)
+        } else {
+          controller.toggle(snapshot: snapshot, layout: layout,
+            borders: config.decorations.borders, animation: config.animation,
+            zoom: config.overview.zoom,
+            windowCornerRadius: config.overview.windowCornerRadius,
+            windowPreviewsEnabled: config.overview.windowPreviews,
+            ribbonPrototype: request.ribbonPrototype)
+        }
+      } else {
+        controller.close()
+      }
+      overviewToggleState.finishApplying(request, actualIsOpen: controller.isOpen)
+      publishOverviewState()
+    }
+  }
+
+  private func presentOverview() {
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
     DispatchQueue.main.async { [self] in
       let controller = overviewController ?? makeOverviewController()
       overviewController = controller
-      if toggling {
-        controller.toggle(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
-          animation: config.animation, zoom: config.overview.zoom,
-          windowCornerRadius: config.overview.windowCornerRadius,
-          windowPreviewsEnabled: config.overview.windowPreviews,
-          ribbonPrototype: ribbonPrototype)
-      } else if controller.isOpen {
-        controller.update(snapshot: snapshot, layout: layout, borders: config.decorations.borders,
-          animation: config.animation, zoom: config.overview.zoom,
+      if controller.isOpen {
+        controller.update(snapshot: snapshot, layout: layout,
+          borders: config.decorations.borders, animation: config.animation,
+          zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
           windowPreviewsEnabled: config.overview.windowPreviews)
       } else {
@@ -56,8 +194,14 @@ extension Daemon {
   }
 
   func closeOverview() {
+    let request = overviewToggleState.requestClose()
     DispatchQueue.main.async { [self] in
+      guard overviewToggleState.beginApplying(request) else { return }
       overviewController?.close()
+      overviewToggleState.finishApplying(
+        request,
+        actualIsOpen: overviewController?.isOpen ?? false
+      )
       publishOverviewState()
     }
   }
@@ -87,6 +231,7 @@ extension Daemon {
       },
       openStateChanged: { [weak self] isOpen in
         guard let self else { return }
+        overviewToggleState.recordControllerState(isOpen)
         overviewInputMode(isOpen)
         publishOverviewState()
         let parksWindows = overviewController?.usesWorkspaceParking == true

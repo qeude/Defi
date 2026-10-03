@@ -85,6 +85,124 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func overviewToggleGateUsesActualAndPendingState() {
+    let toggleState = OverviewToggleState()
+    #expect(toggleState.toggle(
+      ribbonPrototype: true,
+      screenCaptureAccessGranted: false
+    ) == .denied)
+    #expect(toggleState.snapshot() == OverviewToggleSnapshot(
+      generation: 0,
+      actualIsOpen: false,
+      desiredIsOpen: nil
+    ))
+
+    guard case .requested(let openRequest) = toggleState.toggle(
+      ribbonPrototype: false,
+      screenCaptureAccessGranted: false
+    ) else {
+      Issue.record("ordinary overview should open without Screen Recording access")
+      return
+    }
+    #expect(toggleState.beginApplying(openRequest))
+    toggleState.recordControllerState(true)
+    toggleState.finishApplying(openRequest, actualIsOpen: true)
+
+    guard case .requested(let closeRequest) = toggleState.toggle(
+      ribbonPrototype: true,
+      screenCaptureAccessGranted: false
+    ) else {
+      Issue.record("a denied prototype request must still be able to close an open overview")
+      return
+    }
+    #expect(!closeRequest.isOpen)
+  }
+
+  @Test
+  func overviewToggleGenerationRejectsOldProjectionAndEscapeCancelsPendingAck() {
+    let toggleState = OverviewToggleState()
+    guard case .requested(let opening) = toggleState.toggle(
+      ribbonPrototype: false,
+      screenCaptureAccessGranted: true
+    ), case .requested(let closing) = toggleState.toggle(
+      ribbonPrototype: false,
+      screenCaptureAccessGranted: true
+    ) else {
+      Issue.record("rapid toggles should produce desired open and then closed states")
+      return
+    }
+    #expect(!toggleState.beginApplying(opening))
+    #expect(toggleState.beginApplying(closing))
+    toggleState.recordControllerState(false)
+    toggleState.finishApplying(closing, actualIsOpen: false)
+    #expect(toggleState.snapshot().actualIsOpen == false)
+    #expect(toggleState.snapshot().desiredIsOpen == nil)
+
+    guard case .requested(let openingAgain) = toggleState.toggle(
+      ribbonPrototype: false,
+      screenCaptureAccessGranted: true
+    ) else {
+      Issue.record("closed overview should accept a new open request")
+      return
+    }
+    #expect(toggleState.beginApplying(openingAgain))
+    toggleState.recordControllerState(true)
+    toggleState.finishApplying(openingAgain, actualIsOpen: true)
+
+    guard case .requested(let inFlightClose) = toggleState.toggle(
+      ribbonPrototype: false,
+      screenCaptureAccessGranted: true
+    ) else {
+      Issue.record("open overview should accept a close request")
+      return
+    }
+    #expect(toggleState.beginApplying(inFlightClose))
+    guard case .requested(let latestOpen) = toggleState.toggle(
+      ribbonPrototype: false,
+      screenCaptureAccessGranted: true
+    ) else {
+      Issue.record("a pending close should be reversible by a newer toggle")
+      return
+    }
+    toggleState.recordControllerState(false)
+    toggleState.finishApplying(inFlightClose, actualIsOpen: false)
+    #expect(toggleState.snapshot().desiredIsOpen == true)
+    #expect(toggleState.beginApplying(latestOpen))
+    toggleState.recordControllerState(true)
+    toggleState.finishApplying(latestOpen, actualIsOpen: true)
+    #expect(toggleState.snapshot().desiredIsOpen == nil)
+
+    guard case .requested(let pendingClose) = toggleState.toggle(
+      ribbonPrototype: false,
+      screenCaptureAccessGranted: false
+    ) else {
+      Issue.record("open overview should accept a close request without Screen Recording access")
+      return
+    }
+    toggleState.recordControllerState(false)
+    #expect(!toggleState.isCurrent(pendingClose))
+    #expect(toggleState.snapshot().actualIsOpen == false)
+    #expect(toggleState.snapshot().desiredIsOpen == nil)
+  }
+
+  @Test
+  func rejectedPrototypeOpenReconcilesToActualClosedState() {
+    let toggleState = OverviewToggleState()
+    guard case .requested(let request) = toggleState.toggle(
+      ribbonPrototype: true,
+      screenCaptureAccessGranted: true
+    ) else {
+      Issue.record("granted permission should authorize the prototype request")
+      return
+    }
+    #expect(toggleState.beginApplying(request))
+    // The controller can reject if permission is revoked after the daemon preflight.
+    toggleState.finishApplying(request, actualIsOpen: false)
+    #expect(toggleState.snapshot().actualIsOpen == false)
+    #expect(toggleState.snapshot().desiredIsOpen == nil)
+  }
+
+  @Test
   func outgoingTransitionParkingIsReservedForLaterMonitorLayouts() throws {
     let outgoingMonitor = Rect(x: -1_200, y: 400, width: 800, height: 600)
     let laterMonitor = Rect(x: 0, y: 0, width: 800, height: 600)

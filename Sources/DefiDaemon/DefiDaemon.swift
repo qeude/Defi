@@ -100,6 +100,7 @@ final class Daemon {
   let readResponseCache = DaemonReadResponseCache()
   var focus = FocusState()
   var state: RuntimeState
+  let overviewToggleState = OverviewToggleState()
   let topologySaveQueue = DispatchQueue(
     label: "com.quentin.defi.topology",
     qos: .utility
