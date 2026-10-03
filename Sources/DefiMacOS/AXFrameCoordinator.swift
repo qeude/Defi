@@ -652,6 +652,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     var restoreReservations: [pid_t: ProcessWriteQueueReservation] = [:]
     for processID in retiredEnhancedUIRestores.keys {
       animationLaneWriteGroup.enter()
+      processWriteQueueRetirementRequested.insert(processID)
       deferredEnhancedUIRestores[processID] = nil
       restoreReservations[processID] = reserveProcessWriteQueueLocked(for: processID)
     }
@@ -661,8 +662,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
       guard let reservation = restoreReservations[processID] else { continue }
       reservation.queue.async { [self, reservation] in
         defer {
-          animationLaneWriteGroup.leave()
           reservation.release()
+          animationLaneWriteGroup.leave()
         }
         lock.lock()
         let superseded = deferredEnhancedUIRestores[processID] != nil

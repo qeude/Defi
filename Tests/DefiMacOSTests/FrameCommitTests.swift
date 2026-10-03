@@ -298,6 +298,7 @@ struct FrameCommitTests {
     coordinator.pruneProcessLatencyState(liveProcessIDs: [])
     coordinator.animationLaneWriteGroup.wait()
     #expect(coordinator.hasDeferredEnhancedUIRestore(processID: -1))
+    #expect(coordinator.processWriteQueues[-1] == nil)
     coordinator.invalidateAndWaitForWrites()
     #expect(attempts.withLock { $0 } == 2)
     #expect(!coordinator.hasDeferredEnhancedUIRestore(processID: -1))
