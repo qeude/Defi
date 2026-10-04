@@ -325,7 +325,10 @@ final class InputMonitor: @unchecked Sendable {
     self.closeIntent = closeIntent
   }
 
-  func installTap(options: CGEventTapOptions, mask: CGEventMask, callback: CGEventTapCallBack) throws {
+  @discardableResult
+  func installTap(
+    options: CGEventTapOptions, mask: CGEventMask, callback: CGEventTapCallBack
+  ) throws -> CFMachPort {
     let reference = Unmanaged.passRetained(self)
     guard let port = CGEvent.tapCreate(
       tap: .cgSessionEventTap, place: hotKeyEventTapPlacement, options: options,
@@ -340,6 +343,7 @@ final class InputMonitor: @unchecked Sendable {
       throw HotKeyError.eventTapUnavailable
     }
     lock.withLock { taps.append(Tap(port: port, source: source, context: reference)) }
+    return port
   }
 
   func run() {
@@ -379,7 +383,11 @@ final class InputMonitor: @unchecked Sendable {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       let timestamp = Double(event.timestamp) / 1_000_000_000
       lock.lock()
-      let taps = taps
+      let taps = self.taps.filter { !CGEvent.tapIsEnabled(tap: $0.port) }
+      guard !taps.isEmpty else {
+        lock.unlock()
+        return Unmanaged.passUnretained(event)
+      }
       reenables += 1
       pointerTransitionState.reset()
       pendingPointerMotion = nil
@@ -438,41 +446,7 @@ final class InputMonitor: @unchecked Sendable {
       }
     }
     if tracksGeneralUserInput {
-      let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-      let commandPressed = event.flags.contains(.maskCommand)
-      let focusIntent: UserInputTracker.FocusIntentSource?
-      if eventIsMouseButtonDown(type) {
-        let rawWindowID = event.getIntegerValueField(
-          .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
-        )
-        focusIntent = mouseFocusIntent(
-          eventType: type,
-          rawWindowID: rawWindowID
-        )
-      } else if commandPressed && code == Self.commandTabKeyCode {
-        focusIntent = .keyboard
-      } else {
-        focusIntent = nil
-      }
-      let closeIntent = isKeyDown && commandPressed
-        && Self.closeWindowKeyCodes.contains(code)
-        && !isDefiTextInput
-      userInputTracker.record(
-        timestamp: timestamp,
-        focusIntent: focusIntent,
-        closeIntent: closeIntent
-      )
-      if closeIntent {
-        capturedModifierReleaseState.capture(
-          modifierBits: hotKeyModifierBits(event.flags)
-        )
-        let rawProcessID = event.getIntegerValueField(
-          .eventTargetUnixProcessID
-        )
-        let processID = pid_t(exactly: rawProcessID)
-          .flatMap { $0 > 0 ? $0 : nil }
-        self.closeIntent(timestamp, processID)
-      }
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: isDefiTextInput)
     }
     if isDefiTextInput && (isKeyDown || type == .flagsChanged) {
       return Unmanaged.passUnretained(event)
@@ -531,6 +505,48 @@ final class InputMonitor: @unchecked Sendable {
     return Unmanaged.passUnretained(event)
   }
 
+  private func recordGeneralUserInput(
+    type: CGEventType, event: CGEvent, isDefiTextInput: Bool
+  ) {
+    let timestamp = Double(event.timestamp) / 1_000_000_000
+    let isKeyDown = type == .keyDown
+    let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+    let commandPressed = event.flags.contains(.maskCommand)
+    let focusIntent: UserInputTracker.FocusIntentSource?
+    if eventIsMouseButtonDown(type) {
+      let rawWindowID = event.getIntegerValueField(
+        .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+      )
+      focusIntent = mouseFocusIntent(
+        eventType: type,
+        rawWindowID: rawWindowID
+      )
+    } else if commandPressed && code == Self.commandTabKeyCode {
+      focusIntent = .keyboard
+    } else {
+      focusIntent = nil
+    }
+    let closeIntent = isKeyDown && commandPressed
+      && Self.closeWindowKeyCodes.contains(code)
+      && !isDefiTextInput
+    userInputTracker.record(
+      timestamp: timestamp,
+      focusIntent: focusIntent,
+      closeIntent: closeIntent
+    )
+    if closeIntent {
+      capturedModifierReleaseState.capture(
+        modifierBits: hotKeyModifierBits(event.flags)
+      )
+      let rawProcessID = event.getIntegerValueField(
+        .eventTargetUnixProcessID
+      )
+      let processID = pid_t(exactly: rawProcessID)
+        .flatMap { $0 > 0 ? $0 : nil }
+      self.closeIntent(timestamp, processID)
+    }
+  }
+
   /// The active tap only intercepts modal input and routes physical pointer movement.
   func intercept(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -544,6 +560,8 @@ final class InputMonitor: @unchecked Sendable {
     }
     guard type == .keyDown else { return Unmanaged.passUnretained(event) }
     if let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {
+      capturedModifierReleaseState.reset()
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: true)
       record(UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
              event.flags.rawValue, event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
       return nil
@@ -554,12 +572,16 @@ final class InputMonitor: @unchecked Sendable {
     let key = Key(code: code, flags: event.flags.rawValue)
     let (overview, cheatsheet) = lock.withLock { (overviewModeEnabled, cheatsheetVisible) }
     if cheatsheet && code == 53 {
+      capturedModifierReleaseState.reset()
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
       deliverCheatsheet(.dismiss)
       return nil
     }
     if overview, let action = overviewKeyAction(
       keyCode: code, modifierBits: key.modifierBits, configuredCommand: bindings[key]
     ) {
+      capturedModifierReleaseState.reset()
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
       let timestamp = Double(event.timestamp) / 1_000_000_000
       userInputTracker.recordCapturedCommand(at: timestamp)
       lock.withLock {

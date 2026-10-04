@@ -223,8 +223,10 @@ extension Daemon {
 
   func installHotKeys() {
     guard windowManagementStarted else { return }
-    hotKeyGeneration &+= 1
-    let generation = hotKeyGeneration
+    let generation = hotKeyGeneration.withLock { value in
+      value &+= 1
+      return value
+    }
     let manager = HotKeyManager(
       config: config,
       userInputTracker: platform.userInputTracker,
@@ -293,19 +295,20 @@ extension Daemon {
         }
       },
       cheatsheetHandler: { [weak self] input in
-        guard let self, self.hotKeyGeneration == generation else { return }
+        guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         self.handleCheatsheetInput(input)
       },
       registrationHandler: { [weak self] enabled, error in
-        guard let self, self.hotKeyGeneration == generation else { return }
+        guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         let message = error.map { "Keyboard shortcuts unavailable: \($0)" }
           ?? (enabled ? "Keyboard shortcuts active" : "Keyboard shortcuts suspended")
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+          guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
           DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(message)
+          if let error { presentDefiConfigurationError(error) }
         }
         if let error {
           self.log("hotkeys unavailable: \(error); input observation remains enabled")
-          DispatchQueue.main.async { presentDefiConfigurationError(error) }
         }
       }
     ) { [weak self] invocation in
@@ -319,7 +322,8 @@ extension Daemon {
       } ?? (manager.isHotKeyCaptureEnabled
         ? "Keyboard shortcuts active"
         : "Keyboard shortcuts unavailable")
-      Task { @MainActor in
+      Task { @MainActor [weak self] in
+        guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)
       }
       let setOverviewMode = manager.overviewModeSetter
@@ -328,7 +332,10 @@ extension Daemon {
         setOverviewMode(overviewController?.isOpen == true)
       }
       if let bindingError = manager.bindingError {
-        DispatchQueue.main.async { presentDefiConfigurationError(bindingError) }
+        DispatchQueue.main.async { [weak self] in
+          guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
+          presentDefiConfigurationError(bindingError)
+        }
         if manager.tracksPointerMotion {
           log("hotkeys unavailable: \(bindingError); pointer tracking remains enabled")
         } else {
@@ -338,7 +345,8 @@ extension Daemon {
     } catch {
       log("input event tap unavailable: \(error)")
       let keyboardMessage = "Keyboard shortcuts unavailable: \(error)"
-      Task { @MainActor in
+      Task { @MainActor [weak self] in
+        guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)
       }
     }

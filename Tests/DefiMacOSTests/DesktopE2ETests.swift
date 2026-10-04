@@ -962,13 +962,15 @@ final class DesktopE2ETests: XCTestCase {
     let physical = try XCTUnwrap(CGEvent(
       keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: 125, keyDown: true))
     physical.flags = [.maskControl, .maskAlternate, .maskShift]
+    let recordingTracker = UserInputTracker()
     let tap = InputMonitor(
-      bindings: [:], userInputTracker: UserInputTracker(),
+      bindings: [:], userInputTracker: recordingTracker,
       pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
       deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
       tapReenabled: { _ in })
     physical.setIntegerValueField(.eventTargetUnixProcessID, value: 0)
     XCTAssertNil(tap.intercept(type: .keyDown, event: physical))
+    XCTAssertEqual(recordingTracker.latestEventTimestamp, Double(physical.timestamp) / 1_000_000_000)
     XCTAssertTrue(pumpRunLoop(until: { recorded.count == 2 }, timeout: 1))
     XCTAssertEqual(recorded.last, "alt-ctrl-shift-down")
     recorder.performClick(nil)
@@ -1295,6 +1297,118 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(commands.withLock { $0.count }, 2)
   }
 
+  func testCarbonReservationsSuspendAndResumeAroundRecordingAndTextEditing() throws {
+    _ = try makePlatform()
+    let commands = Mutex<[HotKeyInvocation]>([])
+    let manager = onNavigation { HotKeyManager(config: Config(
+      keys: ["ctrl-alt-cmd-slash": "focus-column right"]
+    )) { invocation in commands.withLock { $0.append(invocation) } } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+    let key = try Key(accelerator: "ctrl-alt-cmd-slash", aliases: [:])
+    let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 150),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let originalPolicy = NSApplication.shared.activationPolicy()
+    NSApplication.shared.setActivationPolicy(.regular)
+    let recorded = DesktopValue<[String]>([])
+    let recorder = ShortcutRecorderButton()
+    recorder.frame = NSRect(x: 10, y: 10, width: 150, height: 30)
+    recorder.shortcutLabel = "ctrl-alt-cmd-slash"
+    recorder.onRecord = { recorded.value.append($0) }
+    let text = NSTextView(frame: NSRect(x: 10, y: 50, width: 250, height: 60))
+    window.contentView?.addSubview(recorder)
+    window.contentView?.addSubview(text)
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate()
+    defer {
+      recorder.stopRecording()
+      window.close()
+      settingsTextInputFocused.withLock { $0 = false }
+      NSApplication.shared.setActivationPolicy(originalPolicy)
+      pumpApplicationEvents(for: 0.1)
+    }
+    pumpApplicationEvents(for: 0.1)
+    let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = [.maskControl, .maskAlternate, .maskCommand]
+    func press() {
+      event.type = .keyDown
+      event.post(tap: .cghidEventTap)
+      event.type = .keyUp
+      event.post(tap: .cghidEventTap)
+    }
+    func assertReservationReleased() {
+      var reference: EventHotKeyRef?
+      XCTAssertEqual(RegisterEventHotKey(
+        UInt32(key.code), key.carbonModifiers, EventHotKeyID(signature: 0x54657374, id: 3),
+        GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &reference), noErr)
+      if let reference { UnregisterEventHotKey(reference) }
+    }
+    press()
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 1 } }, timeout: 1))
+    recorder.performClick(nil)
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    assertReservationReleased()
+    press()
+    let deadline = Date().addingTimeInterval(1)
+    while recorder.isRecording, Date() < deadline { pumpApplicationEvents(for: 0.02) }
+    XCTAssertEqual(recorded.value, ["alt-cmd-ctrl-slash"])
+    XCTAssertEqual(commands.withLock { $0.count }, 1)
+    XCTAssertTrue(pumpRunLoop(until: { onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    press()
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 2 } }, timeout: 1))
+
+    window.makeFirstResponder(text)
+    settingsTextInputFocused.withLock { $0 = true }
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    assertReservationReleased()
+    let foregroundCount = DesktopValue(0)
+    let localMonitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+      if event.keyCode == key.code { foregroundCount.value += 1; return nil }
+      return event
+    })
+    defer { NSEvent.removeMonitor(localMonitor) }
+    press()
+    let editingDeadline = Date().addingTimeInterval(1)
+    while foregroundCount.value == 0, Date() < editingDeadline { pumpApplicationEvents(for: 0.02) }
+    XCTAssertEqual(foregroundCount.value, 1)
+    XCTAssertEqual(commands.withLock { $0.count }, 2)
+    window.makeFirstResponder(recorder)
+    settingsTextInputFocused.withLock { $0 = false }
+    XCTAssertTrue(pumpRunLoop(until: { onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    press()
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 3 } }, timeout: 1))
+    pumpApplicationEvents(for: 0.05)
+    XCTAssertEqual(foregroundCount.value, 1)
+  }
+
+  func testDuplicateTapDisableNotificationsRecoverOnlyOnce() throws {
+    _ = try makePlatform()
+    let recoveries = Mutex(0)
+    let dismissals = Mutex(0)
+    let monitor = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliverCheatsheet: { _ in dismissals.withLock { $0 += 1 } },
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in recoveries.withLock { $0 += 1 } })
+    defer { monitor.stop() }
+    for options in [CGEventTapOptions.defaultTap, .listenOnly] {
+      let port = try monitor.installTap(
+        options: options, mask: CGEventMask(1 << CGEventType.keyDown.rawValue),
+        callback: { _, _, event, _ in Unmanaged.passUnretained(event) })
+      CGEvent.tapEnable(tap: port, enable: false)
+    }
+    let event = try XCTUnwrap(CGEvent(source: nil))
+    XCTAssertFalse(monitor.isEnabled)
+    _ = monitor.intercept(type: .tapDisabledByUserInput, event: event)
+    XCTAssertTrue(monitor.isEnabled)
+    _ = monitor.handle(type: .tapDisabledByUserInput, event: event)
+    XCTAssertEqual(monitor.tapReenableCount, 1)
+    XCTAssertEqual(recoveries.withLock { $0 }, 1)
+    XCTAssertEqual(dismissals.withLock { $0 }, 1)
+  }
+
   func testCarbonRegistrationFailureKeepsObservationAndRollsBackReservations() throws {
     _ = try makePlatform()
     let key = try Key(accelerator: "ctrl-alt-cmd-slash", aliases: [:])
@@ -1307,7 +1421,8 @@ final class DesktopE2ETests: XCTestCase {
     let commands = Mutex<[HotKeyInvocation]>([])
     let tracker = UserInputTracker()
     let manager = onNavigation { HotKeyManager(config: Config(
-      keys: ["ctrl-alt-cmd-slash": "focus-column right"]), userInputTracker: tracker
+      keys: ["ctrl-alt-cmd-a": "focus-column left",
+             "ctrl-alt-cmd-slash": "focus-column right"]), userInputTracker: tracker
     ) { invocation in commands.withLock { $0.append(invocation) } } }
     try onNavigation { try manager.start() }
     defer { onNavigation { manager.stop() } }
@@ -1317,6 +1432,16 @@ final class DesktopE2ETests: XCTestCase {
     guard case .registrationFailed(keyCode: key.code, status: _) = onNavigation({ manager.bindingError }) else {
       return XCTFail("Expected a Carbon reservation error")
     }
+    // The A reservation sorts before slash and must be released by rollback.
+    let earlierKey = try Key(accelerator: "ctrl-alt-cmd-a", aliases: [:])
+    XCTAssertLessThan(earlierKey.code, key.code)
+    var rolledBackReference: EventHotKeyRef?
+    let rollbackStatus = RegisterEventHotKey(
+      UInt32(earlierKey.code), earlierKey.carbonModifiers,
+      EventHotKeyID(signature: 0x54657374, id: 2), GetApplicationEventTarget(),
+      OptionBits(kEventHotKeyExclusive), &rolledBackReference)
+    XCTAssertEqual(rollbackStatus, noErr, "A reservation must be released after slash fails")
+    if let rolledBackReference { UnregisterEventHotKey(rolledBackReference) }
     let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 123, keyDown: true))
     event.flags = [.maskAlternate]
     event.post(tap: .cghidEventTap)

@@ -46,6 +46,25 @@ struct OverviewHotKeyTests {
     }
   }
 
+  @Test(arguments: [false, true])
+  func interceptedModalKeysStillUpdateUserActivity(overview: Bool) throws {
+    let tracker = UserInputTracker()
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: tracker,
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, textInputFocused: { false })
+    context.setOverviewModeEnabled(overview)
+    context.setCheatsheetVisible(!overview)
+    let event = try #require(CGEvent(keyboardEventSource: nil,
+                                    virtualKey: overview ? 125 : 53, keyDown: true))
+    event.flags = []
+    event.timestamp = 7_000_000_000
+    #expect(context.intercept(type: .keyDown, event: event) == nil)
+    #expect(tracker.latestEventTimestamp == 7)
+    #expect(tracker.snapshot.latestCapturedCommandTimestamp == (overview ? 7 : 0))
+  }
+
   @Test
   func `Overview captures navigation arrows but leaves move bindings active`() {
     let hyper = hotKeyModifierBits([
