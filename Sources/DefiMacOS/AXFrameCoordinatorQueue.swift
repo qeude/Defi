@@ -138,7 +138,8 @@ extension AXFrameCoordinator {
         timeoutSeconds: write.timeoutSeconds,
         isParked: write.isParked,
         isReentering: write.isReentering,
-        requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite
+        requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
+        animationPoint: write.animationPoint
       )
       count += 1
     }
@@ -147,7 +148,7 @@ extension AXFrameCoordinator {
       guard let write = writes[windowID],
         let previousVelocity = retargetHorizontalVelocities[windowID]
       else { return nil }
-      let delta = write.point.x - write.fromPoint.x
+      let delta = (write.animationPoint ?? write.point).x - write.fromPoint.x
       guard abs(delta) >= 0.5 else { return nil }
       return previousVelocity / delta
     }

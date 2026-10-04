@@ -29,9 +29,10 @@ final class AXFrameAccessibilityWriter {
     _ write: AsyncPositionWrite,
     point: CGPoint,
     forceOffscreenAccess: Bool = false,
+    verifiesParking: Bool = true,
     enhancedUIManagedByBatch: Bool = false
   ) -> Bool {
-    if write.isParked || forceOffscreenAccess {
+    if (write.isParked && verifiesParking) || forceOffscreenAccess {
       if !enhancedUIManagedByBatch {
         setEnhancedUserInterface(false, application: write.application)
       }

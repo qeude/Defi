@@ -82,6 +82,7 @@ extension Daemon {
     guard !restorationInFlight, !shouldShutdown else { return }
     let layoutStartedAt = ProcessInfo.processInfo.systemUptime
     var assignments: [FrameAssignment] = []
+    var ribbonFrames: [FrameAssignment] = []
     var borderAssignments: [FrameAssignment] = []
     var nativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
@@ -147,6 +148,7 @@ extension Daemon {
         )
         let sizedFrames = layout.map(preserveIntrinsicSize)
         if workspace.id == monitor.activeWorkspace && !overviewParksWindows {
+          ribbonFrames.append(contentsOf: sizedFrames)
           let strip = continuousStripFramesForActiveWorkspace(
             sizedFrames,
             viewport: viewport,
@@ -299,6 +301,7 @@ extension Daemon {
     platform.stageWindowBorderSelection(selectedWindowID)
     platform.apply(
       platformAssignments,
+      ribbonFrames: ribbonFrames,
       hiddenWindowIDs: hiddenWindowIDs,
       skipping: skipped,
       asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,

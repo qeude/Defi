@@ -198,6 +198,10 @@ extension AXFrameCoordinator {
       }
     }
 
+    // Reentry is prepared offscreen before any visible neighbor advances.
+    // This coordinator queue is independent of command intake; newer commands
+    // still supersede these writes while a native lane is preparing its anchor.
+    stagingGroup.wait()
     let startedAt = ProcessInfo.processInfo.systemUptime
     let interval = 1 / frame.refreshRateHz
     let availableIntermediateSamples = completedFrameSpringSamples(
@@ -379,7 +383,6 @@ extension AXFrameCoordinator {
     // on the next tick without waiting for slow applications.
     clockDone.wait()
     animationClockQueue.sync {}
-    stagingGroup.wait()
     let stagingResult = stagingAccumulator.result
     applied += stagingResult.applied
     stale += stagingResult.stale
@@ -592,7 +595,7 @@ extension AXFrameCoordinator {
     for windowID in windowIDs ?? frame.animatedWindowIDs {
       guard let write = frame.writes[windowID] else { continue }
       retargetHorizontalVelocities[windowID] =
-        (write.point.x - write.fromPoint.x) * progressVelocity
+        ((write.animationPoint ?? write.point).x - write.fromPoint.x) * progressVelocity
     }
     lock.unlock()
   }

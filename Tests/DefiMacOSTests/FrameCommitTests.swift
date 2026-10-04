@@ -276,6 +276,52 @@ struct FrameCommitTests {
   }
 
   @Test
+  func `Horizontal ribbon retains common motion after a recent AX stall`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.running = true
+    let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)
+    coordinator.recordProcessLatencySamples([42: 120])
+    coordinator.predictedProcessLatencyMS[43] = 2
+    let writes = [
+      first: makeMotionWrite(fromX: 900, toX: 100, processID: 42),
+      second: makeMotionWrite(fromX: 1800, toX: 1000, processID: 43),
+    ]
+    coordinator.submit(writes, source: "command-animation", animationDuration: 0.125,
+      refreshRateHz: 120, animatedWindowIDs: [first, second])
+    let duration = coordinator.pending?.animationDuration ?? 0
+    #expect(duration >= 0.36)
+    #expect(duration <= 0.4)
+    #expect(coordinator.animationSupportsIntermediateFrames(
+      processIDs: [42, 43], animationDuration: duration, refreshRateHz: 120))
+
+    coordinator.recentProcessLatencySamplesMS = [:]
+    coordinator.predictedProcessLatencyMS = [42: 2, 43: 2]
+    coordinator.submit(writes, source: "command-animation", animationDuration: 0.125,
+      refreshRateHz: 120, animatedWindowIDs: [first, second])
+    #expect(coordinator.pending?.animationDuration == 0.125)
+  }
+
+  @Test
+  func `Leaving ribbon window follows strip motion before final parking`() {
+    var leaving = makeMotionWrite(fromX: 100, toX: -759)
+    leaving.animationPoint = CGPoint(x: -900, y: leaving.point.y)
+    let middle = frameAnimationDestination(leaving, intermediate: true)
+    let parked = frameAnimationDestination(leaving, intermediate: false)
+    #expect(middle.x == -900)
+    #expect(parked.x == -759)
+    let neighbor = makeMotionWrite(fromX: 900, toX: -100)
+    let leavingFrame = interpolatedFrame(
+      from: Rect(x: 100, y: 0, width: 760, height: 700),
+      to: Rect(x: middle.x, y: 0, width: 760, height: 700), progress: 0.5)
+    let neighborFrame = interpolatedFrame(
+      from: Rect(x: 900, y: 0, width: 760, height: 700),
+      to: Rect(x: frameAnimationDestination(neighbor, intermediate: true).x,
+        y: 0, width: 760, height: 700), progress: 0.5)
+    #expect(neighborFrame.x - leavingFrame.x == 800)
+    #expect(positionOnlyAnimationWrite(leaving, holding: leaving.size).animationPoint == middle)
+  }
+
+  @Test
   func `Recent AX stalls prevent animation from restarting after a few fast writes`() {
     let coordinator = AXFrameCoordinator()
     coordinator.recordProcessLatencySamples([42: 55])
@@ -751,6 +797,9 @@ struct FrameCommitTests {
       )
     }
     let windowID = WindowID(rawValue: 1)
+    var replacement = write(point: CGPoint(x: 100, y: 40),
+      size: CGSize(width: 800, height: 600), positionChanged: true, sizeChanged: false)
+    replacement.animationPoint = CGPoint(x: -900, y: 40)
     let result = frameWritesPreservingSupersededAsyncSizes(
       active: [
         windowID: write(
@@ -762,15 +811,11 @@ struct FrameCommitTests {
       ],
       pending: [:],
       replacement: [
-        windowID: write(
-          point: CGPoint(x: 100, y: 40),
-          size: CGSize(width: 800, height: 600),
-          positionChanged: true,
-          sizeChanged: false
-        )
+        windowID: replacement
       ]
     )
 
+    #expect(result[windowID]?.animationPoint == replacement.animationPoint)
     #expect(result[windowID]?.point == CGPoint(x: 100, y: 40))
     #expect(result[windowID]?.size == CGSize(width: 800, height: 600))
     #expect(result[windowID]?.positionChanged == true)

@@ -40,6 +40,7 @@ extension MacOSPlatform {
 
   public func apply(
     _ assignments: [FrameAssignment],
+    ribbonFrames: [FrameAssignment] = [],
     hiddenWindowIDs: Set<WindowID> = [],
     skipping requestedSkippedWindowIDs: Set<WindowID> = [],
     asynchronousPositionTimeoutSeconds: Float = 0.016,
@@ -277,6 +278,13 @@ extension MacOSPlatform {
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
     var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
+    // Logical strip endpoints differ from the safe native parking anchors.
+    // Use them only on a single display: an offscreen logical path must never
+    // sweep a user window through another monitor's visible region.
+    let ribbonTargets = source == "command-animation" && positionsOnly
+      && lastMonitorFrames.count == 1
+      ? Dictionary(uniqueKeysWithValues: ribbonFrames.map { ($0.windowID, $0.frame) })
+      : [:]
     var animatedWindowIDs = Set<WindowID>()
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
@@ -303,12 +311,15 @@ extension MacOSPlatform {
         width: startSize.width,
         height: startSize.height
       )
+      let leavingRibbonTarget = isParked && !requiresVerifiedOffscreenWrite(
+        frame: startFrame, monitorFrames: lastMonitorFrames
+      ) ? ribbonTargets[assignment.windowID] : nil
       let wantsFrameAnimation =
         animationDuration > 0
-        && !isParked
+        && (!isParked || leavingRibbonTarget != nil)
         && transitionCrossesViewport(
           from: startFrame,
-          to: assignment.frame
+          to: leavingRibbonTarget ?? assignment.frame
         )
         && (intent?.position == true
           || (animateSizeChanges && intent?.size == true))
@@ -332,7 +343,8 @@ extension MacOSPlatform {
         timeoutSeconds: asynchronousPositionTimeoutSeconds,
         isParked: isParked,
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
-        requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite
+        requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite,
+        animationPoint: leavingRibbonTarget.map { CGPoint(x: $0.x, y: $0.y) }
       )
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write

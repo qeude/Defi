@@ -245,6 +245,27 @@ extension AXFrameCoordinator {
     )
   }
 
+  func horizontalAnimationDuration(
+    for writes: [WindowID: AsyncPositionWrite],
+    requested: TimeInterval,
+    refreshRateHz: Double
+  ) -> TimeInterval {
+    guard requested > 0, !writes.isEmpty,
+      writes.values.allSatisfy({ !$0.animatesSize && abs($0.point.y - $0.fromPoint.y) < 0.5 })
+    else { return requested }
+    lock.lock()
+    let latency = writes.values.map {
+      (recentProcessLatencySamplesMS[$0.processID]?.max()
+        ?? predictedProcessLatencyMS[$0.processID] ?? 0) / 1_000
+    }.max() ?? 0
+    lock.unlock()
+    // Give every participating native lane two intermediate writes plus its
+    // final write. A bounded common timeline avoids replacing the whole strip
+    // with a jump after a recent stall, without queuing more AX work.
+    let interval = 1 / min(max(refreshRateHz, 30), 120)
+    return max(requested, min(0.4, 3 * latency + 2 * interval))
+  }
+
   func animationSupportsIntermediateFrames(
     processIDs: Set<pid_t>,
     animationDuration: TimeInterval,
@@ -433,6 +454,7 @@ extension AXFrameCoordinator {
         break
       }
       attempted = true
+      let destination = frameAnimationDestination(item.value, intermediate: intermediate)
       let interpolated = interpolatedFrame(
         from: Rect(
           x: item.value.fromPoint.x,
@@ -441,8 +463,8 @@ extension AXFrameCoordinator {
           height: item.value.fromSize.height
         ),
         to: Rect(
-          x: item.value.point.x,
-          y: item.value.point.y,
+          x: destination.x,
+          y: destination.y,
           width: item.value.size.width,
           height: item.value.size.height
         ),
@@ -517,6 +539,7 @@ extension AXFrameCoordinator {
                 point: point,
                 forceOffscreenAccess: (stagingReentry && item.value.isReentering)
                   || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+                verifiesParking: !intermediate,
                 enhancedUIManagedByBatch: managesEnhancedUI
                   || defersEnhancedUIRestore
               )
@@ -542,6 +565,7 @@ extension AXFrameCoordinator {
               item.value, point: point,
               forceOffscreenAccess: (stagingReentry && item.value.isReentering)
                 || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
+              verifiesParking: !intermediate,
               enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
             )
           }
@@ -608,9 +632,8 @@ extension AXFrameCoordinator {
         lock.unlock()
         continue
       }
-      let requiresReadback =
-        item.value.isParked
-        || item.value.requiresVerifiedOffscreenWrite
+      let requiresReadback = !intermediate
+        && (item.value.isParked || item.value.requiresVerifiedOffscreenWrite)
       if positionApplied, item.value.positionChanged {
         applied += 1
         let completedPoint =

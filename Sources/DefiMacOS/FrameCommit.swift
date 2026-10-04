@@ -107,6 +107,11 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let isParked: Bool
   let isReentering: Bool
   let requiresVerifiedOffscreenWrite: Bool
+  var animationPoint: CGPoint? = nil
+}
+
+func frameAnimationDestination(_ write: AsyncPositionWrite, intermediate: Bool) -> CGPoint {
+  intermediate ? (write.animationPoint ?? write.point) : write.point
 }
 
 func positionOnlyAnimationWrite(
@@ -129,7 +134,8 @@ func positionOnlyAnimationWrite(
     timeoutSeconds: write.timeoutSeconds,
     isParked: write.isParked,
     isReentering: write.isReentering,
-    requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite
+    requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
+    animationPoint: write.animationPoint
   )
 }
 
@@ -205,7 +211,8 @@ func frameWritesPreservingSupersededAsyncSizes(
         timeoutSeconds: newer.timeoutSeconds,
         isParked: newer.isParked,
         isReentering: newer.isReentering,
-        requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite
+        requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite,
+        animationPoint: newer.animationPoint
       )
     } else {
       result[windowID] = newer

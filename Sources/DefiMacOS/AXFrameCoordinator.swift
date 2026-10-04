@@ -275,14 +275,18 @@ final class AXFrameCoordinator: @unchecked Sendable {
   ) {
     guard !writes.isEmpty else { return }
     let animatedWrites = writes.filter { animatedWindowIDs.contains($0.key) }
+    let adaptedAnimationDuration = source == "command-animation"
+      ? horizontalAnimationDuration(for: animatedWrites, requested: animationDuration,
+        refreshRateHz: refreshRateHz)
+      : animationDuration
     // A scrolling strip must not mix instantaneous moves with interpolated neighbors.
-    let usesCoherentPositionFallback = animationDuration > 0
+    let usesCoherentPositionFallback = adaptedAnimationDuration > 0
       && !animationSupportsIntermediateFrames(
         processIDs: Set(animatedWrites.values.map(\.processID)),
-        animationDuration: animationDuration,
+        animationDuration: adaptedAnimationDuration,
         refreshRateHz: refreshRateHz
       )
-    let animationDuration = usesCoherentPositionFallback ? 0 : animationDuration
+    let animationDuration = usesCoherentPositionFallback ? 0 : adaptedAnimationDuration
     lock.lock()
     let displacedFrame = pending
     nextGeneration &+= 1
