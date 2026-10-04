@@ -573,7 +573,7 @@ final class InputMonitor: @unchecked Sendable {
   }
 
   var isEnabled: Bool {
-    let taps = lock.withLock { taps }
+    let taps = lock.withLock { self.taps }
     return !taps.isEmpty && taps.allSatisfy { CGEvent.tapIsEnabled(tap: $0.port) }
   }
 
