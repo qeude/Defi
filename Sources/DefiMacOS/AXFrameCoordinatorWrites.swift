@@ -112,7 +112,22 @@ extension AXFrameCoordinator {
       },
       by: \.value.processID
     ).map {
-      ProcessWriteBatch(processID: $0.key, writes: $0.value)
+      var entries = $0.value
+      let deltas = entries.map {
+        frameAnimationDestination($0.value, intermediate: true).x - $0.value.fromPoint.x
+      }
+      if entries.allSatisfy({ $0.value.usesCommonRibbonOffset }),
+        let delta = deltas.first, abs(delta) >= 0.5,
+        deltas.allSatisfy({ $0 * delta > 0 })
+      {
+        // AX writes are sequential within an application. Release space in
+        // front of the strip before advancing its following native windows.
+        entries.sort {
+          let a = $0.value.fromPoint.x, b = $1.value.fromPoint.x
+          return a == b ? $0.key.rawValue < $1.key.rawValue : (delta < 0 ? a < b : a > b)
+        }
+      }
+      return ProcessWriteBatch(processID: $0.key, writes: entries)
     }.sorted { $0.processID < $1.processID }
   }
 
@@ -251,7 +266,8 @@ extension AXFrameCoordinator {
     refreshRateHz: Double
   ) -> TimeInterval {
     guard requested > 0, !writes.isEmpty,
-      writes.values.allSatisfy({ !$0.animatesSize && abs($0.point.y - $0.fromPoint.y) < 0.5 })
+      writes.values.allSatisfy({ !$0.animatesSize
+        && ($0.usesCommonRibbonOffset || abs($0.point.y - $0.fromPoint.y) < 0.5) })
     else { return requested }
     lock.lock()
     let latency = writes.values.map {
@@ -470,7 +486,23 @@ extension AXFrameCoordinator {
         ),
         progress: progress
       )
-      let point = CGPoint(x: interpolated.x, y: interpolated.y)
+      let nativeRibbonSample = intermediate && item.value.usesCommonRibbonOffset
+        && frame.monitorFrames.count == 1
+      let nativeFrame = nativeRibbonSample ? nativeRibbonAnimationFrame(
+        Rect(x: interpolated.x, y: item.value.fromPoint.y,
+          width: item.value.fromSize.width, height: item.value.fromSize.height),
+        monitor: frame.monitorFrames[0]) : interpolated
+      let point = CGPoint(x: nativeFrame.x, y: nativeFrame.y)
+      let parksRibbonSample = nativeRibbonSample && requiresVerifiedOffscreenWrite(
+        frame: nativeFrame, monitorFrames: frame.monitorFrames)
+      // A distant logical column stays at its verified strip anchor. Do not
+      // send identical offscreen positions at every display refresh.
+      if parksRibbonSample, !item.value.sizeChanged, !item.value.animatesSize,
+        let completed = completedPosition(for: item.key),
+        accessibilityWriter.pointDistance(completed, point) < 0.5
+      {
+        continue
+      }
       let size = CGSize(
         width: interpolated.width,
         height: interpolated.height
@@ -537,7 +569,7 @@ extension AXFrameCoordinator {
               || accessibilityWriter.applyPosition(
                 item.value,
                 point: point,
-                forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+                forceOffscreenAccess: parksRibbonSample || (stagingReentry && item.value.isReentering)
                   || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
                 verifiesParking: !intermediate,
                 enhancedUIManagedByBatch: managesEnhancedUI
@@ -563,7 +595,7 @@ extension AXFrameCoordinator {
           if isCurrent(generation: frame.generation) {
             positionApplied = accessibilityWriter.applyPosition(
               item.value, point: point,
-              forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+              forceOffscreenAccess: parksRibbonSample || (stagingReentry && item.value.isReentering)
                 || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
               verifiesParking: !intermediate,
               enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore

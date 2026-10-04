@@ -82,6 +82,8 @@ extension MacOSPlatform {
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
       nativeFullscreenWindowIDs
     )
+    let horizontalRibbonNavigation = source == "command-animation" && positionsOnly
+      && lastMonitorFrames.count == 1 && !ribbonFrames.isEmpty
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
     let tracesInitialFrame = !newlyDiscoveredWindowIDs.isEmpty
     if tracesInitialFrame {
@@ -125,6 +127,7 @@ extension MacOSPlatform {
           for: assignment.windowID
         ),
         previousTarget: previousTargetFrames[assignment.windowID],
+        prefersCompletedPosition: horizontalRibbonNavigation,
         nativeReference: latestObservedFrames[assignment.windowID]
           ?? lastSnapshotWindows.first(where: { $0.id == assignment.windowID })?.frame
       )
@@ -132,7 +135,8 @@ extension MacOSPlatform {
       let intent = frameWriteIntent(
         reference: reference,
         target: assignment.frame,
-        positionsOnly: positionsOnly
+        positionsOnly: positionsOnly,
+        horizontalOnly: horizontalRibbonNavigation
       )
       if intent.position || intent.size {
         writeIntents[assignment.windowID] = (intent.position, intent.size)
@@ -179,6 +183,17 @@ extension MacOSPlatform {
         }
       }
     }
+    // Logical strip endpoints differ from the safe native parking anchors.
+    // Use them only on a single display: an offscreen logical path must never
+    // sweep a user window through another monitor's visible region.
+    let ribbonTargets = source == "command-animation" && positionsOnly
+      && lastMonitorFrames.count == 1
+      ? Dictionary(uniqueKeysWithValues: ribbonFrames.map { ($0.windowID, $0.frame) })
+      : [:]
+    let sharedRibbonOffset = lastMonitorFrames.count == 1 ? commonRibbonOffset(
+      targets: ribbonTargets.mapValues { CGPoint(x: $0.x, y: $0.y) },
+      starts: animationStartPositions, sizes: animationStartSizes,
+      monitor: lastMonitorFrames[0]) : nil
     let newlyUnparkedWindowIDs =
       lastHiddenWindowIDs.subtracting(effectiveHiddenWindowIDs)
     var reenteringWindowIDs = Set<WindowID>()
@@ -217,6 +232,25 @@ extension MacOSPlatform {
         planned: plannedStart
       ) {
         reenteringWindowIDs.insert(assignment.windowID)
+      }
+    }
+    if let offset = sharedRibbonOffset {
+      for assignment in assignments {
+        guard let logical = ribbonTargets[assignment.windowID],
+          let observed = startPositions[assignment.windowID],
+          let size = animationStartSizes[assignment.windowID] else { continue }
+        let planned = CGPoint(x: logical.x + offset, y: observed.y)
+        let observedFrame = Rect(x: observed.x, y: observed.y,
+          width: size.width, height: size.height)
+        let plannedFrame = Rect(x: planned.x, y: planned.y,
+          width: size.width, height: size.height)
+        guard transitionCrossesViewport(from: plannedFrame, to: logical) else { continue }
+        animationStartPositions[assignment.windowID] = planned
+        if requiresVerifiedOffscreenWrite(frame: observedFrame, monitorFrames: lastMonitorFrames),
+          reentryStartRequiresStaging(observed: observed, planned: planned)
+        {
+          reenteringWindowIDs.insert(assignment.windowID)
+        }
       }
     }
     for assignment in assignments
@@ -278,13 +312,6 @@ extension MacOSPlatform {
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
     var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
-    // Logical strip endpoints differ from the safe native parking anchors.
-    // Use them only on a single display: an offscreen logical path must never
-    // sweep a user window through another monitor's visible region.
-    let ribbonTargets = source == "command-animation" && positionsOnly
-      && lastMonitorFrames.count == 1
-      ? Dictionary(uniqueKeysWithValues: ribbonFrames.map { ($0.windowID, $0.frame) })
-      : [:]
     var animatedWindowIDs = Set<WindowID>()
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
@@ -292,7 +319,7 @@ extension MacOSPlatform {
       let isParked = hiddenWindowIDs.contains(assignment.windowID)
       let intent = writeIntents[assignment.windowID]
 
-      let position = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
+      let logicalPosition = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
       let size = CGSize(width: assignment.frame.width, height: assignment.frame.height)
       guard let processID = processIDs[assignment.windowID],
         let application = applications[processID]
@@ -303,7 +330,10 @@ extension MacOSPlatform {
         frame: assignment.frame,
         monitorFrames: lastMonitorFrames
       )
-      let startPoint = animationStartPositions[assignment.windowID] ?? position
+      let startPoint = animationStartPositions[assignment.windowID] ?? logicalPosition
+      // Preserve the native vertical clamp through the final commit and parking repair.
+      let position = frameWritePosition(
+        target: logicalPosition, from: startPoint, horizontalOnly: horizontalRibbonNavigation)
       let startSize = animationStartSizes[assignment.windowID] ?? size
       let startFrame = Rect(
         x: startPoint.x,
@@ -344,7 +374,9 @@ extension MacOSPlatform {
         isParked: isParked,
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite,
-        animationPoint: leavingRibbonTarget.map { CGPoint(x: $0.x, y: $0.y) }
+        animationPoint: leavingRibbonTarget.map { CGPoint(x: $0.x, y: $0.y) },
+        usesCommonRibbonOffset: sharedRibbonOffset != nil && ribbonTargets[assignment.windowID] != nil
+          && wantsFrameAnimation
       )
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write

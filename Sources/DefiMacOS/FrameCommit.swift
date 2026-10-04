@@ -10,14 +10,19 @@ struct FrameWriteIntent: Equatable, Sendable {
   let size: Bool
 }
 
+func frameWritePosition(target: CGPoint, from start: CGPoint, horizontalOnly: Bool) -> CGPoint {
+  CGPoint(x: target.x, y: horizontalOnly ? start.y : target.y)
+}
+
 func frameWriteIntent(
   reference: Rect,
   target: Rect,
-  positionsOnly: Bool
+  positionsOnly: Bool,
+  horizontalOnly: Bool = false
 ) -> FrameWriteIntent {
   FrameWriteIntent(
     position: abs(reference.x - target.x) >= 0.5
-      || abs(reference.y - target.y) >= 0.5,
+      || (!horizontalOnly && abs(reference.y - target.y) >= 0.5),
     size: !positionsOnly
       && (abs(reference.width - target.width) >= 0.5
         || abs(reference.height - target.height) >= 0.5)
@@ -94,7 +99,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let element: AXUIElement
   let application: AXUIElement
   let processID: pid_t
-  let fromPoint: CGPoint
+  var fromPoint: CGPoint
   let point: CGPoint
   let fromSize: CGSize
   let size: CGSize
@@ -108,6 +113,43 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let isReentering: Bool
   let requiresVerifiedOffscreenWrite: Bool
   var animationPoint: CGPoint? = nil
+  var usesCommonRibbonOffset = false
+}
+
+// One visible native window anchors the entire strip. Parking anchors are
+// deliberately excluded: their one-pixel exposure is not a logical position.
+func commonRibbonOffset(
+  targets: [WindowID: CGPoint], starts: [WindowID: CGPoint],
+  sizes: [WindowID: CGSize], monitor: Rect
+) -> Double? {
+  let candidates = targets.compactMap { id, target -> (WindowID, Double, Double)? in
+    guard let start = starts[id], let size = sizes[id],
+      size.width > 0 else { return nil }
+    let exposure = min(start.x + size.width, monitor.x + monitor.width)
+      - max(start.x, monitor.x)
+    guard exposure > 1.5 else { return nil }
+    return (id, exposure, start.x - target.x)
+  }.sorted {
+    $0.1 == $1.1 ? $0.0.rawValue < $1.0.rawValue : $0.1 > $1.1
+  }
+  return candidates.first?.2
+}
+
+func nativeRibbonAnimationFrame(_ logical: Rect, monitor: Rect) -> Rect {
+  let exposure = min(logical.x + logical.width, monitor.x + monitor.width)
+    - max(logical.x, monitor.x)
+  guard exposure <= parkedSliverWidth else { return logical }
+  return resolveParkingPlacement(
+    for: logical, ownerFrame: monitor, allMonitorFrames: [monitor],
+    preferredSide: logical.x + logical.width <= monitor.x ? .left : .right,
+    preferredY: logical.y).frame
+}
+
+func ribbonParkingPreparationWindowIDs(_ frame: QueuedPositionFrame) -> Set<WindowID> {
+  guard frame.source == "command-animation", frame.monitorFrames.count == 1 else { return [] }
+  return Set(frame.writes.compactMap { id, write in
+    write.isParked && !frame.animatedWindowIDs.contains(id) ? id : nil
+  })
 }
 
 func frameAnimationDestination(_ write: AsyncPositionWrite, intermediate: Bool) -> CGPoint {
@@ -135,7 +177,8 @@ func positionOnlyAnimationWrite(
     isParked: write.isParked,
     isReentering: write.isReentering,
     requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
-    animationPoint: write.animationPoint
+    animationPoint: write.animationPoint,
+    usesCommonRibbonOffset: write.usesCommonRibbonOffset
   )
 }
 
@@ -144,18 +187,18 @@ func frameApplicationReference(
   settlingReference: Rect?,
   completedPosition: CGPoint?,
   previousTarget: Rect?,
+  prefersCompletedPosition: Bool = false,
   nativeReference: @autoclosure () -> Rect?
 ) -> Rect? {
   if let pendingCorrection {
     return pendingCorrection
   }
-  if let settlingReference, let completedPosition {
+  if let completedPosition,
+    let reference = settlingReference ?? (prefersCompletedPosition ? previousTarget : nil)
+  {
     return Rect(
-      x: completedPosition.x,
-      y: completedPosition.y,
-      width: settlingReference.width,
-      height: settlingReference.height
-    )
+      x: completedPosition.x, y: completedPosition.y,
+      width: reference.width, height: reference.height)
   }
   return settlingReference ?? previousTarget ?? nativeReference()
 }
@@ -212,7 +255,8 @@ func frameWritesPreservingSupersededAsyncSizes(
         isParked: newer.isParked,
         isReentering: newer.isReentering,
         requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite,
-        animationPoint: newer.animationPoint
+        animationPoint: newer.animationPoint,
+        usesCommonRibbonOffset: newer.usesCommonRibbonOffset
       )
     } else {
       result[windowID] = newer

@@ -29,7 +29,11 @@ extension AXFrameCoordinator {
     let staticWrites = frame.writes.filter {
       !animatedWrites.keys.contains($0.key)
     }
-    let deferredParkingWrites = staticWrites.filter { $0.value.isParked }
+    let parkingPreparationIDs = ribbonParkingPreparationWindowIDs(frame)
+    let parkingPreparationWrites = staticWrites.filter { parkingPreparationIDs.contains($0.key) }
+    let deferredParkingWrites = staticWrites.filter {
+      $0.value.isParked && !parkingPreparationIDs.contains($0.key)
+    }
     let blockingStaticWrites = staticWrites.filter { !$0.value.isParked }
     let finalOnlyProcessIDs = finalOnlyAnimationProcessIDs(
       for: animatedWrites,
@@ -144,6 +148,20 @@ extension AXFrameCoordinator {
     )
     var applied = 0
     var stale = 0
+    // A superseded native sample can leave an already-logically-offscreen
+    // column visible. Clear that column before its neighbor moves through it.
+    if !parkingPreparationWrites.isEmpty, isCurrent(generation: frame.generation) {
+      let preparationFrame = QueuedPositionFrame(
+        generation: frame.generation, source: frame.source,
+        writes: parkingPreparationWrites, animatedWindowIDs: [], animationDuration: 0,
+        refreshRateHz: frame.refreshRateHz, displayIDs: frame.displayIDs,
+        monitorFrames: frame.monitorFrames, initialProgressVelocity: 0,
+        stagesVisibleBeforeParking: false, successfulWrite: frame.successfulWrite,
+        completion: nil)
+      let result = applyFrame(preparationFrame, progress: 1, skippedProcesses: [])
+      applied += result.applied
+      stale += result.stale
+    }
     let stagingGroup = DispatchGroup()
     let stagingAccumulator = FrameResultAccumulator()
     let reentryWrites = loopWrites.filter { $0.value.isReentering }

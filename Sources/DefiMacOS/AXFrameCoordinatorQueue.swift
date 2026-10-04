@@ -139,9 +139,25 @@ extension AXFrameCoordinator {
         isParked: write.isParked,
         isReentering: write.isReentering,
         requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
-        animationPoint: write.animationPoint
+        animationPoint: write.animationPoint,
+        usesCommonRibbonOffset: write.usesCommonRibbonOffset
       )
       count += 1
+    }
+    let ribbonWrites = writes.filter { $0.value.usesCommonRibbonOffset }
+    if frame.monitorFrames.count == 1,
+      let offset = commonRibbonOffset(
+        targets: ribbonWrites.mapValues { frameAnimationDestination($0, intermediate: true) },
+        starts: ribbonWrites.filter { !$0.value.isReentering }.mapValues(\.fromPoint),
+        sizes: ribbonWrites.mapValues(\.fromSize), monitor: frame.monitorFrames[0])
+    {
+      for (id, write) in ribbonWrites {
+        var aligned = write
+        let destination = frameAnimationDestination(write, intermediate: true)
+        aligned.fromPoint = CGPoint(x: destination.x + offset, y: write.fromPoint.y)
+        writes[id] = aligned
+        if aligned.fromPoint != write.fromPoint { count += 1 }
+      }
     }
     let velocityCandidates: [Double] = frame.animatedWindowIDs.compactMap {
       windowID in
