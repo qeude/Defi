@@ -6,6 +6,7 @@ import Darwin
 import Foundation
 
 let hotKeyEventTapPlacement = CGEventTapPlacement.tailAppendEventTap
+let inputMonitorTapOptions = CGEventTapOptions.listenOnly
 
 @NavigationActor
 public final class HotKeyManager {
@@ -22,7 +23,8 @@ public final class HotKeyManager {
   private let bindings: [Key: String]
   private let handler: Handler
   public let tracksPointerMotion: Bool
-  public let bindingError: HotKeyError?
+  public private(set) var bindingError: HotKeyError?
+  private let configurationError: HotKeyError?
   private let pointerMotionHandler: PointerMotionHandler?
   private let tapReenabledHandler: TapReenabledHandler
   private let closeIntentHandler: CloseIntentHandler
@@ -32,13 +34,15 @@ public final class HotKeyManager {
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
-  private var context: HotKeyTapContext?
+  private var context: InputMonitor?
   private var thread: Thread?
+  private var registration: HotKeyRegistration?
+  private let registrationHandler: @NavigationActor @Sendable (Bool, HotKeyError?) -> Void
 
   public var bindingCount: Int { bindings.count }
 
   public var isHotKeyCaptureEnabled: Bool {
-    bindingError == nil && bindingCount > 0 && isEnabled
+    bindingError == nil && bindingCount > 0 && isEnabled && context?.hasRegisteredHotKeys == true
   }
 
   public var isEnabled: Bool {
@@ -67,9 +71,11 @@ public final class HotKeyManager {
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
+    registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?) -> Void = { _, _ in },
     handler: @escaping Handler
   ) {
     self.handler = handler
+    self.registrationHandler = registrationHandler
     tracksPointerMotion =
       displayPointerRouter != nil || config.input.focusFollowsMouse || config.input.mouseFollowsFocus
     self.pointerMotionHandler = config.input.focusFollowsMouse
@@ -96,10 +102,12 @@ public final class HotKeyManager {
     }
     self.bindings = bindings
     self.bindingError = bindingError
+    configurationError = bindingError
   }
 
   public func start() throws {
     guard context == nil else { return }
+    bindingError = configurationError
     var mask = CGEventMask(
       (1 << CGEventType.keyDown.rawValue)
         | (1 << CGEventType.leftMouseDown.rawValue)
@@ -122,7 +130,7 @@ public final class HotKeyManager {
       guard let userInfo else {
         return Unmanaged.passUnretained(event)
       }
-      let context = Unmanaged<HotKeyTapContext>
+      let context = Unmanaged<InputMonitor>
         .fromOpaque(userInfo)
         .takeUnretainedValue()
       return context.handle(type: type, event: event)
@@ -133,7 +141,7 @@ public final class HotKeyManager {
     let closeIntentHandler = self.closeIntentHandler
     let overviewHandler = self.overviewHandler
     let cheatsheetHandler = self.cheatsheetHandler
-    let context = HotKeyTapContext(
+    let context = InputMonitor(
       bindings: bindings,
       userInputTracker: userInputTracker,
       pointerMotionTracker: pointerMotionTracker,
@@ -166,34 +174,29 @@ public final class HotKeyManager {
         closeIntentHandler(timestamp, processID)
       }
     }
-    let callbackContext = Unmanaged.passRetained(context)
-    guard
-      let tap = CGEvent.tapCreate(
-        tap: .cgSessionEventTap,
-        place: hotKeyEventTapPlacement,
-        options: .defaultTap,
-        eventsOfInterest: mask,
-        callback: callback,
-        userInfo: callbackContext.toOpaque()
-      )
-    else {
-      callbackContext.release()
-      throw HotKeyError.eventTapUnavailable
-    }
-    guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-    else {
-      CGEvent.tapEnable(tap: tap, enable: false)
-      CFMachPortInvalidate(tap)
-      callbackContext.release()
-      throw HotKeyError.eventTapUnavailable
-    }
-    context.install(
-      tap: tap,
-      source: source,
-      callbackContext: callbackContext
+    // Install interception first so passive observation sees routed pointer events.
+    // Ordinary shortcuts always pass through the filtering callback unchanged.
+    let interceptorMask = mask & ~CGEventMask(
+      (1 << CGEventType.flagsChanged.rawValue)
+        | (1 << CGEventType.leftMouseDown.rawValue)
+        | (1 << CGEventType.rightMouseDown.rawValue)
+        | (1 << CGEventType.otherMouseDown.rawValue)
+        | (1 << CGEventType.scrollWheel.rawValue)
     )
+    let interceptorCallback: CGEventTapCallBack = { _, type, event, userInfo in
+      guard let userInfo else { return Unmanaged.passUnretained(event) }
+      return Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
+        .intercept(type: type, event: event)
+    }
+    try context.installTap(options: .defaultTap, mask: interceptorMask, callback: interceptorCallback)
+    do {
+      try context.installTap(options: inputMonitorTapOptions, mask: mask, callback: callback)
+    } catch {
+      context.stop()
+      throw error
+    }
     let thread = Thread { context.run() }
-    thread.name = "com.quentin.defi.hotkeys"
+    thread.name = "com.quentin.defi.input-monitor"
     thread.qualityOfService = .userInteractive
     self.context = context
     self.thread = thread
@@ -204,6 +207,22 @@ public final class HotKeyManager {
       self.thread = nil
       throw HotKeyError.eventTapUnavailable
     }
+    registerHotKeys(in: context)
+  }
+
+  private func registerHotKeys(in context: InputMonitor) {
+    guard bindingError == nil else {
+      return
+    }
+    let registration = HotKeyRegistration(bindings: bindings, monitor: context) { [weak self] error in
+      NavigationActor.enqueue {
+        guard let self, self.context === context else { return }
+        self.bindingError = error
+        self.registrationHandler(self.isHotKeyCaptureEnabled, error)
+      }
+    }
+    self.registration = registration
+    registration.start()
   }
 
   public func resetPointerWindowTransition() {
@@ -224,17 +243,20 @@ public final class HotKeyManager {
   }
 
   public func stop() {
+    registration?.stop()
+    registration = nil
     context?.stop()
     context = nil
     thread = nil
   }
 
   isolated deinit {
+    registration?.stop()
     context?.stop()
   }
 }
 
-final class HotKeyTapContext: @unchecked Sendable {
+final class InputMonitor: @unchecked Sendable {
   private static let commandTabKeyCode = CGKeyCode(48)
   private static let closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
 
@@ -250,10 +272,14 @@ final class HotKeyTapContext: @unchecked Sendable {
   private let closeIntent: @Sendable (TimeInterval, pid_t?) -> Void
   private let lock = NSLock()
   private let ready = DispatchSemaphore(value: 0)
-  private var tap: CFMachPort?
-  private var source: CFRunLoopSource?
+  private struct Tap: @unchecked Sendable {
+    let port: CFMachPort
+    let source: CFRunLoopSource
+    let context: Unmanaged<InputMonitor>
+  }
+  private var taps: [Tap] = []
+  private var registeredHotKeys = false
   private var runLoop: CFRunLoop?
-  private var callbackContext: Unmanaged<HotKeyTapContext>?
   private var captured = 0
   private var reenables = 0
   private var pointerTransitions = 0
@@ -299,33 +325,51 @@ final class HotKeyTapContext: @unchecked Sendable {
     self.closeIntent = closeIntent
   }
 
-  func install(
-    tap: CFMachPort,
-    source: CFRunLoopSource,
-    callbackContext: Unmanaged<HotKeyTapContext>
-  ) {
-    lock.lock()
-    self.tap = tap
-    self.source = source
-    self.callbackContext = callbackContext
-    lock.unlock()
+  @discardableResult
+  func installTap(
+    options: CGEventTapOptions, mask: CGEventMask, callback: CGEventTapCallBack
+  ) throws -> CFMachPort {
+    let reference = Unmanaged.passRetained(self)
+    guard let port = CGEvent.tapCreate(
+      tap: .cgSessionEventTap, place: hotKeyEventTapPlacement, options: options,
+      eventsOfInterest: mask, callback: callback, userInfo: reference.toOpaque()
+    ) else {
+      reference.release()
+      throw HotKeyError.eventTapUnavailable
+    }
+    guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else {
+      CFMachPortInvalidate(port)
+      reference.release()
+      throw HotKeyError.eventTapUnavailable
+    }
+    lock.withLock { taps.append(Tap(port: port, source: source, context: reference)) }
+    return port
   }
 
   func run() {
-    lock.lock()
-    let tap = tap
-    let source = source
-    let runLoop = CFRunLoopGetCurrent()
-    self.runLoop = runLoop
-    lock.unlock()
-    guard let tap, let source else {
-      ready.signal()
-      return
+    let runLoop = CFRunLoopGetCurrent()!
+    let taps = lock.withLock {
+      self.runLoop = runLoop
+      return self.taps
     }
-    CFRunLoopAddSource(runLoop, source, .commonModes)
-    CGEvent.tapEnable(tap: tap, enable: true)
+    guard !taps.isEmpty else { ready.signal(); return }
+    for tap in taps {
+      CFRunLoopAddSource(runLoop, tap.source, .commonModes)
+      CGEvent.tapEnable(tap: tap.port, enable: true)
+    }
     ready.signal()
     CFRunLoopRun()
+  }
+
+  var hasRegisteredHotKeys: Bool { lock.withLock { registeredHotKeys } }
+
+  func setHotKeysRegistered(_ registered: Bool) {
+    let dismiss = lock.withLock {
+      let dismiss = registeredHotKeys && !registered
+      registeredHotKeys = registered
+      return dismiss
+    }
+    if dismiss { deliverCheatsheet(.dismiss) }
   }
 
   func waitUntilReady() -> Bool {
@@ -339,7 +383,11 @@ final class HotKeyTapContext: @unchecked Sendable {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       let timestamp = Double(event.timestamp) / 1_000_000_000
       lock.lock()
-      let tap = tap
+      let taps = self.taps.filter { !CGEvent.tapIsEnabled(tap: $0.port) }
+      guard !taps.isEmpty else {
+        lock.unlock()
+        return Unmanaged.passUnretained(event)
+      }
       reenables += 1
       pointerTransitionState.reset()
       pendingPointerMotion = nil
@@ -350,9 +398,7 @@ final class HotKeyTapContext: @unchecked Sendable {
       lock.unlock()
       userInputTracker.invalidate(at: timestamp)
       pointerMotionTracker.invalidate(at: timestamp)
-      if let tap {
-        CGEvent.tapEnable(tap: tap, enable: true)
-      }
+      for tap in taps { CGEvent.tapEnable(tap: tap.port, enable: true) }
       deliverCheatsheet(.dismiss)
       tapReenabled(timestamp)
       return Unmanaged.passUnretained(event)
@@ -360,11 +406,10 @@ final class HotKeyTapContext: @unchecked Sendable {
     let timestamp = Double(event.timestamp) / 1_000_000_000
     if eventTracksPhysicalPointerMotion(type) {
       pointerMotionTracker.record(timestamp: timestamp)
-      let crossedDisplay = displayPointerRouter?.route(event) == true
       if type == .mouseMoved, tracksPointerWindowTransitions {
         // Hit-test the destination immediately; the event's window ID still
         // describes the source screen before the warp.
-        let rawWindowID = crossedDisplay ? 0 : event.getIntegerValueField(
+        let rawWindowID = event.getIntegerValueField(
           .mouseEventWindowUnderMousePointer
         )
         enqueuePointerMotionIfNeeded(
@@ -401,47 +446,7 @@ final class HotKeyTapContext: @unchecked Sendable {
       }
     }
     if tracksGeneralUserInput {
-      let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-      let commandPressed = event.flags.contains(.maskCommand)
-      let focusIntent: UserInputTracker.FocusIntentSource?
-      if eventIsMouseButtonDown(type) {
-        let rawWindowID = event.getIntegerValueField(
-          .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
-        )
-        focusIntent = mouseFocusIntent(
-          eventType: type,
-          rawWindowID: rawWindowID
-        )
-      } else if commandPressed && code == Self.commandTabKeyCode {
-        focusIntent = .keyboard
-      } else {
-        focusIntent = nil
-      }
-      let closeIntent = isKeyDown && commandPressed
-        && Self.closeWindowKeyCodes.contains(code)
-        && !isDefiTextInput
-      userInputTracker.record(
-        timestamp: timestamp,
-        focusIntent: focusIntent,
-        closeIntent: closeIntent
-      )
-      if closeIntent {
-        capturedModifierReleaseState.capture(
-          modifierBits: hotKeyModifierBits(event.flags)
-        )
-        let rawProcessID = event.getIntegerValueField(
-          .eventTargetUnixProcessID
-        )
-        let processID = pid_t(exactly: rawProcessID)
-          .flatMap { $0 > 0 ? $0 : nil }
-        self.closeIntent(timestamp, processID)
-      }
-    }
-    if isKeyDown, let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {
-      record(
-        UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
-        event.flags.rawValue, event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
-      return nil
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: isDefiTextInput)
     }
     if isDefiTextInput && (isKeyDown || type == .flagsChanged) {
       return Unmanaged.passUnretained(event)
@@ -449,7 +454,7 @@ final class HotKeyTapContext: @unchecked Sendable {
     if type == .flagsChanged {
       let bits = hotKeyModifierBits(event.flags)
       deliverCheatsheet(.modifiersChanged(
-        matches: bits != 0 && bits == cheatsheetModifierBits,
+        matches: hasRegisteredHotKeys && bits != 0 && bits == cheatsheetModifierBits,
         released: bits == 0
       ))
     } else if type == .keyDown {
@@ -466,39 +471,25 @@ final class HotKeyTapContext: @unchecked Sendable {
     let overviewModeEnabled = overviewModeEnabled
     let cheatsheetVisible = cheatsheetVisible
     lock.unlock()
-    if cheatsheetVisible && code == 53 {
-      deliverCheatsheet(.dismiss)
-      return nil
-    }
+    if cheatsheetVisible && code == 53 { return Unmanaged.passUnretained(event) }
     if overviewModeEnabled,
-      event.flags.contains(.maskCommand),
-      code == Self.commandTabKeyCode
-    {
+      event.flags.contains(.maskCommand), code == Self.commandTabKeyCode {
       deliverOverview(.cancel)
       return Unmanaged.passUnretained(event)
     }
     if overviewModeEnabled,
-      let action = overviewKeyAction(
-        keyCode: code,
-        modifierBits: key.modifierBits,
-        configuredCommand: bindings[key]
-      )
-    {
-      userInputTracker.recordCapturedCommand(at: timestamp)
-      lock.lock()
-      captured += 1
-      lock.unlock()
-      capturedModifierReleaseState.capture(modifierBits: key.modifierBits)
-      deliverOverview(action)
-      return nil
+      overviewKeyAction(keyCode: code, modifierBits: key.modifierBits,
+                        configuredCommand: bindings[key]) != nil {
+      return Unmanaged.passUnretained(event)
     }
+    guard hasRegisteredHotKeys else { return Unmanaged.passUnretained(event) }
     guard let command = bindings[key] else {
       return Unmanaged.passUnretained(event)
     }
     if command == "toggle-cheatsheet",
       event.getIntegerValueField(.keyboardEventAutorepeat) != 0
     {
-      return nil
+      return Unmanaged.passUnretained(event)
     }
     lock.lock()
     captured += 1
@@ -511,14 +502,101 @@ final class HotKeyTapContext: @unchecked Sendable {
       sourceProcessID: Int32(exactly: event.getIntegerValueField(.eventSourceUnixProcessID))
         .flatMap { $0 == 0 ? nil : $0 }
     ))
-    return nil
+    return Unmanaged.passUnretained(event)
+  }
+
+  private func recordGeneralUserInput(
+    type: CGEventType, event: CGEvent, isDefiTextInput: Bool
+  ) {
+    let timestamp = Double(event.timestamp) / 1_000_000_000
+    let isKeyDown = type == .keyDown
+    let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+    let commandPressed = event.flags.contains(.maskCommand)
+    let focusIntent: UserInputTracker.FocusIntentSource?
+    if eventIsMouseButtonDown(type) {
+      let rawWindowID = event.getIntegerValueField(
+        .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+      )
+      focusIntent = mouseFocusIntent(
+        eventType: type,
+        rawWindowID: rawWindowID
+      )
+    } else if commandPressed && code == Self.commandTabKeyCode {
+      focusIntent = .keyboard
+    } else {
+      focusIntent = nil
+    }
+    let closeIntent = isKeyDown && commandPressed
+      && Self.closeWindowKeyCodes.contains(code)
+      && !isDefiTextInput
+    userInputTracker.record(
+      timestamp: timestamp,
+      focusIntent: focusIntent,
+      closeIntent: closeIntent
+    )
+    if closeIntent {
+      capturedModifierReleaseState.capture(
+        modifierBits: hotKeyModifierBits(event.flags)
+      )
+      let rawProcessID = event.getIntegerValueField(
+        .eventTargetUnixProcessID
+      )
+      let processID = pid_t(exactly: rawProcessID)
+        .flatMap { $0 > 0 ? $0 : nil }
+      self.closeIntent(timestamp, processID)
+    }
+  }
+
+  /// The active tap only intercepts modal input and routes physical pointer movement.
+  func intercept(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+      return handle(type: type, event: event)
+    }
+    if eventTracksPhysicalPointerMotion(type) {
+      if displayPointerRouter?.route(event) == true {
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 0)
+      }
+      return Unmanaged.passUnretained(event)
+    }
+    guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+    if let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {
+      capturedModifierReleaseState.reset()
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: true)
+      record(UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
+             event.flags.rawValue, event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+      return nil
+    }
+    let targetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
+    if targetPID == getpid(), textInputFocused() { return Unmanaged.passUnretained(event) }
+    let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+    let key = Key(code: code, flags: event.flags.rawValue)
+    let (overview, cheatsheet) = lock.withLock { (overviewModeEnabled, cheatsheetVisible) }
+    if cheatsheet && code == 53 {
+      capturedModifierReleaseState.reset()
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
+      deliverCheatsheet(.dismiss)
+      return nil
+    }
+    if overview, let action = overviewKeyAction(
+      keyCode: code, modifierBits: key.modifierBits, configuredCommand: bindings[key]
+    ) {
+      capturedModifierReleaseState.reset()
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
+      let timestamp = Double(event.timestamp) / 1_000_000_000
+      userInputTracker.recordCapturedCommand(at: timestamp)
+      lock.withLock {
+        captured += 1
+        capturedModifierReleaseState.capture(modifierBits: key.modifierBits)
+      }
+      deliverOverview(action)
+      return nil
+    }
+    return Unmanaged.passUnretained(event)
   }
 
   var isEnabled: Bool {
-    lock.lock()
-    let tap = tap
-    lock.unlock()
-    return tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
+    let taps = lock.withLock { self.taps }
+    return !taps.isEmpty && taps.allSatisfy { CGEvent.tapIsEnabled(tap: $0.port) }
   }
 
   var capturedKeyCount: Int {
@@ -612,37 +690,24 @@ final class HotKeyTapContext: @unchecked Sendable {
   }
 
   func stop() {
-    lock.lock()
-    let tap = tap
-    let source = source
-    let runLoop = runLoop
-    let callbackContext = callbackContext
-    self.tap = nil
-    self.source = nil
-    self.callbackContext = nil
-    lock.unlock()
-    guard let callbackContext else { return }
-    if let tap {
-      CGEvent.tapEnable(tap: tap, enable: false)
+    let (taps, runLoop) = lock.withLock {
+      let taps = self.taps
+      self.taps = []
+      registeredHotKeys = false
+      return (taps, self.runLoop)
     }
-    guard let runLoop else {
-      if let tap {
-        CFMachPortInvalidate(tap)
+    for tap in taps { CGEvent.tapEnable(tap: tap.port, enable: false) }
+    let cleanup: () -> Void = {
+      for tap in taps {
+        if let runLoop { CFRunLoopRemoveSource(runLoop, tap.source, .commonModes) }
+        CFMachPortInvalidate(tap.port)
+        tap.context.release()
       }
-      callbackContext.release()
-      return
+      if let runLoop { CFRunLoopStop(runLoop) }
     }
-    CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
-      if let source {
-        CFRunLoopRemoveSource(runLoop, source, .commonModes)
-      }
-      if let tap {
-        CGEvent.tapEnable(tap: tap, enable: false)
-        CFMachPortInvalidate(tap)
-      }
-      callbackContext.release()
-      CFRunLoopStop(runLoop)
-    }
-    CFRunLoopWakeUp(runLoop)
+    if let runLoop {
+      CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, cleanup)
+      CFRunLoopWakeUp(runLoop)
+    } else { cleanup() }
   }
 }

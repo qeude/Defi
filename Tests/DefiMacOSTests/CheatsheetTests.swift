@@ -11,7 +11,7 @@ struct CheatsheetHotKeyTests {
     let flags: CGEventFlags = [.maskAlternate, .maskCommand, .maskControl]
     let key = try Key(accelerator: "hyper-a", aliases: ["hyper": "Alt + Cmd + Ctrl"])
     let inputs = Mutex<[CheatsheetInput]>([])
-    let context = HotKeyTapContext(
+    let context = InputMonitor(
       bindings: [:], userInputTracker: UserInputTracker(),
       pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
       cheatsheetModifierBits: key.modifierBits,
@@ -19,6 +19,7 @@ struct CheatsheetHotKeyTests {
       deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
       tapReenabled: { _ in }
     )
+    context.setHotKeysRegistered(true)
     let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: true))
     event.flags = [.maskAlternate]
     #expect(context.handle(type: .flagsChanged, event: event) != nil)
@@ -26,13 +27,13 @@ struct CheatsheetHotKeyTests {
     #expect(context.handle(type: .flagsChanged, event: event) != nil)
     #expect(context.handle(type: .keyDown, event: event) != nil)
     context.setCheatsheetVisible(true)
-    #expect(context.handle(type: .keyDown, event: event) == nil)
+    #expect(context.intercept(type: .keyDown, event: event) == nil)
     event.flags = []
     #expect(context.handle(type: .flagsChanged, event: event) != nil)
     #expect(inputs.withLock { $0 } == [
       .modifiersChanged(matches: false, released: false),
       .modifiersChanged(matches: true, released: false),
-      .keyDown(modifiersHeld: true), .keyDown(modifiersHeld: true), .dismiss,
+      .keyDown(modifiersHeld: true), .dismiss,
       .modifiersChanged(matches: false, released: true),
     ])
     for type: CGEventType in [.leftMouseDown, .rightMouseDown, .otherMouseDown] {

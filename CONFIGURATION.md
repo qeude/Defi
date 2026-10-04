@@ -381,6 +381,14 @@ Aliases cannot reference other aliases.
 
 Binds accelerators to Defi commands.
 
+Defi reserves normal shortcuts with Carbon global hotkeys and observes input
+through a passive event tap. Commands remain responsive while the main event
+loop is busy, and normal shortcut events are not discarded by Defi's tap.
+Reservations are suspended during shortcut recording and text editing in Defi.
+Registration failures disable shortcuts and appear in the settings status and
+an app alert; input observation remains active. A separate filtering tap handles
+overview navigation, shortcut recording, help dismissal, and pointer routing.
+
 ```toml
 [keys]
 "hyper-left" = "focus-column left"
