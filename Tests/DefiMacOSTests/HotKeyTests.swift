@@ -2,6 +2,7 @@ import DefiRuntime
 import DefiCore
 import DefiModel
 import ApplicationServices
+import Carbon
 import DefiConfig
 import Synchronization
 import Testing
@@ -25,12 +26,13 @@ struct OverviewHotKeyTests {
   func settingsTargetKeyEventsRespectTextFocus(textFocused: Bool) throws {
     let key = try Key(accelerator: "alt-left", aliases: [:])
     let invocations = HotKeyInvocationRecorder()
-    let context = HotKeyTapContext(
+    let context = InputMonitor(
       bindings: [key: "focus-column left"], userInputTracker: UserInputTracker(),
       pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
       deliver: { invocations.append($0) }, deliverOverview: { _ in },
       deliverPointerMotion: { _ in }, tapReenabled: { _ in },
       textInputFocused: { textFocused })
+    context.setHotKeysRegistered(true)
     let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
     event.flags = [.maskAlternate]
     event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(getpid()))
@@ -39,7 +41,7 @@ struct OverviewHotKeyTests {
       #expect(forwarded?.takeUnretainedValue() === event)
       #expect(invocations.commands.isEmpty)
     } else {
-      #expect(forwarded == nil)
+      #expect(forwarded?.takeUnretainedValue() === event)
       #expect(invocations.commands == ["focus-column left"])
     }
   }
@@ -127,7 +129,7 @@ struct HotKeyTests {
     let router = DisplayPointerRouter(warpPointer: { _ in .success })
     let motions = Mutex<[PointerMotionInvocation]>([])
     router.update(technical: isolatedDisplayArrangement(desk, primary: first), desk: desk)
-    let context = HotKeyTapContext(
+    let context = InputMonitor(
       bindings: [:], userInputTracker: UserInputTracker(),
       pointerMotionTracker: PointerMotionTracker(), displayPointerRouter: router,
       tracksPointerWindowTransitions: true,
@@ -141,6 +143,7 @@ struct HotKeyTests {
     ))
     event.setDoubleValueField(.mouseEventDeltaX, value: 5)
     event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 42)
+    #expect(context.intercept(type: type, event: event) != nil)
     #expect(context.handle(type: type, event: event) != nil)
     #expect(router.warpCount == 1)
     #expect(event.location == CGPoint(x: 1_002, y: -350))
@@ -165,22 +168,21 @@ struct HotKeyTests {
   private func makeContext(
     bindings: [Key: String],
     closeIntent: @escaping @Sendable (TimeInterval, pid_t?) -> Void = { _, _ in }
-  ) -> (HotKeyTapContext, HotKeyInvocationRecorder) {
+  ) -> (InputMonitor, HotKeyInvocationRecorder) {
     let invocations = HotKeyInvocationRecorder()
-    return (
-      HotKeyTapContext(
-        bindings: bindings,
-        userInputTracker: UserInputTracker(),
-        pointerMotionTracker: PointerMotionTracker(),
-        tracksPointerWindowTransitions: false,
-        deliver: { invocations.append($0) },
-        deliverOverview: { _ in },
-        deliverPointerMotion: { _ in },
-        tapReenabled: { _ in },
-        closeIntent: closeIntent
-      ),
-      invocations
+    let context = InputMonitor(
+      bindings: bindings,
+      userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(),
+      tracksPointerWindowTransitions: false,
+      deliver: { invocations.append($0) },
+      deliverOverview: { _ in },
+      deliverPointerMotion: { _ in },
+      tapReenabled: { _ in },
+      closeIntent: closeIntent
     )
+    context.setHotKeysRegistered(true)
+    return (context, invocations)
   }
 
   @Test(arguments: [
@@ -227,12 +229,13 @@ struct HotKeyTests {
   }
 
   @Test
-  func `Filtering tap runs after remappers`() {
+  func `Input observation runs after remappers`() {
     #expect(hotKeyEventTapPlacement == .tailAppendEventTap)
+    #expect(inputMonitorTapOptions == .listenOnly)
   }
 
   @Test
-  func `Captured hyper shortcut never reaches the foreground application`() throws {
+  func `Registered hyper shortcut triggers without filtering its event`() throws {
     let hyper = CGEventFlags([
       .maskAlternate,
       .maskCommand,
@@ -249,7 +252,8 @@ struct HotKeyTests {
 
     let forwardedEvent = context.handle(type: .keyDown, event: event)
 
-    #expect(forwardedEvent == nil)
+    #expect(forwardedEvent?.takeUnretainedValue() === event)
+    #expect(context.intercept(type: .keyDown, event: event)?.takeUnretainedValue() === event)
     #expect(invocations.commands == ["workspace 1"])
 
     let modifierRelease = try #require(
@@ -281,6 +285,27 @@ struct HotKeyTests {
     #expect(forwardedEvent?.takeUnretainedValue() === event)
     #expect(event.flags == [.maskCommand])
     #expect(invocations.commands.isEmpty)
+  }
+
+  @Test
+  func unregisteredShortcutCannotTriggerACommand() throws {
+    let key = try Key(accelerator: "hyper-left", aliases: aliases)
+    let (context, invocations) = makeContext(bindings: [key: "focus-column left"])
+    context.setHotKeysRegistered(false)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = CGEventFlags(rawValue: key.modifierBits)
+    #expect(context.handle(type: .keyDown, event: event)?.takeUnretainedValue() === event)
+    #expect(invocations.commands.isEmpty)
+    #expect(context.capturedKeyCount == 0)
+  }
+
+  @Test(arguments: [
+    ("alt-left", UInt32(optionKey)),
+    ("ctrl-shift-right", UInt32(controlKey | shiftKey)),
+    ("hyper-shift-1", UInt32(optionKey | cmdKey | controlKey | shiftKey)),
+  ])
+  func carbonModifiersMatchConfiguredModifiers(accelerator: String, modifiers: UInt32) throws {
+    #expect(try Key(accelerator: accelerator, aliases: aliases).carbonModifiers == modifiers)
   }
 
   @Test(arguments: [pid_t(0), 4242])

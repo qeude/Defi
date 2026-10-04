@@ -295,6 +295,18 @@ extension Daemon {
       cheatsheetHandler: { [weak self] input in
         guard let self, self.hotKeyGeneration == generation else { return }
         self.handleCheatsheetInput(input)
+      },
+      registrationHandler: { [weak self] enabled, error in
+        guard let self, self.hotKeyGeneration == generation else { return }
+        let message = error.map { "Keyboard shortcuts unavailable: \($0)" }
+          ?? (enabled ? "Keyboard shortcuts active" : "Keyboard shortcuts suspended")
+        Task { @MainActor in
+          DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(message)
+        }
+        if let error {
+          self.log("hotkeys unavailable: \(error); input observation remains enabled")
+          DispatchQueue.main.async { presentDefiConfigurationError(error) }
+        }
       }
     ) { [weak self] invocation in
       self?.enqueueHotKey(invocation)
