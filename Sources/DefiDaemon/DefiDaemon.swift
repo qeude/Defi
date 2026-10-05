@@ -116,6 +116,7 @@ final class Daemon {
   @MainActor var cheatsheetController: CheatsheetController?
   var cheatsheetHoldTask: Task<Void, Never>?
   var hotKeyGeneration: UInt64 = 0
+  var overviewExitPreparationActive = false
   var overviewOpenedAt: TimeInterval?
   nonisolated let menuBar: MenuBarState
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
@@ -167,6 +168,7 @@ final class Daemon {
   var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
+  var latestNativeFocusAnimationInputTimestamp: TimeInterval = 0
   var commandGeneration: UInt64 = 0
   var deferredMouseFocusIntent: DeferredMouseFocusIntent?
   var consumedMouseFocusIntentTimestamp: TimeInterval = 0

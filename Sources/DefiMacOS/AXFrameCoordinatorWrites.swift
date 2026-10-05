@@ -263,11 +263,13 @@ extension AXFrameCoordinator {
   func horizontalAnimationDuration(
     for writes: [WindowID: AsyncPositionWrite],
     requested: TimeInterval,
-    refreshRateHz: Double
+    refreshRateHz: Double,
+    allowsSizeChanges: Bool = false
   ) -> TimeInterval {
     guard requested > 0, !writes.isEmpty,
-      writes.values.allSatisfy({ !$0.animatesSize
-        && ($0.usesCommonRibbonOffset || abs($0.point.y - $0.fromPoint.y) < 0.5) })
+      writes.values.allSatisfy({
+        (!$0.animatesSize || allowsSizeChanges)
+          && ($0.usesCommonRibbonOffset || abs($0.point.y - $0.fromPoint.y) < 0.5) })
     else { return requested }
     lock.lock()
     let latency = writes.values.map {
@@ -486,11 +488,15 @@ extension AXFrameCoordinator {
         ),
         progress: progress
       )
-      let nativeRibbonSample = intermediate && item.value.usesCommonRibbonOffset
+      let nativeRibbonSample = intermediate
+        && (item.value.usesCommonRibbonOffset || item.value.usesLogicalRibbonPath)
         && frame.monitorFrames.count == 1
+      let ribbonSample = item.value.usesCommonRibbonOffset
+        ? Rect(x: interpolated.x, y: item.value.fromPoint.y,
+          width: item.value.fromSize.width, height: item.value.fromSize.height)
+        : interpolated
       let nativeFrame = nativeRibbonSample ? nativeRibbonAnimationFrame(
-        Rect(x: interpolated.x, y: item.value.fromPoint.y,
-          width: item.value.fromSize.width, height: item.value.fromSize.height),
+        ribbonSample,
         monitor: frame.monitorFrames[0]) : interpolated
       let point = CGPoint(x: nativeFrame.x, y: nativeFrame.y)
       let parksRibbonSample = nativeRibbonSample && requiresVerifiedOffscreenWrite(
@@ -551,17 +557,10 @@ extension AXFrameCoordinator {
             && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
           ? accessibilityWriter.readSize(item.value.element)
           : nil
-        let clampedSourceFrame: Rect? = acceptedSize.flatMap { observedSize in
-          guard item.value.positionChanged,
-            abs(observedSize.width - size.width) >= 0.5
-              || abs(observedSize.height - size.height) >= 0.5,
-            let source = accessibilityWriter.readPosition(item.value.element)
-          else { return nil }
-          return Rect(
-            x: source.x, y: source.y,
-            width: observedSize.width, height: observedSize.height
-          )
-        }
+        let sizeWasClampedBeforeMove = item.value.positionChanged
+          && (acceptedSize.map {
+            abs($0.width - size.width) >= 0.5 || abs($0.height - size.height) >= 0.5
+          } ?? false)
         var positionApplied =
           generationIsCurrent
           && (
@@ -576,15 +575,11 @@ extension AXFrameCoordinator {
                   || defersEnhancedUIRestore
               )
             )
-        // AppKit can clamp a resize to the source display before accepting
-        // the move. Retry once at the destination, only after a measured clamp.
-        if positionApplied,
-          let clampedSourceFrame,
-          frameCentersCrossDisplays(
-            from: clampedSourceFrame,
-            to: interpolated,
-            displayFrames: frame.monitorFrames
-          ),
+        // AppKit can clamp a resize at the source position, even on the same
+        // display. Retry the final size once after moving, only after a measured
+        // mismatch; intermediate samples must keep their bounded write budget.
+        if !intermediate, progress >= 1, positionApplied,
+          sizeWasClampedBeforeMove,
           isCurrent(generation: frame.generation)
         {
           sizeApplied = accessibilityWriter.applySize(

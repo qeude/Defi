@@ -95,6 +95,7 @@ extension AXFrameCoordinator {
     }
     let sizeCommitCandidates = interpolatedWrites.filter {
       !lanePlan.deferredSizeWindowIDs.contains($0.key)
+        && !$0.value.animatesSize
         && !$0.value.isReentering
         && !$0.value.requiresVerifiedOffscreenWrite
         && asynchronousSizeWriteIsRequired(

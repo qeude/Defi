@@ -35,6 +35,8 @@ final class OverviewPanel {
   private var surfaceTask: Task<Void, Never>?
   private var invalidatedSurfaceWindowIDs = Set<WindowID>()
   private var surfaceGeneration: UInt64 = 0
+  var openingTransitionChanged: ((String) -> Void)?
+  private var openingTransitionInProgress = false
   private var desktopImageTask: Task<Void, Never>?
 
   init(
@@ -160,7 +162,7 @@ final class OverviewPanel {
   }
 
   func hide() {
-    cancelSurfaceTransition()
+    cancelSurfaceTransition(reason: "hide")
     orderOut()
     discardImages()
   }
@@ -168,6 +170,8 @@ final class OverviewPanel {
   func showSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>, duration: TimeInterval) {
     cancelSurfaceTransition()
     surfaceScene = scene
+    openingTransitionInProgress = true
+    openingTransitionChanged?("started(\(scene.openingContentDescription))")
     let generation = surfaceGeneration
     view.suppressedSurfaceWindowIDs = windowIDs
     glassView.alphaValue = 0
@@ -182,7 +186,14 @@ final class OverviewPanel {
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      openingTransitionInProgress = false
+      openingTransitionChanged?("completed")
       glassView.alphaValue = 1
+      view.suppressedSurfaceWindowIDs.subtract(scene.finishOpening())
+      if scene.nativeFrames.isEmpty {
+        scene.layer.removeFromSuperlayer()
+        surfaceScene = nil
+      }
       surfaceTask = nil
     }
   }
@@ -190,6 +201,10 @@ final class OverviewPanel {
   func hideSurfaceSceneIfUnchanged(duration: TimeInterval) -> Bool {
     guard let surfaceScene, let screen = window.screen,
       surfaceScene.matchesNativeFrames(screen: screen) else { return false }
+    if openingTransitionInProgress {
+      openingTransitionInProgress = false
+      openingTransitionChanged?("interrupted(exit)")
+    }
     surfaceTask?.cancel()
     surfaceGeneration &+= 1
     let generation = surfaceGeneration
@@ -225,7 +240,11 @@ final class OverviewPanel {
     }
   }
 
-  private func cancelSurfaceTransition() {
+  private func cancelSurfaceTransition(reason: String = "replaced") {
+    if openingTransitionInProgress {
+      openingTransitionInProgress = false
+      openingTransitionChanged?("interrupted(\(reason))")
+    }
     surfaceGeneration &+= 1
     surfaceTask?.cancel()
     surfaceTask = nil
@@ -244,7 +263,7 @@ final class OverviewPanel {
     invalidatedSurfaceWindowIDs = []
     if let surfaceScene, surfaceScene.projection != projection {
       ids.formUnion(surfaceScene.nativeFrames.keys)
-      cancelSurfaceTransition()
+      cancelSurfaceTransition(reason: "projection-changed")
     }
     return ids
   }

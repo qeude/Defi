@@ -20,7 +20,8 @@ final class ExperimentalRibbonRenderer {
   private var contexts: [Context] = []
   private var backgrounds: [MonitorID: CGImage] = [:]
   private var backgroundTask: Task<Void, Never>?
-  private var scenes: [NSPanel] = []
+  private var scenes: [MonitorID: NSPanel] = [:]
+  private var cornerRadius: Double = 12
   private var presentedLayers: [WindowID: (CALayer, Rect)] = [:]
   var isPresenting: Bool { !scenes.isEmpty }
   var backgroundsReady: Bool { contexts.allSatisfy { backgrounds[$0.monitorID] != nil } }
@@ -46,7 +47,9 @@ final class ExperimentalRibbonRenderer {
     }?.frames.keys.map { $0 } ?? [])
   }
 
-  func prepare(snapshot: OverviewSnapshot, layout: LayoutSettings, enabled: Bool) {
+  func prepare(snapshot: OverviewSnapshot, layout: LayoutSettings, enabled: Bool,
+    cornerRadius: Double = 12, preloadWorkspace: Bool = false) {
+    self.cornerRadius = cornerRadius
     guard enabled else {
       disable()
       return
@@ -75,14 +78,14 @@ final class ExperimentalRibbonRenderer {
       }
       let neighbours = [ordered.first(where: { $0.value.x + $0.value.width <= viewport.x }),
         ordered.first(where: { $0.value.x >= viewport.x + viewport.width })].compactMap { $0 }
-      for (id, frame) in Array(visible) + Array(neighbours) {
+      for (id, frame) in Array(visible) + (preloadWorkspace ? ordered : Array(neighbours)) {
         guard let window = snapshot.windows[id], let owner = owners[id],
           frame.width.isFinite, frame.height.isFinite, frame.width > 0, frame.height > 0
         else { continue }
         // Keep visible windows and immediate neighbours sharp; NV12 reduces the
         // capture pool without reducing luma resolution.
         let scale = screen.backingScaleFactor
-        let width = frame.width * scale, height = frame.height * scale
+        let width = window.frame.width * scale, height = window.frame.height * scale
         guard width <= 16_384, height <= 16_384 else { continue }
         candidates.append((OverviewSurfaceRequest(windowID: id, appID: window.appID,
           processID: owner, width: max((Int(width.rounded(.up)) + 1) / 2 * 2, 2),
@@ -117,19 +120,20 @@ final class ExperimentalRibbonRenderer {
 
   // Runs synchronously on the main actor before the native submission starts.
   // False leaves the original native animation fully functional.
-  func begin(assignments: [FrameAssignment], duration: TimeInterval,
+  func begin(assignments: [FrameAssignment], ribbonFrames: [FrameAssignment] = [], duration: TimeInterval,
     borderStyle: WindowBorderStyle? = nil, selectedWindowID: WindowID? = nil) -> Bool {
     let previousPresentation = presentedLayers.mapValues { entry -> CGRect in
       (entry.0.presentation()?.frame ?? entry.0.frame).offsetBy(dx: entry.1.x, dy: entry.1.y)
     }
-    cancel()
     guard duration > 0, !contexts.isEmpty,
       !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { lastFallback = "disabled-or-no-context"; return false }
     let targets = Dictionary(uniqueKeysWithValues: assignments.map { ($0.windowID, $0.frame) })
+    let logicalTargets = Dictionary(uniqueKeysWithValues:
+      (ribbonFrames.isEmpty ? assignments : ribbonFrames).map { ($0.windowID, $0.frame) })
     var plans: [(Context, Double, Set<WindowID>)] = []
     for context in contexts {
       let viewport = context.viewport
-      guard let destination = targets.first(where: {
+      guard let destination = logicalTargets.first(where: {
         context.frames[$0.key] != nil && $0.value.ribbonOverlapWidth(viewport) > 2
       }), let source = context.frames[destination.key] else { continue }
       let delta = destination.value.x - source.x
@@ -139,23 +143,34 @@ final class ExperimentalRibbonRenderer {
       }.keys)
       guard backgrounds[context.monitorID] != nil,
         ids.allSatisfy({ id in
-          guard let frame = context.frames[id], let target = targets[id] else { return false }
+          guard let frame = context.frames[id], let target = logicalTargets[id] else { return false }
           return abs(frame.width - target.width) < 1 && abs(frame.height - target.height) < 1
         }), OverviewSurfaceCapture.shared.frames(windowIDs: ids) != nil,
         ids.allSatisfy({ OverviewSurfaceCapture.shared.displayLayer(for: $0) != nil })
-      else { lastFallback = "capture-or-background-or-size"; fallbacks += 1; return false }
+      else { lastFallback = "capture-or-background-or-size"; fallbacks += 1; cancel(); return false }
       plans.append((context, delta, ids))
     }
     guard !plans.isEmpty else { lastFallback = "no-moving-plan"; return false }
     let native = nativeFrames()
     for (context, _, ids) in plans {
+      guard let captures = OverviewSurfaceCapture.shared.frames(windowIDs: ids) else {
+        lastFallback = "missing-capture"; fallbacks += 1; cancel(); return false
+      }
       for id in ids {
         guard let actual = native[id], actual.owner == context.owners[id],
           let source = context.frames[id],
-          !source.ribbonIntersects(screenRect(context.screen)) || matches(actual.frame, source)
-        else { lastFallback = "native-source-mismatch id=\(id.rawValue) actual=\(String(describing: native[id]?.frame)) source=\(String(describing: context.frames[id]))"; fallbacks += 1; return false }
+          previousPresentation[id] != nil || !source.ribbonIntersects(screenRect(context.screen))
+            || abs(actual.frame.x - source.x) < 3
+        else { lastFallback = "native-source-mismatch"; fallbacks += 1; cancel(); return false }
+        guard let capture = captures[id],
+          overviewSurfaceMatchesNativeSize(source: capture.sourceSize, native: actual.frame)
+        else { lastFallback = "capture-size-mismatch"; fallbacks += 1; cancel(); return false }
       }
     }
+    generation &+= 1; completion?.cancel(); completion = nil
+    OverviewSurfaceCapture.shared.freeze()
+    retainedFrames = [:]; presentedLayers = [:]
+    CATransaction.begin(); CATransaction.setDisableActions(true)
     var expected: [WindowID: (Rect, Int32)] = [:]
     for (context, delta, ids) in plans {
       guard let frames = OverviewSurfaceCapture.shared.frames(windowIDs: ids) else { cancel(); return false }
@@ -163,13 +178,14 @@ final class ExperimentalRibbonRenderer {
       let area = context.viewport
       let appKitArea = CGRect(x: area.x, y: (NSScreen.screens.first?.frame.height ?? 0) - area.y - area.height,
         width: area.width, height: area.height)
-      let panel = NSPanel(contentRect: appKitArea,
+      let panel = scenes[context.monitorID] ?? NSPanel(contentRect: appKitArea,
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
       panel.isOpaque = true; panel.backgroundColor = .black; panel.hasShadow = false
       panel.ignoresMouseEvents = true; panel.hidesOnDeactivate = false
       panel.isReleasedWhenClosed = false; panel.level = .statusBar
       panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
       panel.setAccessibilityLabel("Defi experimental ribbon")
+      panel.title = "Defi Experimental Ribbon"
       let view = NSView(frame: CGRect(origin: .zero, size: appKitArea.size))
       view.wantsLayer = true
       let root = CALayer(); root.frame = view.bounds; root.isGeometryFlipped = true
@@ -181,24 +197,26 @@ final class ExperimentalRibbonRenderer {
       root.addSublayer(backdrop)
       let origin = context.viewport
       for id in ids {
-        guard let frame = context.frames[id], let pixels = frames[id] else { continue }
+        guard let logical = context.frames[id], frames[id] != nil, let actual = native[id] else { continue }
+        let frame = Rect(x: logical.ribbonIntersects(context.viewport) ? actual.frame.x : logical.x,
+          y: actual.frame.y, width: actual.frame.width, height: actual.frame.height)
         guard let item = OverviewSurfaceCapture.shared.displayLayer(for: id) else { cancel(); return false }
         item.removeFromSuperlayer(); item.removeAllAnimations()
         item.transform = CATransform3DIdentity
         item.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        _ = enqueueWindowSurface(pixels, on: item)
+        // Reuse the decoded one-shot layer without submitting another video sample.
         item.contentsGravity = .resize
         item.frame = previousPresentation[id]?.offsetBy(dx: -origin.x, dy: -origin.y)
           ?? CGRect(x: frame.x - origin.x, y: frame.y - origin.y,
             width: frame.width, height: frame.height)
         let container = CALayer(); container.frame = item.frame
         item.frame = container.bounds
-        item.cornerRadius = 9; item.masksToBounds = true; container.addSublayer(item)
+        item.cornerRadius = cornerRadius; item.masksToBounds = true; container.addSublayer(item)
         if let borderStyle, let appearance = overviewWindowBorderAppearance(
           isSelected: id == selectedWindowID, style: borderStyle, scale: 1) {
           let geometry = overviewWindowBorderGeometry(
             cardFrame: Rect(x: 0, y: 0, width: frame.width, height: frame.height),
-            cardRadius: 9, width: appearance.width, placement: borderStyle.placement)
+            cardRadius: cornerRadius, width: appearance.width, placement: borderStyle.placement)
           let border = CAShapeLayer()
           border.path = CGPath(roundedRect: CGRect(x: geometry.frame.x, y: geometry.frame.y,
             width: geometry.frame.width, height: geometry.frame.height),
@@ -213,7 +231,7 @@ final class ExperimentalRibbonRenderer {
         root.addSublayer(container)
         let start = container.position
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        container.position = CGPoint(x: frame.x - origin.x + delta + frame.width / 2,
+        container.position = CGPoint(x: (logicalTargets[id]?.x ?? logical.x + delta) - origin.x + frame.width / 2,
           y: frame.y - origin.y + frame.height / 2)
         CATransaction.commit()
         presentedLayers[id] = (container, origin)
@@ -222,28 +240,25 @@ final class ExperimentalRibbonRenderer {
         motion.duration = duration; motion.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         container.add(motion, forKey: "ribbon")
         if let target = targets[id], let owner = context.owners[id] {
-          expected[id] = (target, owner)
+          expected[id] = (Rect(x: target.x, y: actual.frame.y,
+            width: actual.frame.width, height: actual.frame.height), owner)
         }
       }
-      panel.orderFrontRegardless(); scenes.append(panel)
+      panel.orderFrontRegardless(); scenes[context.monitorID] = panel
     }
-    CATransaction.flush()
-    expectedNativeTargets = expected.mapValues { $0.0 }
+    CATransaction.commit(); CATransaction.flush()
+    contexts = contexts.map { context in
+      Context(monitorID: context.monitorID, workspaceID: context.workspaceID,
+        frames: context.frames.merging(logicalTargets.filter { context.frames[$0.key] != nil }) { _, new in new },
+        owners: context.owners, screen: context.screen, viewport: context.viewport)
+    }
+    // Supersession compares logical submissions; native clamping is only relevant
+    // to the final handoff check below.
+    expectedNativeTargets = targets.filter { expected[$0.key] != nil }
     transitions += 1
     let token = generation
     completion = Task { [weak self] in
-      let animationEnd = CACurrentMediaTime() + duration
-      while !Task.isCancelled, let self, generation == token, CACurrentMediaTime() < animationEnd {
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        for (id, entry) in presentedLayers {
-          if let frame = OverviewSurfaceCapture.shared.frames(windowIDs: [id])?[id],
-            frame.surface !== retainedFrames[id]?.surface {
-            if let video = entry.0.sublayers?.first as? AVSampleBufferDisplayLayer { _ = enqueueWindowSurface(frame, on: video) }; retainedFrames[id] = frame
-          }
-        }
-        CATransaction.commit()
-        do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
-      }
+      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       let deadline = CACurrentMediaTime() + 1
       while !Task.isCancelled, let self, generation == token {
         let current = nativeFrames()
@@ -266,8 +281,8 @@ final class ExperimentalRibbonRenderer {
 
   func cancel() {
     generation &+= 1; completion?.cancel(); completion = nil
-    for panel in scenes { panel.orderOut(nil); panel.close() }
-    scenes = []; retainedFrames = [:]; presentedLayers = [:]; expectedNativeTargets = [:]
+    for panel in scenes.values { panel.orderOut(nil); panel.close() }
+    scenes = [:]; retainedFrames = [:]; presentedLayers = [:]; expectedNativeTargets = [:]
   }
 
   private func distance(_ a: Rect, _ b: Rect) -> Double {
@@ -281,7 +296,7 @@ final class ExperimentalRibbonRenderer {
       width: screen.frame.width, height: screen.frame.height)
   }
   private func matches(_ a: Rect, _ b: Rect) -> Bool {
-    abs(a.x - b.x) < 1 && abs(a.y - b.y) < 1 && abs(a.width - b.width) < 1 && abs(a.height - b.height) < 1
+    abs(a.x - b.x) < 3 && abs(a.y - b.y) < 3 && abs(a.width - b.width) < 3 && abs(a.height - b.height) < 3
   }
   private func nativeFrames() -> [WindowID: (frame: Rect, owner: Int32)] {
     var result: [WindowID: (Rect, Int32)] = [:]

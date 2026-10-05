@@ -275,9 +275,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
   ) {
     guard !writes.isEmpty else { return }
     let animatedWrites = writes.filter { animatedWindowIDs.contains($0.key) }
-    let adaptedAnimationDuration = source == "command-animation"
+    let adaptsLayoutDuration = source == "command-layout-animation"
+      && monitorFrames.count == 1 && displayIDs.count <= 1
+    let adaptsRibbonDuration = source == "command-animation" || adaptsLayoutDuration
+    let adaptedAnimationDuration = adaptsRibbonDuration
       ? horizontalAnimationDuration(for: animatedWrites, requested: animationDuration,
-        refreshRateHz: refreshRateHz)
+        refreshRateHz: refreshRateHz, allowsSizeChanges: adaptsLayoutDuration)
       : animationDuration
     // A scrolling strip must not mix instantaneous moves with interpolated neighbors.
     let usesCoherentPositionFallback = adaptedAnimationDuration > 0

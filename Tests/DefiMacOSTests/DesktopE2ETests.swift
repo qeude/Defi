@@ -14,6 +14,93 @@ import class SwiftUI.NSHostingMenu
 
 @MainActor
 final class DesktopE2ETests: XCTestCase {
+  func testOverviewKeyboardWorkspaceTransitionKeepsIntermediatePositions() async throws {
+    _ = try makePlatform()
+    guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+      throw XCTSkip("Overview animation requires Reduce Motion to be disabled")
+    }
+    let screen = try XCTUnwrap(NSScreen.main)
+    let monitorID = MonitorID(rawValue: (screen.deviceDescription[
+      NSDeviceDescriptionKey("NSScreenNumber")] as! NSNumber).uint64Value)
+    let windows = (0..<5).map { index in
+      Window(id: WindowID(rawValue: UInt64(index + 1)), appID: "test", title: "Vertical window \(index)",
+        frame: Rect(x: 0, y: 0, width: 700, height: 700), processID: getpid())
+    }
+    let workspaces = windows.map { window in
+      Workspace(id: WorkspaceID(rawValue: "vertical-\(window.id.rawValue)"),
+        columns: [Column(window: window.id, width: .fraction(0.5))])
+    }
+    func snapshot(_ active: Int) -> OverviewSnapshot {
+      OverviewSnapshot(monitors: [Monitor(id: monitorID, workspaces: workspaces,
+        activeWorkspace: workspaces[active].id)], monitorFrames: [monitorID:
+          Rect(x: 0, y: 0, width: screen.frame.width, height: screen.visibleFrame.height)],
+        windows: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), activeMonitorID: monitorID)
+    }
+    var nativeSelections: [WindowID] = []
+    let controller = OverviewController(focusWindow: { id, _, _, _ in nativeSelections.append(id) },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, commitScrollOffsets: { _ in })
+    controller.open(snapshot: snapshot(2), layout: LayoutSettings(), windowPreviewsEnabled: false)
+    defer { controller.close(); controller.close() }
+    func findView(_ view: NSView) -> OverviewView? {
+      if let overview = view as? OverviewView { return overview }
+      return view.subviews.compactMap(findView).first
+    }
+    let input = try XCTUnwrap(NSApp.windows.compactMap { $0.contentView.flatMap(findView) }.first)
+    func frame() throws -> CGRect {
+      let children = try XCTUnwrap(input.accessibilityChildren() as? [NSAccessibilityElement])
+      return try XCTUnwrap(children.first { $0.accessibilityLabel() == "Vertical window 2" }).accessibilityFrame()
+    }
+    try await Task.sleep(for: .milliseconds(250))
+    let before = try frame()
+    controller.handleKey(.down)
+    try await Task.sleep(for: .milliseconds(45))
+    let awaitingActivation = try frame()
+    XCTAssertTrue(nativeSelections.isEmpty, "Overview arrows must not move native windows")
+    controller.update(snapshot: snapshot(2), layout: LayoutSettings())
+    XCTAssertEqual(try frame().minY, awaitingActivation.minY, accuracy: 1,
+      "An unchanged runtime snapshot must preserve deferred navigation")
+    XCTAssertGreaterThan(abs(awaitingActivation.minY - before.minY), 1,
+      "Vertical keyboard navigation must animate before native activation completes")
+    controller.update(snapshot: snapshot(3), layout: LayoutSettings())
+    XCTAssertEqual(try frame().minY, awaitingActivation.minY, accuracy: 1,
+      "Activating the workspace must preserve the displayed source position")
+    try await Task.sleep(for: .milliseconds(35))
+    let intermediate = try frame()
+    XCTAssertGreaterThan(abs(intermediate.minY - awaitingActivation.minY), 1,
+      "Activation must preserve the ongoing animation timeline")
+    controller.handleKey(.up)
+    controller.update(snapshot: snapshot(2), layout: LayoutSettings())
+    XCTAssertEqual(try frame().minY, intermediate.minY, accuracy: 1,
+      "Repeated arrows must resume from the displayed position")
+    for _ in 0..<10 {
+      try await Task.sleep(for: .milliseconds(20))
+      controller.update(snapshot: snapshot(2), layout: LayoutSettings())
+    }
+    XCTAssertEqual(try frame().minY, before.minY, accuracy: 1,
+      "Snapshot refreshes must not prevent the transition from finishing")
+    controller.handleKey(.down)
+    controller.handleKey(.up)
+    controller.update(snapshot: snapshot(2), layout: LayoutSettings())
+    try await Task.sleep(for: .milliseconds(200))
+    XCTAssertEqual(try frame().minY, before.minY, accuracy: 1,
+      "A reversal before the first refresh must cancel the superseded destination")
+    controller.handleKey(.down)
+    try await Task.sleep(for: .milliseconds(35))
+    controller.update(snapshot: snapshot(1), layout: LayoutSettings())
+    try await Task.sleep(for: .milliseconds(200))
+    let actualTarget = projectOverview(snapshot: snapshot(1), monitorID: monitorID,
+      bounds: Rect(x: 0, y: 0, width: input.bounds.width, height: input.bounds.height),
+      viewport: OverviewViewport(), layout: LayoutSettings(), zoom: 0.5)
+    let expectedCard = try XCTUnwrap(actualTarget.workspaces.flatMap(\.windows).first {
+      $0.windowID == windows[2].id
+    }).frame
+    let expectedFrame = try XCTUnwrap(input.window).convertToScreen(input.convert(
+      NSRect(x: expectedCard.x, y: expectedCard.y, width: expectedCard.width, height: expectedCard.height), to: nil))
+    XCTAssertEqual(try frame().minY, expectedFrame.minY, accuracy: 1,
+      "An unrelated workspace activation must supersede the predicted destination")
+  }
+
   func testOverviewNavigationRenderBudget() async throws {
     _ = try makePlatform()
     let screen = try XCTUnwrap(NSScreen.main)
@@ -96,6 +183,142 @@ final class DesktopE2ETests: XCTestCase {
     let after = try XCTUnwrap(afterGroups.first { $0.accessibilityLabel() == label }).accessibilityFrame()
     XCTAssertEqual(after.minY - before.minY, 100, accuracy: 0.5,
       "The last pending frame must preserve all trackpad deltas")
+  }
+
+  func testOverviewPressureRecoveryPreloadsAgainWithoutOpening() async throws {
+    _ = try makePlatform()
+    guard CGPreflightScreenCaptureAccess() else {
+      throw XCTSkip("Screen Recording permission unavailable to test process")
+    }
+    let screen = try XCTUnwrap(NSScreen.main)
+    let fixture = NSWindow(contentRect: NSRect(x: screen.frame.midX - 320,
+      y: screen.frame.midY - 220, width: 640, height: 440),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    fixture.isReleasedWhenClosed = false
+    fixture.orderFrontRegardless()
+    defer { fixture.close() }
+    let id = WindowID(rawValue: UInt64(fixture.windowNumber))
+    let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+    let owner = try XCTUnwrap(content.windows.first(where: { $0.windowID == fixture.windowNumber })?.owningApplication)
+    let monitor = MonitorID(rawValue: (screen.deviceDescription[
+      NSDeviceDescriptionKey("NSScreenNumber")] as! NSNumber).uint64Value)
+    let workspace = Workspace(id: WorkspaceID(rawValue: "pressure-preview"),
+      columns: [Column(window: id, width: .fraction(0.5))])
+    let snapshot = OverviewSnapshot(monitors: [Monitor(id: monitor,
+      workspaces: [workspace], activeWorkspace: workspace.id)],
+      monitorFrames: [monitor: Rect(x: screen.frame.minX, y: 0,
+        width: screen.frame.width, height: 440)],
+      windows: [id: Window(id: id, appID: owner.bundleIdentifier, title: "Pressure preview",
+        frame: Rect(x: 0, y: 0, width: 640, height: 440),
+        processID: owner.processID)], activeMonitorID: monitor)
+    let recoveries = DesktopValue<Int>(0)
+    let controller = OverviewController(focusWindow: { _, _, _, _ in },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, idlePreparationRequested: { recoveries.value += 1 },
+      notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
+    defer { controller.prepare(windowPreviewsEnabled: false) }
+    func prepare() {
+      controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot,
+        layout: LayoutSettings(), experimentalSurfaceTransitions: true)
+    }
+    prepare()
+    for _ in 0..<80 where controller.rememberedPreviewMemoryBytes == 0 {
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    let bytes = controller.rememberedPreviewMemoryBytes
+    XCTAssertGreaterThan(bytes, 0)
+    controller.handleMemoryPressure(.warning)
+    XCTAssertEqual(controller.rememberedPreviewMemoryBytes, bytes)
+    XCTAssertLessThanOrEqual(bytes, 4 * 1_024 * 1_024)
+    controller.handleMemoryPressure(.critical)
+    XCTAssertEqual(controller.rememberedPreviewMemoryBytes, 0)
+    controller.handleMemoryPressure(.normal)
+    XCTAssertEqual(recoveries.value, 1)
+    prepare()
+    for _ in 0..<80 where controller.rememberedPreviewMemoryBytes == 0 {
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTAssertGreaterThan(controller.rememberedPreviewMemoryBytes, 0,
+      "The same preview request must run again after eviction, without an overview opening")
+    XCTAssertFalse(controller.isOpen)
+  }
+
+  func testOverviewAvailableSurfacesRetainReadyImageWhenAnotherIsMissing() async throws {
+    _ = try makePlatform()
+    guard CGPreflightScreenCaptureAccess() else {
+      throw XCTSkip("Screen Recording permission unavailable to test process")
+    }
+    let fixture = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 640, height: 440),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    fixture.isReleasedWhenClosed = false
+    fixture.orderFrontRegardless()
+    fixture.displayIfNeeded()
+    CATransaction.flush()
+    let capture = OverviewSurfaceCapture.shared
+    defer { capture.stop(); fixture.close() }
+    let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+    let native = try XCTUnwrap(content.windows.first { $0.windowID == fixture.windowNumber })
+    let owner = try XCTUnwrap(native.owningApplication)
+    let id = WindowID(rawValue: UInt64(native.windowID))
+    capture.prepare([OverviewSurfaceRequest(windowID: id,
+      appID: owner.bundleIdentifier, processID: owner.processID, width: 640, height: 440)], enabled: true)
+    for _ in 0..<60 where capture.displayLayer(for: id) == nil {
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTAssertNotNil(capture.displayLayer(for: id))
+    let missing = WindowID(rawValue: UInt64.max)
+    XCTAssertNil(capture.frames(windowIDs: [id, missing]),
+      "Native ribbon replacement must remain all-or-nothing")
+    let available = try XCTUnwrap(capture.availableFrames(windowIDs: [id, missing]))
+    XCTAssertEqual(Set(available.keys), [id],
+      "A missing image must not cancel the ready overview texture")
+    XCTAssertNil(capture.availableFrames(windowIDs: [missing]))
+    let screen = try XCTUnwrap(fixture.screen)
+    let monitorID = MonitorID(rawValue: (screen.deviceDescription[
+      NSDeviceDescriptionKey("NSScreenNumber")] as! NSNumber).uint64Value)
+    let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+    let frame = Rect(x: fixture.frame.minX, y: primaryHeight - fixture.frame.maxY,
+      width: fixture.frame.width, height: fixture.frame.height)
+    let workspace = Workspace(id: WorkspaceID(rawValue: "opening-fallback"),
+      columns: [Column(window: id, width: .fraction(0.5))])
+    let snapshot = OverviewSnapshot(monitors: [Monitor(id: monitorID,
+      workspaces: [workspace], activeWorkspace: workspace.id)],
+      monitorFrames: [monitorID: Rect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
+        width: screen.frame.width, height: screen.frame.height)],
+      windows: [id: Window(id: id, appID: owner.bundleIdentifier, title: "Opening fallback",
+        frame: frame, processID: owner.processID)], activeMonitorID: monitorID)
+    let projection = projectOverview(snapshot: snapshot, monitorID: monitorID,
+      bounds: Rect(x: 0, y: 0, width: screen.frame.width, height: screen.frame.height),
+      viewport: OverviewViewport(), layout: LayoutSettings(), zoom: 0.5)
+    let cached = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { rect in
+      NSColor.red.setFill(); rect.fill(); return true
+    }
+    for previews: [WindowID: NSImage] in [[:], [id: cached]] {
+      let scene = try XCTUnwrap(OverviewSurfaceScene(projection: projection,
+        workspaceID: workspace.id, screen: screen, surfaces: [:],
+        windows: snapshot.windows, previews: previews))
+      XCTAssertEqual(Set(scene.nativeFrames.keys), [id])
+      let item = try XCTUnwrap(scene.layer.sublayers?.first)
+      XCTAssertEqual(item.contents != nil, !previews.isEmpty)
+      if previews.isEmpty {
+        XCTAssertGreaterThan(item.borderWidth, 0)
+        XCTAssertNotNil(item.sublayers?.first?.contents,
+          "An uncaptured window must remain recognizable during the zoom")
+      } else {
+        XCTAssertTrue(item.sublayers?.isEmpty ?? true)
+      }
+      // An unattached layer has no render-tree animation lifetime. Host the
+      // scene as production does before checking its running animation.
+      fixture.contentView?.wantsLayer = true
+      fixture.contentView?.layer?.addSublayer(scene.layer)
+      scene.animate(opening: true, duration: 0.22)
+      XCTAssertNotNil(item.animation(forKey: "overview-surface"),
+        "Opening must zoom even without a ready screenshot")
+      XCTAssertEqual(scene.finishOpening(), [id])
+      XCTAssertTrue(scene.nativeFrames.isEmpty, "Closing must not reuse opening fallback layers")
+      XCTAssertTrue(scene.layer.sublayers?.isEmpty ?? true)
+      scene.layer.removeFromSuperlayer()
+    }
   }
 
   func testOverviewSurfaceTransitionUsesFreshOwnedWindowAndReopensSafely() async throws {
@@ -236,7 +459,19 @@ final class DesktopE2ETests: XCTestCase {
       width: nativeFrameBounds.width, height: nativeFrameBounds.height)
     XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: target)], duration: 0.15), renderer.lastFallback)
     XCTAssertTrue(renderer.isPresenting)
+    let firstPanels = Set(NSApplication.shared.windows.filter {
+      $0.title == "Defi Experimental Ribbon"
+    }.map(\.windowNumber))
+    XCTAssertEqual(firstPanels.count, 1)
     fixture.setFrame(originalRibbonFrame.offsetBy(dx: 60, dy: 0), display: true)
+    let retarget = Rect(x: target.x + 30, y: target.y,
+      width: target.width, height: target.height)
+    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: retarget)],
+      duration: 0.15), renderer.lastFallback)
+    XCTAssertEqual(Set(NSApplication.shared.windows.filter {
+      $0.title == "Defi Experimental Ribbon"
+    }.map(\.windowNumber)), firstPanels, "Retargeting must reuse the visible overlay without a close/reopen")
+    fixture.setFrame(originalRibbonFrame.offsetBy(dx: 90, dy: 0), display: true)
     for _ in 0..<30 where renderer.isPresenting {
       CATransaction.flush()
       try await Task.sleep(for: .milliseconds(50))
@@ -822,13 +1057,17 @@ final class DesktopE2ETests: XCTestCase {
     }
     XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 1))
     let sizeWrites = onNavigation { platform.successfulSizeWriteCount }
+    // A recent stall must adapt the width animation instead of discarding it.
+    if let processID = window.processID {
+      platform.frameCoordinator.recordProcessLatencySamples([processID: 70])
+    }
 
     onNavigation { platform.apply(
       [FrameAssignment(windowID: window.id, frame: target)],
       animationDuration: 0.08,
       animationRefreshRateHz: 120,
       animateSizeChanges: true,
-      source: "test-resize-animation"
+      source: "command-layout-animation"
     ) }
     XCTAssertTrue(
       pumpRunLoop(
@@ -853,8 +1092,45 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
     XCTAssertGreaterThanOrEqual(
       onNavigation { platform.successfulSizeWriteCount } - sizeWrites,
-      1
+      3,
+      "A resize animation must write intermediate sizes, not only its final size."
     )
+  }
+
+  func testAnimatedFullWidthConvergesFromBothViewportEdges() throws {
+    let platform = try makePlatform()
+    let snapshot = platform.snapshot(config: Config())
+    let monitor = try XCTUnwrap(snapshot.monitors.first)
+    let window = try XCTUnwrap(testWindows(in: snapshot).first(where: {
+      $0.appID == "com.mitchellh.ghostty"
+    }) ?? testWindows(in: snapshot).first)
+    let original = window.frame
+    defer {
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
+      pumpRunLoop(for: 0.3)
+    }
+    let full = Rect(x: monitor.frame.x, y: original.y,
+      width: monitor.frame.width, height: original.height)
+    for fraction in [0.5, 0.0, 0.25] {
+      let start = Rect(x: monitor.frame.x + monitor.frame.width * fraction, y: original.y,
+        width: monitor.frame.width / 2, height: original.height)
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: start)]) }
+      XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 2))
+      // Refresh the observed starting frame before the animated enlargement.
+      _ = platform.snapshot(config: Config())
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: full)],
+        animationDuration: 0.125, animationRefreshRateHz: 120,
+        animateSizeChanges: true, source: "command-layout-animation") }
+      XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 2))
+      var actual: Rect?
+      let converged = pumpRunLoop(until: {
+        actual = platform.snapshot(config: Config()).windows.first { $0.id == window.id }?.frame
+        guard let actual else { return false }
+        return abs(actual.x - full.x) <= 2 && abs(actual.width - full.width) <= 2
+      }, timeout: 1)
+      XCTAssertTrue(converged,
+        "Full width from \(fraction) must converge; actual=\(String(describing: actual)) trace=\(onNavigation { platform.frameCoordinatorTrace })")
+    }
   }
 
   func testUnhiddenOnePixelStripAnchorConvergesWithRealWindowFrame() throws {
@@ -1569,6 +1845,31 @@ final class DesktopE2ETests: XCTestCase {
     )
     XCTAssertEqual(commands.value, [])
     XCTAssertEqual(onNavigation { manager.capturedKeyCount }, 1)
+  }
+
+  func testConfiguredHyperWorkspaceBindingsNavigateOverview() throws {
+    _ = try makePlatform()
+    let config = Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: [
+      "hyper-1": "workspace dev", "hyper-2": "focus-workspace-position 2",
+      "hyper-3": "focus-workspace-name web"])
+    let commands = DesktopValue<[HotKeyInvocation]>([])
+    let actions = DesktopValue<[OverviewKeyAction]>([])
+    let manager = onNavigation { HotKeyManager(config: config,
+      overviewHandler: { value in DispatchQueue.main.async { actions.value.append(value) } }
+    ) { value in DispatchQueue.main.async { commands.value.append(value) } } }
+    try onNavigation { try manager.start() }
+    onNavigation { manager.setOverviewModeEnabled(true) }
+    let expected: [OverviewKeyAction] = [.workspace(.named("dev")),
+      .workspace(.position(2)), .workspace(.named("web"))]
+    for (index, key) in [CGKeyCode(18), 19, 20].enumerated() {
+      let event = try XCTUnwrap(CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState),
+        virtualKey: key, keyDown: true))
+      event.flags = [.maskAlternate, .maskCommand, .maskControl]
+      event.post(tap: .cghidEventTap)
+      XCTAssertTrue(pumpRunLoop(until: { actions.value.count == index + 1 }, timeout: 1))
+    }
+    XCTAssertEqual(actions.value, expected)
+    XCTAssertTrue(commands.value.isEmpty, "Workspace shortcuts must not mutate the native workspace during overview")
   }
 
   func testOverviewCancelBypassesBusyNavigationActor() throws {

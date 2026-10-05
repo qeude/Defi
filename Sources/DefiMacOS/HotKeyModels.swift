@@ -41,10 +41,16 @@ public enum OverviewKeyAction: Equatable, Sendable {
   case right
   case up
   case down
+  case firstColumn
+  case lastColumn
+  case workspaceUp
+  case workspaceDown
+  case workspace(WorkspaceTarget)
   case moveUp
   case moveDown
   case select
   case cancel
+  case layout(Command)
 }
 
 func overviewKeyAction(
@@ -52,7 +58,32 @@ func overviewKeyAction(
   modifierBits: UInt64,
   configuredCommand: String? = nil
 ) -> OverviewKeyAction? {
-  let commandName = configuredCommand?.split(whereSeparator: \.isWhitespace).first
+  let parts = configuredCommand?.split(whereSeparator: \.isWhitespace) ?? []
+  let commandName = parts.first
+  if commandName == "move-window", keyCode == 125 { return .moveDown }
+  if commandName == "move-window", keyCode == 126 { return .moveUp }
+  if let configuredCommand, let command = try? parseCommand(configuredCommand) {
+    switch command {
+    case .switchWorkspace(let id): return .workspace(.named(id.rawValue))
+    case .focusWorkspace(let target):
+      switch target {
+      case .relative(.up): return .workspaceUp
+      case .relative(.down): return .workspaceDown
+      default: return .workspace(target)
+      }
+    default:
+      if command.editsSelectedLayout { return .layout(command) }
+    }
+  }
+  if parts.count == 2 {
+    switch (parts[0], parts[1]) {
+    case ("focus-column", "first"): return .firstColumn
+    case ("focus-column", "last"): return .lastColumn
+    case ("focus-workspace", "up"): return .workspaceUp
+    case ("focus-workspace", "down"): return .workspaceDown
+    default: break
+    }
+  }
   let navigatesOverview =
     modifierBits == 0
     || commandName == "focus-column"

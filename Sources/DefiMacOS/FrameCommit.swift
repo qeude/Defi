@@ -87,8 +87,7 @@ func shouldDeferAnimatedSizeUntilMovementCompletes(
   to target: Rect,
   displayFrames: [Rect]
 ) -> Bool {
-  abs(source.x - target.x) >= 0.5
-    || frameCentersCrossDisplays(
+  frameCentersCrossDisplays(
       from: source,
       to: target,
       displayFrames: displayFrames
@@ -106,6 +105,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let positionChanged: Bool
   let sizeChanged: Bool
   let animatesSize: Bool
+  var usesLogicalRibbonPath = false
   let synchronousSizeWriteSucceeded: Bool
   let enhancedUIWasEnabled: Bool
   let timeoutSeconds: Float
@@ -145,8 +145,45 @@ func nativeRibbonAnimationFrame(_ logical: Rect, monitor: Rect) -> Rect {
     preferredY: logical.y).frame
 }
 
+func ribbonAnimationStart(
+  logical: Rect, offset: Double, observed: Rect, monitorFrames: [Rect]
+) -> Rect? {
+  let start = Rect(x: logical.x + offset, y: observed.y,
+    width: observed.width, height: observed.height)
+  return ribbonAnimationTarget(logical: logical, from: start,
+    isParked: true, monitorFrames: monitorFrames) == nil ? nil : start
+}
+
+func layoutRibbonAnimationStart(
+  previousLogical: Rect?, target: Rect, observed: Rect, monitorFrames: [Rect]
+) -> Rect? {
+  guard monitorFrames.count == 1, let previousLogical,
+    requiresVerifiedOffscreenWrite(frame: observed, monitorFrames: monitorFrames)
+  else { return nil }
+  let start = Rect(x: previousLogical.x, y: observed.y,
+    width: observed.width, height: observed.height)
+  return ribbonAnimationTarget(logical: target, from: start,
+    isParked: true, monitorFrames: monitorFrames) == nil ? nil : start
+}
+
+func ribbonAnimationTarget(
+  logical: Rect?, from: Rect, isParked: Bool, monitorFrames: [Rect]
+) -> Rect? {
+  // The logical path may cross the display even when both native endpoints
+  // are parking anchors. Such columns must participate in the common timeline.
+  guard isParked, monitorFrames.count == 1, let logical else { return nil }
+  let monitor = monitorFrames[0]
+  guard min(from.x, logical.x) < monitor.x + monitor.width,
+    max(from.x + from.width, logical.x + logical.width) > monitor.x,
+    min(from.y, logical.y) < monitor.y + monitor.height,
+    max(from.y + from.height, logical.y + logical.height) > monitor.y
+  else { return nil }
+  return logical
+}
+
 func ribbonParkingPreparationWindowIDs(_ frame: QueuedPositionFrame) -> Set<WindowID> {
-  guard frame.source == "command-animation", frame.monitorFrames.count == 1 else { return [] }
+  guard frame.source == "command-animation" || frame.source == "command-layout-animation",
+    frame.monitorFrames.count == 1 else { return [] }
   return Set(frame.writes.compactMap { id, write in
     write.isParked && !frame.animatedWindowIDs.contains(id) ? id : nil
   })
@@ -171,6 +208,7 @@ func positionOnlyAnimationWrite(
     positionChanged: write.positionChanged,
     sizeChanged: write.sizeChanged,
     animatesSize: false,
+    usesLogicalRibbonPath: write.usesLogicalRibbonPath,
     synchronousSizeWriteSucceeded: true,
     enhancedUIWasEnabled: write.enhancedUIWasEnabled,
     timeoutSeconds: write.timeoutSeconds,
@@ -249,6 +287,7 @@ func frameWritesPreservingSupersededAsyncSizes(
         positionChanged: newer.positionChanged,
         sizeChanged: true,
         animatesSize: debt.animatesSize,
+        usesLogicalRibbonPath: newer.usesLogicalRibbonPath,
         synchronousSizeWriteSucceeded: debt.synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: newer.enhancedUIWasEnabled,
         timeoutSeconds: newer.timeoutSeconds,

@@ -133,6 +133,7 @@ extension AXFrameCoordinator {
         positionChanged: write.positionChanged,
         sizeChanged: write.sizeChanged,
         animatesSize: write.animatesSize,
+        usesLogicalRibbonPath: write.usesLogicalRibbonPath,
         synchronousSizeWriteSucceeded: write.synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: write.enhancedUIWasEnabled,
         timeoutSeconds: write.timeoutSeconds,

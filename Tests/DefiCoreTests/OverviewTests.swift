@@ -474,6 +474,12 @@ struct OverviewTests {
       card(first, x: 100, column: 1),
     ])
 
+    #expect(overviewProjectionReordersExistingCards(from: source, to: target))
+    #expect(!overviewProjectionReordersExistingCards(from: source, to: source))
+    #expect(!overviewProjectionReordersExistingCards(from: source, to: projection([
+      card(first, x: -50, column: 0), card(second, x: 50, column: 1)
+    ]))) // Scrolling has its own timeline.
+
     let middle = interpolateOverviewProjection(from: source, to: target, progress: 0.5)
     let windows = try #require(middle.workspaces.first?.windows)
     let movedFirst = try #require(windows.first(where: { $0.windowID == first }))

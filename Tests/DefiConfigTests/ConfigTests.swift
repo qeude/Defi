@@ -103,6 +103,7 @@ struct ConfigTests {
     #expect(config.layout.defaultColumnWidth == 0.8)
     #expect(config.animation.enabled)
     #expect(config.animation.durationMS == 35)
+    #expect(!config.animation.experimentalWindowRepresentations)
     #expect(config.overview.zoom == 0.5)
     #expect(config.overview.windowPreviews == false)
     #expect(config.overview.experimentalSurfaceTransitions == false)
@@ -255,6 +256,7 @@ struct ConfigTests {
       [animation]
       enabled = true
       duration_ms = 120
+      experimental_window_representations = true
 
       [workspaces]
       names = ["dev", "web"]
@@ -273,6 +275,7 @@ struct ConfigTests {
 
     #expect(config.layout.gaps == 4)
     #expect(config.animation.durationMS == 120)
+    #expect(config.animation.experimentalWindowRepresentations)
     #expect(config.workspaces.defaultName == "dev")
     #expect(config.keys["hyper-1"] == "workspace dev")
     #expect(config.keys["hyper-shift-1"] == "move-column-to-workspace-name dev")

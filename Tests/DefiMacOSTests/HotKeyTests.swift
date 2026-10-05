@@ -48,8 +48,34 @@ struct OverviewHotKeyTests {
     }
   }
 
+  @Test(arguments: [(CGKeyCode(33), "focus-column first"), (CGKeyCode(30), "focus-column last")])
+  func overviewCapturesRibbonEndpointBindings(keyCode: CGKeyCode, command: String) {
+    let hyper = hotKeyModifierBits([.maskAlternate, .maskCommand, .maskControl])
+    #expect(overviewKeyAction(keyCode: keyCode, modifierBits: hyper,
+      configuredCommand: command) != nil,
+      "Endpoint bindings must not fall through to the native active workspace")
+    #expect(overviewKeyAction(keyCode: keyCode, modifierBits: hyper,
+      configuredCommand: command) == (command.hasSuffix("first") ? .firstColumn : .lastColumn))
+    #expect(overviewKeyAction(keyCode: 0, modifierBits: hyper,
+      configuredCommand: command) == (command.hasSuffix("first") ? .firstColumn : .lastColumn))
+  }
+
+  @Test func overviewCapturesWorkspaceBindings() {
+    let hyper = hotKeyModifierBits([.maskAlternate, .maskCommand, .maskControl])
+    #expect(overviewKeyAction(keyCode: 126, modifierBits: hyper,
+      configuredCommand: "focus-workspace up") == .workspaceUp)
+    #expect(overviewKeyAction(keyCode: 125, modifierBits: hyper,
+      configuredCommand: "focus-workspace down") == .workspaceDown)
+    #expect(overviewKeyAction(keyCode: 18, modifierBits: hyper,
+      configuredCommand: "workspace dev") == .workspace(.named("dev")))
+    #expect(overviewKeyAction(keyCode: 19, modifierBits: hyper,
+      configuredCommand: "focus-workspace-position 2") == .workspace(.position(2)))
+    #expect(overviewKeyAction(keyCode: 20, modifierBits: hyper,
+      configuredCommand: "focus-workspace-name dev-secondary") == .workspace(.named("dev-secondary")))
+  }
+
   @Test
-  func `Overview captures navigation arrows but leaves move bindings active`() {
+  func `Overview routes navigation and local layout edits`() {
     let hyper = hotKeyModifierBits([
       .maskAlternate,
       .maskCommand,
@@ -70,7 +96,7 @@ struct OverviewHotKeyTests {
         keyCode: 123,
         modifierBits: hyper | hotKeyModifierBits([.maskShift]),
         configuredCommand: "move-column left"
-      ) == nil
+      ) == .layout(.moveColumn(.left))
     )
     #expect(
       overviewKeyAction(

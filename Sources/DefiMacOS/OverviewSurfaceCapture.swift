@@ -29,12 +29,24 @@ func overviewSurfaceRequestsFit(_ requests: [OverviewSurfaceRequest]) -> Bool {
   requests.reduce(0) { $0 + $1.estimatedPoolBytes } <= overviewSurfacePoolBudget
 }
 
+func overviewReadySurfaceIDs(requested: Set<WindowID>, captured: Set<WindowID>,
+  displayReady: Set<WindowID>) -> Set<WindowID> {
+  requested.intersection(captured).intersection(displayReady)
+}
+
 struct OverviewSurfaceFrame {
   // Keep the buffer alive while its surface is assigned to a layer.
   let buffer: CVPixelBuffer
+  let sourceSize: CGSize
   var surface: IOSurface? { CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() }
   var width: Int { CVPixelBufferGetWidth(buffer) }
   var height: Int { CVPixelBufferGetHeight(buffer) }
+}
+
+func overviewSurfaceMatchesNativeSize(source: CGSize, native: Rect) -> Bool {
+  source.width.isFinite && source.height.isFinite
+    && abs(source.width - native.width) < 3
+    && abs(source.height - native.height) < 3
 }
 
 // One-shot samples only: no persistent capture sessions or per-frame history.
@@ -132,7 +144,7 @@ final class OverviewSurfaceCapture {
           guard let buffer = CMSampleBufferGetImageBuffer(sample) else {
             throw SurfaceCaptureError.missingPixels
           }
-          let frame = OverviewSurfaceFrame(buffer: buffer)
+          let frame = OverviewSurfaceFrame(buffer: buffer, sourceSize: window.frame.size)
           guard frame.surface != nil, frame.width == request.width, frame.height == request.height else {
             throw SurfaceCaptureError.missingPixels
           }
@@ -184,6 +196,15 @@ final class OverviewSurfaceCapture {
       result[id] = capture.frame
     }
     return result
+  }
+
+  // Opening the overview can animate a subset. Ribbon replacement still uses
+  // frames(windowIDs:) so an incomplete capture never replaces native windows.
+  func availableFrames(windowIDs: Set<WindowID>) -> [WindowID: OverviewSurfaceFrame]? {
+    let ready = overviewReadySurfaceIDs(requested: windowIDs,
+      captured: Set(captures.keys),
+      displayReady: Set(windowIDs.filter { displayLayer(for: $0) != nil }))
+    return frames(windowIDs: ready)
   }
 
   func stop(state: String = "disabled") {

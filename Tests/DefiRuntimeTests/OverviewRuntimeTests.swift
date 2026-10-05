@@ -11,6 +11,37 @@ struct OverviewRuntimeTests {
   let secondWorkspace = WorkspaceID(rawValue: "2")
   let remoteWorkspace = WorkspaceID(rawValue: "remote")
 
+  @Test(arguments: [Command.cycleWidth(.next), .maximizeColumn, .moveColumn(.right), .unjoinWindows])
+  func layoutEditUsesOverviewSelectionWithoutActivatingItsWorkspace(command: Command) throws {
+    var state = makeState()
+    let ids = (11...13).map { WindowID(rawValue: UInt64($0)) }
+    state.monitors[0].workspaces[1].columns = ids.map { Column(window: $0, width: .fraction(0.5)) }
+    for id in ids { state.windows[id] = window(id, monitorID: firstMonitor) }
+    let originalMonitor = state.monitors[0]
+    let intent = OverviewWindowIntent(windowID: ids[1], expectedAppID: "app",
+      sourceMonitorID: firstMonitor, sourceWorkspaceID: secondWorkspace)
+    try applyOverviewLayoutCommand(command, intent: intent,
+      viewports: [firstMonitor: Rect(x: 0, y: 0, width: 1_000, height: 800)], state: &state)
+    #expect(state.monitors[0].activeWorkspace == originalMonitor.activeWorkspace)
+    #expect(state.monitors[0].workspaces[0] == originalMonitor.workspaces[0])
+    #expect(state.monitors[1] == makeState().monitors[1])
+    let edited = state.monitors[0].workspaces[1]
+    if command == .moveColumn(.right) {
+      #expect(edited.columns.map(\.windows) == [[ids[0]], [ids[2]], [ids[1]]])
+    } else if command == .cycleWidth(.next) || command == .maximizeColumn {
+      #expect(edited.columns[1].width != originalMonitor.workspaces[1].columns[1].width)
+      #expect(edited.columns[0].width == originalMonitor.workspaces[1].columns[0].width)
+    }
+    let beforeStale = state
+    #expect(throws: OverviewRuntimeError.staleWindow(ids[1])) {
+      try applyOverviewLayoutCommand(command,
+        intent: OverviewWindowIntent(windowID: ids[1], expectedAppID: "other",
+          sourceMonitorID: firstMonitor, sourceWorkspaceID: secondWorkspace),
+        viewports: [:], state: &state)
+    }
+    #expect(state == beforeStale)
+  }
+
   @Test
   func `Commits overview ribbon positions once without touching other workspaces`() {
     var state = makeState()

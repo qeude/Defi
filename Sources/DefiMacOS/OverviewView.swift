@@ -34,9 +34,40 @@ final class OverviewView: NSView {
   private var leftDragStarted = false
   private var rightDragPoint: NSPoint?
   private var iconCache: [String: NSImage] = [:]
+  // The scrim is unchanged while cards move; retain a 512-byte strip instead
+  // of evaluating a gradient across every card on every refresh.
+  private let titleScrimImage = overviewLabelBitmap(size: CGSize(width: 1, height: 128), scale: 1) {
+      NSGradient(
+        colorsAndLocations:
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0, opacity: 1)
+          ), 0),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.25, opacity: 1)
+          ), 0.25),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.5, opacity: 1)
+          ), 0.5),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.75, opacity: 1)
+          ), 0.75),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.9, opacity: 1)
+          ), 0.9),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.97, opacity: 1)
+          ), 0.97),
+          (NSColor.clear, 1)
+      )?.draw(
+        from: NSPoint(x: 0.5, y: 0),
+        to: NSPoint(x: 0.5, y: 128),
+        options: []
+      )
+  }
   private let titleCache = OverviewTitleCache()
   var titleRasterizationCount: Int { titleCache.rasterizationCount }
   private(set) var presentationUpdateCount = 0
+  private(set) var drawCount = 0
 
   override var isFlipped: Bool { true }
 
@@ -160,6 +191,7 @@ final class OverviewView: NSView {
 
   override func draw(_ dirtyRect: NSRect) {
     guard let projection, let snapshot else { return }
+    drawCount += 1
     for workspace in projection.workspaces {
       drawWorkspace(workspace, snapshot: snapshot)
     }
@@ -295,7 +327,7 @@ final class OverviewView: NSView {
           operation: .sourceOver,
           fraction: fraction,
           respectFlipped: true,
-          hints: [.interpolation: NSImageInterpolation.high]
+          hints: [.interpolation: NSImageInterpolation.medium]
         )
       }
     } else {
@@ -353,7 +385,7 @@ final class OverviewView: NSView {
       NSGraphicsContext.saveGraphicsState()
       path.addClip()
       preview.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1,
-        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.medium])
       NSGraphicsContext.restoreGraphicsState()
       return
     }
@@ -376,7 +408,7 @@ final class OverviewView: NSView {
           operation: .sourceOver,
           fraction: 1,
           respectFlipped: true,
-          hints: [.interpolation: NSImageInterpolation.high]
+          hints: [.interpolation: NSImageInterpolation.medium]
         )
       }
       // Cross-fades keep the scrim steady; only a first reveal fades it in.
@@ -387,34 +419,12 @@ final class OverviewView: NSView {
         operation: .sourceOver,
         fraction: opacity,
         respectFlipped: true,
-        hints: [.interpolation: NSImageInterpolation.high]
+        hints: [.interpolation: NSImageInterpolation.medium]
       )
-      NSGradient(
-        colorsAndLocations:
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0, opacity: scrimOpacity)
-          ), 0),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.25, opacity: scrimOpacity)
-          ), 0.25),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.5, opacity: scrimOpacity)
-          ), 0.5),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.75, opacity: scrimOpacity)
-          ), 0.75),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.9, opacity: scrimOpacity)
-          ), 0.9),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.97, opacity: scrimOpacity)
-          ), 0.97),
-          (NSColor.clear, 1)
-      )?.draw(
-        from: NSPoint(x: frame.midX, y: frame.minY),
-        to: NSPoint(x: frame.midX, y: frame.minY + titleFadeHeight),
-        options: []
-      )
+      titleScrimImage?.draw(
+        in: NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: titleFadeHeight),
+        from: .zero, operation: .sourceOver, fraction: scrimOpacity,
+        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.medium])
       NSGraphicsContext.restoreGraphicsState()
     }
     let title = (window.title.isEmpty ? window.appID : window.title) as NSString

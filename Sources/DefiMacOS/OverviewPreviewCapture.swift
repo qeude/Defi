@@ -214,8 +214,8 @@ func overviewPreviewPixelSize(
   cardWidth: Double,
   cardHeight: Double,
   scale: Double,
-  maximumWidth: Double = 1_600,
-  maximumHeight: Double = 1_200
+  maximumWidth: Double = 1_024,
+  maximumHeight: Double = 768
 ) -> (width: Int, height: Int) {
   let width = max(cardWidth * scale, 1)
   let height = max(cardHeight * scale, 1)

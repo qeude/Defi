@@ -8,6 +8,53 @@ import ScreenCaptureKit
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @MainActor @Test func pressureRecoveryRequestsPreloadingWithoutAnotherOpening() {
+    var preparations = 0
+    let controller = OverviewController(focusWindow: { _, _, _, _ in },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, idlePreparationRequested: { preparations += 1 },
+      notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
+    controller.handleMemoryPressure(.normal)
+    #expect(preparations == 0)
+    controller.handleMemoryPressure(.warning)
+    controller.handleMemoryPressure(.critical)
+    controller.handleMemoryPressure(.normal)
+    #expect(preparations == 1)
+    controller.handleMemoryPressure(.normal)
+    #expect(preparations == 1)
+  }
+
+  @MainActor @Test func pressureReserveKeepsOnlyPreferredImagesWithinItsBudget() {
+    let cache = OverviewPreviewCache(maximumBytes: 100)
+    let ids = (1...3).map { WindowID(rawValue: UInt64($0)) }
+    let image = NSImage(size: NSSize(width: 10, height: 10))
+    for id in ids {
+      cache.store(image, byteCost: 30, for: Window(id: id, appID: "test", title: "Test",
+        frame: Rect(x: 0, y: 0, width: 10, height: 10), processID: 42))
+    }
+    cache.retain([ids[1], ids[2]], maximumBytes: 35)
+    #expect(Set(cache.images.keys) == [ids[1]])
+    #expect(cache.byteCount == 30)
+    cache.removeAll()
+    #expect(cache.byteCount == 0)
+  }
+  @Test func missingOrUnreadyImageDoesNotCancelOtherOpeningSurfaces() {
+    let first = WindowID(rawValue: 1), missing = WindowID(rawValue: 2)
+    let warming = WindowID(rawValue: 3), unrelated = WindowID(rawValue: 4)
+    #expect(overviewReadySurfaceIDs(requested: [first, missing, warming],
+      captured: [first, warming, unrelated], displayReady: [first, unrelated]) == [first])
+    #expect(overviewReadySurfaceIDs(requested: [missing],
+      captured: [first], displayReady: [first]).isEmpty)
+  }
+  @Test
+  func ribbonRejectsARescaledCaptureOfADifferentNativeSize() {
+    let native = Rect(x: 2, y: 37, width: 752, height: 902)
+    // A configured output of 1504 pixels can still contain a screenshot of a
+    // 1508-point source window. Matching output dimensions does not prove fidelity.
+    #expect(!overviewSurfaceMatchesNativeSize(source: CGSize(width: 1508, height: 902), native: native))
+    #expect(overviewSurfaceMatchesNativeSize(source: CGSize(width: 752, height: 902), native: native))
+    #expect(!overviewSurfaceMatchesNativeSize(source: CGSize(width: CGFloat.nan, height: 902), native: native))
+  }
   @Test
   func deniedCaptureStopsAllQueuedAndFutureAttempts() async {
     let limiter = OverviewCaptureLimiter(limit: 1)
@@ -130,7 +177,7 @@ struct OverviewPreviewTests {
 
   @Test func previewPixelSizeKeepsCardAspectWhenCapped() {
     let large = overviewPreviewPixelSize(cardWidth: 2_000, cardHeight: 1_040, scale: 2)
-    #expect(large.width <= 1_600 && large.height <= 1_200)
+    #expect(large.width <= 1_024 && large.height <= 768)
     #expect(abs(Double(large.width) / Double(large.height) - 2_000.0 / 1_040.0) < 0.01)
     let small = overviewPreviewPixelSize(cardWidth: 100, cardHeight: 60, scale: 2)
     #expect(small.width == 200 && small.height == 120)

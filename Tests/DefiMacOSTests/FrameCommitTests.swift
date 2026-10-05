@@ -8,6 +8,34 @@ import Testing
 @testable import DefiMacOS
 
 struct FrameCommitTests {
+  @Test func overviewExitAcceptsVerifiedParkingDespiteNativeVerticalClamping() {
+    let visible = WindowID(rawValue: 1), parked = WindowID(rawValue: 2)
+    let monitor = Rect(x: 0, y: 0, width: 1512, height: 910)
+    let shown = Rect(x: 0, y: 37, width: 752, height: 902)
+    let target = Rect(x: 1511, y: 37, width: 752, height: 902)
+    let clamped = Rect(x: 1511, y: 30, width: 752, height: 902)
+    func ready(_ actual: Rect, pending: Set<WindowID> = []) -> Bool {
+      overviewExitFramesAreReady(windowIDs: [visible, parked], hiddenWindowIDs: [parked],
+        pendingWriteWindowIDs: pending, unresolvedWindowIDs: [parked],
+        targets: [visible: shown, parked: target], observed: [visible: shown, parked: actual],
+        monitorFrames: [monitor])
+    }
+    #expect(ready(clamped), "A safe parked window must not disable the visible zoom handoff")
+    #expect(!ready(shown), "A parking leak must still prevent uncovering native windows")
+    #expect(!ready(clamped, pending: [parked]), "Outstanding writes must settle before uncovering")
+    #expect(!overviewExitFramesAreReady(windowIDs: [visible], hiddenWindowIDs: [],
+      pendingWriteWindowIDs: [], unresolvedWindowIDs: [visible], targets: [visible: shown],
+      observed: [visible: shown], monitorFrames: [monitor]))
+    #expect(!overviewExitFramesAreReady(windowIDs: [parked], hiddenWindowIDs: [parked],
+      pendingWriteWindowIDs: [], unresolvedWindowIDs: [parked], targets: [parked: target],
+      observed: [parked: clamped], monitorFrames: [monitor,
+        Rect(x: 1512, y: 0, width: 1512, height: 910)]),
+      "Parking must be safe on every monitor")
+    #expect(!overviewExitFramesAreReady(windowIDs: [visible], hiddenWindowIDs: [],
+      pendingWriteWindowIDs: [], unresolvedWindowIDs: [], targets: [visible: shown],
+      observed: [visible: clamped], monitorFrames: [monitor]))
+  }
+
   @Test func supersededFramesSkipQueueAndEnhancedUISetup() {
     let coordinator = AXFrameCoordinator()
     coordinator.latestGeneration = 2
@@ -272,6 +300,28 @@ struct FrameCommitTests {
     #expect(native.height == logical.height)
   }
 
+  @Test(arguments: [-1.0, 1.0])
+  func distantRibbonTraversalIncludesColumnsParkedAtBothEnds(direction: Double) {
+    let monitor = Rect(x: 0, y: 0, width: 1512, height: 910)
+    let start = Rect(x: direction < 0 ? 2400 : -1600, y: 37, width: 752, height: 902)
+    let target = Rect(x: direction < 0 ? -1600 : 2400, y: 37, width: 752, height: 902)
+    // The native reference can remain at exactly the same parking anchor,
+    // so no write intent or startPositions entry exists for this column.
+    let anchor = Rect(x: 1511, y: 37, width: 752, height: 902)
+    #expect(ribbonAnimationStart(logical: target, offset: start.x - target.x,
+      observed: anchor, monitorFrames: [monitor]) == start)
+    #expect(requiresVerifiedOffscreenWrite(frame: start, monitorFrames: [monitor]))
+    #expect(requiresVerifiedOffscreenWrite(frame: target, monitorFrames: [monitor]))
+    #expect(ribbonAnimationTarget(logical: target, from: start,
+      isParked: true, monitorFrames: [monitor]) == target)
+    #expect(ribbonAnimationTarget(logical: nil, from: start,
+      isParked: true, monitorFrames: [monitor]) == nil)
+    #expect(ribbonAnimationTarget(logical: target, from: target,
+      isParked: true, monitorFrames: [monitor]) == nil)
+    #expect(ribbonAnimationTarget(logical: target, from: start,
+      isParked: true, monitorFrames: [monitor, monitor]) == nil)
+  }
+
   @Test(arguments: ["command-animation", "workspace-transition"])
   func staticRibbonParkingPrecedesNextHorizontalMovement(source: String) {
     let orphan = WindowID(rawValue: 1), moving = WindowID(rawValue: 2)
@@ -323,7 +373,8 @@ struct FrameCommitTests {
   }
 
   private func makeMotionWrite(
-    fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42
+    fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42,
+    animatesSize: Bool = false
   ) -> AsyncPositionWrite {
     // Handles only: these tests never read or mutate the real desktop.
     let element = AXUIElementCreateSystemWide()
@@ -331,7 +382,7 @@ struct FrameCommitTests {
       element: element, application: element, processID: processID,
       fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: 40),
       fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
-      positionChanged: true, sizeChanged: sizeChanged, animatesSize: false,
+      positionChanged: true, sizeChanged: sizeChanged, animatesSize: animatesSize,
       synchronousSizeWriteSucceeded: !sizeChanged, enhancedUIWasEnabled: false,
       timeoutSeconds: 0.016, isParked: false, isReentering: false,
       requiresVerifiedOffscreenWrite: false
@@ -410,6 +461,31 @@ struct FrameCommitTests {
     coordinator.submit(writes, source: "command-animation", animationDuration: 0.125,
       refreshRateHz: 120, animatedWindowIDs: [first, second])
     #expect(coordinator.pending?.animationDuration == 0.125)
+  }
+
+  @Test
+  func managedWidthAnimationRetainsIntermediateFramesAfterAnAXStall() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.running = true
+    let selected = WindowID(rawValue: 1), neighbor = WindowID(rawValue: 2)
+    coordinator.recordProcessLatencySamples([42: 70, 43: 2])
+    let resizing = makeMotionWrite(fromX: 500, toX: 0, sizeChanged: true, animatesSize: true)
+    let writes = [selected: resizing,
+      neighbor: makeMotionWrite(fromX: 1300, toX: 900, processID: 43)]
+    coordinator.submit(writes, source: "command-layout-animation", animationDuration: 0.125,
+      refreshRateHz: 120, monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 982)],
+      animatedWindowIDs: [selected, neighbor])
+    let duration = coordinator.pending?.animationDuration ?? 0
+    #expect(duration >= 0.21 && duration <= 0.4)
+    #expect(coordinator.animationSupportsIntermediateFrames(
+      processIDs: [42, 43], animationDuration: duration, refreshRateHz: 120))
+    #expect(coordinator.pending?.writes[selected]?.animatesSize == true)
+    coordinator.submit(writes, source: "command-layout-animation", animationDuration: 0.125,
+      refreshRateHz: 120, monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 982),
+        Rect(x: 1512, y: 0, width: 1512, height: 982)],
+      animatedWindowIDs: [selected, neighbor])
+    #expect(coordinator.pending?.animationDuration == 0,
+      "Cross-display layout keeps its existing immediate safety fallback")
   }
 
   @Test
@@ -1688,6 +1764,32 @@ struct FrameCommitTests {
     ))
   }
 
+  @Test func sameDisplayReflowKeepsSizeOnTheMovementTimeline() {
+    let display = Rect(x: 0, y: 0, width: 1_512, height: 982)
+    let source = Rect(x: 756, y: 25, width: 756, height: 910)
+    let target = Rect(x: 0, y: 25, width: 1_512, height: 910)
+    #expect(!shouldDeferAnimatedSizeUntilMovementCompletes(
+      from: source, to: target, displayFrames: [display]))
+  }
+
+  @Test func reorderedParkedColumnStartsAtItsPreviousLogicalSlot() throws {
+    let monitor = Rect(x: 0, y: 25, width: 1_512, height: 910)
+    let previous = Rect(x: -1_512, y: 25, width: 756, height: 910)
+    let target = Rect(x: 756, y: 25, width: 756, height: 910)
+    let parked = nativeRibbonAnimationFrame(previous, monitor: monitor)
+    let start = try #require(layoutRibbonAnimationStart(previousLogical: previous,
+      target: target, observed: parked, monitorFrames: [monitor]))
+    #expect(start.x == previous.x)
+    #expect(start.x != parked.x)
+    let halfway = nativeRibbonAnimationFrame(
+      interpolatedFrame(from: start, to: target, progress: 0.5), monitor: monitor)
+    #expect(halfway.x < target.x)
+    #expect(layoutRibbonAnimationStart(previousLogical: nil, target: target,
+      observed: parked, monitorFrames: [monitor]) == nil)
+    #expect(layoutRibbonAnimationStart(previousLogical: previous, target: target,
+      observed: parked, monitorFrames: [monitor, Rect(x: 1_512, y: 0, width: 1_000, height: 800)]) == nil)
+  }
+
   @Test
   func `Final only reentry keeps verified staging write`() {
     let fast = WindowID(rawValue: 1)
@@ -1764,7 +1866,7 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Size clamp retry requires a cross-display move`() {
+  func `Frame centers distinguish same-display and cross-display movement`() {
     let displays = [
       Rect(x: 0, y: 0, width: 1_000, height: 700),
       Rect(x: 1_000, y: 0, width: 1_000, height: 700),

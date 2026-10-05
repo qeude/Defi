@@ -11,6 +11,7 @@ import OSLog
 @NavigationActor
 public final class MacOSPlatform {
   public var experimentalSurfaceRibbonEnabled = false
+  var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   nonisolated let snapshotEngine: SnapshotEngine
 
 

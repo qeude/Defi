@@ -507,6 +507,15 @@ extension MacOSPlatform {
     )
   }
 
+  public func overviewExitFramesReady(windowIDs: Set<WindowID>) -> Bool {
+    let participants = windowIDs.subtracting(nativeFullscreenWindowIDs)
+    return overviewExitFramesAreReady(windowIDs: participants,
+      hiddenWindowIDs: lastHiddenWindowIDs,
+      pendingWriteWindowIDs: frameCoordinator.pendingWindowIDs,
+      unresolvedWindowIDs: pendingFrameWindowIDs,
+      targets: targetFrames, observed: latestObservedFrames, monitorFrames: lastMonitorFrames)
+  }
+
   public var hasPendingFocusWrite: Bool {
     focusWriter.isBusy
   }

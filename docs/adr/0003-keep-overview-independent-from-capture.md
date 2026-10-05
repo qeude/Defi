@@ -14,9 +14,17 @@ An opt-in `experimental_surface_transitions` path may temporarily animate fresh
 captured pixels from observed native frames into the active Overview ribbon.
 It uses public one-shot ScreenCaptureKit samples and Defi-owned Core Animation layers, never
 native-window scale/opacity mutations. It has explicit pixel-buffer budgets,
-no persistent capture sessions, no disk cache, no frame history, and falls back to the ordinary Overview when a
-complete fresh set is unavailable. Reverse animation is limited to unchanged
+no persistent capture sessions, no disk cache, and no frame history. Opening animates
+ready surfaces, using the bounded preloaded preview cache for missing surfaces and
+lightweight cards when no image exists yet. These fallback layers animate from
+verified native geometry and are released at the end of opening so progressive
+previews remain visible. Reverse surface animation is limited to unchanged
 native geometry and Overview offsets; selection uses the existing native path.
-This exception tests visual continuity and does not authorize a compositor or
-captured replacement for normal ribbon navigation. All committed focus and topology changes still pass
+An additional opt-in `animation.experimental_window_representations` experiment
+tests horizontal ribbon continuity using those same bounded one-shot samples.
+Defi-owned overlays animate while public Accessibility commits final native
+positions; native windows remain the functional fallback. Interrupted transitions
+reuse the existing panel and current presentation position. This experiment does
+not authorize private compositor or native opacity mutations.
+All committed focus and topology changes still pass
 through DefiRuntime, preserving the macOS authority established by ADR 0001.

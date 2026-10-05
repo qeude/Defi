@@ -8,6 +8,29 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test(arguments: [20.0, 21.0])
+  func nativeFocusAnimationSurvivesItsOwnSnapshotButYieldsToNewerInput(timestamp: Double) {
+    #expect(desktopSnapshotWaitsForCommandAnimation(animationPending: true,
+      latestCommandInputTimestamp: 10, latestNativeFocusAnimationInputTimestamp: 20,
+      mouseFocusIntentTimestamp: timestamp, keyboardFocusIntentTimestamp: nil) == (timestamp == 20))
+  }
+
+  @Test func changedNativeFocusAnimatesOnlyItsMonitor() {
+    let monitor = MonitorID(rawValue: 2)
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: false,
+      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == monitor)
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: nil, floating: false,
+      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
+  }
+
+  @Test(arguments: [(true, false, false, false), (false, true, false, false),
+    (false, false, true, false), (false, false, false, true)])
+  func nativeFocusDoesNotAnimateDuringOtherInteractions(blockers: (Bool, Bool, Bool, Bool)) {
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: MonitorID(rawValue: 2),
+      floating: blockers.0, overviewOpen: blockers.1, mouseGestureActive: blockers.2,
+      displayGeometryChanged: blockers.3) == nil)
+  }
+
   @Test
   func outgoingTransitionParkingIsReservedForLaterMonitorLayouts() throws {
     let outgoingMonitor = Rect(x: -1_200, y: 400, width: 800, height: 600)

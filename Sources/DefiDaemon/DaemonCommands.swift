@@ -386,6 +386,12 @@ extension Daemon {
       if command == .toggleOverview {
         return toggleOverview()
       }
+      if overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
+        DispatchQueue.main.async { [weak self] in
+          self?.overviewController?.handleKey(.layout(command))
+        }
+        return .success("queued for overview selection")
+      }
       let commandMonitorID: MonitorID?
       if let monitorIndex {
         guard let monitorID = monitorID(atAppKitIndex: monitorIndex) else {
@@ -571,21 +577,21 @@ extension Daemon {
       let switchesWorkspace = command.activatesWorkspace
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
       let movesAcrossMonitors = command.movesWindowsAcrossMonitors
-      let resizesManagedLayout = command.resizesManagedLayout
+      let animatesManagedLayout = command.animatesManagedLayout
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
       if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors
-        || resizesManagedLayout || speculativeRibbonNavigation
+        || animatesManagedLayout || speculativeRibbonNavigation
       {
         rearmPointerFocusTransition()
       }
       if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors
-        || resizesManagedLayout
+        || animatesManagedLayout
         || speculativeRibbonNavigation
       {
         preemptMouseGesture()
       }
-      let animatedManagedResize =
-        resizesManagedLayout
+      let animatedManagedLayout =
+        animatesManagedLayout
         && animationsEnabled
         && config.animation.durationMS > 0
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
@@ -744,8 +750,8 @@ extension Daemon {
         inFlightAnimations: inFlightAnimationMonitorIDs
       )
       let dispatchedAnimation =
-        animatedManagedResize
-        ? dispatchManagedResizeAnimation(
+        animatedManagedLayout
+        ? dispatchManagedLayoutAnimation(
           monitorIDs: affectedMonitorIDs,
           forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
           commandPerformance: commandPerformance
