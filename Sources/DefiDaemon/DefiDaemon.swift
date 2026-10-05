@@ -118,6 +118,7 @@ final class Daemon {
   @MainActor var cheatsheetController: CheatsheetController?
   var cheatsheetHoldTask: Task<Void, Never>?
   nonisolated let hotKeyGeneration = Mutex<UInt64>(0)
+  var overviewEditedMonitorIDs: Set<MonitorID> = []
   var overviewExitPreparationActive = false
   var overviewOpenedAt: TimeInterval?
   nonisolated let menuBar: MenuBarState

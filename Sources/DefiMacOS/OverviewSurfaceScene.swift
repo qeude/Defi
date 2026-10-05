@@ -73,6 +73,8 @@ final class OverviewSurfaceScene {
         width: card.frame.width, height: card.frame.height)
       let item: CALayer
       if let frame = surfaces[card.windowID],
+        overviewSurfaceMatchesNativeSize(source: frame.sourceSize, native: Rect(
+          x: source.minX, y: source.minY, width: source.width, height: source.height)),
         let displayLayer = OverviewSurfaceCapture.shared.displayLayer(for: card.windowID) {
         item = displayLayer
         _ = enqueueWindowSurface(frame, on: displayLayer)

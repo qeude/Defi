@@ -6,6 +6,22 @@ struct OverviewTests {
   let monitorID = MonitorID(rawValue: 1)
   let monitorFrame = Rect(x: 0, y: 0, width: 1_000, height: 800)
 
+  @Test func floatingMovementUsesWorkspaceRelativePosition() {
+    func projection(workspaceX: Double, windowX: Double) -> OverviewProjection {
+      OverviewProjection(monitorID: monitorID, workspaces: [OverviewWorkspaceProjection(
+        workspaceID: WorkspaceID(rawValue: "test"),
+        frame: Rect(x: workspaceX, y: 0, width: 1000, height: 800),
+        windows: [OverviewWindowProjection(windowID: WindowID(rawValue: 1),
+          frame: Rect(x: windowX, y: 100, width: 200, height: 200),
+          layer: .floating, isNativeFullscreen: false, canDrag: true)])])
+    }
+    let source = projection(workspaceX: 0, windowX: 100)
+    #expect(overviewProjectionReordersExistingCards(from: source,
+      to: projection(workspaceX: 0, windowX: 200)))
+    #expect(!overviewProjectionReordersExistingCards(from: source,
+      to: projection(workspaceX: -50, windowX: 50)))
+  }
+
   @Test
   func resizedCardsAnimateSizeAndPositionTogether() {
     func projection(x: Double, width: Double) -> OverviewProjection {

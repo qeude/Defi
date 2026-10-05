@@ -7,6 +7,39 @@ import Testing
 
 @MainActor
 struct OverviewNavigationTests {
+  @Test(arguments: [false, true])
+  func cancellationNeverCommitsDeferredSelection(pendingSelection: Bool) {
+    let monitor = MonitorID(rawValue: .max)
+    let ids = [WindowID(rawValue: 1), WindowID(rawValue: 2)]
+    let workspace = Workspace(id: WorkspaceID(rawValue: "test"), columns:
+      ids.map { Column(window: $0, width: .fraction(0.5)) })
+    var focuses: [WindowID] = [], drops = 0, edits = 0
+    let controller = OverviewController(focusWindow: { id, _, _, _ in focuses.append(id) },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in drops += 1 }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, waitsForNativeSelectionCommit: true,
+      notificationCenter: NotificationCenter(), layoutCommand: { _, _, _, _, _, _ in edits += 1 },
+      commitScrollOffsets: { _ in })
+    controller.open(snapshot: OverviewSnapshot(monitors: [Monitor(id: monitor,
+      workspaces: [workspace], activeWorkspace: workspace.id)], monitorFrames: [:],
+      windows: Dictionary(uniqueKeysWithValues: ids.map { id in
+        (id, Window(id: id, appID: "test", title: "Window", frame: Rect(x: 0, y: 0, width: 100, height: 100)))
+      })), layout: LayoutSettings())
+    controller.handleKey(.right)
+    #expect(focuses.isEmpty)
+    if pendingSelection {
+      controller.handleKey(.select)
+      #expect(focuses == [ids[1]])
+      controller.handleKey(.moveDown)
+      #expect(!controller.applyLayoutCommand(.maximizeColumn))
+      #expect(drops == 0 && edits == 0)
+    }
+    controller.handleKey(.cancel)
+    #expect(!controller.isOpen)
+    #expect(focuses == (pendingSelection ? [ids[1]] : []))
+    controller.selectionCommitCompleted()
+    #expect(!controller.isOpen)
+  }
+
   @Test(arguments: [WorkspaceTarget.named("b"), .position(2)])
   func directWorkspaceBindingSelectsItsFocusedWindow(target: WorkspaceTarget) {
     let monitor = MonitorID(rawValue: .max)

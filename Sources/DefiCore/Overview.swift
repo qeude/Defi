@@ -81,12 +81,16 @@ public func overviewProjectionReordersExistingCards(
 ) -> Bool {
   guard from.monitorID == to.monitorID else { return false }
   let previous = Dictionary(uniqueKeysWithValues: from.workspaces.flatMap { workspace in
-    workspace.windows.map { ($0.windowID, (workspace.workspaceID, $0.layer)) }
+    workspace.windows.map { ($0.windowID, (workspace.workspaceID, $0.layer,
+      $0.frame.x - workspace.frame.x, $0.frame.y - workspace.frame.y)) }
   })
   return to.workspaces.contains { workspace in
     workspace.windows.contains { card in
       guard let old = previous[card.windowID] else { return false }
       return old.0 != workspace.workspaceID || old.1 != card.layer
+        || (card.layer == .floating && (
+          abs(old.2 - (card.frame.x - workspace.frame.x)) >= 0.5
+          || abs(old.3 - (card.frame.y - workspace.frame.y)) >= 0.5))
     }
   }
 }

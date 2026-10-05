@@ -296,6 +296,7 @@ extension Daemon {
     inputTimestamp: TimeInterval? = nil,
     receivedAt: TimeInterval? = nil,
     floatingFramesRefreshed: Bool = false,
+    routesOverviewSelection: Bool = true,
     deferredResponse: DeferredCommandReply? = nil
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
@@ -388,9 +389,29 @@ extension Daemon {
           ribbonPrototype: overviewRibbonPrototypeRequested(in: rawCommand)
         )
       }
-      if overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
+      if routesOverviewSelection, overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
+        deferredResponse?.deferResponse()
         DispatchQueue.main.async { [weak self] in
-          self?.overviewController?.handleKey(.layout(command))
+          guard let self else { deferredResponse?.fail("daemon unavailable"); return }
+          if let controller = overviewController, controller.isOpen {
+            let accepted = controller.applyLayoutCommand(command)
+            NavigationActor.enqueue {
+              deferredResponse?.perform {
+                accepted ? .success() : .failure("overview selection cannot apply this layout command")
+              }
+            }
+          } else {
+            NavigationActor.enqueue { [weak self] in
+              let operation = {
+                self?.handle(rawCommand, monitorIndex: monitorIndex,
+                  inputTimestamp: inputTimestamp, receivedAt: receivedAt,
+                  floatingFramesRefreshed: floatingFramesRefreshed, routesOverviewSelection: false)
+                  ?? .failure("daemon unavailable")
+              }
+              if let deferredResponse { deferredResponse.perform(operation) }
+              else { _ = operation() }
+            }
+          }
         }
         return .success("queued for overview selection")
       }

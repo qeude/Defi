@@ -82,8 +82,6 @@ func overviewKeyAction(
     switch (parts[0], parts[1]) {
     case ("focus-column", "first"): return .firstColumn
     case ("focus-column", "last"): return .lastColumn
-    case ("focus-workspace", "up"): return .workspaceUp
-    case ("focus-workspace", "down"): return .workspaceDown
     default: break
     }
   }
@@ -92,8 +90,6 @@ func overviewKeyAction(
     || commandName == "focus-column"
     || commandName == "focus-window"
   return switch keyCode {
-  case 125 where commandName == "move-window": .moveDown
-  case 126 where commandName == "move-window": .moveUp
   case 123 where navigatesOverview: .left
   case 124 where navigatesOverview: .right
   case 125 where navigatesOverview: .down

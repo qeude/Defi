@@ -55,7 +55,7 @@ final class OverviewPreviewClosingScene {
       item.bounds = CGRect(origin: .zero, size: source.size)
       item.position = source.origin
       item.contents = image
-      item.contentsGravity = .resize
+      item.contentsGravity = .resizeAspectFill
       item.contentsScale = screen.backingScaleFactor
       item.cornerRadius = self.cornerRadius
       item.cornerCurve = .continuous

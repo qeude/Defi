@@ -417,7 +417,8 @@ extension AXFrameCoordinator {
     guard requested > 0, !writes.isEmpty,
       writes.values.allSatisfy({
         (!$0.animatesSize || allowsSizeChanges)
-          && ($0.usesCommonRibbonOffset || abs($0.point.y - $0.fromPoint.y) < 0.5) })
+          && ($0.usesCommonRibbonOffset || (allowsSizeChanges && $0.usesLogicalRibbonPath)
+            || abs($0.point.y - $0.fromPoint.y) < 0.5) })
     else { return requested }
     lock.lock()
     let latency = writes.values.map {

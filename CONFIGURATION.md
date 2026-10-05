@@ -146,7 +146,7 @@ duration_ms = 125
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Enables visual scrolling and managed resize animation. |
+| `enabled` | `true` | boolean | Enables visual scrolling and managed layout animations, including resizing, column/window moves, stacking, and floating transitions. |
 | `experimental_window_representations` | `false` | boolean | Experimental horizontal ribbon: animate one-shot window representations and commit native positions behind them. Requires existing Screen Recording access; does not request permission or start a continuous stream. Missing captures, unsupported geometry, and workspace switches use native windows. |
 | `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
 

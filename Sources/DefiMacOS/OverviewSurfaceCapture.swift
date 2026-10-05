@@ -61,6 +61,8 @@ final class OverviewSurfaceCapture {
   private var displayLayers: [WindowID: AVSampleBufferDisplayLayer] = [:]
   private var requested: [OverviewSurfaceRequest] = []
   private var preparation: Task<Void, Never>?
+  private var deferredPreparation: Task<Void, Never>?
+  private var pendingRequests: [OverviewSurfaceRequest]?
   private var preparationDeadline: Task<Void, Never>?
   private var generation: UInt64 = 0
   private var lastPreparationAt: TimeInterval = -.infinity
@@ -79,9 +81,26 @@ final class OverviewSurfaceCapture {
     }
     let now = CACurrentMediaTime()
     if requested == requests {
-      if preparation != nil || now - lastPreparationAt < 1 { return }
+      pendingRequests = nil
+      deferredPreparation?.cancel(); deferredPreparation = nil
+      if preparation != nil { return }
       if failedRequests == requests && now - lastPreparationAt < 5 { return }
     }
+    if preparation != nil || now - lastPreparationAt < 1 {
+      pendingRequests = requests
+      if deferredPreparation == nil {
+        let delay = max(0.1, 1 - (now - lastPreparationAt))
+        deferredPreparation = Task { [weak self] in
+          do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+          guard let self, let latest = pendingRequests else { return }
+          pendingRequests = nil; deferredPreparation = nil
+          prepare(latest, enabled: true)
+        }
+      }
+      return
+    }
+    pendingRequests = nil
+    deferredPreparation?.cancel(); deferredPreparation = nil
     generation &+= 1
     let token = generation
     preparation?.cancel()
@@ -175,6 +194,7 @@ final class OverviewSurfaceCapture {
 
   // An opening scene owns one fixed image set, preventing refresh swaps during zoom.
   func freeze() {
+    deferredPreparation?.cancel(); deferredPreparation = nil; pendingRequests = nil
     generation &+= 1
     preparation?.cancel(); preparation = nil
     preparationDeadline?.cancel(); preparationDeadline = nil
@@ -208,6 +228,7 @@ final class OverviewSurfaceCapture {
   }
 
   func stop(state: String = "disabled") {
+    deferredPreparation?.cancel(); deferredPreparation = nil; pendingRequests = nil
     generation &+= 1
     preparation?.cancel(); preparation = nil
     preparationDeadline?.cancel(); preparationDeadline = nil

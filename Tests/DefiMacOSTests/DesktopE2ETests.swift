@@ -455,7 +455,12 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(reusedLayer.cornerRadius, 12)
     XCTAssertEqual(reusedLayer.bounds.size, nativeFrameBounds.size)
     _ = reopenedScene
-    let renderer = ExperimentalRibbonRenderer.shared
+    // Isolate the owned-window handoff from unrelated user windows. The
+    // production observer remains conservative whenever another window is visible.
+    var visibleWindowInfo: [[String: Any]] = []
+    let renderer = ExperimentalRibbonRenderer(visibleWindowInfo: { visibleWindowInfo })
+    renderer.prepare(snapshot: snapshot, layout: surfaceLayout, enabled: true)
+    defer { renderer.disable() }
     for _ in 0..<40 where !renderer.backgroundsReady {
       try await Task.sleep(for: .milliseconds(50))
     }
@@ -483,8 +488,22 @@ final class DesktopE2ETests: XCTestCase {
     }
     XCTAssertFalse(renderer.isPresenting, "Proxy must yield after native convergence")
     fixture.setFrame(originalRibbonFrame, display: true)
+    renderer.prepare(snapshot: snapshot, layout: surfaceLayout, enabled: true)
     CATransaction.flush()
     try await Task.sleep(for: .milliseconds(100))
+    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: target)], duration: 0.15))
+    XCTAssertFalse(renderer.begin(assignments: [FrameAssignment(windowID: windowID,
+      frame: target)], duration: 0.15))
+    XCTAssertFalse(renderer.isPresenting, "A no-plan fallback must dismiss an older proxy")
+    visibleWindowInfo = [[kCGWindowNumber as String: NSNumber(value: UInt64.max),
+      kCGWindowOwnerPID as String: NSNumber(value: Int32.max),
+      kCGWindowLayer as String: NSNumber(value: 0),
+      kCGWindowBounds as String: nativeFrameBounds.dictionaryRepresentation]]
+    XCTAssertFalse(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: retarget)], duration: 0.15))
+    XCTAssertEqual(renderer.lastFallback, "unrepresented-window")
+    XCTAssertFalse(renderer.isPresenting, "Unrepresented windows must remain visible on the native path")
+    visibleWindowInfo = []
+
     // AppKit may normalize a prepared panel's frame. Rebuilding it must keep captures warm.
     for panel in NSApplication.shared.windows where panel.title == "Defi Overview" {
       panel.setFrame(panel.frame.offsetBy(dx: 1, dy: 0), display: false)

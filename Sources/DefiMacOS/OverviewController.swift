@@ -144,6 +144,7 @@ public final class OverviewController: NSObject {
   private let layoutCommandHandler: @MainActor @Sendable (Command, WindowID, String, MonitorID, WorkspaceID, UInt64) -> Void
   private let activateMonitorHandler: MonitorHandler
   private let presentationChanged: @MainActor @Sendable () -> Void
+  private var idlePreparationRetry: Task<Void, Never>?
   private let idlePreparationRequested: @MainActor @Sendable () -> Void
   private let openStateHandler: OpenStateHandler
   private let scrollCommitHandler: ScrollCommitHandler
@@ -375,9 +376,19 @@ public final class OverviewController: NSObject {
   ) {
     defer { presentationChanged() }
     // A closing zoom still owns its texture; idle refresh must wait for its handoff.
-    guard !isOpen, idlePreparationEnabled, !panels.values.contains(where: \.hasSurfaceScene),
-      !ExperimentalRibbonRenderer.shared.isPresenting
-    else { return }
+    guard !isOpen, idlePreparationEnabled else { return }
+    if panels.values.contains(where: \.hasSurfaceScene) || ExperimentalRibbonRenderer.shared.isPresenting {
+      if idlePreparationRetry == nil {
+        idlePreparationRetry = Task { [weak self] in
+          do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+          guard let self else { return }
+          idlePreparationRetry = nil
+          if !isOpen { idlePreparationRequested() }
+        }
+      }
+      return
+    }
+    idlePreparationRetry?.cancel(); idlePreparationRetry = nil
     usesWorkspaceParking = overviewUsesWorkspaceParking(
       windowPreviewsEnabled: windowPreviewsEnabled,
       screenCaptureAccessGranted: windowPreviewsEnabled && CGPreflightScreenCaptureAccess()
@@ -435,6 +446,7 @@ public final class OverviewController: NSObject {
     experimentalSurfaceTransitions: Bool = false
   ) {
     idlePreparationEnabled = !isUnderMemoryPressure
+    idlePreparationRetry?.cancel(); idlePreparationRetry = nil
     sessionGeneration &+= 1
     self.snapshot = snapshot
     self.layout = layout
@@ -556,9 +568,14 @@ public final class OverviewController: NSObject {
     animation: AnimationConfig = AnimationConfig(),
     zoom: Double = 0.5,
     windowCornerRadius: Double = 12,
-    windowPreviewsEnabled: Bool? = nil
+    windowPreviewsEnabled: Bool? = nil,
+    experimentalSurfaceTransitions: Bool? = nil
   ) {
     guard isOpen else { return }
+    if let experimentalSurfaceTransitions {
+      surfaceTransitionsEnabled = experimentalSurfaceTransitions
+        && (windowPreviewsEnabled ?? self.windowPreviewsEnabled)
+    }
     let previousSnapshot = self.snapshot
     let previousProjections = projections
     let windowPreviewsEnabled = ribbonPrototype ? true : windowPreviewsEnabled
@@ -746,11 +763,7 @@ public final class OverviewController: NSObject {
   }
 
   public func close() {
-    if hasDeferredSelection, !selectionCommitPending {
-      chooseSelection()
-    } else {
-      close(commitScrollOffsets: !ribbonPrototype)
-    }
+    close(commitScrollOffsets: !ribbonPrototype)
   }
 
   /// Called after the final native layout has settled underneath the overview.
@@ -851,6 +864,7 @@ public final class OverviewController: NSObject {
                    direction: action == .left ? -1 : 1)
       return
     }
+    guard !selectionCommitPending || action == .cancel else { return }
     switch action {
     case .cancel:
       close()
@@ -861,14 +875,20 @@ public final class OverviewController: NSObject {
     case .moveUp, .moveDown:
       moveSelectionVertically(action)
     case .layout(let command):
-      guard !selectionCommitPending, let snapshot, let selection,
-        let windowID = selection.windowID, let window = snapshot.windows[windowID],
-        !snapshot.nativeFullscreenWindowIDs.contains(windowID), window.transientOwnerID == nil
-      else { return }
-      hasDeferredSelection = true
-      layoutCommandHandler(command, windowID, window.appID, selection.location.monitorID,
-        selection.location.workspaceID, sessionGeneration)
+      _ = applyLayoutCommand(command)
     }
+  }
+
+  @discardableResult
+  public func applyLayoutCommand(_ command: Command) -> Bool {
+    guard isOpen, !ribbonPrototype, !selectionCommitPending, let snapshot, let selection,
+      let windowID = selection.windowID, let window = snapshot.windows[windowID],
+      !snapshot.nativeFullscreenWindowIDs.contains(windowID), window.transientOwnerID == nil,
+      !window.floating || command == .toggleFloating else { return false }
+    hasDeferredSelection = true
+    layoutCommandHandler(command, windowID, window.appID, selection.location.monitorID,
+      selection.location.workspaceID, sessionGeneration)
+    return true
   }
 
   @objc private func closeForSystemTransition(_ notification: Notification) {
@@ -948,6 +968,7 @@ public final class OverviewController: NSObject {
   }
 
   private func moveSelectionVertically(_ action: OverviewKeyAction) {
+    guard !selectionCommitPending else { return }
     guard let snapshot,
       case .window(let windowID, let monitorID, let workspaceID) = selection,
       let window = snapshot.windows[windowID],
@@ -1368,7 +1389,11 @@ public final class OverviewController: NSObject {
       )
     }
     finishPreviewBatch(generation: generation)
-    if shouldRetryDesktopCapture {
+    if results.authorizationDeclined {
+      previewPermissionState = .denied
+      cancelDesktopCaptureRetry()
+    }
+    if shouldRetryDesktopCapture && !results.authorizationDeclined {
       scheduleDesktopCaptureRetry(generation: generation)
     }
     updatePanels(scheduleCaptures: false)
@@ -1845,7 +1870,8 @@ extension OverviewController: OverviewViewDelegate {
     _ view: OverviewView,
     clickedAt point: NSPoint
   ) {
-    guard !ribbonPrototype else { return }
+    guard isOpen, !selectionCommitPending else { return }
+    guard isOpen, !selectionCommitPending, !ribbonPrototype else { return }
     guard let projection = projections[view.monitorID],
       let hit = projection.hitTest(OverviewPoint(x: point.x, y: point.y)),
       let snapshot
@@ -1867,7 +1893,8 @@ extension OverviewController: OverviewViewDelegate {
     beganDragging windowID: WindowID,
     at screenPoint: NSPoint
   ) {
-    guard !ribbonPrototype else { return }
+    guard isOpen, !selectionCommitPending else { return }
+    guard isOpen, !selectionCommitPending, !ribbonPrototype else { return }
     guard let snapshot,
       let window = snapshot.windows[windowID],
       let location = snapshot.location(of: windowID),
@@ -1894,6 +1921,7 @@ extension OverviewController: OverviewViewDelegate {
     _ view: OverviewView,
     draggedTo screenPoint: NSPoint
   ) {
+    guard isOpen, !selectionCommitPending else { return }
     updateDrag(at: screenPoint)
   }
 
@@ -1901,6 +1929,7 @@ extension OverviewController: OverviewViewDelegate {
     _ view: OverviewView,
     endedDraggingAt screenPoint: NSPoint
   ) {
+    guard isOpen, !selectionCommitPending else { return }
     guard let drag else { return }
     edgeScrollTimer?.invalidate()
     edgeScrollTimer = nil
@@ -1922,6 +1951,7 @@ extension OverviewController: OverviewViewDelegate {
     hasPreciseScrollingDeltas: Bool,
     at point: NSPoint
   ) {
+    guard isOpen, !selectionCommitPending else { return }
     guard let snapshot,
       let monitor = snapshot.monitors.first(where: { $0.id == view.monitorID })
     else { return }
@@ -1971,6 +2001,7 @@ extension OverviewController: OverviewViewDelegate {
     rightDraggedBy deltaX: Double,
     at point: NSPoint
   ) {
+    guard isOpen, !selectionCommitPending else { return }
     guard let snapshot,
       let monitor = snapshot.monitors.first(where: { $0.id == view.monitorID }),
       let viewport = viewports[view.monitorID],
@@ -2003,6 +2034,7 @@ extension OverviewController: OverviewViewDelegate {
     pageWorkspace workspaceID: WorkspaceID,
     direction: Int
   ) {
+    guard isOpen, !selectionCommitPending else { return }
     guard let snapshot,
       let monitor = snapshot.monitors.first(where: { $0.id == view.monitorID }),
       let maximumOffset = maximumHorizontalOffset(for: workspaceID, on: monitor)
@@ -2051,6 +2083,7 @@ extension OverviewController: OverviewViewDelegate {
     sourceWorkspaceID: WorkspaceID,
     target: OverviewDropTarget
   ) {
+    guard isOpen, !selectionCommitPending else { return }
     let location = target.location
     selection = .window(
       windowID: windowID,

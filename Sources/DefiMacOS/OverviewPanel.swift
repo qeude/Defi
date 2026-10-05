@@ -177,6 +177,7 @@ final class OverviewPanel {
     glassView.alphaValue = 0
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
+    loadWallpaperIfNeeded()
     window.orderFrontRegardless()
     scene.animate(opening: true, duration: duration)
     NSAnimationContext.runAnimationGroup { context in

@@ -133,6 +133,7 @@ struct OverviewDesktopCaptureRequest: Sendable {
 struct OverviewCaptureResults: Sendable {
   let previews: [OverviewPreviewCaptureResult]
   let desktops: [MonitorID: CGImage]
+  var authorizationDeclined = false
 }
 
 func overviewPreviewCacheCanStore(
@@ -327,7 +328,8 @@ func captureOverviewImages(
   // slots across sessions rather than multiplying WindowServer work on reopen.
   let limiter = overviewCaptureLimiter
   do {
-    guard await limiter.acquire() else { return OverviewCaptureResults(previews: [], desktops: [:]) }
+    guard await limiter.acquire() else { return await OverviewCaptureResults(previews: [], desktops: [:],
+      authorizationDeclined: limiter.authorizationDeclined) }
     let content: SCShareableContent
     do {
       try Task.checkCancellation()
@@ -386,7 +388,8 @@ func captureOverviewImages(
         await batch.capture(request)
       }
       let desktops = await desktopTask.value
-      return OverviewCaptureResults(previews: previews, desktops: desktops)
+      return await OverviewCaptureResults(previews: previews, desktops: desktops,
+        authorizationDeclined: limiter.authorizationDeclined)
     } onCancel: {
       desktopTask.cancel()
     }
@@ -394,11 +397,11 @@ func captureOverviewImages(
     for request in requests where !Task.isCancelled {
       previewCompleted(OverviewPreviewCaptureResult(request: request, image: nil))
     }
-    return OverviewCaptureResults(
+    return await OverviewCaptureResults(
       previews: requests.map {
         OverviewPreviewCaptureResult(request: $0, image: nil)
       },
-      desktops: [:]
+      desktops: [:], authorizationDeclined: limiter.authorizationDeclined
     )
   }
 }

@@ -159,6 +159,7 @@ extension Daemon {
     )
     let requiresLayout = state.applyConfiguration(nextConfig)
     config = nextConfig
+    platform.experimentalSurfaceRibbonEnabled = nextConfig.animation.experimentalWindowRepresentations
     Task { @MainActor in
       DefiSettingsRuntimeStatus.shared.updateConfiguration(nextConfig)
     }
@@ -295,7 +296,9 @@ extension Daemon {
         }
       },
       overviewCancelHandler: { [weak self] in
+        NavigationActor.enqueue { [weak self] in self?.handleCheatsheetInput(.dismiss) }
         DispatchQueue.main.async { [weak self] in
+          self?.cheatsheetController?.close()
           self?.overviewController?.close()
           self?.publishOverviewState()
         }

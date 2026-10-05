@@ -10,8 +10,9 @@ Overview session, and never required for navigation, focus, or window movement.
 The last valid images may remain in a bounded memory-only cache while fresh
 captures are pending. They are never persisted.
 Missing, stale, protected, or denied previews fall back to identifiable cards.
-An opt-in `experimental_surface_transitions` path may temporarily animate fresh
-captured pixels from observed native frames into the active Overview ribbon.
+An opt-in `overview.experimental_surface_transitions` path may temporarily animate
+cached snapshots from observed native frames into the active Overview ribbon.
+Samples may be stale while a refresh is pending or has failed.
 It uses public one-shot ScreenCaptureKit samples and Defi-owned Core Animation layers, never
 native-window scale/opacity mutations. It has explicit pixel-buffer budgets,
 no persistent capture sessions, no disk cache, and no frame history. Opening animates

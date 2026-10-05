@@ -827,7 +827,7 @@ extension Daemon {
       focusedMonitorID: nativelyFocusedMonitorID,
       floating: focusedWindowIDForAlignment.flatMap { state.windows[$0]?.floating } == true,
       overviewOpen: overviewState.isOpen,
-      mouseGestureActive: snapshot.leftMouseButtonDown || preservesMouseViewport,
+      mouseGestureActive: mouseResizeGestureActive,
       displayGeometryChanged: displayGeometryChanged
     )
     let nativeFocusRequiresMovement = nativeAnimationMonitorID.flatMap { id in

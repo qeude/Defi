@@ -66,6 +66,9 @@ public func applyOverviewLayoutCommand(
   guard !state.nativeFullscreenWindowIDs.contains(intent.windowID) else {
     throw OverviewRuntimeError.nativeFullscreen(intent.windowID)
   }
+  guard state.windows[intent.windowID]?.floating != true || command == .toggleFloating else {
+    throw OverviewRuntimeError.invalidDropTarget
+  }
   var next = state
   _ = focusWindow(intent.windowID, state: &next)
   try reduce(command, on: intent.sourceMonitorID, state: &next, viewports: viewports)
@@ -88,6 +91,7 @@ public func applyOverviewLayoutCommand(
   state.monitors[source.monitorIndex].workspaces[source.workspaceIndex] =
     next.monitors[destination.monitorIndex].workspaces[destination.workspaceIndex]
   state.windows = next.windows
+  state.pendingNativeFullscreenWidthResetWindowIDs = next.pendingNativeFullscreenWidthResetWindowIDs
   state.suspendedTiledPlacements[intent.windowID] = next.suspendedTiledPlacements[intent.windowID]
   return floatingFrames
 }

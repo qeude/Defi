@@ -9,6 +9,15 @@ import QuartzCore
 @MainActor
 final class ExperimentalRibbonRenderer {
   static let shared = ExperimentalRibbonRenderer()
+  private let visibleWindowInfo: () -> [[String: Any]]
+
+  init(visibleWindowInfo: @escaping () -> [[String: Any]] = {
+    CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+      kCGNullWindowID) as? [[String: Any]] ?? []
+  }) {
+    self.visibleWindowInfo = visibleWindowInfo
+  }
+
   private struct Context {
     let monitorID: MonitorID
     let workspaceID: WorkspaceID
@@ -25,7 +34,6 @@ final class ExperimentalRibbonRenderer {
   private var presentedLayers: [WindowID: (CALayer, Rect)] = [:]
   var isPresenting: Bool { !scenes.isEmpty }
   var backgroundsReady: Bool { contexts.allSatisfy { backgrounds[$0.monitorID] != nil } }
-  private var retainedFrames: [WindowID: OverviewSurfaceFrame] = [:]
   private var completion: Task<Void, Never>?
   private var expectedNativeTargets: [WindowID: Rect] = [:]
   private var generation: UInt64 = 0
@@ -104,7 +112,7 @@ final class ExperimentalRibbonRenderer {
       guard ids.contains(id), let context = next.first(where: { $0.monitorID == id }) else { return false }
       return image.width == Int(context.screen.frame.width) && image.height == Int(context.screen.frame.height)
     }
-    guard backgroundTask == nil, next.contains(where: { backgrounds[$0.monitorID] == nil }) else { return }
+    guard CGPreflightScreenCaptureAccess(), backgroundTask == nil, next.contains(where: { backgrounds[$0.monitorID] == nil }) else { return }
     let desktopRequests = next.filter { backgrounds[$0.monitorID] == nil }.map {
       OverviewDesktopCaptureRequest(monitorID: $0.monitorID,
         displayID: UInt32($0.monitorID.rawValue), width: Int($0.screen.frame.width),
@@ -126,7 +134,7 @@ final class ExperimentalRibbonRenderer {
       (entry.0.presentation()?.frame ?? entry.0.frame).offsetBy(dx: entry.1.x, dy: entry.1.y)
     }
     guard duration > 0, !contexts.isEmpty,
-      !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { lastFallback = "disabled-or-no-context"; return false }
+      !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { lastFallback = "disabled-or-no-context"; cancel(); return false }
     let targets = Dictionary(uniqueKeysWithValues: assignments.map { ($0.windowID, $0.frame) })
     let logicalTargets = Dictionary(uniqueKeysWithValues:
       (ribbonFrames.isEmpty ? assignments : ribbonFrames).map { ($0.windowID, $0.frame) })
@@ -150,7 +158,10 @@ final class ExperimentalRibbonRenderer {
       else { lastFallback = "capture-or-background-or-size"; fallbacks += 1; cancel(); return false }
       plans.append((context, delta, ids))
     }
-    guard !plans.isEmpty else { lastFallback = "no-moving-plan"; return false }
+    guard !plans.isEmpty else { lastFallback = "no-moving-plan"; cancel(); return false }
+    guard plans.allSatisfy({ context, _, ids in
+      !hasUnrepresentedVisibleWindow(in: context.viewport, represented: ids)
+    }) else { lastFallback = "unrepresented-window"; fallbacks += 1; cancel(); return false }
     let native = nativeFrames()
     for (context, _, ids) in plans {
       guard let captures = OverviewSurfaceCapture.shared.frames(windowIDs: ids) else {
@@ -169,12 +180,11 @@ final class ExperimentalRibbonRenderer {
     }
     generation &+= 1; completion?.cancel(); completion = nil
     OverviewSurfaceCapture.shared.freeze()
-    retainedFrames = [:]; presentedLayers = [:]
+    presentedLayers = [:]
     CATransaction.begin(); CATransaction.setDisableActions(true)
     var expected: [WindowID: (Rect, Int32)] = [:]
     for (context, delta, ids) in plans {
       guard let frames = OverviewSurfaceCapture.shared.frames(windowIDs: ids) else { cancel(); return false }
-      retainedFrames.merge(frames) { _, new in new }
       let area = context.viewport
       let appKitArea = CGRect(x: area.x, y: (NSScreen.screens.first?.frame.height ?? 0) - area.y - area.height,
         width: area.width, height: area.height)
@@ -266,7 +276,7 @@ final class ExperimentalRibbonRenderer {
           current[id].map { $0.owner == value.1 && matches($0.frame, value.0) } ?? false
         }) { cancel(); return }
         if CACurrentMediaTime() > deadline { fallbacks += 1; cancel(); return }
-        do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+        do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
       }
     }
     return true
@@ -282,7 +292,7 @@ final class ExperimentalRibbonRenderer {
   func cancel() {
     generation &+= 1; completion?.cancel(); completion = nil
     for panel in scenes.values { panel.orderOut(nil); panel.close() }
-    scenes = [:]; retainedFrames = [:]; presentedLayers = [:]; expectedNativeTargets = [:]
+    scenes = [:]; presentedLayers = [:]; expectedNativeTargets = [:]
   }
 
   private func distance(_ a: Rect, _ b: Rect) -> Double {
@@ -298,6 +308,22 @@ final class ExperimentalRibbonRenderer {
   private func matches(_ a: Rect, _ b: Rect) -> Bool {
     abs(a.x - b.x) < 3 && abs(a.y - b.y) < 3 && abs(a.width - b.width) < 3 && abs(a.height - b.height) < 3
   }
+  private func hasUnrepresentedVisibleWindow(in viewport: Rect, represented: Set<WindowID>) -> Bool {
+    let infos = visibleWindowInfo()
+    return infos.contains { info in
+      guard let id = info[kCGWindowNumber as String] as? NSNumber,
+        let owner = info[kCGWindowOwnerPID as String] as? NSNumber,
+        owner.int32Value != NSRunningApplication.current.processIdentifier,
+        let level = info[kCGWindowLayer as String] as? NSNumber,
+        level.intValue >= 0, level.intValue < NSWindow.Level.statusBar.rawValue,
+        let bounds = info[kCGWindowBounds as String] as? [String: Any],
+        let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+        rect.width > 1, rect.height > 1 else { return false }
+      let frame = Rect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
+      return frame.ribbonIntersects(viewport) && !represented.contains(WindowID(rawValue: id.uint64Value))
+    }
+  }
+
   private func nativeFrames() -> [WindowID: (frame: Rect, owner: Int32)] {
     var result: [WindowID: (Rect, Int32)] = [:]
     for info in CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? [] {

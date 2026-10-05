@@ -8,6 +8,18 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func overviewSessionCancellationInvalidatesAlreadyQueuedSelection() {
+    let state = OverviewToggleState()
+    state.recordControllerState(true, sessionGeneration: 1)
+    #expect(state.isCurrentSession(1))
+    _ = state.requestClose()
+    #expect(!state.isCurrentSession(1), "Cancellation must take effect before actor work resumes")
+    state.recordControllerState(false, sessionGeneration: 2)
+    state.recordControllerState(true, sessionGeneration: 3)
+    #expect(!state.isCurrentSession(1), "Reopening cannot revive an older selection")
+    #expect(state.isCurrentSession(3))
+  }
+
   @Test(arguments: [20.0, 21.0])
   func nativeFocusAnimationSurvivesItsOwnSnapshotButYieldsToNewerInput(timestamp: Double) {
     #expect(desktopSnapshotWaitsForCommandAnimation(animationPending: true,

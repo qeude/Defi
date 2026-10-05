@@ -141,7 +141,7 @@ func nativeRibbonAnimationFrame(_ logical: Rect, monitor: Rect) -> Rect {
   guard exposure <= parkedSliverWidth else { return logical }
   return resolveParkingPlacement(
     for: logical, ownerFrame: monitor, allMonitorFrames: [monitor],
-    preferredSide: logical.x + logical.width <= monitor.x ? .left : .right,
+    preferredSide: logical.x < monitor.x ? .left : .right,
     preferredY: logical.y).frame
 }
 

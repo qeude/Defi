@@ -46,6 +46,7 @@ extension MacOSPlatform {
   private func clearFrameState() {
     DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
     frameSubmissionGeneration &+= 1
+    previousLogicalRibbonFrames.removeAll(keepingCapacity: true)
     targetFrames.removeAll(keepingCapacity: true)
     pendingFrameDebtWindowIDs.removeAll(keepingCapacity: true)
     pendingFrameCorrections.removeAll(keepingCapacity: true)

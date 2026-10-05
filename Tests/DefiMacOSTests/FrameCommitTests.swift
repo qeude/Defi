@@ -1093,7 +1093,7 @@ struct FrameCommitTests {
       monitor: Rect(x: 0, y: 0, width: 1512, height: 910)) == 400)
   }
 
-  @Test(arguments: [(-2000.0, -751.0), (-700.0, -700.0), (400.0, 400.0), (3500.0, 1511.0)])
+  @Test(arguments: [(-2000.0, -751.0), (-751.0, -751.0), (-700.0, -700.0), (400.0, 400.0), (3500.0, 1511.0)])
   func logicalRibbonMotionUsesNativeAnchorsOnlyOutsideViewport(x: Double, expected: Double) {
     let logical = Rect(x: x, y: 37, width: 752, height: 902)
     let native = nativeRibbonAnimationFrame(logical,
@@ -1413,6 +1413,8 @@ struct FrameCommitTests {
     #expect(coordinator.animationSupportsIntermediateFrames(
       processIDs: [42, 43], animationDuration: duration, refreshRateHz: 120))
     #expect(coordinator.pending?.writes[selected]?.animatesSize == true)
+    coordinator.predictedProcessLatencyMS = [42: 2, 43: 2]
+    coordinator.recentIntermediateProcessLatencySamplesMS = [:]
     coordinator.submit(writes, source: "command-layout-animation", animationDuration: 0.125,
       refreshRateHz: 120, monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 982),
         Rect(x: 1512, y: 0, width: 1512, height: 982)],

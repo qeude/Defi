@@ -10,7 +10,13 @@ import OSLog
 
 @NavigationActor
 public final class MacOSPlatform {
-  public var experimentalSurfaceRibbonEnabled = false
+  public var experimentalSurfaceRibbonEnabled = false {
+    didSet {
+      if oldValue && !experimentalSurfaceRibbonEnabled {
+        DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.disable() }
+      }
+    }
+  }
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   nonisolated let snapshotEngine: SnapshotEngine
 
