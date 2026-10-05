@@ -187,6 +187,10 @@ final class OverviewSurfaceCapture {
         preparationDeadline?.cancel(); preparationDeadline = nil
         preparation = nil; failedRequests = []
         state = captures.count == desiredRequests.count ? "ready" : "warming"
+        if state == "warming" {
+          // A skipped request may have become desired again while another was capturing.
+          prepare(desiredRequests, enabled: true)
+        }
       } catch {
         guard generation == token else { return }
         preparationDeadline?.cancel(); preparationDeadline = nil

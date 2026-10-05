@@ -616,6 +616,21 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.allSatisfy { !$0.isVisible })
     XCTAssertEqual(destination.frame, originalFrame)
     controller.prepare(windowPreviewsEnabled: false)
+    controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false)
+    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.isEmpty)
+    controller.update(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false,
+      experimentalSurfaceTransitions: false, experimentalRibbonRepresentations: true)
+    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.contains { $0.windowID == windowID },
+      "Enabling representations in an open Overview must prepare the current native context")
+    for _ in 0..<80 where controller.surfaceCaptureState != "ready" {
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTAssertEqual(controller.surfaceCaptureState, "ready")
+    controller.update(snapshot: snapshot, layout: surfaceLayout,
+      experimentalSurfaceTransitions: false, experimentalRibbonRepresentations: false)
+    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.isEmpty)
+    controller.close()
+    controller.prepare(windowPreviewsEnabled: false)
     XCTAssertEqual(controller.surfaceStreamCount, 0)
   }
 

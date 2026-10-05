@@ -573,6 +573,8 @@ public final class OverviewController: NSObject {
     experimentalRibbonRepresentations: Bool? = nil
   ) {
     guard isOpen else { return }
+    let previousSurfaceTransitionsEnabled = surfaceTransitionsEnabled
+    let previousRibbonRepresentationsEnabled = ribbonRepresentationsEnabled
     if let experimentalSurfaceTransitions {
       surfaceTransitionsEnabled = experimentalSurfaceTransitions
         && (windowPreviewsEnabled ?? self.windowPreviewsEnabled)
@@ -609,6 +611,12 @@ public final class OverviewController: NSObject {
     animationsEnabled = animation.enabled
     overviewZoom = ribbonPrototype ? 1 : zoom
     self.windowCornerRadius = windowCornerRadius
+    ribbonCornerRadius = windowCornerRadius
+    if previousSurfaceTransitionsEnabled != surfaceTransitionsEnabled
+      || previousRibbonRepresentationsEnabled != ribbonRepresentationsEnabled {
+      surfaceCapture.prepare(surfaceRequests(snapshot: snapshot, layout: layout, zoom: zoom),
+        enabled: surfaceTransitionsEnabled || ribbonRepresentationsEnabled)
+    }
     var movedSelectionPositions: (
       previous: OverviewTiledPosition,
       next: OverviewTiledPosition
