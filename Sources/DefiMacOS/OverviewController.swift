@@ -189,6 +189,7 @@ public final class OverviewController: NSObject {
   public var surfaceEstimatedPoolBytes: Int { surfaceCapture.estimatedPoolBytes }
   private var idlePreparationEnabled = true
   private var isUnderMemoryPressure = false
+  private var surfacePreparationPending = false
   private var previewTask: Task<Void, Never>?
   private var desktopCaptureRetryTask: Task<Void, Never>?
   private var previewCache: [WindowID: NSImage] = [:]
@@ -303,6 +304,7 @@ public final class OverviewController: NSObject {
   func handleMemoryPressure(_ events: DispatchSource.MemoryPressureEvent) {
     if events.contains(.critical) || events.contains(.warning) {
       isUnderMemoryPressure = true
+      surfacePreparationPending = true
       idlePreviewTask?.cancel()
       idlePreviewTask = nil
       idlePreviewAttempted = []
@@ -406,6 +408,7 @@ public final class OverviewController: NSObject {
     if !preparesSurfaces { ExperimentalRibbonRenderer.shared.disable() }
     let requests = snapshot.map { surfaceRequests(snapshot: $0, layout: layout, zoom: zoom) } ?? []
     surfaceCapture.prepare(requests, enabled: preparesSurfaces)
+    surfacePreparationPending = false
     if surfaceTransitionsEnabled, let snapshot {
       prepareIdlePreviews(snapshot: snapshot, layout: layout, zoom: zoom)
     } else {
@@ -614,6 +617,10 @@ public final class OverviewController: NSObject {
     ribbonCornerRadius = windowCornerRadius
     if previousSurfaceTransitionsEnabled != surfaceTransitionsEnabled
       || previousRibbonRepresentationsEnabled != ribbonRepresentationsEnabled {
+      surfacePreparationPending = true
+    }
+    if surfacePreparationPending, !isUnderMemoryPressure {
+      surfacePreparationPending = false
       surfaceCapture.prepare(surfaceRequests(snapshot: snapshot, layout: layout, zoom: zoom),
         enabled: surfaceTransitionsEnabled || ribbonRepresentationsEnabled)
     }

@@ -8,6 +8,23 @@ import ScreenCaptureKit
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @MainActor @Test func liveExperimentChangesWaitForMemoryPressureRecovery() {
+    let controller = OverviewController(focusWindow: { _, _, _, _ in },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
+    let snapshot = OverviewSnapshot(monitors: [], monitorFrames: [:], windows: [:])
+    controller.open(snapshot: snapshot, layout: LayoutSettings(), windowPreviewsEnabled: false)
+    defer { controller.close(); controller.prepare(windowPreviewsEnabled: false) }
+    controller.handleMemoryPressure(.warning)
+    controller.update(snapshot: snapshot, layout: LayoutSettings(),
+      experimentalRibbonRepresentations: true)
+    #expect(controller.surfaceCaptureState == "pressure")
+    #expect(ExperimentalRibbonRenderer.shared.requests.isEmpty)
+    controller.handleMemoryPressure(.normal)
+    controller.update(snapshot: snapshot, layout: LayoutSettings())
+    #expect(controller.surfaceCaptureState != "pressure", "Recovery must consume the pending preparation with unchanged settings")
+  }
+
   @MainActor @Test func pressureRecoveryRequestsPreloadingWithoutAnotherOpening() {
     var preparations = 0
     let controller = OverviewController(focusWindow: { _, _, _, _ in },
