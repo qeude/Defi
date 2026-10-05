@@ -119,6 +119,7 @@ final class Daemon {
   var cheatsheetHoldTask: Task<Void, Never>?
   nonisolated let hotKeyGeneration = Mutex<UInt64>(0)
   var overviewEditedMonitorIDs: Set<MonitorID> = []
+  var overviewFloatingFrameWriteIDs: Set<WindowID> = []
   var overviewExitPreparationActive = false
   var overviewOpenedAt: TimeInterval?
   nonisolated let menuBar: MenuBarState

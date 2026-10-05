@@ -265,7 +265,10 @@ extension Daemon {
         NavigationActor.enqueue { [self] in
           overviewExitPreparationActive = false
           overviewState.isOpen = isOpen
-          if isOpen { overviewEditedMonitorIDs.removeAll() }
+          if isOpen {
+            overviewEditedMonitorIDs.removeAll()
+            overviewFloatingFrameWriteIDs.removeAll()
+          }
           overviewState.usesWorkspaceParking = parksWindows
           overviewOpenedAt = isOpen ? timestamp : nil
           platform.setOverviewPresentationActive(isOpen)
@@ -273,9 +276,13 @@ extension Daemon {
             applyCurrentLayout(monitorIDs: parksWindows ? nil : overviewEditedMonitorIDs,
               asynchronousPositions: true, updateVisibility: true,
               positionTimeoutSeconds: 0.05, stagesVisibleBeforeParking: !isOpen,
+              forcingFloatingFrameWritesFor: overviewFloatingFrameWriteIDs,
               source: isOpen ? "overview-park" : "overview-restore")
           }
-          if !isOpen { overviewEditedMonitorIDs.removeAll() }
+          if !isOpen {
+            overviewEditedMonitorIDs.removeAll()
+            overviewFloatingFrameWriteIDs.removeAll()
+          }
         }
       },
       presentationChanged: { [weak self] in self?.publishOverviewState() },
@@ -314,6 +321,7 @@ extension Daemon {
         viewports: viewportsByMonitor, state: &state)
       overviewEditedMonitorIDs.insert(intent.sourceMonitorID)
       floatingWindowFrames.merge(floatingUpdates) { _, new in new }
+      overviewFloatingFrameWriteIDs.formUnion(floatingUpdates.keys)
       platform.recordPerformanceTrace("overview-layout window=\(intent.windowID.rawValue) command=\(command)")
       commandGeneration &+= 1
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
@@ -525,6 +533,7 @@ extension Daemon {
         return overviewToggleState.isCurrentSession(overviewGeneration)
           && commandGeneration == generation && state.selectedWindowID(on: monitorID) == selectedWindowID
       },
+      forcingFloatingFrameWritesFor: overviewFloatingFrameWriteIDs,
       source: "overview-exit-prepare")
     persistTopology()
     updateMenuBar()
