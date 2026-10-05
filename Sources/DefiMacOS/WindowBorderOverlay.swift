@@ -41,6 +41,15 @@ final class BorderOverlay {
       })
   }
 
+  var ownedSurfaceWindowID: WindowID? {
+    for segment in segments.values {
+      guard let frame = segment.frame, frame.width > 0, frame.height > 0,
+        segment.windowNumber > 0 else { continue }
+      return WindowID(rawValue: UInt64(segment.windowNumber))
+    }
+    return nil
+  }
+
   init(windowID: WindowID) {
     let targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(

@@ -82,7 +82,14 @@ final class SnapshotEngine: @unchecked Sendable {
   }
 
   func invalidateWindowSnapshot() {
-    read { $0.windowSnapshotObservationGeneration &+= 1 }
+    read {
+      $0.windowSnapshotObservationGeneration &+= 1
+      $0.preparedWindowReadRevisions.invalidate(processID: nil)
+    }
+  }
+
+  var preparedWindowReadRevisions: PreparedWindowReadRevisions {
+    read { $0.preparedWindowReadRevisions }
   }
 
   var pendingObservations: SnapshotObservations {
@@ -98,6 +105,14 @@ final class SnapshotEngine: @unchecked Sendable {
   ) {
     read {
       $0.windowSnapshotObservationGeneration &+= 1
+      switch windowSnapshotInvalidation(for: kind, processID: processID) {
+      case .full: $0.preparedWindowReadRevisions.invalidate(processID: nil)
+      case .process(let processID): $0.preparedWindowReadRevisions.invalidate(processID: processID)
+      case .none:
+        if let processID {
+          $0.preparedWindowReadRevisions.invalidate(processID: processID)
+        }
+      }
       if kind == .windowCreated, let processID, let createdElement {
         $0.pendingObservations.createdElements[processID, default: []].append(createdElement)
       }
@@ -139,13 +154,18 @@ final class SnapshotEngine: @unchecked Sendable {
         }
         if let windowID {
           $0.pendingObservations.frameWindowIDs.insert(windowID)
+        } else {
+          $0.pendingObservations.frameIncludesUnscopedRefresh = true
         }
       }
     }
   }
 
   func invalidateAccessibilitySession() {
-    read { $0.accessibilitySessionResetPending = true }
+    read {
+      $0.accessibilitySessionResetPending = true
+      $0.preparedWindowReadRevisions.invalidate(processID: nil)
+    }
   }
 
   func consumeObservations() -> SnapshotObservations {
@@ -180,12 +200,27 @@ final class SnapshotEngine: @unchecked Sendable {
     invalidatesPreparedObservations: Bool = true
   ) {
     read {
+      let knownProcessIDs = $0.processIDs
       if invalidatesPreparedObservations {
         $0.windowSnapshotObservationGeneration &+= 1
+        let affectedProcesses = processIDs.union(windowIDs.compactMap { knownProcessIDs[$0] })
+        if requiresFullSnapshot || affectedProcesses.isEmpty
+          || !windowIDs.isSubset(of: Set(knownProcessIDs.keys))
+        {
+          $0.preparedWindowReadRevisions.invalidate(processID: nil)
+        } else {
+          for processID in affectedProcesses {
+            $0.preparedWindowReadRevisions.invalidate(processID: processID)
+          }
+        }
       }
       $0.pendingObservations.framePending = true
       $0.pendingObservations.frameWindowIDs.formUnion(windowIDs)
       $0.pendingObservations.frameProcessIDs.formUnion(processIDs)
+      let scopedProcessIDs = Set(windowIDs.compactMap { knownProcessIDs[$0] })
+      $0.pendingObservations.frameIncludesUnscopedRefresh =
+        $0.pendingObservations.frameIncludesUnscopedRefresh
+          || windowIDs.isEmpty || !processIDs.isSubset(of: scopedProcessIDs)
       $0.pendingObservations.frameRequiresFullSnapshot =
         $0.pendingObservations.frameRequiresFullSnapshot || requiresFullSnapshot
     }
@@ -435,6 +470,10 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.targetFrames = newValue } }
   }
 
+  func recordObservedFrame(_ frame: Rect?, for windowID: WindowID) {
+    read { $0.latestObservedFrames[windowID] = frame }
+  }
+
   var latestObservedFrames: [WindowID: Rect] {
     get { read { $0.latestObservedFrames } }
     set { read { $0.latestObservedFrames = newValue } }
@@ -464,7 +503,12 @@ final class SnapshotEngine: @unchecked Sendable {
 
   var windowSnapshotObservationGeneration: UInt64 {
     get { read { $0.windowSnapshotObservationGeneration } }
-    set { read { $0.windowSnapshotObservationGeneration = newValue } }
+    set {
+      read {
+        $0.windowSnapshotObservationGeneration = newValue
+        $0.preparedWindowReadRevisions.invalidate(processID: nil)
+      }
+    }
   }
 
   // MARK: window inventory
@@ -968,7 +1012,9 @@ extension SnapshotEngine {
     if !readFocusedProcessID && nativeFocusEventPending
       && verifiedNativeFocusProcessID != resolvedProcessID
     { return nil }
-    if requiresConfirmedWindow && focusedProcessID != resolvedProcessID
+    // A missing system-wide AX answer can still be confirmed by a fresh
+    // focused-window read from the frontmost app; a conflicting answer cannot.
+    if requiresConfirmedWindow && readFocusedProcessID && focusedProcessID != resolvedProcessID
       && verifiedNativeFocusProcessID != resolvedProcessID
     { return nil }
     let focusedApplicationElement: AXUIElement =
@@ -1287,6 +1333,7 @@ private struct Storage {
   var cgWindowDiscoveryDiagnostics: [CGWindowDiscoveryDiagnostic] = []
   var cgWindowDiscoveryTraceSignatures: [CGWindowDiscoveryIdentity: String] = [:]
   var windowSnapshotObservationGeneration: UInt64 = 0
+  var preparedWindowReadRevisions = PreparedWindowReadRevisions()
   var deferredFrameCommitMismatchCount = 0
   var observedFrameCommitCount = 0
   var maximumObservedFrameCommitLatencyMS = 0.0
@@ -1314,6 +1361,26 @@ private struct Storage {
   var lastUnconfirmedActivationTimestamp: TimeInterval?
 }
 
+/// Versions prepared AX reads without weakening the global CG inventory revision.
+struct PreparedWindowReadRevisions: Sendable {
+  var global: UInt64 = 0
+  var processes: [pid_t: UInt64] = [:]
+
+  mutating func invalidate(processID: pid_t?) {
+    if let processID {
+      processes[processID, default: 0] &+= 1
+    } else {
+      global &+= 1
+      processes.removeAll(keepingCapacity: true)
+    }
+  }
+
+  func invalidatedProcessIDs(since captured: Self, candidates: Set<pid_t>) -> Set<pid_t> {
+    guard global == captured.global else { return candidates }
+    return candidates.filter { processes[$0] != captured.processes[$0] }
+  }
+}
+
 /// A discovery cutoff. Observations recorded after consumption belong to the next pass.
 // AX handles identify remote objects; only the serial snapshot queue reads their attributes.
 struct SnapshotObservations: Equatable, @unchecked Sendable {
@@ -1326,6 +1393,7 @@ struct SnapshotObservations: Equatable, @unchecked Sendable {
   var frameProcessIDs = Set<pid_t>()
   var frameWindowIDs = Set<WindowID>()
   var frameRequiresFullSnapshot = false
+  var frameIncludesUnscopedRefresh = false
   var destroyedWindowIDs = Set<WindowID>()
 }
 

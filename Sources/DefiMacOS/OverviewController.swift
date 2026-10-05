@@ -44,6 +44,14 @@ func overviewUsesWorkspaceParking(
   !windowPreviewsEnabled || !screenCaptureAccessGranted
 }
 
+func overviewShouldRequestCapturePermission(
+  screenCaptureAccessGranted: Bool,
+  ribbonPrototype: Bool,
+  hasRequestedPermission: Bool
+) -> Bool {
+  !screenCaptureAccessGranted && !ribbonPrototype && !hasRequestedPermission
+}
+
 func overviewViewportAfterScroll(
   _ viewport: OverviewViewport,
   delta: NSPoint,
@@ -220,6 +228,8 @@ public final class OverviewController: NSObject {
   public var scrollOffsets: [MonitorID: [WorkspaceID: Double]] { viewports.mapValues(\.horizontalOffsets) }
   private var nativeExitCanZoom = true
   public private(set) var isOpen = false
+  private var ribbonPrototype = false
+  public var usesRibbonPrototype: Bool { ribbonPrototype }
   public private(set) var usesWorkspaceParking = false
   public var panelCount: Int { isOpen ? panels.count : 0 }
   public var retainedPanelCount: Int { panels.count }
@@ -332,19 +342,23 @@ public final class OverviewController: NSObject {
     zoom: Double = 0.5,
     windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool = false,
-    experimentalSurfaceTransitions: Bool = false
+    experimentalSurfaceTransitions: Bool = false,
+    ribbonPrototype: Bool = false
   ) {
     if isOpen {
       close()
     } else {
+      // Explicit renderer experiment: never request a new capture permission.
+      guard !ribbonPrototype || CGPreflightScreenCaptureAccess() else { return }
+      self.ribbonPrototype = ribbonPrototype
       open(
         snapshot: snapshot,
         layout: layout,
         borders: borders,
         animation: animation,
-        zoom: zoom,
+        zoom: ribbonPrototype ? 1 : zoom,
         windowCornerRadius: windowCornerRadius,
-        windowPreviewsEnabled: windowPreviewsEnabled,
+        windowPreviewsEnabled: ribbonPrototype || windowPreviewsEnabled,
         experimentalSurfaceTransitions: experimentalSurfaceTransitions
       )
     }
@@ -428,7 +442,7 @@ public final class OverviewController: NSObject {
     previewCacheExpiry?.cancel()
     previewCacheExpiry = nil
     animationsEnabled = animation.enabled
-    overviewZoom = zoom
+    overviewZoom = ribbonPrototype ? 1 : zoom
     self.windowCornerRadius = windowCornerRadius
     self.windowPreviewsEnabled = windowPreviewsEnabled
     surfaceTransitionsEnabled = experimentalSurfaceTransitions && windowPreviewsEnabled
@@ -437,6 +451,9 @@ public final class OverviewController: NSObject {
       screenCaptureAccessGranted: CGPreflightScreenCaptureAccess()
     )
     preparePanels(monitorIDs: Set(snapshot.monitors.map(\.id)))
+    for panel in panels.values {
+      panel.window.title = ribbonPrototype ? "Defi Ribbon Prototype" : "Defi Overview"
+    }
     previewTask?.cancel()
     previewTask = nil
     cancelDesktopCaptureRetry()
@@ -544,6 +561,7 @@ public final class OverviewController: NSObject {
     guard isOpen else { return }
     let previousSnapshot = self.snapshot
     let previousProjections = projections
+    let windowPreviewsEnabled = ribbonPrototype ? true : windowPreviewsEnabled
     if let windowPreviewsEnabled,
       self.windowPreviewsEnabled != windowPreviewsEnabled
     {
@@ -568,13 +586,13 @@ public final class OverviewController: NSObject {
     self.layout = layout
     borderStyle = WindowBorderStyle(config: borders)
     animationsEnabled = animation.enabled
-    overviewZoom = zoom
+    overviewZoom = ribbonPrototype ? 1 : zoom
     self.windowCornerRadius = windowCornerRadius
     var movedSelectionPositions: (
       previous: OverviewTiledPosition,
       next: OverviewTiledPosition
     )?
-    if drag == nil, !hasDeferredSelection || selection?.isValid(in: snapshot) != true {
+    if drag == nil && !ribbonPrototype, !hasDeferredSelection || selection?.isValid(in: snapshot) != true {
       hasDeferredSelection = false
       let focusedSelection = initialSelection(in: snapshot)
       if focusedSelection != selection {
@@ -731,7 +749,7 @@ public final class OverviewController: NSObject {
     if hasDeferredSelection, !selectionCommitPending {
       chooseSelection()
     } else {
-      close(commitScrollOffsets: true)
+      close(commitScrollOffsets: !ribbonPrototype)
     }
   }
 
@@ -756,6 +774,7 @@ public final class OverviewController: NSObject {
     isOpen = false
     hasDeferredSelection = false
     selectionCommitPending = false
+    ribbonPrototype = false
     previewCacheExpiry?.cancel()
     let expiry = DispatchWorkItem { [weak self] in
       MainActor.assumeIsolated {
@@ -822,6 +841,16 @@ public final class OverviewController: NSObject {
 
   public func handleKey(_ action: OverviewKeyAction) {
     guard isOpen else { return }
+    if ribbonPrototype {
+      if action == .cancel { close(); return }
+      guard action == .left || action == .right, let snapshot,
+        let monitor = snapshot.monitors.first(where: { $0.id == snapshot.activeMonitorID }) ?? snapshot.monitors.first,
+        let panel = panels[monitor.id]
+      else { return }
+      overviewView(panel.view, pageWorkspace: monitor.activeWorkspace,
+                   direction: action == .left ? -1 : 1)
+      return
+    }
     switch action {
     case .cancel:
       close()
@@ -1276,11 +1305,20 @@ public final class OverviewController: NSObject {
       return
     }
     let permissionGranted: Bool
-    if CGPreflightScreenCaptureAccess() {
+    let screenCaptureAccessGranted = CGPreflightScreenCaptureAccess()
+    if screenCaptureAccessGranted {
       permissionGranted = true
-    } else if hasRequestedPreviewPermission {
-      permissionGranted = false
     } else {
+      guard overviewShouldRequestCapturePermission(
+        screenCaptureAccessGranted: screenCaptureAccessGranted,
+        ribbonPrototype: ribbonPrototype,
+        hasRequestedPermission: hasRequestedPreviewPermission
+      ) else {
+        permissionGranted = false
+        previewPermissionState = .denied
+        finishPreviewBatch(generation: generation)
+        return
+      }
       hasRequestedPreviewPermission = true
       permissionGranted = await Task.detached(priority: .userInitiated) {
         CGRequestScreenCaptureAccess()
@@ -1807,6 +1845,7 @@ extension OverviewController: OverviewViewDelegate {
     _ view: OverviewView,
     clickedAt point: NSPoint
   ) {
+    guard !ribbonPrototype else { return }
     guard let projection = projections[view.monitorID],
       let hit = projection.hitTest(OverviewPoint(x: point.x, y: point.y)),
       let snapshot
@@ -1828,6 +1867,7 @@ extension OverviewController: OverviewViewDelegate {
     beganDragging windowID: WindowID,
     at screenPoint: NSPoint
   ) {
+    guard !ribbonPrototype else { return }
     guard let snapshot,
       let window = snapshot.windows[windowID],
       let location = snapshot.location(of: windowID),

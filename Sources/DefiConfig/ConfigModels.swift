@@ -139,7 +139,7 @@ public struct AnimationConfig: Codable, Equatable, Sendable {
   public var durationMS: Int
   public var experimentalWindowRepresentations: Bool
 
-  public init(enabled: Bool = true, durationMS: Int = 35,
+  public init(enabled: Bool = true, durationMS: Int = 125,
     experimentalWindowRepresentations: Bool = false) {
     self.enabled = enabled
     self.durationMS = durationMS

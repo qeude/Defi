@@ -49,8 +49,8 @@ final class WindowBorderManager {
 
   var ownedSurfaceWindowID: WindowID? {
     for overlay in overlays.values {
-      if let windowID = overlay.windowIDs.first {
-        return WindowID(rawValue: UInt64(windowID))
+      if let windowID = overlay.ownedSurfaceWindowID {
+        return windowID
       }
     }
     return nil

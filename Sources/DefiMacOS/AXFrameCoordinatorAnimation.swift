@@ -10,22 +10,33 @@ import Synchronization
 private struct AnimationClockState: Sendable {
   var timeline: FrameAnimationClock
   var frames = 0
+  var submittedIntermediateSteps = 0
   var previousDispatchAt: TimeInterval?
   var maximumDispatchGapMS = 0.0
   var maximumLatenessMS = 0.0
   var maximumSubmissionMS = 0.0
   var coalescedLaneCount = 0
-  var finalizedProcessIDs: Set<pid_t> = []
   var finished = false
+  var busyLanePulses = 0
 }
 
 extension AXFrameCoordinator {
   func animate(
     _ frame: QueuedPositionFrame
   ) -> (applied: Int, stale: Int, frames: Int) {
+    let preparationStartedAt = ProcessInfo.processInfo.systemUptime
     let animatedWrites = frame.writes.filter {
       frame.animatedWindowIDs.contains($0.key)
     }
+    var admittedFrame = frame
+    if frame.source == "command-layout-animation",
+      frame.monitorFrames.count == 1, frame.displayIDs.count <= 1
+    {
+      admittedFrame.animationDuration = horizontalAnimationDuration(
+        for: animatedWrites, requested: frame.animationDuration,
+        refreshRateHz: frame.refreshRateHz, allowsSizeChanges: true)
+    }
+    let frame = admittedFrame
     let staticWrites = frame.writes.filter {
       !animatedWrites.keys.contains($0.key)
     }
@@ -35,11 +46,25 @@ extension AXFrameCoordinator {
       $0.value.isParked && !parkingPreparationIDs.contains($0.key)
     }
     let blockingStaticWrites = staticWrites.filter { !$0.value.isParked }
-    let finalOnlyProcessIDs = finalOnlyAnimationProcessIDs(
+    // Horizontal motion uses live lane readiness at each display pulse. A
+    // historical AX stall must not decimate an entire later ribbon animation.
+    // Vertical transitions and resize keep their all-or-nothing latency budget.
+    let usesLiveMotionCadence = !animatedWrites.isEmpty && animatedWrites.values.allSatisfy {
+      !$0.sizeChanged && $0.fromPoint.y == $0.point.y
+    }
+    let finalOnlyProcessIDs = usesLiveMotionCadence ? [] : finalOnlyAnimationProcessIDs(
       for: animatedWrites,
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz
     )
+    // Never mix a jumping lane with interpolated neighbors, even when latency
+    // changed after the frame was submitted.
+    if !finalOnlyProcessIDs.isEmpty {
+      recordAnimationFallback(frame, reason: "motion-budget-before-staging", details: "pids=\(finalOnlyProcessIDs.sorted())")
+      let result = applyFrame(frame, progress: 1, skippedProcesses: [], stagingReentry: true)
+      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
+      return (result.applied, result.stale, result.frames)
+    }
     let lanePlan = frameAnimationLanePlan(
       animatedWindowIDs: Set(animatedWrites.keys),
       processIDs: animatedWrites.mapValues(\.processID),
@@ -48,7 +73,7 @@ extension AXFrameCoordinator {
           write.isReentering ? windowID : nil
         }
       ),
-      finalOnlyProcessIDs: finalOnlyProcessIDs,
+      finalOnlyProcessIDs: [],
       deferredSizeWindowIDs: Set(
         animatedWrites.compactMap { windowID, write in
           guard asynchronousSizeWriteIsRequired(
@@ -78,9 +103,6 @@ extension AXFrameCoordinator {
     )
     let interpolatedWrites = animatedWrites.filter {
       lanePlan.interpolatedWindowIDs.contains($0.key)
-    }
-    let finalOnlyWrites = animatedWrites.filter {
-      lanePlan.finalOnlyWindowIDs.contains($0.key)
     }
     let deferredSizeWrites = interpolatedWrites.filter {
       lanePlan.deferredSizeWindowIDs.contains($0.key)
@@ -132,21 +154,6 @@ extension AXFrameCoordinator {
       completion: nil,
       cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
     )
-    let finalOnlyFrame = QueuedPositionFrame(
-      generation: frame.generation,
-      source: frame.source,
-      writes: finalOnlyWrites,
-      animatedWindowIDs: lanePlan.finalOnlyWindowIDs,
-      animationDuration: frame.animationDuration,
-      refreshRateHz: frame.refreshRateHz,
-      displayIDs: frame.displayIDs,
-      monitorFrames: frame.monitorFrames,
-      initialProgressVelocity: 0,
-      stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking,
-      successfulWrite: frame.successfulWrite,
-      completion: nil,
-      cursorWarpAfterWindowCommit: frame.cursorWarpAfterWindowCommit
-    )
     var applied = 0
     var stale = 0
     // A superseded native sample can leave an already-logically-offscreen
@@ -188,7 +195,7 @@ extension AXFrameCoordinator {
       )
       for batch in stagingBatches {
         stagingGroup.enter()
-        processWriteQueue(for: batch.processID).async { [self] in
+        enqueueProcessWrite(for: batch.processID) { [self] in
           defer { stagingGroup.leave() }
           let startedAt = ProcessInfo.processInfo.systemUptime
           let result = applyBatch(
@@ -217,38 +224,52 @@ extension AXFrameCoordinator {
       }
     }
 
-    // Reentry is prepared offscreen before any visible neighbor advances.
-    // This coordinator queue is independent of command intake; newer commands
-    // still supersede these writes while a native lane is preparing its anchor.
+    // Entering windows must reach their strip origin before any sibling moves.
     stagingGroup.wait()
+    let stagingResult = stagingAccumulator.result
+    applied += stagingResult.applied
+    stale += stagingResult.stale
+    guard isCurrent(generation: frame.generation) else {
+      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
+      return (applied, stale + animatedWrites.count, 0)
+    }
+    if stagingResult.applied < reentryWrites.values.filter(\.positionChanged).count {
+      recordAnimationFallback(frame, reason: "reentry-staging", details: "applied=\(stagingResult.applied) expected=\(reentryWrites.values.filter(\.positionChanged).count)")
+      let result = applyFrame(frame, progress: 1, skippedProcesses: [])
+      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
+      return (applied + result.applied, stale + result.stale, result.frames)
+    }
     let startedAt = ProcessInfo.processInfo.systemUptime
-    let interval = 1 / frame.refreshRateHz
+    let frameLimit = usesLiveMotionCadence ? nil : intermediateFrameLimits(
+      for: interpolatedWrites,
+      availableFrames: completedFrameSpringSamples(
+        duration: frame.animationDuration, refreshRateHz: frame.refreshRateHz
+      ).count,
+      refreshRateHz: frame.refreshRateHz
+    ).values.min()
+    if let frameLimit, frameLimit < 2 {
+      recordAnimationFallback(frame, reason: "motion-budget-after-staging", details: "limit=\(frameLimit)")
+      let result = applyFrame(frame, progress: 1, skippedProcesses: [])
+      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
+      return (applied + result.applied, stale + result.stale, result.frames)
+    }
     let availableIntermediateSamples = completedFrameSpringSamples(
       duration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz,
-      initialVelocity: frame.initialProgressVelocity
+      initialVelocity: frame.initialProgressVelocity,
+      maximumFrames: frameLimit
     )
+    let interval = frame.animationDuration / Double(availableIntermediateSamples.count)
     let batches = processWriteBatches(
       loopWrites,
       windowIDs: Set(loopWrites.keys)
     )
-    let processQueues = Dictionary(
+    let processQueueLeases = Dictionary(
       uniqueKeysWithValues: batches.map {
-        ($0.processID, processWriteQueue(for: $0.processID))
+        ($0.processID, reserveProcessWriteQueue(for: $0.processID))
       }
     )
-    let finalSubmissionDelayByProcess = Dictionary(
-      uniqueKeysWithValues: batches.map { batch in
-        let writes = Dictionary(uniqueKeysWithValues: batch.writes)
-        return (
-          batch.processID,
-          anticipatedFinalFrameDispatchDelay(
-            animationDuration: frame.animationDuration,
-            predictedFrameLatency: predictedFrameLatency(for: writes)
-          )
-        )
-      }
-    )
+    defer { processQueueLeases.values.forEach { $0.release() } }
     let clockState = Mutex<AnimationClockState>(AnimationClockState(
       timeline: FrameAnimationClock(
         startedAt: startedAt, interval: interval,
@@ -258,49 +279,12 @@ extension AXFrameCoordinator {
     let laneAccumulator = FrameResultAccumulator()
     let finalGroup = DispatchGroup()
 
-    let finalOnlyGroup = DispatchGroup()
-    let finalOnlyResultStore = ConcurrentFrameResultStore()
-    if !finalOnlyWrites.isEmpty {
-      finalOnlyGroup.enter()
-      finalOnlyAnimationQueue.async { [self] in
-        defer { finalOnlyGroup.leave() }
-        let result = applyFrame(
-          finalOnlyFrame,
-          progress: 1,
-          skippedProcesses: [],
-          stagingReentry: !lanePlan.stagedFinalOnlyReentryWindowIDs.isEmpty
-        )
-        finalOnlyResultStore.store(
-          ConcurrentFrameResult(
-            applied: result.applied,
-            stale: result.stale,
-            completionSpreadMS: result.completionSpreadMS,
-            frames: result.frames
-          )
-        )
-      }
-      lock.lock()
-      appendTraceLocked(
-        "final-only-start g=\(frame.generation) processes=\(finalOnlyProcessIDs.count) windows=\(finalOnlyWrites.count) reentry=\(lanePlan.stagedFinalOnlyReentryWindowIDs.count)"
-      )
-      lock.unlock()
-    }
-
     let clockDone = DispatchSemaphore(value: 0)
-    let intervalNanoseconds = max(
-      Int((interval * 1_000_000_000).rounded()),
-      1
-    )
-    let clock = DispatchSource.makeTimerSource(
-      flags: .strict,
-      queue: animationClockQueue
-    )
-    clock.schedule(
-      deadline: .now() + .nanoseconds(intervalNanoseconds),
-      repeating: .nanoseconds(intervalNanoseconds),
-      leeway: .microseconds(100)
-    )
-    clock.setEventHandler { [self] in
+    let clock = FrameAnimationDriver(
+      interval: interval, refreshInterval: 1 / frame.refreshRateHz,
+      displayIDs: frame.displayIDs, queue: animationClockQueue
+    ) { [self, processQueueLeases] driver in
+      withExtendedLifetime(processQueueLeases) {}
       guard isCurrent(generation: frame.generation) else {
         let shouldSignal = clockState.withLock { state in
           guard !state.finished else { return false }
@@ -308,10 +292,16 @@ extension AXFrameCoordinator {
           return true
         }
         if shouldSignal {
-          clock.cancel()
+          driver.stop()
           clockDone.signal()
         }
-        return
+        return false
+      }
+      // Backpressure pauses progress, not just writes. Consuming a spring
+      // sample while a lane is busy makes its next accepted position jump.
+      guard animationLanesAreReady(processIDs: batches.map(\.processID)) else {
+        clockState.withLock { $0.busyLanePulses += 1 }
+        return false
       }
       let now = ProcessInfo.processInfo.systemUptime
       let tick = clockState.withLock { state in
@@ -329,30 +319,15 @@ extension AXFrameCoordinator {
           return true
         }
         if shouldSignal {
-          clock.cancel()
+          driver.stop()
           clockDone.signal()
         }
-        return
+        return false
       }
       let springSample = availableIntermediateSamples[tick.index]
-      let elapsed = tick.elapsed
-      let (finalBatches, finalizedProcessIDs) = clockState.withLock { state in
-        let due = batches.filter {
-          !state.finalizedProcessIDs.contains($0.processID)
-            && elapsed >= (finalSubmissionDelayByProcess[$0.processID] ?? .infinity)
-        }
-        state.finalizedProcessIDs.formUnion(due.map(\.processID))
-        return (due, state.finalizedProcessIDs)
-      }
-      let intermediateBatches = batches.filter { batch in
-        !finalizedProcessIDs.contains(batch.processID)
-      }
       let submissionStartedAt = ProcessInfo.processInfo.systemUptime
-      for _ in finalBatches {
-        finalGroup.enter()
-      }
-      let coalesced = submitAnimationSamples(
-        intermediateBatches.map { batch in
+      let submission = submitAnimationSamples(
+        batches.map { batch in
           ProcessAnimationSample(
             frame: animatedFrame,
             batch: batch,
@@ -362,26 +337,15 @@ extension AXFrameCoordinator {
             stagingReentry: false,
             recordFinalSuccess: false,
             accumulator: laneAccumulator,
-            completion: nil
+            completion: nil,
+            laneReady: { [weak driver] in driver?.requestTick(afterLaneCompletion: true) }
           )
-        } + finalBatches.map { batch in
-          ProcessAnimationSample(
-            frame: animatedFrame,
-            batch: batch,
-            progress: 1,
-            progressVelocity: 0,
-            intermediate: false,
-            stagingReentry: false,
-            recordFinalSuccess: true,
-            accumulator: laneAccumulator,
-            completion: { finalGroup.leave() }
-          )
-        },
-        processQueues: processQueues
+        }
       )
       let dispatchedAt = ProcessInfo.processInfo.systemUptime
       clockState.withLock { state in
-        state.coalescedLaneCount += coalesced
+        state.coalescedLaneCount += submission.coalesced
+        if submission.submittedIntermediate { state.submittedIntermediateSteps += 1 }
         state.maximumSubmissionMS = max(
           state.maximumSubmissionMS,
           (dispatchedAt - submissionStartedAt) * 1_000
@@ -395,17 +359,22 @@ extension AXFrameCoordinator {
         state.previousDispatchAt = dispatchedAt
         state.frames += 1
       }
+      if tick.index == availableIntermediateSamples.count - 1 {
+        clockState.withLock { $0.finished = true }
+        driver.stop()
+        clockDone.signal()
+      }
+      return submission.submittedIntermediate
     }
-    clock.resume()
+    defer { clock.stop() }
     // The clock runs independently of AX lanes. Scheduler delay extends the
     // motion; it must not force an abrupt final frame. Supersession stops it
     // on the next tick without waiting for slow applications.
     clockDone.wait()
     animationClockQueue.sync {}
-    let stagingResult = stagingAccumulator.result
-    applied += stagingResult.applied
-    stale += stagingResult.stale
+    animationLaneWriteGroup.wait()
     let clockMetrics = clockState.withLock { $0 }
+    recordTrace("clock g=\(frame.generation) \(clock.diagnosticSummary) busyPulses=\(clockMetrics.busyLanePulses) laneMs=\(String(format: "%.2f", laneAccumulator.maximumIntermediateLatencyMS))")
     let frames = clockMetrics.frames
     let maximumDispatchGapMS = clockMetrics.maximumDispatchGapMS
     let maximumDisplayWaitMS = clockMetrics.maximumLatenessMS
@@ -414,11 +383,12 @@ extension AXFrameCoordinator {
 
     guard isCurrent(generation: frame.generation) else {
       animationLaneWriteGroup.wait()
-      finalOnlyGroup.wait()
       let laneResult = laneAccumulator.result
       recordAnimationCadence(
         generation: frame.generation,
         frames: frames,
+        submittedIntermediateSteps: clockMetrics.submittedIntermediateSteps,
+        appliedIntermediateWrites: laneResult.intermediateApplied,
         maximumDispatchGapMS: maximumDispatchGapMS,
         maximumDisplayWaitMS: maximumDisplayWaitMS,
         maximumSubmissionMS: maximumSubmissionMS,
@@ -434,14 +404,7 @@ extension AXFrameCoordinator {
         frames
       )
     }
-    let remainingBatches = clockState.withLock { state in
-      let remaining = batches.filter {
-        !state.finalizedProcessIDs.contains($0.processID)
-      }
-      state.finalizedProcessIDs.formUnion(remaining.map(\.processID))
-      return remaining
-    }
-    let finalSamples = remainingBatches.map { batch in
+    let finalSamples = batches.map { batch in
       finalGroup.enter()
       return ProcessAnimationSample(
         frame: animatedFrame,
@@ -455,10 +418,7 @@ extension AXFrameCoordinator {
         completion: { finalGroup.leave() }
       )
     }
-    _ = submitAnimationSamples(
-      finalSamples,
-      processQueues: processQueues
-    )
+    _ = submitAnimationSamples(finalSamples)
     finalGroup.wait()
     let laneResult = laneAccumulator.result
     applied += laneResult.applied
@@ -482,20 +442,11 @@ extension AXFrameCoordinator {
       lock.unlock()
       publishCompletedBorderGeometry(deferredSizeWrites)
     }
-    finalOnlyGroup.wait()
-    let finalOnlyResult = finalOnlyResultStore.result
-    if let finalOnlyResult {
-      applied += finalOnlyResult.applied
-      stale += finalOnlyResult.stale
-      lock.lock()
-      appendTraceLocked(
-        "final-only-complete g=\(frame.generation) applied=\(finalOnlyResult.applied) spread=\(String(format: "%.2f", finalOnlyResult.completionSpreadMS)) reentry=\(lanePlan.stagedFinalOnlyReentryWindowIDs.count)"
-      )
-      lock.unlock()
-    }
     recordAnimationCadence(
       generation: frame.generation,
       frames: frames + (batches.isEmpty ? 0 : 1),
+      submittedIntermediateSteps: clockMetrics.submittedIntermediateSteps,
+      appliedIntermediateWrites: laneResult.intermediateApplied,
       maximumDispatchGapMS: maximumDispatchGapMS,
       maximumDisplayWaitMS: maximumDisplayWaitMS,
       maximumSubmissionMS: maximumSubmissionMS,
@@ -539,13 +490,21 @@ extension AXFrameCoordinator {
     return (
       applied,
       stale,
-      max(interpolatedFrameCount, finalOnlyResult?.frames ?? 0)
+      interpolatedFrameCount
     )
+  }
+
+  func recordAnimationFallback(_ frame: QueuedPositionFrame, reason: String, details: String) {
+    lock.lock()
+    appendTraceLocked("animation-fallback g=\(frame.generation) reason=\(reason) \(details)")
+    lock.unlock()
   }
 
   func recordAnimationCadence(
     generation: UInt64,
     frames: Int,
+    submittedIntermediateSteps: Int,
+    appliedIntermediateWrites: Int,
     maximumDispatchGapMS: Double,
     maximumDisplayWaitMS: Double,
     maximumSubmissionMS: Double,
@@ -553,7 +512,7 @@ extension AXFrameCoordinator {
   ) {
     lock.lock()
     appendTraceLocked(
-      "cadence g=\(generation) frames=\(frames) maxGapMs=\(String(format: "%.2f", maximumDispatchGapMS)) waitMs=\(String(format: "%.2f", maximumDisplayWaitMS)) submitMs=\(String(format: "%.2f", maximumSubmissionMS)) coalesced=\(coalescedLaneCount)"
+      "cadence g=\(generation) frames=\(frames) submittedSteps=\(submittedIntermediateSteps) appliedIntermediateWrites=\(appliedIntermediateWrites) maxGapMs=\(String(format: "%.2f", maximumDispatchGapMS)) waitMs=\(String(format: "%.2f", maximumDisplayWaitMS)) submitMs=\(String(format: "%.2f", maximumSubmissionMS)) coalesced=\(coalescedLaneCount)"
     )
     lock.unlock()
   }

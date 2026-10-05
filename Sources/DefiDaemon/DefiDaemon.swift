@@ -7,6 +7,7 @@ import DefiModel
 import DefiRuntime
 import Foundation
 import OSLog
+import Synchronization
 
 let performanceLogger = Logger(
   subsystem: "com.quentin.defi",
@@ -100,6 +101,7 @@ final class Daemon {
   let readResponseCache = DaemonReadResponseCache()
   var focus = FocusState()
   var state: RuntimeState
+  let overviewToggleState = OverviewToggleState()
   let topologySaveQueue = DispatchQueue(
     label: "com.quentin.defi.topology",
     qos: .utility
@@ -115,7 +117,7 @@ final class Daemon {
   var cheatsheetState = CheatsheetState()
   @MainActor var cheatsheetController: CheatsheetController?
   var cheatsheetHoldTask: Task<Void, Never>?
-  var hotKeyGeneration: UInt64 = 0
+  nonisolated let hotKeyGeneration = Mutex<UInt64>(0)
   var overviewExitPreparationActive = false
   var overviewOpenedAt: TimeInterval?
   nonisolated let menuBar: MenuBarState

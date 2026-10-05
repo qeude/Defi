@@ -3,6 +3,7 @@ import CoreFoundation
 import Darwin
 import DefiCore
 import DefiModel
+import Synchronization
 
 func normalizedWindowBorderFrame(_ bounds: CGRect) -> Rect? {
   guard bounds.origin.x.isFinite,
@@ -57,7 +58,9 @@ func windowBorderFrameSnapshot(
   )
 }
 
-final class WindowServerBoundsProvider {
+// Bounds reads share a locked state across frame lanes and presentation.
+// Constraints remain main-actor isolated; library handles/symbols are immutable.
+final class WindowServerBoundsProvider: @unchecked Sendable {
   private typealias MainConnectionIDFunc = @convention(c) () -> Int32
   private typealias GetWindowBoundsFunc =
     @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGRect>) -> Int32
@@ -85,33 +88,42 @@ final class WindowServerBoundsProvider {
   private let iteratorAdvance: IteratorAdvanceFunc?
   private let iteratorWindowID: IteratorWindowIDFunc?
   private let iteratorConstraints: IteratorConstraintsFunc?
-  private(set) var successfulLookupCount = 0
-  private(set) var failureCount = 0
-  private(set) var successfulConstraintLookupCount = 0
-  private(set) var constraintFallbackCount = 0
-  private var disabled = false
-  private var probeSucceeded = false
-  private var constraintProbeSucceeded = false
-  private var constraintsDisabled = false
+  private struct BoundsState {
+    var successfulLookupCount = 0
+    var failureCount = 0
+    var disabled = false
+    var probeSucceeded = false
+  }
+  private let boundsState = Mutex(BoundsState())
+  private let boundsReader: (@Sendable (UInt32) -> CGRect?)?
+  var successfulLookupCount: Int { boundsState.withLock { $0.successfulLookupCount } }
+  var failureCount: Int { boundsState.withLock { $0.failureCount } }
+  @MainActor private(set) var successfulConstraintLookupCount = 0
+  @MainActor private(set) var constraintFallbackCount = 0
+  @MainActor private var constraintProbeSucceeded = false
+  @MainActor private var constraintsDisabled = false
 
+  @MainActor
   func probe(ownedWindowID: WindowID) {
     guard let rawWindowID = UInt32(exactly: ownedWindowID.rawValue) else {
-      disabled = true
+      boundsState.withLock { $0.disabled = true; $0.failureCount += 1 }
       constraintsDisabled = true
-      failureCount += 1
       constraintFallbackCount += 1
       return
     }
-    if !probeSucceeded, !disabled {
-      var bounds = CGRect.zero
-      if let mainConnectionID, let getWindowBounds,
-        getWindowBounds(mainConnectionID(), rawWindowID, &bounds) == 0,
+    boundsState.withLock { state in
+      guard !state.probeSucceeded, !state.disabled else { return }
+      let bounds = readBounds(rawWindowID)
+      // AppKit allocates IDs before committing an owned panel's geometry.
+      // An empty surface is not evidence that the optional API is unavailable.
+      if let bounds, bounds.width == 0 || bounds.height == 0 { return }
+      if let bounds,
         normalizedWindowBorderFrame(bounds) != nil
       {
-        probeSucceeded = true
+        state.probeSucceeded = true
       } else {
-        disabled = true
-        failureCount += 1
+        state.disabled = true
+        state.failureCount += 1
       }
     }
     if !constraintProbeSucceeded, !constraintsDisabled {
@@ -124,7 +136,8 @@ final class WindowServerBoundsProvider {
     }
   }
 
-  init() {
+  init(boundsReader: (@Sendable (UInt32) -> CGRect?)? = nil) {
+    self.boundsReader = boundsReader
     let handle = dlopen(
       "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
       RTLD_LAZY | RTLD_LOCAL
@@ -165,28 +178,29 @@ final class WindowServerBoundsProvider {
   }
 
   func frame(for windowID: WindowID) -> Rect? {
-    guard !disabled, probeSucceeded else { return nil }
-    guard let rawWindowID = UInt32(exactly: windowID.rawValue),
-      let mainConnectionID,
-      let getWindowBounds
-    else {
-      return nil
+    boundsState.withLock { state in
+      guard !state.disabled, state.probeSucceeded else { return nil }
+      guard let rawWindowID = UInt32(exactly: windowID.rawValue) else { return nil }
+      guard let bounds = readBounds(rawWindowID),
+        let frame = normalizedWindowBorderFrame(bounds)
+      else {
+        state.disabled = true
+        state.failureCount += 1
+        return nil
+      }
+      state.successfulLookupCount += 1
+      return frame
     }
-    var bounds = CGRect.zero
-    guard getWindowBounds(mainConnectionID(), rawWindowID, &bounds) == 0 else {
-      disabled = true
-      failureCount += 1
-      return nil
-    }
-    guard let frame = normalizedWindowBorderFrame(bounds) else {
-      disabled = true
-      failureCount += 1
-      return nil
-    }
-    successfulLookupCount += 1
-    return frame
   }
 
+  private func readBounds(_ windowID: UInt32) -> CGRect? {
+    if let boundsReader { return boundsReader(windowID) }
+    guard let mainConnectionID, let getWindowBounds else { return nil }
+    var bounds = CGRect.zero
+    return getWindowBounds(mainConnectionID(), windowID, &bounds) == 0 ? bounds : nil
+  }
+
+  @MainActor
   func sizeConstraints(for windowID: WindowID) -> WindowSizeConstraints? {
     guard !constraintsDisabled, constraintProbeSucceeded else {
       constraintFallbackCount += 1
@@ -207,7 +221,7 @@ final class WindowServerBoundsProvider {
     return constraints
   }
 
-  private func rawConstraints(
+  @MainActor private func rawConstraints(
     for rawWindowID: UInt32
   ) -> (CGSize, CGSize, CGSize)? {
     guard let mainConnectionID,
@@ -240,9 +254,10 @@ final class WindowServerBoundsProvider {
   }
 
   var isAvailable: Bool {
-    !disabled && probeSucceeded && mainConnectionID != nil && getWindowBounds != nil
+    boundsState.withLock { !$0.disabled && $0.probeSucceeded }
   }
 
+  @MainActor
   var constraintsAreAvailable: Bool {
     !constraintsDisabled && constraintProbeSucceeded
   }

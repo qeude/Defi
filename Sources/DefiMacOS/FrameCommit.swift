@@ -226,6 +226,7 @@ func frameApplicationReference(
   completedPosition: CGPoint?,
   previousTarget: Rect?,
   prefersCompletedPosition: Bool = false,
+  pendingAnimation: Bool = false,
   nativeReference: @autoclosure () -> Rect?
 ) -> Rect? {
   if let pendingCorrection {
@@ -237,6 +238,19 @@ func frameApplicationReference(
     return Rect(
       x: completedPosition.x, y: completedPosition.y,
       width: reference.width, height: reference.height)
+  }
+  if pendingAnimation, let previousTarget {
+    let position = completedPosition ?? nativeReference().map {
+      CGPoint(x: $0.x, y: $0.y)
+    }
+    if let position {
+      return Rect(
+        x: position.x,
+        y: position.y,
+        width: previousTarget.width,
+        height: previousTarget.height
+      )
+    }
   }
   return settlingReference ?? previousTarget ?? nativeReference()
 }
@@ -334,7 +348,7 @@ struct QueuedPositionFrame: @unchecked Sendable {
   let source: String
   let writes: [WindowID: AsyncPositionWrite]
   let animatedWindowIDs: Set<WindowID>
-  let animationDuration: TimeInterval
+  var animationDuration: TimeInterval
   let refreshRateHz: Double
   let displayIDs: Set<UInt64>
   let monitorFrames: [Rect]
@@ -540,6 +554,7 @@ struct ProcessAnimationSample: @unchecked Sendable {
   let recordFinalSuccess: Bool
   let accumulator: FrameResultAccumulator
   let completion: (@Sendable () -> Void)?
+  var laneReady: (@Sendable () -> Void)? = nil
 }
 
 struct LatestAnimationSampleState<Sample> {
@@ -569,11 +584,19 @@ struct LatestAnimationSampleState<Sample> {
 final class FrameResultAccumulator: @unchecked Sendable {
   private let lock = NSLock()
   private var applied = 0
+  private var intermediateApplied = 0
   private var stale = 0
   private var slowProcesses = Set<pid_t>()
   private var processLatencySamplesMS: [pid_t: Double] = [:]
   private var firstCompletionAt = TimeInterval.greatestFiniteMagnitude
   private var lastCompletionAt = 0.0
+  private var peakIntermediateLatencyMS = 0.0
+
+  var maximumIntermediateLatencyMS: Double {
+    lock.lock()
+    defer { lock.unlock() }
+    return peakIntermediateLatencyMS
+  }
 
   func add(
     applied: Int,
@@ -582,10 +605,15 @@ final class FrameResultAccumulator: @unchecked Sendable {
     processID: pid_t,
     processLatencyMS: Double,
     attempted: Bool,
-    completedAt: TimeInterval
+    completedAt: TimeInterval,
+    intermediate: Bool = false
   ) {
     lock.lock()
     self.applied += applied
+    if intermediate {
+      intermediateApplied += applied
+      peakIntermediateLatencyMS = max(peakIntermediateLatencyMS, processLatencyMS)
+    }
     self.stale += stale
     self.slowProcesses.formUnion(slowProcesses)
     if attempted {
@@ -599,6 +627,7 @@ final class FrameResultAccumulator: @unchecked Sendable {
   var result:
     (
       applied: Int,
+      intermediateApplied: Int,
       stale: Int,
       slowProcesses: Set<pid_t>,
       processLatencySamplesMS: [pid_t: Double],
@@ -613,34 +642,11 @@ final class FrameResultAccumulator: @unchecked Sendable {
       : 0
     return (
       applied,
+      intermediateApplied,
       stale,
       slowProcesses,
       processLatencySamplesMS,
       spread
     )
-  }
-}
-
-struct ConcurrentFrameResult: Sendable {
-  let applied: Int
-  let stale: Int
-  let completionSpreadMS: Double
-  let frames: Int
-}
-
-final class ConcurrentFrameResultStore: @unchecked Sendable {
-  private let lock = NSLock()
-  private var storedResult: ConcurrentFrameResult?
-
-  func store(_ result: ConcurrentFrameResult) {
-    lock.lock()
-    storedResult = result
-    lock.unlock()
-  }
-
-  var result: ConcurrentFrameResult? {
-    lock.lock()
-    defer { lock.unlock() }
-    return storedResult
   }
 }

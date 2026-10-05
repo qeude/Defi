@@ -32,7 +32,8 @@ public func continuousStripFramesForActiveWorkspace(
   ownerFrame: Rect? = nil,
   parkingFrame: Rect? = nil,
   allMonitorFrames: [Rect]? = nil,
-  reservedParkingFrames: [Rect] = []
+  reservedParkingFrames: [Rect] = [],
+  preservingExitSide: Bool = false
 ) -> ContinuousStripPlan {
   let parkingOwnerFrame = ownerFrame ?? viewport
   let parkingMonitorFrames = allMonitorFrames ?? [parkingOwnerFrame]
@@ -48,7 +49,9 @@ public func continuousStripFramesForActiveWorkspace(
     )
     if visibleWidth > parkedSliverWidth {
       strip.append(assignment)
-    } else if assignment.frame.x + assignment.frame.width <= viewport.x {
+    } else if assignment.frame.x + assignment.frame.width
+      <= viewport.x + (preservingExitSide ? parkedSliverWidth : 0)
+    {
       left.append(assignment)
     } else {
       right.append(assignment)

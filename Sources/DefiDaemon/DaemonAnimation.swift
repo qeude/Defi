@@ -8,6 +8,56 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+func workspaceFocusNeedsNativeCancellation(
+  requestGeneration: UInt64,
+  submittedGeneration: UInt64?,
+  currentGeneration: UInt64
+) -> Bool {
+  requestGeneration != currentGeneration
+    && submittedGeneration == requestGeneration
+}
+
+func focusInputNeedsRefresh(
+  requestTimestamp: TimeInterval,
+  newInputTimestamp: TimeInterval
+) -> Bool {
+  newInputTimestamp > requestTimestamp
+}
+
+func commandFocusAfterNoOp(
+  _ request: PendingAnimatedFocus,
+  inputTimestamp: TimeInterval
+) -> PendingAnimatedFocus {
+  PendingAnimatedFocus(
+    windowID: request.windowID,
+    previousSelectedWindowID: request.previousSelectedWindowID,
+    monitorID: request.monitorID,
+    sourceWorkspaceID: request.sourceWorkspaceID,
+    commandGeneration: request.commandGeneration,
+    focusInputTimestamp: max(request.focusInputTimestamp, inputTimestamp),
+    cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
+    retryCount: request.retryCount
+  )
+}
+
+func workspaceFocusAfterNoOp(
+  _ request: PendingWorkspaceFocus,
+  inputTimestamp: TimeInterval
+) -> PendingWorkspaceFocus {
+  PendingWorkspaceFocus(
+    monitorID: request.monitorID,
+    requestedWorkspaceID: request.requestedWorkspaceID,
+    previousWorkspaceID: request.previousWorkspaceID,
+    requestedWindowID: request.requestedWindowID,
+    restoresPreviousWorkspaceOnCancellation:
+      request.restoresPreviousWorkspaceOnCancellation,
+    commandGeneration: request.commandGeneration,
+    focusInputTimestamp: max(request.focusInputTimestamp, inputTimestamp),
+    cursorWarpInputTimestamp: request.cursorWarpInputTimestamp,
+    retryCount: request.retryCount
+  )
+}
+
 struct ScrollAnimationKey: Hashable {
   let monitorID: MonitorID
   let workspaceID: WorkspaceID
@@ -356,6 +406,7 @@ extension Daemon {
   }
 
   func finishPendingAnimatedFocusIfReady() {
+    discardSupersededPendingFocus()
     if let pendingAnimatedFocus,
       focusIsReady(
         on: pendingAnimatedFocus.monitorID,
@@ -377,7 +428,41 @@ extension Daemon {
     }
   }
 
+  func preserveFocusIntentAfterNoOp(at inputTimestamp: TimeInterval) {
+    let commandRequest = pendingAnimatedFocus ?? submittedCommandFocus
+    if let commandRequest {
+      if focusInputNeedsRefresh(
+        requestTimestamp: commandRequest.focusInputTimestamp,
+        newInputTimestamp: inputTimestamp
+      ) {
+        if submittedCommandFocus != nil {
+          invalidateSubmittedCommandFocus(recoveringTo: commandRequest.windowID)
+        }
+        focus.queueCommand(
+          commandFocusAfterNoOp(commandRequest, inputTimestamp: inputTimestamp)
+        )
+      }
+    }
+
+    if let workspaceRequest = pendingWorkspaceFocus {
+      if focusInputNeedsRefresh(
+        requestTimestamp: workspaceRequest.focusInputTimestamp,
+        newInputTimestamp: inputTimestamp
+      ) {
+        if submittedWorkspaceFocusGeneration == workspaceRequest.commandGeneration {
+          invalidateSubmittedWorkspaceFocus(
+            recoveringTo: workspaceRequest.requestedWindowID
+          )
+        }
+        focus.queueWorkspace(
+          workspaceFocusAfterNoOp(workspaceRequest, inputTimestamp: inputTimestamp)
+        )
+      }
+    }
+  }
+
   func finishPendingWorkspaceFocusIfReady() {
+    discardSupersededPendingFocus()
     guard let request = pendingWorkspaceFocus,
       submittedWorkspaceFocusGeneration != request.commandGeneration,
       focusIsReady(
@@ -405,6 +490,21 @@ extension Daemon {
       submittedWorkspaceFocusRequestID == nil
       ? nil
       : request.focusInputTimestamp
+  }
+
+  private func discardSupersededPendingFocus() {
+    if let request = pendingWorkspaceFocus,
+      workspaceFocusNeedsNativeCancellation(
+        requestGeneration: request.commandGeneration,
+        submittedGeneration: submittedWorkspaceFocusGeneration,
+        currentGeneration: commandGeneration
+      )
+    {
+      invalidateSubmittedWorkspaceFocus(
+        recoveringTo: state.selectedWindowID(on: request.monitorID)
+      )
+    }
+    focus.discardSupersededPendingFocus(commandGeneration: commandGeneration)
   }
 
   func focusIsReady(

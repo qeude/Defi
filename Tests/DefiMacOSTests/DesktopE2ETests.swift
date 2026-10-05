@@ -1,5 +1,6 @@
 import DefiRuntime
 import AppKit
+import Carbon
 import ApplicationServices
 import CoreGraphics
 import DefiConfig
@@ -11,6 +12,10 @@ import XCTest
 import class SwiftUI.NSHostingMenu
 
 @testable import DefiMacOS
+
+private final class DesktopHotKeyObserver: Sendable {
+  let repeats = Mutex<[Bool]>([])
+}
 
 @MainActor
 final class DesktopE2ETests: XCTestCase {
@@ -846,7 +851,7 @@ final class DesktopE2ETests: XCTestCase {
     let config = Config(rules: [Rule(appID: candidate.appID, floating: true)])
     let snapshot = platform.snapshot(config: config)
     guard let floating = snapshot.windows.first(where: {
-      $0.floating && onscreenWindowIDs.contains($0.id)
+      $0.id == candidate.id && $0.floating && onscreenWindowIDs.contains($0.id)
     }),
       let monitor = snapshot.monitors.first(where: {
         $0.frame.x < floating.frame.x + floating.frame.width
@@ -920,13 +925,40 @@ final class DesktopE2ETests: XCTestCase {
 
     // AX success acknowledges the request before WindowServer necessarily
     // publishes the new order. Assert native convergence, not callback timing.
-    XCTAssertTrue(pumpRunLoop(until: {
-      let order = copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
-        .map { WindowID(rawValue: UInt64($0.id)) }
+    let expectedForegroundIDs = snapshot.windows.filter { window in
+      window.floating && onscreenWindowIDs.contains(window.id)
+        && monitor.frame.x < window.frame.x + window.frame.width
+        && window.frame.x < monitor.frame.x + monitor.frame.width
+        && monitor.frame.y < window.frame.y + window.frame.height
+        && window.frame.y < monitor.frame.y + monitor.frame.height
+    }.map(\.id).sorted { $0.rawValue < $1.rawValue }
+    let relevantWindowIDs = Set(expectedForegroundIDs + [floating.id, tiled.id])
+    var observedRelevantOrder: [String] = []
+    let floatingRemainedAboveTiled = pumpRunLoop(until: {
+      let records = copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+      let relevantRecords = records.filter {
+        relevantWindowIDs.contains(WindowID(rawValue: UInt64($0.id)))
+      }
+      observedRelevantOrder = relevantRecords.map {
+        "\($0.id)/pid=\($0.processID)/\($0.ownerName)/layer=\($0.layer)"
+      }
+      let order = records.map { WindowID(rawValue: UInt64($0.id)) }
       guard let floatingIndex = order.firstIndex(of: floating.id),
         let tiledIndex = order.firstIndex(of: tiled.id) else { return false }
       return floatingIndex < tiledIndex
-    }, timeout: 0.5), "the floating window must remain above the focused tiled window")
+    }, timeout: 0.5)
+    let focusPerformance = platform.focusWriter.performance
+    let cachedWindowClassification = platform.lastSnapshotWindows
+      .filter { relevantWindowIDs.contains($0.id) }
+      .map {
+        "\($0.id.rawValue)/pid=\($0.processID ?? -1)/floating=\($0.floating)/frame=\($0.frame)"
+      }
+    let floatingIDs = platform.floatingWindowIDs.sorted { $0.rawValue < $1.rawValue }
+    let hiddenIDs = platform.lastHiddenWindowIDs.sorted { $0.rawValue < $1.rawValue }
+    XCTAssertTrue(
+      floatingRemainedAboveTiled,
+      "fixture candidate=\(candidate.id.rawValue); floating \(floating.id.rawValue)/pid=\(floating.processID ?? -1) must remain above tiled \(tiled.id.rawValue)/pid=\(tiled.processID ?? -1); expected foreground float IDs=\(expectedForegroundIDs.map(\.rawValue)); cached floating IDs=\(floatingIDs.map(\.rawValue)), hidden IDs=\(hiddenIDs.map(\.rawValue)), relevant cached windows=\(cachedWindowClassification); focus timing ms duration/raise/activation=\(focusPerformance.durationMS)/\(focusPerformance.raiseDurationMS)/\(focusPerformance.activationDurationMS); observed front-to-back relevant CG windows=\(observedRelevantOrder)"
+    )
     var focusedWindow: CFTypeRef?
     XCTAssertEqual(
       AXUIElementCopyAttributeValue(
@@ -999,6 +1031,14 @@ final class DesktopE2ETests: XCTestCase {
   }
 
   func testHorizontalAnimationFrameWritesPositionWithoutSize() throws {
+    try verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: 0.15)
+  }
+
+  func testDisabledHorizontalAnimationWritesOnlyTheFinalPosition() throws {
+    try verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: 0)
+  }
+
+  private func verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: Double) throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     guard let window = testWindows(in: snapshot).first else {
@@ -1024,8 +1064,14 @@ final class DesktopE2ETests: XCTestCase {
           height: original.height
         )
       )
-    ]) }
-    pumpRunLoop(for: 0.2)
+    ], animationDuration: animationDuration, animationRefreshRateHz: 120,
+       animationDisplayIDs: Set(snapshot.monitors.map { $0.id.rawValue })) }
+    XCTAssertTrue(pumpRunLoop(until: {
+      !onNavigation { platform.hasPendingFrameWrites }
+    }, timeout: 2))
+    let frames = onNavigation { platform.frameCoordinatorPerformance.animationFrames }
+    if animationDuration > 0 { XCTAssertGreaterThan(frames, 1) }
+    else { XCTAssertEqual(frames, 1) }
 
     XCTAssertGreaterThan(onNavigation { platform.successfulPositionWriteCount }, positionWrites)
     XCTAssertEqual(onNavigation { platform.successfulSizeWriteCount }, sizeWrites)
@@ -1196,13 +1242,14 @@ final class DesktopE2ETests: XCTestCase {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     let windows = testWindows(in: snapshot)
-    guard windows.count >= 2,
-      let window = windows.first,
-      let neighbor = windows.dropFirst().first,
-      let monitor = snapshot.monitors.first
-    else {
-      throw XCTSkip("Need two manageable desktop windows")
+    guard let monitor = snapshot.monitors.first(where: { monitor in
+      windows.filter { monitor.physicalFrame.contains(centerOf: $0.frame) }.count >= 2
+    }) else {
+      throw XCTSkip("Need two manageable desktop windows on the same monitor")
     }
+    let monitorWindows = windows.filter { monitor.physicalFrame.contains(centerOf: $0.frame) }
+    let window = monitorWindows[0]
+    let neighbor = monitorWindows[1]
     let original = window.frame
     let neighborOriginal = neighbor.frame
     let parked = resolveParkingPlacement(
@@ -1213,13 +1260,13 @@ final class DesktopE2ETests: XCTestCase {
       preferredSide: .right
     ).frame
     let target = Rect(
-      x: original.x + 16,
+      x: monitor.physicalFrame.x + monitor.physicalFrame.width - original.width - 8,
       y: original.y,
       width: original.width,
       height: original.height
     )
     let neighborTarget = Rect(
-      x: neighborOriginal.x + 16,
+      x: neighborOriginal.x - original.width - 16,
       y: neighborOriginal.y,
       width: neighborOriginal.width,
       height: neighborOriginal.height
@@ -1246,7 +1293,8 @@ final class DesktopE2ETests: XCTestCase {
         FrameAssignment(windowID: neighbor.id, frame: neighborTarget),
       ],
       animationDuration: 0.05,
-      animationRefreshRateHz: 120
+      animationRefreshRateHz: 120,
+      source: "command-animation"
     ) }
     pumpRunLoop(for: 0.4)
 
@@ -1525,18 +1573,20 @@ final class DesktopE2ETests: XCTestCase {
     let physical = try XCTUnwrap(CGEvent(
       keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: 125, keyDown: true))
     physical.flags = [.maskControl, .maskAlternate, .maskShift]
-    let tap = HotKeyTapContext(
-      bindings: [:], userInputTracker: UserInputTracker(),
+    let recordingTracker = UserInputTracker()
+    let tap = InputMonitor(
+      bindings: [:], userInputTracker: recordingTracker,
       pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
       deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
       tapReenabled: { _ in })
     physical.setIntegerValueField(.eventTargetUnixProcessID, value: 0)
-    XCTAssertNil(tap.handle(type: .keyDown, event: physical))
+    XCTAssertNil(tap.intercept(type: .keyDown, event: physical))
+    XCTAssertEqual(recordingTracker.latestEventTimestamp, Double(physical.timestamp) / 1_000_000_000)
     XCTAssertTrue(pumpRunLoop(until: { recorded.count == 2 }, timeout: 1))
     XCTAssertEqual(recorded.last, "alt-ctrl-shift-down")
     recorder.performClick(nil)
     let manager = onNavigation { HotKeyManager(config: Config()) { _ in } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
     physical.post(tap: .cghidEventTap)
     physical.type = .keyUp
@@ -1568,7 +1618,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertFalse(recorder.isRecording)
     recorder.performClick(nil)
     physical.type = .keyDown
-    XCTAssertNil(tap.handle(type: .keyDown, event: physical))
+    XCTAssertNil(tap.intercept(type: .keyDown, event: physical))
     recorder.stopRecording()
     recorder.performClick(nil)
     pumpRunLoop(for: 0.05)
@@ -1576,7 +1626,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(recorder.isRecording)
     window.makeFirstResponder(nil)
     XCTAssertFalse(ShortcutRecorderButton.capturesKeyboard)
-    XCTAssertNotNil(tap.handle(type: .keyDown, event: physical))
+    XCTAssertNotNil(tap.intercept(type: .keyDown, event: physical))
     recorder.performClick(nil)
     window.close()
     XCTAssertFalse(ShortcutRecorderButton.capturesKeyboard)
@@ -1663,7 +1713,7 @@ final class DesktopE2ETests: XCTestCase {
       ),
       cheatsheetHandler: { value in DispatchQueue.main.async { inputs.value.append(value) } }
     ) { value in DispatchQueue.main.async { commands.value.append(value.command) } } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
     let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
     let modifier = try XCTUnwrap(CGEvent(
@@ -1715,7 +1765,7 @@ final class DesktopE2ETests: XCTestCase {
     ) { invocation in
       received.withLock { $0.append(invocation) }
     } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
     let eventCount = 8
 
@@ -1767,11 +1817,256 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(onNavigation { manager.tapReenableCount }, 0)
   }
 
+  func testRegisteredHotKeysRemainObservableAndRepeatWithoutForegroundLeak() throws {
+    _ = try makePlatform()
+    let commands = Mutex<[HotKeyInvocation]>([])
+    let manager = onNavigation { HotKeyManager(config: Config(
+      modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
+      defaultKeyModifier: "hyper", keys: ["hyper-slash": "focus-column right"]
+    )) { invocation in commands.withLock { $0.append(invocation) } } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+
+    let observer = DesktopHotKeyObserver()
+    let tap = try XCTUnwrap(CGEvent.tapCreate(
+      tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
+      eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+      callback: { _, type, event, pointer in
+        if type == .keyDown, event.getIntegerValueField(.keyboardEventKeycode) == 44,
+          let pointer {
+          let observer = Unmanaged<DesktopHotKeyObserver>.fromOpaque(pointer).takeUnretainedValue()
+          observer.repeats.withLock {
+            $0.append(event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+          }
+        }
+        return Unmanaged.passUnretained(event)
+      }, userInfo: Unmanaged.passUnretained(observer).toOpaque()
+    ))
+    let source = try XCTUnwrap(CFMachPortCreateRunLoopSource(nil, tap, 0))
+    CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    defer {
+      CGEvent.tapEnable(tap: tap, enable: false)
+      CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+      CFMachPortInvalidate(tap)
+      withExtendedLifetime(observer) {}
+    }
+    let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 200, height: 100),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let originalPolicy = NSApplication.shared.activationPolicy()
+    NSApplication.shared.setActivationPolicy(.regular)
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate()
+    defer {
+      window.close()
+      NSApplication.shared.setActivationPolicy(originalPolicy)
+      // Settle activation/close events before a later test opens its recorder.
+      pumpApplicationEvents(for: 0.1)
+    }
+    let foregroundCount = DesktopValue(0)
+    let localMonitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+      if event.keyCode == 44 {
+        foregroundCount.value += 1
+        return nil
+      }
+      return event
+    })
+    defer { NSEvent.removeMonitor(localMonitor) }
+    pumpRunLoop(for: 0.1)
+    let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 44, keyDown: true))
+    event.flags = [.maskControl, .maskAlternate, .maskCommand]
+    event.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 1 }
+      && observer.repeats.withLock { $0.count == 1 } }, timeout: 1))
+    event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+    event.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 2 }
+      && observer.repeats.withLock { $0.count == 2 } }, timeout: 1))
+    event.type = .keyUp
+    event.post(tap: .cghidEventTap)
+    pumpApplicationEvents(for: 0.1)
+    XCTAssertEqual(observer.repeats.withLock { $0 }, [false, true])
+    XCTAssertEqual(commands.withLock { $0.map(\.command) }, ["focus-column right", "focus-column right"])
+    XCTAssertEqual(foregroundCount.value, 0, "Carbon must reserve the shortcut from the foreground app")
+
+    onNavigation { manager.stop() }
+    pumpRunLoop(for: 0.1)
+    event.type = .keyDown
+    event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+    event.post(tap: .cghidEventTap)
+    event.type = .keyUp
+    event.post(tap: .cghidEventTap)
+    let deadline = Date().addingTimeInterval(1)
+    while foregroundCount.value == 0, Date() < deadline {
+      if let next = NSApplication.shared.nextEvent(matching: .any, until: deadline,
+                                                  inMode: .default, dequeue: true) {
+        NSApplication.shared.sendEvent(next)
+      }
+    }
+    XCTAssertEqual(foregroundCount.value, 1, "Stopping must release the Carbon reservation")
+    XCTAssertEqual(commands.withLock { $0.count }, 2)
+  }
+
+  func testCarbonReservationsSuspendAndResumeAroundRecordingAndTextEditing() throws {
+    _ = try makePlatform()
+    let commands = Mutex<[HotKeyInvocation]>([])
+    let manager = onNavigation { HotKeyManager(config: Config(
+      keys: ["ctrl-alt-cmd-slash": "focus-column right"]
+    )) { invocation in commands.withLock { $0.append(invocation) } } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+    let key = try Key(accelerator: "ctrl-alt-cmd-slash", aliases: [:])
+    let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 150),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let originalPolicy = NSApplication.shared.activationPolicy()
+    NSApplication.shared.setActivationPolicy(.regular)
+    let recorded = DesktopValue<[String]>([])
+    let recorder = ShortcutRecorderButton()
+    recorder.frame = NSRect(x: 10, y: 10, width: 150, height: 30)
+    recorder.shortcutLabel = "ctrl-alt-cmd-slash"
+    recorder.onRecord = { recorded.value.append($0) }
+    let text = NSTextView(frame: NSRect(x: 10, y: 50, width: 250, height: 60))
+    window.contentView?.addSubview(recorder)
+    window.contentView?.addSubview(text)
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate()
+    defer {
+      recorder.stopRecording()
+      window.close()
+      settingsTextInputFocused.withLock { $0 = false }
+      NSApplication.shared.setActivationPolicy(originalPolicy)
+      pumpApplicationEvents(for: 0.1)
+    }
+    pumpApplicationEvents(for: 0.1)
+    let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = [.maskControl, .maskAlternate, .maskCommand]
+    func press() {
+      event.type = .keyDown
+      event.post(tap: .cghidEventTap)
+      event.type = .keyUp
+      event.post(tap: .cghidEventTap)
+    }
+    func assertReservationReleased() {
+      var reference: EventHotKeyRef?
+      XCTAssertEqual(RegisterEventHotKey(
+        UInt32(key.code), key.carbonModifiers, EventHotKeyID(signature: 0x54657374, id: 3),
+        GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &reference), noErr)
+      if let reference { UnregisterEventHotKey(reference) }
+    }
+    press()
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 1 } }, timeout: 1))
+    recorder.performClick(nil)
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    assertReservationReleased()
+    press()
+    let deadline = Date().addingTimeInterval(1)
+    while recorder.isRecording, Date() < deadline { pumpApplicationEvents(for: 0.02) }
+    XCTAssertEqual(recorded.value, ["alt-cmd-ctrl-slash"])
+    XCTAssertEqual(commands.withLock { $0.count }, 1)
+    XCTAssertTrue(pumpRunLoop(until: { onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    press()
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 2 } }, timeout: 1))
+
+    window.makeFirstResponder(text)
+    settingsTextInputFocused.withLock { $0 = true }
+    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    assertReservationReleased()
+    let foregroundCount = DesktopValue(0)
+    let localMonitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+      if event.keyCode == key.code { foregroundCount.value += 1; return nil }
+      return event
+    })
+    defer { NSEvent.removeMonitor(localMonitor) }
+    press()
+    let editingDeadline = Date().addingTimeInterval(1)
+    while foregroundCount.value == 0, Date() < editingDeadline { pumpApplicationEvents(for: 0.02) }
+    XCTAssertEqual(foregroundCount.value, 1)
+    XCTAssertEqual(commands.withLock { $0.count }, 2)
+    window.makeFirstResponder(recorder)
+    settingsTextInputFocused.withLock { $0 = false }
+    XCTAssertTrue(pumpRunLoop(until: { onNavigation { manager.isHotKeyCaptureEnabled } }, timeout: 1))
+    press()
+    XCTAssertTrue(pumpRunLoop(until: { commands.withLock { $0.count == 3 } }, timeout: 1))
+    pumpApplicationEvents(for: 0.05)
+    XCTAssertEqual(foregroundCount.value, 1)
+  }
+
+  func testDuplicateTapDisableNotificationsRecoverOnlyOnce() throws {
+    _ = try makePlatform()
+    let recoveries = Mutex(0)
+    let dismissals = Mutex(0)
+    let monitor = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliverCheatsheet: { _ in dismissals.withLock { $0 += 1 } },
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in recoveries.withLock { $0 += 1 } })
+    defer { monitor.stop() }
+    for options in [CGEventTapOptions.defaultTap, .listenOnly] {
+      let port = try monitor.installTap(
+        options: options, mask: CGEventMask(1 << CGEventType.keyDown.rawValue),
+        callback: { _, _, event, _ in Unmanaged.passUnretained(event) })
+      CGEvent.tapEnable(tap: port, enable: false)
+    }
+    let event = try XCTUnwrap(CGEvent(source: nil))
+    XCTAssertFalse(monitor.isEnabled)
+    _ = monitor.intercept(type: .tapDisabledByUserInput, event: event)
+    XCTAssertTrue(monitor.isEnabled)
+    _ = monitor.handle(type: .tapDisabledByUserInput, event: event)
+    XCTAssertEqual(monitor.tapReenableCount, 1)
+    XCTAssertEqual(recoveries.withLock { $0 }, 1)
+    XCTAssertEqual(dismissals.withLock { $0 }, 1)
+  }
+
+  func testCarbonRegistrationFailureKeepsObservationAndRollsBackReservations() throws {
+    _ = try makePlatform()
+    let key = try Key(accelerator: "ctrl-alt-cmd-slash", aliases: [:])
+    var reference: EventHotKeyRef?
+    XCTAssertEqual(RegisterEventHotKey(
+      UInt32(key.code), key.carbonModifiers, EventHotKeyID(signature: 0x54657374, id: 1),
+      GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &reference), noErr)
+    let reserved = try XCTUnwrap(reference)
+    defer { UnregisterEventHotKey(reserved) }
+    let commands = Mutex<[HotKeyInvocation]>([])
+    let tracker = UserInputTracker()
+    let manager = onNavigation { HotKeyManager(config: Config(
+      keys: ["ctrl-alt-cmd-a": "focus-column left",
+             "ctrl-alt-cmd-slash": "focus-column right"]), userInputTracker: tracker
+    ) { invocation in commands.withLock { $0.append(invocation) } } }
+    try onNavigation { try manager.start() }
+    defer { onNavigation { manager.stop() } }
+    XCTAssertTrue(pumpRunLoop(until: { onNavigation { manager.bindingError != nil } }, timeout: 1))
+    XCTAssertTrue(onNavigation { manager.isEnabled })
+    XCTAssertFalse(onNavigation { manager.isHotKeyCaptureEnabled })
+    guard case .registrationFailed(keyCode: key.code, status: _) = onNavigation({ manager.bindingError }) else {
+      return XCTFail("Expected a Carbon reservation error")
+    }
+    // The A reservation sorts before slash and must be released by rollback.
+    let earlierKey = try Key(accelerator: "ctrl-alt-cmd-a", aliases: [:])
+    XCTAssertLessThan(earlierKey.code, key.code)
+    var rolledBackReference: EventHotKeyRef?
+    let rollbackStatus = RegisterEventHotKey(
+      UInt32(earlierKey.code), earlierKey.carbonModifiers,
+      EventHotKeyID(signature: 0x54657374, id: 2), GetApplicationEventTarget(),
+      OptionBits(kEventHotKeyExclusive), &rolledBackReference)
+    XCTAssertEqual(rollbackStatus, noErr, "A reservation must be released after slash fails")
+    if let rolledBackReference { UnregisterEventHotKey(rolledBackReference) }
+    let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 123, keyDown: true))
+    event.flags = [.maskAlternate]
+    event.post(tap: .cghidEventTap)
+    event.type = .keyUp
+    event.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: { tracker.latestEventTimestamp > 0 }, timeout: 1))
+    XCTAssertTrue(commands.withLock { $0.isEmpty })
+  }
+
   func testWorkspaceMonitorShortcutsAreCaptured() throws {
     _ = try makePlatform()
     let commands = DesktopValue<[String]>([])
     let manager = onNavigation { HotKeyManager(config: Config()) { value in DispatchQueue.main.async { commands.value.append(value.command) } } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
     let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
     for (index, direction) in ["left", "right", "down", "up"].enumerated() {
@@ -1796,7 +2091,7 @@ final class DesktopE2ETests: XCTestCase {
       modifierCombinations: ["combo": "Ctrl + Alt + Shift"],
       keys: ["combo-left": "focus-column first"]
     )) { value in DispatchQueue.main.async { commands.value.append(value.command) } } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
     let event = try XCTUnwrap(CGEvent(
       keyboardEventSource: nil, virtualKey: 123, keyDown: true
@@ -1823,7 +2118,7 @@ final class DesktopE2ETests: XCTestCase {
       config: config,
       overviewHandler: { value in DispatchQueue.main.async { overviewActions.value.append(value) } }
     ) { value in DispatchQueue.main.async { commands.value.append(value) } } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     onNavigation { manager.setOverviewModeEnabled(true) }
 
     DispatchQueue.global(qos: .userInteractive).async {
@@ -1906,7 +2201,7 @@ final class DesktopE2ETests: XCTestCase {
       config: Config(),
       userInputTracker: tracker
     ) { _ in } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     let previousTimestamp = tracker.latestEventTimestamp
 
     guard let source = CGEventSource(stateID: .hidSystemState),
@@ -1963,7 +2258,7 @@ final class DesktopE2ETests: XCTestCase {
         DispatchQueue.main.async { received.value.append(invocation) }
       }
     ) { _ in } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
 
     let focusedCenter = CGPoint(
       x: focusedWindow.frame.x + focusedWindow.frame.width / 2,
@@ -2102,7 +2397,7 @@ final class DesktopE2ETests: XCTestCase {
     ) { _ in } }
     XCTAssertNotNil(onNavigation { manager.bindingError })
     XCTAssertEqual(onNavigation { manager.bindingCount }, 0)
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
 
     guard let location = CGEvent(source: nil)?.location,
       let source = CGEventSource(stateID: .hidSystemState),
@@ -2336,7 +2631,7 @@ final class DesktopE2ETests: XCTestCase {
       },
       displayPointerRouter: pointerRouter
     ) { _ in } }
-    try onNavigation { try manager.start() }
+    try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
     let event = try XCTUnwrap(CGEvent(
       mouseEventSource: CGEventSource(stateID: .hidSystemState),
@@ -2443,6 +2738,29 @@ final class DesktopE2ETests: XCTestCase {
       onNavigation { platform.parkingPerformance }.repairs,
       1
     )
+  }
+
+  private func pumpApplicationEvents(for duration: TimeInterval) {
+    let deadline = Date().addingTimeInterval(duration)
+    while Date() < deadline {
+      if let event = NSApplication.shared.nextEvent(
+        matching: .any, until: deadline, inMode: .default, dequeue: true) {
+        NSApplication.shared.sendEvent(event)
+      }
+    }
+  }
+
+  private func startHotKeys(_ manager: HotKeyManager) throws {
+    try onNavigation { try manager.start() }
+    if onNavigation({ manager.bindingError == nil && manager.bindingCount > 0 }),
+      !ShortcutRecorderButton.capturesKeyboard {
+      XCTAssertTrue(pumpRunLoop(until: {
+        onNavigation { manager.isHotKeyCaptureEnabled || manager.bindingError != nil }
+      }, timeout: 2), "Carbon hotkey registration did not complete")
+      XCTAssertNil(onNavigation { manager.bindingError })
+    } else {
+      pumpRunLoop(for: 0.05)
+    }
   }
 
   private func pumpRunLoop(for duration: TimeInterval) {

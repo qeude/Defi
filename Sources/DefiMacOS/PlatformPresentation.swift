@@ -4,6 +4,22 @@ import DefiCore
 import DefiModel
 import DefiRuntime
 
+/// Geometry notifications carry IDs, never stale frames. Resolve once at delivery.
+struct PendingBorderGeometry {
+  private var windowIDs = Set<WindowID>()
+
+  mutating func enqueue(_ ids: Set<WindowID>) -> Bool {
+    let needsDelivery = windowIDs.isEmpty && !ids.isEmpty
+    windowIDs.formUnion(ids)
+    return needsDelivery
+  }
+
+  mutating func take() -> Set<WindowID> {
+    defer { windowIDs.removeAll(keepingCapacity: true) }
+    return windowIDs
+  }
+}
+
 /// A non-authoritative projection of UI effects and observer coverage.
 struct PlatformPresentationStatus: Sendable {
   var windowIDStatus = "unprobed"
@@ -31,6 +47,31 @@ struct PlatformPresentationStatus: Sendable {
 }
 
 extension MacOSPlatform {
+  nonisolated func enqueueBorderGeometry(_ windowIDs: Set<WindowID>) {
+    guard pendingBorderGeometry.withLock({ $0.enqueue(windowIDs) }) else { return }
+    enqueuePresentation { platform in
+      let pending = platform.pendingBorderGeometry.withLock { $0.take() }
+      let visible = pending.intersection(platform.borderManager.liveGeometryWindowIDs)
+      var observed: [WindowID: Rect] = [:]
+      for windowID in visible {
+        // The queued notification can predate a native resize or another write.
+        let sampledAt = ProcessInfo.processInfo.systemUptime
+        let nativeFrame = platform.borderBoundsProvider.frame(for: windowID)
+        if let nativeFrame {
+          platform.frameCoordinator.recordObservedBorderFrame(
+            nativeFrame, windowID: windowID, sampledAt: sampledAt
+          )
+        }
+        let acceptedFrame = platform.frameCoordinator.latestBorderFrame(for: windowID)
+        observed[windowID] = acceptedFrame
+        platform.snapshotEngine.recordObservedFrame(acceptedFrame, for: windowID)
+      }
+      if platform.borderManager.updateGeometry(frames: observed, style: platform.borderStyle) {
+        platform.invalidatePointerCacheFromPresentation()
+      }
+    }
+  }
+
   public var frontmostProcessID: pid_t? { presentationStatus.frontmostProcessID }
   public var reduceMotion: Bool { presentationStatus.reduceMotion }
   nonisolated func enqueuePresentation(

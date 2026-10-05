@@ -15,11 +15,14 @@ func hotKeyTargetIsCurrentApplication(
 public enum HotKeyError: Error, CustomStringConvertible, Equatable {
   case invalidAccelerator(String)
   case eventTapUnavailable
+  case registrationFailed(keyCode: CGKeyCode?, status: Int32)
 
   public var description: String {
     switch self {
     case .invalidAccelerator(let value): "invalid accelerator: \(value)"
-    case .eventTapUnavailable: "global hotkey event tap unavailable"
+    case .eventTapUnavailable: "global input event tap unavailable"
+    case .registrationFailed(let keyCode, let status):
+      "global hotkey registration failed\(keyCode.map { " for key code \($0)" } ?? ""): OSStatus \(status)"
     }
   }
 }

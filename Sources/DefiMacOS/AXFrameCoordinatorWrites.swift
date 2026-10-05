@@ -8,6 +8,34 @@ import OSLog
 
 private let enhancedUIRestoreDelay: TimeInterval = 0.12
 
+final class ProcessWriteQueueReservation: @unchecked Sendable {
+  let queue: DispatchQueue
+  private weak var coordinator: AXFrameCoordinator?
+  private let processID: pid_t
+  private let lock = NSLock()
+  private var isReleased = false
+
+  init(queue: DispatchQueue, coordinator: AXFrameCoordinator, processID: pid_t) {
+    self.queue = queue
+    self.coordinator = coordinator
+    self.processID = processID
+  }
+
+  func release() {
+    lock.lock()
+    guard !isReleased else {
+      lock.unlock()
+      return
+    }
+    isReleased = true
+    let coordinator = coordinator
+    lock.unlock()
+    coordinator?.releaseProcessWriteQueueReservation(for: processID)
+  }
+
+  deinit { release() }
+}
+
 extension AXFrameCoordinator {
   func applyFrame(
     _ frame: QueuedPositionFrame,
@@ -33,11 +61,15 @@ extension AXFrameCoordinator {
         write.isParked ? windowID : nil
       }
     )
-    let phases = positionWritePhases(
+    let writePhases = positionWritePhases(
       windowIDs: Set(frame.writes.keys),
       parkedWindowIDs: parkedWindowIDs,
       stagesVisibleBeforeParking: frame.stagesVisibleBeforeParking
     )
+    let phases = stagingReentry ? writePhases.flatMap { phase in
+      let entering = phase.filter { frame.writes[$0]?.isReentering == true }
+      return [entering, phase.subtracting(entering)].filter { !$0.isEmpty }
+    } : writePhases
     for phase in phases {
       if frame.stagesVisibleBeforeParking {
         let kind = phase.isSubset(of: parkedWindowIDs) ? "parking" : "visible"
@@ -55,14 +87,15 @@ extension AXFrameCoordinator {
       let group = DispatchGroup()
       for batch in batches {
         group.enter()
-        processWriteQueue(for: batch.processID).async { [self] in
+        enqueueProcessWrite(for: batch.processID) { [self] in
+          defer { group.leave() }
           let batchStartedAt = ProcessInfo.processInfo.systemUptime
           let result = applyBatch(
             batch,
             frame: frame,
             progress: progress,
             intermediate: intermediate,
-            stagingReentry: stagingReentry,
+            stagingReentry: stagingReentry && batch.writes.allSatisfy { $0.value.isReentering },
             recordFinalSuccess: recordFinalSuccess
           )
           let processLatencyMS =
@@ -76,14 +109,13 @@ extension AXFrameCoordinator {
             attempted: result.attempted,
             completedAt: ProcessInfo.processInfo.systemUptime
           )
-          group.leave()
         }
       }
       group.wait()
     }
     let result = accumulator.result
     if !result.processLatencySamplesMS.isEmpty {
-      recordProcessLatencySamples(result.processLatencySamplesMS)
+      recordProcessLatencySamples(result.processLatencySamplesMS, intermediate: intermediate)
     }
     return (
       result.applied,
@@ -131,17 +163,26 @@ extension AXFrameCoordinator {
     }.sorted { $0.processID < $1.processID }
   }
 
+  func animationLanesAreReady(processIDs: [pid_t]) -> Bool {
+    animationLaneLock.lock()
+    defer { animationLaneLock.unlock() }
+    return processIDs.allSatisfy { processAnimationLanes[$0]?.isRunning != true }
+  }
+
   func submitAnimationSamples(
-    _ samples: [ProcessAnimationSample],
-    processQueues: [pid_t: DispatchQueue]
-  ) -> Int {
-    for _ in samples {
-      animationLaneWriteGroup.enter()
-    }
+    _ samples: [ProcessAnimationSample]
+  ) -> (coalesced: Int, submittedIntermediate: Bool) {
     var displacedSamples: [ProcessAnimationSample] = []
     var startingSamples: [ProcessAnimationSample] = []
     animationLaneLock.lock()
-    for sample in samples {
+    // Gate the entire ribbon atomically. A busy app must not let its siblings
+    // advance alone, and recovered lanes can resume on the very next tick.
+    let intermediateIsBlocked = samples.contains {
+      $0.intermediate && processAnimationLanes[$0.batch.processID]?.isRunning == true
+    }
+    let accepted = samples.filter { !$0.intermediate || !intermediateIsBlocked }
+    for sample in accepted {
+      animationLaneWriteGroup.enter()
       var lane = processAnimationLanes[sample.batch.processID]
         ?? LatestAnimationSampleState()
       let submission = lane.submit(sample)
@@ -159,17 +200,25 @@ extension AXFrameCoordinator {
       animationLaneWriteGroup.leave()
     }
     for sample in startingSamples {
-      let queue =
-        processQueues[sample.batch.processID]
-        ?? processWriteQueue(for: sample.batch.processID)
-      queue.async { [self] in
+      let reservation = reserveProcessWriteQueue(for: sample.batch.processID)
+      let prioritizesMotion = sample.intermediate && !sample.stagingReentry
+        && sample.frame.source == "command-animation"
+        && sample.batch.writes.allSatisfy {
+          !$0.value.sizeChanged && $0.value.fromPoint.y == $0.value.point.y
+        }
+      reservation.queue.async(
+        qos: prioritizesMotion ? .userInteractive : .unspecified,
+        flags: prioritizesMotion ? .enforceQoS : []
+      ) { [self] in
+        defer { reservation.release() }
         drainAnimationLane(processID: sample.batch.processID)
       }
     }
-    return displacedSamples.count
+    return (displacedSamples.count, accepted.contains { $0.intermediate })
   }
 
   func drainAnimationLane(processID: pid_t) {
+    var laneReady: (@Sendable () -> Void)?
     while true {
       animationLaneLock.lock()
       guard var lane = processAnimationLanes[processID],
@@ -177,10 +226,12 @@ extension AXFrameCoordinator {
       else {
         processAnimationLanes[processID] = nil
         animationLaneLock.unlock()
+        laneReady?()
         return
       }
       processAnimationLanes[processID] = lane
       animationLaneLock.unlock()
+      laneReady = sample.laneReady
 
       let startedAt = ProcessInfo.processInfo.systemUptime
       let result = applyBatch(
@@ -189,7 +240,8 @@ extension AXFrameCoordinator {
         progress: sample.progress,
         intermediate: sample.intermediate,
         stagingReentry: sample.stagingReentry,
-        recordFinalSuccess: sample.recordFinalSuccess
+        recordFinalSuccess: sample.recordFinalSuccess,
+        progressVelocity: sample.progressVelocity
       )
       let completedAt = ProcessInfo.processInfo.systemUptime
       let latencyMS = (completedAt - startedAt) * 1_000
@@ -200,21 +252,15 @@ extension AXFrameCoordinator {
         processID: processID,
         processLatencyMS: latencyMS,
         attempted: result.attempted,
-        completedAt: completedAt
+        completedAt: completedAt,
+        intermediate: sample.intermediate
       )
       if result.attempted {
-        recordProcessLatencySamples([processID: latencyMS])
+        recordProcessLatencySamples([processID: latencyMS], intermediate: sample.intermediate)
       }
       publishCompletedBorderGeometry(
         Dictionary(uniqueKeysWithValues: sample.batch.writes)
       )
-      if sample.intermediate {
-        recordRetargetVelocity(
-          frame: sample.frame,
-          progressVelocity: sample.progressVelocity,
-          windowIDs: Set(sample.batch.writes.map(\.key))
-        )
-      }
       sample.completion?()
       animationLaneWriteGroup.leave()
     }
@@ -223,6 +269,26 @@ extension AXFrameCoordinator {
   func processWriteQueue(for processID: pid_t) -> DispatchQueue {
     lock.lock()
     defer { lock.unlock() }
+    return processWriteQueueLocked(for: processID)
+  }
+
+  func reserveProcessWriteQueue(for processID: pid_t) -> ProcessWriteQueueReservation {
+    lock.lock()
+    defer { lock.unlock() }
+    return reserveProcessWriteQueueLocked(for: processID)
+  }
+
+  func reserveProcessWriteQueueLocked(
+    for processID: pid_t
+  ) -> ProcessWriteQueueReservation {
+    let queue = processWriteQueueLocked(for: processID)
+    processWriteQueueReservations[processID, default: 0] += 1
+    return ProcessWriteQueueReservation(
+      queue: queue, coordinator: self, processID: processID
+    )
+  }
+
+  func processWriteQueueLocked(for processID: pid_t) -> DispatchQueue {
     if let existing = processWriteQueues[processID] {
       return existing
     }
@@ -233,6 +299,70 @@ extension AXFrameCoordinator {
     )
     processWriteQueues[processID] = queue
     return queue
+  }
+
+  func releaseProcessWriteQueueReservation(for processID: pid_t) {
+    lock.lock()
+    let reservations = processWriteQueueReservations[processID, default: 0]
+    precondition(reservations > 0, "process queue reservation released more than once")
+    if reservations == 1 {
+      processWriteQueueReservations[processID] = nil
+    } else {
+      processWriteQueueReservations[processID] = reservations - 1
+    }
+    retireIdleProcessWriteQueuesLocked()
+    lock.unlock()
+  }
+
+  func retireIdleProcessWriteQueuesLocked() {
+    for processID in Array(processWriteQueueRetirementRequested) {
+      guard processWriteQueueReservations[processID, default: 0] == 0,
+        pending?.writes.values.contains(where: { $0.processID == processID }) != true,
+        !activeWrites.values.contains(where: { $0.processID == processID })
+      else { continue }
+      animationLaneLock.lock()
+      let hasAnimationLane = processAnimationLanes[processID] != nil
+      animationLaneLock.unlock()
+      guard !hasAnimationLane else { continue }
+      processWriteQueues[processID] = nil
+      processWriteQueueRetirementRequested.remove(processID)
+    }
+  }
+
+  func enqueueProcessWrite(
+    for processID: pid_t,
+    qos: DispatchQoS = .unspecified,
+    flags: DispatchWorkItemFlags = [],
+    after deadline: DispatchTime? = nil,
+    operation: @escaping @Sendable () -> Void
+  ) {
+    enqueueProcessWrite(
+      using: reserveProcessWriteQueue(for: processID),
+      qos: qos,
+      flags: flags,
+      after: deadline,
+      operation: operation
+    )
+  }
+
+  func enqueueProcessWrite(
+    using reservation: ProcessWriteQueueReservation,
+    qos: DispatchQoS = .unspecified,
+    flags: DispatchWorkItemFlags = [],
+    after deadline: DispatchTime? = nil,
+    operation: @escaping @Sendable () -> Void
+  ) {
+    let work: @Sendable () -> Void = {
+      defer { reservation.release() }
+      operation()
+    }
+    if let deadline {
+      reservation.queue.asyncAfter(
+        deadline: deadline, qos: qos, flags: flags, execute: work
+      )
+    } else {
+      reservation.queue.async(qos: qos, flags: flags, execute: work)
+    }
   }
 
   func predictedFrameLatency(
@@ -253,10 +383,28 @@ extension AXFrameCoordinator {
     animationDuration: TimeInterval,
     refreshRateHz: Double
   ) -> Set<pid_t> {
-    finalOnlyAnimationProcessIDs(
-      for: Set(writes.values.map(\.processID)),
-      animationDuration: animationDuration,
+    Set(intermediateFrameLimits(
+      for: writes,
+      availableFrames: completedFrameSpringSamples(
+        duration: animationDuration, refreshRateHz: refreshRateHz
+      ).count,
       refreshRateHz: refreshRateHz
+    ).compactMap { $0.value < 2 ? $0.key : nil })
+  }
+
+  func intermediateFrameLimits(
+    for writes: [WindowID: AsyncPositionWrite],
+    availableFrames: Int,
+    refreshRateHz: Double
+  ) -> [pid_t: Int] {
+    // Parking, final verification, and resizing do not predict position-only
+    // horizontal motion. Measure its first animation before deciding to skip it.
+    let motionOnly = writes.values.allSatisfy {
+      !$0.sizeChanged && $0.fromPoint.y == $0.point.y
+    }
+    return intermediateFrameLimits(
+      for: Set(writes.values.map(\.processID)), availableFrames: availableFrames,
+      refreshRateHz: refreshRateHz, motionOnly: motionOnly
     )
   }
 
@@ -273,7 +421,7 @@ extension AXFrameCoordinator {
     else { return requested }
     lock.lock()
     let latency = writes.values.map {
-      (recentProcessLatencySamplesMS[$0.processID]?.max()
+      (recentIntermediateProcessLatencySamplesMS[$0.processID]?.map(\.latencyMS).max()
         ?? predictedProcessLatencyMS[$0.processID] ?? 0) / 1_000
     }.max() ?? 0
     lock.unlock()
@@ -289,65 +437,83 @@ extension AXFrameCoordinator {
     animationDuration: TimeInterval,
     refreshRateHz: Double
   ) -> Bool {
-    let availableIntermediateFrames = completedFrameSpringSamples(
-      duration: animationDuration,
+    intermediateFrameLimits(
+      for: processIDs,
+      availableFrames: completedFrameSpringSamples(
+        duration: animationDuration,
+        refreshRateHz: refreshRateHz
+      ).count,
       refreshRateHz: refreshRateHz
-    ).count
-    lock.lock()
-    defer { lock.unlock() }
-    return processIDs.allSatisfy {
-      adaptiveIntermediateFrameLimit(
-        predictedFrameLatency:
-          (recentProcessLatencySamplesMS[$0]?.max() ?? predictedProcessLatencyMS[$0] ?? 0) / 1_000,
-        refreshRateHz: refreshRateHz,
-        availableIntermediateFrames: availableIntermediateFrames
-      ) >= 2
-    }
+    ).values.allSatisfy { $0 >= 2 }
   }
 
-  private func finalOnlyAnimationProcessIDs(
+  func intermediateFrameLimits(
     for processIDs: Set<pid_t>,
-    animationDuration: TimeInterval,
-    refreshRateHz: Double
-  ) -> Set<pid_t> {
-    let availableIntermediateFrames = completedFrameSpringSamples(
-      duration: animationDuration,
-      refreshRateHz: refreshRateHz
-    ).count
+    availableFrames: Int,
+    refreshRateHz: Double,
+    sampledAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
+    motionOnly: Bool = false
+  ) -> [pid_t: Int] {
     lock.lock()
-    let predictions = Dictionary(
-      uniqueKeysWithValues: processIDs.map { processID in
-        (processID,
-          (recentProcessLatencySamplesMS[processID]?.max()
-            ?? predictedProcessLatencyMS[processID] ?? 0) / 1_000)
-      }
-    )
-    lock.unlock()
-    return Set(
-      predictions.compactMap { processID, latency in
+    defer { lock.unlock() }
+    return Dictionary(uniqueKeysWithValues: processIDs.map { processID in
+      (
+        processID,
         adaptiveIntermediateFrameLimit(
-          predictedFrameLatency: latency,
+          predictedFrameLatency:
+            (recentIntermediateProcessLatencySamplesMS[processID]?
+              // Retain useful motion budgets across ordinary key pauses. A
+              // disabling stall must expire sooner so the lane can probe again.
+              .filter { sample in
+                let age = sampledAt - sample.sampledAt
+                return age <= 0.25 || (motionOnly && age <= 1
+                  && adaptiveIntermediateFrameLimit(
+                    predictedFrameLatency: sample.latencyMS / 1_000,
+                    refreshRateHz: refreshRateHz, availableIntermediateFrames: availableFrames
+                  ) >= 2)
+              }
+              .suffix(8).map(\.latencyMS).max()
+              ?? (motionOnly ? 0 : predictedProcessLatencyMS[processID] ?? 0)) / 1_000,
           refreshRateHz: refreshRateHz,
-          availableIntermediateFrames: availableIntermediateFrames
-        ) == 0
-          ? processID
-          : nil
-      }
-    )
+          availableIntermediateFrames: availableFrames
+        )
+      )
+    })
+  }
+
+  func recordInitialMotionLatency(
+    processID: pid_t,
+    latencyMS: Double,
+    sampledAt: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !(recentIntermediateProcessLatencySamplesMS[processID] ?? []).contains(where: {
+      sampledAt - $0.sampledAt <= 1
+    }) else { return }
+    recentIntermediateProcessLatencySamplesMS[processID] = [
+      (sampledAt, min(max(latencyMS, 0), 120))
+    ]
   }
 
   func recordProcessLatencySamples(
-    _ samplesMS: [pid_t: Double]
+    _ samplesMS: [pid_t: Double],
+    intermediate: Bool = false,
+    sampledAt: TimeInterval = ProcessInfo.processInfo.systemUptime
   ) {
     lock.lock()
     for (processID, rawSample) in samplesMS {
       let sample = min(max(rawSample, 0), 120)
-      // Averages recover too quickly after intermittent AX stalls. Require a
-      // bounded history of fast writes before attempting shared animation again.
-      var recent = recentProcessLatencySamplesMS[processID] ?? []
-      recent.append(sample)
-      if recent.count > 16 { recent.removeFirst(recent.count - 16) }
-      recentProcessLatencySamplesMS[processID] = recent
+      // Final parking verification and size commits cost more than movement.
+      // Expire motion stalls when fresh writes confirm recovery: a count-only
+      // history recovers slowly because throttling also reduces new samples.
+      if intermediate {
+        var recent = recentIntermediateProcessLatencySamplesMS[processID] ?? []
+        recent.removeAll { sampledAt - $0.sampledAt > 0.25 }
+        recent.append((sampledAt, sample))
+        if recent.count > 16 { recent.removeFirst(recent.count - 16) }
+        recentIntermediateProcessLatencySamplesMS[processID] = recent
+      }
       let prediction: Double
       if let previous = predictedProcessLatencyMS[processID] {
         // Clamp a single outlier so one slow write cannot yank the
@@ -396,7 +562,8 @@ extension AXFrameCoordinator {
     progress: Double,
     intermediate: Bool,
     stagingReentry: Bool,
-    recordFinalSuccess: Bool
+    recordFinalSuccess: Bool,
+    progressVelocity: Double = 0
   ) -> (
     applied: Int,
     stale: Int,
@@ -406,6 +573,16 @@ extension AXFrameCoordinator {
     guard isCurrent(generation: frame.generation) else {
       return (0, batch.writes.count, [], false)
     }
+    if let batchWriter {
+      return batchWriter(batch, frame, progress, intermediate, stagingReentry, recordFinalSuccess)
+    }
+    let seedsMotionCost = !intermediate && !stagingReentry && progress >= 1
+      && !batch.writes.isEmpty && batch.writes.allSatisfy {
+        $0.value.positionChanged && !$0.value.sizeChanged && !$0.value.isParked
+          && !$0.value.isReentering && !$0.value.requiresVerifiedOffscreenWrite
+          && $0.value.fromPoint.y == $0.value.point.y
+      }
+    var motionCostMS = 0.0
     var applied = 0
     var stale = 0
     var slowProcesses = Set<pid_t>()
@@ -447,10 +624,9 @@ extension AXFrameCoordinator {
     } else {
       enhancedUIRestoreToken = nil
       if let batchApplication, managesEnhancedUI {
-        accessibilityWriter.setEnhancedUserInterface(
-          false,
-          application: batchApplication
-        )
+        _ = AXMessagingTimeoutAccess.shared.withTimeout(0.006, elements: [batchApplication]) {
+          accessibilityWriter.setEnhancedUserInterface(false, application: batchApplication)
+        }
       }
     }
     defer {
@@ -460,10 +636,9 @@ extension AXFrameCoordinator {
           token: enhancedUIRestoreToken
         )
       } else if let batchApplication, managesEnhancedUI {
-        accessibilityWriter.setEnhancedUserInterface(
-          true,
-          application: batchApplication
-        )
+        _ = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [batchApplication]) {
+          accessibilityWriter.setEnhancedUserInterface(true, application: batchApplication)
+        }
       }
     }
     for (index, item) in batch.writes.enumerated() {
@@ -471,7 +646,6 @@ extension AXFrameCoordinator {
         stale += batch.writes.count - index
         break
       }
-      attempted = true
       let destination = frameAnimationDestination(item.value, intermediate: intermediate)
       let interpolated = interpolatedFrame(
         from: Rect(
@@ -488,14 +662,18 @@ extension AXFrameCoordinator {
         ),
         progress: progress
       )
-      let nativeRibbonSample = intermediate
+      let nativeRibbonSample = (intermediate || stagingReentry)
         && (item.value.usesCommonRibbonOffset || item.value.usesLogicalRibbonPath)
         && frame.monitorFrames.count == 1
       let ribbonSample = item.value.usesCommonRibbonOffset
         ? Rect(x: interpolated.x, y: item.value.fromPoint.y,
           width: item.value.fromSize.width, height: item.value.fromSize.height)
         : interpolated
-      let nativeFrame = nativeRibbonSample ? nativeRibbonAnimationFrame(
+      let projectsNativeStrip = (intermediate || stagingReentry)
+        && frame.source == "command-animation"
+        && item.value.fromPoint.y == item.value.point.y
+        && frame.monitorFrames.count == 1
+      let nativeFrame = (nativeRibbonSample || projectsNativeStrip) ? nativeRibbonAnimationFrame(
         ribbonSample,
         monitor: frame.monitorFrames[0]) : interpolated
       let point = CGPoint(x: nativeFrame.x, y: nativeFrame.y)
@@ -503,7 +681,7 @@ extension AXFrameCoordinator {
         frame: nativeFrame, monitorFrames: frame.monitorFrames)
       // A distant logical column stays at its verified strip anchor. Do not
       // send identical offscreen positions at every display refresh.
-      if parksRibbonSample, !item.value.sizeChanged, !item.value.animatesSize,
+      if parksRibbonSample, !stagingReentry, !item.value.sizeChanged, !item.value.animatesSize,
         let completed = completedPosition(for: item.key),
         accessibilityWriter.pointDistance(completed, point) < 0.5
       {
@@ -524,14 +702,57 @@ extension AXFrameCoordinator {
         synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
         animatesSize: item.value.animatesSize
       )
+      if intermediate {
+        lock.lock()
+        let completedPoint = completedPositions[item.key]
+        let completedSize = completedSizes[item.key] ?? item.value.fromSize
+        lock.unlock()
+        if let completedPoint {
+          let intent = frameWriteIntent(
+            reference: Rect(x: completedPoint.x, y: completedPoint.y,
+                            width: completedSize.width, height: completedSize.height),
+            target: interpolated, positionsOnly: !requiresAsynchronousSizeWrite
+          )
+          if !intent.position && !intent.size {
+            if stagingReentry, item.value.positionChanged { applied += 1 }
+            recordRetargetVelocity(frame: frame, progressVelocity: 0, windowIDs: [item.key])
+            continue
+          }
+        }
+      }
+      // A parked surface already at its projected origin needs no AX round trip
+      // before the shared timeline. Read only this window when the cache missed.
+      if stagingReentry, !requiresAsynchronousSizeWrite,
+        let native = accessibilityWriter.nativePositionReader(item.key, item.value.processID),
+        accessibilityWriter.pointDistance(native, point) <= 1
+      {
+        recordCompletedPosition(native, windowID: item.key)
+        if item.value.positionChanged { applied += 1 }
+        recordRetargetVelocity(frame: frame, progressVelocity: 0, windowIDs: [item.key])
+        continue
+      }
       let readsLiveBorderPosition = acceptedFrameRequiresReadback(
         windowID: item.key,
         sizeChanged: false,
         liveBorderWindowID: currentLiveBorderWindowID()
       )
+      let readsImmediatePosition =
+        (item.value.isParked || item.value.requiresVerifiedOffscreenWrite)
+        && processNeedsImmediateReadback(item.value.processID)
+      // Presentation already samples native geometry independently. Do not make
+      // every ribbon lane wait for a second border-only WindowServer round trip.
+      let defersBorderReadback = readsLiveBorderPosition && intermediate && !stagingReentry
+        && frame.source == "command-animation" && !requiresAsynchronousSizeWrite
+        && item.value.fromPoint.y == item.value.point.y
+        && !item.value.isParked && !item.value.isReentering
+        && !item.value.requiresVerifiedOffscreenWrite && !readsImmediatePosition
+        && accessibilityWriter.independentBorderObservationAvailable()
+      attempted = true
+      var timeoutWaitMS = 0.0
       let writeResult = AXMessagingTimeoutAccess.shared.withTimeout(
         timeout,
-        elements: [item.value.application, item.value.element]
+        elements: [item.value.application, item.value.element],
+        observeWait: { timeoutWaitMS = $0 * 1_000 }
       ) {
         let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
         let generationIsCurrent = isCurrent(generation: frame.generation)
@@ -543,7 +764,8 @@ extension AXFrameCoordinator {
                 item.value,
                 size: size,
                 enhancedUIManagedByBatch: managesEnhancedUI
-                  || defersEnhancedUIRestore
+                  || defersEnhancedUIRestore,
+                shouldApply: { self.isCurrent(generation: frame.generation) }
               )
           )
         var sizeApplied = frameSizeWriteSucceeded(
@@ -561,6 +783,18 @@ extension AXFrameCoordinator {
           && (acceptedSize.map {
             abs($0.width - size.width) >= 0.5 || abs($0.height - size.height) >= 0.5
           } ?? false)
+        var nativeStagingPosition: CGPoint?
+        let verifyNativeStage: (() -> Bool)? =
+          stagingReentry && item.value.isReentering && !item.value.isParked
+            && !item.value.requiresVerifiedOffscreenWrite ? {
+          guard self.isCurrent(generation: frame.generation),
+            let native = self.accessibilityWriter.nativePositionReader(item.key, item.value.processID),
+            self.accessibilityWriter.pointDistance(native, point) <= 1
+          else { return false }
+          nativeStagingPosition = native
+          return true
+        } : nil
+        let positionStartedAt = ProcessInfo.processInfo.systemUptime
         var positionApplied =
           generationIsCurrent
           && (
@@ -570,11 +804,15 @@ extension AXFrameCoordinator {
                 point: point,
                 forceOffscreenAccess: parksRibbonSample || (stagingReentry && item.value.isReentering)
                   || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
-                verifiesParking: !intermediate,
+                verifyParkedPosition: !intermediate,
                 enhancedUIManagedByBatch: managesEnhancedUI
-                  || defersEnhancedUIRestore
+                  || defersEnhancedUIRestore,
+                nativePositionIsVerified: verifyNativeStage,
+                shouldApply: { self.isCurrent(generation: frame.generation) }
               )
             )
+        let positionDurationMS =
+          (ProcessInfo.processInfo.systemUptime - positionStartedAt) * 1_000
         // AppKit can clamp a resize at the source position, even on the same
         // display. Retry the final size once after moving, only after a measured
         // mismatch; intermediate samples must keep their bounded write budget.
@@ -584,31 +822,62 @@ extension AXFrameCoordinator {
         {
           sizeApplied = accessibilityWriter.applySize(
             item.value, size: size,
-            enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
+            enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore,
+            shouldApply: { self.isCurrent(generation: frame.generation) }
           )
           acceptedSize = sizeApplied ? accessibilityWriter.readSize(item.value.element) : nil
           if isCurrent(generation: frame.generation) {
+            nativeStagingPosition = nil
             positionApplied = accessibilityWriter.applyPosition(
               item.value, point: point,
               forceOffscreenAccess: parksRibbonSample || (stagingReentry && item.value.isReentering)
                 || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
-              verifiesParking: !intermediate,
-              enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore
+              verifyParkedPosition: !intermediate,
+              enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore,
+              nativePositionIsVerified: verifyNativeStage,
+              shouldApply: { self.isCurrent(generation: frame.generation) }
             )
           }
         }
-        let acceptedPosition =
-          positionApplied && readsLiveBorderPosition
-            ? accessibilityWriter.readPosition(item.value.element)
-            : nil
+        var acceptedPosition = nativeStagingPosition
+        if acceptedPosition == nil,
+          (positionApplied && ((readsLiveBorderPosition && !defersBorderReadback) || readsImmediatePosition))
+            || (stagingReentry && !positionApplied)
+        {
+          // Keep borders on observed geometry without another message to the
+          // app's AX handler on every moving sample. Mandatory AX readback and
+          // unavailable WindowServer metadata keep their existing fallback.
+          if intermediate, readsLiveBorderPosition, !readsImmediatePosition {
+            acceptedPosition = accessibilityWriter.nativePositionReader(
+              item.key, item.value.processID
+            )
+          }
+          acceptedPosition = acceptedPosition ?? accessibilityWriter.readPosition(item.value.element)
+        }
+        // AX can report AppKit's transient clamp while WindowServer has already
+        // accepted the staging anchor. Read only this surface, only on disagreement.
+        if stagingReentry, !positionApplied, isCurrent(generation: frame.generation),
+          let native = accessibilityWriter.nativePositionReader(item.key, item.value.processID),
+          accessibilityWriter.pointDistance(native, point) <= 1
+        {
+          positionApplied = true
+          acceptedPosition = native
+        }
         return (
           sizeApplied: sizeApplied,
           acceptedSize: acceptedSize,
           positionApplied: positionApplied,
           acceptedPosition: acceptedPosition,
           timeoutConfiguredAt: timeoutConfiguredAt,
-          positionAppliedAt: ProcessInfo.processInfo.systemUptime
+          positionAppliedAt: ProcessInfo.processInfo.systemUptime,
+          positionDurationMS: positionDurationMS
         )
+      }
+      if stagingReentry, !writeResult.positionApplied, isCurrent(generation: frame.generation) {
+        let observed = writeResult.acceptedPosition
+        lock.lock()
+        appendTraceLocked("reentry-stage-rejected g=\(frame.generation) wid=\(item.key.rawValue) expected=\(point) observed=\(String(describing: observed))")
+        lock.unlock()
       }
       let sizeApplied = writeResult.sizeApplied
       let acceptedSize = writeResult.acceptedSize
@@ -650,26 +919,16 @@ extension AXFrameCoordinator {
           now: timeoutResetAt
         )
       }
-      guard isCurrent(generation: frame.generation) else {
-        stale += 1
-        lock.lock()
-        appendTraceLocked(
-          "stale-completion g=\(frame.generation) pid=\(item.value.processID) wid=\(item.key.rawValue) applied=\(appliedWrite ? 1 : 0) ms=\(String(format: "%.2f", writeElapsedMS))"
-        )
-        lock.unlock()
-        continue
-      }
+      // A superseded write can still have moved the native window. Keep that
+      // physical starting point; process lanes serialize it before replacement.
       let requiresReadback = !intermediate
         && (item.value.isParked || item.value.requiresVerifiedOffscreenWrite)
       if positionApplied, item.value.positionChanged {
-        applied += 1
-        let completedPoint =
-          acceptedPosition
-          ?? (requiresReadback
-          && processNeedsImmediateReadback(item.value.processID)
-          ? accessibilityWriter.readPosition(item.value.element) ?? point
-          : point)
-        recordCompletedPosition(completedPoint, windowID: item.key)
+        let completedPoint = acceptedPosition ?? point
+        recordCompletedPosition(
+          completedPoint, windowID: item.key,
+          positionWasReadBack: acceptedPosition != nil || requiresReadback
+        )
       } else if let acceptedPosition {
         recordCompletedPosition(acceptedPosition, windowID: item.key)
       }
@@ -679,6 +938,26 @@ extension AXFrameCoordinator {
           windowID: item.key,
           incrementWriteCount: true,
           sizeWasReadBack: acceptedSize != nil
+        )
+      }
+      guard isCurrent(generation: frame.generation) else {
+        stale += 1
+        lock.lock()
+        appendTraceLocked(
+          "stale-completion g=\(frame.generation) pid=\(item.value.processID) wid=\(item.key.rawValue) applied=\(appliedWrite ? 1 : 0) ms=\(String(format: "%.2f", writeElapsedMS))"
+        )
+        lock.unlock()
+        continue
+      }
+      if positionApplied, item.value.positionChanged {
+        applied += 1
+        motionCostMS += writeResult.positionDurationMS
+          + (timeoutConfiguredAt - writeStartedAt + timeoutResetAt - positionAppliedAt) * 1_000
+      }
+      if intermediate {
+        recordRetargetVelocity(
+          frame: frame, progressVelocity: positionApplied ? progressVelocity : 0,
+          windowIDs: [item.key]
         )
       }
       if requiresReadback, !intermediate {
@@ -705,10 +984,15 @@ extension AXFrameCoordinator {
       if writeElapsedMS > 16.67 {
         lock.lock()
         appendTraceLocked(
-          "slow g=\(frame.generation) pid=\(item.value.processID) windows=1 ms=\(String(format: "%.2f", writeElapsedMS)) setup=\(String(format: "%.2f", (timeoutConfiguredAt - writeStartedAt) * 1_000)) position=\(String(format: "%.2f", (positionAppliedAt - timeoutConfiguredAt) * 1_000)) reset=\(String(format: "%.2f", (timeoutResetAt - positionAppliedAt) * 1_000))"
+          "slow g=\(frame.generation) pid=\(item.value.processID) windows=1 ms=\(String(format: "%.2f", writeElapsedMS)) setup=\(String(format: "%.2f", (timeoutConfiguredAt - writeStartedAt) * 1_000)) position=\(String(format: "%.2f", writeResult.positionDurationMS)) geometry=\(String(format: "%.2f", (positionAppliedAt - timeoutConfiguredAt) * 1_000 - writeResult.positionDurationMS)) wait=\(String(format: "%.2f", timeoutWaitMS)) reset=\(String(format: "%.2f", (timeoutResetAt - positionAppliedAt) * 1_000)) phase=\(stagingReentry ? "staging" : intermediate ? "motion" : "final")"
         )
         lock.unlock()
       }
+    }
+    if seedsMotionCost, applied == batch.writes.count, stale == 0,
+      isCurrent(generation: frame.generation)
+    {
+      recordInitialMotionLatency(processID: batch.processID, latencyMS: motionCostMS)
     }
     return (applied, stale, slowProcesses, attempted)
   }
@@ -724,23 +1008,32 @@ extension AXFrameCoordinator {
     application: AXUIElement
   ) -> UInt64 {
     lock.lock()
+    let alreadyDisabled = deferredEnhancedUIRestores[processID]?.disabled == true
     nextEnhancedUIRestoreToken &+= 1
     let token = nextEnhancedUIRestoreToken
-    deferredEnhancedUIRestores[processID] = (token, application)
+    deferredEnhancedUIRestores[processID] = (token, application, alreadyDisabled)
     lock.unlock()
-    accessibilityWriter.setEnhancedUserInterface(
-      false,
-      application: application
-    )
+    if !alreadyDisabled {
+      let disabled = AXMessagingTimeoutAccess.shared.withTimeout(0.006, elements: [application]) {
+        accessibilityWriter.setEnhancedUserInterface(false, application: application)
+      }
+      lock.lock()
+      if deferredEnhancedUIRestores[processID]?.token == token {
+        deferredEnhancedUIRestores[processID]?.disabled = disabled
+      }
+      lock.unlock()
+    }
     return token
   }
 
   func scheduleEnhancedUIRestore(
     processID: pid_t,
-    token: UInt64
+    token: UInt64,
+    retryFailedRestore: Bool = true
   ) {
-    processWriteQueue(for: processID).asyncAfter(
-      deadline: .now() + enhancedUIRestoreDelay
+    enqueueProcessWrite(
+      for: processID,
+      after: .now() + enhancedUIRestoreDelay
     ) { [weak self] in
       guard let self else { return }
       lock.lock()
@@ -750,25 +1043,46 @@ extension AXFrameCoordinator {
         lock.unlock()
         return
       }
-      deferredEnhancedUIRestores[processID] = nil
+      deferredEnhancedUIRestores[processID]?.disabled = false
       lock.unlock()
-      accessibilityWriter.setEnhancedUserInterface(
-        true,
-        application: restore.application
-      )
+      let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [restore.application]) {
+        accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
+      }
+      lock.lock()
+      let stillCurrent = deferredEnhancedUIRestores[processID]?.token == token
+      if restored, stillCurrent { deferredEnhancedUIRestores[processID] = nil }
+      if !restored, stillCurrent {
+        appendTraceLocked("enhanced-ui-restore-failed pid=\(processID) token=\(token)")
+      }
+      lock.unlock()
+      if !restored, stillCurrent, retryFailedRestore {
+        scheduleEnhancedUIRestore(processID: processID, token: token, retryFailedRestore: false)
+      }
     }
   }
 
   func restoreDeferredEnhancedUserInterfaces() {
     lock.lock()
-    let restores = Array(deferredEnhancedUIRestores.values)
-    deferredEnhancedUIRestores.removeAll(keepingCapacity: true)
+    let restores = deferredEnhancedUIRestores
     lock.unlock()
-    for restore in restores {
-      accessibilityWriter.setEnhancedUserInterface(
-        true,
-        application: restore.application
-      )
+    for (processID, restore) in restores {
+      lock.lock()
+      let current = deferredEnhancedUIRestores[processID]?.token == restore.token
+      if current { deferredEnhancedUIRestores[processID]?.disabled = false }
+      lock.unlock()
+      guard current else { continue }
+      let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [restore.application]) {
+        accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
+          || accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
+      }
+      lock.lock()
+      if deferredEnhancedUIRestores[processID]?.token == restore.token {
+        if restored { deferredEnhancedUIRestores[processID] = nil }
+        else { appendTraceLocked("enhanced-ui-restore-failed pid=\(processID) token=\(restore.token) shutdown=1") }
+      } else {
+        deferredEnhancedUIRestores[processID]?.disabled = false
+      }
+      lock.unlock()
     }
   }
 
@@ -787,7 +1101,7 @@ extension AXFrameCoordinator {
     let committed = WindowIDCollector()
     for entries in byProcess.values {
       group.enter()
-      processWriteQueue(for: entries[0].value.processID).async { [self] in
+      enqueueProcessWrite(for: entries[0].value.processID) { [self] in
         defer { group.leave() }
         var succeeded = Set<WindowID>()
         for (windowID, write) in entries.sorted(by: {
@@ -801,7 +1115,8 @@ extension AXFrameCoordinator {
             let succeeded = accessibilityWriter.applySize(
               write,
               size: write.size,
-              enhancedUIManagedByBatch: false
+              enhancedUIManagedByBatch: false,
+              shouldApply: { self.isCurrent(generation: generation) }
             )
             return (
               succeeded: succeeded,

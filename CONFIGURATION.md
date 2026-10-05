@@ -141,14 +141,14 @@ workspace transitions and mouse-driven reordering.
 ```toml
 [animation]
 enabled = true
-duration_ms = 35
+duration_ms = 125
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `enabled` | `true` | boolean | Enables visual scrolling and managed resize animation. |
 | `experimental_window_representations` | `false` | boolean | Experimental horizontal ribbon: animate one-shot window representations and commit native positions behind them. Requires existing Screen Recording access; does not request permission or start a continuous stream. Missing captures, unsupported geometry, and workspace switches use native windows. |
-| `duration_ms` | `35` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
+| `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
 
 ## `[overview]`
 
@@ -411,6 +411,14 @@ Aliases cannot reference other aliases.
 
 Binds accelerators to Defi commands.
 
+Defi reserves normal shortcuts with Carbon global hotkeys and observes input
+through a passive event tap. Commands remain responsive while the main event
+loop is busy, and normal shortcut events are not discarded by Defi's tap.
+Reservations are suspended during shortcut recording and text editing in Defi.
+Registration failures disable shortcuts and appear in the settings status and
+an app alert; input observation remains active. A separate filtering tap handles
+overview navigation, shortcut recording, help dismissal, and pointer routing.
+
 ```toml
 [keys]
 "hyper-left" = "focus-column left"
@@ -645,7 +653,7 @@ enabled = true
 
 [animation]
 enabled = true
-duration_ms = 35
+duration_ms = 125
 
 [overview]
 zoom = 0.5

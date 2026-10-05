@@ -113,6 +113,8 @@ extension SnapshotEngine {
     preparedTransientOwnerWindowIDs: [WindowID: WindowID],
     preparedApplicationWindows: [pid_t: PreparedAXApplicationWindows],
     explicitlyDestroyedWindowIDs: Set<WindowID>,
+    frameRefreshWindowIDs: Set<WindowID>? = nil,
+    shouldReadProcess: (pid_t) -> Bool = { _ in true },
     publicCGWindows: () -> [CGWindowRecord]?
   ) -> SnapshotWindowDiscoveryResult {
       let previousElements = elements
@@ -132,6 +134,9 @@ extension SnapshotEngine {
         grouping: lastSnapshotWindows,
         by: \.processID
       )
+      let previousWindowsByID = Dictionary(
+        lastSnapshotWindows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+      )
       var nextElements: [WindowID: AXUIElement] = [:]
       var nextProcessIDs: [WindowID: pid_t] = [:]
       var nextApplications: [pid_t: AXUIElement] = [:]
@@ -149,48 +154,45 @@ extension SnapshotEngine {
       var nextRetainedWindowIDs = Set<WindowID>()
       var cachedSnapshotWindowIDs = Set<WindowID>()
   
+      var deferredReadProcessIDs = Set<pid_t>()
+      func reuseCachedProcess(_ processID: pid_t) -> Bool {
+        guard let cachedApplication = previousApplications[processID] else { return false }
+        let cachedWindows = previousWindowsByProcess[processID] ?? []
+        let cachedElements = cachedWindows.compactMap { window in
+          previousElements[window.id].map { (window.id, $0) }
+        }
+        let cachedApplicationWindows = lastApplicationWindowElements[processID]
+        guard cachedElements.count == cachedWindows.count,
+          cachedApplicationWindows != nil || cachedWindows.isEmpty,
+          explicitlyDestroyedWindowIDs.isDisjoint(with: cachedWindows.map(\.id))
+        else { return false }
+        nextApplications[processID] = cachedApplication
+        if let appID = previousApplicationIDs[processID] {
+          nextApplicationIDs[processID] = appID
+        }
+        applicationWindows[processID] = cachedApplicationWindows
+        windows.append(contentsOf: cachedWindows)
+        nextRetainedWindowIDs.formUnion(retainedWindowIDsForCachedWindows(
+          cachedWindows, previousRetainedWindowIDs: retainedWindowIDs
+        ))
+        cachedSnapshotWindowIDs.formUnion(cachedWindows.lazy.map(\.id))
+        for (windowID, element) in cachedElements {
+          nextElements[windowID] = element
+          nextProcessIDs[windowID] = processID
+          nextNativeWindowTabGroups[windowID] = nativeWindowTabGroupsByWindowID[windowID]
+        }
+        return true
+      }
       var processIDsToRefresh = incrementalProcessIDs
       if var requestedProcessIDs = processIDsToRefresh {
-        for (processID, cachedApplication) in previousApplications {
-          guard !requestedProcessIDs.contains(processID) else {
-            continue
-          }
-          let cachedWindows = previousWindowsByProcess[processID] ?? []
-          let cachedElements = cachedWindows.compactMap { window in
-            previousElements[window.id].map { (window.id, $0) }
-          }
-          let cachedApplicationWindows = lastApplicationWindowElements[processID]
-          if cachedElements.count != cachedWindows.count
-            || (cachedApplicationWindows == nil && !cachedWindows.isEmpty)
-          {
+        for processID in previousApplications.keys where !requestedProcessIDs.contains(processID) {
+          if !reuseCachedProcess(processID) {
             requestedProcessIDs.insert(processID)
-            continue
-          }
-          nextApplications[processID] = cachedApplication
-          if let appID = previousApplicationIDs[processID] {
-            nextApplicationIDs[processID] = appID
-          }
-          if let cachedApplicationWindows {
-            applicationWindows[processID] = cachedApplicationWindows
-          }
-          windows.append(contentsOf: cachedWindows)
-          nextRetainedWindowIDs.formUnion(
-            retainedWindowIDsForCachedWindows(
-              cachedWindows,
-              previousRetainedWindowIDs: retainedWindowIDs
-            )
-          )
-          cachedSnapshotWindowIDs.formUnion(cachedWindows.lazy.map(\.id))
-          for (windowID, element) in cachedElements {
-            nextElements[windowID] = element
-            nextProcessIDs[windowID] = processID
-            nextNativeWindowTabGroups[windowID] =
-              nativeWindowTabGroupsByWindowID[windowID]
           }
         }
         processIDsToRefresh = requestedProcessIDs
       }
-  
+
       let refreshesApplicationInventory = applicationInventoryRefreshIsRequired(
         hasCompletedSnapshot: hasCompletedWindowSnapshot,
         topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
@@ -267,6 +269,10 @@ extension SnapshotEngine {
       for runningApplication in runningApplications {
         let processID = runningApplication.processID
         guard processID > 0, processID != ownProcessID else { continue }
+        if !shouldReadProcess(processID), reuseCachedProcess(processID) {
+          deferredReadProcessIDs.insert(processID)
+          continue
+        }
         minimizedWindows[processID] = []
         transientGeometryWindows[processID] = []
         let appID: String
@@ -413,6 +419,21 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           let element = candidate.element
           let previousWindowID = candidate.previousWindowID
           if previousWindowID.map(explicitlyDestroyedWindowIDs.contains) == true {
+            continue
+          }
+          // A targeted frame observation cannot make a sibling's cached
+          // geometry fresh. Topology and watchdog passes still read the process.
+          if !refreshesWindowList, let frameRefreshWindowIDs, let previousWindowID,
+            !frameRefreshWindowIDs.contains(previousWindowID),
+            let cached = previousWindowsByID[previousWindowID],
+            let nativeID = CGWindowID(exactly: previousWindowID.rawValue),
+            usedCGWindowIDs.insert(nativeID).inserted
+          {
+            windows.append(cached)
+            nextElements[previousWindowID] = element
+            nextProcessIDs[previousWindowID] = processID
+            nextNativeWindowTabGroups[previousWindowID] = nativeWindowTabGroupsByWindowID[previousWindowID]
+            cachedSnapshotWindowIDs.insert(previousWindowID)
             continue
           }
           if previousWindowID == nil,
@@ -728,6 +749,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       elements: nextElements,
       processIDs: nextProcessIDs,
       preparedOwnerWindowIDs: preparedTransientOwnerWindowIDs,
+      deferredProcessIDs: deferredReadProcessIDs,
       topologyProcessIDs:
         capturedTopologyRequiresFullSnapshot
         ? Set(nextProcessIDs.values)
@@ -777,6 +799,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
     elements: [WindowID: AXUIElement],
     processIDs: [WindowID: pid_t],
     preparedOwnerWindowIDs: [WindowID: WindowID],
+    deferredProcessIDs: Set<pid_t>,
     topologyProcessIDs: Set<pid_t>
   ) {
     let liveWindowIDs = Set(elements.keys)
@@ -820,6 +843,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         )
       }
     )
+    .filter { processIDs[$0].map { !deferredProcessIDs.contains($0) } ?? true }
     var resolvedCandidateIDs = ownerLookupCandidateIDs.intersection(
       livePreparedOwnerWindowIDs.keys
     )
