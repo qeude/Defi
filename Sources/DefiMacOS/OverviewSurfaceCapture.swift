@@ -60,6 +60,7 @@ final class OverviewSurfaceCapture {
   private var captures: [WindowID: Capture] = [:]
   private var displayLayers: [WindowID: AVSampleBufferDisplayLayer] = [:]
   private var requested: [OverviewSurfaceRequest] = []
+  private var desiredRequests: [OverviewSurfaceRequest] = []
   private var preparation: Task<Void, Never>?
   private var deferredPreparation: Task<Void, Never>?
   private var pendingRequests: [OverviewSurfaceRequest]?
@@ -79,6 +80,11 @@ final class OverviewSurfaceCapture {
     guard !requests.isEmpty, overviewSurfaceRequestsFit(requests) else {
       stop(state: requests.isEmpty ? "empty" : "budget"); return
     }
+    desiredRequests = requests
+    let desired = Dictionary(uniqueKeysWithValues: requests.map { ($0.windowID, $0) })
+    captures = captures.filter { desired[$0.key] == $0.value.request }
+    displayLayers = displayLayers.filter { captures[$0.key] != nil }
+    state = captures.count == requests.count ? "ready" : "warming"
     let now = CACurrentMediaTime()
     if requested == requests {
       pendingRequests = nil
@@ -115,10 +121,6 @@ final class OverviewSurfaceCapture {
     }
     requested = requests
     lastPreparationAt = now
-    let desired = Dictionary(uniqueKeysWithValues: requests.map { ($0.windowID, $0) })
-    captures = captures.filter { desired[$0.key] == $0.value.request }
-    displayLayers = displayLayers.filter { captures[$0.key] != nil }
-    state = captures.count == requests.count ? "ready" : "warming"
     preparation = Task { [weak self] in
       guard let self else { return }
       do {
@@ -177,12 +179,14 @@ final class OverviewSurfaceCapture {
           }
           guard !Task.isCancelled, generation == token else { return }
           guard layer.isReadyForDisplay else { throw SurfaceCaptureError.missingPixels }
+          guard desiredRequests.contains(request) else { continue }
           captures[request.windowID] = Capture(request: request, frame: frame)
           displayLayers[request.windowID] = layer
         }
         guard generation == token else { return }
         preparationDeadline?.cancel(); preparationDeadline = nil
-        preparation = nil; failedRequests = []; state = "ready"
+        preparation = nil; failedRequests = []
+        state = captures.count == desiredRequests.count ? "ready" : "warming"
       } catch {
         guard generation == token else { return }
         preparationDeadline?.cancel(); preparationDeadline = nil

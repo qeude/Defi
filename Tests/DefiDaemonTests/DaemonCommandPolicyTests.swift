@@ -8,6 +8,20 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func completedOverviewSelectionAllowsWarpUntilSuperseded() {
+    let state = OverviewToggleState()
+    state.recordControllerState(true, sessionGeneration: 1)
+    state.completeSelectionExit(1)
+    state.recordControllerState(false, sessionGeneration: 2)
+    #expect(state.selectionWarpIsCurrent(1))
+    state.recordControllerState(true, sessionGeneration: 3)
+    #expect(!state.selectionWarpIsCurrent(1))
+    _ = state.requestClose()
+    state.completeSelectionExit(3)
+    state.recordControllerState(false, sessionGeneration: 4)
+    #expect(!state.selectionWarpIsCurrent(3), "Cancellation cannot authorize a delayed warp")
+  }
+
   @Test func overviewSessionCancellationInvalidatesAlreadyQueuedSelection() {
     let state = OverviewToggleState()
     state.recordControllerState(true, sessionGeneration: 1)
@@ -129,6 +143,7 @@ struct DaemonCommandPolicyTests {
     #expect(toggleState.snapshot() == OverviewToggleSnapshot(
       generation: 0,
       actualIsOpen: false,
+      sessionGeneration: nil,
       desiredIsOpen: nil
     ))
 

@@ -435,6 +435,17 @@ final class DesktopE2ETests: XCTestCase {
     }
     XCTAssertEqual(controller.surfaceCaptureState, "ready")
     try await Task.sleep(for: .milliseconds(150))
+    let originalCapture = try XCTUnwrap(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID])?[windowID])
+    OverviewSurfaceCapture.shared.prepare([OverviewSurfaceRequest(windowID: windowID,
+      appID: "different.owner", processID: processID + 1,
+      width: originalCapture.width, height: originalCapture.height)], enabled: true)
+    XCTAssertNil(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]),
+      "A reused ID must stop exposing the previous owner's pixels immediately, including during throttle")
+    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout,
+      experimentalSurfaceTransitions: true)
+    for _ in 0..<80 where controller.surfaceCaptureState != "ready" {
+      try await Task.sleep(for: .milliseconds(100))
+    }
     let capturedFrames = try XCTUnwrap(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]))
     let projection = projectOverview(snapshot: snapshot, monitorID: monitorID,
       bounds: Rect(x: 0, y: 0, width: screen.frame.width, height: screen.frame.height),
@@ -461,9 +472,10 @@ final class DesktopE2ETests: XCTestCase {
     let renderer = ExperimentalRibbonRenderer(visibleWindowInfo: { visibleWindowInfo })
     renderer.prepare(snapshot: snapshot, layout: surfaceLayout, enabled: true)
     defer { renderer.disable() }
-    for _ in 0..<40 where !renderer.backgroundsReady {
+    for _ in 0..<120 where !renderer.backgroundsReady {
       try await Task.sleep(for: .milliseconds(50))
     }
+    XCTAssertTrue(renderer.backgroundsReady, "Owned renderer background capture must finish before animation")
     let originalRibbonFrame = fixture.frame
     let target = Rect(x: nativeFrameBounds.minX + 60, y: nativeFrameBounds.minY,
       width: nativeFrameBounds.width, height: nativeFrameBounds.height)

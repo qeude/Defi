@@ -320,7 +320,11 @@ final class ExperimentalRibbonRenderer {
         let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
         rect.width > 1, rect.height > 1 else { return false }
       let frame = Rect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
-      return frame.ribbonIntersects(viewport) && !represented.contains(WindowID(rawValue: id.uint64Value))
+      let windowID = WindowID(rawValue: id.uint64Value)
+      guard frame.ribbonIntersects(viewport), !represented.contains(windowID) else { return false }
+      // Only known managed windows may contribute a verified one-pixel parking strip.
+      let managed = contexts.contains { $0.owners[windowID] == owner.int32Value }
+      return !managed || frame.ribbonOverlapWidth(viewport) > 1.01
     }
   }
 

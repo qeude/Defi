@@ -296,7 +296,6 @@ extension Daemon {
     inputTimestamp: TimeInterval? = nil,
     receivedAt: TimeInterval? = nil,
     floatingFramesRefreshed: Bool = false,
-    routesOverviewSelection: Bool = true,
     deferredResponse: DeferredCommandReply? = nil
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
@@ -389,11 +388,14 @@ extension Daemon {
           ribbonPrototype: overviewRibbonPrototypeRequested(in: rawCommand)
         )
       }
-      if routesOverviewSelection, overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
+      if overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
+        let originatingSession = overviewToggleState.snapshot().sessionGeneration
         deferredResponse?.deferResponse()
         DispatchQueue.main.async { [weak self] in
           guard let self else { deferredResponse?.fail("daemon unavailable"); return }
-          if let controller = overviewController, controller.isOpen {
+          if let controller = overviewController,
+            overviewToggleState.isCurrentSession(originatingSession),
+            controller.sessionGeneration == originatingSession {
             let accepted = controller.applyLayoutCommand(command) {
               [weak self] command, windowID, appID, monitorID, workspaceID, generation in
               NavigationActor.enqueue { [weak self] in
@@ -414,16 +416,7 @@ extension Daemon {
               deferredResponse?.fail("overview selection cannot apply this layout command")
             }
           } else {
-            NavigationActor.enqueue { [weak self] in
-              let operation = {
-                self?.handle(rawCommand, monitorIndex: monitorIndex,
-                  inputTimestamp: inputTimestamp, receivedAt: receivedAt,
-                  floatingFramesRefreshed: floatingFramesRefreshed, routesOverviewSelection: false)
-                  ?? .failure("daemon unavailable")
-              }
-              if let deferredResponse { deferredResponse.perform(operation) }
-              else { _ = operation() }
-            }
+            deferredResponse?.fail("overview session changed; command was not applied")
           }
         }
         return .success("queued for overview selection")

@@ -569,12 +569,16 @@ public final class OverviewController: NSObject {
     zoom: Double = 0.5,
     windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool? = nil,
-    experimentalSurfaceTransitions: Bool? = nil
+    experimentalSurfaceTransitions: Bool? = nil,
+    experimentalRibbonRepresentations: Bool? = nil
   ) {
     guard isOpen else { return }
     if let experimentalSurfaceTransitions {
       surfaceTransitionsEnabled = experimentalSurfaceTransitions
         && (windowPreviewsEnabled ?? self.windowPreviewsEnabled)
+    }
+    if let experimentalRibbonRepresentations {
+      ribbonRepresentationsEnabled = experimentalRibbonRepresentations
     }
     let previousSnapshot = self.snapshot
     let previousProjections = projections
@@ -821,7 +825,7 @@ public final class OverviewController: NSObject {
     let closingPanels = Array(panels.values)
     // Selection already commits focus/layout through the daemon. Whether this
     // close commits viewport offsets must not disable a safe visual handoff.
-    let canZoomBack = nativeExitCanZoom && animationsEnabled
+    let canZoomBack = nativeExitCanZoom && surfaceTransitionsEnabled && animationsEnabled
       && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
       && snapshot?.monitors.allSatisfy({ monitor in
         let viewport = viewports[monitor.id] ?? OverviewViewport()
@@ -1390,11 +1394,11 @@ public final class OverviewController: NSObject {
           ? overviewDesktopFadeDuration : 0
       )
     }
-    finishPreviewBatch(generation: generation)
     if results.authorizationDeclined {
       previewPermissionState = .denied
       cancelDesktopCaptureRetry()
     }
+    finishPreviewBatch(generation: generation)
     if shouldRetryDesktopCapture && !results.authorizationDeclined {
       scheduleDesktopCaptureRetry(generation: generation)
     }

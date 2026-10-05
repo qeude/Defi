@@ -154,3 +154,5 @@ events before yielding, checks that they are coalesced, and verifies the final
 100-point movement. Preview, title-cache bounds/reuse, and reverse-zoom tests remain
 separate checks. Raw profiling and benchmark artifacts are under the ignored
 `dist/verification/overview-profile/` directory.
+
+The experimental surface capture paths reuse an existing Screen Recording grant and never request one. Overview's ordinary one-shot preview path may request Screen Recording access when previews are enabled and access is absent.

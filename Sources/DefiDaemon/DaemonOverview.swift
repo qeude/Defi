@@ -26,6 +26,7 @@ enum OverviewToggleDecision: Equatable, Sendable {
 struct OverviewToggleSnapshot: Equatable, Sendable {
   let generation: UInt64
   let actualIsOpen: Bool
+  let sessionGeneration: UInt64?
   let desiredIsOpen: Bool?
 }
 
@@ -35,6 +36,7 @@ final class OverviewToggleState: @unchecked Sendable {
   private var generation: UInt64 = 0
   private var actualIsOpen = false
   private var sessionGeneration: UInt64?
+  private var completedSelectionSession: UInt64?
   private var desiredIsOpen: Bool?
   private var applyingGeneration: UInt64?
 
@@ -48,6 +50,7 @@ final class OverviewToggleState: @unchecked Sendable {
     guard !targetIsOpen || !ribbonPrototype || screenCaptureAccessGranted else {
       return .denied
     }
+    completedSelectionSession = nil
     generation &+= 1
     desiredIsOpen = targetIsOpen
     return .requested(
@@ -62,6 +65,7 @@ final class OverviewToggleState: @unchecked Sendable {
   func requestClose() -> OverviewToggleRequest {
     lock.lock()
     defer { lock.unlock() }
+    completedSelectionSession = nil
     generation &+= 1
     desiredIsOpen = false
     return OverviewToggleRequest(
@@ -100,6 +104,7 @@ final class OverviewToggleState: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     actualIsOpen = isOpen
+    if isOpen { completedSelectionSession = nil }
     self.sessionGeneration = sessionGeneration
     guard let applyingGeneration else {
       generation &+= 1
@@ -117,12 +122,28 @@ final class OverviewToggleState: @unchecked Sendable {
       && actualIsOpen && desiredIsOpen != false
   }
 
+  func completeSelectionExit(_ session: UInt64) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard actualIsOpen, desiredIsOpen != false, sessionGeneration == session else { return }
+    completedSelectionSession = session
+  }
+
+  func selectionWarpIsCurrent(_ session: UInt64?) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let session else { return false }
+    return completedSelectionSession == session
+      || (actualIsOpen && desiredIsOpen != false && sessionGeneration == session)
+  }
+
   func snapshot() -> OverviewToggleSnapshot {
     lock.lock()
     defer { lock.unlock() }
     return OverviewToggleSnapshot(
       generation: generation,
       actualIsOpen: actualIsOpen,
+      sessionGeneration: sessionGeneration,
       desiredIsOpen: desiredIsOpen
     )
   }
@@ -169,7 +190,8 @@ extension Daemon {
             zoom: config.overview.zoom,
             windowCornerRadius: config.overview.windowCornerRadius,
             windowPreviewsEnabled: config.overview.windowPreviews,
-            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
+            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
+            experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations)
         } else {
           controller.toggle(snapshot: snapshot, layout: layout,
             borders: config.decorations.borders, animation: config.animation,
@@ -199,7 +221,8 @@ extension Daemon {
           zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
           windowPreviewsEnabled: config.overview.windowPreviews,
-          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
+          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
+          experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations)
       } else {
         controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews,
           snapshot: snapshot, layout: layout, zoom: config.overview.zoom,
@@ -530,7 +553,7 @@ extension Daemon {
       cursorWarpInputTimestampAfterCommit: config.input.mouseFollowsFocus ? inputTimestamp : nil,
       cursorWarpIsCurrentAfterCommit: { [weak self] in
         guard let self else { return false }
-        return overviewToggleState.isCurrentSession(overviewGeneration)
+        return overviewToggleState.selectionWarpIsCurrent(overviewGeneration)
           && commandGeneration == generation && state.selectedWindowID(on: monitorID) == selectedWindowID
       },
       forcingFloatingFrameWritesFor: overviewFloatingFrameWriteIDs,
@@ -561,6 +584,10 @@ extension Daemon {
 
   private func finishOverviewExit(overviewGeneration: UInt64?, nativeFramesReady: Bool = false) {
     DispatchQueue.main.async { [weak self] in
+      if nativeFramesReady, let overviewGeneration,
+        self?.overviewController?.sessionGeneration == overviewGeneration {
+        self?.overviewToggleState.completeSelectionExit(overviewGeneration)
+      }
       self?.overviewController?.selectionCommitCompleted(sessionGeneration: overviewGeneration, nativeFramesReady: nativeFramesReady)
     }
   }

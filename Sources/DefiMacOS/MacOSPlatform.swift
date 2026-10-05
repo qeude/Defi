@@ -13,7 +13,7 @@ public final class MacOSPlatform {
   public var experimentalSurfaceRibbonEnabled = false {
     didSet {
       if oldValue && !experimentalSurfaceRibbonEnabled {
-        DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.disable() }
+        DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
       }
     }
   }
