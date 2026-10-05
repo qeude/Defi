@@ -140,6 +140,9 @@ public struct Config: Equatable, Sendable {
     guard overview.zoom.isFinite, (0...0.75).contains(overview.zoom) else {
       throw ConfigError.invalidValue("overview.zoom")
     }
+    guard !overview.experimentalSurfaceTransitions || overview.windowPreviews else {
+      throw ConfigError.invalidValue("overview.experimental_surface_transitions requires window_previews")
+    }
     guard overview.windowCornerRadius.isFinite,
       (0...64).contains(overview.windowCornerRadius)
     else {

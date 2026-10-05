@@ -133,7 +133,8 @@ cursor movement. CLI commands and native app focus changes never warp pointer.
 
 ## `[animation]`
 
-Controls scrolling-column focus and managed column-resize animation.
+Controls scrolling-column focus and managed layout animations, including width
+changes, column/window moves, stacking, and floating transitions.
 The macOS Reduce Motion preference also disables these animations, including
 workspace transitions and mouse-driven reordering.
 
@@ -145,7 +146,8 @@ duration_ms = 125
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Enables visual scrolling and managed resize animation. |
+| `enabled` | `true` | boolean | Enables visual scrolling and managed layout animations, including resizing, column/window moves, stacking, and floating transitions. |
+| `experimental_window_representations` | `false` | boolean | Experimental horizontal ribbon: animate one-shot window representations and commit native positions behind them. Requires existing Screen Recording access; does not request permission or start a continuous stream. Missing captures, unsupported geometry, and workspace switches use native windows. |
 | `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
 
 ## `[overview]`
@@ -156,6 +158,7 @@ Controls the Overview scale and optional pixels inside window cards.
 [overview]
 zoom = 0.5
 window_previews = false
+experimental_surface_transitions = false
 window_corner_radius = 12
 ```
 
@@ -163,6 +166,7 @@ window_corner_radius = 12
 | --- | --- | --- | --- |
 | `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
 | `window_previews` | `false` | boolean | Captures a card-sized still image when a window first becomes visible in the current Overview session. |
+| `experimental_surface_transitions` | `false` | boolean | Requires `window_previews = true`. Prepares public one-shot ScreenCaptureKit samples for native-size-to-Overview zoom transitions. Normal ribbon navigation remains native. |
 | `window_corner_radius` | `12` | number from `0` to `64` | Rounds window cards and their borders in the Overview. |
 
 With the default `false`, Defi performs no Screen Recording permission check,
@@ -172,8 +176,34 @@ image. Denial, revocation, protected content, and capture errors leave the
 icon-and-title cards fully usable and do not trigger repeated prompts in the
 same daemon session.
 
-Previews are memory-only, contain no audio or cursor, and use at most 32 MiB
-between Overview sessions. Defi validates the window and process identity before
+The surface transition experiment prepares one-shot screenshots of the active
+workspace's visible windows and up to two nearby offscreen windows at native
+resolution. While the Overview is closed, preparation runs at most once per
+second, and only one batch may run at a time. It never starts persistent capture
+streams. Opening freezes one fixed screenshot set through the zoom and the
+Overview session; these are snapshots, not live video. Native ribbon navigation
+keeps the ordinary native animation backend.
+
+The retained NV12 buffers use public AVFoundation video layers without video
+encoding or per-frame CGImage conversion. NV12 preserves luma resolution but
+subsamples chroma. A conservative 256 MiB screenshot/renderer overlap estimate
+bounds the selected window set; this is not a bound on total process or
+WindowServer RAM. Inactive cards use one-shot captures in the existing 32 MiB
+compact-preview cache. No pixels are written to disk and no frame history is
+retained. Public screenshot capture may still involve macOS permission or
+transient capture UI; this option does not suppress system privacy indicators.
+
+When permission, geometry, readiness, snapshot age or the budget prevents a
+complete transition, the normal Overview opens instead. Changing the Overview
+projection returns to ordinary card previews. A cold start still needs screenshot
+preparation. Escape can zoom back when native frames and Overview offsets are
+unchanged; selecting a different window/workspace uses the existing native path.
+Snapshot freshness during typing or animated content, shadows, widgets and
+native fullscreen windows remain limits of this experiment.
+
+Ordinary remembered previews are memory-only, contain no audio or cursor, and
+use at most 32 MiB between Overview sessions. The surface experiment has the
+additional budgets described above. Defi validates the window and process identity before
 reuse, requests a fresh image immediately, and removes the remembered image if
 that capture fails. Remembered previews are limited to 512 pixels on their longest
 edge and retained until macOS signals memory pressure or their window identity

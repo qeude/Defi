@@ -110,6 +110,22 @@ struct ModelTests {
   }
 
   @Test(arguments: [
+    (Command.moveColumn(.right), true),
+    (Command.moveWindow(.down), true),
+    (Command.cycleWidth(.next), true),
+    (Command.maximizeColumn, true),
+    (Command.toggleFloating, true),
+    (Command.joinWindow(.left), true),
+    (Command.unjoinWindows, true),
+    (Command.focusColumn(.right), false),
+    (Command.toggleOverview, false),
+  ])
+  func selectedLayoutEditsAnimate(testCase: (command: Command, expected: Bool)) {
+    #expect(testCase.command.editsSelectedLayout == testCase.expected)
+    #expect(testCase.command.animatesManagedLayout == testCase.expected)
+  }
+
+  @Test(arguments: [
     (Command.cycleWidth(.next), true, false),
     (Command.maximizeColumn, true, false),
     (Command.joinWindow(.left), true, false),

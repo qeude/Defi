@@ -6,6 +6,22 @@ struct OverviewTests {
   let monitorID = MonitorID(rawValue: 1)
   let monitorFrame = Rect(x: 0, y: 0, width: 1_000, height: 800)
 
+  @Test func floatingMovementUsesWorkspaceRelativePosition() {
+    func projection(workspaceX: Double, windowX: Double) -> OverviewProjection {
+      OverviewProjection(monitorID: monitorID, workspaces: [OverviewWorkspaceProjection(
+        workspaceID: WorkspaceID(rawValue: "test"),
+        frame: Rect(x: workspaceX, y: 0, width: 1000, height: 800),
+        windows: [OverviewWindowProjection(windowID: WindowID(rawValue: 1),
+          frame: Rect(x: windowX, y: 100, width: 200, height: 200),
+          layer: .floating, isNativeFullscreen: false, canDrag: true)])])
+    }
+    let source = projection(workspaceX: 0, windowX: 100)
+    #expect(overviewProjectionReordersExistingCards(from: source,
+      to: projection(workspaceX: 0, windowX: 200)))
+    #expect(!overviewProjectionReordersExistingCards(from: source,
+      to: projection(workspaceX: -50, windowX: 50)))
+  }
+
   @Test
   func resizedCardsAnimateSizeAndPositionTogether() {
     func projection(x: Double, width: Double) -> OverviewProjection {
@@ -70,6 +86,12 @@ struct OverviewTests {
 
     #expect(projection.workspaces.count < monitor.workspaces.count)
     #expect(projection.workspaces.contains(where: { $0.workspaceID == active.id }))
+    #expect(snapshot.monitors[0].workspaces[4].scrollOffset == 0.25)
+    let captureProjection = projectOverview(snapshot: snapshot, monitorID: monitorID,
+      bounds: monitorFrame, viewport: OverviewViewport(horizontalOffsets: [active.id: 100]),
+      layout: LayoutSettings(), includeOffscreenContent: true)
+    #expect(captureProjection.workspaces.count == monitor.workspaces.count)
+    #expect(captureProjection.workspaces.flatMap(\.windows).map(\.windowID) == [WindowID(rawValue: 1)])
     #expect(snapshot.monitors[0].workspaces[4].scrollOffset == 0.25)
   }
 
@@ -467,6 +489,12 @@ struct OverviewTests {
       card(second, x: 0, column: 0),
       card(first, x: 100, column: 1),
     ])
+
+    #expect(overviewProjectionReordersExistingCards(from: source, to: target))
+    #expect(!overviewProjectionReordersExistingCards(from: source, to: source))
+    #expect(!overviewProjectionReordersExistingCards(from: source, to: projection([
+      card(first, x: -50, column: 0), card(second, x: 50, column: 1)
+    ]))) // Scrolling has its own timeline.
 
     let middle = interpolateOverviewProjection(from: source, to: target, progress: 0.5)
     let windows = try #require(middle.workspaces.first?.windows)

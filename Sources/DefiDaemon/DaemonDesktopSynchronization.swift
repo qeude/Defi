@@ -35,6 +35,14 @@ func shouldCommitNativeFocusSelection(
   nativeFocusAccepted && selectionChanged
 }
 
+func nativeFocusAnimationMonitorID(
+  focusedMonitorID: MonitorID?, floating: Bool,
+  overviewOpen: Bool, mouseGestureActive: Bool, displayGeometryChanged: Bool
+) -> MonitorID? {
+  guard !floating, !overviewOpen, !mouseGestureActive, !displayGeometryChanged else { return nil }
+  return focusedMonitorID
+}
+
 func validatedNativeActivationTimestamp(
   snapshot: DesktopSnapshot,
   resolvedActivation: UserInputTracker.ApplicationActivation?,
@@ -72,6 +80,7 @@ func shouldCloseOverviewAfterNativeFocusChange(
 func desktopSnapshotWaitsForCommandAnimation(
   animationPending: Bool,
   latestCommandInputTimestamp: TimeInterval,
+  latestNativeFocusAnimationInputTimestamp: TimeInterval = 0,
   mouseFocusIntentTimestamp: TimeInterval?,
   keyboardFocusIntentTimestamp: TimeInterval?,
   mouseGestureActive: Bool = false,
@@ -82,7 +91,7 @@ func desktopSnapshotWaitsForCommandAnimation(
     mouseFocusIntentTimestamp ?? 0,
     keyboardFocusIntentTimestamp ?? 0,
     applicationActivationTimestamp ?? 0
-  ) <= latestCommandInputTimestamp
+  ) <= max(latestCommandInputTimestamp, latestNativeFocusAnimationInputTimestamp)
 }
 
 @NavigationActor
@@ -806,7 +815,6 @@ extension Daemon {
         viewports: viewportsByMonitor
       )
     }
-    snapScrollOffsetsToTargets()
     if tracesWindowCreation {
       platform.recordPerformanceTrace("sync-before-layout")
     }
@@ -815,10 +823,25 @@ extension Daemon {
       && snapshot.leftMouseButtonDown
       && animationsEnabled
       && config.animation.durationMS > 0
-    if animatesMouseReorder {
-      mouseReorderAnimationActive = true
-      beginFrameAnimationActivity()
-    }
+    let nativeAnimationMonitorID = nativeFocusAnimationMonitorID(
+      focusedMonitorID: nativelyFocusedMonitorID,
+      floating: focusedWindowIDForAlignment.flatMap { state.windows[$0]?.floating } == true,
+      overviewOpen: overviewState.isOpen,
+      mouseGestureActive: mouseResizeGestureActive,
+      displayGeometryChanged: displayGeometryChanged
+    )
+    let nativeFocusRequiresMovement = nativeAnimationMonitorID.flatMap { id in
+      state.monitors.first { $0.id == id }
+    }.flatMap { monitor in
+      monitor.workspaces.first { $0.id == monitor.activeWorkspace }
+    }.map { abs($0.scrollOffset - $0.targetScrollOffset) >= 0.000_1 } == true
+    let animatesNativeFocus = nativeAnimationMonitorID != nil
+      && (nativeFocusRequiresMovement || nativelyActivatedWorkspace)
+      && animationsEnabled && config.animation.durationMS > 0
+    let animatesFocusOrReorder = animatesNativeFocus || animatesMouseReorder
+    snapScrollOffsetsToTargets()
+    if animatesMouseReorder { mouseReorderAnimationActive = true }
+    if animatesFocusOrReorder { beginFrameAnimationActivity() }
     let nativeFocusSkippedWindowIDs: Set<WindowID>
     if nativeFocusWasPending {
       if let nativeFocusFrameMonitorID {
@@ -849,9 +872,10 @@ extension Daemon {
     } else {
       nativeCursorWarpIsCurrentAfterCommit = nil
     }
-    if desktopSnapshotWaitsForCommandAnimation(
+    if !animatesNativeFocus, desktopSnapshotWaitsForCommandAnimation(
       animationPending: platform.hasPendingAnimatedFrameWrites,
       latestCommandInputTimestamp: latestCommandInputTimestamp,
+      latestNativeFocusAnimationInputTimestamp: latestNativeFocusAnimationInputTimestamp,
       mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
       mouseGestureActive: mouseResizeGestureActive,
@@ -860,15 +884,24 @@ extension Daemon {
     ) {
       needsDesktopSync = true
     } else {
+      if animatesNativeFocus {
+        latestNativeFocusAnimationInputTimestamp = max(
+          snapshot.latestUserInputTimestamp,
+          snapshot.mouseFocusIntentTimestamp ?? 0,
+          snapshot.keyboardFocusIntentTimestamp ?? 0,
+          snapshot.applicationActivationTimestamp ?? 0
+        )
+      }
       applyCurrentLayout(
+        monitorIDs: animatesNativeFocus ? nativeAnimationMonitorID.map { [$0] } : nil,
         asynchronousPositions: true,
         updateVisibility: true,
         positionTimeoutSeconds: 0.05,
-        animationDuration: animatesMouseReorder
+        animationDuration: animatesFocusOrReorder
           ? TimeInterval(config.animation.durationMS) / 1_000
           : 0,
         skipping: nativeFocusSkippedWindowIDs,
-        positionsOnly: animatesMouseReorder,
+        positionsOnly: animatesMouseReorder || (animatesNativeFocus && !nativelyActivatedWorkspace),
         stagesVisibleBeforeParking: nativelyActivatedWorkspace,
         cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
         cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
@@ -876,9 +909,10 @@ extension Daemon {
           nativeCursorWarpIsCurrentAfterCommit,
         forceFloatingFrameWrites: displayGeometryChanged,
         forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs,
-        source: nativelyActivatedWorkspace
-          ? "native-workspace"
-          : (animatesMouseReorder ? "mouse-reorder-animation" : "desktop-sync")
+        source: animatesNativeFocus
+          ? "native-focus-animation"
+          : (nativelyActivatedWorkspace ? "native-workspace"
+            : (animatesMouseReorder ? "mouse-reorder-animation" : "desktop-sync"))
       )
     }
     if let guardedRemovalFocus {

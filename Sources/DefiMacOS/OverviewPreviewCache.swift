@@ -48,4 +48,15 @@ final class OverviewPreviewCache {
   func removeAll() {
     entries.removeAll()
   }
+
+  func retain(_ windowIDs: Set<WindowID>, maximumBytes: Int) {
+    var remaining = max(maximumBytes, 0)
+    for id in entries.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+      guard windowIDs.contains(id), let entry = entries[id], entry.byteCost <= remaining else {
+        entries[id] = nil
+        continue
+      }
+      remaining -= entry.byteCost
+    }
+  }
 }

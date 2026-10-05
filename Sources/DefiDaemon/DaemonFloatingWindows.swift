@@ -44,6 +44,8 @@ func updateFloatingWindowFrames(
         }
         continue
       }
+      // Overview edits are logical until exit submits their native frames.
+      if overviewState.isOpen, overviewFloatingFrameWriteIDs.contains(window.id) { continue }
       if let externalFrame = externallyChangedFrames[window.id] {
         floatingWindowFrames[window.id] = externalFrame
         platform.acceptObservedFrame(externalFrame, for: window.id)

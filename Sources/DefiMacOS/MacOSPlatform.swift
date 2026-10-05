@@ -10,6 +10,14 @@ import OSLog
 
 @NavigationActor
 public final class MacOSPlatform {
+  public var experimentalSurfaceRibbonEnabled = false {
+    didSet {
+      if oldValue && !experimentalSurfaceRibbonEnabled {
+        DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
+      }
+    }
+  }
+  var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   nonisolated let snapshotEngine: SnapshotEngine
 
 
@@ -457,6 +465,7 @@ public final class MacOSPlatform {
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
     let now = ProcessInfo.processInfo.systemUptime
     if !entered.isEmpty {
+      DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
       frameSubmissionGeneration &+= 1
       if entered.contains(where: frameCoordinator.isBusy(for:)) {
         frameCoordinator.invalidate(reason: "native-fullscreen")

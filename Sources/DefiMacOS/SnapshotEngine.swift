@@ -345,6 +345,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { read { $0.applicationWindowCounts = newValue } }
   }
 
+  var overviewPresentationActive: Bool {
+    get { read { $0.overviewPresentationActive } }
+    set { read { $0.overviewPresentationActive = newValue } }
+  }
+
   var lastSnapshotWindows: [Window] {
     get { read { $0.lastSnapshotWindows } }
     set { read { $0.lastSnapshotWindows = newValue } }
@@ -793,11 +798,18 @@ extension SnapshotEngine {
       return .unmatched(title: title)
     }
     let windowID = WindowID(rawValue: UInt64(resolvedWindowID))
-    let sizeConstraints = onMain { platform in
-      if let ownedWindowID = platform.borderManager.ownedSurfaceWindowID {
-        platform.borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
+    let previousWindow = lastSnapshotWindows.first {
+      $0.id == windowID && $0.processID == processID
+    }
+    let sizeConstraints = windowSizeConstraintsForSnapshot(
+      previousWindow: previousWindow, overviewActive: overviewPresentationActive
+    ) {
+      onMain { platform in
+        if let ownedWindowID = platform.borderManager.ownedSurfaceWindowID {
+          platform.borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
+        }
+        return platform.borderBoundsProvider.sizeConstraints(for: windowID)
       }
-      return platform.borderBoundsProvider.sizeConstraints(for: windowID)
     }
     let monitorID = monitor(containing: frame, monitors: monitors)?.id
     return .discovered(
@@ -1289,6 +1301,7 @@ private struct Storage {
   var newlyDiscoveredWindowIDs = Set<WindowID>()
   var accessibilitySessionResetPending = false
   var hasCompletedWindowSnapshot = false
+  var overviewPresentationActive = false
   var lastSnapshotWindows: [Window] = []
   var lastSnapshotWindowIDs = Set<WindowID>()
   var lastSnapshotProcessIDs = Set<pid_t>()
@@ -1382,4 +1395,17 @@ struct SnapshotObservations: Equatable, @unchecked Sendable {
   var frameRequiresFullSnapshot = false
   var frameIncludesUnscopedRefresh = false
   var destroyedWindowIDs = Set<WindowID>()
+}
+
+func windowSizeConstraintsForSnapshot(
+  previousWindow: Window?, overviewActive: Bool,
+  freshRead: () -> WindowSizeConstraints?
+) -> WindowSizeConstraints? {
+  // Optional native metadata must not interrupt the overview's presentation
+  // thread. The ordinary discovery path refreshes it again after closing.
+  guard overviewActive else { return freshRead() }
+  return previousWindow.map {
+    WindowSizeConstraints(minimumWidth: $0.minimumTiledWidth,
+      maximumWidth: $0.maximumTiledWidth, maximumHeight: $0.maximumTiledHeight)
+  }
 }

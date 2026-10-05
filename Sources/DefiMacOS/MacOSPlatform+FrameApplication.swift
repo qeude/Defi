@@ -40,6 +40,7 @@ extension MacOSPlatform {
 
   public func apply(
     _ assignments: [FrameAssignment],
+    ribbonFrames: [FrameAssignment] = [],
     hiddenWindowIDs: Set<WindowID> = [],
     skipping requestedSkippedWindowIDs: Set<WindowID> = [],
     asynchronousPositionTimeoutSeconds: Float = 0.016,
@@ -65,11 +66,28 @@ extension MacOSPlatform {
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
+    let previousRibbonFrames = previousLogicalRibbonFrames
+    previousLogicalRibbonFrames = Dictionary(uniqueKeysWithValues:
+      ribbonFrames.map { ($0.windowID, $0.frame) })
+    if experimentalSurfaceRibbonEnabled && source != "command-animation" {
+      snapshotEngine.onMain { _ in
+        ExperimentalRibbonRenderer.shared.supersedeIfTargetsChanged(assignments)
+      }
+    }
+    let usesSurfaceRibbon = experimentalSurfaceRibbonEnabled && source == "command-animation" && positionsOnly
+      && snapshotEngine.onMain { platform in
+        ExperimentalRibbonRenderer.shared.begin(assignments: assignments, ribbonFrames: ribbonFrames,
+          duration: animationDuration,
+          borderStyle: platform.borderStyle, selectedWindowID: platform.borderSelectedWindowID)
+      }
+    let animationDuration = usesSurfaceRibbon ? 0 : animationDuration
     frameSubmissionGeneration &+= 1
     let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
       nativeFullscreenWindowIDs
     )
+    let horizontalRibbonNavigation = source == "command-animation" && positionsOnly
+      && lastMonitorFrames.count == 1 && !ribbonFrames.isEmpty
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
     let tracesInitialFrame = !newlyDiscoveredWindowIDs.isEmpty
     if tracesInitialFrame {
@@ -115,6 +133,7 @@ extension MacOSPlatform {
           for: assignment.windowID
         ),
         previousTarget: previousTargetFrames[assignment.windowID],
+        prefersCompletedPosition: horizontalRibbonNavigation,
         pendingAnimation: unfinishedRibbonWindowIDs.contains(assignment.windowID),
         nativeReference: latestObservedFrames[assignment.windowID]
           ?? lastSnapshotWindows.first(where: { $0.id == assignment.windowID })?.frame
@@ -123,7 +142,8 @@ extension MacOSPlatform {
       let intent = frameWriteIntent(
         reference: reference,
         target: assignment.frame,
-        positionsOnly: positionsOnly
+        positionsOnly: positionsOnly,
+        horizontalOnly: horizontalRibbonNavigation
       )
       if intent.position || intent.size {
         writeIntents[assignment.windowID] = (intent.position, intent.size)
@@ -170,6 +190,18 @@ extension MacOSPlatform {
         }
       }
     }
+    // Logical strip endpoints differ from the safe native parking anchors.
+    // Use them only on a single display: an offscreen logical path must never
+    // sweep a user window through another monitor's visible region.
+    let layoutRibbonAnimation = source == "command-layout-animation"
+    let ribbonTargets = ((source == "command-animation" && positionsOnly) || layoutRibbonAnimation)
+      && lastMonitorFrames.count == 1
+      ? Dictionary(uniqueKeysWithValues: ribbonFrames.map { ($0.windowID, $0.frame) })
+      : [:]
+    let sharedRibbonOffset = !layoutRibbonAnimation && lastMonitorFrames.count == 1 ? commonRibbonOffset(
+      targets: ribbonTargets.mapValues { CGPoint(x: $0.x, y: $0.y) },
+      starts: animationStartPositions, sizes: animationStartSizes,
+      monitor: lastMonitorFrames[0]) : nil
     let newlyUnparkedWindowIDs =
       lastHiddenWindowIDs.subtracting(effectiveHiddenWindowIDs)
     var reenteringWindowIDs = Set<WindowID>()
@@ -208,6 +240,42 @@ extension MacOSPlatform {
         planned: plannedStart
       ) {
         reenteringWindowIDs.insert(assignment.windowID)
+      }
+    }
+    if let offset = sharedRibbonOffset {
+      for assignment in assignments {
+        guard let logical = ribbonTargets[assignment.windowID] else { continue }
+        // Unchanged parking anchors have no write intent, but their logical
+        // columns can still cross the display during an end-to-end traversal.
+        let observedFrame = referenceFrames[assignment.windowID]
+          ?? latestObservedFrames[assignment.windowID] ?? assignment.frame
+        guard let plannedFrame = ribbonAnimationStart(logical: logical, offset: offset,
+          observed: observedFrame, monitorFrames: lastMonitorFrames) else { continue }
+        let observed = CGPoint(x: observedFrame.x, y: observedFrame.y)
+        let planned = CGPoint(x: plannedFrame.x, y: plannedFrame.y)
+        animationStartPositions[assignment.windowID] = planned
+        animationStartSizes[assignment.windowID] = CGSize(
+          width: observedFrame.width, height: observedFrame.height)
+        if requiresVerifiedOffscreenWrite(frame: observedFrame, monitorFrames: lastMonitorFrames),
+          reentryStartRequiresStaging(observed: observed, planned: planned)
+        {
+          reenteringWindowIDs.insert(assignment.windowID)
+        }
+      }
+    }
+    if layoutRibbonAnimation {
+      for assignment in assignments {
+        guard let target = ribbonTargets[assignment.windowID],
+          let observed = referenceFrames[assignment.windowID],
+          let start = layoutRibbonAnimationStart(
+            previousLogical: previousRibbonFrames[assignment.windowID], target: target,
+            observed: observed, monitorFrames: lastMonitorFrames)
+        else { continue }
+        let point = CGPoint(x: start.x, y: start.y)
+        animationStartPositions[assignment.windowID] = point
+        if reentryStartRequiresStaging(observed: CGPoint(x: observed.x, y: observed.y), planned: point) {
+          reenteringWindowIDs.insert(assignment.windowID)
+        }
       }
     }
     for assignment in assignments
@@ -276,7 +344,7 @@ extension MacOSPlatform {
       let isParked = hiddenWindowIDs.contains(assignment.windowID)
       let intent = writeIntents[assignment.windowID]
 
-      let position = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
+      let logicalPosition = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
       let size = CGSize(width: assignment.frame.width, height: assignment.frame.height)
       guard let processID = processIDs[assignment.windowID],
         let application = applications[processID]
@@ -287,7 +355,10 @@ extension MacOSPlatform {
         frame: assignment.frame,
         monitorFrames: lastMonitorFrames
       )
-      let startPoint = animationStartPositions[assignment.windowID] ?? position
+      let startPoint = animationStartPositions[assignment.windowID] ?? logicalPosition
+      // Preserve the native vertical clamp through the final commit and parking repair.
+      let position = frameWritePosition(
+        target: logicalPosition, from: startPoint, horizontalOnly: horizontalRibbonNavigation)
       let startSize = animationStartSizes[assignment.windowID] ?? size
       let startFrame = Rect(
         x: startPoint.x,
@@ -295,18 +366,17 @@ extension MacOSPlatform {
         width: startSize.width,
         height: startSize.height
       )
+      let parkedRibbonTarget = ribbonAnimationTarget(
+        logical: ribbonTargets[assignment.windowID], from: startFrame,
+        isParked: isParked, monitorFrames: lastMonitorFrames)
       let wantsFrameAnimation =
         animationDuration > 0
-        && (!isParked || shouldAnimateParkedRibbonWindow(
-          source: source,
-          from: startFrame,
-          monitorFrames: lastMonitorFrames
-        ))
+        && (!isParked || parkedRibbonTarget != nil)
         && transitionCrossesViewport(
           from: startFrame,
-          to: assignment.frame
+          to: parkedRibbonTarget ?? assignment.frame
         )
-        && (intent?.position == true
+        && (intent?.position == true || parkedRibbonTarget != nil
           || (animateSizeChanges && intent?.size == true))
       let animatesSize =
         wantsFrameAnimation
@@ -320,15 +390,20 @@ extension MacOSPlatform {
         point: position,
         fromSize: startSize,
         size: size,
-        positionChanged: intent?.position == true,
+        positionChanged: intent?.position == true || parkedRibbonTarget != nil,
         sizeChanged: intent?.size == true,
         animatesSize: animatesSize,
+        usesLogicalRibbonPath: layoutRibbonAnimation && ribbonTargets[assignment.windowID] != nil
+          && lastMonitorFrames.count == 1 && wantsFrameAnimation,
         synchronousSizeWriteSucceeded: intent?.size != true,
         enhancedUIWasEnabled: enhancedUIByProcess[processID] == true,
         timeoutSeconds: asynchronousPositionTimeoutSeconds,
         isParked: isParked,
         isReentering: reenteringWindowIDs.contains(assignment.windowID),
-        requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite
+        requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite,
+        animationPoint: parkedRibbonTarget.map { CGPoint(x: $0.x, y: $0.y) },
+        usesCommonRibbonOffset: sharedRibbonOffset != nil && ribbonTargets[assignment.windowID] != nil
+          && wantsFrameAnimation
       )
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write

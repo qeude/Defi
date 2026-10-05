@@ -26,6 +26,7 @@ enum OverviewToggleDecision: Equatable, Sendable {
 struct OverviewToggleSnapshot: Equatable, Sendable {
   let generation: UInt64
   let actualIsOpen: Bool
+  let sessionGeneration: UInt64?
   let desiredIsOpen: Bool?
 }
 
@@ -34,6 +35,8 @@ final class OverviewToggleState: @unchecked Sendable {
   private let lock = NSLock()
   private var generation: UInt64 = 0
   private var actualIsOpen = false
+  private var sessionGeneration: UInt64?
+  private var completedSelectionSession: UInt64?
   private var desiredIsOpen: Bool?
   private var applyingGeneration: UInt64?
 
@@ -47,6 +50,7 @@ final class OverviewToggleState: @unchecked Sendable {
     guard !targetIsOpen || !ribbonPrototype || screenCaptureAccessGranted else {
       return .denied
     }
+    completedSelectionSession = nil
     generation &+= 1
     desiredIsOpen = targetIsOpen
     return .requested(
@@ -61,6 +65,7 @@ final class OverviewToggleState: @unchecked Sendable {
   func requestClose() -> OverviewToggleRequest {
     lock.lock()
     defer { lock.unlock() }
+    completedSelectionSession = nil
     generation &+= 1
     desiredIsOpen = false
     return OverviewToggleRequest(
@@ -95,10 +100,12 @@ final class OverviewToggleState: @unchecked Sendable {
     }
   }
 
-  func recordControllerState(_ isOpen: Bool) {
+  func recordControllerState(_ isOpen: Bool, sessionGeneration: UInt64? = nil) {
     lock.lock()
     defer { lock.unlock() }
     actualIsOpen = isOpen
+    if isOpen { completedSelectionSession = nil }
+    self.sessionGeneration = sessionGeneration
     guard let applyingGeneration else {
       generation &+= 1
       desiredIsOpen = nil
@@ -108,12 +115,35 @@ final class OverviewToggleState: @unchecked Sendable {
     desiredIsOpen = nil
   }
 
+  func isCurrentSession(_ session: UInt64?) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return session != nil && session == sessionGeneration
+      && actualIsOpen && desiredIsOpen != false
+  }
+
+  func completeSelectionExit(_ session: UInt64) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard actualIsOpen, desiredIsOpen != false, sessionGeneration == session else { return }
+    completedSelectionSession = session
+  }
+
+  func selectionWarpIsCurrent(_ session: UInt64?) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let session else { return false }
+    return completedSelectionSession == session
+      || (actualIsOpen && desiredIsOpen != false && sessionGeneration == session)
+  }
+
   func snapshot() -> OverviewToggleSnapshot {
     lock.lock()
     defer { lock.unlock() }
     return OverviewToggleSnapshot(
       generation: generation,
       actualIsOpen: actualIsOpen,
+      sessionGeneration: sessionGeneration,
       desiredIsOpen: desiredIsOpen
     )
   }
@@ -145,6 +175,7 @@ extension Daemon {
 
   private func applyOverviewToggle(_ request: OverviewToggleRequest) {
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
+    platform.experimentalSurfaceRibbonEnabled = config.animation.experimentalWindowRepresentations
     DispatchQueue.main.async { [self] in
       guard overviewToggleState.beginApplying(request) else { return }
       let controller = overviewController ?? makeOverviewController()
@@ -158,13 +189,16 @@ extension Daemon {
             borders: config.decorations.borders, animation: config.animation,
             zoom: config.overview.zoom,
             windowCornerRadius: config.overview.windowCornerRadius,
-            windowPreviewsEnabled: config.overview.windowPreviews)
+            windowPreviewsEnabled: config.overview.windowPreviews,
+            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
+            experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations)
         } else {
           controller.toggle(snapshot: snapshot, layout: layout,
             borders: config.decorations.borders, animation: config.animation,
             zoom: config.overview.zoom,
             windowCornerRadius: config.overview.windowCornerRadius,
             windowPreviewsEnabled: config.overview.windowPreviews,
+            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
             ribbonPrototype: request.ribbonPrototype)
         }
       } else {
@@ -177,6 +211,7 @@ extension Daemon {
 
   private func presentOverview() {
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
+    platform.experimentalSurfaceRibbonEnabled = config.animation.experimentalWindowRepresentations
     DispatchQueue.main.async { [self] in
       let controller = overviewController ?? makeOverviewController()
       overviewController = controller
@@ -185,9 +220,15 @@ extension Daemon {
           borders: config.decorations.borders, animation: config.animation,
           zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
-          windowPreviewsEnabled: config.overview.windowPreviews)
+          windowPreviewsEnabled: config.overview.windowPreviews,
+          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
+          experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations)
       } else {
-        controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews)
+        controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews,
+          snapshot: snapshot, layout: layout, zoom: config.overview.zoom,
+          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
+          experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations,
+          windowCornerRadius: config.overview.windowCornerRadius)
       }
       publishOverviewState()
     }
@@ -209,13 +250,20 @@ extension Daemon {
   @MainActor private func makeOverviewController() -> OverviewController {
     OverviewController(
       focusWindow: { [weak self] windowID, appID, monitorID, workspaceID in
+        let overviewGeneration = self?.overviewController?.sessionGeneration
+        let offsets = self?.overviewController?.scrollOffsets ?? [:]
         NavigationActor.enqueue {
           self?.focusFromOverview(windowID: windowID, appID: appID,
-            monitorID: monitorID, workspaceID: workspaceID)
+            monitorID: monitorID, workspaceID: workspaceID, overviewGeneration: overviewGeneration, offsets: offsets)
         }
       },
       focusWorkspace: { [weak self] monitorID, workspaceID in
-        NavigationActor.enqueue { self?.focusWorkspaceFromOverview(monitorID: monitorID, workspaceID: workspaceID) }
+        let overviewGeneration = self?.overviewController?.sessionGeneration
+        let offsets = self?.overviewController?.scrollOffsets ?? [:]
+        NavigationActor.enqueue {
+          self?.focusWorkspaceFromOverview(monitorID: monitorID, workspaceID: workspaceID,
+            overviewGeneration: overviewGeneration, offsets: offsets)
+        }
       },
       drop: { [weak self] windowID, appID, sourceMonitorID, sourceWorkspaceID, target in
         NavigationActor.enqueue {
@@ -231,24 +279,48 @@ extension Daemon {
       },
       openStateChanged: { [weak self] isOpen in
         guard let self else { return }
-        overviewToggleState.recordControllerState(isOpen)
+        overviewToggleState.recordControllerState(isOpen,
+          sessionGeneration: overviewController?.sessionGeneration)
         overviewInputMode(isOpen)
         publishOverviewState()
         let parksWindows = overviewController?.usesWorkspaceParking == true
         let timestamp = ProcessInfo.processInfo.systemUptime
         NavigationActor.enqueue { [self] in
+          overviewExitPreparationActive = false
           overviewState.isOpen = isOpen
+          if isOpen {
+            overviewEditedMonitorIDs.removeAll()
+            overviewFloatingFrameWriteIDs.removeAll()
+          }
           overviewState.usesWorkspaceParking = parksWindows
           overviewOpenedAt = isOpen ? timestamp : nil
-          platform.setWindowBordersSuppressed(isOpen)
-          if parksWindows {
-            applyCurrentLayout(asynchronousPositions: true, updateVisibility: true,
+          platform.setOverviewPresentationActive(isOpen)
+          if parksWindows || (!isOpen && !overviewEditedMonitorIDs.isEmpty) {
+            applyCurrentLayout(monitorIDs: parksWindows ? nil : overviewEditedMonitorIDs,
+              asynchronousPositions: true, updateVisibility: true,
               positionTimeoutSeconds: 0.05, stagesVisibleBeforeParking: !isOpen,
+              forcingFloatingFrameWritesFor: overviewFloatingFrameWriteIDs,
               source: isOpen ? "overview-park" : "overview-restore")
+          }
+          if !isOpen {
+            overviewEditedMonitorIDs.removeAll()
+            overviewFloatingFrameWriteIDs.removeAll()
           }
         }
       },
       presentationChanged: { [weak self] in self?.publishOverviewState() },
+      idlePreparationRequested: { [weak self] in
+        NavigationActor.enqueue { [weak self] in self?.updateOverviewIfOpen() }
+      },
+      waitsForNativeSelectionCommit: true,
+      layoutCommand: { [weak self] command, windowID, appID, monitorID, workspaceID, generation in
+        NavigationActor.enqueue { [weak self] in
+          guard let self, overviewToggleState.isCurrentSession(generation) else { return }
+          _ = editLayoutFromOverview(command, intent: OverviewWindowIntent(
+            windowID: windowID, expectedAppID: appID,
+            sourceMonitorID: monitorID, sourceWorkspaceID: workspaceID))
+        }
+      },
       commitScrollOffsets: { [weak self] offsets in
         NavigationActor.enqueue { [weak self] in
           guard let self else { return }
@@ -263,9 +335,33 @@ extension Daemon {
     )
   }
 
+  func editLayoutFromOverview(_ command: Command, intent: OverviewWindowIntent) -> CommandResponse {
+    guard overviewState.isOpen, !overviewExitPreparationActive else {
+      return .failure("overview is closed or committing selection")
+    }
+    do {
+      let floatingUpdates = try applyOverviewLayoutCommand(command, intent: intent,
+        viewports: viewportsByMonitor, state: &state)
+      overviewEditedMonitorIDs.insert(intent.sourceMonitorID)
+      floatingWindowFrames.merge(floatingUpdates) { _, new in new }
+      overviewFloatingFrameWriteIDs.formUnion(floatingUpdates.keys)
+      platform.recordPerformanceTrace("overview-layout window=\(intent.windowID.rawValue) command=\(command)")
+      commandGeneration &+= 1
+      synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
+      snapScrollOffsetsToTargets()
+      persistTopology()
+      updateOverviewIfOpen()
+      return .success()
+    } catch {
+      platform.recordPerformanceTrace("overview-layout-rejected error=\(error)")
+      updateOverviewIfOpen()
+      return .failure(String(describing: error))
+    }
+  }
+
   @MainActor func publishOverviewState() {
     guard let controller = overviewController else { return }
-    let projection = OverviewPresentationState(
+    var projection = OverviewPresentationState(
       isOpen: controller.isOpen, usesWorkspaceParking: controller.usesWorkspaceParking,
       panelCount: controller.panelCount, retainedPanelCount: controller.retainedPanelCount,
       permission: controller.previewPermissionState.rawValue,
@@ -274,7 +370,24 @@ extension Daemon {
       firstPreviewMs: controller.firstPreviewMs, lastPreviewMs: controller.lastPreviewMs,
       receivedPreviews: controller.receivedPreviewCount
     )
-    NavigationActor.enqueue { [self] in overviewState = projection }
+    projection.renderPerformance = controller.renderPerformance
+    projection.sessionGeneration = controller.sessionGeneration
+    projection.surfaceCapture = controller.surfaceCaptureState
+    projection.surfaceStreams = controller.surfaceStreamCount
+    projection.surfacePoolBytes = controller.surfaceEstimatedPoolBytes
+    projection.surfaceTransitions = controller.surfaceTransitionCount
+    projection.surfaceFallbacks = controller.surfaceFallbackCount
+    projection.previewClosings = controller.previewClosingCount
+    projection.surfaceAcquireMs = controller.surfaceAcquireMs
+    projection.openingTransitionHistory = controller.openingTransitionHistory
+    projection.ribbonSurfaceTransitions = controller.ribbonSurfaceTransitions
+    projection.ribbonSurfaceFallbacks = controller.ribbonSurfaceFallbacks
+    projection.ribbonSurfaceFallbackReason = controller.ribbonSurfaceFallbackReason
+    projection.ribbonSurfacePresenting = controller.ribbonSurfacePresenting
+    NavigationActor.enqueue { [self] in
+      overviewState = projection
+      if overviewExitPreparationActive { overviewState.usesWorkspaceParking = false }
+    }
   }
 
   private func makeOverviewSnapshot() -> OverviewSnapshot {
@@ -294,8 +407,12 @@ extension Daemon {
     windowID: WindowID,
     appID: String,
     monitorID: MonitorID,
-    workspaceID: WorkspaceID
+    workspaceID: WorkspaceID,
+    overviewGeneration: UInt64?,
+    offsets: [MonitorID: [WorkspaceID: Double]]
   ) {
+    guard overviewToggleState.isCurrentSession(overviewGeneration) else { return }
+    overviewEditedMonitorIDs.formUnion(applyOverviewScrollOffsets(offsets, state: &state))
     let previousSelectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
@@ -322,6 +439,11 @@ extension Daemon {
       invalidateSubmittedWorkspaceFocus()
       focus.queueWorkspace(nil)
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
+      if overviewState.isOpen {
+        prepareOverviewExit(on: focusedMonitorID, selectedWindowID: windowID,
+          inputTimestamp: inputTimestamp, overviewGeneration: overviewGeneration)
+        return
+      }
       startScrollAnimationsIfNeeded()
       let animated = dispatchScrollAnimationIfNeeded(
         monitorIDs: [focusedMonitorID]
@@ -368,13 +490,18 @@ extension Daemon {
     } catch {
       platform.recordPerformanceTrace("overview-focus-rejected error=\(error)")
       updateOverviewIfOpen()
+      finishOverviewExit(overviewGeneration: overviewGeneration)
     }
   }
 
   private func focusWorkspaceFromOverview(
     monitorID: MonitorID,
-    workspaceID: WorkspaceID
+    workspaceID: WorkspaceID,
+    overviewGeneration: UInt64?,
+    offsets: [MonitorID: [WorkspaceID: Double]]
   ) {
+    guard overviewToggleState.isCurrentSession(overviewGeneration) else { return }
+    overviewEditedMonitorIDs.formUnion(applyOverviewScrollOffsets(offsets, state: &state))
     let inputTimestamp = ProcessInfo.processInfo.systemUptime
     do {
       let selectedWindowID = try focusOverviewWorkspace(
@@ -391,24 +518,77 @@ extension Daemon {
       latestCommandInputTimestamp = inputTimestamp
       platform.userInputTracker.record(timestamp: inputTimestamp)
       synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
-      snapScrollOffsetsToTargets()
-      applyCurrentLayout(
-        monitorIDs: [monitorID],
-        asynchronousPositions: true,
-        updateVisibility: true,
-        positionTimeoutSeconds: 0.05,
-        stagesVisibleBeforeParking: true,
-        focusWindowIDAfterCommit: selectedWindowID,
-        focusInputTimestampAfterCommit: selectedWindowID == nil
-          ? nil
-          : inputTimestamp,
-        source: "overview-workspace"
-      )
-      persistTopology()
-      updateMenuBar()
-      updateOverviewIfOpen()
+      prepareOverviewExit(on: monitorID, selectedWindowID: selectedWindowID,
+        inputTimestamp: inputTimestamp, overviewGeneration: overviewGeneration)
     } catch {
       platform.recordPerformanceTrace("overview-workspace-rejected error=\(error)")
+      updateOverviewIfOpen()
+      finishOverviewExit(overviewGeneration: overviewGeneration)
+    }
+  }
+
+  private func prepareOverviewExit(
+    on monitorID: MonitorID, selectedWindowID: WindowID?, inputTimestamp: TimeInterval,
+    overviewGeneration: UInt64?
+  ) {
+    // The overview covers these writes. Prepare final native geometry once,
+    // rather than animating or parking real windows on every overview arrow.
+    let restoresAllMonitors = overviewState.usesWorkspaceParking
+    let affectedMonitorIDs = overviewEditedMonitorIDs.union([monitorID])
+    overviewExitPreparationActive = true
+    overviewState.usesWorkspaceParking = false
+    scrollAnimations = scrollAnimations.filter { !restoresAllMonitors && !affectedMonitorIDs.contains($0.key.monitorID) }
+    for index in state.monitors.indices where restoresAllMonitors || affectedMonitorIDs.contains(state.monitors[index].id) {
+      for workspaceIndex in state.monitors[index].workspaces.indices {
+        state.monitors[index].workspaces[workspaceIndex].scrollOffset =
+          state.monitors[index].workspaces[workspaceIndex].targetScrollOffset
+      }
+    }
+    let generation = commandGeneration
+    applyCurrentLayout(monitorIDs: restoresAllMonitors ? nil : affectedMonitorIDs, asynchronousPositions: true,
+      updateVisibility: true, positionTimeoutSeconds: 0.05,
+      stagesVisibleBeforeParking: true, focusWindowIDAfterCommit: selectedWindowID,
+      focusInputTimestampAfterCommit: selectedWindowID == nil ? nil : inputTimestamp,
+      cursorWarpWindowIDAfterCommit: config.input.mouseFollowsFocus ? selectedWindowID : nil,
+      cursorWarpInputTimestampAfterCommit: config.input.mouseFollowsFocus ? inputTimestamp : nil,
+      cursorWarpIsCurrentAfterCommit: { [weak self] in
+        guard let self else { return false }
+        return overviewToggleState.selectionWarpIsCurrent(overviewGeneration)
+          && commandGeneration == generation && state.selectedWindowID(on: monitorID) == selectedWindowID
+      },
+      forcingFloatingFrameWritesFor: overviewFloatingFrameWriteIDs,
+      source: "overview-exit-prepare")
+    persistTopology()
+    updateMenuBar()
+    updateOverviewIfOpen()
+    let windowIDs = Set(state.monitors.filter { restoresAllMonitors || affectedMonitorIDs.contains($0.id) }.flatMap {
+      $0.workspaces.flatMap { $0.columns.flatMap(\.windows) + $0.floatingWindows }
+    })
+    Task { @NavigationActor [weak self] in
+      for attempt in 0..<150 {
+        guard let self, overviewToggleState.isCurrentSession(overviewGeneration) else { return }
+        if commandGeneration != generation {
+          finishOverviewExit(overviewGeneration: overviewGeneration)
+          return
+        }
+        let ready = platform.overviewExitFramesReady(windowIDs: windowIDs)
+        if ready || attempt == 149 {
+          if !ready { platform.recordPerformanceTrace("overview-exit-prepare-timeout") }
+          finishOverviewExit(overviewGeneration: overviewGeneration, nativeFramesReady: ready)
+          return
+        }
+        try? await Task.sleep(for: .milliseconds(10))
+      }
+    }
+  }
+
+  private func finishOverviewExit(overviewGeneration: UInt64?, nativeFramesReady: Bool = false) {
+    DispatchQueue.main.async { [weak self] in
+      if nativeFramesReady, let overviewGeneration,
+        self?.overviewController?.sessionGeneration == overviewGeneration {
+        self?.overviewToggleState.completeSelectionExit(overviewGeneration)
+      }
+      self?.overviewController?.selectionCommitCompleted(sessionGeneration: overviewGeneration, nativeFramesReady: nativeFramesReady)
     }
   }
 
@@ -470,6 +650,20 @@ extension Daemon {
 }
 
 struct OverviewPresentationState: Sendable {
+  var sessionGeneration: UInt64 = 0
+  var renderPerformance = "none"
+  var surfaceCapture = "disabled"
+  var surfaceStreams = 0
+  var surfacePoolBytes = 0
+  var surfaceTransitions = 0
+  var surfaceFallbacks = 0
+  var previewClosings = 0
+  var surfaceAcquireMs: Double = 0
+  var openingTransitionHistory = "none"
+  var ribbonSurfaceTransitions = 0
+  var ribbonSurfaceFallbacks = 0
+  var ribbonSurfaceFallbackReason = "none"
+  var ribbonSurfacePresenting = false
   var isOpen = false
   var usesWorkspaceParking = false
   var panelCount = 0

@@ -238,6 +238,7 @@ final class PlatformEventMonitor {
         guard let self else { return }
         guard self.desktopSessionActive else { return }
         if eventStartsMouseFocusInteraction(event.type) {
+          ExperimentalRibbonRenderer.shared.cancel()
           let rawWindowID =
             event.cgEvent?.getIntegerValueField(
               .mouseEventWindowUnderMousePointerThatCanHandleThisEvent

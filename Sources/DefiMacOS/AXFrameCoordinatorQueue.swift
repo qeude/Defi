@@ -134,19 +134,37 @@ extension AXFrameCoordinator {
         positionChanged: write.positionChanged,
         sizeChanged: write.sizeChanged,
         animatesSize: write.animatesSize,
+        usesLogicalRibbonPath: write.usesLogicalRibbonPath,
         synchronousSizeWriteSucceeded: write.synchronousSizeWriteSucceeded,
         enhancedUIWasEnabled: write.enhancedUIWasEnabled,
         timeoutSeconds: write.timeoutSeconds,
         isParked: write.isParked,
         isReentering: write.isReentering,
-        requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite
+        requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
+        animationPoint: write.animationPoint,
+        usesCommonRibbonOffset: write.usesCommonRibbonOffset
       )
       count += 1
+    }
+    let ribbonWrites = writes.filter { $0.value.usesCommonRibbonOffset }
+    if frame.monitorFrames.count == 1,
+      let offset = commonRibbonOffset(
+        targets: ribbonWrites.mapValues { frameAnimationDestination($0, intermediate: true) },
+        starts: ribbonWrites.filter { !$0.value.isReentering }.mapValues(\.fromPoint),
+        sizes: ribbonWrites.mapValues(\.fromSize), monitor: frame.monitorFrames[0])
+    {
+      for (id, write) in ribbonWrites {
+        var aligned = write
+        let destination = frameAnimationDestination(write, intermediate: true)
+        aligned.fromPoint = CGPoint(x: destination.x + offset, y: write.fromPoint.y)
+        writes[id] = aligned
+        if aligned.fromPoint != write.fromPoint { count += 1 }
+      }
     }
     // Reentry's logical origin must follow neighbors that finished moving while
     // this command was queued; its native parking point is not a strip origin.
     if frame.source == "command-animation", frame.monitorFrames.count == 1 {
-      for (windowID, write) in writes where write.isReentering && !write.sizeChanged
+      for (windowID, write) in writes where write.isReentering && !write.usesCommonRibbonOffset && !write.sizeChanged
         && write.fromPoint.y == write.point.y
       {
         let neighbor = writes.filter {
@@ -170,7 +188,7 @@ extension AXFrameCoordinator {
       guard let write = writes[windowID],
         let previousVelocity = retargetHorizontalVelocities[windowID]
       else { return nil }
-      let delta = write.point.x - write.fromPoint.x
+      let delta = (write.animationPoint ?? write.point).x - write.fromPoint.x
       guard abs(delta) >= 0.5 else { return nil }
       return previousVelocity / delta
     }

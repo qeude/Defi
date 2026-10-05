@@ -8,6 +8,34 @@ import Testing
 @testable import DefiMacOS
 
 struct FrameCommitTests {
+  @Test func overviewExitAcceptsVerifiedParkingDespiteNativeVerticalClamping() {
+    let visible = WindowID(rawValue: 1), parked = WindowID(rawValue: 2)
+    let monitor = Rect(x: 0, y: 0, width: 1512, height: 910)
+    let shown = Rect(x: 0, y: 37, width: 752, height: 902)
+    let target = Rect(x: 1511, y: 37, width: 752, height: 902)
+    let clamped = Rect(x: 1511, y: 30, width: 752, height: 902)
+    func ready(_ actual: Rect, pending: Set<WindowID> = []) -> Bool {
+      overviewExitFramesAreReady(windowIDs: [visible, parked], hiddenWindowIDs: [parked],
+        pendingWriteWindowIDs: pending, unresolvedWindowIDs: [parked],
+        targets: [visible: shown, parked: target], observed: [visible: shown, parked: actual],
+        monitorFrames: [monitor])
+    }
+    #expect(ready(clamped), "A safe parked window must not disable the visible zoom handoff")
+    #expect(!ready(shown), "A parking leak must still prevent uncovering native windows")
+    #expect(!ready(clamped, pending: [parked]), "Outstanding writes must settle before uncovering")
+    #expect(!overviewExitFramesAreReady(windowIDs: [visible], hiddenWindowIDs: [],
+      pendingWriteWindowIDs: [], unresolvedWindowIDs: [visible], targets: [visible: shown],
+      observed: [visible: shown], monitorFrames: [monitor]))
+    #expect(!overviewExitFramesAreReady(windowIDs: [parked], hiddenWindowIDs: [parked],
+      pendingWriteWindowIDs: [], unresolvedWindowIDs: [parked], targets: [parked: target],
+      observed: [parked: clamped], monitorFrames: [monitor,
+        Rect(x: 1512, y: 0, width: 1512, height: 910)]),
+      "Parking must be safe on every monitor")
+    #expect(!overviewExitFramesAreReady(windowIDs: [visible], hiddenWindowIDs: [],
+      pendingWriteWindowIDs: [], unresolvedWindowIDs: [], targets: [visible: shown],
+      observed: [visible: clamped], monitorFrames: [monitor]))
+  }
+
   @Test(arguments: [false, true])
   func horizontalMotionPromotesOnlyIntermediateLaneWork(intermediate: Bool) {
     let observed = Mutex<UInt32?>(nil)
@@ -1015,6 +1043,139 @@ struct FrameCommitTests {
     #expect(positions == positions.sorted(by: targetX < 400 ? (>) : (<)))
   }
 
+  @Test
+  func interruptedRibbonPreservesColumnSpacingAcrossDifferentCompletionTimes() {
+    let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)
+    let coordinator = AXFrameCoordinator()
+    coordinator.recordCompletedPosition(CGPoint(x: 100, y: 40), windowID: first)
+    coordinator.recordCompletedPosition(CGPoint(x: 1000, y: 40), windowID: second)
+    var a = makeMotionWrite(fromX: 200, toX: -300)
+    var b = makeMotionWrite(fromX: 1000, toX: 500)
+    a.usesCommonRibbonOffset = true
+    b.usesCommonRibbonOffset = true
+    let frame = QueuedPositionFrame(
+      generation: 2, source: "command-animation", writes: [first: a, second: b],
+      animatedWindowIDs: [first, second], animationDuration: 0.125,
+      refreshRateHz: 120, displayIDs: [],
+      monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 910)],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil)
+    let rebased = coordinator.rebaseFrameToCompletedPositionsLocked(frame).frame
+    let firstStart = rebased.writes[first]!.fromPoint.x
+    let secondStart = rebased.writes[second]!.fromPoint.x
+    #expect(secondStart - firstStart == 800)
+    #expect(firstStart == 100)
+    for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+      let x = firstStart + (-300 - firstStart) * progress
+      let y = secondStart + (500 - secondStart) * progress
+      #expect(y - x == 800)
+    }
+  }
+
+  @Test(arguments: [-400.0, 400.0])
+  func ribbonWritesReleaseSpaceBeforeMovingNeighbor(delta: Double) {
+    let left = WindowID(rawValue: 2), right = WindowID(rawValue: 1)
+    var a = makeMotionWrite(fromX: 100, toX: 100 + delta)
+    var b = makeMotionWrite(fromX: 900, toX: 900 + delta)
+    a.usesCommonRibbonOffset = true
+    b.usesCommonRibbonOffset = true
+    let batches = AXFrameCoordinator().processWriteBatches(
+      [left: a, right: b], windowIDs: [left, right])
+    #expect(batches.first?.writes.map(\.key) == (delta < 0 ? [left, right] : [right, left]))
+  }
+
+  @Test
+  func horizontalRibbonOffsetIgnoresNativeVerticalClamping() {
+    let id = WindowID(rawValue: 1)
+    #expect(commonRibbonOffset(
+      targets: [id: CGPoint(x: -300, y: 41)],
+      starts: [id: CGPoint(x: 100, y: 37)],
+      sizes: [id: CGSize(width: 752, height: 902)],
+      monitor: Rect(x: 0, y: 0, width: 1512, height: 910)) == 400)
+  }
+
+  @Test(arguments: [(-2000.0, -751.0), (-751.0, -751.0), (-700.0, -700.0), (400.0, 400.0), (3500.0, 1511.0)])
+  func logicalRibbonMotionUsesNativeAnchorsOnlyOutsideViewport(x: Double, expected: Double) {
+    let logical = Rect(x: x, y: 37, width: 752, height: 902)
+    let native = nativeRibbonAnimationFrame(logical,
+      monitor: Rect(x: 0, y: 0, width: 1512, height: 910))
+    #expect(native.x == expected)
+    #expect(native.y == logical.y)
+    #expect(native.width == logical.width)
+    #expect(native.height == logical.height)
+  }
+
+  @Test(arguments: [-1.0, 1.0])
+  func distantRibbonTraversalIncludesColumnsParkedAtBothEnds(direction: Double) {
+    let monitor = Rect(x: 0, y: 0, width: 1512, height: 910)
+    let start = Rect(x: direction < 0 ? 2400 : -1600, y: 37, width: 752, height: 902)
+    let target = Rect(x: direction < 0 ? -1600 : 2400, y: 37, width: 752, height: 902)
+    // The native reference can remain at exactly the same parking anchor,
+    // so no write intent or startPositions entry exists for this column.
+    let anchor = Rect(x: 1511, y: 37, width: 752, height: 902)
+    #expect(ribbonAnimationStart(logical: target, offset: start.x - target.x,
+      observed: anchor, monitorFrames: [monitor]) == start)
+    #expect(requiresVerifiedOffscreenWrite(frame: start, monitorFrames: [monitor]))
+    #expect(requiresVerifiedOffscreenWrite(frame: target, monitorFrames: [monitor]))
+    #expect(ribbonAnimationTarget(logical: target, from: start,
+      isParked: true, monitorFrames: [monitor]) == target)
+    #expect(ribbonAnimationTarget(logical: nil, from: start,
+      isParked: true, monitorFrames: [monitor]) == nil)
+    #expect(ribbonAnimationTarget(logical: target, from: target,
+      isParked: true, monitorFrames: [monitor]) == nil)
+    #expect(ribbonAnimationTarget(logical: target, from: start,
+      isParked: true, monitorFrames: [monitor, monitor]) == nil)
+  }
+
+  @Test(arguments: ["command-animation", "workspace-transition"])
+  func staticRibbonParkingPrecedesNextHorizontalMovement(source: String) {
+    let orphan = WindowID(rawValue: 1), moving = WindowID(rawValue: 2)
+    let base = makeMotionWrite(fromX: -369, toX: -751)
+    let parked = AsyncPositionWrite(
+      element: base.element, application: base.application, processID: base.processID,
+      fromPoint: base.fromPoint, point: base.point, fromSize: base.fromSize, size: base.size,
+      positionChanged: true, sizeChanged: false, animatesSize: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: true, isReentering: false,
+      requiresVerifiedOffscreenWrite: true)
+    let frame = QueuedPositionFrame(
+      generation: 2, source: source,
+      writes: [orphan: parked, moving: makeMotionWrite(fromX: 387, toX: -369)],
+      animatedWindowIDs: [moving], animationDuration: 0.125,
+      refreshRateHz: 120, displayIDs: [],
+      monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 910)],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil)
+    #expect(ribbonParkingPreparationWindowIDs(frame) ==
+      (source == "command-animation" ? [orphan] : []))
+  }
+
+  @Test
+  func interruptedRibbonDoesNotMistakeUncommittedParkingTargetForAppliedPosition() {
+    let target = Rect(x: -1505, y: 37, width: 1506, height: 902)
+    let actual = CGPoint(x: -231, y: 37)
+    let reference = frameApplicationReference(
+      pendingCorrection: nil, settlingReference: nil, completedPosition: actual,
+      previousTarget: target, prefersCompletedPosition: true, nativeReference: nil)
+    #expect(reference?.x == Double(actual.x))
+    #expect(frameWriteIntent(reference: reference!, target: target, positionsOnly: true).position)
+    #expect(reference?.width == target.width)
+  }
+
+  @Test
+  func ribbonAvoidsRepeatedVerticalWritesForNativeHeightClamping() {
+    let native = Rect(x: -1505, y: 37, width: 1506, height: 902)
+    let target = Rect(x: -1505, y: 41, width: 1506, height: 869)
+    #expect(!frameWriteIntent(reference: native, target: target,
+      positionsOnly: true, horizontalOnly: true).position)
+    #expect(frameWriteIntent(reference: native, target: target,
+      positionsOnly: true).position)
+    let start = CGPoint(x: -231, y: native.y)
+    let destination = CGPoint(x: target.x, y: target.y)
+    #expect(frameWritePosition(target: destination, from: start, horizontalOnly: true)
+      == CGPoint(x: target.x, y: native.y))
+    #expect(frameWritePosition(target: destination, from: start, horizontalOnly: false)
+      == destination)
+  }
+
   @Test(arguments: [-300.0, 300.0])
   func interruptedReentryKeepsItsGapWithTheRebasedNeighbor(offset: Double) {
     let neighbor = WindowID(rawValue: 1), entering = WindowID(rawValue: 2)
@@ -1087,6 +1248,7 @@ struct FrameCommitTests {
 
   private func makeMotionWrite(
     fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42,
+    animatesSize: Bool = false,
     isReentering: Bool = false, isParked: Bool = false, toY: Double = 40
   ) -> AsyncPositionWrite {
     // Handles only: these tests never read or mutate the real desktop.
@@ -1095,7 +1257,7 @@ struct FrameCommitTests {
       element: element, application: element, processID: processID,
       fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: toY),
       fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
-      positionChanged: true, sizeChanged: sizeChanged, animatesSize: false,
+      positionChanged: true, sizeChanged: sizeChanged, animatesSize: animatesSize,
       synchronousSizeWriteSucceeded: !sizeChanged, enhancedUIWasEnabled: false,
       timeoutSeconds: 0.016, isParked: isParked, isReentering: isReentering,
       requiresVerifiedOffscreenWrite: false
@@ -1207,6 +1369,78 @@ struct FrameCommitTests {
       refreshRateHz: 120, animatedWindowIDs: [fast, slow]
     )
     #expect(coordinator.pending?.animationDuration == 0.035)
+  }
+
+  @Test
+  func `Horizontal ribbon retains common motion after a recent AX stall`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.running = true
+    let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)
+    coordinator.recordProcessLatencySamples([42: 120])
+    coordinator.predictedProcessLatencyMS[43] = 2
+    let writes = [
+      first: makeMotionWrite(fromX: 900, toX: 100, processID: 42),
+      second: makeMotionWrite(fromX: 1800, toX: 1000, processID: 43),
+    ]
+    coordinator.submit(writes, source: "command-animation", animationDuration: 0.125,
+      refreshRateHz: 120, animatedWindowIDs: [first, second])
+    let duration = coordinator.pending?.animationDuration ?? 0
+    #expect(duration == 0.125)
+
+    coordinator.recentIntermediateProcessLatencySamplesMS = [:]
+    coordinator.predictedProcessLatencyMS = [42: 2, 43: 2]
+    coordinator.submit(writes, source: "command-animation", animationDuration: 0.125,
+      refreshRateHz: 120, animatedWindowIDs: [first, second])
+    #expect(coordinator.pending?.animationDuration == 0.125)
+  }
+
+  @Test
+  func managedWidthAnimationRetainsIntermediateFramesAfterAnAXStall() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.running = true
+    let selected = WindowID(rawValue: 1), neighbor = WindowID(rawValue: 2)
+    coordinator.recordProcessLatencySamples([42: 70, 43: 2])
+    let resizing = makeMotionWrite(fromX: 500, toX: 0, sizeChanged: true, animatesSize: true)
+    let writes = [selected: resizing,
+      neighbor: makeMotionWrite(fromX: 1300, toX: 900, processID: 43)]
+    coordinator.submit(writes, source: "command-layout-animation", animationDuration: 0.125,
+      refreshRateHz: 120, monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 982)],
+      animatedWindowIDs: [selected, neighbor])
+    #expect(coordinator.pending?.animationDuration == 0.125)
+    let duration = coordinator.horizontalAnimationDuration(
+      for: writes, requested: 0.125, refreshRateHz: 120, allowsSizeChanges: true)
+    #expect(duration >= 0.21 && duration <= 0.4)
+    #expect(coordinator.animationSupportsIntermediateFrames(
+      processIDs: [42, 43], animationDuration: duration, refreshRateHz: 120))
+    #expect(coordinator.pending?.writes[selected]?.animatesSize == true)
+    coordinator.predictedProcessLatencyMS = [42: 2, 43: 2]
+    coordinator.recentIntermediateProcessLatencySamplesMS = [:]
+    coordinator.submit(writes, source: "command-layout-animation", animationDuration: 0.125,
+      refreshRateHz: 120, monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 982),
+        Rect(x: 1512, y: 0, width: 1512, height: 982)],
+      animatedWindowIDs: [selected, neighbor])
+    #expect(coordinator.pending?.animationDuration == 0.125,
+      "Cross-display layout defers its safety decision until worker admission")
+  }
+
+  @Test
+  func `Leaving ribbon window follows strip motion before final parking`() {
+    var leaving = makeMotionWrite(fromX: 100, toX: -759)
+    leaving.animationPoint = CGPoint(x: -900, y: leaving.point.y)
+    let middle = frameAnimationDestination(leaving, intermediate: true)
+    let parked = frameAnimationDestination(leaving, intermediate: false)
+    #expect(middle.x == -900)
+    #expect(parked.x == -759)
+    let neighbor = makeMotionWrite(fromX: 900, toX: -100)
+    let leavingFrame = interpolatedFrame(
+      from: Rect(x: 100, y: 0, width: 760, height: 700),
+      to: Rect(x: middle.x, y: 0, width: 760, height: 700), progress: 0.5)
+    let neighborFrame = interpolatedFrame(
+      from: Rect(x: 900, y: 0, width: 760, height: 700),
+      to: Rect(x: frameAnimationDestination(neighbor, intermediate: true).x,
+        y: 0, width: 760, height: 700), progress: 0.5)
+    #expect(neighborFrame.x - leavingFrame.x == 800)
+    #expect(positionOnlyAnimationWrite(leaving, holding: leaving.size).animationPoint == middle)
   }
 
   @Test
@@ -1963,6 +2197,9 @@ struct FrameCommitTests {
       )
     }
     let windowID = WindowID(rawValue: 1)
+    var replacement = write(point: CGPoint(x: 100, y: 40),
+      size: CGSize(width: 800, height: 600), positionChanged: true, sizeChanged: false)
+    replacement.animationPoint = CGPoint(x: -900, y: 40)
     let result = frameWritesPreservingSupersededAsyncSizes(
       active: [
         windowID: write(
@@ -1974,15 +2211,11 @@ struct FrameCommitTests {
       ],
       pending: [:],
       replacement: [
-        windowID: write(
-          point: CGPoint(x: 100, y: 40),
-          size: CGSize(width: 800, height: 600),
-          positionChanged: true,
-          sizeChanged: false
-        )
+        windowID: replacement
       ]
     )
 
+    #expect(result[windowID]?.animationPoint == replacement.animationPoint)
     #expect(result[windowID]?.point == CGPoint(x: 100, y: 40))
     #expect(result[windowID]?.size == CGSize(width: 800, height: 600))
     #expect(result[windowID]?.positionChanged == true)
@@ -2771,6 +3004,32 @@ struct FrameCommitTests {
     ))
   }
 
+  @Test func sameDisplayReflowKeepsSizeOnTheMovementTimeline() {
+    let display = Rect(x: 0, y: 0, width: 1_512, height: 982)
+    let source = Rect(x: 756, y: 25, width: 756, height: 910)
+    let target = Rect(x: 0, y: 25, width: 1_512, height: 910)
+    #expect(!shouldDeferAnimatedSizeUntilMovementCompletes(
+      from: source, to: target, displayFrames: [display]))
+  }
+
+  @Test func reorderedParkedColumnStartsAtItsPreviousLogicalSlot() throws {
+    let monitor = Rect(x: 0, y: 25, width: 1_512, height: 910)
+    let previous = Rect(x: -1_512, y: 25, width: 756, height: 910)
+    let target = Rect(x: 756, y: 25, width: 756, height: 910)
+    let parked = nativeRibbonAnimationFrame(previous, monitor: monitor)
+    let start = try #require(layoutRibbonAnimationStart(previousLogical: previous,
+      target: target, observed: parked, monitorFrames: [monitor]))
+    #expect(start.x == previous.x)
+    #expect(start.x != parked.x)
+    let halfway = nativeRibbonAnimationFrame(
+      interpolatedFrame(from: start, to: target, progress: 0.5), monitor: monitor)
+    #expect(halfway.x < target.x)
+    #expect(layoutRibbonAnimationStart(previousLogical: nil, target: target,
+      observed: parked, monitorFrames: [monitor]) == nil)
+    #expect(layoutRibbonAnimationStart(previousLogical: previous, target: target,
+      observed: parked, monitorFrames: [monitor, Rect(x: 1_512, y: 0, width: 1_000, height: 800)]) == nil)
+  }
+
   @Test
   func `Final only reentry keeps verified staging write`() {
     let fast = WindowID(rawValue: 1)
@@ -2847,7 +3106,7 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Size clamp retry requires a cross-display move`() {
+  func `Frame centers distinguish same-display and cross-display movement`() {
     let displays = [
       Rect(x: 0, y: 0, width: 1_000, height: 700),
       Rect(x: 1_000, y: 0, width: 1_000, height: 700),

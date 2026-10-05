@@ -144,7 +144,22 @@ extension AXFrameCoordinator {
       },
       by: \.value.processID
     ).map {
-      ProcessWriteBatch(processID: $0.key, writes: $0.value)
+      var entries = $0.value
+      let deltas = entries.map {
+        frameAnimationDestination($0.value, intermediate: true).x - $0.value.fromPoint.x
+      }
+      if entries.allSatisfy({ $0.value.usesCommonRibbonOffset }),
+        let delta = deltas.first, abs(delta) >= 0.5,
+        deltas.allSatisfy({ $0 * delta > 0 })
+      {
+        // AX writes are sequential within an application. Release space in
+        // front of the strip before advancing its following native windows.
+        entries.sort {
+          let a = $0.value.fromPoint.x, b = $1.value.fromPoint.x
+          return a == b ? $0.key.rawValue < $1.key.rawValue : (delta < 0 ? a < b : a > b)
+        }
+      }
+      return ProcessWriteBatch(processID: $0.key, writes: entries)
     }.sorted { $0.processID < $1.processID }
   }
 
@@ -393,6 +408,31 @@ extension AXFrameCoordinator {
     )
   }
 
+  func horizontalAnimationDuration(
+    for writes: [WindowID: AsyncPositionWrite],
+    requested: TimeInterval,
+    refreshRateHz: Double,
+    allowsSizeChanges: Bool = false
+  ) -> TimeInterval {
+    guard requested > 0, !writes.isEmpty,
+      writes.values.allSatisfy({
+        (!$0.animatesSize || allowsSizeChanges)
+          && ($0.usesCommonRibbonOffset || (allowsSizeChanges && $0.usesLogicalRibbonPath)
+            || abs($0.point.y - $0.fromPoint.y) < 0.5) })
+    else { return requested }
+    lock.lock()
+    let latency = writes.values.map {
+      (recentIntermediateProcessLatencySamplesMS[$0.processID]?.map(\.latencyMS).max()
+        ?? predictedProcessLatencyMS[$0.processID] ?? 0) / 1_000
+    }.max() ?? 0
+    lock.unlock()
+    // Give every participating native lane two intermediate writes plus its
+    // final write. A bounded common timeline avoids replacing the whole strip
+    // with a jump after a recent stall, without queuing more AX work.
+    let interval = 1 / min(max(refreshRateHz, 30), 120)
+    return max(requested, min(0.4, 3 * latency + 2 * interval))
+  }
+
   func animationSupportsIntermediateFrames(
     processIDs: Set<pid_t>,
     animationDuration: TimeInterval,
@@ -607,7 +647,8 @@ extension AXFrameCoordinator {
         stale += batch.writes.count - index
         break
       }
-      var interpolated = interpolatedFrame(
+      let destination = frameAnimationDestination(item.value, intermediate: intermediate)
+      let interpolated = interpolatedFrame(
         from: Rect(
           x: item.value.fromPoint.x,
           y: item.value.fromPoint.y,
@@ -615,25 +656,38 @@ extension AXFrameCoordinator {
           height: item.value.fromSize.height
         ),
         to: Rect(
-          x: item.value.point.x,
-          y: item.value.point.y,
+          x: destination.x,
+          y: destination.y,
           width: item.value.size.width,
           height: item.value.size.height
         ),
         progress: progress
       )
-      // Keep logical strip origins intact; native windows park at a reachable anchor.
-      // ponytail: single-display projection; retain conservative multi-display staging.
-      if (intermediate || stagingReentry), frame.source == "command-animation",
-        item.value.fromPoint.y == item.value.point.y,
-        let monitor = frame.monitorFrames.first, frame.monitorFrames.count == 1
+      let nativeRibbonSample = (intermediate || stagingReentry)
+        && (item.value.usesCommonRibbonOffset || item.value.usesLogicalRibbonPath)
+        && frame.monitorFrames.count == 1
+      let ribbonSample = item.value.usesCommonRibbonOffset
+        ? Rect(x: interpolated.x, y: item.value.fromPoint.y,
+          width: item.value.fromSize.width, height: item.value.fromSize.height)
+        : interpolated
+      let projectsNativeStrip = (intermediate || stagingReentry)
+        && frame.source == "command-animation"
+        && item.value.fromPoint.y == item.value.point.y
+        && frame.monitorFrames.count == 1
+      let nativeFrame = (nativeRibbonSample || projectsNativeStrip) ? nativeRibbonAnimationFrame(
+        ribbonSample,
+        monitor: frame.monitorFrames[0]) : interpolated
+      let point = CGPoint(x: nativeFrame.x, y: nativeFrame.y)
+      let parksRibbonSample = nativeRibbonSample && requiresVerifiedOffscreenWrite(
+        frame: nativeFrame, monitorFrames: frame.monitorFrames)
+      // A distant logical column stays at its verified strip anchor. Do not
+      // send identical offscreen positions at every display refresh.
+      if parksRibbonSample, !stagingReentry, !item.value.sizeChanged, !item.value.animatesSize,
+        let completed = completedPosition(for: item.key),
+        accessibilityWriter.pointDistance(completed, point) < 0.5
       {
-        interpolated = continuousStripFramesForActiveWorkspace(
-          [FrameAssignment(windowID: item.key, frame: interpolated)], viewport: monitor,
-          preservingExitSide: true
-        ).frames[0].frame
+        continue
       }
-      let point = CGPoint(x: interpolated.x, y: interpolated.y)
       let size = CGSize(
         width: interpolated.width,
         height: interpolated.height
@@ -726,17 +780,10 @@ extension AXFrameCoordinator {
             && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
           ? accessibilityWriter.readSize(item.value.element)
           : nil
-        let clampedSourceFrame: Rect? = acceptedSize.flatMap { observedSize in
-          guard item.value.positionChanged,
-            abs(observedSize.width - size.width) >= 0.5
-              || abs(observedSize.height - size.height) >= 0.5,
-            let source = accessibilityWriter.readPosition(item.value.element)
-          else { return nil }
-          return Rect(
-            x: source.x, y: source.y,
-            width: observedSize.width, height: observedSize.height
-          )
-        }
+        let sizeWasClampedBeforeMove = item.value.positionChanged
+          && (acceptedSize.map {
+            abs($0.width - size.width) >= 0.5 || abs($0.height - size.height) >= 0.5
+          } ?? false)
         var nativeStagingPosition: CGPoint?
         let verifyNativeStage: (() -> Bool)? =
           stagingReentry && item.value.isReentering && !item.value.isParked
@@ -756,7 +803,7 @@ extension AXFrameCoordinator {
               || accessibilityWriter.applyPosition(
                 item.value,
                 point: point,
-                forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+                forceOffscreenAccess: parksRibbonSample || (stagingReentry && item.value.isReentering)
                   || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
                 verifyParkedPosition: !intermediate,
                 enhancedUIManagedByBatch: managesEnhancedUI
@@ -767,15 +814,11 @@ extension AXFrameCoordinator {
             )
         let positionDurationMS =
           (ProcessInfo.processInfo.systemUptime - positionStartedAt) * 1_000
-        // AppKit can clamp a resize to the source display before accepting
-        // the move. Retry once at the destination, only after a measured clamp.
-        if positionApplied,
-          let clampedSourceFrame,
-          frameCentersCrossDisplays(
-            from: clampedSourceFrame,
-            to: interpolated,
-            displayFrames: frame.monitorFrames
-          ),
+        // AppKit can clamp a resize at the source position, even on the same
+        // display. Retry the final size once after moving, only after a measured
+        // mismatch; intermediate samples must keep their bounded write budget.
+        if !intermediate, progress >= 1, positionApplied,
+          sizeWasClampedBeforeMove,
           isCurrent(generation: frame.generation)
         {
           sizeApplied = accessibilityWriter.applySize(
@@ -788,7 +831,7 @@ extension AXFrameCoordinator {
             nativeStagingPosition = nil
             positionApplied = accessibilityWriter.applyPosition(
               item.value, point: point,
-              forceOffscreenAccess: (stagingReentry && item.value.isReentering)
+              forceOffscreenAccess: parksRibbonSample || (stagingReentry && item.value.isReentering)
                 || (!intermediate && item.value.requiresVerifiedOffscreenWrite),
               verifyParkedPosition: !intermediate,
               enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore,
@@ -879,14 +922,13 @@ extension AXFrameCoordinator {
       }
       // A superseded write can still have moved the native window. Keep that
       // physical starting point; process lanes serialize it before replacement.
-      let requiresReadback =
-        item.value.isParked
-        || item.value.requiresVerifiedOffscreenWrite
+      let requiresReadback = !intermediate
+        && (item.value.isParked || item.value.requiresVerifiedOffscreenWrite)
       if positionApplied, item.value.positionChanged {
         let completedPoint = acceptedPosition ?? point
         recordCompletedPosition(
           completedPoint, windowID: item.key,
-          positionWasReadBack: !defersBorderReadback || acceptedPosition != nil
+          positionWasReadBack: acceptedPosition != nil || requiresReadback
         )
       } else if let acceptedPosition {
         recordCompletedPosition(acceptedPosition, windowID: item.key)

@@ -21,6 +21,10 @@ final class OverviewView: NSView {
   private var desktopFadeLink: CADisplayLink?
   var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: NSImage] = [:]
+  var surfaceWindowIDs = Set<WindowID>()
+  var suppressedSurfaceWindowIDs = Set<WindowID>() {
+    didSet { if oldValue != suppressedSurfaceWindowIDs { needsDisplay = true } }
+  }
   private var previewOpacities: [WindowID: Double] = [:]
   // Image being replaced, kept underneath until the new preview finishes fading in.
   private var outgoingPreviews: [WindowID: NSImage] = [:]
@@ -30,6 +34,40 @@ final class OverviewView: NSView {
   private var leftDragStarted = false
   private var rightDragPoint: NSPoint?
   private var iconCache: [String: NSImage] = [:]
+  // The scrim is unchanged while cards move; retain a 512-byte strip instead
+  // of evaluating a gradient across every card on every refresh.
+  private let titleScrimImage = overviewLabelBitmap(size: CGSize(width: 1, height: 128), scale: 1) {
+      NSGradient(
+        colorsAndLocations:
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0, opacity: 1)
+          ), 0),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.25, opacity: 1)
+          ), 0.25),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.5, opacity: 1)
+          ), 0.5),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.75, opacity: 1)
+          ), 0.75),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.9, opacity: 1)
+          ), 0.9),
+          (NSColor.black.withAlphaComponent(
+            overviewTitleScrimAlpha(progress: 0.97, opacity: 1)
+          ), 0.97),
+          (NSColor.clear, 1)
+      )?.draw(
+        from: NSPoint(x: 0.5, y: 0),
+        to: NSPoint(x: 0.5, y: 128),
+        options: []
+      )
+  }
+  private let titleCache = OverviewTitleCache()
+  var titleRasterizationCount: Int { titleCache.rasterizationCount }
+  private(set) var presentationUpdateCount = 0
+  private(set) var drawCount = 0
 
   override var isFlipped: Bool { true }
 
@@ -45,6 +83,9 @@ final class OverviewView: NSView {
   func discardPreviewImages() {
     previews.removeAll(keepingCapacity: false)
     outgoingPreviews.removeAll(keepingCapacity: false)
+    previewOpacities.removeAll()
+    titleCache.prune(windowIDs: [])
+    iconCache.removeAll()
   }
 
   func setDesktopImage(_ image: NSImage?, fadeDuration: TimeInterval = 0) {
@@ -99,6 +140,8 @@ final class OverviewView: NSView {
       || self.borderStyle != borderStyle || self.windowCornerRadius != windowCornerRadius
       || self.previews != visiblePreviews || self.previewOpacities != visibleOpacities
     else { return false }
+    presentationUpdateCount += 1
+    if self.snapshot != snapshot { titleCache.prune(windowIDs: Set(snapshot.windows.keys)) }
     self.snapshot = snapshot
     self.projection = projection
     self.selection = selection
@@ -148,6 +191,7 @@ final class OverviewView: NSView {
 
   override func draw(_ dirtyRect: NSRect) {
     guard let projection, let snapshot else { return }
+    drawCount += 1
     for workspace in projection.workspaces {
       drawWorkspace(workspace, snapshot: snapshot)
     }
@@ -283,7 +327,7 @@ final class OverviewView: NSView {
           operation: .sourceOver,
           fraction: fraction,
           respectFlipped: true,
-          hints: [.interpolation: NSImageInterpolation.high]
+          hints: [.interpolation: NSImageInterpolation.medium]
         )
       }
     } else {
@@ -326,6 +370,7 @@ final class OverviewView: NSView {
     _ card: OverviewWindowProjection,
     snapshot: OverviewSnapshot
   ) {
+    guard !suppressedSurfaceWindowIDs.contains(card.windowID) else { return }
     guard let window = snapshot.windows[card.windowID] else { return }
     let frame = nsRect(card.frame)
     guard needsToDraw(frame) else { return }
@@ -336,6 +381,14 @@ final class OverviewView: NSView {
     )
     NSColor(calibratedWhite: card.isNativeFullscreen ? 0.19 : 0.15, alpha: 1).setFill()
     path.fill()
+    if surfaceWindowIDs.contains(card.windowID), let preview = previews[card.windowID] {
+      NSGraphicsContext.saveGraphicsState()
+      path.addClip()
+      preview.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1,
+        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.medium])
+      NSGraphicsContext.restoreGraphicsState()
+      return
+    }
     let iconSize = overviewWindowTitleIconSize(cardHeight: frame.height)
     let titleBandHeight = overviewWindowTitleBandHeight(iconSize: iconSize)
     let titleFadeHeight = overviewPreviewBlurFadeHeight(
@@ -355,7 +408,7 @@ final class OverviewView: NSView {
           operation: .sourceOver,
           fraction: 1,
           respectFlipped: true,
-          hints: [.interpolation: NSImageInterpolation.high]
+          hints: [.interpolation: NSImageInterpolation.medium]
         )
       }
       // Cross-fades keep the scrim steady; only a first reveal fades it in.
@@ -366,34 +419,12 @@ final class OverviewView: NSView {
         operation: .sourceOver,
         fraction: opacity,
         respectFlipped: true,
-        hints: [.interpolation: NSImageInterpolation.high]
+        hints: [.interpolation: NSImageInterpolation.medium]
       )
-      NSGradient(
-        colorsAndLocations:
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0, opacity: scrimOpacity)
-          ), 0),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.25, opacity: scrimOpacity)
-          ), 0.25),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.5, opacity: scrimOpacity)
-          ), 0.5),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.75, opacity: scrimOpacity)
-          ), 0.75),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.9, opacity: scrimOpacity)
-          ), 0.9),
-          (NSColor.black.withAlphaComponent(
-            overviewTitleScrimAlpha(progress: 0.97, opacity: scrimOpacity)
-          ), 0.97),
-          (NSColor.clear, 1)
-      )?.draw(
-        from: NSPoint(x: frame.midX, y: frame.minY),
-        to: NSPoint(x: frame.midX, y: frame.minY + titleFadeHeight),
-        options: []
-      )
+      titleScrimImage?.draw(
+        in: NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: titleFadeHeight),
+        from: .zero, operation: .sourceOver, fraction: scrimOpacity,
+        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.medium])
       NSGraphicsContext.restoreGraphicsState()
     }
     let title = (window.title.isEmpty ? window.appID : window.title) as NSString
@@ -401,15 +432,24 @@ final class OverviewView: NSView {
       .font: NSFont.systemFont(ofSize: min(13, max(frame.height * 0.09, 10)), weight: .medium),
       .foregroundColor: NSColor.white.withAlphaComponent(0.9),
     ]
+    let label = titleCache.label(for: card.windowID, text: title as String,
+      fontSize: min(13, max(frame.height * 0.09, 10)),
+      maximumWidth: max(frame.width - iconSize - 28, 1),
+      scale: windowBackingScale)
     let titleLayout = overviewWindowTitleLayout(
       cardFrame: frame,
       iconSize: iconSize,
-      titleSize: title.size(withAttributes: titleAttributes),
+      titleSize: label?.intrinsicSize ?? title.size(withAttributes: titleAttributes),
       blurHeight: titleBandHeight
     )
     let icon = icon(for: window)
     icon.draw(in: titleLayout.iconFrame)
-    title.draw(in: titleLayout.titleFrame, withAttributes: titleAttributes)
+    if let label {
+      label.image.draw(in: titleLayout.titleFrame, from: .zero, operation: .sourceOver,
+        fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+    } else {
+      title.draw(in: titleLayout.titleFrame, withAttributes: titleAttributes)
+    }
     if card.isNativeFullscreen {
       let label = "Full Screen" as NSString
       label.draw(
@@ -510,18 +550,29 @@ final class OverviewView: NSView {
     if let cached = iconCache[window.appID] { return cached }
     let icon = NSImage(systemSymbolName: "app", accessibilityDescription: window.appID)
       ?? NSImage(size: NSSize(width: 24, height: 24))
-    iconCache[window.appID] = icon
+    iconCache[window.appID] = rasterizedIcon(icon)
     if let processID = window.processID {
       Task { @MainActor [weak self] in
         let loaded = await Task.detached(priority: .utility) {
           NSRunningApplication(processIdentifier: processID)?.icon
         }.value
         guard let self, let loaded else { return }
-        self.iconCache[window.appID] = loaded
+        self.iconCache[window.appID] = self.rasterizedIcon(loaded)
         self.needsDisplay = true
       }
     }
-    return icon
+    return iconCache[window.appID] ?? icon
+  }
+
+  private var windowBackingScale: CGFloat { window?.backingScaleFactor ?? 2 }
+
+  private func rasterizedIcon(_ image: NSImage) -> NSImage {
+    let size = CGSize(width: 24, height: 24)
+    return overviewLabelBitmap(size: size, scale: 2) {
+      image.draw(in: CGRect(origin: .zero, size: size), from: .zero,
+        operation: .sourceOver, fraction: 1, respectFlipped: true,
+        hints: [.interpolation: NSImageInterpolation.high])
+    } ?? image
   }
 
   private func overviewBorderColor(_ value: UInt32) -> NSColor {

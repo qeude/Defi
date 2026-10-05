@@ -388,6 +388,39 @@ extension Daemon {
           ribbonPrototype: overviewRibbonPrototypeRequested(in: rawCommand)
         )
       }
+      if overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
+        let originatingSession = overviewToggleState.snapshot().sessionGeneration
+        deferredResponse?.deferResponse()
+        DispatchQueue.main.async { [weak self] in
+          guard let self else { deferredResponse?.fail("daemon unavailable"); return }
+          if let controller = overviewController,
+            overviewToggleState.isCurrentSession(originatingSession),
+            controller.sessionGeneration == originatingSession {
+            let accepted = controller.applyLayoutCommand(command) {
+              [weak self] command, windowID, appID, monitorID, workspaceID, generation in
+              NavigationActor.enqueue { [weak self] in
+                let operation = {
+                  guard let self else { return CommandResponse.failure("daemon unavailable") }
+                  guard self.overviewToggleState.isCurrentSession(generation) else {
+                    return CommandResponse.failure("overview session changed; command was not applied")
+                  }
+                  return self.editLayoutFromOverview(command, intent: OverviewWindowIntent(
+                    windowID: windowID, expectedAppID: appID,
+                    sourceMonitorID: monitorID, sourceWorkspaceID: workspaceID))
+                }
+                if let deferredResponse { deferredResponse.perform(operation) }
+                else { _ = operation() }
+              }
+            }
+            if !accepted {
+              deferredResponse?.fail("overview selection cannot apply this layout command")
+            }
+          } else {
+            deferredResponse?.fail("overview session changed; command was not applied")
+          }
+        }
+        return .success("queued for overview selection")
+      }
       let commandMonitorID: MonitorID?
       if let monitorIndex {
         guard let monitorID = monitorID(atAppKitIndex: monitorIndex) else {
@@ -577,21 +610,21 @@ extension Daemon {
       let switchesWorkspace = command.activatesWorkspace
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
       let movesAcrossMonitors = command.movesWindowsAcrossMonitors
-      let resizesManagedLayout = command.resizesManagedLayout
+      let animatesManagedLayout = command.animatesManagedLayout
       let speculativeRibbonNavigation = isSpeculativeRibbonNavigation(command)
       if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors
-        || resizesManagedLayout || speculativeRibbonNavigation
+        || animatesManagedLayout || speculativeRibbonNavigation
       {
         rearmPointerFocusTransition()
       }
       if switchesWorkspace || mutatesWorkspaceWindows || movesAcrossMonitors
-        || resizesManagedLayout
+        || animatesManagedLayout
         || speculativeRibbonNavigation
       {
         preemptMouseGesture()
       }
-      let animatedManagedResize =
-        resizesManagedLayout
+      let animatedManagedLayout =
+        animatesManagedLayout
         && animationsEnabled
         && config.animation.durationMS > 0
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
@@ -757,8 +790,8 @@ extension Daemon {
         inFlightAnimations: inFlightAnimationMonitorIDs
       )
       let dispatchedAnimation =
-        animatedManagedResize
-        ? dispatchManagedResizeAnimation(
+        animatedManagedLayout
+        ? dispatchManagedLayoutAnimation(
           monitorIDs: affectedMonitorIDs,
           forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
           commandPerformance: commandPerformance

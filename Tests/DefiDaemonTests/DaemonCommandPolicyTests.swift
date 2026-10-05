@@ -8,6 +8,55 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func completedOverviewSelectionAllowsWarpUntilSuperseded() {
+    let state = OverviewToggleState()
+    state.recordControllerState(true, sessionGeneration: 1)
+    state.completeSelectionExit(1)
+    state.recordControllerState(false, sessionGeneration: 2)
+    #expect(state.selectionWarpIsCurrent(1))
+    state.recordControllerState(true, sessionGeneration: 3)
+    #expect(!state.selectionWarpIsCurrent(1))
+    _ = state.requestClose()
+    state.completeSelectionExit(3)
+    state.recordControllerState(false, sessionGeneration: 4)
+    #expect(!state.selectionWarpIsCurrent(3), "Cancellation cannot authorize a delayed warp")
+  }
+
+  @Test func overviewSessionCancellationInvalidatesAlreadyQueuedSelection() {
+    let state = OverviewToggleState()
+    state.recordControllerState(true, sessionGeneration: 1)
+    #expect(state.isCurrentSession(1))
+    _ = state.requestClose()
+    #expect(!state.isCurrentSession(1), "Cancellation must take effect before actor work resumes")
+    state.recordControllerState(false, sessionGeneration: 2)
+    state.recordControllerState(true, sessionGeneration: 3)
+    #expect(!state.isCurrentSession(1), "Reopening cannot revive an older selection")
+    #expect(state.isCurrentSession(3))
+  }
+
+  @Test(arguments: [20.0, 21.0])
+  func nativeFocusAnimationSurvivesItsOwnSnapshotButYieldsToNewerInput(timestamp: Double) {
+    #expect(desktopSnapshotWaitsForCommandAnimation(animationPending: true,
+      latestCommandInputTimestamp: 10, latestNativeFocusAnimationInputTimestamp: 20,
+      mouseFocusIntentTimestamp: timestamp, keyboardFocusIntentTimestamp: nil) == (timestamp == 20))
+  }
+
+  @Test func changedNativeFocusAnimatesOnlyItsMonitor() {
+    let monitor = MonitorID(rawValue: 2)
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: false,
+      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == monitor)
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: nil, floating: false,
+      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
+  }
+
+  @Test(arguments: [(true, false, false, false), (false, true, false, false),
+    (false, false, true, false), (false, false, false, true)])
+  func nativeFocusDoesNotAnimateDuringOtherInteractions(blockers: (Bool, Bool, Bool, Bool)) {
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: MonitorID(rawValue: 2),
+      floating: blockers.0, overviewOpen: blockers.1, mouseGestureActive: blockers.2,
+      displayGeometryChanged: blockers.3) == nil)
+  }
+
   @Test
   func supersededSubmittedWorkspaceFocusRequiresNativeCancellation() {
     #expect(workspaceFocusNeedsNativeCancellation(
@@ -94,6 +143,7 @@ struct DaemonCommandPolicyTests {
     #expect(toggleState.snapshot() == OverviewToggleSnapshot(
       generation: 0,
       actualIsOpen: false,
+      sessionGeneration: nil,
       desiredIsOpen: nil
     ))
 

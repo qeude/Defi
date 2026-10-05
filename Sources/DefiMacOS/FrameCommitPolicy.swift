@@ -668,3 +668,23 @@ func commandPerformanceFramePlan(
     .intersection(availableWindowIDs)
   return (expectedWindowIDs, expectedWindowIDs.isEmpty == false)
 }
+
+func overviewExitFramesAreReady(
+  windowIDs: Set<WindowID>, hiddenWindowIDs: Set<WindowID>,
+  pendingWriteWindowIDs: Set<WindowID>, unresolvedWindowIDs: Set<WindowID>,
+  targets: [WindowID: Rect], observed: [WindowID: Rect], monitorFrames: [Rect]
+) -> Bool {
+  guard pendingWriteWindowIDs.isDisjoint(with: windowIDs),
+    unresolvedWindowIDs.isDisjoint(with: windowIDs.subtracting(hiddenWindowIDs))
+  else { return false }
+  return windowIDs.allSatisfy { id in
+    guard let target = targets[id], let actual = observed[id] else { return false }
+    if hiddenWindowIDs.contains(id) {
+      // Native apps may clamp a parked frame vertically. Exact geometry there
+      // must not cancel the visible zoom, but a parking leak remains unsafe.
+      return !monitorFrames.isEmpty
+        && requiresVerifiedOffscreenWrite(frame: actual, monitorFrames: monitorFrames)
+    }
+    return frameDistance(actual, target) <= 1
+  }
+}

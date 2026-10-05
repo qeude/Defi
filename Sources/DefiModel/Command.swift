@@ -44,6 +44,20 @@ public enum Command: Equatable, Codable, Sendable {
   case toggleOverview
   case runStartupCommands
 
+  public var editsSelectedLayout: Bool {
+    switch self {
+    case .cycleWidth, .maximizeColumn, .moveColumn, .moveWindow,
+      .joinWindow, .unjoinWindows, .toggleFloating:
+      true
+    default:
+      false
+    }
+  }
+
+  public var animatesManagedLayout: Bool {
+    editsSelectedLayout || resizesManagedLayout
+  }
+
   public var resizesManagedLayout: Bool {
     switch self {
     case .cycleWidth, .maximizeColumn, .joinWindow, .unjoinWindows,

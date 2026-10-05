@@ -9,6 +9,32 @@ import Testing
 @testable import DefiMacOS
 
 struct WindowBorderTests {
+  @Test func overviewReusesConstraintsWithoutBlockingMetadataReads() {
+    let previous = Window(id: WindowID(rawValue: 1), appID: "test", title: "Window",
+      frame: Rect(x: 0, y: 0, width: 800, height: 600),
+      minimumTiledWidth: 400, maximumTiledWidth: 1000, maximumTiledHeight: 900)
+    var reads = 0
+    let fresh = WindowSizeConstraints(minimumWidth: 500, maximumWidth: 1100, maximumHeight: 950)
+    for _ in 0..<20 {
+      let reused = windowSizeConstraintsForSnapshot(previousWindow: previous, overviewActive: true) {
+        reads += 1
+        return fresh
+      }
+      #expect(reused == WindowSizeConstraints(minimumWidth: 400, maximumWidth: 1000, maximumHeight: 900))
+    }
+    #expect(reads == 0)
+    #expect(windowSizeConstraintsForSnapshot(previousWindow: nil, overviewActive: true) {
+      reads += 1
+      return fresh
+    } == nil)
+    #expect(reads == 0)
+    #expect(windowSizeConstraintsForSnapshot(previousWindow: previous, overviewActive: false) {
+      reads += 1
+      return fresh
+    } == fresh)
+    #expect(reads == 1)
+  }
+
   @Test
   func pendingGeometryCoalescesProcessesAndCanScheduleAfterDelivery() {
     let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)

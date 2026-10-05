@@ -309,7 +309,7 @@ extension Daemon {
     return true
   }
 
-  func dispatchManagedResizeAnimation(
+  func dispatchManagedLayoutAnimation(
     monitorIDs: Set<MonitorID>? = nil,
     skipping skippedWindowIDs: Set<WindowID> = [],
     forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
@@ -329,7 +329,7 @@ extension Daemon {
       skipping: skippedWindowIDs,
       forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
       commandPerformance: commandPerformance,
-      source: "command-resize-animation"
+      source: "command-layout-animation"
     )
     needsDesktopSync = true
     return true

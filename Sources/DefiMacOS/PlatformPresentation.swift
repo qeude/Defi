@@ -182,6 +182,10 @@ extension MacOSPlatform {
 
   public func refreshWindowBorders() { enqueuePresentation { $0.presentRefreshWindowBorders() } }
   public func hideWindowBorders() { enqueuePresentation { $0.presentHideWindowBorders() } }
+  public func setOverviewPresentationActive(_ active: Bool) {
+    snapshotEngine.overviewPresentationActive = active
+    setWindowBordersSuppressed(active)
+  }
   public func setWindowBordersSuppressed(_ suppressed: Bool) {
     enqueuePresentation { $0.presentSetWindowBordersSuppressed(suppressed) }
   }

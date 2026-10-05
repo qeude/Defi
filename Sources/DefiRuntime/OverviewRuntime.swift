@@ -50,6 +50,52 @@ public enum OverviewRuntimeError: Error, Equatable, Sendable {
   case classificationChanged(WindowID)
 }
 
+/// Applies a local layout edit without activating the overview's selected workspace.
+@discardableResult
+public func applyOverviewLayoutCommand(
+  _ command: Command,
+  intent: OverviewWindowIntent,
+  viewports: [MonitorID: Rect],
+  state: inout RuntimeState
+) throws -> [WindowID: Rect] {
+  guard command.editsSelectedLayout else { throw OverviewRuntimeError.invalidDropTarget }
+  _ = try validateOverviewWindow(intent, state: state)
+  guard state.windows[intent.windowID]?.transientOwnerID == nil else {
+    throw OverviewRuntimeError.transientWindow(intent.windowID)
+  }
+  guard !state.nativeFullscreenWindowIDs.contains(intent.windowID) else {
+    throw OverviewRuntimeError.nativeFullscreen(intent.windowID)
+  }
+  guard state.windows[intent.windowID]?.floating != true || command == .toggleFloating else {
+    throw OverviewRuntimeError.invalidDropTarget
+  }
+  var next = state
+  _ = focusWindow(intent.windowID, state: &next)
+  try reduce(command, on: intent.sourceMonitorID, state: &next, viewports: viewports)
+  guard let source = state.workspaceLocation(for: intent.sourceWorkspaceID),
+    let destination = next.workspaceLocation(for: intent.sourceWorkspaceID)
+  else { throw OverviewRuntimeError.unknownWorkspace(intent.sourceWorkspaceID) }
+  var floatingFrames: [WindowID: Rect] = [:]
+  if command == .toggleFloating, state.windows[intent.windowID]?.floating == false,
+    let viewport = viewports[intent.sourceMonitorID],
+    let tiledFrame = computeLayout(
+      workspace: state.monitors[source.monitorIndex].workspaces[source.workspaceIndex],
+      viewport: viewport, windows: Array(state.windows.values), settings: state.layout
+    ).first(where: { $0.windowID == intent.windowID })?.frame {
+    let frame = rebasedFloatingFrame(tiledFrame, from: viewport, to: viewport)
+    next.windows[intent.windowID]?.frame = frame
+    floatingFrames[intent.windowID] = frame
+  }
+  // Local edits cannot transfer windows or workspaces. Preserve the original
+  // topology and activation, including an active empty trailing workspace.
+  state.monitors[source.monitorIndex].workspaces[source.workspaceIndex] =
+    next.monitors[destination.monitorIndex].workspaces[destination.workspaceIndex]
+  state.windows = next.windows
+  state.pendingNativeFullscreenWidthResetWindowIDs = next.pendingNativeFullscreenWidthResetWindowIDs
+  state.suspendedTiledPlacements[intent.windowID] = next.suspendedTiledPlacements[intent.windowID]
+  return floatingFrames
+}
+
 @discardableResult
 public func focusOverviewWindow(
   _ intent: OverviewWindowIntent,
