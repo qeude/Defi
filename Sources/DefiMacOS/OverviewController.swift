@@ -880,13 +880,15 @@ public final class OverviewController: NSObject {
   }
 
   @discardableResult
-  public func applyLayoutCommand(_ command: Command) -> Bool {
+  public func applyLayoutCommand(_ command: Command,
+    handler: (@MainActor @Sendable (Command, WindowID, String, MonitorID, WorkspaceID, UInt64) -> Void)? = nil
+  ) -> Bool {
     guard isOpen, !ribbonPrototype, !selectionCommitPending, let snapshot, let selection,
       let windowID = selection.windowID, let window = snapshot.windows[windowID],
       !snapshot.nativeFullscreenWindowIDs.contains(windowID), window.transientOwnerID == nil,
       !window.floating || command == .toggleFloating else { return false }
     hasDeferredSelection = true
-    layoutCommandHandler(command, windowID, window.appID, selection.location.monitorID,
+    (handler ?? layoutCommandHandler)(command, windowID, window.appID, selection.location.monitorID,
       selection.location.workspaceID, sessionGeneration)
     return true
   }

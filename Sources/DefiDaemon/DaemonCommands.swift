@@ -394,11 +394,24 @@ extension Daemon {
         DispatchQueue.main.async { [weak self] in
           guard let self else { deferredResponse?.fail("daemon unavailable"); return }
           if let controller = overviewController, controller.isOpen {
-            let accepted = controller.applyLayoutCommand(command)
-            NavigationActor.enqueue {
-              deferredResponse?.perform {
-                accepted ? .success() : .failure("overview selection cannot apply this layout command")
+            let accepted = controller.applyLayoutCommand(command) {
+              [weak self] command, windowID, appID, monitorID, workspaceID, generation in
+              NavigationActor.enqueue { [weak self] in
+                let operation = {
+                  guard let self else { return CommandResponse.failure("daemon unavailable") }
+                  guard self.overviewToggleState.isCurrentSession(generation) else {
+                    return CommandResponse.failure("overview session changed; command was not applied")
+                  }
+                  return self.editLayoutFromOverview(command, intent: OverviewWindowIntent(
+                    windowID: windowID, expectedAppID: appID,
+                    sourceMonitorID: monitorID, sourceWorkspaceID: workspaceID))
+                }
+                if let deferredResponse { deferredResponse.perform(operation) }
+                else { _ = operation() }
               }
+            }
+            if !accepted {
+              deferredResponse?.fail("overview selection cannot apply this layout command")
             }
           } else {
             NavigationActor.enqueue { [weak self] in

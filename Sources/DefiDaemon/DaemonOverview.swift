@@ -286,7 +286,7 @@ extension Daemon {
       layoutCommand: { [weak self] command, windowID, appID, monitorID, workspaceID, generation in
         NavigationActor.enqueue { [weak self] in
           guard let self, overviewToggleState.isCurrentSession(generation) else { return }
-          editLayoutFromOverview(command, intent: OverviewWindowIntent(
+          _ = editLayoutFromOverview(command, intent: OverviewWindowIntent(
             windowID: windowID, expectedAppID: appID,
             sourceMonitorID: monitorID, sourceWorkspaceID: workspaceID))
         }
@@ -305,8 +305,10 @@ extension Daemon {
     )
   }
 
-  private func editLayoutFromOverview(_ command: Command, intent: OverviewWindowIntent) {
-    guard overviewState.isOpen, !overviewExitPreparationActive else { return }
+  func editLayoutFromOverview(_ command: Command, intent: OverviewWindowIntent) -> CommandResponse {
+    guard overviewState.isOpen, !overviewExitPreparationActive else {
+      return .failure("overview is closed or committing selection")
+    }
     do {
       let floatingUpdates = try applyOverviewLayoutCommand(command, intent: intent,
         viewports: viewportsByMonitor, state: &state)
@@ -318,9 +320,11 @@ extension Daemon {
       snapScrollOffsetsToTargets()
       persistTopology()
       updateOverviewIfOpen()
+      return .success()
     } catch {
       platform.recordPerformanceTrace("overview-layout-rejected error=\(error)")
       updateOverviewIfOpen()
+      return .failure(String(describing: error))
     }
   }
 
