@@ -229,8 +229,11 @@ class WorkflowTests(unittest.TestCase):
                         source["sha256"] = "changed"
                     elif mutation == "bundle":
                         binary.write_text("changed")
-                def step(name, *_):
+                def step(name, command, *_):
                     steps.append(name)
+                    if name == "prepare-tests":
+                        self.assertEqual(command, [str(root / "script/test_desktop.sh"), "--build-tests"])
+                        lock.assert_not_called()
                     if name == "install":
                         raise RuntimeError("Stop before real installation")
                 previous_handler = verify.signal.getsignal(verify.signal.SIGTERM)

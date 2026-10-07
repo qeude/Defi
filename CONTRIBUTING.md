@@ -148,6 +148,13 @@ on the changed behavior and the final build.
 tests. Both use the same desktop reservation. The test script restores a previously
 running service on success, failure, or handled interruption.
 
+The owned focus fixture uses a normal-level window whose public
+`accessibilityPerformRaise()` synchronously calls `orderFrontRegardless()` and
+returns success. It raises only at launch or on an explicit request. These tests
+exercise Defi's public raise request integration against explicitly implemented
+AXRaise while retaining native keyboard-delivery assertions. They do not prove
+that every third-party or default AppKit window reorders while inactive.
+
 ## Development scripts
 
 | Script | Purpose |

@@ -763,14 +763,25 @@ final class DesktopE2ETests: XCTestCase {
 
   func testKeyboardActivationAfterCompletedFocusSurvivesSnapshot() throws {
     let platform = try makePlatform()
-    let initial = platform.snapshot(config: Config())
+    _ = platform.snapshot(config: Config())
     let originalApplication = NSWorkspace.shared.frontmostApplication
-    guard let window = testWindows(in: initial).first(where: {
-      $0.processID != originalApplication?.processIdentifier
-    }), let processID = window.processID else {
-      throw XCTSkip("A window in another application is required")
-    }
     defer { originalApplication?.activate() }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let window = try XCTUnwrap(platform.snapshot(config: Config()).windows.first {
+      $0.id == fixtures.tiledWindowID
+    })
+    let processID = fixtures.tiledProcess.processIdentifier
+    let otherApplication = try XCTUnwrap(NSRunningApplication(
+      processIdentifier: fixtures.floatingProcess.processIdentifier))
+    otherApplication.activate()
+    XCTAssertTrue(pumpRunLoop(until: {
+      platform.snapshot(config: Config()).focusedWindowID == fixtures.floatingWindowID
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier
+          == fixtures.floatingProcess.processIdentifier
+    }, timeout: 2), "The other fixture must hold native focus before requesting a mutation")
 
     let result = DesktopValue<NativeFocusResult?>(nil)
     onNavigation { platform.focus(window.id, completion: { value in DispatchQueue.main.async { result.value = value } }) }
@@ -879,51 +890,55 @@ final class DesktopE2ETests: XCTestCase {
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try makePlatform()
     let initial = platform.snapshot(config: Config())
+    let originalFocusedWindowID = initial.focusedWindowID
+    let originalApplication = NSWorkspace.shared.frontmostApplication
+    defer {
+      _ = platform.snapshot(config: Config())
+      if let originalFocusedWindowID {
+        onNavigation { platform.focus(originalFocusedWindowID) }
+      } else {
+        originalApplication?.activate()
+      }
+      pumpRunLoop(for: 0.3)
+    }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let config = Config(rules: [Rule(appID: fixtures.floatingAppID, floating: true)])
+    let snapshot = platform.snapshot(config: config)
+    let floating = try XCTUnwrap(snapshot.windows.first {
+      $0.id == fixtures.floatingWindowID && $0.floating
+    })
+    let tiled = try XCTUnwrap(snapshot.windows.first { $0.id == fixtures.tiledWindowID })
+    XCTAssertTrue(floating.floating)
+    XCTAssertFalse(tiled.floating)
+    guard let monitor = snapshot.monitors.first(where: {
+      targetIntersects(floating.frame, monitor: $0.frame)
+        && targetIntersects(tiled.frame, monitor: $0.frame)
+    }), targetIntersects(floating.frame, monitor: tiled.frame) else {
+      throw DesktopFocusFixturePair.Failure.unsupported("Fixture windows must overlap on one monitor")
+    }
     let onscreenWindowIDs = Set(
       copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
         .map { WindowID(rawValue: UInt64($0.id)) }
     )
-    // Use a regular native window with a local floating rule. AppKit About
-    // panels can hide on deactivation and are not a cross-app stacking fixture.
-    guard let candidate = testWindows(in: initial).first(where: { window in
-      onscreenWindowIDs.contains(window.id) && initial.monitors.contains { monitor in
-        targetIntersects(window.frame, monitor: monitor.frame)
-          && initial.windows.contains { other in
-            other.processID != window.processID && !other.floating
-              && onscreenWindowIDs.contains(other.id)
-              && targetIntersects(other.frame, monitor: monitor.frame)
-          }
-      }
-    }) else { throw XCTSkip("Two on-screen applications on one monitor required") }
-    let config = Config(rules: [Rule(appID: candidate.appID, floating: true)])
-    let snapshot = platform.snapshot(config: config)
-    guard let floating = snapshot.windows.first(where: {
-      $0.id == candidate.id && $0.floating && onscreenWindowIDs.contains($0.id)
-    }),
-      let monitor = snapshot.monitors.first(where: {
-        $0.frame.x < floating.frame.x + floating.frame.width
-          && floating.frame.x < $0.frame.x + $0.frame.width
-          && $0.frame.y < floating.frame.y + floating.frame.height
-          && floating.frame.y < $0.frame.y + $0.frame.height
-      }),
-      let tiled = snapshot.windows.first(where: {
-        !$0.floating
-          && $0.processID != floating.processID
-          && onscreenWindowIDs.contains($0.id)
-          && monitor.frame.x < $0.frame.x + $0.frame.width
-          && $0.frame.x < monitor.frame.x + monitor.frame.width
-          && monitor.frame.y < $0.frame.y + $0.frame.height
-          && $0.frame.y < monitor.frame.y + monitor.frame.height
-      })
-    else {
-      throw XCTSkip("On-screen floating and tiled windows from different apps required")
+    guard onscreenWindowIDs.contains(floating.id), onscreenWindowIDs.contains(tiled.id) else {
+      throw DesktopFocusFixturePair.Failure.unsupported("Both fixture windows must be on screen")
     }
-    let originalFocusedWindowID = snapshot.focusedWindowID
-    defer {
-      if let originalFocusedWindowID {
-        onNavigation { platform.focus(originalFocusedWindowID) }
-        pumpRunLoop(for: 0.3)
-      }
+    func focusedTextField(in application: AXUIElement) throws -> AXUIElement {
+      var field: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(application,
+        kAXFocusedUIElementAttribute as CFString, &field) == .success,
+        let field, CFGetTypeID(field) == AXUIElementGetTypeID()
+      else { throw DesktopFocusFixturePair.Failure.unsupported("Fixture has no focused editable field") }
+      return field as! AXUIElement
+    }
+    func textValue(of field: AXUIElement) -> String? {
+      var value: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(field, kAXValueAttribute as CFString, &value) == .success
+      else { return nil }
+      return value as? String
     }
 
     let focusResult = DesktopValue<NativeFocusResult?>(nil)
@@ -935,13 +950,15 @@ final class DesktopE2ETests: XCTestCase {
       )
     )
     XCTAssertTrue(focusResult.value == .completed || focusResult.value == .completedWithoutMutation)
-    guard let tiledElement = platform.elements[tiled.id],
-      let processID = tiled.processID,
-      let tiledApplication = platform.applications[processID]
-    else {
-      XCTFail("Tiled test window lost its Accessibility elements")
-      return
-    }
+    let floatingApplication = try XCTUnwrap(platform.applications[fixtures.floatingProcess.processIdentifier])
+    let floatingTextField = try focusedTextField(in: floatingApplication)
+    let initialFloatingText = try XCTUnwrap(textValue(of: floatingTextField))
+    XCTAssertEqual(initialFloatingText, "Editable native focus fixture")
+    let tiledElement = try XCTUnwrap(platform.elements[tiled.id],
+      "Tiled fixture lost its Accessibility window")
+    let processID = try XCTUnwrap(tiled.processID)
+    let tiledApplication = try XCTUnwrap(platform.applications[processID],
+      "Tiled fixture lost its Accessibility application")
     focusResult.value = nil
     onNavigation { platform.focus(tiled.id, completion: { value in DispatchQueue.main.async { focusResult.value = value } }) }
     XCTAssertTrue(
@@ -950,6 +967,9 @@ final class DesktopE2ETests: XCTestCase {
         timeout: 1
       )
     )
+    let tiledTextField = try focusedTextField(in: tiledApplication)
+    let initialTiledText = try XCTUnwrap(textValue(of: tiledTextField))
+    XCTAssertEqual(initialTiledText, "Editable native focus fixture")
     XCTAssertEqual(
       AXUIElementPerformAction(
         tiledElement,
@@ -959,6 +979,15 @@ final class DesktopE2ETests: XCTestCase {
     )
     pumpRunLoop(for: 0.1)
     _ = platform.snapshot(config: config)
+    let armedOrder = copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+      .map { WindowID(rawValue: UInt64($0.id)) }
+    let tiledWasAboveFloating = armedOrder.firstIndex(of: tiled.id).flatMap { tiledIndex in
+      armedOrder.firstIndex(of: floating.id).map { tiledIndex < $0 }
+    } == true
+    XCTAssertTrue(tiledWasAboveFloating, "The tiled fixture must start above the floating fixture before refocus")
+    guard tiledWasAboveFloating else {
+      throw DesktopFocusFixturePair.Failure.unsupported("Native tiled raise did not establish the stacking precondition")
+    }
 
     focusResult.value = nil
     onNavigation { platform.focus(tiled.id, completion: { value in DispatchQueue.main.async { focusResult.value = value } }) }
@@ -992,7 +1021,12 @@ final class DesktopE2ETests: XCTestCase {
       let order = records.map { WindowID(rawValue: UInt64($0.id)) }
       guard let floatingIndex = order.firstIndex(of: floating.id),
         let tiledIndex = order.firstIndex(of: tiled.id) else { return false }
+      var focusedWindow: CFTypeRef?
       return floatingIndex < tiledIndex
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
+        && AXUIElementCopyAttributeValue(tiledApplication,
+          kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success
+        && focusedWindow.map { CFEqual($0, tiledElement) } == true
     }, timeout: 0.5)
     let focusPerformance = platform.focusWriter.performance
     let cachedWindowClassification = platform.lastSnapshotWindows
@@ -1004,8 +1038,9 @@ final class DesktopE2ETests: XCTestCase {
     let hiddenIDs = platform.lastHiddenWindowIDs.sorted { $0.rawValue < $1.rawValue }
     XCTAssertTrue(
       floatingRemainedAboveTiled,
-      "fixture candidate=\(candidate.id.rawValue); floating \(floating.id.rawValue)/pid=\(floating.processID ?? -1) must remain above tiled \(tiled.id.rawValue)/pid=\(tiled.processID ?? -1); expected foreground float IDs=\(expectedForegroundIDs.map(\.rawValue)); cached floating IDs=\(floatingIDs.map(\.rawValue)), hidden IDs=\(hiddenIDs.map(\.rawValue)), relevant cached windows=\(cachedWindowClassification); focus timing ms duration/raise/activation=\(focusPerformance.durationMS)/\(focusPerformance.raiseDurationMS)/\(focusPerformance.activationDurationMS); observed front-to-back relevant CG windows=\(observedRelevantOrder)"
+      "fixture app IDs=\(fixtures.floatingAppID),\(fixtures.tiledAppID); floating \(floating.id.rawValue)/pid=\(floating.processID ?? -1) must remain above tiled \(tiled.id.rawValue)/pid=\(tiled.processID ?? -1); expected foreground float IDs=\(expectedForegroundIDs.map(\.rawValue)); cached floating IDs=\(floatingIDs.map(\.rawValue)), hidden IDs=\(hiddenIDs.map(\.rawValue)), relevant cached windows=\(cachedWindowClassification); focus timing ms duration/raise/activation=\(focusPerformance.durationMS)/\(focusPerformance.raiseDurationMS)/\(focusPerformance.activationDurationMS); observed front-to-back relevant CG windows=\(observedRelevantOrder)"
     )
+    guard floatingRemainedAboveTiled else { return }
     var focusedWindow: CFTypeRef?
     XCTAssertEqual(
       AXUIElementCopyAttributeValue(
@@ -1016,6 +1051,19 @@ final class DesktopE2ETests: XCTestCase {
       .success
     )
     XCTAssertTrue(focusedWindow.map { CFEqual($0, tiledElement) } == true)
+    XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, processID,
+      "The tiled fixture must retain real keyboard focus")
+    let key = try XCTUnwrap(CGEvent(keyboardEventSource: nil,
+      virtualKey: CGKeyCode(kVK_ANSI_A), keyDown: true))
+    key.flags = []
+    key.post(tap: .cghidEventTap)
+    key.type = .keyUp
+    key.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: {
+      textValue(of: tiledTextField).map { $0 != initialTiledText } == true
+    }, timeout: 0.5), "A global ordinary key must reach the tiled fixture's editable field")
+    XCTAssertEqual(textValue(of: floatingTextField), initialFloatingText,
+      "The floating fixture must not receive the global key")
   }
 
   func testAppliedTargetConvergesWithRealWindowFrame() throws {
@@ -1503,38 +1551,39 @@ final class DesktopE2ETests: XCTestCase {
   func testNativeFocusEmitsPlatformEvent() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard
-      let window = testWindows(in: snapshot).first(
-        where: { $0.id != snapshot.focusedWindowID }
-      )
-    else {
-      throw XCTSkip("Need a non-focused manageable window")
-    }
     defer {
       if let originalFocusedWindowID = snapshot.focusedWindowID {
         onNavigation { platform.focus(originalFocusedWindowID) }
         pumpRunLoop(for: 0.5)
       }
     }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let otherApplication = try XCTUnwrap(NSRunningApplication(
+      processIdentifier: fixtures.floatingProcess.processIdentifier))
+    otherApplication.activate()
+    XCTAssertTrue(pumpRunLoop(until: {
+      platform.snapshot(config: Config()).focusedWindowID == fixtures.floatingWindowID
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier
+          == fixtures.floatingProcess.processIdentifier
+    }, timeout: 2), "The target fixture must start without native focus")
     let eventCount = DesktopValue(0)
     onNavigation { platform.startObserving {
       DispatchQueue.main.async { eventCount.value += 1 }
     } }
 
-    onNavigation { platform.focus(window.id) }
+    onNavigation { platform.focus(fixtures.tiledWindowID) }
     pumpRunLoop(for: 0.6)
 
     XCTAssertGreaterThan(eventCount.value, 0)
-    XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
+    XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, fixtures.tiledWindowID)
   }
 
   func testRapidNativeFocusKeepsLatestIntent() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    let windows = Array(testWindows(in: snapshot).prefix(2))
-    guard windows.count == 2 else {
-      throw XCTSkip("Need two manageable windows")
-    }
     let originalFocusedWindowID = snapshot.focusedWindowID
     defer {
       if let originalFocusedWindowID {
@@ -1542,8 +1591,21 @@ final class DesktopE2ETests: XCTestCase {
         pumpRunLoop(for: 0.5)
       }
     }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let initialApplication = try XCTUnwrap(NSRunningApplication(
+      processIdentifier: fixtures.tiledProcess.processIdentifier))
+    initialApplication.activate()
+    XCTAssertTrue(pumpRunLoop(until: {
+      platform.snapshot(config: Config()).focusedWindowID == fixtures.tiledWindowID
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier
+          == fixtures.tiledProcess.processIdentifier
+    }, timeout: 2), "The final target must start without native focus")
 
-    for windowID in [windows[0].id, windows[1].id, windows[0].id, windows[1].id] {
+    for windowID in [fixtures.tiledWindowID, fixtures.floatingWindowID,
+      fixtures.tiledWindowID, fixtures.floatingWindowID] {
       onNavigation { platform.focus(windowID) }
     }
 
@@ -1552,7 +1614,7 @@ final class DesktopE2ETests: XCTestCase {
         until: {
           !onNavigation { platform.hasPendingFocusWrite }
             && platform.snapshot(config: Config()).focusedWindowID
-              == windows[1].id
+              == fixtures.floatingWindowID
         },
         timeout: 2
       ),
