@@ -48,6 +48,10 @@ enum SettingsShortcutActions {
     }
   }
 
+  static func commands(workspaces: [String], rows: [SettingsShortcutRow]) -> [String] {
+    Set(availableCommands(workspaces: workspaces) + rows.map(\.command)).sorted()
+  }
+
   static let argumentOptions: [String: [String]] = [
     "focus-column": ["left", "right", "first", "last"],
     "focus-floating": ["previous", "next", "first", "last"],

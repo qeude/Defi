@@ -5,35 +5,100 @@ import SwiftUI
 @MainActor
 public struct DefiSettingsView: View {
   @State private var model: DefiSettingsModel
-  @State private var selection: SettingsPage? = .general
+  @State private var selection = SettingsRevealRequest(destination: .page(.general))
+  @State private var sidebarQuery = ""
+  @FocusState private var resultsFocused: Bool
 
   public init(configURL: URL = Config.defaultURL) {
     _model = State(initialValue: DefiSettingsModel(configURL: configURL))
   }
 
   public var body: some View {
+    let query = sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    let results = query.isEmpty ? [] : SettingsSearchCatalog.results(
+      matching: query, config: model.config, shortcuts: model.shortcutRows)
+
     NavigationSplitView(columnVisibility: .constant(.all)) {
-      List(SettingsPage.allCases, selection: $selection) { page in
-        Label {
-          Text(page.rawValue)
-        } icon: {
-          Image(systemName: page.symbol)
-            .resizable()
-            .scaledToFit()
-            .foregroundStyle(.white)
-            .frame(width: 14, height: 14)
-            .frame(width: 20, height: 20)
-            .background(page.color, in: RoundedRectangle(cornerRadius: 4))
+      List(selection: Binding<SettingsDestination?>(
+        get: { query.isEmpty ? .page(selection.destination.page) : selection.destination },
+        set: { if let destination = $0 { select(destination) } }
+      )) {
+        if query.isEmpty {
+          ForEach(SettingsPage.allCases) { page in
+            Label {
+              Text(page.rawValue)
+            } icon: {
+              Image(systemName: page.symbol)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .frame(width: 14, height: 14)
+                .frame(width: 20, height: 20)
+                .background(page.color, in: RoundedRectangle(cornerRadius: 4))
+            }
+            .tag(SettingsDestination.page(page))
+          }
+        } else {
+          ForEach(results) { result in
+            Button {
+              select(result.destination)
+            } label: {
+              VStack(alignment: .leading, spacing: 3) {
+                Text(result.title).lineLimit(2)
+                Text(result.context).font(.caption).foregroundStyle(.secondary)
+                if !result.detail.isEmpty {
+                  Text(result.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .tag(result.destination)
+            .help([result.title, result.context, result.detail].filter { !$0.isEmpty }.joined(separator: " · "))
+          }
         }
-        .tag(page)
       }
       .listStyle(.sidebar)
+      .focused($resultsFocused)
+      .safeAreaInset(edge: .top, spacing: 0) {
+        SettingsSearchField(text: $sidebarQuery, moveToResults: results.first.map { result in
+          {
+            select(result.destination)
+            resultsFocused = true
+          }
+        })
+        .frame(height: 24)
+        .padding(8)
+      }
+      .overlay {
+        if !query.isEmpty && results.isEmpty {
+          VStack(spacing: 6) {
+            Text("No matching settings")
+              .font(.headline)
+            Text("Try another term or clear Search.")
+              .foregroundStyle(.secondary)
+          }
+          .multilineTextAlignment(.center)
+          .padding()
+        }
+      }
       .navigationTitle("Settings")
-      .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 230)
+      .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 270)
       .toolbar(removing: .sidebarToggle)
     } detail: {
-      SettingsPageView(page: selection ?? .general, model: model)
-        .navigationTitle((selection ?? .general).rawValue)
+      SettingsPageView(request: selection, model: model)
+        .navigationTitle(selection.destination.page.rawValue)
+    }
+    .onChange(of: query) { _, query in
+      if query.isEmpty {
+        selection = SettingsRevealRequest(destination: .page(selection.destination.page))
+      }
+    }
+    .onChange(of: model.config) { _, config in
+      if !SettingsSearchCatalog.contains(selection.destination, config: config, shortcuts: model.shortcutRows) {
+        select(.page(selection.destination.page))
+      }
     }
     .frame(minWidth: 860, idealWidth: 920, minHeight: 620, idealHeight: 680)
     .task {
@@ -70,17 +135,14 @@ public struct DefiSettingsView: View {
       Text(model.message ?? "")
     }
   }
+
+  private func select(_ destination: SettingsDestination) {
+    let exists = SettingsSearchCatalog.contains(destination, config: model.config, shortcuts: model.shortcutRows)
+    selection = SettingsRevealRequest(destination: exists ? destination : .page(destination.page))
+  }
 }
 
-private enum SettingsPage: String, CaseIterable, Identifiable {
-  case general = "General"
-  case layout = "Layout"
-  case input = "Input"
-  case appearance = "Appearance"
-  case workspaces = "Workspaces"
-  case appRules = "App Rules"
-
-  var id: Self { self }
+private extension SettingsPage {
   var color: Color {
     switch self {
     case .general: .gray
@@ -105,53 +167,96 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
 @MainActor
 private struct SettingsPageView: View {
-  let page: SettingsPage
+  let request: SettingsRevealRequest
   let model: DefiSettingsModel
 
   var body: some View {
-    switch page {
-    case .general: GeneralSettingsView(model: model)
-    case .layout: LayoutSettingsView(model: model)
-    case .input: InputSettingsView(model: model)
-    case .appearance: AppearanceSettingsView(model: model)
-    case .workspaces: WorkspaceSettingsView(model: model)
-    case .appRules: AppRulesSettingsView(model: model)
+    switch request.destination.page {
+    case .general: GeneralSettingsView(model: model, request: request)
+    case .layout: LayoutSettingsView(model: model, request: request)
+    case .input: InputSettingsView(model: model, request: request)
+    case .appearance: AppearanceSettingsView(model: model, request: request)
+    case .workspaces: WorkspaceSettingsView(model: model, request: request)
+    case .appRules: AppRulesSettingsView(model: model, request: request)
     }
+  }
+}
+
+@MainActor
+private struct SettingsRevealModifier: ViewModifier {
+  let request: SettingsRevealRequest
+  var ready = true
+  var prepare: () -> Void = {}
+
+  private struct RenderRequest: Equatable {
+    let request: SettingsRevealRequest
+    let ready: Bool
+  }
+
+  func body(content: Content) -> some View {
+    ScrollViewReader { proxy in
+      content
+        .onChange(of: request, initial: true) { _, _ in prepare() }
+        .task(id: RenderRequest(request: request, ready: ready)) {
+          guard ready, let anchor = request.destination.anchor else { return }
+          await Task.yield()
+          guard !Task.isCancelled else { return }
+          let alignment: UnitPoint
+          switch anchor {
+          case .keyboardShortcuts, .option(.widthPresets), .option(.modifierAliases),
+            .option(.namedWorkspaces), .option(.appRules):
+            alignment = .top
+          default:
+            alignment = .center
+          }
+          proxy.scrollTo(anchor, anchor: alignment)
+        }
+    }
+  }
+}
+
+private extension View {
+  func settingsSearchTarget(_ option: SettingsOption) -> some View {
+    id(SettingsSearchAnchor.option(option))
   }
 }
 
 @MainActor
 private struct GeneralSettingsView: View {
   let model: DefiSettingsModel
+  let request: SettingsRevealRequest
 
   var body: some View {
     Form {
       Section("Permissions") {
         LabeledContent(
-          "Accessibility", value: model.accessibilityGranted ? "Granted" : "Not granted")
+          SettingsOption.accessibility.title, value: model.accessibilityGranted ? "Granted" : "Not granted")
+          .settingsSearchTarget(.accessibility)
         if !model.accessibilityGranted {
           Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }
         }
       }
       Section("General") {
         Toggle(
-          "Launch Defi at login",
+          SettingsOption.launchAtLogin.title,
           isOn: Binding(
             get: { model.launchAtLoginEnabled },
             set: { model.setLaunchAtLogin($0) }
           ))
+          .settingsSearchTarget(.launchAtLogin)
         if let notice = model.launchAtLoginNotice {
           Text(notice)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
         Toggle(
-          "Show Defi in the menu bar",
+          SettingsOption.menuBar.title,
           isOn: Binding(
             get: { model.config.menuBar.enabled },
             set: { model.set(table: "menu_bar", key: "enabled", value: $0 ? "true" : "false") }
           ))
-        Picker("Named workspace display", selection: Binding(
+          .settingsSearchTarget(.menuBar)
+        Picker(SettingsOption.workspaceDisplay.title, selection: Binding(
           get: { model.config.menuBar.workspaceStyle },
           set: { model.set(table: "menu_bar", key: "workspace_style", value: tomlString($0.rawValue)) }
         )) {
@@ -159,21 +264,27 @@ private struct GeneralSettingsView: View {
           Text("Icon only").tag(WorkspaceLabelStyle.icon)
           Text("Icon and name").tag(WorkspaceLabelStyle.iconAndName)
         }
+        .settingsSearchTarget(.workspaceDisplay)
       }
       Section("Configuration") {
         LabeledContent("File", value: model.configurationPath)
           .textSelection(.enabled)
         HStack {
-          Button("Open Configuration File…") { model.openConfiguration() }
-          Button("Configuration Guide…") { model.openDocumentation() }
+          Button(SettingsOption.configurationFile.title) { model.openConfiguration() }
+            .settingsSearchTarget(.configurationFile)
+          Button(SettingsOption.configurationGuide.title) { model.openDocumentation() }
+            .settingsSearchTarget(.configurationGuide)
         }
       }
       Section("Diagnostics") {
-        Button("Open Logs Folder…") { model.openLogs() }
+        Button(SettingsOption.logs.title) { model.openLogs() }
+          .settingsSearchTarget(.logs)
       }
       AboutSettingsSection()
+        .settingsSearchTarget(.about)
     }
     .formStyle(.grouped)
+    .modifier(SettingsRevealModifier(request: request))
   }
 }
 
@@ -196,75 +307,89 @@ private struct AboutSettingsSection: View {
 @MainActor
 private struct LayoutSettingsView: View {
   let model: DefiSettingsModel
+  let request: SettingsRevealRequest
   @State private var advancedExpanded = false
 
   var body: some View {
     Form {
       Section("Columns") {
         SettingsNumberRow(
-          title: "Default column width", value: model.config.layout.defaultColumnWidth * 100,
+          title: SettingsOption.defaultColumnWidth.title, value: model.config.layout.defaultColumnWidth * 100,
           range: 5...100, step: 5, unit: "%",
 
           onChange: { model.set(table: "layout", key: "default_column_width", value: String($0 / 100)) }
         )
+          .settingsSearchTarget(.defaultColumnWidth)
         Picker(
-          "Focused column",
+          SettingsOption.focusedColumn.title,
           selection: stringBinding(
             "layout", "center_focused_column", model.config.layout.centerFocusedColumn.rawValue)
         ) {
           Text("Reveal as needed").tag("never")
           Text("Always center").tag("always")
         }
+        .settingsSearchTarget(.focusedColumn)
       }
       WidthPresetsSettings(model: model)
+        .settingsSearchTarget(.widthPresets)
       Section("Spacing") {
         SettingsNumberRow(
-          title: "Default gap", value: model.config.layout.gaps, range: 0...256, step: 1,
+          title: SettingsOption.defaultGap.title, value: model.config.layout.gaps, range: 0...256, step: 1,
           unit: "px",
           onChange: { model.set(table: "layout", key: "gaps", value: String($0)) }
         )
-        marginRow("Top", key: "outer_top_gap", value: model.config.layout.outerTopGap)
-        marginRow("Right", key: "outer_right_gap", value: model.config.layout.outerRightGap)
-        marginRow("Bottom", key: "outer_bottom_gap", value: model.config.layout.outerBottomGap)
-        marginRow("Left", key: "outer_left_gap", value: model.config.layout.outerLeftGap)
+          .settingsSearchTarget(.defaultGap)
+        marginRow(.topMargin, key: "outer_top_gap", value: model.config.layout.outerTopGap)
+        marginRow(.rightMargin, key: "outer_right_gap", value: model.config.layout.outerRightGap)
+        marginRow(.bottomMargin, key: "outer_bottom_gap", value: model.config.layout.outerBottomGap)
+        marginRow(.leftMargin, key: "outer_left_gap", value: model.config.layout.outerLeftGap)
       }
       Section("Animation") {
         settingsToggle(
-          model, title: "Enable animations", table: "animation", key: "enabled",
+          model, title: SettingsOption.animations.title, table: "animation", key: "enabled",
           value: model.config.animation.enabled
         )
+          .settingsSearchTarget(.animations)
         SettingsNumberRow(
-          title: "Animation duration", value: Double(model.config.animation.durationMS),
+          title: SettingsOption.animationDuration.title, value: Double(model.config.animation.durationMS),
           range: 0...2_000, step: 5, unit: "ms",
 
           onChange: { model.set(table: "animation", key: "duration_ms", value: String(Int($0.rounded()))) }
         )
+          .settingsSearchTarget(.animationDuration)
       }
       Section("Advanced", isExpanded: $advancedExpanded) {
         SettingsNumberRow(
-          title: "Reserved top area", value: model.config.layout.reservedTop,
+          title: SettingsOption.reservedTop.title, value: model.config.layout.reservedTop,
           range: 0...512, step: 1, unit: "px",
 
           onChange: { model.set(table: "layout", key: "reserved_top", value: String($0)) }
         )
+          .settingsSearchTarget(.reservedTop)
         SettingsNumberRow(
-          title: "Reserved bottom area", value: model.config.layout.reservedBottom,
+          title: SettingsOption.reservedBottom.title, value: model.config.layout.reservedBottom,
           range: 0...512, step: 1, unit: "px",
 
           onChange: { model.set(table: "layout", key: "reserved_bottom", value: String($0)) }
         )
+          .settingsSearchTarget(.reservedBottom)
       }
     }
     .formStyle(.grouped)
+    .modifier(SettingsRevealModifier(
+      request: request, ready: !request.destination.isAdvanced || advancedExpanded,
+      prepare: { if request.destination.isAdvanced { advancedExpanded = true } }
+    ))
   }
 
-  private func marginRow(_ title: String, key: String, value: Double?) -> some View {
+  private func marginRow(_ option: SettingsOption, key: String, value: Double?) -> some View {
     SettingsNumberRow(
-      title: "\(title) margin", value: value ?? model.config.layout.gaps,
+      title: option.title, value: value ?? model.config.layout.gaps,
       range: 0...256, step: 1, unit: "px",
 
       onChange: { model.set(table: "layout", key: key, value: String($0)) }
     )
+      .settingsSearchTarget(option)
   }
 
   private func stringBinding(_ table: String, _ key: String, _ value: String) -> Binding<String> {
@@ -343,79 +468,112 @@ private struct WidthPresetsSettings: View {
 @MainActor
 private struct InputSettingsView: View {
   let model: DefiSettingsModel
+  let request: SettingsRevealRequest
   @AppStorage("displayHyperSymbol") private var displayHyper = true
   @AppStorage("displayHyperIncludesShift") private var hyperIncludesShift = false
   @State private var shortcutSheet: ShortcutSheet?
-  @State private var shortcutSearch = ""
+  @State private var shortcutFilter = SettingsShortcutFilter.query("")
   @State private var advancedExpanded = false
 
   var body: some View {
-    Form {
+    let commands = SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows)
+    let visibleCommands = commands.filter(shortcutFilter.includes)
+
+    return Form {
       Section {
         Text(DefiSettingsRuntimeStatus.shared.keyboardMessage)
           .foregroundStyle(.secondary)
       }
       Section("Shortcut display") {
         Toggle("Show Hyper (\(hyperIncludesShift ? "⌃⌥⇧⌘" : "⌃⌥⌘")) as ✦", isOn: $displayHyper)
-        Toggle("Include Shift in Hyper", isOn: $hyperIncludesShift)
+          .settingsSearchTarget(.hyperSymbol)
+        Toggle(SettingsOption.hyperShift.title, isOn: $hyperIncludesShift)
+          .settingsSearchTarget(.hyperShift)
           .disabled(!displayHyper)
       }
       Section("Pointer") {
-        Toggle("Focus follows pointer", isOn: boolBinding("input", "focus_follows_mouse", model.config.input.focusFollowsMouse))
-        Toggle("Move pointer to keyboard focus", isOn: boolBinding("input", "mouse_follows_focus", model.config.input.mouseFollowsFocus))
+        Toggle(SettingsOption.focusFollowsPointer.title, isOn: boolBinding("input", "focus_follows_mouse", model.config.input.focusFollowsMouse))
+          .settingsSearchTarget(.focusFollowsPointer)
+        Toggle(SettingsOption.pointerFollowsFocus.title, isOn: boolBinding("input", "mouse_follows_focus", model.config.input.mouseFollowsFocus))
+          .settingsSearchTarget(.pointerFollowsFocus)
       }
       Section("Advanced", isExpanded: $advancedExpanded) {
         SettingsNumberRow(
-          title: "Maximum pointer-focus scroll",
+          title: SettingsOption.pointerFocusScroll.title,
           value: (model.config.input.focusFollowsMouseMaxScrollAmount ?? 0) * 100,
           range: 0...100, step: 1, unit: "%",
 
           onChange: { model.set(table: "input", key: "focus_follows_mouse_max_scroll_amount", value: String($0 / 100)) }
         )
+          .settingsSearchTarget(.pointerFocusScroll)
         DefaultModifierField(model: model)
+          .settingsSearchTarget(.defaultModifier)
         ModifierAliasesSettings(model: model)
-        Button("Add Custom Shortcut…") { shortcutSheet = ShortcutSheet(row: nil) }
+          .settingsSearchTarget(.modifierAliases)
+        Button(SettingsOption.customShortcut.title) { shortcutSheet = ShortcutSheet(row: nil) }
+          .settingsSearchTarget(.customShortcut)
       }
       Section("Shortcut guide") {
-        Toggle("Show guide when holding the main modifier", isOn: Binding(
+        Toggle(SettingsOption.shortcutGuide.title, isOn: Binding(
           get: { model.config.showCheatsheetOnModifierHold },
           set: { model.set(table: "", key: "show_cheatsheet_on_modifier_hold", value: $0 ? "true" : "false") }
         ))
+        .settingsSearchTarget(.shortcutGuide)
       }
       Section {
-        ForEach(shortcutCommands, id: \.self) { command in
+        ForEach(visibleCommands, id: \.self) { command in
           SettingsShortcutActionRow(
             command: command, model: model,
             displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift
           )
         }
-        if shortcutCommands.isEmpty {
+        if visibleCommands.isEmpty {
           Text("No matching actions.").foregroundStyle(.secondary)
         }
       } header: {
         HStack {
           Text("Keyboard shortcuts")
           Spacer()
-          TextField("Search actions", text: $shortcutSearch, prompt: Text("Search actions"))
+          TextField("Search actions", text: Binding(
+            get: { shortcutFilter.text },
+            set: { shortcutFilter = .query($0) }
+          ), prompt: Text("Search actions"))
             .labelsHidden()
             .textFieldStyle(.roundedBorder)
             .font(.body)
             .frame(width: 220)
         }
       }
+      .id(SettingsSearchAnchor.keyboardShortcuts)
     }
     .formStyle(.grouped)
+    .modifier(SettingsRevealModifier(request: request, ready: revealReady, prepare: prepareReveal))
+    .onChange(of: commands) { _, commands in
+      if case .command(let command) = shortcutFilter, !commands.contains(command) {
+        shortcutFilter = .query("")
+      }
+    }
     .sheet(item: $shortcutSheet) { sheet in
       SettingsShortcutEditor(model: model, row: sheet.row)
     }
   }
 
-  private var shortcutCommands: [String] {
-    let commands = Set(SettingsShortcutActions.availableCommands(workspaces: model.config.workspaces.names)
-      + model.shortcutRows.map(\.command))
-    return commands.sorted().filter {
-      shortcutSearch.isEmpty || $0.replacingOccurrences(of: "-", with: " ")
-        .localizedCaseInsensitiveContains(shortcutSearch.replacingOccurrences(of: "-", with: " "))
+  private var revealReady: Bool {
+    if case .shortcut(let command) = request.destination {
+      return shortcutFilter == .command(command)
+        && SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
+    }
+    return !request.destination.isAdvanced || advancedExpanded
+  }
+
+  private func prepareReveal() {
+    if request.destination.isAdvanced { advancedExpanded = true }
+    if case .shortcut(let command) = request.destination,
+      SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
+    {
+      shortcutFilter = .command(command)
+    } else if case .command = shortcutFilter {
+      shortcutFilter = .query("")
     }
   }
 
@@ -445,7 +603,7 @@ private struct SettingsShortcutActionRow: View {
 
   var body: some View {
     HStack {
-      Text(command.replacingOccurrences(of: "-", with: " ").capitalized)
+      Text(SettingsSearchCatalog.commandTitle(command))
         .frame(maxWidth: .infinity, alignment: .leading)
       let bindings = model.shortcutRows.filter { $0.command == command }
       if bindings.isEmpty {
@@ -494,55 +652,67 @@ private struct SettingsShortcutActionRow: View {
 @MainActor
 private struct AppearanceSettingsView: View {
   let model: DefiSettingsModel
+  let request: SettingsRevealRequest
+  @State private var advancedExpanded = false
   var body: some View {
     Form {
       Section("Window borders") {
         settingsToggle(
-          model, title: "Show focused window border", table: "decorations.borders",
+          model, title: SettingsOption.focusedBorder.title, table: "decorations.borders",
           key: "enabled", value: model.config.decorations.borders.enabled
         )
+          .settingsSearchTarget(.focusedBorder)
         SettingsNumberRow(
-          title: "Border width", value: model.config.decorations.borders.width,
+          title: SettingsOption.borderWidth.title, value: model.config.decorations.borders.width,
           range: 0...64, step: 1, unit: "px",
 
           onChange: { model.set(table: "decorations.borders", key: "width", value: String($0)) }
         )
-        ColorPicker("Focused border color", selection: colorBinding("color"), supportsOpacity: true)
-        DisclosureGroup("Advanced") {
+          .settingsSearchTarget(.borderWidth)
+        ColorPicker(SettingsOption.focusedBorderColor.title, selection: colorBinding("color"), supportsOpacity: true)
+          .settingsSearchTarget(.focusedBorderColor)
+        DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
           settingsToggle(
-            model, title: "Show unfocused window borders", table: "decorations.borders",
+            model, title: SettingsOption.unfocusedBorders.title, table: "decorations.borders",
             key: "inactive_enabled", value: model.config.decorations.borders.inactiveEnabled
           )
-          ColorPicker("Unfocused border color", selection: colorBinding("inactive_color"), supportsOpacity: true)
+            .settingsSearchTarget(.unfocusedBorders)
+          ColorPicker(SettingsOption.unfocusedBorderColor.title, selection: colorBinding("inactive_color"), supportsOpacity: true)
+            .settingsSearchTarget(.unfocusedBorderColor)
           settingsToggle(
-            model, title: "Include borders in screenshots", table: "decorations.borders",
+            model, title: SettingsOption.captureBorders.title, table: "decorations.borders",
             key: "capture_enabled", value: model.config.decorations.borders.captureEnabled
           )
-          Picker("Border placement", selection: stringBinding(
+            .settingsSearchTarget(.captureBorders)
+          Picker(SettingsOption.borderPlacement.title, selection: stringBinding(
             model, table: "decorations.borders", key: "placement", value: model.config.decorations.borders.placement
           )) {
             Text("Inside window").tag("inside")
             Text("Outside window").tag("outside")
           }
+          .settingsSearchTarget(.borderPlacement)
         }
       }
       Section("Overview") {
         SettingsNumberRow(
-          title: "Scale", value: model.config.overview.zoom * 100,
+          title: SettingsOption.overviewScale.title, value: model.config.overview.zoom * 100,
           range: 0...75, step: 5, unit: "%",
 
           onChange: { model.set(table: "overview", key: "zoom", value: String($0 / 100)) }
         )
+          .settingsSearchTarget(.overviewScale)
         SettingsNumberRow(
-          title: "Corner radius", value: model.config.overview.windowCornerRadius,
+          title: SettingsOption.overviewCornerRadius.title, value: model.config.overview.windowCornerRadius,
           range: 0...64, step: 1, unit: "px",
 
           onChange: { model.set(table: "overview", key: "window_corner_radius", value: String($0)) }
         )
+          .settingsSearchTarget(.overviewCornerRadius)
         settingsToggle(
-          model, title: "Show optional window previews", table: "overview",
+          model, title: SettingsOption.windowPreviews.title, table: "overview",
           key: "window_previews", value: model.config.overview.windowPreviews
         )
+          .settingsSearchTarget(.windowPreviews)
         if model.config.overview.windowPreviews && !model.screenCaptureAvailable {
           Text("Screen Recording permission is required for previews. Overview still works without them.")
             .font(.caption)
@@ -551,6 +721,10 @@ private struct AppearanceSettingsView: View {
       }
     }
     .formStyle(.grouped)
+    .modifier(SettingsRevealModifier(
+      request: request, ready: !request.destination.isAdvanced || advancedExpanded,
+      prepare: { if request.destination.isAdvanced { advancedExpanded = true } }
+    ))
   }
 
   private func colorBinding(_ key: String) -> Binding<Color> {
@@ -564,6 +738,7 @@ private struct AppearanceSettingsView: View {
 @MainActor
 private struct WorkspaceSettingsView: View {
   let model: DefiSettingsModel
+  let request: SettingsRevealRequest
   @State private var newName = ""
   @State private var isAddingWorkspace = false
   @State private var workspaceToDelete: String?
@@ -595,9 +770,10 @@ private struct WorkspaceSettingsView: View {
           .help("Add workspace")
         }
       }
+      .settingsSearchTarget(.namedWorkspaces)
       Section("Startup workspace") {
         Picker(
-          "Default workspace",
+          SettingsOption.defaultWorkspace.title,
           selection: Binding(
             get: { model.config.workspaces.defaultName ?? "" },
             set: {
@@ -609,6 +785,7 @@ private struct WorkspaceSettingsView: View {
           Text("First declared workspace").tag("")
           ForEach(model.config.workspaces.names, id: \.self) { name in Text(name).tag(name) }
         }
+        .settingsSearchTarget(.defaultWorkspace)
       }
       if model.displays.isEmpty {
         Section("Displays") {
@@ -618,6 +795,10 @@ private struct WorkspaceSettingsView: View {
       }
     }
     .formStyle(.grouped)
+    .modifier(SettingsRevealModifier(
+      request: request,
+      ready: SettingsSearchCatalog.contains(request.destination, config: model.config, shortcuts: [])
+    ))
     .modifier(SettingsReorderContainer(itemID: \String.self, move: model.reorderWorkspaces))
     .alert("Add Workspace", isPresented: $isAddingWorkspace) {
       TextField("Workspace name", text: $newName, prompt: Text("e.g. design"))
@@ -708,6 +889,7 @@ private struct WorkspaceSettingsView: View {
       .buttonStyle(.borderless)
       .help("Delete named workspace")
     }
+    .id(SettingsSearchAnchor.workspace(name))
     .accessibilityAction(named: Text("Move workspace earlier")) {
       model.moveWorkspace(from: index, to: max(index - 1, 0))
     }
@@ -885,6 +1067,7 @@ private struct WorkspacePositionField: View {
 @MainActor
 private struct AppRulesSettingsView: View {
   let model: DefiSettingsModel
+  let request: SettingsRevealRequest
   @State private var editor: RuleSheet?
   @State private var search = ""
 
@@ -894,7 +1077,8 @@ private struct AppRulesSettingsView: View {
         Text("Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace or initial width wins, while enabled behavior flags accumulate.")
           .font(.caption)
           .foregroundStyle(.secondary)
-        Button("Add App Rule…") { editor = RuleSheet(rule: nil, index: nil) }
+        Button(SettingsOption.addAppRule.title) { editor = RuleSheet(rule: nil, index: nil) }
+          .settingsSearchTarget(.addAppRule)
       }
       Section {
         if model.config.rules.isEmpty {
@@ -920,8 +1104,10 @@ private struct AppRulesSettingsView: View {
             .frame(width: 220)
         }
       }
+      .settingsSearchTarget(.appRules)
     }
     .formStyle(.grouped)
+    .modifier(SettingsRevealModifier(request: request, prepare: { search = "" }))
     .modifier(SettingsReorderContainer(itemID: \SettingsRuleRow.id, move: model.reorderRules))
     .onAppear { model.refreshApplications() }
     .sheet(item: $editor) { sheet in
