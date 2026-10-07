@@ -1625,6 +1625,15 @@ final class DesktopE2ETests: XCTestCase {
         $0.placeholderString == "Search actions" && $0.stringValue == "focus-column left"
       }
     }, timeout: 2), "Further arrows must navigate the native result list")
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? ShortcutRecorderButton }.contains { recorder in
+        guard recorder.accessibilityLabel() == "Record shortcut for focus-column left",
+          !recorder.isHiddenOrHasHiddenAncestor, !recorder.visibleRect.isEmpty,
+          let scroll = recorder.enclosingScrollView else { return false }
+        return !recorder.convert(recorder.visibleRect, to: scroll.contentView)
+          .intersection(scroll.contentView.bounds).isEmpty
+      }
+    }, timeout: 2), "The selected shortcut's recorder must be visible inside the detail viewport")
     let cell = try XCTUnwrap(search.cell as? NSSearchFieldCell)
     let cancel = try XCTUnwrap(cell.cancelButtonCell)
     cancel.performClick(search)
@@ -1646,6 +1655,85 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(pumpRunLoop(until: {
       descendants().compactMap { $0 as? NSTableView }.first?.numberOfRows == SettingsPage.allCases.count
     }, timeout: 2), "Cancel must also restore pages while search remains focused")
+  }
+
+  func testSettingsSearchRevealsCollapsedAdvancedOptionAgain() throws {
+    _ = try makePlatform()
+    let frontmost = NSWorkspace.shared.frontmostApplication
+    let originalPolicy = NSApplication.shared.activationPolicy()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let configURL = directory.appendingPathComponent("config.toml")
+    try "[layout]\nreserved_top = 321\n".write(to: configURL, atomically: true, encoding: .utf8)
+    let window = NSWindow(
+      contentRect: NSRect(x: 100, y: 100, width: 920, height: 620),
+      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = NSHostingView(rootView: DefiSettingsView(configURL: configURL))
+    defer {
+      window.close()
+      NSApplication.shared.setActivationPolicy(originalPolicy)
+      frontmost?.activate()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate()
+    func views(_ root: NSView) -> [NSView] {
+      [root] + root.subviews.flatMap(views)
+    }
+    func descendants() -> [NSView] { window.contentView.map(views) ?? [] }
+    func reservedTopField() -> NSTextField? {
+      descendants().compactMap { $0 as? NSTextField }.first { $0.stringValue == "321" }
+    }
+    func targetIsVisible() -> Bool {
+      guard let target = reservedTopField(), !target.isHiddenOrHasHiddenAncestor,
+        !target.visibleRect.isEmpty, let scroll = target.enclosingScrollView else { return false }
+      return !target.convert(target.visibleRect, to: scroll.contentView)
+        .intersection(scroll.contentView.bounds).isEmpty
+    }
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().contains { $0 is NSTableView }
+    }, timeout: 2))
+    let sidebar = try XCTUnwrap(descendants().compactMap { $0 as? NSTableView }.first)
+    XCTAssertTrue(window.makeFirstResponder(sidebar))
+    let down = try XCTUnwrap(NSEvent.keyEvent(
+      with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+      windowNumber: window.windowNumber, context: nil, characters: "\u{f701}",
+      charactersIgnoringModifiers: "\u{f701}", isARepeat: false, keyCode: 125))
+    NSApplication.shared.sendEvent(down)
+    XCTAssertTrue(pumpRunLoop(until: {
+      sidebar.selectedRow == 1 && descendants().contains { $0 is NSStepper }
+    }, timeout: 2),
+      "Layout must be open before searching its collapsed Advanced section")
+    XCTAssertNil(reservedTopField(), "Advanced must initially hide the reserved-area control")
+    let search = try XCTUnwrap(descendants().compactMap { $0 as? NSSearchField }.first)
+    XCTAssertTrue(window.makeFirstResponder(search))
+    let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
+    editor.insertText("RESERVED_TOP", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(pumpRunLoop(until: { sidebar.numberOfRows == 1 }, timeout: 2))
+    NSApplication.shared.sendEvent(down)
+    XCTAssertTrue(pumpRunLoop(until: targetIsVisible, timeout: 2),
+      "Selecting RESERVED_TOP must expand Advanced and reveal its control in the viewport")
+    let target = try XCTUnwrap(reservedTopField())
+    let scroll = try XCTUnwrap(target.enclosingScrollView)
+    let document = try XCTUnwrap(scroll.documentView)
+    document.scroll(.zero)
+    scroll.reflectScrolledClipView(scroll.contentView)
+    XCTAssertTrue(pumpRunLoop(until: { !targetIsVisible() }, timeout: 2),
+      "Scrolling to the top must move the reserved-area control out of the viewport")
+    XCTAssertNotNil(reservedTopField(), "Scrolling away must leave Advanced expanded")
+    XCTAssertEqual(sidebar.selectedRow, 0)
+    let row = sidebar.rect(ofRow: 0)
+    let location = sidebar.convert(NSPoint(x: row.midX, y: row.midY), to: nil)
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+      let click = try XCTUnwrap(NSEvent.mouseEvent(
+        with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+      NSApplication.shared.sendEvent(click)
+    }
+    XCTAssertTrue(pumpRunLoop(until: targetIsVisible, timeout: 2),
+      "Clicking the already-selected result must reveal the reserved-area control again")
+    XCTAssertEqual(sidebar.selectedRow, 0)
   }
 
   func testShortcutRecorderCapturesKeysAndCancelsWithEscape() throws {

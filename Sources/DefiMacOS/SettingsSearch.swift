@@ -252,7 +252,9 @@ enum SettingsSearchCatalog {
   }
 
   static func matches(_ query: String, in text: String) -> Bool {
+    guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
     let query = normalizedSearchText(query).split(whereSeparator: \.isWhitespace)
+    guard !query.isEmpty else { return false }
     let text = normalizedSearchText(text)
     return query.allSatisfy { text.localizedCaseInsensitiveContains(String($0)) }
   }

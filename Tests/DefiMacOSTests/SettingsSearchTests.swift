@@ -24,6 +24,21 @@ struct SettingsSearchTests {
     #expect(results.map(\.destination) == [.option(.animationDuration)])
   }
 
+  @Test(arguments: ["---", "___", "+++", " -_+ \n"])
+  func separatorOnlyQueriesDoNotMatchResultsOrShortcuts(query: String) {
+    #expect(SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: []).isEmpty)
+    let filter = SettingsShortcutFilter.query(query)
+    #expect(!filter.includes("focus-column left"))
+  }
+
+  @Test(arguments: ["", " \n \t"])
+  func blankQueriesKeepAllShortcutsWithoutSearchResults(query: String) {
+    #expect(SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: []).isEmpty)
+    let commands = ["focus-column left", "focus-column right", "reload"]
+    let filter = SettingsShortcutFilter.query(query)
+    #expect(commands.filter(filter.includes) == ["focus-column left", "focus-column right", "reload"])
+  }
+
   @Test(arguments: ["hyper-left", "control+option+command+left", "⌃⌥⌘←", "✦←"])
   func findsConfiguredCombinationAndAliases(query: String) throws {
     var config = Config()
