@@ -33,6 +33,11 @@ func reentryTransitionDelta(
 
 @NavigationActor
 extension MacOSPlatform {
+  func consumeAcceptedFrames(_ observations: [BorderGeometryObservation],
+    handler: (([WindowID: Rect]) -> Void)?) {
+    let frames = snapshotEngine.consumeAcceptedFrames(observations)
+    if !frames.isEmpty { handler?(frames) }
+  }
 
   public func completedSize(for windowID: WindowID) -> CGSize? {
     frameCoordinator.completedSize(for: windowID)
@@ -338,19 +343,19 @@ extension MacOSPlatform {
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
     var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
     var animatedWindowIDs = Set<WindowID>()
+    let bindings = Dictionary(uniqueKeysWithValues: snapshotEngine.borderGeometryTargets(
+      for: Set(assignments.map(\.windowID))).map { ($0.windowID, $0) })
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
-      guard let element = elements[assignment.windowID] else { continue }
+      guard let binding = bindings[assignment.windowID] else { continue }
+      let element = binding.element
       let isParked = hiddenWindowIDs.contains(assignment.windowID)
       let intent = writeIntents[assignment.windowID]
 
       let logicalPosition = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
       let size = CGSize(width: assignment.frame.width, height: assignment.frame.height)
-      guard let processID = processIDs[assignment.windowID],
-        let application = applications[processID]
-      else {
-        continue
-      }
+      let processID = binding.processID
+      let application = binding.application
       let needsVerifiedOffscreenWrite = requiresVerifiedOffscreenWrite(
         frame: assignment.frame,
         monitorFrames: lastMonitorFrames
@@ -403,7 +408,8 @@ extension MacOSPlatform {
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite,
         animationPoint: parkedRibbonTarget.map { CGPoint(x: $0.x, y: $0.y) },
         usesCommonRibbonOffset: sharedRibbonOffset != nil && ribbonTargets[assignment.windowID] != nil
-          && wantsFrameAnimation
+          && wantsFrameAnimation,
+        binding: binding
       )
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
@@ -481,17 +487,10 @@ extension MacOSPlatform {
             focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
-          if !result.acceptedFrames.isEmpty {
-            for (windowID, frame) in result.acceptedFrames {
-              self.latestObservedFrames[windowID] = frame
-            }
-          }
           if refreshesBordersAfterCommit {
             self.refreshWindowBorders()
           }
-          if !result.acceptedFrames.isEmpty {
-            acceptedFrameHandler?(result.acceptedFrames)
-          }
+          self.consumeAcceptedFrames(result.acceptedObservations, handler: acceptedFrameHandler)
           if let cursorWarpWindowIDAfterCommit,
             deferredFocusFrameCommitIsReady(
               targetWindowID: cursorWarpWindowIDAfterCommit,

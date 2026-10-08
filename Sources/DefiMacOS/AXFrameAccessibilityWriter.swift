@@ -3,6 +3,7 @@ import DefiModel
 
 final class AXFrameAccessibilityWriter {
   private let positionWriter: ((AsyncPositionWrite, CGPoint) -> Bool)?
+  private let frameReader: (@Sendable (AXUIElement) -> Rect?)?
   private let positionReader: ((AXUIElement) -> CGPoint?)?
   private let enhancedUIWriter: ((AXUIElement, Bool) -> Bool)?
 
@@ -12,12 +13,14 @@ final class AXFrameAccessibilityWriter {
   init(
     positionWriter: ((AsyncPositionWrite, CGPoint) -> Bool)? = nil,
     positionReader: ((AXUIElement) -> CGPoint?)? = nil,
+    frameReader: (@Sendable (AXUIElement) -> Rect?)? = nil,
     enhancedUIWriter: ((AXUIElement, Bool) -> Bool)? = nil,
     nativePositionReader: @escaping (WindowID, pid_t) -> CGPoint? = readWindowServerPosition,
     independentBorderObservationAvailable: @escaping () -> Bool = { false }
   ) {
     self.positionWriter = positionWriter
     self.positionReader = positionReader
+    self.frameReader = frameReader
     self.enhancedUIWriter = enhancedUIWriter
     self.nativePositionReader = nativePositionReader
     self.independentBorderObservationAvailable = independentBorderObservationAvailable
@@ -131,6 +134,15 @@ final class AXFrameAccessibilityWriter {
       return nil
     }
     return point
+  }
+
+  func readFrame(_ element: AXUIElement) -> Rect? {
+    if let frameReader { return frameReader(element) }
+    if positionReader != nil {
+      guard let point = readPosition(element), let size = readSize(element) else { return nil }
+      return validatedWindowFrame(Rect(x: point.x, y: point.y, width: size.width, height: size.height))
+    }
+    return copyWindowFrame(element)
   }
 
   func readSize(_ element: AXUIElement) -> CGSize? {

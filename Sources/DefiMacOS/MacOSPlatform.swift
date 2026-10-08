@@ -434,10 +434,14 @@ public final class MacOSPlatform {
   public nonisolated let userInputTracker = UserInputTracker()
   public nonisolated let pointerMotionTracker = PointerMotionTracker()
 
-  public init() {
+  public convenience init() {
+    self.init(frameCoordinator: nil)
+  }
+
+  init(frameCoordinator suppliedCoordinator: AXFrameCoordinator?) {
     let boundsProvider = WindowServerBoundsProvider()
     borderBoundsProvider = boundsProvider
-    frameCoordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+    frameCoordinator = suppliedCoordinator ?? AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
       nativePositionReader: { windowID, processID in
         if let frame = boundsProvider.frame(for: windowID) {
           return CGPoint(x: frame.x, y: frame.y)
@@ -450,6 +454,13 @@ public final class MacOSPlatform {
       frameCoordinator: frameCoordinator, userInputTracker: userInputTracker
     )
     snapshotEngine.host = self
+    frameCoordinator.borderNativeFrameReader = { boundsProvider.frame(for: $0) }
+    frameCoordinator.borderBindingIsCurrent = { [weak snapshotEngine] target in
+      snapshotEngine?.borderBindingIsCurrent(target) == true
+    }
+    frameCoordinator.borderObservationHandler = { [weak self] observations in
+      self?.presentBorderGeometryObservations(observations)
+    }
     frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
       self?.enqueueBorderGeometry(Set(frames.keys))
     }

@@ -103,29 +103,36 @@ final class SnapshotEngine: @unchecked Sendable {
     createdElement: AXUIElement? = nil,
     inputTimestamp: TimeInterval? = nil
   ) {
-    read {
-      $0.windowSnapshotObservationGeneration &+= 1
+    read { storage in
+      if kind == .applicationTerminated || (kind == .windows && windowID != nil) {
+        let invalidated = kind == .applicationTerminated
+          ? Set(storage.processIDs.compactMap { $0.value == processID ? $0.key : nil })
+          : Set(windowID.map { [$0] } ?? [])
+        for windowID in invalidated { storage.borderBindingRevisions[windowID] = nil }
+        frameCoordinator.forgetBorderGeometry(for: invalidated)
+      }
+      storage.windowSnapshotObservationGeneration &+= 1
       switch windowSnapshotInvalidation(for: kind, processID: processID) {
-      case .full: $0.preparedWindowReadRevisions.invalidate(processID: nil)
-      case .process(let processID): $0.preparedWindowReadRevisions.invalidate(processID: processID)
+      case .full: storage.preparedWindowReadRevisions.invalidate(processID: nil)
+      case .process(let processID): storage.preparedWindowReadRevisions.invalidate(processID: processID)
       case .none:
         if let processID {
-          $0.preparedWindowReadRevisions.invalidate(processID: processID)
+          storage.preparedWindowReadRevisions.invalidate(processID: processID)
         }
       }
       if kind == .windowCreated, let processID, let createdElement {
-        $0.pendingObservations.createdElements[processID, default: []].append(createdElement)
+        storage.pendingObservations.createdElements[processID, default: []].append(createdElement)
       }
       switch windowSnapshotInvalidation(for: kind, processID: processID) {
       case .process(let processID):
-        $0.pendingObservations.topologyPending = true
-        $0.pendingObservations.topologyProcessIDs.insert(processID)
+        storage.pendingObservations.topologyPending = true
+        storage.pendingObservations.topologyProcessIDs.insert(processID)
       case .full:
-        $0.pendingObservations.topologyRequiresFullSnapshot = true
+        storage.pendingObservations.topologyRequiresFullSnapshot = true
         if kind == .windowCreated || kind == .windows || kind == .application
           || kind == .applicationTerminated
         {
-          $0.pendingObservations.topologyPending = true
+          storage.pendingObservations.topologyPending = true
         }
       case .none:
         break
@@ -134,28 +141,28 @@ final class SnapshotEngine: @unchecked Sendable {
         let timestamp = updatedWindowTopologyInputTimestamp(
           for: kind,
           latestInputTimestamp: inputTimestamp,
-          previousTimestamp: $0.pendingObservations.topologyInputTimestamp
+          previousTimestamp: storage.pendingObservations.topologyInputTimestamp
         )
       {
-        $0.pendingObservations.topologyInputTimestamp = max(
-          $0.pendingObservations.topologyInputTimestamp ?? timestamp,
+        storage.pendingObservations.topologyInputTimestamp = max(
+          storage.pendingObservations.topologyInputTimestamp ?? timestamp,
           timestamp
         )
       }
       if kind == .windows, let windowID {
-        $0.pendingObservations.destroyedWindowIDs.insert(windowID)
+        storage.pendingObservations.destroyedWindowIDs.insert(windowID)
       }
       if kind == .frame || kind == .mouse || kind == .mouseRelease {
-        $0.pendingObservations.framePending = true
+        storage.pendingObservations.framePending = true
         if let processID {
-          $0.pendingObservations.frameProcessIDs.insert(processID)
+          storage.pendingObservations.frameProcessIDs.insert(processID)
         } else {
-          $0.pendingObservations.frameRequiresFullSnapshot = true
+          storage.pendingObservations.frameRequiresFullSnapshot = true
         }
         if let windowID {
-          $0.pendingObservations.frameWindowIDs.insert(windowID)
+          storage.pendingObservations.frameWindowIDs.insert(windowID)
         } else {
-          $0.pendingObservations.frameIncludesUnscopedRefresh = true
+          storage.pendingObservations.frameIncludesUnscopedRefresh = true
         }
       }
     }
@@ -163,6 +170,8 @@ final class SnapshotEngine: @unchecked Sendable {
 
   func invalidateAccessibilitySession() {
     read {
+      $0.advanceBorderBindingRevisions(for: Set($0.elements.keys))
+      frameCoordinator.forgetBorderGeometry(for: Set($0.elements.keys))
       $0.accessibilitySessionResetPending = true
       $0.preparedWindowReadRevisions.invalidate(processID: nil)
     }
@@ -312,25 +321,123 @@ final class SnapshotEngine: @unchecked Sendable {
 
   // MARK: registries
 
+  func borderGeometryTargets(for windowIDs: Set<WindowID>) -> [BorderGeometryReadTarget] {
+    read { storage in
+      guard !storage.accessibilitySessionResetPending else { return [] }
+      return windowIDs.sorted { $0.rawValue < $1.rawValue }.compactMap { windowID in
+        guard let element = storage.elements[windowID],
+          let processID = storage.processIDs[windowID],
+          let application = storage.applications[processID],
+          let revision = storage.borderBindingRevisions[windowID]
+        else { return nil }
+        return BorderGeometryReadTarget(windowID: windowID, processID: processID,
+          application: application, element: element, bindingRevision: revision)
+      }
+    }
+  }
+
+  func borderBindingIsCurrent(_ target: BorderGeometryReadTarget) -> Bool {
+    read { $0.borderBindingIsCurrent(target) }
+  }
+
+  func recordCachedBorderFrame(for windowID: WindowID) {
+    read { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      guard storage.elements[windowID] != nil, !storage.accessibilitySessionResetPending,
+        let frame = frameCoordinator.borderGeometries[windowID]?.frame
+      else { return }
+      storage.latestObservedFrames[windowID] = frame
+    }
+  }
+
+  func acceptBorderObservation(_ observation: BorderGeometryObservation) -> Bool {
+    read { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      guard storage.borderBindingIsCurrent(observation.ticket.target),
+        frameCoordinator.acceptBorderObservationLocked(observation)
+      else { return false }
+      storage.latestObservedFrames[observation.windowID] = observation.frame
+      return true
+    }
+  }
+
+  func reconcileAcceptedObservations(_ observations: [BorderGeometryObservation])
+    -> [BorderGeometryObservation] {
+    read { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      return observations.filter { observation in
+        guard storage.borderBindingIsCurrent(observation.ticket.target),
+          frameCoordinator.acceptBorderObservationLocked(observation, completingWrite: true)
+        else { return false }
+        storage.latestObservedFrames[observation.windowID] = observation.frame
+        return true
+      }
+    }
+  }
+
+  func consumeAcceptedFrames(_ observations: [BorderGeometryObservation]) -> [WindowID: Rect] {
+    read { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      var frames: [WindowID: Rect] = [:]
+      for observation in observations {
+        guard storage.borderBindingIsCurrent(observation.ticket.target),
+          frameCoordinator.observationIsCurrentLocked(observation)
+        else { continue }
+        storage.latestObservedFrames[observation.windowID] = observation.frame
+        frames[observation.windowID] = observation.frame
+      }
+      return frames
+    }
+  }
+
   var elements: [WindowID: AXUIElement] {
     get { read { $0.elements } }
-    set { read { $0.elements = newValue } }
+    set {
+      read { storage in
+        let changed = Set(storage.elements.keys).union(newValue.keys).filter {
+          !sameAXElement(storage.elements[$0], newValue[$0])
+            || (newValue[$0] != nil && storage.borderBindingRevisions[$0] == nil)
+        }
+        storage.elements = newValue
+        storage.advanceBorderBindingRevisions(for: Set(changed))
+        frameCoordinator.forgetBorderGeometry(for: Set(changed))
+      }
+    }
   }
 
   var processIDs: [WindowID: pid_t] {
     get { read { $0.processIDs } }
-    set { read { $0.processIDs = newValue } }
+    set {
+      read { storage in
+        let changed = Set(storage.processIDs.keys).union(newValue.keys).filter {
+          storage.processIDs[$0] != newValue[$0]
+        }
+        storage.processIDs = newValue
+        storage.advanceBorderBindingRevisions(for: Set(changed))
+        frameCoordinator.forgetBorderGeometry(for: Set(changed))
+      }
+    }
   }
 
   var applications: [pid_t: AXUIElement] {
     get { read { $0.applications } }
     set {
-      read {
-        $0.applications = newValue
-        // An empty inventory cannot leave a full-refresh continuation pending.
-        if newValue.isEmpty {
-          $0.chunkedFullRefreshRemainingProcessIDs = nil
+      read { storage in
+        let changedProcesses = Set(storage.applications.keys).union(newValue.keys).filter {
+          !sameAXElement(storage.applications[$0], newValue[$0])
         }
+        let changedWindows = Set(storage.processIDs.compactMap {
+          changedProcesses.contains($0.value) ? $0.key : nil
+        })
+        storage.advanceBorderBindingRevisions(for: changedWindows)
+        frameCoordinator.forgetBorderGeometry(for: changedWindows)
+        storage.applications = newValue
+        // An empty inventory cannot leave a full-refresh continuation pending.
+        if newValue.isEmpty { storage.chunkedFullRefreshRemainingProcessIDs = nil }
       }
     }
   }
@@ -700,6 +807,7 @@ final class SnapshotEngine: @unchecked Sendable {
   ) {
     self.frameCoordinator = frameCoordinator
     self.userInputTracker = userInputTracker
+    frameCoordinator.snapshotEngine = self
   }
 }
 
@@ -1273,6 +1381,24 @@ extension SnapshotEngine {
 
 private struct Storage {
   var pendingObservations = SnapshotObservations()
+  var nextBorderBindingRevision: UInt64 = 0
+  var borderBindingRevisions: [WindowID: UInt64] = [:]
+
+  mutating func advanceBorderBindingRevisions(for windowIDs: Set<WindowID>) {
+    for windowID in windowIDs {
+      nextBorderBindingRevision &+= 1
+      borderBindingRevisions[windowID] = elements[windowID] == nil ? nil : nextBorderBindingRevision
+    }
+  }
+
+  func borderBindingIsCurrent(_ target: BorderGeometryReadTarget) -> Bool {
+    !accessibilitySessionResetPending
+      && borderBindingRevisions[target.windowID] == target.bindingRevision
+      && processIDs[target.windowID] == target.processID
+      && sameAXElement(elements[target.windowID], target.element)
+      && sameAXElement(applications[target.processID], target.application)
+  }
+
   var elements: [WindowID: AXUIElement] = [:]
   var processIDs: [WindowID: pid_t] = [:]
   var transientOwnerWindowIDs: [WindowID: WindowID] = [:]
@@ -1407,5 +1533,13 @@ func windowSizeConstraintsForSnapshot(
   return previousWindow.map {
     WindowSizeConstraints(minimumWidth: $0.minimumTiledWidth,
       maximumWidth: $0.maximumTiledWidth, maximumHeight: $0.maximumTiledHeight)
+  }
+}
+
+private func sameAXElement(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
+  switch (lhs, rhs) {
+  case (nil, nil): return true
+  case let (lhs?, rhs?): return CFEqual(lhs, rhs)
+  default: return false
   }
 }

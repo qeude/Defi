@@ -78,9 +78,9 @@ extension MacOSPlatform {
           "window-event kind=\(String(describing: kind)) pid=\(processID)"
         )
       }
-      if kind == .frame, let element {
-        self?.refreshWindowBorderGeometry(for: element)
+      if kind == .frame {
         if let windowID {
+          self?.enqueueBorderGeometry([windowID], requiresNativeRead: true)
           self?.frameCoordinator.requestInitialSettlementVerification(windowID: windowID)
         }
       }
@@ -161,23 +161,13 @@ extension MacOSPlatform {
       }
       NavigationActor.enqueue { handler() }
     }
-    let monitor = PlatformEventMonitor(
+    let monitor = makeEventMonitor(
       handler: { kind, processID in handleEvent(kind, processID, nil) },
-      userInputTracker: userInputTracker,
       desktopSessionHandler: { change in
         NavigationActor.enqueue { desktopSessionHandler(change == .becameActive) }
       },
       windowEventHandler: { kind, processID, element in
         handleEvent(kind, processID, element)
-      },
-      liveFrameHandler: { [weak self] in
-        guard let self else { return }
-        self.refreshWindowBorderGeometry(
-          windowIDs: self.borderManager.liveGeometryWindowIDs
-        )
-      },
-      borderStackingHandler: { [weak self] in
-        self?.presentScheduleWindowBorderStackingRefresh()
       },
       mouseGestureStartedHandler: { NavigationActor.enqueue { mouseGestureStartedHandler() } }
     )
@@ -454,6 +444,25 @@ extension MacOSPlatform {
     )
   }
 
+  func makeEventMonitor(
+    handler: @escaping (PlatformEventKind, pid_t?) -> Void,
+    desktopSessionHandler: @escaping (DesktopSessionActivityChange) -> Void = { _ in },
+    windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
+    mouseGestureStartedHandler: @escaping () -> Void = {}
+  ) -> PlatformEventMonitor {
+    PlatformEventMonitor(
+      handler: handler, userInputTracker: userInputTracker,
+      desktopSessionHandler: desktopSessionHandler, windowEventHandler: windowEventHandler,
+      liveFrameHandler: { [weak self] in
+        guard let self else { return }
+        self.enqueueBorderGeometry(self.borderManager.liveGeometryWindowIDs, requiresNativeRead: true)
+      },
+      borderStackingHandler: { [weak self] in
+        self?.presentScheduleWindowBorderStackingRefresh()
+      },
+      mouseGestureStartedHandler: mouseGestureStartedHandler)
+  }
+
   private func resolvedWindowBorderStacking(
     for targetWindowID: WindowID?
   ) -> WindowBorderStacking {
@@ -462,31 +471,11 @@ extension MacOSPlatform {
       : .inactive(for: targetWindowID)
   }
 
-  private func refreshWindowBorderGeometry(for element: AXUIElement) {
-    guard
-      let windowID = elements.first(where: { CFEqual($0.value, element) })?.key,
-      borderManager.liveGeometryWindowIDs.contains(windowID)
-    else {
-      return
-    }
-    let sampledAt = ProcessInfo.processInfo.systemUptime
-    if let frame = frame(of: element) {
-      latestObservedFrames[windowID] = frame
-      frameCoordinator.recordObservedBorderFrame(frame, windowID: windowID, sampledAt: sampledAt)
-    }
-    guard let frame = resolvedBorderFrame(for: windowID) else { return }
-    if borderManager.updateGeometry(
-      frames: [windowID: frame],
-      style: borderStyle
-    ) {
-      invalidatePointerCacheFromPresentation()
-    }
-  }
-
-  private func refreshWindowBorderGeometry(
+  func refreshWindowBorderGeometry(
     windowIDs: Set<WindowID>
   ) {
     guard !windowIDs.isEmpty else { return }
+    for windowID in windowIDs { snapshotEngine.recordCachedBorderFrame(for: windowID) }
     let frames = Dictionary(
       uniqueKeysWithValues: windowIDs.compactMap { windowID in
         resolvedBorderFrame(for: windowID).map { (windowID, $0) }
@@ -555,7 +544,7 @@ extension MacOSPlatform {
 
   private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
     resolvedWindowBorderFrame(
-      nativeFrame: borderBoundsProvider.frame(for: windowID),
+      nativeFrame: nil,
       observedFrame: frameCoordinator.latestBorderFrame(for: windowID),
       plannedFrame: borderFrames.first(where: { $0.windowID == windowID })?.frame
     )

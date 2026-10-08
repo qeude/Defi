@@ -5,6 +5,7 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import OSLog
+import Synchronization
 
 private let enhancedUIRestoreDelay: TimeInterval = 0.12
 
@@ -1184,52 +1185,46 @@ extension AXFrameCoordinator {
   func readAcceptedFrames(
     for frame: QueuedPositionFrame,
     successfulWindowIDs: Set<WindowID>
-  ) -> [WindowID: Rect] {
-    var acceptedFrames: [WindowID: Rect] = [:]
+  ) -> [BorderGeometryObservation] {
+    guard let snapshotEngine else { return [] }
     let liveBorderWindowID = currentLiveBorderWindowID()
-    for (windowID, write) in frame.writes.sorted(by: {
-      $0.key.rawValue < $1.key.rawValue
-    }) where acceptedFrameRequiresReadback(
-      windowID: windowID,
-      sizeChanged: write.sizeChanged,
-      liveBorderWindowID: liveBorderWindowID
-    ) && successfulWindowIDs.contains(windowID) {
-      guard isCurrent(generation: frame.generation) else { break }
-      let accepted = AXMessagingTimeoutAccess.shared.withTimeout(
-        max(write.timeoutSeconds, 0.025),
-        elements: [write.application, write.element]
-      ) {
-        guard let position = accessibilityWriter.readPosition(write.element),
-          let size = accessibilityWriter.readSize(write.element)
-        else {
-          return nil as Rect?
+    let eligible = frame.writes.filter { windowID, write in
+      successfulWindowIDs.contains(windowID) && write.binding != nil && acceptedFrameRequiresReadback(
+        windowID: windowID, sizeChanged: write.sizeChanged, liveBorderWindowID: liveBorderWindowID
+      )
+    }
+    let batches = Dictionary(grouping: eligible, by: { $0.value.processID })
+    let reservations = batches.mapValues { reserveProcessWriteQueue(for: $0[0].value.processID) }
+    let results = Mutex<[BorderGeometryObservation]>([])
+    let group = DispatchGroup()
+    for (processID, writes) in batches {
+      guard let reservation = reservations[processID] else { continue }
+      group.enter()
+      reservation.queue.async { [self, reservation] in
+        defer { reservation.release(); group.leave() }
+        var observed: [BorderGeometryObservation] = []
+        for (_, write) in writes.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+          guard isCurrent(generation: frame.generation) else { break }
+          guard let target = write.binding, snapshotEngine.borderBindingIsCurrent(target) else { continue }
+          let sampledAt = ProcessInfo.processInfo.systemUptime
+          let accepted = AXMessagingTimeoutAccess.shared.withTimeout(
+            max(write.timeoutSeconds, 0.025), elements: [target.application, target.element]
+          ) { accessibilityWriter.readFrame(target.element) }
+          if let accepted, snapshotEngine.borderBindingIsCurrent(target) {
+            observed.append(BorderGeometryObservation(
+              ticket: BorderGeometryReadTicket(target: target, generation: frame.generation),
+              sampledAt: sampledAt, frame: accepted))
+          }
         }
-        return Rect(
-          x: position.x,
-          y: position.y,
-          width: size.width,
-          height: size.height
-        )
+        results.withLock { $0.append(contentsOf: observed) }
       }
-      guard let accepted, isCurrent(generation: frame.generation) else {
-        continue
-      }
-      recordCompletedPosition(
-        CGPoint(x: accepted.x, y: accepted.y),
-        windowID: windowID
-      )
-      recordCompletedSize(
-        CGSize(width: accepted.width, height: accepted.height),
-        windowID: windowID,
-        incrementWriteCount: false,
-        sizeWasReadBack: true
-      )
-      acceptedFrames[windowID] = accepted
     }
-    if !acceptedFrames.isEmpty {
-      borderLiveGeometryHandler?(acceptedFrames)
+    group.wait()
+    let accepted = snapshotEngine.reconcileAcceptedObservations(results.withLock { $0 })
+    if !accepted.isEmpty {
+      borderLiveGeometryHandler?(Dictionary(uniqueKeysWithValues: accepted.map { ($0.windowID, $0.frame) }))
     }
-    return acceptedFrames
+    return accepted
   }
 
   func recordInternalFrameWrite(

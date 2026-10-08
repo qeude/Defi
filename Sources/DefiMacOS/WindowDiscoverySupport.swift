@@ -593,6 +593,46 @@ func copyTransientOwnerRelationships(
   return (parent, sheets)
 }
 
+func validatedWindowFrame(_ frame: Rect) -> Rect? {
+  guard frame.x.isFinite, frame.y.isFinite, frame.width.isFinite, frame.height.isFinite,
+    frame.width > 0, frame.height > 0
+  else { return nil }
+  return frame
+}
+
+func decodeWindowFrame(_ values: [AnyObject]) -> Rect? {
+  guard values.count == 2,
+    let frame = frameFromAXValues(
+      positionValue: axAttributeValue(values[0]), sizeValue: axAttributeValue(values[1])
+    )
+  else { return nil }
+  return validatedWindowFrame(frame)
+}
+
+func copyWindowFrame(
+  _ element: AXUIElement,
+  multipleReader: (AXUIElement) -> (AXError, [AnyObject]?) = { element in
+    var values: CFArray?
+    let error = AXUIElementCopyMultipleAttributeValues(
+      element, [kAXPositionAttribute, kAXSizeAttribute] as CFArray,
+      AXCopyMultipleAttributeOptions(rawValue: 0), &values
+    )
+    return (error, values as? [AnyObject])
+  },
+  attributeReader: (AXUIElement, CFString) -> CFTypeRef? = { element, attribute in
+    var value: CFTypeRef?
+    return AXUIElementCopyAttributeValue(element, attribute, &value) == .success ? value : nil
+  }
+) -> Rect? {
+  let (error, values) = multipleReader(element)
+  if error == .success { return values.flatMap(decodeWindowFrame) }
+  guard error == .attributeUnsupported || error == .notImplemented,
+    let position = attributeReader(element, kAXPositionAttribute as CFString),
+    let size = attributeReader(element, kAXSizeAttribute as CFString)
+  else { return nil }
+  return decodeWindowFrame([position, size])
+}
+
 func frameFromAXValues(
   positionValue: CFTypeRef?,
   sizeValue: CFTypeRef?

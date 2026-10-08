@@ -235,43 +235,46 @@ final class PlatformEventMonitor {
       ]
     ) { [weak self] event in
       MainActor.assumeIsolated {
-        guard let self else { return }
-        guard self.desktopSessionActive else { return }
-        if eventStartsMouseFocusInteraction(event.type) {
-          ExperimentalRibbonRenderer.shared.cancel()
-          let rawWindowID =
-            event.cgEvent?.getIntegerValueField(
-              .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
-            ) ?? Int64(event.windowNumber)
-          self.userInputTracker.record(
-            timestamp: event.timestamp,
-            focusIntent: event.type == .leftMouseDown
-              ? .mouse(
-                windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
-              )
-              : nil
-          )
-        }
-        if event.type == .leftMouseDragged || event.type == .leftMouseUp {
-          self.liveFrameHandler()
-        }
-        let actions = self.mouseGestureNormalizer.actions(
-          for: event.type,
-          buttonNumber: event.buttonNumber
-        )
-        if actions.refreshBorderStacking {
-          self.borderStackingHandler()
-        }
-        if actions.startsGesture {
-          self.mouseGestureStartedHandler()
-        }
-        if actions.needsGestureSynchronization {
-          self.handler(.mouse, nil)
-        }
-        if actions.endsFocusInteraction {
-          self.handler(.mouseRelease, nil)
-        }
+        self?.handleMouseEvent(event)
       }
+    }
+  }
+
+  func handleMouseEvent(_ event: NSEvent) {
+    guard desktopSessionActive else { return }
+    if eventStartsMouseFocusInteraction(event.type) {
+      ExperimentalRibbonRenderer.shared.cancel()
+      let rawWindowID =
+        event.cgEvent?.getIntegerValueField(
+          .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+        ) ?? Int64(event.windowNumber)
+      userInputTracker.record(
+        timestamp: event.timestamp,
+        focusIntent: event.type == .leftMouseDown
+          ? .mouse(
+            windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+          )
+          : nil
+      )
+    }
+    if event.type == .leftMouseDragged || event.type == .leftMouseUp {
+      liveFrameHandler()
+    }
+    let actions = mouseGestureNormalizer.actions(
+      for: event.type,
+      buttonNumber: event.buttonNumber
+    )
+    if actions.refreshBorderStacking {
+      borderStackingHandler()
+    }
+    if actions.startsGesture {
+      mouseGestureStartedHandler()
+    }
+    if actions.needsGestureSynchronization {
+      handler(.mouse, nil)
+    }
+    if actions.endsFocusInteraction {
+      handler(.mouseRelease, nil)
     }
   }
 
