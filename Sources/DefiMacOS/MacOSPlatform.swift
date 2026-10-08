@@ -310,6 +310,8 @@ public final class MacOSPlatform {
   }
   @MainActor var presentationStatusPending = false
   @MainActor var accessibilityDisplayObserver: NSObjectProtocol?
+  @MainActor lazy var delayedObservationCampaigns = DelayedObservationCampaigns()
+  @MainActor var observationMeasurementAccess: ObservationMeasurementAccess?
   @MainActor var eventMonitor: PlatformEventMonitor?
   nonisolated var mouseResizeGesturePending: Bool {
     get { snapshotEngine.mouseResizeGesturePending }

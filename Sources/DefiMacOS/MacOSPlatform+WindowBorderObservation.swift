@@ -38,16 +38,18 @@ extension MacOSPlatform {
     mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {}
   ) {
     guard eventMonitor == nil else { return }
+    if observationMeasurementAccess == nil {
     accessibilityDisplayObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
       object: nil, queue: .main
     ) { [weak self] _ in
       MainActor.assumeIsolated { self?.publishPresentationStatus() }
     }
+    }
     let handleEvent: (PlatformEventKind, pid_t?, AXUIElement?) -> Void = {
       [weak self] kind, processID, element in
       let processID = positiveProcessID(processID)
-      defer { self?.publishPresentationStatus() }
+      defer { if self?.observationMeasurementAccess == nil { self?.publishPresentationStatus() } }
       let eventInput = self?.userInputTracker.snapshot
       let eventInputTimestamp = eventInput?.latestEventTimestamp
       let previousWindowCount = processID.flatMap {
@@ -115,41 +117,57 @@ extension MacOSPlatform {
         } else {
           self?.nativeFocusEventHasUnknownProcess = true
         }
-        for delay in [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000] {
-          DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(delay)
-          ) { [weak self] in
-            guard self?.nativeFocusEventPending == true else { return }
-            NavigationActor.enqueue { handler() }
+        if let self {
+          self.delayedObservationCampaigns.merge(
+            lane: .focus,
+            delays: [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000],
+            platform: self
+          ) { [weak self] _, generation in
+            guard let self, self.nativeFocusEventPending else { return }
+            let engine = self.snapshotEngine
+            let focusGeneration = engine.nativeFocusEventGeneration
+            let campaigns = self.delayedObservationCampaigns
+            self.deliverObservation {
+              guard engine.nativeFocusEventPending,
+                engine.nativeFocusEventGeneration == focusGeneration,
+                campaigns.isCurrent(.focus, generation: generation)
+              else { return }
+              handler()
+            }
           }
         }
       }
       let lifecycleRefreshDelays = applicationLifecycleRefreshDelays(for: kind)
-      if !lifecycleRefreshDelays.isEmpty {
-        for delay in lifecycleRefreshDelays {
-          DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(delay)
-          ) { [weak self] in
-            guard let self else { return }
-            self.invalidateWindowSnapshot()
-            self.snapshotEngine.recordObservation(.windows, processID: nil)
-            NavigationActor.enqueue { handler() }
+      if !lifecycleRefreshDelays.isEmpty, let self {
+        let lane = ObservationRetryLane.lifecycle(processID)
+        self.delayedObservationCampaigns.merge(
+          lane: lane, delays: lifecycleRefreshDelays, platform: self
+        ) { [weak self] _, generation in
+          guard let self else { return }
+          self.invalidateWindowSnapshot()
+          self.snapshotEngine.recordObservation(.windows, processID: nil)
+          let campaigns = self.delayedObservationCampaigns
+          self.deliverObservation {
+            guard campaigns.isCurrent(lane, generation: generation) else { return }
+            handler()
           }
         }
       }
-      if let processID, let previousWindowCount {
-        for delay in windowTopologyRefreshDelays(for: kind) {
-          DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(delay)
-          ) { [weak self] in
-            guard let self,
-              delay == 50 || self.applicationWindowCounts[processID] == previousWindowCount
-            else { return }
-            self.requestWindowTopologyRefresh(
-              processID: processID,
-              inputTimestamp: eventInputTimestamp
-            )
-            NavigationActor.enqueue { handler() }
+      if let processID, let previousWindowCount, let self,
+        !windowTopologyRefreshDelays(for: kind).isEmpty
+      {
+        let lane = ObservationRetryLane.creation(processID)
+        self.delayedObservationCampaigns.merge(
+          lane: lane, delays: windowTopologyRefreshDelays(for: kind), platform: self
+        ) { [weak self] delay, generation in
+          guard let self,
+            delay == 50 || self.applicationWindowCounts[processID] == previousWindowCount
+          else { return }
+          self.requestWindowTopologyRefresh(processID: processID, inputTimestamp: eventInputTimestamp)
+          let campaigns = self.delayedObservationCampaigns
+          self.deliverObservation {
+            guard campaigns.isCurrent(lane, generation: generation) else { return }
+            handler()
           }
         }
       }
@@ -159,7 +177,11 @@ extension MacOSPlatform {
       if platformEventCancelsMouseAnimation(kind) {
         NavigationActor.enqueue { mouseGestureHandler() }
       }
-      NavigationActor.enqueue { handler() }
+      self?.deliverObservation { handler() }
+    }
+    if let observationMeasurementAccess {
+      observationMeasurementAccess.receive = handleEvent
+      return
     }
     let monitor = makeEventMonitor(
       handler: { kind, processID in handleEvent(kind, processID, nil) },
