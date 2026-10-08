@@ -312,6 +312,18 @@ extension SnapshotEngine {
             }
           enhancedUIByProcess[processID] = observedEnhancedUI
         }
+        let retryNow = discoveryNow
+        if unmatchedWindowElementsByProcess[processID]?.isEmpty == false {
+          if unmatchedWindowRetryIsPending(attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0),
+            processWindowRetryDeadlines[processID].map { $0 <= retryNow + 0.000001 } == true
+          {
+            consumeUnmatchedWindowRetries(processIDs: [processID])
+          } else if forceWindowListRefresh && !unmatchedWindowRetryIsPending(
+            attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0
+          ) {
+            unmatchedWindowElementsByProcess[processID] = nil
+          }
+        }
         let cachedApplicationWindows = lastApplicationWindowElements[processID]
         let refreshesWindowList = applicationWindowListRefreshIsRequired(
           hasCachedWindows: cachedApplicationWindows != nil,
@@ -352,10 +364,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
                   ) }
                 },
                 copyWindows: {
-                  copyElements(
-                    appElement,
-                    attribute: kAXWindowsAttribute
-                  )
+                  readDiscoveryApplicationWindows(appElement, processID: processID)
                 }
               )
             }
@@ -364,11 +373,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               ?? (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
             in: &applicationWindowListDurationSamplesMS
           )
-          windowListReadRetryAttemptsByProcess[processID] =
-            updatedWindowListReadRetryAttempts(
-              previousAttempts: windowListReadRetryAttemptsByProcess[processID],
-              readSucceeded: copiedWindows != nil
-            )
+          recordWindowListRetryResult(processID: processID, succeeded: copiedWindows != nil, now: discoveryNow)
           if copiedWindows == nil {
             // A session transition can invalidate an existing AX connection.
             // Renew it for the already scheduled retry, without an extra read.
@@ -437,9 +442,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             continue
           }
           if previousWindowID == nil,
-            unmatchedWindowElementsByProcess[processID]?.contains(where: {
-              CFEqual($0, element)
-            }) == true
+            unmatchedWindowElementsByProcess[processID]?.contains(where: { CFEqual($0, element) }) == true
           {
             continue
           }
@@ -660,13 +663,14 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           previousDeadlines: retainedWindowDeadlines.filter {
             !confirmedWindowIDs.contains($0.key)
           },
-          now: ProcessInfo.processInfo.systemUptime
+          now: discoveryNow
         )
         let processRetainedWindowIDs = retention.windowIDs
         for windowID in previousWindows.map(\.id) {
           retainedWindowDeadlines[windowID] = retention.deadlines[windowID]
         }
         nextRetainedWindowIDs.formUnion(processRetainedWindowIDs)
+        recordProcessWindowRetryRead(processID: processID, now: discoveryNow, retained: processRetainedWindowIDs)
         if !processRetainedWindowIDs.isEmpty {
           let retainedIDs = processRetainedWindowIDs.sorted {
             $0.rawValue < $1.rawValue

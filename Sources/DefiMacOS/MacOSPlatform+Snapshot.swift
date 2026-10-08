@@ -42,6 +42,7 @@ extension SnapshotEngine {
     let dueCGWindowRetryProcessIDs = cgWindowDiscoveryRetries.dueProcessIDs(
       now: snapshotStartedAt
     )
+    let dueWindowRetryProcessIDs = dueCGWindowRetryProcessIDs.union(dueProcessWindowRetryIDs(now: snapshotStartedAt))
     let observations = consumeObservations()
     let hadDeferredFreshReads = !deferredFreshReadProcessIDs.isEmpty
     let explicitlyDestroyedWindowIDs = observations.destroyedWindowIDs
@@ -55,7 +56,7 @@ extension SnapshotEngine {
     let retainedProcessIDs = retainedWindowRefreshProcessIDs(
       retainedWindowIDs: retainedWindowIDs,
       processIDs: processIDs
-    )
+    ).intersection(dueWindowRetryProcessIDs)
     let topologyInputTimestamp = observations.topologyInputTimestamp
     let eventRequiresFullSnapshot =
       capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
@@ -90,12 +91,6 @@ extension SnapshotEngine {
         fallbackFreshReadProcessIDs.insert(processID)
       }
     }
-    let retriesAllUnmatchedWindows = unmatchedWindowCacheRequiresFullRetry(
-      eventRequiresFullSnapshot:
-        eventRequiresFullSnapshot,
-      forceFullWindowRefresh: forceFullWindowRefresh,
-      forceWindowListRefresh: forceWindowListRefresh
-    )
     if eventRequiresFullSnapshot {
       unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
       unmatchedWindowRetryAttemptsByProcess.removeAll(keepingCapacity: true)
@@ -127,7 +122,7 @@ extension SnapshotEngine {
         allowsCachedRefresh: true
       )
     if var requestedProcessIDs = incrementalProcessIDs {
-      requestedProcessIDs.formUnion(dueCGWindowRetryProcessIDs)
+      requestedProcessIDs.formUnion(dueWindowRetryProcessIDs)
       incrementalProcessIDs = requestedProcessIDs
     }
     var effectiveIncrementalProcessIDs = incrementalProcessIDs
@@ -164,7 +159,7 @@ extension SnapshotEngine {
       }
       chunkedFullRefreshRemainingProcessIDs?.formIntersection(liveProcessIDs)
       let remaining = (chunkedFullRefreshRemainingProcessIDs ?? [])
-        .union(dueCGWindowRetryProcessIDs)
+        .union(dueWindowRetryProcessIDs)
       let cachelessProcessIDs = remaining.subtracting(
         Set(lastApplicationWindowElements.keys)
       )
@@ -219,11 +214,6 @@ extension SnapshotEngine {
       deferredFreshReadProcessIDs.removeAll(keepingCapacity: true)
       deferredFreshReadsStartedAt = nil
     }
-    if !eventRequiresFullSnapshot,
-      retriesAllUnmatchedWindows || chunkedFullActive || !dueCGWindowRetryProcessIDs.isEmpty
-    {
-      retryUnmatchedWindows(processIDs: effectiveIncrementalProcessIDs)
-    }
     let forceWindowListRefreshEffective =
       forceWindowListRefresh || chunkedFullActive
     let snapshotMode: String
@@ -253,7 +243,7 @@ extension SnapshotEngine {
       && fallbackFreshReadProcessIDs.isEmpty
       && !hadDeferredFreshReads
       && retainedProcessIDs.isEmpty
-      && dueCGWindowRetryProcessIDs.isEmpty
+      && dueWindowRetryProcessIDs.isEmpty
     func publicCGWindows() -> [CGWindowRecord]? {
       if hasResolvedCGWindows { return cachedCGWindows }
       let reusableCGWindows = lastCGWindowInventory
@@ -330,7 +320,7 @@ extension SnapshotEngine {
       config: config,
       incrementalProcessIDs: effectiveIncrementalProcessIDs,
       forceWindowListRefresh: forceWindowListRefreshEffective,
-      forceWindowListRefreshProcessIDs: dueCGWindowRetryProcessIDs,
+      forceWindowListRefreshProcessIDs: dueWindowRetryProcessIDs,
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,
@@ -600,19 +590,7 @@ extension SnapshotEngine {
       failedBatchedWindowAttributeReadsByElement.filter {
         liveWindowElements.contains($0.key)
       }
-    unmatchedWindowElementsByProcess =
-      unmatchedWindowElementsByProcess.filter {
-        nextApplications[$0.key] != nil
-      }
-    unmatchedWindowRetryAttemptsByProcess =
-      unmatchedWindowRetryAttemptsByProcess.filter {
-        nextApplications[$0.key] != nil
-          && unmatchedWindowElementsByProcess[$0.key]?.isEmpty == false
-      }
-    windowListReadRetryAttemptsByProcess =
-      windowListReadRetryAttemptsByProcess.filter {
-        nextApplications[$0.key] != nil
-      }
+    synchronizeProcessWindowRetryDeadlines(now: discoveryNow)
     let observedApplicationWindows = Dictionary(
       uniqueKeysWithValues: nextApplications.keys.map {
         ($0, applicationWindows[$0] ?? [])

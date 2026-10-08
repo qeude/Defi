@@ -169,7 +169,7 @@ func budgetedFreshReadPartition(
 }
 
 extension SnapshotEngine {
-  func retryUnmatchedWindows(processIDs refreshingProcessIDs: Set<pid_t>?) {
+  func consumeUnmatchedWindowRetries(processIDs refreshingProcessIDs: Set<pid_t>?) {
     // A deferred app keeps its cache and retry count until its own chunk runs.
     // Clearing it early makes snapshot cleanup discard the count and retry forever.
     for processID in unmatchedWindowElementsByProcess.keys
@@ -178,4 +178,24 @@ extension SnapshotEngine {
       unmatchedWindowElementsByProcess[processID] = nil
     }
   }
+}
+
+public func windowDiscoveryRefreshRequest(
+  now: TimeInterval, globalDeadline: TimeInterval, interval: TimeInterval,
+  retryDeadline: TimeInterval?, userInputIdleDuration: TimeInterval,
+  dueProcessIDs: Set<pid_t>
+) -> (due: Bool, global: Bool, targeted: Bool) {
+  let global = observationWatchdogRefreshIsReady(
+    due: now >= globalDeadline, interval: interval,
+    userInputIdleDuration: userInputIdleDuration
+  )
+  let targeted = retryDeadline.map { now + 0.000001 >= $0 } == true && !dueProcessIDs.isEmpty
+  return (global || targeted, global, targeted)
+}
+public func windowDiscoveryGlobalDeadline(
+  current: TimeInterval, now: TimeInterval, interval: TimeInterval,
+  globalRefresh: Bool, targetedRefresh: Bool
+) -> TimeInterval {
+  boundedSnapshotRefreshDeadline(current: current, now: now, interval: interval,
+    reset: globalRefresh)
 }

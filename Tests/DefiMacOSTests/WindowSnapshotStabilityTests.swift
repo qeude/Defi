@@ -464,14 +464,14 @@ struct WindowSnapshotStabilityTests {
     engine.unmatchedWindowElementsByProcess = [41: [first], 42: [deferred]]
     engine.unmatchedWindowRetryAttemptsByProcess = [41: 0, 42: 0]
     for attempt in 1...3 {
-      engine.retryUnmatchedWindows(processIDs: [41])
+      engine.consumeUnmatchedWindowRetries(processIDs: [41])
       #expect(engine.unmatchedWindowElementsByProcess[42]?.count == 1)
       #expect(engine.unmatchedWindowRetryAttemptsByProcess[42] == attempt - 1)
       cacheWindowElementForShortRetry(
         first, processID: 41, elementsByProcess: &engine.unmatchedWindowElementsByProcess,
         attemptsByProcess: &engine.unmatchedWindowRetryAttemptsByProcess
       )
-      engine.retryUnmatchedWindows(processIDs: [42])
+      engine.consumeUnmatchedWindowRetries(processIDs: [42])
       cacheWindowElementForShortRetry(
         deferred, processID: 42, elementsByProcess: &engine.unmatchedWindowElementsByProcess,
         attemptsByProcess: &engine.unmatchedWindowRetryAttemptsByProcess
