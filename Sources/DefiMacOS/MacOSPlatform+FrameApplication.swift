@@ -111,7 +111,7 @@ extension MacOSPlatform {
     var writeIntents: [WindowID: (position: Bool, size: Bool)] = [:]
     var referenceFrames: [WindowID: Rect] = [:]
     var startPositions: [WindowID: CGPoint] = [:]
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = snapshotEngine.discoveryNow
     let unfinishedRibbonWindowIDs = source == "command-animation"
       ? frameCoordinator.pendingAnimatedWindowIDs : []
     for assignment in assignments where !skippedWindowIDs.contains(assignment.windowID) {
@@ -325,7 +325,8 @@ extension MacOSPlatform {
       if let writePerformance = commandPerformance ?? continuedCommand {
         writePerformanceByWindowID[assignment.windowID] = writePerformance
       }
-      frameCommitExpectations[assignment.windowID] = FrameCommitExpectation(
+      snapshotEngine.registerFrameCommit(FrameCommitExpectation(
+        commitID: submissionGeneration,
         from: Rect(
           x: start.x,
           y: start.y,
@@ -337,7 +338,7 @@ extension MacOSPlatform {
         deadline: commitDeadline,
         command: commandPerformance ?? continuedCommand,
         observedAt: nil
-      )
+      ), for: assignment.windowID)
     }
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]

@@ -356,6 +356,9 @@ final class Daemon {
       needsDesktopSync = true
     }
     let now = ProcessInfo.processInfo.systemUptime
+    if platform.requestDueFrameCommitVerification(now: now) {
+      needsDesktopSync = true
+    }
     if let mouseGestureSettlement,
       now >= mouseGestureSettlement.nextCheckAt
     {

@@ -90,6 +90,7 @@ struct SnapshotWindowDiscoveryResult {
   let minimizedWindowIDs: Set<WindowID>
   let unresolvedOutcomesByProcess: [pid_t: Set<String>]
   let refreshedProcessIDs: Set<pid_t>
+  let attemptedFrameWindowIDs: Set<WindowID>
 
   func unresolvedOutcome(for processID: pid_t) -> String {
     let observations = unresolvedOutcomesByProcess[processID, default: []].sorted()
@@ -150,6 +151,7 @@ extension SnapshotEngine {
       var ignoredProcessReasonsByProcess: [pid_t: String] = [:]
       var unresolvedOutcomesByProcess: [pid_t: Set<String>] = [:]
       var refreshedProcessIDs = Set<pid_t>()
+      var attemptedFrameWindowIDs = Set<WindowID>()
       var nextNativeWindowTabGroups: [WindowID: NativeWindowTabGroup] = [:]
       var nextRetainedWindowIDs = Set<WindowID>()
       var cachedSnapshotWindowIDs = Set<WindowID>()
@@ -486,6 +488,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           {
             continue
           }
+          if let previousWindowID { attemptedFrameWindowIDs.insert(previousWindowID) }
           let discovery = AXMessagingTimeoutAccess.shared.withTimeout(
             snapshotAccessibilityTimeoutSeconds,
             elements: [element]
@@ -834,7 +837,8 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         $0.value == "AX-minimized" ? $0.key : nil
       }),
       unresolvedOutcomesByProcess: unresolvedOutcomesByProcess,
-      refreshedProcessIDs: refreshedProcessIDs
+      refreshedProcessIDs: refreshedProcessIDs,
+      attemptedFrameWindowIDs: attemptedFrameWindowIDs
     )
   }
 

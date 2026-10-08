@@ -166,6 +166,14 @@ public final class MacOSPlatform {
     get { snapshotEngine.latestObservedFrames }
     set { snapshotEngine.latestObservedFrames = newValue }
   }
+  public nonisolated var nextFrameCommitVerificationAt: TimeInterval? {
+    snapshotEngine.nextFrameCommitVerificationAt
+  }
+
+  public nonisolated func requestDueFrameCommitVerification(now: TimeInterval) -> Bool {
+    snapshotEngine.requestDueFrameCommitVerification(now: now)
+  }
+
   nonisolated var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
     get { snapshotEngine.frameCommitExpectations }
     set { snapshotEngine.frameCommitExpectations = newValue }

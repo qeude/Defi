@@ -245,6 +245,7 @@ extension Daemon {
           reliableDesktopObservation: platform.hasReliableDesktopObservation)),
         (nextWindowListRefreshAt, platform.recommendedGlobalWindowListRefreshInterval),
         (platform.nextWindowDiscoveryRetryAt ?? .infinity, 0.1),
+        (platform.nextFrameCommitVerificationAt ?? .infinity, 0.1),
         (nextApplicationInventoryRefreshAt,
           platform.recommendedApplicationInventoryRefreshInterval),
       ]

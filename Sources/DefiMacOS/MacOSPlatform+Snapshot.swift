@@ -38,7 +38,13 @@ extension SnapshotEngine {
     forceApplicationInventoryRefresh: Bool = false
   ) -> DesktopSnapshot {
     defer { DispatchQueue.main.async { [weak host] in host?.publishPresentationStatus() } }
-    let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
+    let snapshotStartedAt = discoveryNow
+    requestDueFrameCommitVerification(now: snapshotStartedAt)
+    let frameCommitReads = captureFrameCommitReads()
+    let verificationWindowIDs = Set(frameCommitReads.compactMap { id, read in
+      read.expectation.verification == .requested ? id : nil
+    })
+    let verificationProcessIDs = Set(verificationWindowIDs.compactMap { frameCommitReads[$0]?.binding.processID })
     let dueCGWindowRetryProcessIDs = cgWindowDiscoveryRetries.dueProcessIDs(
       now: snapshotStartedAt
     )
@@ -53,6 +59,8 @@ extension SnapshotEngine {
     let frameRequiresFullSnapshot = observations.frameRequiresFullSnapshot
     let frameProcessIDs = observations.frameProcessIDs
     let frameWindowIDs = observations.frameWindowIDs
+    let requestedFrameWindowIDs = frameWindowIDs.union(verificationWindowIDs)
+    let requestedFrameProcessIDs = frameProcessIDs.union(verificationProcessIDs)
     let retainedProcessIDs = retainedWindowRefreshProcessIDs(
       retainedWindowIDs: retainedWindowIDs,
       processIDs: processIDs
@@ -109,13 +117,13 @@ extension SnapshotEngine {
         requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         processIDs: observations.topologyProcessIDs,
         coalescedProcessIDs:
-          frameProcessIDs
+          requestedFrameProcessIDs
           .union(fallbackFreshReadProcessIDs)
           .union(deferredFreshReadProcessIDs)
           .union(retainedProcessIDs),
         coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
         allowsCoalescedProcessRefresh:
-          observations.framePending || mouseResizeGesturePending
+          observations.framePending || !verificationWindowIDs.isEmpty || mouseResizeGesturePending
           || !fallbackFreshReadProcessIDs.isEmpty
           || !deferredFreshReadProcessIDs.isEmpty
           || !retainedProcessIDs.isEmpty,
@@ -232,9 +240,9 @@ extension SnapshotEngine {
     var hasResolvedCGWindows = false
     var cachedCGWindows: [CGWindowRecord]?
     let refreshesOnlyKnownFrames =
-      !frameWindowIDs.isEmpty
-      && frameWindowIDs.isSubset(of: Set(elements.keys))
-      && effectiveIncrementalProcessIDs?.isSubset(of: frameProcessIDs) == true
+      !requestedFrameWindowIDs.isEmpty
+      && requestedFrameWindowIDs.isSubset(of: Set(elements.keys))
+      && effectiveIncrementalProcessIDs?.isSubset(of: requestedFrameProcessIDs) == true
       && !forceWindowListRefreshEffective
       && !forceApplicationInventoryRefresh
       && !tracesWindowTopology
@@ -329,7 +337,7 @@ extension SnapshotEngine {
       preparedTransientOwnerWindowIDs: prepared.owners,
       preparedApplicationWindows: prepared.applications,
       explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
-      frameRefreshWindowIDs: refreshesOnlyKnownFrames ? frameWindowIDs : nil,
+      frameRefreshWindowIDs: refreshesOnlyKnownFrames ? requestedFrameWindowIDs : nil,
       shouldReadProcess: shouldReadProcess,
       publicCGWindows: publicCGWindows
     )
@@ -639,13 +647,7 @@ extension SnapshotEngine {
         || cachedSnapshotWindowIDs.contains($0.key)
     }
     frameCoordinator.retainBorderGeometry(for: nextWindowIDs)
-    let now = ProcessInfo.processInfo.systemUptime
-    // Expired expectations are dead bookkeeping. The per-window expiry below
-    // only runs on fresh observations; applications that stop delivering
-    // them would otherwise keep an expectation alive forever.
-    frameCommitExpectations = frameCommitExpectations.filter {
-      nextElements[$0.key] != nil && $0.value.deadline > now
-    }
+    let now = discoveryNow
     initialFrameSettlementDeadlines = initialFrameSettlementDeadlines.filter {
       $0.value > now
     }
@@ -695,40 +697,30 @@ extension SnapshotEngine {
       frameCoordinator.recordObservedBorderFrame(
         window.frame, windowID: window.id, sampledAt: snapshotStartedAt
       )
-      if var expectation = frameCommitExpectations[window.id],
-        let target = targetFrames[window.id]
-      {
-        if let command = expectation.command {
-          commandObservations.append((
-            command, window.id, expectation.from, window.frame, expectation.target
-          ))
-        }
-        if now >= expectation.deadline {
-          frameCommitExpectations[window.id] = nil
-        } else if approximatelyEqual(window.frame, target) {
-          let firstObservation = expectation.observedAt == nil
-          if firstObservation {
-            expectation.observedAt = now
-            frameCommitExpectations[window.id] = expectation
-          }
-          let latencyMS = max(now - expectation.issuedAt, 0) * 1_000
-          if firstObservation {
+      if let read = frameCommitReads[window.id] {
+        let expectation = read.expectation
+        switch observeFrameCommit(read, actual: window.frame, sampledAt: snapshotStartedAt,
+          now: now, externalGesture: externalResizeGestureActive) {
+        case .stale:
+          continue
+        case .deferred:
+          deferredMismatchCount += 1
+          deferredFrameCommitMismatchCount += 1
+          continue
+        case .matched(let latencyMS):
+          if let latencyMS {
             settledCommitLatenciesMS.append(latencyMS)
             observedFrameCommitCount += 1
-            maximumObservedFrameCommitLatencyMS = max(
-              maximumObservedFrameCommitLatencyMS,
-              latencyMS
-            )
+            maximumObservedFrameCommitLatencyMS = max(maximumObservedFrameCommitLatencyMS, latencyMS)
           }
-        } else if !frameIsOnExpectedCommitPath(
-          actual: window.frame,
-          currentTarget: target,
-          expectation: expectation,
-          now: now,
-          leftMouseButtonDown: externalResizeGestureActive
-        ) {
-          frameCommitExpectations[window.id] = nil
+        case .mismatch:
+          break
         }
+        if let command = expectation.command {
+          commandObservations.append((command, window.id, expectation.from, window.frame, expectation.target))
+        }
+      } else if frameCommitExpectations[window.id] != nil {
+        continue
       }
       guard let target = targetFrames[window.id],
         !approximatelyEqual(window.frame, target)
@@ -736,19 +728,6 @@ extension SnapshotEngine {
         continue
       }
       guard targetIntersectsAnyMonitor(target, monitors: monitors) else {
-        continue
-      }
-      if let expectation = frameCommitExpectations[window.id],
-        frameIsOnExpectedCommitPath(
-          actual: window.frame,
-          currentTarget: target,
-          expectation: expectation,
-          now: now,
-          leftMouseButtonDown: externalResizeGestureActive
-        )
-      {
-        deferredMismatchCount += 1
-        deferredFrameCommitMismatchCount += 1
         continue
       }
       targetMismatches.append(
@@ -773,6 +752,8 @@ extension SnapshotEngine {
         externallyChangedFrames[window.id] = window.frame
       }
     }
+    finishFrameCommitReads(frameCommitReads,
+      attemptedWindowIDs: discovery.attemptedFrameWindowIDs, now: now)
     if !commandObservations.isEmpty {
       let observations = commandObservations
       NavigationActor.enqueue { [weak host] in

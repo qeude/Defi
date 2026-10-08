@@ -118,7 +118,10 @@ final class SnapshotEngine: @unchecked Sendable {
         let invalidated = kind == .applicationTerminated
           ? Set(storage.processIDs.compactMap { $0.value == processID ? $0.key : nil })
           : Set(windowID.map { [$0] } ?? [])
-        for windowID in invalidated { storage.borderBindingRevisions[windowID] = nil }
+        for windowID in invalidated {
+          storage.borderBindingRevisions[windowID] = nil
+          storage.frameCommitExpectations[windowID] = nil
+        }
         frameCoordinator.forgetBorderGeometry(for: invalidated)
       }
       storage.windowSnapshotObservationGeneration &+= 1
@@ -596,7 +599,10 @@ final class SnapshotEngine: @unchecked Sendable {
 
   var targetFrames: [WindowID: Rect] {
     get { withLockedStorage { $0.targetFrames } }
-    set { withLockedStorage { $0.targetFrames = newValue } }
+    set { withLockedStorage { storage in
+      storage.targetFrames = newValue
+      storage.frameCommitExpectations = storage.frameCommitExpectations.filter { newValue[$0.key] == $0.value.target }
+    } }
   }
 
   func recordObservedFrame(_ frame: Rect?, for windowID: WindowID) {
@@ -611,6 +617,104 @@ final class SnapshotEngine: @unchecked Sendable {
   var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
     get { withLockedStorage { $0.frameCommitExpectations } }
     set { withLockedStorage { $0.frameCommitExpectations = newValue } }
+  }
+
+  var nextFrameCommitVerificationAt: TimeInterval? {
+    withLockedStorage { storage in
+      storage.frameCommitExpectations.values.compactMap {
+        if case .scheduled(let deadline) = $0.verification { return deadline }
+        return nil
+      }.min()
+    }
+  }
+
+  @discardableResult
+  func requestDueFrameCommitVerification(now: TimeInterval) -> Bool {
+    withLockedStorage { storage in
+      var requested = false
+      for id in storage.frameCommitExpectations.keys {
+        if case .scheduled(let deadline) = storage.frameCommitExpectations[id]?.verification,
+          now >= deadline {
+          storage.frameCommitExpectations[id]?.verification = .requested
+          requested = true
+        }
+      }
+      return requested
+    }
+  }
+
+  func registerFrameCommit(_ expectation: FrameCommitExpectation, for windowID: WindowID) {
+    withLockedStorage { $0.frameCommitExpectations[windowID] = expectation }
+  }
+
+  func captureFrameCommitReads() -> [WindowID: FrameCommitRead] {
+    let inputTimestamp = userInputTracker.latestEventTimestamp
+    return withLockedStorage { storage in
+      guard !storage.accessibilitySessionResetPending else { return [:] }
+      return Dictionary(uniqueKeysWithValues: storage.frameCommitExpectations.compactMap { id, expectation in
+        guard let element = storage.elements[id], let pid = storage.processIDs[id],
+          let application = storage.applications[pid], let revision = storage.borderBindingRevisions[id]
+        else { return nil }
+        return (id, FrameCommitRead(expectation: expectation,
+          binding: BorderGeometryReadTarget(windowID: id, processID: pid, application: application,
+            element: element, bindingRevision: revision),
+          revisions: storage.preparedWindowReadRevisions, inputTimestamp: inputTimestamp))
+      })
+    }
+  }
+
+  func observeFrameCommit(_ read: FrameCommitRead, actual: Rect,
+    sampledAt: TimeInterval, now: TimeInterval, externalGesture: Bool) -> FrameCommitObservation {
+    withLockedStorage { storage in
+      let id = read.binding.windowID
+      guard var current = storage.frameCommitExpectations[id],
+        storage.frameCommitReadIsCurrent(read, inputTimestamp: userInputTracker.latestEventTimestamp)
+      else { return .stale }
+      guard !frameCoordinator.pendingWindowIDs.contains(id) else { return .deferred }
+      if sampledAt >= current.deadline {
+        storage.frameCommitExpectations[id] = nil
+        if approximatelyEqual(actual, current.target) {
+          return .matched(firstLatencyMS: current.observedAt == nil ? max(now - current.issuedAt, 0) * 1_000 : nil)
+        }
+        storage.pendingFrameCorrections[id] = actual
+        storage.pendingFrameDebtWindowIDs.insert(id)
+        return .mismatch
+      }
+      if approximatelyEqual(actual, current.target) {
+        let latency = current.observedAt == nil ? max(now - current.issuedAt, 0) * 1_000 : nil
+        if current.observedAt == nil { current.observedAt = now }
+        storage.frameCommitExpectations[id] = current
+        return .matched(firstLatencyMS: latency)
+      }
+      if now >= current.deadline || frameIsOnExpectedCommitPath(actual: actual,
+        currentTarget: current.target, expectation: current, now: now, leftMouseButtonDown: externalGesture) {
+        return .deferred
+      }
+      storage.frameCommitExpectations[id] = nil
+      return .mismatch
+    }
+  }
+
+  func finishFrameCommitReads(_ reads: [WindowID: FrameCommitRead],
+    attemptedWindowIDs: Set<WindowID>, now: TimeInterval) {
+    withLockedStorage { storage in
+      for (id, read) in reads {
+        guard var current = storage.frameCommitExpectations[id],
+          current.commitID == read.expectation.commitID,
+          current.issuedAt == read.expectation.issuedAt,
+          current.target == read.expectation.target,
+          current.verification == .requested
+        else { continue }
+        if attemptedWindowIDs.contains(id),
+          storage.frameCommitReadIsCurrent(read, inputTimestamp: userInputTracker.latestEventTimestamp),
+          !frameCoordinator.pendingWindowIDs.contains(id)
+        { current.verificationAttempts += 1 }
+        let delays = CGWindowDiscoveryRetryTracker.retryDelays
+        current.verification = current.verificationAttempts < delays.count
+          ? .scheduled(now + delays[current.verificationAttempts]) : .watchdog
+        storage.frameCommitExpectations[id] = current
+      }
+    }
   }
 
   var pendingFrameCorrections: [WindowID: Rect] {
@@ -711,7 +815,10 @@ final class SnapshotEngine: @unchecked Sendable {
 
   var lastHiddenWindowIDs: Set<WindowID> {
     get { withLockedStorage { $0.lastHiddenWindowIDs } }
-    set { withLockedStorage { $0.lastHiddenWindowIDs = newValue } }
+    set { withLockedStorage { storage in
+      storage.lastHiddenWindowIDs = newValue
+      for id in newValue { storage.frameCommitExpectations[id] = nil }
+    } }
   }
 
   var deferredFrameCommitMismatchCount: Int {
@@ -1405,8 +1512,22 @@ private struct Storage {
   var nextBorderBindingRevision: UInt64 = 0
   var borderBindingRevisions: [WindowID: UInt64] = [:]
 
+  func frameCommitReadIsCurrent(_ read: FrameCommitRead, inputTimestamp: TimeInterval) -> Bool {
+    let id = read.binding.windowID
+    guard let current = frameCommitExpectations[id] else { return false }
+    return current.commitID == read.expectation.commitID
+      && current.issuedAt == read.expectation.issuedAt
+      && current.target == read.expectation.target
+      && targetFrames[id] == current.target
+      && borderBindingIsCurrent(read.binding)
+      && !preparedWindowReadRevisions.invalidatedProcessIDs(
+        since: read.revisions, candidates: [read.binding.processID]).contains(read.binding.processID)
+      && inputTimestamp == read.inputTimestamp
+  }
+
   mutating func advanceBorderBindingRevisions(for windowIDs: Set<WindowID>) {
     for windowID in windowIDs {
+      frameCommitExpectations[windowID] = nil
       nextBorderBindingRevision &+= 1
       borderBindingRevisions[windowID] = elements[windowID] == nil ? nil : nextBorderBindingRevision
     }

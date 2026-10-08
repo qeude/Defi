@@ -338,6 +338,7 @@ extension Daemon {
       commandPerformance: commandPerformance,
       source: source
     )
+    if timerFrequencyHz == 0 { scheduleIdleTick() }
     platform.updateWindowBorders(
       frames: borderAssignments,
       selectedWindowID: selectedWindowID,

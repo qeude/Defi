@@ -7,14 +7,18 @@ import DefiModel
 import OSLog
 
 struct FrameCommitExpectation: Equatable, Sendable {
+  let commitID: UInt64
   let from: Rect
   let target: Rect
   let issuedAt: TimeInterval
   let deadline: TimeInterval
   let command: CommandPerformanceContext?
   var observedAt: TimeInterval?
+  var verification: FrameCommitVerification
+  var verificationAttempts = 0
 
   init(
+    commitID: UInt64 = 0,
     from: Rect,
     target: Rect,
     issuedAt: TimeInterval,
@@ -22,6 +26,8 @@ struct FrameCommitExpectation: Equatable, Sendable {
     command: CommandPerformanceContext? = nil,
     observedAt: TimeInterval?
   ) {
+    self.commitID = commitID
+    self.verification = .scheduled(deadline)
     self.from = from
     self.target = target
     self.issuedAt = issuedAt
@@ -29,6 +35,26 @@ struct FrameCommitExpectation: Equatable, Sendable {
     self.command = command
     self.observedAt = observedAt
   }
+}
+
+enum FrameCommitVerification: Equatable, Sendable {
+  case scheduled(TimeInterval)
+  case requested
+  case watchdog
+}
+
+struct FrameCommitRead: Sendable {
+  let expectation: FrameCommitExpectation
+  let binding: BorderGeometryReadTarget
+  let revisions: PreparedWindowReadRevisions
+  let inputTimestamp: TimeInterval
+}
+
+enum FrameCommitObservation {
+  case stale
+  case deferred
+  case matched(firstLatencyMS: Double?)
+  case mismatch
 }
 
 struct ParkingVerificationSchedule: Equatable {
