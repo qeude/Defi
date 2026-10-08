@@ -338,7 +338,7 @@ struct BorderGeometryReadTests {
     coordinator.requestBorderGeometry(engine.borderGeometryTargets(for: [id]))
     engine.invalidateAccessibilitySession()
     coordinator.pruneProcessLatencyState(liveProcessIDs: [])
-    DispatchQueue.global().async {
+    Thread.detachNewThread {
       coordinator.invalidateAndWaitForWrites()
       drained.signal()
     }

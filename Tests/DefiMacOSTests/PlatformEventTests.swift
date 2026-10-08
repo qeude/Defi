@@ -610,18 +610,18 @@ struct PlatformEventTests {
       transitions.withLock { $0.append(timeout) }
     })
     group.enter()
-    DispatchQueue.global().async {
+    Thread.detachNewThread {
       access.withTimeout(0.05, elements: [first.value]) {}
       group.leave()
     }
     #expect(resetStarted.wait(timeout: .now() + 3) == .success)
     group.enter()
-    DispatchQueue.global().async {
+    Thread.detachNewThread {
       access.withTimeout(0.016, elements: [second.value]) { unrelatedFinished.signal() }
       group.leave()
     }
     group.enter()
-    DispatchQueue.global().async {
+    Thread.detachNewThread {
       sameElementStarted.signal()
       access.withTimeout(0.016, elements: [first.value]) { sameElementEntered.signal() }
       group.leave()
