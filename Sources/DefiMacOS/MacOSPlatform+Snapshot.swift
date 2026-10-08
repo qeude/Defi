@@ -258,7 +258,7 @@ extension SnapshotEngine {
       }
       let copyStartedAt = ProcessInfo.processInfo.systemUptime
       let inventoryGeneration = windowSnapshotObservationGeneration
-      let copied = copyCGWindowsIfAvailable()
+      let copied = discoveryMeasurementAccess?.snapshotCGWindows.map { $0() } ?? copyCGWindowsIfAvailable()
       let copyDurationMS =
         (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
       snapshotCGWindowCopyCount += 1

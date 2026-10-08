@@ -1095,6 +1095,7 @@ extension SnapshotEngine {
     frontmostProcessID: pid_t?,
     requiresConfirmedWindow: Bool = false
   ) -> WindowID? {
+    if let focus = discoveryMeasurementAccess?.nativeFocus { return focus(windows) }
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
       .withTimeout(
@@ -1298,38 +1299,48 @@ extension SnapshotEngine {
     _ element: AXUIElement,
     processID: pid_t
   ) -> AXWindowAttributes {
-    if let access = discoveryMeasurementAccess { return access.windowAttributes(element, processID) }
+    windowAttributeDiscoveryRead(element, processID: processID, includingRelationships: false).attributes
+  }
+
+  func windowAttributeDiscoveryRead(
+    _ element: AXUIElement, processID: pid_t, includingRelationships: Bool
+  ) -> (attributes: AXWindowAttributes, parent: AXUIElement?, sheets: [AXUIElement]?) {
+    if let access = discoveryMeasurementAccess {
+      let attributes = access.windowAttributes(element, processID)
+      let relation = includingRelationships ? access.relationships(element) : (parent: nil, sheets: [])
+      return (attributes, relation.parent, relation.sheets)
+    }
     let elementIdentity = AXWindowElementIdentity(
       processID: processID,
       element: element
     )
-    if multipleAttributeReadsSupportedByProcess[processID] != false,
-      let attributes = batchedWindowAttributes(element)
-    {
-      multipleAttributeReadsSupportedByProcess[processID] = true
-      failedBatchedWindowAttributeReadsByElement[elementIdentity] = nil
-      batchedWindowAttributeReadCount += 1
-      return attributes
-    }
     if multipleAttributeReadsSupportedByProcess[processID] != false {
-      let failures = failedBatchedWindowAttributeReadsByElement[elementIdentity, default: 0] + 1
-      failedBatchedWindowAttributeReadsByElement[elementIdentity] = failures
-      if shouldDisableBatchedWindowAttributeReads(failureCount: failures) {
-        multipleAttributeReadsSupportedByProcess[processID] = false
-        failedBatchedWindowAttributeReadsByElement =
-          failedBatchedWindowAttributeReadsByElement.filter { $0.key.processID != processID }
-        return windowAttributes(element, processID: processID)
+      let copied = copyBatchedWindowAttributes(element, includingTransientRelationships: includingRelationships)
+      let fallBack = withLockedStorage { storage in
+        if copied.attributes != nil {
+          storage.multipleAttributeReadsSupportedByProcess[processID] = true
+          storage.failedBatchedWindowAttributeReadsByElement[elementIdentity] = nil
+          storage.batchedWindowAttributeReadCount += 1
+          return false
+        }
+        let failures = storage.failedBatchedWindowAttributeReadsByElement[elementIdentity, default: 0] + 1
+        storage.failedBatchedWindowAttributeReadsByElement[elementIdentity] = failures
+        if copied.error == .notImplemented || copied.error == .attributeUnsupported
+          || shouldDisableBatchedWindowAttributeReads(failureCount: failures)
+        {
+          storage.multipleAttributeReadsSupportedByProcess[processID] = false
+          storage.failedBatchedWindowAttributeReadsByElement = storage.failedBatchedWindowAttributeReadsByElement.filter { $0.key.processID != processID }
+          return true
+        }
+        return false
       }
-      return AXWindowAttributes(
-        minimized: nil,
-        frame: nil,
-        title: "",
-        role: nil,
-        subrole: nil
-      )
+      if let attributes = copied.attributes { return (attributes, copied.parent, copied.sheets) }
+      guard fallBack else {
+        return (AXWindowAttributes(minimized: nil, frame: nil, title: "", role: nil, subrole: nil), nil, nil)
+      }
     }
-    fallbackWindowAttributeReadCount += 1
-    return fallbackWindowAttributes(
+    withLockedStorage { $0.fallbackWindowAttributeReadCount += 1 }
+    let attributes = fallbackWindowAttributes(
       minimized: {
         value(
           element,
@@ -1363,22 +1374,7 @@ extension SnapshotEngine {
         )
       }
     )
-  }
-
-  private func batchedWindowAttributes(
-    _ element: AXUIElement
-  ) -> AXWindowAttributes? {
-    let read = copyBatchedWindowAttributes(element)
-    guard let attributes = read.attributes else {
-      if read.error == .notImplemented || read.error == .attributeUnsupported {
-        var processID: pid_t = 0
-        if AXUIElementGetPid(element, &processID) == .success {
-          multipleAttributeReadsSupportedByProcess[processID] = false
-        }
-      }
-      return nil
-    }
-    return attributes
+    return (attributes, nil, nil)
   }
 
   func copyAttribute(_ element: AXUIElement, name: String) -> CFTypeRef? {

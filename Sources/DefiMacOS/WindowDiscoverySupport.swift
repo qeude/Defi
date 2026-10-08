@@ -298,7 +298,7 @@ struct PreparedAXApplicationElement: @unchecked Sendable {
 }
 
 struct PreparedAXApplicationWindows: @unchecked Sendable {
-  let elements: [AXUIElement]
+  let elements: [AXUIElement]?
   let durationMS: Double
 }
 

@@ -77,8 +77,8 @@ extension SnapshotEngine {
             var parent: AXUIElement?
             var sheets: [AXUIElement]?
             if candidate.usesBatchedAttributeReads {
-              let read = self.readPreparedDiscoveryAttributes(
-                candidate.element, processID: candidate.processID, relationships: true
+              let read = self.windowAttributeDiscoveryRead(
+                candidate.element, processID: candidate.processID, includingRelationships: true
               )
               attributes = read.attributes
               parent = read.parent
@@ -103,10 +103,8 @@ extension SnapshotEngine {
           let windows = AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [candidate.element]) {
             self.readDiscoveryApplicationWindows(candidate.element, processID: job.processID)
           }
-          applicationWindows = windows.map {
-            PreparedAXApplicationWindows(elements: $0,
-              durationMS: (ProcessInfo.processInfo.systemUptime - readStartedAt) * 1_000)
-          }
+          applicationWindows = PreparedAXApplicationWindows(elements: windows,
+            durationMS: (ProcessInfo.processInfo.systemUptime - readStartedAt) * 1_000)
         }
         return PreparedAXProcessReadResult(
           processID: job.processID, windows: reads, application: applicationWindows

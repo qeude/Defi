@@ -2,6 +2,8 @@ import ApplicationServices
 import DefiModel
 
 struct DiscoveryMeasurementAccess: Sendable {
+  var snapshotCGWindows: (@Sendable () -> [CGWindowRecord]?)? = nil
+  var nativeFocus: (@Sendable ([Window]) -> WindowID?)? = nil
   var now: @Sendable () -> TimeInterval
   var applicationWindows: @Sendable (AXUIElement, pid_t) -> [AXUIElement]?
   var windowAttributes: @Sendable (AXUIElement, pid_t) -> AXWindowAttributes
@@ -23,15 +25,11 @@ extension SnapshotEngine {
     return copyTransientOwnerRelationships(element)
   }
 
-  func readPreparedDiscoveryAttributes(
-    _ element: AXUIElement, processID: pid_t, relationships: Bool
-  ) -> (attributes: AXWindowAttributes?, parent: AXUIElement?, sheets: [AXUIElement]?) {
-    if let access = discoveryMeasurementAccess {
-      let attributes = access.windowAttributes(element, processID)
-      let relation = relationships ? access.relationships(element) : (parent: nil, sheets: [])
-      return (attributes, relation.parent, relation.sheets)
-    }
-    let read = copyBatchedWindowAttributes(element, includingTransientRelationships: relationships)
-    return (read.attributes, read.parent, read.sheets)
+  func readDiscoveryParent(_ element: AXUIElement) -> AXUIElement? {
+    if let access = discoveryMeasurementAccess { return access.relationships(element).parent }
+    guard let parent = copyAttribute(element, name: kAXParentAttribute),
+      CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
+    return (parent as! AXUIElement)
   }
+
 }
