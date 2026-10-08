@@ -87,6 +87,51 @@ class PerformanceExperimentsTests(unittest.TestCase):
             self.assertEqual(installs, [[perf.ROOT / 'script/build_and_run.sh', '--install-staged',
                                         output / 'original.app', '--verify']])
 
+    def test_native_restore_attempted_when_final_bundle_cannot_install(self):
+        import desktop_session
+        import desktop_lock
+        for failure in ('hash', 'install', 'install-and-restore'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory)
+                fixture = Mock()
+                fixture.ask.return_value = {'nativeFocus': {'available': True, 'pid': 42}}
+                args = SimpleNamespace(a=output / 'a.app', b=output / 'b.app', final_bundle=None,
+                                       workload=['ordinary'], a_source=output, b_source=output)
+                restoring = False
+
+                def checkpoint(path):
+                    path.mkdir()
+                    (path / 'ready').touch()
+
+                def start():
+                    nonlocal restoring
+                    restoring = True
+                    raise RuntimeError('start failed')
+
+                def bundle_hash(bundle):
+                    return 'changed' if restoring and failure == 'hash' else 'frozen'
+
+                def run(command, **kwargs):
+                    if '--install-staged' in command:
+                        raise RuntimeError('final install failed')
+
+                expected = 'Final restoration bundle changed' if failure == 'hash' else 'final install failed'
+                with patch.object(desktop_lock, 'inherited_lock', return_value=1), \
+                        patch.object(perf, 'Fixture', return_value=fixture), \
+                        patch.object(perf, 'sha', return_value='digest'), \
+                        patch.object(perf, 'bundle_hash', side_effect=bundle_hash), \
+                        patch.object(perf, 'verified_bundle_source', return_value={'verification_sha256': 'source'}), \
+                        patch.object(perf, 'run', side_effect=run), \
+                        patch.object(desktop_session, 'checkpoint', side_effect=checkpoint), \
+                        patch.object(desktop_session, 'start', side_effect=start), \
+                        patch.object(desktop_session, 'restore', side_effect=(
+                            RuntimeError('restore failed') if failure == 'install-and-restore' else None)) as restore, \
+                        self.assertRaisesRegex(RuntimeError, expected) as raised:
+                    perf.native_compare(args, output)
+                restore.assert_called_once_with(output / 'checkpoint')
+                if failure == 'install-and-restore':
+                    self.assertEqual(str(raised.exception.__cause__), 'restore failed')
+
     def test_snapshot_isolated_and_drift_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

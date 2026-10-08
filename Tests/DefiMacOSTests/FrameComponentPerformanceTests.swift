@@ -55,16 +55,23 @@ struct FrameComponentPerformanceTests {
                                       incrementWriteCount: false, sizeWasReadBack: true)
     }
     let start = ProcessInfo.processInfo.systemUptime
+    var staleSamples = 0
+    var incorrectPositionSamples = 0
     for i in 1...samples {
       let result = coordinator.applyBatch(
         ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame,
         progress: Double(i) / Double(samples), intermediate: true,
         stagingReentry: false, recordFinalSuccess: false
       )
-      #expect(result.stale == 0)
-      if !projected { #expect(abs(state.point.x - Double(i) * 200 / Double(samples)) < 0.5) }
-      else { #expect(state.point.x == 1199) }
+      staleSamples += result.stale
+      let positionCorrect = projected
+        ? state.point.x == 1199
+        : abs(state.point.x - Double(i) * 200 / Double(samples)) < 0.5
+      if !positionCorrect { incorrectPositionSamples += 1 }
     }
+    let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
+    #expect(staleSamples == 0)
+    #expect(incorrectPositionSamples == 0)
     if finish {
       let result = coordinator.applyBatch(
         ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame,
@@ -74,7 +81,7 @@ struct FrameComponentPerformanceTests {
       #expect(state.point.x == (projected ? 6100 : 200))
       #expect(state.size.width == 801)
     }
-    return (state, (ProcessInfo.processInfo.systemUptime - start) * 1000)
+    return (state, elapsed)
   }
 
   @Test(arguments: [false, true])

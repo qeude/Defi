@@ -22,6 +22,7 @@ final class DelayedObservationCampaigns {
   }
 
   private var campaigns: [ObservationRetryLane: Campaign] = [:]
+  private var nextGeneration: UInt64 = 0
   private nonisolated let generations = Mutex<[ObservationRetryLane: UInt64]>([:])
 
   nonisolated func isCurrent(_ lane: ObservationRetryLane, generation: UInt64) -> Bool {
@@ -33,7 +34,8 @@ final class DelayedObservationCampaigns {
     deliver: @escaping @MainActor @Sendable (Int, UInt64) -> Void
   ) {
     let now = platform.observationNow
-    generations.withLock { $0[lane, default: 0] &+= 1 }
+    nextGeneration &+= 1
+    generations.withLock { $0[lane] = nextGeneration }
     var campaign = campaigns[lane] ?? Campaign(deadlines: [:], deliver: deliver)
     for delay in delays {
       let deadline = now + Double(delay) / 1000
@@ -68,6 +70,13 @@ final class DelayedObservationCampaigns {
       let generation = self.generations.withLock { $0[lane]! }
       self.campaigns[lane] = current.deadlines.isEmpty ? nil : current
       for delay in due.keys.sorted() { current.deliver(delay, generation) }
+      if current.deadlines.isEmpty {
+        platform.deliverObservation { [weak self] in
+          self?.generations.withLock {
+            if $0[lane] == generation { $0[lane] = nil }
+          }
+        }
+      }
       self.arm(lane: lane, platform: platform)
     }
     campaigns[lane] = campaign

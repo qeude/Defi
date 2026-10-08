@@ -665,10 +665,18 @@ def native_compare(args, output):
                 except BaseException as error:
                     cleanup_errors.append(str(error))
             if (checkpoint / 'ready').exists():
-                if bundle_hash(final) != contract['final_bundle_sha256']:
-                    raise RuntimeError('Final restoration bundle changed')
-                install(final)
-                session.restore(checkpoint)
+                try:
+                    if bundle_hash(final) != contract['final_bundle_sha256']:
+                        raise RuntimeError('Final restoration bundle changed')
+                    install(final)
+                except BaseException as installation_error:
+                    try:
+                        session.restore(checkpoint)
+                    except BaseException as restoration_error:
+                        raise installation_error from restoration_error
+                    raise
+                else:
+                    session.restore(checkpoint)
                 observer = Fixture(binary, output / 'restored-native-focus.jsonl')
                 try:
                     restored = observer.ask('native-focus')['nativeFocus']

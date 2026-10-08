@@ -19,6 +19,7 @@ struct IncrementalDiscoveryPerformanceTests {
         NavigationActor.assumeIsolated { MacOSPlatform() }
       }
       let engine = platform.snapshotEngine
+      defer { withExtendedLifetime(platform) {} }
       let fixture = DiscoveryReadFixture()
       fixture.failsProcess = nil
       fixture.revealsNewWindow = false

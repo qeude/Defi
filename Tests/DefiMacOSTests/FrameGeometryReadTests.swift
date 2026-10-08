@@ -170,15 +170,15 @@ struct FrameGeometryReadTests {
 
   private func deliveredFrames(_ platform: MacOSPlatform,
     observations: [BorderGeometryObservation]) -> [WindowID: Rect] {
-    let delivered = Mutex<[WindowID: Rect]>([:])
     NavigationActor.shared.queue.sync {
       NavigationActor.assumeIsolated {
+        var delivered: [WindowID: Rect] = [:]
         platform.consumeAcceptedFrames(observations, handler: { frames in
-          delivered.withLock { $0 = frames }
+          delivered = frames
         })
+        return delivered
       }
     }
-    return delivered.withLock { $0 }
   }
 
   @Test(arguments: ["accepted-before-join", "queued-before-join", "delivered-after-join"])
@@ -186,6 +186,7 @@ struct FrameGeometryReadTests {
     let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2)
     let old = accepted, newer = Rect(x: 240, y: 40, width: 720, height: 700)
     let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+    let fastEntered = DispatchSemaphore(value: 0)
     let done = DispatchSemaphore(value: 0), result = Mutex<[BorderGeometryObservation]>([])
     let aWrite = write(-41), bWrite = write(-42)
     let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
@@ -193,6 +194,8 @@ struct FrameGeometryReadTests {
         if CFEqual(element, bWrite.element) {
           entered.signal()
           #expect(release.wait(timeout: .now() + 3) == .success)
+        } else {
+          fastEntered.signal()
         }
         return old
       }
@@ -209,6 +212,7 @@ struct FrameGeometryReadTests {
       done.signal()
     }
     #expect(entered.wait(timeout: .now() + 3) == .success)
+    #expect(fastEntered.wait(timeout: .now() + 3) == .success)
     let lane = coordinator.reserveProcessWriteQueue(for: -41)
     lane.queue.sync {}
     lane.release()
