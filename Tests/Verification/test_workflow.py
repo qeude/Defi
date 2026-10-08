@@ -19,6 +19,7 @@ import verify
 import desktop_session
 import ribbon_stress
 import animation_benchmark
+from test_performance_experiments import PerformanceExperimentsTests
 
 
 class WorkflowTests(unittest.TestCase):
