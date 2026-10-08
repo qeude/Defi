@@ -445,6 +445,8 @@ def native_trial(fixtures, workloads, output, expected_participation=None, expec
             report = fixture.ask('create', id=name)
             window = next(w for w in report['windows'] if w['id'] == name)
             expected.append((i, name, window['windowNumber']))
+            wait_owned(fixtures, expected, empty['id'], discovered)
+            session.command('focus-column', 'last')
             observed, _ = wait_owned(fixtures, expected, empty['id'], discovered,
                                      selected=window['windowNumber'])
             readiness.append({'created': [i, name, window['windowNumber']],
@@ -585,7 +587,7 @@ def native_compare(args, output):
     contract = {'workloads': {w: WORKLOADS[w] for w in args.workload},
          'processes': 4, 'windows': [2, 2, 2, 2], 'repeats': 5, 'keyboard_probe': 'deferred',
          'cadence': {'start_tolerance': 'max(5ms, interval * 0.20)', 'reply_deadline': 'planned start + interval'},
-         'readiness': 'per-window owned discovery; last then first; stable native focus and frames for 300ms',
+         'readiness': 'per-window owned discovery then explicit last focus; final first focus; native focus and frames stable for 300ms',
          'bundle_hashes': {s: bundle_hash(b) for s, b in bundles.items()}, 'sources': sources,
          'fixture_sha256': sha(binary), 'fixture_source_sha256': sha(ROOT / 'Tests/Fixtures/PerformanceFixture.swift'),
          'original_bundle_sha256': bundle_hash(original), 'final_bundle_sha256': bundle_hash(final)}

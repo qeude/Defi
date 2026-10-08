@@ -209,8 +209,10 @@ class PerformanceExperimentsTests(unittest.TestCase):
             if operation == 'create':
                 if created:
                     self.assertIn(created[-1][2], discovered)
+                    self.assertEqual(selected[0], created[-1][2])
                 created.append((i, fields['id'], 100 + len(created)))
-                selected[0] = created[-1][2]
+                if selected[0] is None:
+                    selected[0] = created[-1][2]
             windows = [{'id': name, 'windowNumber': number, 'key': number == selected[0],
                         'frame': [number - 100, 0, 100, 100]}
                        for owner, name, number in created if owner == i]
@@ -225,6 +227,7 @@ class PerformanceExperimentsTests(unittest.TestCase):
                 return 'ok'
             if args[0] == 'focus-column':
                 if args[1] in ('first', 'last'):
+                    self.assertIn(created[-1][2], discovered)
                     selected[0] = created[-1 if args[1] == 'last' else 0][2]
                 else:
                     selected[0] += 1 if args[1] == 'right' else -1
