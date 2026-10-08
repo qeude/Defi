@@ -108,7 +108,7 @@ extension DiscoveryRetryPerformanceTests {
     let group = DispatchGroup()
     for _ in 0..<4 {
       group.enter()
-      DispatchQueue.global().async {
+      Thread.detachNewThread {
         while running.withLock({ $0 }) {
           let now = queryNow.withLock { $0 }
           _ = engine.nextProcessWindowRetryAt(now: now)
