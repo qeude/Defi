@@ -93,7 +93,7 @@ extension DiscoveryRetryPerformanceTests {
   }
 
   @MainActor @Test
-  func concurrentQueriesPreserveRecordedDeadlineAndEligibleAttempts() {
+  func concurrentQueriesPreserveRecordedDeadlineAndEligibleAttempts() async {
     let fixture = DiscoveryReadFixture()
     fixture.revealsNewWindow = false
     let platform = retryPlatform(fixture)
@@ -108,7 +108,7 @@ extension DiscoveryRetryPerformanceTests {
     let group = DispatchGroup()
     for _ in 0..<4 {
       group.enter()
-      Thread.detachNewThread {
+      DispatchQueue.global().async {
         while running.withLock({ $0 }) {
           let now = queryNow.withLock { $0 }
           _ = engine.nextProcessWindowRetryAt(now: now)
@@ -129,9 +129,12 @@ extension DiscoveryRetryPerformanceTests {
       if engine.processWindowRetryDeadlines[41] != now + 0.1 { rolledBack += 1 }
       discoverRetry(engine, fixture: fixture, now: now + 0.05)
       if engine.windowListReadRetryAttemptsByProcess[41] != 1 { consumedEarly += 1 }
+      await Task.yield()
     }
     running.withLock { $0 = false }
-    group.wait()
+    await withCheckedContinuation { continuation in
+      group.notify(queue: .main) { continuation.resume() }
+    }
     #expect(rolledBack == 0)
     #expect(consumedEarly == 0)
     #expect(engine.windowListReadRetryAttemptsByProcess[41] == 1)
