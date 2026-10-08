@@ -103,6 +103,37 @@ struct FrameGeometryReadTests {
     #expect(coordinator.processWriteQueueReservations.isEmpty)
   }
 
+  @Test func performanceAcceptedRead() throws {
+    guard ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1" else { return }
+    let delay = Double(ProcessInfo.processInfo.environment["DEFI_PERF_DELAY_MS"] ?? "1") ?? -1
+    try #require(delay.isFinite && delay >= 0 && delay <= 100)
+    let reads = Mutex(0), value = accepted
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      frameReader: { _ in
+        reads.withLock { $0 += 1 }
+        Thread.sleep(forTimeInterval: delay / 1000)
+        return value
+      }
+    ))
+    let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2)
+    let (engine, request) = bind(coordinator, writes: [a: write(-41), b: write(-42)])
+    let start = ProcessInfo.processInfo.systemUptime
+    var acceptedCount = 0
+    for _ in 0..<16 {
+      let observations = coordinator.readAcceptedFrames(for: request, successfulWindowIDs: [a, b])
+      let frames = engine.consumeAcceptedFrames(observations)
+      #expect(frames == [a: accepted, b: accepted])
+      acceptedCount += frames.count
+    }
+    let milliseconds = (ProcessInfo.processInfo.systemUptime - start) * 1000
+    let count = reads.withLock { $0 }
+    #expect(count == 32 && acceptedCount == 32 && coordinator.processWriteQueueReservations.isEmpty)
+    let data = try JSONSerialization.data(withJSONObject: ["case": "accepted-read", "operations": count,
+      "errors": acceptedCount == 32 && count == 32 ? 0 : 1,
+      "output": ["accepted": acceptedCount, "reads": count], "metrics": ["elapsed_ms": milliseconds]])
+    print("DEFI_PERF_JSON " + String(decoding: data, as: UTF8.self))
+  }
+
   @Test func generationChangeDuringAcceptedReadCannotReconcileCompletedGeometry() {
     let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)
     let done = DispatchSemaphore(value: 0), result = Mutex<[BorderGeometryObservation]>([])

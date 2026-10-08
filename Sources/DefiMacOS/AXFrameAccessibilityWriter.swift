@@ -3,6 +3,8 @@ import DefiModel
 
 final class AXFrameAccessibilityWriter {
   private let positionWriter: ((AsyncPositionWrite, CGPoint) -> Bool)?
+  private let sizeWriter: ((AsyncPositionWrite, CGSize) -> Bool)?
+  private let sizeReader: ((AXUIElement) -> CGSize?)?
   private let frameReader: (@Sendable (AXUIElement) -> Rect?)?
   private let positionReader: ((AXUIElement) -> CGPoint?)?
   private let enhancedUIWriter: ((AXUIElement, Bool) -> Bool)?
@@ -12,6 +14,8 @@ final class AXFrameAccessibilityWriter {
 
   init(
     positionWriter: ((AsyncPositionWrite, CGPoint) -> Bool)? = nil,
+    sizeWriter: ((AsyncPositionWrite, CGSize) -> Bool)? = nil,
+    sizeReader: ((AXUIElement) -> CGSize?)? = nil,
     positionReader: ((AXUIElement) -> CGPoint?)? = nil,
     frameReader: (@Sendable (AXUIElement) -> Rect?)? = nil,
     enhancedUIWriter: ((AXUIElement, Bool) -> Bool)? = nil,
@@ -19,6 +23,8 @@ final class AXFrameAccessibilityWriter {
     independentBorderObservationAvailable: @escaping () -> Bool = { false }
   ) {
     self.positionWriter = positionWriter
+    self.sizeWriter = sizeWriter
+    self.sizeReader = sizeReader
     self.positionReader = positionReader
     self.frameReader = frameReader
     self.enhancedUIWriter = enhancedUIWriter
@@ -146,6 +152,7 @@ final class AXFrameAccessibilityWriter {
   }
 
   func readSize(_ element: AXUIElement) -> CGSize? {
+    if let sizeReader { return sizeReader(element) }
     var rawValue: CFTypeRef?
     guard
       AXUIElementCopyAttributeValue(
@@ -189,6 +196,7 @@ final class AXFrameAccessibilityWriter {
     _ write: AsyncPositionWrite,
     size: CGSize
   ) -> AXError {
+    if let sizeWriter { return sizeWriter(write, size) ? .success : .cannotComplete }
     var size = size
     guard let value = AXValueCreate(.cgSize, &size) else { return .failure }
     return AXUIElementSetAttributeValue(

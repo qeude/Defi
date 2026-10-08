@@ -699,27 +699,32 @@ extension AXFrameCoordinator {
         intermediate
         ? min(item.value.timeoutSeconds, intermediateTimeout)
         : max(item.value.timeoutSeconds, 0.016)
-      let requiresAsynchronousSizeWrite = asynchronousSizeWriteIsRequired(
+      var requiresAsynchronousSizeWrite = asynchronousSizeWriteIsRequired(
         sizeChanged: item.value.sizeChanged,
         synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
         animatesSize: item.value.animatesSize
       )
+      var positionWriteRequired = item.value.positionChanged
       if intermediate {
         lock.lock()
         let completedPoint = completedPositions[item.key]
-        let completedSize = completedSizes[item.key] ?? item.value.fromSize
+        let completedSize = completedSizes[item.key]
         lock.unlock()
-        if let completedPoint {
-          let intent = frameWriteIntent(
-            reference: Rect(x: completedPoint.x, y: completedPoint.y,
-                            width: completedSize.width, height: completedSize.height),
-            target: interpolated, positionsOnly: !requiresAsynchronousSizeWrite
-          )
-          if !intent.position && !intent.size {
-            if stagingReentry, item.value.positionChanged { applied += 1 }
-            recordRetargetVelocity(frame: frame, progressVelocity: 0, windowIDs: [item.key])
-            continue
-          }
+        let intent = frameWriteIntent(
+          reference: Rect(x: Double((completedPoint ?? point).x),
+                          y: Double((completedPoint ?? point).y),
+                          width: Double((completedSize ?? size).width),
+                          height: Double((completedSize ?? size).height)),
+          target: Rect(x: point.x, y: point.y, width: size.width, height: size.height),
+          positionsOnly: !requiresAsynchronousSizeWrite
+        )
+        if completedSize != nil { requiresAsynchronousSizeWrite = requiresAsynchronousSizeWrite && intent.size }
+        if completedPoint != nil { positionWriteRequired = positionWriteRequired && intent.position }
+        positionWriteRequired = positionWriteRequired || requiresAsynchronousSizeWrite
+        if !positionWriteRequired && !requiresAsynchronousSizeWrite {
+          if stagingReentry, item.value.positionChanged { applied += 1 }
+          recordRetargetVelocity(frame: frame, progressVelocity: 0, windowIDs: [item.key])
+          continue
         }
       }
       // A parked surface already at its projected origin needs no AX round trip
@@ -800,7 +805,7 @@ extension AXFrameCoordinator {
         var positionApplied =
           generationIsCurrent
           && (
-            !item.value.positionChanged
+            !positionWriteRequired
               || accessibilityWriter.applyPosition(
                 item.value,
                 point: point,
@@ -887,7 +892,7 @@ extension AXFrameCoordinator {
       let acceptedPosition = writeResult.acceptedPosition
       let appliedWrite = sizeApplied && positionApplied
       let successfulWrite = successfulFrameWriteIntent(
-        positionChanged: item.value.positionChanged,
+        positionChanged: positionWriteRequired,
         positionApplied: positionApplied,
         sizeChanged: requiresAsynchronousSizeWrite,
         sizeApplied: sizeApplied
@@ -925,7 +930,7 @@ extension AXFrameCoordinator {
       // physical starting point; process lanes serialize it before replacement.
       let requiresReadback = !intermediate
         && (item.value.isParked || item.value.requiresVerifiedOffscreenWrite)
-      if positionApplied, item.value.positionChanged {
+      if positionApplied, positionWriteRequired {
         let completedPoint = acceptedPosition ?? point
         recordCompletedPosition(
           completedPoint, windowID: item.key,
@@ -951,7 +956,7 @@ extension AXFrameCoordinator {
         lock.unlock()
         continue
       }
-      if positionApplied, item.value.positionChanged {
+      if positionApplied, positionWriteRequired {
         applied += 1
         motionCostMS += writeResult.positionDurationMS
           + (timeoutConfiguredAt - writeStartedAt + timeoutResetAt - positionAppliedAt) * 1_000
