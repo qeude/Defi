@@ -400,7 +400,7 @@ extension MacOSPlatform {
 
   public var nextWindowDiscoveryRetryAt: TimeInterval? {
     let now = snapshotEngine.discoveryNow
-    let cg = snapshotEngine.cgWindowDiscoveryRetryInterval(now: now).map { now + $0 }
+    let cg = snapshotEngine.nextCGWindowDiscoveryRetryAt
     return [cg, snapshotEngine.nextProcessWindowRetryAt(now: now)].compactMap { $0 }.min()
   }
 

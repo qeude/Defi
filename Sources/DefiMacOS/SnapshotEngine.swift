@@ -777,8 +777,8 @@ final class SnapshotEngine: @unchecked Sendable {
     withLockedStorage { $0.cgWindowDiscoveryRetries.dueProcessIDs(now: now) }
   }
 
-  func cgWindowDiscoveryRetryInterval(now: TimeInterval) -> TimeInterval? {
-    withLockedStorage { $0.cgWindowDiscoveryRetries.refreshInterval(now: now) }
+  var nextCGWindowDiscoveryRetryAt: TimeInterval? {
+    withLockedStorage { $0.cgWindowDiscoveryRetries.nextRetryAt }
   }
 
   func borderStackingInventory(now: TimeInterval) -> [CGWindowRecord]? {

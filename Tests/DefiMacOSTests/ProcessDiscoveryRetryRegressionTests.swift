@@ -6,6 +6,36 @@ import Testing
 @testable import DefiMacOS
 
 struct ProcessDiscoveryRetryRegressionTests {
+  @MainActor @Test(arguments: [0.05, 0.095, 0.1, 0.15])
+  func cgRetryDeadlineSurvivesLaterClockSample(tickTime: Double) {
+    let platform = NavigationActor.shared.queue.sync { NavigationActor.assumeIsolated { MacOSPlatform() } }
+    let fixture = DiscoveryReadFixture()
+    let engine = platform.snapshotEngine
+    engine.discoveryMeasurementAccess = fixture.access()
+    let identity = CGWindowDiscoveryIdentity(
+      windowID: WindowID(rawValue: 90), processID: 42, ownerName: "Example", title: ""
+    )
+    var tracker = CGWindowDiscoveryRetryTracker()
+    tracker.observe(observed: [identity], unresolved: [identity: "AX-no-window-match"], now: 0)
+    engine.cgWindowDiscoveryRetries = tracker
+    fixture.state.withLock { $0.now = tickTime + 0.01 }
+    NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated {
+        let deadline = platform.nextWindowDiscoveryRetryAt
+        #expect(deadline == 0.1)
+        let due = platform.dueWindowDiscoveryRetryProcessIDs(now: tickTime)
+        #expect(due == (tickTime >= 0.1 ? [42] : []))
+        let request = windowDiscoveryRefreshRequest(
+          now: tickTime, globalDeadline: 10, interval: 1,
+          retryDeadline: deadline, userInputIdleDuration: 2, dueProcessIDs: due
+        )
+        #expect(request.due == (tickTime >= 0.1))
+        #expect(request.targeted == (tickTime >= 0.1))
+        #expect(!request.global)
+      }
+    }
+  }
+
   @Test func deadlinesPreserveEarliestAndRemoveTerminatedProcesses() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     engine.applications = [41: AXUIElementCreateApplication(-41), 42: AXUIElementCreateApplication(-42)]
