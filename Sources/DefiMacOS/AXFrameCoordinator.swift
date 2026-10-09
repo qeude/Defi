@@ -24,6 +24,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   typealias BatchWriter = @Sendable (
     ProcessWriteBatch, QueuedPositionFrame, Double, Bool, Bool, Bool
   ) -> BatchResult
+  weak var snapshotEngine: SnapshotEngine?
   let batchWriter: BatchWriter?
 
   init(
@@ -36,6 +37,18 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   /// Reports completed geometry so borders cannot outrun window writes.
   var borderLiveGeometryHandler: (@Sendable ([WindowID: Rect]) -> Void)?
+
+  var borderReadLanes: [pid_t: BorderGeometryReadLane] = [:]
+  let borderGeometryReadGroup = DispatchGroup()
+  var borderNativeFrameReader: @Sendable (WindowID) -> Rect? = { _ in nil }
+  var borderBindingIsCurrent: @Sendable (BorderGeometryReadTarget) -> Bool = { _ in false }
+  var borderReadFreshness: [WindowID: (ticket: BorderGeometryReadTicket, sampledAt: TimeInterval)] = [:]
+  var borderObservationMailbox: [WindowID: BorderGeometryObservation] = [:]
+  var borderObservationDeliveryScheduled = false
+  var borderObservationHandler: (@MainActor @Sendable ([BorderGeometryObservation]) -> Void)?
+  var borderObservationScheduler: @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = {
+    DispatchQueue.main.async(execute: $0)
+  }
 
   let queue = DispatchQueue(
     label: "com.quentin.defi.ax-frame-coordinator",
@@ -241,6 +254,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     pending = nil
+    for processID in Array(borderReadLanes.keys) {
+      borderReadLanes[processID]?.retain([])
+    }
+    borderObservationMailbox.removeAll(keepingCapacity: true)
+    borderReadFreshness.removeAll(keepingCapacity: true)
     // The generation reset invalidates in-flight geometry too.
     activeWrites.removeAll(keepingCapacity: true)
     completedPositions.removeAll(keepingCapacity: true)
@@ -271,6 +289,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     queue.sync {}
     animationLaneWriteGroup.wait()
     parkingSettlementGroup.wait()
+    borderGeometryReadGroup.wait()
     parkingSettlementQueue.sync {}
     restoreDeferredEnhancedUserInterfaces()
   }
@@ -489,6 +508,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   func retainBorderGeometry(for windowIDs: Set<WindowID>) {
     lock.lock()
+    for processID in Array(borderReadLanes.keys) {
+      borderReadLanes[processID]?.retain(windowIDs)
+    }
+    borderObservationMailbox = borderObservationMailbox.filter { windowIDs.contains($0.key) }
+    borderReadFreshness = borderReadFreshness.filter { windowIDs.contains($0.key) }
     borderGeometries = borderGeometries.filter { windowIDs.contains($0.key) }
     borderGeometryWrittenAt = borderGeometryWrittenAt.filter { windowIDs.contains($0.key) }
     completedPositions = completedPositions.filter { windowIDs.contains($0.key) }

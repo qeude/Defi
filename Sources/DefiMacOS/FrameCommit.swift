@@ -114,6 +114,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let requiresVerifiedOffscreenWrite: Bool
   var animationPoint: CGPoint? = nil
   var usesCommonRibbonOffset = false
+  var binding: BorderGeometryReadTarget? = nil
 }
 
 // One visible native window anchors the entire strip. Parking anchors are
@@ -216,7 +217,8 @@ func positionOnlyAnimationWrite(
     isReentering: write.isReentering,
     requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
     animationPoint: write.animationPoint,
-    usesCommonRibbonOffset: write.usesCommonRibbonOffset
+    usesCommonRibbonOffset: write.usesCommonRibbonOffset,
+    binding: write.binding
   )
 }
 
@@ -309,7 +311,8 @@ func frameWritesPreservingSupersededAsyncSizes(
         isReentering: newer.isReentering,
         requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite,
         animationPoint: newer.animationPoint,
-        usesCommonRibbonOffset: newer.usesCommonRibbonOffset
+        usesCommonRibbonOffset: newer.usesCommonRibbonOffset,
+        binding: newer.binding
       )
     } else {
       result[windowID] = newer
@@ -395,18 +398,18 @@ struct FrameWriteCompletion: Equatable, Sendable {
   let completedLatest: Bool
   let attemptedWindowIDs: Set<WindowID>
   let successfulWindowIDs: Set<WindowID>
-  let acceptedFrames: [WindowID: Rect]
+  let acceptedObservations: [BorderGeometryObservation]
 
   init(
     completedLatest: Bool,
     attemptedWindowIDs: Set<WindowID>,
     successfulWindowIDs: Set<WindowID>,
-    acceptedFrames: [WindowID: Rect] = [:]
+    acceptedObservations: [BorderGeometryObservation] = []
   ) {
     self.completedLatest = completedLatest
     self.attemptedWindowIDs = attemptedWindowIDs
     self.successfulWindowIDs = successfulWindowIDs
-    self.acceptedFrames = acceptedFrames
+    self.acceptedObservations = acceptedObservations
   }
 }
 

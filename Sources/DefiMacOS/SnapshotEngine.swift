@@ -28,7 +28,7 @@ final class SnapshotEngine: @unchecked Sendable {
   let frameCoordinator: AXFrameCoordinator
   let userInputTracker: UserInputTracker
 
-  private func read<T>(_ body: (inout Storage) -> T) -> T {
+  private func withLockedStorage<T>(_ body: (inout Storage) -> T) -> T {
     lock.lock()
     defer { lock.unlock() }
     return body(&storage)
@@ -82,18 +82,28 @@ final class SnapshotEngine: @unchecked Sendable {
   }
 
   func invalidateWindowSnapshot() {
-    read {
+    withLockedStorage {
       $0.windowSnapshotObservationGeneration &+= 1
       $0.preparedWindowReadRevisions.invalidate(processID: nil)
     }
   }
 
+  var processWindowRetryDeadlines: [pid_t: TimeInterval] {
+    get { withLockedStorage { $0.processWindowRetryDeadlines } }
+    set { withLockedStorage { $0.processWindowRetryDeadlines = newValue } }
+  }
+
+  var discoveryMeasurementAccess: DiscoveryMeasurementAccess? {
+    get { withLockedStorage { $0.discoveryMeasurementAccess } }
+    set { withLockedStorage { $0.discoveryMeasurementAccess = newValue } }
+  }
+
   var preparedWindowReadRevisions: PreparedWindowReadRevisions {
-    read { $0.preparedWindowReadRevisions }
+    withLockedStorage { $0.preparedWindowReadRevisions }
   }
 
   var pendingObservations: SnapshotObservations {
-    read { $0.pendingObservations }
+    withLockedStorage { $0.pendingObservations }
   }
 
   func recordObservation(
@@ -103,29 +113,39 @@ final class SnapshotEngine: @unchecked Sendable {
     createdElement: AXUIElement? = nil,
     inputTimestamp: TimeInterval? = nil
   ) {
-    read {
-      $0.windowSnapshotObservationGeneration &+= 1
+    withLockedStorage { storage in
+      if kind == .applicationTerminated || (kind == .windows && windowID != nil) {
+        let invalidated = kind == .applicationTerminated
+          ? Set(storage.processIDs.compactMap { $0.value == processID ? $0.key : nil })
+          : Set(windowID.map { [$0] } ?? [])
+        for windowID in invalidated {
+          storage.borderBindingRevisions[windowID] = nil
+          storage.frameCommitExpectations[windowID] = nil
+        }
+        frameCoordinator.forgetBorderGeometry(for: invalidated)
+      }
+      storage.windowSnapshotObservationGeneration &+= 1
       switch windowSnapshotInvalidation(for: kind, processID: processID) {
-      case .full: $0.preparedWindowReadRevisions.invalidate(processID: nil)
-      case .process(let processID): $0.preparedWindowReadRevisions.invalidate(processID: processID)
+      case .full: storage.preparedWindowReadRevisions.invalidate(processID: nil)
+      case .process(let processID): storage.preparedWindowReadRevisions.invalidate(processID: processID)
       case .none:
         if let processID {
-          $0.preparedWindowReadRevisions.invalidate(processID: processID)
+          storage.preparedWindowReadRevisions.invalidate(processID: processID)
         }
       }
       if kind == .windowCreated, let processID, let createdElement {
-        $0.pendingObservations.createdElements[processID, default: []].append(createdElement)
+        storage.pendingObservations.createdElements[processID, default: []].append(createdElement)
       }
       switch windowSnapshotInvalidation(for: kind, processID: processID) {
       case .process(let processID):
-        $0.pendingObservations.topologyPending = true
-        $0.pendingObservations.topologyProcessIDs.insert(processID)
+        storage.pendingObservations.topologyPending = true
+        storage.pendingObservations.topologyProcessIDs.insert(processID)
       case .full:
-        $0.pendingObservations.topologyRequiresFullSnapshot = true
+        storage.pendingObservations.topologyRequiresFullSnapshot = true
         if kind == .windowCreated || kind == .windows || kind == .application
           || kind == .applicationTerminated
         {
-          $0.pendingObservations.topologyPending = true
+          storage.pendingObservations.topologyPending = true
         }
       case .none:
         break
@@ -134,42 +154,44 @@ final class SnapshotEngine: @unchecked Sendable {
         let timestamp = updatedWindowTopologyInputTimestamp(
           for: kind,
           latestInputTimestamp: inputTimestamp,
-          previousTimestamp: $0.pendingObservations.topologyInputTimestamp
+          previousTimestamp: storage.pendingObservations.topologyInputTimestamp
         )
       {
-        $0.pendingObservations.topologyInputTimestamp = max(
-          $0.pendingObservations.topologyInputTimestamp ?? timestamp,
+        storage.pendingObservations.topologyInputTimestamp = max(
+          storage.pendingObservations.topologyInputTimestamp ?? timestamp,
           timestamp
         )
       }
       if kind == .windows, let windowID {
-        $0.pendingObservations.destroyedWindowIDs.insert(windowID)
+        storage.pendingObservations.destroyedWindowIDs.insert(windowID)
       }
       if kind == .frame || kind == .mouse || kind == .mouseRelease {
-        $0.pendingObservations.framePending = true
+        storage.pendingObservations.framePending = true
         if let processID {
-          $0.pendingObservations.frameProcessIDs.insert(processID)
+          storage.pendingObservations.frameProcessIDs.insert(processID)
         } else {
-          $0.pendingObservations.frameRequiresFullSnapshot = true
+          storage.pendingObservations.frameRequiresFullSnapshot = true
         }
         if let windowID {
-          $0.pendingObservations.frameWindowIDs.insert(windowID)
+          storage.pendingObservations.frameWindowIDs.insert(windowID)
         } else {
-          $0.pendingObservations.frameIncludesUnscopedRefresh = true
+          storage.pendingObservations.frameIncludesUnscopedRefresh = true
         }
       }
     }
   }
 
   func invalidateAccessibilitySession() {
-    read {
+    withLockedStorage {
+      $0.advanceBorderBindingRevisions(for: Set($0.elements.keys))
+      frameCoordinator.forgetBorderGeometry(for: Set($0.elements.keys))
       $0.accessibilitySessionResetPending = true
       $0.preparedWindowReadRevisions.invalidate(processID: nil)
     }
   }
 
   func consumeObservations() -> SnapshotObservations {
-    read {
+    withLockedStorage {
       if $0.accessibilitySessionResetPending {
         // Reset on the snapshot queue, after any pass from the previous session.
         // Keep window identities and logical observations for reconciliation.
@@ -199,7 +221,7 @@ final class SnapshotEngine: @unchecked Sendable {
     requiresFullSnapshot: Bool,
     invalidatesPreparedObservations: Bool = true
   ) {
-    read {
+    withLockedStorage {
       let knownProcessIDs = $0.processIDs
       if invalidatesPreparedObservations {
         $0.windowSnapshotObservationGeneration &+= 1
@@ -227,284 +249,495 @@ final class SnapshotEngine: @unchecked Sendable {
   }
 
   var initialFrameSettlementDeadlines: [WindowID: TimeInterval] {
-    get { read { $0.initialFrameSettlementDeadlines } }
-    set { read { $0.initialFrameSettlementDeadlines = newValue } }
+    get { withLockedStorage { $0.initialFrameSettlementDeadlines } }
+    set { withLockedStorage { $0.initialFrameSettlementDeadlines = newValue } }
   }
 
   var mouseResizeGesturePending: Bool {
-    get { read { $0.mouseResizeGesturePending } }
-    set { read { $0.mouseResizeGesturePending = newValue } }
+    get { withLockedStorage { $0.mouseResizeGesturePending } }
+    set { withLockedStorage { $0.mouseResizeGesturePending = newValue } }
   }
 
   var mouseFocusReleasePending: Bool {
-    get { read { $0.mouseFocusReleasePending } }
-    set { read { $0.mouseFocusReleasePending = newValue } }
+    get { withLockedStorage { $0.mouseFocusReleasePending } }
+    set { withLockedStorage { $0.mouseFocusReleasePending = newValue } }
   }
 
   var nativeFocusEventGeneration: UInt64 {
-    get { read { $0.nativeFocusEventGeneration } }
-    set { read { $0.nativeFocusEventGeneration = newValue } }
+    get { withLockedStorage { $0.nativeFocusEventGeneration } }
+    set { withLockedStorage { $0.nativeFocusEventGeneration = newValue } }
   }
 
   var mouseFocusReleaseEventGeneration: UInt64? {
-    get { read { $0.mouseFocusReleaseEventGeneration } }
-    set { read { $0.mouseFocusReleaseEventGeneration = newValue } }
+    get { withLockedStorage { $0.mouseFocusReleaseEventGeneration } }
+    set { withLockedStorage { $0.mouseFocusReleaseEventGeneration = newValue } }
   }
 
   var nativeFocusEventPending: Bool {
-    get { read { $0.nativeFocusEventPending } }
-    set { read { $0.nativeFocusEventPending = newValue } }
+    get { withLockedStorage { $0.nativeFocusEventPending } }
+    set { withLockedStorage { $0.nativeFocusEventPending = newValue } }
   }
 
   var nativeFocusEventProcessIDs: Set<pid_t> {
-    get { read { $0.nativeFocusEventProcessIDs } }
-    set { read { $0.nativeFocusEventProcessIDs = newValue } }
+    get { withLockedStorage { $0.nativeFocusEventProcessIDs } }
+    set { withLockedStorage { $0.nativeFocusEventProcessIDs = newValue } }
   }
 
   var nativeFocusEventHasUnknownProcess: Bool {
-    get { read { $0.nativeFocusEventHasUnknownProcess } }
-    set { read { $0.nativeFocusEventHasUnknownProcess = newValue } }
+    get { withLockedStorage { $0.nativeFocusEventHasUnknownProcess } }
+    set { withLockedStorage { $0.nativeFocusEventHasUnknownProcess = newValue } }
   }
 
   var lastFocusedWindowByProcess: [pid_t: WindowID] {
-    get { read { $0.lastFocusedWindowByProcess } }
-    set { read { $0.lastFocusedWindowByProcess = newValue } }
+    get { withLockedStorage { $0.lastFocusedWindowByProcess } }
+    set { withLockedStorage { $0.lastFocusedWindowByProcess = newValue } }
   }
 
   var nativeFullscreenExitDeadlines: [WindowID: TimeInterval] {
-    get { read { $0.nativeFullscreenExitDeadlines } }
-    set { read { $0.nativeFullscreenExitDeadlines = newValue } }
+    get { withLockedStorage { $0.nativeFullscreenExitDeadlines } }
+    set { withLockedStorage { $0.nativeFullscreenExitDeadlines = newValue } }
   }
   var nativeFullscreenProcessIDsByWindowID: [WindowID: pid_t] {
-    get { read { $0.nativeFullscreenProcessIDsByWindowID } }
-    set { read { $0.nativeFullscreenProcessIDsByWindowID = newValue } }
+    get { withLockedStorage { $0.nativeFullscreenProcessIDsByWindowID } }
+    set { withLockedStorage { $0.nativeFullscreenProcessIDsByWindowID = newValue } }
   }
 
   var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
-    get { read { $0.internalFocusSuppressions } }
-    set { read { $0.internalFocusSuppressions = newValue } }
+    get { withLockedStorage { $0.internalFocusSuppressions } }
+    set { withLockedStorage { $0.internalFocusSuppressions = newValue } }
   }
 
   var lastMonitorFrames: [Rect] {
-    get { read { $0.lastMonitorFrames } }
-    set { read { $0.lastMonitorFrames = newValue } }
+    get { withLockedStorage { $0.lastMonitorFrames } }
+    set { withLockedStorage { $0.lastMonitorFrames = newValue } }
   }
 
   var pendingFrameDebtWindowIDs: Set<WindowID> {
-    get { read { $0.pendingFrameDebtWindowIDs } }
-    set { read { $0.pendingFrameDebtWindowIDs = newValue } }
+    get { withLockedStorage { $0.pendingFrameDebtWindowIDs } }
+    set { withLockedStorage { $0.pendingFrameDebtWindowIDs = newValue } }
   }
 
   var lastNativeFocusedWindowID: WindowID? {
-    get { read { $0.lastNativeFocusedWindowID } }
-    set { read { $0.lastNativeFocusedWindowID = newValue } }
+    get { withLockedStorage { $0.lastNativeFocusedWindowID } }
+    set { withLockedStorage { $0.lastNativeFocusedWindowID = newValue } }
   }
 
   var verifiedNativeFocusedWindowID: WindowID? {
-    get { read { $0.verifiedNativeFocusedWindowID } }
-    set { read { $0.verifiedNativeFocusedWindowID = newValue } }
+    get { withLockedStorage { $0.verifiedNativeFocusedWindowID } }
+    set { withLockedStorage { $0.verifiedNativeFocusedWindowID = newValue } }
   }
 
   var lastUnconfirmedActivationTimestamp: TimeInterval? {
-    get { read { $0.lastUnconfirmedActivationTimestamp } }
-    set { read { $0.lastUnconfirmedActivationTimestamp = newValue } }
+    get { withLockedStorage { $0.lastUnconfirmedActivationTimestamp } }
+    set { withLockedStorage { $0.lastUnconfirmedActivationTimestamp = newValue } }
   }
 
   // MARK: registries
 
+  func borderGeometryTargets(for windowIDs: Set<WindowID>) -> [BorderGeometryReadTarget] {
+    withLockedStorage { storage in
+      guard !storage.accessibilitySessionResetPending else { return [] }
+      return windowIDs.sorted { $0.rawValue < $1.rawValue }.compactMap { windowID in
+        guard let element = storage.elements[windowID],
+          let processID = storage.processIDs[windowID],
+          let application = storage.applications[processID],
+          let revision = storage.borderBindingRevisions[windowID]
+        else { return nil }
+        return BorderGeometryReadTarget(windowID: windowID, processID: processID,
+          application: application, element: element, bindingRevision: revision)
+      }
+    }
+  }
+
+  func borderBindingIsCurrent(_ target: BorderGeometryReadTarget) -> Bool {
+    withLockedStorage { $0.borderBindingIsCurrent(target) }
+  }
+
+  func recordCachedBorderFrame(for windowID: WindowID) {
+    withLockedStorage { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      guard storage.elements[windowID] != nil, !storage.accessibilitySessionResetPending,
+        let frame = frameCoordinator.borderGeometries[windowID]?.frame
+      else { return }
+      storage.latestObservedFrames[windowID] = frame
+    }
+  }
+
+  func acceptBorderObservation(_ observation: BorderGeometryObservation) -> Bool {
+    withLockedStorage { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      guard storage.borderBindingIsCurrent(observation.ticket.target),
+        frameCoordinator.acceptBorderObservationLocked(observation)
+      else { return false }
+      storage.latestObservedFrames[observation.windowID] = observation.frame
+      return true
+    }
+  }
+
+  func reconcileAcceptedObservations(_ observations: [BorderGeometryObservation])
+    -> [BorderGeometryObservation] {
+    withLockedStorage { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      return observations.filter { observation in
+        guard storage.borderBindingIsCurrent(observation.ticket.target),
+          frameCoordinator.acceptBorderObservationLocked(observation, completingWrite: true)
+        else { return false }
+        storage.latestObservedFrames[observation.windowID] = observation.frame
+        return true
+      }
+    }
+  }
+
+  func consumeAcceptedFrames(_ observations: [BorderGeometryObservation]) -> [WindowID: Rect] {
+    withLockedStorage { storage in
+      frameCoordinator.lock.lock()
+      defer { frameCoordinator.lock.unlock() }
+      var frames: [WindowID: Rect] = [:]
+      for observation in observations {
+        guard storage.borderBindingIsCurrent(observation.ticket.target),
+          frameCoordinator.observationIsCurrentLocked(observation)
+        else { continue }
+        storage.latestObservedFrames[observation.windowID] = observation.frame
+        frames[observation.windowID] = observation.frame
+      }
+      return frames
+    }
+  }
+
   var elements: [WindowID: AXUIElement] {
-    get { read { $0.elements } }
-    set { read { $0.elements = newValue } }
+    get { withLockedStorage { $0.elements } }
+    set {
+      withLockedStorage { storage in
+        let changed = Set(storage.elements.keys).union(newValue.keys).filter {
+          !sameAXElement(storage.elements[$0], newValue[$0])
+            || (newValue[$0] != nil && storage.borderBindingRevisions[$0] == nil)
+        }
+        storage.elements = newValue
+        storage.advanceBorderBindingRevisions(for: Set(changed))
+        frameCoordinator.forgetBorderGeometry(for: Set(changed))
+      }
+    }
   }
 
   var processIDs: [WindowID: pid_t] {
-    get { read { $0.processIDs } }
-    set { read { $0.processIDs = newValue } }
+    get { withLockedStorage { $0.processIDs } }
+    set {
+      withLockedStorage { storage in
+        let changed = Set(storage.processIDs.keys).union(newValue.keys).filter {
+          storage.processIDs[$0] != newValue[$0]
+        }
+        storage.processIDs = newValue
+        storage.advanceBorderBindingRevisions(for: Set(changed))
+        frameCoordinator.forgetBorderGeometry(for: Set(changed))
+      }
+    }
   }
 
   var applications: [pid_t: AXUIElement] {
-    get { read { $0.applications } }
+    get { withLockedStorage { $0.applications } }
     set {
-      read {
-        $0.applications = newValue
-        // An empty inventory cannot leave a full-refresh continuation pending.
-        if newValue.isEmpty {
-          $0.chunkedFullRefreshRemainingProcessIDs = nil
+      withLockedStorage { storage in
+        let changedProcesses = Set(storage.applications.keys).union(newValue.keys).filter {
+          !sameAXElement(storage.applications[$0], newValue[$0])
         }
+        let changedWindows = Set(storage.processIDs.compactMap {
+          changedProcesses.contains($0.value) ? $0.key : nil
+        })
+        storage.advanceBorderBindingRevisions(for: changedWindows)
+        frameCoordinator.forgetBorderGeometry(for: changedWindows)
+        storage.applications = newValue
+        storage.unmatchedWindowElementsByProcess = storage.unmatchedWindowElementsByProcess.filter {
+          newValue[$0.key] != nil
+        }
+        storage.unmatchedWindowRetryAttemptsByProcess = storage.unmatchedWindowRetryAttemptsByProcess.filter {
+          newValue[$0.key] != nil && storage.unmatchedWindowElementsByProcess[$0.key]?.isEmpty == false
+        }
+        storage.windowListReadRetryAttemptsByProcess = storage.windowListReadRetryAttemptsByProcess.filter {
+          newValue[$0.key] != nil
+        }
+        storage.processWindowRetryDeadlines = storage.processWindowRetryDeadlines.filter {
+          newValue[$0.key] != nil
+        }
+        // An empty inventory cannot leave a full-refresh continuation pending.
+        if newValue.isEmpty { storage.chunkedFullRefreshRemainingProcessIDs = nil }
       }
     }
   }
 
   var applicationIDsByProcess: [pid_t: String] {
-    get { read { $0.applicationIDsByProcess } }
-    set { read { $0.applicationIDsByProcess = newValue } }
+    get { withLockedStorage { $0.applicationIDsByProcess } }
+    set { withLockedStorage { $0.applicationIDsByProcess = newValue } }
   }
 
   var applicationWindowCounts: [pid_t: Int] {
-    get { read { $0.applicationWindowCounts } }
-    set { read { $0.applicationWindowCounts = newValue } }
+    get { withLockedStorage { $0.applicationWindowCounts } }
+    set { withLockedStorage { $0.applicationWindowCounts = newValue } }
   }
 
   var overviewPresentationActive: Bool {
-    get { read { $0.overviewPresentationActive } }
-    set { read { $0.overviewPresentationActive = newValue } }
+    get { withLockedStorage { $0.overviewPresentationActive } }
+    set { withLockedStorage { $0.overviewPresentationActive = newValue } }
   }
 
   var lastSnapshotWindows: [Window] {
-    get { read { $0.lastSnapshotWindows } }
-    set { read { $0.lastSnapshotWindows = newValue } }
+    get { withLockedStorage { $0.lastSnapshotWindows } }
+    set { withLockedStorage { $0.lastSnapshotWindows = newValue } }
   }
 
   var lastSnapshotWindowIDs: Set<WindowID> {
-    get { read { $0.lastSnapshotWindowIDs } }
-    set { read { $0.lastSnapshotWindowIDs = newValue } }
+    get { withLockedStorage { $0.lastSnapshotWindowIDs } }
+    set { withLockedStorage { $0.lastSnapshotWindowIDs = newValue } }
   }
 
   var lastSnapshotProcessIDs: Set<pid_t> {
-    get { read { $0.lastSnapshotProcessIDs } }
-    set { read { $0.lastSnapshotProcessIDs = newValue } }
+    get { withLockedStorage { $0.lastSnapshotProcessIDs } }
+    set { withLockedStorage { $0.lastSnapshotProcessIDs = newValue } }
   }
 
   var lastResolvedFrontmostProcessID: pid_t? {
-    get { read { $0.lastResolvedFrontmostProcessID } }
-    set { read { $0.lastResolvedFrontmostProcessID = newValue } }
+    get { withLockedStorage { $0.lastResolvedFrontmostProcessID } }
+    set { withLockedStorage { $0.lastResolvedFrontmostProcessID = newValue } }
   }
 
   var floatingWindowIDs: Set<WindowID> {
-    get { read { $0.floatingWindowIDs } }
-    set { read { $0.floatingWindowIDs = newValue } }
+    get { withLockedStorage { $0.floatingWindowIDs } }
+    set { withLockedStorage { $0.floatingWindowIDs = newValue } }
   }
 
   // MARK: discovery caches and retry bookkeeping
 
   var lastApplicationWindowElements: [pid_t: [AXUIElement]] {
-    get { read { $0.lastApplicationWindowElements } }
-    set { read { $0.lastApplicationWindowElements = newValue } }
+    get { withLockedStorage { $0.lastApplicationWindowElements } }
+    set { withLockedStorage { $0.lastApplicationWindowElements = newValue } }
   }
 
   var minimizedWindowElementsByProcess: [pid_t: [AXUIElement]] {
-    get { read { $0.minimizedWindowElementsByProcess } }
-    set { read { $0.minimizedWindowElementsByProcess = newValue } }
+    get { withLockedStorage { $0.minimizedWindowElementsByProcess } }
+    set { withLockedStorage { $0.minimizedWindowElementsByProcess = newValue } }
   }
 
   var transientGeometryWindowElementsByProcess: [pid_t: [AXUIElement]] {
-    get { read { $0.transientGeometryWindowElementsByProcess } }
-    set { read { $0.transientGeometryWindowElementsByProcess = newValue } }
+    get { withLockedStorage { $0.transientGeometryWindowElementsByProcess } }
+    set { withLockedStorage { $0.transientGeometryWindowElementsByProcess = newValue } }
   }
 
   var unmatchedWindowElementsByProcess: [pid_t: [AXUIElement]] {
-    get { read { $0.unmatchedWindowElementsByProcess } }
-    set { read { $0.unmatchedWindowElementsByProcess = newValue } }
+    get { withLockedStorage { $0.unmatchedWindowElementsByProcess } }
+    set { withLockedStorage { $0.unmatchedWindowElementsByProcess = newValue } }
   }
 
   var unmatchedWindowRetryAttemptsByProcess: [pid_t: Int] {
-    get { read { $0.unmatchedWindowRetryAttemptsByProcess } }
-    set { read { $0.unmatchedWindowRetryAttemptsByProcess = newValue } }
+    get { withLockedStorage { $0.unmatchedWindowRetryAttemptsByProcess } }
+    set { withLockedStorage { $0.unmatchedWindowRetryAttemptsByProcess = newValue } }
   }
 
   var windowListReadRetryAttemptsByProcess: [pid_t: Int] {
-    get { read { $0.windowListReadRetryAttemptsByProcess } }
-    set { read { $0.windowListReadRetryAttemptsByProcess = newValue } }
+    get { withLockedStorage { $0.windowListReadRetryAttemptsByProcess } }
+    set { withLockedStorage { $0.windowListReadRetryAttemptsByProcess = newValue } }
   }
 
   var cgWindowInventoryRetryAttempts: Int? {
-    get { read { $0.cgWindowInventoryRetryAttempts } }
-    set { read { $0.cgWindowInventoryRetryAttempts = newValue } }
+    get { withLockedStorage { $0.cgWindowInventoryRetryAttempts } }
+    set { withLockedStorage { $0.cgWindowInventoryRetryAttempts = newValue } }
   }
 
   var retainedWindowIDs: Set<WindowID> {
-    get { read { $0.retainedWindowIDs } }
-    set { read { $0.retainedWindowIDs = newValue } }
+    get { withLockedStorage { $0.retainedWindowIDs } }
+    set { withLockedStorage { $0.retainedWindowIDs = newValue } }
   }
 
   var retainedWindowDeadlines: [WindowID: TimeInterval] {
-    get { read { $0.retainedWindowDeadlines } }
-    set { read { $0.retainedWindowDeadlines = newValue } }
+    get { withLockedStorage { $0.retainedWindowDeadlines } }
+    set { withLockedStorage { $0.retainedWindowDeadlines = newValue } }
   }
 
   var transientOwnerWindowIDs: [WindowID: WindowID] {
-    get { read { $0.transientOwnerWindowIDs } }
-    set { read { $0.transientOwnerWindowIDs = newValue } }
+    get { withLockedStorage { $0.transientOwnerWindowIDs } }
+    set { withLockedStorage { $0.transientOwnerWindowIDs = newValue } }
   }
 
   var transientOwnerResolutionAttempts: [WindowID: Int] {
-    get { read { $0.transientOwnerResolutionAttempts } }
-    set { read { $0.transientOwnerResolutionAttempts = newValue } }
+    get { withLockedStorage { $0.transientOwnerResolutionAttempts } }
+    set { withLockedStorage { $0.transientOwnerResolutionAttempts = newValue } }
   }
 
   var transientOwnerResolutionRetryAfter: [WindowID: TimeInterval] {
-    get { read { $0.transientOwnerResolutionRetryAfter } }
-    set { read { $0.transientOwnerResolutionRetryAfter = newValue } }
+    get { withLockedStorage { $0.transientOwnerResolutionRetryAfter } }
+    set { withLockedStorage { $0.transientOwnerResolutionRetryAfter = newValue } }
   }
 
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] {
-    get { read { $0.windowManagementCapabilities } }
-    set { read { $0.windowManagementCapabilities = newValue } }
+    get { withLockedStorage { $0.windowManagementCapabilities } }
+    set { withLockedStorage { $0.windowManagementCapabilities = newValue } }
   }
 
   var nativeWindowTabGroupsByWindowID: [WindowID: NativeWindowTabGroup] {
-    get { read { $0.nativeWindowTabGroupsByWindowID } }
-    set { read { $0.nativeWindowTabGroupsByWindowID = newValue } }
+    get { withLockedStorage { $0.nativeWindowTabGroupsByWindowID } }
+    set { withLockedStorage { $0.nativeWindowTabGroupsByWindowID = newValue } }
   }
 
   var enhancedUIByProcess: [pid_t: Bool] {
-    get { read { $0.enhancedUIByProcess } }
-    set { read { $0.enhancedUIByProcess = newValue } }
+    get { withLockedStorage { $0.enhancedUIByProcess } }
+    set { withLockedStorage { $0.enhancedUIByProcess = newValue } }
   }
 
   var multipleAttributeReadsSupportedByProcess: [pid_t: Bool] {
-    get { read { $0.multipleAttributeReadsSupportedByProcess } }
-    set { read { $0.multipleAttributeReadsSupportedByProcess = newValue } }
+    get { withLockedStorage { $0.multipleAttributeReadsSupportedByProcess } }
+    set { withLockedStorage { $0.multipleAttributeReadsSupportedByProcess = newValue } }
   }
 
   var failedBatchedWindowAttributeReadsByElement: [AXWindowElementIdentity: Int]
   {
-    get { read { $0.failedBatchedWindowAttributeReadsByElement } }
-    set { read { $0.failedBatchedWindowAttributeReadsByElement = newValue } }
+    get { withLockedStorage { $0.failedBatchedWindowAttributeReadsByElement } }
+    set { withLockedStorage { $0.failedBatchedWindowAttributeReadsByElement = newValue } }
   }
 
   // MARK: frame reconciliation inputs
 
   var targetFrames: [WindowID: Rect] {
-    get { read { $0.targetFrames } }
-    set { read { $0.targetFrames = newValue } }
+    get { withLockedStorage { $0.targetFrames } }
+    set { withLockedStorage { storage in
+      storage.targetFrames = newValue
+      storage.frameCommitExpectations = storage.frameCommitExpectations.filter { newValue[$0.key] == $0.value.target }
+    } }
   }
 
   func recordObservedFrame(_ frame: Rect?, for windowID: WindowID) {
-    read { $0.latestObservedFrames[windowID] = frame }
+    withLockedStorage { $0.latestObservedFrames[windowID] = frame }
   }
 
   var latestObservedFrames: [WindowID: Rect] {
-    get { read { $0.latestObservedFrames } }
-    set { read { $0.latestObservedFrames = newValue } }
+    get { withLockedStorage { $0.latestObservedFrames } }
+    set { withLockedStorage { $0.latestObservedFrames = newValue } }
   }
 
   var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
-    get { read { $0.frameCommitExpectations } }
-    set { read { $0.frameCommitExpectations = newValue } }
+    get { withLockedStorage { $0.frameCommitExpectations } }
+    set { withLockedStorage { $0.frameCommitExpectations = newValue } }
+  }
+
+  var nextFrameCommitVerificationAt: TimeInterval? {
+    withLockedStorage { storage in
+      storage.frameCommitExpectations.values.compactMap {
+        if case .scheduled(let deadline) = $0.verification { return deadline }
+        return nil
+      }.min()
+    }
+  }
+
+  @discardableResult
+  func requestDueFrameCommitVerification(now: TimeInterval) -> Bool {
+    withLockedStorage { storage in
+      var requested = false
+      for id in storage.frameCommitExpectations.keys {
+        if case .scheduled(let deadline) = storage.frameCommitExpectations[id]?.verification,
+          now >= deadline {
+          storage.frameCommitExpectations[id]?.verification = .requested
+          requested = true
+        }
+      }
+      return requested
+    }
+  }
+
+  func registerFrameCommit(_ expectation: FrameCommitExpectation, for windowID: WindowID) {
+    withLockedStorage { $0.frameCommitExpectations[windowID] = expectation }
+  }
+
+  func captureFrameCommitReads() -> [WindowID: FrameCommitRead] {
+    let inputTimestamp = userInputTracker.latestEventTimestamp
+    return withLockedStorage { storage in
+      guard !storage.accessibilitySessionResetPending else { return [:] }
+      return Dictionary(uniqueKeysWithValues: storage.frameCommitExpectations.compactMap { id, expectation in
+        guard let element = storage.elements[id], let pid = storage.processIDs[id],
+          let application = storage.applications[pid], let revision = storage.borderBindingRevisions[id]
+        else { return nil }
+        return (id, FrameCommitRead(expectation: expectation,
+          binding: BorderGeometryReadTarget(windowID: id, processID: pid, application: application,
+            element: element, bindingRevision: revision),
+          revisions: storage.preparedWindowReadRevisions, inputTimestamp: inputTimestamp))
+      })
+    }
+  }
+
+  func observeFrameCommit(_ read: FrameCommitRead, actual: Rect,
+    sampledAt: TimeInterval, now: TimeInterval, externalGesture: Bool) -> FrameCommitObservation {
+    withLockedStorage { storage in
+      let id = read.binding.windowID
+      guard var current = storage.frameCommitExpectations[id],
+        storage.frameCommitReadIsCurrent(read, inputTimestamp: userInputTracker.latestEventTimestamp)
+      else { return .stale }
+      guard !frameCoordinator.pendingWindowIDs.contains(id) else { return .deferred }
+      if sampledAt >= current.deadline {
+        storage.frameCommitExpectations[id] = nil
+        if approximatelyEqual(actual, current.target) {
+          return .matched(firstLatencyMS: current.observedAt == nil ? max(now - current.issuedAt, 0) * 1_000 : nil)
+        }
+        storage.pendingFrameCorrections[id] = actual
+        storage.pendingFrameDebtWindowIDs.insert(id)
+        return .mismatch
+      }
+      if approximatelyEqual(actual, current.target) {
+        let latency = current.observedAt == nil ? max(now - current.issuedAt, 0) * 1_000 : nil
+        if current.observedAt == nil { current.observedAt = now }
+        storage.frameCommitExpectations[id] = current
+        return .matched(firstLatencyMS: latency)
+      }
+      if now >= current.deadline || frameIsOnExpectedCommitPath(actual: actual,
+        currentTarget: current.target, expectation: current, now: now, leftMouseButtonDown: externalGesture) {
+        return .deferred
+      }
+      storage.frameCommitExpectations[id] = nil
+      return .mismatch
+    }
+  }
+
+  func finishFrameCommitReads(_ reads: [WindowID: FrameCommitRead],
+    attemptedWindowIDs: Set<WindowID>, now: TimeInterval) {
+    withLockedStorage { storage in
+      for (id, read) in reads {
+        guard var current = storage.frameCommitExpectations[id],
+          current.commitID == read.expectation.commitID,
+          current.issuedAt == read.expectation.issuedAt,
+          current.target == read.expectation.target,
+          current.verification == .requested
+        else { continue }
+        if attemptedWindowIDs.contains(id),
+          storage.frameCommitReadIsCurrent(read, inputTimestamp: userInputTracker.latestEventTimestamp),
+          !frameCoordinator.pendingWindowIDs.contains(id)
+        { current.verificationAttempts += 1 }
+        let delays = CGWindowDiscoveryRetryTracker.retryDelays
+        current.verification = current.verificationAttempts < delays.count
+          ? .scheduled(now + delays[current.verificationAttempts]) : .watchdog
+        storage.frameCommitExpectations[id] = current
+      }
+    }
   }
 
   var pendingFrameCorrections: [WindowID: Rect] {
-    get { read { $0.pendingFrameCorrections } }
-    set { read { $0.pendingFrameCorrections = newValue } }
+    get { withLockedStorage { $0.pendingFrameCorrections } }
+    set { withLockedStorage { $0.pendingFrameCorrections = newValue } }
   }
 
   var newlyDiscoveredWindowIDs: Set<WindowID> {
-    get { read { $0.newlyDiscoveredWindowIDs } }
-    set { read { $0.newlyDiscoveredWindowIDs = newValue } }
+    get { withLockedStorage { $0.newlyDiscoveredWindowIDs } }
+    set { withLockedStorage { $0.newlyDiscoveredWindowIDs = newValue } }
   }
 
   var hasCompletedWindowSnapshot: Bool {
-    get { read { $0.hasCompletedWindowSnapshot } }
-    set { read { $0.hasCompletedWindowSnapshot = newValue } }
+    get { withLockedStorage { $0.hasCompletedWindowSnapshot } }
+    set { withLockedStorage { $0.hasCompletedWindowSnapshot = newValue } }
   }
 
   // MARK: pending observation events
 
   var windowSnapshotObservationGeneration: UInt64 {
-    get { read { $0.windowSnapshotObservationGeneration } }
+    get { withLockedStorage { $0.windowSnapshotObservationGeneration } }
     set {
-      read {
+      withLockedStorage {
         $0.windowSnapshotObservationGeneration = newValue
         $0.preparedWindowReadRevisions.invalidate(processID: nil)
       }
@@ -514,42 +747,42 @@ final class SnapshotEngine: @unchecked Sendable {
   // MARK: window inventory
 
   var lastCGWindowInventory: [CGWindowRecord]? {
-    read { $0.lastCGWindowInventory?.records }
+    withLockedStorage { $0.lastCGWindowInventory?.records }
   }
 
   func publishCGWindowInventory(_ inventory: CGWindowInventory?) {
-    read { $0.lastCGWindowInventory = inventory }
+    withLockedStorage { $0.lastCGWindowInventory = inventory }
   }
 
   var cgWindowDiscoveryRetries: CGWindowDiscoveryRetryTracker {
-    get { read { $0.cgWindowDiscoveryRetries } }
-    set { read { $0.cgWindowDiscoveryRetries = newValue } }
+    get { withLockedStorage { $0.cgWindowDiscoveryRetries } }
+    set { withLockedStorage { $0.cgWindowDiscoveryRetries = newValue } }
   }
 
   var cgWindowDiscoveryDiagnostics: [CGWindowDiscoveryDiagnostic] {
-    get { read { $0.cgWindowDiscoveryDiagnostics } }
-    set { read { $0.cgWindowDiscoveryDiagnostics = newValue } }
+    get { withLockedStorage { $0.cgWindowDiscoveryDiagnostics } }
+    set { withLockedStorage { $0.cgWindowDiscoveryDiagnostics = newValue } }
   }
 
   var cgWindowDiscoveryTraceSignatures: [CGWindowDiscoveryIdentity: String] {
-    get { read { $0.cgWindowDiscoveryTraceSignatures } }
-    set { read { $0.cgWindowDiscoveryTraceSignatures = newValue } }
+    get { withLockedStorage { $0.cgWindowDiscoveryTraceSignatures } }
+    set { withLockedStorage { $0.cgWindowDiscoveryTraceSignatures = newValue } }
   }
 
   func cgWindowDiscoveryStatus(now: TimeInterval) -> String {
-    read { formattedCGWindowDiscoveryStatus($0.cgWindowDiscoveryDiagnostics, now: now) }
+    withLockedStorage { formattedCGWindowDiscoveryStatus($0.cgWindowDiscoveryDiagnostics, now: now) }
   }
 
   func dueCGWindowDiscoveryRetryProcessIDs(now: TimeInterval) -> Set<pid_t> {
-    read { $0.cgWindowDiscoveryRetries.dueProcessIDs(now: now) }
+    withLockedStorage { $0.cgWindowDiscoveryRetries.dueProcessIDs(now: now) }
   }
 
-  func cgWindowDiscoveryRetryInterval(now: TimeInterval) -> TimeInterval? {
-    read { $0.cgWindowDiscoveryRetries.refreshInterval(now: now) }
+  var nextCGWindowDiscoveryRetryAt: TimeInterval? {
+    withLockedStorage { $0.cgWindowDiscoveryRetries.nextRetryAt }
   }
 
   func borderStackingInventory(now: TimeInterval) -> [CGWindowRecord]? {
-    read {
+    withLockedStorage {
       $0.lastCGWindowInventory?.recordsForBorderStacking(
         generation: $0.windowSnapshotObservationGeneration, now: now
       )
@@ -559,140 +792,143 @@ final class SnapshotEngine: @unchecked Sendable {
   // MARK: freshness budgets
 
   var deferredFreshReadProcessIDs: Set<pid_t> {
-    get { read { $0.deferredFreshReadProcessIDs } }
-    set { read { $0.deferredFreshReadProcessIDs = newValue } }
+    get { withLockedStorage { $0.deferredFreshReadProcessIDs } }
+    set { withLockedStorage { $0.deferredFreshReadProcessIDs = newValue } }
   }
 
   var deferredFreshReadsStartedAt: TimeInterval? {
-    get { read { $0.deferredFreshReadsStartedAt } }
-    set { read { $0.deferredFreshReadsStartedAt = newValue } }
+    get { withLockedStorage { $0.deferredFreshReadsStartedAt } }
+    set { withLockedStorage { $0.deferredFreshReadsStartedAt = newValue } }
   }
 
   var chunkedFullRefreshRemainingProcessIDs: Set<pid_t>? {
-    get { read { $0.chunkedFullRefreshRemainingProcessIDs } }
-    set { read { $0.chunkedFullRefreshRemainingProcessIDs = newValue } }
+    get { withLockedStorage { $0.chunkedFullRefreshRemainingProcessIDs } }
+    set { withLockedStorage { $0.chunkedFullRefreshRemainingProcessIDs = newValue } }
   }
 
   var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] {
-    get { read { $0.incompatibleFreshReadDeadlines } }
-    set { read { $0.incompatibleFreshReadDeadlines = newValue } }
+    get { withLockedStorage { $0.incompatibleFreshReadDeadlines } }
+    set { withLockedStorage { $0.incompatibleFreshReadDeadlines = newValue } }
   }
 
   // MARK: telemetry
 
   var lastHiddenWindowIDs: Set<WindowID> {
-    get { read { $0.lastHiddenWindowIDs } }
-    set { read { $0.lastHiddenWindowIDs = newValue } }
+    get { withLockedStorage { $0.lastHiddenWindowIDs } }
+    set { withLockedStorage { storage in
+      storage.lastHiddenWindowIDs = newValue
+      for id in newValue { storage.frameCommitExpectations[id] = nil }
+    } }
   }
 
   var deferredFrameCommitMismatchCount: Int {
-    get { read { $0.deferredFrameCommitMismatchCount } }
-    set { read { $0.deferredFrameCommitMismatchCount = newValue } }
+    get { withLockedStorage { $0.deferredFrameCommitMismatchCount } }
+    set { withLockedStorage { $0.deferredFrameCommitMismatchCount = newValue } }
   }
 
   var observedFrameCommitCount: Int {
-    get { read { $0.observedFrameCommitCount } }
-    set { read { $0.observedFrameCommitCount = newValue } }
+    get { withLockedStorage { $0.observedFrameCommitCount } }
+    set { withLockedStorage { $0.observedFrameCommitCount = newValue } }
   }
 
   var maximumObservedFrameCommitLatencyMS: Double {
-    get { read { $0.maximumObservedFrameCommitLatencyMS } }
-    set { read { $0.maximumObservedFrameCommitLatencyMS = newValue } }
+    get { withLockedStorage { $0.maximumObservedFrameCommitLatencyMS } }
+    set { withLockedStorage { $0.maximumObservedFrameCommitLatencyMS = newValue } }
   }
 
   var batchedWindowAttributeReadCount: Int {
-    get { read { $0.batchedWindowAttributeReadCount } }
-    set { read { $0.batchedWindowAttributeReadCount = newValue } }
+    get { withLockedStorage { $0.batchedWindowAttributeReadCount } }
+    set { withLockedStorage { $0.batchedWindowAttributeReadCount = newValue } }
   }
 
   var fallbackWindowAttributeReadCount: Int {
-    get { read { $0.fallbackWindowAttributeReadCount } }
-    set { read { $0.fallbackWindowAttributeReadCount = newValue } }
+    get { withLockedStorage { $0.fallbackWindowAttributeReadCount } }
+    set { withLockedStorage { $0.fallbackWindowAttributeReadCount = newValue } }
   }
 
   var windowManagementMetadataReadCount: Int {
-    get { read { $0.windowManagementMetadataReadCount } }
-    set { read { $0.windowManagementMetadataReadCount = newValue } }
+    get { withLockedStorage { $0.windowManagementMetadataReadCount } }
+    set { withLockedStorage { $0.windowManagementMetadataReadCount = newValue } }
   }
 
   var windowManagementMetadataReuseCount: Int {
-    get { read { $0.windowManagementMetadataReuseCount } }
-    set { read { $0.windowManagementMetadataReuseCount = newValue } }
+    get { withLockedStorage { $0.windowManagementMetadataReuseCount } }
+    set { withLockedStorage { $0.windowManagementMetadataReuseCount = newValue } }
   }
 
   var privateWindowIDLookupCount: Int {
-    get { read { $0.privateWindowIDLookupCount } }
-    set { read { $0.privateWindowIDLookupCount = newValue } }
+    get { withLockedStorage { $0.privateWindowIDLookupCount } }
+    set { withLockedStorage { $0.privateWindowIDLookupCount = newValue } }
   }
 
   var publicWindowIDFallbackCount: Int {
-    get { read { $0.publicWindowIDFallbackCount } }
-    set { read { $0.publicWindowIDFallbackCount = newValue } }
+    get { withLockedStorage { $0.publicWindowIDFallbackCount } }
+    set { withLockedStorage { $0.publicWindowIDFallbackCount = newValue } }
   }
 
   var lastWindowSnapshotDurationMS: Double {
-    get { read { $0.lastWindowSnapshotDurationMS } }
-    set { read { $0.lastWindowSnapshotDurationMS = newValue } }
+    get { withLockedStorage { $0.lastWindowSnapshotDurationMS } }
+    set { withLockedStorage { $0.lastWindowSnapshotDurationMS = newValue } }
   }
 
   var maximumWindowSnapshotDurationMS: Double {
-    get { read { $0.maximumWindowSnapshotDurationMS } }
-    set { read { $0.maximumWindowSnapshotDurationMS = newValue } }
+    get { withLockedStorage { $0.maximumWindowSnapshotDurationMS } }
+    set { withLockedStorage { $0.maximumWindowSnapshotDurationMS = newValue } }
   }
 
   var windowSnapshotDurationSamplesMS: [Double] {
-    get { read { $0.windowSnapshotDurationSamplesMS } }
-    set { read { $0.windowSnapshotDurationSamplesMS = newValue } }
+    get { withLockedStorage { $0.windowSnapshotDurationSamplesMS } }
+    set { withLockedStorage { $0.windowSnapshotDurationSamplesMS = newValue } }
   }
 
   var fullWindowSnapshotCount: Int {
-    get { read { $0.fullWindowSnapshotCount } }
-    set { read { $0.fullWindowSnapshotCount = newValue } }
+    get { withLockedStorage { $0.fullWindowSnapshotCount } }
+    set { withLockedStorage { $0.fullWindowSnapshotCount = newValue } }
   }
 
   var incrementalWindowSnapshotCount: Int {
-    get { read { $0.incrementalWindowSnapshotCount } }
-    set { read { $0.incrementalWindowSnapshotCount = newValue } }
+    get { withLockedStorage { $0.incrementalWindowSnapshotCount } }
+    set { withLockedStorage { $0.incrementalWindowSnapshotCount = newValue } }
   }
 
   var cachedWindowSnapshotCount: Int {
-    get { read { $0.cachedWindowSnapshotCount } }
-    set { read { $0.cachedWindowSnapshotCount = newValue } }
+    get { withLockedStorage { $0.cachedWindowSnapshotCount } }
+    set { withLockedStorage { $0.cachedWindowSnapshotCount = newValue } }
   }
 
   var applicationInventorySnapshotCount: Int {
-    get { read { $0.applicationInventorySnapshotCount } }
-    set { read { $0.applicationInventorySnapshotCount = newValue } }
+    get { withLockedStorage { $0.applicationInventorySnapshotCount } }
+    set { withLockedStorage { $0.applicationInventorySnapshotCount = newValue } }
   }
 
   var applicationWindowListReadCount: Int {
-    get { read { $0.applicationWindowListReadCount } }
-    set { read { $0.applicationWindowListReadCount = newValue } }
+    get { withLockedStorage { $0.applicationWindowListReadCount } }
+    set { withLockedStorage { $0.applicationWindowListReadCount = newValue } }
   }
 
   var applicationInventoryDurationSamplesMS: [Double] {
-    get { read { $0.applicationInventoryDurationSamplesMS } }
-    set { read { $0.applicationInventoryDurationSamplesMS = newValue } }
+    get { withLockedStorage { $0.applicationInventoryDurationSamplesMS } }
+    set { withLockedStorage { $0.applicationInventoryDurationSamplesMS = newValue } }
   }
 
   var applicationWindowListDurationSamplesMS: [Double] {
-    get { read { $0.applicationWindowListDurationSamplesMS } }
-    set { read { $0.applicationWindowListDurationSamplesMS = newValue } }
+    get { withLockedStorage { $0.applicationWindowListDurationSamplesMS } }
+    set { withLockedStorage { $0.applicationWindowListDurationSamplesMS = newValue } }
   }
 
   var snapshotCGWindowCopyCount: Int {
-    get { read { $0.snapshotCGWindowCopyCount } }
-    set { read { $0.snapshotCGWindowCopyCount = newValue } }
+    get { withLockedStorage { $0.snapshotCGWindowCopyCount } }
+    set { withLockedStorage { $0.snapshotCGWindowCopyCount = newValue } }
   }
 
   var lastSnapshotCGWindowCopyDurationMS: Double {
-    get { read { $0.lastSnapshotCGWindowCopyDurationMS } }
-    set { read { $0.lastSnapshotCGWindowCopyDurationMS = newValue } }
+    get { withLockedStorage { $0.lastSnapshotCGWindowCopyDurationMS } }
+    set { withLockedStorage { $0.lastSnapshotCGWindowCopyDurationMS = newValue } }
   }
 
   var maximumSnapshotCGWindowCopyDurationMS: Double {
-    get { read { $0.maximumSnapshotCGWindowCopyDurationMS } }
-    set { read { $0.maximumSnapshotCGWindowCopyDurationMS = newValue } }
+    get { withLockedStorage { $0.maximumSnapshotCGWindowCopyDurationMS } }
+    set { withLockedStorage { $0.maximumSnapshotCGWindowCopyDurationMS = newValue } }
   }
   init(
     frameCoordinator: AXFrameCoordinator,
@@ -700,6 +936,7 @@ final class SnapshotEngine: @unchecked Sendable {
   ) {
     self.frameCoordinator = frameCoordinator
     self.userInputTracker = userInputTracker
+    frameCoordinator.snapshotEngine = self
   }
 }
 
@@ -965,6 +1202,7 @@ extension SnapshotEngine {
     frontmostProcessID: pid_t?,
     requiresConfirmedWindow: Bool = false
   ) -> WindowID? {
+    if let focus = discoveryMeasurementAccess?.nativeFocus { return focus(windows) }
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
       .withTimeout(
@@ -1168,37 +1406,48 @@ extension SnapshotEngine {
     _ element: AXUIElement,
     processID: pid_t
   ) -> AXWindowAttributes {
+    windowAttributeDiscoveryRead(element, processID: processID, includingRelationships: false).attributes
+  }
+
+  func windowAttributeDiscoveryRead(
+    _ element: AXUIElement, processID: pid_t, includingRelationships: Bool
+  ) -> (attributes: AXWindowAttributes, parent: AXUIElement?, sheets: [AXUIElement]?) {
+    if let access = discoveryMeasurementAccess {
+      let attributes = access.windowAttributes(element, processID)
+      let relation = includingRelationships ? access.relationships(element) : (parent: nil, sheets: [])
+      return (attributes, relation.parent, relation.sheets)
+    }
     let elementIdentity = AXWindowElementIdentity(
       processID: processID,
       element: element
     )
-    if multipleAttributeReadsSupportedByProcess[processID] != false,
-      let attributes = batchedWindowAttributes(element)
-    {
-      multipleAttributeReadsSupportedByProcess[processID] = true
-      failedBatchedWindowAttributeReadsByElement[elementIdentity] = nil
-      batchedWindowAttributeReadCount += 1
-      return attributes
-    }
     if multipleAttributeReadsSupportedByProcess[processID] != false {
-      let failures = failedBatchedWindowAttributeReadsByElement[elementIdentity, default: 0] + 1
-      failedBatchedWindowAttributeReadsByElement[elementIdentity] = failures
-      if shouldDisableBatchedWindowAttributeReads(failureCount: failures) {
-        multipleAttributeReadsSupportedByProcess[processID] = false
-        failedBatchedWindowAttributeReadsByElement =
-          failedBatchedWindowAttributeReadsByElement.filter { $0.key.processID != processID }
-        return windowAttributes(element, processID: processID)
+      let copied = copyBatchedWindowAttributes(element, includingTransientRelationships: includingRelationships)
+      let fallBack = withLockedStorage { storage in
+        if copied.attributes != nil {
+          storage.multipleAttributeReadsSupportedByProcess[processID] = true
+          storage.failedBatchedWindowAttributeReadsByElement[elementIdentity] = nil
+          storage.batchedWindowAttributeReadCount += 1
+          return false
+        }
+        let failures = storage.failedBatchedWindowAttributeReadsByElement[elementIdentity, default: 0] + 1
+        storage.failedBatchedWindowAttributeReadsByElement[elementIdentity] = failures
+        if copied.error == .notImplemented || copied.error == .attributeUnsupported
+          || shouldDisableBatchedWindowAttributeReads(failureCount: failures)
+        {
+          storage.multipleAttributeReadsSupportedByProcess[processID] = false
+          storage.failedBatchedWindowAttributeReadsByElement = storage.failedBatchedWindowAttributeReadsByElement.filter { $0.key.processID != processID }
+          return true
+        }
+        return false
       }
-      return AXWindowAttributes(
-        minimized: nil,
-        frame: nil,
-        title: "",
-        role: nil,
-        subrole: nil
-      )
+      if let attributes = copied.attributes { return (attributes, copied.parent, copied.sheets) }
+      guard fallBack else {
+        return (AXWindowAttributes(minimized: nil, frame: nil, title: "", role: nil, subrole: nil), nil, nil)
+      }
     }
-    fallbackWindowAttributeReadCount += 1
-    return fallbackWindowAttributes(
+    withLockedStorage { $0.fallbackWindowAttributeReadCount += 1 }
+    let attributes = fallbackWindowAttributes(
       minimized: {
         value(
           element,
@@ -1232,22 +1481,7 @@ extension SnapshotEngine {
         )
       }
     )
-  }
-
-  private func batchedWindowAttributes(
-    _ element: AXUIElement
-  ) -> AXWindowAttributes? {
-    let read = copyBatchedWindowAttributes(element)
-    guard let attributes = read.attributes else {
-      if read.error == .notImplemented || read.error == .attributeUnsupported {
-        var processID: pid_t = 0
-        if AXUIElementGetPid(element, &processID) == .success {
-          multipleAttributeReadsSupportedByProcess[processID] = false
-        }
-      }
-      return nil
-    }
-    return attributes
+    return (attributes, nil, nil)
   }
 
   func copyAttribute(_ element: AXUIElement, name: String) -> CFTypeRef? {
@@ -1272,7 +1506,41 @@ extension SnapshotEngine {
 }
 
 private struct Storage {
+  var processWindowRetryDeadlines: [pid_t: TimeInterval] = [:]
+  var discoveryMeasurementAccess: DiscoveryMeasurementAccess?
   var pendingObservations = SnapshotObservations()
+  var nextBorderBindingRevision: UInt64 = 0
+  var borderBindingRevisions: [WindowID: UInt64] = [:]
+
+  func frameCommitReadIsCurrent(_ read: FrameCommitRead, inputTimestamp: TimeInterval) -> Bool {
+    let id = read.binding.windowID
+    guard let current = frameCommitExpectations[id] else { return false }
+    return current.commitID == read.expectation.commitID
+      && current.issuedAt == read.expectation.issuedAt
+      && current.target == read.expectation.target
+      && targetFrames[id] == current.target
+      && borderBindingIsCurrent(read.binding)
+      && !preparedWindowReadRevisions.invalidatedProcessIDs(
+        since: read.revisions, candidates: [read.binding.processID]).contains(read.binding.processID)
+      && inputTimestamp == read.inputTimestamp
+  }
+
+  mutating func advanceBorderBindingRevisions(for windowIDs: Set<WindowID>) {
+    for windowID in windowIDs {
+      frameCommitExpectations[windowID] = nil
+      nextBorderBindingRevision &+= 1
+      borderBindingRevisions[windowID] = elements[windowID] == nil ? nil : nextBorderBindingRevision
+    }
+  }
+
+  func borderBindingIsCurrent(_ target: BorderGeometryReadTarget) -> Bool {
+    !accessibilitySessionResetPending
+      && borderBindingRevisions[target.windowID] == target.bindingRevision
+      && processIDs[target.windowID] == target.processID
+      && sameAXElement(elements[target.windowID], target.element)
+      && sameAXElement(applications[target.processID], target.application)
+  }
+
   var elements: [WindowID: AXUIElement] = [:]
   var processIDs: [WindowID: pid_t] = [:]
   var transientOwnerWindowIDs: [WindowID: WindowID] = [:]
@@ -1407,5 +1675,75 @@ func windowSizeConstraintsForSnapshot(
   return previousWindow.map {
     WindowSizeConstraints(minimumWidth: $0.minimumTiledWidth,
       maximumWidth: $0.maximumTiledWidth, maximumHeight: $0.maximumTiledHeight)
+  }
+}
+
+private func sameAXElement(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
+  switch (lhs, rhs) {
+  case (nil, nil): return true
+  case let (lhs?, rhs?): return CFEqual(lhs, rhs)
+  default: return false
+  }
+}
+
+extension SnapshotEngine {
+  @discardableResult
+  func synchronizeProcessWindowRetryDeadlines(now: TimeInterval) -> [pid_t: TimeInterval] {
+    withLockedStorage { state in
+      let unmatched = state.unmatchedWindowElementsByProcess.compactMap { pid, elements in
+        !elements.isEmpty && unmatchedWindowRetryIsPending(attempts: state.unmatchedWindowRetryAttemptsByProcess[pid] ?? 0)
+          ? pid : nil
+      }
+      let failedLists = state.windowListReadRetryAttemptsByProcess.compactMap { pid, attempts in
+        unmatchedWindowRetryIsPending(attempts: attempts) ? pid : nil
+      }
+      let retained = retainedWindowRefreshProcessIDs(
+        retainedWindowIDs: state.retainedWindowIDs, processIDs: state.processIDs
+      ).intersection(state.applications.keys)
+      let pending = Set(unmatched).union(failedLists).union(retained)
+      var deadlines = state.processWindowRetryDeadlines.filter { pending.contains($0.key) }
+      for pid in pending where deadlines[pid] == nil { deadlines[pid] = now + 0.1 }
+      for (windowID, deadline) in state.retainedWindowDeadlines {
+        guard let pid = state.processIDs[windowID], pending.contains(pid) else { continue }
+        deadlines[pid] = min(deadlines[pid] ?? deadline, deadline)
+      }
+      state.processWindowRetryDeadlines = deadlines
+      return deadlines
+    }
+  }
+
+  func recordProcessWindowRetryRead(processID: pid_t, now: TimeInterval, retained: Set<WindowID>) {
+    withLockedStorage { state in
+      let pending = state.unmatchedWindowElementsByProcess[processID]?.isEmpty == false
+        && unmatchedWindowRetryIsPending(attempts: state.unmatchedWindowRetryAttemptsByProcess[processID] ?? 0)
+        || state.windowListReadRetryAttemptsByProcess[processID].map { unmatchedWindowRetryIsPending(attempts: $0) } == true
+        || !retained.isEmpty
+      let previous = state.processWindowRetryDeadlines[processID]
+      state.processWindowRetryDeadlines[processID] = pending
+        ? (previous.map { $0 > now + 0.000001 ? min($0, now + 0.1) : now + 0.1 } ?? now + 0.1)
+        : nil
+    }
+  }
+
+  func recordWindowListRetryResult(processID: pid_t, succeeded: Bool, now: TimeInterval) {
+    withLockedStorage { state in
+      let previous = state.windowListReadRetryAttemptsByProcess[processID]
+      if !succeeded, previous != nil,
+        let deadline = state.processWindowRetryDeadlines[processID], deadline > now + 0.000001
+      { return }
+      state.windowListReadRetryAttemptsByProcess[processID] = updatedWindowListReadRetryAttempts(
+        previousAttempts: previous, readSucceeded: succeeded
+      )
+    }
+  }
+
+  func dueProcessWindowRetryIDs(now: TimeInterval) -> Set<pid_t> {
+    Set(synchronizeProcessWindowRetryDeadlines(now: now).compactMap {
+      $0.value <= now + 0.000001 ? $0.key : nil
+    })
+  }
+
+  func nextProcessWindowRetryAt(now: TimeInterval) -> TimeInterval? {
+    synchronizeProcessWindowRetryDeadlines(now: now).values.min()
   }
 }

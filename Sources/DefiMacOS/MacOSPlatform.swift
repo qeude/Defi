@@ -166,6 +166,14 @@ public final class MacOSPlatform {
     get { snapshotEngine.latestObservedFrames }
     set { snapshotEngine.latestObservedFrames = newValue }
   }
+  public nonisolated var nextFrameCommitVerificationAt: TimeInterval? {
+    snapshotEngine.nextFrameCommitVerificationAt
+  }
+
+  public nonisolated func requestDueFrameCommitVerification(now: TimeInterval) -> Bool {
+    snapshotEngine.requestDueFrameCommitVerification(now: now)
+  }
+
   nonisolated var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
     get { snapshotEngine.frameCommitExpectations }
     set { snapshotEngine.frameCommitExpectations = newValue }
@@ -310,6 +318,8 @@ public final class MacOSPlatform {
   }
   @MainActor var presentationStatusPending = false
   @MainActor var accessibilityDisplayObserver: NSObjectProtocol?
+  @MainActor lazy var delayedObservationCampaigns = DelayedObservationCampaigns()
+  @MainActor var observationMeasurementAccess: ObservationMeasurementAccess?
   @MainActor var eventMonitor: PlatformEventMonitor?
   nonisolated var mouseResizeGesturePending: Bool {
     get { snapshotEngine.mouseResizeGesturePending }
@@ -434,10 +444,14 @@ public final class MacOSPlatform {
   public nonisolated let userInputTracker = UserInputTracker()
   public nonisolated let pointerMotionTracker = PointerMotionTracker()
 
-  public init() {
+  public convenience init() {
+    self.init(frameCoordinator: nil)
+  }
+
+  init(frameCoordinator suppliedCoordinator: AXFrameCoordinator?) {
     let boundsProvider = WindowServerBoundsProvider()
     borderBoundsProvider = boundsProvider
-    frameCoordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+    frameCoordinator = suppliedCoordinator ?? AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
       nativePositionReader: { windowID, processID in
         if let frame = boundsProvider.frame(for: windowID) {
           return CGPoint(x: frame.x, y: frame.y)
@@ -450,6 +464,13 @@ public final class MacOSPlatform {
       frameCoordinator: frameCoordinator, userInputTracker: userInputTracker
     )
     snapshotEngine.host = self
+    frameCoordinator.borderNativeFrameReader = { boundsProvider.frame(for: $0) }
+    frameCoordinator.borderBindingIsCurrent = { [weak snapshotEngine] target in
+      snapshotEngine?.borderBindingIsCurrent(target) == true
+    }
+    frameCoordinator.borderObservationHandler = { [weak self] observations in
+      self?.presentBorderGeometryObservations(observations)
+    }
     frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
       self?.enqueueBorderGeometry(Set(frames.keys))
     }

@@ -356,6 +356,9 @@ final class Daemon {
       needsDesktopSync = true
     }
     let now = ProcessInfo.processInfo.systemUptime
+    if platform.requestDueFrameCommitVerification(now: now) {
+      needsDesktopSync = true
+    }
     if let mouseGestureSettlement,
       now >= mouseGestureSettlement.nextCheckAt
     {
@@ -451,7 +454,7 @@ final class Daemon {
     let desktopRefreshInterval = desktopSnapshotRefreshInterval(
       reliableDesktopObservation: platform.hasReliableDesktopObservation
     )
-    let windowListRefreshInterval = platform.recommendedWindowListRefreshInterval
+    let windowListRefreshInterval = platform.recommendedGlobalWindowListRefreshInterval
     let applicationInventoryInterval =
       platform.recommendedApplicationInventoryRefreshInterval
     let periodicWindowRefreshDue = observationWatchdogRefreshIsReady(
@@ -459,14 +462,15 @@ final class Daemon {
       interval: desktopRefreshInterval,
       userInputIdleDuration: userInputIdleDuration
     )
-    let windowListRefreshDue = observationWatchdogRefreshIsReady(
-      due: now >= nextWindowListRefreshAt,
-      interval: windowListRefreshInterval,
-      userInputIdleDuration: userInputIdleDuration
+    let windowListRequest = windowDiscoveryRefreshRequest(
+      now: now, globalDeadline: nextWindowListRefreshAt, interval: windowListRefreshInterval,
+      retryDeadline: platform.nextWindowDiscoveryRetryAt,
+      userInputIdleDuration: userInputIdleDuration,
+      dueProcessIDs: platform.dueWindowDiscoveryRetryProcessIDs(now: now)
     )
-    let targetedWindowRetryRefresh = windowListRefreshDue
-      && !platform.dueWindowDiscoveryRetryProcessIDs(now: now).isEmpty
-    let globalWindowListRefreshDue = windowListRefreshDue && !targetedWindowRetryRefresh
+    let windowListRefreshDue = windowListRequest.due
+    let targetedWindowRetryRefresh = windowListRequest.targeted
+    let globalWindowListRefreshDue = windowListRequest.global
     let applicationInventoryRefreshDue = observationWatchdogRefreshIsReady(
       due: now >= nextApplicationInventoryRefreshAt,
       interval: applicationInventoryInterval,

@@ -663,6 +663,21 @@ struct DaemonCommandPolicyTests {
     ) == 0.3)
   }
 
+  @Test func finalFrameVerificationPreemptsIdleWatchdogEvenAfterNewInput() {
+    #expect(idleDesktopRefreshDelay(
+      now: 10, latestInputAt: 10,
+      deadlinesAndIntervals: [(40, 30), (10.5, 0.1)]
+    ) == 0.5)
+    #expect(idleDesktopRefreshDelay(
+      now: 10.6, latestInputAt: 10.6,
+      deadlinesAndIntervals: [(40, 30), (10.5, 0.1)]
+    ) == 0.3)
+    #expect(idleDesktopRefreshDelay(
+      now: 10.6, latestInputAt: 10.6,
+      deadlinesAndIntervals: [(40, 30), (.infinity, 0.1)]
+    ) == 29.4)
+  }
+
   @Test(
     "Close fallback keeps the selected process",
     .bug("https://github.com/qeude/Defi/pull/49#discussion_r3925069182")

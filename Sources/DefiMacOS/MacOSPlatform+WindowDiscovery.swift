@@ -77,16 +77,15 @@ extension SnapshotEngine {
             var parent: AXUIElement?
             var sheets: [AXUIElement]?
             if candidate.usesBatchedAttributeReads {
-              let read = copyBatchedWindowAttributes(
-                candidate.element,
-                includingTransientRelationships: true
+              let read = self.windowAttributeDiscoveryRead(
+                candidate.element, processID: candidate.processID, includingRelationships: true
               )
               attributes = read.attributes
               parent = read.parent
               sheets = read.sheets
             }
             if parent == nil || sheets == nil {
-              let fallback = copyTransientOwnerRelationships(candidate.element)
+              let fallback = self.readDiscoveryRelationships(candidate.element)
               parent = parent ?? fallback.parent
               sheets = sheets ?? fallback.sheets
             }
@@ -102,16 +101,10 @@ extension SnapshotEngine {
         if let candidate = job.application, readIsCurrent(job.processID) {
           let readStartedAt = ProcessInfo.processInfo.systemUptime
           let windows = AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [candidate.element]) {
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(
-              candidate.element, kAXWindowsAttribute as CFString, &value
-            ) == .success else { return nil as [AXUIElement]? }
-            return value as? [AXUIElement]
+            self.readDiscoveryApplicationWindows(candidate.element, processID: job.processID)
           }
-          applicationWindows = windows.map {
-            PreparedAXApplicationWindows(elements: $0,
-              durationMS: (ProcessInfo.processInfo.systemUptime - readStartedAt) * 1_000)
-          }
+          applicationWindows = PreparedAXApplicationWindows(elements: windows,
+            durationMS: (ProcessInfo.processInfo.systemUptime - readStartedAt) * 1_000)
         }
         return PreparedAXProcessReadResult(
           processID: job.processID, windows: reads, application: applicationWindows

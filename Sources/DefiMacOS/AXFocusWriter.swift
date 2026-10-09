@@ -13,6 +13,12 @@ struct QueuedFocusRequest: @unchecked Sendable {
 }
 
 final class AXFocusWriter: @unchecked Sendable {
+  let operations: AXFocusOperations
+
+  init(operations: AXFocusOperations = AXFocusOperations()) {
+    self.operations = operations
+  }
+
   let queue = DispatchQueue(
     label: "com.quentin.defi.ax-focus",
     qos: .userInitiated

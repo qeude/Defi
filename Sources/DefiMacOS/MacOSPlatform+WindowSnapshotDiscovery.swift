@@ -6,7 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
-private let snapshotAccessibilityTimeoutSeconds: Float = 0.05
+let snapshotAccessibilityTimeoutSeconds: Float = 0.05
 private let maximumTransientOwnerResolutionAttempts = 8
 
 func transientOwnerResolutionRetryDelay(afterAttempt attempt: Int) -> TimeInterval {
@@ -90,6 +90,7 @@ struct SnapshotWindowDiscoveryResult {
   let minimizedWindowIDs: Set<WindowID>
   let unresolvedOutcomesByProcess: [pid_t: Set<String>]
   let refreshedProcessIDs: Set<pid_t>
+  let attemptedFrameWindowIDs: Set<WindowID>
 
   func unresolvedOutcome(for processID: pid_t) -> String {
     let observations = unresolvedOutcomesByProcess[processID, default: []].sorted()
@@ -150,6 +151,7 @@ extension SnapshotEngine {
       var ignoredProcessReasonsByProcess: [pid_t: String] = [:]
       var unresolvedOutcomesByProcess: [pid_t: Set<String>] = [:]
       var refreshedProcessIDs = Set<pid_t>()
+      var attemptedFrameWindowIDs = Set<WindowID>()
       var nextNativeWindowTabGroups: [WindowID: NativeWindowTabGroup] = [:]
       var nextRetainedWindowIDs = Set<WindowID>()
       var cachedSnapshotWindowIDs = Set<WindowID>()
@@ -266,10 +268,49 @@ extension SnapshotEngine {
       let runningApplications = baseApplications + fallbackApplicationIDs.keys
         .filter { !baseProcessIDs.contains($0) }.sorted().map { ($0, nil) }
       let ownProcessID = ProcessInfo.processInfo.processIdentifier
+      let readProcessIDs = Set(runningApplications.filter { candidate in
+        guard candidate.processID > 0, candidate.processID != ownProcessID else { return false }
+        if let application = candidate.application {
+          return !application.isTerminated && application.activationPolicy == .regular
+        }
+        return previousApplicationIDs[candidate.processID] != nil || fallbackApplicationIDs[candidate.processID] != nil
+      }.map(\.processID)).intersection(previousApplications.keys)
+      let listReadProcessIDs = readProcessIDs.filter { processID in
+        discoveryWindowListReadIsRequired(
+          hasCachedWindows: lastApplicationWindowElements[processID] != nil,
+          refreshesAllWindowLists: refreshesApplicationInventory || capturedTopologyRequiresFullSnapshot
+            || forceWindowListRefresh || forceWindowListRefreshProcessIDs.contains(processID),
+          topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
+            || retainedWindowIDs.contains { previousProcessIDs[$0] == processID },
+          hasCreatedElements: createdElements[processID]?.isEmpty == false,
+          forceWindowListRefresh: forceWindowListRefresh,
+          forceProcessWindowListRefresh: forceWindowListRefreshProcessIDs.contains(processID),
+          refreshesApplicationInventory: refreshesApplicationInventory
+        )
+      }
+      let windowListRefreshProcessIDs = readProcessIDs.filter { processID in
+        applicationWindowListRefreshIsRequired(hasCachedWindows: lastApplicationWindowElements[processID] != nil,
+          refreshesAllWindowLists: refreshesApplicationInventory || capturedTopologyRequiresFullSnapshot
+            || forceWindowListRefresh || forceWindowListRefreshProcessIDs.contains(processID),
+          topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
+            || retainedWindowIDs.contains { previousProcessIDs[$0] == processID })
+      }
+      let preparedIncremental = readProcessIDs.count > 1
+        && preparedWindowAttributes.isEmpty && preparedApplicationWindows.isEmpty
+        ? prepareIncrementalDiscoveryReads(processIDs: readProcessIDs, listProcessIDs: listReadProcessIDs,
+            windowListRefreshProcessIDs: windowListRefreshProcessIDs,
+            existingWindowIDsByProcessAndElementHash: previousWindowIDsByProcessAndElementHash,
+            frameRefreshWindowIDs: frameRefreshWindowIDs, explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
+            shouldReadProcess: shouldReadProcess)
+        : nil
+      let preparedWindowAttributes = preparedWindowAttributes.merging(preparedIncremental?.attributes ?? [:]) { supplied, _ in supplied }
+      let preparedApplicationWindows = preparedApplicationWindows.merging(preparedIncremental?.applications ?? [:]) { supplied, _ in supplied }
       for runningApplication in runningApplications {
         let processID = runningApplication.processID
         guard processID > 0, processID != ownProcessID else { continue }
-        if !shouldReadProcess(processID), reuseCachedProcess(processID) {
+        if preparedIncremental?.deferredProcessIDs.contains(processID) == true || !shouldReadProcess(processID),
+          reuseCachedProcess(processID)
+        {
           deferredReadProcessIDs.insert(processID)
           continue
         }
@@ -312,34 +353,47 @@ extension SnapshotEngine {
             }
           enhancedUIByProcess[processID] = observedEnhancedUI
         }
+        let retryNow = discoveryNow
+        if unmatchedWindowElementsByProcess[processID]?.isEmpty == false {
+          if unmatchedWindowRetryIsPending(attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0),
+            processWindowRetryDeadlines[processID].map { $0 <= retryNow + 0.000001 } == true
+          {
+            consumeUnmatchedWindowRetries(processIDs: [processID])
+          } else if forceWindowListRefresh && !unmatchedWindowRetryIsPending(
+            attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0
+          ) {
+            unmatchedWindowElementsByProcess[processID] = nil
+          }
+        }
         let cachedApplicationWindows = lastApplicationWindowElements[processID]
+        let readsWindowList = discoveryWindowListReadIsRequired(
+          hasCachedWindows: cachedApplicationWindows != nil,
+          refreshesAllWindowLists: refreshesApplicationInventory || capturedTopologyRequiresFullSnapshot
+            || forceWindowListRefresh || forceWindowListRefreshProcessIDs.contains(processID),
+          topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
+            || retainedWindowIDs.contains { previousProcessIDs[$0] == processID },
+          hasCreatedElements: createdElements[processID]?.isEmpty == false,
+          forceWindowListRefresh: forceWindowListRefresh,
+          forceProcessWindowListRefresh: forceWindowListRefreshProcessIDs.contains(processID),
+          refreshesApplicationInventory: refreshesApplicationInventory
+        )
         let refreshesWindowList = applicationWindowListRefreshIsRequired(
           hasCachedWindows: cachedApplicationWindows != nil,
-          refreshesAllWindowLists:
-            refreshesApplicationInventory
-            || capturedTopologyRequiresFullSnapshot
-            || forceWindowListRefresh
-            || forceWindowListRefreshProcessIDs.contains(processID),
+          refreshesAllWindowLists: refreshesApplicationInventory || capturedTopologyRequiresFullSnapshot
+            || forceWindowListRefresh || forceWindowListRefreshProcessIDs.contains(processID),
           topologyProcessWasInvalidated: topologyProcessIDs.contains(processID)
             || retainedWindowIDs.contains { previousProcessIDs[$0] == processID }
         )
+        let preparedReadIsCurrent = preparedIncremental?.isCurrent(self, processID: processID) ?? true
         var appWindows: [AXUIElement]?
         let created = createdElements[processID] ?? []
-        if !created.isEmpty, let cachedApplicationWindows,
-          !forceWindowListRefresh,
-          !forceWindowListRefreshProcessIDs.contains(processID),
-          !refreshesApplicationInventory
-        {
-          // AXWindows can lag AXWindowCreated. Place the reported window now;
-          // the existing 50 ms topology retry reconciles the complete list.
-          appWindows = cachedApplicationWindows
-        } else if refreshesWindowList {
+        if readsWindowList {
           refreshedProcessIDs.insert(processID)
           applicationWindowListReadCount += 1
           let windowListStartedAt = ProcessInfo.processInfo.systemUptime
-          let preparedWindows = preparedApplicationWindows[processID]
-          let copiedWindows = preparedWindows?.elements
-            ?? AXMessagingTimeoutAccess.shared.withTimeout(
+          let preparedWindows = preparedReadIsCurrent ? preparedApplicationWindows[processID] : nil
+          let copiedWindows: [AXUIElement]? = preparedWindows != nil ? preparedWindows!.elements
+            : AXMessagingTimeoutAccess.shared.withTimeout(
               snapshotAccessibilityTimeoutSeconds,
               elements: [appElement]
             ) {
@@ -352,10 +406,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
                   ) }
                 },
                 copyWindows: {
-                  copyElements(
-                    appElement,
-                    attribute: kAXWindowsAttribute
-                  )
+                  readDiscoveryApplicationWindows(appElement, processID: processID)
                 }
               )
             }
@@ -364,11 +415,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               ?? (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
             in: &applicationWindowListDurationSamplesMS
           )
-          windowListReadRetryAttemptsByProcess[processID] =
-            updatedWindowListReadRetryAttempts(
-              previousAttempts: windowListReadRetryAttemptsByProcess[processID],
-              readSucceeded: copiedWindows != nil
-            )
+          recordWindowListRetryResult(processID: processID, succeeded: copiedWindows != nil, now: discoveryNow)
           if copiedWindows == nil {
             // A session transition can invalidate an existing AX connection.
             // Renew it for the already scheduled retry, without an extra read.
@@ -423,11 +470,11 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
           // A targeted frame observation cannot make a sibling's cached
           // geometry fresh. Topology and watchdog passes still read the process.
-          if !refreshesWindowList, let frameRefreshWindowIDs, let previousWindowID,
-            !frameRefreshWindowIDs.contains(previousWindowID),
-            let cached = previousWindowsByID[previousWindowID],
-            let nativeID = CGWindowID(exactly: previousWindowID.rawValue),
-            usedCGWindowIDs.insert(nativeID).inserted
+          if !discoveryWindowAttributeReadIsRequired(refreshesWindowList: refreshesWindowList,
+            frameRefreshWindowIDs: frameRefreshWindowIDs, previousWindowID: previousWindowID,
+            hasCachedWindow: previousWindowID.map { previousWindowsByID[$0] != nil } ?? false),
+            let previousWindowID, let cached = previousWindowsByID[previousWindowID],
+            let nativeID = CGWindowID(exactly: previousWindowID.rawValue), usedCGWindowIDs.insert(nativeID).inserted
           {
             windows.append(cached)
             nextElements[previousWindowID] = element
@@ -437,12 +484,11 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             continue
           }
           if previousWindowID == nil,
-            unmatchedWindowElementsByProcess[processID]?.contains(where: {
-              CFEqual($0, element)
-            }) == true
+            unmatchedWindowElementsByProcess[processID]?.contains(where: { CFEqual($0, element) }) == true
           {
             continue
           }
+          if let previousWindowID { attemptedFrameWindowIDs.insert(previousWindowID) }
           let discovery = AXMessagingTimeoutAccess.shared.withTimeout(
             snapshotAccessibilityTimeoutSeconds,
             elements: [element]
@@ -456,9 +502,9 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               monitors: monitors,
               preferredWindowID: previousWindowID,
               excluding: usedCGWindowIDs,
-              preparedAttributes: previousWindowID.flatMap {
+              preparedAttributes: (preparedIncremental?.isCurrent(self, processID: processID) ?? true) ? previousWindowID.flatMap {
                 preparedWindowAttributes[$0]
-              }
+              } : nil
             )
           }
           let candidate: Window
@@ -528,9 +574,9 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               forceTiling: decision.forceTiling,
               previousDisposition: previousDisposition,
               reuseCachedCapabilities: !refreshesWindowList,
-              preparedModalState: previousWindowID.flatMap {
+              preparedModalState: (preparedIncremental?.isCurrent(self, processID: processID) ?? true) ? previousWindowID.flatMap {
                 preparedWindowAttributes[$0]?.modal
-              }
+              } : nil
             )
           }
           switch disposition {
@@ -660,13 +706,14 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           previousDeadlines: retainedWindowDeadlines.filter {
             !confirmedWindowIDs.contains($0.key)
           },
-          now: ProcessInfo.processInfo.systemUptime
+          now: discoveryNow
         )
         let processRetainedWindowIDs = retention.windowIDs
         for windowID in previousWindows.map(\.id) {
           retainedWindowDeadlines[windowID] = retention.deadlines[windowID]
         }
         nextRetainedWindowIDs.formUnion(processRetainedWindowIDs)
+        recordProcessWindowRetryRead(processID: processID, now: discoveryNow, retained: processRetainedWindowIDs)
         if !processRetainedWindowIDs.isEmpty {
           let retainedIDs = processRetainedWindowIDs.sorted {
             $0.rawValue < $1.rawValue
@@ -790,7 +837,8 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         $0.value == "AX-minimized" ? $0.key : nil
       }),
       unresolvedOutcomesByProcess: unresolvedOutcomesByProcess,
-      refreshedProcessIDs: refreshedProcessIDs
+      refreshedProcessIDs: refreshedProcessIDs,
+      attemptedFrameWindowIDs: attemptedFrameWindowIDs
     )
   }
 
@@ -847,17 +895,17 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
     var resolvedCandidateIDs = ownerLookupCandidateIDs.intersection(
       livePreparedOwnerWindowIDs.keys
     )
+    let preparedParents = prepareIncrementalOwnerReads(
+      windowIDs: ownerLookupCandidateIDs.subtracting(resolvedCandidateIDs), elements: elements, processIDs: processIDs
+    )
     for childID in ownerLookupCandidateIDs where !resolvedCandidateIDs.contains(childID) {
       guard let child = elements[childID] else { continue }
-      let parent = AXMessagingTimeoutAccess.shared.withTimeout(
-        snapshotAccessibilityTimeoutSeconds,
-        elements: [child]
-      ) {
-        guard
-          let value = self.copyAttribute(child, name: kAXParentAttribute),
-          CFGetTypeID(value) == AXUIElementGetTypeID()
-        else { return nil as AXUIElement? }
-        return (value as! AXUIElement)
+      let parent: AXUIElement?
+      if let prepared = preparedParents[childID] { parent = prepared }
+      else {
+        parent = AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: [child]) {
+          self.readDiscoveryParent(child)
+        }
       }
       if let parent,
         let ownerID = elements.first(where: {

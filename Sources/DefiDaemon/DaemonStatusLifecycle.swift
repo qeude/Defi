@@ -243,7 +243,9 @@ extension Daemon {
       deadlinesAndIntervals: [
         (nextPeriodicWindowRefreshAt, desktopSnapshotRefreshInterval(
           reliableDesktopObservation: platform.hasReliableDesktopObservation)),
-        (nextWindowListRefreshAt, platform.recommendedWindowListRefreshInterval),
+        (nextWindowListRefreshAt, platform.recommendedGlobalWindowListRefreshInterval),
+        (platform.nextWindowDiscoveryRetryAt ?? .infinity, 0.1),
+        (platform.nextFrameCommitVerificationAt ?? .infinity, 0.1),
         (nextApplicationInventoryRefreshAt,
           platform.recommendedApplicationInventoryRefreshInterval),
       ]

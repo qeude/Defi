@@ -112,8 +112,12 @@ struct CGWindowDiscoveryRetryTracker: Sendable {
     })
   }
 
+  var nextRetryAt: TimeInterval? {
+    entries.values.compactMap(\.nextRetryAt).min()
+  }
+
   func refreshInterval(now: TimeInterval) -> TimeInterval? {
-    entries.values.compactMap(\.nextRetryAt).map { max($0 - now, 0) }.min()
+    nextRetryAt.map { max($0 - now, 0) }
   }
 
   mutating func completeRetries(

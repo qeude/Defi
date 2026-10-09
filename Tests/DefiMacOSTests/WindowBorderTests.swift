@@ -46,13 +46,14 @@ struct WindowBorderTests {
     #expect(firstScheduled)
     #expect(!secondScheduled)
     let delivered = pending.take()
-    #expect(delivered == [first, second])
+    #expect(delivered.windowIDs == [first, second])
+    #expect(delivered.nativeReadWindowIDs.isEmpty)
     let nextScheduled = pending.enqueue([second])
     #expect(nextScheduled)
     let next = pending.take()
-    #expect(next == [second])
+    #expect(next.windowIDs == [second])
     let empty = pending.take()
-    #expect(empty.isEmpty)
+    #expect(empty.windowIDs.isEmpty)
   }
 
   private let monitor = Rect(x: 0, y: 0, width: 1_512, height: 900)

@@ -213,11 +213,11 @@ extension Daemon {
       ),
       reset: forceFullWindowRefresh || consumePeriodicWindowRefresh
     )
-    nextWindowListRefreshAt = boundedSnapshotRefreshDeadline(
+    nextWindowListRefreshAt = windowDiscoveryGlobalDeadline(
       current: nextWindowListRefreshAt,
       now: snapshotCompletedAt,
-      interval: platform.recommendedWindowListRefreshInterval,
-      reset: forceWindowListRefresh || targetedWindowRetryRefresh
+      interval: platform.recommendedGlobalWindowListRefreshInterval,
+      globalRefresh: forceWindowListRefresh, targetedRefresh: targetedWindowRetryRefresh
     )
     let applicationInventoryInterval =
       platform.recommendedApplicationInventoryRefreshInterval
