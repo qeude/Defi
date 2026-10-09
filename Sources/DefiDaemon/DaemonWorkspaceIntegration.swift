@@ -9,6 +9,19 @@ let workspaceStateNotification = Notification.Name(
   "com.quentin.defi.workspaceChanged"
 )
 
+func postWorkspaceStateNotification(_ data: Data) {
+  DispatchQueue.main.async {
+    guard let userInfo = try? JSONSerialization.jsonObject(with: data)
+      as? [AnyHashable: Any] else { return }
+    DistributedNotificationCenter.default().postNotificationName(
+      workspaceStateNotification,
+      object: nil,
+      userInfo: userInfo,
+      deliverImmediately: true
+    )
+  }
+}
+
 @NavigationActor
 extension Daemon {
   func currentWorkspaceState() -> WorkspaceStateSnapshot {
@@ -45,16 +58,7 @@ extension Daemon {
     guard snapshot != lastPublishedWorkspaceState else { return }
     do {
       let data = try JSONEncoder().encode(snapshot)
-      DispatchQueue.main.async {
-        guard let userInfo = try? JSONSerialization.jsonObject(with: data)
-          as? [AnyHashable: Any] else { return }
-        DistributedNotificationCenter.default().postNotificationName(
-          workspaceStateNotification,
-          object: nil,
-          userInfo: userInfo,
-          deliverImmediately: true
-        )
-      }
+      workspaceStatePublisher(data)
       lastPublishedWorkspaceState = snapshot
     } catch {
       log("workspace state publication failed: \(error)")

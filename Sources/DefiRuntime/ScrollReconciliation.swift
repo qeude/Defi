@@ -48,32 +48,6 @@ public func synchronizeScrollOffsets(
   }
 }
 
-public func alignFocusedColumnLeft(
-  on monitorID: MonitorID,
-  state: inout RuntimeState,
-  viewports: [MonitorID: Rect]
-) {
-  guard let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }),
-    let viewport = viewports[monitorID],
-    let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
-      where: { $0.id == state.monitors[monitorIndex].activeWorkspace }
-    )
-  else {
-    return
-  }
-  let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
-  let windows = workspace.columns
-    .flatMap(\.windows)
-    .compactMap { state.windows[$0] }
-  state.monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset =
-    focusedColumnRevealScrollOffset(
-      workspace: workspace,
-      viewport: viewport,
-      windows: windows,
-      settings: state.layout
-    )
-}
-
 @discardableResult
 public func learnTiledWindowWidth(
   _ windowID: WindowID,

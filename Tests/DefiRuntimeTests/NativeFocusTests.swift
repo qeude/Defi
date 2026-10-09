@@ -1050,16 +1050,48 @@ struct NativeFocusTests {
     setColumnWidths(.fraction(0.5), state: &state)
     focusWindow(WindowID(rawValue: focusedWindow), state: &state)
     state.monitors[0].workspaces[0].scrollOffset = scrollOffset
-    alignFocusedColumnLeft(
-      on: monitorID,
+    synchronizeScrollOffsets(
       state: &state,
       viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     )
     #expect(state.monitors[0].workspaces[0].targetScrollOffset == expectedOffset)
   }
 
-  private func makeState(windowCount: Int = 2) throws -> RuntimeState {
-    var state = RuntimeState(config: Config())
+  @Test(arguments: [
+    (CenterFocusedColumnConfig.always, UInt64(2), 0.25),
+    (CenterFocusedColumnConfig.always, UInt64(3), 0.75),
+    (CenterFocusedColumnConfig.never, UInt64(3), 0.5),
+  ])
+  func nativeAndShortcutFocusRespectConfiguredScroll(
+    centering: CenterFocusedColumnConfig, focusedWindow: UInt64, expectedOffset: Double
+  ) throws {
+    var native = try makeState(
+      windowCount: 4,
+      config: Config(layout: LayoutConfig(centerFocusedColumn: centering, gaps: 0))
+    )
+    setColumnWidths(.fraction(0.5), state: &native)
+    focusWindow(WindowID(rawValue: 1), state: &native)
+    native.monitors[0].workspaces[0].scrollOffset = 0
+    native.monitors[0].workspaces[0].targetScrollOffset = 0
+    var shortcut = native
+    let viewports = [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
+
+    for _ in 1..<focusedWindow {
+      try reduce(.focusColumn(.right), on: monitorID, state: &shortcut)
+    }
+    synchronizeScrollOffsets(state: &shortcut, viewports: viewports)
+
+    focusWindow(WindowID(rawValue: focusedWindow), state: &native)
+    synchronizeScrollOffsets(state: &native, viewports: viewports)
+
+    #expect(shortcut.monitors[0].workspaces[0].targetScrollOffset == expectedOffset)
+    #expect(native.monitors[0].workspaces[0].targetScrollOffset == expectedOffset)
+    #expect(native.monitors[0].workspaces[0].focusedColumn == Int(focusedWindow - 1))
+    #expect(shortcut.monitors[0].workspaces[0].focusedColumn == Int(focusedWindow - 1))
+  }
+
+  private func makeState(windowCount: Int = 2, config: Config = Config()) throws -> RuntimeState {
+    var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
     for id in 1...windowCount {
       let window = Window(
