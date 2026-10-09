@@ -800,21 +800,11 @@ extension Daemon {
       )
     }
     synchronizeScrollOffsets(state: &state, viewports: viewportsByMonitor)
-    let preservesMouseViewport = mouseGestureScrollAnchor != nil
     if let mouseGestureScrollAnchor {
       restoreWorkspaceScroll(mouseGestureScrollAnchor, state: &state)
     }
     let focusedWindowIDForAlignment =
       guardedRemovalFocus?.windowID ?? snapshot.focusedWindowID
-    if !preservesMouseViewport, let nativelyFocusedMonitorID,
-      focusedWindowIDForAlignment.flatMap({ state.windows[$0]?.floating }) != true
-    {
-      alignFocusedColumnLeft(
-        on: nativelyFocusedMonitorID,
-        state: &state,
-        viewports: viewportsByMonitor
-      )
-    }
     if tracesWindowCreation {
       platform.recordPerformanceTrace("sync-before-layout")
     }

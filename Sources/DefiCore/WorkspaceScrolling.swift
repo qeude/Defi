@@ -34,41 +34,12 @@ public func focusedColumnLeftScrollOffset(
   return min(max(focusedLeft - leftPadding, 0), max(totalWidth - 1, 0))
 }
 
-public func focusedColumnRevealScrollOffset(
-  workspace: Workspace,
-  viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
-  windows: [Window] = [],
-  settings: LayoutSettings = LayoutSettings(),
-  excludingWindowIDs: Set<WindowID> = []
-) -> Double {
-  let minimumReveal = focusedColumnTargetScrollOffset(
-    workspace: workspace,
-    viewport: viewport,
-    windows: windows,
-    settings: settings,
-    excludingWindowIDs: excludingWindowIDs,
-    centerFocusedColumn: .never
-  )
-  let pixelTolerance = 1 / max(viewport.width, 1)
-  guard abs(minimumReveal - workspace.scrollOffset) > pixelTolerance else {
-    return minimumReveal
-  }
-  return focusedColumnLeftScrollOffset(
-    workspace: workspace,
-    viewport: viewport,
-    windows: windows,
-    settings: settings,
-    excludingWindowIDs: excludingWindowIDs
-  )
-}
-
 public func focusedColumnTargetScrollOffset(
   workspace: Workspace,
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
   windows: [Window] = [],
   settings: LayoutSettings,
-  excludingWindowIDs: Set<WindowID> = [],
-  centerFocusedColumn: CenterFocusedColumn? = nil
+  excludingWindowIDs: Set<WindowID> = []
 ) -> Double {
   let workspace = workspaceForLayout(
     workspace,
@@ -116,7 +87,7 @@ public func focusedColumnTargetScrollOffset(
   let minimumScroll = max(focusedRight - 1 + rightPadding, 0)
   let maximumScroll = min(focusedLeft - leftPadding, maxContentScroll)
 
-  switch centerFocusedColumn ?? settings.centerFocusedColumn {
+  switch settings.centerFocusedColumn {
   case .always:
     return min(
       max(focusedLeft + focusedWidth / 2 - 0.5, minimumScroll),
