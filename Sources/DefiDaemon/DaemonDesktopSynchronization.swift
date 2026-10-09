@@ -165,7 +165,7 @@ extension Daemon {
     }
   }
 
-  private func applyDesktopSnapshot(
+  func applyDesktopSnapshot(
     _ snapshot: DesktopSnapshot,
     nativeFocusWasPending: Bool,
     forceFullWindowRefresh: Bool,
@@ -913,7 +913,7 @@ extension Daemon {
     }
     persistTopology()
     updateMenuBar()
-    updateOverviewIfOpen()
+    desktopSnapshotOverviewUpdater(self)
     if !snapshot.leftMouseButtonDown && mouseGestureSettlement == nil {
       mouseGestureScrollAnchor = nil
     }

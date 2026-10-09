@@ -123,6 +123,8 @@ final class Daemon {
   var overviewExitPreparationActive = false
   var overviewOpenedAt: TimeInterval?
   nonisolated let menuBar: MenuBarState
+  let desktopSnapshotOverviewUpdater: @NavigationActor @Sendable (Daemon) -> Void
+  let workspaceStatePublisher: @Sendable (Data) -> Void
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
   var lastWorkspacePublishState: RuntimeState?
   var lastWorkspacePublishDisplayOrder: [MonitorID] = []
@@ -216,13 +218,24 @@ final class Daemon {
   var followUpBackoffSteps = 0
   var followUpUnchangedSince: TimeInterval = 0
 
-  init(options: DaemonOptions, menuBar: MenuBarState) throws {
+  init(
+    options: DaemonOptions,
+    menuBar: MenuBarState,
+    instanceLockURL: URL = DaemonLockPath.defaultURL,
+    topologyStore: WorkspaceTopologyStore = WorkspaceTopologyStore(),
+    workspaceStatePublisher: @escaping @Sendable (Data) -> Void = postWorkspaceStateNotification,
+    desktopSnapshotOverviewUpdater: @escaping @NavigationActor @Sendable (Daemon) -> Void = {
+      $0.updateOverviewIfOpen()
+    }
+  ) throws {
     self.menuBar = menuBar
-    instanceLock = try DaemonInstanceLock()
+    self.workspaceStatePublisher = workspaceStatePublisher
+    self.desktopSnapshotOverviewUpdater = desktopSnapshotOverviewUpdater
+    instanceLock = try DaemonInstanceLock(url: instanceLockURL)
     configURL = options.configURL ?? Config.defaultURL
     config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
-    topologyStore = WorkspaceTopologyStore()
+    self.topologyStore = topologyStore
     // An unavailable session identity must never match a previous process's state.
     topologySessionID = WorkspaceTopologyStore.currentSessionID()
       ?? "unavailable:\(UUID().uuidString)"
