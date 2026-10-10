@@ -5,6 +5,14 @@ import Testing
 @testable import DefiMacOS
 
 struct SettingsSearchTests {
+  @Test(arguments: ["version", "github", "updates", "release notes"])
+  func aboutSearchOpensDedicatedPage(query: String) throws {
+    let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
+    let result = try #require(results.first { $0.destination == .option(.about) })
+    #expect(result.destination.page == .about)
+    #expect(result.destination.anchor == .option(.about))
+  }
+
   @Test(arguments: ["  RESERVED_TOP \n", "Layout.reserved_top", "reserved top area"])
   func findsAdvancedOptionByLabelAndConfigKey(query: String) throws {
     let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])

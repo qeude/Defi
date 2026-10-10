@@ -151,6 +151,7 @@ private extension SettingsPage {
     case .appearance: .purple
     case .workspaces: .indigo
     case .appRules: .orange
+    case .about: .gray
     }
   }
   var symbol: String {
@@ -161,6 +162,7 @@ private extension SettingsPage {
     case .appearance: "paintpalette"
     case .workspaces: "rectangle.3.group"
     case .appRules: "app"
+    case .about: "info.circle"
     }
   }
 }
@@ -178,12 +180,13 @@ private struct SettingsPageView: View {
     case .appearance: AppearanceSettingsView(model: model, request: request)
     case .workspaces: WorkspaceSettingsView(model: model, request: request)
     case .appRules: AppRulesSettingsView(model: model, request: request)
+    case .about: AboutSettingsView(request: request)
     }
   }
 }
 
 @MainActor
-private struct SettingsRevealModifier: ViewModifier {
+struct SettingsRevealModifier: ViewModifier {
   let request: SettingsRevealRequest
   var ready = true
   var prepare: () -> Void = {}
@@ -280,27 +283,9 @@ private struct GeneralSettingsView: View {
         Button(SettingsOption.logs.title) { model.openLogs() }
           .settingsSearchTarget(.logs)
       }
-      AboutSettingsSection()
-        .settingsSearchTarget(.about)
     }
     .formStyle(.grouped)
     .modifier(SettingsRevealModifier(request: request))
-  }
-}
-
-private struct AboutSettingsSection: View {
-  var body: some View {
-    Section("About") {
-      LabeledContent(
-        "Defi",
-        value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-          ?? "Development build")
-      if let repositoryURL = URL(string: "https://github.com/qeude/Defi") {
-        Link(destination: repositoryURL) {
-          Label("View on GitHub", systemImage: "arrow.up.right.square")
-        }
-      }
-    }
   }
 }
 
