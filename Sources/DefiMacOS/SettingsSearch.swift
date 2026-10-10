@@ -8,6 +8,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Sendable {
   case appearance = "Appearance"
   case workspaces = "Workspaces"
   case appRules = "App Rules"
+  case about = "About"
 
   var id: Self { self }
 }
@@ -67,7 +68,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path", false)
     case .configurationGuide: (.general, "Configuration Guide…", "documentation configuration guide", false)
     case .logs: (.general, "Open Logs Folder…", "diagnostics logs", false)
-    case .about: (.general, "About Defi", "version github repository", false)
+    case .about: (.about, "About Defi", "version build github repository releases updates documentation issues", false)
     case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width", false)
     case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center", false)
     case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove", false)
