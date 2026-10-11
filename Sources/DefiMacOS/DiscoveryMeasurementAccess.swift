@@ -4,6 +4,7 @@ import DefiModel
 struct DiscoveryMeasurementAccess: Sendable {
   var snapshotCGWindows: (@Sendable () -> [CGWindowRecord]?)? = nil
   var nativeFocus: (@Sendable ([Window]) -> WindowID?)? = nil
+  var runningProcessIDs: (@Sendable () -> [pid_t])? = nil
   var now: @Sendable () -> TimeInterval
   var applicationWindows: @Sendable (AXUIElement, pid_t) -> [AXUIElement]?
   var windowAttributes: @Sendable (AXUIElement, pid_t) -> AXWindowAttributes

@@ -1,4 +1,3 @@
-import AppKit
 import ApplicationServices
 import DefiConfig
 import DefiModel
@@ -245,12 +244,8 @@ struct IncrementalDiscoveryRegressionTests {
     #expect(reads.state.withLock { $0.relationshipCalls } == 0)
   }
 
-  @MainActor @Test func inventoryRefreshReadsCachedProcessOnce() throws {
-    let ownProcessID = ProcessInfo.processInfo.processIdentifier
-    let running = try #require(NSWorkspace.shared.runningApplications.first {
-      $0.processIdentifier != ownProcessID && $0.activationPolicy == .regular && !$0.isTerminated
-    })
-    let processID = running.processIdentifier
+  @MainActor @Test func inventoryRefreshReadsCachedProcessOnce() {
+    let processID: pid_t = 61_003
     let platform = NavigationActor.shared.queue.sync { NavigationActor.assumeIsolated { MacOSPlatform() } }
     let engine = platform.snapshotEngine
     defer { withExtendedLifetime(platform) {} }
@@ -262,7 +257,9 @@ struct IncrementalDiscoveryRegressionTests {
       role: kAXWindowRole, subrole: kAXStandardWindowSubrole, processID: processID)
     reads.windowLists = [processID: [element]]
     reads.windowsByHash = [CFHash(element): window]
-    engine.discoveryMeasurementAccess = reads.access()
+    var access = reads.access()
+    access.runningProcessIDs = { [processID] }
+    engine.discoveryMeasurementAccess = access
     engine.applications = [processID: AXUIElementCreateApplication(processID)]
     engine.applicationIDsByProcess = [processID: "measurement"]
     engine.enhancedUIByProcess = [processID: false]
