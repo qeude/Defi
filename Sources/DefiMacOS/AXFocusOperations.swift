@@ -44,6 +44,6 @@ struct AXFocusOperations: @unchecked Sendable {
       element, kAXFocusedAttribute as CFString, &rawValue
     ) == .success, let rawValue, CFGetTypeID(rawValue) == CFBooleanGetTypeID()
     else { return nil }
-    return CFBooleanGetValue(rawValue as! CFBoolean)
+    return CFBooleanGetValue(unsafeDowncast(rawValue, to: CFBoolean.self))
   }
 }

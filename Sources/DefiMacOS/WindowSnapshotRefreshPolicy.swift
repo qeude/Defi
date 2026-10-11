@@ -295,7 +295,7 @@ func appBundleIdentifier(executablePath: String) -> String? {
 func appBundleIdentifier(processID: pid_t) -> String? {
   var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
   guard proc_pidpath(processID, &path, UInt32(path.count)) > 0 else { return nil }
-  return appBundleIdentifier(executablePath: String(cString: path))
+  return appBundleIdentifier(executablePath: String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
 }
 
 func resolvedFrontmostProcessID(

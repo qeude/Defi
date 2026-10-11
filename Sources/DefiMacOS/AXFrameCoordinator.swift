@@ -687,6 +687,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.unlock()
     for (processID, restore) in retiredEnhancedUIRestores {
       guard let reservation = restoreReservations[processID] else { continue }
+      let token = restore.token
       reservation.queue.async { [self, reservation] in
         defer {
           reservation.release()
@@ -696,17 +697,19 @@ final class AXFrameCoordinator: @unchecked Sendable {
         let superseded = deferredEnhancedUIRestores[processID] != nil
         lock.unlock()
         guard !superseded else { return }
-        let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [restore.application]) {
-          accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
+        // AXUIElement isn't Sendable; an application element is fully identified by its pid.
+        let application = AXUIElementCreateApplication(processID)
+        let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [application]) {
+          accessibilityWriter.setEnhancedUserInterface(true, application: application)
         }
         lock.lock()
         deferredEnhancedUIRestores[processID]?.disabled = false
         if !restored {
           // Keep a failed retirement recoverable by rediscovery or shutdown.
           if deferredEnhancedUIRestores[processID] == nil {
-            deferredEnhancedUIRestores[processID] = (restore.token, restore.application, false)
+            deferredEnhancedUIRestores[processID] = (token, application, false)
           }
-          appendTraceLocked("enhanced-ui-restore-failed pid=\(processID) token=\(restore.token) retired=1")
+          appendTraceLocked("enhanced-ui-restore-failed pid=\(processID) token=\(token) retired=1")
         }
         lock.unlock()
       }

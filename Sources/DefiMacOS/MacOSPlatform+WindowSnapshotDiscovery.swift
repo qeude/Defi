@@ -358,7 +358,7 @@ extension SnapshotEngine {
         let retryNow = discoveryNow
         if unmatchedWindowElementsByProcess[processID]?.isEmpty == false {
           if unmatchedWindowRetryIsPending(attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0),
-            processWindowRetryDeadlines[processID].map { $0 <= retryNow + 0.000001 } == true
+            processWindowRetryDeadlines[processID].map({ $0 <= retryNow + 0.000001 }) == true
           {
             consumeUnmatchedWindowRetries(processIDs: [processID])
           } else if forceWindowListRefresh && !unmatchedWindowRetryIsPending(
