@@ -392,9 +392,9 @@ public final class MacOSPlatform {
     get { snapshotEngine.chunkedFullRefreshRemainingProcessIDs }
     set { snapshotEngine.chunkedFullRefreshRemainingProcessIDs = newValue }
   }
-  nonisolated var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] {
-    get { snapshotEngine.incompatibleFreshReadDeadlines }
-    set { snapshotEngine.incompatibleFreshReadDeadlines = newValue }
+  nonisolated var fallbackFreshReadDeadlines: [pid_t: TimeInterval] {
+    get { snapshotEngine.fallbackFreshReadDeadlines }
+    set { snapshotEngine.fallbackFreshReadDeadlines = newValue }
   }
   @MainActor var pointerHitTestRecords: [CGWindowRecord] = []
   @MainActor var pointerHitTestDockProcessIDs = Set<pid_t>()

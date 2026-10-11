@@ -99,6 +99,26 @@ struct FrameCommitTests {
     #expect(calls.withLock { $0 } == 2)
   }
 
+  @Test(arguments: [false, true])
+  func queuedAnimationTickRunsOnClockQueueUnlessStopped(stopped: Bool) {
+    let calls = Mutex(0)
+    let queue = DispatchQueue(label: "test.animation-queued-stop")
+    queue.suspend()
+    let driver = FrameAnimationDriver(interval: 60, refreshInterval: 1 / 120,
+                                     displayIDs: [], queue: queue) { driver in
+      dispatchPrecondition(condition: .onQueue(queue))
+      calls.withLock { $0 += 1 }
+      driver.stop()
+      return true
+    }
+    defer { driver.stop() }
+    driver.requestTick(displayTimestamp: ProcessInfo.processInfo.systemUptime)
+    if stopped { driver.stop() }
+    queue.resume()
+    queue.sync {}
+    #expect(calls.withLock { $0 } == (stopped ? 0 : 1))
+  }
+
   @Test(arguments: [60.0, 120.0])
   func coalescedLaneCompletionDoesNotRepeatAcceptedOrCancelledTick(refreshRate: Double) {
     let interval = 1 / refreshRate

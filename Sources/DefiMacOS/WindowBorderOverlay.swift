@@ -25,6 +25,8 @@ final class BorderOverlay {
 
   var opacity: Double { Double(opacityValue) }
 
+  var orderingCount: Int { segments.values.reduce(0) { $0 + $1.orderingCount } }
+
   var windowLevelRawValues: [Int] {
     segments.values.map(\.windowLevelRawValue)
   }
@@ -50,11 +52,11 @@ final class BorderOverlay {
     return nil
   }
 
-  init(windowID: WindowID) {
+  init(windowID: WindowID, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
     let targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(
       uniqueKeysWithValues: WindowBorderSegmentKind.allCases.map {
-        ($0, BorderSegment(targetWindowNumber: targetWindowNumber))
+        ($0, BorderSegment(targetWindowNumber: targetWindowNumber, now: now))
       }
     )
   }
@@ -246,6 +248,9 @@ private final class BorderSegment {
   private(set) var frame: Rect?
   private var backingScale = 1.0
   private var orderedIn = false
+  private let now: () -> TimeInterval
+  private var lastOrderedAt = -TimeInterval.infinity
+  private(set) var orderingCount = 0
   private(set) var upperBoundWindowNumber: Int?
 
   var windowNumber: Int { panel.windowNumber }
@@ -258,8 +263,9 @@ private final class BorderSegment {
     return pixelWidth * pixelHeight
   }
 
-  init(targetWindowNumber: Int) {
+  init(targetWindowNumber: Int, now: @escaping () -> TimeInterval) {
     self.targetWindowNumber = targetWindowNumber
+    self.now = now
     panel = NSPanel(
       contentRect: .zero,
       styleMask: [.nonactivatingPanel],
@@ -295,6 +301,7 @@ private final class BorderSegment {
 
   func retarget(to targetWindowNumber: Int) {
     self.targetWindowNumber = targetWindowNumber
+    lastOrderedAt = -.infinity
   }
 
   func syncGeometry(
@@ -409,7 +416,7 @@ private final class BorderSegment {
     let wasOrderedIn = orderedIn
     ensureOrderedIn()
     if panel.alphaValue != 1 { panel.alphaValue = 1 }
-    if wasOrderedIn { orderForCurrentStacking() }
+    if wasOrderedIn, now() - lastOrderedAt >= 1 { orderForCurrentStacking() }
   }
 
   func orderOut() {
@@ -443,6 +450,8 @@ private final class BorderSegment {
   }
 
   private func orderForCurrentStacking() {
+    lastOrderedAt = now()
+    orderingCount += 1
     if let upperBoundWindowNumber {
       panel.order(.below, relativeTo: upperBoundWindowNumber)
     } else {

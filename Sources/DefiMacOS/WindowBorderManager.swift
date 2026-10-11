@@ -185,6 +185,7 @@ final class WindowBorderManager {
     }
     guard plan != lastPlan || displayedFrames != lastDisplayedFrames else {
       skippedPlans += 1
+      commitVisibleOverlays()
       return
     }
     lastPlan = plan

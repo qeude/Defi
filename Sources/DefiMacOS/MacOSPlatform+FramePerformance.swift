@@ -381,7 +381,9 @@ extension MacOSPlatform {
   public var recommendedGlobalWindowListRefreshInterval: TimeInterval {
     let base = windowListRefreshInterval(
       hasPendingShortRetry: cgWindowInventoryRetryAttempts.map { unmatchedWindowRetryIsPending(attempts: $0) } == true,
-      reliableTopologyObservation: hasReliableWindowTopologyObservation
+      reliableTopologyObservation: hasReliableWindowTopologyObservation,
+      hasScopedTopologyFallback: snapshotEngine.hasCompletedWindowSnapshot
+        && !processIDsWithoutReliableTopologyCoverage().isEmpty
     )
     return min(base, transientOwnerResolutionRefreshInterval(
       retryAfter: Array(transientOwnerResolutionRetryAfter.values), now: snapshotEngine.discoveryNow

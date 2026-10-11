@@ -519,7 +519,8 @@ final class Daemon {
         !nativeFocusSyncPending
         && (forcesWindowInventory
           || (periodicWindowRefreshDue
-            && !platform.hasReliableWindowTopologyObservation))
+            && !platform.hasReliableWindowTopologyObservation
+            && platform.processIDsWithoutReliableTopologyCoverage().isEmpty))
       needsDesktopSync = false
       synchronizeDesktop(
         forceFullWindowRefresh: forcesFullWindowRefresh,

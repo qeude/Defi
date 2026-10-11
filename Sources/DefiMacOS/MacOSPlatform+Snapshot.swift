@@ -77,28 +77,12 @@ extension SnapshotEngine {
       )
     }
     let uncoveredProcessIDs = platformInputs.frameCoverage.union(platformInputs.topologyCoverage)
-    // Exhausted observer subscriptions use the watchdog instead of taxing every pass.
-    let incompatiblePIDs = platformInputs.incompatible
-    let fallbackNow = ProcessInfo.processInfo.systemUptime
-    incompatibleFreshReadDeadlines =
-      incompatibleFreshReadDeadlines
-      .filter { $0.value > fallbackNow }
-    var fallbackFreshReadProcessIDs = Set<pid_t>()
-    for processID in uncoveredProcessIDs {
-      if incompatiblePIDs.contains(processID) {
-        if forceFullWindowRefresh
-          || topologyProcessIDs.contains(processID)
-          || frameProcessIDs.contains(processID)
-          || incompatibleFreshReadDeadlines[processID] == nil
-        {
-          incompatibleFreshReadDeadlines[processID] =
-            fallbackNow + reliableObservationWatchdogInterval
-          fallbackFreshReadProcessIDs.insert(processID)
-        }
-      } else {
-        fallbackFreshReadProcessIDs.insert(processID)
-      }
-    }
+    let fallbackFreshReadProcessIDs = fallbackWindowRefreshProcessIDs(
+      uncovered: uncoveredProcessIDs, incompatible: platformInputs.incompatible,
+      eventProcessIDs: topologyProcessIDs.union(frameProcessIDs),
+      force: forceFullWindowRefresh, now: ProcessInfo.processInfo.systemUptime,
+      deadlines: &fallbackFreshReadDeadlines
+    )
     if eventRequiresFullSnapshot {
       unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
       unmatchedWindowRetryAttemptsByProcess.removeAll(keepingCapacity: true)
@@ -328,7 +312,9 @@ extension SnapshotEngine {
       config: config,
       incrementalProcessIDs: effectiveIncrementalProcessIDs,
       forceWindowListRefresh: forceWindowListRefreshEffective,
-      forceWindowListRefreshProcessIDs: dueWindowRetryProcessIDs,
+      forceWindowListRefreshProcessIDs: dueWindowRetryProcessIDs.union(
+        fallbackFreshReadProcessIDs.intersection(platformInputs.topologyCoverage)
+      ),
       forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
       capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
       topologyProcessIDs: topologyProcessIDs,

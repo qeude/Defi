@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import DefiConfig
 import DefiModel
@@ -242,6 +243,42 @@ struct IncrementalDiscoveryRegressionTests {
     #expect(reads.state.withLock { $0.attributeCalls } == 1)
     #expect(reads.state.withLock { $0.listCalls.values.reduce(0, +) } == 0)
     #expect(reads.state.withLock { $0.relationshipCalls } == 0)
+  }
+
+  @MainActor @Test func inventoryRefreshReadsCachedProcessOnce() throws {
+    let ownProcessID = ProcessInfo.processInfo.processIdentifier
+    let running = try #require(NSWorkspace.shared.runningApplications.first {
+      $0.processIdentifier != ownProcessID && $0.activationPolicy == .regular && !$0.isTerminated
+    })
+    let processID = running.processIdentifier
+    let platform = NavigationActor.shared.queue.sync { NavigationActor.assumeIsolated { MacOSPlatform() } }
+    let engine = platform.snapshotEngine
+    defer { withExtendedLifetime(platform) {} }
+    let reads = DiscoveryReadFixture()
+    reads.revealsNewWindow = false
+    reads.failsProcess = nil
+    let element = AXUIElementCreateApplication(-61002)
+    let window = Window(id: WindowID(rawValue: 4102), appID: "measurement", title: "cached", frame: reads.frame,
+      role: kAXWindowRole, subrole: kAXStandardWindowSubrole, processID: processID)
+    reads.windowLists = [processID: [element]]
+    reads.windowsByHash = [CFHash(element): window]
+    engine.discoveryMeasurementAccess = reads.access()
+    engine.applications = [processID: AXUIElementCreateApplication(processID)]
+    engine.applicationIDsByProcess = [processID: "measurement"]
+    engine.enhancedUIByProcess = [processID: false]
+    engine.hasCompletedWindowSnapshot = true
+    engine.overviewPresentationActive = true
+    engine.elements = [window.id: element]
+    engine.processIDs = [window.id: processID]
+    engine.lastApplicationWindowElements = [processID: [element]]
+    engine.lastSnapshotWindows = [window]
+    let result = engine.discoverSnapshotWindows(monitors: [], config: Config(), incrementalProcessIDs: [],
+      forceWindowListRefresh: false, forceApplicationInventoryRefresh: true, capturedTopologyRequiresFullSnapshot: false,
+      topologyProcessIDs: [], createdElements: [:], preparedWindowAttributes: [:], preparedTransientOwnerWindowIDs: [:],
+      preparedApplicationWindows: [:], explicitlyDestroyedWindowIDs: [],
+      publicCGWindows: { [CGWindowRecord(id: 4102, processID: processID, layer: 0, title: window.title, frame: window.frame, isOnscreen: true)] })
+    #expect(result.windows.map(\.id) == [window.id])
+    #expect(reads.state.withLock { $0.listCalls[processID] } == 1)
   }
 
 }

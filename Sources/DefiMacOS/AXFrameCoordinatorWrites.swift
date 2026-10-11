@@ -565,7 +565,8 @@ extension AXFrameCoordinator {
     intermediate: Bool,
     stagingReentry: Bool,
     recordFinalSuccess: Bool,
-    progressVelocity: Double = 0
+    progressVelocity: Double = 0,
+    applicationTimeoutManagedByBatch: Bool = false
   ) -> (
     applied: Int,
     stale: Int,
@@ -577,6 +578,25 @@ extension AXFrameCoordinator {
     }
     if let batchWriter {
       return batchWriter(batch, frame, progress, intermediate, stagingReentry, recordFinalSuccess)
+    }
+    if !applicationTimeoutManagedByBatch, batch.writes.count > 1,
+      let first = batch.writes.first?.value,
+      !hasDeferredEnhancedUIRestore(processID: batch.processID),
+      batch.writes.allSatisfy({
+        $0.value.processID == batch.processID && !$0.value.enhancedUIWasEnabled
+          && CFEqual($0.value.application, first.application)
+          && !CFEqual($0.value.element, first.application)
+          && frameMessagingTimeout($0.value, intermediate: intermediate)
+            == frameMessagingTimeout(first, intermediate: intermediate)
+      })
+    {
+      return messagingTimeoutAccess.withTimeout(
+        frameMessagingTimeout(first, intermediate: intermediate), elements: [first.application]
+      ) {
+        applyBatch(batch, frame: frame, progress: progress, intermediate: intermediate,
+          stagingReentry: stagingReentry, recordFinalSuccess: recordFinalSuccess,
+          progressVelocity: progressVelocity, applicationTimeoutManagedByBatch: true)
+      }
     }
     let seedsMotionCost = !intermediate && !stagingReentry && progress >= 1
       && !batch.writes.isEmpty && batch.writes.allSatisfy {
@@ -626,7 +646,7 @@ extension AXFrameCoordinator {
     } else {
       enhancedUIRestoreToken = nil
       if let batchApplication, managesEnhancedUI {
-        _ = AXMessagingTimeoutAccess.shared.withTimeout(0.006, elements: [batchApplication]) {
+        _ = messagingTimeoutAccess.withTimeout(0.006, elements: [batchApplication]) {
           accessibilityWriter.setEnhancedUserInterface(false, application: batchApplication)
         }
       }
@@ -638,7 +658,7 @@ extension AXFrameCoordinator {
           token: enhancedUIRestoreToken
         )
       } else if let batchApplication, managesEnhancedUI {
-        _ = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [batchApplication]) {
+        _ = messagingTimeoutAccess.withTimeout(0.016, elements: [batchApplication]) {
           accessibilityWriter.setEnhancedUserInterface(true, application: batchApplication)
         }
       }
@@ -694,11 +714,7 @@ extension AXFrameCoordinator {
         height: interpolated.height
       )
       let writeStartedAt = ProcessInfo.processInfo.systemUptime
-      let intermediateTimeout: Float = item.value.animatesSize ? 0.016 : 0.006
-      let timeout =
-        intermediate
-        ? min(item.value.timeoutSeconds, intermediateTimeout)
-        : max(item.value.timeoutSeconds, 0.016)
+      let timeout = frameMessagingTimeout(item.value, intermediate: intermediate)
       var requiresAsynchronousSizeWrite = asynchronousSizeWriteIsRequired(
         sizeChanged: item.value.sizeChanged,
         synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
@@ -756,9 +772,9 @@ extension AXFrameCoordinator {
         && accessibilityWriter.independentBorderObservationAvailable()
       attempted = true
       var timeoutWaitMS = 0.0
-      let writeResult = AXMessagingTimeoutAccess.shared.withTimeout(
+      let writeResult = messagingTimeoutAccess.withTimeout(
         timeout,
-        elements: [item.value.application, item.value.element],
+        elements: applicationTimeoutManagedByBatch ? [item.value.element] : [item.value.application, item.value.element],
         observeWait: { timeoutWaitMS = $0 * 1_000 }
       ) {
         let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
@@ -1021,7 +1037,7 @@ extension AXFrameCoordinator {
     deferredEnhancedUIRestores[processID] = (token, application, alreadyDisabled)
     lock.unlock()
     if !alreadyDisabled {
-      let disabled = AXMessagingTimeoutAccess.shared.withTimeout(0.006, elements: [application]) {
+      let disabled = messagingTimeoutAccess.withTimeout(0.006, elements: [application]) {
         accessibilityWriter.setEnhancedUserInterface(false, application: application)
       }
       lock.lock()
@@ -1052,7 +1068,7 @@ extension AXFrameCoordinator {
       }
       deferredEnhancedUIRestores[processID]?.disabled = false
       lock.unlock()
-      let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [restore.application]) {
+      let restored = messagingTimeoutAccess.withTimeout(0.016, elements: [restore.application]) {
         accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
       }
       lock.lock()
@@ -1078,7 +1094,7 @@ extension AXFrameCoordinator {
       if current { deferredEnhancedUIRestores[processID]?.disabled = false }
       lock.unlock()
       guard current else { continue }
-      let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [restore.application]) {
+      let restored = messagingTimeoutAccess.withTimeout(0.016, elements: [restore.application]) {
         accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
           || accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
       }
@@ -1115,7 +1131,7 @@ extension AXFrameCoordinator {
           $0.key.rawValue < $1.key.rawValue
         }) {
           guard isCurrent(generation: generation) else { break }
-          let writeResult = AXMessagingTimeoutAccess.shared.withTimeout(
+          let writeResult = messagingTimeoutAccess.withTimeout(
             max(write.timeoutSeconds, 0.016),
             elements: [write.application, write.element]
           ) {
@@ -1212,7 +1228,7 @@ extension AXFrameCoordinator {
           guard isCurrent(generation: frame.generation) else { break }
           guard let target = write.binding, snapshotEngine.borderBindingIsCurrent(target) else { continue }
           let sampledAt = ProcessInfo.processInfo.systemUptime
-          let accepted = AXMessagingTimeoutAccess.shared.withTimeout(
+          let accepted = messagingTimeoutAccess.withTimeout(
             max(write.timeoutSeconds, 0.025), elements: [target.application, target.element]
           ) { accessibilityWriter.readFrame(target.element) }
           if let accepted, snapshotEngine.borderBindingIsCurrent(target) {
@@ -1293,4 +1309,8 @@ private final class WindowIDCollector: @unchecked Sendable {
     defer { lock.unlock() }
     return ids
   }
+}
+private func frameMessagingTimeout(_ write: AsyncPositionWrite, intermediate: Bool) -> Float {
+  intermediate ? min(write.timeoutSeconds, write.animatesSize ? 0.016 : 0.006)
+    : max(write.timeoutSeconds, 0.016)
 }

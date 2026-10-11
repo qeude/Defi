@@ -14,6 +14,7 @@ struct FrameAnimationPulseState {
   var maximumDisplayGapMS = 0.0
   var timerSampleCount = 0
   var laneSampleCount = 0
+  var queuedTickSubmissionCount = 0
 
   mutating func enqueue(
     now: TimeInterval, displayTimestamp: TimeInterval?,
@@ -69,6 +70,12 @@ struct FrameAnimationPulseState {
 
 /// Display callbacks only enqueue work; AX stays on the coordinator's queues.
 final class FrameAnimationDriver: @unchecked Sendable {
+  private struct TickRequest {
+    let requestedAt: TimeInterval
+    let displayTimestamp: TimeInterval?
+    let afterLaneCompletion: Bool
+  }
+
   private let state = Mutex(FrameAnimationPulseState())
   private let interval: TimeInterval
   private let refreshInterval: TimeInterval
@@ -88,7 +95,12 @@ final class FrameAnimationDriver: @unchecked Sendable {
     self.tick = tick
     timer = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
     timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .microseconds(100))
-    timer.setEventHandler { [weak self] in self?.requestTick() }
+    timer.setEventHandler { [weak self] in
+      guard let self else { return }
+      requestTick(TickRequest(requestedAt: ProcessInfo.processInfo.systemUptime,
+                              displayTimestamp: nil, afterLaneCompletion: false),
+                  asynchronously: false)
+    }
     timer.resume()
     DispatchQueue.main.async { [weak self] in
       guard let self, !self.state.withLock({ $0.stopped }), displayIDs.count == 1,
@@ -117,32 +129,47 @@ final class FrameAnimationDriver: @unchecked Sendable {
 
   var diagnosticSummary: String {
     state.withLock {
-      "displayPulses=\($0.displayPulseCount) displayGapMs=\(String(format: "%.2f", $0.maximumDisplayGapMS)) timerSteps=\($0.timerSampleCount) laneSteps=\($0.laneSampleCount)"
+      "displayPulses=\($0.displayPulseCount) displayGapMs=\(String(format: "%.2f", $0.maximumDisplayGapMS)) timerSteps=\($0.timerSampleCount) laneSteps=\($0.laneSampleCount) queueTicks=\($0.queuedTickSubmissionCount)"
     }
   }
 
   func requestTick(displayTimestamp: TimeInterval? = nil, afterLaneCompletion: Bool = false) {
-    let now = ProcessInfo.processInfo.systemUptime
+    requestTick(TickRequest(requestedAt: ProcessInfo.processInfo.systemUptime,
+                            displayTimestamp: displayTimestamp,
+                            afterLaneCompletion: afterLaneCompletion), asynchronously: true)
+  }
+
+  private func requestTick(_ request: TickRequest, asynchronously: Bool) {
     let enqueue = state.withLock { state in
       // Fallback also handles disconnected screens and a stalled main run loop.
-      state.enqueue(now: now, displayTimestamp: displayTimestamp,
-                    interval: interval, refreshInterval: refreshInterval,
-                    afterLaneCompletion: afterLaneCompletion)
+      let accepted = state.enqueue(now: request.requestedAt, displayTimestamp: request.displayTimestamp,
+                                   interval: interval, refreshInterval: refreshInterval,
+                                   afterLaneCompletion: request.afterLaneCompletion)
+      if accepted, asynchronously { state.queuedTickSubmissionCount += 1 }
+      return accepted
     }
     guard enqueue else { return }
-    queue.async { [self] in
-      let runs = state.withLock { $0.beginTick() }
-      let executedAt = ProcessInfo.processInfo.systemUptime
-      let advanced = runs && tick(self)
-      let retry = state.withLock {
-        if advanced, afterLaneCompletion { $0.laneSampleCount += 1 }
-        else if advanced, displayTimestamp == nil { $0.timerSampleCount += 1 }
-        return $0.finishTick(at: displayTimestamp ?? now, executedAt: executedAt, advanced: advanced)
-      }
-      // A lane can become ready after tick checked it but before queued clears.
-      // Recheck readiness now; an accepted sample still owns the full interval.
-      if retry { requestTick(afterLaneCompletion: true) }
+    if asynchronously {
+      queue.async { [self] in executeTick(request) }
+    } else {
+      executeTick(request)
     }
+  }
+
+  private func executeTick(_ request: TickRequest) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    let runs = state.withLock { $0.beginTick() }
+    let executedAt = ProcessInfo.processInfo.systemUptime
+    let advanced = runs && tick(self)
+    let retry = state.withLock {
+      if advanced, request.afterLaneCompletion { $0.laneSampleCount += 1 }
+      else if advanced, request.displayTimestamp == nil { $0.timerSampleCount += 1 }
+      return $0.finishTick(at: request.displayTimestamp ?? request.requestedAt,
+                           executedAt: executedAt, advanced: advanced)
+    }
+    // A lane can become ready after tick checked it but before queued clears.
+    // Recheck readiness now; an accepted sample still owns the full interval.
+    if retry { requestTick(afterLaneCompletion: true) }
   }
 }
 

@@ -185,8 +185,15 @@ extension SnapshotEngine {
         }
         return true
       }
+      let refreshesApplicationInventory = applicationInventoryRefreshIsRequired(
+        hasCompletedSnapshot: hasCompletedWindowSnapshot,
+        topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
+        forced: forceApplicationInventoryRefresh
+      )
       var processIDsToRefresh = incrementalProcessIDs
-      if var requestedProcessIDs = processIDsToRefresh {
+      // An inventory refresh reads every running app below. Serving one from
+      // cache first would append its windows a second time.
+      if var requestedProcessIDs = processIDsToRefresh, !refreshesApplicationInventory {
         for processID in previousApplications.keys where !requestedProcessIDs.contains(processID) {
           if !reuseCachedProcess(processID) {
             requestedProcessIDs.insert(processID)
@@ -195,11 +202,6 @@ extension SnapshotEngine {
         processIDsToRefresh = requestedProcessIDs
       }
 
-      let refreshesApplicationInventory = applicationInventoryRefreshIsRequired(
-        hasCompletedSnapshot: hasCompletedWindowSnapshot,
-        topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
-        forced: forceApplicationInventoryRefresh
-      )
       let observedCGWindows = publicCGWindows() ?? []
       let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
       let workspaceApplications = refreshesApplicationInventory

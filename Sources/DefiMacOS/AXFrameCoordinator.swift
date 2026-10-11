@@ -29,10 +29,12 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   init(
     batchWriter: BatchWriter? = nil,
-    accessibilityWriter: AXFrameAccessibilityWriter = AXFrameAccessibilityWriter()
+    accessibilityWriter: AXFrameAccessibilityWriter = AXFrameAccessibilityWriter(),
+    messagingTimeoutAccess: AXMessagingTimeoutAccess = .shared
   ) {
     self.batchWriter = batchWriter
     self.accessibilityWriter = accessibilityWriter
+    self.messagingTimeoutAccess = messagingTimeoutAccess
   }
 
   /// Reports completed geometry so borders cannot outrun window writes.
@@ -67,6 +69,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   let lock = NSLock()
   let animationLaneLock = NSLock()
   let accessibilityWriter: AXFrameAccessibilityWriter
+  let messagingTimeoutAccess: AXMessagingTimeoutAccess
   var pending: QueuedPositionFrame?
   var nextGeneration: UInt64 = 0
   var latestGeneration: UInt64 = 0

@@ -202,7 +202,7 @@ final class SnapshotEngine: @unchecked Sendable {
         $0.unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
         $0.unmatchedWindowRetryAttemptsByProcess.removeAll(keepingCapacity: true)
         $0.windowListReadRetryAttemptsByProcess.removeAll(keepingCapacity: true)
-        $0.incompatibleFreshReadDeadlines.removeAll(keepingCapacity: true)
+        $0.fallbackFreshReadDeadlines.removeAll(keepingCapacity: true)
         $0.enhancedUIByProcess.removeAll(keepingCapacity: true)
         $0.multipleAttributeReadsSupportedByProcess.removeAll(keepingCapacity: true)
         $0.failedBatchedWindowAttributeReadsByElement.removeAll(keepingCapacity: true)
@@ -806,9 +806,9 @@ final class SnapshotEngine: @unchecked Sendable {
     set { withLockedStorage { $0.chunkedFullRefreshRemainingProcessIDs = newValue } }
   }
 
-  var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] {
-    get { withLockedStorage { $0.incompatibleFreshReadDeadlines } }
-    set { withLockedStorage { $0.incompatibleFreshReadDeadlines = newValue } }
+  var fallbackFreshReadDeadlines: [pid_t: TimeInterval] {
+    get { withLockedStorage { $0.fallbackFreshReadDeadlines } }
+    set { withLockedStorage { $0.fallbackFreshReadDeadlines = newValue } }
   }
 
   // MARK: telemetry
@@ -1609,7 +1609,7 @@ private struct Storage {
   var deferredFreshReadProcessIDs = Set<pid_t>()
   var deferredFreshReadsStartedAt: TimeInterval?
   var chunkedFullRefreshRemainingProcessIDs: Set<pid_t>?
-  var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] = [:]
+  var fallbackFreshReadDeadlines: [pid_t: TimeInterval] = [:]
   var initialFrameSettlementDeadlines: [WindowID: TimeInterval] = [:]
   var mouseResizeGesturePending: Bool = false
   var mouseFocusReleasePending: Bool = false

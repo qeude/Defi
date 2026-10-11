@@ -32,10 +32,26 @@ public func boundedSnapshotRefreshDeadline(
 
 func windowListRefreshInterval(
   hasPendingShortRetry: Bool,
-  reliableTopologyObservation: Bool
+  reliableTopologyObservation: Bool,
+  hasScopedTopologyFallback: Bool = false
 ) -> TimeInterval {
   if hasPendingShortRetry { return 0.1 }
-  return reliableTopologyObservation ? reliableObservationWatchdogInterval : 0.3
+  return reliableTopologyObservation || hasScopedTopologyFallback ? reliableObservationWatchdogInterval : 0.3
+}
+
+func fallbackWindowRefreshProcessIDs(
+  uncovered: Set<pid_t>, incompatible: Set<pid_t>, eventProcessIDs: Set<pid_t>,
+  force: Bool, now: TimeInterval, deadlines: inout [pid_t: TimeInterval]
+) -> Set<pid_t> {
+  deadlines = deadlines.filter { uncovered.contains($0.key) && $0.value > now + 0.000001 }
+  var due = Set<pid_t>()
+  for processID in uncovered {
+    if force || eventProcessIDs.contains(processID) || deadlines[processID] == nil {
+      deadlines[processID] = now + (incompatible.contains(processID) ? reliableObservationWatchdogInterval : 0.3)
+      due.insert(processID)
+    }
+  }
+  return due
 }
 
 public func observationWatchdogRefreshIsReady(
