@@ -5,15 +5,18 @@ import TOMLDecoder
 public struct InputConfig: Codable, Equatable, Sendable {
   public var focusFollowsMouse: Bool
   public var focusFollowsMouseMaxScrollAmount: Double?
+  public var focusFollowsMouseDelayMS: Int
   public var mouseFollowsFocus: Bool
 
   public init(
     focusFollowsMouse: Bool = false,
     focusFollowsMouseMaxScrollAmount: Double? = 0,
+    focusFollowsMouseDelayMS: Int = 50,
     mouseFollowsFocus: Bool = false
   ) {
     self.focusFollowsMouse = focusFollowsMouse
     self.focusFollowsMouseMaxScrollAmount = focusFollowsMouseMaxScrollAmount
+    self.focusFollowsMouseDelayMS = focusFollowsMouseDelayMS
     self.mouseFollowsFocus = mouseFollowsFocus
   }
 
@@ -21,6 +24,7 @@ public struct InputConfig: Codable, Equatable, Sendable {
     case focusFollowsMouse = "focus_follows_mouse"
     case focusFollowsMouseMaxScrollAmount =
       "focus_follows_mouse_max_scroll_amount"
+    case focusFollowsMouseDelayMS = "focus_follows_mouse_delay_ms"
     case mouseFollowsFocus = "mouse_follows_focus"
   }
 
@@ -34,6 +38,9 @@ public struct InputConfig: Codable, Equatable, Sendable {
         Double.self,
         forKey: .focusFollowsMouseMaxScrollAmount
       ) ?? defaults.focusFollowsMouseMaxScrollAmount
+    focusFollowsMouseDelayMS =
+      try values.decodeIfPresent(Int.self, forKey: .focusFollowsMouseDelayMS)
+      ?? defaults.focusFollowsMouseDelayMS
     mouseFollowsFocus =
       try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? defaults.mouseFollowsFocus
   }

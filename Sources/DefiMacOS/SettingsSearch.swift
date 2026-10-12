@@ -39,6 +39,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case focusFollowsPointer
   case pointerFollowsFocus
   case pointerFocusScroll
+  case pointerFocusDelay
   case defaultModifier
   case modifierAliases
   case customShortcut
@@ -86,6 +87,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .focusFollowsPointer: (.input, "Focus follows pointer", "input.focus_follows_mouse mouse", false)
     case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse", false)
     case .pointerFocusScroll: (.input, "Maximum pointer-focus scroll", "input.focus_follows_mouse_max_scroll_amount mouse", true)
+    case .pointerFocusDelay: (.input, "Pointer-focus delay", "input.focus_follows_mouse_delay_ms mouse", false)
     case .defaultModifier: (.input, "Default key modifier", "default_key_modifier keyboard", true)
     case .modifierAliases: (.input, "Modifier aliases", "modifier_combinations alias modifiers", true)
     case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding", true)

@@ -114,6 +114,7 @@ Controls focus transfer between managed windows and pointer.
 [input]
 focus_follows_mouse = false
 focus_follows_mouse_max_scroll_amount = 0.0
+focus_follows_mouse_delay_ms = 50
 mouse_follows_focus = false
 ```
 
@@ -121,6 +122,7 @@ mouse_follows_focus = false
 | --- | --- | --- | --- |
 | `focus_follows_mouse` | `false` | boolean | Focuses managed window under physical pointer and scrolls strip minimally when needed. |
 | `focus_follows_mouse_max_scroll_amount` | `0` | number from `0` to `1` | Maximum scroll as fraction of monitor width. `0` accepts only targets needing no scroll; `0.1` permits up to 10%. |
+| `focus_follows_mouse_delay_ms` | `50` | integer from `0` to `1000` | Milliseconds the pointer must rest before focus follows it. `0` focuses immediately; the delay applies only when `focus_follows_mouse` is enabled. |
 | `mouse_follows_focus` | `false` | boolean | Warps pointer to focused window center after keyboard focus changes, unless pointer is already inside it. |
 
 Bare `focus_follows_mouse = true` does not scroll.

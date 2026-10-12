@@ -107,6 +107,9 @@ public struct Config: Equatable, Sendable {
         )
       }
     }
+    guard (0...1_000).contains(input.focusFollowsMouseDelayMS) else {
+      throw ConfigError.invalidValue("input.focus_follows_mouse_delay_ms")
+    }
     guard (0.05...1).contains(layout.defaultColumnWidth) else {
       throw ConfigError.invalidValue("layout.default_column_width")
     }
