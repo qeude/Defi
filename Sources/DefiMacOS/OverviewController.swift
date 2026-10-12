@@ -193,6 +193,7 @@ public final class OverviewController: NSObject {
   private var previewTask: Task<Void, Never>?
   private var desktopCaptureRetryTask: Task<Void, Never>?
   // Each timed-out native capture is abandoned, not cancelled, so retries are bounded per session.
+  private static let desktopCaptureRetryLimit = 5
   private var desktopCaptureRetryCount = 0
   private var desktopCaptureRetryGeneration: UInt64 = 0
   private var previewCache: [WindowID: NSImage] = [:]
@@ -1318,7 +1319,10 @@ public final class OverviewController: NSObject {
       selection: selection).filter {
       !attemptedPreviewWindowIDs.contains($0.windowID)
     }
-    let hasPendingDesktopCapture = panels.keys.contains {
+    // Panel updates must not bypass the retry cap once desktop captures keep failing.
+    let retriesExhausted = desktopCaptureRetryGeneration == sessionGeneration
+      && desktopCaptureRetryCount >= Self.desktopCaptureRetryLimit
+    let hasPendingDesktopCapture = !retriesExhausted && panels.keys.contains {
       !capturedDesktopMonitorIDs.contains($0)
     }
     guard overviewCaptureBatchNeeded(
@@ -1490,7 +1494,7 @@ public final class OverviewController: NSObject {
       desktopCaptureRetryGeneration = generation
       desktopCaptureRetryCount = 0
     }
-    guard desktopCaptureRetryCount < 5 else { return }
+    guard desktopCaptureRetryCount < Self.desktopCaptureRetryLimit else { return }
     desktopCaptureRetryCount += 1
     desktopCaptureRetryTask = Task { @MainActor [weak self] in
       do {
