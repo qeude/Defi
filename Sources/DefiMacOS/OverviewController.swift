@@ -1495,7 +1495,6 @@ public final class OverviewController: NSObject {
       desktopCaptureRetryCount = 0
     }
     guard desktopCaptureRetryCount < Self.desktopCaptureRetryLimit else { return }
-    desktopCaptureRetryCount += 1
     desktopCaptureRetryTask = Task { @MainActor [weak self] in
       do {
         try await Task.sleep(for: .seconds(1))
@@ -1507,6 +1506,8 @@ public final class OverviewController: NSObject {
       guard self.windowPreviewsEnabled, self.isOpen,
         generation == self.sessionGeneration
       else { return }
+      // Counted when the retry starts, so the last allowed retry is not blocked by its own count.
+      self.desktopCaptureRetryCount += 1
       self.schedulePreviewsIfNeeded()
     }
   }
