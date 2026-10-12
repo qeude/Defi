@@ -105,6 +105,18 @@ struct OverviewPreviewTests {
     await limiter.release()
   }
 
+  @MainActor @Test
+  func hungNativeCaptureFailsAtDeadlineInsteadOfHoldingTheSlot() async throws {
+    await #expect(throws: OverviewCaptureTimeoutError.self) {
+      try await withOverviewCaptureTimeout(seconds: 0.05) {
+        try await Task.sleep(for: .seconds(60))
+        return 1
+      }
+    }
+    let value = try await withOverviewCaptureTimeout(seconds: 5) { 7 }
+    #expect(value == 7)
+  }
+
   @Test
   func ordinaryCaptureFailureDoesNotDisableAuthorization() async {
     let limiter = OverviewCaptureLimiter(limit: 1)
