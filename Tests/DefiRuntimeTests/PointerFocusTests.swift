@@ -6,6 +6,29 @@ import Testing
 
 struct PointerFocusTests {
   @Test
+  func restDelayOfZeroSkipsTheWait() async {
+    let clock = ContinuousClock()
+    let start = clock.now
+    #expect(await pointerFocusRestDelayElapsed(milliseconds: 0))
+    #expect(start.duration(to: clock.now) < .milliseconds(100))
+  }
+
+  @Test
+  func restDelayWaitsBeforeCompleting() async {
+    let clock = ContinuousClock()
+    let start = clock.now
+    #expect(await pointerFocusRestDelayElapsed(milliseconds: 50))
+    #expect(start.duration(to: clock.now) >= .milliseconds(50))
+  }
+
+  @Test
+  func newerMotionCancelsThePendingWait() async {
+    let wait = Task { await pointerFocusRestDelayElapsed(milliseconds: 5_000) }
+    wait.cancel()
+    #expect(await wait.value == false)
+  }
+
+  @Test
   func pointerFocusRecoveryTargetsLogicalWindowAfterUnmanagedExit() {
     let logicalWindowID = WindowID(rawValue: 1)
 
