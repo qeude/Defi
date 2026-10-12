@@ -1320,9 +1320,7 @@ public final class OverviewController: NSObject {
       !attemptedPreviewWindowIDs.contains($0.windowID)
     }
     // Panel updates must not bypass the retry cap once desktop captures keep failing.
-    let retriesExhausted = desktopCaptureRetryGeneration == sessionGeneration
-      && desktopCaptureRetryCount >= Self.desktopCaptureRetryLimit
-    let hasPendingDesktopCapture = !retriesExhausted && panels.keys.contains {
+    let hasPendingDesktopCapture = !desktopCaptureRetriesExhausted(generation: sessionGeneration) && panels.keys.contains {
       !capturedDesktopMonitorIDs.contains($0)
     }
     guard overviewCaptureBatchNeeded(
@@ -1385,7 +1383,8 @@ public final class OverviewController: NSObject {
       return
     }
 
-    let desktopRequests = desktopCaptureRequests()
+    let desktopRequests = desktopCaptureRetriesExhausted(generation: generation)
+      ? [] : desktopCaptureRequests()
     let results = await captureOverviewImages(
       previews: requests,
       desktops: desktopRequests,
@@ -1486,6 +1485,11 @@ public final class OverviewController: NSObject {
     previewTask = nil
     previewPendingCount = 0
     presentationChanged()
+  }
+
+  private func desktopCaptureRetriesExhausted(generation: UInt64) -> Bool {
+    desktopCaptureRetryGeneration == generation
+      && desktopCaptureRetryCount >= Self.desktopCaptureRetryLimit
   }
 
   private func scheduleDesktopCaptureRetry(generation: UInt64) {
