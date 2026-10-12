@@ -1506,9 +1506,9 @@ public final class OverviewController: NSObject {
       guard self.windowPreviewsEnabled, self.isOpen,
         generation == self.sessionGeneration
       else { return }
-      // Counted when the retry starts, so the last allowed retry is not blocked by its own count.
-      self.desktopCaptureRetryCount += 1
+      // Counted after the batch is requested, so the last allowed retry is not blocked by its own count.
       self.schedulePreviewsIfNeeded()
+      self.desktopCaptureRetryCount += 1
     }
   }
 
