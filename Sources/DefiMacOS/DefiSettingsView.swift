@@ -481,6 +481,14 @@ private struct InputSettingsView: View {
           .settingsSearchTarget(.focusFollowsPointer)
         Toggle(SettingsOption.pointerFollowsFocus.title, isOn: boolBinding("input", "mouse_follows_focus", model.config.input.mouseFollowsFocus))
           .settingsSearchTarget(.pointerFollowsFocus)
+        SettingsNumberRow(
+          title: SettingsOption.pointerFocusDelay.title,
+          value: Double(model.config.input.focusFollowsMouseDelayMS),
+          range: 0...1_000, step: 10, unit: "ms",
+          onChange: { model.set(table: "input", key: "focus_follows_mouse_delay_ms", value: String(Int($0.rounded()))) }
+        )
+          .settingsSearchTarget(.pointerFocusDelay)
+          .disabled(!model.config.input.focusFollowsMouse)
       }
       Section("Advanced", isExpanded: $advancedExpanded) {
         SettingsNumberRow(
