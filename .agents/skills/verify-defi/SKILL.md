@@ -57,14 +57,14 @@ defi focus-workspace up|down
 defi focus-workspace-name dev              # names come from list-workspaces
 defi focus-workspace-position 2
 defi move-column left|right|first|last
-defi cycle-width
+defi cycle-width next|prev
 defi --monitor 2 focus-workspace-name web
 defi list-workspaces --json
 defi status                                # one line of key=value counters
 defi trace                                 # recent timestamped runtime events
 ```
 
-Note `defi workspace 2` in the usage text is rejected by the parser. Use `focus-workspace-position`.
+Note `defi workspace 2` selects a workspace by ID, not by position, so the daemon answers `unknown workspace: 2`. Use `focus-workspace-position` for a position.
 
 Parse `defi status` by splitting on spaces and grepping `key=`. Do not scrape by column.
 

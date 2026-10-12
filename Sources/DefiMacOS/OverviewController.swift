@@ -192,6 +192,9 @@ public final class OverviewController: NSObject {
   private var surfacePreparationPending = false
   private var previewTask: Task<Void, Never>?
   private var desktopCaptureRetryTask: Task<Void, Never>?
+  // Each timed-out native capture is abandoned, not cancelled, so retries are bounded per session.
+  private var desktopCaptureRetryCount = 0
+  private var desktopCaptureRetryGeneration: UInt64 = 0
   private var previewCache: [WindowID: NSImage] = [:]
   private let rememberedPreviews = OverviewPreviewCache()
   private var idlePreviewTask: Task<Void, Never>?
@@ -1483,6 +1486,12 @@ public final class OverviewController: NSObject {
 
   private func scheduleDesktopCaptureRetry(generation: UInt64) {
     cancelDesktopCaptureRetry()
+    if desktopCaptureRetryGeneration != generation {
+      desktopCaptureRetryGeneration = generation
+      desktopCaptureRetryCount = 0
+    }
+    guard desktopCaptureRetryCount < 5 else { return }
+    desktopCaptureRetryCount += 1
     desktopCaptureRetryTask = Task { @MainActor [weak self] in
       do {
         try await Task.sleep(for: .seconds(1))

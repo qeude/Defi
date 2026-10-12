@@ -117,6 +117,28 @@ struct OverviewPreviewTests {
     #expect(value == 7)
   }
 
+  @MainActor @Test
+  func timedOutCaptureReleasesTheLimiterSlotToQueuedCapture() async {
+    let limiter = OverviewCaptureLimiter(limit: 1)
+    #expect(await limiter.acquire())
+    let queued = Task { await limiter.acquire() }
+    for _ in 0..<1_000 {
+      if await limiter.waitingCount == 1 { break }
+      await Task.yield()
+    }
+    do {
+      _ = try await withOverviewCaptureTimeout(seconds: 0.05) {
+        try await Task.sleep(for: .seconds(60))
+        return 1
+      }
+    } catch {
+      await limiter.release(error: error as NSError)
+    }
+    #expect(await queued.value)
+    #expect(await limiter.authorizationDeclined == false)
+    await limiter.release()
+  }
+
   @Test
   func ordinaryCaptureFailureDoesNotDisableAuthorization() async {
     let limiter = OverviewCaptureLimiter(limit: 1)
