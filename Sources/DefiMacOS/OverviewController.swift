@@ -1320,7 +1320,9 @@ public final class OverviewController: NSObject {
       !attemptedPreviewWindowIDs.contains($0.windowID)
     }
     // Panel updates must not bypass the retry cap once desktop captures keep failing.
-    let hasPendingDesktopCapture = !desktopCaptureRetriesExhausted(generation: sessionGeneration) && panels.keys.contains {
+    // Decided here, before the batch task yields, so the retry that was granted still captures.
+    let includesDesktops = !desktopCaptureRetriesExhausted(generation: sessionGeneration)
+    let hasPendingDesktopCapture = includesDesktops && panels.keys.contains {
       !capturedDesktopMonitorIDs.contains($0)
     }
     guard overviewCaptureBatchNeeded(
@@ -1336,6 +1338,7 @@ public final class OverviewController: NSObject {
       await Task.yield()
       await self?.capturePreviewBatch(
         requests,
+        includesDesktops: includesDesktops,
         generation: generation
       )
     }
@@ -1343,6 +1346,7 @@ public final class OverviewController: NSObject {
 
   private func capturePreviewBatch(
     _ requests: [OverviewPreviewRequest],
+    includesDesktops: Bool,
     generation: UInt64
   ) async {
     guard windowPreviewsEnabled, isOpen, generation == sessionGeneration,
@@ -1383,8 +1387,7 @@ public final class OverviewController: NSObject {
       return
     }
 
-    let desktopRequests = desktopCaptureRetriesExhausted(generation: generation)
-      ? [] : desktopCaptureRequests()
+    let desktopRequests = includesDesktops ? desktopCaptureRequests() : []
     let results = await captureOverviewImages(
       previews: requests,
       desktops: desktopRequests,
