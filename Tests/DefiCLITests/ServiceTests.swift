@@ -39,6 +39,8 @@ struct ServiceTests {
     #expect(paths.contains(where: { $0.hasSuffix("/Library/Logs/Defi") }))
     for id in ["com.qeude.defi", "com.quentin.defi"] {
       #expect(paths.contains(where: { $0.hasSuffix("/Library/Preferences/\(id).plist") }))
+      #expect(paths.contains(where: { $0.hasSuffix("/Library/Caches/\(id)") }))
+      #expect(paths.contains(where: { $0.hasSuffix("/Library/Saved Application State/\(id).savedState") }))
     }
   }
 
