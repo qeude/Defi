@@ -36,11 +36,22 @@ class MotionProbeTests(unittest.TestCase):
 
     def test_episodes_split_detached_from_edge_strip_and_measure_duration(self):
         attached_edge, stray, strip = [9, 3, 96, 96, 808, 4], [9, 3, 1500, 100, 4, 600], [9, 3, 2556, 100, 4, 600]
-        states = [state(0.0, [attached_edge]), state(1.0, [stray]), state(1.2, [attached_edge]),
-                  state(1.5, [strip])]
+        top_offscreen_left, hidden = [9, 3, -700, 30, 1985, 4], [9, 3, 3241, 100, 4, 600]
+        states = [state(0.0, [attached_edge]), state(1.0, [stray]), state(1.2, [attached_edge, hidden]),
+                  state(1.5, [strip]), state(1.7, [top_offscreen_left])]
         episodes = probe.detached_episodes(states, 2.0, DISPLAYS)
         self.assertEqual([(e['kind'], e['start'], e['ms']) for e in episodes],
-                         [('detached', 1.0, 200.0), ('edge-strip', 1.5, 500.0)])
+                         [('detached', 1.0, 200.0), ('edge-strip', 1.5, 200.0),
+                          ('detached', 1.7, 300.0)])
+
+    def test_border_lag_counts_lead_and_lag_and_stuck(self):
+        track = [(10.0, 0, 30), (10.010, 100, 30), (10.020, 200, 30)]
+        top = lambda x: (x - probe.BORDER, 26)
+        self.assertEqual(probe.border_lag_ms(top(200), 10.025, track), 0.0)
+        self.assertAlmostEqual(probe.border_lag_ms(top(100), 10.025, track), 5.0)   # lags one sample
+        self.assertAlmostEqual(probe.border_lag_ms(top(150), 10.015, track), 5.0)   # passed between samples
+        self.assertAlmostEqual(probe.border_lag_ms(top(200), 10.012, track), 8.0)   # leads the window
+        self.assertIsNone(probe.border_lag_ms(top(900), 10.025, track))
 
     def test_trace_phase_attribution(self):
         gens, deferred = probe.build_generations(probe.parse_trace(TRACE))
@@ -92,7 +103,8 @@ class MotionProbeTests(unittest.TestCase):
     def test_repeat_summary_reports_median_and_range(self):
         def report(episodes, stalls):
             return {'detached_borders': {'episodes_over_50ms': episodes, 'total_ms': 10 * episodes},
-                    'ribbon': {'overall': {'stalls_per_s': stalls, 'p95_max_gap_ms': 30, 'backward_steps': 0}}}
+                    'ribbon': {'overall': {'stalls_per_s': stalls, 'p95_max_gap_ms': 30, 'backward_steps': 0}},
+                    'border_lag': {'lag_p95_ms': 9, 'lagging_over_17ms_ms': 0, 'stuck_ms': 0}}
         summary = probe.repeat_summary([report(1, 0.5), report(5, 0.1), report(3, 0.2)])
         self.assertEqual(summary['detached_episodes_over_50ms'], {'median': 3, 'min': 1, 'max': 5})
         self.assertEqual(summary['ribbon_stalls_per_s']['median'], 0.2)

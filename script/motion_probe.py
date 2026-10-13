@@ -28,7 +28,9 @@ SOURCE = ROOT / "script/motion_probe.swift"
 BINARY = ROOT / "dist/benchmarks/motion-probe"
 CLI_FALLBACK = Path.home() / "Applications/Defi.app/Contents/MacOS/defi"
 
+BORDER = 4             # pt; outside border width (user config); top edge = window rect outset by it
 RING_OUTSET = 6        # pt; border width 4 + 2 of tolerance
+LAG_HORIZON_S = 1.0    # a border no window passed through this recently is stuck, not lagging
 THIN = 64              # pt; border strips are thinner than this
 EDGE_MARGIN = 20       # pt; thin windows this close to a display's side are parked-window leaks
 EPISODE_MS = 50        # detached episodes shorter than this are sampling noise
@@ -170,17 +172,17 @@ def attached(edge, apps):
 
 
 def edge_kind(rect, displays):
-    """'edge-strip' when the edge sits within EDGE_MARGIN of the side of its nearest display."""
+    """None when no display shows the edge; 'edge-strip' for a vertical edge within EDGE_MARGIN
+    of its display's side (a parked-window leak); otherwise 'detached'."""
     if not displays:
         return "detached"
     x, y, w, h = rect
-    cx, cy = x + w / 2, y + h / 2
-
-    def distance(d):
-        return max(d[0] - cx, 0, cx - d[0] - d[2]) + max(d[1] - cy, 0, cy - d[1] - d[3])
-
-    dx, _, dw, _ = min(displays, key=distance)
-    return "edge-strip" if x <= dx + EDGE_MARGIN or x >= dx + dw - EDGE_MARGIN else "detached"
+    shown = [d for d in displays if x < d[0] + d[2] and x + w > d[0] and y < d[1] + d[3] and y + h > d[1]]
+    if not shown:
+        return None
+    dx, _, dw, _ = shown[0]
+    near_side = x <= dx + EDGE_MARGIN or x + w >= dx + dw - EDGE_MARGIN
+    return "edge-strip" if h > w and near_side else "detached"
 
 
 def detached_episodes(states, end_t, displays):
@@ -198,8 +200,9 @@ def detached_episodes(states, end_t, displays):
         bad = {"detached": [], "edge-strip": []}
         for edge in state["edges"]:
             rect = tuple(edge[2:6])
-            if min(rect[2], rect[3]) <= THIN and not attached(rect, apps):
-                bad[edge_kind(rect, displays)].append(edge)
+            kind = edge_kind(rect, displays) if min(rect[2], rect[3]) <= THIN else None
+            if kind and not attached(rect, apps):
+                bad[kind].append(edge)
         for kind, edges in bad.items():
             if edges and kind not in opened:
                 opened[kind] = {"start": state["t"], "edges": 0, "rect": edges[0][2:6]}
@@ -210,6 +213,70 @@ def detached_episodes(states, end_t, displays):
     for kind in list(opened):
         close(kind, end_t)
     return sorted(episodes, key=lambda e: e["start"])
+
+
+def border_lag_ms(edge, now, track):
+    """Time between now and the nearest moment (past or future) the window was where the
+    border's top edge shows it: 0 when it is there now, None when it is not within
+    LAG_HORIZON_S either way. A border can lead its window when WindowServer applies a
+    slow app's write late. track: [(t, x, y)], the window's whole sampled history."""
+    x = edge[0] + BORDER
+    best = None
+    for index, (t, wx, _) in enumerate(track):
+        until = track[index + 1][0] if index + 1 < len(track) else float("inf")
+        nx = track[index + 1][1] if index + 1 < len(track) else wx
+        if abs(wx - x) <= 1:
+            dt = 0.0 if t <= now <= until else min(abs(now - t), abs(now - until))
+        elif min(wx, nx) - 1 <= x <= max(wx, nx) + 1:
+            dt = abs(now - until)  # passed between two samples
+        else:
+            continue
+        if dt <= LAG_HORIZON_S and (best is None or dt < best):
+            best = dt
+    return None if best is None else best * 1000
+
+
+def border_lag(states, end_t):
+    """Time-weighted lag of the worst border in each sampled state. A top edge belongs to the
+    window whose width and y it outsets by BORDER."""
+    history, _ = window_tracks(states)
+    tracks, weighted, stuck_ms = {}, [], 0.0
+    for state, nxt in zip(states, states[1:] + [{"t": end_t}]):
+        now, hold = state["t"], (nxt["t"] - state["t"]) * 1000
+        for wid, _, x, y, w, h in state["apps"]:
+            tracks[wid] = (x, y, w, h)
+        worst = 0.0
+        for edge in state["edges"]:
+            ex, ey, ew, eh = edge[2:6]
+            if eh > THIN or ew <= THIN:
+                continue
+            owners = [wid for wid, (x, y, w, h) in tracks.items()
+                      if abs(w + 2 * BORDER - ew) <= 2 and abs(y - BORDER - ey) <= 2]
+            if not owners:
+                continue
+            lags = [border_lag_ms((ex, ey), now, history[wid]) for wid in owners]
+            known = [lag for lag in lags if lag is not None]
+            if not known:
+                stuck_ms += hold
+                worst = None
+                break
+            worst = max(worst, min(known))
+        if worst is not None and worst > 0:
+            weighted.append((worst, hold))
+    weighted.sort()
+    total = sum(h for _, h in weighted)
+
+    def quantile(q):
+        acc = 0.0
+        for lag, hold in weighted:
+            acc += hold
+            if acc >= q * total:
+                return round(lag, 1)
+        return 0.0
+    return {"lagging_ms": round(total, 1), "lag_p50_ms": quantile(0.5), "lag_p95_ms": quantile(0.95),
+            "lag_max_ms": round(max((lag for lag, _ in weighted), default=0.0), 1),
+            "lagging_over_17ms_ms": round(sum(h for lag, h in weighted if lag > 17), 1),
+            "stuck_ms": round(stuck_ms, 1)}
 
 
 # ---- ribbon -----------------------------------------------------------------------
@@ -294,13 +361,16 @@ def summarize_rows(rows):
 
 # ---- run --------------------------------------------------------------------------
 
-def analyze(states, end_t, displays, events, bundles):
+def analyze(states, end_t, displays, events, bundles, stalls=()):
     gens, deferred = build_generations(events)
     marks = sorted(e["t"] for e in events if e["event"] in ("submit", "complete", "abort"))
     episodes = detached_episodes(states, end_t, displays)
     for e in episodes:
         e["phase"] = classify(e["start"], gens, deferred, marks)
-    long = [e for e in episodes if e["kind"] == "detached" and e["ms"] > EPISODE_MS]
+        # The sampler saw nothing while WindowServer stalled; Defi cannot move anything then either.
+        e["windowserver_stall"] = any(t < e["end"] and t + ms / 1000 > e["start"] for t, ms in stalls)
+    frozen = [e for e in episodes if e["kind"] == "detached" and e["ms"] > EPISODE_MS and e["windowserver_stall"]]
+    long = [e for e in episodes if e["kind"] == "detached" and e["ms"] > EPISODE_MS and not e["windowserver_stall"]]
     strips = [e for e in episodes if e["kind"] == "edge-strip" and e["ms"] > EPISODE_MS]
     tracks, pids = window_tracks(states)
     rows = ribbon_rows(gens, tracks, pids)
@@ -314,9 +384,13 @@ def analyze(states, end_t, displays, events, bundles):
             "total_ms": round(sum(e["ms"] for e in episodes if e["kind"] == "detached"), 1),
             "longest_ms": max((e["ms"] for e in long), default=0.0),
             "by_phase": {p: sum(e["phase"] == p for e in long) for p in sorted({e["phase"] for e in long})},
+            "during_windowserver_stall": len(frozen),
+            "windowserver_stalls": {"count": len(stalls), "total_ms": round(sum(ms for _, ms in stalls), 1),
+                                    "max_ms": max((ms for _, ms in stalls), default=0.0)},
             "edge_strip_episodes_over_50ms": len(strips),
             "edge_strip_total_ms": round(sum(e["ms"] for e in episodes if e["kind"] == "edge-strip"), 1),
             "episodes": [e for e in episodes if e["ms"] > EPISODE_MS]},
+        "border_lag": border_lag(states, end_t),
         "ribbon": {"overall": summarize_rows(rows),
                    "by_app": {app: summarize_rows(r) for app, r in sorted(by_app.items())},
                    "windows": rows},
@@ -328,8 +402,9 @@ def analyze(states, end_t, displays, events, bundles):
 
 
 def headline(report):
-    d, r = report["detached_borders"], report["ribbon"]["overall"]
-    return {"detached_episodes_over_50ms": d["episodes_over_50ms"], "detached_total_ms": d["total_ms"],
+    d, r, b = report["detached_borders"], report["ribbon"]["overall"], report["border_lag"]
+    return {"border_lag_p95_ms": b["lag_p95_ms"], "border_lagging_over_17ms_ms": b["lagging_over_17ms_ms"],
+            "border_stuck_ms": b["stuck_ms"],"detached_episodes_over_50ms": d["episodes_over_50ms"], "detached_total_ms": d["total_ms"],
             "ribbon_stalls_per_s": r["stalls_per_s"], "ribbon_p95_max_gap_ms": r["p95_max_gap_ms"],
             "ribbon_backward_steps": r["backward_steps"]}
 
@@ -435,17 +510,21 @@ def run_once(args, cli):
                                             text=True, timeout=10).stdout or "{}")
     except (subprocess.SubprocessError, ValueError):
         bundles = {}
-    report = analyze(states, end["t"], head["displays"], events, bundles)
+    stalls = [(r["stall"], r["ms"]) for r in records if "stall" in r]
+    report = analyze(states, end["t"], head["displays"], events, bundles, stalls)
     seconds = end["t"] - head["start"]
     report["run"] = {"mode": "passive" if args.passive else "soak", "seconds": round(seconds, 2),
                      "start_uptime": head["start"], "end_uptime": end["t"], "daemon_pid": int(pid)}
     report["sampler"] = {"ticks": end["ticks"], "errors": end["errors"],
-                         "interval_ms_p50": end["interval_ms_p50"], "interval_ms_p95": end["interval_ms_p95"]}
+                         "interval_ms_p50": end["interval_ms_p50"], "interval_ms_p95": end["interval_ms_p95"],
+                         "interval_ms_max": end.get("interval_ms_max", 0.0)}
     report["daemon"] = {"cpu_percent": round(end["cpu_s"] / seconds * 100, 2) if seconds else 0.0}
     report["errors"] = {"command_failures": len(failures), "failures": failures[:5],
                         "sampler_errors": end["errors"], "trace_gaps": collector.gaps}
     report["work"].update(commands_sent=len(commands), frames_sampled=end["ticks"])
     report["commands"] = commands
+    if args.raw_out:
+        args.raw_out.write_text(json.dumps({"displays": head["displays"], "states": states, "events": events}))
     return report
 
 
@@ -456,7 +535,10 @@ def print_summary(report, stream=sys.stdout):
     p(f"run {run['mode']} {run['seconds']}s commands={w['commands_sent']} generations={w['generations_seen']} "
       f"animated={w['animated_generations']} frames_sampled={w['frames_sampled']} state_changes={w['state_changes']} "
       f"trace_events={w['trace_events']}")
-    p(f"sampler interval p50/p95={s['interval_ms_p50']}/{s['interval_ms_p95']}ms errors={s['errors']} "
+    ws = d["windowserver_stalls"]
+    p(f"windowserver_stalls count={ws['count']} total={ws['total_ms']}ms max={ws['max_ms']}ms "
+      f"detached_during_stalls={d['during_windowserver_stall']}")
+    p(f"sampler interval p50/p95/max={s['interval_ms_p50']}/{s['interval_ms_p95']}/{s['interval_ms_max']}ms errors={s['errors']} "
       f"daemon_cpu={report['daemon']['cpu_percent']}%")
     p(f"detached_borders episodes>50ms={d['episodes_over_50ms']} total={d['total_ms']}ms longest={d['longest_ms']}ms "
       f"by_phase={d['by_phase']} edge_strip>50ms={d['edge_strip_episodes_over_50ms']} "
@@ -464,6 +546,9 @@ def print_summary(report, stream=sys.stdout):
     for episode in sorted(d["episodes"], key=lambda x: -x["ms"])[:5]:
         p(f"  {episode['kind']} t={episode['start']:.3f} {episode['ms']}ms phase={episode['phase']} "
           f"edges={episode['edges']} rect={episode['rect']}")
+    b = report["border_lag"]
+    p(f"border_lag lagging={b['lagging_ms']}ms p50={b['lag_p50_ms']}ms p95={b['lag_p95_ms']}ms "
+      f"max={b['lag_max_ms']}ms over_17ms={b['lagging_over_17ms_ms']}ms stuck={b['stuck_ms']}ms")
     p(f"ribbon windows={r['windows']} frames={r['frames']} stalls={r['stalls']} stalls/s={r['stalls_per_s']} "
       f"p95_max_gap={r['p95_max_gap_ms']}ms max_gap={r['max_gap_ms']}ms backward={r['backward_steps']} "
       f"overshoot_max={r['max_overshoot_pt']}pt p95_settle={r['p95_settle_ms']}ms")
@@ -487,6 +572,7 @@ def main():
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--interval-ms", type=float, default=4)
     parser.add_argument("--json-out", type=Path)
+    parser.add_argument("--raw-out", type=Path, help="also save sampled states and trace events")
     args = parser.parse_args()
     if not args.passive and inherited_lock() is None:  # scenario moves real windows
         os.execv(sys.executable, [sys.executable, str(ROOT / "script/desktop_lock.py"), "--wait",

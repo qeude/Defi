@@ -59,6 +59,9 @@ func sample(daemon: Int32, seconds: Double, intervalMS: Double) {
       errors += 1
       continue
     }
+    // A slow WindowServer query means the compositor itself stalled, not Defi.
+    let queryMS = (uptime() - now) * 1000
+    if queryMS > 30 { print(String(format: "{\"stall\":%.6f,\"ms\":%.1f}", now, queryMS)) }
     var apps: [[Int]] = []
     var edges: [[Int]] = []
     for info in list {
@@ -89,8 +92,8 @@ func sample(daemon: Int32, seconds: Double, intervalMS: Double) {
   gaps.sort()
   print(
     String(
-      format: "{\"end\":true,\"t\":%.6f,\"ticks\":%d,\"errors\":%d,\"interval_ms_p50\":%.2f,\"interval_ms_p95\":%.2f,\"cpu_s\":%.4f}",
-      uptime(), ticks, errors, percentile(gaps, 0.5), percentile(gaps, 0.95),
+      format: "{\"end\":true,\"t\":%.6f,\"ticks\":%d,\"errors\":%d,\"interval_ms_p50\":%.2f,\"interval_ms_p95\":%.2f,\"interval_ms_max\":%.2f,\"cpu_s\":%.4f}",
+      uptime(), ticks, errors, percentile(gaps, 0.5), percentile(gaps, 0.95), gaps.last ?? 0,
       daemonCPUSeconds(daemon) - cpuStart))
 }
 
