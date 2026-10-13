@@ -252,9 +252,11 @@ def border_lag(states, end_t):
         """Worst border lag at time `at` while `state` holds; None when a border is stuck."""
         tracks = {wid: (x, y, w, h) for wid, _, x, y, w, h in state["apps"]}  # windows shown now
         horizontal = [edge[2:6] for edge in state["edges"] if edge[5] <= THIN < edge[4]]
+        vertical = [edge[2:6] for edge in state["edges"] if edge[4] <= THIN < edge[5]]
         worst = 0.0
         for ex, ey, ew, eh in horizontal:
-            if any(ox == ex and ow == ew and oy < ey for ox, oy, ow, _ in horizontal):
+            # A ring's left edge starts where its top edge ends and stops where its bottom begins.
+            if any(abs(vx - ex) <= 1 and abs(vy + vh - ey) <= 1 for vx, vy, _, vh in vertical):
                 continue  # a bottom edge; its top edge carries the lag
             owners = [wid for wid, (x, y, w, h) in tracks.items() if abs(w + 2 * BORDER - ew) <= 2]
             if not owners:  # a border whose window is gone
@@ -333,7 +335,10 @@ def window_motion(track, submit, end, settle_end):
     if abs(net) < 2:
         return None
     sign = 1 if net > 0 else -1
-    arrived = next((i for i, p in enumerate(inside) if abs(p[axis] - final[axis]) <= ARRIVED_PT), len(inside) - 1)
+    # Arrived once it stays within ARRIVED_PT; an overshoot that returns is still motion.
+    arrived = len(inside) - 1
+    while arrived > 0 and abs(inside[arrived - 1][axis] - final[axis]) <= ARRIVED_PT:
+        arrived -= 1
     moving = inside[:arrived + 1]
     active = [p for p in moving if p[0] <= end]
     gaps = [(b[0] - a[0]) * 1000 for a, b in zip(active, active[1:])]

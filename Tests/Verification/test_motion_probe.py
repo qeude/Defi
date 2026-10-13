@@ -24,6 +24,13 @@ TRACE = '''\
 '''
 
 
+def ring(x, y, w, h):
+    """Top, left, and bottom edge panels of one border, as the daemon draws them."""
+    b = probe.BORDER
+    return [[9, 3, x - b, y - b, w + 2 * b, 24], [9, 3, x - b, y - b + 24, 24, h + 2 * b - 24],
+            [9, 3, x - b, y + h + b, w + 2 * b, 24]]
+
+
 def state(t, edges, apps=((7, 1) + APP,)):
     return {'t': t, 'apps': [list(a) for a in apps], 'edges': edges}
 
@@ -71,11 +78,17 @@ class MotionProbeTests(unittest.TestCase):
         self.assertGreater(lag['lag_p95_ms'], 900)
 
     def test_vertical_border_lag_is_measured(self):
-        top = [9, 3, 100 - probe.BORDER, 100 - probe.BORDER, 800 + 2 * probe.BORDER, 4]
-        bottom = [9, 3, 100 - probe.BORDER, 690, 800 + 2 * probe.BORDER, 24]
         # The window slides down 300 pt at t=1; the border stays at the old y.
-        states = [state(0.0, [top, bottom], apps=((7, 1, 100, 100, 800, 600),)),
-                  state(1.0, [top, bottom], apps=((7, 1, 100, 400, 800, 600),))]
+        edges = ring(100, 100, 800, 600)
+        states = [state(0.0, edges, apps=((7, 1, 100, 100, 800, 600),)),
+                  state(1.0, edges, apps=((7, 1, 100, 400, 800, 600),))]
+        self.assertAlmostEqual(probe.border_lag(states, 1.5)['lagging_ms'], 500.0, delta=8)
+
+    def test_stacked_borders_each_report_their_lag(self):
+        upper, lower = (7, 1, 100, 100, 800, 300), (8, 1, 100, 410, 800, 300)
+        lower_moved = (8, 1, 100, 500, 800, 300)
+        edges = ring(100, 100, 800, 300) + ring(100, 410, 800, 300)  # the lower ring stays behind
+        states = [state(0.0, edges, apps=(upper, lower)), state(1.0, edges, apps=(upper, lower_moved))]
         self.assertAlmostEqual(probe.border_lag(states, 1.5)['lagging_ms'], 500.0, delta=8)
 
     def test_border_outset_follows_config(self):
@@ -127,6 +140,12 @@ class MotionProbeTests(unittest.TestCase):
         tail = [(9.9, 0, 0), (10.01, 100, 0), (10.02, 199, 0), (10.10, 200, 0)]
         self.assertEqual(probe.window_motion(tail, 10.0, 10.2, 11.0)['stalls'], 0)
         self.assertIsNone(probe.window_motion([(9.9, 5, 5), (10.05, 6, 5)], 10.0, 10.2, 11.0))
+
+    def test_overshoot_that_returns_is_still_motion(self):
+        # Touches the final 200 at 10.02, overshoots to 230, settles back at 10.12.
+        track = [(9.9, 0, 0), (10.01, 120, 0), (10.02, 200, 0), (10.05, 230, 0), (10.12, 200, 0)]
+        motion = probe.window_motion(track, 10.0, 10.2, 11.0)
+        self.assertEqual((motion['frames'], motion['stalls'], motion['overshoot_pt']), (4, 2, 30))
 
     def test_analyze_attributes_a_detached_border_and_ribbon_stall(self):
         ring = [9, 3, 96, 96, 808, 4]
