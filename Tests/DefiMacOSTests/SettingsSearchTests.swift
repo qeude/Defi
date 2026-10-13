@@ -14,14 +14,13 @@ struct SettingsSearchTests {
   }
 
   @Test(arguments: ["  RESERVED_TOP \n", "Layout.reserved_top", "reserved top area"])
-  func findsAdvancedOptionByLabelAndConfigKey(query: String) throws {
+  func findsOptionByLabelAndConfigKey(query: String) throws {
     let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
     let result = try #require(results.first)
     #expect(result.destination == .option(.reservedTop))
     #expect(result.title == "Reserved top area")
-    #expect(result.context == "Layout · Advanced")
+    #expect(result.context == "Layout")
     #expect(result.destination.anchor == .option(.reservedTop))
-    #expect(result.destination.isAdvanced)
   }
 
   @Test(arguments: ["default gap", "gap between windows", "outer_left_gap", "screen margins"])

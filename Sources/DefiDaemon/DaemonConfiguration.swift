@@ -309,7 +309,7 @@ extension Daemon {
       registrationHandler: { [weak self] enabled, error in
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         let message = error.map { "Keyboard shortcuts unavailable: \($0)" }
-          ?? (enabled ? "Keyboard shortcuts active" : "Keyboard shortcuts suspended")
+          ?? (enabled ? nil : "Keyboard shortcuts suspended")
         Task { @MainActor [weak self] in
           guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
           DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(message)
@@ -327,9 +327,7 @@ extension Daemon {
       hotKeys = manager
       let keyboardMessage = manager.bindingError.map {
         "Keyboard shortcuts unavailable: \($0.description)"
-      } ?? (manager.isHotKeyCaptureEnabled
-        ? "Keyboard shortcuts active"
-        : "Keyboard shortcuts unavailable")
+      } ?? (manager.isHotKeyCaptureEnabled ? nil : "Keyboard shortcuts unavailable")
       Task { @MainActor [weak self] in
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)

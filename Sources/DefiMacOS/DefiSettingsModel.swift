@@ -47,12 +47,13 @@ private enum SettingsTOMLOperation {
 @Observable
 public final class DefiSettingsRuntimeStatus {
   public static let shared = DefiSettingsRuntimeStatus()
-  public private(set) var keyboardMessage = "Checking keyboard shortcuts…"
+  /// Set only when shortcuts are not working.
+  public private(set) var keyboardMessage: String?
   public private(set) var lastValidConfig: Config?
 
   private init() {}
 
-  public func updateKeyboardStatus(_ message: String) {
+  public func updateKeyboardStatus(_ message: String?) {
     keyboardMessage = message
   }
 

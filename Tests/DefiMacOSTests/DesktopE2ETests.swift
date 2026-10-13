@@ -1669,7 +1669,7 @@ final class DesktopE2ETests: XCTestCase {
     }, timeout: 2), "Cancel must also restore pages while search remains focused")
   }
 
-  func testSettingsSearchRevealsCollapsedAdvancedOptionAgain() throws {
+  func testSettingsSearchRevealsOffscreenOptionAgain() throws {
     _ = try makePlatform()
     let frontmost = NSWorkspace.shared.frontmostApplication
     let originalPolicy = NSApplication.shared.activationPolicy()
@@ -1716,8 +1716,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(pumpRunLoop(until: {
       sidebar.selectedRow == 1 && descendants().contains { $0 is NSStepper }
     }, timeout: 2),
-      "Layout must be open before searching its collapsed Advanced section")
-    XCTAssertNil(reservedTopField(), "Advanced must initially hide the reserved-area control")
+      "Layout must be open before searching")
     let search = try XCTUnwrap(descendants().compactMap { $0 as? NSSearchField }.first)
     XCTAssertTrue(window.makeFirstResponder(search))
     let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
@@ -1725,7 +1724,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(pumpRunLoop(until: { sidebar.numberOfRows == 1 }, timeout: 2))
     NSApplication.shared.sendEvent(down)
     XCTAssertTrue(pumpRunLoop(until: targetIsVisible, timeout: 2),
-      "Selecting RESERVED_TOP must expand Advanced and reveal its control in the viewport")
+      "Selecting RESERVED_TOP must reveal its control in the viewport")
     let target = try XCTUnwrap(reservedTopField())
     let scroll = try XCTUnwrap(target.enclosingScrollView)
     let document = try XCTUnwrap(scroll.documentView)
@@ -1733,7 +1732,6 @@ final class DesktopE2ETests: XCTestCase {
     scroll.reflectScrolledClipView(scroll.contentView)
     XCTAssertTrue(pumpRunLoop(until: { !targetIsVisible() }, timeout: 2),
       "Scrolling to the top must move the reserved-area control out of the viewport")
-    XCTAssertNotNil(reservedTopField(), "Scrolling away must leave Advanced expanded")
     XCTAssertEqual(sidebar.selectedRow, 0)
     let row = sidebar.rect(ofRow: 0)
     let location = sidebar.convert(NSPoint(x: row.midX, y: row.midY), to: nil)

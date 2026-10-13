@@ -293,7 +293,6 @@ private struct GeneralSettingsView: View {
 private struct LayoutSettingsView: View {
   let model: DefiSettingsModel
   let request: SettingsRevealRequest
-  @State private var advancedExpanded = false
 
   var body: some View {
     Form {
@@ -321,21 +320,7 @@ private struct LayoutSettingsView: View {
         SpacingEditor(model: model)
           .settingsSearchTarget(.screenMargins)
       }
-      Section("Animation") {
-        settingsToggle(
-          model, title: SettingsOption.animations.title, table: "animation", key: "enabled",
-          value: model.config.animation.enabled
-        )
-          .settingsSearchTarget(.animations)
-        SettingsNumberRow(
-          title: SettingsOption.animationDuration.title, value: Double(model.config.animation.durationMS),
-          range: 0...2_000, step: 5, unit: "ms",
-
-          onChange: { model.set(table: "animation", key: "duration_ms", value: String(Int($0.rounded()))) }
-        )
-          .settingsSearchTarget(.animationDuration)
-      }
-      Section("Advanced", isExpanded: $advancedExpanded) {
+      Section("Reserved areas") {
         SettingsNumberRow(
           title: SettingsOption.reservedTop.title, value: model.config.layout.reservedTop,
           range: 0...512, step: 1, unit: "px",
@@ -353,10 +338,7 @@ private struct LayoutSettingsView: View {
       }
     }
     .formStyle(.grouped)
-    .modifier(SettingsRevealModifier(
-      request: request, ready: !request.destination.isAdvanced || advancedExpanded,
-      prepare: { if request.destination.isAdvanced { advancedExpanded = true } }
-    ))
+    .modifier(SettingsRevealModifier(request: request))
   }
 
   private func stringBinding(_ table: String, _ key: String, _ value: String) -> Binding<String> {
@@ -440,16 +422,17 @@ private struct InputSettingsView: View {
   @AppStorage("displayHyperIncludesShift") private var hyperIncludesShift = false
   @State private var shortcutSheet: ShortcutSheet?
   @State private var shortcutFilter = SettingsShortcutFilter.query("")
-  @State private var advancedExpanded = false
 
   var body: some View {
     let commands = SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows)
     let visibleCommands = commands.filter(shortcutFilter.includes)
 
     return Form {
-      Section {
-        Text(DefiSettingsRuntimeStatus.shared.keyboardMessage)
-          .foregroundStyle(.secondary)
+      if let keyboardMessage = DefiSettingsRuntimeStatus.shared.keyboardMessage {
+        Section {
+          Text(keyboardMessage)
+            .foregroundStyle(.secondary)
+        }
       }
       Section("Shortcut display") {
         Toggle("Show Hyper (\(hyperIncludesShift ? "⌃⌥⇧⌘" : "⌃⌥⌘")) as ✦", isOn: $displayHyper)
@@ -471,8 +454,6 @@ private struct InputSettingsView: View {
         )
           .settingsSearchTarget(.pointerFocusDelay)
           .disabled(!model.config.input.focusFollowsMouse)
-      }
-      Section("Advanced", isExpanded: $advancedExpanded) {
         SettingsNumberRow(
           title: SettingsOption.pointerFocusScroll.title,
           value: (model.config.input.focusFollowsMouseMaxScrollAmount ?? 0) * 100,
@@ -481,12 +462,13 @@ private struct InputSettingsView: View {
           onChange: { model.set(table: "input", key: "focus_follows_mouse_max_scroll_amount", value: String($0 / 100)) }
         )
           .settingsSearchTarget(.pointerFocusScroll)
+          .disabled(!model.config.input.focusFollowsMouse)
+      }
+      Section("Modifiers") {
         DefaultModifierField(model: model)
           .settingsSearchTarget(.defaultModifier)
         ModifierAliasesSettings(model: model)
           .settingsSearchTarget(.modifierAliases)
-        Button(SettingsOption.customShortcut.title) { shortcutSheet = ShortcutSheet(row: nil) }
-          .settingsSearchTarget(.customShortcut)
       }
       Section("Shortcut guide") {
         Toggle(SettingsOption.shortcutGuide.title, isOn: Binding(
@@ -505,6 +487,8 @@ private struct InputSettingsView: View {
         if visibleCommands.isEmpty {
           Text("No matching actions.").foregroundStyle(.secondary)
         }
+        Button(SettingsOption.customShortcut.title) { shortcutSheet = ShortcutSheet(row: nil) }
+          .settingsSearchTarget(.customShortcut)
       } header: {
         HStack {
           Text("Keyboard shortcuts")
@@ -538,11 +522,10 @@ private struct InputSettingsView: View {
       return shortcutFilter == .command(command)
         && SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
     }
-    return !request.destination.isAdvanced || advancedExpanded
+    return true
   }
 
   private func prepareReveal() {
-    if request.destination.isAdvanced { advancedExpanded = true }
     if case .shortcut(let command) = request.destination,
       SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
     {
@@ -582,7 +565,10 @@ private struct SettingsShortcutActionRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
       let bindings = model.shortcutRows.filter { $0.command == command }
       if bindings.isEmpty {
-        recorder(nil)
+        HStack {
+          recorder(nil)
+          Image(systemName: "minus.circle").hidden()
+        }
       } else {
         VStack(alignment: .trailing) {
           ForEach(bindings) { row in
@@ -628,7 +614,6 @@ private struct SettingsShortcutActionRow: View {
 private struct AppearanceSettingsView: View {
   let model: DefiSettingsModel
   let request: SettingsRevealRequest
-  @State private var advancedExpanded = false
   var body: some View {
     Form {
       Section("Window borders") {
@@ -646,27 +631,39 @@ private struct AppearanceSettingsView: View {
           .settingsSearchTarget(.borderWidth)
         ColorPicker(SettingsOption.focusedBorderColor.title, selection: colorBinding("color"), supportsOpacity: true)
           .settingsSearchTarget(.focusedBorderColor)
-        DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
-          settingsToggle(
-            model, title: SettingsOption.unfocusedBorders.title, table: "decorations.borders",
-            key: "inactive_enabled", value: model.config.decorations.borders.inactiveEnabled
-          )
-            .settingsSearchTarget(.unfocusedBorders)
-          ColorPicker(SettingsOption.unfocusedBorderColor.title, selection: colorBinding("inactive_color"), supportsOpacity: true)
-            .settingsSearchTarget(.unfocusedBorderColor)
-          settingsToggle(
-            model, title: SettingsOption.captureBorders.title, table: "decorations.borders",
-            key: "capture_enabled", value: model.config.decorations.borders.captureEnabled
-          )
-            .settingsSearchTarget(.captureBorders)
-          Picker(SettingsOption.borderPlacement.title, selection: stringBinding(
-            model, table: "decorations.borders", key: "placement", value: model.config.decorations.borders.placement
-          )) {
-            Text("Inside window").tag("inside")
-            Text("Outside window").tag("outside")
-          }
-          .settingsSearchTarget(.borderPlacement)
+        Picker(SettingsOption.borderPlacement.title, selection: stringBinding(
+          model, table: "decorations.borders", key: "placement", value: model.config.decorations.borders.placement
+        )) {
+          Text("Inside window").tag("inside")
+          Text("Outside window").tag("outside")
         }
+        .settingsSearchTarget(.borderPlacement)
+        settingsToggle(
+          model, title: SettingsOption.unfocusedBorders.title, table: "decorations.borders",
+          key: "inactive_enabled", value: model.config.decorations.borders.inactiveEnabled
+        )
+          .settingsSearchTarget(.unfocusedBorders)
+        ColorPicker(SettingsOption.unfocusedBorderColor.title, selection: colorBinding("inactive_color"), supportsOpacity: true)
+          .settingsSearchTarget(.unfocusedBorderColor)
+        settingsToggle(
+          model, title: SettingsOption.captureBorders.title, table: "decorations.borders",
+          key: "capture_enabled", value: model.config.decorations.borders.captureEnabled
+        )
+          .settingsSearchTarget(.captureBorders)
+      }
+      Section("Animation") {
+        settingsToggle(
+          model, title: SettingsOption.animations.title, table: "animation", key: "enabled",
+          value: model.config.animation.enabled
+        )
+          .settingsSearchTarget(.animations)
+        SettingsNumberRow(
+          title: SettingsOption.animationDuration.title, value: Double(model.config.animation.durationMS),
+          range: 0...2_000, step: 5, unit: "ms",
+
+          onChange: { model.set(table: "animation", key: "duration_ms", value: String(Int($0.rounded()))) }
+        )
+          .settingsSearchTarget(.animationDuration)
       }
       Section("Overview") {
         SettingsNumberRow(
@@ -696,10 +693,7 @@ private struct AppearanceSettingsView: View {
       }
     }
     .formStyle(.grouped)
-    .modifier(SettingsRevealModifier(
-      request: request, ready: !request.destination.isAdvanced || advancedExpanded,
-      prepare: { if request.destination.isAdvanced { advancedExpanded = true } }
-    ))
+    .modifier(SettingsRevealModifier(request: request))
   }
 
   private func colorBinding(_ key: String) -> Binding<Color> {
@@ -798,9 +792,7 @@ private struct WorkspaceSettingsView: View {
     } message: {
       if let workspaceToDelete {
         let references = model.rulesReferencingWorkspace(workspaceToDelete)
-        if references.isEmpty {
-          Text("This removes the named workspace configuration.")
-        } else {
+        if !references.isEmpty {
           Text("Workspace assignments will be removed from these rules. Their other actions will be kept: \(references.joined(separator: ", ")).")
         }
       }

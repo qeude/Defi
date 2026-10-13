@@ -56,60 +56,58 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case addAppRule
   case appRules
 
-  private var metadata: (page: SettingsPage, title: String, terms: String, advanced: Bool) {
+  private var metadata: (page: SettingsPage, title: String, terms: String) {
     switch self {
-    case .accessibility: (.general, "Accessibility", "permissions accessibility settings", false)
-    case .launchAtLogin: (.general, "Launch Defi at login", "startup launch login", false)
-    case .menuBar: (.general, "Show Defi in the menu bar", "menu_bar.enabled", false)
-    case .workspaceDisplay: (.general, "Named workspace display", "menu_bar.workspace_style icon only icon and name name only", false)
-    case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path", false)
-    case .configurationGuide: (.general, "Configuration Guide…", "documentation configuration guide", false)
-    case .logs: (.general, "Open Logs Folder…", "diagnostics logs", false)
-    case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues", false)
-    case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width", false)
-    case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center", false)
-    case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove", false)
+    case .accessibility: (.general, "Accessibility", "permissions accessibility settings")
+    case .launchAtLogin: (.general, "Launch Defi at login", "startup launch login")
+    case .menuBar: (.general, "Show Defi in the menu bar", "menu_bar.enabled")
+    case .workspaceDisplay: (.general, "Named workspace display", "menu_bar.workspace_style icon only icon and name name only")
+    case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path")
+    case .configurationGuide: (.general, "Configuration Guide…", "documentation configuration guide")
+    case .logs: (.general, "Open Logs Folder…", "diagnostics logs")
+    case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues")
+    case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width")
+    case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center")
+    case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove")
     case .screenMargins: (
       .layout, "Spacing",
-      "layout.gaps default gap outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges",
-      false
+      "layout.gaps default gap outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges"
     )
-    case .animations: (.layout, "Enable animations", "animation.enabled", false)
-    case .animationDuration: (.layout, "Animation duration", "animation.duration_ms", false)
-    case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top", true)
-    case .reservedBottom: (.layout, "Reserved bottom area", "layout.reserved_bottom", true)
-    case .hyperSymbol: (.input, "Show Hyper as ✦", "displayHyperSymbol hyper shortcut display", false)
-    case .hyperShift: (.input, "Include Shift in Hyper", "displayHyperIncludesShift shortcut display", false)
-    case .focusFollowsPointer: (.input, "Focus follows pointer", "input.focus_follows_mouse mouse", false)
-    case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse", false)
-    case .pointerFocusScroll: (.input, "Maximum pointer-focus scroll", "input.focus_follows_mouse_max_scroll_amount mouse", true)
-    case .pointerFocusDelay: (.input, "Pointer-focus delay", "input.focus_follows_mouse_delay_ms mouse", false)
-    case .defaultModifier: (.input, "Default key modifier", "default_key_modifier keyboard", true)
-    case .modifierAliases: (.input, "Modifier aliases", "modifier_combinations alias modifiers", true)
-    case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding", true)
-    case .shortcutGuide: (.input, "Show guide when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet", false)
-    case .keyboardShortcuts: (.input, "Keyboard shortcuts", "keys keybinding bindings record reset actions", false)
-    case .focusedBorder: (.appearance, "Show focused window border", "decorations.borders.enabled", false)
-    case .borderWidth: (.appearance, "Border width", "decorations.borders.width", false)
-    case .focusedBorderColor: (.appearance, "Focused border color", "decorations.borders.color", false)
-    case .unfocusedBorders: (.appearance, "Show unfocused window borders", "decorations.borders.inactive_enabled", true)
-    case .unfocusedBorderColor: (.appearance, "Unfocused border color", "decorations.borders.inactive_color", true)
-    case .captureBorders: (.appearance, "Include borders in screenshots", "decorations.borders.capture_enabled", true)
-    case .borderPlacement: (.appearance, "Border placement", "decorations.borders.placement inside window outside window", true)
-    case .overviewScale: (.appearance, "Scale", "overview.zoom scale", false)
-    case .overviewCornerRadius: (.appearance, "Corner radius", "overview.window_corner_radius", false)
-    case .windowPreviews: (.appearance, "Show optional window previews", "overview.window_previews screen recording", false)
-    case .namedWorkspaces: (.workspaces, "Named workspaces", "workspaces.names workspace name rename reorder add delete", false)
-    case .defaultWorkspace: (.workspaces, "Default workspace", "workspaces.default startup workspace", false)
-    case .addAppRule: (.appRules, "Add App Rule…", "rules application rule add", false)
-    case .appRules: (.appRules, "Application rules", "rules app rules add edit reorder remove", false)
+    case .animations: (.appearance, "Enable animations", "animation.enabled")
+    case .animationDuration: (.appearance, "Animation duration", "animation.duration_ms")
+    case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top")
+    case .reservedBottom: (.layout, "Reserved bottom area", "layout.reserved_bottom")
+    case .hyperSymbol: (.input, "Show Hyper as ✦", "displayHyperSymbol hyper shortcut display")
+    case .hyperShift: (.input, "Include Shift in Hyper", "displayHyperIncludesShift shortcut display")
+    case .focusFollowsPointer: (.input, "Focus follows pointer", "input.focus_follows_mouse mouse")
+    case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse")
+    case .pointerFocusScroll: (.input, "Maximum pointer-focus scroll", "input.focus_follows_mouse_max_scroll_amount mouse")
+    case .pointerFocusDelay: (.input, "Pointer-focus delay", "input.focus_follows_mouse_delay_ms mouse")
+    case .defaultModifier: (.input, "Default key modifier", "default_key_modifier keyboard")
+    case .modifierAliases: (.input, "Modifier aliases", "modifier_combinations alias modifiers")
+    case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding")
+    case .shortcutGuide: (.input, "Show guide when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")
+    case .keyboardShortcuts: (.input, "Keyboard shortcuts", "keys keybinding bindings record reset actions")
+    case .focusedBorder: (.appearance, "Show focused window border", "decorations.borders.enabled")
+    case .borderWidth: (.appearance, "Border width", "decorations.borders.width")
+    case .focusedBorderColor: (.appearance, "Focused border color", "decorations.borders.color")
+    case .unfocusedBorders: (.appearance, "Show unfocused window borders", "decorations.borders.inactive_enabled")
+    case .unfocusedBorderColor: (.appearance, "Unfocused border color", "decorations.borders.inactive_color")
+    case .captureBorders: (.appearance, "Include borders in screenshots", "decorations.borders.capture_enabled")
+    case .borderPlacement: (.appearance, "Border placement", "decorations.borders.placement inside window outside window")
+    case .overviewScale: (.appearance, "Scale", "overview.zoom scale")
+    case .overviewCornerRadius: (.appearance, "Corner radius", "overview.window_corner_radius")
+    case .windowPreviews: (.appearance, "Show optional window previews", "overview.window_previews screen recording")
+    case .namedWorkspaces: (.workspaces, "Named workspaces", "workspaces.names workspace name rename reorder add delete")
+    case .defaultWorkspace: (.workspaces, "Default workspace", "workspaces.default startup workspace")
+    case .addAppRule: (.appRules, "Add App Rule…", "rules application rule add")
+    case .appRules: (.appRules, "Application rules", "rules app rules add edit reorder remove")
     }
   }
 
   var page: SettingsPage { metadata.page }
   var title: String { metadata.title }
   var terms: String { metadata.terms }
-  var isAdvanced: Bool { metadata.advanced }
 }
 
 enum SettingsWorkspaceField: CaseIterable, Sendable {
@@ -163,11 +161,6 @@ enum SettingsDestination: Hashable {
     case .workspace(let name, _): .workspace(name)
     }
   }
-
-  var isAdvanced: Bool {
-    if case .option(let option) = self { return option.isAdvanced }
-    return false
-  }
 }
 
 struct SettingsRevealRequest: Equatable {
@@ -209,7 +202,7 @@ enum SettingsSearchCatalog {
     }
     let options = SettingsOption.allCases.map {
       SettingsSearchResult(destination: .option($0), title: $0.title,
-        context: $0.page.rawValue + ($0.isAdvanced ? " · Advanced" : ""), terms: $0.terms)
+        context: $0.page.rawValue, terms: $0.terms)
     }
     let workspaces = config.workspaces.names.flatMap { name in
       SettingsWorkspaceField.allCases.compactMap { field -> SettingsSearchResult? in
