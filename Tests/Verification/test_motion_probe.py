@@ -59,6 +59,16 @@ class MotionProbeTests(unittest.TestCase):
         states = [state(0.0, [top], apps=(app,)), state(1.0, [top], apps=())]
         self.assertEqual(probe.border_lag(states, 1.5)['stuck_ms'], 500.0)
 
+    def test_lag_grows_across_a_hold_until_stuck(self):
+        app_at = lambda x: (7, 1, x, 100, 800, 600)
+        top = [9, 3, 100 - probe.BORDER, 100 - probe.BORDER, 800 + 2 * probe.BORDER, 4]
+        # The window leaves at t=1 and stays put; the border never follows.
+        states = [state(0.0, [top], apps=(app_at(100),)), state(1.0, [top], apps=(app_at(300),))]
+        lag = probe.border_lag(states, 3.0)
+        self.assertAlmostEqual(lag['lagging_ms'], 1000.0, delta=8)
+        self.assertAlmostEqual(lag['stuck_ms'], 1000.0, delta=8)
+        self.assertGreater(lag['lag_p95_ms'], 900)
+
     def test_slow_motion_sums_processes_of_one_app(self):
         self.assertEqual(probe.slow_motion_by_app({'1': 2, '2': 3, '3': 1}, {'1': 'a', '2': 'a'}),
                          {'a': 5, '3': 1})

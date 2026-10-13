@@ -9,6 +9,7 @@ its start. Scenario mode moves real windows; --passive N only observes.
 import argparse
 from bisect import bisect_left
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -30,6 +31,7 @@ CLI_FALLBACK = Path.home() / "Applications/Defi.app/Contents/MacOS/defi"
 
 BORDER = 4             # pt; outside border width (user config); top edge = window rect outset by it
 RING_OUTSET = 6        # pt; border width 4 + 2 of tolerance
+LAG_SLICE_S = 0.004    # lag integration step while a border is misaligned; the sampler period
 LAG_HORIZON_S = 1.0    # a border no window passed through this recently is stuck, not lagging
 THIN = 64              # pt; border strips are thinner than this
 EDGE_MARGIN = 20       # pt; thin windows this close to a display's side are parked-window leaks
@@ -226,7 +228,7 @@ def border_lag_ms(edge, now, track):
         until = track[index + 1][0] if index + 1 < len(track) else float("inf")
         nx = track[index + 1][1] if index + 1 < len(track) else wx
         if abs(wx - x) <= 1:
-            dt = 0.0 if t <= now <= until else min(abs(now - t), abs(now - until))
+            dt = 0.0 if t <= now < until else min(abs(now - t), abs(now - until))
         elif min(wx, nx) - 1 <= x <= max(wx, nx) + 1:
             dt = abs(now - until)  # passed between two samples
         else:
@@ -241,29 +243,42 @@ def border_lag(states, end_t):
     window whose width and y it outsets by BORDER."""
     history, _ = window_tracks(states)
     weighted, stuck_ms = [], 0.0
-    for state, nxt in zip(states, states[1:] + [{"t": end_t}]):
-        now, hold = state["t"], (nxt["t"] - state["t"]) * 1000
+
+    def worst_lag(state, at):
+        """Worst border lag at time `at` while `state` holds; None when a border is stuck."""
         tracks = {wid: (x, y, w, h) for wid, _, x, y, w, h in state["apps"]}  # windows shown now
         worst = 0.0
         for edge in state["edges"]:
             ex, ey, ew, eh = edge[2:6]
             if eh > THIN or ew <= THIN:
                 continue
-            owners = [wid for wid, (x, y, w, h) in tracks.items()
-                      if abs(w + 2 * BORDER - ew) <= 2 and abs(y - BORDER - ey) <= 2]
-            if not owners:  # a border whose window is gone
-                stuck_ms += hold
-                worst = None
-                break
-            lags = [border_lag_ms((ex, ey), now, history[wid]) for wid in owners]
-            known = [lag for lag in lags if lag is not None]
+            sized = [wid for wid, (x, y, w, h) in tracks.items() if abs(w + 2 * BORDER - ew) <= 2]
+            if not sized:  # a border whose window is gone
+                return None
+            owners = [wid for wid in sized if abs(tracks[wid][1] - BORDER - ey) <= 2]
+            if not owners:  # a bottom edge; its top edge carries the lag
+                continue
+            known = [lag for lag in (border_lag_ms((ex, ey), at, history[wid]) for wid in owners)
+                     if lag is not None]
             if not known:
-                stuck_ms += hold
-                worst = None
-                break
+                return None
             worst = max(worst, min(known))
-        if worst is not None and worst > 0:
-            weighted.append((worst, hold))
+        return worst
+
+    for state, nxt in zip(states, states[1:] + [{"t": end_t}]):
+        start, end = state["t"], nxt["t"]
+        # An aligned border stays aligned until the next change; a misaligned one drifts
+        # during the hold, so integrate it in sampler-sized slices.
+        # Probe just after the change: a window leaving at `start` still reads as aligned there.
+        probe_at = start + min(LAG_SLICE_S, end - start) / 2
+        slices = [start] if worst_lag(state, probe_at) == 0 else \
+            [start + i * LAG_SLICE_S for i in range(max(1, math.ceil((end - start) / LAG_SLICE_S)))]
+        for at, until in zip(slices, slices[1:] + [end]):
+            lag, hold = worst_lag(state, at), (until - at) * 1000
+            if lag is None:
+                stuck_ms += hold
+            elif lag > 0:
+                weighted.append((lag, hold))
     weighted.sort()
     total = sum(h for _, h in weighted)
 
