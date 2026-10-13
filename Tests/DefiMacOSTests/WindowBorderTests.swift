@@ -565,23 +565,6 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
-  func rapidSelectionKeepsLatestActiveIdentity() {
-    let manager = WindowBorderManager()
-    let first = WindowID(rawValue: 1)
-    let second = WindowID(rawValue: 2)
-    let third = WindowID(rawValue: 3)
-
-    manager.prepareForSelection(first, displayedFrame: nil)
-    #expect(manager.activeWindowID == first)
-
-    manager.prepareForSelection(second, displayedFrame: nil)
-    #expect(manager.activeWindowID == second)
-
-    manager.prepareForSelection(third, displayedFrame: nil)
-    #expect(manager.activeWindowID == third)
-  }
-
-  @Test @MainActor
   func suppressedBordersStayHiddenUntilRestored() {
     let manager = WindowBorderManager()
     let windowID = WindowID(rawValue: 1)
@@ -692,6 +675,7 @@ struct WindowBorderTests {
     manager.prepareForSelection(first, displayedFrame: frame)
     manager.sync(plan, displayedFrames: [first: frame], stacking: frontmostStacking(for: first))
     manager.revealPendingBorders()
+    #expect(manager.activeWindowID == first)
     let panels = NSApp.windows.filter {
       manager.transparentSurfaceWindowIDs.contains(CGWindowID($0.windowNumber))
     }
@@ -706,6 +690,7 @@ struct WindowBorderTests {
     let pixels = manager.performance.estimatedSurfacePixels
     manager.prepareForSelection(second, displayedFrame: translated)
     manager.revealPendingBorders()
+    #expect(manager.activeWindowID == second)
     #expect(manager.performance.allocated == 1)
     #expect(manager.performance.estimatedSurfacePixels == pixels)
     for (panel, path) in zip(panels, paths) {
@@ -725,37 +710,10 @@ struct WindowBorderTests {
       #expect(panel.frame == expected)
     }
     manager.prepareForSelection(nil, displayedFrame: nil)
+    #expect(manager.activeWindowID == nil)
     #expect(manager.performance.estimatedSurfacePixels == 0)
     #expect(manager.performance.visible == 0)
     manager.hide()
-  }
-
-  @Test @MainActor
-  func activeSelectionReusesDormantBorderPanels() {
-    let manager = WindowBorderManager()
-    let first = WindowID(rawValue: 1)
-    let second = WindowID(rawValue: 2)
-    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
-    let firstPlan = planWindowBorders(
-      frames: [FrameAssignment(windowID: first, frame: frame)],
-      selectedWindowID: first,
-      hiddenWindowIDs: [],
-      monitorFrames: [monitor],
-      style: style
-    )
-
-    manager.prepareForSelection(first, displayedFrame: frame)
-    manager.sync(
-      firstPlan,
-      displayedFrames: [first: frame],
-      stacking: frontmostStacking(for: first)
-    )
-    #expect(manager.performance.allocated == 1)
-
-    manager.prepareForSelection(second, displayedFrame: frame)
-
-    #expect(manager.activeWindowID == second)
-    #expect(manager.performance.allocated == 1)
   }
 
   @Test @MainActor
@@ -827,7 +785,7 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
-  func ownedSurfaceWindowIDRemainsReadableAfterRapidOverlayChanges() {
+  func ownedSurfaceWindowIDRemainsReadableAfterRapidOverlayChanges() throws {
     let manager = WindowBorderManager()
     let frame = Rect(x: 100, y: 100, width: 800, height: 600)
 
@@ -848,6 +806,9 @@ struct WindowBorderTests {
 
       _ = manager.ownedSurfaceWindowID
     }
+
+    let owned = try #require(manager.ownedSurfaceWindowID)
+    #expect(manager.transparentSurfaceWindowIDs.contains(CGWindowID(owned.rawValue)))
   }
 
   @Test @MainActor

@@ -12,3 +12,6 @@ dist/
 
 # GitHub App credentials
 gha-creds-*.json
+
+# LLVM coverage profiles
+*.profraw

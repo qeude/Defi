@@ -286,32 +286,6 @@ struct DynamicWorkspaceTests {
   }
 
   @Test
-  func `Disconnected workspaces return only to the same monitor identity`() throws {
-    let config = Config(
-      workspaces: WorkspacesConfig(names: ["dev", "chat"], monitors: ["chat": 2])
-    )
-    var state = RuntimeState(config: config)
-    state.attachMonitor(primary)
-    state.attachMonitor(secondary)
-    let window = makeWindow(1, monitorID: secondary)
-    try discoverWindow(
-      window,
-      decision: RuleDecision(workspace: WorkspaceID(rawValue: "chat")),
-      state: &state
-    )
-
-    state.retainMonitors([primary])
-
-    #expect(state.workspaceLocation(for: WorkspaceID(rawValue: "chat"))?.monitorIndex == 0)
-    #expect(state.location(containing: window.id)?.monitorID == primary)
-
-    state.retainMonitors([primary, secondary])
-
-    #expect(state.workspaceLocation(for: WorkspaceID(rawValue: "chat"))?.monitorIndex == 1)
-    #expect(state.location(containing: window.id)?.monitorID == secondary)
-  }
-
-  @Test
   func `Display resize and reconnect preserve workspace topology state`() throws {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "chat"], monitors: ["chat": 2])
@@ -362,7 +336,9 @@ struct DynamicWorkspaceTests {
       nextViewports: [primary: primaryViewport]
     )
 
+    #expect(state.monitors.count == 1)
     #expect(state.workspaceLocation(for: workspaceID)?.monitorIndex == 0)
+    #expect(state.location(containing: selectedWindowID)?.monitorID == primary)
     let migrated = try #require(state.monitors[0].workspaces.first { $0.id == workspaceID })
     #expect(migrated.affinity == secondary)
     #expect(migrated.columns.map(\.width) == [.pixels(210), .pixels(310)])

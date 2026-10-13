@@ -222,8 +222,8 @@ struct FocusMutationTests {
     #expect(proof.carriedRecovery == nil)
   }
 
-  @Test func performanceFocus() throws {
-    guard ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1" else { return }
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1"))
+  func performanceFocus() throws {
     var obsolete = 0, mutations = 0, completed = 0, errors = 0, supersessions = 0
     var nativeErrors = 0
     for _ in 0..<8 {

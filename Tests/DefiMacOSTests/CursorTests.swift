@@ -31,23 +31,18 @@ struct CursorTests {
     #expect(parsed.memoryUsage == 2_368)
   }
 
-  @Test
-  func cursorOutsideWindowWarpsToCenter() {
-    #expect(
-      cursorWarpDestination(
-        frame: frame,
-        currentLocation: CGPoint(x: 0, y: 0)
-      ) == CGPoint(x: 300, y: 500)
+  @Test(
+    arguments: zip(
+      [CGPoint(x: 0, y: 0), CGPoint(x: 300, y: 500)],
+      [CGPoint(x: 300, y: 500), nil]
     )
-  }
-
-  @Test
-  func cursorAlreadyInsideWindowDoesNotWarp() {
+  )
+  func cursorWarpsToCenterOnlyOutsideWindow(currentLocation: CGPoint, destination: CGPoint?) {
     #expect(
       cursorWarpDestination(
         frame: frame,
-        currentLocation: CGPoint(x: 300, y: 500)
-      ) == nil
+        currentLocation: currentLocation
+      ) == destination
     )
   }
 
@@ -182,42 +177,54 @@ struct CursorTests {
     )
   }
 
-  @Test
-  func newerPhysicalMotionRejectsStaleWarp() {
-    #expect(
-      cursorWarpIsCurrent(
-        latestPointerMotionTimestamp: 12,
-        latestUserInputTimestamp: 10,
-        maximumInputTimestamp: 11,
-        mouseButtonDown: false
-      ) == false
-    )
-    #expect(
-      cursorWarpIsCurrent(
-        latestPointerMotionTimestamp: 11,
-        latestUserInputTimestamp: 10,
-        maximumInputTimestamp: 11,
-        mouseButtonDown: false
-      )
-    )
+  struct CursorWarpCurrencyCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let latestPointerMotionTimestamp: Double
+    let latestUserInputTimestamp: Double
+    var mouseButtonDown = false
+    let isCurrent: Bool
+
+    var testDescription: String { name }
   }
 
-  @Test
-  func newerGeneralInputOrHeldButtonRejectsWarp() {
+  static let cursorWarpCurrencyCases = [
+    CursorWarpCurrencyCase(
+      name: "newer physical motion rejects stale warp",
+      latestPointerMotionTimestamp: 12,
+      latestUserInputTimestamp: 10,
+      isCurrent: false
+    ),
+    CursorWarpCurrencyCase(
+      name: "motion within the input bound keeps warp current",
+      latestPointerMotionTimestamp: 11,
+      latestUserInputTimestamp: 10,
+      isCurrent: true
+    ),
+    CursorWarpCurrencyCase(
+      name: "newer general input rejects warp",
+      latestPointerMotionTimestamp: 10,
+      latestUserInputTimestamp: 12,
+      isCurrent: false
+    ),
+    CursorWarpCurrencyCase(
+      name: "held mouse button rejects warp",
+      latestPointerMotionTimestamp: 10,
+      latestUserInputTimestamp: 10,
+      mouseButtonDown: true,
+      isCurrent: false
+    ),
+  ]
+
+  @Test(arguments: cursorWarpCurrencyCases)
+  func staleMotionInputOrHeldButtonRejectsWarp(_ scenario: CursorWarpCurrencyCase) {
     #expect(
       cursorWarpIsCurrent(
-        latestPointerMotionTimestamp: 10,
-        latestUserInputTimestamp: 12,
+        latestPointerMotionTimestamp: scenario.latestPointerMotionTimestamp,
+        latestUserInputTimestamp: scenario.latestUserInputTimestamp,
         maximumInputTimestamp: 11,
-        mouseButtonDown: false
-      ) == false)
-    #expect(
-      cursorWarpIsCurrent(
-        latestPointerMotionTimestamp: 10,
-        latestUserInputTimestamp: 10,
-        maximumInputTimestamp: 11,
-        mouseButtonDown: true
-      ) == false)
+        mouseButtonDown: scenario.mouseButtonDown
+      ) == scenario.isCurrent
+    )
   }
 
   @Test
@@ -272,35 +279,22 @@ struct CursorTests {
     )
   }
 
-  @Test
-  func committedFloatingTransitionWarpsToTargetFrame() {
+  @Test(arguments: [true, false])
+  func floatingWarpFramePrefersTargetOnlyForCommittedTransition(prefersTargetFrame: Bool) {
     let target = Rect(x: 500, y: 200, width: 400, height: 600)
-    let observed = Rect(x: -10_000, y: 200, width: 400, height: 600)
+    let observed =
+      prefersTargetFrame
+      ? Rect(x: -10_000, y: 200, width: 400, height: 600)
+      : Rect(x: 100, y: 200, width: 400, height: 600)
 
     #expect(
       resolvedCursorWarpFrame(
         isFloating: true,
-        prefersTargetFrame: true,
+        prefersTargetFrame: prefersTargetFrame,
         targetFrame: target,
         observedFrame: observed,
-        snapshotFrame: observed
-      ) == target
-    )
-  }
-
-  @Test
-  func ordinaryFloatingWarpPrefersObservedFrame() {
-    let target = Rect(x: 500, y: 200, width: 400, height: 600)
-    let observed = Rect(x: 100, y: 200, width: 400, height: 600)
-
-    #expect(
-      resolvedCursorWarpFrame(
-        isFloating: true,
-        prefersTargetFrame: false,
-        targetFrame: target,
-        observedFrame: observed,
-        snapshotFrame: nil
-      ) == observed
+        snapshotFrame: prefersTargetFrame ? observed : nil
+      ) == (prefersTargetFrame ? target : observed)
     )
   }
 
@@ -477,14 +471,53 @@ struct CursorTests {
     )
   }
 
-  @Test
-  func cursorSurfaceIsTransparentToHitTesting() {
+  struct CursorOverlayCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    var ownerName = ""
+    let layer: Int
+    let title: String
+    let isTransparent: Bool
+
+    var testDescription: String { name }
+  }
+
+  static let cursorOverlayCases = [
+    CursorOverlayCase(
+      name: "cursor surface is transparent to hit testing",
+      layer: 2_147_483_630,
+      title: "Cursor",
+      isTransparent: true
+    ),
+    CursorOverlayCase(
+      name: "nameless system cursor is transparent without capture permission",
+      ownerName: "Window Server",
+      layer: Int(CGWindowLevelForKey(.cursorWindow)),
+      title: "",
+      isTransparent: true
+    ),
+    CursorOverlayCase(
+      name: "third party cursor palette blocks managed window",
+      layer: 8,
+      title: "Cursor",
+      isTransparent: false
+    ),
+    CursorOverlayCase(
+      name: "nameless third party cursor level window blocks managed window",
+      layer: Int(CGWindowLevelForKey(.cursorWindow)),
+      title: "",
+      isTransparent: false
+    ),
+  ]
+
+  @Test(arguments: cursorOverlayCases)
+  func onlyCursorSurfaceIsTransparentToHitTesting(_ scenario: CursorOverlayCase) {
     let records = [
       record(
         id: 9,
         processID: 90,
-        layer: 2_147_483_630,
-        title: "Cursor",
+        ownerName: scenario.ownerName,
+        layer: scenario.layer,
+        title: scenario.title,
         frame: Rect(x: 300, y: 500, width: 28, height: 40)
       ),
       record(id: 1, processID: 10),
@@ -493,75 +526,15 @@ struct CursorTests {
     let transparentWindowIDs = transparentPointerOverlayWindowIDs(
       records: records
     )
-    #expect(transparentWindowIDs == [9])
+    #expect(transparentWindowIDs == (scenario.isTransparent ? [9] : []))
     #expect(
       managedPointerHitTest(
         at: CGPoint(x: 300, y: 500),
         records: records,
         managedWindowIDs: [WindowID(rawValue: 1)],
         nonblockingWindowIDs: transparentWindowIDs
-      ) == .managed(WindowID(rawValue: 1))
+      ) == (scenario.isTransparent ? .managed(WindowID(rawValue: 1)) : .blocked)
     )
-  }
-
-  @Test
-  func namelessSystemCursorIsTransparentWithoutCapturePermission() {
-    let records = [
-      record(
-        id: 9,
-        processID: 90,
-        ownerName: "Window Server",
-        layer: Int(CGWindowLevelForKey(.cursorWindow)),
-        title: "",
-        frame: Rect(x: 300, y: 500, width: 28, height: 40)
-      ),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(transparentPointerOverlayWindowIDs(records: records) == [9])
-  }
-
-  @Test
-  func thirdPartyCursorPaletteBlocksManagedWindow() {
-    let records = [
-      record(
-        id: 9,
-        processID: 90,
-        layer: 8,
-        title: "Cursor",
-        frame: Rect(x: 300, y: 500, width: 28, height: 40)
-      ),
-      record(id: 1, processID: 10),
-    ]
-
-    let transparentWindowIDs = transparentPointerOverlayWindowIDs(
-      records: records
-    )
-    #expect(transparentWindowIDs.isEmpty)
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [WindowID(rawValue: 1)],
-        nonblockingWindowIDs: transparentWindowIDs
-      ) == .blocked
-    )
-  }
-
-  @Test
-  func namelessThirdPartyCursorLevelWindowBlocksManagedWindow() {
-    let records = [
-      record(
-        id: 9,
-        processID: 90,
-        layer: Int(CGWindowLevelForKey(.cursorWindow)),
-        title: "",
-        frame: Rect(x: 300, y: 500, width: 28, height: 40)
-      ),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(transparentPointerOverlayWindowIDs(records: records).isEmpty)
   }
 
   @Test

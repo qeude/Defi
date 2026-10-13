@@ -1101,79 +1101,123 @@ struct PlatformEventTests {
     )
   }
 
-  @Test
-  func commandTabAfterCloseWinsBeforeTopologyNotification() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 20, closeIntent: true)
-    tracker.record(timestamp: 21, focusIntent: .keyboard)
-    let input = tracker.snapshot
+  struct TopologyInputEvent: Sendable {
+    let timestamp: Double
+    var focusIntent: UserInputTracker.FocusIntentSource?
+    var closeIntent = false
 
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: input.latestEventTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent
-      )
-    )
+    static func close(_ timestamp: Double) -> Self {
+      Self(timestamp: timestamp, closeIntent: true)
+    }
+
+    static func keyboard(_ timestamp: Double) -> Self {
+      Self(timestamp: timestamp, focusIntent: .keyboard)
+    }
+
+    static func mouse(_ timestamp: Double, window: WindowID?) -> Self {
+      Self(timestamp: timestamp, focusIntent: .mouse(windowID: window))
+    }
+
+    static func input(_ timestamp: Double) -> Self {
+      Self(timestamp: timestamp)
+    }
   }
 
-  @Test
-  func commandTabBetweenTwoClosesStillWinsFirstRemovalReconciliation() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 20, closeIntent: true)
-    let topologyInputTimestamp = tracker.latestEventTimestamp
-    tracker.record(timestamp: 21, focusIntent: .keyboard)
-    tracker.record(timestamp: 22, closeIntent: true)
-    let input = tracker.snapshot
+  struct TopologyInputCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let events: [TopologyInputEvent]
+    var topologyAfterEventCount: Int?
+    var removedWindowIDs: Set<WindowID> = []
+    let inputOccurredAfterTopology: Bool
 
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: topologyInputTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent
-      )
-    )
+    var testDescription: String { name }
   }
 
-  @Test
-  func mouseClickAfterCloseWinsBeforeTopologyNotification() {
+  static let topologyInputCases = [
+    TopologyInputCase(
+      name: "command-tab after close wins before topology notification",
+      events: [.close(20), .keyboard(21)],
+      inputOccurredAfterTopology: true
+    ),
+    TopologyInputCase(
+      name: "command-tab between two closes still wins first removal reconciliation",
+      events: [.close(20), .keyboard(21), .close(22)],
+      topologyAfterEventCount: 1,
+      inputOccurredAfterTopology: true
+    ),
+    TopologyInputCase(
+      name: "mouse click after close wins before topology notification",
+      events: [.close(20), .mouse(21, window: WindowID(rawValue: 30))],
+      removedWindowIDs: [WindowID(rawValue: 10)],
+      inputOccurredAfterTopology: true
+    ),
+    TopologyInputCase(
+      name: "unresolved background click after close wins before topology notification",
+      events: [.close(20), .mouse(21, window: nil)],
+      removedWindowIDs: [WindowID(rawValue: 10)],
+      inputOccurredAfterTopology: true
+    ),
+    TopologyInputCase(
+      name: "close button click does not masquerade as focus intent",
+      events: [.mouse(20, window: WindowID(rawValue: 10))],
+      removedWindowIDs: [WindowID(rawValue: 10)],
+      inputOccurredAfterTopology: false
+    ),
+    TopologyInputCase(
+      name: "input after removed window click cancels removal focus recovery",
+      events: [.mouse(20, window: WindowID(rawValue: 10)), .input(21)],
+      topologyAfterEventCount: 1,
+      removedWindowIDs: [WindowID(rawValue: 10)],
+      inputOccurredAfterTopology: true
+    ),
+    TopologyInputCase(
+      name: "close intent does not masquerade as explicit focus",
+      events: [.keyboard(19), .close(20)],
+      inputOccurredAfterTopology: false
+    ),
+    TopologyInputCase(
+      name: "consecutive close intents remain one removal transaction",
+      events: [.close(20), .close(21)],
+      topologyAfterEventCount: 1,
+      removedWindowIDs: [WindowID(rawValue: 10), WindowID(rawValue: 11)],
+      inputOccurredAfterTopology: false
+    ),
+    TopologyInputCase(
+      name: "consecutive close button clicks on removed windows remain one transaction",
+      events: [
+        .mouse(20, window: WindowID(rawValue: 10)),
+        .mouse(21, window: WindowID(rawValue: 11)),
+      ],
+      topologyAfterEventCount: 1,
+      removedWindowIDs: [WindowID(rawValue: 10), WindowID(rawValue: 11)],
+      inputOccurredAfterTopology: false
+    ),
+  ]
+
+  @Test(arguments: topologyInputCases)
+  func userInputAfterWindowTopologyDistinguishesRemovalIntents(_ scenario: TopologyInputCase) {
     let tracker = UserInputTracker()
-    let clickedWindowID = WindowID(rawValue: 30)
-    tracker.record(timestamp: 20, closeIntent: true)
-    tracker.record(
-      timestamp: 21,
-      focusIntent: .mouse(windowID: clickedWindowID)
-    )
+    var topologyInputTimestamp: Double?
+    for (index, event) in scenario.events.enumerated() {
+      tracker.record(
+        timestamp: event.timestamp,
+        focusIntent: event.focusIntent,
+        closeIntent: event.closeIntent
+      )
+      if index + 1 == scenario.topologyAfterEventCount {
+        topologyInputTimestamp = tracker.latestEventTimestamp
+      }
+    }
     let input = tracker.snapshot
 
     #expect(
       userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: input.latestEventTimestamp,
+        topologyInputTimestamp: topologyInputTimestamp ?? input.latestEventTimestamp,
         latestInputTimestamp: input.latestEventTimestamp,
         latestFocusIntent: input.latestFocusIntent,
         latestCloseIntentTimestamp: input.latestCloseIntent,
-        removedWindowIDs: [WindowID(rawValue: 10)]
-      )
-    )
-  }
-
-  @Test
-  func unresolvedBackgroundClickAfterCloseWinsBeforeTopologyNotification() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 20, closeIntent: true)
-    tracker.record(timestamp: 21, focusIntent: .mouse(windowID: nil))
-    let input = tracker.snapshot
-
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: input.latestEventTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent,
-        removedWindowIDs: [WindowID(rawValue: 10)]
-      )
+        removedWindowIDs: scenario.removedWindowIDs
+      ) == scenario.inputOccurredAfterTopology
     )
   }
 
@@ -1204,113 +1248,6 @@ struct PlatformEventTests {
   }
 
   @Test
-  func closeButtonClickDoesNotMasqueradeAsFocusIntent() {
-    let tracker = UserInputTracker()
-    let closingWindowID = WindowID(rawValue: 10)
-    tracker.record(
-      timestamp: 20,
-      focusIntent: .mouse(windowID: closingWindowID)
-    )
-    let input = tracker.snapshot
-
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: input.latestEventTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent,
-        removedWindowIDs: [closingWindowID]
-      ) == false
-    )
-  }
-
-  @Test
-  func inputAfterRemovedWindowClickCancelsRemovalFocusRecovery() {
-    let tracker = UserInputTracker()
-    let closingWindowID = WindowID(rawValue: 10)
-    tracker.record(
-      timestamp: 20,
-      focusIntent: .mouse(windowID: closingWindowID)
-    )
-    let topologyInputTimestamp = tracker.latestEventTimestamp
-    tracker.record(timestamp: 21)
-    let input = tracker.snapshot
-
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: topologyInputTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent,
-        removedWindowIDs: [closingWindowID]
-      )
-    )
-  }
-
-  @Test
-  func closeIntentDoesNotMasqueradeAsExplicitFocus() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 19, focusIntent: .keyboard)
-    tracker.record(timestamp: 20, closeIntent: true)
-    let input = tracker.snapshot
-
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: input.latestEventTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent
-      ) == false
-    )
-  }
-
-  @Test
-  func consecutiveCloseIntentsRemainOneRemovalTransaction() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 20, closeIntent: true)
-    let topologyInputTimestamp = tracker.latestEventTimestamp
-    tracker.record(timestamp: 21, closeIntent: true)
-    let input = tracker.snapshot
-
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: topologyInputTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent,
-        removedWindowIDs: [WindowID(rawValue: 10), WindowID(rawValue: 11)]
-      ) == false
-    )
-  }
-
-  @Test
-  func consecutiveCloseButtonClicksOnRemovedWindowsRemainOneTransaction() {
-    let tracker = UserInputTracker()
-    let firstWindowID = WindowID(rawValue: 10)
-    let secondWindowID = WindowID(rawValue: 11)
-    tracker.record(
-      timestamp: 20,
-      focusIntent: .mouse(windowID: firstWindowID)
-    )
-    let topologyInputTimestamp = tracker.latestEventTimestamp
-    tracker.record(
-      timestamp: 21,
-      focusIntent: .mouse(windowID: secondWindowID)
-    )
-    let input = tracker.snapshot
-
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: topologyInputTimestamp,
-        latestInputTimestamp: input.latestEventTimestamp,
-        latestFocusIntent: input.latestFocusIntent,
-        latestCloseIntentTimestamp: input.latestCloseIntent,
-        removedWindowIDs: [firstWindowID, secondWindowID]
-      ) == false
-    )
-  }
-
-  @Test
   func guardedFocusCancelsOnlyForNewerInput() {
     #expect(
       guardedFocusIsCurrent(
@@ -1326,31 +1263,28 @@ struct PlatformEventTests {
     )
   }
 
-  @Test
-  func nativeFocusEventRequiresMatchingFocusedProcess() {
+  @Test(
+    arguments: [
+      (Set<pid_t>([42]), false, pid_t?(42), true),
+      ([42], false, 7, false),
+      ([-1], false, -1, false),
+      ([], true, nil, false),
+      ([], true, 7, true),
+    ] as [(Set<pid_t>, Bool, pid_t?, Bool)]
+  )
+  func nativeFocusEventRequiresMatchingFocusedProcess(
+    eventProcessIDs: Set<pid_t>,
+    hasUnknownEventProcess: Bool,
+    focusedProcessID: pid_t?,
+    matches: Bool
+  ) {
     #expect(
       nativeFocusEventMatchesTarget(
         eventPending: true,
-        eventProcessIDs: [42],
-        hasUnknownEventProcess: false,
-        focusedProcessID: 42
-      )
-    )
-    #expect(
-      nativeFocusEventMatchesTarget(
-        eventPending: true,
-        eventProcessIDs: [42],
-        hasUnknownEventProcess: false,
-        focusedProcessID: 7
-      ) == false
-    )
-    #expect(
-      nativeFocusEventMatchesTarget(
-        eventPending: true,
-        eventProcessIDs: [-1],
-        hasUnknownEventProcess: false,
-        focusedProcessID: -1
-      ) == false
+        eventProcessIDs: eventProcessIDs,
+        hasUnknownEventProcess: hasUnknownEventProcess,
+        focusedProcessID: focusedProcessID
+      ) == matches
     )
   }
 
@@ -1381,26 +1315,6 @@ struct PlatformEventTests {
         eventPending: false,
         targetMatched: false
       ) == false
-    )
-  }
-
-  @Test
-  func unknownNativeFocusSourceAllowsResolvedTarget() {
-    #expect(
-      nativeFocusEventMatchesTarget(
-        eventPending: true,
-        eventProcessIDs: [],
-        hasUnknownEventProcess: true,
-        focusedProcessID: nil
-      ) == false
-    )
-    #expect(
-      nativeFocusEventMatchesTarget(
-        eventPending: true,
-        eventProcessIDs: [],
-        hasUnknownEventProcess: true,
-        focusedProcessID: 7
-      )
     )
   }
 
@@ -1778,7 +1692,7 @@ struct PlatformEventTests {
   }
 
   @Test
-  func applicationInventoryWatchdogPreservesPollingFallback() {
+  func reliableObservationWatchdogsWaitForIdleButFallbacksStayImmediate() {
     #expect(
       applicationInventoryRefreshInterval(
         reliableLifecycleObservation: true
@@ -1789,10 +1703,6 @@ struct PlatformEventTests {
         reliableLifecycleObservation: false
       ) == 0.3
     )
-  }
-
-  @Test
-  func reliableObservationWatchdogsWaitForIdleButFallbacksStayImmediate() {
     #expect(
       desktopSnapshotRefreshInterval(reliableDesktopObservation: true) == 30
     )
@@ -1920,28 +1830,31 @@ struct PlatformEventTests {
     )
   }
 
-  @Test @NavigationActor
-  func failedWindowListReadSchedulesShortRetry() {
-    let platform = MacOSPlatform()
-    platform.windowListReadRetryAttemptsByProcess[101] = 0
+  enum ShortRetryTrigger: String, CaseIterable, CustomTestStringConvertible, Sendable {
+    case failedWindowListRead
+    case failedCGWindowInventory
+    case retainedWindow
+    case none
 
-    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
+    var testDescription: String { rawValue }
   }
 
-  @Test @NavigationActor
-  func failedCGWindowInventorySchedulesShortRetry() {
+  @Test(arguments: ShortRetryTrigger.allCases) @NavigationActor
+  func pendingWindowDiscoverySchedulesShortRetry(_ trigger: ShortRetryTrigger) {
     let platform = MacOSPlatform()
-    platform.cgWindowInventoryRetryAttempts = 0
+    switch trigger {
+    case .failedWindowListRead:
+      platform.windowListReadRetryAttemptsByProcess[101] = 0
+    case .failedCGWindowInventory:
+      platform.cgWindowInventoryRetryAttempts = 0
+    case .retainedWindow:
+      platform.retainedWindowIDs = [WindowID(rawValue: 42)]
+    case .none:
+      break
+    }
 
-    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
-  }
-
-  @Test @NavigationActor
-  func retainedWindowSchedulesShortRetryBeforeGraceExpires() {
-    let platform = MacOSPlatform()
-    platform.retainedWindowIDs = [WindowID(rawValue: 42)]
-
-    #expect(platform.recommendedWindowListRefreshInterval == 0.1)
+    let interval = platform.recommendedWindowListRefreshInterval
+    #expect(interval == (trigger == .none ? 0.3 : 0.1))
   }
 
   @Test
@@ -2234,42 +2147,23 @@ struct PlatformEventTests {
     #expect(!engine.pendingObservations.frameIncludesUnscopedRefresh)
   }
 
-  @Test
-  func terminatedApplicationForcesInventoryRefreshEvenWithPID() {
-    #expect(
-      windowSnapshotInvalidation(
-        for: .applicationTerminated,
-        processID: 42
-      ) == .full
-    )
-  }
-
-  @Test
-  func terminatedApplicationWithoutPIDFallsBackToFullSnapshot() {
-    #expect(
-      windowSnapshotInvalidation(
-        for: .applicationTerminated,
-        processID: nil
-      ) == .full
-    )
-  }
-
-  @Test
-  func windowTopologyUsesPIDButGeneralApplicationEventsStayGlobal() {
-    #expect(
-      windowSnapshotInvalidation(for: .windows, processID: 7)
-        == .process(7)
-    )
-    #expect(
-      windowSnapshotInvalidation(for: .windows, processID: nil) == .full
-    )
-    #expect(
-      windowSnapshotInvalidation(for: .application, processID: 7) == .full
-    )
-    #expect(
-      windowSnapshotInvalidation(for: .focus, processID: 7) == .process(7)
-    )
-    #expect(windowSnapshotInvalidation(for: .focus, processID: nil) == .full)
+  @Test(
+    arguments: [
+      (PlatformEventKind.applicationTerminated, pid_t(42), WindowSnapshotInvalidation.full),
+      (.applicationTerminated, nil, .full),
+      (.windows, 7, .process(7)),
+      (.windows, nil, .full),
+      (.application, 7, .full),
+      (.focus, 7, .process(7)),
+      (.focus, nil, .full),
+    ] as [(PlatformEventKind, pid_t?, WindowSnapshotInvalidation)]
+  )
+  func windowTopologyUsesPIDButGeneralApplicationEventsStayGlobal(
+    kind: PlatformEventKind,
+    processID: pid_t?,
+    expected: WindowSnapshotInvalidation
+  ) {
+    #expect(windowSnapshotInvalidation(for: kind, processID: processID) == expected)
   }
 
   @Test
@@ -2568,35 +2462,6 @@ struct PlatformEventTests {
 
     #expect(result.activeWindowIsFrontmost)
     #expect(result.upperBoundWindowID == nil)
-  }
-
-  @Test
-  func sameAppOverlappingKnownWindowStillOccludes() {
-    let dialog = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: dialog,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 400, y: 300, width: 640, height: 480)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ],
-      knownWindowIDs: [dialog]
-    )
-
-    #expect(result.activeWindowIsFrontmost == false)
   }
 
   @Test

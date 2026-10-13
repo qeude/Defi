@@ -1410,21 +1410,6 @@ struct WindowSnapshotStabilityTests {
     #expect(retained.isEmpty)
   }
 
-  @Test func existingCGWindowSurvivesTransientAccessibilityOmission() {
-    let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [makeCGWindow(id: 42)],
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ) == [window.id]
-    )
-  }
-
   @Test func unavailableCGInventoryPreservesCachedWindow() {
     let window = makeWindow(id: 42)
 
@@ -1437,18 +1422,6 @@ struct WindowSnapshotStabilityTests {
         cgWindows: nil,
         cachedWindowState: { _ in (.cannotComplete, nil) }
       ) == [window.id]
-    )
-  }
-
-  @Test func retainedWindowDoesNotProvideFreshFrameObservation() {
-    let retainedWindow = makeWindow(id: 42)
-    let observedWindow = makeWindow(id: 43)
-
-    #expect(
-      freshWindowObservationIDs(
-        windows: [retainedWindow, observedWindow],
-        retainedWindowIDs: [retainedWindow.id]
-      ) == [observedWindow.id]
     )
   }
 
