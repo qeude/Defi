@@ -140,12 +140,13 @@ class MotionProbeTests(unittest.TestCase):
                           aggregates['max_cadence_gap_ms']), ({'709': 1}, 8.5, 9.1))
 
     def test_stalls_and_backward_steps_in_one_generation(self):
-        # origin x=0 at submit; a 60 ms hole, one 5 pt step back, then the final 400 after `complete`
+        # origin x=0 at submit; a 60 ms hole, one 5 pt step back, then a 70 ms freeze across
+        # `complete` before the final 400
         track = [(9.9, 0, 0), (10.010, 50, 0), (10.020, 100, 0), (10.080, 300, 0), (10.090, 295, 0),
                  (10.100, 380, 0), (10.170, 400, 0)]
         motion = probe.window_motion(track, 10.0, 10.150, 11.0)
         self.assertEqual((motion['frames'], motion['stalls'], motion['max_gap_ms'], motion['backward_steps']),
-                         (5, 1, 60.0, 1))
+                         (5, 2, 70.0, 1))
         self.assertEqual((motion['settle_ms'], motion['start_lag_ms'], motion['overshoot_pt']), (20.0, 10.0, 0))
 
     def test_sub_pixel_tail_and_stationary_windows_are_not_stalls(self):
@@ -157,6 +158,12 @@ class MotionProbeTests(unittest.TestCase):
         track = [(9.9, 0, 0), (10.01, 60, 0), (10.02, 120, 0), (10.03, 60, 0), (10.04, 1, 0)]
         motion = probe.window_motion(track, 10.0, 10.2, 11.0)
         self.assertEqual((motion['backward_steps'], motion['overshoot_pt']), (2, 119))
+
+    def test_freeze_across_generation_end_is_a_stall(self):
+        # Frozen at 100 from 10.02 until 10.20, past `end` at 10.15, then the final 200.
+        track = [(9.9, 0, 0), (10.01, 50, 0), (10.02, 100, 0), (10.20, 200, 0)]
+        motion = probe.window_motion(track, 10.0, 10.15, 11.0)
+        self.assertEqual((motion['stalls'], motion['max_gap_ms']), (1, 180.0))
 
     def test_overshoot_that_returns_is_still_motion(self):
         # Touches the final 200 at 10.02, overshoots to 230, settles back at 10.12.
