@@ -159,7 +159,7 @@ func overviewPreviewOwnerMatches(
 // may be outstanding. Cancellation does not dismiss a system consent dialog.
 let overviewPreviewMaximumConcurrentCaptures = 2
 let overviewCaptureLimiter = OverviewCaptureLimiter(limit: 1)
-private let overviewCaptureLogger = Logger(subsystem: "com.quentin.defi", category: "overview-capture")
+private let overviewCaptureLogger = Logger(subsystem: "com.qeude.defi", category: "overview-capture")
 
 struct OverviewCaptureTimeoutError: Error {}
 

@@ -37,7 +37,7 @@ final class SnapshotEngine: @unchecked Sendable {
   weak var host: MacOSPlatform?
 
   private let snapshotQueue = DispatchQueue(
-    label: "com.quentin.defi.snapshot",
+    label: "com.qeude.defi.snapshot",
     qos: .userInitiated
   )
 

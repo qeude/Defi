@@ -9,7 +9,7 @@ import Foundation
 import OSLog
 
 let displayLogger = Logger(
-  subsystem: "com.quentin.defi",
+  subsystem: "com.qeude.defi",
   category: "Display"
 )
 

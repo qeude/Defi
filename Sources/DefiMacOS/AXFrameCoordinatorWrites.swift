@@ -294,7 +294,7 @@ extension AXFrameCoordinator {
       return existing
     }
     let queue = DispatchQueue(
-      label: "com.quentin.defi.ax-process-\(processID)",
+      label: "com.qeude.defi.ax-process-\(processID)",
       qos: .userInitiated,
       autoreleaseFrequency: .workItem
     )

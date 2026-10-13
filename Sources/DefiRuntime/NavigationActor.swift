@@ -6,7 +6,7 @@ import Dispatch
 public actor NavigationActor {
   public static let shared = NavigationActor()
   public nonisolated let queue = DispatchSerialQueue(
-    label: "com.quentin.defi.navigation", qos: .userInteractive
+    label: "com.qeude.defi.navigation", qos: .userInteractive
   )
   public nonisolated var unownedExecutor: UnownedSerialExecutor {
     queue.asUnownedSerialExecutor()

@@ -306,7 +306,7 @@ class WorkflowTests(unittest.TestCase):
             for bundle, version in [(installed, "old"), (staged, "broken")]:
                 macos = bundle / "Contents/MacOS"
                 macos.mkdir(parents=True)
-                (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.quentin.defi"}))
+                (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.qeude.defi"}))
                 (bundle / "version").write_text(version)
                 cli = macos / "defi"
                 cli.write_text("#!/bin/sh\n"

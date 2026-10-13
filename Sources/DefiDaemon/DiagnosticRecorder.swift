@@ -4,7 +4,7 @@ import Foundation
 import OSLog
 
 private let diagnosticLogger = Logger(
-  subsystem: "com.quentin.defi",
+  subsystem: "com.qeude.defi",
   category: "Diagnostics"
 )
 
@@ -58,7 +58,7 @@ final class DiagnosticRecorder: @unchecked Sendable {
   let fileCount: Int
 
   private let queue = DispatchQueue(
-    label: "com.quentin.defi.diagnostics",
+    label: "com.qeude.defi.diagnostics",
     qos: .utility
   )
   private let sessionID = UUID().uuidString

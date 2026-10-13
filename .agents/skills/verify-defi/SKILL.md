@@ -78,7 +78,7 @@ Write evidence under `dist/verification/evidence-<yyyymmdd-hhmmss>/` (ignored by
 - `trace.log` from `defi trace` covering the action
 - `workspaces-before.json`, `workspaces-after.json` from `list-workspaces --json`
 - screenshots from Computer Use for visual claims
-- `/usr/bin/log show --last 2m --info --predicate 'subsystem == "com.quentin.defi"'` for logger output. In zsh `log` is a builtin, so call `/usr/bin/log`.
+- `/usr/bin/log show --last 2m --info --predicate 'subsystem == "com.qeude.defi"'` for logger output. In zsh `log` is a builtin, so call `/usr/bin/log`.
 
 Proof standard: drive the user path (CLI command or real hotkey), capture the state before and after, and check the side effect in `status` counters or `list-workspaces`. A passing unit test is not proof of a desktop-visible change. For anything visual, correlate the screenshot with `status` and `trace`.
 

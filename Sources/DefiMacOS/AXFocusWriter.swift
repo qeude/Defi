@@ -20,7 +20,7 @@ final class AXFocusWriter: @unchecked Sendable {
   }
 
   let queue = DispatchQueue(
-    label: "com.quentin.defi.ax-focus",
+    label: "com.qeude.defi.ax-focus",
     qos: .userInitiated
   )
   let lock = NSLock()

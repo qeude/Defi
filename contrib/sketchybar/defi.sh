@@ -14,7 +14,7 @@ command -v jq >/dev/null 2>&1 || {
 
 "$SKETCHYBAR_BIN" --add event \
   defi_workspace_change \
-  com.quentin.defi.workspaceChanged
+  com.qeude.defi.workspaceChanged
 
 if ! "$SKETCHYBAR_BIN" --query defi.workspace_observer >/dev/null 2>&1; then
   "$SKETCHYBAR_BIN" --add item defi.workspace_observer left

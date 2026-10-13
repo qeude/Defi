@@ -6,7 +6,7 @@ import DefiRuntime
 import Foundation
 
 let workspaceStateNotification = Notification.Name(
-  "com.quentin.defi.workspaceChanged"
+  "com.qeude.defi.workspaceChanged"
 )
 
 func postWorkspaceStateNotification(_ data: Data) {

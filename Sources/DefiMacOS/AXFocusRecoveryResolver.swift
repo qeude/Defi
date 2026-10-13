@@ -22,7 +22,7 @@ private struct AXFocusRecoveryLookup: Sendable {
 
 final class AXFocusRecoveryResolver: @unchecked Sendable {
   private let queue = DispatchQueue(
-    label: "com.quentin.defi.ax-focus-recovery",
+    label: "com.qeude.defi.ax-focus-recovery",
     qos: .userInitiated
   )
   private let lock = NSLock()

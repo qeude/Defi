@@ -213,7 +213,7 @@ class Fixture:
         executable = contents / 'MacOS' / 'PerformanceFixture'
         executable.parent.mkdir(parents=True, exist_ok=False)
         shutil.copy2(binary, executable)
-        self.application_id = 'com.quentin.defi.performancefixture.' + \
+        self.application_id = 'com.qeude.defi.performancefixture.' + \
                               hashlib.sha256(str(log.resolve()).encode()).hexdigest()[:12]
         (contents / 'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleIdentifier': self.application_id,

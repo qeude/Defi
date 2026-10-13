@@ -8,7 +8,7 @@ import DefiRuntime
 import OSLog
 
 private let frameCommitLogger = Logger(
-  subsystem: "com.quentin.defi",
+  subsystem: "com.qeude.defi",
   category: "FrameCommit"
 )
 

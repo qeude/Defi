@@ -232,13 +232,13 @@ extension Daemon {
   func installIPCSource() {
     let server = server
     let clientQueue = DispatchQueue(
-      label: "com.quentin.defi.ipc.clients",
+      label: "com.qeude.defi.ipc.clients",
       qos: .userInitiated,
       attributes: .concurrent
     )
     let source = DispatchSource.makeReadSource(
       fileDescriptor: server.listeningFileDescriptor,
-      queue: DispatchQueue(label: "com.quentin.defi.ipc.accept", qos: .userInitiated)
+      queue: DispatchQueue(label: "com.qeude.defi.ipc.accept", qos: .userInitiated)
     )
     source.setEventHandler(
       handler: ipcEventHandler(

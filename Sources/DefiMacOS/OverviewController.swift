@@ -5,7 +5,7 @@ import DefiModel
 import OSLog
 import QuartzCore
 
-private let overviewOpeningLogger = Logger(subsystem: "com.quentin.defi", category: "OverviewOpening")
+private let overviewOpeningLogger = Logger(subsystem: "com.qeude.defi", category: "OverviewOpening")
 
 let overviewTransitionDuration: TimeInterval = 0.16
 let overviewOpenFadeDuration: TimeInterval = 0.14

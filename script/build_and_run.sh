@@ -8,7 +8,7 @@ case "$MODE" in
 esac
 APP_NAME="Defi"
 PROCESS_NAME="defi-daemon"
-BUNDLE_ID="com.quentin.defi"
+BUNDLE_ID="com.qeude.defi"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING_ROOT="${DEFI_STAGING_ROOT:-$ROOT_DIR/dist}"
@@ -25,7 +25,7 @@ INSTALLED_BINARY="$INSTALL_BUNDLE/Contents/MacOS/$PROCESS_NAME"
 INSTALLED_CLI="$INSTALL_BUNDLE/Contents/MacOS/defi"
 INFO_PLIST_SOURCE="$ROOT_DIR/Support/Defi-Info.plist"
 ICON_SOURCE="$ROOT_DIR/Support/Defi.icon"
-SERVICE_LABEL="com.quentin.defi"
+SERVICE_LABEL="com.qeude.defi"
 SERVICE_DOMAIN="gui/$(id -u)"
 
 cd "$ROOT_DIR"

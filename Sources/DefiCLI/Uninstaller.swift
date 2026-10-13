@@ -2,6 +2,9 @@ import DefiIPC
 import Foundation
 
 enum Uninstaller {
+  /// Bundle identifiers that Defi has used; the first is current.
+  private static let bundleIdentifiers = ["com.qeude.defi", "com.quentin.defi"]
+
   static func purge() throws {
     try ServiceManager.stop(ignoreFailure: true)
     try? ServiceManager.disableLaunchAtLogin()
@@ -27,15 +30,19 @@ enum Uninstaller {
     var targets = [
       home.appending(path: ".config/defi"),
       home.appending(path: "Library/Application Support/Defi"),
-      home.appending(path: "Library/Caches/com.quentin.defi"),
       home.appending(path: "Library/Logs/Defi"),
       home.appending(path: "Library/Logs/Defi.log"),
-      home.appending(path: "Library/Preferences/com.quentin.defi.plist"),
-      home.appending(path: "Library/Saved Application State/com.quentin.defi.savedState"),
       ServiceManager.legacyPlistURL,
       SocketPath.defaultURL,
       DaemonLockPath.defaultURL,
     ]
+    for id in bundleIdentifiers {
+      targets += [
+        home.appending(path: "Library/Caches/\(id)"),
+        home.appending(path: "Library/Preferences/\(id).plist"),
+        home.appending(path: "Library/Saved Application State/\(id).savedState"),
+      ]
+    }
     if let executableURL,
        let currentApp = appBundleURL(from: executableURL)
     {
@@ -46,13 +53,15 @@ enum Uninstaller {
 
   private static func resetPrivacyPermissions() {
     for service in ["Accessibility", "ScreenCapture"] {
-      let process = Process()
-      process.executableURL = URL(filePath: "/usr/bin/tccutil")
-      process.arguments = ["reset", service, "com.quentin.defi"]
-      process.standardOutput = FileHandle.nullDevice
-      process.standardError = FileHandle.nullDevice
-      if (try? process.run()) != nil {
-        process.waitUntilExit()
+      for id in bundleIdentifiers {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/tccutil")
+        process.arguments = ["reset", service, id]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        if (try? process.run()) != nil {
+          process.waitUntilExit()
+        }
       }
     }
   }

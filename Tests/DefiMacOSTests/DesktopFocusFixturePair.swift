@@ -26,8 +26,8 @@ final class DesktopFocusFixturePair {
       binary.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: binary)
     else { throw Failure.unsupported("DEFI_DESKTOP_FIXTURE_BINARY must name an executable absolute path") }
     let token = UUID().uuidString.lowercased()
-    tiledAppID = "com.quentin.defi.desktop-fixture.tiled.\(token)"
-    floatingAppID = "com.quentin.defi.desktop-fixture.floating.\(token)"
+    tiledAppID = "com.qeude.defi.desktop-fixture.tiled.\(token)"
+    floatingAppID = "com.qeude.defi.desktop-fixture.floating.\(token)"
     directory = FileManager.default.temporaryDirectory.appending(path: "DefiFocusFixtures-\(token)")
     self.pump = pump
     let processes = [tiledProcess, floatingProcess]

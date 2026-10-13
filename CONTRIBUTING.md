@@ -265,11 +265,14 @@ must install `Defi.app`, remove `com.apple.quarantine` in `postflight`, and zap:
 
 - `~/.config/defi`
 - `~/Library/Application Support/Defi`
-- `~/Library/Caches/com.quentin.defi`
+- `~/Library/Caches/com.qeude.defi`
+- `~/Library/Caches/com.quentin.defi` (pre-0.5 identifier)
 - `~/Library/Logs/Defi`
 - `~/Library/Logs/Defi.log`
-- `~/Library/Preferences/com.quentin.defi.plist`
-- `~/Library/Saved Application State/com.quentin.defi.savedState`
+- `~/Library/Preferences/com.qeude.defi.plist`
+- `~/Library/Preferences/com.quentin.defi.plist` (pre-0.5 identifier)
+- `~/Library/Saved Application State/com.qeude.defi.savedState`
+- `~/Library/Saved Application State/com.quentin.defi.savedState` (pre-0.5 identifier)
 - `~/Library/LaunchAgents/com.quentin.defi.plist` for legacy installations
 
 The Cask should also expose `Defi.app/Contents/MacOS/defi` through a `binary`

@@ -53,15 +53,15 @@ final class AXFrameCoordinator: @unchecked Sendable {
   }
 
   let queue = DispatchQueue(
-    label: "com.quentin.defi.ax-frame-coordinator",
+    label: "com.qeude.defi.ax-frame-coordinator",
     qos: .userInteractive
   )
   let animationClockQueue = DispatchQueue(
-    label: "com.quentin.defi.animation-clock",
+    label: "com.qeude.defi.animation-clock",
     qos: .userInteractive
   )
   let parkingSettlementQueue = DispatchQueue(
-    label: "com.quentin.defi.ax-parking-settlement",
+    label: "com.qeude.defi.ax-parking-settlement",
     qos: .utility
   )
   let parkingSettlementGroup = DispatchGroup()

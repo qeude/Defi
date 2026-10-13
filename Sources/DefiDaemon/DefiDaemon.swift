@@ -10,7 +10,7 @@ import OSLog
 import Synchronization
 
 let performanceLogger = Logger(
-  subsystem: "com.quentin.defi",
+  subsystem: "com.qeude.defi",
   category: "Performance"
 )
 
@@ -103,7 +103,7 @@ final class Daemon {
   var state: RuntimeState
   let overviewToggleState = OverviewToggleState()
   let topologySaveQueue = DispatchQueue(
-    label: "com.quentin.defi.topology",
+    label: "com.qeude.defi.topology",
     qos: .utility
   )
   var topologySaveWorkItem: DispatchWorkItem?

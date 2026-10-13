@@ -1,7 +1,7 @@
 # SketchyBar integration
 
 Defi publishes workspace state through the distributed notification
-`com.quentin.defi.workspaceChanged`. SketchyBar can consume it as the custom
+`com.qeude.defi.workspaceChanged`. SketchyBar can consume it as the custom
 event `defi_workspace_change`. No polling is needed after initial setup.
 
 ## Install the example
