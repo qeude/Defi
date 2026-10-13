@@ -96,6 +96,13 @@ class MotionProbeTests(unittest.TestCase):
         states = [state(0.0, ring(100, 100, 800, 80), apps=(app,))]
         self.assertEqual(probe.border_lag(states, 1.0)['stuck_ms'], 0.0)
 
+    def test_diagonal_motion_counts_only_points_on_the_path(self):
+        track = [(10.0, 0, 0), (10.010, 100, 100), (10.020, 100, 100)]
+        on_path = (50 - probe.BORDER, 50 - probe.BORDER)
+        off_path = (90 - probe.BORDER, 10 - probe.BORDER)  # inside the bounding box only
+        self.assertAlmostEqual(probe.border_lag_ms(on_path, 10.015, track), 5.0)
+        self.assertIsNone(probe.border_lag_ms(off_path, 10.015, track))
+
     def test_border_outset_follows_config(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'config.toml'

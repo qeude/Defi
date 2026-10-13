@@ -219,6 +219,15 @@ def detached_episodes(states, end_t, displays):
     return sorted(episodes, key=lambda e: e["start"])
 
 
+def segment_distance(point, start, end):
+    """Distance from point to the straight path between two window samples."""
+    (px, py), (ax, ay), (bx, by) = point, start, end
+    dx, dy = bx - ax, by - ay
+    length = dx * dx + dy * dy
+    k = 0.0 if length == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length))
+    return math.hypot(px - ax - k * dx, py - ay - k * dy)
+
+
 def border_lag_ms(edge, now, track):
     """Time between now and the nearest moment (past or future) the window was where the
     border's top edge shows it: 0 when it is there now, None when it is not within
@@ -231,8 +240,7 @@ def border_lag_ms(edge, now, track):
         nx, ny = track[index + 1][1:] if index + 1 < len(track) else (wx, wy)
         if abs(wx - x) <= 1 and abs(wy - y) <= 1:
             dt = 0.0 if t <= now < until else min(abs(now - t), abs(now - until))
-        elif (min(wx, nx) - 1 <= x <= max(wx, nx) + 1
-              and min(wy, ny) - 1 <= y <= max(wy, ny) + 1):
+        elif segment_distance((x, y), (wx, wy), (nx, ny)) <= 1:
             dt = abs(now - until)  # passed between two samples
         else:
             continue
