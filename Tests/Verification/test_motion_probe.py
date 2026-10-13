@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'script'))
@@ -68,6 +69,25 @@ class MotionProbeTests(unittest.TestCase):
         self.assertAlmostEqual(lag['lagging_ms'], 1000.0, delta=8)
         self.assertAlmostEqual(lag['stuck_ms'], 1000.0, delta=8)
         self.assertGreater(lag['lag_p95_ms'], 900)
+
+    def test_vertical_border_lag_is_measured(self):
+        top = [9, 3, 100 - probe.BORDER, 100 - probe.BORDER, 800 + 2 * probe.BORDER, 4]
+        bottom = [9, 3, 100 - probe.BORDER, 690, 800 + 2 * probe.BORDER, 24]
+        # The window slides down 300 pt at t=1; the border stays at the old y.
+        states = [state(0.0, [top, bottom], apps=((7, 1, 100, 100, 800, 600),)),
+                  state(1.0, [top, bottom], apps=((7, 1, 100, 400, 800, 600),))]
+        self.assertAlmostEqual(probe.border_lag(states, 1.5)['lagging_ms'], 500.0, delta=8)
+
+    def test_border_outset_follows_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config.toml'
+            self.assertEqual(probe.border_outset(config), 4.0)
+            config.write_text('[decorations.borders]\nwidth = 8\n')
+            self.assertEqual(probe.border_outset(config), 8.0)
+            config.write_text('[decorations.borders]\nplacement = "inside"\n')
+            self.assertEqual(probe.border_outset(config), 0.0)
+            config.write_text('[decorations.borders]\nenabled = false\n')
+            self.assertIsNone(probe.border_outset(config))
 
     def test_slow_motion_sums_processes_of_one_app(self):
         self.assertEqual(probe.slow_motion_by_app({'1': 2, '2': 3, '3': 1}, {'1': 'a', '2': 'a'}),

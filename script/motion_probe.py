@@ -9,6 +9,7 @@ its start. Scenario mode moves real windows; --passive N only observes.
 import argparse
 from bisect import bisect_left
 import json
+import tomllib
 import math
 import os
 from pathlib import Path
@@ -29,8 +30,9 @@ SOURCE = ROOT / "script/motion_probe.swift"
 BINARY = ROOT / "dist/benchmarks/motion-probe"
 CLI_FALLBACK = Path.home() / "Applications/Defi.app/Contents/MacOS/defi"
 
-BORDER = 4             # pt; outside border width (user config); top edge = window rect outset by it
-RING_OUTSET = 6        # pt; border width 4 + 2 of tolerance
+BORDER = 4             # pt; ring outset from the window rect; set from the user's config in main()
+RING_OUTSET = 6        # pt; BORDER + 2 of tolerance
+CONFIG = Path.home() / ".config/defi/config.toml"
 LAG_SLICE_S = 0.004    # lag integration step while a border is misaligned; the sampler period
 LAG_HORIZON_S = 1.0    # a border no window passed through this recently is stuck, not lagging
 THIN = 64              # pt; border strips are thinner than this
@@ -222,14 +224,15 @@ def border_lag_ms(edge, now, track):
     border's top edge shows it: 0 when it is there now, None when it is not within
     LAG_HORIZON_S either way. A border can lead its window when WindowServer applies a
     slow app's write late. track: [(t, x, y)], the window's whole sampled history."""
-    x = edge[0] + BORDER
+    x, y = edge[0] + BORDER, edge[1] + BORDER
     best = None
-    for index, (t, wx, _) in enumerate(track):
+    for index, (t, wx, wy) in enumerate(track):
         until = track[index + 1][0] if index + 1 < len(track) else float("inf")
-        nx = track[index + 1][1] if index + 1 < len(track) else wx
-        if abs(wx - x) <= 1:
+        nx, ny = track[index + 1][1:] if index + 1 < len(track) else (wx, wy)
+        if abs(wx - x) <= 1 and abs(wy - y) <= 1:
             dt = 0.0 if t <= now < until else min(abs(now - t), abs(now - until))
-        elif min(wx, nx) - 1 <= x <= max(wx, nx) + 1:
+        elif (min(wx, nx) - 1 <= x <= max(wx, nx) + 1
+              and min(wy, ny) - 1 <= y <= max(wy, ny) + 1):
             dt = abs(now - until)  # passed between two samples
         else:
             continue
@@ -239,25 +242,23 @@ def border_lag_ms(edge, now, track):
 
 
 def border_lag(states, end_t):
-    """Time-weighted lag of the worst border in each sampled state. A top edge belongs to the
-    window whose width and y it outsets by BORDER."""
+    """Time-weighted lag of the worst border in each sampled state. A border's top edge is the
+    upper of its two horizontal edges (same x and width); it belongs to a window whose width
+    it outsets by BORDER."""
     history, _ = window_tracks(states)
     weighted, stuck_ms = [], 0.0
 
     def worst_lag(state, at):
         """Worst border lag at time `at` while `state` holds; None when a border is stuck."""
         tracks = {wid: (x, y, w, h) for wid, _, x, y, w, h in state["apps"]}  # windows shown now
+        horizontal = [edge[2:6] for edge in state["edges"] if edge[5] <= THIN < edge[4]]
         worst = 0.0
-        for edge in state["edges"]:
-            ex, ey, ew, eh = edge[2:6]
-            if eh > THIN or ew <= THIN:
-                continue
-            sized = [wid for wid, (x, y, w, h) in tracks.items() if abs(w + 2 * BORDER - ew) <= 2]
-            if not sized:  # a border whose window is gone
+        for ex, ey, ew, eh in horizontal:
+            if any(ox == ex and ow == ew and oy < ey for ox, oy, ow, _ in horizontal):
+                continue  # a bottom edge; its top edge carries the lag
+            owners = [wid for wid, (x, y, w, h) in tracks.items() if abs(w + 2 * BORDER - ew) <= 2]
+            if not owners:  # a border whose window is gone
                 return None
-            owners = [wid for wid in sized if abs(tracks[wid][1] - BORDER - ey) <= 2]
-            if not owners:  # a bottom edge; its top edge carries the lag
-                continue
             known = [lag for lag in (border_lag_ms((ex, ey), at, history[wid]) for wid in owners)
                      if lag is not None]
             if not known:
@@ -521,8 +522,6 @@ def run_once(args, cli):
         sampler.send_signal(signal.SIGTERM)
         sampler.wait(timeout=15)
         collector.stop.set()
-        if args.passive is None:
-            subprocess.run([cli, "workspace", "dev"], capture_output=True, timeout=15)
     time.sleep(0.2)
     collector.fetch()
     out.seek(0)
@@ -592,6 +591,17 @@ def interrupt(*_):
     raise KeyboardInterrupt
 
 
+def border_outset(path=CONFIG):
+    """How far border edges sit outside the window rect, from the user's config defaults."""
+    try:
+        borders = tomllib.loads(path.read_text()).get("decorations", {}).get("borders", {})
+    except FileNotFoundError:
+        borders = {}
+    if not borders.get("enabled", True):
+        return None
+    return float(borders.get("width", 4)) if borders.get("placement", "outside") == "outside" else 0.0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", choices=["soak"], default="soak")
@@ -606,19 +616,37 @@ def main():
     if args.passive is None and inherited_lock() is None:  # scenario moves real windows
         os.execv(sys.executable, [sys.executable, str(ROOT / "script/desktop_lock.py"), "--wait",
                                   sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]])
+    global BORDER, RING_OUTSET
+    outset = border_outset()
+    if outset is None:
+        parser.error("borders are disabled in the Defi config; nothing to measure")
+    BORDER, RING_OUTSET = outset, outset + 2
     signal.signal(signal.SIGTERM, interrupt)
     cli, reports = cli_path(), []
-    for index in range(max(args.repeat, 1)):
-        if args.repeat > 1:
-            print(f"== run {index + 1}/{args.repeat}")
-        reports.append(run_once(args, cli))
-        print_summary(reports[-1])
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    session = None
+    if args.passive is None:  # the scenario changes workspaces, order, and focus
+        import desktop_session
+        session = ROOT / f"dist/benchmarks/motion-probe-{stamp}-session"
+        desktop_session.checkpoint(session)
+    try:
+        if session:
+            desktop_session.start()
+        for index in range(max(args.repeat, 1)):
+            if args.repeat > 1:
+                print(f"== run {index + 1}/{args.repeat}")
+            reports.append(run_once(args, cli))
+            print_summary(reports[-1])
+    finally:
+        if session:
+            desktop_session.start()
+            desktop_session.restore(session)
     result = {"reports": reports}
     if len(reports) > 1:
         result["headline"] = repeat_summary(reports)
         for key, v in result["headline"].items():
             print(f"headline {key}: median={v['median']} range={v['min']}..{v['max']}")
-    path = args.json_out or ROOT / f"dist/benchmarks/motion-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    path = args.json_out or ROOT / f"dist/benchmarks/motion-probe-{stamp}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(f"json {path}")
