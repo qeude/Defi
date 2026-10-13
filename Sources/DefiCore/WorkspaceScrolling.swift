@@ -26,12 +26,7 @@ public func focusedColumnLeftScrollOffset(
     settings: settings,
     totalColumnCount: workspace.columns.count
   )
-  let leftGap = workspace.focusedColumn == 0
-    ? settings.outerLeftGap
-    : settings.innerHorizontalGap
-  let leftPadding = max(settings.horizontalViewportPadding - max(leftGap, 0), 0)
-    / max(viewport.width, 1)
-  return min(max(focusedLeft - leftPadding, 0), max(totalWidth - 1, 0))
+  return min(max(focusedLeft, 0), max(totalWidth - 1, 0))
 }
 
 public func focusedColumnTargetScrollOffset(
@@ -73,19 +68,8 @@ public func focusedColumnTargetScrollOffset(
     totalColumnCount: workspace.columns.count
   )
   let maxContentScroll = max(totalWidth - 1, 0)
-  let leftGap = workspace.focusedColumn == 0
-    ? settings.outerLeftGap
-    : settings.innerHorizontalGap
-  let rightGap = workspace.focusedColumn + 1 == workspace.columns.count
-    ? settings.outerRightGap
-    : settings.innerHorizontalGap
-  let viewportWidth = max(viewport.width, 1)
-  let leftPadding = max(settings.horizontalViewportPadding - max(leftGap, 0), 0)
-    / viewportWidth
-  let rightPadding = max(settings.horizontalViewportPadding - max(rightGap, 0), 0)
-    / viewportWidth
-  let minimumScroll = max(focusedRight - 1 + rightPadding, 0)
-  let maximumScroll = min(focusedLeft - leftPadding, maxContentScroll)
+  let minimumScroll = max(focusedRight - 1, 0)
+  let maximumScroll = min(focusedLeft, maxContentScroll)
 
   switch settings.centerFocusedColumn {
   case .always:

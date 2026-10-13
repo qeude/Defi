@@ -264,6 +264,21 @@ public final class DefiSettingsModel {
     set(table: table, key: key, value: nil)
   }
 
+  /// Edges that still inherit `gaps` are pinned first, so this changes only the space between windows.
+  public func setWindowGap(_ value: Double) {
+    let layout = config.layout
+    let pinnedEdges = ScreenEdge.allCases.filter { $0.override(in: layout) == nil }
+    save(
+      pinnedEdges.map { .set(table: "layout", key: $0.key, value: String(layout.gaps)) }
+        + [.set(table: "layout", key: "gaps", value: String(value))]
+    )
+  }
+
+  /// `nil` makes the edges inherit `gaps` again.
+  public func setScreenMargin(_ value: Double?, edges: [ScreenEdge]) {
+    save(edges.map { .set(table: "layout", key: $0.key, value: value.map { String($0) }) })
+  }
+
   public func ruleName(_ rule: Rule, index: Int) -> String {
     if let appID = rule.appID, !appID.isEmpty { return appID }
     if let title = rule.title, !title.isEmpty { return "Title: \(title)" }
@@ -887,4 +902,30 @@ private func installedApplicationURLs() -> [URL] {
     }
   }
   return applications
+}
+
+public enum ScreenEdge: CaseIterable, Sendable {
+  case top, right, bottom, left
+
+  var key: String {
+    switch self {
+    case .top: "outer_top_gap"
+    case .right: "outer_right_gap"
+    case .bottom: "outer_bottom_gap"
+    case .left: "outer_left_gap"
+    }
+  }
+
+  func override(in layout: LayoutConfig) -> Double? {
+    switch self {
+    case .top: layout.outerTopGap
+    case .right: layout.outerRightGap
+    case .bottom: layout.outerBottomGap
+    case .left: layout.outerLeftGap
+    }
+  }
+
+  func value(in layout: LayoutConfig) -> Double {
+    override(in: layout) ?? layout.gaps
+  }
 }

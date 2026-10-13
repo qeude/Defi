@@ -364,7 +364,7 @@ struct RuntimeWidthLearningTests {
       id: WindowID(rawValue: 1),
       appID: "editor",
       title: "Editor",
-      frame: Rect(x: 8, y: 8, width: 484, height: 684),
+      frame: Rect(x: 12, y: 12, width: 476, height: 676),
       monitorID: monitorID
     )
     try discoverWindow(window, decision: RuleDecision(), state: &state)
@@ -372,7 +372,7 @@ struct RuntimeWidthLearningTests {
 
     let learned = learnTiledWindowWidth(
       window.id,
-      actualFrame: Rect(x: 8, y: 8, width: 584, height: 684),
+      actualFrame: Rect(x: 12, y: 12, width: 576, height: 676),
       state: &state,
       viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     )

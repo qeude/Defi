@@ -318,16 +318,8 @@ private struct LayoutSettingsView: View {
       WidthPresetsSettings(model: model)
         .settingsSearchTarget(.widthPresets)
       Section("Spacing") {
-        SettingsNumberRow(
-          title: SettingsOption.defaultGap.title, value: model.config.layout.gaps, range: 0...256, step: 1,
-          unit: "px",
-          onChange: { model.set(table: "layout", key: "gaps", value: String($0)) }
-        )
-          .settingsSearchTarget(.defaultGap)
-        marginRow(.topMargin, key: "outer_top_gap", value: model.config.layout.outerTopGap)
-        marginRow(.rightMargin, key: "outer_right_gap", value: model.config.layout.outerRightGap)
-        marginRow(.bottomMargin, key: "outer_bottom_gap", value: model.config.layout.outerBottomGap)
-        marginRow(.leftMargin, key: "outer_left_gap", value: model.config.layout.outerLeftGap)
+        SpacingEditor(model: model)
+          .settingsSearchTarget(.screenMargins)
       }
       Section("Animation") {
         settingsToggle(
@@ -365,16 +357,6 @@ private struct LayoutSettingsView: View {
       request: request, ready: !request.destination.isAdvanced || advancedExpanded,
       prepare: { if request.destination.isAdvanced { advancedExpanded = true } }
     ))
-  }
-
-  private func marginRow(_ option: SettingsOption, key: String, value: Double?) -> some View {
-    SettingsNumberRow(
-      title: option.title, value: value ?? model.config.layout.gaps,
-      range: 0...256, step: 1, unit: "px",
-
-      onChange: { model.set(table: "layout", key: key, value: String($0)) }
-    )
-      .settingsSearchTarget(option)
   }
 
   private func stringBinding(_ table: String, _ key: String, _ value: String) -> Binding<String> {
@@ -1807,7 +1789,7 @@ private func percent(_ value: Double) -> String {
   "\(Int((value * 100).rounded()))%"
 }
 
-private func settingsColor(_ value: String) -> Color {
+func settingsColor(_ value: String) -> Color {
   let bits = parseBorderColor(value) ?? 0xFFFF_C099
   return Color(
     .sRGB,

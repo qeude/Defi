@@ -49,10 +49,10 @@ reserved_bottom = 0
 | `default_column_width` | `0.80` | number from `0.05` to `1.0` | Fraction of monitor width assigned to each new column. |
 | `preset_column_widths` | `[0.33, 0.50, 0.66, 0.80]` | non-empty array of numbers from `0.05` to `1.0` | Ordered widths used by `cycle-width`. Cycling wraps at both ends. |
 | `center_focused_column` | `"never"` | `"never"` or `"always"` | `"always"` centers focused columns. `"never"` scrolls only enough to keep focus visible. |
-| `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. |
+| `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. An outside border is part of its window, so gaps start at the border's outer edge. |
 | `outer_top_gap` | `gaps` | number from `0` to `256` | Optional top-edge override. |
 | `outer_right_gap` | `gaps` | number from `0` to `256` | Optional right-edge override. |
-| `outer_bottom_gap` | `gaps` | number from `0` to `256` | Optional bottom-edge override. With an outside border, Defi still reserves the border width above the Dock. |
+| `outer_bottom_gap` | `gaps` | number from `0` to `256` | Optional bottom-edge override. |
 | `outer_left_gap` | `gaps` | number from `0` to `256` | Optional left-edge override. |
 | `reserved_top` | `0` | number from `0` to `512` | Additional top inset after the macOS visible frame, for bars extending below the native menu-bar exclusion. |
 | `reserved_bottom` | `0` | number from `0` to `512` | Additional bottom inset after the macOS visible frame. |
@@ -245,10 +245,12 @@ placement = "outside"
 | `capture_enabled` | `false` | boolean | Makes border surfaces visible to screenshots and screen capture for debugging. |
 | `placement` | `"outside"` | `"inside"` or `"outside"` | Draws the stroke inside the window edge (overlapping the first pixels of content) or just past it. |
 
-With `placement = "outside"`, the stroke extends into the gaps. Defi reserves
-one border width at monitor edges and between columns. These insets are
-deducted from each column slot, so two 50% columns fit with their borders
-without scrolling when focus changes.
+With `placement = "outside"`, every tiled window reserves one border width on
+each side, whether or not its border is currently drawn. Gaps then separate the
+outer border edges: with `gaps = 0` and `width = 4`, borders touch the monitor
+edges and neighboring windows sit 8 points apart. Two 50% columns still fill the
+monitor exactly, so focus changes never scroll them. With `placement =
+"inside"`, the stroke covers the window's outer content and takes no space.
 
 Colors require exactly eight hexadecimal digits. First byte is alpha, followed
 by red, green, and blue. Both prefixes accept uppercase or lowercase digits.

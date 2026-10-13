@@ -25,11 +25,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case defaultColumnWidth
   case focusedColumn
   case widthPresets
-  case defaultGap
-  case topMargin
-  case rightMargin
-  case bottomMargin
-  case leftMargin
+  case screenMargins
   case animations
   case animationDuration
   case reservedTop
@@ -73,11 +69,11 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width", false)
     case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center", false)
     case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove", false)
-    case .defaultGap: (.layout, "Default gap", "layout.gaps spacing", false)
-    case .topMargin: (.layout, "Top margin", "layout.outer_top_gap spacing", false)
-    case .rightMargin: (.layout, "Right margin", "layout.outer_right_gap spacing", false)
-    case .bottomMargin: (.layout, "Bottom margin", "layout.outer_bottom_gap spacing", false)
-    case .leftMargin: (.layout, "Left margin", "layout.outer_left_gap spacing", false)
+    case .screenMargins: (
+      .layout, "Spacing",
+      "layout.gaps outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges",
+      false
+    )
     case .animations: (.layout, "Enable animations", "animation.enabled", false)
     case .animationDuration: (.layout, "Animation duration", "animation.duration_ms", false)
     case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top", true)
