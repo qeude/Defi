@@ -188,31 +188,23 @@ struct FrameSettlementVerificationTests {
     #expect(engine.frameCommitExpectations.isEmpty)
   }
 
-  @MainActor @Test func alreadyCorrectFrameRetiresOnlyWithFreshFinalRead() async {
+  @MainActor @Test(arguments: [true, false])
+  func silentFinalMatchRecordsFirstObservationAndRetiresDebt(earlyObservation: Bool) async {
     let (platform, reads, id, start) = await fixture()
     defer { withExtendedLifetime(platform) {} }
     let engine = platform.snapshotEngine
-    reads.state.withLock { $0.now = start + 0.2 }
-    engine.recordObservation(.frame, processID: 41, windowID: id)
-    let early = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
-    #expect(early.windows.first { $0.id == id }?.frame == target)
-    #expect(engine.frameCommitExpectations[id] != nil)
+    if earlyObservation {
+      reads.state.withLock { $0.now = start + 0.2 }
+      engine.recordObservation(.frame, processID: 41, windowID: id)
+      let early = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
+      #expect(early.windows.first { $0.id == id }?.frame == target)
+      #expect(engine.frameCommitExpectations[id] != nil)
+    }
     reads.state.withLock { $0.now = start + 0.9 }
     let final = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
-    #expect(final.freshFrameObservationIDs == [id])
     #expect(final.windows.first { $0.id == id }?.frame == target)
+    #expect(final.freshFrameObservationIDs == [id])
     #expect(final.targetMismatches.isEmpty)
-    #expect(engine.frameCommitExpectations[id] == nil)
-  }
-
-  @MainActor @Test func silentFinalMatchRecordsFirstObservationAndRetiresDebt() async {
-    let (platform, reads, id, start) = await fixture()
-    defer { withExtendedLifetime(platform) {} }
-    let engine = platform.snapshotEngine
-    reads.state.withLock { $0.now = start + 0.9 }
-    let final = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
-    #expect(final.windows.first { $0.id == id }?.frame == target)
-    #expect(final.freshFrameObservationIDs == [id])
     #expect(engine.observedFrameCommitCount == 1)
     #expect(engine.frameCommitExpectations[id] == nil)
     #expect(!engine.pendingFrameDebtWindowIDs.contains(id))

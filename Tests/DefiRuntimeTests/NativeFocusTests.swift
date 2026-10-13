@@ -127,13 +127,6 @@ struct NativeFocusTests {
   }
 
   @Test
-  func focusInsideActiveWorkspaceDoesNotReportWorkspaceActivation() throws {
-    var state = try makeState()
-
-    #expect(focusWindow(WindowID(rawValue: 2), state: &state) == false)
-  }
-
-  @Test
   func differentWindowChangesNativeFocusSelection() throws {
     var state = try makeState()
     focusWindow(WindowID(rawValue: 1), state: &state)
@@ -166,19 +159,6 @@ struct NativeFocusTests {
         mouseReleaseFocusIntentCurrent: true,
         keyboardFocusIntentCurrent: false
       )
-    )
-  }
-
-  @Test
-  func nativeFocusWithoutHumanIntentDoesNotMutateSelection() {
-    #expect(
-      nativeFocusMutationIsReady(
-        nativeFocusChanged: true,
-        mouseInteractionEnded: false,
-        leftMouseButtonDown: false,
-        mouseReleaseFocusIntentCurrent: false,
-        keyboardFocusIntentCurrent: false
-      ) == false
     )
   }
 
@@ -540,60 +520,64 @@ struct NativeFocusTests {
     )
   }
 
-  @Test
-  func currentUnmutatedCancellationRestoresPreviousSelection() {
-    #expect(
-      commandFocusCancellationFallback(
-        cancelledBeforeMutation: true,
-        requestGeneration: 4,
-        currentGeneration: 4,
-        requestedWindowID: WindowID(rawValue: 2),
-        selectedWindowID: WindowID(rawValue: 2),
-        previousSelectedWindowID: WindowID(rawValue: 1),
-        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
-        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
-      ) == WindowID(rawValue: 1)
-    )
+  struct CommandCancellationCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let cancelledBeforeMutation: Bool
+    var rollbackAfterMutation = false
+    var requestGeneration: UInt64 = 4
+    var previousSelectedWindowWorkspaceID = WorkspaceID(rawValue: "dev")
+    let fallback: WindowID?
+
+    var testDescription: String { name }
   }
 
-  @Test
-  func exhaustedMutatedFailureRestoresPreviousSelection() {
-    #expect(
-      commandFocusCancellationFallback(
-        cancelledBeforeMutation: false,
-        rollbackAfterMutation: true,
-        requestGeneration: 4,
-        currentGeneration: 4,
-        requestedWindowID: WindowID(rawValue: 2),
-        selectedWindowID: WindowID(rawValue: 2),
-        previousSelectedWindowID: WindowID(rawValue: 1),
-        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
-        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
-      ) == WindowID(rawValue: 1)
-    )
-  }
+  static let commandCancellationCases = [
+    CommandCancellationCase(
+      name: "current unmutated cancellation restores previous selection",
+      cancelledBeforeMutation: true,
+      fallback: WindowID(rawValue: 1)
+    ),
+    CommandCancellationCase(
+      name: "exhausted mutated failure restores previous selection",
+      cancelledBeforeMutation: false,
+      rollbackAfterMutation: true,
+      fallback: WindowID(rawValue: 1)
+    ),
+    CommandCancellationCase(
+      name: "stale cancellation cannot restore old selection",
+      cancelledBeforeMutation: true,
+      requestGeneration: 3,
+      fallback: nil
+    ),
+    CommandCancellationCase(
+      name: "mutated cancellation without rollback cannot restore old selection",
+      cancelledBeforeMutation: false,
+      fallback: nil
+    ),
+    CommandCancellationCase(
+      name: "cancellation cannot restore selection from another workspace",
+      cancelledBeforeMutation: true,
+      previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "web"),
+      fallback: nil
+    ),
+  ]
 
-  @Test
-  func inputCancelledMutationRestoresPreviousSelectionUnlessClickedAgain() {
+  @Test(arguments: commandCancellationCases)
+  func commandFocusCancellationRestoresPreviousSelectionOnlyWhenCurrent(
+    _ scenario: CommandCancellationCase
+  ) {
     #expect(
       commandFocusCancellationFallback(
-        cancelledBeforeMutation: false,
-        rollbackAfterMutation: true,
-        requestGeneration: 4,
+        cancelledBeforeMutation: scenario.cancelledBeforeMutation,
+        rollbackAfterMutation: scenario.rollbackAfterMutation,
+        requestGeneration: scenario.requestGeneration,
         currentGeneration: 4,
         requestedWindowID: WindowID(rawValue: 2),
         selectedWindowID: WindowID(rawValue: 2),
         previousSelectedWindowID: WindowID(rawValue: 1),
         sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
-        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
-      ) == WindowID(rawValue: 1)
-    )
-    #expect(
-      cancelledFocusTargetsRequestedWindow(
-        requestedWindowID: WindowID(rawValue: 2),
-        requestedWindowIsNativelyFocused: false,
-        cancellingFocusTargetWindowID: WindowID(rawValue: 2)
-      )
+        previousSelectedWindowWorkspaceID: scenario.previousSelectedWindowWorkspaceID
+      ) == scenario.fallback
     )
   }
 
@@ -623,116 +607,56 @@ struct NativeFocusTests {
       ) == false)
   }
 
-  @Test
-  func staleOrMutatedCancellationCannotRestoreOldSelection() {
-    #expect(
-      commandFocusCancellationFallback(
-        cancelledBeforeMutation: true,
-        requestGeneration: 3,
-        currentGeneration: 4,
-        requestedWindowID: WindowID(rawValue: 2),
-        selectedWindowID: WindowID(rawValue: 2),
-        previousSelectedWindowID: WindowID(rawValue: 1),
-        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
-        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
-      ) == nil
-    )
-    #expect(
-      commandFocusCancellationFallback(
-        cancelledBeforeMutation: false,
-        requestGeneration: 4,
-        currentGeneration: 4,
-        requestedWindowID: WindowID(rawValue: 2),
-        selectedWindowID: WindowID(rawValue: 2),
-        previousSelectedWindowID: WindowID(rawValue: 1),
-        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
-        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "dev")
-      ) == nil
-    )
-    #expect(
-      commandFocusCancellationFallback(
-        cancelledBeforeMutation: true,
-        requestGeneration: 4,
-        currentGeneration: 4,
-        requestedWindowID: WindowID(rawValue: 2),
-        selectedWindowID: WindowID(rawValue: 2),
-        previousSelectedWindowID: WindowID(rawValue: 1),
-        sourceWorkspaceID: WorkspaceID(rawValue: "dev"),
-        previousSelectedWindowWorkspaceID: WorkspaceID(rawValue: "web")
-      ) == nil
-    )
+  struct WorkspaceCancellationCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    var requestGeneration: UInt64 = 4
+    var activeWorkspaceID = WorkspaceID(rawValue: "web")
+    var restoresPreviousWorkspace = true
+    let fallback: WorkspaceID?
+
+    var testDescription: String { name }
   }
 
-  @Test
-  func currentWorkspaceFocusCancellationRestoresPreviousWorkspace() {
+  static let workspaceCancellationCases = [
+    WorkspaceCancellationCase(
+      name: "current cancellation restores previous workspace",
+      fallback: WorkspaceID(rawValue: "dev")
+    ),
+    WorkspaceCancellationCase(
+      name: "stale cancellation cannot rollback newer state",
+      requestGeneration: 3,
+      fallback: nil
+    ),
+    WorkspaceCancellationCase(
+      name: "cancellation cannot rollback after the requested workspace left",
+      activeWorkspaceID: WorkspaceID(rawValue: "dev"),
+      fallback: nil
+    ),
+    WorkspaceCancellationCase(
+      name: "moved window keeps command atomic",
+      restoresPreviousWorkspace: false,
+      fallback: nil
+    ),
+  ]
+
+  @Test(arguments: workspaceCancellationCases)
+  func workspaceFocusCancellationRestoresPreviousWorkspaceOnlyWhenCurrent(
+    _ scenario: WorkspaceCancellationCase
+  ) {
     let requestedWindowID = WindowID(rawValue: 2)
-    let dev = WorkspaceID(rawValue: "dev")
-    let web = WorkspaceID(rawValue: "web")
 
     #expect(
       workspaceFocusCancellationFallback(
         cancelledBeforeMutation: true,
-        requestGeneration: 4,
+        requestGeneration: scenario.requestGeneration,
         currentGeneration: 4,
-        requestedWorkspaceID: web,
-        activeWorkspaceID: web,
-        previousWorkspaceID: dev,
-        requestedWindowID: requestedWindowID,
-        selectedWindowID: requestedWindowID
-      ) == dev
-    )
-  }
-
-  @Test
-  func staleWorkspaceFocusCancellationCannotRollbackNewerState() {
-    let requestedWindowID = WindowID(rawValue: 2)
-    let dev = WorkspaceID(rawValue: "dev")
-    let web = WorkspaceID(rawValue: "web")
-
-    #expect(
-      workspaceFocusCancellationFallback(
-        cancelledBeforeMutation: true,
-        requestGeneration: 3,
-        currentGeneration: 4,
-        requestedWorkspaceID: web,
-        activeWorkspaceID: web,
-        previousWorkspaceID: dev,
-        requestedWindowID: requestedWindowID,
-        selectedWindowID: requestedWindowID
-      ) == nil
-    )
-    #expect(
-      workspaceFocusCancellationFallback(
-        cancelledBeforeMutation: true,
-        requestGeneration: 4,
-        currentGeneration: 4,
-        requestedWorkspaceID: web,
-        activeWorkspaceID: dev,
-        previousWorkspaceID: dev,
-        requestedWindowID: requestedWindowID,
-        selectedWindowID: requestedWindowID
-      ) == nil
-    )
-  }
-
-  @Test
-  func movedWindowWorkspaceFocusCancellationKeepsCommandAtomic() {
-    let requestedWindowID = WindowID(rawValue: 2)
-    let dev = WorkspaceID(rawValue: "dev")
-    let web = WorkspaceID(rawValue: "web")
-
-    #expect(
-      workspaceFocusCancellationFallback(
-        cancelledBeforeMutation: true,
-        requestGeneration: 4,
-        currentGeneration: 4,
-        requestedWorkspaceID: web,
-        activeWorkspaceID: web,
-        previousWorkspaceID: dev,
+        requestedWorkspaceID: WorkspaceID(rawValue: "web"),
+        activeWorkspaceID: scenario.activeWorkspaceID,
+        previousWorkspaceID: WorkspaceID(rawValue: "dev"),
         requestedWindowID: requestedWindowID,
         selectedWindowID: requestedWindowID,
-        restoresPreviousWorkspace: false
-      ) == nil
+        restoresPreviousWorkspace: scenario.restoresPreviousWorkspace
+      ) == scenario.fallback
     )
   }
 

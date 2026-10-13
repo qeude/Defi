@@ -103,8 +103,8 @@ struct FrameGeometryReadTests {
     #expect(coordinator.processWriteQueueReservations.isEmpty)
   }
 
-  @Test func performanceAcceptedRead() throws {
-    guard ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1" else { return }
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1"))
+  func performanceAcceptedRead() throws {
     let delay = Double(ProcessInfo.processInfo.environment["DEFI_PERF_DELAY_MS"] ?? "1") ?? -1
     try #require(delay.isFinite && delay >= 0 && delay <= 100)
     let reads = Mutex(0), value = accepted

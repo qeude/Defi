@@ -541,8 +541,9 @@ struct FrameCommitTests {
     _ = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
     coordinator.pruneProcessLatencyState(liveProcessIDs: [])
     coordinator.processWriteQueue(for: -1).sync { }
-    _ = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
+    let rediscovered = coordinator.beginDeferredEnhancedUIRestore(processID: -1, application: application)
     #expect(disables.withLock { $0 } == 3)
+    #expect(coordinator.deferredEnhancedUIRestores[-1]?.token == rediscovered)
   }
 
   @Test(arguments: [true, false])
@@ -1319,14 +1320,6 @@ struct FrameCommitTests {
       requiresVerifiedOffscreenWrite: false
     )
   }
-
-  private let expectation = FrameCommitExpectation(
-    from: Rect(x: 900, y: 40, width: 800, height: 700),
-    target: Rect(x: 100, y: 40, width: 800, height: 700),
-    issuedAt: 10,
-    deadline: 10.65,
-    observedAt: nil
-  )
 
   @Test
   func `Animation lane keeps only its latest pending sample`() {
@@ -2423,7 +2416,7 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Pruning recent internal writes drops expired entries for live windows`() {
+  func `Recent internal writes expire for live windows without pruning`() {
     let coordinator = AXFrameCoordinator()
     let windowID = WindowID(rawValue: 42)
     coordinator.recordInternalFrameWrite(
@@ -2506,29 +2499,21 @@ struct FrameCommitTests {
     #expect(coordinator.activeWrites[windowID] == nil)
   }
 
-  @Test
-  func `Initial window commit uses short quarantine for fast retries`() {
-    #expect(
-      abs(frameCommitQuarantineDuration(
-        animationDuration: 0,
-        initialFrameSettlement: true
-      ) - 0.18) <= 0.000_1
+  @Test(
+    arguments: zip(
+      [(0.0, true), (0.0, false), (0.35, true)],
+      [0.18, 0.8, 0.47]
     )
+  )
+  func `Initial window commit quarantine covers retries and animation`(
+    _ input: (animationDuration: Double, initialFrameSettlement: Bool),
+    expected: Double
+  ) {
     #expect(
       abs(frameCommitQuarantineDuration(
-        animationDuration: 0,
-        initialFrameSettlement: false
-      ) - 0.8) <= 0.000_1
-    )
-  }
-
-  @Test
-  func `Initial window commit still covers animation`() {
-    #expect(
-      abs(frameCommitQuarantineDuration(
-        animationDuration: 0.35,
-        initialFrameSettlement: true
-      ) - 0.47) <= 0.000_1
+        animationDuration: input.animationDuration,
+        initialFrameSettlement: input.initialFrameSettlement
+      ) - expected) <= 0.000_1
     )
   }
 
@@ -2679,113 +2664,102 @@ struct FrameCommitTests {
       ) == false)
   }
 
-  @Test
-  func `Window events use incremental refresh only with stable PID context`() {
-    let processIDs: Set<pid_t> = [101, 202]
+  struct IncrementalRefreshCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    var hasCompletedSnapshot = true
+    var eventPending = true
+    var requiresFullSnapshot = false
+    var processIDs: Set<pid_t> = [101, 202]
+    var coalescedProcessIDs: Set<pid_t> = []
+    var coalescedEventRequiresFullSnapshot = false
+    var allowsCoalescedProcessRefresh = false
+    var allowsCachedRefresh = false
+    let expected: Set<pid_t>?
 
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: true,
-        requiresFullSnapshot: false,
-        processIDs: processIDs
-      ) == processIDs)
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: false,
-        eventPending: true,
-        requiresFullSnapshot: false,
-        processIDs: processIDs
-      ) == nil)
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: true,
-        requiresFullSnapshot: true,
-        processIDs: processIDs
-      ) == nil)
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: true,
-        requiresFullSnapshot: false,
-        processIDs: []
-      ) == nil)
+    var testDescription: String { name }
   }
 
-  @Test
-  func `Incremental refresh includes coalesced frame process`() {
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: true,
-        requiresFullSnapshot: false,
-        processIDs: [101],
-        coalescedProcessIDs: [202]
-      ) == [101, 202])
-  }
+  static let incrementalRefreshCases = [
+    IncrementalRefreshCase(
+      name: "pending event with stable PID context refreshes its processes",
+      expected: [101, 202]
+    ),
+    IncrementalRefreshCase(
+      name: "missing completed snapshot uses full refresh",
+      hasCompletedSnapshot: false,
+      expected: nil
+    ),
+    IncrementalRefreshCase(
+      name: "required full snapshot uses full refresh",
+      requiresFullSnapshot: true,
+      expected: nil
+    ),
+    IncrementalRefreshCase(
+      name: "pending event without process IDs uses full refresh",
+      processIDs: [],
+      expected: nil
+    ),
+    IncrementalRefreshCase(
+      name: "incremental refresh includes coalesced frame process",
+      processIDs: [101],
+      coalescedProcessIDs: [202],
+      expected: [101, 202]
+    ),
+    IncrementalRefreshCase(
+      name: "coalesced frame process during gesture does not require topology event",
+      eventPending: false,
+      processIDs: [],
+      coalescedProcessIDs: [202],
+      allowsCoalescedProcessRefresh: true,
+      expected: [202]
+    ),
+    IncrementalRefreshCase(
+      name: "coalesced frame process outside gesture uses full refresh",
+      eventPending: false,
+      processIDs: [],
+      coalescedProcessIDs: [202],
+      expected: nil
+    ),
+    IncrementalRefreshCase(
+      name: "focus only synchronization reuses cached windows",
+      eventPending: false,
+      processIDs: [],
+      allowsCachedRefresh: true,
+      expected: []
+    ),
+    IncrementalRefreshCase(
+      name: "frame notification refreshes only affected process",
+      eventPending: false,
+      processIDs: [],
+      coalescedProcessIDs: [202],
+      allowsCoalescedProcessRefresh: true,
+      allowsCachedRefresh: true,
+      expected: [202]
+    ),
+    IncrementalRefreshCase(
+      name: "coalesced mouse resize forces full refresh",
+      processIDs: [101],
+      coalescedEventRequiresFullSnapshot: true,
+      expected: nil
+    ),
+  ]
 
-  @Test
-  func `Coalesced frame process during gesture does not require topology event`() {
+  @Test(arguments: incrementalRefreshCases)
+  func `Incremental window refresh process IDs follow snapshot and event context`(
+    _ scenario: IncrementalRefreshCase
+  ) {
     #expect(
       incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: false,
-        requiresFullSnapshot: false,
-        processIDs: [],
-        coalescedProcessIDs: [202],
-        allowsCoalescedProcessRefresh: true
-      ) == [202])
-  }
-
-  @Test
-  func `Coalesced frame process outside gesture uses full refresh`() {
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: false,
-        requiresFullSnapshot: false,
-        processIDs: [],
-        coalescedProcessIDs: [202]
-      ) == nil)
-  }
-
-  @Test
-  func `Focus only synchronization reuses cached windows`() {
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: false,
-        requiresFullSnapshot: false,
-        processIDs: [],
-        allowsCachedRefresh: true
-      ) == [])
-  }
-
-  @Test
-  func `Frame notification refreshes only affected process`() {
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: false,
-        requiresFullSnapshot: false,
-        processIDs: [],
-        coalescedProcessIDs: [202],
-        allowsCoalescedProcessRefresh: true,
-        allowsCachedRefresh: true
-      ) == [202])
-  }
-
-  @Test
-  func `Coalesced mouse resize forces full refresh`() {
-    #expect(
-      incrementalWindowRefreshProcessIDs(
-        hasCompletedSnapshot: true,
-        eventPending: true,
-        requiresFullSnapshot: false,
-        processIDs: [101],
-        coalescedEventRequiresFullSnapshot: true
-      ) == nil)
+        hasCompletedSnapshot: scenario.hasCompletedSnapshot,
+        eventPending: scenario.eventPending,
+        requiresFullSnapshot: scenario.requiresFullSnapshot,
+        processIDs: scenario.processIDs,
+        coalescedProcessIDs: scenario.coalescedProcessIDs,
+        coalescedEventRequiresFullSnapshot: scenario.coalescedEventRequiresFullSnapshot,
+        allowsCoalescedProcessRefresh: scenario.allowsCoalescedProcessRefresh,
+        allowsCachedRefresh: scenario.allowsCachedRefresh
+      ) == scenario.expected
+    )
   }
 
   @Test
@@ -2840,61 +2814,6 @@ struct FrameCommitTests {
       shouldApplyDeferredFocus(
         targetWindowID: target,
         selectedWindowID: WindowID(rawValue: 2)
-      ) == false)
-  }
-
-  @Test
-  func `Expected horizontal commit lag is quarantined`() {
-    #expect(
-      frameIsOnExpectedCommitPath(
-        actual: Rect(x: 420, y: 40, width: 800, height: 700),
-        currentTarget: expectation.target,
-        expectation: expectation,
-        now: 10.4,
-        leftMouseButtonDown: false
-      ))
-  }
-
-  @Test
-  func `Late intermediate rollback remains quarantined after target was observed`() {
-    var observedExpectation = expectation
-    observedExpectation.observedAt = 10.2
-
-    #expect(
-      frameIsOnExpectedCommitPath(
-        actual: Rect(x: 260, y: 40, width: 800, height: 700),
-        currentTarget: expectation.target,
-        expectation: observedExpectation,
-        now: 10.5,
-        leftMouseButtonDown: false
-      ))
-  }
-
-  @Test
-  func `Expired or external movement is not quarantined`() {
-    #expect(
-      frameIsOnExpectedCommitPath(
-        actual: Rect(x: 420, y: 40, width: 800, height: 700),
-        currentTarget: expectation.target,
-        expectation: expectation,
-        now: 10.7,
-        leftMouseButtonDown: false
-      ) == false)
-    #expect(
-      frameIsOnExpectedCommitPath(
-        actual: Rect(x: 1_400, y: 180, width: 800, height: 700),
-        currentTarget: expectation.target,
-        expectation: expectation,
-        now: 10.4,
-        leftMouseButtonDown: false
-      ) == false)
-    #expect(
-      frameIsOnExpectedCommitPath(
-        actual: Rect(x: 420, y: 40, width: 800, height: 700),
-        currentTarget: expectation.target,
-        expectation: expectation,
-        now: 10.4,
-        leftMouseButtonDown: true
       ) == false)
   }
 
@@ -2983,13 +2902,6 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Slow lane entry requires consecutive samples`() {
-    var streak = ProcessLatencyStreak()
-    #expect(processLatencyEntryIsConfirmed(sampleMS: 120, streak: &streak) == false)
-    #expect(processLatencyEntryIsConfirmed(sampleMS: 15, streak: &streak))
-  }
-
-  @Test
   func `Slow lane entry ignores single spike`() {
     var streak = ProcessLatencyStreak()
     #expect(processLatencyEntryIsConfirmed(sampleMS: 90, streak: &streak) == false)
@@ -3041,31 +2953,57 @@ struct FrameCommitTests {
         ))
   }
 
-  @Test
-  func `Vertical cross-display resize defers size until movement completes`() {
-    let displays = [
-      Rect(x: 0, y: 0, width: 1_000, height: 700),
-      Rect(x: 0, y: 700, width: 1_000, height: 700),
-    ]
-    let source = Rect(x: 100, y: 100, width: 800, height: 500)
-    let target = Rect(x: 100, y: 800, width: 800, height: 500)
+  struct DeferredSizeCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let displays: [Rect]
+    let source: Rect
+    let target: Rect
+    let defers: Bool
 
-    #expect(shouldDeferAnimatedSizeUntilMovementCompletes(
-      from: source, to: target, displayFrames: displays
-    ))
-    #expect(!shouldDeferAnimatedSizeUntilMovementCompletes(
-      from: source,
-      to: Rect(x: 100, y: 150, width: 800, height: 500),
-      displayFrames: displays
-    ))
+    var testDescription: String { name }
   }
 
-  @Test func sameDisplayReflowKeepsSizeOnTheMovementTimeline() {
-    let display = Rect(x: 0, y: 0, width: 1_512, height: 982)
-    let source = Rect(x: 756, y: 25, width: 756, height: 910)
-    let target = Rect(x: 0, y: 25, width: 1_512, height: 910)
-    #expect(!shouldDeferAnimatedSizeUntilMovementCompletes(
-      from: source, to: target, displayFrames: [display]))
+  static let deferredSizeCases = [
+    DeferredSizeCase(
+      name: "vertical cross-display resize defers size",
+      displays: [
+        Rect(x: 0, y: 0, width: 1_000, height: 700),
+        Rect(x: 0, y: 700, width: 1_000, height: 700),
+      ],
+      source: Rect(x: 100, y: 100, width: 800, height: 500),
+      target: Rect(x: 100, y: 800, width: 800, height: 500),
+      defers: true
+    ),
+    DeferredSizeCase(
+      name: "same display movement keeps size on the movement timeline",
+      displays: [
+        Rect(x: 0, y: 0, width: 1_000, height: 700),
+        Rect(x: 0, y: 700, width: 1_000, height: 700),
+      ],
+      source: Rect(x: 100, y: 100, width: 800, height: 500),
+      target: Rect(x: 100, y: 150, width: 800, height: 500),
+      defers: false
+    ),
+    DeferredSizeCase(
+      name: "same display reflow keeps size on the movement timeline",
+      displays: [Rect(x: 0, y: 0, width: 1_512, height: 982)],
+      source: Rect(x: 756, y: 25, width: 756, height: 910),
+      target: Rect(x: 0, y: 25, width: 1_512, height: 910),
+      defers: false
+    ),
+  ]
+
+  @Test(arguments: deferredSizeCases)
+  func `Animated size defers until movement completes only across displays`(
+    _ scenario: DeferredSizeCase
+  ) {
+    #expect(
+      shouldDeferAnimatedSizeUntilMovementCompletes(
+        from: scenario.source,
+        to: scenario.target,
+        displayFrames: scenario.displays
+      ) == scenario.defers
+    )
   }
 
   @Test func reorderedParkedColumnStartsAtItsPreviousLogicalSlot() throws {

@@ -298,42 +298,77 @@ struct FrameCommitTransitionTests {
     #expect(completed.performance.convergence.count == 1)
   }
 
-  @Test
-  func intermediatePositionAndSizeCommitIsQuarantined() {
-    #expect(
-      frameIsOnExpectedCommitPath(
-        actual: Rect(x: 480, y: 60, width: 1_000, height: 760),
-        currentTarget: expectation.target,
-        expectation: expectation,
-        now: 10.4,
-        leftMouseButtonDown: false
-      )
-    )
+  struct CommitPathCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let actual: Rect
+    let now: Double
+    var observedAt: Double?
+    var leftMouseButtonDown = false
+    let isOnPath: Bool
+
+    var testDescription: String { name }
   }
 
-  @Test
-  func geometryOutsideOwnCommitPathRemainsExternal() {
-    #expect(
-      frameIsOnExpectedCommitPath(
-        actual: Rect(x: 480, y: 60, width: 1_280, height: 760),
-        currentTarget: expectation.target,
-        expectation: expectation,
-        now: 10.4,
-        leftMouseButtonDown: false
-      ) == false
-    )
-  }
+  static let commitPathCases = [
+    CommitPathCase(
+      name: "intermediate position and size commit is quarantined",
+      actual: Rect(x: 480, y: 60, width: 1_000, height: 760),
+      now: 10.4,
+      isOnPath: true
+    ),
+    CommitPathCase(
+      name: "expected horizontal commit lag is quarantined",
+      actual: Rect(x: 420, y: 40, width: 800, height: 700),
+      now: 10.4,
+      isOnPath: true
+    ),
+    CommitPathCase(
+      name: "late intermediate rollback remains quarantined after target was observed",
+      actual: Rect(x: 260, y: 40, width: 800, height: 700),
+      now: 10.5,
+      observedAt: 10.2,
+      isOnPath: true
+    ),
+    CommitPathCase(
+      name: "geometry outside own commit path remains external",
+      actual: Rect(x: 480, y: 60, width: 1_280, height: 760),
+      now: 10.4,
+      isOnPath: false
+    ),
+    CommitPathCase(
+      name: "expired movement is not quarantined",
+      actual: Rect(x: 420, y: 40, width: 800, height: 700),
+      now: 10.9,
+      isOnPath: false
+    ),
+    CommitPathCase(
+      name: "external movement is not quarantined",
+      actual: Rect(x: 1_400, y: 180, width: 800, height: 700),
+      now: 10.4,
+      isOnPath: false
+    ),
+    CommitPathCase(
+      name: "mouse resize bypasses commit quarantine",
+      actual: Rect(x: 480, y: 60, width: 1_000, height: 760),
+      now: 10.4,
+      leftMouseButtonDown: true,
+      isOnPath: false
+    ),
+  ]
 
-  @Test
-  func mouseResizeBypassesCommitQuarantine() {
+  @Test(arguments: commitPathCases)
+  func frameCommitPathQuarantinesOnlyOwnCommitGeometry(_ scenario: CommitPathCase) {
+    var commitExpectation = expectation
+    commitExpectation.observedAt = scenario.observedAt
+
     #expect(
       frameIsOnExpectedCommitPath(
-        actual: Rect(x: 480, y: 60, width: 1_000, height: 760),
-        currentTarget: expectation.target,
-        expectation: expectation,
-        now: 10.4,
-        leftMouseButtonDown: true
-      ) == false
+        actual: scenario.actual,
+        currentTarget: commitExpectation.target,
+        expectation: commitExpectation,
+        now: scenario.now,
+        leftMouseButtonDown: scenario.leftMouseButtonDown
+      ) == scenario.isOnPath
     )
   }
 

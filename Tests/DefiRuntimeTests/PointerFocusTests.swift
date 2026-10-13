@@ -180,23 +180,6 @@ struct PointerFocusTests {
   }
 
   @Test
-  func pointerFocusRejectsTargetThatWouldScrollStrip() throws {
-    var state = try makeState(columnWidths: [0.5, 0.5, 0.5])
-    let original = state
-
-    let focusedMonitor = focusWindowFromPointer(
-      WindowID(rawValue: 3),
-      activeMonitorID: monitorID,
-      state: &state,
-      viewports: [monitorID: viewport],
-      maximumScrollAmount: 0
-    )
-
-    #expect(focusedMonitor == nil)
-    #expect(state == original)
-  }
-
-  @Test
   func pointerFocusRejectsCenteringThatWouldMoveVisibleStrip() throws {
     var state = try makeState(
       columnWidths: [0.4, 0.4, 0.4],
@@ -403,21 +386,6 @@ struct PointerFocusTests {
   }
 
   @Test
-  func focusedModalOfAnotherAppBlocksPointerFocus() throws {
-    var state = try makeState(columnWidths: [0.5, 0.5])
-    let documentID = WindowID(rawValue: 1)
-    let modalID = WindowID(rawValue: 2)
-    state.windows[documentID]?.appID = "editor"
-    state.windows[modalID]?.appID = "com.apple.finder"
-    state.windows[modalID]?.isModal = true
-    _ = focusWindow(modalID, state: &state)
-    #expect(state.selectedWindowID(on: monitorID) == modalID)
-
-    #expect(modalAllowsPointerFocus(documentID, state: state) == false)
-    #expect(modalAllowsPointerFocus(modalID, state: state))
-  }
-
-  @Test
   func pointerFocusFromTransitOverDocumentKeepsFocusedModal() throws {
     var state = try makeState(columnWidths: [0.5, 0.5])
     let documentID = WindowID(rawValue: 1)
@@ -426,6 +394,9 @@ struct PointerFocusTests {
     state.windows[modalID]?.appID = "com.apple.finder"
     state.windows[modalID]?.isModal = true
     _ = focusWindow(modalID, state: &state)
+    #expect(state.selectedWindowID(on: monitorID) == modalID)
+    #expect(modalAllowsPointerFocus(documentID, state: state) == false)
+    #expect(modalAllowsPointerFocus(modalID, state: state))
     let original = state
 
     #expect(
@@ -458,25 +429,6 @@ struct PointerFocusTests {
   }
 
   @Test
-  func barePointerFocusScrollsMinimallyToRevealTarget() throws {
-    var state = try makeState(columnWidths: [0.5, 0.5, 0.5])
-    let originalOffset = state.monitors[0].workspaces[0].targetScrollOffset
-
-    let focusedMonitor = focusWindowFromPointer(
-      WindowID(rawValue: 3),
-      activeMonitorID: monitorID,
-      state: &state,
-      viewports: [monitorID: viewport]
-    )
-
-    #expect(focusedMonitor == monitorID)
-    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
-    #expect(
-      state.monitors[0].workspaces[0].targetScrollOffset > originalOffset
-    )
-  }
-
-  @Test
   func pointerFocusHonorsViewportFractionScrollLimit() throws {
     let original = try makeState(columnWidths: [0.5, 0.5, 0.5])
     var unrestricted = original
@@ -487,6 +439,11 @@ struct PointerFocusTests {
         state: &unrestricted,
         viewports: [monitorID: viewport]
       ) == monitorID
+    )
+    #expect(unrestricted.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
+    #expect(
+      unrestricted.monitors[0].workspaces[0].targetScrollOffset
+        > original.monitors[0].workspaces[0].targetScrollOffset
     )
     let requiredAmount =
       abs(
@@ -572,53 +529,55 @@ struct PointerFocusTests {
     )
   }
 
-  @Test
-  func pendingPointerFocusRequiresSameWindowAndNoNewerInput() {
-    let windowID = WindowID(rawValue: 42)
+  struct PointerFocusRetryCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    var windowUnderPointerID = WindowID(rawValue: 42)
+    var currentGeneration: UInt64 = 4
+    var latestUserInputTimestamp = 12.0
+    let isCurrent: Bool
 
+    var testDescription: String { name }
+  }
+
+  static let pointerFocusRetryCases = [
+    PointerFocusRetryCase(
+      name: "same window without newer input is current",
+      isCurrent: true
+    ),
+    PointerFocusRetryCase(
+      name: "different window under pointer is not current",
+      windowUnderPointerID: WindowID(rawValue: 43),
+      isCurrent: false
+    ),
+    PointerFocusRetryCase(
+      name: "newer general input is not current",
+      latestUserInputTimestamp: 13,
+      isCurrent: false
+    ),
+    PointerFocusRetryCase(
+      name: "newer pointer transition is not current",
+      currentGeneration: 5,
+      isCurrent: false
+    ),
+  ]
+
+  @Test(arguments: pointerFocusRetryCases)
+  func pendingPointerFocusRequiresSameWindowAndNoNewerInput(_ scenario: PointerFocusRetryCase) {
     #expect(
       pointerFocusRetryIsCurrent(
-        pendingWindowID: windowID,
-        windowUnderPointerID: windowID,
+        pendingWindowID: WindowID(rawValue: 42),
+        windowUnderPointerID: scenario.windowUnderPointerID,
         requestGeneration: 4,
-        currentGeneration: 4,
+        currentGeneration: scenario.currentGeneration,
         pointerTimestamp: 12,
-        latestUserInputTimestamp: 12
-      )
-    )
-    #expect(
-      pointerFocusRetryIsCurrent(
-        pendingWindowID: windowID,
-        windowUnderPointerID: WindowID(rawValue: 43),
-        requestGeneration: 4,
-        currentGeneration: 4,
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 12
-      ) == false)
-    #expect(
-      pointerFocusRetryIsCurrent(
-        pendingWindowID: windowID,
-        windowUnderPointerID: windowID,
-        requestGeneration: 4,
-        currentGeneration: 4,
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 13
-      ) == false)
+        latestUserInputTimestamp: scenario.latestUserInputTimestamp
+      ) == scenario.isCurrent)
   }
 
   @Test
   func newerPointerTransitionInvalidatesRequestWithoutGeneralInput() {
     #expect(
       pointerFocusRequestIsCurrent(
-        requestGeneration: 4,
-        currentGeneration: 5,
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 12
-      ) == false)
-    #expect(
-      pointerFocusRetryIsCurrent(
-        pendingWindowID: WindowID(rawValue: 42),
-        windowUnderPointerID: WindowID(rawValue: 42),
         requestGeneration: 4,
         currentGeneration: 5,
         pointerTimestamp: 12,
