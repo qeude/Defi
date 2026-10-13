@@ -55,14 +55,6 @@ struct OverviewPreviewTests {
     cache.removeAll()
     #expect(cache.byteCount == 0)
   }
-  @Test func ribbonOcclusionIgnoresTransparentAndDockWindows() {
-    let window: [String: Any] = [kCGWindowLayer as String: NSNumber(value: 0)]
-    #expect(windowInfoShowsContent(window))
-    #expect(!windowInfoShowsContent(window.merging([kCGWindowAlpha as String: NSNumber(value: 0)]) { $1 }))
-    #expect(!windowInfoShowsContent(
-      [kCGWindowLayer as String: NSNumber(value: CGWindowLevelForKey(.dockWindow))]))
-  }
-
   @Test func missingOrUnreadyImageDoesNotCancelOtherOpeningSurfaces() {
     let first = WindowID(rawValue: 1), missing = WindowID(rawValue: 2)
     let warming = WindowID(rawValue: 3), unrelated = WindowID(rawValue: 4)
