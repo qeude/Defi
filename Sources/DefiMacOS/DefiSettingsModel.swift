@@ -264,6 +264,11 @@ public final class DefiSettingsModel {
     set(table: table, key: key, value: nil)
   }
 
+  /// An explicit link choice for the spacing editor; `nil` links edges whose values match.
+  /// Kept here so leaving the Layout page does not forget an unlink.
+  public var linksHorizontalEdges: Bool?
+  public var linksVerticalEdges: Bool?
+
   /// Edges that still inherit `gaps` are pinned first, so this changes only the space between windows.
   public func setWindowGap(_ value: Double) {
     let layout = config.layout

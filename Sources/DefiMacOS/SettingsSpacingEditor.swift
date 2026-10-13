@@ -15,8 +15,6 @@ enum SpacingZone: Hashable {
 @MainActor
 struct SpacingEditor: View {
   let model: DefiSettingsModel
-  @State private var linksHorizontal: Bool?
-  @State private var linksVertical: Bool?
   @State private var hovered: SpacingZone?
   @SwiftUI.FocusState private var focused: SpacingZone?
 
@@ -76,7 +74,7 @@ struct SpacingEditor: View {
       VStack(spacing: 4) {
         Text(edge.name).font(.caption).foregroundStyle(.secondary)
         self.field(.edge(edge))
-        linkButton($linksHorizontal, edges: [.left, .right], help: "Link left and right edges")
+        linkButton(linkChoice(\.linksHorizontalEdges), edges: [.left, .right], help: "Link left and right edges")
       }
       .fixedSize()
       .position(field)
@@ -84,11 +82,15 @@ struct SpacingEditor: View {
       self.field(.edge(edge)).position(field)
       HStack(spacing: 6) {
         Text(edge.name).font(.caption).foregroundStyle(.secondary)
-        linkButton($linksVertical, edges: [.top, .bottom], help: "Link top and bottom edges")
+        linkButton(linkChoice(\.linksVerticalEdges), edges: [.top, .bottom], help: "Link top and bottom edges")
       }
       .frame(width: 90, alignment: .leading)
       .position(x: field.x + Self.fieldWidth / 2 + 16 + 45, y: field.y)
     }
+  }
+
+  private func linkChoice(_ keyPath: ReferenceWritableKeyPath<DefiSettingsModel, Bool?>) -> Binding<Bool?> {
+    Binding(get: { model[keyPath: keyPath] }, set: { model[keyPath: keyPath] = $0 })
   }
 
   private func linkButton(_ choice: Binding<Bool?>, edges: [ScreenEdge], help: String) -> some View {
@@ -181,8 +183,8 @@ struct SpacingEditor: View {
 
   private func linkedEdges(_ edge: ScreenEdge) -> [ScreenEdge] {
     switch edge {
-    case .left, .right: linked(linksHorizontal, .left, .right) ? [.left, .right] : [edge]
-    case .top, .bottom: linked(linksVertical, .top, .bottom) ? [.top, .bottom] : [edge]
+    case .left, .right: linked(model.linksHorizontalEdges, .left, .right) ? [.left, .right] : [edge]
+    case .top, .bottom: linked(model.linksVerticalEdges, .top, .bottom) ? [.top, .bottom] : [edge]
     }
   }
 

@@ -24,6 +24,12 @@ struct SettingsSearchTests {
     #expect(result.destination.isAdvanced)
   }
 
+  @Test(arguments: ["default gap", "gap between windows", "outer_left_gap", "screen margins"])
+  func findsSpacingEditor(query: String) throws {
+    let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
+    #expect(results.first?.destination == .option(.screenMargins))
+  }
+
   @Test
   func whitespaceAndUnknownQueriesDoNotReplacePageNavigation() {
     #expect(SettingsSearchCatalog.results(matching: " \n ", config: Config(), shortcuts: []).isEmpty)

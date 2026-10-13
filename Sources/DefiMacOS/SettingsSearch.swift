@@ -71,7 +71,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove", false)
     case .screenMargins: (
       .layout, "Spacing",
-      "layout.gaps outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges",
+      "layout.gaps default gap outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges",
       false
     )
     case .animations: (.layout, "Enable animations", "animation.enabled", false)
