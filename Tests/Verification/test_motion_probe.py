@@ -153,6 +153,11 @@ class MotionProbeTests(unittest.TestCase):
         self.assertEqual(probe.window_motion(tail, 10.0, 10.2, 11.0)['stalls'], 0)
         self.assertIsNone(probe.window_motion([(9.9, 5, 5), (10.05, 6, 5)], 10.0, 10.2, 11.0))
 
+    def test_round_trip_within_one_generation_is_reported(self):
+        track = [(9.9, 0, 0), (10.01, 60, 0), (10.02, 120, 0), (10.03, 60, 0), (10.04, 1, 0)]
+        motion = probe.window_motion(track, 10.0, 10.2, 11.0)
+        self.assertEqual((motion['backward_steps'], motion['overshoot_pt']), (2, 119))
+
     def test_overshoot_that_returns_is_still_motion(self):
         # Touches the final 200 at 10.02, overshoots to 230, settles back at 10.12.
         track = [(9.9, 0, 0), (10.01, 120, 0), (10.02, 200, 0), (10.05, 230, 0), (10.12, 200, 0)]

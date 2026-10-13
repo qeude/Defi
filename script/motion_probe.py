@@ -339,11 +339,14 @@ def window_motion(track, submit, end, settle_end):
     if not inside:
         return None
     final = inside[-1]
-    axis = 1 if abs(final[1] - origin[1]) >= abs(final[2] - origin[2]) else 2
-    net = final[axis] - origin[axis]
-    if abs(net) < 2:
+    # A window that leaves and comes back did travel: judge by its farthest excursion, and
+    # measure a round trip along the way out so the return reads as overshoot and backward steps.
+    far = max(inside, key=lambda p: max(abs(p[1] - origin[1]), abs(p[2] - origin[2])))
+    if max(abs(far[1] - origin[1]), abs(far[2] - origin[2])) < 2:
         return None
-    sign = 1 if net > 0 else -1
+    reference = final if max(abs(final[1] - origin[1]), abs(final[2] - origin[2])) >= 2 else far
+    axis = 1 if abs(reference[1] - origin[1]) >= abs(reference[2] - origin[2]) else 2
+    sign = 1 if reference[axis] > origin[axis] else -1
     # Arrived once it stays within ARRIVED_PT; an overshoot that returns is still motion.
     arrived = len(inside) - 1
     while arrived > 0 and abs(inside[arrived - 1][axis] - final[axis]) <= ARRIVED_PT:
