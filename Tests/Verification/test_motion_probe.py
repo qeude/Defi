@@ -91,6 +91,11 @@ class MotionProbeTests(unittest.TestCase):
         states = [state(0.0, edges, apps=(upper, lower)), state(1.0, edges, apps=(upper, lower_moved))]
         self.assertAlmostEqual(probe.border_lag(states, 1.5)['lagging_ms'], 500.0, delta=8)
 
+    def test_short_window_bottom_edge_is_not_stuck(self):
+        app = (7, 1, 100, 100, 800, 80)  # side panels are 80 + 8 - 24 = 64 pt tall at most
+        states = [state(0.0, ring(100, 100, 800, 80), apps=(app,))]
+        self.assertEqual(probe.border_lag(states, 1.0)['stuck_ms'], 0.0)
+
     def test_border_outset_follows_config(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'config.toml'

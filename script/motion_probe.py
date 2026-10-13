@@ -252,7 +252,8 @@ def border_lag(states, end_t):
         """Worst border lag at time `at` while `state` holds; None when a border is stuck."""
         tracks = {wid: (x, y, w, h) for wid, _, x, y, w, h in state["apps"]}  # windows shown now
         horizontal = [edge[2:6] for edge in state["edges"] if edge[5] <= THIN < edge[4]]
-        vertical = [edge[2:6] for edge in state["edges"] if edge[4] <= THIN < edge[5]]
+        # Side panels of short windows are shorter than THIN; taller than wide is enough.
+        vertical = [edge[2:6] for edge in state["edges"] if edge[4] <= THIN and edge[5] > edge[4]]
         worst = 0.0
         for ex, ey, ew, eh in horizontal:
             # A ring's left edge starts where its top edge ends and stops where its bottom begins.
