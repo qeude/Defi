@@ -23,6 +23,14 @@ struct SettingsSearchTests {
     #expect(result.destination.anchor == .option(.reservedTop))
   }
 
+  @Test(arguments: [SettingsOption.animations, .animationDuration])
+  func animationOptionsLiveOnAppearancePage(option: SettingsOption) throws {
+    let results = SettingsSearchCatalog.results(matching: option.terms, config: Config(), shortcuts: [])
+    let result = try #require(results.first { $0.destination == .option(option) })
+    #expect(result.destination.page == .appearance)
+    #expect(result.context == "Appearance")
+  }
+
   @Test(arguments: ["default gap", "gap between windows", "outer_left_gap", "screen margins"])
   func findsSpacingEditor(query: String) throws {
     let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
