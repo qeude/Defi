@@ -20,6 +20,8 @@ import desktop_session
 import ribbon_stress
 import animation_benchmark
 from test_performance_experiments import PerformanceExperimentsTests
+from test_border_sync_probe import BorderSyncProbeTests
+from test_motion_probe import MotionProbeTests
 
 
 class WorkflowTests(unittest.TestCase):

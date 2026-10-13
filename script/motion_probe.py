@@ -1,0 +1,516 @@
+#!/usr/bin/env python3
+"""Drive a fixed desktop scenario and report border detachment and ribbon smoothness.
+
+A 4 ms WindowServer sampler (script/motion_probe.swift) records the daemon's border
+windows and every on-screen app window. `defi trace` is fetched while the run is live.
+Both use systemUptime, so each bad episode is attributed to the trace phase active at
+its start. Scenario mode moves real windows; --passive N only observes.
+"""
+import argparse
+from bisect import bisect_left
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import statistics
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+from desktop_lock import inherited_lock
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "script/motion_probe.swift"
+BINARY = ROOT / "dist/benchmarks/motion-probe"
+CLI_FALLBACK = Path.home() / "Applications/Defi.app/Contents/MacOS/defi"
+
+RING_OUTSET = 6        # pt; border width 4 + 2 of tolerance
+THIN = 64              # pt; border strips are thinner than this
+EDGE_MARGIN = 20       # pt; thin windows this close to a display's side are parked-window leaks
+EPISODE_MS = 50        # detached episodes shorter than this are sampling noise
+STALL_MS = 25          # gap between consecutive position changes that counts as a stall
+BACKWARD_PT = 1        # steps against the net direction larger than this are backward
+ARRIVED_PT = 1         # a window this close to its final position has finished moving
+SETTLE_S = 1.0         # how long after `complete` a late window write is still attributed
+WORKSPACE_WINDOW_S = 1.0
+REST_S = 0.3
+
+
+def uptime():
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW)  # same clock as ProcessInfo.systemUptime
+
+
+# ---- scenario ---------------------------------------------------------------------
+
+def soak_steps():
+    """(defi args, sleep seconds after) in the exact order of /tmp/defi-bench/soak.sh."""
+    steps = []
+    for _ in range(3):
+        steps += [(("focus-column", d), 0.35) for d in ("right", "right", "left", "left", "right", "left")]
+        steps += [(("focus-column", "right"), 0.6)]
+        for _ in range(2):
+            steps += [(("move-column", "left"), 0.6), (("move-column", "right"), 0.6)]
+        steps += [(("focus-column", "left"), 0.5)]
+        steps += [(("workspace", "web"), 1.2), (("workspace", "dev"), 1.2), (("workspace", "dev-secondary"), 1.2)]
+        steps += [(("focus-column", d), 0.3) for d in ("right", "left", "right", "left")]
+        steps += [(("workspace", "dev"), 1.2)]
+        steps += [(("focus-column", d), 0.12) for d in ("right", "left", "right", "left", "right", "left")]
+        steps[-1] = (steps[-1][0], 0.12 + 1.5)
+    return steps
+
+
+# ---- trace ------------------------------------------------------------------------
+
+def parse_trace(text):
+    events = []
+    for line in text.splitlines():
+        head, _, rest = line.partition(" ")
+        try:
+            t = float(head)
+        except ValueError:
+            continue
+        name, _, tail = rest.partition(" ")
+        events.append({"t": t, "event": name, "f": dict(re.findall(r"(\w+)=(\S+)", tail)), "line": line})
+    return sorted(events, key=lambda e: e["t"])
+
+
+def build_generations(events):
+    """Returns (generations by submit time, deferred parking intervals).
+
+    A generation ends at complete/abort, else when the next one is submitted."""
+    gens, by_g, deferred, open_deferred = [], {}, [], {}
+    for e in events:
+        g, f = e["f"].get("g"), e["f"]
+        if e["event"] == "submit" and g is not None:
+            animated = f.get("animated", "")
+            ids = [int(i) for i in re.findall(r"\d+", animated.partition("[")[2])]
+            by_g[g] = {"g": int(g), "source": f.get("source", ""), "submit": e["t"], "end": None,
+                       "parking_from": None, "animated": ids}
+            gens.append(by_g[g])
+        elif e["event"] in ("complete", "abort") and g in by_g and by_g[g]["end"] is None:
+            by_g[g]["end"] = e["t"]
+        elif e["event"] == "phase" and f.get("kind") == "parking" and g in by_g:
+            by_g[g]["parking_from"] = e["t"]
+        elif e["event"] == "parking-deferred-start" and g is not None:
+            open_deferred[g] = e["t"]
+        elif e["event"] == "parking-deferred-complete" and g in open_deferred:
+            deferred.append((open_deferred.pop(g), e["t"]))
+    for gen, following in zip(gens, gens[1:] + [None]):
+        if gen["end"] is None:
+            gen["end"] = following["submit"] if following else float("inf")
+    return gens, deferred
+
+
+def source_phase(source):
+    if source.startswith("workspace") or source == "native-workspace":
+        return "workspace-switch"
+    if "layout" in source:
+        return "layout-animation"
+    if "focus" in source or source == "command-animation":
+        return "focus-animation"
+    return "other"
+
+
+def classify(t, gens, deferred, marks):
+    """Trace phase active at uptime t. marks: sorted submit/complete/abort times."""
+    active = [g for g in gens if g["submit"] <= t <= g["end"]]
+    if active:
+        gen = active[-1]
+        phase = source_phase(gen["source"])
+        if phase != "workspace-switch" and gen["parking_from"] is not None and gen["parking_from"] <= t:
+            return "parking"
+        return phase
+    if any(source_phase(g["source"]) == "workspace-switch" and 0 <= t - g["submit"] <= WORKSPACE_WINDOW_S
+           for g in gens):
+        return "workspace-switch"
+    if any(start <= t <= end for start, end in deferred):
+        return "parking"
+    i = bisect_left(marks, t)
+    near = [abs(marks[j] - t) for j in (i - 1, i) if 0 <= j < len(marks)]
+    return "rest" if not near or min(near) > REST_S else "other"
+
+
+def trace_aggregates(events):
+    slow, lanes, display_gaps, cadence_gaps, stale = {}, 0, [], [], 0
+    for e in events:
+        f = e["f"]
+        if e["event"] == "slow" and f.get("phase") == "motion":
+            slow[f.get("pid", "?")] = slow.get(f.get("pid", "?"), 0) + 1
+        elif e["event"] == "slow-lane" and f.get("state") == "enter":
+            lanes += 1
+        elif e["event"] == "clock" and "displayGapMs" in f:
+            display_gaps.append(float(f["displayGapMs"]))
+        elif e["event"] == "cadence" and "maxGapMs" in f:
+            cadence_gaps.append(float(f["maxGapMs"]))
+        elif e["event"] == "border-stale":
+            stale += 1
+    return {"slow_motion_by_pid": slow, "slow_lane_enters": lanes, "border_stale": stale,
+            "max_display_gap_ms": max(display_gaps, default=0.0), "max_cadence_gap_ms": max(cadence_gaps, default=0.0)}
+
+
+# ---- borders ----------------------------------------------------------------------
+
+def attached(edge, apps):
+    """edge and apps are (x, y, w, h). Attached: inside some app's outset ring, touching
+    the ring boundary, and not inside the window body."""
+    ex, ey, ew, eh = edge
+    for x, y, w, h in apps:
+        ox0, oy0, ox1, oy1 = x - RING_OUTSET, y - RING_OUTSET, x + w + RING_OUTSET, y + h + RING_OUTSET
+        if ex >= ox0 - 2 and ey >= oy0 - 2 and ex + ew <= ox1 + 2 and ey + eh <= oy1 + 2:
+            touches = (abs(ex - ox0) <= RING_OUTSET or abs(ey - oy0) <= RING_OUTSET
+                       or abs(ex + ew - ox1) <= RING_OUTSET or abs(ey + eh - oy1) <= RING_OUTSET)
+            inside_body = ex > x + 2 and ey > y + 2 and ex + ew < x + w - 2 and ey + eh < y + h - 2
+            if touches and not inside_body:
+                return True
+    return False
+
+
+def edge_kind(rect, displays):
+    """'edge-strip' when the edge sits within EDGE_MARGIN of the side of its nearest display."""
+    if not displays:
+        return "detached"
+    x, y, w, h = rect
+    cx, cy = x + w / 2, y + h / 2
+
+    def distance(d):
+        return max(d[0] - cx, 0, cx - d[0] - d[2]) + max(d[1] - cy, 0, cy - d[1] - d[3])
+
+    dx, _, dw, _ = min(displays, key=distance)
+    return "edge-strip" if x <= dx + EDGE_MARGIN or x >= dx + dw - EDGE_MARGIN else "detached"
+
+
+def detached_episodes(states, end_t, displays):
+    """states: [{'t', 'apps': [[id, pid, x, y, w, h]], 'edges': [[id, layer, x, y, w, h]]}], each
+    holding until the next. One episode = a continuous period with at least one unattached
+    thin daemon window of that kind."""
+    opened, episodes = {}, []
+
+    def close(kind, t):
+        item = opened.pop(kind)
+        episodes.append({**item, "kind": kind, "end": t, "ms": round((t - item["start"]) * 1000, 1)})
+
+    for state in states:
+        apps = [tuple(a[2:6]) for a in state["apps"]]
+        bad = {"detached": [], "edge-strip": []}
+        for edge in state["edges"]:
+            rect = tuple(edge[2:6])
+            if min(rect[2], rect[3]) <= THIN and not attached(rect, apps):
+                bad[edge_kind(rect, displays)].append(edge)
+        for kind, edges in bad.items():
+            if edges and kind not in opened:
+                opened[kind] = {"start": state["t"], "edges": 0, "rect": edges[0][2:6]}
+            if edges:
+                opened[kind]["edges"] = max(opened[kind]["edges"], len(edges))
+            elif kind in opened:
+                close(kind, state["t"])
+    for kind in list(opened):
+        close(kind, end_t)
+    return sorted(episodes, key=lambda e: e["start"])
+
+
+# ---- ribbon -----------------------------------------------------------------------
+
+def window_tracks(states):
+    """{window id: [(t, x, y)]} with an entry only when the position changes; and pids."""
+    tracks, pids = {}, {}
+    for state in states:
+        for wid, pid, x, y, *_ in state["apps"]:
+            pids[wid] = pid
+            track = tracks.setdefault(wid, [])
+            if not track or track[-1][1:] != (x, y):
+                track.append((state["t"], x, y))
+    return tracks, pids
+
+
+def percentile(values, fraction):
+    values = sorted(values)
+    return values[min(len(values) - 1, int(len(values) * fraction))] if values else 0.0
+
+
+def window_motion(track, submit, end, settle_end):
+    """Smoothness of one window during one generation, or None if it did not travel.
+
+    Stalls are gaps > STALL_MS between consecutive position changes while the generation is
+    active and the window is still short of its final position (the sub-pixel tail is excluded)."""
+    before = [p for p in track if p[0] <= submit]
+    inside = [p for p in track if submit < p[0] <= settle_end]
+    if not inside:
+        return None
+    origin = before[-1] if before else inside.pop(0)
+    if not inside:
+        return None
+    final = inside[-1]
+    axis = 1 if abs(final[1] - origin[1]) >= abs(final[2] - origin[2]) else 2
+    net = final[axis] - origin[axis]
+    if abs(net) < 2:
+        return None
+    sign = 1 if net > 0 else -1
+    arrived = next((i for i, p in enumerate(inside) if abs(p[axis] - final[axis]) <= ARRIVED_PT), len(inside) - 1)
+    moving = inside[:arrived + 1]
+    active = [p for p in moving if p[0] <= end]
+    gaps = [(b[0] - a[0]) * 1000 for a, b in zip(active, active[1:])]
+    series = [origin] + inside
+    return {
+        "frames": len(active),
+        "stalls": sum(g > STALL_MS for g in gaps),
+        "max_gap_ms": round(max(gaps, default=0.0), 1),
+        "backward_steps": sum(sign * (b[axis] - a[axis]) < -BACKWARD_PT for a, b in zip(series, series[1:])),
+        "overshoot_pt": max(0, max(sign * (p[axis] - final[axis]) for p in inside)),
+        "settle_ms": round(max(0.0, moving[-1][0] - end) * 1000, 1),
+        "start_lag_ms": round((inside[0][0] - submit) * 1000, 1),
+        "seconds": moving[-1][0] - moving[0][0],
+    }
+
+
+def ribbon_rows(gens, tracks, pids):
+    rows = []
+    for gen, following in zip(gens, gens[1:] + [None]):
+        if not gen["animated"] or gen["end"] == float("inf"):
+            continue
+        settle_end = min(gen["end"] + SETTLE_S, following["submit"] if following else float("inf"))
+        for wid in gen["animated"]:
+            motion = window_motion(tracks.get(wid, []), gen["submit"], gen["end"], settle_end)
+            if motion:
+                rows.append({"g": gen["g"], "wid": wid, "pid": pids.get(wid), **motion})
+    return rows
+
+
+def summarize_rows(rows):
+    seconds = sum(r["seconds"] for r in rows)
+    stalls = sum(r["stalls"] for r in rows)
+    return {"windows": len(rows), "frames": sum(r["frames"] for r in rows), "stalls": stalls,
+            "window_seconds": round(seconds, 3), "stalls_per_s": round(stalls / seconds, 3) if seconds else 0.0,
+            "p95_max_gap_ms": percentile([r["max_gap_ms"] for r in rows], 0.95),
+            "max_gap_ms": max((r["max_gap_ms"] for r in rows), default=0.0),
+            "backward_steps": sum(r["backward_steps"] for r in rows),
+            "max_overshoot_pt": max((r["overshoot_pt"] for r in rows), default=0),
+            "p95_settle_ms": percentile([r["settle_ms"] for r in rows], 0.95),
+            "p95_start_lag_ms": percentile([r["start_lag_ms"] for r in rows], 0.95)}
+
+
+# ---- run --------------------------------------------------------------------------
+
+def analyze(states, end_t, displays, events, bundles):
+    gens, deferred = build_generations(events)
+    marks = sorted(e["t"] for e in events if e["event"] in ("submit", "complete", "abort"))
+    episodes = detached_episodes(states, end_t, displays)
+    for e in episodes:
+        e["phase"] = classify(e["start"], gens, deferred, marks)
+    long = [e for e in episodes if e["kind"] == "detached" and e["ms"] > EPISODE_MS]
+    strips = [e for e in episodes if e["kind"] == "edge-strip" and e["ms"] > EPISODE_MS]
+    tracks, pids = window_tracks(states)
+    rows = ribbon_rows(gens, tracks, pids)
+    by_app = {}
+    for row in rows:
+        by_app.setdefault(bundles.get(str(row["pid"]), str(row["pid"])), []).append(row)
+    aggregates = trace_aggregates(events)
+    return {
+        "detached_borders": {
+            "episodes_over_50ms": len(long),
+            "total_ms": round(sum(e["ms"] for e in episodes if e["kind"] == "detached"), 1),
+            "longest_ms": max((e["ms"] for e in long), default=0.0),
+            "by_phase": {p: sum(e["phase"] == p for e in long) for p in sorted({e["phase"] for e in long})},
+            "edge_strip_episodes_over_50ms": len(strips),
+            "edge_strip_total_ms": round(sum(e["ms"] for e in episodes if e["kind"] == "edge-strip"), 1),
+            "episodes": [e for e in episodes if e["ms"] > EPISODE_MS]},
+        "ribbon": {"overall": summarize_rows(rows),
+                   "by_app": {app: summarize_rows(r) for app, r in sorted(by_app.items())},
+                   "windows": rows},
+        "trace": {**aggregates, "slow_motion_by_app": {bundles.get(pid, pid): n for pid, n in
+                                                       aggregates["slow_motion_by_pid"].items()}},
+        "work": {"generations_seen": len(gens), "animated_generations": len({r["g"] for r in rows}),
+                 "state_changes": len(states), "trace_events": len(events)},
+    }
+
+
+def headline(report):
+    d, r = report["detached_borders"], report["ribbon"]["overall"]
+    return {"detached_episodes_over_50ms": d["episodes_over_50ms"], "detached_total_ms": d["total_ms"],
+            "ribbon_stalls_per_s": r["stalls_per_s"], "ribbon_p95_max_gap_ms": r["p95_max_gap_ms"],
+            "ribbon_backward_steps": r["backward_steps"]}
+
+
+def repeat_summary(reports):
+    heads = [headline(r) for r in reports]
+    return {key: {"median": statistics.median(h[key] for h in heads),
+                  "min": min(h[key] for h in heads), "max": max(h[key] for h in heads)} for key in heads[0]}
+
+
+def cli_path():
+    return shutil.which("defi") or str(CLI_FALLBACK)
+
+
+def daemon_pid():
+    out = subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "defi-daemon"],
+                         capture_output=True, text=True, check=False).stdout.split()
+    if len(out) != 1:
+        raise RuntimeError(f"Expected exactly one defi-daemon, found {len(out)}")
+    return out[0]
+
+
+def build():
+    if not BINARY.exists() or BINARY.stat().st_mtime < SOURCE.stat().st_mtime:
+        BINARY.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["swiftc", "-O", "-swift-version", "6", str(SOURCE), "-o", str(BINARY)],
+                       check=True, timeout=180)
+
+
+class TraceCollector(threading.Thread):
+    """Fetches `defi trace` periodically; the daemon ring holds only 512 lines."""
+
+    def __init__(self, cli, period=2.0):
+        super().__init__(daemon=True)
+        self.cli, self.period, self.lines, self.gaps, self.stop = cli, period, {}, 0, threading.Event()
+        self.newest = 0.0
+
+    def fetch(self):
+        try:
+            text = subprocess.run([self.cli, "trace"], capture_output=True, text=True, timeout=10).stdout
+        except (subprocess.SubprocessError, OSError):
+            return
+        events = parse_trace(text)
+        if events and self.newest and events[0]["t"] > self.newest:
+            self.gaps += 1  # ring wrapped between fetches; lines were lost
+        for e in events:
+            self.lines[e["line"]] = e
+        if events:
+            self.newest = max(self.newest, events[-1]["t"])
+
+    def run(self):
+        while not self.stop.wait(self.period):
+            self.fetch()
+
+    def events(self):
+        return sorted(self.lines.values(), key=lambda e: e["t"])
+
+
+def run_once(args, cli):
+    build()
+    pid = daemon_pid()
+    commands, failures = [], []
+    if not args.passive:
+        subprocess.run([cli, "workspace", "dev"], capture_output=True, timeout=15)
+        time.sleep(1)
+    collector = TraceCollector(cli)
+    collector.fetch()
+    out = tempfile.TemporaryFile("w+")
+    sampler = subprocess.Popen([str(BINARY), "sample", pid, str(3600), str(args.interval_ms)], stdout=out)
+    collector.start()
+    started = uptime()
+    try:
+        if args.passive:
+            time.sleep(args.passive)
+        else:
+            time.sleep(1)
+            for command, pause in soak_steps():
+                t = uptime()
+                result = subprocess.run([cli, *command], capture_output=True, text=True, timeout=15)
+                commands.append({"t": t, "command": " ".join(command), "ms": round((uptime() - t) * 1000, 1),
+                                 "rc": result.returncode})
+                if result.returncode:
+                    failures.append({"command": " ".join(command), "rc": result.returncode,
+                                     "stderr": result.stderr.strip()[:200]})
+                time.sleep(pause)
+    finally:
+        sampler.send_signal(signal.SIGTERM)
+        sampler.wait(timeout=15)
+        collector.stop.set()
+        if not args.passive:
+            subprocess.run([cli, "workspace", "dev"], capture_output=True, timeout=15)
+    time.sleep(0.2)
+    collector.fetch()
+    out.seek(0)
+    records = [json.loads(line) for line in out]
+    out.close()
+    head, end = records[0], records[-1]
+    states = [r for r in records if "t" in r and "apps" in r]
+    events = [e for e in collector.events() if e["t"] >= started - 1]
+    pids = {str(a[1]) for s in states for a in s["apps"]} | {e["f"]["pid"] for e in events if "pid" in e["f"]}
+    try:
+        bundles = json.loads(subprocess.run([str(BINARY), "bundles", *sorted(pids)], capture_output=True,
+                                            text=True, timeout=10).stdout or "{}")
+    except (subprocess.SubprocessError, ValueError):
+        bundles = {}
+    report = analyze(states, end["t"], head["displays"], events, bundles)
+    seconds = end["t"] - head["start"]
+    report["run"] = {"mode": "passive" if args.passive else "soak", "seconds": round(seconds, 2),
+                     "start_uptime": head["start"], "end_uptime": end["t"], "daemon_pid": int(pid)}
+    report["sampler"] = {"ticks": end["ticks"], "errors": end["errors"],
+                         "interval_ms_p50": end["interval_ms_p50"], "interval_ms_p95": end["interval_ms_p95"]}
+    report["daemon"] = {"cpu_percent": round(end["cpu_s"] / seconds * 100, 2) if seconds else 0.0}
+    report["errors"] = {"command_failures": len(failures), "failures": failures[:5],
+                        "sampler_errors": end["errors"], "trace_gaps": collector.gaps}
+    report["work"].update(commands_sent=len(commands), frames_sampled=end["ticks"])
+    report["commands"] = commands
+    return report
+
+
+def print_summary(report, stream=sys.stdout):
+    run, s, d, r = report["run"], report["sampler"], report["detached_borders"], report["ribbon"]["overall"]
+    w, t, e = report["work"], report["trace"], report["errors"]
+    p = lambda text: print(text, file=stream)
+    p(f"run {run['mode']} {run['seconds']}s commands={w['commands_sent']} generations={w['generations_seen']} "
+      f"animated={w['animated_generations']} frames_sampled={w['frames_sampled']} state_changes={w['state_changes']} "
+      f"trace_events={w['trace_events']}")
+    p(f"sampler interval p50/p95={s['interval_ms_p50']}/{s['interval_ms_p95']}ms errors={s['errors']} "
+      f"daemon_cpu={report['daemon']['cpu_percent']}%")
+    p(f"detached_borders episodes>50ms={d['episodes_over_50ms']} total={d['total_ms']}ms longest={d['longest_ms']}ms "
+      f"by_phase={d['by_phase']} edge_strip>50ms={d['edge_strip_episodes_over_50ms']} "
+      f"edge_strip_total={d['edge_strip_total_ms']}ms")
+    for episode in sorted(d["episodes"], key=lambda x: -x["ms"])[:5]:
+        p(f"  {episode['kind']} t={episode['start']:.3f} {episode['ms']}ms phase={episode['phase']} "
+          f"edges={episode['edges']} rect={episode['rect']}")
+    p(f"ribbon windows={r['windows']} frames={r['frames']} stalls={r['stalls']} stalls/s={r['stalls_per_s']} "
+      f"p95_max_gap={r['p95_max_gap_ms']}ms max_gap={r['max_gap_ms']}ms backward={r['backward_steps']} "
+      f"overshoot_max={r['max_overshoot_pt']}pt p95_settle={r['p95_settle_ms']}ms")
+    for app, row in report["ribbon"]["by_app"].items():
+        p(f"  {app}: windows={row['windows']} stalls/s={row['stalls_per_s']} p95_max_gap={row['p95_max_gap_ms']}ms "
+          f"backward={row['backward_steps']}")
+    p(f"trace slow_motion={t['slow_motion_by_app']} slow_lane_enters={t['slow_lane_enters']} "
+      f"max_displayGapMs={t['max_display_gap_ms']} max_cadenceGapMs={t['max_cadence_gap_ms']} "
+      f"border_stale={t['border_stale']}")
+    p(f"errors command_failures={e['command_failures']} sampler_errors={e['sampler_errors']} trace_gaps={e['trace_gaps']}")
+
+
+def interrupt(*_):
+    raise KeyboardInterrupt
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scenario", choices=["soak"], default="soak")
+    parser.add_argument("--passive", type=float, metavar="SECONDS", help="observe only; send no commands")
+    parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--interval-ms", type=float, default=4)
+    parser.add_argument("--json-out", type=Path)
+    args = parser.parse_args()
+    if not args.passive and inherited_lock() is None:  # scenario moves real windows
+        os.execv(sys.executable, [sys.executable, str(ROOT / "script/desktop_lock.py"), "--wait",
+                                  sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]])
+    signal.signal(signal.SIGTERM, interrupt)
+    cli, reports = cli_path(), []
+    for index in range(max(args.repeat, 1)):
+        if args.repeat > 1:
+            print(f"== run {index + 1}/{args.repeat}")
+        reports.append(run_once(args, cli))
+        print_summary(reports[-1])
+    result = {"reports": reports}
+    if len(reports) > 1:
+        result["headline"] = repeat_summary(reports)
+        for key, v in result["headline"].items():
+            print(f"headline {key}: median={v['median']} range={v['min']}..{v['max']}")
+    path = args.json_out or ROOT / f"dist/benchmarks/motion-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    print(f"json {path}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)
