@@ -188,6 +188,46 @@ struct WindowLayoutTests {
     #expect(moved.height == 841)
   }
 
+  @Test(arguments: [(4.0, true), (5.0, false)])
+  func `Accepted compact size survives only gap-edge request shifts`(shift: Double, reused: Bool) {
+    let gaps = LayoutSettings(
+      innerHorizontalGap: 4, innerVerticalGap: 4,
+      outerTopGap: 8, outerRightGap: 8,
+      outerBottomGap: 8, outerLeftGap: 8
+    )
+    let deviceID = WindowID(rawValue: 1)
+    var device = Window(
+      id: deviceID, appID: "com.apple.dt.Devices", title: "Simulator",
+      frame: Rect(x: 0, y: 0, width: 385, height: 841),
+      maximumTiledHeight: 1_368
+    )
+    // In the middle the request is 0.44 * 2560 - 4 - 4 = 1118.4 wide and 1352 tall.
+    device.tiledSizeAcceptance = TiledSizeAcceptance(
+      requested: Rect(x: 0, y: 0, width: 1_118.4 + shift, height: 1_352),
+      accepted: device.frame
+    )
+    let others = [WindowID(rawValue: 2), WindowID(rawValue: 3)].map {
+      Window(id: $0, appID: "other", title: "Other",
+        frame: Rect(x: 0, y: 0, width: 1_280, height: 1_368))
+    }
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [
+        Column(window: others[0].id, width: .fraction(0.5)),
+        Column(window: deviceID, width: .fraction(0.44)),
+        Column(window: others[1].id, width: .fraction(0.5)),
+      ],
+      focusedColumn: 1
+    )
+    let frames = computeLayout(
+      workspace: workspace,
+      viewport: Rect(x: 0, y: 0, width: 2_560, height: 1_368),
+      windows: [others[0], device, others[1]], settings: gaps
+    )
+    let width = frames.first { $0.windowID == deviceID }!.frame.width
+    #expect((width == 385) == reused)
+  }
+
   @Test
   func `Unbounded window ignores a stale accepted compact size`() {
     let noGaps = LayoutSettings(

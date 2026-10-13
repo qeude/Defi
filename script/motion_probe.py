@@ -467,7 +467,7 @@ def run_once(args, cli):
     build()
     pid = daemon_pid()
     commands, failures = [], []
-    if not args.passive:
+    if args.passive is None:
         subprocess.run([cli, "workspace", "dev"], capture_output=True, timeout=15)
         time.sleep(1)
     collector = TraceCollector(cli)
@@ -477,7 +477,7 @@ def run_once(args, cli):
     collector.start()
     started = uptime()
     try:
-        if args.passive:
+        if args.passive is not None:
             time.sleep(args.passive)
         else:
             time.sleep(1)
@@ -494,7 +494,7 @@ def run_once(args, cli):
         sampler.send_signal(signal.SIGTERM)
         sampler.wait(timeout=15)
         collector.stop.set()
-        if not args.passive:
+        if args.passive is None:
             subprocess.run([cli, "workspace", "dev"], capture_output=True, timeout=15)
     time.sleep(0.2)
     collector.fetch()
@@ -513,7 +513,7 @@ def run_once(args, cli):
     stalls = [(r["stall"], r["ms"]) for r in records if "stall" in r]
     report = analyze(states, end["t"], head["displays"], events, bundles, stalls)
     seconds = end["t"] - head["start"]
-    report["run"] = {"mode": "passive" if args.passive else "soak", "seconds": round(seconds, 2),
+    report["run"] = {"mode": "passive" if args.passive is not None else "soak", "seconds": round(seconds, 2),
                      "start_uptime": head["start"], "end_uptime": end["t"], "daemon_pid": int(pid)}
     report["sampler"] = {"ticks": end["ticks"], "errors": end["errors"],
                          "interval_ms_p50": end["interval_ms_p50"], "interval_ms_p95": end["interval_ms_p95"],
@@ -574,7 +574,9 @@ def main():
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--raw-out", type=Path, help="also save sampled states and trace events")
     args = parser.parse_args()
-    if not args.passive and inherited_lock() is None:  # scenario moves real windows
+    if args.passive is not None and args.passive < 0:
+        parser.error("--passive must be zero or more seconds")
+    if args.passive is None and inherited_lock() is None:  # scenario moves real windows
         os.execv(sys.executable, [sys.executable, str(ROOT / "script/desktop_lock.py"), "--wait",
                                   sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]])
     signal.signal(signal.SIGTERM, interrupt)
