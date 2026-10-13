@@ -764,8 +764,10 @@ extension AXFrameCoordinator {
         && processNeedsImmediateReadback(item.value.processID)
       // Presentation already samples native geometry independently. Do not make
       // every ribbon lane wait for a second border-only WindowServer round trip.
-      let defersBorderReadback = readsLiveBorderPosition && intermediate && !stagingReentry
-        && frame.source == "command-animation" && !requiresAsynchronousSizeWrite
+      // Right after a write, WindowServer can lag slow apps by frames; the
+      // written point is the better border position for horizontal motion.
+      let defersBorderReadback = readsLiveBorderPosition && !stagingReentry
+        && !requiresAsynchronousSizeWrite
         && item.value.fromPoint.y == item.value.point.y
         && !item.value.isParked && !item.value.isReentering
         && !item.value.requiresVerifiedOffscreenWrite && !readsImmediatePosition

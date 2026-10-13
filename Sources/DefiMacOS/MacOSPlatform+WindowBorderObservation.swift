@@ -462,15 +462,13 @@ extension MacOSPlatform {
     let finalDisplayedFrames: [WindowID: Rect] = Dictionary(
       uniqueKeysWithValues: borderManager.liveGeometryWindowIDs.compactMap { windowID in
         guard
-          let fallback = displayedFrames[windowID]
+          let frame = displayedFrames[windowID]
+            ?? nativeFrames[windowID]
             ?? relevantFrames.first(where: { $0.windowID == windowID })?.frame
         else {
           return nil
         }
-        return (
-          windowID,
-          nativeFrames[windowID] ?? fallback
-        )
+        return (windowID, frame)
       }
     )
     borderManager.updateGeometry(
@@ -574,7 +572,9 @@ extension MacOSPlatform {
     for assignment: FrameAssignment,
     nativeFrame: Rect?
   ) -> Rect {
-    nativeFrame
+    let written = frameCoordinator.borderWriteIsRecent(for: assignment.windowID)
+      ? frameCoordinator.latestDisplayedBorderFrame(for: assignment.windowID) : nil
+    return written ?? nativeFrame
       ?? frameCoordinator.latestDisplayedBorderFrame(for: assignment.windowID)
       ?? assignment.frame
   }

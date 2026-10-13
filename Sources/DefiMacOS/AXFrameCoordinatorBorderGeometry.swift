@@ -162,9 +162,25 @@ extension AXFrameCoordinator {
         pendingSampledAt ?? -.infinity)
   }
 
+  /// WindowServer can report a slow app's previous position for a few frames
+  /// after its AX write returns; such a sample must not replace the written point.
+  func observationContradictsRecentWriteLocked(
+    _ frame: Rect, windowID: WindowID, sampledAt: TimeInterval, within seconds: TimeInterval = 0.2
+  ) -> Bool {
+    // Read-back writes store geometry at writtenAt; only an unverified written point qualifies.
+    guard let writtenAt = borderGeometryWrittenAt[windowID], sampledAt - writtenAt < seconds,
+      (borderGeometries[windowID]?.sampledAt ?? -.infinity) < writtenAt,
+      let point = completedPositions[windowID]
+    else { return false }
+    return abs(frame.x - point.x) >= 1 || abs(frame.y - point.y) >= 1
+  }
+
   func acceptBorderObservationLocked(_ observation: BorderGeometryObservation,
     completingWrite: Bool = false) -> Bool {
-    guard observationIsCurrentLocked(observation) else { return false }
+    guard observationIsCurrentLocked(observation),
+      completingWrite || !observationContradictsRecentWriteLocked(
+        observation.frame, windowID: observation.windowID, sampledAt: observation.sampledAt)
+    else { return false }
     let windowID = observation.windowID
     borderGeometries[windowID] = (observation.frame, observation.sampledAt)
     if completingWrite {

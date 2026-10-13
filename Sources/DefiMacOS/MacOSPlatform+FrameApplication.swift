@@ -490,6 +490,10 @@ extension MacOSPlatform {
           }
           if refreshesBordersAfterCommit {
             self.refreshWindowBorders()
+            // Once recent writes stop masking native samples, catch any clamp.
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [weak self] in
+              self?.presentRefreshWindowBorders()
+            }
           }
           self.consumeAcceptedFrames(result.acceptedObservations, handler: acceptedFrameHandler)
           if let cursorWarpWindowIDAfterCommit,
