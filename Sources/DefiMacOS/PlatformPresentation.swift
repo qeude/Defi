@@ -38,6 +38,7 @@ struct PlatformPresentationStatus: Sendable {
   var constraintsAvailable = false
   var constraintsSuccesses = 0
   var constraintsFallbacks = 0
+  var borderSync = "borderSync=unstarted"
   var topologyReliable = false
   var framesReliable = false
   var lifecycleReliable = false
@@ -68,6 +69,11 @@ extension MacOSPlatform {
   @MainActor func deliverPendingBorderGeometry() {
     let delivery = pendingBorderGeometry.withLock { $0.take() }
     let live = borderManager.liveGeometryWindowIDs
+    // Frame writes completed (any animation, switch, or parking): reread WindowServer
+    // bounds so a missed final move event cannot strand a border. No AX reads.
+    if windowServerDrivesBorders {
+      return borderSync.reconcile(delivery.windowIDs.intersection(live))
+    }
     let targets = snapshotEngine.borderGeometryTargets(
       for: delivery.nativeReadWindowIDs.intersection(live)
     )
@@ -123,6 +129,7 @@ extension MacOSPlatform {
       constraintsAvailable: borderBoundsProvider.constraintsAreAvailable,
       constraintsSuccesses: borderBoundsProvider.successfulConstraintLookupCount,
       constraintsFallbacks: borderBoundsProvider.constraintFallbackCount,
+      borderSync: borderSync.statusDescription,
       topologyReliable: eventMonitor?.hasReliableWindowTopologyCoverage(for: Set(applications.keys)) == true,
       framesReliable: eventMonitor?.hasReliableFrameCoverage() == true,
       lifecycleReliable: eventMonitor?.hasReliableApplicationLifecycleObservation == true,

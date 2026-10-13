@@ -230,12 +230,20 @@ private func acceptedTiledSizes(
         windowCount: column.windows.count,
         settings: settings
       )
-      guard abs(requested.width - acceptance.requested.width) < 1,
-        abs(requested.height - acceptance.requested.height) < 1
+      // Moving a column across a gap edge shifts the request by a few points;
+      // the app's clamp is unchanged, so its accepted size still applies.
+      let horizontalInner = max(settings.innerHorizontalGap, 0)
+      let verticalInner = max(settings.innerVerticalGap, 0)
+      let widthSlack = abs(max(settings.outerLeftGap, 0) - horizontalInner)
+        + abs(max(settings.outerRightGap, 0) - horizontalInner)
+      let heightSlack = abs(max(settings.outerTopGap, 0) - verticalInner)
+        + abs(max(settings.outerBottomGap, 0) - verticalInner)
+      guard abs(requested.width - acceptance.requested.width) < 1 + widthSlack,
+        abs(requested.height - acceptance.requested.height) < 1 + heightSlack
       else {
         return nil
       }
-      return (windowID, acceptance)
+      return (windowID, TiledSizeAcceptance(requested: requested, accepted: acceptance.accepted))
     }
   )
 }

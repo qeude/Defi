@@ -16,6 +16,11 @@ final class WindowBorderManager {
   private var appliedPlans = 0
   private var skippedPlans = 0
   private var geometryUpdateCount = 0
+  /// Moves border surfaces atomically; returns false to request the AppKit path.
+  var surfaceMover: (([BorderSurfaceMove]) -> Bool)?
+  /// WindowServer bounds of an edge surface; nil skips the stale-edge check.
+  var surfaceBounds: ((UInt32) -> Rect?)?
+  var trace: ((String) -> Void)?
 
   var performance: WindowBorderPerformance {
     let visible = overlays.values.lazy.filter(\.isVisible).count
@@ -149,6 +154,7 @@ final class WindowBorderManager {
   ) -> Bool {
     guard !isSuppressed else { return false }
     var geometryChanged = false
+    let moveBatch = surfaceMover.map { _ in BorderSurfaceMoveBatch() }
     for (windowID, frame) in frames {
       guard let overlay = overlays[windowID], overlay.isVisible else { continue }
       let changed = overlay.syncGeometry(
@@ -156,12 +162,17 @@ final class WindowBorderManager {
         width: style.width,
         windowRadius: radius(for: windowID),
         captureEnabled: style.captureEnabled,
-        placement: style.placement
+        placement: style.placement,
+        moveBatch: moveBatch
       )
       if changed {
         geometryChanged = true
         geometryUpdateCount += 1
       }
+    }
+    if let moveBatch, let surfaceMover {
+      if !moveBatch.moves.isEmpty { moveBatch.complete(moved: surfaceMover(moveBatch.moves)) }
+      traceStaleEdges(moveBatch.commits)
     }
     if compositorCommitPending || geometryChanged {
       commitVisibleOverlays()
@@ -266,6 +277,28 @@ final class WindowBorderManager {
     isSuppressed = suppressed
     if suppressed {
       hide()
+    }
+  }
+
+  /// Edge frames each visible border should have around its window's frame.
+  func expectedEdgeFrames(
+    windowFrame: (WindowID) -> Rect?
+  ) -> [WindowID: [UInt32: Rect]] {
+    overlays.reduce(into: [:]) { result, entry in
+      guard entry.value.isVisible, let frame = windowFrame(entry.key) else { return }
+      result[entry.key] = entry.value.expectedEdgeFrames(for: frame)
+    }
+  }
+
+  private func traceStaleEdges(_ commits: [BorderSurfaceMoveBatch.Commit]) {
+    guard let surfaceBounds, let trace else { return }
+    for commit in commits {
+      guard let actual = surfaceBounds(commit.windowNumber) else { continue }
+      let error = windowBorderFrameError(commit.frame, actual)
+      guard error > windowBorderAuditTolerance else { continue }
+      trace(
+        "border-stale wid=\(commit.targetWindowNumber) edge=\(commit.windowNumber)"
+          + " err=\(String(format: "%.1f", error))")
     }
   }
 

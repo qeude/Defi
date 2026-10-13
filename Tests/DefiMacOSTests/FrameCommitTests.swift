@@ -1181,6 +1181,22 @@ struct FrameCommitTests {
   }
 
   @Test
+  func refusedSizeDoesNotAnimateSizeDuringColumnMove() {
+    let refused = Rect(x: 20, y: 54, width: 533, height: 1136)
+    let previous = Rect(x: 20, y: 54, width: 533, height: 1320)
+    let target = Rect(x: 573, y: 54, width: 533, height: 1320)
+    let reference = frameApplicationReference(
+      pendingCorrection: refused, settlingReference: nil, completedPosition: nil,
+      previousTarget: previous, prefersCompletedPosition: false, nativeReference: nil)
+    #expect(reference == refused)
+    #expect(frameWriteIntent(reference: reference!, target: target, positionsOnly: false).size)
+    #expect(!targetSizeChanged(previous: previous, target: target))
+    #expect(targetSizeChanged(
+      previous: Rect(x: 20, y: 54, width: 400, height: 1320), target: target))
+    #expect(targetSizeChanged(previous: nil, target: target))
+  }
+
+  @Test
   func ribbonAvoidsRepeatedVerticalWritesForNativeHeightClamping() {
     let native = Rect(x: -1505, y: 37, width: 1506, height: 902)
     let target = Rect(x: -1505, y: 41, width: 1506, height: 869)

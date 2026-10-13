@@ -328,7 +328,13 @@ extension Daemon {
       return .success(platform.frameCoordinatorTrace)
     }
     if rawCommand == "border-audit" {
-      return .success(platform.auditBorderAlignment())
+      guard let deferredResponse else { return .failure("border-audit requires a client") }
+      deferredResponse.deferResponse()
+      DispatchQueue.main.async { [platform] in
+        let report = platform.auditWindowBorderGeometry()
+        NavigationActor.enqueue { deferredResponse.perform { .success(report) } }
+      }
+      return .success("deferred")
     }
     if rawCommand == "diagnostic-mark" {
       diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)

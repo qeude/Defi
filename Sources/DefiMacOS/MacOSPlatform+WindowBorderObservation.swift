@@ -112,6 +112,7 @@ extension MacOSPlatform {
           processID: processID
         )
         self?.nativeFocusEventPending = true
+        self?.borderStackingSettle.trigger()
         if let processID {
           self?.nativeFocusEventProcessIDs.insert(processID)
         } else {
@@ -306,6 +307,7 @@ extension MacOSPlatform {
     if let ownedWindowID = borderManager.ownedSurfaceWindowID {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
+    syncWindowBorderSubscriptions()
     presentScheduleWindowBorderStackingRefresh(reusingSnapshot: true)
     presentRevealWindowBordersIfReady()
   }
@@ -323,6 +325,7 @@ extension MacOSPlatform {
       selectedWindowID,
       displayedFrame: selectedFrame
     )
+    syncWindowBorderSubscriptions()
   }
 
   public func presentCommitWindowBorderSelection(_ selectedWindowID: WindowID?) {
@@ -373,7 +376,17 @@ extension MacOSPlatform {
       presentHideWindowBorders()
       return
     }
+    defer { syncWindowBorderSubscriptions() }
     let liveGeometryWindowIDs = borderManager.liveGeometryWindowIDs
+    // WindowServer move events track transient geometry; AX caches must not override it.
+    if windowServerDrivesBorders,
+      isLeftMouseButtonDown || frameCoordinator.isBusy
+        || borderRefreshBlockedBySettling(
+          liveWindowIDs: liveGeometryWindowIDs,
+          expectations: frameCommitExpectations,
+          now: ProcessInfo.processInfo.systemUptime
+        )
+    { return }
     if isLeftMouseButtonDown {
       refreshWindowBorderGeometry(windowIDs: liveGeometryWindowIDs)
       return
@@ -517,11 +530,13 @@ extension MacOSPlatform {
 
   public func presentHideWindowBorders() {
     borderManager.hide()
+    syncWindowBorderSubscriptions()
   }
 
   public func presentSetWindowBordersSuppressed(_ suppressed: Bool) {
     guard borderManager.isSuppressed != suppressed else { return }
     borderManager.setSuppressed(suppressed)
+    syncWindowBorderSubscriptions()
     if suppressed {
       borderStackingRefreshTask?.cancel()
       return
@@ -560,21 +575,101 @@ extension MacOSPlatform {
     nativeFrame: Rect?
   ) -> Rect {
     nativeFrame
-      ?? frameCoordinator.latestBorderFrame(for: assignment.windowID)
+      ?? frameCoordinator.latestDisplayedBorderFrame(for: assignment.windowID)
       ?? assignment.frame
   }
 
   private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
-    resolvedWindowBorderFrame(
-      nativeFrame: nil,
-      observedFrame: frameCoordinator.latestBorderFrame(for: windowID),
+    let windowServerDriven = windowServerDrivesBorders
+    return windowBorderGeometryFrame(
+      windowServerDriven: windowServerDriven,
+      windowServerFrame: windowServerDriven ? borderBoundsProvider.frame(for: windowID) : nil,
+      displayedFrame: windowServerDriven
+        ? nil : frameCoordinator.latestDisplayedBorderFrame(for: windowID),
       plannedFrame: borderFrames.first(where: { $0.windowID == windowID })?.frame
     )
+  }
+
+  var windowServerDrivesBorders: Bool {
+    borderSync.isWindowServer && borderBoundsProvider.isAvailable
+  }
+
+  func makeWindowBorderSync() -> WindowBorderSync {
+    let boundsProvider = borderBoundsProvider
+    let events = SkyLightWindowEventSource.shared
+    let mover = SkyLightBorderSurfaceMover {
+      boundsProvider.frame(for: WindowID(rawValue: UInt64($0)))
+    }
+    // Without an AppKit cache resync, SkyLight moves leave stale panel frames behind.
+    let sync = WindowBorderSync(
+      events: events, mover: mover,
+      // shortcut: off until real-desktop soaks beat the AppKit path; re-enable with the checks above.
+      available: false
+    )
+    sync.onFlush = { [weak self] windowIDs in
+      guard let self else { return }
+      self.refreshWindowBorderGeometry(
+        windowIDs: windowIDs.intersection(self.borderManager.liveGeometryWindowIDs)
+      )
+    }
+    sync.onReordered = { [weak self] in
+      self?.presentScheduleWindowBorderStackingRefresh()
+      self?.borderStackingSettle.trigger()
+    }
+    sync.onClosed = { [weak self] windowID in
+      guard let self, let processID = self.processIDs[windowID] else { return }
+      self.requestWindowTopologyRefresh(processID: processID)
+    }
+    borderManager.surfaceMover = { [weak self, weak sync] moves in
+      // Before the bounds probe, keep AppKit moves without downgrading the mover.
+      guard let self, let sync, self.windowServerDrivesBorders else { return false }
+      return sync.move(moves)
+    }
+    borderManager.surfaceBounds = { [weak self] number in
+      guard let self, self.windowServerDrivesBorders else { return nil }
+      return self.borderBoundsProvider.frame(for: WindowID(rawValue: UInt64(number)))
+    }
+    borderManager.trace = { [weak self] in self?.frameCoordinator.recordTrace($0) }
+    return sync
+  }
+
+  func makeWindowBorderStackingSettle() -> WindowBorderStackingSettle {
+    let settle = WindowBorderStackingSettle { delay, work in
+      let item = DispatchWorkItem { MainActor.assumeIsolated { work() } }
+      DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: item)
+      return { item.cancel() }
+    }
+    settle.onPass = { [weak self] in self?.presentScheduleWindowBorderStackingRefresh() }
+    return settle
+  }
+
+  /// Compares each visible border with real WindowServer geometry.
+  public func auditWindowBorderGeometry() -> String {
+    let backend = borderSync.backendDescription
+    guard borderBoundsProvider.isAvailable else { return "backend=\(backend) bounds-unavailable" }
+    let expected = borderManager.expectedEdgeFrames(windowFrame: borderBoundsProvider.frame(for:))
+    let actual = expected.values.reduce(into: [UInt32: Rect]()) { result, edges in
+      for number in edges.keys {
+        result[number] = borderBoundsProvider.frame(for: WindowID(rawValue: UInt64(number)))
+      }
+    }
+    return windowBorderAuditReport(expected: expected, actual: actual, backend: backend)
+  }
+
+  func syncWindowBorderSubscriptions() {
+    if borderSync.isWindowServer, borderBoundsProvider.failureCount > 0 {
+      borderSync.downgrade("bounds")
+    }
+    guard borderBoundsProvider.isAvailable else { return }
+    borderSync.subscribe(borderManager.liveGeometryWindowIDs)
   }
 
   public func presentSetFrameNotificationsEnabled(_ enabled: Bool) {
     let suppressedRefresh = eventMonitor?.setFrameNotificationsEnabled(enabled)
     guard enabled else { return }
+    if windowServerDrivesBorders {
+      borderSync.reconcile(borderManager.liveGeometryWindowIDs)
+    }
     // Notifications were ignored while animated writes ran. Force fresh reads
     // before trusting the final committed frames.
     let committedWindowIDs = Set(frameCommitExpectations.keys)

@@ -148,6 +148,8 @@ public final class MacOSPlatform {
 
 
   @MainActor lazy var borderManager = WindowBorderManager()
+  @MainActor lazy var borderSync = makeWindowBorderSync()
+  @MainActor lazy var borderStackingSettle = makeWindowBorderStackingSettle()
   @MainActor lazy var nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
   nonisolated let borderBoundsProvider: WindowServerBoundsProvider
   nonisolated var targetFrames: [WindowID: Rect] {
@@ -432,6 +434,7 @@ public final class MacOSPlatform {
   public var isPrivateWindowConstraintLookupAvailable: Bool { presentationStatus.constraintsAvailable }
   public var successfulPrivateWindowConstraintLookupCount: Int { presentationStatus.constraintsSuccesses }
   public var privateWindowConstraintLookupFallbackCount: Int { presentationStatus.constraintsFallbacks }
+  public var windowBorderSyncStatus: String { presentationStatus.borderSync }
   @MainActor var presentedNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var presentedActiveNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var presentedSelectedWindowID: WindowID?

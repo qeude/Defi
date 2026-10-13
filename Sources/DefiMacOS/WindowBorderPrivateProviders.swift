@@ -96,6 +96,7 @@ final class WindowServerBoundsProvider: @unchecked Sendable {
   }
   private let boundsState = Mutex(BoundsState())
   private let boundsReader: (@Sendable (UInt32) -> CGRect?)?
+  private let windowExists: @Sendable (UInt32) -> Bool
   var successfulLookupCount: Int { boundsState.withLock { $0.successfulLookupCount } }
   var failureCount: Int { boundsState.withLock { $0.failureCount } }
   @MainActor private(set) var successfulConstraintLookupCount = 0
@@ -136,8 +137,12 @@ final class WindowServerBoundsProvider: @unchecked Sendable {
     }
   }
 
-  init(boundsReader: (@Sendable (UInt32) -> CGRect?)? = nil) {
+  init(
+    boundsReader: (@Sendable (UInt32) -> CGRect?)? = nil,
+    windowExists: @escaping @Sendable (UInt32) -> Bool = publicWindowExists
+  ) {
     self.boundsReader = boundsReader
+    self.windowExists = windowExists
     let handle = dlopen(
       "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
       RTLD_LAZY | RTLD_LOCAL
@@ -184,6 +189,8 @@ final class WindowServerBoundsProvider: @unchecked Sendable {
       guard let bounds = readBounds(rawWindowID),
         let frame = normalizedWindowBorderFrame(bounds)
       else {
+        // A window that closed between its event and this read is not a backend failure.
+        guard windowExists(rawWindowID) else { return nil }
         state.disabled = true
         state.failureCount += 1
         return nil
@@ -364,4 +371,13 @@ final class WindowCornerRadiusProvider {
     ).takeUnretainedValue().doubleValue
     return value > 0 && value.isFinite ? value : nil
   }
+}
+
+@Sendable
+func publicWindowExists(_ windowID: UInt32) -> Bool {
+  let ids = [CGWindowID(windowID)] as CFArray
+  guard let descriptions = CGWindowListCreateDescriptionFromArray(ids) as? [[CFString: Any]] else {
+    return false
+  }
+  return !descriptions.isEmpty
 }

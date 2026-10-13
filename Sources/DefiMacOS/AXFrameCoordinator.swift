@@ -509,6 +509,16 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return borderGeometries[windowID]?.frame
   }
 
+  // Display-only: never feed this back into observed frames.
+  func latestDisplayedBorderFrame(for windowID: WindowID) -> Rect? {
+    lock.lock()
+    defer { lock.unlock() }
+    let written = completedPositions[windowID].flatMap { point in
+      borderGeometryWrittenAt[windowID].map { (point, completedSizes[windowID], $0) }
+    }
+    return displayedWindowBorderFrame(observed: borderGeometries[windowID], written: written)
+  }
+
   func retainBorderGeometry(for windowIDs: Set<WindowID>) {
     lock.lock()
     for processID in Array(borderReadLanes.keys) {

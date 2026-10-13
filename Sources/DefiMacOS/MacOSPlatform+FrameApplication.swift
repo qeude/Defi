@@ -375,6 +375,10 @@ extension MacOSPlatform {
       let parkedRibbonTarget = ribbonAnimationTarget(
         logical: ribbonTargets[assignment.windowID], from: startFrame,
         isParked: isParked, monitorFrames: lastMonitorFrames)
+      let animatesSizeChange =
+        animateSizeChanges && intent?.size == true
+        && targetSizeChanged(
+          previous: previousTargetFrames[assignment.windowID], target: assignment.frame)
       let wantsFrameAnimation =
         animationDuration > 0
         && (!isParked || parkedRibbonTarget != nil)
@@ -382,12 +386,8 @@ extension MacOSPlatform {
           from: startFrame,
           to: parkedRibbonTarget ?? assignment.frame
         )
-        && (intent?.position == true || parkedRibbonTarget != nil
-          || (animateSizeChanges && intent?.size == true))
-      let animatesSize =
-        wantsFrameAnimation
-        && animateSizeChanges
-        && intent?.size == true
+        && (intent?.position == true || parkedRibbonTarget != nil || animatesSizeChange)
+      let animatesSize = wantsFrameAnimation && animatesSizeChange
       let write = AsyncPositionWrite(
         element: element,
         application: application,

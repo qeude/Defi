@@ -3,6 +3,34 @@ import DefiCore
 import DefiModel
 import QuartzCore
 
+/// Collects pure origin moves so all edges of all overlays move in one transaction.
+@MainActor
+final class BorderSurfaceMoveBatch {
+  struct Commit: Equatable {
+    let targetWindowNumber: Int
+    let windowNumber: UInt32
+    let frame: Rect
+  }
+
+  private(set) var moves: [BorderSurfaceMove] = []
+  private var completions: [(Bool) -> Void] = []
+  /// Every edge committed this pass, by either path.
+  private(set) var commits: [Commit] = []
+
+  func append(_ move: BorderSurfaceMove, completion: @escaping (Bool) -> Void) {
+    moves.append(move)
+    completions.append(completion)
+  }
+
+  func recordCommit(_ commit: Commit) {
+    commits.append(commit)
+  }
+
+  func complete(moved: Bool) {
+    for completion in completions { completion(moved) }
+  }
+}
+
 @MainActor
 final class BorderOverlay {
   private let segments: [WindowBorderSegmentKind: BorderSegment]
@@ -101,7 +129,8 @@ final class BorderOverlay {
     width: Double,
     windowRadius: Double,
     captureEnabled: Bool,
-    placement: WindowBorderPlacement = .inside
+    placement: WindowBorderPlacement = .inside,
+    moveBatch: BorderSurfaceMoveBatch? = nil
   ) -> Bool {
     let baseRadius = borderCornerRadius(windowRadius: windowRadius)
     // The outside ring renders against a frame expanded by the stroke width;
@@ -146,7 +175,8 @@ final class BorderOverlay {
         width: width,
         radius: radius,
         captureEnabled: captureEnabled,
-        drawingChanged: drawingChanged
+        drawingChanged: drawingChanged,
+        moveBatch: moveBatch
       )
     }
     windowFrame = frame
@@ -198,6 +228,19 @@ final class BorderOverlay {
   func setStacking(_ stacking: WindowBorderStacking) {
     for segment in segments.values {
       segment.setStacking(stacking)
+    }
+  }
+
+  /// Edge frames this overlay would commit for `windowFrame` with its current style.
+  func expectedEdgeFrames(for windowFrame: Rect) -> [UInt32: Rect] {
+    guard visible, width > 0 else { return [:] }
+    return windowBorderSegmentGeometries(
+      windowFrame: windowFrame, width: width, radius: radius, placement: placement
+    ).reduce(into: [:]) { result, geometry in
+      guard let segment = segments[geometry.kind], segment.frame != nil,
+        let number = UInt32(exactly: segment.windowNumber)
+      else { return }
+      result[number] = geometry.frame
     }
   }
 
@@ -310,7 +353,8 @@ private final class BorderSegment {
     width: Double,
     radius: Double,
     captureEnabled: Bool,
-    drawingChanged: Bool
+    drawingChanged: Bool,
+    moveBatch: BorderSurfaceMoveBatch? = nil
   ) {
     let previousFrame = frame
     let sizeChanged =
@@ -325,7 +369,22 @@ private final class BorderSegment {
       height: geometry.frame.height
     )
     if previousFrame != geometry.frame || scaleChanged {
-      panel.setFrame(appKitRect(for: geometry.frame), display: false)
+      let target = geometry.frame
+      if let moveBatch, previousFrame != nil, !sizeChanged, !scaleChanged,
+        let windowNumber = UInt32(exactly: panel.windowNumber), windowNumber > 0
+      {
+        moveBatch.append(
+          BorderSurfaceMove(windowNumber: windowNumber, origin: CGPoint(x: target.x, y: target.y))
+        ) { [weak self] moved in
+          self?.completeWindowServerMove(moved: moved)
+        }
+      } else {
+        panel.setFrame(appKitRect(for: target), display: false)
+      }
+      if let windowNumber = UInt32(exactly: panel.windowNumber), windowNumber > 0 {
+        moveBatch?.recordCommit(
+          .init(targetWindowNumber: targetWindowNumber, windowNumber: windowNumber, frame: target))
+      }
     }
 
     if drawingChanged || previousFrame == nil || sizeChanged || scaleChanged {
@@ -409,10 +468,25 @@ private final class BorderSegment {
     }
   }
 
+  /// Keeps AppKit's cached frame equal to WindowServer after a SkyLight move, so
+  /// later setFrame calls and drift checks never act on a stale position.
+  private func completeWindowServerMove(moved: Bool) {
+    guard let frame else { return }
+    if moved {
+      AppKitWindowFrameCache.refresh(panel)
+    } else {
+      // Re-apply the authoritative frame, never a frame captured earlier.
+      panel.setFrame(appKitRect(for: frame), display: false)
+    }
+  }
+
   func applyCompositorFallback() {
     guard let frame else { return }
+    // The cache is coherent (see completeWindowServerMove); repair only external drift.
     let expectedFrame = appKitRect(for: frame)
-    if panel.frame != expectedFrame { panel.setFrame(expectedFrame, display: false) }
+    if !appKitFramesMatch(panel.frame, expectedFrame) {
+      panel.setFrame(expectedFrame, display: false)
+    }
     let wasOrderedIn = orderedIn
     ensureOrderedIn()
     if panel.alphaValue != 1 { panel.alphaValue = 1 }
@@ -480,6 +554,11 @@ private final class BorderSegment {
       $0.frame.contains(appKitCenter)
     }?.backingScaleFactor ?? 1
   }
+}
+
+private func appKitFramesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+  abs(lhs.minX - rhs.minX) < 0.5 && abs(lhs.minY - rhs.minY) < 0.5
+    && abs(lhs.width - rhs.width) < 0.5 && abs(lhs.height - rhs.height) < 0.5
 }
 
 private func resolvedBorderWindowLevel(

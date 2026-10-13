@@ -29,6 +29,13 @@ func frameWriteIntent(
   )
 }
 
+// A size the app refused keeps the write intent alive; only a logical resize animates size.
+func targetSizeChanged(previous: Rect?, target: Rect) -> Bool {
+  guard let previous else { return true }
+  return abs(previous.width - target.width) >= 0.5
+    || abs(previous.height - target.height) >= 0.5
+}
+
 func reentryStartRequiresStaging(
   observed: CGPoint,
   planned: CGPoint
