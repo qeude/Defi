@@ -527,6 +527,7 @@ def run_once(args, cli):
         sampler.send_signal(signal.SIGTERM)
         sampler.wait(timeout=15)
         collector.stop.set()
+        collector.join(timeout=15)  # a fetch in flight must finish before the final read
     time.sleep(0.2)
     collector.fetch()
     out.seek(0)
