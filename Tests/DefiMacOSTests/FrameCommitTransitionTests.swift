@@ -298,8 +298,17 @@ struct FrameCommitTransitionTests {
     #expect(completed.performance.convergence.count == 1)
   }
 
+  static let positionOnlyExpectation = FrameCommitExpectation(
+    from: Rect(x: 900, y: 40, width: 800, height: 700),
+    target: Rect(x: 100, y: 40, width: 800, height: 700),
+    issuedAt: 10,
+    deadline: 10.65,
+    observedAt: nil
+  )
+
   struct CommitPathCase: CustomTestStringConvertible, Sendable {
     let name: String
+    var commit: FrameCommitExpectation?
     let actual: Rect
     let now: Double
     var observedAt: Double?
@@ -318,12 +327,14 @@ struct FrameCommitTransitionTests {
     ),
     CommitPathCase(
       name: "expected horizontal commit lag is quarantined",
+      commit: positionOnlyExpectation,
       actual: Rect(x: 420, y: 40, width: 800, height: 700),
       now: 10.4,
       isOnPath: true
     ),
     CommitPathCase(
       name: "late intermediate rollback remains quarantined after target was observed",
+      commit: positionOnlyExpectation,
       actual: Rect(x: 260, y: 40, width: 800, height: 700),
       now: 10.5,
       observedAt: 10.2,
@@ -337,12 +348,14 @@ struct FrameCommitTransitionTests {
     ),
     CommitPathCase(
       name: "expired movement is not quarantined",
+      commit: positionOnlyExpectation,
       actual: Rect(x: 420, y: 40, width: 800, height: 700),
-      now: 10.9,
+      now: 10.7,
       isOnPath: false
     ),
     CommitPathCase(
       name: "external movement is not quarantined",
+      commit: positionOnlyExpectation,
       actual: Rect(x: 1_400, y: 180, width: 800, height: 700),
       now: 10.4,
       isOnPath: false
@@ -354,11 +367,19 @@ struct FrameCommitTransitionTests {
       leftMouseButtonDown: true,
       isOnPath: false
     ),
+    CommitPathCase(
+      name: "held mouse button bypasses horizontal commit quarantine",
+      commit: positionOnlyExpectation,
+      actual: Rect(x: 420, y: 40, width: 800, height: 700),
+      now: 10.4,
+      leftMouseButtonDown: true,
+      isOnPath: false
+    ),
   ]
 
   @Test(arguments: commitPathCases)
   func frameCommitPathQuarantinesOnlyOwnCommitGeometry(_ scenario: CommitPathCase) {
-    var commitExpectation = expectation
+    var commitExpectation = scenario.commit ?? expectation
     commitExpectation.observedAt = scenario.observedAt
 
     #expect(
