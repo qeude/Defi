@@ -146,7 +146,7 @@ class MotionProbeTests(unittest.TestCase):
                  (10.100, 380, 0), (10.170, 400, 0)]
         motion = probe.window_motion(track, 10.0, 10.150, 11.0)
         self.assertEqual((motion['frames'], motion['stalls'], motion['max_gap_ms'], motion['backward_steps']),
-                         (5, 2, 70.0, 1))
+                         (5, 2, 60.0, 1))
         self.assertEqual((motion['settle_ms'], motion['start_lag_ms'], motion['overshoot_pt']), (20.0, 10.0, 0))
 
     def test_sub_pixel_tail_and_stationary_windows_are_not_stalls(self):
@@ -163,7 +163,7 @@ class MotionProbeTests(unittest.TestCase):
         # Frozen at 100 from 10.02 until 10.20, past `end` at 10.15, then the final 200.
         track = [(9.9, 0, 0), (10.01, 50, 0), (10.02, 100, 0), (10.20, 200, 0)]
         motion = probe.window_motion(track, 10.0, 10.15, 11.0)
-        self.assertEqual((motion['stalls'], motion['max_gap_ms']), (1, 180.0))
+        self.assertEqual((motion['stalls'], motion['max_gap_ms']), (1, 130.0))
 
     def test_overshoot_that_returns_is_still_motion(self):
         # Touches the final 200 at 10.02, overshoots to 230, settles back at 10.12.

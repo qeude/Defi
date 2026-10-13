@@ -353,9 +353,10 @@ def window_motion(track, submit, end, settle_end):
         arrived -= 1
     moving = inside[:arrived + 1]
     active = [p for p in moving if p[0] <= end]
-    # A freeze that spans `end` still interrupted the motion: close it at the next move.
-    spanning = moving[len(active):len(active) + 1]
-    gaps = [(b[0] - a[0]) * 1000 for a, b in zip(active, active[1:] + spanning)]
+    gaps = [(b[0] - a[0]) * 1000 for a, b in zip(active, active[1:])]
+    # A freeze that spans `end` still interrupted the motion; its part after `end` is settle_ms.
+    if active and len(moving) > len(active):
+        gaps.append((end - active[-1][0]) * 1000)
     series = [origin] + inside
     return {
         "frames": len(active),
