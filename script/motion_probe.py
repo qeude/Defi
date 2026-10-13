@@ -240,11 +240,10 @@ def border_lag(states, end_t):
     """Time-weighted lag of the worst border in each sampled state. A top edge belongs to the
     window whose width and y it outsets by BORDER."""
     history, _ = window_tracks(states)
-    tracks, weighted, stuck_ms = {}, [], 0.0
+    weighted, stuck_ms = [], 0.0
     for state, nxt in zip(states, states[1:] + [{"t": end_t}]):
         now, hold = state["t"], (nxt["t"] - state["t"]) * 1000
-        for wid, _, x, y, w, h in state["apps"]:
-            tracks[wid] = (x, y, w, h)
+        tracks = {wid: (x, y, w, h) for wid, _, x, y, w, h in state["apps"]}  # windows shown now
         worst = 0.0
         for edge in state["edges"]:
             ex, ey, ew, eh = edge[2:6]
@@ -252,8 +251,10 @@ def border_lag(states, end_t):
                 continue
             owners = [wid for wid, (x, y, w, h) in tracks.items()
                       if abs(w + 2 * BORDER - ew) <= 2 and abs(y - BORDER - ey) <= 2]
-            if not owners:
-                continue
+            if not owners:  # a border whose window is gone
+                stuck_ms += hold
+                worst = None
+                break
             lags = [border_lag_ms((ex, ey), now, history[wid]) for wid in owners]
             known = [lag for lag in lags if lag is not None]
             if not known:
@@ -361,6 +362,15 @@ def summarize_rows(rows):
 
 # ---- run --------------------------------------------------------------------------
 
+def slow_motion_by_app(by_pid, bundles):
+    """Slow-motion counts summed per bundle; several processes can share one."""
+    totals = {}
+    for pid, count in by_pid.items():
+        app = bundles.get(pid, pid)
+        totals[app] = totals.get(app, 0) + count
+    return totals
+
+
 def analyze(states, end_t, displays, events, bundles, stalls=()):
     gens, deferred = build_generations(events)
     marks = sorted(e["t"] for e in events if e["event"] in ("submit", "complete", "abort"))
@@ -368,7 +378,10 @@ def analyze(states, end_t, displays, events, bundles, stalls=()):
     for e in episodes:
         e["phase"] = classify(e["start"], gens, deferred, marks)
         # The sampler saw nothing while WindowServer stalled; Defi cannot move anything then either.
-        e["windowserver_stall"] = any(t < e["end"] and t + ms / 1000 > e["start"] for t, ms in stalls)
+        # Only an episode that is detached mostly because of stalls is set aside.
+        e["stall_ms"] = round(sum(max(0.0, min(e["end"], t + ms / 1000) - max(e["start"], t)) * 1000
+                                  for t, ms in stalls), 1)
+        e["windowserver_stall"] = e["ms"] - e["stall_ms"] <= EPISODE_MS
     frozen = [e for e in episodes if e["kind"] == "detached" and e["ms"] > EPISODE_MS and e["windowserver_stall"]]
     long = [e for e in episodes if e["kind"] == "detached" and e["ms"] > EPISODE_MS and not e["windowserver_stall"]]
     strips = [e for e in episodes if e["kind"] == "edge-strip" and e["ms"] > EPISODE_MS]
@@ -394,8 +407,7 @@ def analyze(states, end_t, displays, events, bundles, stalls=()):
         "ribbon": {"overall": summarize_rows(rows),
                    "by_app": {app: summarize_rows(r) for app, r in sorted(by_app.items())},
                    "windows": rows},
-        "trace": {**aggregates, "slow_motion_by_app": {bundles.get(pid, pid): n for pid, n in
-                                                       aggregates["slow_motion_by_pid"].items()}},
+        "trace": {**aggregates, "slow_motion_by_app": slow_motion_by_app(aggregates["slow_motion_by_pid"], bundles)},
         "work": {"generations_seen": len(gens), "animated_generations": len({r["g"] for r in rows}),
                  "state_changes": len(states), "trace_events": len(events)},
     }

@@ -53,6 +53,24 @@ class MotionProbeTests(unittest.TestCase):
         self.assertAlmostEqual(probe.border_lag_ms(top(200), 10.012, track), 8.0)   # leads the window
         self.assertIsNone(probe.border_lag_ms(top(900), 10.025, track))
 
+    def test_orphaned_border_counts_as_stuck(self):
+        app = (7, 1, 100, 100, 800, 600)
+        top = [9, 3, 100 - probe.BORDER, 100 - probe.BORDER, 800 + 2 * probe.BORDER, 4]
+        states = [state(0.0, [top], apps=(app,)), state(1.0, [top], apps=())]
+        self.assertEqual(probe.border_lag(states, 1.5)['stuck_ms'], 500.0)
+
+    def test_slow_motion_sums_processes_of_one_app(self):
+        self.assertEqual(probe.slow_motion_by_app({'1': 2, '2': 3, '3': 1}, {'1': 'a', '2': 'a'}),
+                         {'a': 5, '3': 1})
+
+    def test_only_episodes_mostly_inside_stalls_are_set_aside(self):
+        stray, ok = [9, 3, 1500, 100, 4, 600], [9, 3, 96, 96, 808, 4]
+        states = [state(0.0, [stray]), state(2.0, [ok])]
+        short_stall = probe.analyze(states, 3.0, DISPLAYS, [], {}, stalls=[(0.5, 31)])
+        self.assertEqual(short_stall['detached_borders']['episodes_over_50ms'], 1)
+        whole_stall = probe.analyze(states, 3.0, DISPLAYS, [], {}, stalls=[(0.0, 1990)])
+        self.assertEqual(whole_stall['detached_borders']['episodes_over_50ms'], 0)
+
     def test_trace_phase_attribution(self):
         gens, deferred = probe.build_generations(probe.parse_trace(TRACE))
         marks = [100.0, 100.2, 101.0, 101.1, 102.0, 102.05]
