@@ -175,7 +175,6 @@ extension Daemon {
 
   private func applyOverviewToggle(_ request: OverviewToggleRequest) {
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
-    platform.experimentalSurfaceRibbonEnabled = config.animation.experimentalWindowRepresentations
     DispatchQueue.main.async { [self] in
       guard overviewToggleState.beginApplying(request) else { return }
       let controller = overviewController ?? makeOverviewController()
@@ -190,8 +189,7 @@ extension Daemon {
             zoom: config.overview.zoom,
             windowCornerRadius: config.overview.windowCornerRadius,
             windowPreviewsEnabled: config.overview.windowPreviews,
-            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
-            experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations)
+            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
         } else {
           controller.toggle(snapshot: snapshot, layout: layout,
             borders: config.decorations.borders, animation: config.animation,
@@ -211,7 +209,6 @@ extension Daemon {
 
   private func presentOverview() {
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
-    platform.experimentalSurfaceRibbonEnabled = config.animation.experimentalWindowRepresentations
     DispatchQueue.main.async { [self] in
       let controller = overviewController ?? makeOverviewController()
       overviewController = controller
@@ -221,14 +218,11 @@ extension Daemon {
           zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
           windowPreviewsEnabled: config.overview.windowPreviews,
-          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
-          experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations)
+          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
       } else {
         controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews,
           snapshot: snapshot, layout: layout, zoom: config.overview.zoom,
-          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
-          experimentalRibbonRepresentations: config.animation.experimentalWindowRepresentations,
-          windowCornerRadius: config.overview.windowCornerRadius)
+          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
       }
       publishOverviewState()
     }
@@ -380,10 +374,6 @@ extension Daemon {
     projection.previewClosings = controller.previewClosingCount
     projection.surfaceAcquireMs = controller.surfaceAcquireMs
     projection.openingTransitionHistory = controller.openingTransitionHistory
-    projection.ribbonSurfaceTransitions = controller.ribbonSurfaceTransitions
-    projection.ribbonSurfaceFallbacks = controller.ribbonSurfaceFallbacks
-    projection.ribbonSurfaceFallbackReason = controller.ribbonSurfaceFallbackReason
-    projection.ribbonSurfacePresenting = controller.ribbonSurfacePresenting
     NavigationActor.enqueue { [self] in
       overviewState = projection
       if overviewExitPreparationActive { overviewState.usesWorkspaceParking = false }
@@ -660,10 +650,6 @@ struct OverviewPresentationState: Sendable {
   var previewClosings = 0
   var surfaceAcquireMs: Double = 0
   var openingTransitionHistory = "none"
-  var ribbonSurfaceTransitions = 0
-  var ribbonSurfaceFallbacks = 0
-  var ribbonSurfaceFallbackReason = "none"
-  var ribbonSurfacePresenting = false
   var isOpen = false
   var usesWorkspaceParking = false
   var panelCount = 0

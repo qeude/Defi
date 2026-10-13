@@ -467,56 +467,6 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(reusedLayer.cornerRadius, 12)
     XCTAssertEqual(reusedLayer.bounds.size, nativeFrameBounds.size)
     _ = reopenedScene
-    // Isolate the owned-window handoff from unrelated user windows. The
-    // production observer remains conservative whenever another window is visible.
-    var visibleWindowInfo: [[String: Any]] = []
-    let renderer = ExperimentalRibbonRenderer(visibleWindowInfo: { visibleWindowInfo })
-    renderer.prepare(snapshot: snapshot, layout: surfaceLayout, enabled: true)
-    defer { renderer.disable() }
-    for _ in 0..<120 where !renderer.backgroundsReady {
-      try await Task.sleep(for: .milliseconds(50))
-    }
-    XCTAssertTrue(renderer.backgroundsReady, "Owned renderer background capture must finish before animation")
-    let originalRibbonFrame = fixture.frame
-    let target = Rect(x: nativeFrameBounds.minX + 60, y: nativeFrameBounds.minY,
-      width: nativeFrameBounds.width, height: nativeFrameBounds.height)
-    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: target)], duration: 0.15), renderer.lastFallback)
-    XCTAssertTrue(renderer.isPresenting)
-    let firstPanels = Set(NSApplication.shared.windows.filter {
-      $0.title == "Defi Experimental Ribbon"
-    }.map(\.windowNumber))
-    XCTAssertEqual(firstPanels.count, 1)
-    fixture.setFrame(originalRibbonFrame.offsetBy(dx: 60, dy: 0), display: true)
-    let retarget = Rect(x: target.x + 30, y: target.y,
-      width: target.width, height: target.height)
-    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: retarget)],
-      duration: 0.15), renderer.lastFallback)
-    XCTAssertEqual(Set(NSApplication.shared.windows.filter {
-      $0.title == "Defi Experimental Ribbon"
-    }.map(\.windowNumber)), firstPanels, "Retargeting must reuse the visible overlay without a close/reopen")
-    fixture.setFrame(originalRibbonFrame.offsetBy(dx: 90, dy: 0), display: true)
-    for _ in 0..<30 where renderer.isPresenting {
-      CATransaction.flush()
-      try await Task.sleep(for: .milliseconds(50))
-    }
-    XCTAssertFalse(renderer.isPresenting, "Proxy must yield after native convergence")
-    fixture.setFrame(originalRibbonFrame, display: true)
-    renderer.prepare(snapshot: snapshot, layout: surfaceLayout, enabled: true)
-    CATransaction.flush()
-    try await Task.sleep(for: .milliseconds(100))
-    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: target)], duration: 0.15))
-    XCTAssertFalse(renderer.begin(assignments: [FrameAssignment(windowID: windowID,
-      frame: target)], duration: 0.15))
-    XCTAssertFalse(renderer.isPresenting, "A no-plan fallback must dismiss an older proxy")
-    visibleWindowInfo = [[kCGWindowNumber as String: NSNumber(value: UInt64.max),
-      kCGWindowOwnerPID as String: NSNumber(value: Int32.max),
-      kCGWindowLayer as String: NSNumber(value: 0),
-      kCGWindowBounds as String: nativeFrameBounds.dictionaryRepresentation]]
-    XCTAssertFalse(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: retarget)], duration: 0.15))
-    XCTAssertEqual(renderer.lastFallback, "unrepresented-window")
-    XCTAssertFalse(renderer.isPresenting, "Unrepresented windows must remain visible on the native path")
-    visibleWindowInfo = []
-
     // AppKit may normalize a prepared panel's frame. Rebuilding it must keep captures warm.
     for panel in NSApplication.shared.windows where panel.title == "Defi Overview" {
       panel.setFrame(panel.frame.offsetBy(dx: 1, dy: 0), display: false)
@@ -618,18 +568,18 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(destination.frame, originalFrame)
     controller.prepare(windowPreviewsEnabled: false)
     controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false)
-    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.isEmpty)
-    controller.update(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false,
-      experimentalSurfaceTransitions: false, experimentalRibbonRepresentations: true)
-    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.contains { $0.windowID == windowID },
-      "Enabling representations in an open Overview must prepare the current native context")
+    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty)
+    controller.update(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true,
+      experimentalSurfaceTransitions: true)
+    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.contains { $0.windowID == windowID },
+      "Enabling surface transitions in an open Overview must prepare the current native context")
     for _ in 0..<80 where controller.surfaceCaptureState != "ready" {
       try await Task.sleep(for: .milliseconds(100))
     }
     XCTAssertEqual(controller.surfaceCaptureState, "ready")
     controller.update(snapshot: snapshot, layout: surfaceLayout,
-      experimentalSurfaceTransitions: false, experimentalRibbonRepresentations: false)
-    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.isEmpty)
+      experimentalSurfaceTransitions: false)
+    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty)
     controller.close()
     controller.prepare(windowPreviewsEnabled: false)
     XCTAssertEqual(controller.surfaceStreamCount, 0)

@@ -159,7 +159,6 @@ extension Daemon {
     )
     let requiresLayout = state.applyConfiguration(nextConfig)
     config = nextConfig
-    platform.experimentalSurfaceRibbonEnabled = nextConfig.animation.experimentalWindowRepresentations
     Task { @MainActor in
       DefiSettingsRuntimeStatus.shared.updateConfiguration(nextConfig)
     }

@@ -169,8 +169,6 @@ public final class OverviewController: NSObject {
   public private(set) var sessionGeneration: UInt64 = 0
   private var windowPreviewsEnabled = false
   private var surfaceTransitionsEnabled = false
-  private var ribbonRepresentationsEnabled = false
-  private var ribbonCornerRadius: Double = 12
   private let surfaceCapture = OverviewSurfaceCapture.shared
   private var surfaceWindowIDs = Set<WindowID>()
   public private(set) var surfaceTransitionCount = 0
@@ -180,10 +178,6 @@ public final class OverviewController: NSObject {
   private var openingEvents: [String] = []
   public var openingTransitionHistory: String { openingEvents.isEmpty ? "none" : openingEvents.joined(separator: "|") }
   public var surfaceCaptureState: String { surfaceCapture.state }
-  public var ribbonSurfaceTransitions: Int { ExperimentalRibbonRenderer.shared.transitions }
-  public var ribbonSurfaceFallbacks: Int { ExperimentalRibbonRenderer.shared.fallbacks }
-  public var ribbonSurfaceFallbackReason: String { ExperimentalRibbonRenderer.shared.lastFallback }
-  public var ribbonSurfacePresenting: Bool { ExperimentalRibbonRenderer.shared.isPresenting }
   public var surfaceStreamCount: Int { surfaceCapture.streamCount }
   var surfacePresentedFrameCount: Int { panels.values.reduce(0) { $0 + $1.surfacePresentedFrameCount } }
   public var surfaceEstimatedPoolBytes: Int { surfaceCapture.estimatedPoolBytes }
@@ -314,7 +308,7 @@ public final class OverviewController: NSObject {
       idlePreviewAttempted = []
       if events.contains(.critical) { rememberedPreviews.removeAll() }
       else { rememberedPreviews.retain(idlePreviewPriorityIDs, maximumBytes: 4 * 1_024 * 1_024) }
-      ExperimentalRibbonRenderer.shared.disable()
+      OverviewSurfacePlanner.shared.disable()
       surfaceCapture.stop(state: "pressure")
       idlePreparationEnabled = false
       if !isOpen {
@@ -376,14 +370,12 @@ public final class OverviewController: NSObject {
     snapshot: OverviewSnapshot? = nil,
     layout: LayoutSettings = LayoutSettings(),
     zoom: Double = 0.5,
-    experimentalSurfaceTransitions: Bool = false,
-    experimentalRibbonRepresentations: Bool = false,
-    windowCornerRadius: Double = 12
+    experimentalSurfaceTransitions: Bool = false
   ) {
     defer { presentationChanged() }
     // A closing zoom still owns its texture; idle refresh must wait for its handoff.
     guard !isOpen, idlePreparationEnabled else { return }
-    if panels.values.contains(where: \.hasSurfaceScene) || ExperimentalRibbonRenderer.shared.isPresenting {
+    if panels.values.contains(where: \.hasSurfaceScene) {
       if idlePreparationRetry == nil {
         idlePreparationRetry = Task { [weak self] in
           do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
@@ -406,12 +398,9 @@ public final class OverviewController: NSObject {
     })
     preparePanels(monitorIDs: monitorIDs)
     surfaceTransitionsEnabled = experimentalSurfaceTransitions && windowPreviewsEnabled
-    ribbonRepresentationsEnabled = experimentalRibbonRepresentations
-    ribbonCornerRadius = windowCornerRadius
-    let preparesSurfaces = surfaceTransitionsEnabled || ribbonRepresentationsEnabled
-    if !preparesSurfaces { ExperimentalRibbonRenderer.shared.disable() }
+    if !surfaceTransitionsEnabled { OverviewSurfacePlanner.shared.disable() }
     let requests = snapshot.map { surfaceRequests(snapshot: $0, layout: layout, zoom: zoom) } ?? []
-    surfaceCapture.prepare(requests, enabled: preparesSurfaces)
+    surfaceCapture.prepare(requests, enabled: surfaceTransitionsEnabled)
     surfacePreparationPending = false
     if surfaceTransitionsEnabled, let snapshot {
       prepareIdlePreviews(snapshot: snapshot, layout: layout, zoom: zoom)
@@ -517,7 +506,7 @@ public final class OverviewController: NSObject {
     receivedPreviewCount = 0
     if surfaceTransitionsEnabled {
       for (monitorID, panel) in panels {
-        if let background = ExperimentalRibbonRenderer.shared.backgroundImage(for: monitorID) {
+        if let background = OverviewSurfacePlanner.shared.backgroundImage(for: monitorID) {
           panel.setDesktopImage(NSImage(cgImage: background, size: panel.window.frame.size))
         }
       }
@@ -576,18 +565,13 @@ public final class OverviewController: NSObject {
     zoom: Double = 0.5,
     windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool? = nil,
-    experimentalSurfaceTransitions: Bool? = nil,
-    experimentalRibbonRepresentations: Bool? = nil
+    experimentalSurfaceTransitions: Bool? = nil
   ) {
     guard isOpen else { return }
     let previousSurfaceTransitionsEnabled = surfaceTransitionsEnabled
-    let previousRibbonRepresentationsEnabled = ribbonRepresentationsEnabled
     if let experimentalSurfaceTransitions {
       surfaceTransitionsEnabled = experimentalSurfaceTransitions
         && (windowPreviewsEnabled ?? self.windowPreviewsEnabled)
-    }
-    if let experimentalRibbonRepresentations {
-      ribbonRepresentationsEnabled = experimentalRibbonRepresentations
     }
     let previousSnapshot = self.snapshot
     let previousProjections = projections
@@ -618,15 +602,13 @@ public final class OverviewController: NSObject {
     animationsEnabled = animation.enabled
     overviewZoom = ribbonPrototype ? 1 : zoom
     self.windowCornerRadius = windowCornerRadius
-    ribbonCornerRadius = windowCornerRadius
-    if previousSurfaceTransitionsEnabled != surfaceTransitionsEnabled
-      || previousRibbonRepresentationsEnabled != ribbonRepresentationsEnabled {
+    if previousSurfaceTransitionsEnabled != surfaceTransitionsEnabled {
       surfacePreparationPending = true
     }
     if surfacePreparationPending, !isUnderMemoryPressure {
       surfacePreparationPending = false
       surfaceCapture.prepare(surfaceRequests(snapshot: snapshot, layout: layout, zoom: zoom),
-        enabled: surfaceTransitionsEnabled || ribbonRepresentationsEnabled)
+        enabled: surfaceTransitionsEnabled)
     }
     var movedSelectionPositions: (
       previous: OverviewTiledPosition,
@@ -1675,20 +1657,18 @@ public final class OverviewController: NSObject {
   private func surfaceRequests(
     snapshot: OverviewSnapshot, layout: LayoutSettings, zoom: Double
   ) -> [OverviewSurfaceRequest] {
-    ExperimentalRibbonRenderer.shared.prepare(snapshot: snapshot, layout: layout,
-      enabled: surfaceTransitionsEnabled || ribbonRepresentationsEnabled,
-      cornerRadius: ribbonCornerRadius, preloadWorkspace: ribbonRepresentationsEnabled)
-    return ExperimentalRibbonRenderer.shared.requests
+    OverviewSurfacePlanner.shared.prepare(snapshot: snapshot, layout: layout,
+      enabled: surfaceTransitionsEnabled)
+    return OverviewSurfacePlanner.shared.requests
   }
 
   private func currentSurfaceFrames(snapshot: OverviewSnapshot, monitorID: MonitorID) -> [WindowID: OverviewSurfaceFrame]? {
     guard surfaceTransitionsEnabled, animationsEnabled, !usesWorkspaceParking,
       !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return nil }
-    ExperimentalRibbonRenderer.shared.cancel()
     let projected = Set(projections[monitorID]?.workspaces.first(where: {
       $0.workspaceID == snapshot.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
     })?.windows.map(\.windowID) ?? [])
-    let ids = projected.intersection(ExperimentalRibbonRenderer.shared.capturedIDs(on: monitorID))
+    let ids = projected.intersection(OverviewSurfacePlanner.shared.capturedIDs(on: monitorID))
     let start = CACurrentMediaTime()
     let frames = surfaceCapture.availableFrames(windowIDs: ids)
     surfaceAcquireMs = (CACurrentMediaTime() - start) * 1_000

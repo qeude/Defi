@@ -7,9 +7,9 @@
 ## Current finding
 
 The implemented path uses bounded one-shot ScreenCaptureKit snapshots for Overview
-and native Accessibility motion for ordinary ribbon navigation. The opt-in ribbon
-representation experiment reuses those snapshots; it does not keep persistent
-streams. The stream and disk-cache proposals below are earlier hypotheses,
+and native Accessibility motion for ordinary ribbon navigation. A ribbon
+representation experiment that reused those snapshots was removed after it rarely
+engaged and showed handoff ghosting. The stream and disk-cache proposals below are earlier hypotheses,
 superseded by the prototype correction later in this document.
 
 ## Initial hypothesis

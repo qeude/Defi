@@ -243,7 +243,6 @@ final class PlatformEventMonitor {
   func handleMouseEvent(_ event: NSEvent) {
     guard desktopSessionActive else { return }
     if eventStartsMouseFocusInteraction(event.type) {
-      ExperimentalRibbonRenderer.shared.cancel()
       let rawWindowID =
         event.cgEvent?.getIntegerValueField(
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent

@@ -174,7 +174,6 @@ extension Daemon {
       + " displayArrangement=\(displayArrangementStatus) displayPointerWarps=\(displayPointerRouter.warpCount)"
       + " overviewRender=\(overviewState.renderPerformance) overviewSurface=\(overviewState.surfaceCapture) overviewSurfaceStreams=\(overviewState.surfaceStreams) overviewSurfacePoolMiB=\(String(format: "%.2f", Double(overviewState.surfacePoolBytes) / 1_048_576)) overviewSurfaceTransitions=\(overviewState.surfaceTransitions) overviewSurfaceFallbacks=\(overviewState.surfaceFallbacks) overviewPreviewClosings=\(overviewState.previewClosings) overviewSurfaceAcquireMs=\(String(format: "%.1f", overviewState.surfaceAcquireMs))"
       + " overviewOpening=\(overviewState.openingTransitionHistory)"
-      + " ribbonSurfaceTransitions=\(overviewState.ribbonSurfaceTransitions) ribbonSurfaceFallbacks=\(overviewState.ribbonSurfaceFallbacks) ribbonSurfaceFallbackReason=\(overviewState.ribbonSurfaceFallbackReason) ribbonSurfacePresenting=\(overviewState.ribbonSurfacePresenting)"
       + " topologyObservers=\(platform.hasReliableWindowTopologyObservation) appWindowLists=\(snapshotPerformance.applicationWindowListReads)"
       + " appLifecycleObservers=\(platform.hasReliableApplicationLifecycleObservation) appInventoryInterval=\(Int(platform.recommendedApplicationInventoryRefreshInterval))"
       + " desktopObservers=\(platform.hasReliableDesktopObservation)"

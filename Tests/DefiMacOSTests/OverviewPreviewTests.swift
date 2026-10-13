@@ -17,9 +17,9 @@ struct OverviewPreviewTests {
     defer { controller.close(); controller.prepare(windowPreviewsEnabled: false) }
     controller.handleMemoryPressure(.warning)
     controller.update(snapshot: snapshot, layout: LayoutSettings(),
-      experimentalRibbonRepresentations: true)
+      windowPreviewsEnabled: true, experimentalSurfaceTransitions: true)
     #expect(controller.surfaceCaptureState == "pressure")
-    #expect(ExperimentalRibbonRenderer.shared.requests.isEmpty)
+    #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
     controller.handleMemoryPressure(.normal)
     controller.update(snapshot: snapshot, layout: LayoutSettings())
     #expect(controller.surfaceCaptureState != "pressure", "Recovery must consume the pending preparation with unchanged settings")

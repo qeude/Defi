@@ -21,11 +21,7 @@ lightweight cards when no image exists yet. These fallback layers animate from
 verified native geometry and are released at the end of opening so progressive
 previews remain visible. Reverse surface animation is limited to unchanged
 native geometry and Overview offsets; selection uses the existing native path.
-An additional opt-in `animation.experimental_window_representations` experiment
-tests horizontal ribbon continuity using those same bounded one-shot samples.
-Defi-owned overlays animate while public Accessibility commits final native
-positions; native windows remain the functional fallback. Interrupted transitions
-reuse the existing panel and current presentation position. This experiment does
-not authorize private compositor or native opacity mutations.
+A ribbon experiment that animated these samples in place of native windows was
+removed: it rarely engaged and showed a visible crossfade at handoff.
 All committed focus and topology changes still pass
 through DefiRuntime, preserving the macOS authority established by ADR 0001.

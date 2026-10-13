@@ -74,18 +74,6 @@ extension MacOSPlatform {
     let previousRibbonFrames = previousLogicalRibbonFrames
     previousLogicalRibbonFrames = Dictionary(uniqueKeysWithValues:
       ribbonFrames.map { ($0.windowID, $0.frame) })
-    if experimentalSurfaceRibbonEnabled && source != "command-animation" {
-      snapshotEngine.onMain { _ in
-        ExperimentalRibbonRenderer.shared.supersedeIfTargetsChanged(assignments)
-      }
-    }
-    let usesSurfaceRibbon = experimentalSurfaceRibbonEnabled && source == "command-animation" && positionsOnly
-      && snapshotEngine.onMain { platform in
-        ExperimentalRibbonRenderer.shared.begin(assignments: assignments, ribbonFrames: ribbonFrames,
-          duration: animationDuration,
-          borderStyle: platform.borderStyle, selectedWindowID: platform.borderSelectedWindowID)
-      }
-    let animationDuration = usesSurfaceRibbon ? 0 : animationDuration
     frameSubmissionGeneration &+= 1
     let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
