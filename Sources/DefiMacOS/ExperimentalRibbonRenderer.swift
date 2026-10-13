@@ -316,6 +316,7 @@ final class ExperimentalRibbonRenderer {
         owner.int32Value != NSRunningApplication.current.processIdentifier,
         let level = info[kCGWindowLayer as String] as? NSNumber,
         level.intValue >= 0, level.intValue < NSWindow.Level.statusBar.rawValue,
+        windowInfoShowsContent(info),
         let bounds = info[kCGWindowBounds as String] as? [String: Any],
         let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
         rect.width > 1, rect.height > 1 else { return false }
@@ -350,4 +351,11 @@ private extension Rect {
     x + width > other.x && other.x + other.width > x
       && y + height > other.y && other.y + other.height > y
   }
+}
+
+/// Transparent windows (alpha-0 overlays, the Dock's full-screen backdrop) hide nothing.
+func windowInfoShowsContent(_ info: [String: Any]) -> Bool {
+  let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
+  let level = (info[kCGWindowLayer as String] as? NSNumber)?.int32Value
+  return alpha > 0.01 && level != CGWindowLevelForKey(.dockWindow)
 }
