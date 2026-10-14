@@ -351,6 +351,16 @@ public final class OverviewController: NSObject {
     } else {
       // Explicit renderer experiment: never request a new capture permission.
       guard !ribbonPrototype || CGPreflightScreenCaptureAccess() else { return }
+      // Ask before presenting: the overview panel would cover the system prompt.
+      if windowPreviewsEnabled, overviewShouldRequestCapturePermission(
+        screenCaptureAccessGranted: CGPreflightScreenCaptureAccess(),
+        ribbonPrototype: ribbonPrototype,
+        hasRequestedPermission: hasRequestedPreviewPermission
+      ) {
+        hasRequestedPreviewPermission = true
+        CGRequestScreenCaptureAccess()
+        return
+      }
       self.ribbonPrototype = ribbonPrototype
       open(
         snapshot: snapshot,
