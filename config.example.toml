@@ -12,8 +12,6 @@ capture_enabled = true
 
 [overview]
 zoom = 0.5
-window_previews = true
-real_windows = true
 
 [workspaces]
 names = ["dev", "web", "dev-secondary", "tools"]

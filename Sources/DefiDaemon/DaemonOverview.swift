@@ -6,21 +6,9 @@ import DefiModel
 import DefiRuntime
 import Foundation
 
-func overviewRibbonPrototypeRequested(in rawCommand: String) -> Bool {
-  let tokens = rawCommand.split(whereSeparator: \.isWhitespace)
-  return tokens.first == "toggle-overview"
-    && tokens.dropFirst().contains("--ribbon-prototype")
-}
-
 struct OverviewToggleRequest: Equatable, Sendable {
   let generation: UInt64
   let isOpen: Bool
-  let ribbonPrototype: Bool
-}
-
-enum OverviewToggleDecision: Equatable, Sendable {
-  case denied
-  case requested(OverviewToggleRequest)
 }
 
 struct OverviewToggleSnapshot: Equatable, Sendable {
@@ -40,26 +28,14 @@ final class OverviewToggleState: @unchecked Sendable {
   private var desiredIsOpen: Bool?
   private var applyingGeneration: UInt64?
 
-  func toggle(
-    ribbonPrototype: Bool,
-    screenCaptureAccessGranted: Bool
-  ) -> OverviewToggleDecision {
+  func toggle() -> OverviewToggleRequest {
     lock.lock()
     defer { lock.unlock() }
     let targetIsOpen = !(desiredIsOpen ?? actualIsOpen)
-    guard !targetIsOpen || !ribbonPrototype || screenCaptureAccessGranted else {
-      return .denied
-    }
     completedSelectionSession = nil
     generation &+= 1
     desiredIsOpen = targetIsOpen
-    return .requested(
-      OverviewToggleRequest(
-        generation: generation,
-        isOpen: targetIsOpen,
-        ribbonPrototype: targetIsOpen && ribbonPrototype
-      )
-    )
+    return OverviewToggleRequest(generation: generation, isOpen: targetIsOpen)
   }
 
   func requestClose() -> OverviewToggleRequest {
@@ -68,11 +44,7 @@ final class OverviewToggleState: @unchecked Sendable {
     completedSelectionSession = nil
     generation &+= 1
     desiredIsOpen = false
-    return OverviewToggleRequest(
-      generation: generation,
-      isOpen: false,
-      ribbonPrototype: false
-    )
+    return OverviewToggleRequest(generation: generation, isOpen: false)
   }
 
   func isCurrent(_ request: OverviewToggleRequest) -> Bool {
@@ -151,22 +123,12 @@ final class OverviewToggleState: @unchecked Sendable {
 
 @NavigationActor
 extension Daemon {
-  func toggleOverview(ribbonPrototype: Bool = false) -> CommandResponse {
+  func toggleOverview() -> CommandResponse {
     guard !state.monitors.isEmpty else {
       return .failure("overview unavailable before monitor discovery")
     }
-    let decision = overviewToggleState.toggle(
-      ribbonPrototype: ribbonPrototype,
-      screenCaptureAccessGranted: !ribbonPrototype || CGPreflightScreenCaptureAccess()
-    )
-    guard case .requested(let request) = decision else {
-      return .failure("ribbon prototype requires existing Screen Recording access")
-    }
-    applyOverviewToggle(request)
-    guard request.isOpen && request.ribbonPrototype else { return .success() }
-    return .success(
-      "Requested visual ribbon prototype: Left/Right preview, Escape exits; native selection commit is disabled."
-    )
+    applyOverviewToggle(overviewToggleState.toggle())
+    return .success()
   }
 
   func updateOverviewIfOpen() {
@@ -180,24 +142,18 @@ extension Daemon {
       let controller = overviewController ?? makeOverviewController()
       overviewController = controller
       if request.isOpen {
-        if controller.isOpen && controller.usesRibbonPrototype != request.ribbonPrototype {
-          controller.close()
-        }
         if controller.isOpen {
           controller.update(snapshot: snapshot, layout: layout,
             borders: config.decorations.borders, animation: config.animation,
             zoom: config.overview.zoom,
             windowCornerRadius: config.overview.windowCornerRadius,
-            windowPreviewsEnabled: config.overview.windowPreviews,
-            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
+            windowPreviewsEnabled: config.overview.windowPreviews)
         } else {
           controller.toggle(snapshot: snapshot, layout: layout,
             borders: config.decorations.borders, animation: config.animation,
             zoom: config.overview.zoom,
             windowCornerRadius: config.overview.windowCornerRadius,
-            windowPreviewsEnabled: config.overview.windowPreviews,
-            experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions,
-            ribbonPrototype: request.ribbonPrototype)
+            windowPreviewsEnabled: config.overview.windowPreviews)
         }
       } else {
         controller.close()
@@ -217,12 +173,10 @@ extension Daemon {
           borders: config.decorations.borders, animation: config.animation,
           zoom: config.overview.zoom,
           windowCornerRadius: config.overview.windowCornerRadius,
-          windowPreviewsEnabled: config.overview.windowPreviews,
-          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
+          windowPreviewsEnabled: config.overview.windowPreviews)
       } else {
         controller.prepare(windowPreviewsEnabled: config.overview.windowPreviews,
-          snapshot: snapshot, layout: layout, zoom: config.overview.zoom,
-          experimentalSurfaceTransitions: config.overview.experimentalSurfaceTransitions)
+          snapshot: snapshot, layout: layout, zoom: config.overview.zoom)
       }
       publishOverviewState()
     }

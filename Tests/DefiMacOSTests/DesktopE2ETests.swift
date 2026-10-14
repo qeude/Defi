@@ -225,7 +225,7 @@ final class DesktopE2ETests: XCTestCase {
     defer { controller.prepare(windowPreviewsEnabled: false) }
     func prepare() {
       controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot,
-        layout: LayoutSettings(), experimentalSurfaceTransitions: true)
+        layout: LayoutSettings())
     }
     prepare()
     for _ in 0..<80 where controller.rememberedPreviewMemoryBytes == 0 {
@@ -429,8 +429,7 @@ final class DesktopE2ETests: XCTestCase {
       controller.close()
       controller.prepare(windowPreviewsEnabled: false)
     }
-    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout,
-      experimentalSurfaceTransitions: true)
+    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout)
     for _ in 0..<60 where controller.surfaceCaptureState == "warming" {
       try await Task.sleep(for: .milliseconds(100))
     }
@@ -442,8 +441,7 @@ final class DesktopE2ETests: XCTestCase {
       width: originalCapture.width, height: originalCapture.height)], enabled: true)
     XCTAssertNil(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]),
       "A reused ID must stop exposing the previous owner's pixels immediately, including during throttle")
-    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout,
-      experimentalSurfaceTransitions: true)
+    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout)
     for _ in 0..<80 where controller.surfaceCaptureState != "ready" {
       try await Task.sleep(for: .milliseconds(100))
     }
@@ -481,8 +479,7 @@ final class DesktopE2ETests: XCTestCase {
     try await Task.sleep(for: .seconds(3.2))
     let originalFrame = fixture.frame
     for sample in 0..<2 {
-      controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true,
-        experimentalSurfaceTransitions: true)
+      controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true)
       XCTAssertEqual(controller.surfaceTransitionCount, sample + 1)
       XCTAssertEqual(controller.surfaceFallbackCount, 0)
       XCTAssertEqual(controller.surfaceStreamCount, 0)
@@ -497,8 +494,7 @@ final class DesktopE2ETests: XCTestCase {
       XCTAssertEqual(fixture.frame, originalFrame, "Projection must not mutate native geometry")
       controller.close()
       // Discovery ticks during closing must not replace the texture being handed back.
-      controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout,
-        experimentalSurfaceTransitions: true)
+      controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout)
       CATransaction.flush()
       if sample == 0 {
         // Reopen before the previous closing task ends; it must not hide the new scene.
@@ -508,11 +504,9 @@ final class DesktopE2ETests: XCTestCase {
       }
     }
     // Enter on the current selection must reverse the zoom just like toggling.
-    controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true,
-      experimentalSurfaceTransitions: true)
+    controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true)
     try await Task.sleep(for: .milliseconds(250))
     controller.handleKey(.select)
-    try await Task.sleep(for: .milliseconds(180))
     XCTAssertFalse(controller.isOpen)
     XCTAssertEqual(controller.surfacePresentedFrameCount, 1,
       "Enter must retain the surface scene during the closing zoom")
@@ -547,9 +541,9 @@ final class DesktopE2ETests: XCTestCase {
         activeMonitorID: monitorID)
     }
     controller.prepare(windowPreviewsEnabled: true, snapshot: navigationSnapshot(active: workspace.id),
-      layout: surfaceLayout, experimentalSurfaceTransitions: true)
+      layout: surfaceLayout)
     controller.open(snapshot: navigationSnapshot(active: workspace.id), layout: surfaceLayout,
-      windowPreviewsEnabled: true, experimentalSurfaceTransitions: true)
+      windowPreviewsEnabled: true)
     controller.handleKey(.down)
     controller.update(snapshot: navigationSnapshot(active: destinationWorkspace.id),
       layout: surfaceLayout, windowPreviewsEnabled: true)
@@ -557,29 +551,23 @@ final class DesktopE2ETests: XCTestCase {
       try await Task.sleep(for: .milliseconds(50))
     }
     try await Task.sleep(for: .milliseconds(250))
+    // Assert on state right after the key, not after a fixed sleep that can outlast the 220 ms zoom.
     controller.handleKey(.select)
-    try await Task.sleep(for: .milliseconds(180))
     XCTAssertFalse(controller.isOpen)
+    XCTAssertEqual(controller.previewClosingCount, 1)
     XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.contains { $0.isVisible },
       "Changing workspace must retain the displayed preview during the reverse zoom")
-    XCTAssertEqual(controller.previewClosingCount, 1)
-    try await Task.sleep(for: .milliseconds(300))
+    for _ in 0..<40 where NSApplication.shared.windows.contains(where: { $0.title == "Defi Overview" && $0.isVisible }) {
+      try await Task.sleep(for: .milliseconds(50))
+    }
     XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.allSatisfy { !$0.isVisible })
     XCTAssertEqual(destination.frame, originalFrame)
     controller.prepare(windowPreviewsEnabled: false)
     controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false)
-    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty)
-    controller.update(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true,
-      experimentalSurfaceTransitions: true)
-    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.contains { $0.windowID == windowID },
-      "Enabling surface transitions in an open Overview must prepare the current native context")
-    for _ in 0..<80 where controller.surfaceCaptureState != "ready" {
-      try await Task.sleep(for: .milliseconds(100))
-    }
-    XCTAssertEqual(controller.surfaceCaptureState, "ready")
-    controller.update(snapshot: snapshot, layout: surfaceLayout,
-      experimentalSurfaceTransitions: false)
-    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty)
+    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty,
+      "Opting out of previews must not prepare any capture")
+    XCTAssertEqual(controller.surfaceTransitionCount, 1,
+      "The zoom must run from verified native frames without previews")
     controller.close()
     controller.prepare(windowPreviewsEnabled: false)
     XCTAssertEqual(controller.surfaceStreamCount, 0)

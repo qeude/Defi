@@ -153,37 +153,37 @@ duration_ms = 125
 
 ## `[overview]`
 
-Controls the Overview scale and optional pixels inside window cards.
+Controls the Overview scale and the pixels inside window cards.
 
 ```toml
 [overview]
 zoom = 0.5
-window_previews = false
-experimental_surface_transitions = false
+window_previews = true
 window_corner_radius = 12
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
-| `window_previews` | `false` | boolean | Captures a card-sized still image when a window first becomes visible in the current Overview session. |
-| `experimental_surface_transitions` | `false` | boolean | Requires `window_previews = true`. Prepares public one-shot ScreenCaptureKit samples for native-size-to-Overview zoom transitions. Normal ribbon navigation remains native. |
+| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false` to opt out of Screen Recording entirely. |
 | `window_corner_radius` | `12` | number from `0` to `64` | Rounds window cards and their borders in the Overview. |
 
-With the default `false`, Defi performs no Screen Recording permission check,
-request, or ScreenCaptureKit content query. With `true`, the next Overview
-opening reuses a valid in-memory preview when available, then captures a fresh
-image. Denial, revocation, protected content, and capture errors leave the
-icon-and-title cards fully usable and do not trigger repeated prompts in the
-same daemon session.
+Opening the Overview zooms the real windows out to their cards, and closing it
+zooms them back. This works with or without previews: a window without a
+captured image animates as a placeholder card from its verified native frame.
+Reduced motion or `animation.enabled = false` switches without zooming.
 
-The surface transition experiment prepares one-shot screenshots of the active
-workspace's visible windows and up to two nearby offscreen windows at native
-resolution. While the Overview is closed, preparation runs at most once per
-second, and only one batch may run at a time. It never starts persistent capture
-streams. Opening freezes one fixed screenshot set through the zoom and the
-Overview session; these are snapshots, not live video. Native ribbon navigation
-keeps the ordinary native animation backend.
+With `window_previews = true`, Defi asks for Screen Recording once, before the
+first Overview is presented, so the system prompt is not covered by the panel.
+If access is denied, revoked, or unavailable, the Overview opens with cards,
+never prompts again in the same daemon session, and reports no error. Protected
+content and capture errors also leave the cards fully usable.
+
+While the Overview is closed, preparation captures one-shot screenshots of the
+active workspace's visible windows and up to two nearby offscreen windows at
+native resolution, at most once per second and one batch at a time. It never
+starts persistent capture streams. Opening freezes one fixed screenshot set
+through the zoom and the Overview session; these are snapshots, not live video.
 
 The retained NV12 buffers use public AVFoundation video layers without video
 encoding or per-frame CGImage conversion. NV12 preserves luma resolution but

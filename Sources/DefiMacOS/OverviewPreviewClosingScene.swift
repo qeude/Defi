@@ -4,7 +4,8 @@ import DefiModel
 import QuartzCore
 
 // Reuse the compact images already displayed when navigation discarded the
-// opening surface scene. No capture, encoding, or native mutation at closing.
+// opening surface scene; cards stand in for windows without one. No capture,
+// encoding, or native mutation at closing.
 @MainActor
 final class OverviewPreviewClosingScene {
   let layer = CALayer()
@@ -46,15 +47,16 @@ final class OverviewPreviewClosingScene {
       guard let target = desired[card.windowID], let actual = observed[card.windowID],
         abs(actual.minX - target.minX) <= 2, abs(actual.minY - target.minY) <= 2,
         abs(actual.width - target.width) <= 2, abs(actual.height - target.height) <= 2,
-        let image = previews[card.windowID]?.cgImage(forProposedRect: nil, context: nil, hints: nil),
         card.frame.width > 0, card.frame.height > 0 else { return nil }
       let source = CGRect(x: card.frame.x, y: card.frame.y,
         width: card.frame.width, height: card.frame.height)
-      let item = CALayer()
+      // Windows without a captured image zoom back as cards from verified native frames.
+      let item = overviewCardLayer(
+        image: previews[card.windowID]?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+        size: source.size)
       item.anchorPoint = .zero
       item.bounds = CGRect(origin: .zero, size: source.size)
       item.position = source.origin
-      item.contents = image
       item.contentsGravity = .resizeAspectFill
       item.contentsScale = screen.backingScaleFactor
       item.cornerRadius = self.cornerRadius

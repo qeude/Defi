@@ -8,7 +8,7 @@ import ScreenCaptureKit
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
-  @MainActor @Test func liveExperimentChangesWaitForMemoryPressureRecovery() {
+  @MainActor @Test func settingChangesWaitForMemoryPressureRecovery() {
     let controller = OverviewController(focusWindow: { _, _, _, _ in },
       focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
       openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
@@ -17,7 +17,7 @@ struct OverviewPreviewTests {
     defer { controller.close(); controller.prepare(windowPreviewsEnabled: false) }
     controller.handleMemoryPressure(.warning)
     controller.update(snapshot: snapshot, layout: LayoutSettings(),
-      windowPreviewsEnabled: true, experimentalSurfaceTransitions: true)
+      windowPreviewsEnabled: true)
     #expect(controller.surfaceCaptureState == "pressure")
     #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
     controller.handleMemoryPressure(.normal)
@@ -425,28 +425,14 @@ struct OverviewPreviewTests {
     )
   }
 
-  @Test("Ribbon prototype never requests Screen Recording access")
-  func ribbonPrototypeDoesNotRequestCapturePermission() {
-    #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false,
-      ribbonPrototype: true,
-      hasRequestedPermission: false
-    ))
-    #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false,
-      ribbonPrototype: false,
-      hasRequestedPermission: true
-    ))
+  @Test("Screen Recording is requested at most once and only while missing")
+  func capturePermissionIsRequestedOnce() {
     #expect(overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false,
-      ribbonPrototype: false,
-      hasRequestedPermission: false
-    ))
+      screenCaptureAccessGranted: false, hasRequestedPermission: false))
     #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: true,
-      ribbonPrototype: false,
-      hasRequestedPermission: false
-    ))
+      screenCaptureAccessGranted: false, hasRequestedPermission: true))
+    #expect(!overviewShouldRequestCapturePermission(
+      screenCaptureAccessGranted: true, hasRequestedPermission: false))
   }
 
   @Test

@@ -2,6 +2,8 @@
 
 **Question.** Can Defi get a near-imperceptible continuous ribbon/overview handoff at low RAM and CPU by animating cached graphics proxies, while ordinary managed windows remain native?
 
+**Superseded:** the surface zoom is now the default Overview behavior (ADR 0003) and the experimental private frame backend mentioned below was removed.
+
 **Research date:** 2026-10-03. Primary-source research and a bounded Defi prototype; measurements below describe this machine and workload only.
 
 ## Current finding

@@ -390,9 +390,7 @@ extension Daemon {
       }
       handleCheatsheetInput(.dismiss)
       if command == .toggleOverview {
-        return toggleOverview(
-          ribbonPrototype: overviewRibbonPrototypeRequested(in: rawCommand)
-        )
+        return toggleOverview()
       }
       if overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
         let originatingSession = overviewToggleState.snapshot().sessionGeneration

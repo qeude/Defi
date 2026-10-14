@@ -6,11 +6,11 @@
 - Window previews captured through ScreenCaptureKit, with title and icon.
 - Desktop background per monitor.
 - Keyboard navigation and window moves inside the overview.
-- Experimental surface transitions (`overview.experimental_surface_transitions`).
+- Zoom transition between native windows and Overview cards, with or without previews.
 
 ## How to get to it (user POV)
 
-Press the overview hotkey, or run `defi toggle-overview`. Requires Screen Recording permission and `overview.window_previews = true`.
+Press the overview hotkey, or run `defi toggle-overview`. Previews need Screen Recording permission (`overview.window_previews`, default `true`); without it the Overview shows cards and the zoom still runs.
 
 ## Driving it with the defi CLI
 
