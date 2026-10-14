@@ -507,6 +507,7 @@ final class DesktopE2ETests: XCTestCase {
     controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true)
     try await Task.sleep(for: .milliseconds(250))
     controller.handleKey(.select)
+    for _ in 0..<80 where controller.isOpen { try await Task.sleep(for: .milliseconds(10)) }
     XCTAssertFalse(controller.isOpen)
     XCTAssertEqual(controller.surfacePresentedFrameCount, 1,
       "Enter must retain the surface scene during the closing zoom")
@@ -551,8 +552,9 @@ final class DesktopE2ETests: XCTestCase {
       try await Task.sleep(for: .milliseconds(50))
     }
     try await Task.sleep(for: .milliseconds(250))
-    // Assert on state right after the key, not after a fixed sleep that can outlast the 220 ms zoom.
+    // Wait for the close itself, then assert before the 220 ms zoom can finish.
     controller.handleKey(.select)
+    for _ in 0..<80 where controller.isOpen { try await Task.sleep(for: .milliseconds(10)) }
     XCTAssertFalse(controller.isOpen)
     XCTAssertEqual(controller.previewClosingCount, 1)
     XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.contains { $0.isVisible },
@@ -563,10 +565,11 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.allSatisfy { !$0.isVisible })
     XCTAssertEqual(destination.frame, originalFrame)
     controller.prepare(windowPreviewsEnabled: false)
+    let zoomsBefore = controller.surfaceTransitionCount
     controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false)
     XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty,
       "Opting out of previews must not prepare any capture")
-    XCTAssertEqual(controller.surfaceTransitionCount, 1,
+    XCTAssertEqual(controller.surfaceTransitionCount, zoomsBefore + 1,
       "The zoom must run from verified native frames without previews")
     controller.close()
     controller.prepare(windowPreviewsEnabled: false)
