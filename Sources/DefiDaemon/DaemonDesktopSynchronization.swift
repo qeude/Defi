@@ -36,10 +36,13 @@ func shouldCommitNativeFocusSelection(
 }
 
 func nativeFocusAnimationMonitorID(
-  focusedMonitorID: MonitorID?, floating: Bool,
+  focusedMonitorID: MonitorID?, floating: Bool, activatedWorkspace: Bool,
   overviewOpen: Bool, mouseGestureActive: Bool, displayGeometryChanged: Bool
 ) -> MonitorID? {
-  guard !floating, !overviewOpen, !mouseGestureActive, !displayGeometryChanged else { return nil }
+  // A workspace switch is vertical; sliding parked windows in from the side reads as horizontal.
+  guard !floating, !activatedWorkspace, !overviewOpen, !mouseGestureActive,
+    !displayGeometryChanged
+  else { return nil }
   return focusedMonitorID
 }
 
@@ -816,6 +819,7 @@ extension Daemon {
     let nativeAnimationMonitorID = nativeFocusAnimationMonitorID(
       focusedMonitorID: nativelyFocusedMonitorID,
       floating: focusedWindowIDForAlignment.flatMap { state.windows[$0]?.floating } == true,
+      activatedWorkspace: nativelyActivatedWorkspace,
       overviewOpen: overviewState.isOpen,
       mouseGestureActive: mouseResizeGestureActive,
       displayGeometryChanged: displayGeometryChanged
@@ -826,7 +830,7 @@ extension Daemon {
       monitor.workspaces.first { $0.id == monitor.activeWorkspace }
     }.map { abs($0.scrollOffset - $0.targetScrollOffset) >= 0.000_1 } == true
     let animatesNativeFocus = nativeAnimationMonitorID != nil
-      && (nativeFocusRequiresMovement || nativelyActivatedWorkspace)
+      && nativeFocusRequiresMovement
       && animationsEnabled && config.animation.durationMS > 0
     let animatesFocusOrReorder = animatesNativeFocus || animatesMouseReorder
     snapScrollOffsetsToTargets()
@@ -891,7 +895,7 @@ extension Daemon {
           ? TimeInterval(config.animation.durationMS) / 1_000
           : 0,
         skipping: nativeFocusSkippedWindowIDs,
-        positionsOnly: animatesMouseReorder || (animatesNativeFocus && !nativelyActivatedWorkspace),
+        positionsOnly: animatesMouseReorder || animatesNativeFocus,
         stagesVisibleBeforeParking: nativelyActivatedWorkspace,
         cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
         cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,

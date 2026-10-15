@@ -44,17 +44,21 @@ struct DaemonCommandPolicyTests {
   @Test func changedNativeFocusAnimatesOnlyItsMonitor() {
     let monitor = MonitorID(rawValue: 2)
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: false,
-      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == monitor)
+      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false,
+      displayGeometryChanged: false) == monitor)
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: nil, floating: false,
-      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
+      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
   }
 
-  @Test(arguments: [(true, false, false, false), (false, true, false, false),
-    (false, false, true, false), (false, false, false, true)])
-  func nativeFocusDoesNotAnimateDuringOtherInteractions(blockers: (Bool, Bool, Bool, Bool)) {
+  @Test(arguments: [(true, false, false, false, false), (false, true, false, false, false),
+    (false, false, true, false, false), (false, false, false, true, false),
+    (false, false, false, false, true)])
+  func nativeFocusDoesNotAnimateDuringOtherInteractions(
+    blockers: (Bool, Bool, Bool, Bool, Bool)
+  ) {
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: MonitorID(rawValue: 2),
-      floating: blockers.0, overviewOpen: blockers.1, mouseGestureActive: blockers.2,
-      displayGeometryChanged: blockers.3) == nil)
+      floating: blockers.0, activatedWorkspace: blockers.4, overviewOpen: blockers.1,
+      mouseGestureActive: blockers.2, displayGeometryChanged: blockers.3) == nil)
   }
 
   @Test
