@@ -81,7 +81,7 @@ extension AXFrameCoordinator {
             synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
             animatesSize: write.animatesSize
           ) else { return nil }
-          return shouldDeferAnimatedSizeUntilMovementCompletes(
+          return write.animatesSize || shouldDeferAnimatedSizeUntilMovementCompletes(
             from: Rect(
               x: write.fromPoint.x,
               y: write.fromPoint.y,

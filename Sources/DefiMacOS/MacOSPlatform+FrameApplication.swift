@@ -375,7 +375,10 @@ extension MacOSPlatform {
           to: parkedRibbonTarget ?? assignment.frame
         )
         && (intent?.position == true || parkedRibbonTarget != nil || animatesSizeChange)
-      let animatesSize = wantsFrameAnimation && animatesSizeChange
+      // Growth is committed once before motion; shrink holds its size until the end.
+      let animatesSize =
+        wantsFrameAnimation && animatesSizeChange
+        && (size.width < startSize.width || size.height < startSize.height)
       let write = AsyncPositionWrite(
         element: element,
         application: application,
