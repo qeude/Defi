@@ -147,6 +147,20 @@ struct FrameSettlementVerificationTests {
     #expect(!engine.pendingFrameDebtWindowIDs.contains(id))
   }
 
+  @MainActor @Test func writtenWindowIsVerifiedBeforeQuarantineAndAgainAtDeadline() async throws {
+    let (platform, reads, id, start) = await fixture()
+    defer { withExtendedLifetime(platform) {} }
+    let engine = platform.snapshotEngine
+    let early = try #require(platform.nextFrameCommitVerificationAt)
+    #expect(early < start + 0.8)
+    reads.state.withLock { $0.now = early }
+    let verified = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
+    #expect(verified.freshFrameObservationIDs.contains(id))
+    #expect(engine.observedFrameCommitCount == 1)
+    #expect(engine.frameCommitExpectations[id]?.verificationAttempts == 0)
+    #expect(platform.nextFrameCommitVerificationAt == start + 0.8)
+  }
+
   @MainActor @Test func widthChangeAndSilentSiblingRollbackConvergeTogether() async {
     let (platform, reads, id, start) = await fixture()
     defer { withExtendedLifetime(platform) {} }

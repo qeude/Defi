@@ -739,7 +739,7 @@ extension SnapshotEngine {
       }
     }
     finishFrameCommitReads(frameCommitReads,
-      attemptedWindowIDs: discovery.attemptedFrameWindowIDs, now: now)
+      attemptedWindowIDs: discovery.attemptedFrameWindowIDs, sampledAt: snapshotStartedAt, now: now)
     if !commandObservations.isEmpty {
       let observations = commandObservations
       NavigationActor.enqueue { [weak host] in

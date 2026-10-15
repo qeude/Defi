@@ -325,7 +325,9 @@ extension MacOSPlatform {
         issuedAt: now,
         deadline: commitDeadline,
         command: commandPerformance ?? continuedCommand,
-        observedAt: nil
+        observedAt: nil,
+        // Read back right after the motion instead of waiting for the quarantine deadline.
+        firstVerificationAt: now + animationDuration + 0.1
       ), for: assignment.windowID)
     }
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]

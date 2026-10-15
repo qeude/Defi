@@ -24,10 +24,11 @@ struct FrameCommitExpectation: Equatable, Sendable {
     issuedAt: TimeInterval,
     deadline: TimeInterval,
     command: CommandPerformanceContext? = nil,
-    observedAt: TimeInterval?
+    observedAt: TimeInterval?,
+    firstVerificationAt: TimeInterval? = nil
   ) {
     self.commitID = commitID
-    self.verification = .scheduled(deadline)
+    self.verification = .scheduled(min(firstVerificationAt ?? deadline, deadline))
     self.from = from
     self.target = target
     self.issuedAt = issuedAt
