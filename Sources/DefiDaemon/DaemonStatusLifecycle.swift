@@ -10,6 +10,17 @@ import OSLog
 
 @NavigationActor
 extension Daemon {
+  /// Records the `diagnostic-mark` payload when a slow interaction was just
+  /// observed; rate-limited so it cannot cost the input path or the disk.
+  func autoMark(reason: String) {
+    guard diagnostics.reserveAutoMark() else { return }
+    diagnostics.mark(
+      status: status(),
+      trace: platform.frameCoordinatorTrace,
+      autoReason: reason
+    )
+  }
+
   func status() -> String {
     let managedCount = state.windows.values.filter { !$0.floating || $0.forceTiling }.count
     let floatingCount = state.windows.count - managedCount

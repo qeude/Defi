@@ -531,6 +531,11 @@ frames, or visibility:
 "hyper-d" = "diagnostic-mark"
 ```
 
+Defi also records the same payload automatically (`kind=marker`, `event=auto`,
+with a `reason`) when a command's first write exceeds 150 ms, its focus exceeds
+500 ms, or an animation display gap exceeds 50 ms, at most once per 30 seconds
+and 20 per hour.
+
 CLI-only integration commands:
 
 | Command | Description |

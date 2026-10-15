@@ -2,6 +2,7 @@ import DefiMacOS
 import DefiModel
 import Foundation
 import OSLog
+import os
 
 private let diagnosticLogger = Logger(
   subsystem: "com.qeude.defi",
@@ -45,6 +46,7 @@ private struct PersistentDiagnosticRecord: Encodable {
   var convergenceMS: Double?
   var focusMS: Double?
   var event: String?
+  var reason: String?
   var status: String?
   var trace: String?
 }
@@ -66,6 +68,7 @@ final class DiagnosticRecorder: @unchecked Sendable {
   // Configured once; all encoding stays on the serial diagnostics queue.
   private let encoder: JSONEncoder
   private var commands: [UInt64: CommandDiagnosticMetadata] = [:]
+  private let autoMarkLimiter = OSAllocatedUnfairLock(initialState: AutoMarkLimiter())
 
   init(
     directoryURL: URL = DiagnosticRecorder.defaultDirectoryURL,
@@ -139,13 +142,24 @@ final class DiagnosticRecorder: @unchecked Sendable {
     }
   }
 
-  func mark(status: String, trace: String) {
+  /// Claims one automatic mark; false while rate-limited.
+  func reserveAutoMark() -> Bool {
+    autoMarkLimiter.withLock {
+      $0.allow(at: ProcessInfo.processInfo.systemUptime)
+    }
+  }
+
+  func mark(status: String, trace: String, autoReason: String? = nil) {
     queue.async { [self] in
       var record = makeRecord(
         kind: "marker",
         timestamp: Date(),
         uptime: ProcessInfo.processInfo.systemUptime
       )
+      if let autoReason {
+        record.event = "auto"
+        record.reason = autoReason
+      }
       record.status = status
       record.trace = trace
       append(record)
@@ -247,5 +261,38 @@ final class DiagnosticRecorder: @unchecked Sendable {
       forInfoDictionaryKey: "CFBundleVersion"
     ) as? String ?? "unknown"
     return "\(version) (\(build))"
+  }
+}
+
+/// Slow-command thresholds sit just above the p99 of real-session samples
+/// (first write ~121 ms, focus ~397 ms) so only genuinely slow commands mark.
+enum AutoMarkPolicy {
+  static let firstWriteMS = 150.0
+  static let focusMS = 500.0
+
+  static func reason(for sample: CommandDiagnosticSample) -> String? {
+    if let value = sample.firstWriteMS, value > firstWriteMS {
+      return "firstWriteMS=\(Int(value))"
+    }
+    if let value = sample.focusMS, value > focusMS {
+      return "focusMS=\(Int(value))"
+    }
+    return nil
+  }
+}
+
+/// At most one automatic mark per `minimumInterval` and `hourlyLimit` per hour.
+struct AutoMarkLimiter: Sendable {
+  static let minimumInterval: TimeInterval = 30
+  static let hourlyLimit = 20
+
+  private var accepted: [TimeInterval] = []
+
+  mutating func allow(at now: TimeInterval) -> Bool {
+    accepted.removeAll { now - $0 >= 3_600 }
+    if let last = accepted.last, now - last < Self.minimumInterval { return false }
+    guard accepted.count < Self.hourlyLimit else { return false }
+    accepted.append(now)
+    return true
   }
 }
