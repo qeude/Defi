@@ -13,6 +13,11 @@ import performance_experiments as perf
 
 
 class PerformanceExperimentsTests(unittest.TestCase):
+    def setUp(self):
+        quiet = patch.object(perf, 'wait_for_quiet_alerts')
+        quiet.start()
+        self.addCleanup(quiet.stop)
+
     def test_frame_write_counters_report_real_deltas_and_reject_resets(self):
         self.assertEqual(perf.frame_write_delta('posWrites=12 sizeWrites=3', 'posWrites=19 sizeWrites=5'),
                          {'daemon_completed_position_writes': 7, 'daemon_completed_size_writes': 2})
@@ -45,6 +50,17 @@ class PerformanceExperimentsTests(unittest.TestCase):
         self.assertEqual(perf.summarize(trials)['accepted-read/elapsed_ms']['A']['median'], 20)
         with self.assertRaises(RuntimeError):
             perf.summarize(trials[:-1])
+
+    def test_rounds_set_pairs_and_metrics_absent_in_any_trial_are_skipped(self):
+        trials = [{'side': s, 'repeat': i, 'records': [{'case': 'slow', 'metrics': {
+            'focus_ms': 10 + i + (s == 'B'), **({'fast_stalls': 1} if i == 1 else {})}}]}
+            for i in range(1, 3) for s in 'AB']
+        summary = perf.summarize(trials, rounds=3)
+        self.assertEqual(list(summary), ['slow/focus_ms'])
+        self.assertEqual(summary['slow/focus_ms']['paired_B_minus_A'], [1, 1])
+        with self.assertRaises(RuntimeError):
+            perf.summarize(trials)
+        self.assertEqual(perf.command_args('away', {'away': 'w2'}), ['workspace', 'w2'])
 
     def test_explicit_inputs_do_not_recurse_build_or_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:

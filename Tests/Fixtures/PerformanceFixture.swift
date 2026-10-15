@@ -6,6 +6,7 @@ private struct FixtureCommand: Decodable, Sendable {
   let command: String
   let id: String?
   let delay: Double?
+  let period: Double?
 }
 
 @MainActor
@@ -28,6 +29,7 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
   private var used: Set<String> = []
   private var completed = 0, errors = 0, keyChanges = 0, pending = 0
   private var delay = 0.0
+  private var busyTimer: Timer?
   private var events: [[String: Any]] = []
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -152,6 +154,18 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
       window.close()
       completed += 1
     case "set-delay": delay = duration; completed += 1
+    case "set-busy":
+      // Blocks the main run loop like a busy app, so Accessibility requests to this process wait.
+      guard let period = value.period, period.isFinite, duration < period, period <= 2 else {
+        throw NSError(domain: "Invalid busy period", code: 5)
+      }
+      busyTimer?.invalidate()
+      busyTimer = nil
+      if duration > 0 {
+        let timer = Timer(timeInterval: period, repeats: true) { _ in Thread.sleep(forTimeInterval: duration) }
+        RunLoop.main.add(timer, forMode: .common)
+        busyTimer = timer
+      }
     case "report": break
     case "native-focus": report(seq: value.seq, includeNativeFocus: true); return
     case "quit": report(seq: value.seq); quit(); return
