@@ -255,7 +255,11 @@ func windowSnapshotInvalidation(
   switch kind {
   case .windowCreated, .windows:
     return processID.map(WindowSnapshotInvalidation.process) ?? .full
-  case .application, .applicationTerminated, .screens, .space:
+  case .application:
+    // Only launches carry a PID; reading the launching app alone skips a full
+    // snapshot that would block on its not-yet-responsive Accessibility server.
+    return processID.map(WindowSnapshotInvalidation.process) ?? .full
+  case .applicationTerminated, .screens, .space:
     return .full
   case .focus:
     // Closing a window can emit only a focus change. Refresh that application's

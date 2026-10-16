@@ -2158,7 +2158,8 @@ struct PlatformEventTests {
       (.applicationTerminated, nil, .full),
       (.windows, 7, .process(7)),
       (.windows, nil, .full),
-      (.application, 7, .full),
+      (.application, 7, .process(7)),
+      (.application, nil, .full),
       (.focus, 7, .process(7)),
       (.focus, nil, .full),
     ] as [(PlatformEventKind, pid_t?, WindowSnapshotInvalidation)]
