@@ -184,9 +184,13 @@ final class PlatformEventMonitor {
     ] {
       workspaceTokens.append(
         center.addObserver(forName: name, object: nil, queue: .main) {
-          [weak self] _ in
+          [weak self] notification in
+          let processID = name == NSWorkspace.didLaunchApplicationNotification
+            ? (notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+              as? NSRunningApplication)?.processIdentifier
+            : nil
           MainActor.assumeIsolated {
-            self?.handler(.application, nil)
+            self?.handler(.application, processID)
           }
         }
       )

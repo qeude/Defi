@@ -118,6 +118,19 @@ func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   }
 }
 
+// A launch's first event refreshes the whole inventory; until the launched app
+// shows a window, its retries only need that process, so the first window is
+// not queued behind full snapshots. Process reads are urgent, so later retries
+// stay full and deferrable during animation.
+func applicationLifecycleRetryInvalidation(
+  for kind: PlatformEventKind,
+  processID: pid_t?,
+  knownWindowCount: Int?
+) -> WindowSnapshotInvalidation {
+  guard kind == .application, let processID, (knownWindowCount ?? 0) == 0 else { return .full }
+  return .process(processID)
+}
+
 func windowTopologyRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   // Window creation can precede AXWindows/geometry readiness, including without
   // input history after a daemon restart. Discovery is independent of focus intent.

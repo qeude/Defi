@@ -145,8 +145,15 @@ extension MacOSPlatform {
           lane: lane, delays: lifecycleRefreshDelays, platform: self
         ) { [weak self] _, generation in
           guard let self else { return }
-          self.invalidateWindowSnapshot()
-          self.snapshotEngine.recordObservation(.windows, processID: nil)
+          if case .process(let processID) = applicationLifecycleRetryInvalidation(
+            for: kind, processID: processID,
+            knownWindowCount: processID.flatMap { self.applicationWindowCounts[$0] }
+          ) {
+            self.snapshotEngine.recordObservation(.windows, processID: processID)
+          } else {
+            self.invalidateWindowSnapshot()
+            self.snapshotEngine.recordObservation(.windows, processID: nil)
+          }
           let campaigns = self.delayedObservationCampaigns
           self.deliverObservation {
             guard campaigns.isCurrent(lane, generation: generation) else { return }

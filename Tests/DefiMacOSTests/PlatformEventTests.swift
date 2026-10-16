@@ -531,6 +531,11 @@ struct PlatformEventTests {
         == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
     )
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: nil) == .process(7))
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 0) == .process(7))
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 1) == .full)
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: nil, knownWindowCount: nil) == .full)
+    #expect(applicationLifecycleRetryInvalidation(for: .applicationTerminated, processID: 7, knownWindowCount: nil) == .full)
     #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
     #expect(windowTopologyRefreshDelays(for: .windows).isEmpty)
     #expect(windowTopologyRefreshDelays(for: .focus).isEmpty)
