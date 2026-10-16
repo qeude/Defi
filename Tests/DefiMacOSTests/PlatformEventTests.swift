@@ -1302,25 +1302,22 @@ struct PlatformEventTests {
   }
 
   @Test
-  func unresolvedNativeFocusEventRemainsPendingUntilTargetMatches() {
-    #expect(
+  func unresolvedNativeFocusEventRemainsPendingUntilTargetMatchesOrExpires() {
+    func remains(
+      pending: Bool = true, matched: Bool = false, age: TimeInterval, frontmost: Bool
+    ) -> Bool {
       nativeFocusEventShouldRemainPending(
-        eventPending: true,
-        targetMatched: false
+        eventPending: pending, targetMatched: matched,
+        eventAge: age, sourceIsFrontmost: frontmost
       )
-    )
-    #expect(
-      nativeFocusEventShouldRemainPending(
-        eventPending: true,
-        targetMatched: true
-      ) == false
-    )
-    #expect(
-      nativeFocusEventShouldRemainPending(
-        eventPending: false,
-        targetMatched: false
-      ) == false
-    )
+    }
+    #expect(remains(age: 0.1, frontmost: true))
+    #expect(remains(age: 1.9, frontmost: true))
+    #expect(remains(matched: true, age: 0.1, frontmost: true) == false)
+    #expect(remains(pending: false, age: 0.1, frontmost: true) == false)
+    #expect(remains(age: 2, frontmost: true) == false, "Bounded like an application activation")
+    #expect(remains(age: 0.1, frontmost: false), "Frontmost update may lag the focus event")
+    #expect(remains(age: 0.25, frontmost: false) == false, "Background app focus never resolves")
   }
 
   @Test

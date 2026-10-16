@@ -853,7 +853,9 @@ extension Daemon {
     if animatesMouseReorder { mouseReorderAnimationActive = true }
     if animatesFocusOrReorder { beginFrameAnimationActivity() }
     let nativeFocusSkippedWindowIDs = nativeFocusPendingSkippedWindowIDs(
-      nativeFocusWasPending: nativeFocusWasPending,
+      // A focus event retired by this snapshot without a native focus change no longer gates writes.
+      nativeFocusWasPending: nativeFocusWasPending
+        && (platform.hasPendingNativeFocusEvent || snapshot.nativeFocusChanged),
       focusMonitorID: nativeFocusFrameMonitorID,
       windowMonitorIDs: {
         let locations = state.windowLocationMap()

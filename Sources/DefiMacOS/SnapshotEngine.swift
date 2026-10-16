@@ -288,6 +288,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { withLockedStorage { $0.nativeFocusEventHasUnknownProcess = newValue } }
   }
 
+  var nativeFocusEventTimestamp: TimeInterval {
+    get { withLockedStorage { $0.nativeFocusEventTimestamp } }
+    set { withLockedStorage { $0.nativeFocusEventTimestamp = newValue } }
+  }
+
   var lastFocusedWindowByProcess: [pid_t: WindowID] {
     get { withLockedStorage { $0.lastFocusedWindowByProcess } }
     set { withLockedStorage { $0.lastFocusedWindowByProcess = newValue } }
@@ -1624,6 +1629,7 @@ private struct Storage {
   var nativeFocusEventPending: Bool = false
   var nativeFocusEventProcessIDs: Set<pid_t> = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess: Bool = false
+  var nativeFocusEventTimestamp: TimeInterval = 0
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
   var nativeFullscreenExitDeadlines: [WindowID: TimeInterval] = [:]
   var nativeFullscreenProcessIDsByWindowID: [WindowID: pid_t] = [:]

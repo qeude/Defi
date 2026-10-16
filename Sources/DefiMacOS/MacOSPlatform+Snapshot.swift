@@ -870,7 +870,10 @@ extension SnapshotEngine {
     }
     if !nativeFocusEventShouldRemainPending(
       eventPending: nativeFocusEventPending,
-      targetMatched: nativeFocusTargetMatched
+      targetMatched: nativeFocusTargetMatched,
+      eventAge: ProcessInfo.processInfo.systemUptime - nativeFocusEventTimestamp,
+      sourceIsFrontmost: nativeFocusEventHasUnknownProcess
+        || frontmostProcessID.map(nativeFocusEventProcessIDs.contains) == true
     ) {
       nativeFocusEventPending = false
       nativeFocusEventProcessIDs.removeAll(keepingCapacity: true)

@@ -344,6 +344,10 @@ public final class MacOSPlatform {
     get { snapshotEngine.nativeFocusEventHasUnknownProcess }
     set { snapshotEngine.nativeFocusEventHasUnknownProcess = newValue }
   }
+  nonisolated var nativeFocusEventTimestamp: TimeInterval {
+    get { snapshotEngine.nativeFocusEventTimestamp }
+    set { snapshotEngine.nativeFocusEventTimestamp = newValue }
+  }
   nonisolated var lastFocusedWindowByProcess: [pid_t: WindowID] {
     get { snapshotEngine.lastFocusedWindowByProcess }
     set { snapshotEngine.lastFocusedWindowByProcess = newValue }

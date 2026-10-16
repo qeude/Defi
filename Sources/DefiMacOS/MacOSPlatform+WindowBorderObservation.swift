@@ -112,6 +112,7 @@ extension MacOSPlatform {
           processID: processID
         )
         self?.nativeFocusEventPending = true
+        self?.nativeFocusEventTimestamp = ProcessInfo.processInfo.systemUptime
         self?.borderStackingSettle.trigger()
         if let processID {
           self?.nativeFocusEventProcessIDs.insert(processID)

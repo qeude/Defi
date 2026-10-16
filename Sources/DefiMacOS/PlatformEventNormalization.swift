@@ -241,11 +241,17 @@ func nativeFocusEventMatchesTarget(
   return eventProcessIDs.contains(focusedProcessID)
 }
 
+/// An unmatched focus event stops gating layout once it cannot be satisfied:
+/// a background app's own focus change never becomes the frontmost focus, and
+/// any other event is bounded like a pending application activation.
 func nativeFocusEventShouldRemainPending(
   eventPending: Bool,
-  targetMatched: Bool
+  targetMatched: Bool,
+  eventAge: TimeInterval,
+  sourceIsFrontmost: Bool
 ) -> Bool {
-  eventPending && !targetMatched
+  // The grace covers the frontmost-application update lagging the AX focus event.
+  eventPending && !targetMatched && eventAge < (sourceIsFrontmost ? 2 : 0.25)
 }
 
 func windowSnapshotInvalidation(
