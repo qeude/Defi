@@ -144,7 +144,8 @@ extension Daemon {
     if desktopSnapshotInFlight {
       return
     }
-    if hotKeys?.isEnabled == true, displayReconciliationPending {
+    // Cheap flag first: isEnabled queries the event tap and can block this actor for tens of ms.
+    if displayReconciliationPending, hotKeys?.isEnabled == true {
       reconcileDisplays()
       return
     }
