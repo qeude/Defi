@@ -26,6 +26,12 @@ extension MacOSPlatform {
     invalidateFocusRecovery(recoveringTo: nil)
   }
 
+  /// A newer focus-bearing command owns native focus: recovery from an older request
+  /// must not re-activate the app being navigated away from during the motion.
+  public func supersedeFocusRecovery() {
+    invalidateFocusRecovery(recoveringTo: nil, preservingCompletedSuppressions: true)
+  }
+
   public func invalidateFocusRecovery(recoveringTo windowID: WindowID?) {
     invalidateFocusRecovery(
       recoveringTo: windowID,

@@ -590,6 +590,9 @@ extension Daemon {
         "command-start cg=\(currentCommandGeneration) command=\(rawCommand) source=\(receivedAt != nil ? "ipc" : inputTimestamp != nil ? "hotkey" : "internal") validationMs=\(String(format: "%.2f", validationMS))"
       )
       focus.discardDisplacedFocus()
+      if isSpeculativeRibbonNavigation(command) {
+        platform.supersedeFocusRecovery()
+      }
       invalidatePointerFocusIntent(recoveringTo: previouslySelectedWindowID)
       let focusInputTimestamp = commandFocusInputTimestamp(
         capturedInputTimestamp: inputTimestamp,

@@ -31,6 +31,25 @@ struct PlatformEventTests {
     #expect(platform.cursorWarpGeneration.withLock { $0 } != nextWarpGeneration)
   }
 
+  @Test @NavigationActor
+  func navigationSupersedesOlderFocusRecoveryButKeepsCompletedEchoSuppression() {
+    let platform = MacOSPlatform()
+    let window = WindowID(rawValue: 7)
+    platform.internalFocusSuppressions[window] = InternalFocusSuppression(
+      requestID: 1,
+      deadline: ProcessInfo.processInfo.systemUptime + 2,
+      maximumInputTimestamp: 0,
+      completedAt: ProcessInfo.processInfo.systemUptime
+    )
+    let olderRequestGeneration = platform.focusRecoveryIntentGeneration
+    platform.supersedeFocusRecovery()
+    #expect(!focusRecoveryIntentIsCurrent(
+      requestGeneration: olderRequestGeneration,
+      currentGeneration: platform.focusRecoveryIntentGeneration
+    ))
+    #expect(platform.internalFocusSuppressions[window] != nil)
+  }
+
   @Test @MainActor
   func delayedTapPresentationDoesNotInvalidateNewerInput() async {
     let platform = await MacOSPlatform()
