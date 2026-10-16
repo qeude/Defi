@@ -261,6 +261,35 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func asynchronousSizeClampIsAcceptedAfterRepeatedObservation() {
+    let windowID = WindowID(rawValue: 1)
+    let target = Rect(x: 2, y: 34, width: 1_122, height: 1_353)
+    // Simulator's Device Hub snaps its size after the write readback, and may move.
+    let snapped = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 340, y: 34, width: 403, height: 931), target: target
+    )
+    let resnapped = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 2, y: 34, width: 403.5, height: 931), target: target
+    )
+    let otherSize = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 2, y: 34, width: 460, height: 1_064), target: target
+    )
+    let positionOnly = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 40, y: 34, width: 1_122, height: 1_353), target: target
+    )
+    let retargeted = FrameMismatch(
+      windowID: windowID, actual: snapped.actual,
+      target: Rect(x: 2, y: 34, width: 1_000, height: 1_353)
+    )
+
+    #expect(!settledTiledSizeClamp(snapped, previous: nil))
+    #expect(settledTiledSizeClamp(resnapped, previous: snapped))
+    #expect(!settledTiledSizeClamp(snapped, previous: otherSize))
+    #expect(!settledTiledSizeClamp(positionOnly, previous: positionOnly))
+    #expect(!settledTiledSizeClamp(snapped, previous: retargeted))
+  }
+
+  @Test
   func widthConstraintRequiresRepeatedSettledMismatch() {
     let windowID = WindowID(rawValue: 1)
     let target = Rect(x: 2, y: 34, width: 2_554, height: 1_353)

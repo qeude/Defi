@@ -148,16 +148,19 @@ def race(out, fixtures, windows, delays, driver, plan='race'):
 
 
 def trial(out, bundle_label, steps, busy, sampler_bin, sample_daemon=False, activation_busy=0,
-          activation_fixtures=(2,), race_delays=(), busy_fixtures=(2,), race_plan='race'):
+          activation_fixtures=(2,), race_delays=(), busy_fixtures=(2,), race_plan='race',
+          clamp_fixture=None, clamp_env=None, idle=0):
     fixtures = []
-    binary = out / 'PerformanceFixture'
     try:
         for i in range(3):
             env = {'DYLD_INSERT_LIBRARIES': str(out / 'slow_activation_hook.dylib'),
                    'DEFI_ACTIVATION_BUSY_MS': str(activation_busy)} if activation_busy and i in activation_fixtures else {}
+            clamped = i == clamp_fixture
+            env.update(clamp_env if clamped else {})
             os.environ.update(env)
             try:
-                fixtures.append(pe.Fixture(binary, out / f'{bundle_label}-fixture-{i}.jsonl'))
+                fixtures.append(pe.Fixture(out / ('ClampFixture' if clamped else 'PerformanceFixture'),
+                                           out / f'{bundle_label}-fixture-{i}.jsonl'))
             finally:
                 for k in env:
                     os.environ.pop(k)
@@ -179,6 +182,10 @@ def trial(out, bundle_label, steps, busy, sampler_bin, sample_daemon=False, acti
         pe.wait_owned(fixtures, expected, empty['id'], discovered, selected=expected[0][2])
         for i in busy_fixtures if busy[0] > 0 else ():
             fixtures[i].ask('set-busy', delay=busy[0], period=busy[1])
+        writes = {}
+        if idle:
+            writes['idle_before'] = write_rate(idle)
+            (out / f'{bundle_label}-idle-trace.txt').write_text(session.command('trace'))
         daemon = subprocess.check_output(['pgrep', '-x', 'defi-daemon'], text=True).split()[0]
         session.command('trace')  # drain
         samples = out / f'{bundle_label}-samples.jsonl'
@@ -194,6 +201,7 @@ def trial(out, bundle_label, steps, busy, sampler_bin, sample_daemon=False, acti
             if stacks:
                 time.sleep(3)  # xctrace attaches asynchronously
             time.sleep(.3)
+            nav_start = write_counters()
             driver = []
             races, race_trace = race(out, fixtures, [e[2] for e in expected], race_delays, driver, race_plan) \
                 if race_delays else (None, '')
@@ -203,6 +211,7 @@ def trial(out, bundle_label, steps, busy, sampler_bin, sample_daemon=False, acti
                 driver.append({'command': command, 'uptime': pe_uptime(), 'replyMS': (time.monotonic() - began) * 1000})
                 time.sleep(pause)
             time.sleep(1.2)
+            writes['navigation'] = write_rate(0, nav_start)
             sampler.send_signal(signal.SIGTERM)
             sampler.wait(timeout=15)
             vsync.send_signal(signal.SIGTERM)
@@ -233,10 +242,29 @@ def trial(out, bundle_label, steps, busy, sampler_bin, sample_daemon=False, acti
         result['start_latency_ms'] = {'max': round(max(latency, default=0), 1),
                                       'late': sum(x > 80 for x in latency), 'animations': len(latency)}
         result['reply_ms_max'] = max(d['replyMS'] for d in driver)
+        if idle:
+            writes['idle_after'] = write_rate(idle)
+        result['writes'] = {k: {f: v[f] for f in ('pos_per_s', 'size_per_s', 'drift')} for k, v in writes.items()}
         return result
     finally:
         for f in fixtures:
             f.close()
+
+
+def write_counters():
+    status = session.command('status')
+    get = lambda k: int(re.search(r'\b' + k + r'=(\d+)', status).group(1))
+    return {'t': time.monotonic(), 'pos': get('posWrites'), 'size': get('sizeWrites'), 'drift': get('drift')}
+
+
+def write_rate(seconds, start=None):
+    """Daemon AX position/size writes per second over `seconds` of idle (or since `start`)."""
+    start = start or write_counters()
+    time.sleep(seconds)
+    end = write_counters()
+    dt = end['t'] - start['t']
+    return {'pos_per_s': round((end['pos'] - start['pos']) / dt, 2),
+            'size_per_s': round((end['size'] - start['size']) / dt, 2), 'drift': end['drift'], 'end': end}
 
 
 def pe_uptime():
@@ -260,6 +288,11 @@ def main():
     p.add_argument('--race-delays', type=float, nargs='+', default=[],
                    help='forced focus race: ms after the first command to send the second (replaces the human sequence)')
     p.add_argument('--race-plan', choices=RACE_PLANS, default='race')
+    p.add_argument('--clamp-fixture', type=int, help='fixture index (0-2) replaced by Tests/Fixtures/ClampFixture.swift; '
+                   'drift is then excluded from settledness (a clamped window may drift by construction)')
+    p.add_argument('--clamp-env', nargs='+', default=['DEFI_FIXTURE_MIN=196,464', 'DEFI_FIXTURE_MAX=468,1007',
+                   'DEFI_FIXTURE_SNAP=230,532'], help='ClampFixture environment (default mimics Device Hub)')
+    p.add_argument('--idle', type=float, default=0, help='s of idle write counting before and after navigation')
     p.add_argument('--sample-daemon', action='store_true', help='also record a Time Profiler trace of defi-daemon (perturbs timing)')
     args = p.parse_args()
     if inherited_lock() is None:
@@ -271,6 +304,18 @@ def main():
     original = out / 'original.app'
     pe.run(['ditto', installed, original])
     pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/PerformanceFixture.swift', '-o', out / 'PerformanceFixture'])
+    if args.clamp_fixture is not None:
+        pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/ClampFixture.swift', '-o', out / 'ClampFixture'])
+        # A window the app keeps re-clamping never settles on a looping build; measure, do not gate.
+        lenient = lambda status: 'focusPending=false' in status
+        pe.settled = lenient
+        global wait_for_settlement
+        def wait_for_settlement(timeout=10):
+            deadline = time.monotonic() + timeout
+            while not lenient(session.command('status')):
+                if time.monotonic() > deadline:
+                    raise RuntimeError(f'Workspace did not settle within {timeout}s')
+                time.sleep(.3)
     pe.run(['swiftc', '-O', '-swift-version', '6', ROOT / 'script/motion_probe.swift', '-o', out / 'motion-probe'])
     pe.run(['swiftc', '-O', ROOT / 'script/vsync_probe.swift', '-o', out / 'vsync-probe'])
     pe.run(['swiftc', '-O', ROOT / 'script/click_probe.swift', '-o', out / 'click-probe'])
@@ -302,7 +347,8 @@ def main():
                 pe.wait_for_idle()
                 res = trial(out, f'{label}{r}', steps, args.busy, out / 'motion-probe', args.sample_daemon,
                             args.activation_busy, args.activation_fixtures, args.race_delays,
-                            args.busy_fixtures, args.race_plan)
+                            args.busy_fixtures, args.race_plan, args.clamp_fixture,
+                            dict(e.split('=', 1) for e in args.clamp_env), args.idle)
                 res.update(side=label, round=r)
                 print(json.dumps(res), flush=True)
                 results.append(res)

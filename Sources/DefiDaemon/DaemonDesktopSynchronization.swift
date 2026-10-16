@@ -812,6 +812,7 @@ extension Daemon {
       }
     } else {
       finishMouseGestureTracking()
+      acceptSettledTiledSizeClamps(targetMismatches)
       learnPersistentWidthConstraints(
         targetMismatches,
         previous: previousTargetMismatches,
