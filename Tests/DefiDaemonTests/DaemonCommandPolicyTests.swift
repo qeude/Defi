@@ -8,6 +8,23 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func pendingNativeFocusDoesNotHoldBackNewlyAdmittedWindows() {
+    let main = MonitorID(rawValue: 1), side = MonitorID(rawValue: 2)
+    let old = WindowID(rawValue: 1), new = WindowID(rawValue: 2)
+    let other = WindowID(rawValue: 3), floating = WindowID(rawValue: 4)
+    let windows: [WindowID: MonitorID?] = [old: main, new: main, other: side, floating: nil]
+    let managed: Set<WindowID> = [old, other, floating]
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: false, focusMonitorID: nil,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed).isEmpty)
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: true, focusMonitorID: nil,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed) == [old, other, floating])
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: true, focusMonitorID: main,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed) == [other, floating])
+  }
+
   @Test func completedOverviewSelectionAllowsWarpUntilSuperseded() {
     let state = OverviewToggleState()
     state.recordControllerState(true, sessionGeneration: 1)

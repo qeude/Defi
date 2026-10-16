@@ -28,6 +28,22 @@ func coalescedDesktopSnapshotRequest(
   )
 }
 
+/// Windows whose frame writes wait for pending native focus to resolve.
+/// A window admitted in this snapshot has no earlier target to roll back to,
+/// and its own creation usually emits the pending focus event.
+func nativeFocusPendingSkippedWindowIDs(
+  nativeFocusWasPending: Bool,
+  focusMonitorID: MonitorID?,
+  windowMonitorIDs: [WindowID: MonitorID?],
+  previouslyManagedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  guard nativeFocusWasPending else { return [] }
+  return Set(windowMonitorIDs.compactMap { windowID, monitorID in
+    previouslyManagedWindowIDs.contains(windowID)
+      && (focusMonitorID == nil || monitorID != focusMonitorID) ? windowID : nil
+  })
+}
+
 func shouldCommitNativeFocusSelection(
   nativeFocusAccepted: Bool,
   selectionChanged: Bool
@@ -836,21 +852,15 @@ extension Daemon {
     snapScrollOffsetsToTargets()
     if animatesMouseReorder { mouseReorderAnimationActive = true }
     if animatesFocusOrReorder { beginFrameAnimationActivity() }
-    let nativeFocusSkippedWindowIDs: Set<WindowID>
-    if nativeFocusWasPending {
-      if let nativeFocusFrameMonitorID {
+    let nativeFocusSkippedWindowIDs = nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: nativeFocusWasPending,
+      focusMonitorID: nativeFocusFrameMonitorID,
+      windowMonitorIDs: {
         let locations = state.windowLocationMap()
-        nativeFocusSkippedWindowIDs = Set(
-          state.windows.keys.filter {
-            locations[$0]?.monitorID != nativeFocusFrameMonitorID
-          }
-        )
-      } else {
-        nativeFocusSkippedWindowIDs = Set(state.windows.keys)
-      }
-    } else {
-      nativeFocusSkippedWindowIDs = []
-    }
+        return Dictionary(uniqueKeysWithValues: state.windows.keys.map { ($0, locations[$0]?.monitorID) })
+      }(),
+      previouslyManagedWindowIDs: previouslyManagedWindowIDs
+    )
     let nativeCursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?
     if let nativeCursorWarpWindowID {
       nativeCursorWarpIsCurrentAfterCommit = { [weak self] in
