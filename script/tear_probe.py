@@ -49,7 +49,24 @@ def analyze(states, end, windows, display_w):
     return out
 
 
-def trial(out, bundle_label, steps, busy, sampler_bin):
+def start_latency(states, trace):
+    """Per animated ribbon generation: ms from Defi's animation start to the first on-screen change.
+    A ribbon-wide block shows as a late first move with every window still."""
+    starts = {g: float(t) for t, g in re.findall(r'^(\S+) start g=(\d+) ', trace, re.M)}
+    aborted = set(re.findall(r'^\S+ abort g=(\d+) ', trace, re.M))  # e.g. real mouse input
+    out = []
+    for g in re.findall(r'^\S+ clock g=(\d+) ', trace, re.M):
+        t0 = starts.get(g)
+        if t0 is None or t0 <= states[0]['t'] or g in aborted:
+            continue
+        before = next(s for s in reversed(states) if s['t'] <= t0)['apps']
+        moved = next((s['t'] for s in states if s['t'] > t0 and s['apps'] != before), None)
+        if moved is not None:
+            out.append((moved - t0) * 1000)
+    return out
+
+
+def trial(out, bundle_label, steps, busy, sampler_bin, sample_daemon=False):
     fixtures = []
     binary = out / 'PerformanceFixture'
     try:
@@ -71,13 +88,22 @@ def trial(out, bundle_label, steps, busy, sampler_bin):
             pe.wait_owned(fixtures, expected, empty['id'], discovered, selected=expected[-1][2])
         session.command('focus-column', 'first')
         pe.wait_owned(fixtures, expected, empty['id'], discovered, selected=expected[0][2])
-        if busy:
+        if busy[0] > 0:
             fixtures[2].ask('set-busy', delay=busy[0], period=busy[1])
         daemon = subprocess.check_output(['pgrep', '-x', 'defi-daemon'], text=True).split()[0]
         session.command('trace')  # drain
         samples = out / f'{bundle_label}-samples.jsonl'
         with samples.open('w') as fh:
             sampler = subprocess.Popen([str(sampler_bin), 'sample', daemon, '600', '4'], stdout=fh)
+            vsync = subprocess.Popen([str(out / 'vsync-probe'), '600'],
+                                     stdout=(out / f'{bundle_label}-vsync.jsonl').open('w'))
+            # Time Profiler keeps per-sample timestamps, so a stall can be matched to its stack.
+            stacks = subprocess.Popen(['xcrun', 'xctrace', 'record', '--template', 'Time Profiler',
+                                       '--attach', daemon, '--time-limit', '60s', '--output',
+                                       str(out / f'{bundle_label}-daemon.trace')],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) if sample_daemon else None
+            if stacks:
+                time.sleep(3)  # xctrace attaches asynchronously
             time.sleep(.3)
             driver = []
             for command, pause in steps:
@@ -88,10 +114,15 @@ def trial(out, bundle_label, steps, busy, sampler_bin):
             time.sleep(1.2)
             sampler.send_signal(signal.SIGTERM)
             sampler.wait(timeout=15)
+            vsync.send_signal(signal.SIGTERM)
+            vsync.wait(timeout=5)
+            if stacks:
+                stacks.send_signal(signal.SIGINT)
+                stacks.wait(timeout=120)
         trace = session.command('trace')
         (out / f'{bundle_label}-trace.txt').write_text(trace)
         (out / f'{bundle_label}-driver.json').write_text(json.dumps(driver))
-        if busy:
+        if busy[0] > 0:
             fixtures[2].ask('set-busy', delay=0, period=busy[1])
         records = [json.loads(l) for l in samples.read_text().splitlines()]
         start = records[0]
@@ -102,6 +133,9 @@ def trial(out, bundle_label, steps, busy, sampler_bin):
         result['trace'] = {k: len(re.findall(p, trace)) for k, p in {
             'fallback': r'animation-fallback|fallback ', 'slow_lane': r'slow-lane ', 'abort': r'abort',
             'stale': r'stale-completion', 'slow': r' slow g='}.items()}
+        latency = start_latency(states, trace)
+        result['start_latency_ms'] = {'max': round(max(latency, default=0), 1),
+                                      'late': sum(x > 80 for x in latency), 'animations': len(latency)}
         result['reply_ms_max'] = max(d['replyMS'] for d in driver)
         return result
     finally:
@@ -118,7 +152,8 @@ def main():
     p.add_argument('output', type=Path)
     p.add_argument('--bundle', action='append', required=True, help='LABEL=path')
     p.add_argument('--rounds', type=int, default=3)
-    p.add_argument('--busy', type=float, nargs=2, default=[.018, .020], help='delay period (s)')
+    p.add_argument('--busy', type=float, nargs=2, default=[.018, .020], help='delay period (s); 0 PERIOD disables')
+    p.add_argument('--sample-daemon', action='store_true', help='also record a Time Profiler trace of defi-daemon (perturbs timing)')
     args = p.parse_args()
     if inherited_lock() is None:
         p.error('run under script/desktop_lock.py --wait')
@@ -130,6 +165,7 @@ def main():
     pe.run(['ditto', installed, original])
     pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/PerformanceFixture.swift', '-o', out / 'PerformanceFixture'])
     pe.run(['swiftc', '-O', '-swift-version', '6', ROOT / 'script/motion_probe.swift', '-o', out / 'motion-probe'])
+    pe.run(['swiftc', '-O', ROOT / 'script/vsync_probe.swift', '-o', out / 'vsync-probe'])
 
     def install(bundle):
         pe.run([ROOT / 'script/check_signing.sh', installed, bundle])
@@ -153,7 +189,7 @@ def main():
             for label, path in bundles.items():
                 install(Path(path).resolve())
                 pe.wait_for_idle()
-                res = trial(out, f'{label}{r}', steps, args.busy, out / 'motion-probe')
+                res = trial(out, f'{label}{r}', steps, args.busy, out / 'motion-probe', args.sample_daemon)
                 res.update(side=label, round=r)
                 print(json.dumps(res), flush=True)
                 results.append(res)
