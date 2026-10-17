@@ -2,7 +2,7 @@
 """Maximize probe: does `maximize-column` resize a window within its motion, or land the size late?
 Two fixture windows on an empty workspace (the focused one optionally a ClampFixture with --fixture-env,
 e.g. a cell-grid snap like Ghostty); a 4 ms WindowServer sampler measures, per toggle, the time from the
-command to the focused window's final width and how long the visible area stays uncovered past the final
+command to the focused window's first visible and final width, its distinct widths and reversals, and how long the visible area stays uncovered past the final
 layout. Usage (under the desktop lock): script/maximize_probe.py OUT --bundle A=path --bundle B=path
 Restores the original bundle and session."""
 import argparse, json, os, re, statistics, subprocess, sys, time
@@ -49,19 +49,30 @@ def analyze(states, end, commands, window, windows, display_w):
                 settle = s['t']
         # first sample after the last off-target one
         reached = next((s['t'] for s in seg if s['t'] > settle), settle) if settle > t0 else t0
+        widths = [frame(s)[window][2] for s in seg if window in frame(s)]
+        sign = 1 if target_w >= start_w else -1
+        first = next((s['t'] for s in seg if sign * (frame(s).get(window, [0, 0, 0, start_w])[2] - start_w) > WIDTH_PT), t0)
+        # distinct widths seen on the way (1 = single jump) and samples moving against the target
+        reached = max(reached, first)  # a sampler stall can hide every off-target sample
+        steps = len({w for w in widths if abs(w - start_w) > WIDTH_PT})
+        reversals = sum(1 for a, b in zip(widths, widths[1:]) if sign * (b - a) < -WIDTH_PT)
         final_gap = uncovered([f for w, f in final.items() if w in windows], display_w)
-        gap_ms = longest = run = 0.0
+        gap_ms = longest = run = gap_px = gap_area = 0.0
         for cur, nxt in zip(seg, seg[1:] + [{'t': t1}]):
             dt = (nxt['t'] - cur['t']) * 1000
             g = uncovered([f for w, f in frame(cur).items() if w in windows], display_w) - final_gap
             if g > GAP_PT:
                 gap_ms += dt; run += dt; longest = max(longest, run)
+                gap_px = max(gap_px, g); gap_area += g / display_w * dt
             else:
                 run = 0
         rows.append({'kind': 'grow' if target_w > start_w + WIDTH_PT else 'shrink' if target_w < start_w - WIDTH_PT
                      else 'same', 'from_w': start_w, 'to_w': target_w,
+                     'first_ms': round((first - t0) * 1000, 1), 'steps': steps, 'reversals': reversals,
                      'width_ms': round((reached - t0) * 1000, 1), 'gap_ms': round(gap_ms, 1),
-                     'gap_longest_ms': round(longest, 1)})
+                     'gap_longest_ms': round(longest, 1), 'gap_px_max': gap_px,
+                     # display-width-ms of extra uncovered area (half the display for 100 ms = 50)
+                     'gap_area': round(gap_area, 1)})
     return rows
 
 
@@ -129,8 +140,9 @@ def summary(rows):
     for kind in ('grow', 'shrink'):
         sel = [r for r in rows if r['kind'] == kind]
         if sel:
-            out[kind] = {k: round(statistics.median(r[k] for r in sel), 1) for k in ('width_ms', 'gap_ms')}
-            out[kind].update(width_max=max(r['width_ms'] for r in sel), gap_max=max(r['gap_ms'] for r in sel), n=len(sel))
+            out[kind] = {k: round(statistics.median(r[k] for r in sel), 1) for k in ('first_ms', 'width_ms', 'gap_ms', 'gap_px_max', 'gap_area', 'steps')}
+            out[kind].update(width_max=max(r['width_ms'] for r in sel), gap_max=max(r['gap_ms'] for r in sel),
+                             reversals=sum(r['reversals'] for r in sel), n=len(sel))
     return out
 
 

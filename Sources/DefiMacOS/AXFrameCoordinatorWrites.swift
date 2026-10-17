@@ -781,30 +781,45 @@ extension AXFrameCoordinator {
       ) {
         let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
         let generationIsCurrent = isCurrent(generation: frame.generation)
-        let asynchronousSizeWriteSucceeded =
-          generationIsCurrent
-          && (
-            !requiresAsynchronousSizeWrite
-              || accessibilityWriter.applySize(
-                item.value,
-                size: size,
-                enhancedUIManagedByBatch: managesEnhancedUI
-                  || defersEnhancedUIRestore,
-                shouldApply: { self.isCurrent(generation: frame.generation) }
-              )
+        // Growth that macOS would clamp to the display at the window's current
+        // position resizes after the move instead.
+        let currentPoint = completedPosition(for: item.key) ?? item.value.fromPoint
+        let resizesAfterMove = requiresAsynchronousSizeWrite && positionWriteRequired
+          && size.width > item.value.fromSize.width + 0.5
+          && !requiresVerifiedOffscreenWrite(frame: nativeFrame, monitorFrames: frame.monitorFrames)
+          && shouldDeferAnimatedSizeUntilMovementCompletes(
+            from: Rect(x: currentPoint.x, y: currentPoint.y, width: size.width, height: size.height),
+            to: Rect(x: point.x, y: point.y, width: size.width, height: size.height),
+            displayFrames: frame.monitorFrames)
+        var sizeApplied = false
+        var acceptedSize: CGSize?
+        let applyAsynchronousSize = {
+          let asynchronousSizeWriteSucceeded =
+            self.isCurrent(generation: frame.generation)
+            && (
+              !requiresAsynchronousSizeWrite
+                || self.accessibilityWriter.applySize(
+                  item.value,
+                  size: size,
+                  enhancedUIManagedByBatch: managesEnhancedUI
+                    || defersEnhancedUIRestore,
+                  shouldApply: { self.isCurrent(generation: frame.generation) }
+                )
+            )
+          sizeApplied = frameSizeWriteSucceeded(
+            sizeChanged: item.value.sizeChanged,
+            synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
+            animatesSize: item.value.animatesSize,
+            asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
           )
-        var sizeApplied = frameSizeWriteSucceeded(
-          sizeChanged: item.value.sizeChanged,
-          synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
-          animatesSize: item.value.animatesSize,
-          asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
-        )
-        var acceptedSize =
-          sizeApplied && requiresAsynchronousSizeWrite
-            && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
-          ? accessibilityWriter.readSize(item.value.element)
-          : nil
-        let sizeWasClampedBeforeMove = item.value.positionChanged
+          acceptedSize =
+            sizeApplied && requiresAsynchronousSizeWrite
+              && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
+            ? self.accessibilityWriter.readSize(item.value.element)
+            : nil
+        }
+        if !resizesAfterMove { applyAsynchronousSize() }
+        let sizeWasClampedBeforeMove = item.value.positionChanged && !resizesAfterMove
           && (acceptedSize.map {
             abs($0.width - size.width) >= 0.5 || abs($0.height - size.height) >= 0.5
           } ?? false)
@@ -838,6 +853,23 @@ extension AXFrameCoordinator {
             )
         let positionDurationMS =
           (ProcessInfo.processInfo.systemUptime - positionStartedAt) * 1_000
+        if resizesAfterMove {
+          applyAsynchronousSize()
+          if !intermediate, progress >= 1, sizeApplied, isCurrent(generation: frame.generation) {
+            // A busy app can apply the move after the resize and clamp it; retry once.
+            if let accepted = acceptedSize,
+              abs(accepted.width - size.width) >= 0.5 || abs(accepted.height - size.height) >= 0.5
+            {
+              applyAsynchronousSize()
+            }
+            // A resize can shift the origin; correct the final position once.
+            positionApplied = accessibilityWriter.applyPosition(
+              item.value, point: point, forceOffscreenAccess: false, verifyParkedPosition: true,
+              enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore,
+              nativePositionIsVerified: nil,
+              shouldApply: { self.isCurrent(generation: frame.generation) })
+          }
+        }
         // AppKit can clamp a resize at the source position, even on the same
         // display. Retry the final size once after moving, only after a measured
         // mismatch; intermediate samples must keep their bounded write budget.

@@ -104,10 +104,22 @@ extension AXFrameCoordinator {
     let interpolatedWrites = animatedWrites.filter {
       lanePlan.interpolatedWindowIDs.contains($0.key)
     }
+    // Growth the display edge would clamp takes its final frame before the motion,
+    // moved then resized, so it covers the neighbors sliding out beneath it.
+    let edgeGrowthWrites = interpolatedWrites.filter { windowID, write in
+      lanePlan.deferredSizeWindowIDs.contains(windowID) && !write.animatesSize
+        && !frameCentersCrossDisplays(
+          from: Rect(x: write.fromPoint.x, y: write.fromPoint.y,
+            width: write.fromSize.width, height: write.fromSize.height),
+          to: Rect(x: write.point.x, y: write.point.y,
+            width: write.size.width, height: write.size.height),
+          displayFrames: frame.monitorFrames)
+    }
     let deferredSizeWrites = interpolatedWrites.filter {
-      lanePlan.deferredSizeWindowIDs.contains($0.key)
+      lanePlan.deferredSizeWindowIDs.contains($0.key) && edgeGrowthWrites[$0.key] == nil
     }
     var loopWrites = interpolatedWrites
+    for windowID in edgeGrowthWrites.keys { loopWrites[windowID] = nil }
     // Move first; one final size write must not block the animation clock.
     for (windowID, write) in deferredSizeWrites {
       loopWrites[windowID] = positionOnlyAnimationWrite(
@@ -167,6 +179,18 @@ extension AXFrameCoordinator {
         stagesVisibleBeforeParking: false, successfulWrite: frame.successfulWrite,
         completion: nil)
       let result = applyFrame(preparationFrame, progress: 1, skippedProcesses: [])
+      applied += result.applied
+      stale += result.stale
+    }
+    if !edgeGrowthWrites.isEmpty, isCurrent(generation: frame.generation) {
+      let growthFrame = QueuedPositionFrame(
+        generation: frame.generation, source: frame.source,
+        writes: edgeGrowthWrites, animatedWindowIDs: [], animationDuration: 0,
+        refreshRateHz: frame.refreshRateHz, displayIDs: frame.displayIDs,
+        monitorFrames: frame.monitorFrames, initialProgressVelocity: 0,
+        stagesVisibleBeforeParking: false, successfulWrite: frame.successfulWrite,
+        completion: nil)
+      let result = applyFrame(growthFrame, progress: 1, skippedProcesses: [])
       applied += result.applied
       stale += result.stale
     }
