@@ -2985,16 +2985,30 @@ struct FrameCommitTests {
       defers: false
     ),
     DeferredSizeCase(
-      name: "same display reflow keeps size on the movement timeline",
+      name: "growth past the display edge at its start position defers size",
       displays: [Rect(x: 0, y: 0, width: 1_512, height: 982)],
       source: Rect(x: 756, y: 25, width: 756, height: 910),
+      target: Rect(x: 0, y: 25, width: 1_512, height: 910),
+      defers: true
+    ),
+    DeferredSizeCase(
+      name: "growth with a stale wide start size still defers size",
+      displays: [Rect(x: 0, y: 0, width: 1_512, height: 982)],
+      source: Rect(x: 756, y: 25, width: 1_512, height: 910),
+      target: Rect(x: 0, y: 25, width: 1_512, height: 910),
+      defers: true
+    ),
+    DeferredSizeCase(
+      name: "growth that fits at its start position commits before motion",
+      displays: [Rect(x: 0, y: 0, width: 1_512, height: 982)],
+      source: Rect(x: 0, y: 25, width: 756, height: 910),
       target: Rect(x: 0, y: 25, width: 1_512, height: 910),
       defers: false
     ),
   ]
 
   @Test(arguments: deferredSizeCases)
-  func `Animated size defers until movement completes only across displays`(
+  func `Animated size defers until movement completes across displays or past the display edge`(
     _ scenario: DeferredSizeCase
   ) {
     #expect(
