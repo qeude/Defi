@@ -117,7 +117,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let size: CGSize
   let positionChanged: Bool
   let sizeChanged: Bool
-  let animatesSize: Bool
+  var animatesSize: Bool
   var usesLogicalRibbonPath = false
   let synchronousSizeWriteSucceeded: Bool
   let enhancedUIWasEnabled: Bool

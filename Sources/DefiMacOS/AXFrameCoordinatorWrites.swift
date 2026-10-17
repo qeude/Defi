@@ -256,7 +256,8 @@ extension AXFrameCoordinator {
         completedAt: completedAt,
         intermediate: sample.intermediate
       )
-      if result.attempted {
+      // Per-step growth pays its resize cost on top of the move; keep it out of motion latency.
+      if result.attempted, !(sample.intermediate && sample.batch.writes.contains { $0.value.animatesSize }) {
         recordProcessLatencySamples([processID: latencyMS], intermediate: sample.intermediate)
       }
       publishCompletedBorderGeometry(
@@ -496,6 +497,24 @@ extension AXFrameCoordinator {
     recentIntermediateProcessLatencySamplesMS[processID] = [
       (sampledAt, min(max(latencyMS, 0), 120))
     ]
+  }
+
+  /// Resize cost is tracked apart from motion latency: per-step growth must
+  /// neither classify a lane as slow nor run where one resize outlasts a frame.
+  func recordSizeWriteLatency(processID: pid_t, latencyMS: Double) {
+    lock.lock()
+    defer { lock.unlock() }
+    let previous = sizeWriteLatencyMS[processID] ?? latencyMS
+    sizeWriteLatencyMS[processID] = latencyMS >= previous ? latencyMS : (previous + latencyMS) / 2
+  }
+
+  func resizesWithinFrame(processID: pid_t, refreshRateHz: Double) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !latencySensitiveProcessIDs.contains(processID),
+      let latencyMS = sizeWriteLatencyMS[processID]
+    else { return false }
+    return latencyMS <= 1_000 / min(max(refreshRateHz, 30), 120)
   }
 
   func recordProcessLatencySamples(
@@ -794,6 +813,7 @@ extension AXFrameCoordinator {
         var sizeApplied = false
         var acceptedSize: CGSize?
         let applyAsynchronousSize = {
+          let sizeStartedAt = ProcessInfo.processInfo.systemUptime
           let asynchronousSizeWriteSucceeded =
             self.isCurrent(generation: frame.generation)
             && (
@@ -806,6 +826,11 @@ extension AXFrameCoordinator {
                   shouldApply: { self.isCurrent(generation: frame.generation) }
                 )
             )
+          if requiresAsynchronousSizeWrite, asynchronousSizeWriteSucceeded {
+            self.recordSizeWriteLatency(
+              processID: item.value.processID,
+              latencyMS: (ProcessInfo.processInfo.systemUptime - sizeStartedAt) * 1_000)
+          }
           sizeApplied = frameSizeWriteSucceeded(
             sizeChanged: item.value.sizeChanged,
             synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
@@ -1169,12 +1194,18 @@ extension AXFrameCoordinator {
             max(write.timeoutSeconds, 0.016),
             elements: [write.application, write.element]
           ) {
+            let sizeStartedAt = ProcessInfo.processInfo.systemUptime
             let succeeded = accessibilityWriter.applySize(
               write,
               size: write.size,
               enhancedUIManagedByBatch: false,
               shouldApply: { self.isCurrent(generation: generation) }
             )
+            if succeeded {
+              recordSizeWriteLatency(
+                processID: write.processID,
+                latencyMS: (ProcessInfo.processInfo.systemUptime - sizeStartedAt) * 1_000)
+            }
             return (
               succeeded: succeeded,
               acceptedSize: succeeded

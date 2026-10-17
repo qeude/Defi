@@ -104,8 +104,10 @@ extension AXFrameCoordinator {
     let interpolatedWrites = animatedWrites.filter {
       lanePlan.interpolatedWindowIDs.contains($0.key)
     }
-    // Growth the display edge would clamp takes its final frame before the motion,
-    // moved then resized, so it covers the neighbors sliding out beneath it.
+    // Growth the display edge would clamp grows along the motion, moved then
+    // resized at each step so its right edge stays on the display edge. Apps that
+    // cannot resize within a frame take the final frame before the motion instead,
+    // covering the neighbors sliding out beneath it.
     let edgeGrowthWrites = interpolatedWrites.filter { windowID, write in
       lanePlan.deferredSizeWindowIDs.contains(windowID) && !write.animatesSize
         && !frameCentersCrossDisplays(
@@ -118,8 +120,16 @@ extension AXFrameCoordinator {
     let deferredSizeWrites = interpolatedWrites.filter {
       lanePlan.deferredSizeWindowIDs.contains($0.key) && edgeGrowthWrites[$0.key] == nil
     }
+    let steppedGrowthWrites = edgeGrowthWrites.filter {
+      resizesWithinFrame(processID: $0.value.processID, refreshRateHz: frame.refreshRateHz)
+    }
+    let instantGrowthWrites = edgeGrowthWrites.filter { steppedGrowthWrites[$0.key] == nil }
     var loopWrites = interpolatedWrites
-    for windowID in edgeGrowthWrites.keys { loopWrites[windowID] = nil }
+    for windowID in instantGrowthWrites.keys { loopWrites[windowID] = nil }
+    for (windowID, var write) in steppedGrowthWrites {
+      write.animatesSize = true
+      loopWrites[windowID] = write
+    }
     // Move first; one final size write must not block the animation clock.
     for (windowID, write) in deferredSizeWrites {
       loopWrites[windowID] = positionOnlyAnimationWrite(
@@ -182,10 +192,10 @@ extension AXFrameCoordinator {
       applied += result.applied
       stale += result.stale
     }
-    if !edgeGrowthWrites.isEmpty, isCurrent(generation: frame.generation) {
+    if !instantGrowthWrites.isEmpty, isCurrent(generation: frame.generation) {
       let growthFrame = QueuedPositionFrame(
         generation: frame.generation, source: frame.source,
-        writes: edgeGrowthWrites, animatedWindowIDs: [], animationDuration: 0,
+        writes: instantGrowthWrites, animatedWindowIDs: [], animationDuration: 0,
         refreshRateHz: frame.refreshRateHz, displayIDs: frame.displayIDs,
         monitorFrames: frame.monitorFrames, initialProgressVelocity: 0,
         stagesVisibleBeforeParking: false, successfulWrite: frame.successfulWrite,

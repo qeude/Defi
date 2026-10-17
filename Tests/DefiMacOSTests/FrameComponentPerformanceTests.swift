@@ -153,6 +153,20 @@ struct FrameComponentPerformanceTests {
     #expect(state.point.x == 0 && state.size.width == 1200)
   }
 
+  @Test func edgeGrowthStepsOnlyWhereOneResizeFitsADisplayFrame() {
+    let coordinator = AXFrameCoordinator()
+    #expect(!coordinator.resizesWithinFrame(processID: 1, refreshRateHz: 120))
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 3)
+    #expect(coordinator.resizesWithinFrame(processID: 1, refreshRateHz: 120))
+    // One costly resize disables stepping at once; recovery is gradual.
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 50)
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 3)
+    #expect(!coordinator.resizesWithinFrame(processID: 1, refreshRateHz: 120))
+    coordinator.recordSizeWriteLatency(processID: 2, latencyMS: 12)
+    #expect(!coordinator.resizesWithinFrame(processID: 2, refreshRateHz: 120))
+    #expect(coordinator.resizesWithinFrame(processID: 2, refreshRateHz: 60))
+  }
+
   @Test func performanceComponents() throws {
     guard ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1" else { return }
     for projected in [false, true] {

@@ -114,6 +114,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedInitialSettlementChecks = 0
   var repairedInitialSettlementDrifts = 0
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
+  var sizeWriteLatencyMS: [pid_t: Double] = [:]
   var recentIntermediateProcessLatencySamplesMS:
     [pid_t: [(sampledAt: TimeInterval, latencyMS: Double)]] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
@@ -679,6 +680,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     predictedProcessLatencyMS = predictedProcessLatencyMS.filter {
       liveProcessIDs.contains($0.key)
     }
+    sizeWriteLatencyMS = sizeWriteLatencyMS.filter { liveProcessIDs.contains($0.key) }
     recentIntermediateProcessLatencySamplesMS = recentIntermediateProcessLatencySamplesMS.filter {
       liveProcessIDs.contains($0.key)
     }
