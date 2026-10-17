@@ -5,7 +5,8 @@ import ApplicationServices
 // DEFI_FIXTURE_MIN / DEFI_FIXTURE_MAX = "w,h" set NSWindow min/max frame sizes;
 // DEFI_FIXTURE_ASPECT = "w,h" locks the aspect ratio; DEFI_FIXTURE_SNAP = "w,h" snaps every
 // resize, after DEFI_FIXTURE_SNAP_DELAY seconds, to the largest scale of w,h (25% steps)
-// that fits the requested size, keeping the top-left corner.
+// that fits the requested size, keeping the top-left corner. DEFI_FIXTURE_RESIZE_MS blocks the main
+// thread for that long on every resize, like a terminal re-laying out its grid (Ghostty).
 private func fixtureSize(_ name: String) -> NSSize? {
   guard let raw = ProcessInfo.processInfo.environment[name] else { return nil }
   let parts = raw.split(separator: ",").compactMap { Double($0) }
@@ -68,6 +69,9 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
   }
   private var snapping = false
   func windowDidResize(_ notification: Notification) {
+    if let ms = Double(ProcessInfo.processInfo.environment["DEFI_FIXTURE_RESIZE_MS"] ?? "") {
+      Thread.sleep(forTimeInterval: ms / 1000)
+    }
     guard let window = notification.object as? NSWindow, let base = fixtureSize("DEFI_FIXTURE_SNAP"),
       !snapping else { return }
     let delay = Double(ProcessInfo.processInfo.environment["DEFI_FIXTURE_SNAP_DELAY"] ?? "") ?? 0.03
