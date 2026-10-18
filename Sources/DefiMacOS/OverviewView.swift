@@ -13,7 +13,7 @@ final class OverviewView: NSView {
   private var drag: OverviewDragPresentation?
   private var borderStyle = WindowBorderStyle(config: BordersConfig())
   private var windowCornerRadius = 12.0
-  private var desktopImage: NSImage?
+  private(set) var desktopImage: NSImage?
   // Previous desktop image, kept underneath while the replacement fades in.
   private var outgoingDesktopImage: NSImage?
   private var desktopFadeStartedAt: TimeInterval?

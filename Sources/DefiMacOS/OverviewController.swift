@@ -830,7 +830,7 @@ public final class OverviewController: NSObject {
         let projection = closingProjections[monitor.id],
         let scene = OverviewPreviewClosingScene(projection: projection,
           workspaceID: workspace.id, screen: screen, previews: closingPreviews,
-          cornerRadius: windowCornerRadius,
+          wallpaper: panel.view.desktopImage, cornerRadius: windowCornerRadius,
           targets: computeLayout(workspace: workspace, viewport: viewport,
             windows: Array(snapshot.windows.values), settings: layout), windows: snapshot.windows)
       {

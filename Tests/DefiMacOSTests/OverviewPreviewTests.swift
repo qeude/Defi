@@ -8,6 +8,30 @@ import ScreenCaptureKit
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
+  @MainActor @Test func emptyWorkspaceClosingZoomsWallpaperToFullScreen() throws {
+    guard let screen = NSScreen.main else { return }
+    let workspaceID = WorkspaceID(rawValue: "empty")
+    let projection = OverviewProjection(monitorID: MonitorID(rawValue: 1), workspaces: [
+      OverviewWorkspaceProjection(workspaceID: workspaceID,
+        frame: Rect(x: 100, y: 80, width: 320, height: 200), windows: []),
+    ])
+    let wallpaper = NSImage(size: NSSize(width: 16, height: 10), flipped: false) { rect in
+      NSColor.systemBlue.setFill(); rect.fill(); return true
+    }
+    #expect(OverviewPreviewClosingScene(projection: projection, workspaceID: workspaceID,
+      screen: screen, previews: [:], targets: [], windows: [:]) == nil)
+    let scene = try #require(OverviewPreviewClosingScene(projection: projection,
+      workspaceID: workspaceID, screen: screen, previews: [:], wallpaper: wallpaper,
+      targets: [], windows: [:]))
+    let item = try #require(scene.layer.sublayers?.first)
+    #expect(item.frame == CGRect(x: 100, y: 80, width: 320, height: 200))
+    scene.animate(duration: 0.22)
+    #expect(abs(item.frame.width - scene.layer.bounds.width) < 0.5)
+    #expect(abs(item.frame.height - scene.layer.bounds.height) < 0.5)
+    #expect(item.frame.origin == .zero)
+    #expect(item.cornerRadius == 0)
+  }
+
   @MainActor @Test func settingChangesWaitForMemoryPressureRecovery() {
     let controller = OverviewController(focusWindow: { _, _, _, _ in },
       focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },

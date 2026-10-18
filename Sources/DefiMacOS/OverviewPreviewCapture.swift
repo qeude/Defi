@@ -365,7 +365,7 @@ func captureOverviewImages(
     do {
       try Task.checkCancellation()
       content = try await withOverviewCaptureTimeout {
-        try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+        try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
       }
     } catch {
       await limiter.release(error: error is CancellationError ? nil : error as NSError)
@@ -376,13 +376,13 @@ func captureOverviewImages(
     let desktopTask = Task { @MainActor in
       var desktops: [MonitorID: CGImage] = [:]
       for request in desktopRequests where !Task.isCancelled {
-        guard let display = content.displays.first(where: {
+        // Include only desktop-level windows (wallpaper, icons): an app window or
+        // border overlay created after the content snapshot must never leak in.
+        let desktopWindows = content.windows.filter { $0.windowLayer < 0 }
+        guard !desktopWindows.isEmpty, let display = content.displays.first(where: {
           $0.displayID == request.displayID
         }) else { continue }
-        let filter = SCContentFilter(
-          display: display,
-          excludingWindows: content.windows
-        )
+        let filter = SCContentFilter(display: display, including: desktopWindows)
         filter.includeMenuBar = false
         let configuration = SCStreamConfiguration()
         configuration.width = request.width
