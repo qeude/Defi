@@ -1424,6 +1424,9 @@ public final class OverviewController: NSObject {
         byteCost: rememberedImage.bytesPerRow * rememberedImage.height,
         for: window
       )
+      if isUnderMemoryPressure {
+        rememberedPreviews.retain(idlePreviewPriorityIDs, maximumBytes: overviewPressurePreviewBytes)
+      }
     }
     // Offscreen captures are ready before navigation, without running an idle fade link.
     guard previewMonitorIDs[result.request.windowID] != nil else { return }
@@ -1561,6 +1564,10 @@ public final class OverviewController: NSObject {
       return computeLayout(workspace: workspace, viewport: viewport,
         windows: Array(snapshot.windows.values), settings: layout)
         .filter { $0.frame.ribbonIntersects(viewport) }.map(\.windowID)
+        + workspace.floatingWindows.filter { windowID in
+          (snapshot.floatingFrames[windowID] ?? snapshot.windows[windowID]?.frame)?
+            .ribbonIntersects(viewport) == true
+        }
     })
     pruneRememberedPreviews(for: snapshot)
     let projections = panels.mapValues { panel in
