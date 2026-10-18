@@ -1321,6 +1321,41 @@ struct FrameCommitTests {
     )
   }
 
+  @Test(arguments: [false, true])
+  func `In-place width change steps its size from the first display step`(shrink: Bool) {
+    let steps = Mutex<[(progress: Double, animatesSize: Bool)]>([])
+    let coordinator = AXFrameCoordinator(batchWriter: { batch, _, progress, _, _, _ in
+      steps.withLock { $0.append((progress, batch.writes.allSatisfy { $0.value.animatesSize })) }
+      return (batch.writes.count, 0, [], true)
+    })
+    coordinator.latestGeneration = 1
+    // A slow motion lane (resize-polluted) must not turn the resize into a jump.
+    coordinator.recordProcessLatencySamples([42: 18], intermediate: true)
+    let id = WindowID(rawValue: 1), element = AXUIElementCreateSystemWide()
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: 42,
+      fromPoint: CGPoint(x: 0, y: 40), point: CGPoint(x: 0, y: 40),
+      fromSize: CGSize(width: shrink ? 1200 : 850, height: 700),
+      size: CGSize(width: shrink ? 850 : 1200, height: 700),
+      positionChanged: false, sizeChanged: true, animatesSize: shrink,
+      synchronousSizeWriteSucceeded: false, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: false, isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-layout-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 907)],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    _ = coordinator.animate(frame)
+    let recorded = steps.withLock { $0 }
+    let intermediate = recorded.filter { $0.progress < 1 }
+    #expect(intermediate.count >= 2)
+    #expect(intermediate.allSatisfy { $0.animatesSize })
+    #expect(recorded.last?.progress == 1)
+  }
+
   @Test
   func `Animation lane keeps only its latest pending sample`() {
     var lane = LatestAnimationSampleState<Int>()

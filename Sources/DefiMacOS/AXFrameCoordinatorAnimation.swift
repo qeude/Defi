@@ -96,8 +96,18 @@ extension AXFrameCoordinator {
     // keeps only the latest step, so a slow resizer lowers its own step rate
     // without pausing the ribbon. Apps whose resize outlasts half the motion take
     // the final frame before the motion instead, covering the sliding neighbors.
+    // A width change with no motion (maximize, cycle width, shrink) steps its
+    // size in place on apps that resize within a frame; others commit once at
+    // progress 0. Neither waits for the end, and neither enters the motion budget.
+    let inPlaceSizeWrites = interpolatedWrites.filter { _, write in
+      write.sizeChanged && !write.isParked && !write.isReentering
+        && !write.requiresVerifiedOffscreenWrite
+        && abs(write.point.x - write.fromPoint.x) < 0.5
+        && abs(write.point.y - write.fromPoint.y) < 0.5
+    }
     let edgeGrowthWrites = interpolatedWrites.filter { windowID, write in
-      lanePlan.deferredSizeWindowIDs.contains(windowID) && !write.animatesSize
+      inPlaceSizeWrites[windowID] == nil
+        && lanePlan.deferredSizeWindowIDs.contains(windowID) && !write.animatesSize
         && !frameCentersCrossDisplays(
           from: Rect(x: write.fromPoint.x, y: write.fromPoint.y,
             width: write.fromSize.width, height: write.fromSize.height),
@@ -107,14 +117,18 @@ extension AXFrameCoordinator {
     }
     let deferredSizeWrites = interpolatedWrites.filter {
       lanePlan.deferredSizeWindowIDs.contains($0.key) && edgeGrowthWrites[$0.key] == nil
+        && inPlaceSizeWrites[$0.key] == nil
     }
-    let steppedGrowthWrites = edgeGrowthWrites.filter {
+    let steppedGrowthWrites = edgeGrowthWrites.merging(inPlaceSizeWrites) { first, _ in first }.filter {
       stepsEdgeGrowth(processID: $0.value.processID, animationDuration: frame.animationDuration)
     }
     let instantGrowthWrites = edgeGrowthWrites.filter { steppedGrowthWrites[$0.key] == nil }
+    let outsideMotionBudget = { (windowID: WindowID) in
+      steppedGrowthWrites[windowID] != nil || inPlaceSizeWrites[windowID] != nil
+    }
     let steppedProcessIDs = Set(steppedGrowthWrites.values.map(\.processID))
     let finalOnlyProcessIDs = usesLiveMotionCadence ? [] : finalOnlyAnimationProcessIDs(
-      for: animatedWrites.filter { steppedGrowthWrites[$0.key] == nil },
+      for: animatedWrites.filter { !outsideMotionBudget($0.key) },
       animationDuration: frame.animationDuration,
       refreshRateHz: frame.refreshRateHz
     )
@@ -140,15 +154,17 @@ extension AXFrameCoordinator {
       )
     }
     let sizeCommitCandidates = interpolatedWrites.filter {
-      !lanePlan.deferredSizeWindowIDs.contains($0.key)
-        && !$0.value.animatesSize
-        && !$0.value.isReentering
-        && !$0.value.requiresVerifiedOffscreenWrite
-        && asynchronousSizeWriteIsRequired(
-          sizeChanged: $0.value.sizeChanged,
-          synchronousWriteSucceeded: $0.value.synchronousSizeWriteSucceeded,
-          animatesSize: $0.value.animatesSize
-        )
+      steppedGrowthWrites[$0.key] == nil
+        && (inPlaceSizeWrites[$0.key] != nil
+          || (!lanePlan.deferredSizeWindowIDs.contains($0.key)
+            && !$0.value.animatesSize
+            && !$0.value.isReentering
+            && !$0.value.requiresVerifiedOffscreenWrite
+            && asynchronousSizeWriteIsRequired(
+              sizeChanged: $0.value.sizeChanged,
+              synchronousWriteSucceeded: $0.value.synchronousSizeWriteSucceeded,
+              animatesSize: $0.value.animatesSize
+            )))
     }
     if !sizeCommitCandidates.isEmpty {
       let committedWindowIDs = commitFinalSizesOnce(
@@ -277,7 +293,7 @@ extension AXFrameCoordinator {
     }
     let startedAt = ProcessInfo.processInfo.systemUptime
     let frameLimit = usesLiveMotionCadence ? nil : intermediateFrameLimits(
-      for: interpolatedWrites.filter { steppedGrowthWrites[$0.key] == nil },
+      for: interpolatedWrites.filter { !outsideMotionBudget($0.key) },
       availableFrames: completedFrameSpringSamples(
         duration: frame.animationDuration, refreshRateHz: frame.refreshRateHz
       ).count,
