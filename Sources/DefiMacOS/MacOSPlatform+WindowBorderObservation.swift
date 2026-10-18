@@ -112,6 +112,7 @@ extension MacOSPlatform {
           processID: processID
         )
         self?.nativeFocusEventPending = true
+        self?.nativeFocusEventTimestamp = ProcessInfo.processInfo.systemUptime
         self?.borderStackingSettle.trigger()
         if let processID {
           self?.nativeFocusEventProcessIDs.insert(processID)
@@ -145,8 +146,15 @@ extension MacOSPlatform {
           lane: lane, delays: lifecycleRefreshDelays, platform: self
         ) { [weak self] _, generation in
           guard let self else { return }
-          self.invalidateWindowSnapshot()
-          self.snapshotEngine.recordObservation(.windows, processID: nil)
+          if case .process(let processID) = applicationLifecycleRetryInvalidation(
+            for: kind, processID: processID,
+            knownWindowCount: processID.flatMap { self.applicationWindowCounts[$0] }
+          ) {
+            self.snapshotEngine.recordObservation(.windows, processID: processID)
+          } else {
+            self.invalidateWindowSnapshot()
+            self.snapshotEngine.recordObservation(.windows, processID: nil)
+          }
           let campaigns = self.delayedObservationCampaigns
           self.deliverObservation {
             guard campaigns.isCurrent(lane, generation: generation) else { return }
@@ -256,14 +264,15 @@ extension MacOSPlatform {
         refreshWindowBorderStacking(request, stacking: stacking)
         return
       }
-      let stacking = await copyWindowBorderStackingOffMain(
+      // Off-main window-list reads contend with main-thread AppKit border geometry inside
+      // SkyLight's CA transaction sync and stall the main thread and the ribbon ~0.5 s.
+      let stacking = copyWindowBorderStacking(
         targetWindowID: request.windowID,
         targetProcessID: targetProcessID,
         targetFrame: targetFrame,
         monitorFrames: monitorFrames,
         knownWindowIDs: knownWindowIDs
       )
-      guard !Task.isCancelled else { return }
       refreshWindowBorderStacking(request, stacking: stacking)
     }
   }
@@ -686,21 +695,4 @@ extension MacOSPlatform {
     CGEventSource.buttonState(.combinedSessionState, button: .left)
   }
 
-}
-
-@concurrent
-private func copyWindowBorderStackingOffMain(
-  targetWindowID: WindowID,
-  targetProcessID: pid_t?,
-  targetFrame: Rect?,
-  monitorFrames: [Rect],
-  knownWindowIDs: Set<WindowID>
-) async -> WindowBorderStacking {
-  copyWindowBorderStacking(
-    targetWindowID: targetWindowID,
-    targetProcessID: targetProcessID,
-    targetFrame: targetFrame,
-    monitorFrames: monitorFrames,
-    knownWindowIDs: knownWindowIDs
-  )
 }

@@ -171,7 +171,8 @@ extension AXFrameCoordinator {
   }
 
   func submitAnimationSamples(
-    _ samples: [ProcessAnimationSample]
+    _ samples: [ProcessAnimationSample],
+    ungatedProcessIDs: Set<pid_t> = []
   ) -> (coalesced: Int, submittedIntermediate: Bool) {
     var displacedSamples: [ProcessAnimationSample] = []
     var startingSamples: [ProcessAnimationSample] = []
@@ -179,7 +180,8 @@ extension AXFrameCoordinator {
     // Gate the entire ribbon atomically. A busy app must not let its siblings
     // advance alone, and recovered lanes can resume on the very next tick.
     let intermediateIsBlocked = samples.contains {
-      $0.intermediate && processAnimationLanes[$0.batch.processID]?.isRunning == true
+      $0.intermediate && !ungatedProcessIDs.contains($0.batch.processID)
+        && processAnimationLanes[$0.batch.processID]?.isRunning == true
     }
     let accepted = samples.filter { !$0.intermediate || !intermediateIsBlocked }
     for sample in accepted {
@@ -256,7 +258,8 @@ extension AXFrameCoordinator {
         completedAt: completedAt,
         intermediate: sample.intermediate
       )
-      if result.attempted {
+      // Per-step growth pays its resize cost on top of the move; keep it out of motion latency.
+      if result.attempted, !(sample.intermediate && sample.batch.writes.contains { $0.value.animatesSize }) {
         recordProcessLatencySamples([processID: latencyMS], intermediate: sample.intermediate)
       }
       publishCompletedBorderGeometry(
@@ -496,6 +499,23 @@ extension AXFrameCoordinator {
     recentIntermediateProcessLatencySamplesMS[processID] = [
       (sampledAt, min(max(latencyMS, 0), 120))
     ]
+  }
+
+  /// Resize cost is tracked apart from motion latency: per-step growth must
+  /// neither classify a lane as slow nor run where one resize outlasts a frame.
+  func recordSizeWriteLatency(processID: pid_t, latencyMS: Double) {
+    lock.lock()
+    defer { lock.unlock() }
+    let previous = sizeWriteLatencyMS[processID] ?? latencyMS
+    sizeWriteLatencyMS[processID] = latencyMS >= previous ? latencyMS : (previous + latencyMS) / 2
+  }
+
+  /// An app whose measured resize outlasts half the motion cannot follow it; an
+  /// unmeasured app steps once to calibrate instead of snapping.
+  func stepsEdgeGrowth(processID: pid_t, animationDuration: TimeInterval) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return (sizeWriteLatencyMS[processID] ?? 0) <= animationDuration * 500
   }
 
   func recordProcessLatencySamples(
@@ -781,30 +801,51 @@ extension AXFrameCoordinator {
       ) {
         let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
         let generationIsCurrent = isCurrent(generation: frame.generation)
-        let asynchronousSizeWriteSucceeded =
-          generationIsCurrent
-          && (
-            !requiresAsynchronousSizeWrite
-              || accessibilityWriter.applySize(
-                item.value,
-                size: size,
-                enhancedUIManagedByBatch: managesEnhancedUI
-                  || defersEnhancedUIRestore,
-                shouldApply: { self.isCurrent(generation: frame.generation) }
-              )
+        // Growth that macOS would clamp to the display at the window's current
+        // position resizes after the move instead.
+        let currentPoint = completedPosition(for: item.key) ?? item.value.fromPoint
+        let resizesAfterMove = requiresAsynchronousSizeWrite && positionWriteRequired
+          && size.width > item.value.fromSize.width + 0.5
+          && !requiresVerifiedOffscreenWrite(frame: nativeFrame, monitorFrames: frame.monitorFrames)
+          && shouldDeferAnimatedSizeUntilMovementCompletes(
+            from: Rect(x: currentPoint.x, y: currentPoint.y, width: size.width, height: size.height),
+            to: Rect(x: point.x, y: point.y, width: size.width, height: size.height),
+            displayFrames: frame.monitorFrames)
+        var sizeApplied = false
+        var acceptedSize: CGSize?
+        let applyAsynchronousSize = {
+          let sizeStartedAt = ProcessInfo.processInfo.systemUptime
+          let asynchronousSizeWriteSucceeded =
+            self.isCurrent(generation: frame.generation)
+            && (
+              !requiresAsynchronousSizeWrite
+                || self.accessibilityWriter.applySize(
+                  item.value,
+                  size: size,
+                  enhancedUIManagedByBatch: managesEnhancedUI
+                    || defersEnhancedUIRestore,
+                  shouldApply: { self.isCurrent(generation: frame.generation) }
+                )
+            )
+          if requiresAsynchronousSizeWrite, asynchronousSizeWriteSucceeded {
+            self.recordSizeWriteLatency(
+              processID: item.value.processID,
+              latencyMS: (ProcessInfo.processInfo.systemUptime - sizeStartedAt) * 1_000)
+          }
+          sizeApplied = frameSizeWriteSucceeded(
+            sizeChanged: item.value.sizeChanged,
+            synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
+            animatesSize: item.value.animatesSize,
+            asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
           )
-        var sizeApplied = frameSizeWriteSucceeded(
-          sizeChanged: item.value.sizeChanged,
-          synchronousWriteSucceeded: item.value.synchronousSizeWriteSucceeded,
-          animatesSize: item.value.animatesSize,
-          asynchronousWriteSucceeded: asynchronousSizeWriteSucceeded
-        )
-        var acceptedSize =
-          sizeApplied && requiresAsynchronousSizeWrite
-            && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
-          ? accessibilityWriter.readSize(item.value.element)
-          : nil
-        let sizeWasClampedBeforeMove = item.value.positionChanged
+          acceptedSize =
+            sizeApplied && requiresAsynchronousSizeWrite
+              && ((!intermediate && progress >= 1) || readsLiveBorderPosition)
+            ? self.accessibilityWriter.readSize(item.value.element)
+            : nil
+        }
+        if !resizesAfterMove { applyAsynchronousSize() }
+        let sizeWasClampedBeforeMove = item.value.positionChanged && !resizesAfterMove
           && (acceptedSize.map {
             abs($0.width - size.width) >= 0.5 || abs($0.height - size.height) >= 0.5
           } ?? false)
@@ -838,6 +879,23 @@ extension AXFrameCoordinator {
             )
         let positionDurationMS =
           (ProcessInfo.processInfo.systemUptime - positionStartedAt) * 1_000
+        if resizesAfterMove {
+          applyAsynchronousSize()
+          if !intermediate, progress >= 1, sizeApplied, isCurrent(generation: frame.generation) {
+            // A busy app can apply the move after the resize and clamp it; retry once.
+            if let accepted = acceptedSize,
+              abs(accepted.width - size.width) >= 0.5 || abs(accepted.height - size.height) >= 0.5
+            {
+              applyAsynchronousSize()
+            }
+            // A resize can shift the origin; correct the final position once.
+            positionApplied = accessibilityWriter.applyPosition(
+              item.value, point: point, forceOffscreenAccess: false, verifyParkedPosition: true,
+              enhancedUIManagedByBatch: managesEnhancedUI || defersEnhancedUIRestore,
+              nativePositionIsVerified: nil,
+              shouldApply: { self.isCurrent(generation: frame.generation) })
+          }
+        }
         // AppKit can clamp a resize at the source position, even on the same
         // display. Retry the final size once after moving, only after a measured
         // mismatch; intermediate samples must keep their bounded write budget.
@@ -1137,12 +1195,18 @@ extension AXFrameCoordinator {
             max(write.timeoutSeconds, 0.016),
             elements: [write.application, write.element]
           ) {
+            let sizeStartedAt = ProcessInfo.processInfo.systemUptime
             let succeeded = accessibilityWriter.applySize(
               write,
               size: write.size,
               enhancedUIManagedByBatch: false,
               shouldApply: { self.isCurrent(generation: generation) }
             )
+            if succeeded {
+              recordSizeWriteLatency(
+                processID: write.processID,
+                latencyMS: (ProcessInfo.processInfo.systemUptime - sizeStartedAt) * 1_000)
+            }
             return (
               succeeded: succeeded,
               acceptedSize: succeeded

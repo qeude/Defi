@@ -118,6 +118,19 @@ func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   }
 }
 
+// A launch's first event refreshes the whole inventory; until the launched app
+// shows a window, its retries only need that process, so the first window is
+// not queued behind full snapshots. Process reads are urgent, so later retries
+// stay full and deferrable during animation.
+func applicationLifecycleRetryInvalidation(
+  for kind: PlatformEventKind,
+  processID: pid_t?,
+  knownWindowCount: Int?
+) -> WindowSnapshotInvalidation {
+  guard kind == .application, let processID, (knownWindowCount ?? 0) == 0 else { return .full }
+  return .process(processID)
+}
+
 func windowTopologyRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   // Window creation can precede AXWindows/geometry readiness, including without
   // input history after a daemon restart. Discovery is independent of focus intent.
@@ -228,11 +241,17 @@ func nativeFocusEventMatchesTarget(
   return eventProcessIDs.contains(focusedProcessID)
 }
 
+/// An unmatched focus event stops gating layout once it cannot be satisfied:
+/// a background app's own focus change never becomes the frontmost focus, and
+/// any other event is bounded like a pending application activation.
 func nativeFocusEventShouldRemainPending(
   eventPending: Bool,
-  targetMatched: Bool
+  targetMatched: Bool,
+  eventAge: TimeInterval,
+  sourceIsFrontmost: Bool
 ) -> Bool {
-  eventPending && !targetMatched
+  // The grace covers the frontmost-application update lagging the AX focus event.
+  eventPending && !targetMatched && eventAge < (sourceIsFrontmost ? 2 : 0.25)
 }
 
 func windowSnapshotInvalidation(
@@ -242,7 +261,11 @@ func windowSnapshotInvalidation(
   switch kind {
   case .windowCreated, .windows:
     return processID.map(WindowSnapshotInvalidation.process) ?? .full
-  case .application, .applicationTerminated, .screens, .space:
+  case .application:
+    // Only launches carry a PID; reading the launching app alone skips a full
+    // snapshot that would block on its not-yet-responsive Accessibility server.
+    return processID.map(WindowSnapshotInvalidation.process) ?? .full
+  case .applicationTerminated, .screens, .space:
     return .full
   case .focus:
     // Closing a window can emit only a focus change. Refresh that application's

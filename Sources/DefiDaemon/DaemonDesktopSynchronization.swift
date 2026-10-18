@@ -28,6 +28,22 @@ func coalescedDesktopSnapshotRequest(
   )
 }
 
+/// Windows whose frame writes wait for pending native focus to resolve.
+/// A window admitted in this snapshot has no earlier target to roll back to,
+/// and its own creation usually emits the pending focus event.
+func nativeFocusPendingSkippedWindowIDs(
+  nativeFocusWasPending: Bool,
+  focusMonitorID: MonitorID?,
+  windowMonitorIDs: [WindowID: MonitorID?],
+  previouslyManagedWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  guard nativeFocusWasPending else { return [] }
+  return Set(windowMonitorIDs.compactMap { windowID, monitorID in
+    previouslyManagedWindowIDs.contains(windowID)
+      && (focusMonitorID == nil || monitorID != focusMonitorID) ? windowID : nil
+  })
+}
+
 func shouldCommitNativeFocusSelection(
   nativeFocusAccepted: Bool,
   selectionChanged: Bool
@@ -36,10 +52,13 @@ func shouldCommitNativeFocusSelection(
 }
 
 func nativeFocusAnimationMonitorID(
-  focusedMonitorID: MonitorID?, floating: Bool,
+  focusedMonitorID: MonitorID?, floating: Bool, activatedWorkspace: Bool,
   overviewOpen: Bool, mouseGestureActive: Bool, displayGeometryChanged: Bool
 ) -> MonitorID? {
-  guard !floating, !overviewOpen, !mouseGestureActive, !displayGeometryChanged else { return nil }
+  // A workspace switch is vertical; sliding parked windows in from the side reads as horizontal.
+  guard !floating, !activatedWorkspace, !overviewOpen, !mouseGestureActive,
+    !displayGeometryChanged
+  else { return nil }
   return focusedMonitorID
 }
 
@@ -125,7 +144,8 @@ extension Daemon {
     if desktopSnapshotInFlight {
       return
     }
-    if hotKeys?.isEnabled == true, displayReconciliationPending {
+    // Cheap flag first: isEnabled queries the event tap and can block this actor for tens of ms.
+    if displayReconciliationPending, hotKeys?.isEnabled == true {
       reconcileDisplays()
       return
     }
@@ -792,6 +812,7 @@ extension Daemon {
       }
     } else {
       finishMouseGestureTracking()
+      acceptSettledTiledSizeClamps(targetMismatches)
       learnPersistentWidthConstraints(
         targetMismatches,
         previous: previousTargetMismatches,
@@ -816,6 +837,7 @@ extension Daemon {
     let nativeAnimationMonitorID = nativeFocusAnimationMonitorID(
       focusedMonitorID: nativelyFocusedMonitorID,
       floating: focusedWindowIDForAlignment.flatMap { state.windows[$0]?.floating } == true,
+      activatedWorkspace: nativelyActivatedWorkspace,
       overviewOpen: overviewState.isOpen,
       mouseGestureActive: mouseResizeGestureActive,
       displayGeometryChanged: displayGeometryChanged
@@ -826,27 +848,23 @@ extension Daemon {
       monitor.workspaces.first { $0.id == monitor.activeWorkspace }
     }.map { abs($0.scrollOffset - $0.targetScrollOffset) >= 0.000_1 } == true
     let animatesNativeFocus = nativeAnimationMonitorID != nil
-      && (nativeFocusRequiresMovement || nativelyActivatedWorkspace)
+      && nativeFocusRequiresMovement
       && animationsEnabled && config.animation.durationMS > 0
     let animatesFocusOrReorder = animatesNativeFocus || animatesMouseReorder
     snapScrollOffsetsToTargets()
     if animatesMouseReorder { mouseReorderAnimationActive = true }
     if animatesFocusOrReorder { beginFrameAnimationActivity() }
-    let nativeFocusSkippedWindowIDs: Set<WindowID>
-    if nativeFocusWasPending {
-      if let nativeFocusFrameMonitorID {
+    let nativeFocusSkippedWindowIDs = nativeFocusPendingSkippedWindowIDs(
+      // A focus event retired by this snapshot without a native focus change no longer gates writes.
+      nativeFocusWasPending: nativeFocusWasPending
+        && (platform.hasPendingNativeFocusEvent || snapshot.nativeFocusChanged),
+      focusMonitorID: nativeFocusFrameMonitorID,
+      windowMonitorIDs: {
         let locations = state.windowLocationMap()
-        nativeFocusSkippedWindowIDs = Set(
-          state.windows.keys.filter {
-            locations[$0]?.monitorID != nativeFocusFrameMonitorID
-          }
-        )
-      } else {
-        nativeFocusSkippedWindowIDs = Set(state.windows.keys)
-      }
-    } else {
-      nativeFocusSkippedWindowIDs = []
-    }
+        return Dictionary(uniqueKeysWithValues: state.windows.keys.map { ($0, locations[$0]?.monitorID) })
+      }(),
+      previouslyManagedWindowIDs: previouslyManagedWindowIDs
+    )
     let nativeCursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?
     if let nativeCursorWarpWindowID {
       nativeCursorWarpIsCurrentAfterCommit = { [weak self] in
@@ -891,7 +909,7 @@ extension Daemon {
           ? TimeInterval(config.animation.durationMS) / 1_000
           : 0,
         skipping: nativeFocusSkippedWindowIDs,
-        positionsOnly: animatesMouseReorder || (animatesNativeFocus && !nativelyActivatedWorkspace),
+        positionsOnly: animatesMouseReorder || animatesNativeFocus,
         stagesVisibleBeforeParking: nativelyActivatedWorkspace,
         cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
         cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,

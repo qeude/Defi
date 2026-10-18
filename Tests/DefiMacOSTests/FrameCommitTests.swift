@@ -1321,6 +1321,41 @@ struct FrameCommitTests {
     )
   }
 
+  @Test(arguments: [false, true])
+  func `In-place width change steps its size from the first display step`(shrink: Bool) {
+    let steps = Mutex<[(progress: Double, animatesSize: Bool)]>([])
+    let coordinator = AXFrameCoordinator(batchWriter: { batch, _, progress, _, _, _ in
+      steps.withLock { $0.append((progress, batch.writes.allSatisfy { $0.value.animatesSize })) }
+      return (batch.writes.count, 0, [], true)
+    })
+    coordinator.latestGeneration = 1
+    // A slow motion lane (resize-polluted) must not turn the resize into a jump.
+    coordinator.recordProcessLatencySamples([42: 18], intermediate: true)
+    let id = WindowID(rawValue: 1), element = AXUIElementCreateSystemWide()
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: 42,
+      fromPoint: CGPoint(x: 0, y: 40), point: CGPoint(x: 0, y: 40),
+      fromSize: CGSize(width: shrink ? 1200 : 850, height: 700),
+      size: CGSize(width: shrink ? 850 : 1200, height: 700),
+      positionChanged: false, sizeChanged: true, animatesSize: shrink,
+      synchronousSizeWriteSucceeded: false, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: false, isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-layout-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], monitorFrames: [Rect(x: 0, y: 0, width: 1512, height: 907)],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    _ = coordinator.animate(frame)
+    let recorded = steps.withLock { $0 }
+    let intermediate = recorded.filter { $0.progress < 1 }
+    #expect(intermediate.count >= 2)
+    #expect(intermediate.allSatisfy { $0.animatesSize })
+    #expect(recorded.last?.progress == 1)
+  }
+
   @Test
   func `Animation lane keeps only its latest pending sample`() {
     var lane = LatestAnimationSampleState<Int>()
@@ -1389,6 +1424,44 @@ struct FrameCommitTests {
     let recovered = [42, 43].allSatisfy { coordinator.processAnimationLanes[pid_t($0)]?.isRunning == true }
     coordinator.animationLaneLock.unlock()
     #expect(recovered)
+    queue42.resume()
+    queue43.resume()
+    coordinator.animationLaneWriteGroup.wait()
+  }
+
+  @Test
+  func `Busy stepped growth lane keeps only its latest sample and never holds siblings`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.latestGeneration = 2 // No native writes from these stale samples.
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "readiness-test", writes: [:],
+      animatedWindowIDs: [], animationDuration: 0.2, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    let queue42 = coordinator.processWriteQueue(for: 42)
+    let queue43 = coordinator.processWriteQueue(for: 43)
+    let accumulator = FrameResultAccumulator()
+    func sample(_ pid: pid_t, _ progress: Double) -> ProcessAnimationSample {
+      ProcessAnimationSample(
+        frame: frame, batch: ProcessWriteBatch(processID: pid, writes: []),
+        progress: progress, progressVelocity: 0, intermediate: true,
+        stagingReentry: false, recordFinalSuccess: false,
+        accumulator: accumulator, completion: nil
+      )
+    }
+    queue42.suspend()
+    queue43.suspend()
+    _ = coordinator.submitAnimationSamples([sample(42, 0.1)], ungatedProcessIDs: [42])
+    let second = coordinator.submitAnimationSamples(
+      [sample(42, 0.2), sample(43, 0.2)], ungatedProcessIDs: [42])
+    coordinator.animationLaneLock.lock()
+    var busyLane = coordinator.processAnimationLanes[42]
+    let latestProgress = busyLane?.takeNext()?.progress
+    let siblingAdvanced = coordinator.processAnimationLanes[43] != nil
+    coordinator.animationLaneLock.unlock()
+    #expect(second.coalesced == 1)
+    #expect(latestProgress == 0.2)
+    #expect(siblingAdvanced)
     queue42.resume()
     queue43.resume()
     coordinator.animationLaneWriteGroup.wait()
@@ -2985,16 +3058,30 @@ struct FrameCommitTests {
       defers: false
     ),
     DeferredSizeCase(
-      name: "same display reflow keeps size on the movement timeline",
+      name: "growth past the display edge at its start position defers size",
       displays: [Rect(x: 0, y: 0, width: 1_512, height: 982)],
       source: Rect(x: 756, y: 25, width: 756, height: 910),
+      target: Rect(x: 0, y: 25, width: 1_512, height: 910),
+      defers: true
+    ),
+    DeferredSizeCase(
+      name: "growth with a stale wide start size still defers size",
+      displays: [Rect(x: 0, y: 0, width: 1_512, height: 982)],
+      source: Rect(x: 756, y: 25, width: 1_512, height: 910),
+      target: Rect(x: 0, y: 25, width: 1_512, height: 910),
+      defers: true
+    ),
+    DeferredSizeCase(
+      name: "growth that fits at its start position commits before motion",
+      displays: [Rect(x: 0, y: 0, width: 1_512, height: 982)],
+      source: Rect(x: 0, y: 25, width: 756, height: 910),
       target: Rect(x: 0, y: 25, width: 1_512, height: 910),
       defers: false
     ),
   ]
 
   @Test(arguments: deferredSizeCases)
-  func `Animated size defers until movement completes only across displays`(
+  func `Animated size defers until movement completes across displays or past the display edge`(
     _ scenario: DeferredSizeCase
   ) {
     #expect(

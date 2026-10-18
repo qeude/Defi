@@ -288,6 +288,11 @@ final class SnapshotEngine: @unchecked Sendable {
     set { withLockedStorage { $0.nativeFocusEventHasUnknownProcess = newValue } }
   }
 
+  var nativeFocusEventTimestamp: TimeInterval {
+    get { withLockedStorage { $0.nativeFocusEventTimestamp } }
+    set { withLockedStorage { $0.nativeFocusEventTimestamp = newValue } }
+  }
+
   var lastFocusedWindowByProcess: [pid_t: WindowID] {
     get { withLockedStorage { $0.lastFocusedWindowByProcess } }
     set { withLockedStorage { $0.lastFocusedWindowByProcess = newValue } }
@@ -696,7 +701,7 @@ final class SnapshotEngine: @unchecked Sendable {
   }
 
   func finishFrameCommitReads(_ reads: [WindowID: FrameCommitRead],
-    attemptedWindowIDs: Set<WindowID>, now: TimeInterval) {
+    attemptedWindowIDs: Set<WindowID>, sampledAt: TimeInterval? = nil, now: TimeInterval) {
     withLockedStorage { storage in
       for (id, read) in reads {
         guard var current = storage.frameCommitExpectations[id],
@@ -705,10 +710,16 @@ final class SnapshotEngine: @unchecked Sendable {
           current.target == read.expectation.target,
           current.verification == .requested
         else { continue }
-        if attemptedWindowIDs.contains(id),
-          storage.frameCommitReadIsCurrent(read, inputTimestamp: userInputTracker.latestEventTimestamp),
-          !frameCoordinator.pendingWindowIDs.contains(id)
-        { current.verificationAttempts += 1 }
+        let attempted = attemptedWindowIDs.contains(id)
+          && storage.frameCommitReadIsCurrent(read, inputTimestamp: userInputTracker.latestEventTimestamp)
+          && !frameCoordinator.pendingWindowIDs.contains(id)
+        // An early read never spends an attempt; the deadline read still catches late drift.
+        if attempted, (sampledAt ?? now) < current.deadline {
+          current.verification = .scheduled(current.deadline)
+          storage.frameCommitExpectations[id] = current
+          continue
+        }
+        if attempted { current.verificationAttempts += 1 }
         let delays = CGWindowDiscoveryRetryTracker.retryDelays
         current.verification = current.verificationAttempts < delays.count
           ? .scheduled(now + delays[current.verificationAttempts]) : .watchdog
@@ -1618,6 +1629,7 @@ private struct Storage {
   var nativeFocusEventPending: Bool = false
   var nativeFocusEventProcessIDs: Set<pid_t> = Set<pid_t>()
   var nativeFocusEventHasUnknownProcess: Bool = false
+  var nativeFocusEventTimestamp: TimeInterval = 0
   var lastFocusedWindowByProcess: [pid_t: WindowID] = [:]
   var nativeFullscreenExitDeadlines: [WindowID: TimeInterval] = [:]
   var nativeFullscreenProcessIDsByWindowID: [WindowID: pid_t] = [:]

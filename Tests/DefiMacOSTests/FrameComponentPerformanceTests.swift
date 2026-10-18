@@ -99,6 +99,73 @@ struct FrameComponentPerformanceTests {
     #expect(state.positions == 101)
   }
 
+  // lateMove: a busy app applies each move only after the next resize message.
+  @Test(arguments: [false, true])
+  func clampedGrowthMovesBeforeResizingWithoutUncoveringTheDisplayEdge(lateMove: Bool) {
+    let state = NativeState()
+    var pendingPoint: CGPoint?
+    state.point.x = 600
+    state.size.width = 600
+    let display = Rect(x: 0, y: 0, width: 1200, height: 900)
+    let writer = AXFrameAccessibilityWriter(
+      positionWriter: { _, point in
+        state.positions += 1
+        if lateMove { pendingPoint = point } else { state.point = point }
+        return true
+      },
+      // macOS clamps a resize to the display at the window's current position.
+      sizeWriter: { _, size in
+        state.sizes += 1
+        state.size = CGSize(width: min(size.width, 1200 - state.point.x), height: size.height)
+        if let point = pendingPoint { state.point = point; pendingPoint = nil }
+        return true
+      },
+      sizeReader: { _ in state.size }, positionReader: { _ in state.point },
+      enhancedUIWriter: { _, _ in true }, nativePositionReader: { _, _ in nil }
+    )
+    let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1), element = AXUIElementCreateApplication(-1)
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: state.point, point: CGPoint(x: 0, y: 40),
+      fromSize: state.size, size: CGSize(width: 1200, height: 700),
+      positionChanged: true, sizeChanged: true, animatesSize: false,
+      synchronousSizeWriteSucceeded: false, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: false, isReentering: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "command-layout-animation", writes: [id: write],
+      animatedWindowIDs: [id], animationDuration: 0.15, refreshRateHz: 120,
+      displayIDs: [], monitorFrames: [display],
+      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    coordinator.recordCompletedPosition(state.point, windowID: id)
+    for i in 1...4 {
+      _ = coordinator.applyBatch(
+        ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame,
+        progress: Double(i) / 4, intermediate: i < 4,
+        stagingReentry: false, recordFinalSuccess: i == 4
+      )
+      if !lateMove { #expect(abs(state.point.x + state.size.width - 1200) < 0.5) }
+    }
+    #expect(state.point.x == 0 && state.size.width == 1200)
+  }
+
+  @Test func edgeGrowthStepsUnlessOneResizeOutlastsHalfTheMotion() {
+    let coordinator = AXFrameCoordinator()
+    // Unmeasured: the first step calibrates instead of snapping.
+    #expect(coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.125))
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 40)
+    #expect(coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.125))
+    // One costly resize disables stepping at once; recovery is gradual.
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 90)
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 40)
+    #expect(!coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.125))
+    #expect(coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.25))
+  }
+
   @Test func performanceComponents() throws {
     guard ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1" else { return }
     for projected in [false, true] {

@@ -8,6 +8,23 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func pendingNativeFocusDoesNotHoldBackNewlyAdmittedWindows() {
+    let main = MonitorID(rawValue: 1), side = MonitorID(rawValue: 2)
+    let old = WindowID(rawValue: 1), new = WindowID(rawValue: 2)
+    let other = WindowID(rawValue: 3), floating = WindowID(rawValue: 4)
+    let windows: [WindowID: MonitorID?] = [old: main, new: main, other: side, floating: nil]
+    let managed: Set<WindowID> = [old, other, floating]
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: false, focusMonitorID: nil,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed).isEmpty)
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: true, focusMonitorID: nil,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed) == [old, other, floating])
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: true, focusMonitorID: main,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed) == [other, floating])
+  }
+
   @Test func completedOverviewSelectionAllowsWarpUntilSuperseded() {
     let state = OverviewToggleState()
     state.recordControllerState(true, sessionGeneration: 1)
@@ -44,17 +61,21 @@ struct DaemonCommandPolicyTests {
   @Test func changedNativeFocusAnimatesOnlyItsMonitor() {
     let monitor = MonitorID(rawValue: 2)
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: false,
-      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == monitor)
+      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false,
+      displayGeometryChanged: false) == monitor)
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: nil, floating: false,
-      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
+      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
   }
 
-  @Test(arguments: [(true, false, false, false), (false, true, false, false),
-    (false, false, true, false), (false, false, false, true)])
-  func nativeFocusDoesNotAnimateDuringOtherInteractions(blockers: (Bool, Bool, Bool, Bool)) {
+  @Test(arguments: [(true, false, false, false, false), (false, true, false, false, false),
+    (false, false, true, false, false), (false, false, false, true, false),
+    (false, false, false, false, true)])
+  func nativeFocusDoesNotAnimateDuringOtherInteractions(
+    blockers: (Bool, Bool, Bool, Bool, Bool)
+  ) {
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: MonitorID(rawValue: 2),
-      floating: blockers.0, overviewOpen: blockers.1, mouseGestureActive: blockers.2,
-      displayGeometryChanged: blockers.3) == nil)
+      floating: blockers.0, activatedWorkspace: blockers.4, overviewOpen: blockers.1,
+      mouseGestureActive: blockers.2, displayGeometryChanged: blockers.3) == nil)
   }
 
   @Test
@@ -237,6 +258,39 @@ struct DaemonCommandPolicyTests {
 
     #expect(outgoingFrame == Rect(x: -401, y: -200, width: 300, height: 600))
     #expect(overlapWidth * overlapHeight == 0)
+  }
+
+  @Test
+  func asynchronousSizeClampIsAcceptedAfterRepeatedObservation() {
+    let windowID = WindowID(rawValue: 1)
+    let target = Rect(x: 2, y: 34, width: 1_122, height: 1_353)
+    // Simulator's Device Hub snaps its size after the write readback, and may move.
+    let snapped = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 340, y: 34, width: 403, height: 931), target: target
+    )
+    let resnapped = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 2, y: 34, width: 403.5, height: 931), target: target
+    )
+    let otherSize = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 2, y: 34, width: 460, height: 1_064), target: target
+    )
+    let positionOnly = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 40, y: 34, width: 1_122, height: 1_353), target: target
+    )
+    let retargeted = FrameMismatch(
+      windowID: windowID, actual: snapped.actual,
+      target: Rect(x: 2, y: 34, width: 1_000, height: 1_353)
+    )
+
+    #expect(!settledTiledSizeClamp(snapped, previous: nil))
+    #expect(settledTiledSizeClamp(resnapped, previous: snapped))
+    #expect(!settledTiledSizeClamp(snapped, previous: otherSize))
+    #expect(!settledTiledSizeClamp(positionOnly, previous: positionOnly))
+    #expect(!settledTiledSizeClamp(snapped, previous: retargeted))
+    let acceptance = TiledSizeAcceptance(requested: target, accepted: snapped.actual)
+    #expect(tiledSizeAcceptanceCoversTarget(acceptance, target: target))
+    #expect(!tiledSizeAcceptanceCoversTarget(acceptance, target: retargeted.target))
+    #expect(!tiledSizeAcceptanceCoversTarget(nil, target: target))
   }
 
   @Test

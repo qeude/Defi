@@ -94,11 +94,17 @@ func shouldDeferAnimatedSizeUntilMovementCompletes(
   to target: Rect,
   displayFrames: [Rect]
 ) -> Bool {
-  frameCentersCrossDisplays(
-      from: source,
-      to: target,
-      displayFrames: displayFrames
-    )
+  if frameCentersCrossDisplays(from: source, to: target, displayFrames: displayFrames) {
+    return true
+  }
+  // macOS clamps an Accessibility resize to the display at the window's current
+  // position, so growth past its right edge only fits once the window has moved.
+  // Locate by the leading edge: a stale start size can push the center off the display.
+  let leadingEdge = Rect(x: source.x, y: source.y, width: 0, height: source.height)
+  guard let display = displayFrames.first(where: { $0.contains(centerOf: leadingEdge) }) else {
+    return false
+  }
+  return source.x + target.width > display.x + display.width + 1
 }
 
 struct AsyncPositionWrite: @unchecked Sendable {
@@ -111,7 +117,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let size: CGSize
   let positionChanged: Bool
   let sizeChanged: Bool
-  let animatesSize: Bool
+  var animatesSize: Bool
   var usesLogicalRibbonPath = false
   let synchronousSizeWriteSucceeded: Bool
   let enhancedUIWasEnabled: Bool

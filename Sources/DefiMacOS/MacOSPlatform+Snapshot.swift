@@ -739,7 +739,7 @@ extension SnapshotEngine {
       }
     }
     finishFrameCommitReads(frameCommitReads,
-      attemptedWindowIDs: discovery.attemptedFrameWindowIDs, now: now)
+      attemptedWindowIDs: discovery.attemptedFrameWindowIDs, sampledAt: snapshotStartedAt, now: now)
     if !commandObservations.isEmpty {
       let observations = commandObservations
       NavigationActor.enqueue { [weak host] in
@@ -870,7 +870,10 @@ extension SnapshotEngine {
     }
     if !nativeFocusEventShouldRemainPending(
       eventPending: nativeFocusEventPending,
-      targetMatched: nativeFocusTargetMatched
+      targetMatched: nativeFocusTargetMatched,
+      eventAge: ProcessInfo.processInfo.systemUptime - nativeFocusEventTimestamp,
+      sourceIsFrontmost: nativeFocusEventHasUnknownProcess
+        || frontmostProcessID.map(nativeFocusEventProcessIDs.contains) == true
     ) {
       nativeFocusEventPending = false
       nativeFocusEventProcessIDs.removeAll(keepingCapacity: true)

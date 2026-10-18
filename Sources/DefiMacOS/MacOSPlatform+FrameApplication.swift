@@ -325,7 +325,9 @@ extension MacOSPlatform {
         issuedAt: now,
         deadline: commitDeadline,
         command: commandPerformance ?? continuedCommand,
-        observedAt: nil
+        observedAt: nil,
+        // Read back right after the motion instead of waiting for the quarantine deadline.
+        firstVerificationAt: now + animationDuration + 0.1
       ), for: assignment.windowID)
     }
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
@@ -375,7 +377,10 @@ extension MacOSPlatform {
           to: parkedRibbonTarget ?? assignment.frame
         )
         && (intent?.position == true || parkedRibbonTarget != nil || animatesSizeChange)
-      let animatesSize = wantsFrameAnimation && animatesSizeChange
+      // Growth is committed once before motion; shrink holds its size until the end.
+      let animatesSize =
+        wantsFrameAnimation && animatesSizeChange
+        && (size.width < startSize.width || size.height < startSize.height)
       let write = AsyncPositionWrite(
         element: element,
         application: application,

@@ -31,6 +31,25 @@ struct PlatformEventTests {
     #expect(platform.cursorWarpGeneration.withLock { $0 } != nextWarpGeneration)
   }
 
+  @Test @NavigationActor
+  func navigationSupersedesOlderFocusRecoveryButKeepsCompletedEchoSuppression() {
+    let platform = MacOSPlatform()
+    let window = WindowID(rawValue: 7)
+    platform.internalFocusSuppressions[window] = InternalFocusSuppression(
+      requestID: 1,
+      deadline: ProcessInfo.processInfo.systemUptime + 2,
+      maximumInputTimestamp: 0,
+      completedAt: ProcessInfo.processInfo.systemUptime
+    )
+    let olderRequestGeneration = platform.focusRecoveryIntentGeneration
+    platform.supersedeFocusRecovery()
+    #expect(!focusRecoveryIntentIsCurrent(
+      requestGeneration: olderRequestGeneration,
+      currentGeneration: platform.focusRecoveryIntentGeneration
+    ))
+    #expect(platform.internalFocusSuppressions[window] != nil)
+  }
+
   @Test @MainActor
   func delayedTapPresentationDoesNotInvalidateNewerInput() async {
     let platform = await MacOSPlatform()
@@ -531,6 +550,11 @@ struct PlatformEventTests {
         == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
     )
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: nil) == .process(7))
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 0) == .process(7))
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 1) == .full)
+    #expect(applicationLifecycleRetryInvalidation(for: .application, processID: nil, knownWindowCount: nil) == .full)
+    #expect(applicationLifecycleRetryInvalidation(for: .applicationTerminated, processID: 7, knownWindowCount: nil) == .full)
     #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
     #expect(windowTopologyRefreshDelays(for: .windows).isEmpty)
     #expect(windowTopologyRefreshDelays(for: .focus).isEmpty)
@@ -1297,25 +1321,22 @@ struct PlatformEventTests {
   }
 
   @Test
-  func unresolvedNativeFocusEventRemainsPendingUntilTargetMatches() {
-    #expect(
+  func unresolvedNativeFocusEventRemainsPendingUntilTargetMatchesOrExpires() {
+    func remains(
+      pending: Bool = true, matched: Bool = false, age: TimeInterval, frontmost: Bool
+    ) -> Bool {
       nativeFocusEventShouldRemainPending(
-        eventPending: true,
-        targetMatched: false
+        eventPending: pending, targetMatched: matched,
+        eventAge: age, sourceIsFrontmost: frontmost
       )
-    )
-    #expect(
-      nativeFocusEventShouldRemainPending(
-        eventPending: true,
-        targetMatched: true
-      ) == false
-    )
-    #expect(
-      nativeFocusEventShouldRemainPending(
-        eventPending: false,
-        targetMatched: false
-      ) == false
-    )
+    }
+    #expect(remains(age: 0.1, frontmost: true))
+    #expect(remains(age: 1.9, frontmost: true))
+    #expect(remains(matched: true, age: 0.1, frontmost: true) == false)
+    #expect(remains(pending: false, age: 0.1, frontmost: true) == false)
+    #expect(remains(age: 2, frontmost: true) == false, "Bounded like an application activation")
+    #expect(remains(age: 0.1, frontmost: false), "Frontmost update may lag the focus event")
+    #expect(remains(age: 0.25, frontmost: false) == false, "Background app focus never resolves")
   }
 
   @Test
@@ -2153,7 +2174,8 @@ struct PlatformEventTests {
       (.applicationTerminated, nil, .full),
       (.windows, 7, .process(7)),
       (.windows, nil, .full),
-      (.application, 7, .full),
+      (.application, 7, .process(7)),
+      (.application, nil, .full),
       (.focus, 7, .process(7)),
       (.focus, nil, .full),
     ] as [(PlatformEventKind, pid_t?, WindowSnapshotInvalidation)]

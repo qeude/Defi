@@ -160,6 +160,7 @@ final class Daemon {
   var observedPlatformEventCount = 0
   var targetMismatches: [FrameMismatch] = []
   var targetMismatchObservationState = WidthMismatchObservationState()
+  var lastTiledSizeMismatches: [WindowID: FrameMismatch] = [:]
   var activelyResizedWindowID: WindowID?
   var mouseGestureInitialFrame: Rect?
   var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
@@ -242,11 +243,20 @@ final class Daemon {
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
     lastPersistedTopology = restoredTopology
-    platform.setCommandDiagnosticHandler { [weak diagnostics] sample in
+    platform.setCommandDiagnosticHandler { [weak self, weak diagnostics] sample in
       diagnostics?.record(sample)
+      if let reason = AutoMarkPolicy.reason(for: sample) {
+        self?.autoMark(reason: reason)
+      }
     }
-    platform.setDiagnosticAnomalyHandler { [weak diagnostics] uptime, event in
+    platform.setDiagnosticAnomalyHandler { [weak self, weak diagnostics] uptime, event in
       diagnostics?.recordAnomaly(uptime: uptime, event: event)
+      // Runs under the coordinator lock on the animation thread: hop before
+      // building status.
+      if let gap = slowAnimationDisplayGapMS(event) {
+        let reason = "displayGapMs=\(Int(gap))"
+        NavigationActor.enqueue { self?.autoMark(reason: reason) }
+      }
     }
   }
 
@@ -333,6 +343,7 @@ final class Daemon {
     pendingDisplaySyncDeadlines.removeAll(keepingCapacity: true)
     supersededDesktopSnapshotRequest = nil
     targetMismatchObservationState = WidthMismatchObservationState()
+    lastTiledSizeMismatches.removeAll()
     needsDesktopSync = false
       followUpTickSignature = nil
       followUpBackoffSteps = 0

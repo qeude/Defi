@@ -13,17 +13,33 @@ import signal
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
 ART = ROOT / 'dist/verification/perf-hillclimb-20261008'
+LOAD_ART = ROOT / 'dist/perf-load'
 INPUTS = ('Sources', 'Tests', 'Package.swift', 'Package.resolved')
 SMOKE = {'tests': 1, 'cases': {'accepted-read': {'operations': 32,
          'output': {'accepted': 32, 'reads': 32}, 'metrics': ['elapsed_ms']}},
          'env': {'DEFI_PERF_DELAY_MS': '1'}}
 WORKLOADS = {'ordinary': (['right', 'left'] * 3, .15),
              'burst': (['right', 'right', 'left', 'left'] * 2, .03),
-             'width': (['cycle-width'] * 3, .15), 'late-create': ([], 0)}
+             'width': (['cycle-width'] * 3, .15),
+             'slow-ordinary': (['right', 'left'] * 3, .15),
+             'scroll': (['right'] * 3 + ['left'] * 3, .15),
+             'slow-scroll': (['right'] * 3 + ['left'] * 3, .15),
+             'slow-width': (['cycle-width'] * 3, .15),
+             'workspace': (['away', 'home'], .6), 'late-create': ([], 0)}
+SLOW_WORKLOADS = {'slow-ordinary', 'slow-scroll', 'slow-width'}
+SLOW_FIXTURE = 1
+# Scrolling, bursts and slow lanes make per-command participation timing-dependent; only these stay frozen.
+FROZEN_PARTICIPATION = {'ordinary', 'width', 'late-create'}
+TRIAL_ATTEMPTS = 3
+IDLE_S = 10
+# Busy 30 ms of every 40 ms delays each AX request up to 30 ms, near the 37-45 ms per position+size
+# write seen in a real slow app; runs still converge.
+BUSY_S, BUSY_PERIOD_S = .030, .040
 
 
 def save(path, value):
@@ -142,20 +158,30 @@ def parse_trial(log, contract):
             'errors': 0, 'records': records}
 
 
-def summarize(trials):
-    if [(t['side'], t['repeat']) for t in trials] != [(s, i) for i in range(1, 6) for s in 'AB']:
+def summarize(trials, rounds=6):
+    if [(t['side'], t['repeat']) for t in trials] != [(s, i) for i in range(1, rounds) for s in 'AB']:
         raise RuntimeError('Incomplete alternating comparison')
     result = {}
     for record in trials[0]['records']:
         for metric in record['metrics']:
-            values = {side: [next(r for r in t['records'] if r['case'] == record['case'])['metrics'][metric]
+            values = {side: [next(r for r in t['records'] if r['case'] == record['case'])['metrics'].get(metric)
                              for t in trials if t['side'] == side] for side in 'AB'}
+            if any(v is None for side in values.values() for v in side):
+                continue
             result[record['case'] + '/' + metric] = {
                 side: {'median': statistics.median(v), 'range': [min(v), max(v)]}
                 for side, v in values.items()}
             result[record['case'] + '/' + metric]['paired_B_minus_A'] = [
                 b - a for a, b in zip(values['A'], values['B'])]
     return result
+
+
+def print_summary(summary, stream=sys.stdout):
+    print(f"{'workload/metric':48} {'A med':>9} {'B med':>9} {'B-A med':>9}  A range", file=stream)
+    for key, row in summary.items():
+        low, high = row['A']['range']
+        print(f"{key:48} {row['A']['median']:9.1f} {row['B']['median']:9.1f} "
+              f"{statistics.median(row['paired_B_minus_A']):9.1f}  {low:.1f}..{high:.1f}", file=stream)
 
 
 def compare(args, output):
@@ -264,6 +290,104 @@ class Fixture:
         self.log.close()
 
 
+class MotionProbe:
+    """On-screen smoothness of fixture windows from the motion_probe WindowServer sampler."""
+
+    def __init__(self, binary, cli):
+        self.binary, self.cli = binary, cli
+
+    def start(self):
+        import motion_probe
+        self.collector = motion_probe.TraceCollector(self.cli)
+        self.collector.fetch()
+        self.started = motion_probe.uptime()
+        self.out = tempfile.TemporaryFile('w+')
+        self.sampler = subprocess.Popen([str(self.binary), 'sample', motion_probe.daemon_pid(), '3600', '4'],
+                                        stdout=self.out)
+
+    def stop(self, path, pids, slow_pid):
+        """slow_* is the process made busy in slow workloads, split out in every workload so groups compare."""
+        import motion_probe
+        self.sampler.send_signal(signal.SIGTERM)
+        self.sampler.wait(timeout=15)
+        # One fetch after the workload; a periodic CLI fetch would compete with the timed commands.
+        self.collector.fetch()
+        self.out.seek(0)
+        records = [json.loads(line) for line in self.out]
+        self.out.close()
+        end = records[-1] if records and records[-1].get('end') else {'errors': 1}
+        states = [r for r in records if 't' in r and 'apps' in r]
+        events = [e for e in self.collector.events() if e['t'] >= self.started - 1]
+        generations, _ = motion_probe.build_generations(events)
+        rows = [r for r in motion_probe.ribbon_rows(generations, *motion_probe.window_tracks(states))
+                if r['pid'] in pids]
+        groups = {'fast': [r for r in rows if r['pid'] != slow_pid], 'slow': [r for r in rows if r['pid'] == slow_pid]}
+        metrics = {}
+        for name, group in groups.items():
+            metrics.update({name + '_frames': sum(r['frames'] for r in group),
+                            name + '_stalls': sum(r['stalls'] for r in group),
+                            name + '_max_gap_ms': max((r['max_gap_ms'] for r in group), default=0.0),
+                            name + '_backward_steps': sum(r['backward_steps'] for r in group)})
+        errors = end['errors'] + self.collector.gaps
+        save(path, {'metrics': metrics, 'rows': rows, 'sampler': end, 'trace_gaps': self.collector.gaps,
+                    'slow_pid': slow_pid, 'generations': len(generations), 'states': len(states)})
+        return {'metrics': metrics, 'errors': errors}
+
+
+class CPULoad:
+    def __init__(self, binary, threads):
+        self.process = subprocess.Popen([str(binary), str(threads)], stdin=subprocess.PIPE,
+                                        start_new_session=True) if threads else None
+
+    def stop(self):
+        if self.process is None:
+            return
+        self.process.stdin.close()
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+        self.process = None
+
+
+def idle_seconds():
+    output = subprocess.check_output(['ioreg', '-c', 'IOHIDSystem', '-d', '4'], text=True)
+    return int(re.search(r'"HIDIdleTime" = (\d+)', output).group(1)) / 1e9
+
+
+def wait_for_idle(seconds=IDLE_S):
+    announced = False
+    while idle_seconds() < seconds:
+        if not announced:
+            print(f'waiting for {seconds:.0f}s without keyboard or mouse input', flush=True)
+            announced = True
+        time.sleep(1)
+
+
+def activate(pid):
+    # Cooperative activation lets the frontmost app refuse an app's own activation request.
+    run(['osascript', '-e', f'tell application "System Events" to set frontmost of (first process whose unix id is {pid}) to true'])
+
+
+def alert_count():
+    result = subprocess.run(['osascript', '-e', 'tell application "System Events" to count windows of '
+                             '(processes whose name is "UserNotificationCenter")'],
+                            capture_output=True, text=True, timeout=10)
+    return sum(map(int, re.findall(r'\d+', result.stdout))) if result.returncode == 0 else 0
+
+
+def wait_for_quiet_alerts(quiet=5):
+    # A daemon start can raise a system permission alert that steals focus when it appears;
+    # alerts already on screen are left for the user.
+    since, count = time.monotonic(), alert_count()
+    while time.monotonic() - since < quiet:
+        time.sleep(.5)
+        if (current := alert_count()) > count:
+            since = time.monotonic()
+        count = current
+
+
 def settled(status):
     return all(token in status for token in
                ('axPending=false', 'focusPending=false', 'animating=false', 'drift=0[', 'settling=0 '))
@@ -343,7 +467,15 @@ def wait_owned(fixtures, expected, workspace, discovered, require_focus=True, se
     raise RuntimeError(f'Owned readiness/native focus did not converge within {timeout}s: {error}')
 
 
-def drive_commands(commands, interval, send, driver=None):
+def command_args(command, workspaces=None):
+    if command == 'cycle-width':
+        return ['cycle-width', 'next']
+    if command in ('away', 'home'):
+        return ['workspace', workspaces[command]]
+    return ['focus-column', command]
+
+
+def drive_commands(commands, interval, send, driver=None, workspaces=None):
     start = time.monotonic()
     driver = [] if driver is None else driver
     tolerance = max(.005, interval * .20)
@@ -355,7 +487,7 @@ def drive_commands(commands, interval, send, driver=None):
             raise RuntimeError('Command start missed frozen cadence tolerance')
         row = {'command': command, 'plannedAt': planned, 'beganAt': began, 'repliedAt': None}
         driver.append(row)
-        send(*(['cycle-width', 'next'] if command == 'cycle-width' else ['focus-column', command]))
+        send(*command_args(command, workspaces))
         replied = row['repliedAt'] = time.monotonic()
         if replied > planned + interval:
             raise RuntimeError('Command reply missed frozen deadline; workload rejected')
@@ -393,7 +525,7 @@ def diagnostic_marker(directory):
 
 
 def validate_diagnostics(records, marker, generation, commands, targets, workspace, monitor,
-                         trace, expected_counts=None):
+                         trace, expected_counts=None, workspaces=None):
     diagnostics = sorted((r for r in records if r.get('kind') == 'command'
                           and r.get('sessionID') == marker['sessionID']
                           and r.get('uptimeSeconds', 0) > marker['uptimeSeconds']),
@@ -406,8 +538,16 @@ def validate_diagnostics(records, marker, generation, commands, targets, workspa
     for index, (record, command, target) in enumerate(zip(diagnostics, commands, targets)):
         current = generation + index + 1
         count = record.get('expectedWindowCount')
+        if command in ('away', 'home'):
+            # Workspace switches select per-workspace focus and participation; only identity is frozen.
+            if record.get('generation') != current or record.get('monitorID') != monitor \
+                    or record.get('command') != ' '.join(command_args(command, workspaces)) \
+                    or record.get('outcome') not in ('completed', 'superseded') or type(count) is not int:
+                raise RuntimeError('Wrong workspace command sequence or ownership')
+            counts.append(count)
+            continue
         if record.get('generation') != current \
-                or record.get('command') != ('cycle-width next' if command == 'cycle-width' else 'focus-column ' + command) \
+                or record.get('command') != ' '.join(command_args(command)) \
                 or record.get('windowID') != target or record.get('workspaceID') != workspace \
                 or record.get('monitorID') != monitor \
                 or record.get('outcome') not in ('completed', 'superseded') \
@@ -424,7 +564,7 @@ def validate_diagnostics(records, marker, generation, commands, targets, workspa
     return diagnostics, counts
 
 
-def native_trial(fixtures, workloads, output, expected_participation=None, expected_initial=None):
+def native_trial(fixtures, workloads, output, expected_participation=None, expected_initial=None, probe=None):
     import desktop_session as session
     from ribbon_stress import wait_for_settlement
     workspace_state = json.loads(session.command('list-workspaces', '--json'))
@@ -469,6 +609,17 @@ def native_trial(fixtures, workloads, output, expected_participation=None, expec
     current_index = 0
     for workload in workloads:
         commands, interval = WORKLOADS[workload]
+        slow = workload in SLOW_WORKLOADS
+        if slow:
+            fixtures[SLOW_FIXTURE].ask('set-busy', delay=BUSY_S, period=BUSY_PERIOD_S)
+        workspaces = None
+        if 'away' in commands:
+            others = [w for w in json.loads(session.command('list-workspaces', '--json'))['monitors'][0]['workspaces']
+                      if w['windowCount'] == 0 and w['id'] != empty['id']]
+            others.sort(key=lambda w: w['kind'] != 'trailing')
+            if not others:
+                raise RuntimeError('No empty workspace to switch away to')
+            workspaces = {'away': others[0]['id'], 'home': empty['id']}
         marker, generation = diagnostic_marker(directory)
         before_writes = session.command('status')
         targets = []
@@ -481,23 +632,32 @@ def native_trial(fixtures, workloads, output, expected_participation=None, expec
                 raise RuntimeError('Frozen command would be a boundary no-op')
             targets.append(expected[current_index][2])
         driver = []
+        if probe:
+            probe.start()
         try:
-            start, driver = drive_commands(commands, interval, session.command, driver)
+            try:
+                start, driver = drive_commands(commands, interval, session.command, driver, workspaces)
+            finally:
+                (output / (workload + '-driver.jsonl')).write_text(''.join(json.dumps(r) + '\n' for r in driver))
+            if workload == 'late-create':
+                report = fixtures[3].ask('delayed-create', id='late', delay=0.35)
+                deadline = time.monotonic() + 10
+                while not any(w['id'] == 'late' for w in report['windows']):
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('Missed delayed creation')
+                    time.sleep(.02)
+                    report = fixtures[3].ask()
+                window = next(w for w in report['windows'] if w['id'] == 'late')
+                expected.append((3, 'late', window['windowNumber']))
+            final, reports = wait_owned(fixtures, expected, empty['id'], discovered,
+                                        selected=targets[-1] if targets else None)
+            end = time.monotonic()
         finally:
-            (output / (workload + '-driver.jsonl')).write_text(''.join(json.dumps(r) + '\n' for r in driver))
-        if workload == 'late-create':
-            report = fixtures[3].ask('delayed-create', id='late', delay=0.35)
-            deadline = time.monotonic() + 10
-            while not any(w['id'] == 'late' for w in report['windows']):
-                if time.monotonic() >= deadline:
-                    raise RuntimeError('Missed delayed creation')
-                time.sleep(.02)
-                report = fixtures[3].ask()
-            window = next(w for w in report['windows'] if w['id'] == 'late')
-            expected.append((3, 'late', window['windowNumber']))
-        final, reports = wait_owned(fixtures, expected, empty['id'], discovered,
-                                    selected=targets[-1] if targets else None)
-        end = time.monotonic()
+            motion = probe.stop(output / (workload + '-motion.json'),
+                                {f.process.pid for f in fixtures}, fixtures[SLOW_FIXTURE].process.pid) \
+                if probe else None
+        if slow:
+            fixtures[SLOW_FIXTURE].ask('set-busy', delay=0, period=BUSY_PERIOD_S)
         deadline = time.monotonic() + 5
         while True:
             raw = diagnostic_records(directory)
@@ -509,7 +669,9 @@ def native_trial(fixtures, workloads, output, expected_participation=None, expec
             time.sleep(.05)
         diagnostics, counts = validate_diagnostics(raw, marker, generation, commands, targets,
                                                    empty['id'], monitor['id'], session.command('trace'),
-                                                   None if expected_participation is None else expected_participation[workload])
+                                                   None if expected_participation is None or workload not in FROZEN_PARTICIPATION
+                                                   else expected_participation[workload],
+                                                   workspaces)
         participation[workload] = counts
         metrics = {'native_verified_workload_ms': (end - start) * 1000,
                    'last_command_to_native_verified_ms': (end - (driver[-1]['beganAt'] if driver else start)) * 1000}
@@ -521,12 +683,21 @@ def native_trial(fixtures, workloads, output, expected_participation=None, expec
             if type(convergence) not in (int, float) or not math.isfinite(convergence) or convergence < 0:
                 raise RuntimeError('Missing final production convergence metric')
             metrics['diagnostic_convergence_ms'] = convergence
+            for name, field in (('focus_ms', 'focusMS'), ('first_write_ms', 'firstWriteMS')):
+                values = [r[field] for r in diagnostics if type(r.get(field)) in (int, float)]
+                if values:
+                    metrics[name] = statistics.median(values)
+        if motion and motion['errors']:
+            raise RuntimeError('Motion probe reported errors')
+        if motion:
+            metrics.update(motion['metrics'])
         save(output / (workload + '-observations.json'), {'initial': initial, 'final': final, 'fixtures': reports,
                                                         'nativeVerifiedAt': end, 'marker': marker})
         (output / (workload + '-diagnostics.jsonl')).write_text(''.join(json.dumps(r) + '\n' for r in diagnostics))
-        records.append({'case': workload, 'operations': len(commands) or 1, 'errors': 0,
+        records.append({'case': workload, 'operations': len(commands) or 1, 'errors': motion['errors'] if motion else 0,
                         'metrics': metrics, 'output': final})
-    return {'records': records, 'operations': sum(r['operations'] for r in records), 'errors': 0,
+    return {'records': records, 'operations': sum(r['operations'] for r in records),
+            'errors': sum(r['errors'] for r in records),
             'participation': participation, 'initial': initial}
 
 
@@ -584,8 +755,19 @@ def native_compare(args, output):
         run([ROOT / 'script/check_signing.sh', installed, bundle])
     binary = output / 'PerformanceFixture'
     run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/PerformanceFixture.swift', '-o', binary])
+    rounds, cpu_threads = getattr(args, 'rounds', 6), getattr(args, 'cpu_load', 0)
+    probe = None
+    if getattr(args, 'motion', False):
+        run(['swiftc', '-O', '-swift-version', '6', ROOT / 'script/motion_probe.swift', '-o', output / 'motion-probe'])
+        probe = MotionProbe(output / 'motion-probe', session.CLI)
+    load_binary = output / 'defi-cpu-load'
+    if cpu_threads:
+        run(['swiftc', '-O', ROOT / 'script/cpu_load.swift', '-o', load_binary])
     contract = {'workloads': {w: WORKLOADS[w] for w in args.workload},
-         'processes': 4, 'windows': [2, 2, 2, 2], 'repeats': 5, 'keyboard_probe': 'deferred',
+         'processes': 4, 'windows': [2, 2, 2, 2], 'repeats': rounds - 1, 'keyboard_probe': 'deferred',
+         'slow': {'fixture': SLOW_FIXTURE, 'busy_s': BUSY_S, 'period_s': BUSY_PERIOD_S,
+                  'workloads': sorted(SLOW_WORKLOADS.intersection(args.workload))},
+         'cpu_load_threads': cpu_threads, 'motion_probe': probe is not None,
          'cadence': {'start_tolerance': 'max(5ms, interval * 0.20)', 'reply_deadline': 'planned start + interval'},
          'readiness': 'per-window owned discovery then explicit last focus; final first focus; native focus and frames stable for 300ms',
          'bundle_hashes': {s: bundle_hash(b) for s, b in bundles.items()}, 'sources': sources,
@@ -594,18 +776,24 @@ def native_compare(args, output):
     config = Path.home() / '.config/defi/config.toml'
     contract['config_sha256'] = sha(config) if config.exists() else 'code defaults'
     save(output / 'contract.json', contract)
-    fixtures, trials = [], []
+    fixtures, trials, loads, failed = [], [], [], 0
     checkpoint = output / 'checkpoint'
     def install(bundle):
         run([ROOT / 'script/check_signing.sh', installed, bundle])
-        run([ROOT / 'script/build_and_run.sh', '--install-staged', bundle, '--verify'], timeout=120)
+        try:
+            run([ROOT / 'script/build_and_run.sh', '--install-staged', bundle, '--verify'], timeout=120)
+        except RuntimeError:
+            # LaunchServices occasionally rejects the first service start (-600) right after replacement.
+            time.sleep(2)
+            run([ROOT / 'script/build_and_run.sh', '--install-staged', bundle, '--verify'], timeout=120)
         deadline = time.monotonic() + 15
-        while 'monitors=1[' not in session.command('status'):
+        while not re.search(r'monitors=[1-9]', session.command('status')):
             if time.monotonic() >= deadline:
                 raise RuntimeError('Installed daemon did not discover the frozen monitor')
             time.sleep(.05)
         if session.daemon_count() != 1:
             raise RuntimeError('Expected exactly one daemon')
+        wait_for_quiet_alerts()
     def interrupted(*_):
         raise KeyboardInterrupt()
     previous = signal.signal(signal.SIGTERM, interrupted)
@@ -619,32 +807,54 @@ def native_compare(args, output):
         save(output / 'initial-native-focus.json', initial_native)
         session.checkpoint(checkpoint)
         session.start()
-        for repeat in range(6):
+        for repeat in range(rounds):
             for side in 'AB':
-                install(bundles[side])
-                if bundle_hash(bundles[side]) != contract['bundle_hashes'][side] or \
-                        (sha(config) if config.exists() else 'code defaults') != contract['config_sha256']:
-                    raise RuntimeError('Bundle or configuration changed')
-                trial_dir = output / f'{side}{repeat}'
-                trial_dir.mkdir()
-                load = environment()
-                for i in range(4):
-                    fixtures.append(Fixture(binary, trial_dir / f'fixture-{i}.jsonl'))
-                trial = {**native_trial(fixtures, args.workload, trial_dir, contract.get('expected_participation'),
-                                       contract.get('expected_initial')), 'side': side,
-                         'repeat': repeat, 'environment': load}
-                outputs = {r['case']: r['output'] for r in trial['records']}
-                if side == 'A' and repeat == 0:
-                    contract['expected_outputs'] = outputs
-                    contract['expected_initial'] = trial['initial']
-                    contract['expected_participation'] = trial['participation']
-                    save(output / 'contract.json', contract)
-                elif outputs != contract['expected_outputs']:
-                    raise RuntimeError('Native focus or frames differ from frozen baseline outputs')
+                for attempt in range(TRIAL_ATTEMPTS):
+                    install(bundles[side])
+                    if bundle_hash(bundles[side]) != contract['bundle_hashes'][side] or \
+                            (sha(config) if config.exists() else 'code defaults') != contract['config_sha256']:
+                        raise RuntimeError('Bundle or configuration changed')
+                    trial_dir = output / (f'{side}{repeat}' + (f'-retry{attempt}' if attempt else ''))
+                    trial_dir.mkdir()
+                    wait_for_idle()
+                    began = time.monotonic()
+                    loads.append(CPULoad(load_binary, cpu_threads))
+                    load = environment()
+                    try:
+                        for i in range(4):
+                            fixtures.append(Fixture(binary, trial_dir / f'fixture-{i}.jsonl'))
+                        # A fixture still launching can steal activation from the first window.
+                        for fixture in fixtures:
+                            fixture.ask()
+                        activate(fixtures[0].process.pid)
+                        trial = {**native_trial(fixtures, args.workload, trial_dir,
+                                                contract.get('expected_participation'),
+                                                contract.get('expected_initial'), probe),
+                                 'side': side, 'repeat': repeat, 'environment': load}
+                        outputs = {r['case']: r['output'] for r in trial['records']}
+                        if side == 'A' and repeat == 0:
+                            contract['expected_outputs'] = outputs
+                            contract['expected_initial'] = trial['initial']
+                            contract['expected_participation'] = trial['participation']
+                            save(output / 'contract.json', contract)
+                        elif outputs != contract['expected_outputs']:
+                            raise RuntimeError('Native focus or frames differ from frozen baseline outputs')
+                        if idle_seconds() < time.monotonic() - began:
+                            raise RuntimeError('Keyboard or mouse input during the trial')
+                    except RuntimeError as error:
+                        failed += 1
+                        save(trial_dir / 'failure.json', {'error': str(error)})
+                        print(f'{side}{repeat}: attempt {attempt + 1} failed: {error}', flush=True)
+                        if attempt + 1 == TRIAL_ATTEMPTS:
+                            raise
+                        continue
+                    finally:
+                        loads.pop().stop()
+                        for fixture in fixtures:
+                            fixture.close()
+                        fixtures.clear()
+                    break
                 print(f'{side}{repeat}: operations={trial["operations"]} errors={trial["errors"]}', flush=True)
-                for fixture in fixtures:
-                    fixture.close()
-                fixtures.clear()
                 trial['artifacts'] = {str(p): sha(p) for p in trial_dir.iterdir() if p.is_file()}
                 save(output / f'{side}{repeat}.json', trial)
                 if repeat:
@@ -654,9 +864,18 @@ def native_compare(args, output):
             raise RuntimeError('Source provenance changed during comparison')
         if any(bundle_hash(b) != contract['bundle_hashes'][s] for s, b in bundles.items()):
             raise RuntimeError('Bundle changed during comparison')
-        save(output / 'comparison.json', {'trials': trials, 'summary': summarize(trials)})
+        summary = summarize(trials, rounds)
+        save(output / 'comparison.json', {'trials': trials, 'summary': summary})
+        print_summary(summary)
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        for cpu in loads:
+            cpu.stop()
+        try:
+            print(f'completed trials={len(trials)} commands={sum(t["operations"] for t in trials)} '
+                  f'errors={failed + sum(t["errors"] for t in trials)} (failed attempts={failed})', flush=True)
+        except BrokenPipeError:
+            pass
         try:
             cleanup_errors = []
             for fixture in fixtures:
@@ -677,13 +896,24 @@ def native_compare(args, output):
                     raise
                 else:
                     session.restore(checkpoint)
+                wait_for_quiet_alerts()
+                alert = subprocess.run(['ps', '-p', str(initial_native['pid']), '-o', 'comm='], capture_output=True,
+                                       text=True).stdout.strip().endswith('/UserNotificationCenter')
                 observer = Fixture(binary, output / 'restored-native-focus.jsonl')
                 try:
-                    restored = observer.ask('native-focus')['nativeFocus']
-                    if restored != initial_native or session.daemon_count() != 1:
+                    # Quitting fixtures hands activation to whichever app macOS picks, not the initial one.
+                    activate(initial_native['pid'])
+                    deadline = time.monotonic() + (0 if alert else 5)
+                    while (restored := observer.ask('native-focus')['nativeFocus']) != initial_native \
+                            and time.monotonic() < deadline:
+                        time.sleep(.25)
+                    # A system alert that held focus initially cannot be restored; logical state still is.
+                    if (restored != initial_native and not alert) or session.daemon_count() != 1:
                         raise RuntimeError('Native focus restoration incomplete')
                 finally:
                     observer.close()
+            if subprocess.run(['pgrep', '-f', str(load_binary)], capture_output=True).returncode == 0:
+                cleanup_errors.append('CPU load process survived')
             if cleanup_errors:
                 raise RuntimeError('Fixture cleanup failed: ' + '; '.join(cleanup_errors))
         finally:
@@ -709,13 +939,19 @@ def main():
             sub.add_argument('--a-source', type=Path)
             sub.add_argument('--b-source', type=Path)
             sub.add_argument('--workload', nargs='+', choices=WORKLOADS, default=list(WORKLOADS))
+            sub.add_argument('--rounds', type=int, default=6, help='alternating A,B rounds; the first is warmup')
+            sub.add_argument('--cpu-load', type=int, default=0, help='userInitiated busy threads during each trial')
+            sub.add_argument('--no-motion', dest='motion', action='store_false',
+                             help='skip on-screen fixture motion sampling')
     args = parser.parse_args()
     if args.command == 'snapshot':
         print(snapshot(args.source, ART / 'snapshots' / args.name))
         return
     output = args.output.resolve()
-    if not output.is_relative_to(ART.resolve()):
+    if not (output.is_relative_to(ART.resolve()) or output.is_relative_to(LOAD_ART.resolve())):
         parser.error('Use an output directory under ignored experiment artifacts')
+    if args.command == 'native-compare' and (args.rounds < 2 or args.cpu_load < 0):
+        parser.error('--rounds must be at least 2 and --cpu-load non-negative')
     if args.command == 'native-compare':
         from desktop_lock import inherited_lock
         if inherited_lock() is None:
