@@ -92,6 +92,10 @@ Proof standard: drive the user path (CLI command or real hotkey), capture the st
 
 Keep the evidence directory.
 
+## Width animation check
+
+After any change to size writes, growth, shrink or the animation loop: `python3 script/desktop_lock.py --wait .agents/skills/verify-defi/resize_check.sh` (see `features/width-animation.md`).
+
 ## Feature map
 
 See `features/README.md`. A proof that drives one entry point is incomplete when the map lists others.
