@@ -21,6 +21,7 @@ protocol OverviewViewDelegate: AnyObject {
 
 @MainActor
 final class OverviewPanel {
+  private static let wallpaperFadeDuration = 0.16
   let monitorID: MonitorID
   let usesCapturedDesktop: Bool
   let window: NSPanel
@@ -245,7 +246,7 @@ final class OverviewPanel {
         // Core Animation keeps the fade smooth while the main thread is busy.
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
-        fade.duration = 0.16
+        fade.duration = Self.wallpaperFadeDuration
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -258,7 +259,7 @@ final class OverviewPanel {
         rootView.layer?.opacity = 0
         rootView.layer?.add(fade, forKey: "overview-wallpaper-fade")
         CATransaction.commit()
-        do { try await Task.sleep(for: .seconds(0.16)) } catch { return }
+        do { try await Task.sleep(for: .seconds(Self.wallpaperFadeDuration)) } catch { return }
         guard !Task.isCancelled, surfaceGeneration == generation else { return }
       }
       hide()

@@ -9,7 +9,7 @@ import ScreenCaptureKit
 
 struct OverviewPreviewTests {
   @MainActor @Test func emptyWorkspaceClosingZoomsWallpaperToFullScreen() throws {
-    guard let screen = NSScreen.main else { return }
+    let screen = try #require(NSScreen.main)
     let workspaceID = WorkspaceID(rawValue: "empty")
     let projection = OverviewProjection(monitorID: MonitorID(rawValue: 1), workspaces: [
       OverviewWorkspaceProjection(workspaceID: workspaceID,

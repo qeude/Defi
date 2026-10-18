@@ -31,6 +31,7 @@ final class OverviewPreviewClosingScene {
         width: assignment.frame.width, height: assignment.frame.height))
     }).filter { $0.value.intersects(viewport) }
     endsSquare = workspace.windows.isEmpty
+      && workspace.hiddenTiledWindowCountBefore + workspace.hiddenTiledWindowCountAfter == 0
     if endsSquare {
       let card = workspace.visibleFrame
       guard let image = wallpaper?.cgImage(forProposedRect: nil, context: nil, hints: nil),
