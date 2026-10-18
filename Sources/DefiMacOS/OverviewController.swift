@@ -5,6 +5,7 @@ import DefiModel
 import OSLog
 import QuartzCore
 
+private let overviewPressurePreviewBytes = 4 * 1_024 * 1_024
 private let overviewOpeningLogger = Logger(subsystem: "com.qeude.defi", category: "OverviewOpening")
 
 let overviewTransitionDuration: TimeInterval = 0.16
@@ -303,10 +304,11 @@ public final class OverviewController: NSObject {
       idlePreviewTask = nil
       idlePreviewAttempted = []
       if events.contains(.critical) { rememberedPreviews.removeAll() }
-      else { rememberedPreviews.retain(idlePreviewPriorityIDs, maximumBytes: 4 * 1_024 * 1_024) }
+      else { rememberedPreviews.retain(idlePreviewPriorityIDs, maximumBytes: overviewPressurePreviewBytes) }
       OverviewSurfacePlanner.shared.disable()
       surfaceCapture.stop(state: "pressure")
-      idlePreparationEnabled = false
+      // Warning keeps compact on-screen previews so the opening zoom never loses its content.
+      idlePreparationEnabled = !events.contains(.critical)
       if !isOpen {
         releaseIdleOverviewResources()
         closePanelsImmediately()
@@ -397,9 +399,11 @@ public final class OverviewController: NSObject {
     })
     preparePanels(monitorIDs: monitorIDs)
     if usesWorkspaceParking { OverviewSurfacePlanner.shared.disable() }
-    let requests = snapshot.map { surfaceRequests(snapshot: $0, layout: layout, zoom: zoom) } ?? []
-    surfaceCapture.prepare(requests, enabled: !usesWorkspaceParking)
-    surfacePreparationPending = false
+    if !isUnderMemoryPressure {
+      let requests = snapshot.map { surfaceRequests(snapshot: $0, layout: layout, zoom: zoom) } ?? []
+      surfaceCapture.prepare(requests, enabled: !usesWorkspaceParking)
+      surfacePreparationPending = false
+    }
     if !usesWorkspaceParking, let snapshot {
       prepareIdlePreviews(snapshot: snapshot, layout: layout, zoom: zoom)
     } else {
@@ -438,7 +442,6 @@ public final class OverviewController: NSObject {
     windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool = true
   ) {
-    idlePreparationEnabled = !isUnderMemoryPressure
     idlePreparationRetry?.cancel(); idlePreparationRetry = nil
     sessionGeneration &+= 1
     self.snapshot = snapshot
@@ -1550,9 +1553,14 @@ public final class OverviewController: NSObject {
   // One-shot compact previews reuse the existing bounded cache. No inactive streams.
   private func prepareIdlePreviews(snapshot: OverviewSnapshot, layout: LayoutSettings, zoom: Double) {
     guard CGPreflightScreenCaptureAccess() else { return }
-    idlePreviewPriorityIDs = Set(snapshot.monitors.compactMap { monitor in
-      monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
-        .flatMap { firstSelection(in: $0, monitorID: monitor.id)?.windowID }
+    // The opening zoom starts from on-screen windows; memory pressure keeps only these.
+    idlePreviewPriorityIDs = Set(snapshot.monitors.flatMap { monitor -> [WindowID] in
+      guard let viewport = snapshot.monitorFrames[monitor.id],
+        let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
+      else { return [] }
+      return computeLayout(workspace: workspace, viewport: viewport,
+        windows: Array(snapshot.windows.values), settings: layout)
+        .filter { $0.frame.ribbonIntersects(viewport) }.map(\.windowID)
     })
     pruneRememberedPreviews(for: snapshot)
     let projections = panels.mapValues { panel in
@@ -1561,7 +1569,9 @@ public final class OverviewController: NSObject {
         viewport: OverviewViewport(), layout: layout, zoom: zoom, includeOffscreenContent: true)
     }
     let requests = visiblePreviewRequests(snapshot: snapshot, projections: projections,
-      selection: initialSelection(in: snapshot)).map { request in
+      selection: initialSelection(in: snapshot)).filter {
+        !isUnderMemoryPressure || idlePreviewPriorityIDs.contains($0.windowID)
+      }.map { request in
         let (width, height) = overviewPreviewPixelSize(cardWidth: Double(request.width),
           cardHeight: Double(request.height), scale: 1, maximumWidth: 512, maximumHeight: 512)
         return OverviewPreviewRequest(windowID: request.windowID, expectedAppID: request.expectedAppID,
@@ -1580,6 +1590,9 @@ public final class OverviewController: NSObject {
         self.rememberedPreviews.store(NSImage(cgImage: image,
           size: NSSize(width: result.request.width, height: result.request.height)),
           byteCost: image.bytesPerRow * image.height, for: window)
+        if self.isUnderMemoryPressure {
+          self.rememberedPreviews.retain(self.idlePreviewPriorityIDs, maximumBytes: overviewPressurePreviewBytes)
+        }
       })
     }
   }

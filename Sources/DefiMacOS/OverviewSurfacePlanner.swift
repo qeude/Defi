@@ -103,7 +103,7 @@ final class OverviewSurfacePlanner {
   }
 }
 
-private extension Rect {
+extension Rect {
   func ribbonIntersects(_ other: Rect) -> Bool {
     x + width > other.x && other.x + other.width > x
       && y + height > other.y && other.y + other.height > y

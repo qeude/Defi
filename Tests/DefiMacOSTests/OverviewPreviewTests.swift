@@ -25,6 +25,18 @@ struct OverviewPreviewTests {
     #expect(controller.surfaceCaptureState != "pressure", "Recovery must consume the pending preparation with unchanged settings")
   }
 
+  @MainActor @Test func warningPreparationKeepsFullSurfacesOff() {
+    let controller = OverviewController(focusWindow: { _, _, _, _ in },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
+    defer { controller.handleMemoryPressure(.normal); controller.prepare(windowPreviewsEnabled: false) }
+    controller.handleMemoryPressure(.warning)
+    controller.prepare(windowPreviewsEnabled: true,
+      snapshot: OverviewSnapshot(monitors: [], monitorFrames: [:], windows: [:]), layout: LayoutSettings())
+    #expect(controller.surfaceCaptureState == "pressure")
+    #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
+  }
+
   @MainActor @Test func pressureRecoveryRequestsPreloadingWithoutAnotherOpening() {
     var preparations = 0
     let controller = OverviewController(focusWindow: { _, _, _, _ in },
