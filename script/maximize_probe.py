@@ -76,7 +76,7 @@ def analyze(states, end, commands, window, windows, display_w):
     return rows
 
 
-def trial(out, label, toggles, sampler_bin, focus_index, fixture_env, pause):
+def trial(out, label, toggles, sampler_bin, focus_index, fixture_env, pause, command):
     fixtures = []
     try:
         for i in range(2):
@@ -116,8 +116,8 @@ def trial(out, label, toggles, sampler_bin, focus_index, fixture_env, pause):
             traces = []
             for _ in range(toggles):
                 t0 = tp.pe_uptime()
-                session.command('maximize-column')
-                commands.append((t0, 'maximize-column'))
+                session.command(*command)
+                commands.append((t0, command[0]))
                 tp.wait_for_settlement()
                 time.sleep(pause)
                 traces.append(tp.trace_since(t0))
@@ -154,6 +154,7 @@ def main():
     p.add_argument('--toggles', type=int, default=8)
     p.add_argument('--pause', type=float, default=.6, help='s after settlement before the next toggle')
     p.add_argument('--focus-index', type=int, default=0, choices=(0, 1))
+    p.add_argument('--command', nargs='+', default=['maximize-column'], help='toggled command, e.g. cycle-width next')
     p.add_argument('--fixture-env', nargs='*', default=[], help='ClampFixture env for the focused window')
     args = p.parse_args()
     if inherited_lock() is None:
@@ -192,7 +193,7 @@ def main():
                     install(Path(path).resolve())
                 pe.wait_for_idle()
                 rows = trial(out, f'{label}{r}', args.toggles, out / 'motion-probe', args.focus_index,
-                             fixture_env, args.pause)
+                             fixture_env, args.pause, args.command)
                 res = {'side': label, 'round': r, 'summary': summary(rows), 'rows': rows}
                 print(json.dumps({k: res[k] for k in ('side', 'round', 'summary')}), flush=True)
                 results.append(res)

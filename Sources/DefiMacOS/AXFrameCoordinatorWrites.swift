@@ -171,7 +171,8 @@ extension AXFrameCoordinator {
   }
 
   func submitAnimationSamples(
-    _ samples: [ProcessAnimationSample]
+    _ samples: [ProcessAnimationSample],
+    ungatedProcessIDs: Set<pid_t> = []
   ) -> (coalesced: Int, submittedIntermediate: Bool) {
     var displacedSamples: [ProcessAnimationSample] = []
     var startingSamples: [ProcessAnimationSample] = []
@@ -179,7 +180,8 @@ extension AXFrameCoordinator {
     // Gate the entire ribbon atomically. A busy app must not let its siblings
     // advance alone, and recovered lanes can resume on the very next tick.
     let intermediateIsBlocked = samples.contains {
-      $0.intermediate && processAnimationLanes[$0.batch.processID]?.isRunning == true
+      $0.intermediate && !ungatedProcessIDs.contains($0.batch.processID)
+        && processAnimationLanes[$0.batch.processID]?.isRunning == true
     }
     let accepted = samples.filter { !$0.intermediate || !intermediateIsBlocked }
     for sample in accepted {
@@ -508,13 +510,12 @@ extension AXFrameCoordinator {
     sizeWriteLatencyMS[processID] = latencyMS >= previous ? latencyMS : (previous + latencyMS) / 2
   }
 
-  func resizesWithinFrame(processID: pid_t, refreshRateHz: Double) -> Bool {
+  /// An app whose measured resize outlasts half the motion cannot follow it; an
+  /// unmeasured app steps once to calibrate instead of snapping.
+  func stepsEdgeGrowth(processID: pid_t, animationDuration: TimeInterval) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    guard !latencySensitiveProcessIDs.contains(processID),
-      let latencyMS = sizeWriteLatencyMS[processID]
-    else { return false }
-    return latencyMS <= 1_000 / min(max(refreshRateHz, 30), 120)
+    return (sizeWriteLatencyMS[processID] ?? 0) <= animationDuration * 500
   }
 
   func recordProcessLatencySamples(

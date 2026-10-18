@@ -153,18 +153,17 @@ struct FrameComponentPerformanceTests {
     #expect(state.point.x == 0 && state.size.width == 1200)
   }
 
-  @Test func edgeGrowthStepsOnlyWhereOneResizeFitsADisplayFrame() {
+  @Test func edgeGrowthStepsUnlessOneResizeOutlastsHalfTheMotion() {
     let coordinator = AXFrameCoordinator()
-    #expect(!coordinator.resizesWithinFrame(processID: 1, refreshRateHz: 120))
-    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 3)
-    #expect(coordinator.resizesWithinFrame(processID: 1, refreshRateHz: 120))
+    // Unmeasured: the first step calibrates instead of snapping.
+    #expect(coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.125))
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 40)
+    #expect(coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.125))
     // One costly resize disables stepping at once; recovery is gradual.
-    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 50)
-    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 3)
-    #expect(!coordinator.resizesWithinFrame(processID: 1, refreshRateHz: 120))
-    coordinator.recordSizeWriteLatency(processID: 2, latencyMS: 12)
-    #expect(!coordinator.resizesWithinFrame(processID: 2, refreshRateHz: 120))
-    #expect(coordinator.resizesWithinFrame(processID: 2, refreshRateHz: 60))
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 90)
+    coordinator.recordSizeWriteLatency(processID: 1, latencyMS: 40)
+    #expect(!coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.125))
+    #expect(coordinator.stepsEdgeGrowth(processID: 1, animationDuration: 0.25))
   }
 
   @Test func performanceComponents() throws {

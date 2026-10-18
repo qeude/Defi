@@ -52,19 +52,6 @@ extension AXFrameCoordinator {
     let usesLiveMotionCadence = !animatedWrites.isEmpty && animatedWrites.values.allSatisfy {
       !$0.sizeChanged && $0.fromPoint.y == $0.point.y
     }
-    let finalOnlyProcessIDs = usesLiveMotionCadence ? [] : finalOnlyAnimationProcessIDs(
-      for: animatedWrites,
-      animationDuration: frame.animationDuration,
-      refreshRateHz: frame.refreshRateHz
-    )
-    // Never mix a jumping lane with interpolated neighbors, even when latency
-    // changed after the frame was submitted.
-    if !finalOnlyProcessIDs.isEmpty {
-      recordAnimationFallback(frame, reason: "motion-budget-before-staging", details: "pids=\(finalOnlyProcessIDs.sorted())")
-      let result = applyFrame(frame, progress: 1, skippedProcesses: [], stagingReentry: true)
-      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
-      return (result.applied, result.stale, result.frames)
-    }
     let lanePlan = frameAnimationLanePlan(
       animatedWindowIDs: Set(animatedWrites.keys),
       processIDs: animatedWrites.mapValues(\.processID),
@@ -105,9 +92,10 @@ extension AXFrameCoordinator {
       lanePlan.interpolatedWindowIDs.contains($0.key)
     }
     // Growth the display edge would clamp grows along the motion, moved then
-    // resized at each step so its right edge stays on the display edge. Apps that
-    // cannot resize within a frame take the final frame before the motion instead,
-    // covering the neighbors sliding out beneath it.
+    // resized at each step so its right edge stays on the display edge. Its lane
+    // keeps only the latest step, so a slow resizer lowers its own step rate
+    // without pausing the ribbon. Apps whose resize outlasts half the motion take
+    // the final frame before the motion instead, covering the sliding neighbors.
     let edgeGrowthWrites = interpolatedWrites.filter { windowID, write in
       lanePlan.deferredSizeWindowIDs.contains(windowID) && !write.animatesSize
         && !frameCentersCrossDisplays(
@@ -121,9 +109,23 @@ extension AXFrameCoordinator {
       lanePlan.deferredSizeWindowIDs.contains($0.key) && edgeGrowthWrites[$0.key] == nil
     }
     let steppedGrowthWrites = edgeGrowthWrites.filter {
-      resizesWithinFrame(processID: $0.value.processID, refreshRateHz: frame.refreshRateHz)
+      stepsEdgeGrowth(processID: $0.value.processID, animationDuration: frame.animationDuration)
     }
     let instantGrowthWrites = edgeGrowthWrites.filter { steppedGrowthWrites[$0.key] == nil }
+    let steppedProcessIDs = Set(steppedGrowthWrites.values.map(\.processID))
+    let finalOnlyProcessIDs = usesLiveMotionCadence ? [] : finalOnlyAnimationProcessIDs(
+      for: animatedWrites.filter { steppedGrowthWrites[$0.key] == nil },
+      animationDuration: frame.animationDuration,
+      refreshRateHz: frame.refreshRateHz
+    )
+    // Never mix a jumping lane with interpolated neighbors, even when latency
+    // changed after the frame was submitted.
+    if !finalOnlyProcessIDs.isEmpty {
+      recordAnimationFallback(frame, reason: "motion-budget-before-staging", details: "pids=\(finalOnlyProcessIDs.sorted())")
+      let result = applyFrame(frame, progress: 1, skippedProcesses: [], stagingReentry: true)
+      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
+      return (result.applied, result.stale, result.frames)
+    }
     var loopWrites = interpolatedWrites
     for windowID in instantGrowthWrites.keys { loopWrites[windowID] = nil }
     for (windowID, var write) in steppedGrowthWrites {
@@ -275,7 +277,7 @@ extension AXFrameCoordinator {
     }
     let startedAt = ProcessInfo.processInfo.systemUptime
     let frameLimit = usesLiveMotionCadence ? nil : intermediateFrameLimits(
-      for: interpolatedWrites,
+      for: interpolatedWrites.filter { steppedGrowthWrites[$0.key] == nil },
       availableFrames: completedFrameSpringSamples(
         duration: frame.animationDuration, refreshRateHz: frame.refreshRateHz
       ).count,
@@ -333,7 +335,9 @@ extension AXFrameCoordinator {
       }
       // Backpressure pauses progress, not just writes. Consuming a spring
       // sample while a lane is busy makes its next accepted position jump.
-      guard animationLanesAreReady(processIDs: batches.map(\.processID)) else {
+      guard animationLanesAreReady(
+        processIDs: batches.map(\.processID).filter { !steppedProcessIDs.contains($0) })
+      else {
         clockState.withLock { $0.busyLanePulses += 1 }
         return false
       }
@@ -360,6 +364,10 @@ extension AXFrameCoordinator {
       }
       let springSample = availableIntermediateSamples[tick.index]
       let submissionStartedAt = ProcessInfo.processInfo.systemUptime
+      let laneReady: @Sendable () -> Void = { [weak driver] in
+        driver?.requestTick(afterLaneCompletion: true)
+      }
+      let gatesClock: (pid_t) -> Bool = { !steppedProcessIDs.contains($0) }
       let submission = submitAnimationSamples(
         batches.map { batch in
           ProcessAnimationSample(
@@ -372,9 +380,10 @@ extension AXFrameCoordinator {
             recordFinalSuccess: false,
             accumulator: laneAccumulator,
             completion: nil,
-            laneReady: { [weak driver] in driver?.requestTick(afterLaneCompletion: true) }
+            laneReady: gatesClock(batch.processID) ? laneReady : nil
           )
-        }
+        },
+        ungatedProcessIDs: steppedProcessIDs
       )
       let dispatchedAt = ProcessInfo.processInfo.systemUptime
       clockState.withLock { state in

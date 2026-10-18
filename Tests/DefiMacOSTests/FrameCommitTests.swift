@@ -1395,6 +1395,44 @@ struct FrameCommitTests {
   }
 
   @Test
+  func `Busy stepped growth lane keeps only its latest sample and never holds siblings`() {
+    let coordinator = AXFrameCoordinator()
+    coordinator.latestGeneration = 2 // No native writes from these stale samples.
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "readiness-test", writes: [:],
+      animatedWindowIDs: [], animationDuration: 0.2, refreshRateHz: 120,
+      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil
+    )
+    let queue42 = coordinator.processWriteQueue(for: 42)
+    let queue43 = coordinator.processWriteQueue(for: 43)
+    let accumulator = FrameResultAccumulator()
+    func sample(_ pid: pid_t, _ progress: Double) -> ProcessAnimationSample {
+      ProcessAnimationSample(
+        frame: frame, batch: ProcessWriteBatch(processID: pid, writes: []),
+        progress: progress, progressVelocity: 0, intermediate: true,
+        stagingReentry: false, recordFinalSuccess: false,
+        accumulator: accumulator, completion: nil
+      )
+    }
+    queue42.suspend()
+    queue43.suspend()
+    _ = coordinator.submitAnimationSamples([sample(42, 0.1)], ungatedProcessIDs: [42])
+    let second = coordinator.submitAnimationSamples(
+      [sample(42, 0.2), sample(43, 0.2)], ungatedProcessIDs: [42])
+    coordinator.animationLaneLock.lock()
+    var busyLane = coordinator.processAnimationLanes[42]
+    let latestProgress = busyLane?.takeNext()?.progress
+    let siblingAdvanced = coordinator.processAnimationLanes[43] != nil
+    coordinator.animationLaneLock.unlock()
+    #expect(second.coalesced == 1)
+    #expect(latestProgress == 0.2)
+    #expect(siblingAdvanced)
+    queue42.resume()
+    queue43.resume()
+    coordinator.animationLaneWriteGroup.wait()
+  }
+
+  @Test
   func `Submission preserves animation intent across transient latency`() {
     let coordinator = AXFrameCoordinator()
     coordinator.running = true // Inspect submission without starting native writes.
