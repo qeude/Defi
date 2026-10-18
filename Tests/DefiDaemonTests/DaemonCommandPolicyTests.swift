@@ -287,6 +287,10 @@ struct DaemonCommandPolicyTests {
     #expect(!settledTiledSizeClamp(snapped, previous: otherSize))
     #expect(!settledTiledSizeClamp(positionOnly, previous: positionOnly))
     #expect(!settledTiledSizeClamp(snapped, previous: retargeted))
+    let acceptance = TiledSizeAcceptance(requested: target, accepted: snapped.actual)
+    #expect(tiledSizeAcceptanceCoversTarget(acceptance, target: target))
+    #expect(!tiledSizeAcceptanceCoversTarget(acceptance, target: retargeted.target))
+    #expect(!tiledSizeAcceptanceCoversTarget(nil, target: target))
   }
 
   @Test

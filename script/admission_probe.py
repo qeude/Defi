@@ -186,7 +186,7 @@ def main():
             time.sleep(2)
             pe.run([ROOT / 'script/build_and_run.sh', '--install-staged', bundle, '--verify'], timeout=120)
         deadline = time.monotonic() + 15
-        while 'monitors=1[' not in session.command('status'):
+        while not re.search(r'monitors=[1-9]', session.command('status')):
             if time.monotonic() >= deadline:
                 raise RuntimeError('Installed daemon did not discover the monitor')
             time.sleep(.05)
@@ -226,8 +226,10 @@ def main():
                     host.close()
                     settle()
     finally:
-        install(original)
-        session.restore(checkpoint)
+        try:
+            install(original)
+        finally:
+            session.restore(checkpoint)
         observer = pe.Fixture(binary, output / 'restored-native.jsonl')
         try:
             pe.activate(initial_native['pid'])

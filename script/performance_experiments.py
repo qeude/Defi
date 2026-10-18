@@ -687,6 +687,8 @@ def native_trial(fixtures, workloads, output, expected_participation=None, expec
                 values = [r[field] for r in diagnostics if type(r.get(field)) in (int, float)]
                 if values:
                     metrics[name] = statistics.median(values)
+        if motion and motion['errors']:
+            raise RuntimeError('Motion probe reported errors')
         if motion:
             metrics.update(motion['metrics'])
         save(output / (workload + '-observations.json'), {'initial': initial, 'final': final, 'fixtures': reports,
@@ -785,7 +787,7 @@ def native_compare(args, output):
             time.sleep(2)
             run([ROOT / 'script/build_and_run.sh', '--install-staged', bundle, '--verify'], timeout=120)
         deadline = time.monotonic() + 15
-        while 'monitors=1[' not in session.command('status'):
+        while not re.search(r'monitors=[1-9]', session.command('status')):
             if time.monotonic() >= deadline:
                 raise RuntimeError('Installed daemon did not discover the frozen monitor')
             time.sleep(.05)
@@ -869,8 +871,11 @@ def native_compare(args, output):
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         for cpu in loads:
             cpu.stop()
-        print(f'completed trials={len(trials)} commands={sum(t["operations"] for t in trials)} '
-              f'errors={failed + sum(t["errors"] for t in trials)} (failed attempts={failed})', flush=True)
+        try:
+            print(f'completed trials={len(trials)} commands={sum(t["operations"] for t in trials)} '
+                  f'errors={failed + sum(t["errors"] for t in trials)} (failed attempts={failed})', flush=True)
+        except BrokenPipeError:
+            pass
         try:
             cleanup_errors = []
             for fixture in fixtures:

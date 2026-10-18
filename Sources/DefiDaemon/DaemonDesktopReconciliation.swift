@@ -29,6 +29,13 @@ func settledWidthMismatch(_ current: FrameMismatch, previous: FrameMismatch?) ->
 
 /// Two reported mismatches of one size for an unchanged target: the app clamps its
 /// tiled size itself, possibly after the write readback (Simulator's Device Hub).
+/// An acceptance only answers the request it was learned for; a changed target replaces it.
+func tiledSizeAcceptanceCoversTarget(_ acceptance: TiledSizeAcceptance?, target: Rect) -> Bool {
+  guard let acceptance else { return false }
+  return abs(acceptance.requested.width - target.width) < 1
+    && abs(acceptance.requested.height - target.height) < 1
+}
+
 func settledTiledSizeClamp(_ current: FrameMismatch, previous: FrameMismatch?) -> Bool {
   guard let previous, previous.windowID == current.windowID,
     previous.target == current.target,
@@ -282,7 +289,8 @@ extension Daemon {
     // reported mismatch rather than the previous snapshot's.
     for mismatch in mismatches {
       let previous = lastTiledSizeMismatches.updateValue(mismatch, forKey: mismatch.windowID)
-      guard state.windows[mismatch.windowID]?.tiledSizeAcceptance == nil,
+      guard !tiledSizeAcceptanceCoversTarget(
+        state.windows[mismatch.windowID]?.tiledSizeAcceptance, target: mismatch.target),
         settledTiledSizeClamp(mismatch, previous: previous)
       else { continue }
       state.acceptTiledWindowFrame(mismatch.actual, requested: mismatch.target, for: mismatch.windowID)

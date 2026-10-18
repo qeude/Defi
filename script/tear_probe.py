@@ -327,7 +327,7 @@ def main():
         pe.run([ROOT / 'script/check_signing.sh', installed, bundle])
         pe.run([ROOT / 'script/build_and_run.sh', '--install-staged', bundle, '--verify'], timeout=120)
         deadline = time.monotonic() + 15
-        while 'monitors=1[' not in session.command('status'):
+        while not re.search(r'monitors=[1-9]', session.command('status')):
             if time.monotonic() > deadline:
                 raise RuntimeError('daemon did not discover monitor')
             time.sleep(.05)
@@ -354,13 +354,15 @@ def main():
                 results.append(res)
                 (out / 'results.json').write_text(json.dumps(results, indent=1))
     finally:
-        install(original)
         try:
-            session.restore(checkpoint)
-        except Exception:  # LaunchServices can reject the first service start (-600)
-            time.sleep(2)
-            session.restore(checkpoint)
-        print('daemons', session.daemon_count(), flush=True)
+            install(original)
+        finally:
+            try:
+                session.restore(checkpoint)
+            except Exception:  # LaunchServices can reject the first service start (-600)
+                time.sleep(2)
+                session.restore(checkpoint)
+            print('daemons', session.daemon_count(), flush=True)
 
 
 if __name__ == '__main__':
