@@ -93,37 +93,32 @@ public func focusedColumnScrollTarget(
     ? maximumScroll
     : min(max(workspace.scrollOffset, minimumScroll), maximumScroll)
 
+  // The on-overflow decision is recorded in every mode, so switching modes keeps it.
+  let overflows: Bool
+  if let recordedFocus, recordedFocus.windowID == selectedWindowID {
+    overflows = recordedFocus.centered
+  } else if let previousWindowID = recordedFocus?.windowID,
+    let previous = workspace.columns.firstIndex(where: {
+      $0.windows.contains(previousWindowID)
+    })
+  {
+    // Column slots include their gaps, so slots spanning exactly one viewport fit.
+    let span =
+      max(left(previous) + widths[previous], focusedRight)
+      - min(left(previous), focusedLeft)
+    overflows = span > 1 + 1e-9
+  } else {
+    overflows = false
+  }
   let centers: Bool
   switch settings.centerFocusedColumn {
-  case .never:
-    centers = false
-  case .always:
-    centers = true
-  case .onOverflow:
-    if let recordedFocus, recordedFocus.windowID == selectedWindowID {
-      centers = recordedFocus.centered
-    } else if let previousWindowID = recordedFocus?.windowID,
-      let previous = workspace.columns.firstIndex(where: {
-        $0.windows.contains(previousWindowID)
-      })
-    {
-      // Column slots include their gaps, so slots spanning exactly one viewport fit.
-      let span =
-        max(left(previous) + widths[previous], focusedRight)
-        - min(left(previous), focusedLeft)
-      centers = span > 1 + 1e-9
-    } else {
-      centers = false
-    }
+  case .never: centers = false
+  case .always: centers = true
+  case .onOverflow: centers = overflows
   }
   return (
     centers ? centered : revealed,
-    selectedWindowID.map {
-      ScrollFocus(
-        windowID: $0,
-        centered: settings.centerFocusedColumn == .onOverflow && centers
-      )
-    }
+    selectedWindowID.map { ScrollFocus(windowID: $0, centered: overflows) }
   )
 }
 

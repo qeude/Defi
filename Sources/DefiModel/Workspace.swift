@@ -31,8 +31,8 @@ public struct Column: Equatable, Codable, Sendable {
   }
 }
 
-/// The selected window a scroll target was last resolved for, and whether
-/// on-overflow centering chose to center it when it became selected.
+/// The selected window a scroll target was last resolved for, and whether it
+/// overflowed the screen together with the previous selection when it became selected.
 public struct ScrollFocus: Equatable, Codable, Sendable {
   public var windowID: WindowID
   public var centered: Bool

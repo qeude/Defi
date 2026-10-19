@@ -139,4 +139,29 @@ struct WorkspaceScrollingTests {
       ) == 0.5
     )
   }
+
+  @Test
+  func `Switching centering modes keeps the on-overflow decision`() {
+    var workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: (1...4).map {
+        Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5))
+      },
+      focusedColumn: 2
+    )
+    workspace.scrollFocus = ScrollFocus(windowID: WindowID(rawValue: 1), centered: false)
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let modes: [CenterFocusedColumn] = [.never, .onOverflow]
+    let targets = modes.map { mode in
+      let target = focusedColumnScrollTarget(
+        workspace: workspace, viewport: viewport,
+        settings: LayoutSettings(centerFocusedColumn: mode)
+      )
+      workspace.scrollFocus = target.focus
+      return target.offset
+    }
+
+    #expect(targets == [0.5, 0.75])
+    #expect(workspace.scrollFocus == ScrollFocus(windowID: WindowID(rawValue: 3), centered: true))
+  }
 }

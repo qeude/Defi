@@ -48,7 +48,7 @@ reserved_bottom = 0
 | --- | --- | --- | --- |
 | `default_column_width` | `0.80` | number from `0.05` to `1.0` | Fraction of monitor width assigned to each new column. |
 | `preset_column_widths` | `[0.33, 0.50, 0.66, 0.80]` | non-empty array of numbers from `0.05` to `1.0` | Ordered widths used by `cycle-width`. Cycling wraps at both ends. |
-| `center_focused_column` | `"never"` | `"never"`, `"always"`, or `"on-overflow"` | `"always"` centers focused columns. `"never"` scrolls only enough to keep focus visible. `"on-overflow"` centers a newly focused column only when it cannot share the screen with the previously focused column. See [Focused column centering](#focused-column-centering). |
+| `center_focused_column` | `"never"` | `"never"`, `"always"`, or `"on-overflow"` | `"always"` centers focused columns that fit on screen. `"never"` scrolls only enough to keep focus visible. `"on-overflow"` centers a newly focused column only when it cannot share the screen with the previously focused column. See [Focused column centering](#focused-column-centering). |
 | `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. An outside border is part of its window, so gaps start at the border's outer edge. |
 | `outer_top_gap` | `gaps` | number from `0` to `256` | Optional top-edge override. |
 | `outer_right_gap` | `gaps` | number from `0` to `256` | Optional right-edge override. |
@@ -65,8 +65,8 @@ Reserved values are extra insets, not raw bar dimensions. See
 
 ### Focused column centering
 
-`"on-overflow"` decides when the selected column changes. The previous column
-is the one Defi last scrolled to reveal on that workspace. Defi measures the
+`"on-overflow"` decides when the selected window changes. The previous column
+holds the window Defi last scrolled to reveal on that workspace. Defi measures the
 span from the left edge of the leftmost of the two columns to the right edge
 of the rightmost, including every column between them. Column widths include
 their gaps, so the span fits when it is at most the monitor's usable width.
