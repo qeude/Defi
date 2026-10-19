@@ -1,85 +1,53 @@
-# Real Defi media
+# Defi landing media
 
-All desktop footage comes from the existing public Defi README recording:
+## Current recordings
 
-https://github.com/user-attachments/assets/3d21bd27-d5ef-477b-826f-1f9abca32a95
+The four feature clips come from one 3840 × 2160 recording of the installed app
+(menu bar and Dock included, nothing cropped): a browser workspace, a T3 chat
+workspace, one workspace of terminals (cmatrix, btop, fastfetch), and the
+Overview. Dead time between gestures is cut. The clips are silent H.264 at 60 fps
+so the real window motion is preserved; nothing is interpolated or slowed.
+Workspace switches in the recording are instant cuts, so the workspaces clip is
+three real workspaces cut together on the real switch frames.
 
-The recording is 1920 × 1246, H.264, 19.083 seconds. It shows real horizontal
-navigation and workspace Overview. This is existing alpha footage, not a claim
-that the current build was freshly recorded. It contains the original development
-desktop, including a terminal size warning during one passage. A dedicated clean
-capture can replace these files after the visual direction is selected.
-
-Screenshots are full, uncropped frames from the same recording:
-
-| File | Timestamp | View |
-| --- | --- | --- |
-| `defi-desktop.jpg` | 0 seconds | Browser and adjacent tiled terminal |
-| `defi-columns.jpg` | 8 seconds | Scrolling terminal columns |
-| `defi-overview.jpg` | 12 seconds | Workspace Overview |
-
-Reproduce from a local copy of the source video:
-
-```sh
-ffmpeg -ss 0 -i source.mp4 -frames:v 1 -q:v 2 public/media/defi-desktop.jpg
-ffmpeg -ss 8 -i source.mp4 -frames:v 1 -q:v 2 public/media/defi-columns.jpg
-ffmpeg -ss 12 -i source.mp4 -frames:v 1 -q:v 2 public/media/defi-overview.jpg
-```
-
-The app icon is copied from `docs/assets/defi-icon-dark.png`. The page loads
-media locally and does not depend on GitHub's attachment service at runtime.
-
-The four feature illustrations are temporary until genuine feature clips
-replace them. The capture plan below remains the replacement plan.
-
-## Next capture: one feature per clip
-
-Record the installed app on a prepared demo desktop with public content, three
-or four native app windows, and two populated workspaces. Keep the same wallpaper,
-display size, app contents, and framing across the set. Hide notifications and
-personal titles. Use ordinary human timing and capture real behavior, including
-its actual animation speed. Do not recreate app UI or interpolate window motion.
-
-| Asset | Duration | Sequence | Page placement |
+| File | Length | Size | Used by |
 | --- | --- | --- | --- |
-| `feature-columns.mp4` + poster | 8–10 s | Pause; focus right twice until an offscreen column enters; return left once; pause. | Hero / continuous columns |
-| `feature-workspaces.mp4` + poster | 6–8 s | Switch from one populated workspace to another, then return. | Future workspace recording |
-| `feature-overview.mp4` + poster | 8–10 s | Open Overview, pause to show workspace rows, select a window. Requires enabled previews for thumbnail footage. | Separate Overview chapter |
-| `feature-widths.mp4` + poster | 6–8 s | Cycle the selected column width twice, showing sibling reflow; restore its width. | Future width recording |
+| `feature-hero.mp4` | 7.2 s | 1920 × 1080 | Hero (crowded desktop, Launch Defi, tidy windows, moving between columns) |
+| `feature-hero-hd.mp4` | 7.2 s | 2880 × 1620 | Same hero for viewports wider than 2200 device pixels (Retina) |
+| `feature-columns.mp4` | 8.2 s | 1920 × 1080 | Not referenced; the hero now carries the columns sequence (kept for reuse) |
+| `feature-widths.mp4` | 8.6 s | 1920 × 1080 | Column widths feature |
+| `feature-workspaces.mp4` | 4.1 s | 1920 × 1080 | Virtual workspaces feature (GitHub, T3 chat, terminals) |
+| `feature-overview.mp4` | 8.7 s | 1920 × 1080 | Overview feature |
 
-Use full-resolution screenshots at the settled moment of each sequence. Export
-silent H.264 MP4 with progressive playback and a JPEG poster, keeping the real
-desktop proportions. Native controls remain available. The hero can reuse the
-columns clip; separate clips should demonstrate only their named feature.
+The hero is a short cut of the motion film's opening (`index.html?hero=1` in the motion
+project; the film itself is for social media and is not on the site), rendered at 1.5× (2880 × 1620): 0.6 s of the real crowded desktop,
+the Raycast panel (a still) and the windows leaving to their workspaces, both
+composed from real window textures of the same recording. Then it hands over, with
+a short cross-fade, to the real footage of moving between columns with Option and
+the arrow keys (3.35 s, two key presses shown). The capture steps through
+each column move in about ten uneven frames, so both moves are rebuilt as one
+0.4 s eased slide with motion blur from stills of the same footage (`smooth.py`
+in the motion project): same windows, same focus ring, nothing invented. No captions. It loops with a 0.4 s
+cross-fade. The card rests on
+the first frame; `hero-grow.js` starts the clip as soon as the page starts opening
+it, so Defi is tidying the windows around the time the frame reaches full width. `main.js` swaps in the HD file when `devicePixelRatio × innerWidth`
+is 2200 or more, unless the browser asks to save data.
 
-Capture assessment on 2026-09-30: the current desktop contained private project
-content, Overview previews were disabled, and an Accessibility query timed out.
-No fresh feature media was saved and no desktop state was changed. Prepare a
-clean demo desktop before recording; these asset names are planned, not existing
-files. Keep the public README footage in place until replacements are captured.
+Each clip has a poster (`feature-*.jpg`) taken mid-clip. The four
+silent clips weigh about 3.6 MB; only the hero clip is preloaded, the others
+load when played.
 
-## Existing media inventory
+The film (house music, 132.5 BPM, 60 fps) is the source of the hero. Its scene file
+and music generator live outside the repository (`~/.t3/defi-motion7`: `index.html`,
+`genres.py`); the 37 s web encode is kept there as `web-film/`.
 
-The hero and separate Overview chapter use real recordings. Both keep their
-original colors, full frame, and 1920 × 1246 aspect ratio. Short excerpts are re-encoded to H.264
-without audio or interpolated frames, with progressive playback enabled.
+Retouch: the private calendar item in the menu bar is painted over with a
+horizontal gradient sampled on either side of it. Nothing else is altered.
 
-| Asset | Source range | Use |
-| --- | --- | --- |
-| `defi-columns-clip.mp4` | 1.4–5.6 s | Hero only; excludes the later terminal warning |
-| `defi-overview-clip.mp4` | 8.5–13.5 s | Separate Overview chapter |
-| `defi-workspaces.jpg` | 15 s | Retained source still; not shown in the theatre |
-| `defi-desktop.jpg` | 0 s | Retained source still; not a width-change recording |
+Encoding: `trim`/`concat`, scale to 1920 × 1080, `-crf 28`, `-preset slow`,
+`-movflags +faststart`, no audio.
 
-These are excerpts of the published alpha recording, not fresh feature captures.
-Dedicated workspace-switching and width-change clips remain planned above.
-The four theatre scenes are abstract interactive illustrations, not recordings
-or product screenshots. Columns, workspaces, Overview, and widths each have a
-bounded demonstration on selection or Replay. They do not autoplay or loop.
-There is no multi-monitor capture in the current inventory.
-
-```sh
-ffmpeg -ss 1.4 -i source.mp4 -t 4.2 -an -c:v libx264 -preset fast -crf 21 -movflags +faststart public/media/defi-columns-clip.mp4
-ffmpeg -ss 8.5 -i source.mp4 -t 5 -an -c:v libx264 -preset fast -crf 21 -movflags +faststart public/media/defi-overview-clip.mp4
-ffmpeg -ss 15 -i source.mp4 -frames:v 1 -q:v 2 public/media/defi-workspaces.jpg
-```
+Known weak spots: the cmatrix terminal restarts (and looks empty for a moment)
+after every width change, and the Overview clip ends on fastfetch, which shows
+the hostname. The T3 sidebar (thread titles) and fastfetch (hostname, IP) are
+visible in the hero and the workspaces clip. There is no multi-monitor capture and no cheatsheet clip yet.

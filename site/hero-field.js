@@ -6,7 +6,7 @@ export function mountHeroField(hero, reducedMotion) {
   stage.className = 'experience-stage';
   hero.before(stage);
   const field = hero.querySelector('.hero-atmosphere');
-  stage.append(field, hero, document.querySelector('.product-section'));
+  stage.append(field, hero, document.querySelector('.below-hero'));
   const finePointer = matchMedia('(min-width: 768px) and (pointer: fine)');
   const profile = new URL(location.href).searchParams.get('light') || 'velours';
   let surface = null;

@@ -5,8 +5,6 @@ export function mountOpticalMotion(stage) {
   CustomEase.create('defiSettle', '.32,.72,0,1');
   const world = stage.querySelector('.edge-world');
   const reflection = stage.querySelector('.edge-reflection');
-  const guide = stage.querySelector('.feature-guide');
-  const story = stage.querySelector('.feature-story');
 
   gsap.matchMedia().add('(min-width: 900px) and (min-height: 800px) and (prefers-reduced-motion: no-preference)', () => {
     const atmosphere = gsap.timeline({ scrollTrigger: {
@@ -19,12 +17,6 @@ export function mountOpticalMotion(stage) {
       y: 0, scale: 1.15, opacity: .85, ease: 'defiSettle',
     }, 0);
 
-    ScrollTrigger.create({
-      trigger: guide, start: 'top 120px',
-      end: () => `+=${Math.max(0, story.offsetHeight - guide.offsetHeight)}`,
-      pin: guide, pinSpacing: false, anticipatePin: 1,
-      invalidateOnRefresh: true,
-    });
     const observer = new ResizeObserver(() => ScrollTrigger.refresh(true));
     observer.observe(stage);
     return () => observer.disconnect();
