@@ -21,7 +21,7 @@ and unavailable WebGL retain a static image. Artwork provenance is recorded in
 The minimal pill navigation contains Defi, Features, Shortcuts, FAQ, and GitHub
 as a plain text link (no second capsule inside the pill). The page keeps to the reference Mac app pages
 (Screen Studio, macshot, Swiftcord, Linear, Raycast, Droppy, Framer, Attio) in
-copy as well as layout: few words, each fact said once.
+copy as well as layout: few words.
 
 Accent is blue from the app icon (`#2b6df2`). It no longer fills any button:
 the command capsule is neutral glass with only `brew` in the soft blue, and the

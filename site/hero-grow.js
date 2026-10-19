@@ -11,10 +11,13 @@ export function mountHeroGrow(hero, reducedMotion) {
 
   function sync(progress) {
     const rect = visual.getBoundingClientRect();
-    const onScreen = rect.bottom > 0 && rect.top < innerHeight;
-    if (reducedMotion.matches || !onScreen) {
+    const onScreen = !document.hidden && rect.bottom > 0 && rect.top < innerHeight;
+    if (!onScreen) {
       if (!video.paused) video.pause();
-    } else if (progress < .05) {
+      return;
+    }
+    if (reducedMotion.matches) return; // The native controls own playback.
+    if (progress < .05) {
       if (!video.paused) video.pause();
       if (video.currentTime > .05) video.currentTime = 0;
     } else if (progress >= .1 && video.paused) {
@@ -45,6 +48,11 @@ export function mountHeroGrow(hero, reducedMotion) {
 
   addEventListener('scroll', grow, { passive: true });
   addEventListener('resize', grow);
-  reducedMotion.addEventListener('change', grow);
+  reducedMotion.addEventListener('change', () => {
+    video.controls = reducedMotion.matches;
+    if (reducedMotion.matches) video.pause();
+    grow();
+  });
+  document.addEventListener('visibilitychange', grow);
   grow();
 }

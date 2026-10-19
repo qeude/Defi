@@ -3,7 +3,7 @@
 | Asset | Source | Terms |
 | --- | --- | --- |
 | DM Sans and IBM Plex Mono | Google Fonts | SIL Open Font License; copies are included in `public/fonts/`. |
-| Cabinet Grotesk 500 and 700 | [Fontshare](https://www.fontshare.com/fonts/cabinet-grotesk) | [ITF Free Font License](https://www.fontshare.com/licenses/itf-ffl); the official license is included in `public/fonts/CabinetGrotesk-LICENSE.txt`. |
+| Cabinet Grotesk 500 | [Fontshare](https://www.fontshare.com/fonts/cabinet-grotesk) | [ITF Free Font License](https://www.fontshare.com/licenses/itf-ffl); the official license is included in `public/fonts/CabinetGrotesk-LICENSE.txt`. |
 | GSAP 3.15.0, ScrollTrigger, CustomEase | GreenSock / Webflow | [Standard No Charge GSAP License](https://gsap.com/community/standard-license/); upstream notices are preserved in `public/motion/`. |
 
 Cabinet Grotesk is downloaded directly from Fontshare by

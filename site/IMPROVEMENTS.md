@@ -14,11 +14,10 @@ for this revision. The expected effects below are hypotheses.
 | Use task-oriented feature titles | Connect scrolling columns, workspaces, Overview, and widths to actions the visitor can try. |
 | Show native macOS, alpha status, and MIT licensing | Give relevant project facts without invented endorsements or usage numbers. |
 | Keep first-launch steps in the final installation section | Explain the steps after Brew while keeping the hero and navigation compact. |
-| Repeat the compact Brew control after the FAQ | Offer the installation action after compatibility and permission questions. |
+| End the page with a copy-command button after the FAQ | Offer the installation action after compatibility and permission questions. |
 
-The existing columns and Overview recordings remain real footage. The feature
-theatre is still labelled as an illustration. Its replacement needs genuine
-captures, as described in [MEDIA.md](MEDIA.md).
+The hero and feature recordings are real footage of Defi; the hero's composed
+parts are disclosed in [MEDIA.md](MEDIA.md).
 
 ## Alternate copy
 

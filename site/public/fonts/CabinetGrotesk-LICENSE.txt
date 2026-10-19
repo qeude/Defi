@@ -61,7 +61,7 @@ For the avoidance of doubt, nothing in this Section 02 restricts the self-hostin
 
 03 Embedding
 
-You may embed the Font Software in PDFs and other digital documents for your permitted uses under this License, provided that the embeddedFont Software cannot be extracted or used independently from the document.
+You may embed the Font Software in PDFs and other digital documents for your permitted uses under this License, provided that the embedded Font Software cannot be extracted or used independently from the document.
 
 Documents containing embedded Font Software may be distributed without restriction as to the number of recipients.
 
@@ -79,7 +79,7 @@ If a service provider requires access to the Font Software itself, they must obt
 
 You may not create a Derivative Work from the Font Software without the prior written consent of the Licensor.
 
-Where the Licensor expressly permits the creation of a Derivative Work, such permission is limited to the specific use authorized by the Licensor and does not grant any ownership or other rights in the Official Version of the Font Software or the underlying typefacedesigns.
+Where the Licensor expressly permits the creation of a Derivative Work, such permission is limited to the specific use authorized by the Licensor and does not grant any ownership or other rights in the Official Version of the Font Software or the underlying typeface designs.
 
 A Derivative Work may not be sublicensed, sold, leased, rented, loaned, distributed, transferred or otherwise made available to any third party without the prior written consent of the Licensor.
 
@@ -88,7 +88,7 @@ A Derivative Work may not be sublicensed, sold, leased, rented, loaned, distribu
 
 THE FONT SOFTWARE IS PROVIDED FREE OF CHARGE AND ON AN “AS IS” AND “AS AVAILABLE” BASIS. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, INDIAN TYPE FOUNDRY MAKES NO WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, COMPATIBILITY, AVAILABILITY OR OTHERWISE.
 
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, INDIAN TYPE FOUNDRY SHALL NOT BE LIABLE TO THE LICENSEEOR ANY THIRD PARTY FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL OR CONSEQUENTIAL DAMAGES, INCLUDING LOSS OF PROFITS, REVENUE, DATA, BUSINESS OR SAVINGS, OR BUSINESS INTERRUPTION, ARISING OUT OF THE USE OF OR INABILITY TO USE THE FONT SOFTWARE.
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, INDIAN TYPE FOUNDRY SHALL NOT BE LIABLE TO THE LICENSEE OR ANY THIRD PARTY FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL OR CONSEQUENTIAL DAMAGES, INCLUDING LOSS OF PROFITS, REVENUE, DATA, BUSINESS OR SAVINGS, OR BUSINESS INTERRUPTION, ARISING OUT OF THE USE OF OR INABILITY TO USE THE FONT SOFTWARE.
 
 IF THE LICENSEE CHOOSES TO ACCESS OR SERVE THE FONT SOFTWARE THROUGH THE FONTSHARE API, THE LICENSEE DOES SO AT ITS OWN RISK. THE FONTSHARE API IS PROVIDED AS A CONVENIENCE AND DOES NOT FORM PART OF THE RIGHTS GRANTED TO THE LICENSEE TO USE THE FONT SOFTWARE UNDER THIS LICENSE.
 
@@ -106,7 +106,7 @@ Indian Type Foundry may, at its sole discretion, update, modify, replace or disc
 
 Any breach of the terms of this License shall be grounds for termination. Where the breach is capable of being remedied, the Licensor may notify the Licensee in writing and require the breach to be remedied within 30 days of receipt of such notice.
 
-Notwithstanding the foregoing, the Licensor may terminatethis License immediately in the event of any deliberate or material unauthorized modification, redistribution, sale, sublicensing, transfer or other misuse of the Font Software or the intellectual property rights of Indian Type Foundry.
+Notwithstanding the foregoing, the Licensor may terminate this License immediately in the event of any deliberate or material unauthorized modification, redistribution, sale, sublicensing, transfer or other misuse of the Font Software or the intellectual property rights of Indian Type Foundry.
 
 Upon termination, and without limitation of any other remedies available under law or equity, the Licensee must immediately cease all use of the Font Software and delete the Font Software and all copies thereof inits possession or control. Proof of deletion must be provided upon request of the Licensor.
 
@@ -119,7 +119,7 @@ If any provision of this License is found to be invalid, illegal or unenforceabl
 
 The failure of Indian Type Foundry to enforce any provision of this License shall not constitute a waiver of that provision or of its right to enforce it subsequently.
 
-The uses expressly permitted under this License require no additional license or fee. If a Licensee requires additional rights or permissions, exceptions to any restrictions under this License, modifications or customizations to the Font Software or typeface designs, additional styles, weights, widths, characters or language extensions, technical support ormaintenance services, warranties or indemnities, or other customized licensing terms, they may contact Indian Type Foundry to discuss a separate custom license or arrangement.
+The uses expressly permitted under this License require no additional license or fee. If a Licensee requires additional rights or permissions, exceptions to any restrictions under this License, modifications or customizations to the Font Software or typeface designs, additional styles, weights, widths, characters or language extensions, technical support or maintenance services, warranties or indemnities, or other customized licensing terms, they may contact Indian Type Foundry to discuss a separate custom license or arrangement.
 
 This License shall be governed by the laws ofthe Republic of India. To the extent legally permissible, the courts located in Ahmedabad, Gujarat, India shall have exclusive jurisdiction over any dispute arising out of or in connection with this License.
 

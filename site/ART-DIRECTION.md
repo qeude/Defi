@@ -2,7 +2,7 @@
 
 Created with the built-in imagegen tool as a new image, without reference images. Opaque background (`transparent_background: false`).
 
-- Generated original: `/Users/quentin/.codex/generated_images/01a1088d-6128-7352-b215-6f5db2d47abe/exec-30e13a52-1c5b-46a8-a721-55dc8a896ca2.png`
+- Generated original: kept outside the repository (not committed)
 - Web asset: [horizon-artwork.webp](public/media/horizon-artwork.webp), 1536×1024, 31,186 bytes. Converted to WebP for compression only.
 
 ## Final prompt

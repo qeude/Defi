@@ -37,10 +37,17 @@ function recording({ poster, clip, description }, { autoplay = false, frame = 'r
 }
 
 const videos = new Set();
+const onScreen = new Set();
+// Feature clips play only while visible in a visible tab; without autoplay (reduced motion), a clip started with the native controls is only paused once it leaves the view.
+function syncPlayback(video) {
+  if (!onScreen.has(video) || document.hidden) video.pause();
+  else if ('autoplay' in video.dataset && !reducedMotion.matches) video.play().catch(() => {});
+}
 const visibility = new IntersectionObserver(entries => {
   entries.forEach(({ target, isIntersecting }) => {
-    if (!isIntersecting) target.pause();
-    else if ('autoplay' in target.dataset && !reducedMotion.matches) target.play().catch(() => {});
+    if (isIntersecting) onScreen.add(target);
+    else onScreen.delete(target);
+    syncPlayback(target);
   });
 });
 
@@ -197,7 +204,10 @@ app.querySelectorAll('.copy-button').forEach(button => button.addEventListener('
   }
 }));
 
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) videos.forEach(video => video.pause());
-});
+document.addEventListener('visibilitychange', () => videos.forEach(syncPlayback));
+reducedMotion.addEventListener('change', () => videos.forEach(video => {
+  video.controls = reducedMotion.matches;
+  if (reducedMotion.matches) video.pause();
+  else syncPlayback(video);
+}));
 app.querySelectorAll('video').forEach(wireVideo);

@@ -1,4 +1,4 @@
-:root{--paper:#050505;--surface:#101014;--muted:#aaa5b0;--line:#ffffff0d;--accent:#2b6df2;--accent-soft:#7fa6ff}
+:root{--paper:#050505;--muted:#aaa5b0;--line:#ffffff0d;--accent:#2b6df2;--accent-soft:#7fa6ff}
 html{scroll-padding-top:110px}
 .site-nav{position:sticky;top:20px;width:min(520px,calc(100% - 32px));height:56px;justify-content:space-between;gap:32px;margin:24px auto 0;padding:0 24px;background:#101013c9;backdrop-filter:blur(16px);border-radius:999px;box-shadow:inset 0 1px 0 #ffffff16,0 0 0 1px #ffffff0b}
 .site-nav .wordmark{font-size:20px;gap:8px}
@@ -32,11 +32,6 @@ html{scroll-padding-top:110px}
 .recording-frame{border:0;border-radius:24px;background:#0b0a0e;box-shadow:inset 0 1px 0 #ffffff15}
 .hero-visual .recording-frame{box-shadow:inset 0 1px 0 #ffffff15}
 .hero-atmosphere{inset:240px -132px -60px;mask-image:linear-gradient(to bottom,#000 0%,#000 calc(100% - 280px),#000c calc(100% - 220px),#0004 calc(100% - 125px),transparent calc(100% - 60px));overflow:clip}
-.hero-atmosphere svg{animation:field-arrive 1.8s cubic-bezier(.22,1,.36,1) backwards;transform-origin:70% 60%}
-.field-bloom,.field-material,.field-rim{transform-origin:70% 65%;transition:transform 1700ms cubic-bezier(.22,1,.36,1),opacity 1200ms cubic-bezier(.22,1,.36,1)}
-.field-bloom{transform:translate(calc(var(--field-x,0px) * 1.5),calc(var(--field-y,0px) * 1.2)) scale(var(--field-scale,1));opacity:var(--field-energy,.88)}
-.field-material{transform:translate(calc(var(--field-x,0px) * -.45),calc(var(--field-y,0px) * -.35))}
-.field-rim{transform:translate(var(--field-x,0px),var(--field-y,0px));opacity:var(--field-energy,.88)}
 .product-section,.faq-section,.site-footer{max-width:1240px;padding-left:48px;padding-right:48px}
 .product-section{padding-top:48px}
 h2{font-size:44px;letter-spacing:-1.9px;line-height:1.12;font-weight:500}
@@ -51,7 +46,6 @@ a:hover{opacity:.78}
 .design-reveal.is-revealed{opacity:1;transform:none}
 @keyframes copy-arrive{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
 @keyframes media-arrive{from{opacity:0;transform:translateY(44px) scale(.98)}to{opacity:1;transform:none}}
-@keyframes field-arrive{from{opacity:0;transform:translateY(70px) rotate(-3deg)}to{opacity:1;transform:none}}
 @media(max-width:1100px) and (min-width:768px){.hero{gap:44px;padding:64px 32px 80px}
 .hero h1{font-size:clamp(50px,6.5vw,72px);letter-spacing:-2.6px}
 .install-row{gap:12px}
@@ -73,7 +67,6 @@ a:hover{opacity:.78}
 .hero-github{justify-content:center;flex-basis:100%;font-size:12px}
 .install-command code{font-size:11px}
 .hero-atmosphere{inset:0 -180px -60px}
-.hero-atmosphere svg{animation-name:field-arrive-mobile}
 .hero-visual{width:100%;margin:0}
 .media-bezel{padding:6px;border-radius:24px}
 .recording-frame{border-radius:18px}
@@ -89,38 +82,21 @@ h2{font-size:36px;letter-spacing:-1.2px}
 .install-command{padding-left:10px;gap:2px}
 .hero-github{flex-basis:100%}
 }
-@media(prefers-reduced-motion:reduce){.hero-copy,.hero-visual,.hero-atmosphere svg{animation:none}
+@media(prefers-reduced-motion:reduce){.hero-copy,.hero-visual{animation:none}
 .design-reveal{opacity:1;transform:none}
-.hero-atmosphere svg,.copy-glyph,.copy-glyph svg,.design-reveal,a,.field-bloom,.field-material,.field-rim{transition:none}
-.hero-atmosphere svg{transform:none!important}
+.copy-glyph,.copy-glyph svg,.design-reveal,a{transition:none}
 }
 .copy-glyph{position:relative;isolation:isolate}
 .copy-glyph:before{content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;background:#ffffff06;opacity:0;transition:opacity 600ms cubic-bezier(.32,.72,0,1)}
 .copy-button:hover .copy-glyph:before{opacity:1}
 @media(prefers-reduced-motion:reduce){.copy-glyph:before{transition:none}
 }
-@media(prefers-reduced-motion:reduce){.field-bloom,.field-material,.field-rim{transform:none!important}
-}
-@keyframes field-arrive-mobile{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
 .experience-stage{position:relative;isolation:isolate;overflow:clip}
-.optical-scroll{width:100%;height:100%;transform-origin:72% 55%}
-.optical-word{display:inline-block}
 .experience-stage .hero{isolation:auto;overflow:visible}
 .experience-stage .hero-atmosphere{inset:-80px -160px -120px;z-index:-1;mask-image:linear-gradient(to bottom,transparent,#000 11%,#000 70%,transparent 94%);overflow:visible}
-.experience-stage .hero-atmosphere svg{width:100%;height:100%;transform:none;animation:optical-arrive 2s cubic-bezier(.22,1,.36,1) both}
-.optical-air,.optical-surface,.optical-caustic{transform-origin:72% 55%;transition:transform 1800ms cubic-bezier(.22,1,.36,1),opacity 1400ms cubic-bezier(.22,1,.36,1)}
-.optical-air{transform:translate(calc(var(--field-x,0px) * -.5),calc(var(--field-y,0px) * -.4));opacity:var(--field-energy,.82)}
-.optical-surface{transform:translate(calc(var(--field-x,0px) * .35),calc(var(--field-y,0px) * .3)) rotate(calc(var(--field-turn,0deg) * .4))}
-.optical-caustic{transform:translate(var(--field-x,0px),var(--field-y,0px)) scale(calc(1 + var(--field-energy,.82) * .025));opacity:var(--field-energy,.82)}
-@keyframes optical-arrive{from{opacity:0;transform:translateY(40px) scale(1.035)}to{opacity:1;transform:none}}
 @media(max-width:767px){.experience-stage .hero-atmosphere{inset:-40px -200px -120px}
-.optical-caustic{opacity:.7}
-}
-@media(prefers-reduced-motion:reduce){.experience-stage .hero-atmosphere svg{animation:none}
-.optical-air,.optical-surface,.optical-caustic{transition:none;transform:none!important}
 }
 @font-face{font-family:'Cabinet Grotesk';src:url('./public/fonts/CabinetGrotesk-500.woff2') format('woff2');font-weight:500;font-style:normal;font-display:swap}
-@font-face{font-family:'Cabinet Grotesk';src:url('./public/fonts/CabinetGrotesk-700.woff2') format('woff2');font-weight:700;font-style:normal;font-display:swap}
 h1,h2,h3{font-family:'Cabinet Grotesk','DM Sans',sans-serif}
 .hero{padding-top:84px;gap:52px}
 .hero-copy{max-width:1100px}
@@ -165,6 +141,7 @@ h1,h2,h3{font-family:'Cabinet Grotesk','DM Sans',sans-serif}
 .hero .requirements{margin:22px auto 0;max-width:680px;font-size:13px;line-height:1.7;color:var(--muted)}
 .hero .install-command{background:#ffffff0d;box-shadow:inset 0 0 0 1px #ffffff1a,inset 0 1px 0 #ffffff12}
 .hero .install-command code{color:var(--ink);font-size:13px}.cmd-bin{color:var(--accent-soft)}
+@media(max-width:340px){.hero .install-command code{font-size:11px}}
 .hero .copy-glyph{background:none;box-shadow:none;color:var(--muted)}.hero .copy-button:hover .copy-glyph{color:var(--ink)}
 .product-section{max-width:1240px;padding-top:128px;padding-bottom:0}
 .feature-rows{display:grid;gap:152px}

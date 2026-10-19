@@ -9,7 +9,7 @@ export function mountHeroField(hero, reducedMotion) {
   stage.append(field, hero, document.querySelector('.below-hero'));
   const finePointer = matchMedia('(min-width: 768px) and (pointer: fine)');
   const profile = new URL(location.href).searchParams.get('light') || 'velours';
-  let surface = null;
+  let surface; // undefined until the first attempt; null when WebGL is unavailable
   let frame = 0;
   let visible = true;
 
@@ -25,7 +25,7 @@ export function mountHeroField(hero, reducedMotion) {
   }
   function reset() {
     if (enabled()) {
-      surface ??= createLightSurface(field.querySelector('img'), schedule, profile);
+      if (surface === undefined) surface = createLightSurface(field.querySelector('img'), schedule, profile);
       surface?.reset();
     } else surface?.settle();
     schedule();

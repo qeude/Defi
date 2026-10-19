@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite",
     "build": "vite build --base=./",
-    "preview": "vite preview --host 0.0.0.0",
+    "preview": "vite preview",
     "predev": "node script/prepare-fonts.mjs",
     "prebuild": "node script/prepare-fonts.mjs"
   },

@@ -2,19 +2,18 @@
 
 ## Current recordings
 
-The four feature clips come from one 3840 × 2160 recording of the installed app
+The hero and the three feature clips come from one 3840 × 2160 recording of the installed app
 (menu bar and Dock included, nothing cropped): a browser workspace, a T3 chat
 workspace, one workspace of terminals (cmatrix, btop, fastfetch), and the
 Overview. Dead time between gestures is cut. The clips are silent H.264 at 60 fps
-so the real window motion is preserved; nothing is interpolated or slowed.
+so the real window motion is preserved; nothing is interpolated or slowed, except in the hero (described below).
 Workspace switches in the recording are instant cuts, so the workspaces clip is
 three real workspaces cut together on the real switch frames.
 
 | File | Length | Size | Used by |
 | --- | --- | --- | --- |
 | `feature-hero.mp4` | 7.2 s | 1920 × 1080 | Hero (crowded desktop, Launch Defi, tidy windows, moving between columns) |
-| `feature-hero-hd.mp4` | 7.2 s | 2880 × 1620 | Same hero for viewports wider than 2200 device pixels (Retina) |
-| `feature-columns.mp4` | 8.2 s | 1920 × 1080 | Not referenced; the hero now carries the columns sequence (kept for reuse) |
+| `feature-hero-hd.mp4` | 7.2 s | 2880 × 1620 | Same hero for viewports of 2200 device pixels or more (Retina) |
 | `feature-widths.mp4` | 8.6 s | 1920 × 1080 | Column widths feature |
 | `feature-workspaces.mp4` | 4.1 s | 1920 × 1080 | Virtual workspaces feature (GitHub, T3 chat, terminals) |
 | `feature-overview.mp4` | 8.7 s | 1920 × 1080 | Overview feature |
@@ -45,7 +44,8 @@ Retouch: the private calendar item in the menu bar is painted over with a
 horizontal gradient sampled on either side of it. Nothing else is altered.
 
 Encoding: `trim`/`concat`, scale to 1920 × 1080, `-crf 28`, `-preset slow`,
-`-movflags +faststart`, no audio.
+`-movflags +faststart`, no audio. The hero is encoded from the 2880 × 1620 render
+at `-crf 24` (HD, kept at full size) and `-crf 26` (scaled to 1920 × 1080).
 
 Known weak spots: the cmatrix terminal restarts (and looks empty for a moment)
 after every width change, and the Overview clip ends on fastfetch, which shows
