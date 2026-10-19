@@ -131,9 +131,12 @@ h1,h2,h3{font-family:'Cabinet Grotesk','DM Sans',sans-serif}
 }
 /* Hero recording: full-bleed layout box, scaled to the framed card at rest (see hero-grow.js). */
 .hero-visual{justify-self:start;width:100vw;max-width:none;margin-left:calc(50% - 50vw);scale:var(--grow,.72);transform-origin:50% 0;will-change:scale}
-.hero-visual .media-bezel{padding:var(--bezel,8px);border-radius:var(--bezel-radius,32px)}
+.hero-visual .media-bezel{position:relative;isolation:isolate;padding:0;background:none;box-shadow:none}
+/* The bezel is painted outside the frame so its shrinking never resizes the video or reflows the page while scrolling. */
+.hero-visual .media-bezel::before{content:"";position:absolute;z-index:-1;inset:calc(-1 * var(--bezel,0px));border-radius:var(--bezel-radius,32px);background:linear-gradient(150deg,#ffffff1c,#ffffff06 45%,#ffffff12);box-shadow:inset 0 1px 0 #ffffff21,inset 0 0 0 1px #ffffff08}
 .hero-visual .recording-frame{border-radius:var(--frame-radius,24px)}
 @media(prefers-reduced-motion:reduce){.hero-visual{scale:1;width:100%;max-width:1040px;margin-left:0;justify-self:center}
+.hero-visual .media-bezel{padding:8px}
 }
 /* Landing flow, after the reference pages. One accent: the two install buttons. Everything else is neutral. */
 .site-nav .nav-github{height:44px;padding:0;border-radius:0;background:none;box-shadow:none}
