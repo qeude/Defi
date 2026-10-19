@@ -110,12 +110,9 @@ extension MacOSPlatform {
     frameCoordinator.droppedCount
   }
 
-  /// Completed writes are excluded so a user returning a window to its old width still counts.
+  /// Only an in-flight write can land late; a completed one may equal a width the user dragged back to.
   public func frameMatchesPendingInternalWrite(windowID: WindowID, actual: Rect) -> Bool {
-    frameCoordinator.pendingWindowIDs.contains(windowID)
-      && frameCoordinator.frameMatchesRecentInternalWrite(
-        windowID: windowID, actual: actual, now: snapshotEngine.discoveryNow
-      )
+    frameCoordinator.frameMatchesPendingInternalWrite(windowID: windowID, actual: actual)
   }
 
   public func completedPosition(for windowID: WindowID) -> CGPoint? {

@@ -945,6 +945,26 @@ struct FrameCommitTests {
   }
 
   @Test
+  func `Only an in-flight write target matches a late frame`() {
+    let windowID = WindowID(rawValue: 42)
+    let coordinator = AXFrameCoordinator()
+    let completed = Rect(x: 100, y: 40, width: 800, height: 700)
+    coordinator.recordInternalFrameWrite(
+      completed, windowID: windowID, positionChanged: true, sizeChanged: true, now: 0
+    )
+    coordinator.activeWindowIDs = [windowID]
+    coordinator.activeWrites[windowID] = makeMotionWrite(fromX: 100, toX: 400, sizeChanged: true)
+
+    #expect(coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 401, y: 40, width: 900, height: 700)))
+    #expect(!coordinator.frameMatchesPendingInternalWrite(windowID: windowID, actual: completed))
+
+    coordinator.recordCompletedActiveSizeWrite(windowID: windowID)
+    #expect(!coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 400, y: 40, width: 900, height: 700)))
+  }
+
+  @Test
   func `Display invalidation rejects an old queued frame without replacing its parking target`() {
     let windowID = WindowID(rawValue: 42)
     let coordinator = AXFrameCoordinator()

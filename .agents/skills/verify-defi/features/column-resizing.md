@@ -17,7 +17,7 @@ Drag the right or left edge of a tiled window with the mouse, at ordinary speed,
 Synthetic `defi` commands do not exercise this path. Post real mouse events instead. Build a throwaway helper outside the repo; its process needs Accessibility to post events:
 
 ```swift
-// drag.swift: swift drag.swift frames <OwnerName> | drag x0 y0 x1 y1 [ms]
+// drag.swift: ./drag frames <OwnerName> | ./drag drag x0 y0 x1 y1 [ms]
 import CoreGraphics
 import Foundation
 let a = CommandLine.arguments
@@ -48,6 +48,7 @@ usleep(120_000); post(.leftMouseUp, p[2], p[3])
 Journey, under `python3 script/desktop_lock.py --wait bash`:
 
 ```sh
+swiftc -O drag.swift -o drag                      # in the scratch directory holding drag.swift
 defi status > before.status                       # note workspace=
 defi focus-workspace-position <trailing-empty>    # keep the user's workspaces untouched
 open -na TextEdit; sleep 1; osascript -e 'tell app "TextEdit" to make new document'; sleep 1
