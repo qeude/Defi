@@ -110,6 +110,12 @@ extension MacOSPlatform {
     frameCoordinator.droppedCount
   }
 
+  public func frameMatchesRecentInternalWrite(windowID: WindowID, actual: Rect) -> Bool {
+    frameCoordinator.frameMatchesRecentInternalWrite(
+      windowID: windowID, actual: actual, now: snapshotEngine.discoveryNow
+    )
+  }
+
   public func completedPosition(for windowID: WindowID) -> CGPoint? {
     frameCoordinator.completedPosition(for: windowID)
   }

@@ -703,6 +703,11 @@ extension Daemon {
         focusedWindowID: snapshot.focusedWindowID,
         state: state
       )
+      if let gestureWindowID {
+        // A user-held width must not age into an app constraint once the gesture ends.
+        targetMismatchObservationState.forget(gestureWindowID)
+        lastTiledSizeMismatches[gestureWindowID] = nil
+      }
       mouseGestureScrollAnchor = resolvedMouseGestureScrollAnchor(
         current: mouseGestureScrollAnchor,
         gestureWindowID: gestureWindowID,
@@ -875,7 +880,10 @@ extension Daemon {
             gestureWindowID
           ],
           actualFrame: actualFrame,
-          postReleaseSettlementActive: postReleaseMouseGestureActive
+          postReleaseSettlementActive: postReleaseMouseGestureActive,
+          actualFrameMatchesRecentDefiWrite: actualFrame.map {
+            platform.frameMatchesRecentInternalWrite(windowID: gestureWindowID, actual: $0)
+          } ?? false
         )
       {
         _ = learnTiledWindowWidth(

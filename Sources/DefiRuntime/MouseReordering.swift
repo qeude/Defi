@@ -78,10 +78,11 @@ public func mouseGestureSettlementMaximumDuration(
 public func mouseGestureWidthLearningFrame(
   externallyChangedFrame: Rect?,
   actualFrame: Rect?,
-  postReleaseSettlementActive: Bool
+  postReleaseSettlementActive: Bool,
+  actualFrameMatchesRecentDefiWrite: Bool = false
 ) -> Rect? {
   externallyChangedFrame
-    ?? (postReleaseSettlementActive ? actualFrame : nil)
+    ?? (postReleaseSettlementActive && !actualFrameMatchesRecentDefiWrite ? actualFrame : nil)
 }
 
 public func advanceMouseGestureSettlement(
