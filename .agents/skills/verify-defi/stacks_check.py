@@ -36,10 +36,16 @@ def check(name, ok, detail):
 
 
 class Windows:
-    def __init__(self, binary, out):
-        self.binary, self.out, self.fixtures = binary, out, {}
+    def __init__(self, binary, out, workspace):
+        self.binary, self.out, self.workspace, self.fixtures = binary, out, workspace, {}
+
+    def home(self):
+        # Closing a window hands native focus to another app, which Defi follows to its workspace.
+        defi('workspace', self.workspace)
+        self.settle()
 
     def open(self, name, min_height=None):
+        self.home()
         if min_height:
             os.environ['DEFI_FIXTURE_MIN'] = f'200,{int(min_height)}'
         try:
@@ -58,7 +64,7 @@ class Windows:
     def close(self, *names):
         for name in names:
             self.fixtures.pop(name)[0].close()
-        self.settle()
+        self.home()
 
     def frame(self, name):
         return self.fixtures[name][0].ask()['windows'][0]['frame']
@@ -94,7 +100,7 @@ def main():
     monitor = json.loads(session.command('list-workspaces', '--json'))['monitors'][0]
     empty = next(w for w in monitor['workspaces'] if w['windowCount'] == 0)
     session.command('workspace', empty['id'])
-    windows = Windows(binary, out)
+    windows = Windows(binary, out, empty['id'])
     try:
         windows.open('plain')
         lone = windows.frame('plain')[3]
@@ -152,14 +158,21 @@ def main():
               f's1.x={windows.frame("s1")[0]:.0f} s2.x={windows.frame("s2")[0]:.0f}')
         windows.close('s1', 's2')
 
-        windows.open('huge', lone + 200)
+        # The window server reports a minimum taller than the screen as the current height,
+        # so an oversized window only exists against a viewport smaller than the screen.
+        windows.open('huge', 0.9 * lone)
+        defi('set-reserved-area', 'bottom', str(SHRINK_PT))
         windows.settle()
         oversized = status_value('oversized-stack-windows') or ''
+        writes = int(status_value('sizeWrites') or 0)
+        time.sleep(3)
+        writes_after = int(status_value('sizeWrites') or 0)
         ok, text = defi('join-window', 'left')
         windows.settle()
-        check('oversized single window diagnosed, not split',
-              str(windows.number('huge')) in oversized.split(',') and not ok,
-              f'oversized-stack-windows={oversized} join="{text}"')
+        check('oversized single window diagnosed, not split or retried',
+              str(windows.number('huge')) in oversized.split(',') and not ok and writes_after == writes,
+              f'oversized-stack-windows={oversized} sizeWrites={writes}->{writes_after} join="{text}"')
+        defi('set-reserved-area', 'bottom', str(args.restore_bottom))
     finally:
         defi('set-reserved-area', 'bottom', str(args.restore_bottom))
         for name in list(windows.fixtures):

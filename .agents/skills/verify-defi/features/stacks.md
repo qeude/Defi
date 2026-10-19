@@ -5,7 +5,7 @@
 - Balanced stacks: a column's height is split evenly after gaps. A window's verified minimum or maximum height, read from the window server, can force its own slot; the other windows share what remains.
 - Rejected joins: `join-window` fails with `cannot join: stack needs <n>pt but only <m>pt is available` and changes nothing, so membership, focus and scroll all stay as they were.
 - Automatic separation: if a stack stops fitting after the monitor shrinks or a constraint changes, the longest top-to-bottom run that fits stays in the column. The other windows move, in order, into new columns directly to its right, and focus stays on the same window. Columns never merge back.
-- An oversized single window keeps the full viewport height and is listed in `oversized-stack-windows=` of `defi status`. It is never split.
+- An oversized single window is placed at its own minimum height, top-aligned and overflowing the viewport, so Defi does not keep retrying a size the app refuses. It is listed in `oversized-stack-windows=` of `defi status` and is never split.
 
 ## How to get to it (user POV)
 
@@ -30,6 +30,6 @@ defi status | tr ' ' '\n' | grep -E '^(focused|oversized-stack-windows|drift)='
 
 - Constraints come only from optional private window-server metadata. Without it, stacks stay evenly split and joins are never refused. That is the intended fallback, not a failure.
 - The script restores the bottom reserved edge to `--restore-bottom` (default 0). Pass your own value if you reserve a bottom edge at runtime. It never touches the top edge, so a SketchyBar top reservation survives.
-- An oversized window keeps `drift` non-zero because the app refuses the viewport height. Defi does not keep retrying it as a resize battle; check that `sizeWrites` stops growing.
+- The window server reports a minimum taller than the screen as the window's current height, so an oversized window only appears once the viewport is smaller than the screen (reserved area, Dock, smaller display). The script reproduces it with a 0.9x minimum and a 400pt bottom reservation, and checks that `sizeWrites` stays flat, which means no resize battle.
 - Real apps with tall minimum heights to try by hand: System Settings, Xcode's Organizer, Simulator.
 - Covering tests: `StackConstraintsTests`, `StackConstraintRuntimeTests`.
