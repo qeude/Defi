@@ -55,19 +55,31 @@ public func learnTiledWindowWidth(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> Bool {
-  let previousMinimum = state.windows[windowID]?.minimumTiledWidth
-  let previousMaximum = state.windows[windowID]?.maximumTiledWidth
-  state.windows[windowID]?.minimumTiledWidth = nil
-  state.windows[windowID]?.maximumTiledWidth = nil
-  guard let learned = tiledWindowWidthLearning(
+  // A frame that already matches its bounded target carries no user width.
+  guard let bounded = tiledWindowWidthLearning(
     windowID,
     actualFrame: actualFrame,
     state: state,
     viewports: viewports
-  ) else {
-    state.windows[windowID]?.minimumTiledWidth = previousMinimum
-    state.windows[windowID]?.maximumTiledWidth = previousMaximum
-    return false
+  ) else { return false }
+  // Ignore the window's own bounds so the gap allowance maps the observed frame to its slot.
+  var unbounded = state
+  unbounded.monitors[bounded.monitorIndex].workspaces[bounded.workspaceIndex]
+    .columns[bounded.columnIndex].width = .pixels(bounded.requestedWidth)
+  unbounded.windows[windowID]?.minimumTiledWidth = nil
+  unbounded.windows[windowID]?.maximumTiledWidth = nil
+  guard let learned = tiledWindowWidthLearning(
+    windowID,
+    actualFrame: actualFrame,
+    state: unbounded,
+    viewports: viewports
+  ) else { return false }
+  // The real frame proves the window accepts this width; drop only contradicted bounds.
+  if let minimum = state.windows[windowID]?.minimumTiledWidth, learned.width < minimum - 0.5 {
+    state.windows[windowID]?.minimumTiledWidth = nil
+  }
+  if let maximum = state.windows[windowID]?.maximumTiledWidth, learned.width > maximum + 0.5 {
+    state.windows[windowID]?.maximumTiledWidth = nil
   }
   state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
     .columns[learned.columnIndex].width = .pixels(learned.width)
