@@ -1,4 +1,5 @@
 import DefiModel
+import Foundation
 
 /// Why a vertical stack cannot honour its windows' verified minimum heights.
 public struct StackRejection: Error, Equatable, CustomStringConvertible, Sendable {
