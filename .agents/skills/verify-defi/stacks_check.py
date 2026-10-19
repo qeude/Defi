@@ -30,6 +30,32 @@ def status_value(key):
     return None
 
 
+def wait_until(condition, timeout=5):
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(.2)
+    return condition()
+
+
+def applied_writes(window_number, seconds=3):
+    """AX frame writes the coordinator applied to one window over `seconds`."""
+    def events():
+        for line in session.command('trace').splitlines():
+            fields = line.split(' ')
+            try:
+                yield float(fields[0]), fields
+            except ValueError:
+                continue
+    start = max(at for at, _ in events())
+    time.sleep(seconds)
+    lines = [fields for at, fields in events() if at > start and len(fields) > 4]
+    generations = {fields[2] for fields in lines if fields[1] == 'submit'
+                   and str(window_number) in ' '.join(fields[4:5])}
+    return sum(int(field.split('=')[1]) for fields in lines
+               if fields[1] == 'complete' and fields[2] in generations
+               for field in fields if field.startswith('applied='))
+
+
 def check(name, ok, detail):
     results.append((name, ok))
     print(f'{"PASS" if ok else "FAIL"} {name}: {detail}')
@@ -53,13 +79,20 @@ class Windows:
         finally:
             os.environ.pop('DEFI_FIXTURE_MIN', None)
         fixture.ask()
+        managed = int(status_value('windows') or 0)
         number = fixture.ask('create', id='main')['windows'][0]['windowNumber']
+        # Constraints are read when discovery adopts the window, a few hundred ms after it appears.
+        wait_until(lambda: int(status_value('windows') or 0) > managed)
         pe.activate(fixture.process.pid)
         self.fixtures[name] = (fixture, number)
         self.settle()
-        defi('focus-column', 'last')
-        self.settle()
+        self.focus('last', number)
         return number
+
+    def focus(self, column, number):
+        defi('focus-column', column)
+        wait_until(lambda: status_value('focused') == str(number))
+        self.settle()
 
     def close(self, *names):
         for name in names:
@@ -94,6 +127,8 @@ def main():
     (out / 'before.status').write_text(session.command('status'))
     (out / 'workspaces-before.json').write_text(session.command('list-workspaces', '--json'))
     initial_workspace = status_value('workspace')
+    daemon = Path(session.CLI).with_name('defi-daemon')
+    daemon_digest = daemon.read_bytes()
     binary = out / 'ClampFixture'
     pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/ClampFixture.swift', '-o', binary])
 
@@ -109,7 +144,8 @@ def main():
         windows.open('b')
         windows.open('c')
         defi('join-window', 'left')
-        defi('focus-column', 'first')
+        wait_until(lambda: round(windows.frame('b')[0]) == round(windows.frame('c')[0]))
+        windows.focus('first', windows.number('plain'))
         defi('join-window', 'right')
         windows.settle()
         heights = [windows.frame(n)[3] for n in ('b', 'c', 'plain')]
@@ -123,9 +159,10 @@ def main():
         windows.open('tall', tall)
         defi('join-window', 'left')
         windows.settle()
+        wait_until(lambda: windows.frame('plain')[3] + windows.frame('tall')[3] <= lone)
         plain, constrained = windows.frame('plain'), windows.frame('tall')
         check('feasible unequal stack', round(plain[0]) == round(constrained[0])
-              and constrained[3] >= tall - 1 and plain[3] < constrained[3],
+              and constrained[3] >= tall - 1 and plain[3] + constrained[3] <= lone,
               f'min={tall:.0f} tall={constrained[3]:.0f} plain={plain[3]:.0f}')
         defi('unjoin-windows')
         windows.settle()
@@ -164,14 +201,13 @@ def main():
         defi('set-reserved-area', 'bottom', str(SHRINK_PT))
         windows.settle()
         oversized = status_value('oversized-stack-windows') or ''
-        writes = int(status_value('sizeWrites') or 0)
-        time.sleep(3)
-        writes_after = int(status_value('sizeWrites') or 0)
+        # sizeWrites is global and moves for unrelated windows; count this window's applied writes.
+        writes = applied_writes(windows.number('huge'))
         ok, text = defi('join-window', 'left')
         windows.settle()
         check('oversized single window diagnosed, not split or retried',
-              str(windows.number('huge')) in oversized.split(',') and not ok and writes_after == writes,
-              f'oversized-stack-windows={oversized} sizeWrites={writes}->{writes_after} join="{text}"')
+              str(windows.number('huge')) in oversized.split(',') and not ok and writes == 0,
+              f'oversized-stack-windows={oversized} appliedWrites={writes} join="{text}"')
         defi('set-reserved-area', 'bottom', str(args.restore_bottom))
     finally:
         defi('set-reserved-area', 'bottom', str(args.restore_bottom))
@@ -182,6 +218,8 @@ def main():
         (out / 'after.status').write_text(session.command('status'))
         (out / 'workspaces-after.json').write_text(session.command('list-workspaces', '--json'))
         (out / 'trace.log').write_text(session.command('trace'))
+    if daemon.read_bytes() != daemon_digest:
+        check('installed daemon unchanged during the run', False, 'another install replaced the bundle')
     print(f'daemons={session.daemon_count()} evidence: {out}')
     return 0 if results and all(ok for _, ok in results) else 1
 
