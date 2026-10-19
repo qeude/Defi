@@ -35,15 +35,15 @@ public func computeLayout(
       acceptedSizes: acceptedSizes,
       windowsByID: windowsByID
     )
-    let height = viewport.height / Double(max(column.windows.count, 1))
+    let heights = stackSlotHeights(
+      column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
+    )
+    var slotY = viewport.y
 
     for (windowIndex, windowID) in column.windows.enumerated() {
-      let slot = Rect(
-        x: x,
-        y: viewport.y + height * Double(windowIndex),
-        width: width,
-        height: height
-      )
+      let height = heights[windowIndex]
+      let slot = Rect(x: x, y: slotY, width: width, height: height)
+      slotY += height
       let frame: Rect
       if let window = windowsByID[windowID], window.intrinsicSize {
         let intrinsicWidth = min(max(window.frame.width, 1), width)
@@ -59,11 +59,15 @@ public func computeLayout(
           min(width, window.maximumTiledWidth ?? width),
           effectiveMinimumTiledWidth(window.minimumTiledWidth, requested: width)
         )
+        let constrainedHeight = cappedStackWindowHeight(
+          slotHeight: height, window: window, windowIndex: windowIndex,
+          windowCount: column.windows.count, settings: settings
+        )
         frame = Rect(
           x: x + (width - constrainedWidth) / 2,
-          y: slot.y,
+          y: slot.y + (height - constrainedHeight) / 2,
           width: constrainedWidth,
-          height: height
+          height: constrainedHeight
         )
       } else {
         frame = slot
@@ -207,7 +211,9 @@ private func acceptedTiledSizes(
   windowsByID: [WindowID: Window],
   settings: LayoutSettings
 ) -> [WindowID: TiledSizeAcceptance] {
-  let height = viewport.height / Double(max(column.windows.count, 1))
+  let heights = stackSlotHeights(
+    column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
+  )
   return Dictionary(
     uniqueKeysWithValues: column.windows.enumerated().compactMap { windowIndex, windowID in
       guard let window = windowsByID[windowID], !window.intrinsicSize,
@@ -222,9 +228,12 @@ private func acceptedTiledSizes(
       )
       let frame = Rect(
         x: (preferredWidth - constrainedWidth) / 2,
-        y: viewport.y + height * Double(windowIndex),
+        y: viewport.y + heights.prefix(windowIndex).reduce(0, +),
         width: constrainedWidth,
-        height: height
+        height: cappedStackWindowHeight(
+          slotHeight: heights[windowIndex], window: window, windowIndex: windowIndex,
+          windowCount: column.windows.count, settings: settings
+        )
       )
       let requested = compensatingWidthRounding(applyGaps(
         frame,
