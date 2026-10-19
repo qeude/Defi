@@ -15,7 +15,7 @@ struct WindowBorderTests {
       minimumTiledWidth: 400, maximumTiledWidth: 1000, maximumTiledHeight: 900,
       minimumTiledHeight: 300)
     var reads = 0
-    let fresh = WindowSizeConstraints(minimumWidth: 500, maximumWidth: 1100, maximumHeight: 950)
+    let fresh = WindowSizeConstraints(minimumWidth: 500, maximumWidth: 1100, maximumHeight: 950, minimumHeight: nil)
     for _ in 0..<20 {
       let reused = windowSizeConstraintsForSnapshot(previousWindow: previous, overviewActive: true) {
         reads += 1
@@ -511,17 +511,17 @@ struct WindowBorderTests {
       normalizedWindowSizeConstraints(
         minimum: CGSize(width: 500, height: 0),
         maximum: CGSize(width: 800, height: 100_000)
-      ) == WindowSizeConstraints(minimumWidth: 500, maximumWidth: 800, maximumHeight: nil)
+      ) == WindowSizeConstraints(minimumWidth: 500, maximumWidth: 800, maximumHeight: nil, minimumHeight: nil)
     )
     #expect(
       normalizedWindowSizeConstraints(
         minimum: .zero, maximum: CGSize(width: 100_000, height: 900)
-      ) == WindowSizeConstraints(minimumWidth: nil, maximumWidth: nil, maximumHeight: 900)
+      ) == WindowSizeConstraints(minimumWidth: nil, maximumWidth: nil, maximumHeight: 900, minimumHeight: nil)
     )
     #expect(
       normalizedWindowSizeConstraints(
         minimum: .zero, maximum: CGSize(width: 800, height: 900)
-      ) == WindowSizeConstraints(minimumWidth: nil, maximumWidth: 800, maximumHeight: 900)
+      ) == WindowSizeConstraints(minimumWidth: nil, maximumWidth: 800, maximumHeight: 900, minimumHeight: nil)
     )
     #expect(
       normalizedWindowSizeConstraints(
@@ -540,7 +540,7 @@ struct WindowBorderTests {
     #expect(
       normalizedWindowSizeConstraints(
         minimum: .zero, maximum: CGSize(width: CGFloat.infinity, height: CGFloat.nan)
-      ) == WindowSizeConstraints(minimumWidth: nil, maximumWidth: nil, maximumHeight: nil)
+      ) == WindowSizeConstraints(minimumWidth: nil, maximumWidth: nil, maximumHeight: nil, minimumHeight: nil)
     )
     #expect(
       normalizedWindowSizeConstraints(

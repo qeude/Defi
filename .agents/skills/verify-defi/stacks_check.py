@@ -2,7 +2,7 @@
 """Stack size-constraint journey on the installed daemon (see features/stacks.md).
 
 Uses ClampFixture windows whose NSWindow minimum height is set through DEFI_FIXTURE_MIN, on the
-empty trailing workspace of the first monitor. Shrinks the viewport with
+first empty workspace of the first monitor. Shrinks the viewport with
 `set-reserved-area bottom`, then restores it to --restore-bottom (default 0, the built-in default).
 Usage: python3 script/desktop_lock.py --wait python3 .agents/skills/verify-defi/stacks_check.py [evidence-dir]
 """
@@ -49,10 +49,11 @@ def applied_writes(window_number, seconds=3):
     start = max(at for at, _ in events())
     time.sleep(seconds)
     lines = [fields for at, fields in events() if at > start and len(fields) > 4]
-    generations = {fields[2] for fields in lines if fields[1] == 'submit'
-                   and str(window_number) in ' '.join(fields[4:5])}
-    return sum(int(field.split('=')[1]) for fields in lines
-               if fields[1] == 'complete' and fields[2] in generations
+    def submitted(field):
+        return field.startswith('windows=') and str(window_number) in field.split('[')[1].rstrip(']').split(',')
+    generations = {fields[2] for fields in lines if fields[1] == 'submit' and any(map(submitted, fields))}
+    # Generation-wide totals over every completion kind: conservative, a mixed batch can only over-count.
+    return sum(int(field.split('=')[1]) for fields in lines if fields[1] != 'submit' and fields[2] in generations
                for field in fields if field.startswith('applied='))
 
 
@@ -206,7 +207,8 @@ def main():
         ok, text = defi('join-window', 'left')
         windows.settle()
         check('oversized single window diagnosed, not split or retried',
-              str(windows.number('huge')) in oversized.split(',') and not ok and writes == 0,
+              str(windows.number('huge')) in oversized.split(',') and not ok and 'cannot join' in text
+              and writes == 0,
               f'oversized-stack-windows={oversized} appliedWrites={writes} join="{text}"')
         defi('set-reserved-area', 'bottom', str(args.restore_bottom))
     finally:
@@ -220,8 +222,9 @@ def main():
         (out / 'trace.log').write_text(session.command('trace'))
     if daemon.read_bytes() != daemon_digest:
         check('installed daemon unchanged during the run', False, 'another install replaced the bundle')
-    print(f'daemons={session.daemon_count()} evidence: {out}')
-    return 0 if results and all(ok for _, ok in results) else 1
+    daemons = session.daemon_count()
+    print(f'daemons={daemons} evidence: {out}')
+    return 0 if results and all(ok for _, ok in results) and daemons == 1 else 1
 
 
 if __name__ == '__main__':

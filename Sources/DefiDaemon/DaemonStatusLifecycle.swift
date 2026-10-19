@@ -63,14 +63,17 @@ extension Daemon {
       $0.rawValue < $1.rawValue
     }.map { String($0.rawValue) }.joined(separator: ",")
     let viewports = viewportsByMonitor
-    let oversizedWindows = state.monitors.flatMap { monitor in
-      monitor.workspaces.flatMap { workspace in
-        viewports[monitor.id].map {
-          oversizedStackWindowIDs(
-            in: workspace, windowsByID: state.windows, viewport: $0, settings: state.layout)
-        } ?? []
+    var oversizedWindowIDs: [WindowID] = []
+    for monitor in state.monitors {
+      guard let viewport = viewports[monitor.id] else { continue }
+      for workspace in monitor.workspaces {
+        oversizedWindowIDs += oversizedStackWindowIDs(
+          in: workspace, windowsByID: state.windows, viewport: viewport, settings: state.layout)
       }
-    }.sorted { $0.rawValue < $1.rawValue }.map { String($0.rawValue) }.joined(separator: ",")
+    }
+    let oversizedWindows = oversizedWindowIDs
+      .filter { !state.nativeFullscreenWindowIDs.contains($0) }
+      .map(\.rawValue).sorted().map(String.init).joined(separator: ",")
     let driftDetails = targetMismatches.prefix(6).map { mismatch in
       let dx = Int((mismatch.actual.x - mismatch.target.x).rounded())
       let dy = Int((mismatch.actual.y - mismatch.target.y).rounded())

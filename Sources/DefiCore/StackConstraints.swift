@@ -11,8 +11,9 @@ public struct StackRejection: Error, Equatable, CustomStringConvertible, Sendabl
   }
 
   public var description: String {
-    "stack needs \(Int(requiredHeight.rounded(.up)))pt but only "
-      + "\(Int(availableHeight.rounded(.down)))pt is available"
+    // Formatted as Double: a finite minimum read from an app may exceed Int's range.
+    "stack needs \(requiredHeight.rounded(.up).formatted(.number.grouping(.never)))pt but only "
+      + "\(availableHeight.rounded(.down).formatted(.number.grouping(.never)))pt is available"
   }
 }
 
