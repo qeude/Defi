@@ -120,6 +120,18 @@ func constrainedStackWindowHeight(
   return window.minimumTiledHeight.map { max(capped, $0 + gaps) } ?? capped
 }
 
+/// `applyGaps` shrinks gaps that exceed half a frame, so the gapped frame can
+/// outgrow the slot-level cap; enforce the verified maximum on the final frame.
+func cappedStackFrame(_ frame: Rect, window: Window?) -> Rect {
+  guard let window, !window.intrinsicSize, let maximum = window.maximumTiledHeight,
+    frame.height > maximum
+  else { return frame }
+  var capped = frame
+  capped.y += (frame.height - maximum) / 2
+  capped.height = maximum
+  return capped
+}
+
 private func stackBounds(
   _ windowIDs: [WindowID],
   windowsByID: [WindowID: Window],

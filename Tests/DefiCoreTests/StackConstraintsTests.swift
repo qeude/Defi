@@ -253,4 +253,14 @@ struct StackConstraintsTests {
 
     #expect(fit == .rejected(StackRejection(requiredHeight: 905, availableHeight: 900)))
   }
+
+  @Test
+  func `A maximum holds even when applyGaps clamps an oversized gap`() {
+    let frames = computeLayout(
+      workspace: Workspace(id: WorkspaceID(rawValue: "1"), columns: [stack([1, 2])]),
+      viewport: viewport, windows: [window(1, maximumHeight: 100)],
+      settings: LayoutSettings(innerVerticalGap: 0, outerTopGap: 200, outerBottomGap: 0)
+    ).map(\.frame)
+    #expect(frames[0].height == 100)
+  }
 }

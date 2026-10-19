@@ -73,14 +73,14 @@ public func computeLayout(
         frame = slot
       }
 
-      var target = applyGaps(
+      var target = cappedStackFrame(applyGaps(
         frame,
         columnIndex: columnIndex,
         columnCount: workspace.columns.count,
         windowIndex: windowIndex,
         windowCount: column.windows.count,
         settings: settings
-      )
+      ), window: windowsByID[windowID])
       if acceptedSizes[windowID] == nil, let window = windowsByID[windowID] {
         target = compensatingWidthRounding(target, for: window)
       }
@@ -236,14 +236,14 @@ private func acceptedTiledSizes(
           windowCount: column.windows.count, settings: settings
         )
       )
-      let requested = compensatingWidthRounding(applyGaps(
+      let requested = compensatingWidthRounding(cappedStackFrame(applyGaps(
         frame,
         columnIndex: columnIndex,
         columnCount: columnCount,
         windowIndex: windowIndex,
         windowCount: column.windows.count,
         settings: settings
-      ), for: window)
+      ), window: window), for: window)
       // Moving a column across a gap edge shifts the request by exactly an
       // outer/inner gap difference; the app's clamp is unchanged, so its accepted
       // size still applies. Any other change is a new request.
