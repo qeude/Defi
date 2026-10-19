@@ -511,15 +511,17 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `diagnostic-mark` | Record current status and recent trace without changing managed windows. | unset |
 
 A stack divides its column's height evenly, after gaps, except where a window's
-verified minimum or maximum height (read from the window server when available)
-forces its slot; the others share the rest. No height proportions are stored.
+verified minimum height (read from the window server when available) forces a
+larger slot or its maximum caps the window; the others share the rest. When every
+window is capped, the spare height is spread evenly and each capped window is
+centred in its slot. No height proportions are stored.
 `join-window` is refused, with the required and available height in the error,
-when the joined stack would need more than the monitor offers. If a monitor
+when the joined stack would need more than the usable viewport offers. If a monitor
 shrinks or a constraint changes so an existing stack no longer fits, Defi keeps
 the longest top-to-bottom run that fits and moves the remaining windows, in
 order, into new adjacent columns of the same width on its right. Columns are never
 merged back automatically. A single window whose minimum height exceeds the
-monitor is placed at its minimum, top-aligned, without further resize attempts,
+usable viewport, which excludes the Dock and reserved areas, is placed at its minimum, top-aligned, without further resize attempts,
 and is listed in `oversized-stack-windows` of `defi status`.
 
 `previous` may be written as `prev`. `focus-column` also accepts

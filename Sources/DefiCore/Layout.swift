@@ -214,6 +214,7 @@ private func acceptedTiledSizes(
   let heights = stackSlotHeights(
     column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
   )
+  let offsets = heights.reduce(into: [0.0]) { $0.append($0.last! + $1) }
   return Dictionary(
     uniqueKeysWithValues: column.windows.enumerated().compactMap { windowIndex, windowID in
       guard let window = windowsByID[windowID], !window.intrinsicSize,
@@ -228,7 +229,7 @@ private func acceptedTiledSizes(
       )
       let frame = Rect(
         x: (preferredWidth - constrainedWidth) / 2,
-        y: viewport.y + heights.prefix(windowIndex).reduce(0, +),
+        y: viewport.y + offsets[windowIndex],
         width: constrainedWidth,
         height: constrainedStackWindowHeight(
           slotHeight: heights[windowIndex], window: window, windowIndex: windowIndex,

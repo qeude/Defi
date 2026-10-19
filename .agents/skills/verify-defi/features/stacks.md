@@ -29,7 +29,7 @@ defi status | tr ' ' '\n' | grep -E '^(focused|oversized-stack-windows|drift)='
 ## Gotchas
 
 - Constraints come only from optional private window-server metadata. Without it, stacks stay evenly split and joins are never refused. That is the intended fallback, not a failure.
-- The script restores the bottom reserved edge to `--restore-bottom` (default 0). Pass your own value if you reserve a bottom edge at runtime. It never touches the top edge, so a SketchyBar top reservation survives.
+- The script needs exactly one monitor, because reserved-area commands apply to every monitor. It restores the bottom reserved edge to `--restore-bottom` (default 0). Pass your own value if you reserve a bottom edge at runtime. It never touches the top edge, so a SketchyBar top reservation survives.
 - The window server reports a minimum taller than the screen as the window's current height, so an oversized window only appears once the viewport is smaller than the screen (reserved area, Dock, smaller display). The script reproduces it with a 0.9x minimum and a 400pt bottom reservation, and checks from `defi trace` that the coordinator applies no frame writes to that window, which means no resize battle. `sizeWrites` is global and also moves for unrelated windows.
 - Real apps with tall minimum heights to try by hand: System Settings, Xcode's Organizer, Simulator.
 - The window server reports a minimum no larger than the window's current frame. A window that first appears below its minimum is read with a smaller minimum until a later topology re-read, and separation then catches up. ClampFixture opens at its `DEFI_FIXTURE_MIN` for this reason.

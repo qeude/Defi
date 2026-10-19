@@ -79,12 +79,16 @@ class Windows:
             fixture = pe.Fixture(self.binary, self.out / f'{name}.jsonl')
         finally:
             os.environ.pop('DEFI_FIXTURE_MIN', None)
-        fixture.ask()
-        managed = int(status_value('windows') or 0)
-        number = fixture.ask('create', id='main')['windows'][0]['windowNumber']
-        # Constraints are read when discovery adopts the window, a few hundred ms after it appears.
-        wait_until(lambda: int(status_value('windows') or 0) > managed)
-        pe.activate(fixture.process.pid)
+        try:
+            fixture.ask()
+            managed = int(status_value('windows') or 0)
+            number = fixture.ask('create', id='main')['windows'][0]['windowNumber']
+            # Constraints are read when discovery adopts the window, a few hundred ms after it appears.
+            wait_until(lambda: int(status_value('windows') or 0) > managed)
+            pe.activate(fixture.process.pid)
+        except BaseException:
+            fixture.close()
+            raise
         self.fixtures[name] = (fixture, number)
         self.settle()
         self.focus('last', number)
@@ -121,8 +125,11 @@ class Windows:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('out', nargs='?', default=f'dist/verification/evidence-{time.strftime("%Y%m%d-%H%M%S")}')
-    parser.add_argument('--restore-bottom', type=int, default=0)
+    parser.add_argument('--restore-bottom', type=int, default=0, choices=range(0, 513), metavar='0..512')
     args = parser.parse_args()
+    # Reserved-area commands apply to every monitor; restoring one value is only safe with one.
+    if len(json.loads(session.command('list-workspaces', '--json'))['monitors']) != 1:
+        sys.exit('stacks_check.py requires exactly one monitor')
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / 'before.status').write_text(session.command('status'))
