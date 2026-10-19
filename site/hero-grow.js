@@ -26,6 +26,7 @@ export function mountHeroGrow(hero, reducedMotion) {
 
   let frame = 0;
   function grow() {
+    cancelAnimationFrame(frame);
     frame = 0;
     // Read layout before any write so the frame never forces a synchronous reflow.
     const rect = visual.getBoundingClientRect();
