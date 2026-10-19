@@ -243,4 +243,14 @@ struct StackConstraintsTests {
     #expect(frames.map(\.y) == [8])
     #expect(frames.map(\.height) == [1_200])
   }
+
+  @Test
+  func `Stack fit reserves gaps and a drawable point for unconstrained windows`() {
+    let windows = [id(1): window(1, minimumHeight: 880), id(2): window(2)]
+    let fit = stackFit(
+      [id(1), id(2)], windowsByID: windows,
+      viewport: Rect(x: 0, y: 0, width: 1_000, height: 900), settings: LayoutSettings())
+
+    #expect(fit == .rejected(StackRejection(requiredHeight: 905, availableHeight: 900)))
+  }
 }

@@ -125,10 +125,12 @@ private func stackBounds(
 ) -> [(lower: Double, upper: Double)] {
   windowIDs.enumerated().map { index, windowID in
     let gaps = stackVerticalGaps(windowIndex: index, windowCount: windowIDs.count, settings: settings)
+    // `applyGaps` never emits a frame below 1pt, so every slot needs its gaps plus that.
+    let floor = 1 + gaps
     guard let window = windowsByID[windowID], !window.intrinsicSize else {
-      return (0, .infinity)
+      return (floor, .infinity)
     }
-    let lower = window.minimumTiledHeight.map { $0 + gaps } ?? 0
+    let lower = window.minimumTiledHeight.map { max($0 + gaps, floor) } ?? floor
     let upper = window.maximumTiledHeight.map { max($0 + gaps, lower) } ?? .infinity
     return (lower, upper)
   }
