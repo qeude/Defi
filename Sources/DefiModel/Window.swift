@@ -17,6 +17,7 @@ public struct Window: Equatable, Codable, Sendable {
   public var intrinsicSize: Bool
   public var minimumTiledWidth: Double?
   public var maximumTiledWidth: Double?
+  public var minimumTiledHeight: Double?
   public var maximumTiledHeight: Double?
   public var tiledSizeAcceptance: TiledSizeAcceptance?
   /// How much wider than requested the app makes this window (a terminal snapping to
@@ -40,7 +41,8 @@ public struct Window: Equatable, Codable, Sendable {
     intrinsicSize: Bool = false,
     minimumTiledWidth: Double? = nil,
     maximumTiledWidth: Double? = nil,
-    maximumTiledHeight: Double? = nil
+    maximumTiledHeight: Double? = nil,
+    minimumTiledHeight: Double? = nil
   ) {
     self.id = id
     self.appID = appID
@@ -59,6 +61,7 @@ public struct Window: Equatable, Codable, Sendable {
     self.minimumTiledWidth = minimumTiledWidth
     self.maximumTiledWidth = maximumTiledWidth
     self.maximumTiledHeight = maximumTiledHeight
+    self.minimumTiledHeight = minimumTiledHeight
   }
 }
 

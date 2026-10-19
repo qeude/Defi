@@ -12,7 +12,8 @@ struct WindowBorderTests {
   @Test func overviewReusesConstraintsWithoutBlockingMetadataReads() {
     let previous = Window(id: WindowID(rawValue: 1), appID: "test", title: "Window",
       frame: Rect(x: 0, y: 0, width: 800, height: 600),
-      minimumTiledWidth: 400, maximumTiledWidth: 1000, maximumTiledHeight: 900)
+      minimumTiledWidth: 400, maximumTiledWidth: 1000, maximumTiledHeight: 900,
+      minimumTiledHeight: 300)
     var reads = 0
     let fresh = WindowSizeConstraints(minimumWidth: 500, maximumWidth: 1100, maximumHeight: 950)
     for _ in 0..<20 {
@@ -20,7 +21,8 @@ struct WindowBorderTests {
         reads += 1
         return fresh
       }
-      #expect(reused == WindowSizeConstraints(minimumWidth: 400, maximumWidth: 1000, maximumHeight: 900))
+      #expect(reused == WindowSizeConstraints(
+        minimumWidth: 400, maximumWidth: 1000, maximumHeight: 900, minimumHeight: 300))
     }
     #expect(reads == 0)
     #expect(windowSizeConstraintsForSnapshot(previousWindow: nil, overviewActive: true) {
@@ -525,13 +527,15 @@ struct WindowBorderTests {
       normalizedWindowSizeConstraints(
         minimum: CGSize(width: 500, height: 446),
         maximum: CGSize(width: 100_000, height: 100_000)
-      ) == WindowSizeConstraints(minimumWidth: 500, maximumWidth: nil, maximumHeight: nil)
+      ) == WindowSizeConstraints(
+        minimumWidth: 500, maximumWidth: nil, maximumHeight: nil, minimumHeight: 446)
     )
     #expect(
       normalizedWindowSizeConstraints(
         minimum: CGSize(width: 196, height: 464),
         maximum: CGSize(width: 650, height: 1371)
-      ) == WindowSizeConstraints(minimumWidth: 196, maximumWidth: 650, maximumHeight: 1371)
+      ) == WindowSizeConstraints(
+        minimumWidth: 196, maximumWidth: 650, maximumHeight: 1371, minimumHeight: 464)
     )
     #expect(
       normalizedWindowSizeConstraints(
@@ -542,7 +546,8 @@ struct WindowBorderTests {
       normalizedWindowSizeConstraints(
         minimum: CGSize(width: 723, height: 600),
         maximum: CGSize(width: 700, height: 500)
-      ) == WindowSizeConstraints(minimumWidth: 723, maximumWidth: 723, maximumHeight: 600)
+      ) == WindowSizeConstraints(
+        minimumWidth: 723, maximumWidth: 723, maximumHeight: 600, minimumHeight: 600)
     )
   }
 
