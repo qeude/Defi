@@ -21,6 +21,7 @@ protocol OverviewViewDelegate: AnyObject {
 
 @MainActor
 final class OverviewPanel {
+  private static let wallpaperFadeDuration = 0.16
   let monitorID: MonitorID
   let usesCapturedDesktop: Bool
   let window: NSPanel
@@ -121,6 +122,7 @@ final class OverviewPanel {
 
   func show(fadeDuration: TimeInterval = 0) {
     cancelSurfaceTransition()
+    restoreWallpaperFade()
     view.wantsLayer = true
     if fadeDuration > 0 {
       window.alphaValue = 0
@@ -169,6 +171,7 @@ final class OverviewPanel {
 
   func showSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>, duration: TimeInterval) {
     cancelSurfaceTransition()
+    restoreWallpaperFade()
     surfaceScene = scene
     openingTransitionInProgress = true
     openingTransitionChanged?("started(\(scene.openingContentDescription))")
@@ -228,6 +231,7 @@ final class OverviewPanel {
     cancelSurfaceTransition()
     previewClosingScene = scene
     let generation = surfaceGeneration
+    let zoomsWallpaper = scene.zoomsWallpaper
     rootView.layer?.addSublayer(scene.layer)
     scene.animate(duration: duration)
     NSAnimationContext.runAnimationGroup { context in
@@ -237,6 +241,27 @@ final class OverviewPanel {
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      if zoomsWallpaper {
+        // The panel covers the menu bar and Dock; cross-fade them in instead of popping.
+        // Core Animation keeps the fade smooth while the main thread is busy.
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.duration = Self.wallpaperFadeDuration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // The zoomed wallpaper covers the screen; drop the opaque black backing so
+        // the fade reveals the real desktop instead of dipping through black.
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        rootView.layer?.backgroundColor = NSColor.clear.cgColor
+        desktopView.isHidden = true
+        rootView.layer?.opacity = 0
+        rootView.layer?.add(fade, forKey: "overview-wallpaper-fade")
+        CATransaction.commit()
+        do { try await Task.sleep(for: .seconds(Self.wallpaperFadeDuration)) } catch { return }
+        guard !Task.isCancelled, surfaceGeneration == generation else { return }
+      }
       hide()
     }
   }
@@ -256,6 +281,21 @@ final class OverviewPanel {
     view.suppressedSurfaceWindowIDs = []
     glassView.layer?.removeAllAnimations()
     glassView.alphaValue = 1
+  }
+
+  // Reset only before ordering front; resetting while visible would flash the panel.
+  private func restoreWallpaperFade() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    rootView.layer?.removeAnimation(forKey: "overview-wallpaper-fade")
+    rootView.layer?.opacity = 1
+    window.isOpaque = usesCapturedDesktop
+    window.backgroundColor = usesCapturedDesktop ? .black : .clear
+    rootView.layer?.backgroundColor = usesCapturedDesktop
+      ? NSColor.black.cgColor
+      : NSColor.clear.cgColor
+    desktopView.isHidden = false
+    CATransaction.commit()
   }
 
   @discardableResult

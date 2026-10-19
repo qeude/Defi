@@ -52,19 +52,6 @@ extension AXFrameCoordinator {
     let usesLiveMotionCadence = !animatedWrites.isEmpty && animatedWrites.values.allSatisfy {
       !$0.sizeChanged && $0.fromPoint.y == $0.point.y
     }
-    let finalOnlyProcessIDs = usesLiveMotionCadence ? [] : finalOnlyAnimationProcessIDs(
-      for: animatedWrites,
-      animationDuration: frame.animationDuration,
-      refreshRateHz: frame.refreshRateHz
-    )
-    // Never mix a jumping lane with interpolated neighbors, even when latency
-    // changed after the frame was submitted.
-    if !finalOnlyProcessIDs.isEmpty {
-      recordAnimationFallback(frame, reason: "motion-budget-before-staging", details: "pids=\(finalOnlyProcessIDs.sorted())")
-      let result = applyFrame(frame, progress: 1, skippedProcesses: [], stagingReentry: true)
-      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
-      return (result.applied, result.stale, result.frames)
-    }
     let lanePlan = frameAnimationLanePlan(
       animatedWindowIDs: Set(animatedWrites.keys),
       processIDs: animatedWrites.mapValues(\.processID),
@@ -81,7 +68,7 @@ extension AXFrameCoordinator {
             synchronousWriteSucceeded: write.synchronousSizeWriteSucceeded,
             animatesSize: write.animatesSize
           ) else { return nil }
-          return shouldDeferAnimatedSizeUntilMovementCompletes(
+          return write.animatesSize || shouldDeferAnimatedSizeUntilMovementCompletes(
             from: Rect(
               x: write.fromPoint.x,
               y: write.fromPoint.y,
@@ -104,10 +91,61 @@ extension AXFrameCoordinator {
     let interpolatedWrites = animatedWrites.filter {
       lanePlan.interpolatedWindowIDs.contains($0.key)
     }
+    // Growth the display edge would clamp grows along the motion, moved then
+    // resized at each step so its right edge stays on the display edge. Its lane
+    // keeps only the latest step, so a slow resizer lowers its own step rate
+    // without pausing the ribbon. Apps whose resize outlasts half the motion take
+    // the final frame before the motion instead, covering the sliding neighbors.
+    // A width change with no motion (maximize, cycle width, shrink) steps its
+    // size in place on apps that resize within a frame; others commit once at
+    // progress 0. Neither waits for the end, and neither enters the motion budget.
+    let inPlaceSizeWrites = interpolatedWrites.filter { _, write in
+      write.sizeChanged && !write.isParked && !write.isReentering
+        && !write.requiresVerifiedOffscreenWrite
+        && abs(write.point.x - write.fromPoint.x) < 0.5
+        && abs(write.point.y - write.fromPoint.y) < 0.5
+    }
+    let edgeGrowthWrites = interpolatedWrites.filter { windowID, write in
+      inPlaceSizeWrites[windowID] == nil
+        && lanePlan.deferredSizeWindowIDs.contains(windowID) && !write.animatesSize
+        && !frameCentersCrossDisplays(
+          from: Rect(x: write.fromPoint.x, y: write.fromPoint.y,
+            width: write.fromSize.width, height: write.fromSize.height),
+          to: Rect(x: write.point.x, y: write.point.y,
+            width: write.size.width, height: write.size.height),
+          displayFrames: frame.monitorFrames)
+    }
     let deferredSizeWrites = interpolatedWrites.filter {
-      lanePlan.deferredSizeWindowIDs.contains($0.key)
+      lanePlan.deferredSizeWindowIDs.contains($0.key) && edgeGrowthWrites[$0.key] == nil
+        && inPlaceSizeWrites[$0.key] == nil
+    }
+    let steppedGrowthWrites = edgeGrowthWrites.merging(inPlaceSizeWrites) { first, _ in first }.filter {
+      stepsEdgeGrowth(processID: $0.value.processID, animationDuration: frame.animationDuration)
+    }
+    let instantGrowthWrites = edgeGrowthWrites.filter { steppedGrowthWrites[$0.key] == nil }
+    let outsideMotionBudget = { (windowID: WindowID) in
+      steppedGrowthWrites[windowID] != nil || inPlaceSizeWrites[windowID] != nil
+    }
+    let steppedProcessIDs = Set(steppedGrowthWrites.values.map(\.processID))
+    let finalOnlyProcessIDs = usesLiveMotionCadence ? [] : finalOnlyAnimationProcessIDs(
+      for: animatedWrites.filter { !outsideMotionBudget($0.key) },
+      animationDuration: frame.animationDuration,
+      refreshRateHz: frame.refreshRateHz
+    )
+    // Never mix a jumping lane with interpolated neighbors, even when latency
+    // changed after the frame was submitted.
+    if !finalOnlyProcessIDs.isEmpty {
+      recordAnimationFallback(frame, reason: "motion-budget-before-staging", details: "pids=\(finalOnlyProcessIDs.sorted())")
+      let result = applyFrame(frame, progress: 1, skippedProcesses: [], stagingReentry: true)
+      markAnimationFinished(generation: frame.generation, startedAt: preparationStartedAt)
+      return (result.applied, result.stale, result.frames)
     }
     var loopWrites = interpolatedWrites
+    for windowID in instantGrowthWrites.keys { loopWrites[windowID] = nil }
+    for (windowID, var write) in steppedGrowthWrites {
+      write.animatesSize = true
+      loopWrites[windowID] = write
+    }
     // Move first; one final size write must not block the animation clock.
     for (windowID, write) in deferredSizeWrites {
       loopWrites[windowID] = positionOnlyAnimationWrite(
@@ -116,15 +154,17 @@ extension AXFrameCoordinator {
       )
     }
     let sizeCommitCandidates = interpolatedWrites.filter {
-      !lanePlan.deferredSizeWindowIDs.contains($0.key)
-        && !$0.value.animatesSize
-        && !$0.value.isReentering
-        && !$0.value.requiresVerifiedOffscreenWrite
-        && asynchronousSizeWriteIsRequired(
-          sizeChanged: $0.value.sizeChanged,
-          synchronousWriteSucceeded: $0.value.synchronousSizeWriteSucceeded,
-          animatesSize: $0.value.animatesSize
-        )
+      steppedGrowthWrites[$0.key] == nil
+        && (inPlaceSizeWrites[$0.key] != nil
+          || (!lanePlan.deferredSizeWindowIDs.contains($0.key)
+            && !$0.value.animatesSize
+            && !$0.value.isReentering
+            && !$0.value.requiresVerifiedOffscreenWrite
+            && asynchronousSizeWriteIsRequired(
+              sizeChanged: $0.value.sizeChanged,
+              synchronousWriteSucceeded: $0.value.synchronousSizeWriteSucceeded,
+              animatesSize: $0.value.animatesSize
+            )))
     }
     if !sizeCommitCandidates.isEmpty {
       let committedWindowIDs = commitFinalSizesOnce(
@@ -167,6 +207,18 @@ extension AXFrameCoordinator {
         stagesVisibleBeforeParking: false, successfulWrite: frame.successfulWrite,
         completion: nil)
       let result = applyFrame(preparationFrame, progress: 1, skippedProcesses: [])
+      applied += result.applied
+      stale += result.stale
+    }
+    if !instantGrowthWrites.isEmpty, isCurrent(generation: frame.generation) {
+      let growthFrame = QueuedPositionFrame(
+        generation: frame.generation, source: frame.source,
+        writes: instantGrowthWrites, animatedWindowIDs: [], animationDuration: 0,
+        refreshRateHz: frame.refreshRateHz, displayIDs: frame.displayIDs,
+        monitorFrames: frame.monitorFrames, initialProgressVelocity: 0,
+        stagesVisibleBeforeParking: false, successfulWrite: frame.successfulWrite,
+        completion: nil)
+      let result = applyFrame(growthFrame, progress: 1, skippedProcesses: [])
       applied += result.applied
       stale += result.stale
     }
@@ -241,7 +293,7 @@ extension AXFrameCoordinator {
     }
     let startedAt = ProcessInfo.processInfo.systemUptime
     let frameLimit = usesLiveMotionCadence ? nil : intermediateFrameLimits(
-      for: interpolatedWrites,
+      for: interpolatedWrites.filter { !outsideMotionBudget($0.key) },
       availableFrames: completedFrameSpringSamples(
         duration: frame.animationDuration, refreshRateHz: frame.refreshRateHz
       ).count,
@@ -299,7 +351,9 @@ extension AXFrameCoordinator {
       }
       // Backpressure pauses progress, not just writes. Consuming a spring
       // sample while a lane is busy makes its next accepted position jump.
-      guard animationLanesAreReady(processIDs: batches.map(\.processID)) else {
+      guard animationLanesAreReady(
+        processIDs: batches.map(\.processID).filter { !steppedProcessIDs.contains($0) })
+      else {
         clockState.withLock { $0.busyLanePulses += 1 }
         return false
       }
@@ -326,6 +380,10 @@ extension AXFrameCoordinator {
       }
       let springSample = availableIntermediateSamples[tick.index]
       let submissionStartedAt = ProcessInfo.processInfo.systemUptime
+      let laneReady: @Sendable () -> Void = { [weak driver] in
+        driver?.requestTick(afterLaneCompletion: true)
+      }
+      let gatesClock: (pid_t) -> Bool = { !steppedProcessIDs.contains($0) }
       let submission = submitAnimationSamples(
         batches.map { batch in
           ProcessAnimationSample(
@@ -338,9 +396,10 @@ extension AXFrameCoordinator {
             recordFinalSuccess: false,
             accumulator: laneAccumulator,
             completion: nil,
-            laneReady: { [weak driver] in driver?.requestTick(afterLaneCompletion: true) }
+            laneReady: gatesClock(batch.processID) ? laneReady : nil
           )
-        }
+        },
+        ungatedProcessIDs: steppedProcessIDs
       )
       let dispatchedAt = ProcessInfo.processInfo.systemUptime
       clockState.withLock { state in

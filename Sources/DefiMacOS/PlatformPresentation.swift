@@ -6,17 +6,26 @@ import DefiRuntime
 
 /// Geometry notifications carry IDs, never stale frames. Resolve once at delivery.
 struct PendingBorderGeometry {
-  private var windowIDs = Set<WindowID>()
+  struct Delivery {
+    let windowIDs: Set<WindowID>
+    let nativeReadWindowIDs: Set<WindowID>
+  }
 
-  mutating func enqueue(_ ids: Set<WindowID>) -> Bool {
+  private var windowIDs = Set<WindowID>()
+  private var nativeReadWindowIDs = Set<WindowID>()
+
+  mutating func enqueue(_ ids: Set<WindowID>, requiresNativeRead: Bool = false) -> Bool {
     let needsDelivery = windowIDs.isEmpty && !ids.isEmpty
     windowIDs.formUnion(ids)
+    if requiresNativeRead { nativeReadWindowIDs.formUnion(ids) }
     return needsDelivery
   }
 
-  mutating func take() -> Set<WindowID> {
-    defer { windowIDs.removeAll(keepingCapacity: true) }
-    return windowIDs
+  mutating func take() -> Delivery {
+    let delivery = Delivery(windowIDs: windowIDs, nativeReadWindowIDs: nativeReadWindowIDs)
+    windowIDs.removeAll(keepingCapacity: true)
+    nativeReadWindowIDs.removeAll(keepingCapacity: true)
+    return delivery
   }
 }
 
@@ -29,6 +38,7 @@ struct PlatformPresentationStatus: Sendable {
   var constraintsAvailable = false
   var constraintsSuccesses = 0
   var constraintsFallbacks = 0
+  var borderSync = "borderSync=unstarted"
   var topologyReliable = false
   var framesReliable = false
   var lifecycleReliable = false
@@ -47,29 +57,39 @@ struct PlatformPresentationStatus: Sendable {
 }
 
 extension MacOSPlatform {
-  nonisolated func enqueueBorderGeometry(_ windowIDs: Set<WindowID>) {
-    guard pendingBorderGeometry.withLock({ $0.enqueue(windowIDs) }) else { return }
-    enqueuePresentation { platform in
-      let pending = platform.pendingBorderGeometry.withLock { $0.take() }
-      let visible = pending.intersection(platform.borderManager.liveGeometryWindowIDs)
-      var observed: [WindowID: Rect] = [:]
-      for windowID in visible {
-        // The queued notification can predate a native resize or another write.
-        let sampledAt = ProcessInfo.processInfo.systemUptime
-        let nativeFrame = platform.borderBoundsProvider.frame(for: windowID)
-        if let nativeFrame {
-          platform.frameCoordinator.recordObservedBorderFrame(
-            nativeFrame, windowID: windowID, sampledAt: sampledAt
-          )
-        }
-        let acceptedFrame = platform.frameCoordinator.latestBorderFrame(for: windowID)
-        observed[windowID] = acceptedFrame
-        platform.snapshotEngine.recordObservedFrame(acceptedFrame, for: windowID)
-      }
-      if platform.borderManager.updateGeometry(frames: observed, style: platform.borderStyle) {
-        platform.invalidatePointerCacheFromPresentation()
+  nonisolated func enqueueBorderGeometry(
+    _ windowIDs: Set<WindowID>, requiresNativeRead: Bool = false
+  ) {
+    guard pendingBorderGeometry.withLock({
+      $0.enqueue(windowIDs, requiresNativeRead: requiresNativeRead)
+    }) else { return }
+    enqueuePresentation { $0.deliverPendingBorderGeometry() }
+  }
+
+  @MainActor func deliverPendingBorderGeometry() {
+    let delivery = pendingBorderGeometry.withLock { $0.take() }
+    let live = borderManager.liveGeometryWindowIDs
+    // Frame writes completed (any animation, switch, or parking): reread WindowServer
+    // bounds so a missed final move event cannot strand a border. No AX reads.
+    if windowServerDrivesBorders {
+      return borderSync.reconcile(delivery.windowIDs.intersection(live))
+    }
+    let targets = snapshotEngine.borderGeometryTargets(
+      for: delivery.nativeReadWindowIDs.intersection(live)
+    )
+    frameCoordinator.requestBorderGeometry(targets)
+    refreshWindowBorderGeometry(windowIDs: delivery.windowIDs.intersection(live))
+  }
+
+  @MainActor func presentBorderGeometryObservations(_ observations: [BorderGeometryObservation]) {
+    var changed = Set<WindowID>()
+    let live = borderManager.liveGeometryWindowIDs
+    for observation in observations where live.contains(observation.windowID) {
+      if snapshotEngine.acceptBorderObservation(observation) {
+        changed.insert(observation.windowID)
       }
     }
+    refreshWindowBorderGeometry(windowIDs: changed)
   }
 
   public var frontmostProcessID: pid_t? { presentationStatus.frontmostProcessID }
@@ -109,6 +129,7 @@ extension MacOSPlatform {
       constraintsAvailable: borderBoundsProvider.constraintsAreAvailable,
       constraintsSuccesses: borderBoundsProvider.successfulConstraintLookupCount,
       constraintsFallbacks: borderBoundsProvider.constraintFallbackCount,
+      borderSync: borderSync.statusDescription,
       topologyReliable: eventMonitor?.hasReliableWindowTopologyCoverage(for: Set(applications.keys)) == true,
       framesReliable: eventMonitor?.hasReliableFrameCoverage() == true,
       lifecycleReliable: eventMonitor?.hasReliableApplicationLifecycleObservation == true,

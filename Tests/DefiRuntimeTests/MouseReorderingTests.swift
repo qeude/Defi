@@ -427,36 +427,30 @@ struct MouseReorderingTests {
       ) == previousFrame)
   }
 
-  @Test
-  func `Mouse gesture origin uses displayed animation position`() {
+  @Test(
+    arguments: [
+      (320.0, 40.0, nil, nil, Rect(x: 320, y: 40, width: 784, height: 684)),
+      (nil, nil, nil, nil, Rect(x: 0, y: 20, width: 784, height: 684)),
+      (320.0, 40.0, 640.0, 600.0, Rect(x: 320, y: 40, width: 640, height: 600)),
+    ] as [(Double?, Double?, Double?, Double?, Rect)]
+  )
+  func `Mouse gesture origin uses displayed animation geometry`(
+    displayedX: Double?,
+    displayedY: Double?,
+    displayedWidth: Double?,
+    displayedHeight: Double?,
+    expected: Rect
+  ) {
     let observedFrame = Rect(x: 0, y: 20, width: 784, height: 684)
 
     #expect(
       resolvedMouseGestureOriginFrame(
         observedFrame: observedFrame,
-        displayedX: 320,
-        displayedY: 40
-      ) == Rect(x: 320, y: 40, width: 784, height: 684))
-    #expect(
-      resolvedMouseGestureOriginFrame(
-        observedFrame: observedFrame,
-        displayedX: nil,
-        displayedY: nil
-      ) == observedFrame)
-  }
-
-  @Test
-  func `Mouse gesture origin uses displayed animation size`() {
-    let observedFrame = Rect(x: 0, y: 20, width: 784, height: 684)
-
-    #expect(
-      resolvedMouseGestureOriginFrame(
-        observedFrame: observedFrame,
-        displayedX: 320,
-        displayedY: 40,
-        displayedWidth: 640,
-        displayedHeight: 600
-      ) == Rect(x: 320, y: 40, width: 640, height: 600))
+        displayedX: displayedX,
+        displayedY: displayedY,
+        displayedWidth: displayedWidth,
+        displayedHeight: displayedHeight
+      ) == expected)
   }
 
   @Test
@@ -522,115 +516,6 @@ struct MouseReorderingTests {
         [WindowID(rawValue: 4)],
         [WindowID(rawValue: 1)],
       ])
-  }
-
-  @Test
-  func `Live mouse sync bypasses pending reorder animation`() {
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: true,
-        mouseGestureSyncPending: true,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false
-      ))
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: true,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: true
-      ) == false)
-  }
-
-  @Test
-  func `Native focus sync bypasses command quiet period`() {
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: false,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false,
-        nativeFocusSyncPending: true
-      ))
-  }
-
-  @Test
-  func `Lifecycle event bypasses command quiet period`() {
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: false,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false,
-        lifecycleEventPending: true
-      ))
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: true,
-        animatedWritesPending: false,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false,
-        lifecycleEventPending: true
-      ) == false)
-  }
-
-  @Test
-  func `Native focus sync bypasses pending animation writes`() {
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: true,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false,
-        nativeFocusSyncPending: true
-      ))
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: true,
-        animatedWritesPending: true,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false,
-        nativeFocusSyncPending: true
-      ))
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: true,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false,
-        nativeFocusSyncPending: true,
-        nativeFocusHasNewerHumanIntent: false
-      ) == false)
-  }
-
-  @Test
-  func `Frame debt bypasses command quiet period`() {
-    #expect(
-      desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: false,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: false,
-        commandQuietPeriodElapsed: false,
-        frameDebtPending: true
-      ))
   }
 
   @Test
@@ -914,17 +799,99 @@ struct MouseReorderingTests {
 }
 
 struct DesktopSynchronizationTests {
-  @Test
-  func waitsForCommandInputToSettle() {
+  struct SynchronizationCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    var scrollAnimationActive = false
+    var animatedWritesPending = false
+    var mouseGestureSyncPending = false
+    var needsDesktopSync = true
+    var periodicSyncDue = false
+    var commandQuietPeriodElapsed = false
+    var nativeFocusSyncPending = false
+    var nativeFocusHasNewerHumanIntent = true
+    var frameDebtPending = false
+    var lifecycleEventPending = false
+    let isReady: Bool
+
+    var testDescription: String { name }
+  }
+
+  static let synchronizationCases = [
+    SynchronizationCase(
+      name: "waits for command input to settle",
+      periodicSyncDue: true,
+      isReady: false
+    ),
+    SynchronizationCase(
+      name: "live mouse sync bypasses pending reorder animation",
+      animatedWritesPending: true,
+      mouseGestureSyncPending: true,
+      isReady: true
+    ),
+    SynchronizationCase(
+      name: "pending reorder animation defers sync without mouse gesture",
+      animatedWritesPending: true,
+      commandQuietPeriodElapsed: true,
+      isReady: false
+    ),
+    SynchronizationCase(
+      name: "native focus sync bypasses command quiet period",
+      nativeFocusSyncPending: true,
+      isReady: true
+    ),
+    SynchronizationCase(
+      name: "lifecycle event bypasses command quiet period",
+      lifecycleEventPending: true,
+      isReady: true
+    ),
+    SynchronizationCase(
+      name: "lifecycle event waits for scroll animation",
+      scrollAnimationActive: true,
+      lifecycleEventPending: true,
+      isReady: false
+    ),
+    SynchronizationCase(
+      name: "native focus sync bypasses pending animation writes",
+      animatedWritesPending: true,
+      nativeFocusSyncPending: true,
+      isReady: true
+    ),
+    SynchronizationCase(
+      name: "native focus sync bypasses scroll animation and pending writes",
+      scrollAnimationActive: true,
+      animatedWritesPending: true,
+      nativeFocusSyncPending: true,
+      isReady: true
+    ),
+    SynchronizationCase(
+      name: "native focus without newer human intent waits for pending writes",
+      animatedWritesPending: true,
+      nativeFocusSyncPending: true,
+      nativeFocusHasNewerHumanIntent: false,
+      isReady: false
+    ),
+    SynchronizationCase(
+      name: "frame debt bypasses command quiet period",
+      frameDebtPending: true,
+      isReady: true
+    ),
+  ]
+
+  @Test(arguments: synchronizationCases)
+  func desktopSynchronizationReadinessFollowsPendingWork(_ scenario: SynchronizationCase) {
     #expect(
       desktopSynchronizationIsReady(
-        scrollAnimationActive: false,
-        animatedWritesPending: false,
-        mouseGestureSyncPending: false,
-        needsDesktopSync: true,
-        periodicSyncDue: true,
-        commandQuietPeriodElapsed: false
-      ) == false
+        scrollAnimationActive: scenario.scrollAnimationActive,
+        animatedWritesPending: scenario.animatedWritesPending,
+        mouseGestureSyncPending: scenario.mouseGestureSyncPending,
+        needsDesktopSync: scenario.needsDesktopSync,
+        periodicSyncDue: scenario.periodicSyncDue,
+        commandQuietPeriodElapsed: scenario.commandQuietPeriodElapsed,
+        nativeFocusSyncPending: scenario.nativeFocusSyncPending,
+        nativeFocusHasNewerHumanIntent: scenario.nativeFocusHasNewerHumanIntent,
+        frameDebtPending: scenario.frameDebtPending,
+        lifecycleEventPending: scenario.lifecycleEventPending
+      ) == scenario.isReady
     )
   }
 }

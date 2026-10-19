@@ -24,29 +24,44 @@ final class AXFrameCoordinator: @unchecked Sendable {
   typealias BatchWriter = @Sendable (
     ProcessWriteBatch, QueuedPositionFrame, Double, Bool, Bool, Bool
   ) -> BatchResult
+  weak var snapshotEngine: SnapshotEngine?
   let batchWriter: BatchWriter?
 
   init(
     batchWriter: BatchWriter? = nil,
-    accessibilityWriter: AXFrameAccessibilityWriter = AXFrameAccessibilityWriter()
+    accessibilityWriter: AXFrameAccessibilityWriter = AXFrameAccessibilityWriter(),
+    messagingTimeoutAccess: AXMessagingTimeoutAccess = .shared
   ) {
     self.batchWriter = batchWriter
     self.accessibilityWriter = accessibilityWriter
+    self.messagingTimeoutAccess = messagingTimeoutAccess
   }
 
   /// Reports completed geometry so borders cannot outrun window writes.
   var borderLiveGeometryHandler: (@Sendable ([WindowID: Rect]) -> Void)?
 
+  var borderReadLanes: [pid_t: BorderGeometryReadLane] = [:]
+  let borderGeometryReadGroup = DispatchGroup()
+  var borderNativeFrameReader: @Sendable (WindowID) -> Rect? = { _ in nil }
+  var borderBindingIsCurrent: @Sendable (BorderGeometryReadTarget) -> Bool = { _ in false }
+  var borderReadFreshness: [WindowID: (ticket: BorderGeometryReadTicket, sampledAt: TimeInterval)] = [:]
+  var borderObservationMailbox: [WindowID: BorderGeometryObservation] = [:]
+  var borderObservationDeliveryScheduled = false
+  var borderObservationHandler: (@MainActor @Sendable ([BorderGeometryObservation]) -> Void)?
+  var borderObservationScheduler: @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = {
+    DispatchQueue.main.async(execute: $0)
+  }
+
   let queue = DispatchQueue(
-    label: "com.quentin.defi.ax-frame-coordinator",
+    label: "com.qeude.defi.ax-frame-coordinator",
     qos: .userInteractive
   )
   let animationClockQueue = DispatchQueue(
-    label: "com.quentin.defi.animation-clock",
+    label: "com.qeude.defi.animation-clock",
     qos: .userInteractive
   )
   let parkingSettlementQueue = DispatchQueue(
-    label: "com.quentin.defi.ax-parking-settlement",
+    label: "com.qeude.defi.ax-parking-settlement",
     qos: .utility
   )
   let parkingSettlementGroup = DispatchGroup()
@@ -54,6 +69,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   let lock = NSLock()
   let animationLaneLock = NSLock()
   let accessibilityWriter: AXFrameAccessibilityWriter
+  let messagingTimeoutAccess: AXMessagingTimeoutAccess
   var pending: QueuedPositionFrame?
   var nextGeneration: UInt64 = 0
   var latestGeneration: UInt64 = 0
@@ -98,6 +114,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var completedInitialSettlementChecks = 0
   var repairedInitialSettlementDrifts = 0
   var predictedProcessLatencyMS: [pid_t: Double] = [:]
+  var sizeWriteLatencyMS: [pid_t: Double] = [:]
   var recentIntermediateProcessLatencySamplesMS:
     [pid_t: [(sampledAt: TimeInterval, latencyMS: Double)]] = [:]
   var latencySensitiveProcessIDs = Set<pid_t>()
@@ -241,6 +258,11 @@ final class AXFrameCoordinator: @unchecked Sendable {
     nextGeneration &+= 1
     latestGeneration = nextGeneration
     pending = nil
+    for processID in Array(borderReadLanes.keys) {
+      borderReadLanes[processID]?.retain([])
+    }
+    borderObservationMailbox.removeAll(keepingCapacity: true)
+    borderReadFreshness.removeAll(keepingCapacity: true)
     // The generation reset invalidates in-flight geometry too.
     activeWrites.removeAll(keepingCapacity: true)
     completedPositions.removeAll(keepingCapacity: true)
@@ -271,6 +293,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     queue.sync {}
     animationLaneWriteGroup.wait()
     parkingSettlementGroup.wait()
+    borderGeometryReadGroup.wait()
     parkingSettlementQueue.sync {}
     restoreDeferredEnhancedUserInterfaces()
   }
@@ -477,7 +500,8 @@ final class AXFrameCoordinator: @unchecked Sendable {
     guard sampledAt >= max(
       borderGeometries[windowID]?.sampledAt ?? -.infinity,
       borderGeometryWrittenAt[windowID] ?? -.infinity
-    ) else { return }
+    ), !observationContradictsRecentWriteLocked(frame, windowID: windowID, sampledAt: sampledAt)
+    else { return }
     borderGeometries[windowID] = (frame, sampledAt)
   }
 
@@ -487,8 +511,32 @@ final class AXFrameCoordinator: @unchecked Sendable {
     return borderGeometries[windowID]?.frame
   }
 
+  // Display-only: never feed this back into observed frames.
+  func latestDisplayedBorderFrame(for windowID: WindowID) -> Rect? {
+    lock.lock()
+    defer { lock.unlock() }
+    let written = completedPositions[windowID].flatMap { point in
+      borderGeometryWrittenAt[windowID].map { (point, completedSizes[windowID], $0) }
+    }
+    return displayedWindowBorderFrame(observed: borderGeometries[windowID], written: written)
+  }
+
+  /// WindowServer can still report a slow app's previous position for a few
+  /// frames after its AX write returns; a native sample this soon is not proof.
+  func borderWriteIsRecent(for windowID: WindowID, within seconds: TimeInterval = 0.2) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return (borderGeometryWrittenAt[windowID] ?? -.infinity)
+      > ProcessInfo.processInfo.systemUptime - seconds
+  }
+
   func retainBorderGeometry(for windowIDs: Set<WindowID>) {
     lock.lock()
+    for processID in Array(borderReadLanes.keys) {
+      borderReadLanes[processID]?.retain(windowIDs)
+    }
+    borderObservationMailbox = borderObservationMailbox.filter { windowIDs.contains($0.key) }
+    borderReadFreshness = borderReadFreshness.filter { windowIDs.contains($0.key) }
     borderGeometries = borderGeometries.filter { windowIDs.contains($0.key) }
     borderGeometryWrittenAt = borderGeometryWrittenAt.filter { windowIDs.contains($0.key) }
     completedPositions = completedPositions.filter { windowIDs.contains($0.key) }
@@ -632,6 +680,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     predictedProcessLatencyMS = predictedProcessLatencyMS.filter {
       liveProcessIDs.contains($0.key)
     }
+    sizeWriteLatencyMS = sizeWriteLatencyMS.filter { liveProcessIDs.contains($0.key) }
     recentIntermediateProcessLatencySamplesMS = recentIntermediateProcessLatencySamplesMS.filter {
       liveProcessIDs.contains($0.key)
     }
@@ -660,6 +709,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.unlock()
     for (processID, restore) in retiredEnhancedUIRestores {
       guard let reservation = restoreReservations[processID] else { continue }
+      let token = restore.token
       reservation.queue.async { [self, reservation] in
         defer {
           reservation.release()
@@ -669,17 +719,19 @@ final class AXFrameCoordinator: @unchecked Sendable {
         let superseded = deferredEnhancedUIRestores[processID] != nil
         lock.unlock()
         guard !superseded else { return }
-        let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [restore.application]) {
-          accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
+        // AXUIElement isn't Sendable; an application element is fully identified by its pid.
+        let application = AXUIElementCreateApplication(processID)
+        let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [application]) {
+          accessibilityWriter.setEnhancedUserInterface(true, application: application)
         }
         lock.lock()
         deferredEnhancedUIRestores[processID]?.disabled = false
         if !restored {
           // Keep a failed retirement recoverable by rediscovery or shutdown.
           if deferredEnhancedUIRestores[processID] == nil {
-            deferredEnhancedUIRestores[processID] = (restore.token, restore.application, false)
+            deferredEnhancedUIRestores[processID] = (token, application, false)
           }
-          appendTraceLocked("enhanced-ui-restore-failed pid=\(processID) token=\(restore.token) retired=1")
+          appendTraceLocked("enhanced-ui-restore-failed pid=\(processID) token=\(token) retired=1")
         }
         lock.unlock()
       }

@@ -28,24 +28,25 @@ Never import AppKit, ApplicationServices, or CoreGraphics from pure modules.
 
 ## Private platform API policy
 
-Private macOS APIs fall into two categories:
+Private macOS APIs are limited to optional read-only metadata, such as window
+IDs, bounds, constraints, and corner radii, and to Defi-owned surfaces such as
+border overlays. Third-party windows are only observed through private APIs;
+their position and size change only through public Accessibility.
 
-- optional read-only metadata may be used when it materially improves a
-  user-visible result and a public-API fallback remains fully functional
-- private mutation requires evidence that public APIs cannot meet a
-  user-visible correctness, stability, or latency invariant
-
+- use private metadata only when it materially improves a user-visible result
+  and a public-API fallback remains fully functional
 - isolate private API use inside `DefiMacOS` behind a narrow backend interface
 - resolve private symbols dynamically; missing or changed symbols must never prevent startup
-- always keep a fully functional, tested public-API fallback
-- probe mutating private capabilities using Defi-owned surfaces, never by mutating user windows
-- downgrade a mutating private backend for the rest of the session after failure
 - fall back immediately when optional private metadata is unavailable or invalid
-- expose active private mutation backends and fallback counts through status or telemetry
-- third-party position and size mutation is approved only for Defi's
-  experimental frame backend after explicit user opt-in; keep it disabled by
-  default, while focus, lifecycle, Spaces, and compositor control remain on
-  public macOS APIs
+- focus, lifecycle, Spaces, and compositor control remain on public macOS APIs
+
+## Screen Recording
+
+Window previews and the Overview zoom use public ScreenCaptureKit and are on by
+default. Screen Recording is requested once, before the Overview is presented.
+Denial, revocation, or `overview.window_previews = false` degrades to cards
+without errors, repeated prompts, or loss of the zoom animation. Navigation,
+focus, and window movement never depend on capture.
 
 ## Product shape
 

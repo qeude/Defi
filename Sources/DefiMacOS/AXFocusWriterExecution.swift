@@ -50,23 +50,20 @@ extension AXFocusWriter {
         selectsSpecificWindow = specificWindowFocusWriteIsRequired(
           requested: selectsSpecificWindow,
           validatesCurrentFocus: request.validatesSpecificWindowFocus,
-          targetIsFocused: isTargetFocused(
-            request.element,
-            application: request.application
-          )
+          targetIsFocused: operations.targetIsFocused(request.element, request.application)
         )
       }
       if selectsSpecificWindow {
-        AXMessagingTimeoutAccess.shared.withTimeout(
+        operations.withTimeout(
           0.016,
-          elements: [request.application, request.element]
+          [request.application, request.element]
         ) {
+          guard isCurrent(queued) else {
+            cancelled = true
+            return
+          }
           let mainStartedAt = ProcessInfo.processInfo.systemUptime
-          var mainResult = AXUIElementSetAttributeValue(
-            request.element,
-            kAXMainAttribute as CFString,
-            kCFBooleanTrue
-          )
+          var mainResult = operations.setMain(request.element)
           focusMutationApplied = mainResult == .success
           windowSelectionSucceeded = mainResult == .success
           mainDurationMS =
@@ -74,11 +71,12 @@ extension AXFocusWriter {
           cancelled = !isCurrent(queued)
           var raiseResult = AXError.cannotComplete
           if !cancelled, mainResult != .success {
+            guard isCurrent(queued) else {
+              cancelled = true
+              return
+            }
             let raiseStartedAt = ProcessInfo.processInfo.systemUptime
-            raiseResult = AXUIElementPerformAction(
-              request.element,
-              kAXRaiseAction as CFString
-            )
+            raiseResult = operations.raise(request.element)
             focusMutationApplied =
               focusMutationApplied
               || raiseResult == .success
@@ -93,16 +91,16 @@ extension AXFocusWriter {
             mainResult != .success && raiseResult != .success
           {
             retried = true
-            AXMessagingTimeoutAccess.shared.withTimeout(
+            operations.withTimeout(
               0.05,
-              elements: [request.application, request.element]
+              [request.application, request.element]
             ) {
+              guard isCurrent(queued) else {
+                cancelled = true
+                return
+              }
               let retryMainStartedAt = ProcessInfo.processInfo.systemUptime
-              mainResult = AXUIElementSetAttributeValue(
-                request.element,
-                kAXMainAttribute as CFString,
-                kCFBooleanTrue
-              )
+              mainResult = operations.setMain(request.element)
               focusMutationApplied =
                 focusMutationApplied
                 || mainResult == .success
@@ -111,12 +109,13 @@ extension AXFocusWriter {
                 || mainResult == .success
               mainDurationMS +=
                 (ProcessInfo.processInfo.systemUptime - retryMainStartedAt) * 1_000
-              if isCurrent(queued), mainResult != .success {
+              if mainResult != .success {
+                guard isCurrent(queued) else {
+                  cancelled = true
+                  return
+                }
                 let retryRaiseStartedAt = ProcessInfo.processInfo.systemUptime
-                raiseResult = AXUIElementPerformAction(
-                  request.element,
-                  kAXRaiseAction as CFString
-                )
+                raiseResult = operations.raise(request.element)
                 focusMutationApplied =
                   focusMutationApplied
                   || raiseResult == .success
@@ -141,25 +140,24 @@ extension AXFocusWriter {
         ? nil
         : activationRequirement(
           requested: request.activatesApplication
-            || NSRunningApplication(processIdentifier: request.processID)?.isActive != true,
+            || !operations.applicationIsActive(request.processID),
           generation: queued.generation
         )
-      if activationRequired == true {
+      if activationRequired == true, isCurrent(queued) {
         activationAttempted = true
         activationSucceeded = false
         let activationStartedAt = ProcessInfo.processInfo.systemUptime
-        let system = AXUIElementCreateSystemWide()
-        let activationResult = AXUIElementSetAttributeValue(
-          system,
-          kAXFocusedApplicationAttribute as CFString,
-          request.application
-        )
-        if activationResult == .success {
-          activationSucceeded = true
-        } else if isCurrent(queued) {
-          activationSucceeded =
-            NSRunningApplication(processIdentifier: request.processID)?
-            .activate() == true
+        let activate = operations.prepareActivation()
+        if isCurrent(queued) {
+          let activationResult = activate(request.application)
+          if activationResult == .success {
+            activationSucceeded = true
+          } else if isCurrent(queued) {
+            activationSucceeded =
+              operations.activateApplication(request.processID)
+          }
+        } else {
+          cancelled = true
         }
         focusMutationApplied = focusMutationStateAfterActivation(
           priorMutationApplied: focusMutationApplied,
@@ -167,7 +165,8 @@ extension AXFocusWriter {
         )
         activationDurationMS =
           (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1_000
-      } else if activationRequired == nil {
+      } else if activationRequired == nil || !isCurrent(queued) {
+        if activationRequired == true { markRecoveryActivationNeeded() }
         cancelled = true
       }
       if !cancelled,
@@ -187,15 +186,15 @@ extension AXFocusWriter {
               isCurrent(queued) && inputGuardIsCurrent(request)
             },
             attempt: { timeout in
-              AXMessagingTimeoutAccess.shared.withTimeout(
-                timeout,
-                elements: [element]
-              ) {
-                AXUIElementPerformAction(
-                  element,
-                  kAXRaiseAction as CFString
-                )
+              var result = AXError.cannotComplete
+              operations.withTimeout(timeout, [element]) {
+                guard isCurrent(queued) else {
+                  cancelled = true
+                  return
+                }
+                result = operations.raise(element)
               }
+              return result
             }
           )
           raiseDurationMS +=
@@ -338,51 +337,4 @@ extension AXFocusWriter {
     lock.unlock()
   }
 
-  private func isTargetFocused(
-    _ element: AXUIElement,
-    application: AXUIElement
-  ) -> Bool {
-    AXMessagingTimeoutAccess.shared.withTimeout(
-      0.016,
-      elements: [application, element]
-    ) {
-      // AXMain is structural app state, not proof of keyboard focus. Apps such as
-      // Kaku can leave a non-focused window main during rapid intra-app navigation.
-      targetWindowFocusIsConfirmed(
-        readBoolean(element, attribute: kAXFocusedAttribute)
-      ) {
-        var focusedWindow: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-          application,
-          kAXFocusedWindowAttribute as CFString,
-          &focusedWindow
-        ) == .success,
-          let focusedWindow,
-          CFGetTypeID(focusedWindow) == AXUIElementGetTypeID()
-        else {
-          return false
-        }
-        return CFEqual(focusedWindow, element)
-      }
-    }
-  }
-
-  private func readBoolean(
-    _ element: AXUIElement,
-    attribute: String
-  ) -> Bool? {
-    var rawValue: CFTypeRef?
-    guard
-      AXUIElementCopyAttributeValue(
-        element,
-        attribute as CFString,
-        &rawValue
-      ) == .success,
-      let rawValue,
-      CFGetTypeID(rawValue) == CFBooleanGetTypeID()
-    else {
-      return nil
-    }
-    return CFBooleanGetValue((rawValue as! CFBoolean))
-  }
 }

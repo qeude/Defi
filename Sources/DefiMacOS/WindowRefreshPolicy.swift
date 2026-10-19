@@ -32,10 +32,26 @@ public func boundedSnapshotRefreshDeadline(
 
 func windowListRefreshInterval(
   hasPendingShortRetry: Bool,
-  reliableTopologyObservation: Bool
+  reliableTopologyObservation: Bool,
+  hasScopedTopologyFallback: Bool = false
 ) -> TimeInterval {
   if hasPendingShortRetry { return 0.1 }
-  return reliableTopologyObservation ? reliableObservationWatchdogInterval : 0.3
+  return reliableTopologyObservation || hasScopedTopologyFallback ? reliableObservationWatchdogInterval : 0.3
+}
+
+func fallbackWindowRefreshProcessIDs(
+  uncovered: Set<pid_t>, incompatible: Set<pid_t>, eventProcessIDs: Set<pid_t>,
+  force: Bool, now: TimeInterval, deadlines: inout [pid_t: TimeInterval]
+) -> Set<pid_t> {
+  deadlines = deadlines.filter { uncovered.contains($0.key) && $0.value > now + 0.000001 }
+  var due = Set<pid_t>()
+  for processID in uncovered {
+    if force || eventProcessIDs.contains(processID) || deadlines[processID] == nil {
+      deadlines[processID] = now + (incompatible.contains(processID) ? reliableObservationWatchdogInterval : 0.3)
+      due.insert(processID)
+    }
+  }
+  return due
 }
 
 public func observationWatchdogRefreshIsReady(
@@ -169,7 +185,7 @@ func budgetedFreshReadPartition(
 }
 
 extension SnapshotEngine {
-  func retryUnmatchedWindows(processIDs refreshingProcessIDs: Set<pid_t>?) {
+  func consumeUnmatchedWindowRetries(processIDs refreshingProcessIDs: Set<pid_t>?) {
     // A deferred app keeps its cache and retry count until its own chunk runs.
     // Clearing it early makes snapshot cleanup discard the count and retry forever.
     for processID in unmatchedWindowElementsByProcess.keys
@@ -178,4 +194,24 @@ extension SnapshotEngine {
       unmatchedWindowElementsByProcess[processID] = nil
     }
   }
+}
+
+public func windowDiscoveryRefreshRequest(
+  now: TimeInterval, globalDeadline: TimeInterval, interval: TimeInterval,
+  retryDeadline: TimeInterval?, userInputIdleDuration: TimeInterval,
+  dueProcessIDs: Set<pid_t>
+) -> (due: Bool, global: Bool, targeted: Bool) {
+  let global = observationWatchdogRefreshIsReady(
+    due: now >= globalDeadline, interval: interval,
+    userInputIdleDuration: userInputIdleDuration
+  )
+  let targeted = retryDeadline.map { now + 0.000001 >= $0 } == true && !dueProcessIDs.isEmpty
+  return (global || targeted, global, targeted)
+}
+public func windowDiscoveryGlobalDeadline(
+  current: TimeInterval, now: TimeInterval, interval: TimeInterval,
+  globalRefresh: Bool, targetedRefresh: Bool
+) -> TimeInterval {
+  boundedSnapshotRefreshDeadline(current: current, now: now, interval: interval,
+    reset: globalRefresh)
 }

@@ -49,10 +49,10 @@ reserved_bottom = 0
 | `default_column_width` | `0.80` | number from `0.05` to `1.0` | Fraction of monitor width assigned to each new column. |
 | `preset_column_widths` | `[0.33, 0.50, 0.66, 0.80]` | non-empty array of numbers from `0.05` to `1.0` | Ordered widths used by `cycle-width`. Cycling wraps at both ends. |
 | `center_focused_column` | `"never"` | `"never"` or `"always"` | `"always"` centers focused columns. `"never"` scrolls only enough to keep focus visible. |
-| `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. |
+| `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. An outside border is part of its window, so gaps start at the border's outer edge. |
 | `outer_top_gap` | `gaps` | number from `0` to `256` | Optional top-edge override. |
 | `outer_right_gap` | `gaps` | number from `0` to `256` | Optional right-edge override. |
-| `outer_bottom_gap` | `gaps` | number from `0` to `256` | Optional bottom-edge override. With an outside border, Defi still reserves the border width above the Dock. |
+| `outer_bottom_gap` | `gaps` | number from `0` to `256` | Optional bottom-edge override. |
 | `outer_left_gap` | `gaps` | number from `0` to `256` | Optional left-edge override. |
 | `reserved_top` | `0` | number from `0` to `512` | Additional top inset after the macOS visible frame, for bars extending below the native menu-bar exclusion. |
 | `reserved_bottom` | `0` | number from `0` to `512` | Additional bottom inset after the macOS visible frame. |
@@ -114,6 +114,7 @@ Controls focus transfer between managed windows and pointer.
 [input]
 focus_follows_mouse = false
 focus_follows_mouse_max_scroll_amount = 0.0
+focus_follows_mouse_delay_ms = 50
 mouse_follows_focus = false
 ```
 
@@ -121,6 +122,7 @@ mouse_follows_focus = false
 | --- | --- | --- | --- |
 | `focus_follows_mouse` | `false` | boolean | Focuses managed window under physical pointer and scrolls strip minimally when needed. |
 | `focus_follows_mouse_max_scroll_amount` | `0` | number from `0` to `1` | Maximum scroll as fraction of monitor width. `0` accepts only targets needing no scroll; `0.1` permits up to 10%. |
+| `focus_follows_mouse_delay_ms` | `50` | integer from `0` to `1000` | Milliseconds the pointer must rest before focus follows it. `0` focuses immediately; the delay applies only when `focus_follows_mouse` is enabled. |
 | `mouse_follows_focus` | `false` | boolean | Warps pointer to focused window center after keyboard focus changes, unless pointer is already inside it. |
 
 Bare `focus_follows_mouse = true` does not scroll.
@@ -147,42 +149,41 @@ duration_ms = 125
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `enabled` | `true` | boolean | Enables visual scrolling and managed layout animations, including resizing, column/window moves, stacking, and floating transitions. |
-| `experimental_window_representations` | `false` | boolean | Experimental horizontal ribbon: animate one-shot window representations and commit native positions behind them. Requires existing Screen Recording access; does not request permission or start a continuous stream. Missing captures, unsupported geometry, and workspace switches use native windows. |
-| `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. `0` disables animation even when `enabled = true`. |
+| `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. Workspace switches from native focus, such as a click, the Dock, or Command-Tab, are always immediate. `0` disables animation even when `enabled = true`. |
 
 ## `[overview]`
 
-Controls the Overview scale and optional pixels inside window cards.
+Controls the Overview scale and the pixels inside window cards.
 
 ```toml
 [overview]
 zoom = 0.5
-window_previews = false
-experimental_surface_transitions = false
+window_previews = true
 window_corner_radius = 12
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
-| `window_previews` | `false` | boolean | Captures a card-sized still image when a window first becomes visible in the current Overview session. |
-| `experimental_surface_transitions` | `false` | boolean | Requires `window_previews = true`. Prepares public one-shot ScreenCaptureKit samples for native-size-to-Overview zoom transitions. Normal ribbon navigation remains native. |
+| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false` to opt out of Screen Recording entirely. |
 | `window_corner_radius` | `12` | number from `0` to `64` | Rounds window cards and their borders in the Overview. |
 
-With the default `false`, Defi performs no Screen Recording permission check,
-request, or ScreenCaptureKit content query. With `true`, the next Overview
-opening reuses a valid in-memory preview when available, then captures a fresh
-image. Denial, revocation, protected content, and capture errors leave the
-icon-and-title cards fully usable and do not trigger repeated prompts in the
-same daemon session.
+Opening the Overview zooms the real windows out to their cards, and closing it
+zooms them back. This works with or without previews: a window without a
+captured image animates as a placeholder card from its verified native frame.
+Reduced motion or `animation.enabled = false` switches without zooming.
 
-The surface transition experiment prepares one-shot screenshots of the active
-workspace's visible windows and up to two nearby offscreen windows at native
-resolution. While the Overview is closed, preparation runs at most once per
-second, and only one batch may run at a time. It never starts persistent capture
-streams. Opening freezes one fixed screenshot set through the zoom and the
-Overview session; these are snapshots, not live video. Native ribbon navigation
-keeps the ordinary native animation backend.
+With `window_previews = true`, Defi asks for Screen Recording once, before the
+first Overview is presented, so the system prompt is not covered by the panel.
+If access is denied, revoked, or unavailable, the Overview opens with cards,
+never prompts again in the same daemon session, and reports no error. Protected
+content and capture errors also leave the cards fully usable.
+
+While the Overview is closed, preparation captures one-shot screenshots of the
+active workspace's visible windows and up to two nearby offscreen windows at
+native resolution, at most once per second and one batch at a time. It never
+starts persistent capture streams. Opening freezes one fixed screenshot set
+through the zoom and the Overview session; these are snapshots, not live video.
 
 The retained NV12 buffers use public AVFoundation video layers without video
 encoding or per-frame CGImage conversion. NV12 preserves luma resolution but
@@ -243,10 +244,12 @@ placement = "outside"
 | `capture_enabled` | `false` | boolean | Makes border surfaces visible to screenshots and screen capture for debugging. |
 | `placement` | `"outside"` | `"inside"` or `"outside"` | Draws the stroke inside the window edge (overlapping the first pixels of content) or just past it. |
 
-With `placement = "outside"`, the stroke extends into the gaps. Defi reserves
-one border width at monitor edges and between columns. These insets are
-deducted from each column slot, so two 50% columns fit with their borders
-without scrolling when focus changes.
+With `placement = "outside"`, every tiled window reserves one border width on
+each side, whether or not its border is currently drawn. Gaps then separate the
+outer border edges: with `gaps = 0` and `width = 4`, borders touch the monitor
+edges and neighboring windows sit 8 points apart. Two 50% columns still fill the
+monitor exactly, so focus changes never scroll them. With `placement =
+"inside"`, the stroke covers the window's outer content and takes no space.
 
 Colors require exactly eight hexadecimal digits. First byte is alpha, followed
 by red, green, and blue. Both prefixes accept uppercase or lowercase digits.
@@ -527,6 +530,11 @@ frames, or visibility:
 [keys]
 "hyper-d" = "diagnostic-mark"
 ```
+
+Defi also records the same payload automatically (`kind=marker`, `event=auto`,
+with a `reason`) when a command's first write exceeds 150 ms, its focus exceeds
+500 ms, or an animation display gap exceeds 50 ms, at most once per 30 seconds
+and 20 per hour.
 
 CLI-only integration commands:
 

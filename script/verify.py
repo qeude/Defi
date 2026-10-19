@@ -182,7 +182,7 @@ def main():
                 raise RuntimeError("Desktop filter must start with DesktopE2ETests")
             report.update(prepared_run=str(directory if args.mode == "full" else args.run.resolve()), bundle=str(bundle),
                           bundle_sha256=prepared["bundle_sha256"], filter=args.filter)
-            run_step("prepare-tests", ["swift", "build", "--build-tests"], directory, report)
+            run_step("prepare-tests", [str(ROOT / "script/test_desktop.sh"), "--build-tests"], directory, report)
             if source_identity() != report["source"]:
                 raise RuntimeError("Source changed during preparation; rerun local --stage")
             if args.wait:

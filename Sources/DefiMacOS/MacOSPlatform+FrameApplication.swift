@@ -33,6 +33,11 @@ func reentryTransitionDelta(
 
 @NavigationActor
 extension MacOSPlatform {
+  func consumeAcceptedFrames(_ observations: [BorderGeometryObservation],
+    handler: (([WindowID: Rect]) -> Void)?) {
+    let frames = snapshotEngine.consumeAcceptedFrames(observations)
+    if !frames.isEmpty { handler?(frames) }
+  }
 
   public func completedSize(for windowID: WindowID) -> CGSize? {
     frameCoordinator.completedSize(for: windowID)
@@ -69,18 +74,6 @@ extension MacOSPlatform {
     let previousRibbonFrames = previousLogicalRibbonFrames
     previousLogicalRibbonFrames = Dictionary(uniqueKeysWithValues:
       ribbonFrames.map { ($0.windowID, $0.frame) })
-    if experimentalSurfaceRibbonEnabled && source != "command-animation" {
-      snapshotEngine.onMain { _ in
-        ExperimentalRibbonRenderer.shared.supersedeIfTargetsChanged(assignments)
-      }
-    }
-    let usesSurfaceRibbon = experimentalSurfaceRibbonEnabled && source == "command-animation" && positionsOnly
-      && snapshotEngine.onMain { platform in
-        ExperimentalRibbonRenderer.shared.begin(assignments: assignments, ribbonFrames: ribbonFrames,
-          duration: animationDuration,
-          borderStyle: platform.borderStyle, selectedWindowID: platform.borderSelectedWindowID)
-      }
-    let animationDuration = usesSurfaceRibbon ? 0 : animationDuration
     frameSubmissionGeneration &+= 1
     let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
@@ -106,7 +99,7 @@ extension MacOSPlatform {
     var writeIntents: [WindowID: (position: Bool, size: Bool)] = [:]
     var referenceFrames: [WindowID: Rect] = [:]
     var startPositions: [WindowID: CGPoint] = [:]
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = snapshotEngine.discoveryNow
     let unfinishedRibbonWindowIDs = source == "command-animation"
       ? frameCoordinator.pendingAnimatedWindowIDs : []
     for assignment in assignments where !skippedWindowIDs.contains(assignment.windowID) {
@@ -320,7 +313,8 @@ extension MacOSPlatform {
       if let writePerformance = commandPerformance ?? continuedCommand {
         writePerformanceByWindowID[assignment.windowID] = writePerformance
       }
-      frameCommitExpectations[assignment.windowID] = FrameCommitExpectation(
+      snapshotEngine.registerFrameCommit(FrameCommitExpectation(
+        commitID: submissionGeneration,
         from: Rect(
           x: start.x,
           y: start.y,
@@ -331,26 +325,28 @@ extension MacOSPlatform {
         issuedAt: now,
         deadline: commitDeadline,
         command: commandPerformance ?? continuedCommand,
-        observedAt: nil
-      )
+        observedAt: nil,
+        // Read back right after the motion instead of waiting for the quarantine deadline.
+        firstVerificationAt: now + animationDuration + 0.1
+      ), for: assignment.windowID)
     }
     var asynchronousWrites: [WindowID: AsyncPositionWrite] = [:]
     var parkingTargets: [WindowID: AsyncPositionWrite] = [:]
     var initialSettlementTargets: [WindowID: AsyncPositionWrite] = [:]
     var animatedWindowIDs = Set<WindowID>()
+    let bindings = Dictionary(uniqueKeysWithValues: snapshotEngine.borderGeometryTargets(
+      for: Set(assignments.map(\.windowID))).map { ($0.windowID, $0) })
     for assignment in assignments {
       guard !skippedWindowIDs.contains(assignment.windowID) else { continue }
-      guard let element = elements[assignment.windowID] else { continue }
+      guard let binding = bindings[assignment.windowID] else { continue }
+      let element = binding.element
       let isParked = hiddenWindowIDs.contains(assignment.windowID)
       let intent = writeIntents[assignment.windowID]
 
       let logicalPosition = CGPoint(x: assignment.frame.x, y: assignment.frame.y)
       let size = CGSize(width: assignment.frame.width, height: assignment.frame.height)
-      guard let processID = processIDs[assignment.windowID],
-        let application = applications[processID]
-      else {
-        continue
-      }
+      let processID = binding.processID
+      let application = binding.application
       let needsVerifiedOffscreenWrite = requiresVerifiedOffscreenWrite(
         frame: assignment.frame,
         monitorFrames: lastMonitorFrames
@@ -369,6 +365,10 @@ extension MacOSPlatform {
       let parkedRibbonTarget = ribbonAnimationTarget(
         logical: ribbonTargets[assignment.windowID], from: startFrame,
         isParked: isParked, monitorFrames: lastMonitorFrames)
+      let animatesSizeChange =
+        animateSizeChanges && intent?.size == true
+        && targetSizeChanged(
+          previous: previousTargetFrames[assignment.windowID], target: assignment.frame)
       let wantsFrameAnimation =
         animationDuration > 0
         && (!isParked || parkedRibbonTarget != nil)
@@ -376,12 +376,11 @@ extension MacOSPlatform {
           from: startFrame,
           to: parkedRibbonTarget ?? assignment.frame
         )
-        && (intent?.position == true || parkedRibbonTarget != nil
-          || (animateSizeChanges && intent?.size == true))
+        && (intent?.position == true || parkedRibbonTarget != nil || animatesSizeChange)
+      // Growth is committed once before motion; shrink holds its size until the end.
       let animatesSize =
-        wantsFrameAnimation
-        && animateSizeChanges
-        && intent?.size == true
+        wantsFrameAnimation && animatesSizeChange
+        && (size.width < startSize.width || size.height < startSize.height)
       let write = AsyncPositionWrite(
         element: element,
         application: application,
@@ -403,7 +402,8 @@ extension MacOSPlatform {
         requiresVerifiedOffscreenWrite: needsVerifiedOffscreenWrite,
         animationPoint: parkedRibbonTarget.map { CGPoint(x: $0.x, y: $0.y) },
         usesCommonRibbonOffset: sharedRibbonOffset != nil && ribbonTargets[assignment.windowID] != nil
-          && wantsFrameAnimation
+          && wantsFrameAnimation,
+        binding: binding
       )
       if isParked || needsVerifiedOffscreenWrite {
         parkingTargets[assignment.windowID] = write
@@ -481,17 +481,14 @@ extension MacOSPlatform {
             focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
-          if !result.acceptedFrames.isEmpty {
-            for (windowID, frame) in result.acceptedFrames {
-              self.latestObservedFrames[windowID] = frame
-            }
-          }
           if refreshesBordersAfterCommit {
             self.refreshWindowBorders()
+            // Once recent writes stop masking native samples, catch any clamp.
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [weak self] in
+              self?.presentRefreshWindowBorders()
+            }
           }
-          if !result.acceptedFrames.isEmpty {
-            acceptedFrameHandler?(result.acceptedFrames)
-          }
+          self.consumeAcceptedFrames(result.acceptedObservations, handler: acceptedFrameHandler)
           if let cursorWarpWindowIDAfterCommit,
             deferredFocusFrameCommitIsReady(
               targetWindowID: cursorWarpWindowIDAfterCommit,

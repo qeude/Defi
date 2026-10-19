@@ -3,13 +3,19 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+FIXTURE_BINARY="$ROOT_DIR/.build/desktop-fixtures/DefiDesktopFocusFixture"
 
 # Build before stopping the app or reserving the desktop.
 if [[ "${1:-}" != "--run-built-tests" ]]; then
   swift build --build-tests
+  mkdir -p "$(dirname "$FIXTURE_BINARY")"
+  swiftc -swift-version 6 -parse-as-library "$ROOT_DIR/Tests/Fixtures/DesktopFocusFixture.swift" -o "$FIXTURE_BINARY"
+  [[ "${1:-}" != "--build-tests" ]] || exit 0
   exec python3 "$ROOT_DIR/script/desktop_lock.py" "$0" --run-built-tests "$@"
 fi
 shift
+[[ -x "$FIXTURE_BINARY" ]] || { echo "Desktop fixture missing; run test_desktop.sh --build-tests first" >&2; exit 2; }
+export DEFI_DESKTOP_FIXTURE_BINARY="$FIXTURE_BINARY"
 if ! python3 "$ROOT_DIR/script/desktop_lock.py" --check; then
   echo "--run-built-tests requires a desktop reservation" >&2
   exit 2

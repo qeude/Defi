@@ -252,8 +252,10 @@ struct FloatingWindowTests {
     #expect(state.selectedWindowID(on: monitorID) == followed.id)
   }
 
-  @Test
-  func `Automatic floater reclassifies as tiled without stealing focus`() throws {
+  @Test(arguments: [false, true])
+  func `Automatic floater reclassifies as tiled without stealing focus`(
+    automaticWasFocused: Bool
+  ) throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -262,6 +264,9 @@ struct FloatingWindowTests {
     automatic.floatingOrigin = .automatic
     try discoverWindow(selectedTile, decision: RuleDecision(), state: &state)
     try discoverWindow(automatic, decision: RuleDecision(), state: &state)
+    if automaticWasFocused {
+      focusWindow(automatic.id, state: &state)
+    }
     var observed = automatic
     observed.floating = false
     observed.floatingOrigin = nil
@@ -273,7 +278,11 @@ struct FloatingWindowTests {
     #expect(workspace.columns.flatMap(\.windows) == [selectedTile.id, automatic.id])
     #expect(state.windows[automatic.id]?.floating == false)
     #expect(state.windows[automatic.id]?.floatingOrigin == nil)
-    #expect(state.selectedWindowID(on: monitorID) == selectedTile.id)
+    #expect(workspace.focusedLayer == .tiled)
+    #expect(
+      state.selectedWindowID(on: monitorID)
+        == (automaticWasFocused ? automatic.id : selectedTile.id)
+    )
   }
 
   @Test
@@ -610,27 +619,6 @@ struct FloatingWindowTests {
     #expect(workspace.columns.flatMap(\.windows) == [forcedTile.id])
     #expect(state.windows[forcedTile.id]?.floating == false)
     #expect(state.windows[forcedTile.id]?.forceTiling == true)
-  }
-
-  @Test
-  func `Focused automatic floater remains selected when reclassified`() throws {
-    let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let selectedTile = window(74)
-    var automatic = window(75, floating: true)
-    automatic.floatingOrigin = .automatic
-    try discoverWindow(selectedTile, decision: RuleDecision(), state: &state)
-    try discoverWindow(automatic, decision: RuleDecision(), state: &state)
-    focusWindow(automatic.id, state: &state)
-    var observed = automatic
-    observed.floating = false
-    observed.floatingOrigin = nil
-
-    reconcileWindows([selectedTile, observed], config: config, state: &state)
-
-    #expect(state.monitors[0].workspaces[0].focusedLayer == .tiled)
-    #expect(state.selectedWindowID(on: monitorID) == automatic.id)
   }
 
   @Test

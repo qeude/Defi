@@ -10,13 +10,6 @@ import OSLog
 
 @NavigationActor
 public final class MacOSPlatform {
-  public var experimentalSurfaceRibbonEnabled = false {
-    didSet {
-      if oldValue && !experimentalSurfaceRibbonEnabled {
-        DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
-      }
-    }
-  }
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   nonisolated let snapshotEngine: SnapshotEngine
 
@@ -148,6 +141,8 @@ public final class MacOSPlatform {
 
 
   @MainActor lazy var borderManager = WindowBorderManager()
+  @MainActor lazy var borderSync = makeWindowBorderSync()
+  @MainActor lazy var borderStackingSettle = makeWindowBorderStackingSettle()
   @MainActor lazy var nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
   nonisolated let borderBoundsProvider: WindowServerBoundsProvider
   nonisolated var targetFrames: [WindowID: Rect] {
@@ -166,6 +161,14 @@ public final class MacOSPlatform {
     get { snapshotEngine.latestObservedFrames }
     set { snapshotEngine.latestObservedFrames = newValue }
   }
+  public nonisolated var nextFrameCommitVerificationAt: TimeInterval? {
+    snapshotEngine.nextFrameCommitVerificationAt
+  }
+
+  public nonisolated func requestDueFrameCommitVerification(now: TimeInterval) -> Bool {
+    snapshotEngine.requestDueFrameCommitVerification(now: now)
+  }
+
   nonisolated var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
     get { snapshotEngine.frameCommitExpectations }
     set { snapshotEngine.frameCommitExpectations = newValue }
@@ -310,6 +313,8 @@ public final class MacOSPlatform {
   }
   @MainActor var presentationStatusPending = false
   @MainActor var accessibilityDisplayObserver: NSObjectProtocol?
+  @MainActor lazy var delayedObservationCampaigns = DelayedObservationCampaigns()
+  @MainActor var observationMeasurementAccess: ObservationMeasurementAccess?
   @MainActor var eventMonitor: PlatformEventMonitor?
   nonisolated var mouseResizeGesturePending: Bool {
     get { snapshotEngine.mouseResizeGesturePending }
@@ -338,6 +343,10 @@ public final class MacOSPlatform {
   nonisolated var nativeFocusEventHasUnknownProcess: Bool {
     get { snapshotEngine.nativeFocusEventHasUnknownProcess }
     set { snapshotEngine.nativeFocusEventHasUnknownProcess = newValue }
+  }
+  nonisolated var nativeFocusEventTimestamp: TimeInterval {
+    get { snapshotEngine.nativeFocusEventTimestamp }
+    set { snapshotEngine.nativeFocusEventTimestamp = newValue }
   }
   nonisolated var lastFocusedWindowByProcess: [pid_t: WindowID] {
     get { snapshotEngine.lastFocusedWindowByProcess }
@@ -382,9 +391,9 @@ public final class MacOSPlatform {
     get { snapshotEngine.chunkedFullRefreshRemainingProcessIDs }
     set { snapshotEngine.chunkedFullRefreshRemainingProcessIDs = newValue }
   }
-  nonisolated var incompatibleFreshReadDeadlines: [pid_t: TimeInterval] {
-    get { snapshotEngine.incompatibleFreshReadDeadlines }
-    set { snapshotEngine.incompatibleFreshReadDeadlines = newValue }
+  nonisolated var fallbackFreshReadDeadlines: [pid_t: TimeInterval] {
+    get { snapshotEngine.fallbackFreshReadDeadlines }
+    set { snapshotEngine.fallbackFreshReadDeadlines = newValue }
   }
   @MainActor var pointerHitTestRecords: [CGWindowRecord] = []
   @MainActor var pointerHitTestDockProcessIDs = Set<pid_t>()
@@ -422,6 +431,7 @@ public final class MacOSPlatform {
   public var isPrivateWindowConstraintLookupAvailable: Bool { presentationStatus.constraintsAvailable }
   public var successfulPrivateWindowConstraintLookupCount: Int { presentationStatus.constraintsSuccesses }
   public var privateWindowConstraintLookupFallbackCount: Int { presentationStatus.constraintsFallbacks }
+  public var windowBorderSyncStatus: String { presentationStatus.borderSync }
   @MainActor var presentedNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var presentedActiveNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var presentedSelectedWindowID: WindowID?
@@ -434,10 +444,14 @@ public final class MacOSPlatform {
   public nonisolated let userInputTracker = UserInputTracker()
   public nonisolated let pointerMotionTracker = PointerMotionTracker()
 
-  public init() {
+  public convenience init() {
+    self.init(frameCoordinator: nil)
+  }
+
+  init(frameCoordinator suppliedCoordinator: AXFrameCoordinator?) {
     let boundsProvider = WindowServerBoundsProvider()
     borderBoundsProvider = boundsProvider
-    frameCoordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+    frameCoordinator = suppliedCoordinator ?? AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
       nativePositionReader: { windowID, processID in
         if let frame = boundsProvider.frame(for: windowID) {
           return CGPoint(x: frame.x, y: frame.y)
@@ -450,6 +464,13 @@ public final class MacOSPlatform {
       frameCoordinator: frameCoordinator, userInputTracker: userInputTracker
     )
     snapshotEngine.host = self
+    frameCoordinator.borderNativeFrameReader = { boundsProvider.frame(for: $0) }
+    frameCoordinator.borderBindingIsCurrent = { [weak snapshotEngine] target in
+      snapshotEngine?.borderBindingIsCurrent(target) == true
+    }
+    frameCoordinator.borderObservationHandler = { [weak self] observations in
+      self?.presentBorderGeometryObservations(observations)
+    }
     frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
       self?.enqueueBorderGeometry(Set(frames.keys))
     }
@@ -465,7 +486,6 @@ public final class MacOSPlatform {
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
     let now = ProcessInfo.processInfo.systemUptime
     if !entered.isEmpty {
-      DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
       frameSubmissionGeneration &+= 1
       if entered.contains(where: frameCoordinator.isBusy(for:)) {
         frameCoordinator.invalidate(reason: "native-fullscreen")

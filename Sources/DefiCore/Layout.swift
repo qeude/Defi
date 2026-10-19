@@ -230,14 +230,32 @@ private func acceptedTiledSizes(
         windowCount: column.windows.count,
         settings: settings
       )
-      guard abs(requested.width - acceptance.requested.width) < 1,
-        abs(requested.height - acceptance.requested.height) < 1
+      // Moving a column across a gap edge shifts the request by exactly an
+      // outer/inner gap difference; the app's clamp is unchanged, so its accepted
+      // size still applies. Any other change is a new request.
+      let horizontalInner = max(settings.innerHorizontalGap, 0)
+      let verticalInner = max(settings.innerVerticalGap, 0)
+      let widthShifts = gapEdgeShifts(
+        max(settings.outerLeftGap, 0) - horizontalInner,
+        max(settings.outerRightGap, 0) - horizontalInner)
+      let heightShifts = gapEdgeShifts(
+        max(settings.outerTopGap, 0) - verticalInner,
+        max(settings.outerBottomGap, 0) - verticalInner)
+      let widthDelta = requested.width - acceptance.requested.width
+      let heightDelta = requested.height - acceptance.requested.height
+      guard widthShifts.contains(where: { abs(widthDelta - $0) < 1 }),
+        heightShifts.contains(where: { abs(heightDelta - $0) < 1 })
       else {
         return nil
       }
-      return (windowID, acceptance)
+      return (windowID, TiledSizeAcceptance(requested: requested, accepted: acceptance.accepted))
     }
   )
+}
+
+/// Request changes a window sees only by gaining or losing outer gap edges.
+private func gapEdgeShifts(_ first: Double, _ second: Double) -> [Double] {
+  [0, first, second, first + second, first - second].flatMap { [$0, -$0] }
 }
 
 private func effectiveColumnLayoutWidth(

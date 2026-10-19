@@ -8,7 +8,31 @@ import ScreenCaptureKit
 @testable import DefiMacOS
 
 struct OverviewPreviewTests {
-  @MainActor @Test func liveExperimentChangesWaitForMemoryPressureRecovery() {
+  @MainActor @Test func emptyWorkspaceClosingZoomsWallpaperToFullScreen() throws {
+    let screen = try #require(NSScreen.main)
+    let workspaceID = WorkspaceID(rawValue: "empty")
+    let projection = OverviewProjection(monitorID: MonitorID(rawValue: 1), workspaces: [
+      OverviewWorkspaceProjection(workspaceID: workspaceID,
+        frame: Rect(x: 100, y: 80, width: 320, height: 200), windows: []),
+    ])
+    let wallpaper = NSImage(size: NSSize(width: 16, height: 10), flipped: false) { rect in
+      NSColor.systemBlue.setFill(); rect.fill(); return true
+    }
+    #expect(OverviewPreviewClosingScene(projection: projection, workspaceID: workspaceID,
+      screen: screen, previews: [:], targets: [], windows: [:]) == nil)
+    let scene = try #require(OverviewPreviewClosingScene(projection: projection,
+      workspaceID: workspaceID, screen: screen, previews: [:], wallpaper: wallpaper,
+      targets: [], windows: [:]))
+    let item = try #require(scene.layer.sublayers?.first)
+    #expect(item.frame == CGRect(x: 100, y: 80, width: 320, height: 200))
+    scene.animate(duration: 0.22)
+    #expect(abs(item.frame.width - scene.layer.bounds.width) < 0.5)
+    #expect(abs(item.frame.height - scene.layer.bounds.height) < 0.5)
+    #expect(item.frame.origin == .zero)
+    #expect(item.cornerRadius == 0)
+  }
+
+  @MainActor @Test func settingChangesWaitForMemoryPressureRecovery() {
     let controller = OverviewController(focusWindow: { _, _, _, _ in },
       focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
       openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
@@ -17,12 +41,24 @@ struct OverviewPreviewTests {
     defer { controller.close(); controller.prepare(windowPreviewsEnabled: false) }
     controller.handleMemoryPressure(.warning)
     controller.update(snapshot: snapshot, layout: LayoutSettings(),
-      experimentalRibbonRepresentations: true)
+      windowPreviewsEnabled: true)
     #expect(controller.surfaceCaptureState == "pressure")
-    #expect(ExperimentalRibbonRenderer.shared.requests.isEmpty)
+    #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
     controller.handleMemoryPressure(.normal)
     controller.update(snapshot: snapshot, layout: LayoutSettings())
     #expect(controller.surfaceCaptureState != "pressure", "Recovery must consume the pending preparation with unchanged settings")
+  }
+
+  @MainActor @Test func warningPreparationKeepsFullSurfacesOff() {
+    let controller = OverviewController(focusWindow: { _, _, _, _ in },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
+    defer { controller.handleMemoryPressure(.normal); controller.prepare(windowPreviewsEnabled: false) }
+    controller.handleMemoryPressure(.warning)
+    controller.prepare(windowPreviewsEnabled: true,
+      snapshot: OverviewSnapshot(monitors: [], monitorFrames: [:], windows: [:]), layout: LayoutSettings())
+    #expect(controller.surfaceCaptureState == "pressure")
+    #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
   }
 
   @MainActor @Test func pressureRecoveryRequestsPreloadingWithoutAnotherOpening() {
@@ -102,6 +138,40 @@ struct OverviewPreviewTests {
     #expect(await queued.value == false)
     await limiter.release()
     #expect(await limiter.acquire())
+    await limiter.release()
+  }
+
+  @MainActor @Test
+  func hungNativeCaptureFailsAtDeadlineInsteadOfHoldingTheSlot() async throws {
+    await #expect(throws: OverviewCaptureTimeoutError.self) {
+      try await withOverviewCaptureTimeout(seconds: 0.05) {
+        try await Task.sleep(for: .seconds(60))
+        return 1
+      }
+    }
+    let value = try await withOverviewCaptureTimeout(seconds: 5) { 7 }
+    #expect(value == 7)
+  }
+
+  @MainActor @Test
+  func timedOutCaptureReleasesTheLimiterSlotToQueuedCapture() async {
+    let limiter = OverviewCaptureLimiter(limit: 1)
+    #expect(await limiter.acquire())
+    let queued = Task { await limiter.acquire() }
+    for _ in 0..<1_000 {
+      if await limiter.waitingCount == 1 { break }
+      await Task.yield()
+    }
+    do {
+      _ = try await withOverviewCaptureTimeout(seconds: 0.05) {
+        try await Task.sleep(for: .seconds(60))
+        return 1
+      }
+    } catch {
+      await limiter.release(error: error as NSError)
+    }
+    #expect(await queued.value)
+    #expect(await limiter.authorizationDeclined == false)
     await limiter.release()
   }
 
@@ -391,28 +461,14 @@ struct OverviewPreviewTests {
     )
   }
 
-  @Test("Ribbon prototype never requests Screen Recording access")
-  func ribbonPrototypeDoesNotRequestCapturePermission() {
-    #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false,
-      ribbonPrototype: true,
-      hasRequestedPermission: false
-    ))
-    #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false,
-      ribbonPrototype: false,
-      hasRequestedPermission: true
-    ))
+  @Test("Screen Recording is requested at most once and only while missing")
+  func capturePermissionIsRequestedOnce() {
     #expect(overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false,
-      ribbonPrototype: false,
-      hasRequestedPermission: false
-    ))
+      screenCaptureAccessGranted: false, hasRequestedPermission: false))
     #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: true,
-      ribbonPrototype: false,
-      hasRequestedPermission: false
-    ))
+      screenCaptureAccessGranted: false, hasRequestedPermission: true))
+    #expect(!overviewShouldRequestCapturePermission(
+      screenCaptureAccessGranted: true, hasRequestedPermission: false))
   }
 
   @Test

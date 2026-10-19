@@ -88,7 +88,7 @@ extension AXFrameCoordinator {
       activeWrites.removeAll(keepingCapacity: true)
       retireIdleProcessWriteQueuesLocked()
       lock.unlock()
-      let acceptedFrames = readAcceptedFrames(
+      let acceptedObservations = readAcceptedFrames(
         for: frame,
         successfulWindowIDs: successfulWindowIDs
       )
@@ -98,7 +98,7 @@ extension AXFrameCoordinator {
           completedLatest: completedLatest,
           attemptedWindowIDs: Set(frame.writes.keys),
           successfulWindowIDs: successfulWindowIDs,
-          acceptedFrames: completedLatest ? acceptedFrames : [:]
+          acceptedObservations: completedLatest ? acceptedObservations : []
         )
       )
     }
@@ -142,7 +142,8 @@ extension AXFrameCoordinator {
         isReentering: write.isReentering,
         requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
         animationPoint: write.animationPoint,
-        usesCommonRibbonOffset: write.usesCommonRibbonOffset
+        usesCommonRibbonOffset: write.usesCommonRibbonOffset,
+        binding: write.binding
       )
       count += 1
     }

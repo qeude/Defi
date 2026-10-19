@@ -159,7 +159,38 @@ func overviewPreviewOwnerMatches(
 // may be outstanding. Cancellation does not dismiss a system consent dialog.
 let overviewPreviewMaximumConcurrentCaptures = 2
 let overviewCaptureLimiter = OverviewCaptureLimiter(limit: 1)
-private let overviewCaptureLogger = Logger(subsystem: "com.quentin.defi", category: "overview-capture")
+private let overviewCaptureLogger = Logger(subsystem: "com.qeude.defi", category: "overview-capture")
+
+struct OverviewCaptureTimeoutError: Error {}
+
+private struct UncheckedSendable<Value>: @unchecked Sendable { let value: Value }
+
+// A ScreenCaptureKit call that never returns would hold the single limiter slot until
+// restart. Abandon it after the deadline so the next overview session can capture.
+@MainActor
+func withOverviewCaptureTimeout<Value>(
+  seconds: Double = 5,
+  _ operation: @escaping @MainActor () async throws -> Value
+) async throws -> Value {
+  let outcome: UncheckedSendable<Result<Value, Error>> = await withCheckedContinuation { continuation in
+    let finished = OSAllocatedUnfairLock(initialState: false)
+    @Sendable func finish(_ result: Result<Value, Error>) {
+      let first = finished.withLock { done -> Bool in
+        defer { done = true }
+        return !done
+      }
+      if first { continuation.resume(returning: UncheckedSendable(value: result)) }
+    }
+    Task {
+      do { finish(.success(try await operation())) } catch { finish(.failure(error)) }
+    }
+    Task {
+      try? await Task.sleep(for: .seconds(seconds))
+      finish(.failure(OverviewCaptureTimeoutError()))
+    }
+  }
+  return try outcome.value.get()
+}
 
 actor OverviewCaptureLimiter {
   private var available: Int
@@ -333,7 +364,9 @@ func captureOverviewImages(
     let content: SCShareableContent
     do {
       try Task.checkCancellation()
-      content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+      content = try await withOverviewCaptureTimeout {
+        try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+      }
     } catch {
       await limiter.release(error: error is CancellationError ? nil : error as NSError)
       throw error
@@ -343,13 +376,13 @@ func captureOverviewImages(
     let desktopTask = Task { @MainActor in
       var desktops: [MonitorID: CGImage] = [:]
       for request in desktopRequests where !Task.isCancelled {
-        guard let display = content.displays.first(where: {
+        // Include only desktop-level windows (wallpaper, icons): an app window or
+        // border overlay created after the content snapshot must never leak in.
+        let desktopWindows = content.windows.filter { $0.windowLayer < 0 }
+        guard !desktopWindows.isEmpty, let display = content.displays.first(where: {
           $0.displayID == request.displayID
         }) else { continue }
-        let filter = SCContentFilter(
-          display: display,
-          excludingWindows: content.windows
-        )
+        let filter = SCContentFilter(display: display, including: desktopWindows)
         filter.includeMenuBar = false
         let configuration = SCStreamConfiguration()
         configuration.width = request.width
@@ -363,8 +396,10 @@ func captureOverviewImages(
           break
         }
         do {
-          let image = try await SCScreenshotManager.captureImage(
-            contentFilter: filter, configuration: configuration)
+          let image = try await withOverviewCaptureTimeout {
+            try await SCScreenshotManager.captureImage(
+              contentFilter: filter, configuration: configuration)
+          }
           await limiter.release()
           desktops[request.monitorID] = image
         } catch {
@@ -450,10 +485,11 @@ private final class OverviewScreenCaptureBatch {
       }
       let image: CGImage
       do {
-        image = try await SCScreenshotManager.captureImage(
-          contentFilter: SCContentFilter(desktopIndependentWindow: window),
-          configuration: configuration
-        )
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        image = try await withOverviewCaptureTimeout {
+          try await SCScreenshotManager.captureImage(
+            contentFilter: filter, configuration: configuration)
+        }
       } catch {
         await limiter.release(error: error as NSError)
         throw error

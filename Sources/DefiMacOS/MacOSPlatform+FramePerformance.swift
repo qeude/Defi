@@ -378,42 +378,32 @@ extension MacOSPlatform {
     )
   }
 
-  public var recommendedWindowListRefreshInterval: TimeInterval {
-    let now = ProcessInfo.processInfo.systemUptime
-    let cgRetryProcessIDs = Set(snapshotEngine.cgWindowDiscoveryRetries.entries.compactMap {
-      identity, retry in retry.nextRetryAt == nil ? nil : identity.processID
-    })
-    let hasPendingUnmatchedRetry = unmatchedWindowElementsByProcess.contains {
-      processID, elements in
-      elements.isEmpty == false
-        && !cgRetryProcessIDs.contains(processID)
-        && unmatchedWindowRetryIsPending(
-          attempts: unmatchedWindowRetryAttemptsByProcess[processID] ?? 0
-        )
-    }
-    let hasPendingWindowListReadRetry =
-      windowListReadRetryAttemptsByProcess.contains { processID, attempts in
-        !cgRetryProcessIDs.contains(processID)
-          && unmatchedWindowRetryIsPending(attempts: attempts)
-      }
-    let hasPendingCGWindowInventoryRetry =
-      cgWindowInventoryRetryAttempts.map {
-        unmatchedWindowRetryIsPending(attempts: $0)
-      } == true
-    let baseInterval = windowListRefreshInterval(
-      hasPendingShortRetry:
-        hasPendingUnmatchedRetry
-        || hasPendingWindowListReadRetry
-        || hasPendingCGWindowInventoryRetry
-        || !retainedWindowIDs.isEmpty,
-      reliableTopologyObservation: hasReliableWindowTopologyObservation
+  public var recommendedGlobalWindowListRefreshInterval: TimeInterval {
+    let base = windowListRefreshInterval(
+      hasPendingShortRetry: cgWindowInventoryRetryAttempts.map { unmatchedWindowRetryIsPending(attempts: $0) } == true,
+      reliableTopologyObservation: hasReliableWindowTopologyObservation,
+      hasScopedTopologyFallback: snapshotEngine.hasCompletedWindowSnapshot
+        && !processIDsWithoutReliableTopologyCoverage().isEmpty
     )
-    let transientRetryInterval = transientOwnerResolutionRefreshInterval(
-      retryAfter: Array(transientOwnerResolutionRetryAfter.values), now: now
-    ) ?? baseInterval
-    let discoveryRetryInterval = snapshotEngine.cgWindowDiscoveryRetryInterval(now: now)
-      ?? baseInterval
-    return min(baseInterval, min(transientRetryInterval, discoveryRetryInterval))
+    return min(base, transientOwnerResolutionRefreshInterval(
+      retryAfter: Array(transientOwnerResolutionRetryAfter.values), now: snapshotEngine.discoveryNow
+    ) ?? base)
+  }
+
+  public var recommendedWindowListRefreshInterval: TimeInterval {
+    let base = recommendedGlobalWindowListRefreshInterval
+    let pending = windowListReadRetryAttemptsByProcess.values.contains { unmatchedWindowRetryIsPending(attempts: $0) }
+      || unmatchedWindowElementsByProcess.contains { pid, elements in
+        !elements.isEmpty && unmatchedWindowRetryIsPending(attempts: unmatchedWindowRetryAttemptsByProcess[pid] ?? 0)
+      }
+      || !retainedWindowIDs.isEmpty || nextWindowDiscoveryRetryAt != nil
+    return pending ? min(base, 0.1) : base
+  }
+
+  public var nextWindowDiscoveryRetryAt: TimeInterval? {
+    let now = snapshotEngine.discoveryNow
+    let cg = snapshotEngine.nextCGWindowDiscoveryRetryAt
+    return [cg, snapshotEngine.nextProcessWindowRetryAt(now: now)].compactMap { $0 }.min()
   }
 
   public var windowDiscoveryStatus: String {
@@ -422,6 +412,7 @@ extension MacOSPlatform {
 
   public func dueWindowDiscoveryRetryProcessIDs(now: TimeInterval) -> Set<pid_t> {
     snapshotEngine.dueCGWindowDiscoveryRetryProcessIDs(now: now)
+      .union(snapshotEngine.dueProcessWindowRetryIDs(now: now))
   }
 
   public var hasPendingTransientOwnerResolution: Bool {
@@ -524,62 +515,5 @@ extension MacOSPlatform {
     nativeFocusEventPending || userInputTracker.pendingApplicationActivation(
       frontmostProcessID: frontmostProcessID
     ) != nil
-  }
-}
-
-
-extension MacOSPlatform {
-/// Samples how far each visible border overlay sits from its window's most
-/// recently observed frame. Transient divergence during animations is
-/// expected (borders follow the plan, applications accept frames late);
-/// sustained large deltas are the regression signal.
-  public func auditBorderAlignment() -> String {
-    let assignments = plannedBorderFrames
-    guard !assignments.isEmpty else { return "no-border-assignments" }
-    var compared = 0
-    var mismatched = 0
-    var totalTarget = 0.0
-    var worstTarget = 0.0
-    var worstAcceptance = 0.0
-    var worstWindowID: WindowID?
-    for assignment in assignments {
-      guard
-        let target = targetFrames[assignment.windowID],
-        let observed = latestObservedFrames[assignment.windowID]
-      else {
-        continue
-      }
-      compared += 1
-      let targetDelta = max(
-        abs(assignment.frame.x - target.x),
-        abs(assignment.frame.y - target.y),
-        abs(assignment.frame.width - target.width),
-        abs(assignment.frame.height - target.height)
-      )
-      totalTarget += targetDelta
-      if targetDelta > worstTarget {
-        worstTarget = targetDelta
-        worstWindowID = assignment.windowID
-      }
-      if targetDelta > 2 {
-        mismatched += 1
-      }
-      let acceptance = max(
-        abs(target.x - observed.x),
-        abs(target.y - observed.y),
-        abs(target.width - observed.width),
-        abs(target.height - observed.height)
-      )
-      worstAcceptance = max(worstAcceptance, acceptance)
-    }
-    guard compared > 0 else { return "no-comparable-windows" }
-    var result = "compared=\(compared) mismatches>2pt=\(mismatched)"
-    result += " avg=\(String(format: "%.2f", totalTarget / Double(compared)))"
-    result += " worst=\(String(format: "%.2f", worstTarget))pt"
-    result += " appAcceptance=\(String(format: "%.2f", worstAcceptance))pt"
-    if let worstWindowID {
-      result += " wid=\(worstWindowID.rawValue)"
-    }
-    return result
   }
 }

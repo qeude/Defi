@@ -8,7 +8,7 @@ case "$MODE" in
 esac
 APP_NAME="Defi"
 PROCESS_NAME="defi-daemon"
-BUNDLE_ID="com.quentin.defi"
+BUNDLE_ID="com.qeude.defi"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGING_ROOT="${DEFI_STAGING_ROOT:-$ROOT_DIR/dist}"
@@ -25,7 +25,8 @@ INSTALLED_BINARY="$INSTALL_BUNDLE/Contents/MacOS/$PROCESS_NAME"
 INSTALLED_CLI="$INSTALL_BUNDLE/Contents/MacOS/defi"
 INFO_PLIST_SOURCE="$ROOT_DIR/Support/Defi-Info.plist"
 ICON_SOURCE="$ROOT_DIR/Support/Defi.icon"
-SERVICE_LABEL="com.quentin.defi"
+SERVICE_LABEL="com.qeude.defi"
+LEGACY_SERVICE_LABEL="com.quentin.defi"
 SERVICE_DOMAIN="gui/$(id -u)"
 
 cd "$ROOT_DIR"
@@ -161,7 +162,9 @@ ditto "$STAGING_BUNDLE" "$INSTALL_TRANSACTION/candidate.app"
 codesign --verify --deep --strict "$INSTALL_TRANSACTION/candidate.app"
 
 LAUNCH_AT_LOGIN_WAS_ENABLED=0
-if /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1; then
+if /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1 \
+  || /bin/launchctl print "$SERVICE_DOMAIN/$LEGACY_SERVICE_LABEL" >/dev/null 2>&1
+then
   LAUNCH_AT_LOGIN_WAS_ENABLED=1
   "$INSTALLED_CLI" service stop
   for _ in {1..50}; do
@@ -195,9 +198,11 @@ if pgrep -u "$(id -u)" -x "$PROCESS_NAME" >/dev/null 2>&1; then
   echo "$PROCESS_NAME is still running; refusing bundle replacement" >&2
   exit 1
 fi
-if [[ -e "$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist" ]]; then
-  unlink "$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
-fi
+for label in "$SERVICE_LABEL" "$LEGACY_SERVICE_LABEL"; do
+  if [[ -e "$HOME/Library/LaunchAgents/$label.plist" ]]; then
+    unlink "$HOME/Library/LaunchAgents/$label.plist"
+  fi
+done
 
 if [[ -d "$INSTALL_BUNDLE" ]]; then
   mv "$INSTALL_BUNDLE" "$INSTALL_TRANSACTION/previous.app"

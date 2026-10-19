@@ -183,6 +183,20 @@ func resolvedWindowBorderFrame(
   nativeFrame ?? observedFrame ?? plannedFrame
 }
 
+// Unverified position writes do not update observations, so the border follows
+// a newer write. Observed size wins: unverified size writes may be clamped.
+func displayedWindowBorderFrame(
+  observed: (frame: Rect, sampledAt: TimeInterval)?,
+  written: (point: CGPoint, size: CGSize?, writtenAt: TimeInterval)?
+) -> Rect? {
+  guard let written, written.writtenAt > observed?.sampledAt ?? -.infinity else {
+    return observed?.frame
+  }
+  let size = observed.map { CGSize(width: $0.frame.width, height: $0.frame.height) } ?? written.size
+  guard let size else { return nil }
+  return Rect(x: written.point.x, y: written.point.y, width: size.width, height: size.height)
+}
+
 func windowBorderAlpha(of color: UInt32) -> UInt8 {
   UInt8((color >> 24) & 0xff)
 }

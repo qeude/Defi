@@ -15,6 +15,9 @@ if [[ ! -f "$CERTIFICATE_DIRECTORY/installed-0" || ! -f "$CERTIFICATE_DIRECTORY/
 fi
 INSTALLED_REQUIREMENT="$(codesign -dr - "$1" 2>&1 | sed -n 's/^designated => //p')"
 STAGED_REQUIREMENT="$(codesign -dr - "$2" 2>&1 | sed -n 's/^designated => //p')"
+# 0.5 renamed the bundle identifier; the certificate comparison above still pins the signer.
+INSTALLED_REQUIREMENT="${INSTALLED_REQUIREMENT//com.quentin.defi/com.qeude.defi}"
+STAGED_REQUIREMENT="${STAGED_REQUIREMENT//com.quentin.defi/com.qeude.defi}"
 if [[ -z "$INSTALLED_REQUIREMENT" || "$INSTALLED_REQUIREMENT" != "$STAGED_REQUIREMENT" ]]; then
   echo "Signing requirement changed; refusing to replace the installed app" >&2
   exit 1

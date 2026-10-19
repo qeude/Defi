@@ -52,41 +52,26 @@ struct WindowDiscoveryTests {
     #expect(expired.deadlines.isEmpty)
   }
 
-  @Test
-  func `Transient process disagreement defers focus resolution`() {
+  @Test(
+    arguments: [
+      (pid_t?(42), pid_t?(7), pid_t?(nil), pid_t?(nil)),
+      (7, 42, 42, 42),
+      (42, nil, nil, 42),
+      (42, 42, nil, 42),
+    ] as [(pid_t?, pid_t?, pid_t?, pid_t?)]
+  )
+  func `Focused process resolves only from agreeing or verified sources`(
+    accessibilityProcessID: pid_t?,
+    frontmostProcessID: pid_t?,
+    verifiedNativeFocusProcessID: pid_t?,
+    expected: pid_t?
+  ) {
     #expect(
       consistentFocusedProcessID(
-        accessibilityProcessID: 42,
-        frontmostProcessID: 7
-      ) == nil)
-  }
-
-  @Test
-  func `Frontmost native focus event overrides stale accessibility process`() {
-    #expect(
-      consistentFocusedProcessID(
-        accessibilityProcessID: 7,
-        frontmostProcessID: 42,
-        verifiedNativeFocusProcessID: 42
-      ) == 42)
-  }
-
-  @Test
-  func `Accessibility process is fallback without frontmost application`() {
-    #expect(
-      consistentFocusedProcessID(
-        accessibilityProcessID: 42,
-        frontmostProcessID: nil
-      ) == 42)
-  }
-
-  @Test
-  func `Matching frontmost and accessibility processes resolve focus`() {
-    #expect(
-      consistentFocusedProcessID(
-        accessibilityProcessID: 42,
-        frontmostProcessID: 42
-      ) == 42)
+        accessibilityProcessID: accessibilityProcessID,
+        frontmostProcessID: frontmostProcessID,
+        verifiedNativeFocusProcessID: verifiedNativeFocusProcessID
+      ) == expected)
   }
 
   @NavigationActor
@@ -271,57 +256,56 @@ struct WindowDiscoveryTests {
       ) == nil)
   }
 
-  @Test
-  func `Focus recovery matches unmanaged auxiliary window by frame`() {
+  struct FocusRecoveryCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let target: (Rect, String)
+    let candidates: [(Rect, String)]
+    let expectedIndex: Int?
+
+    var testDescription: String { name }
+  }
+
+  static let focusRecoveryCases: [FocusRecoveryCase] = {
+    let mainFrame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
     let auxiliaryFrame = Rect(x: 400, y: 300, width: 500, height: 300)
-
-    #expect(
-      closestFocusRecoveryWindowIndex(
+    return [
+      FocusRecoveryCase(
+        name: "matches unmanaged auxiliary window by frame",
         target: (auxiliaryFrame, "Preferences"),
-        candidates: [(frame, "Main"), (auxiliaryFrame, "Preferences")]
-      ) == 1)
-  }
-
-  @Test
-  func `Focus recovery searches beyond first 32 candidates`() {
-    let targetFrame = Rect(x: 400, y: 300, width: 500, height: 300)
-    var candidates = Array(
-      repeating: (Rect(x: 0, y: 0, width: 100, height: 100), "Other"),
-      count: 32
-    )
-    candidates.append((targetFrame, "Preferences"))
-
-    #expect(
-      closestFocusRecoveryWindowIndex(
-        target: (targetFrame, "Preferences"),
-        candidates: candidates
-      ) == 32)
-  }
-
-  @Test
-  func `Focus recovery rejects distant accessibility window`() {
-    #expect(
-      closestFocusRecoveryWindowIndex(
-        target: (
-          Rect(x: 400, y: 300, width: 500, height: 300),
-          "Preferences"
-        ),
-        candidates: [(frame, "Main")]
-      ) == nil)
-  }
-
-  @Test
-  func `Focus recovery uses title to break geometry tie`() {
-    let auxiliaryFrame = Rect(x: 400, y: 300, width: 500, height: 300)
-
-    #expect(
-      closestFocusRecoveryWindowIndex(
+        candidates: [(mainFrame, "Main"), (auxiliaryFrame, "Preferences")],
+        expectedIndex: 1
+      ),
+      FocusRecoveryCase(
+        name: "searches beyond first 32 candidates",
         target: (auxiliaryFrame, "Preferences"),
-        candidates: [
-          (auxiliaryFrame, "Main"),
-          (auxiliaryFrame, "Preferences"),
-        ]
-      ) == 1)
+        candidates: Array(
+          repeating: (Rect(x: 0, y: 0, width: 100, height: 100), "Other"),
+          count: 32
+        ) + [(auxiliaryFrame, "Preferences")],
+        expectedIndex: 32
+      ),
+      FocusRecoveryCase(
+        name: "rejects distant accessibility window",
+        target: (auxiliaryFrame, "Preferences"),
+        candidates: [(mainFrame, "Main")],
+        expectedIndex: nil
+      ),
+      FocusRecoveryCase(
+        name: "uses title to break geometry tie",
+        target: (auxiliaryFrame, "Preferences"),
+        candidates: [(auxiliaryFrame, "Main"), (auxiliaryFrame, "Preferences")],
+        expectedIndex: 1
+      ),
+    ]
+  }()
+
+  @Test(arguments: focusRecoveryCases)
+  func `Focus recovery selects the closest accessibility window`(_ scenario: FocusRecoveryCase) {
+    #expect(
+      closestFocusRecoveryWindowIndex(
+        target: scenario.target,
+        candidates: scenario.candidates
+      ) == scenario.expectedIndex)
   }
 
   @Test

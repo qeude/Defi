@@ -8,6 +8,23 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func pendingNativeFocusDoesNotHoldBackNewlyAdmittedWindows() {
+    let main = MonitorID(rawValue: 1), side = MonitorID(rawValue: 2)
+    let old = WindowID(rawValue: 1), new = WindowID(rawValue: 2)
+    let other = WindowID(rawValue: 3), floating = WindowID(rawValue: 4)
+    let windows: [WindowID: MonitorID?] = [old: main, new: main, other: side, floating: nil]
+    let managed: Set<WindowID> = [old, other, floating]
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: false, focusMonitorID: nil,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed).isEmpty)
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: true, focusMonitorID: nil,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed) == [old, other, floating])
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: true, focusMonitorID: main,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed) == [other, floating])
+  }
+
   @Test func completedOverviewSelectionAllowsWarpUntilSuperseded() {
     let state = OverviewToggleState()
     state.recordControllerState(true, sessionGeneration: 1)
@@ -44,17 +61,21 @@ struct DaemonCommandPolicyTests {
   @Test func changedNativeFocusAnimatesOnlyItsMonitor() {
     let monitor = MonitorID(rawValue: 2)
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: false,
-      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == monitor)
+      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false,
+      displayGeometryChanged: false) == monitor)
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: nil, floating: false,
-      overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
+      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
   }
 
-  @Test(arguments: [(true, false, false, false), (false, true, false, false),
-    (false, false, true, false), (false, false, false, true)])
-  func nativeFocusDoesNotAnimateDuringOtherInteractions(blockers: (Bool, Bool, Bool, Bool)) {
+  @Test(arguments: [(true, false, false, false, false), (false, true, false, false, false),
+    (false, false, true, false, false), (false, false, false, true, false),
+    (false, false, false, false, true)])
+  func nativeFocusDoesNotAnimateDuringOtherInteractions(
+    blockers: (Bool, Bool, Bool, Bool, Bool)
+  ) {
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: MonitorID(rawValue: 2),
-      floating: blockers.0, overviewOpen: blockers.1, mouseGestureActive: blockers.2,
-      displayGeometryChanged: blockers.3) == nil)
+      floating: blockers.0, activatedWorkspace: blockers.4, overviewOpen: blockers.1,
+      mouseGestureActive: blockers.2, displayGeometryChanged: blockers.3) == nil)
   }
 
   @Test
@@ -126,20 +147,8 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
-  func ribbonPrototypeFlagAcceptsWhitespaceAndAdditionalTokens() {
-    #expect(overviewRibbonPrototypeRequested(in: "  toggle-overview\t--ribbon-prototype  "))
-    #expect(overviewRibbonPrototypeRequested(in: "toggle-overview --monitor 1 --ribbon-prototype"))
-    #expect(!overviewRibbonPrototypeRequested(in: "toggle-overview"))
-    #expect(!overviewRibbonPrototypeRequested(in: "focus-column --ribbon-prototype"))
-  }
-
-  @Test
   func overviewToggleGateUsesActualAndPendingState() {
     let toggleState = OverviewToggleState()
-    #expect(toggleState.toggle(
-      ribbonPrototype: true,
-      screenCaptureAccessGranted: false
-    ) == .denied)
     #expect(toggleState.snapshot() == OverviewToggleSnapshot(
       generation: 0,
       actualIsOpen: false,
@@ -147,40 +156,21 @@ struct DaemonCommandPolicyTests {
       desiredIsOpen: nil
     ))
 
-    guard case .requested(let openRequest) = toggleState.toggle(
-      ribbonPrototype: false,
-      screenCaptureAccessGranted: false
-    ) else {
-      Issue.record("ordinary overview should open without Screen Recording access")
-      return
-    }
+    let openRequest = toggleState.toggle()
+    #expect(openRequest.isOpen)
     #expect(toggleState.beginApplying(openRequest))
     toggleState.recordControllerState(true)
     toggleState.finishApplying(openRequest, actualIsOpen: true)
 
-    guard case .requested(let closeRequest) = toggleState.toggle(
-      ribbonPrototype: true,
-      screenCaptureAccessGranted: false
-    ) else {
-      Issue.record("a denied prototype request must still be able to close an open overview")
-      return
-    }
-    #expect(!closeRequest.isOpen)
+    #expect(!toggleState.toggle().isOpen)
   }
 
   @Test
   func overviewToggleGenerationRejectsOldProjectionAndEscapeCancelsPendingAck() {
     let toggleState = OverviewToggleState()
-    guard case .requested(let opening) = toggleState.toggle(
-      ribbonPrototype: false,
-      screenCaptureAccessGranted: true
-    ), case .requested(let closing) = toggleState.toggle(
-      ribbonPrototype: false,
-      screenCaptureAccessGranted: true
-    ) else {
-      Issue.record("rapid toggles should produce desired open and then closed states")
-      return
-    }
+    let opening = toggleState.toggle()
+    let closing = toggleState.toggle()
+    #expect(opening.isOpen && !closing.isOpen)
     #expect(!toggleState.beginApplying(opening))
     #expect(toggleState.beginApplying(closing))
     toggleState.recordControllerState(false)
@@ -188,32 +178,17 @@ struct DaemonCommandPolicyTests {
     #expect(toggleState.snapshot().actualIsOpen == false)
     #expect(toggleState.snapshot().desiredIsOpen == nil)
 
-    guard case .requested(let openingAgain) = toggleState.toggle(
-      ribbonPrototype: false,
-      screenCaptureAccessGranted: true
-    ) else {
-      Issue.record("closed overview should accept a new open request")
-      return
-    }
+    let openingAgain = toggleState.toggle()
+    #expect(openingAgain.isOpen)
     #expect(toggleState.beginApplying(openingAgain))
     toggleState.recordControllerState(true)
     toggleState.finishApplying(openingAgain, actualIsOpen: true)
 
-    guard case .requested(let inFlightClose) = toggleState.toggle(
-      ribbonPrototype: false,
-      screenCaptureAccessGranted: true
-    ) else {
-      Issue.record("open overview should accept a close request")
-      return
-    }
+    let inFlightClose = toggleState.toggle()
+    #expect(!inFlightClose.isOpen)
     #expect(toggleState.beginApplying(inFlightClose))
-    guard case .requested(let latestOpen) = toggleState.toggle(
-      ribbonPrototype: false,
-      screenCaptureAccessGranted: true
-    ) else {
-      Issue.record("a pending close should be reversible by a newer toggle")
-      return
-    }
+    let latestOpen = toggleState.toggle()
+    #expect(latestOpen.isOpen, "a pending close should be reversible by a newer toggle")
     toggleState.recordControllerState(false)
     toggleState.finishApplying(inFlightClose, actualIsOpen: false)
     #expect(toggleState.snapshot().desiredIsOpen == true)
@@ -222,13 +197,8 @@ struct DaemonCommandPolicyTests {
     toggleState.finishApplying(latestOpen, actualIsOpen: true)
     #expect(toggleState.snapshot().desiredIsOpen == nil)
 
-    guard case .requested(let pendingClose) = toggleState.toggle(
-      ribbonPrototype: false,
-      screenCaptureAccessGranted: false
-    ) else {
-      Issue.record("open overview should accept a close request without Screen Recording access")
-      return
-    }
+    let pendingClose = toggleState.toggle()
+    #expect(!pendingClose.isOpen)
     toggleState.recordControllerState(false)
     #expect(!toggleState.isCurrent(pendingClose))
     #expect(toggleState.snapshot().actualIsOpen == false)
@@ -236,17 +206,11 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
-  func rejectedPrototypeOpenReconcilesToActualClosedState() {
+  func rejectedOpenReconcilesToActualClosedState() {
     let toggleState = OverviewToggleState()
-    guard case .requested(let request) = toggleState.toggle(
-      ribbonPrototype: true,
-      screenCaptureAccessGranted: true
-    ) else {
-      Issue.record("granted permission should authorize the prototype request")
-      return
-    }
+    let request = toggleState.toggle()
     #expect(toggleState.beginApplying(request))
-    // The controller can reject if permission is revoked after the daemon preflight.
+    // The controller can reject an open, for example while asking for Screen Recording.
     toggleState.finishApplying(request, actualIsOpen: false)
     #expect(toggleState.snapshot().actualIsOpen == false)
     #expect(toggleState.snapshot().desiredIsOpen == nil)
@@ -294,6 +258,39 @@ struct DaemonCommandPolicyTests {
 
     #expect(outgoingFrame == Rect(x: -401, y: -200, width: 300, height: 600))
     #expect(overlapWidth * overlapHeight == 0)
+  }
+
+  @Test
+  func asynchronousSizeClampIsAcceptedAfterRepeatedObservation() {
+    let windowID = WindowID(rawValue: 1)
+    let target = Rect(x: 2, y: 34, width: 1_122, height: 1_353)
+    // Simulator's Device Hub snaps its size after the write readback, and may move.
+    let snapped = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 340, y: 34, width: 403, height: 931), target: target
+    )
+    let resnapped = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 2, y: 34, width: 403.5, height: 931), target: target
+    )
+    let otherSize = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 2, y: 34, width: 460, height: 1_064), target: target
+    )
+    let positionOnly = FrameMismatch(
+      windowID: windowID, actual: Rect(x: 40, y: 34, width: 1_122, height: 1_353), target: target
+    )
+    let retargeted = FrameMismatch(
+      windowID: windowID, actual: snapped.actual,
+      target: Rect(x: 2, y: 34, width: 1_000, height: 1_353)
+    )
+
+    #expect(!settledTiledSizeClamp(snapped, previous: nil))
+    #expect(settledTiledSizeClamp(resnapped, previous: snapped))
+    #expect(!settledTiledSizeClamp(snapped, previous: otherSize))
+    #expect(!settledTiledSizeClamp(positionOnly, previous: positionOnly))
+    #expect(!settledTiledSizeClamp(snapped, previous: retargeted))
+    let acceptance = TiledSizeAcceptance(requested: target, accepted: snapped.actual)
+    #expect(tiledSizeAcceptanceCoversTarget(acceptance, target: target))
+    #expect(!tiledSizeAcceptanceCoversTarget(acceptance, target: retargeted.target))
+    #expect(!tiledSizeAcceptanceCoversTarget(nil, target: target))
   }
 
   @Test
@@ -661,6 +658,21 @@ struct DaemonCommandPolicyTests {
       now: 10, latestInputAt: 10,
       deadlinesAndIntervals: [(9, 0.3), (40, 30)]
     ) == 0.3)
+  }
+
+  @Test func finalFrameVerificationPreemptsIdleWatchdogEvenAfterNewInput() {
+    #expect(idleDesktopRefreshDelay(
+      now: 10, latestInputAt: 10,
+      deadlinesAndIntervals: [(40, 30), (10.5, 0.1)]
+    ) == 0.5)
+    #expect(idleDesktopRefreshDelay(
+      now: 10.6, latestInputAt: 10.6,
+      deadlinesAndIntervals: [(40, 30), (10.5, 0.1)]
+    ) == 0.3)
+    #expect(idleDesktopRefreshDelay(
+      now: 10.6, latestInputAt: 10.6,
+      deadlinesAndIntervals: [(40, 30), (.infinity, 0.1)]
+    ) == 29.4)
   }
 
   @Test(

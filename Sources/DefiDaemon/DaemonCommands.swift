@@ -232,13 +232,13 @@ extension Daemon {
   func installIPCSource() {
     let server = server
     let clientQueue = DispatchQueue(
-      label: "com.quentin.defi.ipc.clients",
+      label: "com.qeude.defi.ipc.clients",
       qos: .userInitiated,
       attributes: .concurrent
     )
     let source = DispatchSource.makeReadSource(
       fileDescriptor: server.listeningFileDescriptor,
-      queue: DispatchQueue(label: "com.quentin.defi.ipc.accept", qos: .userInitiated)
+      queue: DispatchQueue(label: "com.qeude.defi.ipc.accept", qos: .userInitiated)
     )
     source.setEventHandler(
       handler: ipcEventHandler(
@@ -328,7 +328,13 @@ extension Daemon {
       return .success(platform.frameCoordinatorTrace)
     }
     if rawCommand == "border-audit" {
-      return .success(platform.auditBorderAlignment())
+      guard let deferredResponse else { return .failure("border-audit requires a client") }
+      deferredResponse.deferResponse()
+      DispatchQueue.main.async { [platform] in
+        let report = platform.auditWindowBorderGeometry()
+        NavigationActor.enqueue { deferredResponse.perform { .success(report) } }
+      }
+      return .success("deferred")
     }
     if rawCommand == "diagnostic-mark" {
       diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
@@ -384,9 +390,7 @@ extension Daemon {
       }
       handleCheatsheetInput(.dismiss)
       if command == .toggleOverview {
-        return toggleOverview(
-          ribbonPrototype: overviewRibbonPrototypeRequested(in: rawCommand)
-        )
+        return toggleOverview()
       }
       if overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
         let originatingSession = overviewToggleState.snapshot().sessionGeneration
@@ -586,6 +590,9 @@ extension Daemon {
         "command-start cg=\(currentCommandGeneration) command=\(rawCommand) source=\(receivedAt != nil ? "ipc" : inputTimestamp != nil ? "hotkey" : "internal") validationMs=\(String(format: "%.2f", validationMS))"
       )
       focus.discardDisplacedFocus()
+      if isSpeculativeRibbonNavigation(command) {
+        platform.supersedeFocusRecovery()
+      }
       invalidatePointerFocusIntent(recoveringTo: previouslySelectedWindowID)
       let focusInputTimestamp = commandFocusInputTimestamp(
         capturedInputTimestamp: inputTimestamp,

@@ -2,14 +2,16 @@
 
 **Question.** Can Defi get a near-imperceptible continuous ribbon/overview handoff at low RAM and CPU by animating cached graphics proxies, while ordinary managed windows remain native?
 
+**Superseded:** the surface zoom is now the default Overview behavior (ADR 0003) and the experimental private frame backend mentioned below was removed.
+
 **Research date:** 2026-10-03. Primary-source research and a bounded Defi prototype; measurements below describe this machine and workload only.
 
 ## Current finding
 
 The implemented path uses bounded one-shot ScreenCaptureKit snapshots for Overview
-and native Accessibility motion for ordinary ribbon navigation. The opt-in ribbon
-representation experiment reuses those snapshots; it does not keep persistent
-streams. The stream and disk-cache proposals below are earlier hypotheses,
+and native Accessibility motion for ordinary ribbon navigation. A ribbon
+representation experiment that reused those snapshots was removed after it rarely
+engaged and showed handoff ghosting. The stream and disk-cache proposals below are earlier hypotheses,
 superseded by the prototype correction later in this document.
 
 ## Initial hypothesis

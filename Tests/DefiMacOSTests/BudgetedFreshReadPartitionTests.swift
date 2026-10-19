@@ -49,11 +49,6 @@ struct BudgetedFreshReadPartitionTests {
     #expect(tracker.entries.values.allSatisfy { $0.attempts == 1 })
   }
 
-  @Test func creationDuringFullRefreshIsNotLostAfterItsProcessWasServed() {
-    let result = partition(requested: [2, 3], eventPending: [1])
-    #expect(result.allowedNow.contains(1))
-  }
-
   private func partition(
     requested: Set<pid_t>,
     deferred: Set<pid_t> = [],

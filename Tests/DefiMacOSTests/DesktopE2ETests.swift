@@ -10,6 +10,7 @@ import Synchronization
 import ScreenCaptureKit
 import XCTest
 import class SwiftUI.NSHostingMenu
+import class SwiftUI.NSHostingView
 
 @testable import DefiMacOS
 
@@ -224,7 +225,7 @@ final class DesktopE2ETests: XCTestCase {
     defer { controller.prepare(windowPreviewsEnabled: false) }
     func prepare() {
       controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot,
-        layout: LayoutSettings(), experimentalSurfaceTransitions: true)
+        layout: LayoutSettings())
     }
     prepare()
     for _ in 0..<80 where controller.rememberedPreviewMemoryBytes == 0 {
@@ -428,8 +429,7 @@ final class DesktopE2ETests: XCTestCase {
       controller.close()
       controller.prepare(windowPreviewsEnabled: false)
     }
-    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout,
-      experimentalSurfaceTransitions: true)
+    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout)
     for _ in 0..<60 where controller.surfaceCaptureState == "warming" {
       try await Task.sleep(for: .milliseconds(100))
     }
@@ -441,8 +441,7 @@ final class DesktopE2ETests: XCTestCase {
       width: originalCapture.width, height: originalCapture.height)], enabled: true)
     XCTAssertNil(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]),
       "A reused ID must stop exposing the previous owner's pixels immediately, including during throttle")
-    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout,
-      experimentalSurfaceTransitions: true)
+    controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout)
     for _ in 0..<80 where controller.surfaceCaptureState != "ready" {
       try await Task.sleep(for: .milliseconds(100))
     }
@@ -466,56 +465,6 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(reusedLayer.cornerRadius, 12)
     XCTAssertEqual(reusedLayer.bounds.size, nativeFrameBounds.size)
     _ = reopenedScene
-    // Isolate the owned-window handoff from unrelated user windows. The
-    // production observer remains conservative whenever another window is visible.
-    var visibleWindowInfo: [[String: Any]] = []
-    let renderer = ExperimentalRibbonRenderer(visibleWindowInfo: { visibleWindowInfo })
-    renderer.prepare(snapshot: snapshot, layout: surfaceLayout, enabled: true)
-    defer { renderer.disable() }
-    for _ in 0..<120 where !renderer.backgroundsReady {
-      try await Task.sleep(for: .milliseconds(50))
-    }
-    XCTAssertTrue(renderer.backgroundsReady, "Owned renderer background capture must finish before animation")
-    let originalRibbonFrame = fixture.frame
-    let target = Rect(x: nativeFrameBounds.minX + 60, y: nativeFrameBounds.minY,
-      width: nativeFrameBounds.width, height: nativeFrameBounds.height)
-    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: target)], duration: 0.15), renderer.lastFallback)
-    XCTAssertTrue(renderer.isPresenting)
-    let firstPanels = Set(NSApplication.shared.windows.filter {
-      $0.title == "Defi Experimental Ribbon"
-    }.map(\.windowNumber))
-    XCTAssertEqual(firstPanels.count, 1)
-    fixture.setFrame(originalRibbonFrame.offsetBy(dx: 60, dy: 0), display: true)
-    let retarget = Rect(x: target.x + 30, y: target.y,
-      width: target.width, height: target.height)
-    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: retarget)],
-      duration: 0.15), renderer.lastFallback)
-    XCTAssertEqual(Set(NSApplication.shared.windows.filter {
-      $0.title == "Defi Experimental Ribbon"
-    }.map(\.windowNumber)), firstPanels, "Retargeting must reuse the visible overlay without a close/reopen")
-    fixture.setFrame(originalRibbonFrame.offsetBy(dx: 90, dy: 0), display: true)
-    for _ in 0..<30 where renderer.isPresenting {
-      CATransaction.flush()
-      try await Task.sleep(for: .milliseconds(50))
-    }
-    XCTAssertFalse(renderer.isPresenting, "Proxy must yield after native convergence")
-    fixture.setFrame(originalRibbonFrame, display: true)
-    renderer.prepare(snapshot: snapshot, layout: surfaceLayout, enabled: true)
-    CATransaction.flush()
-    try await Task.sleep(for: .milliseconds(100))
-    XCTAssertTrue(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: target)], duration: 0.15))
-    XCTAssertFalse(renderer.begin(assignments: [FrameAssignment(windowID: windowID,
-      frame: target)], duration: 0.15))
-    XCTAssertFalse(renderer.isPresenting, "A no-plan fallback must dismiss an older proxy")
-    visibleWindowInfo = [[kCGWindowNumber as String: NSNumber(value: UInt64.max),
-      kCGWindowOwnerPID as String: NSNumber(value: Int32.max),
-      kCGWindowLayer as String: NSNumber(value: 0),
-      kCGWindowBounds as String: nativeFrameBounds.dictionaryRepresentation]]
-    XCTAssertFalse(renderer.begin(assignments: [FrameAssignment(windowID: windowID, frame: retarget)], duration: 0.15))
-    XCTAssertEqual(renderer.lastFallback, "unrepresented-window")
-    XCTAssertFalse(renderer.isPresenting, "Unrepresented windows must remain visible on the native path")
-    visibleWindowInfo = []
-
     // AppKit may normalize a prepared panel's frame. Rebuilding it must keep captures warm.
     for panel in NSApplication.shared.windows where panel.title == "Defi Overview" {
       panel.setFrame(panel.frame.offsetBy(dx: 1, dy: 0), display: false)
@@ -530,8 +479,7 @@ final class DesktopE2ETests: XCTestCase {
     try await Task.sleep(for: .seconds(3.2))
     let originalFrame = fixture.frame
     for sample in 0..<2 {
-      controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true,
-        experimentalSurfaceTransitions: true)
+      controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true)
       XCTAssertEqual(controller.surfaceTransitionCount, sample + 1)
       XCTAssertEqual(controller.surfaceFallbackCount, 0)
       XCTAssertEqual(controller.surfaceStreamCount, 0)
@@ -546,8 +494,7 @@ final class DesktopE2ETests: XCTestCase {
       XCTAssertEqual(fixture.frame, originalFrame, "Projection must not mutate native geometry")
       controller.close()
       // Discovery ticks during closing must not replace the texture being handed back.
-      controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout,
-        experimentalSurfaceTransitions: true)
+      controller.prepare(windowPreviewsEnabled: true, snapshot: snapshot, layout: surfaceLayout)
       CATransaction.flush()
       if sample == 0 {
         // Reopen before the previous closing task ends; it must not hide the new scene.
@@ -557,11 +504,10 @@ final class DesktopE2ETests: XCTestCase {
       }
     }
     // Enter on the current selection must reverse the zoom just like toggling.
-    controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true,
-      experimentalSurfaceTransitions: true)
+    controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: true)
     try await Task.sleep(for: .milliseconds(250))
     controller.handleKey(.select)
-    try await Task.sleep(for: .milliseconds(180))
+    for _ in 0..<80 where controller.isOpen { try await Task.sleep(for: .milliseconds(10)) }
     XCTAssertFalse(controller.isOpen)
     XCTAssertEqual(controller.surfacePresentedFrameCount, 1,
       "Enter must retain the surface scene during the closing zoom")
@@ -596,9 +542,9 @@ final class DesktopE2ETests: XCTestCase {
         activeMonitorID: monitorID)
     }
     controller.prepare(windowPreviewsEnabled: true, snapshot: navigationSnapshot(active: workspace.id),
-      layout: surfaceLayout, experimentalSurfaceTransitions: true)
+      layout: surfaceLayout)
     controller.open(snapshot: navigationSnapshot(active: workspace.id), layout: surfaceLayout,
-      windowPreviewsEnabled: true, experimentalSurfaceTransitions: true)
+      windowPreviewsEnabled: true)
     controller.handleKey(.down)
     controller.update(snapshot: navigationSnapshot(active: destinationWorkspace.id),
       layout: surfaceLayout, windowPreviewsEnabled: true)
@@ -606,29 +552,25 @@ final class DesktopE2ETests: XCTestCase {
       try await Task.sleep(for: .milliseconds(50))
     }
     try await Task.sleep(for: .milliseconds(250))
+    // Wait for the close itself, then assert before the 220 ms zoom can finish.
     controller.handleKey(.select)
-    try await Task.sleep(for: .milliseconds(180))
+    for _ in 0..<80 where controller.isOpen { try await Task.sleep(for: .milliseconds(10)) }
     XCTAssertFalse(controller.isOpen)
+    XCTAssertEqual(controller.previewClosingCount, 1)
     XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.contains { $0.isVisible },
       "Changing workspace must retain the displayed preview during the reverse zoom")
-    XCTAssertEqual(controller.previewClosingCount, 1)
-    try await Task.sleep(for: .milliseconds(300))
+    for _ in 0..<40 where NSApplication.shared.windows.contains(where: { $0.title == "Defi Overview" && $0.isVisible }) {
+      try await Task.sleep(for: .milliseconds(50))
+    }
     XCTAssertTrue(NSApplication.shared.windows.filter { $0.title == "Defi Overview" }.allSatisfy { !$0.isVisible })
     XCTAssertEqual(destination.frame, originalFrame)
     controller.prepare(windowPreviewsEnabled: false)
+    let zoomsBefore = controller.surfaceTransitionCount
     controller.open(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false)
-    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.isEmpty)
-    controller.update(snapshot: snapshot, layout: surfaceLayout, windowPreviewsEnabled: false,
-      experimentalSurfaceTransitions: false, experimentalRibbonRepresentations: true)
-    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.contains { $0.windowID == windowID },
-      "Enabling representations in an open Overview must prepare the current native context")
-    for _ in 0..<80 where controller.surfaceCaptureState != "ready" {
-      try await Task.sleep(for: .milliseconds(100))
-    }
-    XCTAssertEqual(controller.surfaceCaptureState, "ready")
-    controller.update(snapshot: snapshot, layout: surfaceLayout,
-      experimentalSurfaceTransitions: false, experimentalRibbonRepresentations: false)
-    XCTAssertTrue(ExperimentalRibbonRenderer.shared.requests.isEmpty)
+    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty,
+      "Opting out of previews must not prepare any capture")
+    XCTAssertEqual(controller.surfaceTransitionCount, zoomsBefore + 1,
+      "The zoom must run from verified native frames without previews")
     controller.close()
     controller.prepare(windowPreviewsEnabled: false)
     XCTAssertEqual(controller.surfaceStreamCount, 0)
@@ -762,14 +704,25 @@ final class DesktopE2ETests: XCTestCase {
 
   func testKeyboardActivationAfterCompletedFocusSurvivesSnapshot() throws {
     let platform = try makePlatform()
-    let initial = platform.snapshot(config: Config())
+    _ = platform.snapshot(config: Config())
     let originalApplication = NSWorkspace.shared.frontmostApplication
-    guard let window = testWindows(in: initial).first(where: {
-      $0.processID != originalApplication?.processIdentifier
-    }), let processID = window.processID else {
-      throw XCTSkip("A window in another application is required")
-    }
     defer { originalApplication?.activate() }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let window = try XCTUnwrap(platform.snapshot(config: Config()).windows.first {
+      $0.id == fixtures.tiledWindowID
+    })
+    let processID = fixtures.tiledProcess.processIdentifier
+    let otherApplication = try XCTUnwrap(NSRunningApplication(
+      processIdentifier: fixtures.floatingProcess.processIdentifier))
+    otherApplication.activate()
+    XCTAssertTrue(pumpRunLoop(until: {
+      platform.snapshot(config: Config()).focusedWindowID == fixtures.floatingWindowID
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier
+          == fixtures.floatingProcess.processIdentifier
+    }, timeout: 2), "The other fixture must hold native focus before requesting a mutation")
 
     let result = DesktopValue<NativeFocusResult?>(nil)
     onNavigation { platform.focus(window.id, completion: { value in DispatchQueue.main.async { result.value = value } }) }
@@ -878,51 +831,55 @@ final class DesktopE2ETests: XCTestCase {
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try makePlatform()
     let initial = platform.snapshot(config: Config())
+    let originalFocusedWindowID = initial.focusedWindowID
+    let originalApplication = NSWorkspace.shared.frontmostApplication
+    defer {
+      _ = platform.snapshot(config: Config())
+      if let originalFocusedWindowID {
+        onNavigation { platform.focus(originalFocusedWindowID) }
+      } else {
+        originalApplication?.activate()
+      }
+      pumpRunLoop(for: 0.3)
+    }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let config = Config(rules: [Rule(appID: fixtures.floatingAppID, floating: true)])
+    let snapshot = platform.snapshot(config: config)
+    let floating = try XCTUnwrap(snapshot.windows.first {
+      $0.id == fixtures.floatingWindowID && $0.floating
+    })
+    let tiled = try XCTUnwrap(snapshot.windows.first { $0.id == fixtures.tiledWindowID })
+    XCTAssertTrue(floating.floating)
+    XCTAssertFalse(tiled.floating)
+    guard let monitor = snapshot.monitors.first(where: {
+      targetIntersects(floating.frame, monitor: $0.frame)
+        && targetIntersects(tiled.frame, monitor: $0.frame)
+    }), targetIntersects(floating.frame, monitor: tiled.frame) else {
+      throw DesktopFocusFixturePair.Failure.unsupported("Fixture windows must overlap on one monitor")
+    }
     let onscreenWindowIDs = Set(
       copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
         .map { WindowID(rawValue: UInt64($0.id)) }
     )
-    // Use a regular native window with a local floating rule. AppKit About
-    // panels can hide on deactivation and are not a cross-app stacking fixture.
-    guard let candidate = testWindows(in: initial).first(where: { window in
-      onscreenWindowIDs.contains(window.id) && initial.monitors.contains { monitor in
-        targetIntersects(window.frame, monitor: monitor.frame)
-          && initial.windows.contains { other in
-            other.processID != window.processID && !other.floating
-              && onscreenWindowIDs.contains(other.id)
-              && targetIntersects(other.frame, monitor: monitor.frame)
-          }
-      }
-    }) else { throw XCTSkip("Two on-screen applications on one monitor required") }
-    let config = Config(rules: [Rule(appID: candidate.appID, floating: true)])
-    let snapshot = platform.snapshot(config: config)
-    guard let floating = snapshot.windows.first(where: {
-      $0.id == candidate.id && $0.floating && onscreenWindowIDs.contains($0.id)
-    }),
-      let monitor = snapshot.monitors.first(where: {
-        $0.frame.x < floating.frame.x + floating.frame.width
-          && floating.frame.x < $0.frame.x + $0.frame.width
-          && $0.frame.y < floating.frame.y + floating.frame.height
-          && floating.frame.y < $0.frame.y + $0.frame.height
-      }),
-      let tiled = snapshot.windows.first(where: {
-        !$0.floating
-          && $0.processID != floating.processID
-          && onscreenWindowIDs.contains($0.id)
-          && monitor.frame.x < $0.frame.x + $0.frame.width
-          && $0.frame.x < monitor.frame.x + monitor.frame.width
-          && monitor.frame.y < $0.frame.y + $0.frame.height
-          && $0.frame.y < monitor.frame.y + monitor.frame.height
-      })
-    else {
-      throw XCTSkip("On-screen floating and tiled windows from different apps required")
+    guard onscreenWindowIDs.contains(floating.id), onscreenWindowIDs.contains(tiled.id) else {
+      throw DesktopFocusFixturePair.Failure.unsupported("Both fixture windows must be on screen")
     }
-    let originalFocusedWindowID = snapshot.focusedWindowID
-    defer {
-      if let originalFocusedWindowID {
-        onNavigation { platform.focus(originalFocusedWindowID) }
-        pumpRunLoop(for: 0.3)
-      }
+    func focusedTextField(in application: AXUIElement) throws -> AXUIElement {
+      var field: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(application,
+        kAXFocusedUIElementAttribute as CFString, &field) == .success,
+        let field, CFGetTypeID(field) == AXUIElementGetTypeID()
+      else { throw DesktopFocusFixturePair.Failure.unsupported("Fixture has no focused editable field") }
+      return field as! AXUIElement
+    }
+    func textValue(of field: AXUIElement) -> String? {
+      var value: CFTypeRef?
+      guard AXUIElementCopyAttributeValue(field, kAXValueAttribute as CFString, &value) == .success
+      else { return nil }
+      return value as? String
     }
 
     let focusResult = DesktopValue<NativeFocusResult?>(nil)
@@ -934,13 +891,15 @@ final class DesktopE2ETests: XCTestCase {
       )
     )
     XCTAssertTrue(focusResult.value == .completed || focusResult.value == .completedWithoutMutation)
-    guard let tiledElement = platform.elements[tiled.id],
-      let processID = tiled.processID,
-      let tiledApplication = platform.applications[processID]
-    else {
-      XCTFail("Tiled test window lost its Accessibility elements")
-      return
-    }
+    let floatingApplication = try XCTUnwrap(platform.applications[fixtures.floatingProcess.processIdentifier])
+    let floatingTextField = try focusedTextField(in: floatingApplication)
+    let initialFloatingText = try XCTUnwrap(textValue(of: floatingTextField))
+    XCTAssertEqual(initialFloatingText, "Editable native focus fixture")
+    let tiledElement = try XCTUnwrap(platform.elements[tiled.id],
+      "Tiled fixture lost its Accessibility window")
+    let processID = try XCTUnwrap(tiled.processID)
+    let tiledApplication = try XCTUnwrap(platform.applications[processID],
+      "Tiled fixture lost its Accessibility application")
     focusResult.value = nil
     onNavigation { platform.focus(tiled.id, completion: { value in DispatchQueue.main.async { focusResult.value = value } }) }
     XCTAssertTrue(
@@ -949,6 +908,9 @@ final class DesktopE2ETests: XCTestCase {
         timeout: 1
       )
     )
+    let tiledTextField = try focusedTextField(in: tiledApplication)
+    let initialTiledText = try XCTUnwrap(textValue(of: tiledTextField))
+    XCTAssertEqual(initialTiledText, "Editable native focus fixture")
     XCTAssertEqual(
       AXUIElementPerformAction(
         tiledElement,
@@ -958,6 +920,15 @@ final class DesktopE2ETests: XCTestCase {
     )
     pumpRunLoop(for: 0.1)
     _ = platform.snapshot(config: config)
+    let armedOrder = copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+      .map { WindowID(rawValue: UInt64($0.id)) }
+    let tiledWasAboveFloating = armedOrder.firstIndex(of: tiled.id).flatMap { tiledIndex in
+      armedOrder.firstIndex(of: floating.id).map { tiledIndex < $0 }
+    } == true
+    XCTAssertTrue(tiledWasAboveFloating, "The tiled fixture must start above the floating fixture before refocus")
+    guard tiledWasAboveFloating else {
+      throw DesktopFocusFixturePair.Failure.unsupported("Native tiled raise did not establish the stacking precondition")
+    }
 
     focusResult.value = nil
     onNavigation { platform.focus(tiled.id, completion: { value in DispatchQueue.main.async { focusResult.value = value } }) }
@@ -991,7 +962,12 @@ final class DesktopE2ETests: XCTestCase {
       let order = records.map { WindowID(rawValue: UInt64($0.id)) }
       guard let floatingIndex = order.firstIndex(of: floating.id),
         let tiledIndex = order.firstIndex(of: tiled.id) else { return false }
+      var focusedWindow: CFTypeRef?
       return floatingIndex < tiledIndex
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
+        && AXUIElementCopyAttributeValue(tiledApplication,
+          kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success
+        && focusedWindow.map { CFEqual($0, tiledElement) } == true
     }, timeout: 0.5)
     let focusPerformance = platform.focusWriter.performance
     let cachedWindowClassification = platform.lastSnapshotWindows
@@ -1003,8 +979,9 @@ final class DesktopE2ETests: XCTestCase {
     let hiddenIDs = platform.lastHiddenWindowIDs.sorted { $0.rawValue < $1.rawValue }
     XCTAssertTrue(
       floatingRemainedAboveTiled,
-      "fixture candidate=\(candidate.id.rawValue); floating \(floating.id.rawValue)/pid=\(floating.processID ?? -1) must remain above tiled \(tiled.id.rawValue)/pid=\(tiled.processID ?? -1); expected foreground float IDs=\(expectedForegroundIDs.map(\.rawValue)); cached floating IDs=\(floatingIDs.map(\.rawValue)), hidden IDs=\(hiddenIDs.map(\.rawValue)), relevant cached windows=\(cachedWindowClassification); focus timing ms duration/raise/activation=\(focusPerformance.durationMS)/\(focusPerformance.raiseDurationMS)/\(focusPerformance.activationDurationMS); observed front-to-back relevant CG windows=\(observedRelevantOrder)"
+      "fixture app IDs=\(fixtures.floatingAppID),\(fixtures.tiledAppID); floating \(floating.id.rawValue)/pid=\(floating.processID ?? -1) must remain above tiled \(tiled.id.rawValue)/pid=\(tiled.processID ?? -1); expected foreground float IDs=\(expectedForegroundIDs.map(\.rawValue)); cached floating IDs=\(floatingIDs.map(\.rawValue)), hidden IDs=\(hiddenIDs.map(\.rawValue)), relevant cached windows=\(cachedWindowClassification); focus timing ms duration/raise/activation=\(focusPerformance.durationMS)/\(focusPerformance.raiseDurationMS)/\(focusPerformance.activationDurationMS); observed front-to-back relevant CG windows=\(observedRelevantOrder)"
     )
+    guard floatingRemainedAboveTiled else { return }
     var focusedWindow: CFTypeRef?
     XCTAssertEqual(
       AXUIElementCopyAttributeValue(
@@ -1015,6 +992,19 @@ final class DesktopE2ETests: XCTestCase {
       .success
     )
     XCTAssertTrue(focusedWindow.map { CFEqual($0, tiledElement) } == true)
+    XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, processID,
+      "The tiled fixture must retain real keyboard focus")
+    let key = try XCTUnwrap(CGEvent(keyboardEventSource: nil,
+      virtualKey: CGKeyCode(kVK_ANSI_A), keyDown: true))
+    key.flags = []
+    key.post(tap: .cghidEventTap)
+    key.type = .keyUp
+    key.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: {
+      textValue(of: tiledTextField).map { $0 != initialTiledText } == true
+    }, timeout: 0.5), "A global ordinary key must reach the tiled fixture's editable field")
+    XCTAssertEqual(textValue(of: floatingTextField), initialFloatingText,
+      "The floating fixture must not receive the global key")
   }
 
   func testAppliedTargetConvergesWithRealWindowFrame() throws {
@@ -1502,38 +1492,39 @@ final class DesktopE2ETests: XCTestCase {
   func testNativeFocusEmitsPlatformEvent() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    guard
-      let window = testWindows(in: snapshot).first(
-        where: { $0.id != snapshot.focusedWindowID }
-      )
-    else {
-      throw XCTSkip("Need a non-focused manageable window")
-    }
     defer {
       if let originalFocusedWindowID = snapshot.focusedWindowID {
         onNavigation { platform.focus(originalFocusedWindowID) }
         pumpRunLoop(for: 0.5)
       }
     }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let otherApplication = try XCTUnwrap(NSRunningApplication(
+      processIdentifier: fixtures.floatingProcess.processIdentifier))
+    otherApplication.activate()
+    XCTAssertTrue(pumpRunLoop(until: {
+      platform.snapshot(config: Config()).focusedWindowID == fixtures.floatingWindowID
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier
+          == fixtures.floatingProcess.processIdentifier
+    }, timeout: 2), "The target fixture must start without native focus")
     let eventCount = DesktopValue(0)
     onNavigation { platform.startObserving {
       DispatchQueue.main.async { eventCount.value += 1 }
     } }
 
-    onNavigation { platform.focus(window.id) }
+    onNavigation { platform.focus(fixtures.tiledWindowID) }
     pumpRunLoop(for: 0.6)
 
     XCTAssertGreaterThan(eventCount.value, 0)
-    XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, window.id)
+    XCTAssertEqual(platform.snapshot(config: Config()).focusedWindowID, fixtures.tiledWindowID)
   }
 
   func testRapidNativeFocusKeepsLatestIntent() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
-    let windows = Array(testWindows(in: snapshot).prefix(2))
-    guard windows.count == 2 else {
-      throw XCTSkip("Need two manageable windows")
-    }
     let originalFocusedWindowID = snapshot.focusedWindowID
     defer {
       if let originalFocusedWindowID {
@@ -1541,8 +1532,21 @@ final class DesktopE2ETests: XCTestCase {
         pumpRunLoop(for: 0.5)
       }
     }
+    let fixtures = try DesktopFocusFixturePair(platform: platform, pump: { condition, timeout in
+      self.pumpRunLoop(until: condition, timeout: timeout)
+    })
+    defer { XCTAssertNoThrow(try fixtures.close()) }
+    let initialApplication = try XCTUnwrap(NSRunningApplication(
+      processIdentifier: fixtures.tiledProcess.processIdentifier))
+    initialApplication.activate()
+    XCTAssertTrue(pumpRunLoop(until: {
+      platform.snapshot(config: Config()).focusedWindowID == fixtures.tiledWindowID
+        && NSWorkspace.shared.frontmostApplication?.processIdentifier
+          == fixtures.tiledProcess.processIdentifier
+    }, timeout: 2), "The final target must start without native focus")
 
-    for windowID in [windows[0].id, windows[1].id, windows[0].id, windows[1].id] {
+    for windowID in [fixtures.tiledWindowID, fixtures.floatingWindowID,
+      fixtures.tiledWindowID, fixtures.floatingWindowID] {
       onNavigation { platform.focus(windowID) }
     }
 
@@ -1551,7 +1555,7 @@ final class DesktopE2ETests: XCTestCase {
         until: {
           !onNavigation { platform.hasPendingFocusWrite }
             && platform.snapshot(config: Config()).focusedWindowID
-              == windows[1].id
+              == fixtures.floatingWindowID
         },
         timeout: 2
       ),
@@ -1571,6 +1575,166 @@ final class DesktopE2ETests: XCTestCase {
         "process \(String(describing: processID)) mapped multiple AX windows to one CG window"
       )
     }
+  }
+
+  func testSettingsSearchCancelAfterKeyboardSelection() throws {
+    _ = try makePlatform()
+    let frontmost = NSWorkspace.shared.frontmostApplication
+    let originalPolicy = NSApplication.shared.activationPolicy()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let window = NSWindow(
+      contentRect: NSRect(x: 100, y: 100, width: 920, height: 680),
+      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = NSHostingView(rootView: DefiSettingsView(
+      configURL: directory.appendingPathComponent("config.toml")))
+    defer {
+      window.close()
+      NSApplication.shared.setActivationPolicy(originalPolicy)
+      frontmost?.activate()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate()
+    func views(_ root: NSView) -> [NSView] {
+      [root] + root.subviews.flatMap(views)
+    }
+    func descendants() -> [NSView] { window.contentView.map(views) ?? [] }
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().contains { $0 is NSSearchField }
+    }, timeout: 2))
+    let search = try XCTUnwrap(descendants().compactMap { $0 as? NSSearchField }.first)
+    XCTAssertTrue(window.makeFirstResponder(search))
+    let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
+    editor.insertText("focus column left", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? NSTableView }.first?.numberOfRows == 2
+    }, timeout: 2))
+    let down = try XCTUnwrap(NSEvent.keyEvent(
+      with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+      windowNumber: window.windowNumber, context: nil, characters: "\u{f701}",
+      charactersIgnoringModifiers: "\u{f701}", isARepeat: false, keyCode: 125))
+    NSApplication.shared.sendEvent(down)
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? NSTextField }.contains {
+        $0.placeholderString == "Search actions" && $0.stringValue == "focus-column first"
+      }
+    }, timeout: 2), "Down must select and reveal the actual shortcut action")
+    XCTAssertNil(search.currentEditor(), "Down must transfer focus into the results")
+    NSApplication.shared.sendEvent(down)
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? NSTextField }.contains {
+        $0.placeholderString == "Search actions" && $0.stringValue == "focus-column left"
+      }
+    }, timeout: 2), "Further arrows must navigate the native result list")
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? ShortcutRecorderButton }.contains { recorder in
+        guard recorder.accessibilityLabel() == "Record shortcut for focus-column left",
+          !recorder.isHiddenOrHasHiddenAncestor, !recorder.visibleRect.isEmpty,
+          let scroll = recorder.enclosingScrollView else { return false }
+        return !recorder.convert(recorder.visibleRect, to: scroll.contentView)
+          .intersection(scroll.contentView.bounds).isEmpty
+      }
+    }, timeout: 2), "The selected shortcut's recorder must be visible inside the detail viewport")
+    let cell = try XCTUnwrap(search.cell as? NSSearchFieldCell)
+    let cancel = try XCTUnwrap(cell.cancelButtonCell)
+    cancel.performClick(search)
+    XCTAssertEqual(search.stringValue, "")
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? NSTableView }.first?.numberOfRows == SettingsPage.allCases.count
+    }, timeout: 2), "Native cancel must restore the settings pages after keyboard selection")
+    XCTAssertFalse(descendants().compactMap { $0 as? NSTextField }.contains {
+      $0.placeholderString == "Search actions" && !$0.stringValue.isEmpty
+    }, "Native cancel must remove the exact shortcut filter")
+    XCTAssertTrue(window.makeFirstResponder(search))
+    let focusedEditor = try XCTUnwrap(search.currentEditor() as? NSTextView)
+    focusedEditor.insertText("animation duration", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? NSTableView }.first?.numberOfRows == 1
+    }, timeout: 2))
+    XCTAssertTrue(search.currentEditor() === focusedEditor, "Typing must retain search focus")
+    cancel.performClick(search)
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().compactMap { $0 as? NSTableView }.first?.numberOfRows == SettingsPage.allCases.count
+    }, timeout: 2), "Cancel must also restore pages while search remains focused")
+  }
+
+  func testSettingsSearchRevealsOffscreenOptionAgain() throws {
+    _ = try makePlatform()
+    let frontmost = NSWorkspace.shared.frontmostApplication
+    let originalPolicy = NSApplication.shared.activationPolicy()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let configURL = directory.appendingPathComponent("config.toml")
+    try "[layout]\nreserved_top = 321\n".write(to: configURL, atomically: true, encoding: .utf8)
+    let window = NSWindow(
+      contentRect: NSRect(x: 100, y: 100, width: 920, height: 620),
+      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = NSHostingView(rootView: DefiSettingsView(configURL: configURL))
+    defer {
+      window.close()
+      NSApplication.shared.setActivationPolicy(originalPolicy)
+      frontmost?.activate()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate()
+    func views(_ root: NSView) -> [NSView] {
+      [root] + root.subviews.flatMap(views)
+    }
+    func descendants() -> [NSView] { window.contentView.map(views) ?? [] }
+    func reservedTopField() -> NSTextField? {
+      descendants().compactMap { $0 as? NSTextField }.first { $0.stringValue == "321" }
+    }
+    func targetIsVisible() -> Bool {
+      guard let target = reservedTopField(), !target.isHiddenOrHasHiddenAncestor,
+        !target.visibleRect.isEmpty, let scroll = target.enclosingScrollView else { return false }
+      return !target.convert(target.visibleRect, to: scroll.contentView)
+        .intersection(scroll.contentView.bounds).isEmpty
+    }
+    XCTAssertTrue(pumpRunLoop(until: {
+      descendants().contains { $0 is NSTableView }
+    }, timeout: 2))
+    let sidebar = try XCTUnwrap(descendants().compactMap { $0 as? NSTableView }.first)
+    XCTAssertTrue(window.makeFirstResponder(sidebar))
+    let down = try XCTUnwrap(NSEvent.keyEvent(
+      with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+      windowNumber: window.windowNumber, context: nil, characters: "\u{f701}",
+      charactersIgnoringModifiers: "\u{f701}", isARepeat: false, keyCode: 125))
+    NSApplication.shared.sendEvent(down)
+    XCTAssertTrue(pumpRunLoop(until: {
+      sidebar.selectedRow == 1 && descendants().contains { $0 is NSStepper }
+    }, timeout: 2),
+      "Layout must be open before searching")
+    let search = try XCTUnwrap(descendants().compactMap { $0 as? NSSearchField }.first)
+    XCTAssertTrue(window.makeFirstResponder(search))
+    let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
+    editor.insertText("RESERVED_TOP", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(pumpRunLoop(until: { sidebar.numberOfRows == 1 }, timeout: 2))
+    NSApplication.shared.sendEvent(down)
+    XCTAssertTrue(pumpRunLoop(until: targetIsVisible, timeout: 2),
+      "Selecting RESERVED_TOP must reveal its control in the viewport")
+    let target = try XCTUnwrap(reservedTopField())
+    let scroll = try XCTUnwrap(target.enclosingScrollView)
+    let document = try XCTUnwrap(scroll.documentView)
+    document.scroll(.zero)
+    scroll.reflectScrolledClipView(scroll.contentView)
+    XCTAssertTrue(pumpRunLoop(until: { !targetIsVisible() }, timeout: 2),
+      "Scrolling to the top must move the reserved-area control out of the viewport")
+    XCTAssertEqual(sidebar.selectedRow, 0)
+    let row = sidebar.rect(ofRow: 0)
+    let location = sidebar.convert(NSPoint(x: row.midX, y: row.midY), to: nil)
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+      let click = try XCTUnwrap(NSEvent.mouseEvent(
+        with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+      NSApplication.shared.sendEvent(click)
+    }
+    XCTAssertTrue(pumpRunLoop(until: targetIsVisible, timeout: 2),
+      "Clicking the already-selected result must reveal the reserved-area control again")
+    XCTAssertEqual(sidebar.selectedRow, 0)
   }
 
   func testShortcutRecorderCapturesKeysAndCancelsWithEscape() throws {

@@ -13,11 +13,9 @@ not because it replaces the compositor. Priorities, in order, are:
 3. Smooth, refresh-aware motion.
 4. Low CPU, memory, wakeup, and energy cost.
 
-The public Accessibility path is the baseline. Screen Recording and captured
-window overlays are out of scope. A private frame backend is authorized for
-position and size only, remains experimental, disabled by default, and requires
-explicit user opt-in. It is subject to the fallback policy in
-[ADR 0001](docs/adr/0001-keep-macos-authoritative.md).
+The public Accessibility path is the baseline. Captured window overlays are out
+of scope for scrolling, and private APIs never move third-party windows
+([ADR 0001](docs/adr/0001-keep-macos-authoritative.md)).
 
 ## Performance contract
 
@@ -189,15 +187,12 @@ migration, physical directions, width scaling, floating rebasing, transient
 chains, and no-target no-ops are covered deterministically; physical two-display
 and 60 Hz runs remain hardware-dependent validation, not an implementation gap.
 
-The private frame path was evaluated on the signed installed build with
+A private frame path was evaluated on the signed installed build with
 Accessibility permission. `SLSMoveWindow` succeeded on a Defi-owned probe
 window but returned `CGError` 1000 for a third-party window. The group-move and
 transform variants returned success without changing the third-party bounds or
-transform. Defi therefore keeps the public backend instead of shipping an
-opt-in that cannot improve performance in a normal user session. ADR 0001 still
-permits a future experimental backend if macOS exposes a usable capability; it
-must retain the same public fallback and prove a lower tail without stability
-regressions.
+transform. Defi therefore keeps the public backend, and the probe and the
+experimental backend policy were removed.
 
 ## Completion
 

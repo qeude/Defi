@@ -25,13 +25,11 @@ extension MacOSPlatform {
   }
 
   public func cancelPendingFrameWrites() {
-    DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
     frameSubmissionGeneration &+= 1
     frameCoordinator.invalidate(reason: "mouse-gesture")
   }
 
   public func prepareForRestore() async {
-    DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
     frameSubmissionGeneration &+= 1
     invalidateFocusStateForDisplayChange()
     let focusDeadline = ProcessInfo.processInfo.systemUptime + 5
@@ -44,7 +42,6 @@ extension MacOSPlatform {
   }
 
   private func clearFrameState() {
-    DispatchQueue.main.async { ExperimentalRibbonRenderer.shared.cancel() }
     frameSubmissionGeneration &+= 1
     previousLogicalRibbonFrames.removeAll(keepingCapacity: true)
     targetFrames.removeAll(keepingCapacity: true)

@@ -128,7 +128,9 @@ final class OverviewSurfaceCapture {
         let content: SCShareableContent
         do {
           try Task.checkCancellation()
-          content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+          content = try await withOverviewCaptureTimeout {
+            try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+          }
         } catch {
           await overviewCaptureLimiter.release(error: error is CancellationError ? nil : error as NSError)
           throw error
@@ -154,8 +156,11 @@ final class OverviewSurfaceCapture {
           }
           let sample: CMSampleBuffer
           do {
-            sample = try await SCScreenshotManager.captureSampleBuffer(
-              contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            sample = try await withOverviewCaptureTimeout {
+              try await SCScreenshotManager.captureSampleBuffer(
+                contentFilter: filter, configuration: config)
+            }
           } catch {
             await overviewCaptureLimiter.release(error: error as NSError)
             throw error

@@ -101,7 +101,7 @@ struct RuntimeFocusTests {
   }
 
   @Test
-  func `Native focus aligns focused column to left edge`() throws {
+  func `Native focus on first column reveals strip start`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -118,8 +118,7 @@ struct RuntimeFocusTests {
     let firstWindow = WindowID(rawValue: 1)
     focusWindow(firstWindow, state: &state)
 
-    alignFocusedColumnLeft(
-      on: monitorID,
+    synchronizeScrollOffsets(
       state: &state,
       viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     )

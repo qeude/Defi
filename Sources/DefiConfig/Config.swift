@@ -107,6 +107,9 @@ public struct Config: Equatable, Sendable {
         )
       }
     }
+    guard (0...1_000).contains(input.focusFollowsMouseDelayMS) else {
+      throw ConfigError.invalidValue("input.focus_follows_mouse_delay_ms")
+    }
     guard (0.05...1).contains(layout.defaultColumnWidth) else {
       throw ConfigError.invalidValue("layout.default_column_width")
     }
@@ -139,9 +142,6 @@ public struct Config: Equatable, Sendable {
     }
     guard overview.zoom.isFinite, (0...0.75).contains(overview.zoom) else {
       throw ConfigError.invalidValue("overview.zoom")
-    }
-    guard !overview.experimentalSurfaceTransitions || overview.windowPreviews else {
-      throw ConfigError.invalidValue("overview.experimental_surface_transitions requires window_previews")
     }
     guard overview.windowCornerRadius.isFinite,
       (0...64).contains(overview.windowCornerRadius)

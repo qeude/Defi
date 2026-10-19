@@ -10,7 +10,7 @@ import OSLog
 import Synchronization
 
 let performanceLogger = Logger(
-  subsystem: "com.quentin.defi",
+  subsystem: "com.qeude.defi",
   category: "Performance"
 )
 
@@ -103,7 +103,7 @@ final class Daemon {
   var state: RuntimeState
   let overviewToggleState = OverviewToggleState()
   let topologySaveQueue = DispatchQueue(
-    label: "com.quentin.defi.topology",
+    label: "com.qeude.defi.topology",
     qos: .utility
   )
   var topologySaveWorkItem: DispatchWorkItem?
@@ -123,6 +123,8 @@ final class Daemon {
   var overviewExitPreparationActive = false
   var overviewOpenedAt: TimeInterval?
   nonisolated let menuBar: MenuBarState
+  let desktopSnapshotOverviewUpdater: @NavigationActor @Sendable (Daemon) -> Void
+  let workspaceStatePublisher: @Sendable (Data) -> Void
   var lastPublishedWorkspaceState: WorkspaceStateSnapshot?
   var lastWorkspacePublishState: RuntimeState?
   var lastWorkspacePublishDisplayOrder: [MonitorID] = []
@@ -158,6 +160,7 @@ final class Daemon {
   var observedPlatformEventCount = 0
   var targetMismatches: [FrameMismatch] = []
   var targetMismatchObservationState = WidthMismatchObservationState()
+  var lastTiledSizeMismatches: [WindowID: FrameMismatch] = [:]
   var activelyResizedWindowID: WindowID?
   var mouseGestureInitialFrame: Rect?
   var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
@@ -216,24 +219,44 @@ final class Daemon {
   var followUpBackoffSteps = 0
   var followUpUnchangedSince: TimeInterval = 0
 
-  init(options: DaemonOptions, menuBar: MenuBarState) throws {
+  init(
+    options: DaemonOptions,
+    menuBar: MenuBarState,
+    instanceLockURL: URL = DaemonLockPath.defaultURL,
+    topologyStore: WorkspaceTopologyStore = WorkspaceTopologyStore(),
+    workspaceStatePublisher: @escaping @Sendable (Data) -> Void = postWorkspaceStateNotification,
+    desktopSnapshotOverviewUpdater: @escaping @NavigationActor @Sendable (Daemon) -> Void = {
+      $0.updateOverviewIfOpen()
+    }
+  ) throws {
     self.menuBar = menuBar
-    instanceLock = try DaemonInstanceLock()
+    self.workspaceStatePublisher = workspaceStatePublisher
+    self.desktopSnapshotOverviewUpdater = desktopSnapshotOverviewUpdater
+    instanceLock = try DaemonInstanceLock(url: instanceLockURL)
     configURL = options.configURL ?? Config.defaultURL
     config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
-    topologyStore = WorkspaceTopologyStore()
+    self.topologyStore = topologyStore
     // An unavailable session identity must never match a previous process's state.
     topologySessionID = WorkspaceTopologyStore.currentSessionID()
       ?? "unavailable:\(UUID().uuidString)"
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
     lastPersistedTopology = restoredTopology
-    platform.setCommandDiagnosticHandler { [weak diagnostics] sample in
+    platform.setCommandDiagnosticHandler { [weak self, weak diagnostics] sample in
       diagnostics?.record(sample)
+      if let reason = AutoMarkPolicy.reason(for: sample) {
+        self?.autoMark(reason: reason)
+      }
     }
-    platform.setDiagnosticAnomalyHandler { [weak diagnostics] uptime, event in
+    platform.setDiagnosticAnomalyHandler { [weak self, weak diagnostics] uptime, event in
       diagnostics?.recordAnomaly(uptime: uptime, event: event)
+      // Runs under the coordinator lock on the animation thread: hop before
+      // building status.
+      if let gap = slowAnimationDisplayGapMS(event) {
+        let reason = "displayGapMs=\(Int(gap))"
+        NavigationActor.enqueue { self?.autoMark(reason: reason) }
+      }
     }
   }
 
@@ -320,6 +343,7 @@ final class Daemon {
     pendingDisplaySyncDeadlines.removeAll(keepingCapacity: true)
     supersededDesktopSnapshotRequest = nil
     targetMismatchObservationState = WidthMismatchObservationState()
+    lastTiledSizeMismatches.removeAll()
     needsDesktopSync = false
       followUpTickSignature = nil
       followUpBackoffSteps = 0
@@ -356,6 +380,9 @@ final class Daemon {
       needsDesktopSync = true
     }
     let now = ProcessInfo.processInfo.systemUptime
+    if platform.requestDueFrameCommitVerification(now: now) {
+      needsDesktopSync = true
+    }
     if let mouseGestureSettlement,
       now >= mouseGestureSettlement.nextCheckAt
     {
@@ -451,7 +478,7 @@ final class Daemon {
     let desktopRefreshInterval = desktopSnapshotRefreshInterval(
       reliableDesktopObservation: platform.hasReliableDesktopObservation
     )
-    let windowListRefreshInterval = platform.recommendedWindowListRefreshInterval
+    let windowListRefreshInterval = platform.recommendedGlobalWindowListRefreshInterval
     let applicationInventoryInterval =
       platform.recommendedApplicationInventoryRefreshInterval
     let periodicWindowRefreshDue = observationWatchdogRefreshIsReady(
@@ -459,14 +486,15 @@ final class Daemon {
       interval: desktopRefreshInterval,
       userInputIdleDuration: userInputIdleDuration
     )
-    let windowListRefreshDue = observationWatchdogRefreshIsReady(
-      due: now >= nextWindowListRefreshAt,
-      interval: windowListRefreshInterval,
-      userInputIdleDuration: userInputIdleDuration
+    let windowListRequest = windowDiscoveryRefreshRequest(
+      now: now, globalDeadline: nextWindowListRefreshAt, interval: windowListRefreshInterval,
+      retryDeadline: platform.nextWindowDiscoveryRetryAt,
+      userInputIdleDuration: userInputIdleDuration,
+      dueProcessIDs: platform.dueWindowDiscoveryRetryProcessIDs(now: now)
     )
-    let targetedWindowRetryRefresh = windowListRefreshDue
-      && !platform.dueWindowDiscoveryRetryProcessIDs(now: now).isEmpty
-    let globalWindowListRefreshDue = windowListRefreshDue && !targetedWindowRetryRefresh
+    let windowListRefreshDue = windowListRequest.due
+    let targetedWindowRetryRefresh = windowListRequest.targeted
+    let globalWindowListRefreshDue = windowListRequest.global
     let applicationInventoryRefreshDue = observationWatchdogRefreshIsReady(
       due: now >= nextApplicationInventoryRefreshAt,
       interval: applicationInventoryInterval,
@@ -502,7 +530,8 @@ final class Daemon {
         !nativeFocusSyncPending
         && (forcesWindowInventory
           || (periodicWindowRefreshDue
-            && !platform.hasReliableWindowTopologyObservation))
+            && !platform.hasReliableWindowTopologyObservation
+            && platform.processIDsWithoutReliableTopologyCoverage().isEmpty))
       needsDesktopSync = false
       synchronizeDesktop(
         forceFullWindowRefresh: forcesFullWindowRefresh,

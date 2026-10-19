@@ -29,7 +29,7 @@ struct LayoutGapRuntimeTests {
   }
 
   @Test
-  func outsideBorderReservesEveryViewportEdge() {
+  func outsideBorderAddsItsWidthToEveryGap() {
     let config = Config(
       layout: LayoutConfig(
         gaps: 4,
@@ -45,11 +45,12 @@ struct LayoutGapRuntimeTests {
 
     let layout = RuntimeState(config: config).layout
 
-    #expect(layout.innerHorizontalGap == 2)
-    #expect(layout.outerTopGap == 4)
-    #expect(layout.outerRightGap == 4)
+    #expect(layout.innerHorizontalGap == 6)
+    #expect(layout.innerVerticalGap == 6)
+    #expect(layout.outerTopGap == 5)
+    #expect(layout.outerRightGap == 6)
     #expect(layout.outerBottomGap == 4)
-    #expect(layout.outerLeftGap == 4)
+    #expect(layout.outerLeftGap == 7)
   }
 
   @Test
@@ -80,7 +81,7 @@ struct LayoutGapRuntimeTests {
     )[1].frame
 
     #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0)
-    #expect(frame.x + frame.width == 998)
+    #expect(frame.x + frame.width == 994)
 
     state.monitors[0].workspaces[workspaceIndex].scrollOffset = 0.5
     synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
@@ -93,7 +94,45 @@ struct LayoutGapRuntimeTests {
     )[1].frame
 
     #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0.5)
-    #expect(leftAlignedFrame.x == 2)
+    #expect(leftAlignedFrame.x == 6)
+  }
+
+  @Test
+  func outsideBorderHalfColumnsFillViewportWithoutFocusScroll() {
+    let config = Config(
+      layout: LayoutConfig(gaps: 0),
+      decorations: DecorationsConfig(
+        borders: BordersConfig(width: 4, placement: "outside")
+      )
+    )
+    let monitorID = MonitorID(rawValue: 1)
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.monitors[0].workspaces[0].columns = (1...4).map {
+      Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5))
+    }
+    state.monitors[0].workspaces[0].scrollOffset = 0.5
+    let viewport = Rect(x: 0, y: 0, width: 2_560, height: 1_368)
+
+    var frames: [[Rect]] = []
+    for focusedColumn in [1, 2, 1] {
+      state.monitors[0].workspaces[0].focusedColumn = focusedColumn
+      synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
+      state.monitors[0].workspaces[0].scrollOffset =
+        state.monitors[0].workspaces[0].targetScrollOffset
+      frames.append(
+        computeLayout(
+          workspace: state.monitors[0].workspaces[0],
+          viewport: viewport,
+          settings: state.layout
+        ).map(\.frame)
+      )
+    }
+
+    #expect(frames[0] == frames[1])
+    #expect(frames[1] == frames[2])
+    #expect(frames[0][1] == Rect(x: 4, y: 4, width: 1_272, height: 1_360))
+    #expect(frames[0][2] == Rect(x: 1_284, y: 4, width: 1_272, height: 1_360))
   }
 
   @Test

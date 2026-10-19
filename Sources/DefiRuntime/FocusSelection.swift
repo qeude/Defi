@@ -355,6 +355,13 @@ public func pointerFocusRetryIsCurrent(
     && latestUserInputTimestamp <= pointerTimestamp
 }
 
+/// Waits for the pointer-focus rest delay; `false` means the wait was cancelled by newer motion.
+public func pointerFocusRestDelayElapsed(milliseconds: Int) async -> Bool {
+  guard milliseconds > 0 else { return !Task.isCancelled }
+  do { try await Task.sleep(for: .milliseconds(milliseconds)) } catch { return false }
+  return true
+}
+
 public func pointerFocusIntentIsCurrent(
   pointerTimestamp: TimeInterval,
   latestUserInputTimestamp: TimeInterval,

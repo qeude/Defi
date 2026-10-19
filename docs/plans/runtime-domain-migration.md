@@ -88,7 +88,7 @@ happens entirely on the main thread (uncontended lock).
 ## Step C - flip the daemon to the async pipeline
 
 1. Engine gains `private let queue = DispatchQueue(label:
-   "com.quentin.defi.snapshot", qos: .userInitiated)` and an async entry:
+   "com.qeude.defi.snapshot", qos: .userInitiated)` and an async entry:
    schedule `snapshot(...)` on it, hop the returned `DesktopSnapshot` back to
    main through the completion.
 2. Split `Daemon.synchronizeDesktop` at its seam (line 25, right after the

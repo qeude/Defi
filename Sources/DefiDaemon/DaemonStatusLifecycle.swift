@@ -10,6 +10,17 @@ import OSLog
 
 @NavigationActor
 extension Daemon {
+  /// Records the `diagnostic-mark` payload when a slow interaction was just
+  /// observed; rate-limited so it cannot cost the input path or the disk.
+  func autoMark(reason: String) {
+    guard diagnostics.reserveAutoMark() else { return }
+    diagnostics.mark(
+      status: status(),
+      trace: platform.frameCoordinatorTrace,
+      autoReason: reason
+    )
+  }
+
   func status() -> String {
     let managedCount = state.windows.values.filter { !$0.floating || $0.forceTiling }.count
     let floatingCount = state.windows.count - managedCount
@@ -174,7 +185,6 @@ extension Daemon {
       + " displayArrangement=\(displayArrangementStatus) displayPointerWarps=\(displayPointerRouter.warpCount)"
       + " overviewRender=\(overviewState.renderPerformance) overviewSurface=\(overviewState.surfaceCapture) overviewSurfaceStreams=\(overviewState.surfaceStreams) overviewSurfacePoolMiB=\(String(format: "%.2f", Double(overviewState.surfacePoolBytes) / 1_048_576)) overviewSurfaceTransitions=\(overviewState.surfaceTransitions) overviewSurfaceFallbacks=\(overviewState.surfaceFallbacks) overviewPreviewClosings=\(overviewState.previewClosings) overviewSurfaceAcquireMs=\(String(format: "%.1f", overviewState.surfaceAcquireMs))"
       + " overviewOpening=\(overviewState.openingTransitionHistory)"
-      + " ribbonSurfaceTransitions=\(overviewState.ribbonSurfaceTransitions) ribbonSurfaceFallbacks=\(overviewState.ribbonSurfaceFallbacks) ribbonSurfaceFallbackReason=\(overviewState.ribbonSurfaceFallbackReason) ribbonSurfacePresenting=\(overviewState.ribbonSurfacePresenting)"
       + " topologyObservers=\(platform.hasReliableWindowTopologyObservation) appWindowLists=\(snapshotPerformance.applicationWindowListReads)"
       + " appLifecycleObservers=\(platform.hasReliableApplicationLifecycleObservation) appInventoryInterval=\(Int(platform.recommendedApplicationInventoryRefreshInterval))"
       + " desktopObservers=\(platform.hasReliableDesktopObservation)"
@@ -183,6 +193,7 @@ extension Daemon {
       + " windowMetadata=\(attributeReads.metadata)/\(attributeReads.metadataReuses)"
       + " windowIDs=private:\(platform.successfulPrivateWindowIDLookupCount)/fallback:\(platform.publicWindowIDLookupFallbackCount)/available:\(platform.privateWindowIDLookupStatus)"
       + " windowBounds=private:\(platform.successfulPrivateWindowBoundsLookupCount)/fallback:\(platform.privateWindowBoundsLookupFallbackCount)/available:\(platform.isPrivateWindowBoundsLookupAvailable)"
+      + " \(platform.windowBorderSyncStatus)"
       + " windowConstraints=private:\(platform.successfulPrivateWindowConstraintLookupCount)/fallback:\(platform.privateWindowConstraintLookupFallbackCount)/available:\(platform.isPrivateWindowConstraintLookupAvailable)"
       + " snapshotP50/P95=\(snapshotP50MS)/\(snapshotP95MS)"
       + " snapshotComponents=\(applicationInventoryP50MS)/\(applicationInventoryP95MS):\(applicationWindowListP50MS)/\(applicationWindowListP95MS)"
@@ -243,7 +254,9 @@ extension Daemon {
       deadlinesAndIntervals: [
         (nextPeriodicWindowRefreshAt, desktopSnapshotRefreshInterval(
           reliableDesktopObservation: platform.hasReliableDesktopObservation)),
-        (nextWindowListRefreshAt, platform.recommendedWindowListRefreshInterval),
+        (nextWindowListRefreshAt, platform.recommendedGlobalWindowListRefreshInterval),
+        (platform.nextWindowDiscoveryRetryAt ?? .infinity, 0.1),
+        (platform.nextFrameCommitVerificationAt ?? .infinity, 0.1),
         (nextApplicationInventoryRefreshAt,
           platform.recommendedApplicationInventoryRefreshInterval),
       ]

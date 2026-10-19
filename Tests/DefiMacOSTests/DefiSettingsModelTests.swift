@@ -8,6 +8,33 @@ import Testing
 
 @MainActor
 struct DefiSettingsModelTests {
+  @Test
+  func windowGapKeepsScreenEdgesWhereTheyWere() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let url = directory.appending(path: "config.toml")
+    try Data("[layout]\ngaps = 6\nouter_left_gap = 10\n".utf8).write(to: url)
+    let model = DefiSettingsModel(configURL: url)
+
+    model.setWindowGap(20)
+    let reloaded = DefiSettingsModel(configURL: url)
+    #expect(reloaded.config.layout.gaps == 20)
+    #expect(reloaded.config.layout.outerLeftGap == 10)
+    #expect(reloaded.config.layout.outerTopGap == 6)
+    #expect(reloaded.config.layout.outerRightGap == 6)
+    #expect(reloaded.config.layout.outerBottomGap == 6)
+
+    model.setScreenMargin(12, edges: [.left, .right])
+    #expect(model.config.layout.outerLeftGap == 12)
+    #expect(model.config.layout.outerRightGap == 12)
+
+    model.setScreenMargin(nil, edges: ScreenEdge.allCases)
+    #expect(model.config.layout.outerTopGap == nil)
+    #expect(model.config.layout.outerLeftGap == nil)
+    #expect(model.message == nil)
+  }
+
   @Test(arguments: ["up", "down", "1"])
   func workspaceRenamePreservesDirectionalAndPositionalShortcuts(name: String) throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

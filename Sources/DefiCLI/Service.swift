@@ -3,6 +3,7 @@ import Foundation
 import ServiceManagement
 
 enum ServiceManager {
+  /// Label of the pre-0.5 LaunchAgent, removed on migration.
   private static let label = "com.quentin.defi"
 
   static func run(_ command: String) throws {

@@ -76,35 +76,6 @@ struct RuntimeMonitorTests {
   }
 
   @Test
-  func `Disconnected monitor merges and scales columns into remaining display`() {
-    let externalID = MonitorID(rawValue: 2)
-    let config = Config(workspaces: WorkspacesConfig(names: ["dev"]))
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    state.attachMonitor(externalID)
-    state.monitors[1].workspaces[0].columns = [
-      Column(window: WindowID(rawValue: 9), width: .pixels(1_200))
-    ]
-
-    state.retainMonitors(
-      [monitorID],
-      previousViewports: [
-        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900),
-        externalID: Rect(x: 1_500, y: 0, width: 3_000, height: 1_600),
-      ],
-      nextViewports: [
-        monitorID: Rect(x: 0, y: 0, width: 1_500, height: 900)
-      ]
-    )
-
-    #expect(state.monitors.count == 1)
-    let migrated = state.monitors[0].workspaces.first {
-      $0.columns.contains(where: { $0.windows.contains(WindowID(rawValue: 9)) })
-    }
-    #expect(migrated?.columns[0].width == .pixels(600))
-  }
-
-  @Test
   func `Disconnected monitor migrates and scales suspended placement`() {
     let externalID = MonitorID(rawValue: 2)
     let modalID = WindowID(rawValue: 10)

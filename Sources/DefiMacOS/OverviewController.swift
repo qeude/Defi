@@ -5,7 +5,8 @@ import DefiModel
 import OSLog
 import QuartzCore
 
-private let overviewOpeningLogger = Logger(subsystem: "com.quentin.defi", category: "OverviewOpening")
+private let overviewPressurePreviewBytes = 4 * 1_024 * 1_024
+private let overviewOpeningLogger = Logger(subsystem: "com.qeude.defi", category: "OverviewOpening")
 
 let overviewTransitionDuration: TimeInterval = 0.16
 let overviewOpenFadeDuration: TimeInterval = 0.14
@@ -46,10 +47,9 @@ func overviewUsesWorkspaceParking(
 
 func overviewShouldRequestCapturePermission(
   screenCaptureAccessGranted: Bool,
-  ribbonPrototype: Bool,
   hasRequestedPermission: Bool
 ) -> Bool {
-  !screenCaptureAccessGranted && !ribbonPrototype && !hasRequestedPermission
+  !screenCaptureAccessGranted && !hasRequestedPermission
 }
 
 func overviewViewportAfterScroll(
@@ -168,9 +168,6 @@ public final class OverviewController: NSObject {
   private var edgeScrollDirection: Double?
   public private(set) var sessionGeneration: UInt64 = 0
   private var windowPreviewsEnabled = false
-  private var surfaceTransitionsEnabled = false
-  private var ribbonRepresentationsEnabled = false
-  private var ribbonCornerRadius: Double = 12
   private let surfaceCapture = OverviewSurfaceCapture.shared
   private var surfaceWindowIDs = Set<WindowID>()
   public private(set) var surfaceTransitionCount = 0
@@ -180,10 +177,6 @@ public final class OverviewController: NSObject {
   private var openingEvents: [String] = []
   public var openingTransitionHistory: String { openingEvents.isEmpty ? "none" : openingEvents.joined(separator: "|") }
   public var surfaceCaptureState: String { surfaceCapture.state }
-  public var ribbonSurfaceTransitions: Int { ExperimentalRibbonRenderer.shared.transitions }
-  public var ribbonSurfaceFallbacks: Int { ExperimentalRibbonRenderer.shared.fallbacks }
-  public var ribbonSurfaceFallbackReason: String { ExperimentalRibbonRenderer.shared.lastFallback }
-  public var ribbonSurfacePresenting: Bool { ExperimentalRibbonRenderer.shared.isPresenting }
   public var surfaceStreamCount: Int { surfaceCapture.streamCount }
   var surfacePresentedFrameCount: Int { panels.values.reduce(0) { $0 + $1.surfacePresentedFrameCount } }
   public var surfaceEstimatedPoolBytes: Int { surfaceCapture.estimatedPoolBytes }
@@ -192,6 +185,10 @@ public final class OverviewController: NSObject {
   private var surfacePreparationPending = false
   private var previewTask: Task<Void, Never>?
   private var desktopCaptureRetryTask: Task<Void, Never>?
+  // Each timed-out native capture is abandoned, not cancelled, so retries are bounded per session.
+  private static let desktopCaptureRetryLimit = 5
+  private var desktopCaptureRetryCount = 0
+  private var desktopCaptureRetryGeneration: UInt64 = 0
   private var previewCache: [WindowID: NSImage] = [:]
   private let rememberedPreviews = OverviewPreviewCache()
   private var idlePreviewTask: Task<Void, Never>?
@@ -230,8 +227,6 @@ public final class OverviewController: NSObject {
   public var scrollOffsets: [MonitorID: [WorkspaceID: Double]] { viewports.mapValues(\.horizontalOffsets) }
   private var nativeExitCanZoom = true
   public private(set) var isOpen = false
-  private var ribbonPrototype = false
-  public var usesRibbonPrototype: Bool { ribbonPrototype }
   public private(set) var usesWorkspaceParking = false
   public var panelCount: Int { isOpen ? panels.count : 0 }
   public var retainedPanelCount: Int { panels.count }
@@ -309,10 +304,11 @@ public final class OverviewController: NSObject {
       idlePreviewTask = nil
       idlePreviewAttempted = []
       if events.contains(.critical) { rememberedPreviews.removeAll() }
-      else { rememberedPreviews.retain(idlePreviewPriorityIDs, maximumBytes: 4 * 1_024 * 1_024) }
-      ExperimentalRibbonRenderer.shared.disable()
+      else { rememberedPreviews.retain(idlePreviewPriorityIDs, maximumBytes: overviewPressurePreviewBytes) }
+      OverviewSurfacePlanner.shared.disable()
       surfaceCapture.stop(state: "pressure")
-      idlePreparationEnabled = false
+      // Warning keeps compact on-screen previews so the opening zoom never loses its content.
+      idlePreparationEnabled = !events.contains(.critical)
       if !isOpen {
         releaseIdleOverviewResources()
         closePanelsImmediately()
@@ -344,25 +340,29 @@ public final class OverviewController: NSObject {
     animation: AnimationConfig = AnimationConfig(),
     zoom: Double = 0.5,
     windowCornerRadius: Double = 12,
-    windowPreviewsEnabled: Bool = false,
-    experimentalSurfaceTransitions: Bool = false,
-    ribbonPrototype: Bool = false
+    windowPreviewsEnabled: Bool = true
   ) {
     if isOpen {
       close()
     } else {
-      // Explicit renderer experiment: never request a new capture permission.
-      guard !ribbonPrototype || CGPreflightScreenCaptureAccess() else { return }
-      self.ribbonPrototype = ribbonPrototype
+      // Ask before presenting: the overview panel would cover the system prompt.
+      // A refusal is remembered for the session; the overview then opens with cards.
+      if windowPreviewsEnabled, overviewShouldRequestCapturePermission(
+        screenCaptureAccessGranted: CGPreflightScreenCaptureAccess(),
+        hasRequestedPermission: hasRequestedPreviewPermission
+      ) {
+        hasRequestedPreviewPermission = true
+        CGRequestScreenCaptureAccess()
+        return
+      }
       open(
         snapshot: snapshot,
         layout: layout,
         borders: borders,
         animation: animation,
-        zoom: ribbonPrototype ? 1 : zoom,
+        zoom: zoom,
         windowCornerRadius: windowCornerRadius,
-        windowPreviewsEnabled: ribbonPrototype || windowPreviewsEnabled,
-        experimentalSurfaceTransitions: experimentalSurfaceTransitions
+        windowPreviewsEnabled: windowPreviewsEnabled
       )
     }
   }
@@ -371,15 +371,12 @@ public final class OverviewController: NSObject {
     windowPreviewsEnabled: Bool,
     snapshot: OverviewSnapshot? = nil,
     layout: LayoutSettings = LayoutSettings(),
-    zoom: Double = 0.5,
-    experimentalSurfaceTransitions: Bool = false,
-    experimentalRibbonRepresentations: Bool = false,
-    windowCornerRadius: Double = 12
+    zoom: Double = 0.5
   ) {
     defer { presentationChanged() }
     // A closing zoom still owns its texture; idle refresh must wait for its handoff.
     guard !isOpen, idlePreparationEnabled else { return }
-    if panels.values.contains(where: \.hasSurfaceScene) || ExperimentalRibbonRenderer.shared.isPresenting {
+    if panels.values.contains(where: \.hasSurfaceScene) {
       if idlePreparationRetry == nil {
         idlePreparationRetry = Task { [weak self] in
           do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
@@ -401,15 +398,13 @@ public final class OverviewController: NSObject {
         .map { MonitorID(rawValue: $0.uint64Value) }
     })
     preparePanels(monitorIDs: monitorIDs)
-    surfaceTransitionsEnabled = experimentalSurfaceTransitions && windowPreviewsEnabled
-    ribbonRepresentationsEnabled = experimentalRibbonRepresentations
-    ribbonCornerRadius = windowCornerRadius
-    let preparesSurfaces = surfaceTransitionsEnabled || ribbonRepresentationsEnabled
-    if !preparesSurfaces { ExperimentalRibbonRenderer.shared.disable() }
-    let requests = snapshot.map { surfaceRequests(snapshot: $0, layout: layout, zoom: zoom) } ?? []
-    surfaceCapture.prepare(requests, enabled: preparesSurfaces)
-    surfacePreparationPending = false
-    if surfaceTransitionsEnabled, let snapshot {
+    if usesWorkspaceParking { OverviewSurfacePlanner.shared.disable() }
+    if !isUnderMemoryPressure {
+      let requests = snapshot.map { surfaceRequests(snapshot: $0, layout: layout, zoom: zoom) } ?? []
+      surfaceCapture.prepare(requests, enabled: !usesWorkspaceParking)
+      surfacePreparationPending = false
+    }
+    if !usesWorkspaceParking, let snapshot {
       prepareIdlePreviews(snapshot: snapshot, layout: layout, zoom: zoom)
     } else {
       idlePreviewTask?.cancel(); idlePreviewTask = nil; idlePreviewAttempted = []
@@ -445,10 +440,8 @@ public final class OverviewController: NSObject {
     animation: AnimationConfig = AnimationConfig(),
     zoom: Double = 0.5,
     windowCornerRadius: Double = 12,
-    windowPreviewsEnabled: Bool = false,
-    experimentalSurfaceTransitions: Bool = false
+    windowPreviewsEnabled: Bool = true
   ) {
-    idlePreparationEnabled = !isUnderMemoryPressure
     idlePreparationRetry?.cancel(); idlePreparationRetry = nil
     sessionGeneration &+= 1
     self.snapshot = snapshot
@@ -457,25 +450,22 @@ public final class OverviewController: NSObject {
     previewCacheExpiry?.cancel()
     previewCacheExpiry = nil
     animationsEnabled = animation.enabled
-    overviewZoom = ribbonPrototype ? 1 : zoom
+    overviewZoom = zoom
     self.windowCornerRadius = windowCornerRadius
     self.windowPreviewsEnabled = windowPreviewsEnabled
-    surfaceTransitionsEnabled = experimentalSurfaceTransitions && windowPreviewsEnabled
     usesWorkspaceParking = overviewUsesWorkspaceParking(
       windowPreviewsEnabled: windowPreviewsEnabled,
       screenCaptureAccessGranted: CGPreflightScreenCaptureAccess()
     )
     preparePanels(monitorIDs: Set(snapshot.monitors.map(\.id)))
-    for panel in panels.values {
-      panel.window.title = ribbonPrototype ? "Defi Ribbon Prototype" : "Defi Overview"
-    }
+    for panel in panels.values { panel.window.title = "Defi Overview" }
     previewTask?.cancel()
     previewTask = nil
     cancelDesktopCaptureRetry()
     previewCache.removeAll(keepingCapacity: true)
     surfaceWindowIDs.removeAll()
     restoreRememberedPreviews(for: snapshot)
-    if surfaceTransitionsEnabled { surfaceCapture.freeze() }
+    if !usesWorkspaceParking { surfaceCapture.freeze() }
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
     capturedDesktopMonitorIDs.removeAll(keepingCapacity: true)
@@ -511,9 +501,9 @@ public final class OverviewController: NSObject {
     firstPreviewMs = nil
     lastPreviewMs = nil
     receivedPreviewCount = 0
-    if surfaceTransitionsEnabled {
+    if !usesWorkspaceParking {
       for (monitorID, panel) in panels {
-        if let background = ExperimentalRibbonRenderer.shared.backgroundImage(for: monitorID) {
+        if let background = OverviewSurfacePlanner.shared.backgroundImage(for: monitorID) {
           panel.setDesktopImage(NSImage(cgImage: background, size: panel.window.frame.size))
         }
       }
@@ -531,8 +521,7 @@ public final class OverviewController: NSObject {
       ? overviewOpenFadeDuration : 0
     for (monitorID, panel) in panels {
       let surfaceFrames = surfacesByMonitor[monitorID]
-      if surfaceTransitionsEnabled, animationsEnabled, !usesWorkspaceParking,
-        !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+      if animationsEnabled, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
         let projection = projections[monitorID],
         let monitor = snapshot.monitors.first(where: { $0.id == monitorID }),
         let screen = screen(for: monitorID),
@@ -547,8 +536,8 @@ public final class OverviewController: NSObject {
         panel.showSurfaceScene(scene, windowIDs: ids, duration: 0.22)
         surfaceTransitionCount += 1
       } else {
-        if surfaceTransitionsEnabled { surfaceFallbackCount += 1 }
-        recordOpeningTransition("fallback(enabled:\(surfaceTransitionsEnabled),animation:\(animationsEnabled),parking:\(usesWorkspaceParking),reduceMotion:\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion),surfaces:\(surfaceFrames?.count ?? 0),previews:\(previewCache.count))", monitorID: monitorID)
+        surfaceFallbackCount += 1
+        recordOpeningTransition("fallback(animation:\(animationsEnabled),parking:\(usesWorkspaceParking),reduceMotion:\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion),surfaces:\(surfaceFrames?.count ?? 0),previews:\(previewCache.count))", monitorID: monitorID)
         panel.show(fadeDuration: fadeDuration)
       }
     }
@@ -571,23 +560,11 @@ public final class OverviewController: NSObject {
     animation: AnimationConfig = AnimationConfig(),
     zoom: Double = 0.5,
     windowCornerRadius: Double = 12,
-    windowPreviewsEnabled: Bool? = nil,
-    experimentalSurfaceTransitions: Bool? = nil,
-    experimentalRibbonRepresentations: Bool? = nil
+    windowPreviewsEnabled: Bool? = nil
   ) {
     guard isOpen else { return }
-    let previousSurfaceTransitionsEnabled = surfaceTransitionsEnabled
-    let previousRibbonRepresentationsEnabled = ribbonRepresentationsEnabled
-    if let experimentalSurfaceTransitions {
-      surfaceTransitionsEnabled = experimentalSurfaceTransitions
-        && (windowPreviewsEnabled ?? self.windowPreviewsEnabled)
-    }
-    if let experimentalRibbonRepresentations {
-      ribbonRepresentationsEnabled = experimentalRibbonRepresentations
-    }
     let previousSnapshot = self.snapshot
     let previousProjections = projections
-    let windowPreviewsEnabled = ribbonPrototype ? true : windowPreviewsEnabled
     if let windowPreviewsEnabled,
       self.windowPreviewsEnabled != windowPreviewsEnabled
     {
@@ -612,23 +589,18 @@ public final class OverviewController: NSObject {
     self.layout = layout
     borderStyle = WindowBorderStyle(config: borders)
     animationsEnabled = animation.enabled
-    overviewZoom = ribbonPrototype ? 1 : zoom
+    overviewZoom = zoom
     self.windowCornerRadius = windowCornerRadius
-    ribbonCornerRadius = windowCornerRadius
-    if previousSurfaceTransitionsEnabled != surfaceTransitionsEnabled
-      || previousRibbonRepresentationsEnabled != ribbonRepresentationsEnabled {
-      surfacePreparationPending = true
-    }
     if surfacePreparationPending, !isUnderMemoryPressure {
       surfacePreparationPending = false
       surfaceCapture.prepare(surfaceRequests(snapshot: snapshot, layout: layout, zoom: zoom),
-        enabled: surfaceTransitionsEnabled || ribbonRepresentationsEnabled)
+        enabled: !usesWorkspaceParking)
     }
     var movedSelectionPositions: (
       previous: OverviewTiledPosition,
       next: OverviewTiledPosition
     )?
-    if drag == nil && !ribbonPrototype, !hasDeferredSelection || selection?.isValid(in: snapshot) != true {
+    if drag == nil, !hasDeferredSelection || selection?.isValid(in: snapshot) != true {
       hasDeferredSelection = false
       let focusedSelection = initialSelection(in: snapshot)
       if focusedSelection != selection {
@@ -782,7 +754,7 @@ public final class OverviewController: NSObject {
   }
 
   public func close() {
-    close(commitScrollOffsets: !ribbonPrototype)
+    close(commitScrollOffsets: true)
   }
 
   /// Called after the final native layout has settled underneath the overview.
@@ -806,7 +778,6 @@ public final class OverviewController: NSObject {
     isOpen = false
     hasDeferredSelection = false
     selectionCommitPending = false
-    ribbonPrototype = false
     previewCacheExpiry?.cancel()
     let expiry = DispatchWorkItem { [weak self] in
       MainActor.assumeIsolated {
@@ -840,7 +811,7 @@ public final class OverviewController: NSObject {
     let closingPanels = Array(panels.values)
     // Selection already commits focus/layout through the daemon. Whether this
     // close commits viewport offsets must not disable a safe visual handoff.
-    let canZoomBack = nativeExitCanZoom && surfaceTransitionsEnabled && animationsEnabled
+    let canZoomBack = nativeExitCanZoom && animationsEnabled
       && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
       && snapshot?.monitors.allSatisfy({ monitor in
         let viewport = viewports[monitor.id] ?? OverviewViewport()
@@ -850,7 +821,7 @@ public final class OverviewController: NSObject {
       }) == true
     for panel in closingPanels {
       if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: 0.22) { continue }
-      if nativeExitCanZoom, surfaceTransitionsEnabled, animationsEnabled, !usesWorkspaceParking,
+      if nativeExitCanZoom, animationsEnabled,
         !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
         let snapshot, let monitor = snapshot.monitors.first(where: { $0.id == panel.monitorID }),
         let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
@@ -859,7 +830,7 @@ public final class OverviewController: NSObject {
         let projection = closingProjections[monitor.id],
         let scene = OverviewPreviewClosingScene(projection: projection,
           workspaceID: workspace.id, screen: screen, previews: closingPreviews,
-          cornerRadius: windowCornerRadius,
+          wallpaper: panel.view.desktopImage, cornerRadius: windowCornerRadius,
           targets: computeLayout(workspace: workspace, viewport: viewport,
             windows: Array(snapshot.windows.values), settings: layout), windows: snapshot.windows)
       {
@@ -873,16 +844,6 @@ public final class OverviewController: NSObject {
 
   public func handleKey(_ action: OverviewKeyAction) {
     guard isOpen else { return }
-    if ribbonPrototype {
-      if action == .cancel { close(); return }
-      guard action == .left || action == .right, let snapshot,
-        let monitor = snapshot.monitors.first(where: { $0.id == snapshot.activeMonitorID }) ?? snapshot.monitors.first,
-        let panel = panels[monitor.id]
-      else { return }
-      overviewView(panel.view, pageWorkspace: monitor.activeWorkspace,
-                   direction: action == .left ? -1 : 1)
-      return
-    }
     guard !selectionCommitPending || action == .cancel else { return }
     switch action {
     case .cancel:
@@ -902,7 +863,7 @@ public final class OverviewController: NSObject {
   public func applyLayoutCommand(_ command: Command,
     handler: (@MainActor @Sendable (Command, WindowID, String, MonitorID, WorkspaceID, UInt64) -> Void)? = nil
   ) -> Bool {
-    guard isOpen, !ribbonPrototype, !selectionCommitPending, let snapshot, let selection,
+    guard isOpen, !selectionCommitPending, let snapshot, let selection,
       let windowID = selection.windowID, let window = snapshot.windows[windowID],
       !snapshot.nativeFullscreenWindowIDs.contains(windowID), window.transientOwnerID == nil,
       !window.floating || command == .toggleFloating else { return false }
@@ -1315,7 +1276,10 @@ public final class OverviewController: NSObject {
       selection: selection).filter {
       !attemptedPreviewWindowIDs.contains($0.windowID)
     }
-    let hasPendingDesktopCapture = panels.keys.contains {
+    // Panel updates must not bypass the retry cap once desktop captures keep failing.
+    // Decided here, before the batch task yields, so the retry that was granted still captures.
+    let includesDesktops = !desktopCaptureRetriesExhausted(generation: sessionGeneration)
+    let hasPendingDesktopCapture = includesDesktops && panels.keys.contains {
       !capturedDesktopMonitorIDs.contains($0)
     }
     guard overviewCaptureBatchNeeded(
@@ -1331,6 +1295,7 @@ public final class OverviewController: NSObject {
       await Task.yield()
       await self?.capturePreviewBatch(
         requests,
+        includesDesktops: includesDesktops,
         generation: generation
       )
     }
@@ -1338,6 +1303,7 @@ public final class OverviewController: NSObject {
 
   private func capturePreviewBatch(
     _ requests: [OverviewPreviewRequest],
+    includesDesktops: Bool,
     generation: UInt64
   ) async {
     guard windowPreviewsEnabled, isOpen, generation == sessionGeneration,
@@ -1353,7 +1319,6 @@ public final class OverviewController: NSObject {
     } else {
       guard overviewShouldRequestCapturePermission(
         screenCaptureAccessGranted: screenCaptureAccessGranted,
-        ribbonPrototype: ribbonPrototype,
         hasRequestedPermission: hasRequestedPreviewPermission
       ) else {
         permissionGranted = false
@@ -1378,7 +1343,7 @@ public final class OverviewController: NSObject {
       return
     }
 
-    let desktopRequests = desktopCaptureRequests()
+    let desktopRequests = includesDesktops ? desktopCaptureRequests() : []
     let results = await captureOverviewImages(
       previews: requests,
       desktops: desktopRequests,
@@ -1459,6 +1424,9 @@ public final class OverviewController: NSObject {
         byteCost: rememberedImage.bytesPerRow * rememberedImage.height,
         for: window
       )
+      if isUnderMemoryPressure {
+        rememberedPreviews.retain(idlePreviewPriorityIDs, maximumBytes: overviewPressurePreviewBytes)
+      }
     }
     // Offscreen captures are ready before navigation, without running an idle fade link.
     guard previewMonitorIDs[result.request.windowID] != nil else { return }
@@ -1481,8 +1449,18 @@ public final class OverviewController: NSObject {
     presentationChanged()
   }
 
+  private func desktopCaptureRetriesExhausted(generation: UInt64) -> Bool {
+    desktopCaptureRetryGeneration == generation
+      && desktopCaptureRetryCount >= Self.desktopCaptureRetryLimit
+  }
+
   private func scheduleDesktopCaptureRetry(generation: UInt64) {
     cancelDesktopCaptureRetry()
+    if desktopCaptureRetryGeneration != generation {
+      desktopCaptureRetryGeneration = generation
+      desktopCaptureRetryCount = 0
+    }
+    guard desktopCaptureRetryCount < Self.desktopCaptureRetryLimit else { return }
     desktopCaptureRetryTask = Task { @MainActor [weak self] in
       do {
         try await Task.sleep(for: .seconds(1))
@@ -1494,7 +1472,9 @@ public final class OverviewController: NSObject {
       guard self.windowPreviewsEnabled, self.isOpen,
         generation == self.sessionGeneration
       else { return }
+      // Counted after the batch is requested, so the last allowed retry is not blocked by its own count.
       self.schedulePreviewsIfNeeded()
+      self.desktopCaptureRetryCount += 1
     }
   }
 
@@ -1576,9 +1556,18 @@ public final class OverviewController: NSObject {
   // One-shot compact previews reuse the existing bounded cache. No inactive streams.
   private func prepareIdlePreviews(snapshot: OverviewSnapshot, layout: LayoutSettings, zoom: Double) {
     guard CGPreflightScreenCaptureAccess() else { return }
-    idlePreviewPriorityIDs = Set(snapshot.monitors.compactMap { monitor in
-      monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
-        .flatMap { firstSelection(in: $0, monitorID: monitor.id)?.windowID }
+    // The opening zoom starts from on-screen windows; memory pressure keeps only these.
+    idlePreviewPriorityIDs = Set(snapshot.monitors.flatMap { monitor -> [WindowID] in
+      guard let viewport = snapshot.monitorFrames[monitor.id],
+        let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
+      else { return [] }
+      return computeLayout(workspace: workspace, viewport: viewport,
+        windows: Array(snapshot.windows.values), settings: layout)
+        .filter { $0.frame.ribbonIntersects(viewport) }.map(\.windowID)
+        + workspace.floatingWindows.filter { windowID in
+          (snapshot.floatingFrames[windowID] ?? snapshot.windows[windowID]?.frame)?
+            .ribbonIntersects(viewport) == true
+        }
     })
     pruneRememberedPreviews(for: snapshot)
     let projections = panels.mapValues { panel in
@@ -1587,7 +1576,9 @@ public final class OverviewController: NSObject {
         viewport: OverviewViewport(), layout: layout, zoom: zoom, includeOffscreenContent: true)
     }
     let requests = visiblePreviewRequests(snapshot: snapshot, projections: projections,
-      selection: initialSelection(in: snapshot)).map { request in
+      selection: initialSelection(in: snapshot)).filter {
+        !isUnderMemoryPressure || idlePreviewPriorityIDs.contains($0.windowID)
+      }.map { request in
         let (width, height) = overviewPreviewPixelSize(cardWidth: Double(request.width),
           cardHeight: Double(request.height), scale: 1, maximumWidth: 512, maximumHeight: 512)
         return OverviewPreviewRequest(windowID: request.windowID, expectedAppID: request.expectedAppID,
@@ -1606,6 +1597,9 @@ public final class OverviewController: NSObject {
         self.rememberedPreviews.store(NSImage(cgImage: image,
           size: NSSize(width: result.request.width, height: result.request.height)),
           byteCost: image.bytesPerRow * image.height, for: window)
+        if self.isUnderMemoryPressure {
+          self.rememberedPreviews.retain(self.idlePreviewPriorityIDs, maximumBytes: overviewPressurePreviewBytes)
+        }
       })
     }
   }
@@ -1654,20 +1648,18 @@ public final class OverviewController: NSObject {
   private func surfaceRequests(
     snapshot: OverviewSnapshot, layout: LayoutSettings, zoom: Double
   ) -> [OverviewSurfaceRequest] {
-    ExperimentalRibbonRenderer.shared.prepare(snapshot: snapshot, layout: layout,
-      enabled: surfaceTransitionsEnabled || ribbonRepresentationsEnabled,
-      cornerRadius: ribbonCornerRadius, preloadWorkspace: ribbonRepresentationsEnabled)
-    return ExperimentalRibbonRenderer.shared.requests
+    OverviewSurfacePlanner.shared.prepare(snapshot: snapshot, layout: layout,
+      enabled: !usesWorkspaceParking)
+    return OverviewSurfacePlanner.shared.requests
   }
 
   private func currentSurfaceFrames(snapshot: OverviewSnapshot, monitorID: MonitorID) -> [WindowID: OverviewSurfaceFrame]? {
-    guard surfaceTransitionsEnabled, animationsEnabled, !usesWorkspaceParking,
+    guard animationsEnabled, !usesWorkspaceParking,
       !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return nil }
-    ExperimentalRibbonRenderer.shared.cancel()
     let projected = Set(projections[monitorID]?.workspaces.first(where: {
       $0.workspaceID == snapshot.monitors.first(where: { $0.id == monitorID })?.activeWorkspace
     })?.windows.map(\.windowID) ?? [])
-    let ids = projected.intersection(ExperimentalRibbonRenderer.shared.capturedIDs(on: monitorID))
+    let ids = projected.intersection(OverviewSurfacePlanner.shared.capturedIDs(on: monitorID))
     let start = CACurrentMediaTime()
     let frames = surfaceCapture.availableFrames(windowIDs: ids)
     surfaceAcquireMs = (CACurrentMediaTime() - start) * 1_000
@@ -1892,7 +1884,6 @@ extension OverviewController: OverviewViewDelegate {
     clickedAt point: NSPoint
   ) {
     guard isOpen, !selectionCommitPending else { return }
-    guard isOpen, !selectionCommitPending, !ribbonPrototype else { return }
     guard let projection = projections[view.monitorID],
       let hit = projection.hitTest(OverviewPoint(x: point.x, y: point.y)),
       let snapshot
@@ -1915,7 +1906,6 @@ extension OverviewController: OverviewViewDelegate {
     at screenPoint: NSPoint
   ) {
     guard isOpen, !selectionCommitPending else { return }
-    guard isOpen, !selectionCommitPending, !ribbonPrototype else { return }
     guard let snapshot,
       let window = snapshot.windows[windowID],
       let location = snapshot.location(of: windowID),

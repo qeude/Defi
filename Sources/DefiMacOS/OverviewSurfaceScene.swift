@@ -82,25 +82,10 @@ final class OverviewSurfaceScene {
         // Only visible native windows need the opening fallback. Parked columns
         // must not fly into the overview from their one-pixel strip anchors.
         guard previews != nil, source.intersects(layer.bounds) else { continue }
-        item = CALayer()
-        item.contents = previews?[card.windowID]?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        item = overviewCardLayer(
+          image: previews?[card.windowID]?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+          size: source.size)
         if item.contents != nil { cachedCount += 1 }
-        item.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
-        if item.contents == nil {
-          // Keep the window's silhouette legible while its preview loads. Only
-          // the small symbol is rasterized, never a window-sized placeholder.
-          item.borderColor = NSColor.white.withAlphaComponent(0.35).cgColor
-          item.borderWidth = 2
-          let symbol = CALayer()
-          let image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 48, weight: .regular)
-              .applying(.init(paletteColors: [.white])))
-          symbol.contents = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-          symbol.contentsGravity = .resizeAspect
-          symbol.frame = CGRect(x: (source.width - 64) / 2,
-            y: (source.height - 64) / 2, width: 64, height: 64)
-          item.addSublayer(symbol)
-        }
         fallbackIDs.insert(card.windowID)
       }
       item.removeFromSuperlayer(); item.removeAllAnimations()
@@ -188,4 +173,25 @@ final class OverviewSurfaceScene {
     }
     return current == nativeFrames
   }
+}
+
+/// A window-sized stand-in for a zoom transition. Without an image it keeps the
+/// window's silhouette legible; only the small symbol is rasterized.
+@MainActor
+func overviewCardLayer(image: CGImage?, size: CGSize) -> CALayer {
+  let item = CALayer()
+  item.contents = image
+  item.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
+  guard image == nil else { return item }
+  item.borderColor = NSColor.white.withAlphaComponent(0.35).cgColor
+  item.borderWidth = 2
+  let symbol = CALayer()
+  let symbolImage = NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)?
+    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 48, weight: .regular)
+      .applying(.init(paletteColors: [.white])))
+  symbol.contents = symbolImage?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+  symbol.contentsGravity = .resizeAspect
+  symbol.frame = CGRect(x: (size.width - 64) / 2, y: (size.height - 64) / 2, width: 64, height: 64)
+  item.addSublayer(symbol)
+  return item
 }

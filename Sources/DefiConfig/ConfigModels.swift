@@ -5,15 +5,18 @@ import TOMLDecoder
 public struct InputConfig: Codable, Equatable, Sendable {
   public var focusFollowsMouse: Bool
   public var focusFollowsMouseMaxScrollAmount: Double?
+  public var focusFollowsMouseDelayMS: Int
   public var mouseFollowsFocus: Bool
 
   public init(
     focusFollowsMouse: Bool = false,
     focusFollowsMouseMaxScrollAmount: Double? = 0,
+    focusFollowsMouseDelayMS: Int = 50,
     mouseFollowsFocus: Bool = false
   ) {
     self.focusFollowsMouse = focusFollowsMouse
     self.focusFollowsMouseMaxScrollAmount = focusFollowsMouseMaxScrollAmount
+    self.focusFollowsMouseDelayMS = focusFollowsMouseDelayMS
     self.mouseFollowsFocus = mouseFollowsFocus
   }
 
@@ -21,6 +24,7 @@ public struct InputConfig: Codable, Equatable, Sendable {
     case focusFollowsMouse = "focus_follows_mouse"
     case focusFollowsMouseMaxScrollAmount =
       "focus_follows_mouse_max_scroll_amount"
+    case focusFollowsMouseDelayMS = "focus_follows_mouse_delay_ms"
     case mouseFollowsFocus = "mouse_follows_focus"
   }
 
@@ -34,6 +38,9 @@ public struct InputConfig: Codable, Equatable, Sendable {
         Double.self,
         forKey: .focusFollowsMouseMaxScrollAmount
       ) ?? defaults.focusFollowsMouseMaxScrollAmount
+    focusFollowsMouseDelayMS =
+      try values.decodeIfPresent(Int.self, forKey: .focusFollowsMouseDelayMS)
+      ?? defaults.focusFollowsMouseDelayMS
     mouseFollowsFocus =
       try values.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus) ?? defaults.mouseFollowsFocus
   }
@@ -137,19 +144,15 @@ public func parseBorderColor(_ value: String) -> UInt32? {
 public struct AnimationConfig: Codable, Equatable, Sendable {
   public var enabled: Bool
   public var durationMS: Int
-  public var experimentalWindowRepresentations: Bool
 
-  public init(enabled: Bool = true, durationMS: Int = 125,
-    experimentalWindowRepresentations: Bool = false) {
+  public init(enabled: Bool = true, durationMS: Int = 125) {
     self.enabled = enabled
     self.durationMS = durationMS
-    self.experimentalWindowRepresentations = experimentalWindowRepresentations
   }
 
   enum CodingKeys: String, CodingKey {
     case enabled
     case durationMS = "duration_ms"
-    case experimentalWindowRepresentations = "experimental_window_representations"
   }
 
   public init(from decoder: Decoder) throws {
@@ -157,33 +160,27 @@ public struct AnimationConfig: Codable, Equatable, Sendable {
     let defaults = AnimationConfig()
     enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
     durationMS = try values.decodeIfPresent(Int.self, forKey: .durationMS) ?? defaults.durationMS
-    experimentalWindowRepresentations = try values.decodeIfPresent(
-      Bool.self, forKey: .experimentalWindowRepresentations) ?? defaults.experimentalWindowRepresentations
   }
 }
 
 public struct OverviewConfig: Codable, Equatable, Sendable {
   public var zoom: Double
   public var windowPreviews: Bool
-  public var experimentalSurfaceTransitions: Bool
   public var windowCornerRadius: Double
 
   public init(
     zoom: Double = 0.5,
-    windowPreviews: Bool = false,
-    experimentalSurfaceTransitions: Bool = false,
+    windowPreviews: Bool = true,
     windowCornerRadius: Double = 12
   ) {
     self.zoom = zoom
     self.windowPreviews = windowPreviews
-    self.experimentalSurfaceTransitions = experimentalSurfaceTransitions
     self.windowCornerRadius = windowCornerRadius
   }
 
   enum CodingKeys: String, CodingKey {
     case zoom
     case windowPreviews = "window_previews"
-    case experimentalSurfaceTransitions = "experimental_surface_transitions"
     case windowCornerRadius = "window_corner_radius"
   }
 
@@ -193,9 +190,6 @@ public struct OverviewConfig: Codable, Equatable, Sendable {
     zoom = try values.decodeIfPresent(Double.self, forKey: .zoom) ?? defaults.zoom
     windowPreviews =
       try values.decodeIfPresent(Bool.self, forKey: .windowPreviews) ?? defaults.windowPreviews
-    experimentalSurfaceTransitions = try values.decodeIfPresent(
-      Bool.self, forKey: .experimentalSurfaceTransitions
-    ) ?? defaults.experimentalSurfaceTransitions
     windowCornerRadius =
       try values.decodeIfPresent(Double.self, forKey: .windowCornerRadius) ?? defaults.windowCornerRadius
   }

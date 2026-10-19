@@ -10,6 +10,7 @@ struct DefiDaemonMain: App {
   @State private var menuBar: MenuBarState
 
   init() {
+    Self.migrateLegacyPreferences()
     do {
       let options = try DaemonOptions(arguments: Array(CommandLine.arguments.dropFirst()))
       let menuBar = MenuBarState()
@@ -30,6 +31,15 @@ struct DefiDaemonMain: App {
       presentDefiStartupError(error)
       FileHandle.standardError.write(Data("defi-daemon: \(error)\n".utf8))
       exit(1)
+    }
+  }
+
+  /// Copies settings stored under the pre-0.5 bundle identifier without overwriting new ones.
+  private static func migrateLegacyPreferences() {
+    let current = UserDefaults.standard
+    for (key, value) in current.persistentDomain(forName: "com.quentin.defi") ?? [:]
+    where current.object(forKey: key) == nil {
+      current.set(value, forKey: key)
     }
   }
 

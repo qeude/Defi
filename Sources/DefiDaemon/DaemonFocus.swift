@@ -42,8 +42,10 @@ extension Daemon {
     let generation = commandGeneration
     let session = desktopSessionGeneration
     let previousWindowID = lastPointerWindowID
+    let delayMS = config.input.focusFollowsMouseDelayMS
     pointerHitTestTask = Task { [weak self] in
-      guard let self, !Task.isCancelled else { return }
+      // Each motion cancels the previous task, so focus waits for the pointer to rest.
+      guard await pointerFocusRestDelayElapsed(milliseconds: delayMS), let self else { return }
       let hit = await platform.managedWindowID(
         at: invocation.location, rawWindowID: invocation.windowID, retaining: previousWindowID
       )

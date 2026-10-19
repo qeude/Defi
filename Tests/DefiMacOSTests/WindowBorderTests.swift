@@ -46,13 +46,14 @@ struct WindowBorderTests {
     #expect(firstScheduled)
     #expect(!secondScheduled)
     let delivered = pending.take()
-    #expect(delivered == [first, second])
+    #expect(delivered.windowIDs == [first, second])
+    #expect(delivered.nativeReadWindowIDs.isEmpty)
     let nextScheduled = pending.enqueue([second])
     #expect(nextScheduled)
     let next = pending.take()
-    #expect(next == [second])
+    #expect(next.windowIDs == [second])
     let empty = pending.take()
-    #expect(empty.isEmpty)
+    #expect(empty.windowIDs.isEmpty)
   }
 
   private let monitor = Rect(x: 0, y: 0, width: 1_512, height: 900)
@@ -271,6 +272,32 @@ struct WindowBorderTests {
         plannedFrame: planned
       ) == planned
     )
+  }
+
+  @Test
+  func displayedBorderFramePrefersNewerWrittenPosition() {
+    let observed = Rect(x: 4, y: 34, width: 1977, height: 1360)
+    // An unverified position write after the observation moves the border.
+    #expect(
+      displayedWindowBorderFrame(
+        observed: (observed, 1), written: (CGPoint(x: -292, y: 34), nil, 2)
+      ) == Rect(x: -292, y: 34, width: 1977, height: 1360)
+    )
+    // A newer observation still wins over an older write.
+    #expect(
+      displayedWindowBorderFrame(
+        observed: (observed, 3), written: (CGPoint(x: -292, y: 34), nil, 2)
+      ) == observed
+    )
+    #expect(
+      displayedWindowBorderFrame(
+        observed: nil, written: (CGPoint(x: -292, y: 34), CGSize(width: 900, height: 800), 2)
+      ) == Rect(x: -292, y: 34, width: 900, height: 800)
+    )
+    #expect(
+      displayedWindowBorderFrame(observed: nil, written: (CGPoint(x: -292, y: 34), nil, 2)) == nil
+    )
+    #expect(displayedWindowBorderFrame(observed: nil, written: nil) == nil)
   }
 
   @Test @MainActor
@@ -538,23 +565,6 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
-  func rapidSelectionKeepsLatestActiveIdentity() {
-    let manager = WindowBorderManager()
-    let first = WindowID(rawValue: 1)
-    let second = WindowID(rawValue: 2)
-    let third = WindowID(rawValue: 3)
-
-    manager.prepareForSelection(first, displayedFrame: nil)
-    #expect(manager.activeWindowID == first)
-
-    manager.prepareForSelection(second, displayedFrame: nil)
-    #expect(manager.activeWindowID == second)
-
-    manager.prepareForSelection(third, displayedFrame: nil)
-    #expect(manager.activeWindowID == third)
-  }
-
-  @Test @MainActor
   func suppressedBordersStayHiddenUntilRestored() {
     let manager = WindowBorderManager()
     let windowID = WindowID(rawValue: 1)
@@ -665,6 +675,7 @@ struct WindowBorderTests {
     manager.prepareForSelection(first, displayedFrame: frame)
     manager.sync(plan, displayedFrames: [first: frame], stacking: frontmostStacking(for: first))
     manager.revealPendingBorders()
+    #expect(manager.activeWindowID == first)
     let panels = NSApp.windows.filter {
       manager.transparentSurfaceWindowIDs.contains(CGWindowID($0.windowNumber))
     }
@@ -679,6 +690,7 @@ struct WindowBorderTests {
     let pixels = manager.performance.estimatedSurfacePixels
     manager.prepareForSelection(second, displayedFrame: translated)
     manager.revealPendingBorders()
+    #expect(manager.activeWindowID == second)
     #expect(manager.performance.allocated == 1)
     #expect(manager.performance.estimatedSurfacePixels == pixels)
     for (panel, path) in zip(panels, paths) {
@@ -698,43 +710,17 @@ struct WindowBorderTests {
       #expect(panel.frame == expected)
     }
     manager.prepareForSelection(nil, displayedFrame: nil)
+    #expect(manager.activeWindowID == nil)
     #expect(manager.performance.estimatedSurfacePixels == 0)
     #expect(manager.performance.visible == 0)
     manager.hide()
   }
 
   @Test @MainActor
-  func activeSelectionReusesDormantBorderPanels() {
-    let manager = WindowBorderManager()
-    let first = WindowID(rawValue: 1)
-    let second = WindowID(rawValue: 2)
-    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
-    let firstPlan = planWindowBorders(
-      frames: [FrameAssignment(windowID: first, frame: frame)],
-      selectedWindowID: first,
-      hiddenWindowIDs: [],
-      monitorFrames: [monitor],
-      style: style
-    )
-
-    manager.prepareForSelection(first, displayedFrame: frame)
-    manager.sync(
-      firstPlan,
-      displayedFrames: [first: frame],
-      stacking: frontmostStacking(for: first)
-    )
-    #expect(manager.performance.allocated == 1)
-
-    manager.prepareForSelection(second, displayedFrame: frame)
-
-    #expect(manager.activeWindowID == second)
-    #expect(manager.performance.allocated == 1)
-  }
-
-  @Test @MainActor
   func boundsProbeWaitsForTheOwnedSurfaceToAcquireGeometry() {
     let nativeFrame = Mutex<CGRect?>(.zero)
-    let provider = WindowServerBoundsProvider(boundsReader: { _ in nativeFrame.withLock { $0 } })
+    let provider = WindowServerBoundsProvider(
+      boundsReader: { _ in nativeFrame.withLock { $0 } }, windowExists: { _ in true })
     let owned = WindowID(rawValue: 1)
     provider.probe(ownedWindowID: owned)
     #expect(!provider.isAvailable)
@@ -769,6 +755,21 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func closedWindowReadFailureDoesNotDisableTheBoundsBackend() {
+    let closed = WindowID(rawValue: 2)
+    let provider = WindowServerBoundsProvider(
+      boundsReader: { $0 == 2 ? nil : CGRect(x: 20, y: 30, width: 800, height: 500) },
+      windowExists: { $0 != 2 }
+    )
+    let owned = WindowID(rawValue: 1)
+    provider.probe(ownedWindowID: owned)
+    #expect(provider.frame(for: closed) == nil)
+    #expect(provider.isAvailable)
+    #expect(provider.failureCount == 0)
+    #expect(provider.frame(for: owned) == Rect(x: 20, y: 30, width: 800, height: 500))
+  }
+
+  @Test @MainActor
   func boundsReadsCanBeSharedByIndependentFrameLanes() async {
     let provider = WindowServerBoundsProvider(boundsReader: { _ in
       CGRect(x: 20, y: 30, width: 800, height: 500)
@@ -784,7 +785,7 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
-  func ownedSurfaceWindowIDRemainsReadableAfterRapidOverlayChanges() {
+  func ownedSurfaceWindowIDRemainsReadableAfterRapidOverlayChanges() throws {
     let manager = WindowBorderManager()
     let frame = Rect(x: 100, y: 100, width: 800, height: 600)
 
@@ -805,6 +806,9 @@ struct WindowBorderTests {
 
       _ = manager.ownedSurfaceWindowID
     }
+
+    let owned = try #require(manager.ownedSurfaceWindowID)
+    #expect(manager.transparentSurfaceWindowIDs.contains(CGWindowID(owned.rawValue)))
   }
 
   @Test @MainActor
@@ -900,6 +904,96 @@ struct WindowBorderTests {
     #expect(
       overlay.upperBoundWindowNumbers.allSatisfy { $0 == nil }
     )
+  }
+
+  /// Shows a border at `start`, then routes same-size moves through `mover`.
+  /// The fake mover never moves WindowServer, so AppKit's resync reads the old
+  /// position: only the authoritative frame can bring the edges to the target.
+  @MainActor
+  private func movedBorder(
+    start: Rect, mover: @escaping ([BorderSurfaceMove]) -> Bool
+  ) -> (WindowBorderManager, WindowID, [NSWindow]) {
+    let manager = WindowBorderManager()
+    let windowID = WindowID(rawValue: 1)
+    let plan = planWindowBorders(
+      frames: [FrameAssignment(windowID: windowID, frame: start)],
+      selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+    )
+    manager.prepareForSelection(windowID, displayedFrame: start)
+    manager.sync(plan, displayedFrames: [windowID: start], stacking: frontmostStacking(for: windowID))
+    manager.revealPendingBorders()
+    manager.surfaceMover = mover
+    let panels = NSApp.windows.filter {
+      manager.transparentSurfaceWindowIDs.contains(CGWindowID($0.windowNumber))
+    }
+    return (manager, windowID, panels)
+  }
+
+  @MainActor
+  private func panelFrames(_ panels: [NSWindow]) -> [UInt32: Rect] {
+    let mainTop = NSScreen.screens.first?.frame.maxY ?? 0
+    return Dictionary(uniqueKeysWithValues: panels.map { panel in
+      (UInt32(panel.windowNumber), Rect(
+        x: panel.frame.minX, y: mainTop - panel.frame.maxY,
+        width: panel.frame.width, height: panel.frame.height))
+    })
+  }
+
+  @Test @MainActor
+  func skyLightMoveStaysAuthoritativeAcrossStackingAndReveal() {
+    var batches: [[BorderSurfaceMove]] = []
+    let (manager, windowID, panels) = movedBorder(
+      start: Rect(x: 100, y: 100, width: 800, height: 600)
+    ) { batches.append($0); return true }
+    defer { manager.hide() }
+    let moved = Rect(x: 300, y: 120, width: 800, height: 600)
+    manager.updateGeometry(frames: [windowID: moved], style: style)
+    let expected = manager.expectedEdgeFrames { _ in moved }[windowID] ?? [:]
+    #expect(expected.count == 4)
+    #expect(batches.count == 1)
+    #expect(Set(batches[0].map(\.origin.x)) == [300, 1087])
+
+    manager.updateActiveStacking(for: windowID, stacking: .inactive(for: windowID))
+    manager.updateActiveStacking(for: windowID, stacking: frontmostStacking(for: windowID))
+    manager.prepareForSelection(windowID, displayedFrame: moved)
+    manager.revealPendingBorders()
+
+    #expect(panelFrames(panels) == expected)
+  }
+
+  @Test @MainActor
+  func failedMoveNeverReplaysAFrameCapturedBeforeANewerMove() {
+    var results = [false, true]
+    let (manager, windowID, panels) = movedBorder(
+      start: Rect(x: 100, y: 100, width: 800, height: 600)
+    ) { _ in results.removeFirst() }
+    defer { manager.hide() }
+    let first = Rect(x: 200, y: 100, width: 800, height: 600)
+    let latest = Rect(x: 400, y: 100, width: 800, height: 600)
+    manager.updateGeometry(frames: [windowID: first], style: style)
+    #expect(panelFrames(panels) == manager.expectedEdgeFrames { _ in first }[windowID])
+    manager.updateGeometry(frames: [windowID: latest], style: style)
+    manager.revealPendingBorders()
+    manager.updateActiveStacking(for: windowID, stacking: .inactive(for: windowID))
+    manager.revealPendingBorders()
+
+    #expect(results.isEmpty)
+    #expect(panelFrames(panels) == manager.expectedEdgeFrames { _ in latest }[windowID])
+  }
+
+  @Test @MainActor
+  func staleEdgeIsTraced() {
+    let (manager, windowID, _) = movedBorder(
+      start: Rect(x: 100, y: 100, width: 800, height: 600)
+    ) { _ in true }
+    defer { manager.hide() }
+    var traces: [String] = []
+    manager.trace = { traces.append($0) }
+    manager.surfaceBounds = { _ in Rect(x: 0, y: 0, width: 1, height: 1) }
+    manager.updateGeometry(
+      frames: [windowID: Rect(x: 104, y: 100, width: 800, height: 600)], style: style)
+    #expect(traces.count == 4)
+    #expect(traces.allSatisfy { $0.hasPrefix("border-stale wid=1 edge=") })
   }
 
   private func frontmostStacking(

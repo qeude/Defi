@@ -37,21 +37,21 @@ struct WorkspaceScrollingTests {
       focusedColumn: 1
     )
     #expect(abs((focusedColumnTargetScrollOffset(
-        workspace: workspace, viewport: viewport, settings: LayoutSettings(),
-        centerFocusedColumn: .never
+        workspace: workspace, viewport: viewport,
+        settings: LayoutSettings(centerFocusedColumn: .never)
       )) - (0)) <= 0.001)
 
     workspace.focusedColumn = 2
     #expect(abs((focusedColumnTargetScrollOffset(
-        workspace: workspace, viewport: viewport, settings: LayoutSettings(),
-        centerFocusedColumn: .never
+        workspace: workspace, viewport: viewport,
+        settings: LayoutSettings(centerFocusedColumn: .never)
       )) - (0.5)) <= 0.001)
 
     workspace.focusedColumn = 3
     workspace.scrollOffset = 0.5
     #expect(abs((focusedColumnTargetScrollOffset(
-        workspace: workspace, viewport: viewport, settings: LayoutSettings(),
-        centerFocusedColumn: .never
+        workspace: workspace, viewport: viewport,
+        settings: LayoutSettings(centerFocusedColumn: .never)
       )) - (1)) <= 0.001)
   }
 

@@ -2,6 +2,9 @@
 
 Status: implemented and validated on 2026-08-24.
 
+Historical: window previews are now on by default and the zoom no longer depends
+on them; see ADR 0003 and `CONFIGURATION.md`.
+
 ADR 0004 supersedes this plan's static workspace and vertical keyboard
 navigation assumptions. The plan otherwise records the implemented Overview
 baseline at the validation date above.

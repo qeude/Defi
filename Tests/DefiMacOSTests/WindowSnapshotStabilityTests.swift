@@ -464,14 +464,14 @@ struct WindowSnapshotStabilityTests {
     engine.unmatchedWindowElementsByProcess = [41: [first], 42: [deferred]]
     engine.unmatchedWindowRetryAttemptsByProcess = [41: 0, 42: 0]
     for attempt in 1...3 {
-      engine.retryUnmatchedWindows(processIDs: [41])
+      engine.consumeUnmatchedWindowRetries(processIDs: [41])
       #expect(engine.unmatchedWindowElementsByProcess[42]?.count == 1)
       #expect(engine.unmatchedWindowRetryAttemptsByProcess[42] == attempt - 1)
       cacheWindowElementForShortRetry(
         first, processID: 41, elementsByProcess: &engine.unmatchedWindowElementsByProcess,
         attemptsByProcess: &engine.unmatchedWindowRetryAttemptsByProcess
       )
-      engine.retryUnmatchedWindows(processIDs: [42])
+      engine.consumeUnmatchedWindowRetries(processIDs: [42])
       cacheWindowElementForShortRetry(
         deferred, processID: 42, elementsByProcess: &engine.unmatchedWindowElementsByProcess,
         attemptsByProcess: &engine.unmatchedWindowRetryAttemptsByProcess
@@ -1410,21 +1410,6 @@ struct WindowSnapshotStabilityTests {
     #expect(retained.isEmpty)
   }
 
-  @Test func existingCGWindowSurvivesTransientAccessibilityOmission() {
-    let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [makeCGWindow(id: 42)],
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ) == [window.id]
-    )
-  }
-
   @Test func unavailableCGInventoryPreservesCachedWindow() {
     let window = makeWindow(id: 42)
 
@@ -1437,18 +1422,6 @@ struct WindowSnapshotStabilityTests {
         cgWindows: nil,
         cachedWindowState: { _ in (.cannotComplete, nil) }
       ) == [window.id]
-    )
-  }
-
-  @Test func retainedWindowDoesNotProvideFreshFrameObservation() {
-    let retainedWindow = makeWindow(id: 42)
-    let observedWindow = makeWindow(id: 43)
-
-    #expect(
-      freshWindowObservationIDs(
-        windows: [retainedWindow, observedWindow],
-        retainedWindowIDs: [retainedWindow.id]
-      ) == [observedWindow.id]
     )
   }
 

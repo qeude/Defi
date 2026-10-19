@@ -876,23 +876,24 @@ private func scalePixelWidth(_ width: inout ColumnWidth, by scale: Double) {
 }
 
 extension LayoutSettings {
-  fileprivate init(config: Config) {
-    let borderPadding =
+  public init(config: Config) {
+    // An outside border belongs to its window, so gaps separate the outer border edges.
+    let border =
       config.decorations.borders.enabled
         && config.decorations.borders.placement == "outside"
       ? config.decorations.borders.width
       : 0
+    let gaps = config.layout.gaps
     self.init(
       defaultColumnWidth: config.layout.defaultColumnWidth,
       presetColumnWidths: config.layout.presetColumnWidths,
       centerFocusedColumn: config.layout.centerFocusedColumn == .always ? .always : .never,
-      innerHorizontalGap: max(config.layout.gaps / 2, borderPadding / 2),
-      innerVerticalGap: config.layout.gaps / 2,
-      outerTopGap: max(config.layout.outerTopGap ?? config.layout.gaps, borderPadding),
-      outerRightGap: max(config.layout.outerRightGap ?? config.layout.gaps, borderPadding),
-      outerBottomGap: max(config.layout.outerBottomGap ?? config.layout.gaps, borderPadding),
-      outerLeftGap: max(config.layout.outerLeftGap ?? config.layout.gaps, borderPadding),
-      horizontalViewportPadding: borderPadding / 2
+      innerHorizontalGap: gaps / 2 + border,
+      innerVerticalGap: gaps / 2 + border,
+      outerTopGap: (config.layout.outerTopGap ?? gaps) + border,
+      outerRightGap: (config.layout.outerRightGap ?? gaps) + border,
+      outerBottomGap: (config.layout.outerBottomGap ?? gaps) + border,
+      outerLeftGap: (config.layout.outerLeftGap ?? gaps) + border
     )
   }
 
@@ -904,6 +905,5 @@ extension LayoutSettings {
       || outerRightGap != other.outerRightGap
       || outerBottomGap != other.outerBottomGap
       || outerLeftGap != other.outerLeftGap
-      || horizontalViewportPadding != other.horizontalViewportPadding
   }
 }

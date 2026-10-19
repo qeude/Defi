@@ -205,7 +205,7 @@ public final class HotKeyManager {
       throw error
     }
     let thread = Thread { context.run() }
-    thread.name = "com.quentin.defi.input-monitor"
+    thread.name = "com.qeude.defi.input-monitor"
     thread.qualityOfService = .userInteractive
     self.context = context
     self.thread = thread

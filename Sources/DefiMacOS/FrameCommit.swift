@@ -29,6 +29,13 @@ func frameWriteIntent(
   )
 }
 
+// A size the app refused keeps the write intent alive; only a logical resize animates size.
+func targetSizeChanged(previous: Rect?, target: Rect) -> Bool {
+  guard let previous else { return true }
+  return abs(previous.width - target.width) >= 0.5
+    || abs(previous.height - target.height) >= 0.5
+}
+
 func reentryStartRequiresStaging(
   observed: CGPoint,
   planned: CGPoint
@@ -87,11 +94,17 @@ func shouldDeferAnimatedSizeUntilMovementCompletes(
   to target: Rect,
   displayFrames: [Rect]
 ) -> Bool {
-  frameCentersCrossDisplays(
-      from: source,
-      to: target,
-      displayFrames: displayFrames
-    )
+  if frameCentersCrossDisplays(from: source, to: target, displayFrames: displayFrames) {
+    return true
+  }
+  // macOS clamps an Accessibility resize to the display at the window's current
+  // position, so growth past its right edge only fits once the window has moved.
+  // Locate by the leading edge: a stale start size can push the center off the display.
+  let leadingEdge = Rect(x: source.x, y: source.y, width: 0, height: source.height)
+  guard let display = displayFrames.first(where: { $0.contains(centerOf: leadingEdge) }) else {
+    return false
+  }
+  return source.x + target.width > display.x + display.width + 1
 }
 
 struct AsyncPositionWrite: @unchecked Sendable {
@@ -104,7 +117,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let size: CGSize
   let positionChanged: Bool
   let sizeChanged: Bool
-  let animatesSize: Bool
+  var animatesSize: Bool
   var usesLogicalRibbonPath = false
   let synchronousSizeWriteSucceeded: Bool
   let enhancedUIWasEnabled: Bool
@@ -114,6 +127,7 @@ struct AsyncPositionWrite: @unchecked Sendable {
   let requiresVerifiedOffscreenWrite: Bool
   var animationPoint: CGPoint? = nil
   var usesCommonRibbonOffset = false
+  var binding: BorderGeometryReadTarget? = nil
 }
 
 // One visible native window anchors the entire strip. Parking anchors are
@@ -216,7 +230,8 @@ func positionOnlyAnimationWrite(
     isReentering: write.isReentering,
     requiresVerifiedOffscreenWrite: write.requiresVerifiedOffscreenWrite,
     animationPoint: write.animationPoint,
-    usesCommonRibbonOffset: write.usesCommonRibbonOffset
+    usesCommonRibbonOffset: write.usesCommonRibbonOffset,
+    binding: write.binding
   )
 }
 
@@ -309,7 +324,8 @@ func frameWritesPreservingSupersededAsyncSizes(
         isReentering: newer.isReentering,
         requiresVerifiedOffscreenWrite: newer.requiresVerifiedOffscreenWrite,
         animationPoint: newer.animationPoint,
-        usesCommonRibbonOffset: newer.usesCommonRibbonOffset
+        usesCommonRibbonOffset: newer.usesCommonRibbonOffset,
+        binding: newer.binding
       )
     } else {
       result[windowID] = newer
@@ -395,18 +411,18 @@ struct FrameWriteCompletion: Equatable, Sendable {
   let completedLatest: Bool
   let attemptedWindowIDs: Set<WindowID>
   let successfulWindowIDs: Set<WindowID>
-  let acceptedFrames: [WindowID: Rect]
+  let acceptedObservations: [BorderGeometryObservation]
 
   init(
     completedLatest: Bool,
     attemptedWindowIDs: Set<WindowID>,
     successfulWindowIDs: Set<WindowID>,
-    acceptedFrames: [WindowID: Rect] = [:]
+    acceptedObservations: [BorderGeometryObservation] = []
   ) {
     self.completedLatest = completedLatest
     self.attemptedWindowIDs = attemptedWindowIDs
     self.successfulWindowIDs = successfulWindowIDs
-    self.acceptedFrames = acceptedFrames
+    self.acceptedObservations = acceptedObservations
   }
 }
 

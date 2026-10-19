@@ -55,6 +55,31 @@ struct DiagnosticRecorderTests {
   }
 
   @Test
+  func autoMarkPolicyTriggersOnSlowSamplesAndRateLimits() {
+    func sample(firstWriteMS: Double?, focusMS: Double?) -> CommandDiagnosticSample {
+      CommandDiagnosticSample(
+        generation: 1, inputTimestamp: 0, expectedWindowCount: 1, expectsFocus: true,
+        planMS: 1, firstWriteMS: firstWriteMS, firstObservationMS: nil,
+        convergenceMS: nil, focusMS: focusMS, outcome: .completed
+      )
+    }
+    #expect(AutoMarkPolicy.reason(for: sample(firstWriteMS: 120, focusMS: 400)) == nil)
+    #expect(AutoMarkPolicy.reason(for: sample(firstWriteMS: 151, focusMS: nil)) == "firstWriteMS=151")
+    #expect(AutoMarkPolicy.reason(for: sample(firstWriteMS: 10, focusMS: 501)) == "focusMS=501")
+    #expect(slowAnimationDisplayGapMS("clock g=1 displayPulses=9 displayGapMs=62.50 timerSteps=0") == 62.5)
+    #expect(slowAnimationDisplayGapMS("clock g=1 displayPulses=9 displayGapMs=17.00 timerSteps=0") == nil)
+
+    var limiter = AutoMarkLimiter()
+    var results = [limiter.allow(at: 100), limiter.allow(at: 129)]
+    for index in 1..<AutoMarkLimiter.hourlyLimit {
+      results.append(limiter.allow(at: 100 + Double(index) * 31))
+    }
+    results.append(limiter.allow(at: 100 + 20 * 31))
+    results.append(limiter.allow(at: 100 + 3_600))
+    #expect(results == [true, false] + Array(repeating: true, count: 19) + [false, true])
+  }
+
+  @Test
   func rotatesWithinTheConfiguredFileCountAndSize() throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

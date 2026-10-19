@@ -19,6 +19,8 @@ import verify
 import desktop_session
 import ribbon_stress
 import animation_benchmark
+from test_performance_experiments import PerformanceExperimentsTests
+from test_motion_probe import MotionProbeTests
 
 
 class WorkflowTests(unittest.TestCase):
@@ -229,8 +231,11 @@ class WorkflowTests(unittest.TestCase):
                         source["sha256"] = "changed"
                     elif mutation == "bundle":
                         binary.write_text("changed")
-                def step(name, *_):
+                def step(name, command, *_):
                     steps.append(name)
+                    if name == "prepare-tests":
+                        self.assertEqual(command, [str(root / "script/test_desktop.sh"), "--build-tests"])
+                        lock.assert_not_called()
                     if name == "install":
                         raise RuntimeError("Stop before real installation")
                 previous_handler = verify.signal.getsignal(verify.signal.SIGTERM)
@@ -301,7 +306,7 @@ class WorkflowTests(unittest.TestCase):
             for bundle, version in [(installed, "old"), (staged, "broken")]:
                 macos = bundle / "Contents/MacOS"
                 macos.mkdir(parents=True)
-                (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.quentin.defi"}))
+                (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.qeude.defi"}))
                 (bundle / "version").write_text(version)
                 cli = macos / "defi"
                 cli.write_text("#!/bin/sh\n"
