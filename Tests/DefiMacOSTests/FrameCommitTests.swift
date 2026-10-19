@@ -962,6 +962,14 @@ struct FrameCommitTests {
     coordinator.recordCompletedActiveSizeWrite(windowID: windowID)
     #expect(!coordinator.frameMatchesPendingInternalWrite(
       windowID: windowID, actual: Rect(x: 400, y: 40, width: 900, height: 700)))
+
+    coordinator.completedPositions[windowID] = CGPoint(x: 1_200, y: 40)
+    coordinator.activeWrites[windowID] = makeMotionWrite(
+      fromX: 100, toX: 400, sizeChanged: true, positionChanged: false)
+    #expect(coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 1_200, y: 40, width: 900, height: 700)))
+    #expect(!coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 400, y: 40, width: 900, height: 700)))
   }
 
   @Test
@@ -1326,7 +1334,8 @@ struct FrameCommitTests {
   private func makeMotionWrite(
     fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42,
     animatesSize: Bool = false,
-    isReentering: Bool = false, isParked: Bool = false, toY: Double = 40
+    isReentering: Bool = false, isParked: Bool = false, toY: Double = 40,
+    positionChanged: Bool = true
   ) -> AsyncPositionWrite {
     // Handles only: these tests never read or mutate the real desktop.
     let element = AXUIElementCreateSystemWide()
@@ -1334,7 +1343,7 @@ struct FrameCommitTests {
       element: element, application: element, processID: processID,
       fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: toY),
       fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
-      positionChanged: true, sizeChanged: sizeChanged, animatesSize: animatesSize,
+      positionChanged: positionChanged, sizeChanged: sizeChanged, animatesSize: animatesSize,
       synchronousSizeWriteSucceeded: !sizeChanged, enhancedUIWasEnabled: false,
       timeoutSeconds: 0.016, isParked: isParked, isReentering: isReentering,
       requiresVerifiedOffscreenWrite: false
