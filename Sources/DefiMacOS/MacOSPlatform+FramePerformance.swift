@@ -110,10 +110,12 @@ extension MacOSPlatform {
     frameCoordinator.droppedCount
   }
 
-  public func frameMatchesRecentInternalWrite(windowID: WindowID, actual: Rect) -> Bool {
-    frameCoordinator.frameMatchesRecentInternalWrite(
-      windowID: windowID, actual: actual, now: snapshotEngine.discoveryNow
-    )
+  /// Completed writes are excluded so a user returning a window to its old width still counts.
+  public func frameMatchesPendingInternalWrite(windowID: WindowID, actual: Rect) -> Bool {
+    frameCoordinator.pendingWindowIDs.contains(windowID)
+      && frameCoordinator.frameMatchesRecentInternalWrite(
+        windowID: windowID, actual: actual, now: snapshotEngine.discoveryNow
+      )
   }
 
   public func completedPosition(for windowID: WindowID) -> CGPoint? {

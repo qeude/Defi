@@ -882,7 +882,7 @@ extension Daemon {
           actualFrame: actualFrame,
           postReleaseSettlementActive: postReleaseMouseGestureActive,
           actualFrameMatchesRecentDefiWrite: actualFrame.map {
-            platform.frameMatchesRecentInternalWrite(windowID: gestureWindowID, actual: $0)
+            platform.frameMatchesPendingInternalWrite(windowID: gestureWindowID, actual: $0)
           } ?? false
         )
       {
