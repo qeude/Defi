@@ -6,6 +6,8 @@ dist/
 .env.local
 .vscode/
 .codex/
+site/node_modules/
+site/public/fonts/CabinetGrotesk-*.woff2
 
 # gemini-cli settings
 .gemini/

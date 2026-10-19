@@ -1,0 +1,16 @@
+{
+  "name": "defi-site",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --base=./",
+    "preview": "vite preview",
+    "predev": "node script/prepare-fonts.mjs",
+    "prebuild": "node script/prepare-fonts.mjs"
+  },
+  "devDependencies": {
+    "vite": "^8.0.0"
+  }
+}
