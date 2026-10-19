@@ -518,8 +518,9 @@ when the joined stack would need more than the monitor offers. If a monitor
 shrinks or a constraint changes so an existing stack no longer fits, Defi keeps
 the longest top-to-bottom run that fits and moves the remaining windows, in
 order, into new adjacent columns of the same width on its right. Columns are never
-merged back automatically. A single window taller than the monitor keeps the
-whole height and is listed in `oversized-stack-windows` of `defi status`.
+merged back automatically. A single window whose minimum height exceeds the
+monitor is placed at its minimum, top-aligned, without further resize attempts,
+and is listed in `oversized-stack-windows` of `defi status`.
 
 `previous` may be written as `prev`. `focus-column` also accepts
 `previous`/`next`; `focus-window` accepts `previous`/`next`; `focus-floating`

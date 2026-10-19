@@ -59,13 +59,13 @@ public func computeLayout(
           min(width, window.maximumTiledWidth ?? width),
           effectiveMinimumTiledWidth(window.minimumTiledWidth, requested: width)
         )
-        let constrainedHeight = cappedStackWindowHeight(
+        let constrainedHeight = constrainedStackWindowHeight(
           slotHeight: height, window: window, windowIndex: windowIndex,
           windowCount: column.windows.count, settings: settings
         )
         frame = Rect(
           x: x + (width - constrainedWidth) / 2,
-          y: slot.y + (height - constrainedHeight) / 2,
+          y: slot.y + max(height - constrainedHeight, 0) / 2,
           width: constrainedWidth,
           height: constrainedHeight
         )
@@ -230,7 +230,7 @@ private func acceptedTiledSizes(
         x: (preferredWidth - constrainedWidth) / 2,
         y: viewport.y + heights.prefix(windowIndex).reduce(0, +),
         width: constrainedWidth,
-        height: cappedStackWindowHeight(
+        height: constrainedStackWindowHeight(
           slotHeight: heights[windowIndex], window: window, windowIndex: windowIndex,
           windowCount: column.windows.count, settings: settings
         )

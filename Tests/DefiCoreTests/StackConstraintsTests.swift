@@ -84,11 +84,15 @@ struct StackConstraintsTests {
   }
 
   @Test
-  func `An infeasible stack falls back to slots proportional to the minimums`() {
-    #expect(
-      heights(
-        [1, 2], windows: [window(1, minimumHeight: 600), window(2, minimumHeight: 400)],
-        viewport: Rect(x: 0, y: 0, width: 1_000, height: 500)) == [300, 200])
+  func `An infeasible stack starts proportional slots and keeps each window at its minimum`() {
+    let frames = computeLayout(
+      workspace: Workspace(id: WorkspaceID(rawValue: "1"), columns: [stack([1, 2])]),
+      viewport: Rect(x: 0, y: 0, width: 1_000, height: 500),
+      windows: [window(1, minimumHeight: 600), window(2, minimumHeight: 400)],
+      settings: noGaps
+    ).map(\.frame)
+    #expect(frames.map(\.y) == [0, 300])
+    #expect(frames.map(\.height) == [600, 400])
   }
 
   @Test
@@ -122,7 +126,7 @@ struct StackConstraintsTests {
     let windows = [id(1): window(1, minimumHeight: 5_000)]
 
     #expect(stackFit([id(1)], windowsByID: windows, viewport: viewport, settings: noGaps) == .fits)
-    #expect(heights([1], windows: Array(windows.values)) == [1_000])
+    #expect(heights([1], windows: Array(windows.values)) == [5_000])
   }
 
   private func shrunkWorkspace(
@@ -228,5 +232,15 @@ struct StackConstraintsTests {
       in: &workspace, viewport: viewport, windowsByID: windows, settings: noGaps,
       excludingWindowIDs: [id(2)]))
     #expect(workspace.columns.map(\.windows) == [[id(1), id(2), id(3)]])
+  }
+
+  @Test
+  func `An oversized single window is targeted at its minimum height so it is not retried`() {
+    let frames = computeLayout(
+      workspace: Workspace(id: WorkspaceID(rawValue: "1"), columns: [stack([1])]),
+      viewport: viewport, windows: [window(1, minimumHeight: 1_200)], settings: LayoutSettings()
+    ).map(\.frame)
+    #expect(frames.map(\.y) == [8])
+    #expect(frames.map(\.height) == [1_200])
   }
 }

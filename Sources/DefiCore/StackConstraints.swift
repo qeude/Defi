@@ -102,20 +102,20 @@ func stackSlotHeights(
   return surplus > 0.001 ? slots.map { $0 + surplus } : slots
 }
 
-/// Height a non-intrinsic window may occupy inside its slot; it is centred in
-/// any surplus beyond its verified maximum.
-func cappedStackWindowHeight(
+/// Height a non-intrinsic window occupies in its slot: capped at its verified
+/// maximum (centred in the surplus) and raised to its verified minimum (top-aligned
+/// overflow), so the target matches what the app accepts instead of being retried.
+func constrainedStackWindowHeight(
   slotHeight: Double,
   window: Window?,
   windowIndex: Int,
   windowCount: Int,
   settings: LayoutSettings
 ) -> Double {
-  guard let window, !window.intrinsicSize, let maximum = window.maximumTiledHeight else {
-    return slotHeight
-  }
+  guard let window, !window.intrinsicSize else { return slotHeight }
   let gaps = stackVerticalGaps(windowIndex: windowIndex, windowCount: windowCount, settings: settings)
-  return min(slotHeight, maximum + gaps)
+  let capped = window.maximumTiledHeight.map { min(slotHeight, $0 + gaps) } ?? slotHeight
+  return window.minimumTiledHeight.map { max(capped, $0 + gaps) } ?? capped
 }
 
 private func stackBounds(
