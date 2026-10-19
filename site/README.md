@@ -52,7 +52,8 @@ The hero starts as the page begins to open it. Feature clips play while they are
 on screen in a visible tab, and several visible clips may play at once; leaving
 the viewport or hiding the tab pauses them and returning resumes them. With a
 reduced-motion preference nothing autoplays and native controls appear, and
-changing the preference takes effect immediately. Failed recordings show a
+changing the preference takes effect immediately. Otherwise a click or tap pauses
+or resumes a clip, and a pause sticks until the next click. Failed recordings show a
 poster and direct clip and README links.
 
 See [DESIGN.md](DESIGN.md), [MEDIA.md](MEDIA.md), [ART-DIRECTION.md](ART-DIRECTION.md),

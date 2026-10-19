@@ -20,7 +20,7 @@ export function mountHeroGrow(hero, reducedMotion) {
     if (progress < .05) {
       if (!video.paused) video.pause();
       if (video.currentTime > .05) video.currentTime = 0;
-    } else if (progress >= .1 && video.paused) {
+    } else if (progress >= .1 && video.paused && !('userPaused' in video.dataset)) {
       video.play().catch(() => {});
     }
   }

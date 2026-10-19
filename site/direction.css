@@ -180,3 +180,4 @@ h1,h2,h3{font-family:'Cabinet Grotesk','DM Sans',sans-serif}
 /* Feature title only: the recording says the rest. */
 .feature-title{max-width:1040px;margin:0 auto;font-size:clamp(34px,4.2vw,56px);letter-spacing:-1.8px;line-height:1.04;font-weight:500;text-wrap:balance}
 .feature-visual{margin-top:40px}
+.recording video{cursor:pointer}

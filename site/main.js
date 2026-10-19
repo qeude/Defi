@@ -41,7 +41,7 @@ const onScreen = new Set();
 // Feature clips play only while visible in a visible tab; without autoplay (reduced motion), a clip started with the native controls is only paused once it leaves the view.
 function syncPlayback(video) {
   if (!onScreen.has(video) || document.hidden) video.pause();
-  else if ('autoplay' in video.dataset && !reducedMotion.matches) video.play().catch(() => {});
+  else if ('autoplay' in video.dataset && !('userPaused' in video.dataset) && !reducedMotion.matches) video.play().catch(() => {});
 }
 const visibility = new IntersectionObserver(entries => {
   entries.forEach(({ target, isIntersecting }) => {
@@ -55,6 +55,17 @@ function wireVideo(video) {
   videos.add(video);
   video.controls = reducedMotion.matches;
   visibility.observe(video);
+  // A click or tap pauses or resumes the clip; a pause sticks until the next click. Native controls (reduced motion) handle their own clicks.
+  video.addEventListener('click', () => {
+    if (video.controls) return;
+    if (video.paused) {
+      delete video.dataset.userPaused;
+      video.play().catch(() => {});
+    } else {
+      video.dataset.userPaused = '';
+      video.pause();
+    }
+  });
   const showError = () => {
     video.pause();
     video.hidden = true;
@@ -207,6 +218,7 @@ app.querySelectorAll('.copy-button').forEach(button => button.addEventListener('
 document.addEventListener('visibilitychange', () => videos.forEach(syncPlayback));
 reducedMotion.addEventListener('change', () => videos.forEach(video => {
   video.controls = reducedMotion.matches;
+  delete video.dataset.userPaused;
   if (reducedMotion.matches) video.pause();
   else syncPlayback(video);
 }));

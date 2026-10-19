@@ -50,4 +50,5 @@ at `-crf 24` (HD, kept at full size) and `-crf 26` (scaled to 1920 × 1080).
 Known weak spots: the cmatrix terminal restarts (and looks empty for a moment)
 after every width change, and the Overview clip ends on fastfetch, which shows
 the hostname. The T3 sidebar (thread titles) and fastfetch (hostname, IP) are
-visible in the hero and the workspaces clip. There is no multi-monitor capture and no cheatsheet clip yet.
+visible in the hero and the workspaces clip. The owner reviewed these details and
+accepted them for publication. There is no multi-monitor capture and no cheatsheet clip yet.
