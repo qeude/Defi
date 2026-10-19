@@ -997,6 +997,8 @@ struct NativeFocusTests {
     (CenterFocusedColumnConfig.always, UInt64(2), 0.25),
     (CenterFocusedColumnConfig.always, UInt64(3), 0.75),
     (CenterFocusedColumnConfig.never, UInt64(3), 0.5),
+    (CenterFocusedColumnConfig.onOverflow, UInt64(2), 0.0),
+    (CenterFocusedColumnConfig.onOverflow, UInt64(3), 0.75),
   ])
   func nativeAndShortcutFocusRespectConfiguredScroll(
     centering: CenterFocusedColumnConfig, focusedWindow: UInt64, expectedOffset: Double
@@ -1006,11 +1008,12 @@ struct NativeFocusTests {
       config: Config(layout: LayoutConfig(centerFocusedColumn: centering, gaps: 0))
     )
     setColumnWidths(.fraction(0.5), state: &native)
+    let viewports = [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
     focusWindow(WindowID(rawValue: 1), state: &native)
+    synchronizeScrollOffsets(state: &native, viewports: viewports)
     native.monitors[0].workspaces[0].scrollOffset = 0
     native.monitors[0].workspaces[0].targetScrollOffset = 0
     var shortcut = native
-    let viewports = [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
 
     for _ in 1..<focusedWindow {
       try reduce(.focusColumn(.right), on: monitorID, state: &shortcut)
@@ -1024,6 +1027,52 @@ struct NativeFocusTests {
     #expect(native.monitors[0].workspaces[0].targetScrollOffset == expectedOffset)
     #expect(native.monitors[0].workspaces[0].focusedColumn == Int(focusedWindow - 1))
     #expect(shortcut.monitors[0].workspaces[0].focusedColumn == Int(focusedWindow - 1))
+  }
+
+  @Test
+  func onOverflowDecisionHoldsUntilSelectionChanges() throws {
+    var state = try makeState(
+      windowCount: 4,
+      config: Config(layout: LayoutConfig(centerFocusedColumn: .onOverflow, gaps: 0))
+    )
+    setColumnWidths(.fraction(0.5), state: &state)
+    let viewports = [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 700)]
+    focusWindow(WindowID(rawValue: 1), state: &state)
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+    state.monitors[0].workspaces[0].scrollOffset = 0
+    var targets: [Double] = []
+    func settle() {
+      synchronizeScrollOffsets(state: &state, viewports: viewports)
+      state.monitors[0].workspaces[0].scrollOffset =
+        state.monitors[0].workspaces[0].targetScrollOffset
+      targets.append(state.monitors[0].workspaces[0].targetScrollOffset)
+    }
+
+    try reduce(.focusColumn(.right), on: monitorID, state: &state)
+    settle()
+    try reduce(.focusColumn(.right), on: monitorID, state: &state)
+    settle()
+    focusWindow(WindowID(rawValue: 3), state: &state)
+    settle()
+    focusWindow(WindowID(rawValue: 1), state: &state)
+    settle()
+    focusWindow(WindowID(rawValue: 3), state: &state)
+    settle()
+    state.monitors[0].workspaces[0].scrollOffset = 0.5
+    settle()
+
+    focusWindow(WindowID(rawValue: 1), state: &state)
+    settle()
+    focusWindow(WindowID(rawValue: 2), state: &state)
+    settle()
+    try reduce(.moveColumn(.right), on: monitorID, state: &state)
+    settle()
+
+    #expect(targets == [0, 0.5, 0.5, 0, 0.75, 0.75, 0, 0, 0.5])
+    #expect(
+      state.monitors[0].workspaces[0].scrollFocus
+        == ScrollFocus(windowID: WindowID(rawValue: 2), centered: false)
+    )
   }
 
   private func makeState(windowCount: Int = 2, config: Config = Config()) throws -> RuntimeState {

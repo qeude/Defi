@@ -37,13 +37,15 @@ public func synchronizeScrollOffsets(
       let windows = workspace.columns
         .flatMap(\.windows)
         .compactMap { state.windows[$0] }
+      let target = focusedColumnScrollTarget(
+        workspace: workspace,
+        viewport: viewport,
+        windows: windows,
+        settings: state.layout
+      )
       state.monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset =
-        focusedColumnTargetScrollOffset(
-          workspace: workspace,
-          viewport: viewport,
-          windows: windows,
-          settings: state.layout
-        )
+        target.offset
+      state.monitors[monitorIndex].workspaces[workspaceIndex].scrollFocus = target.focus
     }
   }
 }

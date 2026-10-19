@@ -67,7 +67,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .logs: (.general, "Open Logs Folder…", "diagnostics logs")
     case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues")
     case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width")
-    case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center")
+    case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center on overflow")
     case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove")
     case .screenMargins: (
       .layout, "Spacing",

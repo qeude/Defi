@@ -899,7 +899,7 @@ extension LayoutSettings {
     self.init(
       defaultColumnWidth: config.layout.defaultColumnWidth,
       presetColumnWidths: config.layout.presetColumnWidths,
-      centerFocusedColumn: config.layout.centerFocusedColumn == .always ? .always : .never,
+      centerFocusedColumn: CenterFocusedColumn(config.layout.centerFocusedColumn),
       innerHorizontalGap: gaps / 2 + border,
       innerVerticalGap: gaps / 2 + border,
       outerTopGap: (config.layout.outerTopGap ?? gaps) + border,
@@ -917,5 +917,15 @@ extension LayoutSettings {
       || outerRightGap != other.outerRightGap
       || outerBottomGap != other.outerBottomGap
       || outerLeftGap != other.outerLeftGap
+  }
+}
+
+extension CenterFocusedColumn {
+  fileprivate init(_ config: CenterFocusedColumnConfig) {
+    switch config {
+    case .never: self = .never
+    case .always: self = .always
+    case .onOverflow: self = .onOverflow
+    }
   }
 }

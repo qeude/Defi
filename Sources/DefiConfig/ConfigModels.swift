@@ -304,6 +304,7 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
 public enum CenterFocusedColumnConfig: String, Codable, Sendable {
   case never
   case always
+  case onOverflow = "on-overflow"
 }
 
 public struct WorkspacesConfig: Codable, Equatable, Sendable {
