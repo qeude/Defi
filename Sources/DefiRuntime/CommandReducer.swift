@@ -13,6 +13,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
   case unknownWorkspace(WorkspaceID)
   case noFocusedWindow
   case layout(LayoutError)
+  case stackConstraint(StackRejection)
 
   public var description: String {
     switch self {
@@ -21,6 +22,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
     case .unknownWorkspace(let id): "unknown workspace: \(id)"
     case .noFocusedWindow: "no focused window"
     case .layout(let error): "layout error: \(error)"
+    case .stackConstraint(let rejection): "cannot join: \(rejection)"
     }
   }
 }
@@ -273,12 +275,19 @@ public func reduce(
           nativeFullscreenWindowIDs: state.nativeFullscreenWindowIDs
         )
       {
-        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+        let windowsByID = state.windows
+        let viewport = viewports[state.monitors[monitorIndex].id]
         try joinFocusedWindow(
           direction,
           in: &state.monitors[monitorIndex].workspaces[index],
-          settings: layout
+          settings: layout,
+          stackFit: { windowIDs in
+            viewport.map {
+              stackFit(windowIDs, windowsByID: windowsByID, viewport: $0, settings: layout)
+            } ?? .fits
+          }
         )
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
       }
     case .unjoinWindows:
       let index = try workspaceIndex(state.monitors[monitorIndex])
@@ -306,6 +315,8 @@ public func reduce(
     }
   } catch let error as LayoutError {
     throw ReducerError.layout(error)
+  } catch let rejection as StackRejection {
+    throw ReducerError.stackConstraint(rejection)
   }
   state.maintainWorkspaceLifecycle()
   normalizeNativeFullscreenColumns(state: &state)
