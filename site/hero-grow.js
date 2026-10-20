@@ -9,8 +9,7 @@ export function mountHeroGrow(hero, reducedMotion) {
   video.loop = true;
   video.preload = 'auto';
 
-  function sync(progress) {
-    const rect = visual.getBoundingClientRect();
+  function sync(progress, rect) {
     const onScreen = !document.hidden && rect.bottom > 0 && rect.top < innerHeight;
     if (!onScreen) {
       if (!video.paused) video.pause();
@@ -25,14 +24,20 @@ export function mountHeroGrow(hero, reducedMotion) {
     }
   }
 
+  let frame = 0;
   function grow() {
+    cancelAnimationFrame(frame);
+    frame = 0;
+    // Read layout before any write so the frame never forces a synchronous reflow.
+    const rect = visual.getBoundingClientRect();
     if (reducedMotion.matches) {
       ['--grow', '--bezel', '--bezel-radius', '--frame-radius'].forEach(name => visual.style.removeProperty(name));
-      return sync(0);
+      return sync(0, rect);
     }
-    const rest = Math.min(1040, innerWidth - 32) / innerWidth;
+    // The 8px bezel is painted outside the scaled frame, so the card keeps its 1040px outer width at rest.
+    const rest = (Math.min(1040, innerWidth - 32) - 16) / innerWidth;
     // Layout top is unaffected by the scale (origin at top), so this is stable while growing.
-    const top = visual.getBoundingClientRect().top + scrollY;
+    const top = rect.top + scrollY;
     const end = Math.min(innerHeight * .12, 120);
     const progress = Math.min(1, Math.max(0, scrollY / Math.max(1, top - end)));
     const eased = 1 - (1 - progress) ** 3;
@@ -43,11 +48,13 @@ export function mountHeroGrow(hero, reducedMotion) {
     visual.style.setProperty('--bezel', `${(8 * open).toFixed(2)}px`);
     visual.style.setProperty('--bezel-radius', `${(32 * open).toFixed(2)}px`);
     visual.style.setProperty('--frame-radius', `${(24 * open).toFixed(2)}px`);
-    sync(progress);
+    sync(progress, rect);
   }
+  // Scroll can fire several times per frame; render once per display refresh.
+  const schedule = () => { frame ||= requestAnimationFrame(grow); };
 
-  addEventListener('scroll', grow, { passive: true });
-  addEventListener('resize', grow);
+  addEventListener('scroll', schedule, { passive: true });
+  addEventListener('resize', schedule);
   reducedMotion.addEventListener('change', () => {
     video.controls = reducedMotion.matches;
     if (reducedMotion.matches) video.pause();
