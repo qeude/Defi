@@ -116,6 +116,10 @@ fi
 # Prepare a complete replacement before stopping the current app.
 mkdir -p "$INSTALL_ROOT"
 INSTALL_TRANSACTION="$(mktemp -d "$INSTALL_ROOT/.Defi-install.XXXXXX")"
+# LaunchServices follows moved bundles and System Settings shows their file name.
+PREVIOUS_BUNDLE="$INSTALL_TRANSACTION/previous/$APP_NAME.app"
+CANDIDATE_BUNDLE="$INSTALL_TRANSACTION/candidate/$APP_NAME.app"
+mkdir "$INSTALL_TRANSACTION/previous" "$INSTALL_TRANSACTION/candidate"
 REPLACEMENT_STARTED=0
 INSTALL_COMMITTED=0
 RUNTIME_WAS_RUNNING=0
@@ -123,7 +127,7 @@ pgrep -u "$(id -u)" -x "$PROCESS_NAME" >/dev/null && RUNTIME_WAS_RUNNING=1
 finish_install() {
   local result=$?
   trap - EXIT INT TERM
-  if [[ "$INSTALL_COMMITTED" -eq 0 ]] && { [[ "$REPLACEMENT_STARTED" -eq 1 ]] || [[ -d "$INSTALL_TRANSACTION/previous.app" ]]; }; then
+  if [[ "$INSTALL_COMMITTED" -eq 0 ]] && { [[ "$REPLACEMENT_STARTED" -eq 1 ]] || [[ -d "$PREVIOUS_BUNDLE" ]]; }; then
     echo "Installation failed; restoring the previous bundle" >&2
     "$INSTALLED_CLI" service stop >/dev/null 2>&1 || true
     for _ in {1..100}; do
@@ -135,8 +139,8 @@ finish_install() {
       exit 1
     fi
     rm -rf "$INSTALL_BUNDLE"
-    if [[ -d "$INSTALL_TRANSACTION/previous.app" ]]; then
-      mv "$INSTALL_TRANSACTION/previous.app" "$INSTALL_BUNDLE" || exit 1
+    if [[ -d "$PREVIOUS_BUNDLE" ]]; then
+      mv "$PREVIOUS_BUNDLE" "$INSTALL_BUNDLE" || exit 1
     fi
   fi
   if [[ "$INSTALL_COMMITTED" -eq 0 && "$RUNTIME_WAS_RUNNING" -eq 1 ]]; then
@@ -158,8 +162,8 @@ wait_for_runtime() {
 trap finish_install EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-ditto "$STAGING_BUNDLE" "$INSTALL_TRANSACTION/candidate.app"
-codesign --verify --deep --strict "$INSTALL_TRANSACTION/candidate.app"
+ditto "$STAGING_BUNDLE" "$CANDIDATE_BUNDLE"
+codesign --verify --deep --strict "$CANDIDATE_BUNDLE"
 
 LAUNCH_AT_LOGIN_WAS_ENABLED=0
 if /bin/launchctl print "$SERVICE_DOMAIN/$SERVICE_LABEL" >/dev/null 2>&1 \
@@ -205,10 +209,10 @@ for label in "$SERVICE_LABEL" "$LEGACY_SERVICE_LABEL"; do
 done
 
 if [[ -d "$INSTALL_BUNDLE" ]]; then
-  mv "$INSTALL_BUNDLE" "$INSTALL_TRANSACTION/previous.app"
+  mv "$INSTALL_BUNDLE" "$PREVIOUS_BUNDLE"
 fi
 REPLACEMENT_STARTED=1
-mv "$INSTALL_TRANSACTION/candidate.app" "$INSTALL_BUNDLE"
+mv "$CANDIDATE_BUNDLE" "$INSTALL_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$INSTALL_BUNDLE"
 
 start_runtime() {
