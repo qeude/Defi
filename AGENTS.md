@@ -48,8 +48,10 @@ pictures and are on by default. They use the WindowServer window capture and fal
 back to ScreenCaptureKit, which lights the menu bar recording indicator. Screen
 Recording is requested once, before the Overview is presented; the overlay only
 uses a permission already granted.
-Denial, revocation, or `overview.window_previews = false` degrades to cards
-without errors, repeated prompts, or loss of the zoom animation. Navigation,
+In the Overview, denial, revocation, or `overview.window_previews = false`
+degrades to cards without errors, repeated prompts, or loss of the zoom
+animation. Without the permission, the overlay is off and motion uses native
+Accessibility animation. Navigation,
 focus, and window movement never depend on capture.
 
 ## Product shape
