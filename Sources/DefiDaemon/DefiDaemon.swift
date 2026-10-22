@@ -164,6 +164,7 @@ final class Daemon {
   var activelyResizedWindowID: WindowID?
   /// Active workspace per monitor at the last layout, to give every switch its direction.
   var proxyActiveWorkspaces: [MonitorID: WorkspaceID] = [:]
+  var proxyWorkspaceOrders: [MonitorID: [WorkspaceID]] = [:]
   /// The window released by a proxied drop, until its drop layout is applied.
   var proxyDroppedWindowID: WindowID?
   /// The drop the overlay is previewing during a drag; applied for real on release.
@@ -509,8 +510,10 @@ final class Daemon {
     let commandQuietPeriodElapsed =
       now - latestCommandInputTimestamp >= 0.3
     // AX reads and WindowServer queries mid-motion cost the overlay frames: they wait
-    // for its landing, except while the pointer drives a gesture.
-    if !platform.windowProxiesMoving || mouseGestureSyncPending || liveBorderGesture,
+    // for its landing, except while the pointer drives a gesture or the user focused
+    // another window (a click, the Dock, Command-Tab).
+    if !platform.windowProxiesMoving || mouseGestureSyncPending || liveBorderGesture
+      || (nativeFocusSyncPending && nativeFocusHasNewerHumanIntent),
       desktopSynchronizationIsReady(
       scrollAnimationActive: !scrollAnimations.isEmpty,
       animatedWritesPending: animatedWritesPending,

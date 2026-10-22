@@ -100,18 +100,22 @@ struct RibbonProxyPicture: @unchecked Sendable {
 /// Average colour of the picture's right and bottom borders.
 func ribbonProxyEdgeColor(_ image: CGImage) -> CGColor? {
   let strip = max(image.width / 50, 2)
-  var pixel = [UInt8](repeating: 0, count: 4)
+  // The context writes through this pointer after its initializer returns.
+  let pixel = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)
+  pixel.initialize(repeating: 0, count: 4)
+  defer { pixel.deallocate() }
   guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-    let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+    let context = CGContext(data: pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
       space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
     let right = image.cropping(to: CGRect(x: image.width - strip, y: 0, width: strip, height: image.height)),
     let bottom = image.cropping(to: CGRect(x: 0, y: image.height - strip, width: image.width, height: strip))
   else { return nil }
   context.interpolationQuality = .medium
-  context.setAlpha(0.5)
+  // Opaque, then half over it: both borders weigh the same.
   context.draw(right, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+  context.setAlpha(0.5)
   context.draw(bottom, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-  // Premultiplied: two half-opaque draws leave alpha below 1.
+  // Premultiplied: transparent corners leave alpha below 1.
   let alpha = max(CGFloat(pixel[3]), 1)
   return CGColor(srgbRed: CGFloat(pixel[0]) / alpha, green: CGFloat(pixel[1]) / alpha,
     blue: CGFloat(pixel[2]) / alpha, alpha: 1)
@@ -273,8 +277,8 @@ final class RibbonProxyRenderer {
           if let ready = RibbonProxyStore.shared.screen(containing: frame) { requestBackground(ready) }
         }
         idleRefresh = idleRefresh ?? Task { [weak self] in
-          while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(0.5))
+          while true {
+            do { try await Task.sleep(for: .seconds(0.5)) } catch { return }
             self?.scheduleRefresh(after: 0, afterLanding: false)
           }
         }
@@ -531,7 +535,7 @@ final class RibbonProxyRenderer {
     // ScreenCaptureKit fallback: only windows never captured, or resized since (a
     // display change); a cropped picture made each landing wait.
     requests = requests.filter { request in
-      !visibleIDs.contains(request.id) && store.picture(request.id).map {
+      (ribbonProxyWindowServerCapture == nil || !visibleIDs.contains(request.id)) && store.picture(request.id).map {
         !ribbonProxyPictureMatches(captured: $0.size, native: request.frame)
       } ?? true
     }
@@ -769,12 +773,11 @@ final class RibbonProxyPresenter {
     // Managed windows outside this motion are never stills: the cached list can still
     // show one at the place it just left, which would cross the new workspace.
     let managed = Set(windows.map(\.id)).union(managedWindowIDs)
-    // Only the on-screen part of a still window is captured and drawn.
+    // Whole frames: the capture returns the whole window and the root layer clips it.
     let unmanaged = onScreen.compactMap { window -> (id: WindowID, processID: Int32, frame: Rect)? in
       guard !managed.contains(window.id), window.processID != getpid(), window.layer == 0,
-        windowProxyVisibleOverlap(window.frame, area) > 1.01,
-        let clipped = ribbonProxyIntersection(window.frame, screen.frame) else { return nil }
-      return (window.id, window.processID, clipped)
+        windowProxyVisibleOverlap(window.frame, area) > 1.01 else { return nil }
+      return (window.id, window.processID, window.frame)
     }
     let missing = unmanaged.filter { window in
       guard let picture = store.picture(window.id) else { return true }
@@ -1526,13 +1529,6 @@ func ribbonProxyNativeFrames(_ ids: Set<WindowID>) -> [WindowID: Rect] {
       width: frame.width, height: frame.height)
   }
   return result
-}
-
-func ribbonProxyIntersection(_ a: Rect, _ b: Rect) -> Rect? {
-  let x = max(a.x, b.x), y = max(a.y, b.y)
-  let right = min(a.x + a.width, b.x + b.width), bottom = min(a.y + a.height, b.y + b.height)
-  guard right > x, bottom > y else { return nil }
-  return Rect(x: x, y: y, width: right - x, height: bottom - y)
 }
 
 /// Front-to-back on-screen windows, for unmanaged stills and stacking order.

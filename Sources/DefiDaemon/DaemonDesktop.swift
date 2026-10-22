@@ -404,14 +404,16 @@ extension Daemon {
     for monitor in state.monitors {
       let previous = proxyActiveWorkspaces[monitor.id]
       proxyActiveWorkspaces[monitor.id] = monitor.activeWorkspace
+      // The stack as it was: the workspace left may since have been removed.
+      let order = proxyWorkspaceOrders.updateValue(monitor.workspaces.map(\.id), forKey: monitor.id)
+        ?? monitor.workspaces.map(\.id)
       guard shift == nil, !source.hasPrefix("overview"), let previous,
         previous != monitor.activeWorkspace,
         let height = latestMonitors.first(where: { $0.id == monitor.id })?.physicalFrame.height
       else { continue }
-      let order = monitor.workspaces.map(\.id)
-      // A removed empty workspace sat at the end of the stack.
       let from = order.firstIndex(of: previous) ?? order.count
-      let to = order.firstIndex(of: monitor.activeWorkspace) ?? 0
+      // A workspace created since joins the end of the stack.
+      let to = order.firstIndex(of: monitor.activeWorkspace) ?? order.count
       // Niri's stack: moving down slides the content up.
       shift = (to > from ? -1 : 1) * height
     }

@@ -605,6 +605,23 @@ public func mouseStackTarget(
   state: RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> MouseStackTarget? {
+  mouseDropLayout(windowID, state: state, viewports: viewports).flatMap { mouseStackTarget($0, pointer: pointer) }
+}
+
+/// The dragged window's active workspace laid out once per pointer update.
+private struct MouseDropLayout {
+  let monitorID: MonitorID
+  let viewport: Rect
+  let workspace: Workspace
+  let sourceColumnIndex: Int
+  let frames: [WindowID: Rect]
+}
+
+private func mouseDropLayout(
+  _ windowID: WindowID,
+  state: RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> MouseDropLayout? {
   guard
     let monitor = state.monitors.first(where: { monitor in
       monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.columns.contains { $0.windows.contains(windowID) } }
@@ -619,8 +636,13 @@ public func mouseStackTarget(
       windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
       settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
     ).map { ($0.windowID, $0.frame) })
-  for (columnIndex, column) in workspace.columns.enumerated() where columnIndex != sourceColumnIndex {
-    let columnFrames = column.windows.compactMap { frames[$0] }
+  return MouseDropLayout(monitorID: monitor.id, viewport: viewport, workspace: workspace,
+    sourceColumnIndex: sourceColumnIndex, frames: frames)
+}
+
+private func mouseStackTarget(_ layout: MouseDropLayout, pointer: (x: Double, y: Double)) -> MouseStackTarget? {
+  for (columnIndex, column) in layout.workspace.columns.enumerated() where columnIndex != layout.sourceColumnIndex {
+    let columnFrames = column.windows.compactMap { layout.frames[$0] }
     guard let first = columnFrames.first, let top = columnFrames.map(\.y).min(),
       let bottom = columnFrames.map({ $0.y + $0.height }).max(),
       pointer.x > first.x + first.width / 4, pointer.x < first.x + first.width * 3 / 4,
@@ -629,7 +651,7 @@ public func mouseStackTarget(
     let row = insertionIndex(coordinate: pointer.y, centers: columnFrames.map { $0.y + $0.height / 2 })
     let height = (bottom - top) / Double(column.windows.count + 1)
     return MouseStackTarget(
-      monitorID: monitor.id, workspaceID: workspace.id, columnIndex: columnIndex, row: row,
+      monitorID: layout.monitorID, workspaceID: layout.workspace.id, columnIndex: columnIndex, row: row,
       preview: Rect(x: first.x, y: top + Double(row) * height, width: first.width, height: height))
   }
   return nil
@@ -680,34 +702,21 @@ public func mouseDropTarget(
   state: RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> MouseDropTarget? {
-  guard
-    let monitor = state.monitors.first(where: { monitor in
-      monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.columns.contains { $0.windows.contains(windowID) } }
-    }),
-    let viewport = viewports[monitor.id],
-    let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
-    let sourceColumnIndex = workspace.columns.firstIndex(where: { $0.windows.contains(windowID) })
-  else { return nil }
-  let frames = Dictionary(
-    uniqueKeysWithValues: computeLayout(
-      workspace: workspace, viewport: viewport,
-      windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
-      settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
-    ).map { ($0.windowID, $0.frame) })
+  guard let layout = mouseDropLayout(windowID, state: state, viewports: viewports) else { return nil }
+  let viewport = layout.viewport
+  let source = layout.workspace.columns[layout.sourceColumnIndex]
   // Off the monitor, or within its own stack, the native drop path decides: it moves
   // the window across displays and reorders rows.
-  let sourceFrame = workspace.columns[sourceColumnIndex].windows.compactMap { frames[$0] }.first
+  let sourceFrame = source.windows.compactMap { layout.frames[$0] }.first
   guard pointer.x >= viewport.x, pointer.x <= viewport.x + viewport.width,
     pointer.y >= viewport.y, pointer.y <= viewport.y + viewport.height,
-    workspace.columns[sourceColumnIndex].windows.count == 1
+    source.windows.count == 1
       || sourceFrame.map({ pointer.x < $0.x || pointer.x > $0.x + $0.width }) ?? true
   else { return nil }
-  if let stack = mouseStackTarget(windowID, pointer: pointer, state: state, viewports: viewports) {
-    return .stack(stack)
-  }
-  let leavesColumn = workspace.columns[sourceColumnIndex].windows.count == 1
-  let centers = workspace.columns.enumerated().compactMap { index, column in
-    leavesColumn && index == sourceColumnIndex ? nil : centerX(for: column, frames: frames)
+  if let stack = mouseStackTarget(layout, pointer: pointer) { return .stack(stack) }
+  let leavesColumn = source.windows.count == 1
+  let centers = layout.workspace.columns.enumerated().compactMap { index, column in
+    leavesColumn && index == layout.sourceColumnIndex ? nil : centerX(for: column, frames: layout.frames)
   }
   return .column(index: centers.filter { $0 < pointer.x }.count)
 }

@@ -227,7 +227,8 @@ extension MacOSPlatform {
       // The window-list read below waits on a WindowServer transaction; during an overlay
       // motion that wait stalls the compositor, and the hidden border can wait for landing.
       while frameCoordinator.isBusy(for: request.windowID) || RibbonProxyStore.shared.isMoving {
-        try? await Task.sleep(for: .milliseconds(4))
+        // A motion lasts hundreds of milliseconds: polling it at frame rate only wakes the main actor.
+        try? await Task.sleep(for: .milliseconds(RibbonProxyStore.shared.isMoving ? 50 : 4))
         guard !Task.isCancelled else { return }
       }
       let monitorFrames = lastMonitorFrames

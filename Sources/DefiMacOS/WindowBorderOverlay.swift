@@ -222,6 +222,11 @@ final class BorderOverlay {
     compactBacking()
   }
 
+  /// Takes the compacted panels off screen before the overlay is released.
+  func close() {
+    for segment in segments.values { segment.close() }
+  }
+
   func applyCompositorFallback() {
     guard visible else { return }
     for segment in segments.values where segment.frame != nil {
@@ -515,6 +520,11 @@ private final class BorderSegment {
     if panel.alphaValue != 0 { panel.alphaValue = 0 }
   }
 
+  func close() {
+    panel.orderOut(nil)
+    orderedIn = false
+  }
+
   func compactBacking() {
     guard frame != nil else { return }
     // Transparent and one point large, the panel can stay ordered in: ordering it out
@@ -532,6 +542,7 @@ private final class BorderSegment {
     panel.setFrame(compactBounds, display: false)
     frame = nil
     backingScale = 1
+    // Still on screen, but ordered again against its next window once reused.
     orderedIn = false
   }
 

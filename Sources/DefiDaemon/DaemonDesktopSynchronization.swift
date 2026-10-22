@@ -779,6 +779,7 @@ extension Daemon {
       } else {
         let previewed = proxyPreviewTarget != nil
         proxyPreviewTarget = nil
+        var droppedOnOverlay = false
         if previewed, let gestureWindowID,
           let event = CGEvent(source: nil),
           let target = mouseDropTarget(gestureWindowID,
@@ -786,6 +787,7 @@ extension Daemon {
             state: state, viewports: viewportsByMonitor)
         {
           mouseReordered = applyMouseDrop(gestureWindowID, target, state: &state, viewports: viewportsByMonitor)
+          droppedOnOverlay = true
           platform.recordPerformanceTrace("mouse-drop window=\(gestureWindowID.rawValue) target=\(target)")
         } else if let gestureWindowID,
           let actualFrame,
@@ -827,6 +829,10 @@ extension Daemon {
             // frame now instead of waiting for the native window to settle where it
             // was released (it was skipped until then and stayed there).
             proxyDroppedWindowID = gestureWindowID
+            finishMouseGestureTracking()
+          } else if droppedOnOverlay {
+            // The drop already decided the layout: settling against the released native
+            // frame would reorder the window a second time.
             finishMouseGestureTracking()
           } else {
             mouseGestureSettlement = MouseGestureSettlement(

@@ -36,11 +36,12 @@ fallbacks=$(grep -E 'fallback ' <<<"$events" | grep -cvE 'fallback (surface|back
 timeouts=$(count 'landing-timeout')
 strays=$(count 'landing-stray')
 missing=$(grep -E 'present windows=' <<<"$events" | grep -cv 'missing=\[\]' || true)
+# Informational: the daemon's percentile covers its last 120 commands, not only this run.
 p99=$(defi status | grep -oE 'inputPlanN/P50/P95/P99=[^ ]+' | awk -F/ '{print $NF}')
 
-printf 'presents=%s fallbacks=%s landing_timeouts=%s strays=%s presents_missing_pictures=%s input_p99_ms=%s\n' \
+printf 'presents=%s fallbacks=%s landing_timeouts=%s strays=%s presents_missing_pictures=%s rolling_input_p99_ms=%s\n' \
   "$presents" "$fallbacks" "$timeouts" "$strays" "$missing" "$p99"
 grep -E 'fallback|landing-|cancel ' <<<"$events" | cut -c12-23,60-220 || true
 
 [ "$presents" -gt 0 ] && [ "$fallbacks" -eq 0 ] && [ "$timeouts" -eq 0 ] && [ "$strays" -eq 0 ] \
-  && [ "$missing" -eq 0 ] && awk -v p="$p99" 'BEGIN { exit !(p < 20) }'
+  && [ "$missing" -eq 0 ]

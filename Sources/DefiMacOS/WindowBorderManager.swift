@@ -267,9 +267,8 @@ final class WindowBorderManager {
     }
     for windowID in removedWindowIDs {
       // A workspace shows a handful of borders; spares beyond that are released.
-      if let overlay = overlays.removeValue(forKey: windowID), spareOverlays.count < 4 {
-        spareOverlays.append(overlay)
-      }
+      guard let overlay = overlays.removeValue(forKey: windowID) else { continue }
+      if spareOverlays.count < 4 { spareOverlays.append(overlay) } else { overlay.close() }
     }
     compositorCommitPending = true
   }

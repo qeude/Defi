@@ -87,6 +87,8 @@ extension MacOSPlatform {
       hiddenWindowIDs: hiddenWindowIDs,
       motion: windowProxyMotionDuration(source: source, animationDuration: animationDuration,
         hasRibbon: !ribbonFrames.isEmpty))
+    // One switch, one slide: a later apply (a restore, a repair) must not reuse it.
+    windowProxyWorkspaceShift = nil
     // Native windows jump once to their targets underneath the proxy overlay. A
     // vertical switch admitted only because of proxies must not slide natively.
     let animationDuration = usesWindowProxies
