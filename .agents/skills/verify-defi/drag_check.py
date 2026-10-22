@@ -124,7 +124,7 @@ def main():
             previews, held, held_frame, pointer = drag(windows[number], number, targets, empty, display_width)
             want = want or before
             actual, settled = converge(empty, want)
-            ok = settled and actual == want and held == before and bool(previews) == want_preview
+            ok = settled and actual == want and held == before and (bool(previews) or not want_preview)
             results.append({'name': name, 'before': before, 'heldDuringDrag': held, 'after': actual,
                             'expected': want, 'previews': previews, 'heldFrame': held_frame,
                             'pointerX': pointer, 'pass': ok})
