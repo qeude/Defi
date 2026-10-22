@@ -131,7 +131,7 @@ func ribbonProxyPicture(_ images: [CGImage]?, native: Rect) -> RibbonProxyPictur
 func ribbonProxyCapturedPoints(_ image: CGImage, native: Rect) -> (size: CGSize, scale: CGFloat)? {
   for scale in [2.0, 1.0, 3.0] {
     let size = CGSize(width: Double(image.width) / scale, height: Double(image.height) / scale)
-    if ribbonProxyPictureMatches(captured: size, native: native) { return (size, scale) }
+    if ribbonProxyPictureMatches(captured: size, native: native) { return (size, CGFloat(scale)) }
   }
   return nil
 }
@@ -1762,7 +1762,7 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
       mode = .carry(id: id, layer: layer, area: area, grab: offset)
     case .stretch(var stretch):
       if stretch.anchor == nil, let start = ribbonProxyNativeFrames([stretch.id])[stretch.id] {
-        stretch.anchor = (point.x, start,
+        stretch.anchor = (Double(point.x), start,
           abs(start.x - stretch.base.x) > abs(start.x + start.width - stretch.base.x - stretch.base.width))
       }
       if let anchor = stretch.anchor {
