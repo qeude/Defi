@@ -248,6 +248,8 @@ final class OverviewView: NSView {
         transition.type = .fade
         transition.duration = desktopFadeDuration
         layers.desktop.add(transition, forKey: "desktopImage")
+      } else {
+        layers.desktop.removeAnimation(forKey: "desktopImage")
       }
       layers.desktop.contents = desktopImage
     }
@@ -603,7 +605,7 @@ final class OverviewView: NSView {
     size: CGSize?,
     attributes: [NSAttributedString.Key: Any]
   ) -> NSImage? {
-    let key = "\(text)|\(size.map { "\($0.width)x\($0.height)" } ?? "")"
+    let key = "\(text)|\(size.map { "\($0.width)x\($0.height)" } ?? "")@\(windowBackingScale)"
     if let cached = labelImages[key] { return cached }
     let string = text as NSString
     let imageSize = size ?? string.size(withAttributes: attributes)
