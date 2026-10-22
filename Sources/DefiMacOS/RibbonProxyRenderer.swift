@@ -536,7 +536,7 @@ final class RibbonProxyRenderer {
     // display change); a cropped picture made each landing wait.
     requests = requests.filter { request in
       (ribbonProxyWindowServerCapture == nil || !visibleIDs.contains(request.id)) && store.picture(request.id).map {
-        !ribbonProxyPictureMatches(captured: $0.size, native: request.frame)
+        !ribbonProxyPictureMatches(captured: $0.size, native: native[request.id] ?? request.frame)
       } ?? true
     }
     // Short passes keep stills and visible windows from queueing behind slow
