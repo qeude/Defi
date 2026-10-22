@@ -64,7 +64,7 @@ public func oversizedStackWindowIDs(
 /// When every slot is capped, the surplus is spread evenly (the window is
 /// centred in its slot). An infeasible stack falls back to slots proportional
 /// to the required heights.
-func stackSlotHeights(
+public func stackSlotHeights(
   _ windowIDs: [WindowID],
   windowsByID: [WindowID: Window],
   viewport: Rect,

@@ -605,7 +605,9 @@ public func mouseStackTarget(
   state: RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> MouseStackTarget? {
-  mouseDropLayout(windowID, state: state, viewports: viewports).flatMap { mouseStackTarget($0, pointer: pointer) }
+  mouseDropLayout(windowID, state: state, viewports: viewports).flatMap {
+    mouseStackTarget(windowID, $0, pointer: pointer, state: state)
+  }
 }
 
 /// The dragged window's active workspace laid out once per pointer update.
@@ -640,7 +642,9 @@ private func mouseDropLayout(
     sourceColumnIndex: sourceColumnIndex, frames: frames)
 }
 
-private func mouseStackTarget(_ layout: MouseDropLayout, pointer: (x: Double, y: Double)) -> MouseStackTarget? {
+private func mouseStackTarget(
+  _ windowID: WindowID, _ layout: MouseDropLayout, pointer: (x: Double, y: Double), state: RuntimeState
+) -> MouseStackTarget? {
   for (columnIndex, column) in layout.workspace.columns.enumerated() where columnIndex != layout.sourceColumnIndex {
     let columnFrames = column.windows.compactMap { layout.frames[$0] }
     guard let first = columnFrames.first, let top = columnFrames.map(\.y).min(),
@@ -649,10 +653,17 @@ private func mouseStackTarget(_ layout: MouseDropLayout, pointer: (x: Double, y:
       pointer.y >= top, pointer.y <= bottom
     else { continue }
     let row = insertionIndex(coordinate: pointer.y, centers: columnFrames.map { $0.y + $0.height / 2 })
-    let height = (bottom - top) / Double(column.windows.count + 1)
+    var stacked = column.windows
+    stacked.insert(windowID, at: row)
+    // A stack that cannot fit is no target: the drop reorders instead of stacking and splitting.
+    guard stackFit(stacked, windowsByID: state.windows, viewport: layout.viewport, settings: state.layout) == .fits
+    else { continue }
+    let heights = stackSlotHeights(stacked, windowsByID: state.windows,
+      viewport: Rect(x: layout.viewport.x, y: top, width: layout.viewport.width, height: bottom - top),
+      settings: state.layout)
     return MouseStackTarget(
       monitorID: layout.monitorID, workspaceID: layout.workspace.id, columnIndex: columnIndex, row: row,
-      preview: Rect(x: first.x, y: top + Double(row) * height, width: first.width, height: height))
+      preview: Rect(x: first.x, y: top + heights[..<row].reduce(0, +), width: first.width, height: heights[row]))
   }
   return nil
 }
@@ -713,7 +724,7 @@ public func mouseDropTarget(
     source.windows.count == 1
       || sourceFrame.map({ pointer.x < $0.x || pointer.x > $0.x + $0.width }) ?? true
   else { return nil }
-  if let stack = mouseStackTarget(layout, pointer: pointer) { return .stack(stack) }
+  if let stack = mouseStackTarget(windowID, layout, pointer: pointer, state: state) { return .stack(stack) }
   let leavesColumn = source.windows.count == 1
   let centers = layout.workspace.columns.enumerated().compactMap { index, column in
     leavesColumn && index == layout.sourceColumnIndex ? nil : centerX(for: column, frames: layout.frames)

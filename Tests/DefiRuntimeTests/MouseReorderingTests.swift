@@ -783,6 +783,30 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `Dropping into a stack that cannot fit its minimum heights does not stack`() throws {
+    var state = try makeState(windowCount: 3)
+    state.windows[WindowID(rawValue: 1)]?.minimumTiledHeight = 400
+    state.windows[WindowID(rawValue: 2)]?.minimumTiledHeight = 500
+    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    #expect(mouseStackTarget(
+      WindowID(rawValue: 1), pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
+      state: state, viewports: [monitorID: viewport]) == nil)
+  }
+
+  @Test
+  func `The stack preview keeps the dragged window's minimum height`() throws {
+    var state = try makeState(windowCount: 3)
+    state.windows[WindowID(rawValue: 1)]?.minimumTiledHeight = 450
+    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    let target = try #require(mouseStackTarget(
+      WindowID(rawValue: 1), pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
+      state: state, viewports: [monitorID: viewport]))
+    #expect(target.row == 1)
+    #expect(target.preview.height >= 450)
+    #expect(abs(target.preview.y + target.preview.height - (host.y + host.height)) < 0.001)
+  }
+
+  @Test
   func `The edges of a column reorder instead of stacking`() throws {
     let state = try makeState(windowCount: 3)
     let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
