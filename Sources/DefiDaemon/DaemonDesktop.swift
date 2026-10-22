@@ -312,9 +312,11 @@ extension Daemon {
       source == "mouse-drop-animation" ? proxyDroppedWindowID : nil
     proxyDroppedWindowID = nil
     // Incoming windows enter opposite to where the outgoing workspace leaves.
-    // Consumed either way so the history stays current; Reduce Motion switches at once.
+    // Consumed either way so the history stays current; with animations off (Reduce
+    // Motion, `enabled = false` or `duration_ms = 0`) the switch is immediate.
     let workspaceShift = consumeWorkspaceSwitchShift(source: source)
-    platform.windowProxyWorkspaceShift = animationsEnabled ? workspaceShift : nil
+    platform.windowProxyWorkspaceShift =
+      animationsEnabled && config.animation.durationMS > 0 ? workspaceShift : nil
     platform.apply(
       platformAssignments,
       ribbonFrames: ribbonFrames,
