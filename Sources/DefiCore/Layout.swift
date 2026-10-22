@@ -320,3 +320,13 @@ private func compensatingWidthRounding(_ target: Rect, for window: Window) -> Re
   return Rect(x: target.x + rounding / 2, y: target.y, width: target.width - rounding, height: target.height)
 }
 
+/// Up to this many points wider than requested is an app rounding its size, never a
+/// width constraint: the column keeps its width and the request is compensated.
+public let tiledWidthRoundingLimit = 16.0
+
+/// A learned minimum width only binds beyond rounding: a window that merely rounds a
+/// request up must not widen its column past the share it was given.
+public func effectiveMinimumTiledWidth(_ minimum: Double?, requested: Double) -> Double {
+  guard let minimum, minimum > requested + tiledWidthRoundingLimit else { return 0 }
+  return minimum
+}

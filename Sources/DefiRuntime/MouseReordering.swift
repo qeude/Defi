@@ -366,10 +366,7 @@ public func reorderTiledWindowAfterMouseDrag(
   {
     let insertAt = draggedCenterX > sourceFrame.x + sourceFrame.width
       ? sourceColumnIndex + 1 : sourceColumnIndex
-    workspace.columns[sourceColumnIndex].windows.removeAll { $0 == windowID }
-    workspace.columns[sourceColumnIndex].focusedWindow = min(
-      workspace.columns[sourceColumnIndex].focusedWindow,
-      workspace.columns[sourceColumnIndex].windows.count - 1)
+    removeStackedWindow(windowID, from: &workspace.columns[sourceColumnIndex])
     workspace.columns.insert(Column(window: windowID, width: workspace.columns[sourceColumnIndex].width),
       at: insertAt)
     workspace.focusedColumn = insertAt
@@ -495,6 +492,8 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
   var reordered = false
   for _ in 0..<maximumReorders {
     let sourceColumnIndex = activeColumnIndex(containing: windowID, state: state)
+    let sourceColumnCount = state.monitors.lazy.flatMap(\.workspaces)
+      .first { $0.columns.contains { $0.windows.contains(windowID) } }?.columns.count
     guard reorderTiledWindowAfterMouseDrag(
       windowID,
       actualFrame: actualFrame,
@@ -505,7 +504,12 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
       break
     }
     reordered = true
-    if activeColumnIndex(containing: windowID, state: state) == sourceColumnIndex {
+    // Leaving a stack to the left keeps the index but adds a column: keep going.
+    if activeColumnIndex(containing: windowID, state: state) == sourceColumnIndex,
+      state.monitors.lazy.flatMap(\.workspaces)
+        .first(where: { $0.columns.contains { $0.windows.contains(windowID) } })?.columns.count
+        == sourceColumnCount
+    {
       break
     }
   }
@@ -555,6 +559,14 @@ private func activeColumnIndex(
     }
   }
   return nil
+}
+
+/// Keeps the same window focused in the stack it leaves.
+private func removeStackedWindow(_ windowID: WindowID, from column: inout Column) {
+  guard let row = column.windows.firstIndex(of: windowID) else { return }
+  column.windows.remove(at: row)
+  if row < column.focusedWindow { column.focusedWindow -= 1 }
+  column.focusedWindow = max(min(column.focusedWindow, column.windows.count - 1), 0)
 }
 
 private func mouseDropMonitor(_ frame: Rect, monitorFrames: [MonitorID: Rect]) -> MonitorID? {
@@ -639,15 +651,11 @@ public func stackTiledWindow(
   guard let sourceColumnIndex = workspace.columns.firstIndex(where: { $0.windows.contains(windowID) }),
     sourceColumnIndex != target.columnIndex, workspace.columns.indices.contains(target.columnIndex)
   else { return false }
-  workspace.columns[sourceColumnIndex].windows.removeAll { $0 == windowID }
+  removeStackedWindow(windowID, from: &workspace.columns[sourceColumnIndex])
   var targetIndex = target.columnIndex
   if workspace.columns[sourceColumnIndex].windows.isEmpty {
     workspace.columns.remove(at: sourceColumnIndex)
     if sourceColumnIndex < targetIndex { targetIndex -= 1 }
-  } else {
-    workspace.columns[sourceColumnIndex].focusedWindow = min(
-      workspace.columns[sourceColumnIndex].focusedWindow,
-      workspace.columns[sourceColumnIndex].windows.count - 1)
   }
   let row = min(target.row, workspace.columns[targetIndex].windows.count)
   workspace.columns[targetIndex].windows.insert(windowID, at: row)
@@ -672,9 +680,6 @@ public func mouseDropTarget(
   state: RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> MouseDropTarget? {
-  if let stack = mouseStackTarget(windowID, pointer: pointer, state: state, viewports: viewports) {
-    return .stack(stack)
-  }
   guard
     let monitor = state.monitors.first(where: { monitor in
       monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.columns.contains { $0.windows.contains(windowID) } }
@@ -689,6 +694,17 @@ public func mouseDropTarget(
       windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
       settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
     ).map { ($0.windowID, $0.frame) })
+  // Off the monitor, or within its own stack, the native drop path decides: it moves
+  // the window across displays and reorders rows.
+  let sourceFrame = workspace.columns[sourceColumnIndex].windows.compactMap { frames[$0] }.first
+  guard pointer.x >= viewport.x, pointer.x <= viewport.x + viewport.width,
+    pointer.y >= viewport.y, pointer.y <= viewport.y + viewport.height,
+    workspace.columns[sourceColumnIndex].windows.count == 1
+      || sourceFrame.map({ pointer.x < $0.x || pointer.x > $0.x + $0.width }) ?? true
+  else { return nil }
+  if let stack = mouseStackTarget(windowID, pointer: pointer, state: state, viewports: viewports) {
+    return .stack(stack)
+  }
   let leavesColumn = workspace.columns[sourceColumnIndex].windows.count == 1
   let centers = workspace.columns.enumerated().compactMap { index, column in
     leavesColumn && index == sourceColumnIndex ? nil : centerX(for: column, frames: frames)
@@ -724,10 +740,7 @@ public func applyMouseDrop(
       guard index != sourceColumnIndex else { return false }
       column = workspace.columns.remove(at: sourceColumnIndex)
     } else {
-      workspace.columns[sourceColumnIndex].windows.removeAll { $0 == windowID }
-      workspace.columns[sourceColumnIndex].focusedWindow = min(
-        workspace.columns[sourceColumnIndex].focusedWindow,
-        workspace.columns[sourceColumnIndex].windows.count - 1)
+      removeStackedWindow(windowID, from: &workspace.columns[sourceColumnIndex])
       column = Column(window: windowID, width: workspace.columns[sourceColumnIndex].width)
     }
     let insertAt = min(index, workspace.columns.count)

@@ -812,14 +812,14 @@ struct MouseReorderingTests {
   @Test
   func `The drop target follows the pointer and applies exactly what it previews`() throws {
     var state = try makeState(windowCount: 3)
-    let dragged = WindowID(rawValue: 1)
-    let last = try targetFrame(for: WindowID(rawValue: 3), state: state)
+    let dragged = WindowID(rawValue: 2)
+    let first = try targetFrame(for: WindowID(rawValue: 1), state: state)
     let target = try #require(mouseDropTarget(
-      dragged, pointer: (last.x + last.width - 5, last.y + 5), state: state, viewports: [monitorID: viewport]))
-    #expect(target == .column(index: 2))
+      dragged, pointer: (first.x + 5, first.y + 5), state: state, viewports: [monitorID: viewport]))
+    #expect(target == .column(index: 0))
     #expect(applyMouseDrop(dragged, target, state: &state, viewports: [monitorID: viewport]))
     #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [
-      [WindowID(rawValue: 2)], [WindowID(rawValue: 3)], [WindowID(rawValue: 1)],
+      [WindowID(rawValue: 2)], [WindowID(rawValue: 1)], [WindowID(rawValue: 3)],
     ])
   }
 
@@ -832,6 +832,43 @@ struct MouseReorderingTests {
       dragged, pointer: (own.x + 5, own.y + 5), state: state, viewports: [monitorID: viewport]))
     #expect(target == .column(index: 0))
     #expect(!applyMouseDrop(dragged, target, state: &state, viewports: [monitorID: viewport]))
+  }
+
+  @Test
+  func `A click or a vertical drag inside its own stack previews no drop`() throws {
+    var state = try makeState(windowCount: 3)
+    try reduce(.joinWindow(.left), on: monitorID, state: &state)
+    let stacked = try #require(state.monitors[0].workspaces[0].columns.first { $0.windows.count == 2 })
+    let frame = try targetFrame(for: stacked.windows[1], state: state)
+    #expect(mouseDropTarget(
+      stacked.windows[1], pointer: (frame.x + frame.width / 2, frame.y + 5),
+      state: state, viewports: [monitorID: viewport]) == nil)
+  }
+
+  @Test
+  func `A pointer off the monitor leaves the drop to the cross-display path`() throws {
+    let state = try makeState(windowCount: 3)
+    #expect(mouseDropTarget(
+      WindowID(rawValue: 1), pointer: (viewport.x + viewport.width + 50, viewport.y + 50),
+      state: state, viewports: [monitorID: viewport]) == nil)
+  }
+
+  @Test
+  func `Leaving a stack keeps the same window focused in it`() throws {
+    var state = try makeState(windowCount: 4)
+    var workspace = state.monitors[0].workspaces[0]
+    let columnIndex = 0
+    workspace.columns = [Column(window: WindowID(rawValue: 1), width: workspace.columns[0].width)]
+      + workspace.columns.dropFirst(3)
+    workspace.columns[0].windows = [1, 2, 3].map { WindowID(rawValue: $0) }
+    workspace.columns[columnIndex].focusedWindow = 1
+    let focused = workspace.columns[columnIndex].windows[1]
+    let leaving = workspace.columns[columnIndex].windows[0]
+    state.monitors[0].workspaces[0] = workspace
+    #expect(applyMouseDrop(leaving, .column(index: workspace.columns.count), state: &state,
+      viewports: [monitorID: viewport]))
+    let column = try #require(state.monitors[0].workspaces[0].columns.first { $0.windows.contains(focused) })
+    #expect(column.windows[column.focusedWindow] == focused)
   }
 
   private func makeState(windowCount: Int) throws -> RuntimeState {

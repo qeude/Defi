@@ -735,16 +735,23 @@ extension Daemon {
         // With the overlay, a drag never reorders for real: the overlay shows the
         // layout the drop would produce at the pointer, and the drop applies it.
         if platform.windowProxiesEnabled, let gestureWindowID,
-          state.windows[gestureWindowID]?.floating == false,
-          let event = CGEvent(source: nil),
-          let target = mouseDropTarget(gestureWindowID,
-            pointer: (Double(event.location.x), Double(event.location.y)),
-            state: state, viewports: viewportsByMonitor)
+          state.windows[gestureWindowID]?.floating == false
         {
+          // A click or a resize is no drop: only a moved window previews one.
+          let moved = actualFrame.flatMap { actual in
+            mouseGestureInitialFrame.map { mouseFrameWasTranslated(from: $0, to: actual) }
+          } ?? false
+          let target = moved ? CGEvent(source: nil).flatMap { event in
+            mouseDropTarget(gestureWindowID,
+              pointer: (Double(event.location.x), Double(event.location.y)),
+              state: state, viewports: viewportsByMonitor)
+          } : nil
           if target != proxyPreviewTarget {
             proxyPreviewTarget = target
             var preview = state
-            applyMouseDrop(gestureWindowID, target, state: &preview, viewports: viewportsByMonitor)
+            if let target {
+              applyMouseDrop(gestureWindowID, target, state: &preview, viewports: viewportsByMonitor)
+            }
             platform.presentWindowProxyPreview(
               mouseDropPreviewFrames(around: gestureWindowID, in: preview, viewports: viewportsByMonitor),
               heldWindowID: gestureWindowID)

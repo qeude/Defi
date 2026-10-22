@@ -252,6 +252,7 @@ final class RibbonProxyRenderer {
         ) { _ in
           MainActor.assumeIsolated {
             let renderer = RibbonProxyRenderer.shared
+            guard renderer.enabled else { return }
             ribbonProxyLogger.notice("appearance-changed pictures expired")
             RibbonProxyStore.shared.expirePictures()
             if let frame = NSScreen.screens.first.map({ cgRect($0.frame) }),
@@ -397,8 +398,9 @@ final class RibbonProxyRenderer {
 
   /// Unmanaged windows shown still on the overlay; refreshed with each landing.
   func noteStills(_ windows: [RibbonProxyRefresh]) {
-    guard enabled, !windows.isEmpty else { return }
+    guard enabled else { return }
     pendingStills = windows
+    guard !windows.isEmpty else { return }
     scheduleRefresh(after: 0, afterLanding: true)
   }
 
@@ -895,11 +897,8 @@ final class RibbonProxyPresenter {
         distance: ribbonProxyDistance($0.to, area))
     }
     lastFallback = "none"
-    // Windows still without a picture (often just opened) are captured right away;
-    // their picture replaces the card while the motion runs.
-    // Veiled ones too: the native window is already in place below, so its fresh
-    // picture lifts the veil mid-motion.
-    // Older pictures as well: whatever lands in view is shown as it is now.
+    // Captures load the compositor that draws this motion, so none start now: a
+    // picture that arrives anyway (an urgent capture) replaces an old or veiled card.
     veiled.formIntersection(shownIDs)
     veiledSince = CACurrentMediaTime()
     refreshing = Set(windows.filter { window in

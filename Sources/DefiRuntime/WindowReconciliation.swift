@@ -244,7 +244,7 @@ public func reconcileWindows(
           updated.minimumTiledWidth = existing.minimumTiledWidth
           updated.maximumTiledWidth = existing.maximumTiledWidth
         }
-        updated.widthRounding = fullscreenWindowIDs.contains(window.id) ? nil : existing.widthRounding
+        updated.widthRounding = existing.widthRounding
         if let acceptance = existing.tiledSizeAcceptance,
           updated.maximumTiledHeight != nil,
           !fullscreenWindowIDs.contains(window.id),

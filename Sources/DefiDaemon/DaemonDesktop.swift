@@ -200,7 +200,7 @@ extension Daemon {
         } else if !overviewParksWindows,
           // The proxy overlay draws the outgoing slide: native windows park at once
           // instead of moving offscreen vertically, where macOS clamps them into view.
-          !platform.windowProxiesEnabled,
+          !config.animation.windowProxies,
           let deltaY = outgoingWorkspaceVerticalRibbonOffset(
             workspaceID: workspace.id,
             monitorID: monitor.id,
@@ -312,7 +312,9 @@ extension Daemon {
       source == "mouse-drop-animation" ? proxyDroppedWindowID : nil
     proxyDroppedWindowID = nil
     // Incoming windows enter opposite to where the outgoing workspace leaves.
-    platform.windowProxyWorkspaceShift = consumeWorkspaceSwitchShift(source: source)
+    // Consumed either way so the history stays current; Reduce Motion switches at once.
+    let workspaceShift = consumeWorkspaceSwitchShift(source: source)
+    platform.windowProxyWorkspaceShift = animationsEnabled ? workspaceShift : nil
     platform.apply(
       platformAssignments,
       ribbonFrames: ribbonFrames,

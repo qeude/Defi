@@ -77,7 +77,7 @@ struct RibbonProxyTests {
     #expect(wider.first?.to == Rect(x: 220, y: 40, width: 1200, height: 900))
   }
 
-  @Test func verticalSwitchMovesOutgoingAndIncomingTogether() {
+  @Test func verticalSwitchInferredFromLeavingWindowsMovesThemTogether() {
     let leaving = WindowID(rawValue: 1), arriving = WindowID(rawValue: 2)
     let plan = windowProxyMotion(
       ribbonTargets: [arriving: Rect(x: 10, y: 40, width: 800, height: 900)],

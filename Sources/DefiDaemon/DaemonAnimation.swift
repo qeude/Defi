@@ -153,8 +153,8 @@ extension Daemon {
         $0.id == intent.monitorID
       })?.physicalFrame,
       let viewport = viewportsByMonitor[intent.monitorID],
-      // Proxies are clipped to the visible area and native windows jump once,
-      // so nothing slides through reserved areas; a fallback switches immediately.
+      // The overlay sits below the menu bar and the Dock and native windows jump once,
+      // so nothing slides over reserved areas; a fallback switches immediately.
       platform.windowProxiesEnabled || workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
         viewport: viewport,
         physicalFrame: ownerFrame
@@ -388,6 +388,7 @@ extension Daemon {
     mouseReorderAnimationActive = false
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
+    proxyPreviewTarget = nil
     mouseGestureScrollAnchor = nil
     mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
   }
@@ -404,6 +405,7 @@ extension Daemon {
     mouseGestureSettlement = nil
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
+    proxyPreviewTarget = nil
     if !preservingScrollAnchor {
       mouseGestureScrollAnchor = nil
     }

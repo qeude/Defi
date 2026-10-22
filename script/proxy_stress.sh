@@ -12,6 +12,9 @@ workspace() { defi status | grep -oE 'workspace=[^ ]+' | cut -d= -f2; }
 run() { defi "$@" >/dev/null; sleep "$gap"; }
 
 initial="$(workspace)"
+trap '[ "$(workspace)" = "$initial" ] || defi focus-workspace-name "$initial" >/dev/null' EXIT
+# log show takes whole seconds: start on a fresh one so no earlier event counts.
+sleep 1
 start="$(date '+%Y-%m-%d %H:%M:%S')"
 
 for _ in $(seq "$rounds"); do
@@ -25,7 +28,6 @@ for _ in $(seq "$rounds"); do
   sleep 0.6
 done
 sleep 1.5
-[ "$(workspace)" = "$initial" ] || defi focus-workspace-name "$initial" >/dev/null
 
 events="$("$log" show --start "$start" --predicate "$predicate" --style compact 2>/dev/null)"
 count() { grep -cE "$1" <<<"$events" || true; }

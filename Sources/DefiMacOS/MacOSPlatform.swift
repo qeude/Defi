@@ -33,8 +33,9 @@ public final class MacOSPlatform {
   /// pointer over every window drawn where it is now.
   public func carryWindowProxy(_ windowID: WindowID, stretches: Bool) {
     let presenter = RibbonProxyPresenter.shared
+    let now = ProcessInfo.processInfo.systemUptime
     guard windowProxiesEnabled, !presenter.isCarrying, lastMonitorFrames.count == 1,
-      let viewport = lastMonitorFrames.first else { return }
+      now >= windowProxyCarryRetryAt, let viewport = lastMonitorFrames.first else { return }
     let windows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
     let native = ribbonProxyNativeFrames(Set(windows.keys))
     // Drags and resizes preview the whole ribbon, so windows off screen join it at
@@ -52,7 +53,11 @@ public final class MacOSPlatform {
     }
     presenter.carry(windowID, stretches: stretches, windows: proxies, viewport: viewport,
       slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
+    // A drag event arrives every frame: a refused carry waits instead of re-reading the
+    // WindowServer list each time.
+    if !presenter.isCarrying { windowProxyCarryRetryAt = now + 0.1 }
   }
+  private var windowProxyCarryRetryAt: TimeInterval = 0
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   nonisolated let snapshotEngine: SnapshotEngine
 

@@ -685,13 +685,14 @@ public struct RuntimeState: Equatable, Sendable {
   ) {
     guard let window = windows[windowID] else { return }
     let overshoot = frame.width - requested.width
-    if !window.floating, !window.intrinsicSize, window.widthRounding == nil,
+    let rounding = (window.widthRounding ?? 0) + overshoot
+    if !window.floating, !window.intrinsicSize,
       !nativeFullscreenWindowIDs.contains(windowID),
-      overshoot > 0.5, overshoot <= tiledWidthRoundingLimit
+      overshoot > 0.5, rounding <= tiledWidthRoundingLimit
     {
-      // Learned once: the next request is narrower by it; whatever the app does then
-      // is accepted as usual, so this never loops.
-      windows[windowID]?.widthRounding = overshoot
+      // The overshoot depends on the requested width: a later one adds up, and only
+      // narrows the request, so it converges within the limit.
+      windows[windowID]?.widthRounding = rounding
       updateWindowFrame(frame, for: windowID)
       return
     }

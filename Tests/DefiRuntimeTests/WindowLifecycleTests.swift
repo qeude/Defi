@@ -238,7 +238,7 @@ struct WindowLifecycleTests {
   }
 
   @Test
-  func `A width a few points over the request is learned as rounding, not accepted`() throws {
+  func `Widths a few points over the request add up as rounding within the limit`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
@@ -253,13 +253,19 @@ struct WindowLifecycleTests {
       Rect(x: 3, y: 34, width: 1272, height: 1360), requested: requested, for: window.id)
     #expect(state.windows[window.id]?.widthRounding == 2)
     #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
-    // Learned once: the next mismatch is accepted as usual instead of narrowing again.
     var narrowed = requested
     narrowed.width -= 2
     state.acceptTiledWindowFrame(
       Rect(x: 3, y: 34, width: 1272, height: 1360), requested: narrowed, for: window.id)
-    #expect(state.windows[window.id]?.widthRounding == 2)
-    #expect(state.windows[window.id]?.tiledSizeAcceptance?.accepted.width == 1272)
+    #expect(state.windows[window.id]?.widthRounding == 6)
+    narrowed.width -= 4
+    state.acceptTiledWindowFrame(
+      Rect(x: 7, y: 34, width: 1264, height: 1360), requested: narrowed, for: window.id)
+    #expect(state.windows[window.id]?.widthRounding == 6)
+    state.acceptTiledWindowFrame(
+      Rect(x: 0, y: 34, width: 1278, height: 1360), requested: narrowed, for: window.id)
+    #expect(state.windows[window.id]?.widthRounding == 6)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance?.accepted.width == 1278)
   }
 
   @Test

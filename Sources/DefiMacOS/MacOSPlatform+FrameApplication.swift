@@ -848,8 +848,9 @@ extension MacOSPlatform {
     // windows) are drawn still at their real place instead of blocking the overlay.
     let moving = Set(proxies.map(\.id))
     for (id, window) in windows where !moving.contains(id) {
-      guard let frame = observed[id], windowProxyVisibleOverlap(frame, viewport) > 1.01 else { continue }
-      proxies.append(RibbonProxyWindow(id: id, appID: window.appID, processID: window.processID ?? 0,
+      guard let processID = window.processID, let frame = observed[id],
+        windowProxyVisibleOverlap(frame, viewport) > 1.01 else { continue }
+      proxies.append(RibbonProxyWindow(id: id, appID: window.appID, processID: processID,
         from: frame, to: frame))
     }
     let plannedTargets = Dictionary(planned.map { ($0.id, $0.to) }) { first, _ in first }

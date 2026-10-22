@@ -29,8 +29,9 @@ Never import AppKit, ApplicationServices, or CoreGraphics from pure modules.
 ## Private platform API policy
 
 Private macOS APIs are limited to optional read-only metadata, such as window
-IDs, bounds, constraints, and corner radii, and to Defi-owned surfaces such as
-border overlays. Third-party windows are only observed through private APIs;
+IDs, bounds, constraints, and corner radii, to read-only captures of window and
+desktop pixels while Screen Recording is granted, and to Defi-owned surfaces
+such as border overlays. Pixel captures fall back to public ScreenCaptureKit. Third-party windows are only observed through private APIs;
 their position and size change only through public Accessibility.
 
 - use private metadata only when it materially improves a user-visible result
@@ -42,8 +43,11 @@ their position and size change only through public Accessibility.
 
 ## Screen Recording
 
-Window previews and the Overview zoom use public ScreenCaptureKit and are on by
-default. Screen Recording is requested once, before the Overview is presented.
+Window previews, the Overview zoom, and the window proxy overlay capture window
+pictures and are on by default. They use the WindowServer window capture and fall
+back to ScreenCaptureKit, which lights the menu bar recording indicator. Screen
+Recording is requested once, before the Overview is presented; the overlay only
+uses a permission already granted.
 Denial, revocation, or `overview.window_previews = false` degrades to cards
 without errors, repeated prompts, or loss of the zoom animation. Navigation,
 focus, and window movement never depend on capture.
