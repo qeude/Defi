@@ -8,11 +8,21 @@ import DefiModel
 final class WindowBorderManager {
   private let radiusProvider = WindowCornerRadiusProvider()
   private var overlays: [WindowID: BorderOverlay] = [:]
+  /// Hidden overlays of untracked windows, kept for the next workspace: creating border
+  /// panels mid-motion costs the overlay about half of its 120 Hz frames.
+  private var spareOverlays: [BorderOverlay] = []
   private(set) var activeWindowID: WindowID?
   private var lastPlan: WindowBorderRenderPlan?
   private var lastDisplayedFrames: [WindowID: Rect] = [:]
   private var compositorCommitPending = false
   private(set) var isSuppressed = false
+  /// Hidden without teardown while the ribbon overlay draws its own borders.
+  var presentationHidden = false {
+    didSet {
+      guard oldValue != presentationHidden else { return }
+      for overlay in overlays.values { overlay.setPresentationHidden(presentationHidden) }
+    }
+  }
   private var appliedPlans = 0
   private var skippedPlans = 0
   private var geometryUpdateCount = 0
@@ -25,9 +35,9 @@ final class WindowBorderManager {
   var performance: WindowBorderPerformance {
     let visible = overlays.values.lazy.filter(\.isVisible).count
     return WindowBorderPerformance(
-      allocated: overlays.count,
+      allocated: overlays.count + spareOverlays.count,
       visible: visible,
-      dormant: overlays.count - visible,
+      dormant: overlays.count + spareOverlays.count - visible,
       activeOpacity: activeWindowID.flatMap { overlays[$0]?.opacity } ?? 0,
       estimatedSurfacePixels: overlays.values.reduce(0) {
         $0 + $1.estimatedSurfacePixels
@@ -47,7 +57,7 @@ final class WindowBorderManager {
   }
 
   var transparentSurfaceWindowIDs: Set<CGWindowID> {
-    overlays.values.reduce(into: Set<CGWindowID>()) {
+    (overlays.values + spareOverlays).reduce(into: Set<CGWindowID>()) {
       $0.formUnion($1.windowIDs)
     }
   }
@@ -256,7 +266,10 @@ final class WindowBorderManager {
       }
     }
     for windowID in removedWindowIDs {
-      overlays[windowID] = nil
+      // A workspace shows a handful of borders; spares beyond that are released.
+      if let overlay = overlays.removeValue(forKey: windowID), spareOverlays.count < 4 {
+        spareOverlays.append(overlay)
+      }
     }
     compositorCommitPending = true
   }
@@ -265,7 +278,8 @@ final class WindowBorderManager {
     for overlay in overlays.values {
       overlay.hide()
     }
-    overlays.removeAll(keepingCapacity: true)
+    // Hidden overlays stay as a dormant pool: creating border panels again on the next
+    // reveal costs WindowServer round trips that stalled the overview and workspace motion.
     activeWindowID = nil
     lastPlan = nil
     lastDisplayedFrames.removeAll(keepingCapacity: true)
@@ -338,7 +352,14 @@ final class WindowBorderManager {
       overlays[windowID] = overlay
       return overlay
     }
+    if let overlay = spareOverlays.popLast() {
+      overlay.retarget(to: windowID)
+      overlay.setPresentationHidden(presentationHidden)
+      overlays[windowID] = overlay
+      return overlay
+    }
     let overlay = BorderOverlay(windowID: windowID)
+    overlay.setPresentationHidden(presentationHidden)
     overlays[windowID] = overlay
     return overlay
   }

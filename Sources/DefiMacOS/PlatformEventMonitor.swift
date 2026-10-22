@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import DefiModel
+import DefiRuntime
 
 func delayedApplicationActivationIsCurrent(
   startedAt: TimeInterval,
@@ -247,6 +248,7 @@ final class PlatformEventMonitor {
   func handleMouseEvent(_ event: NSEvent) {
     guard desktopSessionActive else { return }
     if eventStartsMouseFocusInteraction(event.type) {
+      NavigationActor.enqueue { RibbonProxyPresenter.shared.cancel() }
       let rawWindowID =
         event.cgEvent?.getIntegerValueField(
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
@@ -262,6 +264,9 @@ final class PlatformEventMonitor {
     }
     if event.type == .leftMouseDragged || event.type == .leftMouseUp {
       liveFrameHandler()
+    }
+    if event.type == .leftMouseUp {
+      NavigationActor.enqueue { RibbonProxyPresenter.shared.endDrag() }
     }
     let actions = mouseGestureNormalizer.actions(
       for: event.type,

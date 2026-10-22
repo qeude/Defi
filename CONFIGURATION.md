@@ -144,12 +144,14 @@ workspace transitions and mouse-driven reordering.
 [animation]
 enabled = true
 duration_ms = 125
+window_proxies = true
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `enabled` | `true` | boolean | Enables visual scrolling and managed layout animations, including resizing, column/window moves, stacking, and floating transitions. |
 | `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. Workspace switches from native focus, such as a click, the Dock, or Command-Tab, are always immediate. `0` disables animation even when `enabled = true`. |
+| `window_proxies` | `true` | boolean | Draws column navigation, width and order changes, vertical workspace switches, click-to-focus scrolling and mouse reordering on a Defi overlay from captured window pictures, while each native window moves once to its target underneath, so motion never waits on slow applications. Opened and closed windows, drops after a mouse drag (with a slot placeholder under the dragged window), and workspaces activated from the Dock or Command-Tab move on the overlay too. Proxies follow a critically damped spring instead of `duration_ms` and keep their velocity when a new command retargets them. Pictures of visible windows refresh every second and fill resized proxies without stretching; the app icon is laid over a missing, noticeably cropped, or old picture, and the overlay fades into the real windows. Requires Screen Recording. Without permission, with Reduce Motion, or on multiple displays, motion uses native Accessibility animation. |
 
 ## `[overview]`
 

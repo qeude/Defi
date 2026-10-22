@@ -38,6 +38,47 @@ struct WindowLayoutTests {
   }
 
   @Test
+  func `Two half columns fit the screen even when the app rounds its width up`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [
+        Column(window: WindowID(rawValue: 1), width: .fraction(0.5)),
+        Column(window: WindowID(rawValue: 2), width: .fraction(0.5)),
+      ]
+    )
+    // A terminal answered a request with 2 more points; that is rounding, not a minimum.
+    let windows = [1, 2].map { raw in
+      Window(id: WindowID(rawValue: UInt64(raw)), appID: "ghostty", title: "",
+        frame: Rect(x: 0, y: 0, width: 1272, height: 1360), minimumTiledWidth: 1272)
+    }
+    let frames = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: windows, settings: settings
+    ).map(\.frame)
+    #expect(frames.map(\.width) == frames.map { _ in frames[0].width })
+    #expect(frames[1].x + frames[1].width <= 2560 - Double(settings.outerRightGap))
+  }
+
+  @Test
+  func `A window that rounds its width is asked for that much less, centred`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [Column(window: WindowID(rawValue: 1), width: .fraction(0.5))]
+    )
+    var window = Window(id: WindowID(rawValue: 1), appID: "ghostty", title: "",
+      frame: Rect(x: 0, y: 0, width: 1272, height: 1360))
+    let plain = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: [window], settings: settings)[0].frame
+    window.widthRounding = 2
+    let compensated = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: [window], settings: settings)[0].frame
+    #expect(compensated.width == plain.width - 2)
+    #expect(compensated.x == plain.x + 1)
+  }
+
+  @Test
   func `Each viewport produces its own monitor sized layout`() {
     let noGaps = LayoutSettings(
       defaultColumnWidth: 0.8,

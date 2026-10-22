@@ -153,7 +153,9 @@ extension Daemon {
         $0.id == intent.monitorID
       })?.physicalFrame,
       let viewport = viewportsByMonitor[intent.monitorID],
-      workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
+      // Proxies are clipped to the visible area and native windows jump once,
+      // so nothing slides through reserved areas; a fallback switches immediately.
+      platform.windowProxiesEnabled || workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
         viewport: viewport,
         physicalFrame: ownerFrame
       )
@@ -164,9 +166,12 @@ extension Daemon {
     let participantWindowIDs = outgoingWindowIDs.union(
       incoming.columns.flatMap(\.windows) + incoming.floatingWindows
     )
-    guard !outgoingWindowIDs.isEmpty,
+    // The proxy overlay also animates to and from an empty workspace: the
+    // other side, or the wallpaper alone, slides on the same timeline.
+    guard platform.windowProxiesEnabled ? !participantWindowIDs.isEmpty : !outgoingWindowIDs.isEmpty,
       participantWindowIDs.isSubset(of: platform.frameWritableWindowIDs),
-      platform.positionsCanAnimateTogether(
+      // The proxy overlay animates without the AX lanes; it only needs one write each.
+      platform.windowProxiesEnabled || platform.positionsCanAnimateTogether(
         windowIDs: participantWindowIDs,
         animationDuration: duration,
         refreshRateHz: activeDisplayRefreshRate

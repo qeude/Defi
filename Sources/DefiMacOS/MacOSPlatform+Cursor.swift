@@ -240,6 +240,7 @@ extension MacOSPlatform {
       .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
       .union(borderManager.transparentSurfaceWindowIDs)
       .union(nativeFullscreenPlaceholderManager.transparentSurfaceWindowIDs)
+      .union(RibbonProxyRenderer.shared.surfaceWindowIDs)
     if let rawWindowID,
       let rawRecord = snapshot.records.first(where: {
         WindowID(rawValue: UInt64($0.id)) == rawWindowID

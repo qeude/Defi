@@ -89,6 +89,10 @@ final class BorderOverlay {
     )
   }
 
+  func setPresentationHidden(_ hidden: Bool) {
+    for segment in segments.values { segment.setPresentationHidden(hidden) }
+  }
+
   func retarget(to windowID: WindowID, preservingBacking: Bool = false) {
     if preservingBacking {
       // Reuse only during a synchronous selection handoff, never as a hidden cache.
@@ -342,6 +346,12 @@ private final class BorderSegment {
     panel.contentView = rootView
   }
 
+  func setPresentationHidden(_ hidden: Bool) {
+    // The view, not its backing layer: AppKit rewrites a layer-backed view's layer
+    // visibility on its next update, which brought the ring back mid-drag.
+    rootView.isHidden = hidden
+  }
+
   func retarget(to targetWindowNumber: Int) {
     self.targetWindowNumber = targetWindowNumber
     lastOrderedAt = -.infinity
@@ -507,7 +517,9 @@ private final class BorderSegment {
 
   func compactBacking() {
     guard frame != nil else { return }
-    orderOut()
+    // Transparent and one point large, the panel can stay ordered in: ordering it out
+    // waits for a WindowServer transaction, tens of milliseconds on the main thread.
+    makeTransparent()
     let compactBounds = CGRect(x: 0, y: 0, width: 1, height: 1)
     CATransaction.begin()
     CATransaction.setDisableActions(true)

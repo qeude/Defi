@@ -500,6 +500,18 @@ public func nativeFocusMutationIsReady(
   return false
 }
 
+/// An application activation that would switch workspaces needs human input newer
+/// than the latest Defi command; otherwise it echoes Defi's own focus work (a focus
+/// recovery landing after the next command) and must not undo that command.
+public func nativeActivationLacksHumanIntent(
+  applicationActivation: Bool,
+  switchesWorkspace: Bool,
+  latestUserInputTimestamp: Double,
+  latestCommandInputTimestamp: Double
+) -> Bool {
+  applicationActivation && switchesWorkspace && latestUserInputTimestamp <= latestCommandInputTimestamp
+}
+
 public func keyboardFocusPreemptsMouseGesture(
   nativeFocusAccepted: Bool,
   keyboardFocusIntentCurrent: Bool,

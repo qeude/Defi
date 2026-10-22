@@ -610,10 +610,6 @@ final class SnapshotEngine: @unchecked Sendable {
     } }
   }
 
-  func recordObservedFrame(_ frame: Rect?, for windowID: WindowID) {
-    withLockedStorage { $0.latestObservedFrames[windowID] = frame }
-  }
-
   var latestObservedFrames: [WindowID: Rect] {
     get { withLockedStorage { $0.latestObservedFrames } }
     set { withLockedStorage { $0.latestObservedFrames = newValue } }
@@ -720,8 +716,11 @@ final class SnapshotEngine: @unchecked Sendable {
           continue
         }
         if attempted { current.verificationAttempts += 1 }
+        // A read that never lands (stale or skipped) spends no attempt, but must not keep
+        // the desktop polled every 0.1 s forever: the watchdog takes over after a while.
+        let unattemptedTooLong = !attempted && now - current.deadline >= 3
         let delays = CGWindowDiscoveryRetryTracker.retryDelays
-        current.verification = current.verificationAttempts < delays.count
+        current.verification = !unattemptedTooLong && current.verificationAttempts < delays.count
           ? .scheduled(now + delays[current.verificationAttempts]) : .watchdog
         storage.frameCommitExpectations[id] = current
       }

@@ -763,6 +763,77 @@ struct MouseReorderingTests {
       ) == nil)
   }
 
+  @Test
+  func `Dropping over the middle of another column stacks the window into it`() throws {
+    var state = try makeState(windowCount: 3)
+    let dragged = WindowID(rawValue: 1)
+    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    let target = try #require(mouseStackTarget(
+      dragged, pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
+      state: state, viewports: [monitorID: viewport]))
+    #expect(target.row == 1)
+    #expect(target.preview.height == host.height / 2)
+    #expect(stackTiledWindow(dragged, into: target, state: &state, viewports: [monitorID: viewport]))
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [
+      [WindowID(rawValue: 2), WindowID(rawValue: 1)],
+      [WindowID(rawValue: 3)],
+    ])
+    #expect(state.monitors[0].workspaces[0].focusedColumn == 0)
+    #expect(state.monitors[0].workspaces[0].columns[0].focusedWindow == 1)
+  }
+
+  @Test
+  func `The edges of a column reorder instead of stacking`() throws {
+    let state = try makeState(windowCount: 3)
+    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    #expect(mouseStackTarget(
+      WindowID(rawValue: 1), pointer: (host.x + 10, host.y + host.height / 2),
+      state: state, viewports: [monitorID: viewport]) == nil)
+  }
+
+  @Test
+  func `Pulling a stacked window sideways out of its column unstacks it`() throws {
+    var state = try makeState(windowCount: 3)
+    try reduce(.joinWindow(.left), on: monitorID, state: &state)
+    let columns = state.monitors[0].workspaces[0].columns.map(\.windows)
+    let stacked = try #require(columns.first { $0.count == 2 })
+    let dragged = stacked[1]
+    let frame = try targetFrame(for: dragged, state: state)
+    #expect(reorderTiledWindowAfterMouseDrag(
+      dragged,
+      actualFrame: Rect(x: frame.x + frame.width * 0.7, y: frame.y, width: frame.width, height: frame.height),
+      state: &state, viewports: [monitorID: viewport]))
+    let after = state.monitors[0].workspaces[0].columns.map(\.windows)
+    #expect(after.count == columns.count + 1)
+    #expect(after.contains([dragged]))
+    #expect(after.contains([stacked[0]]))
+  }
+
+  @Test
+  func `The drop target follows the pointer and applies exactly what it previews`() throws {
+    var state = try makeState(windowCount: 3)
+    let dragged = WindowID(rawValue: 1)
+    let last = try targetFrame(for: WindowID(rawValue: 3), state: state)
+    let target = try #require(mouseDropTarget(
+      dragged, pointer: (last.x + last.width - 5, last.y + 5), state: state, viewports: [monitorID: viewport]))
+    #expect(target == .column(index: 2))
+    #expect(applyMouseDrop(dragged, target, state: &state, viewports: [monitorID: viewport]))
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [
+      [WindowID(rawValue: 2)], [WindowID(rawValue: 3)], [WindowID(rawValue: 1)],
+    ])
+  }
+
+  @Test
+  func `Dropping a window back on its own place changes nothing`() throws {
+    var state = try makeState(windowCount: 3)
+    let dragged = WindowID(rawValue: 1)
+    let own = try targetFrame(for: dragged, state: state)
+    let target = try #require(mouseDropTarget(
+      dragged, pointer: (own.x + 5, own.y + 5), state: state, viewports: [monitorID: viewport]))
+    #expect(target == .column(index: 0))
+    #expect(!applyMouseDrop(dragged, target, state: &state, viewports: [monitorID: viewport]))
+  }
+
   private func makeState(windowCount: Int) throws -> RuntimeState {
     let config = Config()
     var state = RuntimeState(config: config)

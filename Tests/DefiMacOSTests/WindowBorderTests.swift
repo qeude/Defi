@@ -606,6 +606,28 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func untrackedWindowBordersAreReusedInsteadOfCreatingPanels() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    func show(_ raw: UInt64) {
+      let windowID = WindowID(rawValue: raw)
+      let plan = planWindowBorders(
+        frames: [FrameAssignment(windowID: windowID, frame: frame)],
+        selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+      )
+      manager.prepareForSelection(windowID, displayedFrame: frame)
+      manager.sync(plan, displayedFrames: [windowID: frame], stacking: frontmostStacking(for: windowID))
+    }
+    show(1)
+    show(2)
+    let panels = manager.transparentSurfaceWindowIDs
+    show(3)
+    #expect(manager.transparentSurfaceWindowIDs == panels)
+    #expect(manager.performance.visible == 1)
+  }
+
+  @Test @MainActor
   func unchangedSelectionPreservesStackingUntilExplicitObservation() {
     let manager = WindowBorderManager()
     defer { manager.hide() }
@@ -658,7 +680,9 @@ struct WindowBorderTests {
     overlay.revealPendingOpacity()
     #expect(panels.allSatisfy { $0.isVisible && $0.alphaValue == 1 })
     overlay.hide()
-    #expect(panels.allSatisfy { $0.isVisible == false })
+    // Hidden panels stay ordered in, transparent and compacted, so hiding never waits
+    // for a WindowServer ordering round trip.
+    #expect(panels.allSatisfy { $0.alphaValue == 0 && $0.frame.width <= 1 })
     #expect(overlay.estimatedSurfacePixels == 0)
   }
 

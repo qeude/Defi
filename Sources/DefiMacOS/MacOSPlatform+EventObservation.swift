@@ -25,11 +25,13 @@ extension MacOSPlatform {
   }
 
   public func cancelPendingFrameWrites() {
+    RibbonProxyPresenter.shared.cancel()
     frameSubmissionGeneration &+= 1
     frameCoordinator.invalidate(reason: "mouse-gesture")
   }
 
   public func prepareForRestore() async {
+    RibbonProxyPresenter.shared.cancel()
     frameSubmissionGeneration &+= 1
     invalidateFocusStateForDisplayChange()
     let focusDeadline = ProcessInfo.processInfo.systemUptime + 5
@@ -42,6 +44,7 @@ extension MacOSPlatform {
   }
 
   private func clearFrameState() {
+    RibbonProxyPresenter.shared.cancel()
     frameSubmissionGeneration &+= 1
     previousLogicalRibbonFrames.removeAll(keepingCapacity: true)
     targetFrames.removeAll(keepingCapacity: true)

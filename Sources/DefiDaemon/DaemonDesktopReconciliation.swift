@@ -309,6 +309,9 @@ extension Daemon {
     )
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
+        // Slightly wider than asked is the app rounding (compensated), not a minimum.
+        mismatch.actual.width < mismatch.target.width
+          || mismatch.actual.width - mismatch.target.width > tiledWidthRoundingLimit,
         persistentWidthMismatch(
           mismatch,
           previous: previousByWindowID[mismatch.windowID],

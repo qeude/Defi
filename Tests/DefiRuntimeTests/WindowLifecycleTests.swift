@@ -238,6 +238,31 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `A width a few points over the request is learned as rounding, not accepted`() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1), appID: "ghostty", title: "Terminal",
+      frame: Rect(x: 0, y: 0, width: 800, height: 738), monitorID: monitorID,
+      maximumTiledHeight: 1371
+    )
+    try discoverWindow(window, decision: RuleDecision(), state: &state)
+    let requested = Rect(x: 4, y: 34, width: 1270, height: 1360)
+    state.acceptTiledWindowFrame(
+      Rect(x: 3, y: 34, width: 1272, height: 1360), requested: requested, for: window.id)
+    #expect(state.windows[window.id]?.widthRounding == 2)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
+    // Learned once: the next mismatch is accepted as usual instead of narrowing again.
+    var narrowed = requested
+    narrowed.width -= 2
+    state.acceptTiledWindowFrame(
+      Rect(x: 3, y: 34, width: 1272, height: 1360), requested: narrowed, for: window.id)
+    #expect(state.windows[window.id]?.widthRounding == 2)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance?.accepted.width == 1272)
+  }
+
+  @Test
   func `Native bounded tile size settles and mode changes retry the preferred tile`() throws {
     let config = Config()
     var state = RuntimeState(config: config)

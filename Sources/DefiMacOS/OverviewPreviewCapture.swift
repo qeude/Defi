@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import CoreImage
 import DefiModel
@@ -8,8 +9,11 @@ import os
 // Small placeholders survive between sessions; full-resolution captures stay session-local.
 func compactOverviewPreview(_ image: CGImage) -> CGImage? {
   let scale = min(512.0 / Double(max(image.width, image.height)), 1)
-  let width = max(Int(Double(image.width) * scale), 1)
-  let height = max(Int(Double(image.height) * scale), 1)
+  return resizedOverviewImage(image, width: max(Int(Double(image.width) * scale), 1),
+    height: max(Int(Double(image.height) * scale), 1))
+}
+
+func resizedOverviewImage(_ image: CGImage, width: Int, height: Int) -> CGImage? {
   guard let context = CGContext(
     data: nil, width: width, height: height, bitsPerComponent: 8,
     bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
@@ -348,8 +352,67 @@ func runOverviewPreviewCaptures(
   }
 }
 
+// ScreenCaptureKit lights the menu bar recording indicator: the WindowServer capture
+// the ribbon uses goes first, and ScreenCaptureKit only covers what it missed.
 @MainActor
 func captureOverviewImages(
+  previews requests: [OverviewPreviewRequest],
+  desktops desktopRequests: [OverviewDesktopCaptureRequest],
+  previewCompleted: @escaping @MainActor @Sendable (OverviewPreviewCaptureResult) -> Void
+) async -> OverviewCaptureResults {
+  guard let capture = ribbonProxyWindowServerCapture, CGPreflightScreenCaptureAccess() else {
+    return await captureOverviewImagesWithScreenCaptureKit(previews: requests, desktops: desktopRequests,
+      previewCompleted: previewCompleted)
+  }
+  let renderingContext = overviewPreviewRenderingContext
+  let captured = await runOverviewPreviewCaptures(requests, completed: { result in
+    if result.image != nil { await previewCompleted(result) }
+  }) { request in
+    await Task.detached(priority: .userInitiated) {
+      overviewWindowServerPreview(request, capture: capture, context: renderingContext)
+    }.value
+  }
+  var desktops: [MonitorID: CGImage] = [:]
+  for request in desktopRequests where !Task.isCancelled {
+    let image = await Task.detached(priority: .userInitiated) {
+      ribbonProxyDesktopImage(CGDisplayBounds(request.displayID), capture)
+        .flatMap { resizedOverviewImage($0, width: request.width, height: request.height) }
+    }.value
+    desktops[request.monitorID] = image
+  }
+  let missedPreviews = captured.filter { $0.image == nil }.map(\.request)
+  let missedDesktops = desktopRequests.filter { desktops[$0.monitorID] == nil }
+  guard !Task.isCancelled, !missedPreviews.isEmpty || !missedDesktops.isEmpty else {
+    return OverviewCaptureResults(previews: [], desktops: desktops)
+  }
+  let rest = await captureOverviewImagesWithScreenCaptureKit(previews: missedPreviews,
+    desktops: missedDesktops, previewCompleted: previewCompleted)
+  return OverviewCaptureResults(previews: rest.previews, desktops: desktops.merging(rest.desktops) { $1 },
+    authorizationDeclined: rest.authorizationDeclined)
+}
+
+private func overviewWindowServerPreview(_ request: OverviewPreviewRequest,
+  capture: @Sendable ([CGWindowID]) -> [CGImage]?, context: CIContext) -> OverviewPreviewCaptureResult {
+  let missed = OverviewPreviewCaptureResult(request: request, image: nil)
+  guard let id = CGWindowID(exactly: request.windowID.rawValue) else { return missed }
+  // Raw window numbers, not boxed objects, as in ribbonProxyNativeFrames.
+  var pointers = [UnsafeRawPointer(bitPattern: UInt(id))]
+  guard let array = CFArrayCreate(nil, &pointers, 1, nil),
+    let owner = ((CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]])?.first?[
+      kCGWindowOwnerPID as String]) as? NSNumber,
+    overviewPreviewOwnerMatches(expectedAppID: request.expectedAppID,
+      capturedAppID: NSRunningApplication(processIdentifier: owner.int32Value)?.bundleIdentifier),
+    let images = capture([id]), images.count == 1, let full = images.first,
+    let image = resizedOverviewImage(full, width: request.width, height: request.height)
+  else { return missed }
+  let styledImage = progressivelyBlurredOverviewPreview(
+    image, fadeHeight: CGFloat(request.blurFadeHeight), context: context) ?? image
+  return OverviewPreviewCaptureResult(request: request, image: styledImage,
+    rememberedImage: compactOverviewPreview(styledImage))
+}
+
+@MainActor
+private func captureOverviewImagesWithScreenCaptureKit(
   previews requests: [OverviewPreviewRequest],
   desktops desktopRequests: [OverviewDesktopCaptureRequest],
   previewCompleted: @escaping @MainActor @Sendable (OverviewPreviewCaptureResult) -> Void

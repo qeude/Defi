@@ -316,7 +316,7 @@ struct PreparedAXProcessReadResult: @unchecked Sendable {
 
 func collectPreparedAXProcessReads(
   _ jobs: [PreparedAXProcessRead],
-  maximumConcurrent: Int = 4,
+  maximumConcurrent: Int = 8,
   shouldStart: (pid_t) -> Bool,
   read: @escaping @Sendable (PreparedAXProcessRead) -> PreparedAXProcessReadResult
 ) -> [PreparedAXProcessReadResult] {

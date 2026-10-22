@@ -19,6 +19,9 @@ public struct Window: Equatable, Codable, Sendable {
   public var maximumTiledWidth: Double?
   public var maximumTiledHeight: Double?
   public var tiledSizeAcceptance: TiledSizeAcceptance?
+  /// How much wider than requested the app makes this window (a terminal snapping to
+  /// whole cells): later requests are that much narrower so it lands inside its column.
+  public var widthRounding: Double?
 
   public init(
     id: WindowID,
@@ -92,3 +95,15 @@ public struct TiledSizeAcceptance: Equatable, Codable, Sendable {
     self.accepted = accepted
   }
 }
+
+/// Up to this many points wider than requested is an app rounding its size, never a
+/// width constraint: the column keeps its width and the request is compensated.
+public let tiledWidthRoundingLimit = 16.0
+
+/// A learned minimum width only binds beyond rounding: a window that merely rounds a
+/// request up must not widen its column past the share it was given.
+public func effectiveMinimumTiledWidth(_ minimum: Double?, requested: Double) -> Double {
+  guard let minimum, minimum > requested + tiledWidthRoundingLimit else { return 0 }
+  return minimum
+}
+

@@ -5,6 +5,18 @@ import Testing
 @testable import DefiRuntime
 
 struct NativeFocusTests {
+  @Test func defiOwnActivationCannotUndoTheNextWorkspaceSwitch() {
+    // Hotkey at 10, Defi's focus recovery activates the previous workspace's window at 10.2.
+    #expect(nativeActivationLacksHumanIntent(applicationActivation: true, switchesWorkspace: true,
+      latestUserInputTimestamp: 10, latestCommandInputTimestamp: 10))
+    // Command-Tab or a Dock click is newer human input: the switch follows it.
+    #expect(!nativeActivationLacksHumanIntent(applicationActivation: true, switchesWorkspace: true,
+      latestUserInputTimestamp: 10.1, latestCommandInputTimestamp: 10))
+    // Within the active workspace an activation never needs this guard.
+    #expect(!nativeActivationLacksHumanIntent(applicationActivation: true, switchesWorkspace: false,
+      latestUserInputTimestamp: 10, latestCommandInputTimestamp: 10))
+  }
+
   @Test(arguments: [false, true])
   func consumedClickCannotAuthorizeLaterFocus(applicationActivation: Bool) {
     let deferred = updatedDeferredMouseFocusIntent(

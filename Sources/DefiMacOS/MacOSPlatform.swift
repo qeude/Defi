@@ -10,6 +10,49 @@ import OSLog
 
 @NavigationActor
 public final class MacOSPlatform {
+  public var windowProxiesEnabled = false {
+    didSet { RibbonProxyPresenter.shared.enabled = windowProxiesEnabled }
+  }
+  /// The tiled window the pointer is carrying; live reorders leave its proxy to the pointer.
+  public var windowProxyDraggedWindowID: WindowID?
+  /// Vertical travel of a workspace switch, so windows entering an empty or
+  /// emptied ribbon still know where to come from.
+  public var windowProxyWorkspaceShift: Double?
+  /// The overlay is drawing a motion; desktop reads wait for its landing.
+  public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
+  /// Shows the layout a drop at the pointer would produce, on the overlay only.
+  public func presentWindowProxyPreview(_ frames: [WindowID: Rect], heldWindowID: WindowID) {
+    guard windowProxiesEnabled else { return }
+    RibbonProxyPresenter.shared.preview(frames, heldWindowID: heldWindowID)
+  }
+
+  /// The tiled window just released by the pointer; it starts from where it was dropped.
+  public var windowProxyDroppedWindowID: WindowID?
+
+  /// Hands a tiled window dragged by the pointer to the overlay: its proxy follows the
+  /// pointer over every window drawn where it is now.
+  public func carryWindowProxy(_ windowID: WindowID, stretches: Bool) {
+    let presenter = RibbonProxyPresenter.shared
+    guard windowProxiesEnabled, !presenter.isCarrying, lastMonitorFrames.count == 1,
+      let viewport = lastMonitorFrames.first else { return }
+    let windows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
+    let native = ribbonProxyNativeFrames(Set(windows.keys))
+    // Drags and resizes preview the whole ribbon, so windows off screen join it at
+    // their logical place (natively they sit parked at the edge).
+    // Visible windows start exactly where they are (the held one is already under the
+    // pointer); only windows off screen take their logical place.
+    let proxies = windows.compactMap { id, window -> RibbonProxyWindow? in
+      guard let processID = window.processID else { return nil }
+      if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01 {
+        return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
+      }
+      guard let logical = previousLogicalRibbonFrames[id] else { return nil }
+      let frame = native[id].map { Rect(x: logical.x, y: $0.y, width: logical.width, height: $0.height) } ?? logical
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
+    }
+    presenter.carry(windowID, stretches: stretches, windows: proxies, viewport: viewport,
+      slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
+  }
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   nonisolated let snapshotEngine: SnapshotEngine
 
@@ -486,6 +529,7 @@ public final class MacOSPlatform {
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
     let now = ProcessInfo.processInfo.systemUptime
     if !entered.isEmpty {
+      RibbonProxyPresenter.shared.cancel()
       frameSubmissionGeneration &+= 1
       if entered.contains(where: frameCoordinator.isBusy(for:)) {
         frameCoordinator.invalidate(reason: "native-fullscreen")

@@ -224,7 +224,9 @@ extension MacOSPlatform {
     guard let request else { return }
     borderStackingRefreshTask = Task { @MainActor [weak self] in
       guard let self else { return }
-      while frameCoordinator.isBusy(for: request.windowID) {
+      // The window-list read below waits on a WindowServer transaction; during an overlay
+      // motion that wait stalls the compositor, and the hidden border can wait for landing.
+      while frameCoordinator.isBusy(for: request.windowID) || RibbonProxyStore.shared.isMoving {
         try? await Task.sleep(for: .milliseconds(4))
         guard !Task.isCancelled else { return }
       }
@@ -312,6 +314,8 @@ extension MacOSPlatform {
     borderHiddenWindowIDs = lastHiddenWindowIDs
     borderLiveWindowID = liveWindowID
     borderStyle = WindowBorderStyle(config: config)
+    let style = borderStyle
+    NavigationActor.enqueue { RibbonProxyPresenter.shared.borderStyle = style }
     presentRefreshWindowBorders()
     if let ownedWindowID = borderManager.ownedSurfaceWindowID {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)

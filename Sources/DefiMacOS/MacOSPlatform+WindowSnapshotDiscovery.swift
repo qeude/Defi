@@ -575,7 +575,8 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               configuredFloating: decision.floating,
               forceTiling: decision.forceTiling,
               previousDisposition: previousDisposition,
-              reuseCachedCapabilities: !refreshesWindowList,
+              // A known window keeps its close button and resizability; modal state is re-read.
+              reuseCachedCapabilities: !refreshesWindowList || previousWindowID != nil,
               preparedModalState: (preparedIncremental?.isCurrent(self, processID: processID) ?? true) ? previousWindowID.flatMap {
                 preparedWindowAttributes[$0]?.modal
               } : nil
