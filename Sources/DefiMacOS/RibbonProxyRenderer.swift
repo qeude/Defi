@@ -1161,7 +1161,6 @@ final class RibbonProxyPresenter {
     ribbonProxyCommit(#line)
   }
 
-  // A newer non-navigation layout owns native geometry; drop the stale picture.
   /// Whether a newer layout moves windows the running motion is still carrying.
   func isRetargeted(by assignments: [FrameAssignment], generation submission: UInt64) -> Bool {
     // Only x: native clamping makes the logical vertical extent differ by design.
@@ -1405,10 +1404,8 @@ final class RibbonProxyPresenter {
     let sublayers = Dictionary((layer.sublayers ?? []).compactMap { sublayer in
       sublayer.name.map { ($0, sublayer) } }) { first, _ in first }
     let picture = RibbonProxyStore.shared.picture(window.id)
-    // The icon names the window when its picture is missing, cropped noticeably by a
-    // resize, or old; the picture always stays visible underneath.
-    // A cropped picture still reads as the window: only a missing picture, or
-    // an old one arriving vertically from another workspace, gets the icon.
+    // A cropped picture still reads as the window: only a missing picture, or an old one
+    // arriving vertically from another workspace, gets the icon over a veil.
     let badged = window.appID != "" && picture.map { picture in
       abs(window.from.y - window.to.y) > window.to.height / 2 && CACurrentMediaTime() - picture.capturedAt > 10
     } ?? true
@@ -1512,13 +1509,15 @@ func ribbonProxyDesktopImage(_ area: CGRect,
   return image
 }
 
-func ribbonProxyNativeFrames(_ ids: Set<WindowID>) -> [WindowID: Rect] {
-  let numbers = ids.compactMap { CGWindowID(exactly: $0.rawValue) }
+func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [[String: Any]] {
   // Raw window numbers, not boxed objects: bridging `as CFArray` matches no window.
   var pointers = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
-  guard let array = CFArrayCreate(nil, &pointers, pointers.count, nil),
-    let infos = CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]]
-  else { return [:] }
+  guard let array = CFArrayCreate(nil, &pointers, pointers.count, nil) else { return [] }
+  return CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]] ?? []
+}
+
+func ribbonProxyNativeFrames(_ ids: Set<WindowID>) -> [WindowID: Rect] {
+  let infos = ribbonProxyWindowDescriptions(ids.compactMap { CGWindowID(exactly: $0.rawValue) })
   var result: [WindowID: Rect] = [:]
   for info in infos {
     guard let number = info[kCGWindowNumber as String] as? NSNumber,

@@ -395,11 +395,7 @@ private func overviewWindowServerPreview(_ request: OverviewPreviewRequest,
   capture: @Sendable ([CGWindowID]) -> [CGImage]?, context: CIContext) -> OverviewPreviewCaptureResult {
   let missed = OverviewPreviewCaptureResult(request: request, image: nil)
   guard let id = CGWindowID(exactly: request.windowID.rawValue) else { return missed }
-  // Raw window numbers, not boxed objects, as in ribbonProxyNativeFrames.
-  var pointers = [UnsafeRawPointer(bitPattern: UInt(id))]
-  guard let array = CFArrayCreate(nil, &pointers, 1, nil),
-    let owner = ((CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]])?.first?[
-      kCGWindowOwnerPID as String]) as? NSNumber,
+  guard let owner = ribbonProxyWindowDescriptions([id]).first?[kCGWindowOwnerPID as String] as? NSNumber,
     overviewPreviewOwnerMatches(expectedAppID: request.expectedAppID,
       capturedAppID: NSRunningApplication(processIdentifier: owner.int32Value)?.bundleIdentifier),
     let images = capture([id]), images.count == 1, let full = images.first,
