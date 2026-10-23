@@ -213,6 +213,35 @@ struct RibbonProxyTests {
     #expect(plan.first?.to == Rect(x: 4, y: 34, width: 1270, height: 1360))
   }
 
+  @Test func aDroppedWindowSettlesWhereItsNeighboursSettleOnANotchedDisplay() {
+    let dropped = WindowID(rawValue: 1), b = WindowID(rawValue: 2), c = WindowID(rawValue: 3)
+    // The display clamps every 941-pt window 13 pt above its ribbon place.
+    let plan = windowProxyMotion(
+      ribbonTargets: [dropped: Rect(x: 3564, y: -932, width: 488, height: 915),
+        b: Rect(x: 2564, y: -932, width: 488, height: 915), c: Rect(x: 3064, y: -932, width: 488, height: 915)],
+      otherTargets: [:],
+      previousLogical: [dropped: Rect(x: 3064, y: -932, width: 489, height: 915),
+        b: Rect(x: 2564, y: -932, width: 489, height: 915), c: Rect(x: 3564, y: -932, width: 489, height: 915)],
+      observed: [dropped: Rect(x: 3300, y: -790, width: 489, height: 941),
+        b: Rect(x: 2564, y: -945, width: 489, height: 941), c: Rect(x: 3564, y: -945, width: 489, height: 941)],
+      dropped: dropped)
+    let byID = Dictionary(uniqueKeysWithValues: plan.map { ($0.id, $0) })
+    #expect(byID[dropped]?.to == Rect(x: 3564, y: -945, width: 488, height: 941))
+    #expect(byID[c]?.to == Rect(x: 3064, y: -945, width: 488, height: 941))
+  }
+
+  @Test func aLearnedPlacementSurvivesAColumnReflowedOnePointNarrower() {
+    let dropped = WindowID(rawValue: 1)
+    let settle = RibbonProxySettle(target: Rect(x: 3064, y: -932, width: 489, height: 915),
+      native: Rect(x: 3064, y: -945, width: 489, height: 941))
+    let plan = windowProxyMotion(
+      ribbonTargets: [dropped: Rect(x: 3564, y: -932, width: 488, height: 915)], otherTargets: [:],
+      previousLogical: [dropped: Rect(x: 3064, y: -932, width: 489, height: 915)],
+      observed: [dropped: Rect(x: 3300, y: -790, width: 489, height: 941)],
+      settled: [dropped: settle!], dropped: dropped)
+    #expect(plan.first?.to == Rect(x: 3564, y: -945, width: 488, height: 941))
+  }
+
   @Test func theEdgeColourIsThePictureBorderColour() throws {
     let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
     let context = try #require(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,

@@ -36,7 +36,8 @@ func ribbonProxyLanded(native: [WindowID: Rect], targets: [WindowID: Rect]) -> B
   }
 }
 
-/// How an app adjusted a window placed at a target of `size`: learned at each landing.
+/// How an app adjusted a window Defi asked for at a target of `size` (its own clamp,
+/// cell grid or minimum size): learned at each landing.
 struct RibbonProxySettle: Sendable, Equatable {
   let size: CGSize
   let delta: Rect
@@ -51,8 +52,9 @@ struct RibbonProxySettle: Sendable, Equatable {
     self.delta = delta
   }
 
+  /// A reflow rounding a column a point narrower keeps the app's placement.
   func matches(_ target: Rect) -> Bool {
-    abs(target.width - size.width) < 0.5 && abs(target.height - size.height) < 0.5
+    abs(target.width - size.width) < 3 && abs(target.height - size.height) < 3
   }
 
   /// Position always shifts; the size change only applies to the learned size.
@@ -777,6 +779,8 @@ final class RibbonProxyPresenter {
   private var bordersHidden = false
   private var borderRestore: Task<Void, Never>?
   private var expectedTargets: [WindowID: Rect] = [:]
+  /// What Defi asked each window for; expected targets add the app's placement.
+  private var requestedTargets: [WindowID: Rect] = [:]
   private var presentedSubmission: UInt64 = 0
   private var generation: UInt64 = 0
   private var landedRefresh: [RibbonProxyRefresh] = []
@@ -784,7 +788,8 @@ final class RibbonProxyPresenter {
 
   // Returns false when windows must move at once instead.
   func begin(windows: [RibbonProxyWindow], viewport nextViewport: Rect, generation submission: UInt64,
-    nativeTargets: [WindowID: Rect], duration: TimeInterval, selectedWindowID: WindowID?,
+    nativeTargets: [WindowID: Rect], requestedTargets requested: [WindowID: Rect] = [:],
+    duration: TimeInterval, selectedWindowID: WindowID?,
     keepsOffscreen: Bool = false,
     managedWindowIDs: Set<WindowID> = [], borderWindowIDs: Set<WindowID>? = nil) -> Bool {
     let began = CACurrentMediaTime()
@@ -960,6 +965,7 @@ final class RibbonProxyPresenter {
     }
 
     expectedTargets = nativeTargets.filter { $0.key != draggedWindowID && $0.value.ribbonIntersects(area) }
+    requestedTargets = requested.filter { expectedTargets[$0.key] != nil }
     presentedSubmission = submission
     landedRefresh = windows.map {
       RibbonProxyRefresh(id: $0.id, appID: $0.appID, processID: $0.processID, frame: $0.to,
@@ -984,13 +990,14 @@ final class RibbonProxyPresenter {
       return "\(window.id.rawValue):\(Int(picture.size.width))x\(Int(picture.size.height))->\(Int(window.to.width))x\(Int(window.to.height)),\(age)s"
     }
     ribbonProxyLogger.notice("present windows=\(shown.count) pictures=\(pictured) missing=\(unpictured, privacy: .public) stale=\(mismatched, privacy: .public) veiled=\(self.veiled.count) ms=\(Int((CACurrentMediaTime() - began) * 1_000)) flushMs=\(flushMS) preMs=\(Int((phaseScreen - began) * 1_000)) screenMs=\(Int((phaseLayers - phaseScreen) * 1_000)) layersMs=\(Int((committing - phaseLayers) * 1_000)) cold=\(cached.isEmpty)")
-    let token = generation, targets = expectedTargets, display = display, presenter = self
+    let token = generation, expected = expectedTargets, requested = requestedTargets
+    let display = display, presenter = self
     store.setCurrentMotion(token, display)
     // Windows leaving the screen must be gone too, or a slow app's outgoing window
     // pops back into view when the overlay lifts.
     let leaving = Set(windows.filter {
       $0.id != draggedWindowID && $0.from.ribbonIntersects(area) && !$0.to.ribbonIntersects(area)
-    }.map(\.id)).union(unsettledLeaving.subtracting(targets.keys).subtracting([draggedWindowID].compactMap { $0 }))
+    }.map(\.id)).union(unsettledLeaving.subtracting(expected.keys).subtracting([draggedWindowID].compactMap { $0 }))
     unsettledLeaving = leaving
     let drawn = Set(shown.map(\.id) + [draggedWindowID].compactMap { $0 })
     let stop = ribbonProxyVisualStop(travel: travel)
@@ -1002,12 +1009,6 @@ final class RibbonProxyPresenter {
       let deadline = CACurrentMediaTime() + 0.9
       var landed = false
       var native: [WindowID: Rect] = [:]
-      // Where each app really puts its window (a minimum width, a cell grid), as learned.
-      let learned = RibbonProxyStore.shared.settled
-      let expected = targets.reduce(into: [WindowID: Rect]()) { result, entry in
-        result[entry.key] = learned[entry.key].map { $0.matches(entry.value) ? $0.apply(to: entry.value) : entry.value }
-          ?? entry.value
-      }
       func cleared(_ id: WindowID) -> Bool {
         native[id].map { windowProxyVisibleOverlap($0, area) <= 2 } ?? true
       }
@@ -1019,7 +1020,7 @@ final class RibbonProxyPresenter {
         try? await Task.sleep(for: .milliseconds(8))
       }
       var finished = landed
-      if landed { RibbonProxyStore.shared.learnSettles(targets: targets, native: native) }
+      if landed { RibbonProxyStore.shared.learnSettles(targets: requested, native: native) }
       guard RibbonProxyStore.shared.currentMotion(display) == token else { return }
       // A slow app has not moved its window yet (arriving or leaving): lifting would
       // show it sliding into place later, so the overlay keeps covering it alone, over
@@ -1045,7 +1046,7 @@ final class RibbonProxyPresenter {
       }
       if !finished {
         // Placed but not at the asked size: the app's own limit, landed from now on.
-        let placed = targets.filter { id, _ in
+        let placed = requested.filter { id, _ in
           native[id].flatMap { frame in expected[id].map { abs(frame.x - $0.x) < 3 && abs(frame.y - $0.y) < 12 } } == true
         }
         RibbonProxyStore.shared.learnSettles(targets: placed, native: native)
@@ -1053,7 +1054,7 @@ final class RibbonProxyPresenter {
           .map(\.key) + leaving.filter { !cleared($0) }
         let detail = late.map { id in
           let n = native[id].map { "\(Int($0.x)),\(Int($0.y)),\(Int($0.width))x\(Int($0.height))" } ?? "none"
-          let t = targets[id].map { "\(Int($0.x)),\(Int($0.y)),\(Int($0.width))x\(Int($0.height))" } ?? "offscreen"
+          let t = expected[id].map { "\(Int($0.x)),\(Int($0.y)),\(Int($0.width))x\(Int($0.height))" } ?? "offscreen"
           return "\(id.rawValue):\(n)->\(t)"
         }
         ribbonProxyLogger.notice("landing-timeout late=\(detail, privacy: .public)")
@@ -1256,7 +1257,7 @@ final class RibbonProxyPresenter {
   func isRetargeted(by assignments: [FrameAssignment], generation submission: UInt64) -> Bool {
     // Only x: native clamping makes the logical vertical extent differ by design.
     presenting && submission > presentedSubmission && assignments.contains { assignment in
-      expectedTargets[assignment.windowID].map { abs($0.x - assignment.frame.x) >= 3 } ?? false
+      requestedTargets[assignment.windowID].map { abs($0.x - assignment.frame.x) >= 3 } ?? false
     }
   }
 
@@ -1266,7 +1267,7 @@ final class RibbonProxyPresenter {
 
   func cancel(_ reason: String = "external") {
     generation &+= 1
-    expectedTargets = [:]
+    expectedTargets = [:]; requestedTargets = [:]
     // The pointer track belongs to the display holding a window, if any.
     if drag.heldWindowID != nil { RibbonProxyPointerTrack.shared.set(nil) }
     drag = .idle; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []

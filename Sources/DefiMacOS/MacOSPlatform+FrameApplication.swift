@@ -511,12 +511,21 @@ func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
 /// known start (entering from parking) travel with the shared motion.
 func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID: Rect],
   previousLogical: [WindowID: Rect], observed: [WindowID: Rect], verticalShift: Double? = nil,
-  settled: [WindowID: RibbonProxySettle] = [:])
+  settled: [WindowID: RibbonProxySettle] = [:], dropped: WindowID? = nil)
   -> [(id: WindowID, from: Rect, to: Rect)] {
   let targets = otherTargets.merging(ribbonTargets) { _, ribbon in ribbon }
   let shared = verticalShift.map { CGPoint(x: 0, y: $0) } ?? targets.lazy.compactMap { id, to in
     previousLogical[id].map { CGPoint(x: to.x - $0.x, y: to.y - $0.y) }
   }.first ?? .zero
+  // The pointer, not the app, placed the dropped window: it settles where its
+  // neighbours on this display do (a notched display clamps them all alike).
+  let siblingClamps = dropped == nil ? [] : ribbonTargets.compactMap { id, to -> Double? in
+    guard id != dropped, let native = observed[id], let previous = previousLogical[id],
+      abs(native.height - to.height) < 40, abs(native.y - previous.y) < 40 else { return nil }
+    return (native.y - previous.y).rounded()
+  }
+  let siblingClamp = Dictionary(grouping: siblingClamps) { $0 }
+    .max { ($0.value.count, -abs($0.key), $0.key) < ($1.value.count, -abs($1.key), $1.key) }?.key ?? 0
   return targets.compactMap { id, target in
     guard let native = observed[id] else { return nil }
     // In a vertical switch, leaving windows slide off with the shift on the overlay,
@@ -530,7 +539,7 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
     let clamped = abs(native.height - logicalTo.height) < 40
     // Only a small offset is an app's own clamp; a large one is where the pointer
     // dropped the window.
-    let offset = previousLogical[id].map { native.y - $0.y } ?? 0
+    let offset = id == dropped ? siblingClamp : previousLogical[id].map { native.y - $0.y } ?? 0
     let clamp = clamped && abs(offset) < 40 ? offset : 0
     let start = leavingFrom ?? previousLogical[id]
       ?? Rect(x: logicalTo.x - shared.x, y: logicalTo.y - shared.y,
@@ -626,7 +635,8 @@ extension MacOSPlatform {
       .map { ($0.windowID, $0.frame) }) { first, _ in first }
     let planned = windowProxyMotion(ribbonTargets: ribbonTargets, otherTargets: otherTargets,
       previousLogical: previousRibbonFrames, observed: observed,
-      verticalShift: workspaceShift, settled: RibbonProxyStore.shared.settled)
+      verticalShift: workspaceShift, settled: RibbonProxyStore.shared.settled,
+      dropped: windowProxyDroppedWindowID)
     if let shift = workspaceShift {
       ribbonProxyLogger.notice("workspace-switch shift=\(Int(shift))")
     }
@@ -655,11 +665,15 @@ extension MacOSPlatform {
     let targets = Dictionary(native.compactMap { assignment -> (WindowID, Rect)? in
       guard !hiddenWindowIDs.contains(assignment.windowID),
         let planned = plannedTargets[assignment.windowID] else { return nil }
-      // The native target position, with the planned (clamped) vertical extent.
-      return (assignment.windowID, Rect(x: assignment.frame.x,
-        y: planned.y + assignment.frame.y - (ribbonTargets[assignment.windowID]?.y ?? assignment.frame.y),
-        width: assignment.frame.width, height: planned.height))
+      // The native target with the planned app placement (learned or clamped).
+      let logical = ribbonTargets[assignment.windowID]
+      return (assignment.windowID, Rect(x: assignment.frame.x + planned.x - (logical?.x ?? planned.x),
+        y: planned.y + assignment.frame.y - (logical?.y ?? assignment.frame.y),
+        width: assignment.frame.width + planned.width - (logical?.width ?? planned.width),
+        height: planned.height))
     }) { first, _ in first }
+    let requested = Dictionary(native.filter { targets[$0.windowID] != nil }
+      .map { ($0.windowID, $0.frame) }) { first, _ in first }
     if RibbonProxyPresenter.setBordersHidden == nil {
       RibbonProxyPresenter.setBordersHidden = { [weak self] display, windowIDs in
         DispatchQueue.main.async {
@@ -676,7 +690,8 @@ extension MacOSPlatform {
       }
     }
     return presenter.begin(windows: proxies, viewport: viewport,
-      generation: frameSubmissionGeneration, nativeTargets: targets, duration: duration,
+      generation: frameSubmissionGeneration, nativeTargets: targets, requestedTargets: requested,
+      duration: duration,
       selectedWindowID: desiredSelectedWindowID, managedWindowIDs: Set(allWindows.keys),
       borderWindowIDs: monitor.windowIDs)
   }
