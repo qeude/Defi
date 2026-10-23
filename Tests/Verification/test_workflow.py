@@ -441,6 +441,27 @@ class WorkflowTests(unittest.TestCase):
                     env=dict(os.environ, PATH=str(root)+os.pathsep+os.environ["PATH"]), capture_output=True, text=True)
                 self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_session_start_retries_a_refused_launch_without_a_second_daemon(self):
+        running = [0]
+        launches = []
+
+        def command(*args):
+            if args == ('service', 'start'):
+                launches.append(running[0])
+                if len(launches) == 1:
+                    raise subprocess.CalledProcessError(1, 'defi')
+                running[0] = 1
+                return ''
+            if running[0] == 0:
+                raise subprocess.CalledProcessError(1, 'defi')
+            return 'running monitors=2[1,2] snapshots=3/3'
+
+        with patch.object(desktop_session, 'command', side_effect=command), \
+                patch.object(desktop_session, 'daemon_count', side_effect=lambda: running[0]), \
+                patch.object(desktop_session.time, 'sleep'):
+            desktop_session.start()
+        self.assertEqual(launches, [0, 0])
+
     def test_coverage_groups_source_lines_by_module(self):
         def entry(name, covered, count):
             return {"filename": str(ROOT / name), "summary": {"lines": {"covered": covered, "count": count}}}
