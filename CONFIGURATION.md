@@ -48,7 +48,7 @@ reserved_bottom = 0
 | --- | --- | --- | --- |
 | `default_column_width` | `0.80` | number from `0.05` to `1.0` | Fraction of monitor width assigned to each new column. |
 | `preset_column_widths` | `[0.33, 0.50, 0.66, 0.80]` | non-empty array of numbers from `0.05` to `1.0` | Ordered widths used by `cycle-width`. Cycling wraps at both ends. |
-| `center_focused_column` | `"never"` | `"never"` or `"always"` | `"always"` centers focused columns. `"never"` scrolls only enough to keep focus visible. |
+| `center_focused_column` | `"never"` | `"never"`, `"always"`, or `"on-overflow"` | `"always"` centers focused columns that fit on screen. `"never"` scrolls only enough to keep focus visible. `"on-overflow"` centers a newly focused column only when it cannot share the screen with the previously focused column. See [Focused column centering](#focused-column-centering). |
 | `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. An outside border is part of its window, so gaps start at the border's outer edge. |
 | `outer_top_gap` | `gaps` | number from `0` to `256` | Optional top-edge override. |
 | `outer_right_gap` | `gaps` | number from `0` to `256` | Optional right-edge override. |
@@ -62,6 +62,28 @@ manual resize remain pixel-based and scale when monitor geometry changes.
 
 Reserved values are extra insets, not raw bar dimensions. See
 [SketchyBar integration](contrib/sketchybar/README.md) for overlap calculation and live commands.
+
+### Focused column centering
+
+`"on-overflow"` decides when the selected window changes. The previous column
+holds the window Defi last scrolled to reveal on that workspace. Defi measures the
+span from the left edge of the leftmost of the two columns to the right edge
+of the rightmost, including every column between them. Column widths include
+their gaps, so the span fits when it is at most the monitor's usable width.
+An exact fit counts as fitting.
+
+- When the span fits, Defi scrolls only enough to reveal the new column, as with `"never"`.
+- When it does not fit, Defi centers the new column, as with `"always"`.
+- Focus that jumps over other columns, such as `focus-column first`, measures
+  the whole span and usually centers.
+- With no previous column, such as the first window on a workspace or after
+  the previous window closed, Defi scrolls only enough to reveal the new column.
+- A column wider than the screen is left-aligned in every mode.
+- Moving focus within one column keeps that column where it is. Focusing the
+  selected window again changes nothing.
+- The decision holds until the selected window changes. Moving the column or
+  a width change does not decide again, so a centered column stays centered
+  and a revealed column is only kept visible.
 
 ## `[menu_bar]`
 

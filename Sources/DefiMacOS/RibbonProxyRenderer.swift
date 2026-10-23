@@ -1032,7 +1032,7 @@ final class RibbonProxyPresenter {
     // drop layout (or its timeout) takes over.
     guard drag == .idle else { return }
     // A window whose size changed shows a cropped picture while the app has reflowed:
-    // recapture it first (like Trellis' redraw wait), so the fade joins two matching
+    // recapture it first, so the fade joins two matching
     // images. A fresh capture lands once the app has redrawn at its new size; at most
     // 0.9 s, and a timed-out landing does not wait again.
     let resized = landedRefresh.filter { window in

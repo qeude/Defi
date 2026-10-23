@@ -31,6 +31,18 @@ public struct Column: Equatable, Codable, Sendable {
   }
 }
 
+/// The selected window a scroll target was last resolved for, and whether it
+/// overflowed the screen together with the previous selection when it became selected.
+public struct ScrollFocus: Equatable, Codable, Sendable {
+  public var windowID: WindowID
+  public var centered: Bool
+
+  public init(windowID: WindowID, centered: Bool) {
+    self.windowID = windowID
+    self.centered = centered
+  }
+}
+
 public struct Workspace: Equatable, Codable, Sendable {
   public let id: WorkspaceID
   public var kind: WorkspaceKind
@@ -44,6 +56,7 @@ public struct Workspace: Equatable, Codable, Sendable {
   public var focusedColumn: Int
   public var scrollOffset: Double
   public var targetScrollOffset: Double
+  public var scrollFocus: ScrollFocus? = nil
 
   public init(
     id: WorkspaceID,

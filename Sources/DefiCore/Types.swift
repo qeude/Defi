@@ -5,6 +5,7 @@ public let parkedSliverWidth = 1.0
 public enum CenterFocusedColumn: Equatable, Sendable {
   case never
   case always
+  case onOverflow
 }
 
 public struct LayoutSettings: Equatable, Sendable {

@@ -1777,7 +1777,7 @@ public final class OverviewController: NSObject {
     }
     let started = CACurrentMediaTime()
     let view = panels[monitorID]?.view
-    let drawsBefore = view?.drawCount ?? 0
+    let rendersBefore = view?.renderCount ?? 0
     let geometryChanged = pendingViewportFrames.remove(monitorID) != nil
       || viewportAnimations[monitorID] != nil
       || projectionAnimations[monitorID] != nil
@@ -1804,7 +1804,7 @@ public final class OverviewController: NSObject {
     if geometryChanged { updatePanels(only: monitorID) }
     let fadePending = updatePreviewFade(on: monitorID)
     view?.displayIfNeeded()
-    if (view?.drawCount ?? 0) > drawsBefore {
+    if (view?.renderCount ?? 0) > rendersBefore {
       renderedFrames += 1
       renderedSeconds += CACurrentMediaTime() - started
       if let previous = lastRenderedRefresh[monitorID] {

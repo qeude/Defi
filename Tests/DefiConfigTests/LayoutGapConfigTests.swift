@@ -25,6 +25,18 @@ struct LayoutGapConfigTests {
     #expect(config.layout.outerLeftGap == 3)
   }
 
+  @Test(arguments: [
+    ("never", CenterFocusedColumnConfig.never),
+    ("always", .always),
+    ("on-overflow", .onOverflow),
+  ])
+  func decodesCenterFocusedColumn(value: String, expected: CenterFocusedColumnConfig) throws {
+    let config = try Config.decode(Data("[layout]\ncenter_focused_column = \"\(value)\"".utf8))
+
+    #expect(config.layout.centerFocusedColumn == expected)
+    #expect(try Config.decode(Data()).layout.centerFocusedColumn == .never)
+  }
+
   @Test
   func leavesOuterGapOverridesUnsetByDefault() throws {
     let config = try Config.decode(Data())

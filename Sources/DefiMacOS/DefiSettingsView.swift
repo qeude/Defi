@@ -311,6 +311,7 @@ private struct LayoutSettingsView: View {
         ) {
           Text("Reveal as needed").tag("never")
           Text("Always center").tag("always")
+          Text("Center on overflow").tag("on-overflow")
         }
         .settingsSearchTarget(.focusedColumn)
       }
