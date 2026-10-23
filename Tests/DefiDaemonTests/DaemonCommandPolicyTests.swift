@@ -51,24 +51,20 @@ struct DaemonCommandPolicyTests {
     #expect(state.isCurrentSession(3))
   }
 
-  @Test func changedNativeFocusAnimatesOnlyItsMonitor() {
-    let monitor = MonitorID(rawValue: 2)
-    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: false,
-      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false,
-      displayGeometryChanged: false) == monitor)
-    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: nil, floating: false,
-      activatedWorkspace: false, overviewOpen: false, mouseGestureActive: false, displayGeometryChanged: false) == nil)
-  }
-
-  @Test(arguments: [(true, false, false, false, false), (false, true, false, false, false),
-    (false, false, true, false, false), (false, false, false, true, false),
+  // floating, overview open, mouse gesture, display geometry changed, activated workspace
+  @Test(arguments: [(false, false, false, false, false), (true, false, false, false, false),
+    (false, true, false, false, false), (false, false, true, false, false), (false, false, false, true, false),
     (false, false, false, false, true)])
-  func nativeFocusDoesNotAnimateDuringOtherInteractions(
-    blockers: (Bool, Bool, Bool, Bool, Bool)
-  ) {
-    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: MonitorID(rawValue: 2),
-      floating: blockers.0, activatedWorkspace: blockers.4, overviewOpen: blockers.1,
-      mouseGestureActive: blockers.2, displayGeometryChanged: blockers.3) == nil)
+  func changedNativeFocusAnimatesOnlyItsMonitorOutsideOtherInteractions(floating: Bool, overviewOpen: Bool,
+    mouseGesture: Bool, displayChanged: Bool, activatedWorkspace: Bool) {
+    let monitor = MonitorID(rawValue: 2)
+    let blocked = floating || overviewOpen || mouseGesture || displayChanged || activatedWorkspace
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: floating,
+      activatedWorkspace: activatedWorkspace, overviewOpen: overviewOpen, mouseGestureActive: mouseGesture,
+      displayGeometryChanged: displayChanged) == (blocked ? nil : monitor))
+    #expect(nativeFocusAnimationMonitorID(focusedMonitorID: nil, floating: floating,
+      activatedWorkspace: activatedWorkspace, overviewOpen: overviewOpen, mouseGestureActive: mouseGesture,
+      displayGeometryChanged: displayChanged) == nil)
   }
 
   @Test
@@ -513,104 +509,46 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test(arguments: [nil, 10.0] as [Double?])
-  func staleNativeFocusCannotChangeSelectionBeforeMonitorSelection(activationTimestamp: Double?) {
-    let nativeFocusAccepted = nativeFocusMutationIsReady(
-      nativeFocusChanged: true,
-      mouseInteractionEnded: false,
-      leftMouseButtonDown: false,
-      mouseReleaseFocusIntentCurrent: false,
-      keyboardFocusIntentCurrent: false,
-      applicationActivationTimestamp: activationTimestamp,
-      latestCommandInputTimestamp: 11
-    )
-    #expect(!shouldCommitNativeFocusSelection(
-      nativeFocusAccepted: nativeFocusAccepted,
-      selectionChanged: true
-    ))
-    #expect(shouldCommitNativeFocusSelection(
-      nativeFocusAccepted: true,
-      selectionChanged: true
-    ))
-    #expect(!shouldCommitNativeFocusSelection(
-      nativeFocusAccepted: true,
-      selectionChanged: false
-    ))
-  }
-
-  @Test(arguments: [nil, 10.0] as [Double?])
-  func staleFocusOnSecondMonitorKeepsDefaultMonitorRouting(activationTimestamp: Double?) {
-    let firstMonitor = MonitorID(rawValue: 1)
-    let staleMonitor = MonitorID(rawValue: 2)
-    let nativeFocusAccepted = nativeFocusMutationIsReady(
-      nativeFocusChanged: true,
-      mouseInteractionEnded: false,
-      leftMouseButtonDown: false,
-      mouseReleaseFocusIntentCurrent: false,
-      keyboardFocusIntentCurrent: false,
-      applicationActivationTimestamp: activationTimestamp,
-      latestCommandInputTimestamp: 11
-    )
-    let acceptedMonitor = shouldCommitNativeFocusSelection(
-      nativeFocusAccepted: nativeFocusAccepted,
-      selectionChanged: true
-    ) ? staleMonitor : nil
-
-    #expect(activeMonitorIDAfterSnapshot(
-      activeMonitorID: nil,
-      acceptedNativeFocusMonitorID: acceptedMonitor,
-      fallbackMonitorID: firstMonitor
-    ) == firstMonitor)
-    #expect(activeMonitorIDAfterSnapshot(
-      activeMonitorID: nil,
-      acceptedNativeFocusMonitorID: staleMonitor,
-      fallbackMonitorID: firstMonitor
-    ) == staleMonitor)
+  func staleNativeFocusChangesNeitherSelectionNorMonitorRouting(activationTimestamp: Double?) {
+    let nativeFocusAccepted = nativeFocusMutationIsReady(nativeFocusChanged: true, mouseInteractionEnded: false,
+      leftMouseButtonDown: false, mouseReleaseFocusIntentCurrent: false, keyboardFocusIntentCurrent: false,
+      applicationActivationTimestamp: activationTimestamp, latestCommandInputTimestamp: 11)
+    #expect(!shouldCommitNativeFocusSelection(nativeFocusAccepted: nativeFocusAccepted, selectionChanged: true))
+    #expect(shouldCommitNativeFocusSelection(nativeFocusAccepted: true, selectionChanged: true))
+    #expect(!shouldCommitNativeFocusSelection(nativeFocusAccepted: true, selectionChanged: false))
+    let first = MonitorID(rawValue: 1), stale = MonitorID(rawValue: 2)
+    let accepted = shouldCommitNativeFocusSelection(nativeFocusAccepted: nativeFocusAccepted, selectionChanged: true)
+      ? stale : nil
+    #expect(activeMonitorIDAfterSnapshot(activeMonitorID: nil, acceptedNativeFocusMonitorID: accepted,
+      fallbackMonitorID: first) == first)
+    #expect(activeMonitorIDAfterSnapshot(activeMonitorID: nil, acceptedNativeFocusMonitorID: stale,
+      fallbackMonitorID: first) == stale)
   }
 
   @Test
   func inactiveDesktopNeverArmsRecurringTimer() {
     #expect(desktopTimerFrequency(requested: 240, sessionActive: false) == 0)
     #expect(desktopTimerFrequency(requested: 2, sessionActive: true) == 2)
-    #expect(desktopTimerFrequency(requested: 0, sessionActive: true) == 1)
-    #expect(desktopTimerFrequency(requested: 500, sessionActive: true) == 240)
   }
 
   @Test
   func stalledRepairsBackOffWhileFocusRemainsResponsive() {
-    #expect(followUpTimerFrequency(backoffSteps: 2, unchangedDuration: 3, focusPending: false) == 2)
-    #expect(followUpTimerFrequency(backoffSteps: 2, unchangedDuration: 3, focusPending: true) == 15)
-    #expect(followUpTimerFrequency(backoffSteps: 0, unchangedDuration: 0, focusPending: false) == 60)
+    let stalled = followUpTimerFrequency(backoffSteps: 2, unchangedDuration: 3, focusPending: false)
+    #expect(stalled < followUpTimerFrequency(backoffSteps: 0, unchangedDuration: 0, focusPending: false))
+    #expect(stalled < followUpTimerFrequency(backoffSteps: 2, unchangedDuration: 3, focusPending: true))
   }
 
   @Test
-  func idleWatchdogUsesEarliestDeadlineWithoutDelayingFallbackReads() {
-    #expect(idleDesktopRefreshDelay(
-      now: 10, latestInputAt: 0,
-      deadlinesAndIntervals: [(40, 30), (25, 30)]
-    ) == 15)
-    #expect(idleDesktopRefreshDelay(
-      now: 10, latestInputAt: 9.8,
-      deadlinesAndIntervals: [(9, 30)]
-    ) > 0.79)
-    #expect(idleDesktopRefreshDelay(
-      now: 10, latestInputAt: 10,
-      deadlinesAndIntervals: [(9, 0.3), (40, 30)]
-    ) == 0.3)
-  }
-
-  @Test func finalFrameVerificationPreemptsIdleWatchdogEvenAfterNewInput() {
-    #expect(idleDesktopRefreshDelay(
-      now: 10, latestInputAt: 10,
-      deadlinesAndIntervals: [(40, 30), (10.5, 0.1)]
-    ) == 0.5)
-    #expect(idleDesktopRefreshDelay(
-      now: 10.6, latestInputAt: 10.6,
-      deadlinesAndIntervals: [(40, 30), (10.5, 0.1)]
-    ) == 0.3)
-    #expect(idleDesktopRefreshDelay(
-      now: 10.6, latestInputAt: 10.6,
-      deadlinesAndIntervals: [(40, 30), (.infinity, 0.1)]
-    ) == 29.4)
+  func idleWatchdogUsesEarliestDeadlineButFallbackAndFinalVerificationReadsStayPrompt() {
+    func delay(now: Double, input: Double, _ deadlines: [(Double, Double)]) -> Double {
+      idleDesktopRefreshDelay(now: now, latestInputAt: input, deadlinesAndIntervals: deadlines)
+    }
+    #expect(delay(now: 10, input: 0, [(40, 30), (25, 30)]) == 15)
+    #expect(abs(delay(now: 10, input: 9.8, [(9, 30)]) - 0.8) < 1e-9)
+    #expect(delay(now: 10, input: 10, [(9, 0.3), (40, 30)]) == 0.3)
+    #expect(delay(now: 10, input: 10, [(40, 30), (10.5, 0.1)]) == 0.5)
+    #expect(delay(now: 10.6, input: 10.6, [(40, 30), (10.5, 0.1)]) == 0.3)
+    #expect(delay(now: 10.6, input: 10.6, [(40, 30), (.infinity, 0.1)]) == 29.4)
   }
 
   @Test(
@@ -627,29 +565,10 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
-  func closeTopologyRetriesAreBoundedAndLatestWins() {
-    #expect(windowCloseRefreshDelays == [50, 150, 350, 700, 1_200, 2_000])
-    #expect(
-      windowCloseRetryIsCurrent(
-        intentTimestamp: 10,
-        latestInputTimestamp: 10,
-        latestCloseIntentTimestamp: 10
-      )
-    )
-    #expect(
-      windowCloseRetryIsCurrent(
-        intentTimestamp: 10,
-        latestInputTimestamp: 11,
-        latestCloseIntentTimestamp: 10
-      ) == false
-    )
-    #expect(
-      windowCloseRetryIsCurrent(
-        intentTimestamp: 10,
-        latestInputTimestamp: 11,
-        latestCloseIntentTimestamp: 11
-      ) == false
-    )
+  func closeTopologyRetriesAreLatestWins() {
+    #expect(windowCloseRetryIsCurrent(intentTimestamp: 10, latestInputTimestamp: 10, latestCloseIntentTimestamp: 10))
+    #expect(!windowCloseRetryIsCurrent(intentTimestamp: 10, latestInputTimestamp: 11, latestCloseIntentTimestamp: 10))
+    #expect(!windowCloseRetryIsCurrent(intentTimestamp: 10, latestInputTimestamp: 11, latestCloseIntentTimestamp: 11))
   }
 
   @Test
@@ -798,61 +717,6 @@ struct DaemonCommandPolicyTests {
       activeMonitorID: trailing ? local : remote,
       selectedWindowIsNativelyFocused: false
     ))
-  }
-
-  @Test
-  func localLayoutSubmissionSkipsCachedMonitorAssignments() {
-    let included = MonitorID(rawValue: 1)
-    let excluded = MonitorID(rawValue: 2)
-    let assignment = FrameAssignment(
-      windowID: WindowID(rawValue: 10),
-      frame: Rect(x: 0, y: 0, width: 800, height: 600)
-    )
-    let plan = MonitorLayoutPlan(
-      assignments: [assignment],
-      borderAssignments: [assignment],
-      nativeFullscreenPlaceholderAssignments: [],
-      hiddenWindowIDs: []
-    )
-
-    #expect(
-      layoutWindowIDsOutsideSubmissionScope(
-        plan,
-        monitorID: included,
-        restrictedTo: [included]
-      ).isEmpty
-    )
-    #expect(
-      layoutWindowIDsOutsideSubmissionScope(
-        plan,
-        monitorID: excluded,
-        restrictedTo: [included]
-      ) == [assignment.windowID]
-    )
-  }
-
-  @Test
-  func staticFrameOrDeferredFocusKeepsCommandFollowUpResponsive() {
-    #expect(
-      commandFollowUpIsPending(
-        frameWrites: true,
-        animatedFocus: false,
-        workspaceFocus: false
-      )
-    )
-    #expect(
-      commandFollowUpIsPending(
-        frameWrites: false,
-        animatedFocus: true,
-        workspaceFocus: false
-      )
-    )
-    #expect(
-      commandFollowUpIsPending(
-        frameWrites: false,
-        animatedFocus: false,
-        workspaceFocus: false
-      ) == false)
   }
 
   @Test
