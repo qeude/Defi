@@ -5,27 +5,13 @@ import Testing
 @testable import DefiCLI
 
 struct ServiceTests {
-  @Test
-  func resolvesApplicationBundleFromInstalledCLIPath() {
-    #expect(
-      appBundleURL(
-        from: URL(filePath: "/Applications/Defi.app/Contents/MacOS/defi")
-      )?.path == "/Applications/Defi.app"
-    )
-    #expect(
-      appBundleURL(
-        from: URL(filePath: "/Applications/Defi 2.app/Contents/MacOS/defi")
-      )?.path == "/Applications/Defi 2.app"
-    )
-  }
-
-  @Test
-  func rejectsExecutableOutsideApplicationBundle() {
-    #expect(
-      appBundleURL(
-        from: URL(filePath: "/Users/test/Defi/.build/debug/defi")
-      ) == nil
-    )
+  @Test(arguments: [
+    ("/Applications/Defi.app/Contents/MacOS/defi", "/Applications/Defi.app"),
+    ("/Applications/Defi 2.app/Contents/MacOS/defi", "/Applications/Defi 2.app"),
+    ("/Users/test/Defi/.build/debug/defi", nil),
+  ] as [(String, String?)])
+  func resolvesTheApplicationBundleOfAnInstalledCLI(executable: String, bundle: String?) {
+    #expect(appBundleURL(from: URL(filePath: executable))?.path == bundle)
   }
 
   @Test
@@ -45,23 +31,16 @@ struct ServiceTests {
   }
 
   @Test(arguments: [
-    "/Applications/Defi.app",
-    "/Users/test/Applications/Defi.app",
-    "/Users/test/Applications/Defi Development.app",
-  ])
-  func purgeTargetsOnlyTheInvokingBundle(appPath: String) {
-    let executable = URL(filePath: appPath).appending(path: "Contents/MacOS/defi")
-    let apps = Uninstaller.purgeTargets(executableURL: executable)
-      .filter { $0.pathExtension == "app" }.map(\.path)
-    #expect(apps == [appPath])
+    ("/Applications/Defi.app/Contents/MacOS/defi", ["/Applications/Defi.app"]),
+    ("/Users/test/Applications/Defi.app/Contents/MacOS/defi", ["/Users/test/Applications/Defi.app"]),
+    ("/Users/test/Applications/Defi Development.app/Contents/MacOS/defi",
+      ["/Users/test/Applications/Defi Development.app"]),
+    ("/tmp/defi-build/debug/defi", []),
+    (nil, []),
+  ] as [(String?, [String])])
+  func purgeTargetsOnlyTheInvokingBundle(executable: String?, apps: [String]) {
+    #expect(Uninstaller.purgeTargets(executableURL: executable.map { URL(filePath: $0) })
+      .filter { $0.pathExtension == "app" }.map(\.path) == apps)
   }
 
-  @Test
-  func standalonePurgeDoesNotGuessAnAppLocation() {
-    let executable = URL(filePath: "/tmp/defi-build/debug/defi")
-    #expect(Uninstaller.purgeTargets(executableURL: executable)
-      .contains { $0.pathExtension == "app" } == false)
-    #expect(Uninstaller.purgeTargets(executableURL: nil)
-      .contains { $0.pathExtension == "app" } == false)
-  }
 }
