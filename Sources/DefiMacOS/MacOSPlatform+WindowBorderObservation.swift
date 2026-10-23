@@ -316,7 +316,7 @@ extension MacOSPlatform {
     borderLiveWindowID = liveWindowID
     borderStyle = WindowBorderStyle(config: config)
     let style = borderStyle
-    NavigationActor.enqueue { RibbonProxyPresenter.shared.borderStyle = style }
+    NavigationActor.enqueue { RibbonProxyPresenter.borderStyle = style }
     presentRefreshWindowBorders()
     if let ownedWindowID = borderManager.ownedSurfaceWindowID {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)

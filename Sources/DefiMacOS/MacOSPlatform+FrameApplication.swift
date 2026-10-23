@@ -74,6 +74,13 @@ extension MacOSPlatform {
     let previousRibbonFrames = previousLogicalRibbonFrames
     previousLogicalRibbonFrames = Dictionary(uniqueKeysWithValues:
       ribbonFrames.map { ($0.windowID, $0.frame) })
+    // A display this layout left out keeps its history: its next layout must not read
+    // as every window entering.
+    let laidOut = Set(ribbonFrames.map(\.windowID)).union(
+      assignments.lazy.map(\.windowID).filter { !requestedSkippedWindowIDs.contains($0) })
+    for monitor in windowProxyMonitors where monitor.windowIDs.isDisjoint(with: laidOut) {
+      for id in monitor.windowIDs { previousLogicalRibbonFrames[id] = previousRibbonFrames[id] }
+    }
     frameSubmissionGeneration &+= 1
     let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
@@ -84,11 +91,9 @@ extension MacOSPlatform {
     let usesWindowProxies = windowProxiesEnabled && applyWindowProxies(
       assignments: assignments, ribbonFrames: ribbonFrames,
       previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
-      hiddenWindowIDs: hiddenWindowIDs,
-      motion: windowProxyMotionDuration(source: source, animationDuration: animationDuration,
-        hasRibbon: !ribbonFrames.isEmpty))
+      hiddenWindowIDs: hiddenWindowIDs, source: source, animationDuration: animationDuration)
     // One switch, one slide: a later apply (a restore, a repair) must not reuse it.
-    windowProxyWorkspaceShift = nil
+    for index in windowProxyMonitors.indices { windowProxyMonitors[index].workspaceShift = nil }
     // Native windows jump once to their targets underneath the proxy overlay. A
     // vertical switch admitted only because of proxies must not slide natively.
     let animationDuration = usesWindowProxies
@@ -719,9 +724,8 @@ extension MacOSPlatform {
   /// Every workspace switch slides vertically on the overlay, even when the daemon
   /// switched immediately; other sources animate when they asked for a duration.
   func windowProxyMotionDuration(source: String, animationDuration: TimeInterval,
-    hasRibbon: Bool) -> TimeInterval? {
-    guard lastMonitorFrames.count == 1 else { return nil }
-    if windowProxyWorkspaceShift != nil { return animationDuration > 0 ? animationDuration : ribbonProxySpringDuration }
+    hasRibbon: Bool, workspaceShift: Double?) -> TimeInterval? {
+    if workspaceShift != nil { return animationDuration > 0 ? animationDuration : ribbonProxySpringDuration }
     return windowProxySources.contains(source) && animationDuration > 0 && hasRibbon ? animationDuration : nil
   }
 }
@@ -740,6 +744,18 @@ let windowProxySources: Set<String> = [
 func windowProxyVisibleOverlap(_ frame: Rect, _ area: Rect) -> Double {
   guard frame.y < area.y + area.height, area.y < frame.y + frame.height else { return 0 }
   return max(min(frame.x + frame.width, area.x + area.width) - max(frame.x, area.x), 0)
+}
+
+/// Whether a layout moves anything on one display. With several displays a command
+/// usually moves one of them: the others present nothing, so their borders and windows
+/// stay untouched.
+func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
+  ribbonTargets: [WindowID: Rect], previousRibbonFrames: [WindowID: Rect],
+  opened: Set<WindowID>, carried: Set<WindowID>) -> Bool {
+  displayCount == 1 || monitor.workspaceShift != nil
+    || !monitor.windowIDs.isDisjoint(with: opened.union(carried))
+    || ribbonTargets.contains { id, to in previousRibbonFrames[id].map { !approximatelyEqual($0, to) } ?? true }
+    || previousRibbonFrames.keys.contains { monitor.windowIDs.contains($0) && ribbonTargets[$0] == nil }
 }
 
 /// Plans each proxy from what is on screen to its target. Windows without a
@@ -784,28 +800,60 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
 
 @NavigationActor
 extension MacOSPlatform {
-  // Returns true when the proxy overlay presents this motion. Runs entirely
-  // on the navigation actor: command intake never waits for the main thread.
+  // Returns true when the proxy overlay presents this motion on any display. Runs
+  // entirely on the navigation actor: command intake never waits for the main thread.
   func applyWindowProxies(assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
     previousRibbonFrames: [WindowID: Rect], skippedWindowIDs: Set<WindowID>,
-    hiddenWindowIDs: Set<WindowID>, motion duration: TimeInterval?) -> Bool {
-    let presenter = RibbonProxyPresenter.shared
-    let windows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
+    hiddenWindowIDs: Set<WindowID>, source: String, animationDuration: TimeInterval) -> Bool {
+    let allWindows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
+    var presented = false
+    // Each display moves on its own overlay, exactly as a single display does.
+    for monitor in windowProxyMonitors {
+      guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else {
+        DispatchQueue.main.async { RibbonProxyRenderer.shared.refreshEnvironment() }
+        continue
+      }
+      let owned = monitor.windowIDs
+      let presenter = RibbonProxyPresenter.on(display)
+      let released = windowProxyDroppedWindowID.map { !owned.contains($0) && presenter.release($0) } ?? false
+      let ribbon = ribbonFrames.filter { owned.contains($0.windowID) }
+      let shown = applyWindowProxies(on: monitor, presenter: presenter,
+        assignments: assignments.filter { owned.contains($0.windowID) }, ribbonFrames: ribbon,
+        previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
+        hiddenWindowIDs: hiddenWindowIDs, allWindows: allWindows,
+        motion: windowProxyMotionDuration(source: source, animationDuration: animationDuration,
+          hasRibbon: !ribbon.isEmpty, workspaceShift: monitor.workspaceShift))
+      if released, !shown { presenter.landDrop() }
+      presented = shown || presented
+    }
+    return presented
+  }
+
+  private func applyWindowProxies(on monitor: WindowProxyMonitor, presenter: RibbonProxyPresenter,
+    assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
+    previousRibbonFrames: [WindowID: Rect], skippedWindowIDs: Set<WindowID>,
+    hiddenWindowIDs: Set<WindowID>, allWindows: [WindowID: Window],
+    motion duration: TimeInterval?) -> Bool {
+    let viewport = monitor.viewport, workspaceShift = monitor.workspaceShift
+    let windows = allWindows.filter { monitor.windowIDs.contains($0.key) }
     var observed = latestObservedFrames
     for (id, window) in windows where observed[id] == nil { observed[id] = window.frame }
     let native = assignments.filter { !skippedWindowIDs.contains($0.windowID) }
     let ribbonTargets = Dictionary(ribbonFrames.filter { !skippedWindowIDs.contains($0.windowID) }
       .map { ($0.windowID, $0.frame) }) { first, _ in first }
+    // Windows discovered by this snapshot grow in at their place instead of sliding.
+    let opened = newlyDiscoveredWindowIDs
+    let moves = windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
+      ribbonTargets: ribbonTargets, previousRibbonFrames: previousRibbonFrames, opened: opened,
+      carried: Set([windowProxyDraggedWindowID, windowProxyDroppedWindowID].compactMap { $0 }))
     // A plain layout landing mid-motion (scroll to keep focus visible, a drop settling)
     // continues the running motion toward its targets instead of cutting it.
-    let duration = duration ?? (lastMonitorFrames.count == 1 && !ribbonFrames.isEmpty
+    let duration = moves ? duration ?? (!ribbonFrames.isEmpty
       && presenter.isRetargeted(by: assignments, generation: frameSubmissionGeneration)
-      ? ribbonProxySpringDuration : nil)
-    guard let duration, let viewport = lastMonitorFrames.first else {
+      ? ribbonProxySpringDuration : nil) : nil
+    guard let duration else {
       presenter.supersedeIfTargetsChanged(assignments, generation: frameSubmissionGeneration)
-      let area = lastMonitorFrames.first.flatMap {
-        RibbonProxyStore.shared.screen(containing: $0)?.visibleFrame
-      }
+      let area = RibbonProxyStore.shared.screen(containing: viewport)?.visibleFrame
       // Every managed window on the display: the active ribbon by distance, then
       // other workspaces so a vertical switch finds their pictures warm.
       let noted = native.compactMap { assignment -> RibbonProxyRefresh? in
@@ -828,10 +876,8 @@ extension MacOSPlatform {
       .map { ($0.windowID, $0.frame) }) { first, _ in first }
     let planned = windowProxyMotion(ribbonTargets: ribbonTargets, otherTargets: otherTargets,
       previousLogical: previousRibbonFrames, observed: observed,
-      verticalShift: windowProxyWorkspaceShift, settled: RibbonProxyStore.shared.settled)
-    // Windows discovered by this snapshot grow in at their place instead of sliding.
-    let opened = newlyDiscoveredWindowIDs
-    if let shift = windowProxyWorkspaceShift {
+      verticalShift: workspaceShift, settled: RibbonProxyStore.shared.settled)
+    if let shift = workspaceShift {
       ribbonProxyLogger.notice("workspace-switch shift=\(Int(shift))")
     }
     // The released window starts exactly where the pointer left it.
@@ -864,24 +910,28 @@ extension MacOSPlatform {
         y: planned.y + assignment.frame.y - (ribbonTargets[assignment.windowID]?.y ?? assignment.frame.y),
         width: assignment.frame.width, height: planned.height))
     }) { first, _ in first }
-    if presenter.setBordersHidden == nil {
-      presenter.setBordersHidden = { [weak self] hidden in
+    if RibbonProxyPresenter.setBordersHidden == nil {
+      RibbonProxyPresenter.setBordersHidden = { [weak self] display, windowIDs in
         DispatchQueue.main.async {
           MainActor.assumeIsolated {
-            self?.borderManager.presentationHidden = hidden
-            if hidden { self?.borderSettleTask?.cancel() } else { self?.settleWindowBordersOnRealFrames() }
+            guard let self else { return }
+            self.borderManager.setPresentationHidden(windowIDs, for: display)
+            // A display landing settles every border on real frames, others still moving included.
+            if windowIDs.isEmpty { self.settleWindowBordersOnRealFrames() } else { self.borderSettleTask?.cancel() }
           }
         }
       }
-      presenter.nativeRingShown = { [weak self] windowID in
+      RibbonProxyPresenter.nativeRingShown = { [weak self] windowID in
         await MainActor.run { self?.borderManager.showsActiveRing(for: windowID) ?? true }
       }
     }
+    // Only the display carrying the window holds its proxy to the pointer.
+    let dragged = windowProxyDraggedWindowID.flatMap { monitor.windowIDs.contains($0) ? $0 : nil }
     return presenter.begin(windows: proxies, viewport: viewport,
       generation: frameSubmissionGeneration, nativeTargets: targets, duration: duration,
-      selectedWindowID: desiredSelectedWindowID, draggedWindowID: windowProxyDraggedWindowID,
-      dragSlot: windowProxyDraggedWindowID.flatMap { id in
+      selectedWindowID: desiredSelectedWindowID, draggedWindowID: dragged,
+      dragSlot: dragged.flatMap { id in
         ribbonFrames.first { $0.windowID == id }?.frame
-      }, managedWindowIDs: Set(windows.keys))
+      }, managedWindowIDs: Set(allWindows.keys), borderWindowIDs: monitor.windowIDs)
   }
 }

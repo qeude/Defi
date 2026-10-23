@@ -565,6 +565,32 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func eachDisplayOverlayHidesOnlyItsOwnBordersUntilEveryOneLands() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let windowID = WindowID(rawValue: 1)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    let plan = planWindowBorders(
+      frames: [FrameAssignment(windowID: windowID, frame: frame)],
+      selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+    )
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    manager.sync(plan, displayedFrames: [windowID: frame], stacking: frontmostStacking(for: windowID))
+    manager.revealPendingBorders()
+    #expect(manager.showsActiveRing(for: windowID))
+
+    manager.setPresentationHidden([WindowID(rawValue: 2)], for: 2)
+    #expect(manager.showsActiveRing(for: windowID))
+    manager.setPresentationHidden([windowID], for: 1)
+    #expect(!manager.showsActiveRing(for: windowID))
+    manager.setPresentationHidden([windowID], for: 2)
+    manager.setPresentationHidden([], for: 1)
+    #expect(!manager.showsActiveRing(for: windowID))
+    manager.setPresentationHidden([], for: 2)
+    #expect(manager.showsActiveRing(for: windowID))
+  }
+
+  @Test @MainActor
   func suppressedBordersStayHiddenUntilRestored() {
     let manager = WindowBorderManager()
     let windowID = WindowID(rawValue: 1)

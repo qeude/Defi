@@ -17,13 +17,17 @@ final class WindowBorderManager {
   private var lastDisplayedFrames: [WindowID: Rect] = [:]
   private var compositorCommitPending = false
   private(set) var isSuppressed = false
-  /// Hidden without teardown while the ribbon overlay draws its own borders.
-  var presentationHidden = false {
-    didSet {
-      guard oldValue != presentationHidden else { return }
-      for overlay in overlays.values { overlay.setPresentationHidden(presentationHidden) }
-      CATransaction.flush()
-    }
+  /// Windows each display's ribbon overlay draws itself: their native borders hide
+  /// without teardown.
+  private var presentationHiddenByDisplay: [UInt32: Set<WindowID>] = [:]
+  private var presentationHiddenWindowIDs: Set<WindowID> = []
+  func setPresentationHidden(_ windowIDs: Set<WindowID>, for display: UInt32) {
+    presentationHiddenByDisplay[display] = windowIDs.isEmpty ? nil : windowIDs
+    let hidden = presentationHiddenByDisplay.values.reduce(into: Set<WindowID>()) { $0.formUnion($1) }
+    guard hidden != presentationHiddenWindowIDs else { return }
+    presentationHiddenWindowIDs = hidden
+    for (windowID, overlay) in overlays { overlay.setPresentationHidden(hidden.contains(windowID)) }
+    CATransaction.flush()
   }
   /// Corner radii last sent to the ribbon overlay, which draws the same rings.
   private var reportedRadii: [WindowID: Double] = [:]
@@ -78,7 +82,7 @@ final class WindowBorderManager {
   func showsActiveRing(for windowID: WindowID) -> Bool {
     // Suppressed borders never come back on their own: nothing to wait for.
     guard !isSuppressed else { return true }
-    guard !presentationHidden, activeWindowID == windowID,
+    guard !presentationHiddenWindowIDs.contains(windowID), activeWindowID == windowID,
       let overlay = overlays[windowID] else { return false }
     return overlay.isVisible && overlay.opacity > 0
   }
@@ -230,7 +234,7 @@ final class WindowBorderManager {
     let radii = Dictionary(uniqueKeysWithValues: trackedWindowIDs.map { ($0, radius(for: $0)) })
     if radii != reportedRadii {
       reportedRadii = radii
-      NavigationActor.enqueue { RibbonProxyPresenter.shared.cornerRadii.merge(radii) { $1 } }
+      NavigationActor.enqueue { RibbonProxyPresenter.cornerRadii.merge(radii) { $1 } }
     }
     let desiredAssignments = plan.inactive + [plan.active].compactMap { $0 }
     let desiredWindowIDs = Set(desiredAssignments.map(\.windowID))
@@ -365,17 +369,18 @@ final class WindowBorderManager {
     }) {
       overlays[previousWindowID] = nil
       overlay.retarget(to: windowID)
+      overlay.setPresentationHidden(presentationHiddenWindowIDs.contains(windowID))
       overlays[windowID] = overlay
       return overlay
     }
     if let overlay = spareOverlays.popLast() {
       overlay.retarget(to: windowID)
-      overlay.setPresentationHidden(presentationHidden)
+      overlay.setPresentationHidden(presentationHiddenWindowIDs.contains(windowID))
       overlays[windowID] = overlay
       return overlay
     }
     let overlay = BorderOverlay(windowID: windowID)
-    overlay.setPresentationHidden(presentationHidden)
+    overlay.setPresentationHidden(presentationHiddenWindowIDs.contains(windowID))
     overlays[windowID] = overlay
     return overlay
   }

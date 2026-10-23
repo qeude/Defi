@@ -314,9 +314,15 @@ extension Daemon {
     // Incoming windows enter opposite to where the outgoing workspace leaves.
     // Consumed either way so the history stays current; with animations off (Reduce
     // Motion, `enabled = false` or `duration_ms = 0`) the switch is immediate.
-    let workspaceShift = consumeWorkspaceSwitchShift(source: source)
-    platform.windowProxyWorkspaceShift =
-      animationsEnabled && config.animation.durationMS > 0 ? workspaceShift : nil
+    let workspaceShifts = consumeWorkspaceSwitchShifts(source: source)
+    let shifts = animationsEnabled && config.animation.durationMS > 0
+    platform.windowProxyMonitors = state.monitors.compactMap { monitor in
+      viewports[monitor.id].map { viewport in
+        WindowProxyMonitor(viewport: viewport,
+          windowIDs: Set(monitor.workspaces.flatMap { $0.columns.flatMap(\.windows) + $0.floatingWindows }),
+          workspaceShift: shifts ? workspaceShifts[monitor.id] : nil)
+      }
+    }
     platform.apply(
       platformAssignments,
       ribbonFrames: ribbonFrames,
@@ -401,25 +407,33 @@ extension Daemon {
   /// Vertical travel when a monitor's active workspace changed since the last layout,
   /// whichever path switched it (command, Dock, Command-Tab, focus): the overlay then
   /// always moves workspaces vertically, in their stacking order.
-  func consumeWorkspaceSwitchShift(source: String) -> Double? {
-    var shift: Double?
+  func consumeWorkspaceSwitchShifts(source: String) -> [MonitorID: Double] {
+    var shifts: [MonitorID: Double] = [:]
     for monitor in state.monitors {
       let previous = proxyActiveWorkspaces[monitor.id]
       proxyActiveWorkspaces[monitor.id] = monitor.activeWorkspace
       // The stack as it was: the workspace left may since have been removed.
       let order = proxyWorkspaceOrders.updateValue(monitor.workspaces.map(\.id), forKey: monitor.id)
         ?? monitor.workspaces.map(\.id)
-      guard shift == nil, !source.hasPrefix("overview"), let previous,
-        previous != monitor.activeWorkspace,
+      guard !source.hasPrefix("overview"), let previous,
         let height = latestMonitors.first(where: { $0.id == monitor.id })?.physicalFrame.height
       else { continue }
-      let from = order.firstIndex(of: previous) ?? order.count
-      // A workspace created since joins the end of the stack.
-      let to = order.firstIndex(of: monitor.activeWorkspace) ?? order.count
-      // Niri's stack: moving down slides the content up.
-      shift = (to > from ? -1 : 1) * height
+      shifts[monitor.id] = workspaceSwitchShift(from: previous, to: monitor.activeWorkspace,
+        order: order, height: height)
     }
-    return shift
+    return shifts
   }
+}
+
+/// Vertical travel of a switch within one monitor's workspace stack, as it was before
+/// the switch; nil when the active workspace did not change.
+func workspaceSwitchShift(from previous: WorkspaceID, to active: WorkspaceID,
+  order: [WorkspaceID], height: Double) -> Double? {
+  guard previous != active else { return nil }
+  let from = order.firstIndex(of: previous) ?? order.count
+  // A workspace created since joins the end of the stack.
+  let to = order.firstIndex(of: active) ?? order.count
+  // Niri's stack: moving down slides the content up.
+  return (to > from ? -1 : 1) * height
 }
 

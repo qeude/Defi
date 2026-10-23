@@ -168,17 +168,15 @@ final class RibbonProxyStore: @unchecked Sendable {
   private var screens: [RibbonProxyScreen] = []
   private var authorized = false
   private var reducesMotion = false
-  private var motionToken: UInt64 = 0
-  /// The presentation currently on screen; older landing checks stop reporting.
-  var currentMotion: UInt64 {
-    get { locked { motionToken } }
-    set { locked { motionToken = newValue } }
-  }
+  private var motionTokens: [CGDirectDisplayID: UInt64] = [:]
+  /// The presentation currently on each display; older landing checks stop reporting.
+  func currentMotion(_ display: CGDirectDisplayID) -> UInt64 { locked { motionTokens[display] ?? 0 } }
+  func setCurrentMotion(_ token: UInt64, _ display: CGDirectDisplayID) { locked { motionTokens[display] = token } }
   var reduceMotion: Bool {
     get { locked { reducesMotion } }
     set { locked { reducesMotion = newValue } }
   }
-  private var motionActive = false
+  private var movingDisplays: Set<CGDirectDisplayID> = []
   private var onScreenCache: [RibbonProxyOnScreenWindow] = []
   private var settles: [WindowID: RibbonProxySettle] = [:]
   var settled: [WindowID: RibbonProxySettle] { locked { settles } }
@@ -196,10 +194,11 @@ final class RibbonProxyStore: @unchecked Sendable {
     get { locked { onScreenCache } }
     set { locked { onScreenCache = newValue } }
   }
-  /// Captures load the WindowServer, which also composites the motion: none run meanwhile.
-  var isMoving: Bool {
-    get { locked { motionActive } }
-    set { locked { motionActive = newValue } }
+  /// Captures load the WindowServer, which also composites the motion: none run while
+  /// any display moves.
+  var isMoving: Bool { locked { !movingDisplays.isEmpty } }
+  func setMoving(_ moving: Bool, _ display: CGDirectDisplayID) {
+    locked { if moving { movingDisplays.insert(display) } else { movingDisplays.remove(display) } }
   }
 
   private func locked<T>(_ body: () -> T) -> T {
@@ -227,8 +226,14 @@ final class RibbonProxyStore: @unchecked Sendable {
     }
   }
   var isAuthorized: Bool { locked { authorized } }
+  var allScreens: [RibbonProxyScreen] { locked { screens } }
   func update(screens: [RibbonProxyScreen], authorized: Bool) {
-    locked { self.screens = screens; self.authorized = authorized }
+    let ids = Set(screens.map(\.displayID))
+    locked {
+      self.screens = screens; self.authorized = authorized
+      backgrounds = backgrounds.filter { ids.contains($0.key) }
+      movingDisplays.formIntersection(ids)
+    }
   }
   func clear() { locked { pictures = [:]; backgrounds = [:] } }
 }
@@ -257,39 +262,29 @@ final class RibbonProxyRenderer {
             guard renderer.enabled else { return }
             ribbonProxyLogger.notice("appearance-changed pictures expired")
             RibbonProxyStore.shared.expirePictures()
-            if let frame = NSScreen.screens.first.map({ cgRect($0.frame) }),
-              let screen = RibbonProxyStore.shared.screen(containing: frame) {
-              renderer.requestBackground(screen, force: true)
-            }
+            for screen in RibbonProxyStore.shared.allScreens { renderer.requestBackground(screen, force: true) }
             renderer.scheduleRefresh(after: 0.3, afterLanding: false)
           }
         }
-        // Warm the overlay and the wallpaper now: the first motion after launch must
-        // not fall back for want of either.
         refreshEnvironment()
-        if let screen = NSScreen.screens.first {
-          let frame = cgRect(screen.frame)
-          if let prepared = prepareSurface(area: frame) {
-            NavigationActor.enqueue { RibbonProxyPresenter.shared.adopt(prepared) }
-          }
-          if let ready = RibbonProxyStore.shared.screen(containing: frame) { requestBackground(ready) }
-        }
         // No refresh at rest: every capture lights the recording indicator, so pictures
         // are taken on events only (a landing, a layout, a resize).
         return
       }
       RibbonProxyStore.shared.clear()
-      panel?.orderOut(nil); panel = nil
+      for panel in panels.values { panel.orderOut(nil) }
+      panels = [:]
     }
   }
-  private var panel: NSPanel?
+  /// One overlay per display, as each display moves on its own.
+  private var panels: [CGDirectDisplayID: NSPanel] = [:]
+  private var presentedDisplays: Set<CGDirectDisplayID> = []
   private var refresh: Task<Void, Never>?
   private var refreshDue: CFTimeInterval = 0
   private var refreshQueuedSoon = false
   /// The last pass found a motion running: retry shortly, never in a tight loop.
   private var refreshBlockedByMotion = false
   private var slowCapturesRunning = false
-  private var backgroundForced = false
   private var appearanceObserver: NSObjectProtocol?
   /// Windows a running presentation waits for: captured first, reported at once.
   private var urgent: Set<WindowID> = []
@@ -298,12 +293,12 @@ final class RibbonProxyRenderer {
   private var refreshAfterLanding = false
   private var pendingRefresh: [RibbonProxyRefresh] = []
   private var pendingStills: [RibbonProxyRefresh] = []
-  private var pendingDisplay: RibbonProxyScreen?
+  private var pendingDisplays: [CGDirectDisplayID: RibbonProxyScreen] = [:]
+  private var forcedBackgrounds: Set<CGDirectDisplayID> = []
 
   /// The overlay never blocks the pointer: Defi's hit test skips it.
   var surfaceWindowIDs: Set<CGWindowID> {
-    guard let panel, panel.windowNumber > 0 else { return [] }
-    return [CGWindowID(panel.windowNumber)]
+    Set(panels.values.compactMap { $0.windowNumber > 0 ? CGWindowID($0.windowNumber) : nil })
   }
 
   /// Publishes screen geometry and permission for the navigation presenter.
@@ -313,7 +308,7 @@ final class RibbonProxyRenderer {
     // Assigned only on change: every assignment is a synchronous WindowServer call that
     // re-evaluates the window, and this runs after every layout.
     let sharing: NSWindow.SharingType = UserDefaults.standard.bool(forKey: "RibbonProxyCapturable") ? .readOnly : .none
-    if let panel, panel.sharingType != sharing { panel.sharingType = sharing }
+    for panel in panels.values where panel.sharingType != sharing { panel.sharingType = sharing }
     let authorized = CGPreflightScreenCaptureAccess()
     RibbonProxyStore.shared.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     RibbonProxyStore.shared.update(screens: NSScreen.screens.compactMap { screen in
@@ -322,17 +317,39 @@ final class RibbonProxyRenderer {
       return RibbonProxyScreen(displayID: id, frame: cgRect(screen.frame),
         visibleFrame: cgRect(screen.visibleFrame), scale: screen.backingScaleFactor)
     }, authorized: authorized)
+    guard enabled else { return }
+    let screens = RibbonProxyStore.shared.allScreens
+    let live = Set(screens.map(\.displayID))
+    for (display, panel) in panels where !live.contains(display) {
+      panel.orderOut(nil); panels[display] = nil
+    }
+    if presentedDisplays != live {
+      presentedDisplays = live
+      NavigationActor.enqueue { RibbonProxyPresenter.retain(live) }
+    }
+    // Warm each new or reshaped display's overlay and wallpaper now: its first motion
+    // must not fall back for want of either.
+    for screen in screens where panels[screen.displayID]?.frame != appKitFrame(screen.frame) {
+      if let prepared = prepareSurface(area: screen.frame, display: screen.displayID) {
+        NavigationActor.enqueue { RibbonProxyPresenter.on(screen.displayID).adopt(prepared) }
+      }
+      requestBackground(screen)
+    }
+  }
+
+  private func appKitFrame(_ area: Rect) -> CGRect {
+    // AppKit's origin is the bottom left of the primary display.
+    CGRect(x: area.x, y: (NSScreen.screens.first?.frame.height ?? 0) - area.y - area.height,
+      width: area.width, height: area.height)
   }
 
   /// Creates once, or reframes, the always-ordered transparent overlay. Its
   /// layers are then driven off the main thread with explicit transactions.
-  func prepareSurface(area: Rect) -> RibbonProxyLayers? {
+  func prepareSurface(area: Rect, display: CGDirectDisplayID) -> RibbonProxyLayers? {
     guard enabled else { return nil }
-    let appKitFrame = CGRect(x: area.x,
-      y: (NSScreen.screens.first?.frame.height ?? 0) - area.y - area.height,
-      width: area.width, height: area.height)
-    let panel = self.panel ?? makePanel(frame: appKitFrame)
-    self.panel = panel
+    let appKitFrame = appKitFrame(area)
+    let panel = panels[display] ?? makePanel(frame: appKitFrame)
+    panels[display] = panel
     if panel.frame != appKitFrame { panel.setFrame(appKitFrame, display: false) }
     guard let root = panel.contentView?.layer, let backdrop = root.sublayers?.first else { return nil }
     CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -382,9 +399,10 @@ final class RibbonProxyRenderer {
     // (and warm) until it closes.
     let ids = Set(windows.map(\.id))
     pendingRefresh = windows + pendingRefresh.filter { !ids.contains($0.id) }
-    if let screen = windows.first(where: { $0.distance == 0 })
-      .flatMap({ RibbonProxyStore.shared.screen(containing: $0.frame) }) {
-      pendingDisplay = screen
+    for window in windows where window.distance == 0 {
+      if let screen = RibbonProxyStore.shared.screen(containing: window.frame) {
+        pendingDisplays[screen.displayID] = screen
+      }
     }
     for processID in Set(windows.map(\.processID)) { prepareIcon(processID) }
     // Right after a landing: rapid navigation would otherwise start the next motion
@@ -413,8 +431,8 @@ final class RibbonProxyRenderer {
   /// native window sits fully on screen below the overlay. One small capture each,
   /// off the main thread; the usual refresh stays paused while moving.
   func requestBackground(_ screen: RibbonProxyScreen, force: Bool = false) {
-    pendingDisplay = screen
-    backgroundForced = backgroundForced || force
+    pendingDisplays[screen.displayID] = screen
+    if force { forcedBackgrounds.insert(screen.displayID) }
     scheduleRefresh(after: 0, afterLanding: false)
   }
 
@@ -453,7 +471,7 @@ final class RibbonProxyRenderer {
       refreshAfterLanding = false
       await refreshPictures(afterLanding: afterLanding)
       // A pass skipped for a running motion captured nothing: no overlay commit.
-      if !refreshBlockedByMotion { NavigationActor.enqueue { RibbonProxyPresenter.shared.picturesArrived() } }
+      if !refreshBlockedByMotion { NavigationActor.enqueue { RibbonProxyPresenter.picturesArrived() } }
       refreshing = false
       refresh = nil
       if refreshQueued {
@@ -496,22 +514,26 @@ final class RibbonProxyRenderer {
       return afterLanding && now - picture.capturedAt > (window.distance == 0 ? 0.45 : 60)
     }.sorted { $0.distance < $1.distance }
     // The wallpaper gates every presentation, so it is captured first, once per
-    // display geometry.
-    var display = pendingDisplay.flatMap { display in
-      !backgroundForced && store.background(display.displayID)?.width
-        == Int(display.frame.width * display.scale) ? nil : display
+    // display geometry. A display gone or reshaped since its request uses its current geometry.
+    let screens = Dictionary(store.allScreens.map { ($0.displayID, $0) }) { first, _ in first }
+    pendingDisplays = pendingDisplays.compactMapValues { screens[$0.displayID] }
+    var displays = pendingDisplays.values.filter { display in
+      forcedBackgrounds.contains(display.displayID) || store.background(display.displayID)?.width
+        != Int(display.frame.width * display.scale)
     }
-    if display != nil { backgroundForced = false }
+    forcedBackgrounds.subtract(displays.map(\.displayID))
     // ScreenCaptureKit lights the recording indicator and pays a privacy check (tccd,
     // systemstatusd) per call: the WindowServer capture covers the wallpaper and every
     // window, parked ones included, and ScreenCaptureKit is only its fallback.
-    if let shown = display, let capture = ribbonProxyWindowServerCapture,
-      let image = await Task.detached(priority: .userInitiated, operation: {
-        ribbonProxyDesktopImage(CGRect(x: shown.frame.x, y: shown.frame.y,
-          width: shown.frame.width, height: shown.frame.height), capture)
-      }).value, image.width == Int(shown.frame.width * shown.scale) {
-      store.setBackground(image, for: shown.displayID)
-      display = nil
+    if let capture = ribbonProxyWindowServerCapture {
+      for shown in displays {
+        guard let image = await Task.detached(priority: .userInitiated, operation: {
+          ribbonProxyDesktopImage(CGRect(x: shown.frame.x, y: shown.frame.y,
+            width: shown.frame.width, height: shown.frame.height), capture)
+        }).value, image.width == Int(shown.frame.width * shown.scale) else { continue }
+        store.setBackground(image, for: shown.displayID)
+        displays.removeAll { $0.displayID == shown.displayID }
+      }
     }
     // Native frames, not targets: a window still resizing is captured, and cropped,
     // at its real size.
@@ -533,7 +555,7 @@ final class RibbonProxyRenderer {
     // Short passes keep stills and visible windows from queueing behind slow
     // ScreenCaptureKit captures of parked windows; the rest follows next pass.
     if requests.count > 3 { requests = Array(requests.prefix(3)); refreshQueued = true }
-    guard display != nil || !visible.isEmpty || !requests.isEmpty || !pendingStills.isEmpty
+    guard !displays.isEmpty || !visible.isEmpty || !requests.isEmpty || !pendingStills.isEmpty
     else { return }
     // One call per window: a multi-window call returns a single composite whose
     // extent did not reliably match the requested frames, losing every picture.
@@ -549,7 +571,7 @@ final class RibbonProxyRenderer {
           urgent.remove(request.id)
           if let picture { store.setPicture(picture, for: request.id) }
           // Reported even when the app had not redrawn yet: the presenter asks again.
-          NavigationActor.enqueue { RibbonProxyPresenter.shared.picturesArrived() }
+          NavigationActor.enqueue { RibbonProxyPresenter.picturesArrived() }
         }
       }
       let pressed = Set(pressing.map(\.id))
@@ -584,21 +606,21 @@ final class RibbonProxyRenderer {
     // ScreenCaptureKit (wallpaper, never-seen windows) can stall for seconds, e.g.
     // while macOS asks for permission: it runs apart, so visible windows above keep
     // refreshing every pass and a landing never waits behind it.
-    if (display != nil || !requests.isEmpty) && !slowCapturesRunning {
+    if (!displays.isEmpty || !requests.isEmpty) && !slowCapturesRunning {
       slowCapturesRunning = true
-      let slowRequests = requests
+      let slowRequests = requests, slowDisplays = displays
       Task { [weak self] in
-        await self?.slowCaptures(display: display, requests: slowRequests)
+        await self?.slowCaptures(displays: slowDisplays, requests: slowRequests)
         self?.slowCapturesRunning = false
-        NavigationActor.enqueue { RibbonProxyPresenter.shared.picturesArrived() }
+        NavigationActor.enqueue { RibbonProxyPresenter.picturesArrived() }
       }
     }
   }
 
-  private func slowCaptures(display: RibbonProxyScreen?, requests: [RibbonProxyRefresh]) async {
+  private func slowCaptures(displays: [RibbonProxyScreen], requests: [RibbonProxyRefresh]) async {
     let store = RibbonProxyStore.shared
     var content: SCShareableContent?
-    if display != nil || !requests.isEmpty {
+    if !displays.isEmpty || !requests.isEmpty {
       guard await overviewCaptureLimiter.acquire() else { return }
       do {
         content = try await withOverviewCaptureTimeout {
@@ -609,8 +631,9 @@ final class RibbonProxyRenderer {
         await overviewCaptureLimiter.release(error: error as NSError)
       }
     }
-    if let display, let content,
-      let scDisplay = content.displays.first(where: { $0.displayID == display.displayID }) {
+    for display in displays {
+      guard let content,
+        let scDisplay = content.displays.first(where: { $0.displayID == display.displayID }) else { continue }
       let filter = SCContentFilter(display: scDisplay,
         including: content.windows.filter { $0.windowLayer < 0 })
       filter.includeMenuBar = false
@@ -620,12 +643,12 @@ final class RibbonProxyRenderer {
       }
     }
     guard let content, !requests.isEmpty else { return }
-    let scale = NSScreen.screens.first?.backingScaleFactor ?? 2
     let windows = Dictionary(content.windows.map { ($0.windowID, $0) }) { first, _ in first }
     for request in requests where !Task.isCancelled && !store.isMoving {
       guard let id = CGWindowID(exactly: request.id.rawValue), let window = windows[id],
         window.owningApplication?.bundleIdentifier == request.appID
       else { continue }
+      let scale = CGFloat(store.screen(containing: request.frame)?.scale ?? 2)
       // Backing resolution like the WindowServer captures: a 1× picture swapped for a 2×
       // one mid-dissolve was drawn at the wrong scale, the content visibly zooming.
       let buffer = await capture(SCContentFilter(desktopIndependentWindow: window),
@@ -664,25 +687,66 @@ final class RibbonProxyRenderer {
 }
 
 /// Navigation side: presents and lands the overlay without waiting for the main thread.
+/// One presenter per display: each display moves, drags and lands on its own overlay,
+/// exactly as a single display does.
 @NavigationActor
 final class RibbonProxyPresenter {
-  static let shared = RibbonProxyPresenter()
+  private static var presenters: [CGDirectDisplayID: RibbonProxyPresenter] = [:]
+  static func on(_ display: CGDirectDisplayID) -> RibbonProxyPresenter {
+    if let presenter = presenters[display] { return presenter }
+    let presenter = RibbonProxyPresenter(display: display)
+    presenters[display] = presenter
+    return presenter
+  }
+  static var all: Dictionary<CGDirectDisplayID, RibbonProxyPresenter>.Values { presenters.values }
+  static var isCarrying: Bool { presenters.values.contains { $0.isCarrying } }
+  static func picturesArrived() { for presenter in presenters.values { presenter.picturesArrived() } }
+  static func cancelAll(_ reason: String = "external") { for presenter in presenters.values { presenter.cancel(reason) } }
+  static func endDrag() { for presenter in presenters.values { presenter.endDrag() } }
+  /// A display gone: its motion stops and its windows' borders come back.
+  static func retain(_ displays: Set<CGDirectDisplayID>) {
+    for (display, presenter) in presenters where !displays.contains(display) {
+      presenter.cancel("display-removed")
+      presenter.borderRestore?.cancel()
+      setBordersHidden?(display, [])
+      RibbonProxyStore.shared.setMoving(false, display)
+      presenters[display] = nil
+    }
+  }
 
-  var enabled = false {
+  static var enabled = false {
     didSet {
       guard oldValue != enabled else { return }
-      if !enabled { cancel(); layers = nil; windowLayers = [:] }
+      if !enabled {
+        for presenter in presenters.values {
+          presenter.cancel(); presenter.layers = nil; presenter.windowLayers = [:]
+        }
+      }
       let enabled = enabled
       DispatchQueue.main.async { RibbonProxyRenderer.shared.enabled = enabled }
     }
   }
-  var borderStyle: WindowBorderStyle?
+  static var borderStyle: WindowBorderStyle?
   /// Native corner radii, so each card and its ring match the real window's.
-  var cornerRadii: [WindowID: Double] = [:]
-  /// Hides or shows native borders on the main thread; the overlay draws its own.
-  var setBordersHidden: (@Sendable (Bool) -> Void)?
+  static var cornerRadii: [WindowID: Double] = [:]
+  /// Hides, on the main thread, the native borders of the windows a display's overlay
+  /// draws (none: shown again); the overlay draws its own.
+  static var setBordersHidden: (@Sendable (CGDirectDisplayID, Set<WindowID>) -> Void)?
   /// Whether the native ring of this focused window is on screen.
-  var nativeRingShown: (@Sendable (WindowID) async -> Bool)?
+  static var nativeRingShown: (@Sendable (WindowID) async -> Bool)?
+
+  let display: CGDirectDisplayID
+  private init(display: CGDirectDisplayID) { self.display = display }
+  private var borderStyle: WindowBorderStyle? { Self.borderStyle }
+  private var cornerRadii: [WindowID: Double] {
+    get { Self.cornerRadii }
+    set { Self.cornerRadii = newValue }
+  }
+  private var nativeRingShown: (@Sendable (WindowID) async -> Bool)? { Self.nativeRingShown }
+  private var hiddenBorderIDs: Set<WindowID> = []
+  private func setBordersHidden(_ hidden: Bool) {
+    Self.setBordersHidden?(display, hidden ? hiddenBorderIDs : [])
+  }
   private var selectedID: WindowID?
   private(set) var lastFallback = "none"
 
@@ -722,7 +786,7 @@ final class RibbonProxyPresenter {
   func begin(windows: [RibbonProxyWindow], viewport nextViewport: Rect, generation submission: UInt64,
     nativeTargets: [WindowID: Rect], duration: TimeInterval, selectedWindowID: WindowID?,
     draggedWindowID: WindowID? = nil, dragSlot: Rect? = nil, keepsOffscreen: Bool = false,
-    managedWindowIDs: Set<WindowID> = []) -> Bool {
+    managedWindowIDs: Set<WindowID> = [], borderWindowIDs: Set<WindowID>? = nil) -> Bool {
     let began = CACurrentMediaTime()
     // Any layout landing mid-drag leaves the carried proxy to the pointer.
     let draggedWindowID = draggedWindowID ?? drag.heldWindowID
@@ -733,7 +797,7 @@ final class RibbonProxyPresenter {
       return false
     }
     let store = RibbonProxyStore.shared
-    guard enabled, duration > 0, !store.reduceMotion
+    guard Self.enabled, duration > 0, !store.reduceMotion
     else { return fallback("disabled") }
     guard store.isAuthorized else {
       DispatchQueue.main.async { RibbonProxyRenderer.shared.refreshEnvironment() }
@@ -889,8 +953,12 @@ final class RibbonProxyPresenter {
     ribbonProxyCommit(#line)
     let flushMS = Int((CACurrentMediaTime() - committing) * 1_000)
     presenting = true
-    RibbonProxyStore.shared.isMoving = true
-    if !bordersHidden { bordersHidden = true; setBordersHidden?(true) }
+    RibbonProxyStore.shared.setMoving(true, display)
+    // This display's borders only: another display's stay as they are.
+    let borders = borderWindowIDs.map { $0.union(shownIDs) } ?? managed
+    if !bordersHidden || hiddenBorderIDs != borders {
+      bordersHidden = true; hiddenBorderIDs = borders; setBordersHidden(true)
+    }
 
     expectedTargets = nativeTargets.filter { $0.key != draggedWindowID && $0.value.ribbonIntersects(area) }
     presentedSubmission = submission
@@ -917,8 +985,8 @@ final class RibbonProxyPresenter {
       return "\(window.id.rawValue):\(Int(picture.size.width))x\(Int(picture.size.height))->\(Int(window.to.width))x\(Int(window.to.height)),\(age)s"
     }
     ribbonProxyLogger.notice("present windows=\(shown.count) pictures=\(pictured) missing=\(unpictured, privacy: .public) stale=\(mismatched, privacy: .public) veiled=\(self.veiled.count) ms=\(Int((CACurrentMediaTime() - began) * 1_000)) flushMs=\(flushMS) preMs=\(Int((phaseScreen - began) * 1_000)) screenMs=\(Int((phaseLayers - phaseScreen) * 1_000)) layersMs=\(Int((committing - phaseLayers) * 1_000)) cold=\(cached.isEmpty)")
-    let token = generation, targets = expectedTargets
-    store.currentMotion = token
+    let token = generation, targets = expectedTargets, display = display, presenter = self
+    store.setCurrentMotion(token, display)
     // Windows leaving the screen must be gone too, or a slow app's outgoing window
     // pops back into view when the overlay lifts.
     let leaving = Set(windows.filter {
@@ -953,7 +1021,7 @@ final class RibbonProxyPresenter {
       }
       var finished = landed
       if landed { RibbonProxyStore.shared.learnSettles(targets: targets, native: native) }
-      guard RibbonProxyStore.shared.currentMotion == token else { return }
+      guard RibbonProxyStore.shared.currentMotion(display) == token else { return }
       // A slow app has not moved its window yet (arriving or leaving): lifting would
       // show it sliding into place later, so the overlay keeps covering it alone, over
       // where it is and where it goes, until it gets there.
@@ -965,11 +1033,11 @@ final class RibbonProxyPresenter {
       let late = Set(expected.keys).union(leaving).filter { !arrived($0) }
       if !landed, !late.isEmpty {
         let covered = late.compactMap { native[$0] } + late.compactMap { expected[$0] }
-        NavigationActor.enqueue { RibbonProxyPresenter.shared.cover(covered, generation: token) }
+        NavigationActor.enqueue { presenter.cover(covered, generation: token) }
         let coverDeadline = CACurrentMediaTime() + 2
         while CACurrentMediaTime() < coverDeadline, !late.allSatisfy(arrived) {
           try? await Task.sleep(for: .milliseconds(16))
-          guard RibbonProxyStore.shared.currentMotion == token else { return }
+          guard RibbonProxyStore.shared.currentMotion(display) == token else { return }
           let frames = ribbonProxyNativeFrames(late)
           for id in late { native[id] = frames[id] }
         }
@@ -1005,9 +1073,9 @@ final class RibbonProxyPresenter {
       NavigationActor.enqueue {
         // Waited for (and covered) once: a window that never leaves must not hold
         // every later landing.
-        RibbonProxyPresenter.shared.unsettledLeaving.subtract(leaving)
-        RibbonProxyPresenter.shared.landedNative = observed
-        RibbonProxyPresenter.shared.land(token, timedOut: !finished)
+        presenter.unsettledLeaving.subtract(leaving)
+        presenter.landedNative = observed
+        presenter.land(token, timedOut: !finished)
       }
     }
     return true
@@ -1043,7 +1111,7 @@ final class RibbonProxyPresenter {
     if !timedOut, awaitingFresh.isEmpty, !resized.isEmpty {
       awaitingFresh = Set(resized.map(\.id))
       ribbonProxyLogger.debug("await-fresh ids=\(resized.map { "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))" }, privacy: .public)")
-      RibbonProxyStore.shared.isMoving = false
+      RibbonProxyStore.shared.setMoving(false, display)
       DispatchQueue.main.async { RibbonProxyRenderer.shared.captureSoon(resized) }
       Task { [weak self] in
         try? await Task.sleep(for: .milliseconds(900))
@@ -1081,9 +1149,9 @@ final class RibbonProxyPresenter {
       // The real rings come back under the cards. The focused one waits for native
       // focus, so the cards stay until it shows: fading first left it without a ring.
       borderRestore?.cancel(); borderRestore = nil
-      if bordersHidden { bordersHidden = false; setBordersHidden?(false) }
+      if bordersHidden { bordersHidden = false; setBordersHidden(false) }
       // The ribbon is still: border tracking goes back to full rate.
-      RibbonProxyStore.shared.isMoving = false
+      RibbonProxyStore.shared.setMoving(false, display)
       let ringID = selectedID.flatMap { id in
         windowLayers[id]?.sublayers?.contains { $0.name == "border" && !$0.isHidden } == true ? id : nil
       }
@@ -1200,13 +1268,14 @@ final class RibbonProxyPresenter {
   func cancel(_ reason: String = "external") {
     generation &+= 1
     expectedTargets = [:]
+    // The pointer track belongs to the display holding a window, if any.
+    if drag.heldWindowID != nil { RibbonProxyPointerTrack.shared.set(nil) }
     drag = .idle; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []
-    RibbonProxyPointerTrack.shared.set(nil)
     guard presenting, let layers else { return }
     removePlaceholder()
     if reason != "landed" { ribbonProxyLogger.notice("cancel \(reason, privacy: .public)") }
     presenting = false
-    RibbonProxyStore.shared.isMoving = false
+    RibbonProxyStore.shared.setMoving(false, display)
     CATransaction.begin(); CATransaction.setDisableActions(true)
     layers.root.isHidden = true
     layers.root.mask = nil
@@ -1216,7 +1285,7 @@ final class RibbonProxyPresenter {
     borderRestore = Task { [weak self] in
       do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
       guard let self, !presenting, bordersHidden else { return }
-      bordersHidden = false; setBordersHidden?(false); borderRestore = nil
+      bordersHidden = false; setBordersHidden(false); borderRestore = nil
     }
   }
 
@@ -1321,10 +1390,29 @@ final class RibbonProxyPresenter {
     let token = generation
     Task { [weak self] in
       try? await Task.sleep(for: .milliseconds(900))
-      guard let self, generation == token, case .dropping = drag else { return }
-      drag = .idle
-      land(token, timedOut: false)
+      guard let self, generation == token else { return }
+      landDrop()
     }
+  }
+
+  /// The window dropped from this display now belongs to another one: its picture and
+  /// landing zone leave at once instead of gliding back to its old slot as a ghost.
+  /// Returns whether this display was holding it.
+  func release(_ id: WindowID) -> Bool {
+    guard drag == .dropping(id) else { return false }
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    windowLayers.removeValue(forKey: id)?.removeFromSuperlayer()
+    CATransaction.commit()
+    slides[id] = nil
+    removePlaceholder()
+    return true
+  }
+
+  /// No drop layout took over: the overlay lands on its own.
+  func landDrop() {
+    guard case .dropping = drag else { return }
+    drag = .idle
+    land(generation, timedOut: false)
   }
 
   private func showPlaceholder(at slot: CGRect, in layers: RibbonProxyLayers) {
@@ -1375,17 +1463,19 @@ final class RibbonProxyPresenter {
   private func prepareSurface(_ area: Rect) {
     guard preparingArea != area else { return }
     preparingArea = area
+    let display = display
     DispatchQueue.main.async {
-      let prepared = RibbonProxyRenderer.shared.prepareSurface(area: area)
+      let prepared = RibbonProxyRenderer.shared.prepareSurface(area: area, display: display)
       NavigationActor.enqueue {
-        RibbonProxyPresenter.shared.preparingArea = nil
-        if let prepared { RibbonProxyPresenter.shared.adopt(prepared) }
+        let presenter = RibbonProxyPresenter.on(display)
+        presenter.preparingArea = nil
+        if let prepared { presenter.adopt(prepared) }
       }
     }
   }
 
   func adopt(_ prepared: RibbonProxyLayers) {
-    guard enabled, !presenting, layers?.area != prepared.area || layers?.root !== prepared.root else { return }
+    guard Self.enabled, !presenting, layers?.area != prepared.area || layers?.root !== prepared.root else { return }
     layers = prepared
     windowLayers.values.forEach { $0.removeFromSuperlayer() }
     windowLayers = [:]
@@ -1762,8 +1852,12 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
 
   func set(_ mode: Mode?) {
     lock.withLock { self.mode = mode }
-    let running = mode != nil
-    DispatchQueue.main.async { MainActor.assumeIsolated { RibbonProxyPointerTicker.shared.run(running) } }
+    let area: Rect? = switch mode {
+    case .carry(_, _, let area, _): area
+    case .stretch(let stretch): stretch.area
+    case nil: nil
+    }
+    DispatchQueue.main.async { MainActor.assumeIsolated { RibbonProxyPointerTicker.shared.run(on: area) } }
   }
 
   /// `point` is in global top-left coordinates.
@@ -1834,18 +1928,19 @@ func ribbonProxyTaggedImage(_ buffer: CVPixelBuffer) -> CGImage? {
 final class RibbonProxyPointerTicker: NSObject {
   static let shared = RibbonProxyPointerTicker()
   private var link: CADisplayLink?
+  private var area: Rect?
 
-  func run(_ running: Bool) {
-    guard running != (link != nil) else { return }
-    if running, let screen = NSScreen.screens.first {
-      let link = screen.displayLink(target: self, selector: #selector(tick))
-      link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
-      link.add(to: .main, forMode: .common)
-      self.link = link
-    } else {
-      link?.invalidate()
-      link = nil
-    }
+  /// Ticks at the refresh of the display holding the window, none without one.
+  func run(on area: Rect?) {
+    guard area != self.area else { return }
+    link?.invalidate(); link = nil
+    self.area = area
+    guard let area, let screen = NSScreen.screens.first(where: { cgRect($0.frame) == area })
+      ?? NSScreen.screens.first else { return }
+    let link = screen.displayLink(target: self, selector: #selector(tick))
+    link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+    link.add(to: .main, forMode: .common)
+    self.link = link
   }
 
   @objc private func tick() {
