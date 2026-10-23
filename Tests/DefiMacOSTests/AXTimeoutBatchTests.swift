@@ -47,17 +47,14 @@ struct AXTimeoutBatchTests {
         element: AXUIElementCreateApplication(-100 - Int32(index)), application: application.value, processID: 42,
         fromPoint: CGPoint(x: 0, y: 40), point: CGPoint(x: -1000, y: 40),
         fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 800, height: 700),
-        positionChanged: true, sizeChanged: false, animatesSize: false,
+        positionChanged: true, sizeChanged: false,
         synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
         timeoutSeconds: mixed && index == 1 ? 0.006 : 0.025,
-        isParked: false, isReentering: false, requiresVerifiedOffscreenWrite: false))
+        isParked: false, requiresVerifiedOffscreenWrite: false))
     })
-    let frame = QueuedPositionFrame(generation: 1, source: "test", writes: writes,
-      animatedWindowIDs: [], animationDuration: 0, refreshRateHz: 120, displayIDs: [],
-      initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil)
+    let frame = QueuedPositionFrame(generation: 1, source: "test", writes: writes, stagesVisibleBeforeParking: false, completion: nil)
     let batch = ProcessWriteBatch(processID: 42, writes: writes.sorted { $0.key.rawValue < $1.key.rawValue })
-    let result = coordinator.applyBatch(batch, frame: frame, progress: 1, intermediate: false,
-      stagingReentry: false, recordFinalSuccess: false)
+    let result = coordinator.applyBatch(batch, frame: frame)
     let observed = transitions.withLock { $0 }
     return (observed.application, observed.window, observed.writes, result.applied, result.stale)
   }

@@ -227,8 +227,8 @@ extension Daemon {
       "frame-submit source=\(source) cg=\(commandPerformance?.generation.description ?? "none") layoutMs=\(String(format: "%.2f", layoutMS))"
     )
     platform.stageWindowBorderSelection(selectedWindowID)
-    // Without animations, the overlay and its window pictures are not needed.
-    platform.windowProxiesEnabled = config.animation.enabled
+    // Without animations (or with Reduce Motion), the overlay and its pictures are not needed.
+    platform.windowProxiesEnabled = animationsEnabled
     platform.windowProxyDroppedWindowID =
       source == "mouse-drop-animation" ? proxyDroppedWindowID : nil
     proxyDroppedWindowID = nil

@@ -390,14 +390,8 @@ struct CommandLatencyAccumulator {
   }
 }
 
-func frameCommitQuarantineDuration(
-  animationDuration: TimeInterval,
-  initialFrameSettlement: Bool
-) -> TimeInterval {
-  if initialFrameSettlement {
-    return max(animationDuration + 0.12, 0.18)
-  }
-  return max(animationDuration + 0.25, 0.8)
+func frameCommitQuarantineDuration(initialFrameSettlement: Bool) -> TimeInterval {
+  initialFrameSettlement ? 0.18 : 0.8
 }
 
 func initialFrameNeedsRepair(
@@ -486,12 +480,10 @@ func initialSettlementRepairIsCurrent(
   expectedGeneration: UInt64,
   currentGeneration: UInt64?,
   repairsSuspended: Bool,
-  leftMouseButtonDown: Bool,
-  animationRunning: Bool
+  leftMouseButtonDown: Bool
 ) -> Bool {
   !repairsSuspended
     && !leftMouseButtonDown
-    && !animationRunning
     && currentGeneration == expectedGeneration
 }
 

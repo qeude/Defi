@@ -27,19 +27,16 @@ struct AXTimeoutBatchPerformanceTests {
         element: AXUIElementCreateApplication(-100 - Int32(index)), application: application, processID: 42,
         fromPoint: CGPoint(x: index * 800, y: 40), point: CGPoint(x: index * 800 - 1000, y: 40),
         fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 800, height: 700),
-        positionChanged: true, sizeChanged: false, animatesSize: false,
+        positionChanged: true, sizeChanged: false,
         synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false, timeoutSeconds: 0.016,
-        isParked: false, isReentering: false, requiresVerifiedOffscreenWrite: false))
+        isParked: false, requiresVerifiedOffscreenWrite: false))
     })
-    let frame = QueuedPositionFrame(generation: 1, source: "performance", writes: writes,
-      animatedWindowIDs: Set(writes.keys), animationDuration: 0.125, refreshRateHz: 120,
-      displayIDs: [], initialProgressVelocity: 0, stagesVisibleBeforeParking: false, completion: nil)
+    let frame = QueuedPositionFrame(generation: 1, source: "performance", writes: writes, stagesVisibleBeforeParking: false, completion: nil)
     let batch = try #require(coordinator.processWriteBatches(writes, windowIDs: Set(writes.keys)).first)
     var applied = 0
     let started = ProcessInfo.processInfo.systemUptime
     for index in 1...100 {
-      applied += coordinator.applyBatch(batch, frame: frame, progress: Double(index) / 100,
-        intermediate: true, stagingReentry: false, recordFinalSuccess: false).applied
+      applied += coordinator.applyBatch(batch, frame: frame).applied
     }
     let counts = calls.withLock { $0 }
     #expect(applied == 800)

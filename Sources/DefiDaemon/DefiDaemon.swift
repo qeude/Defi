@@ -252,14 +252,8 @@ final class Daemon {
         self?.autoMark(reason: reason)
       }
     }
-    platform.setDiagnosticAnomalyHandler { [weak self, weak diagnostics] uptime, event in
+    platform.setDiagnosticAnomalyHandler { [weak diagnostics] uptime, event in
       diagnostics?.recordAnomaly(uptime: uptime, event: event)
-      // Runs under the coordinator lock on the animation thread: hop before
-      // building status.
-      if let gap = slowAnimationDisplayGapMS(event) {
-        let reason = "displayGapMs=\(Int(gap))"
-        NavigationActor.enqueue { self?.autoMark(reason: reason) }
-      }
     }
   }
 

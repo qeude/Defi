@@ -119,7 +119,8 @@ extension SnapshotEngine {
     }
     var effectiveIncrementalProcessIDs = incrementalProcessIDs
     let deferredAgeAtPartition = deferredFreshReadsStartedAt
-    let defersBackgroundReads = frameCoordinator.isAnimating
+    // Reads mid-motion cost the overlay frames: background processes wait a little.
+    let defersBackgroundReads = overlayMoving()
       && !eventRequiresFullSnapshot && !forceApplicationInventoryRefresh
     let eventProcessIDs = topologyProcessIDs.union(frameProcessIDs).union(fallbackFreshReadProcessIDs)
     let retainedIDs = retainedWindowIDs
@@ -129,7 +130,7 @@ extension SnapshotEngine {
       retainedWindowRefreshProcessIDs(
         retainedWindowIDs: retainedIDs, processIDs: retainedWindowProcesses,
         deadlines: retentionDeadlines,
-        deferringUntil: frameCoordinator.hasPendingHorizontalMotion ? now + 0.5 : nil
+        deferringUntil: overlayMoving() ? now + 0.5 : nil
       )
     }
     let urgentProcessIDs = eventProcessIDs.union(
@@ -284,7 +285,7 @@ extension SnapshotEngine {
     func shouldReadProcess(_ processID: pid_t) -> Bool {
       let now = ProcessInfo.processInfo.systemUptime
       guard !eventRequiresFullSnapshot, !forceApplicationInventoryRefresh,
-        !alwaysReadsProcesses.contains(processID), frameCoordinator.isAnimating,
+        !alwaysReadsProcesses.contains(processID), overlayMoving(),
         !urgentRetentionProcessIDs(at: now).contains(processID),
         (deferredAgeAtPartition ?? deferredFreshReadsStartedAt)
           .map({ now - $0 < 0.5 }) ?? true

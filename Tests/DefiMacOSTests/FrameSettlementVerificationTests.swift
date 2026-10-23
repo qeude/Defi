@@ -333,11 +333,12 @@ struct FrameSettlementVerificationTests {
     let engine = platform.snapshotEngine
     setFrame(rollback, id: id, reads: reads)
     reads.state.withLock { $0.now = start + 0.9 }
-    platform.frameCoordinator.lock.withLock { platform.frameCoordinator.activeAnimationRunning = true }
+    let moving = Mutex(true)
+    engine.overlayMoving = { moving.withLock { $0 } }
     let deferred = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
     #expect(deferred.windows.first { $0.id == id }?.frame == Rect(x: 1000, y: 37, width: 752, height: 902))
     #expect(engine.frameCommitExpectations[id]?.verificationAttempts == 0)
-    platform.frameCoordinator.lock.withLock { platform.frameCoordinator.activeAnimationRunning = false }
+    moving.withLock { $0 = false }
     reads.state.withLock { $0.now = start + 1.2 }
     let final = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
     #expect(final.targetMismatches == [FrameMismatch(windowID: id, actual: rollback, target: target)])
