@@ -50,8 +50,8 @@ Recording is requested once, before the Overview is presented; the overlay only
 uses a permission already granted.
 In the Overview, denial, revocation, or `overview.window_previews = false`
 degrades to cards without errors, repeated prompts, or loss of the zoom
-animation. Without the permission, the overlay is off and motion uses native
-Accessibility animation. Navigation,
+animation. Without the permission, the overlay is off and windows move at once.
+Navigation,
 focus, and window movement never depend on capture.
 
 ## Product shape
@@ -110,14 +110,13 @@ Current strategy may evolve when replacement preserves the same outcomes and tes
 - coalesce transient focus changes during rapid navigation; commit real AX focus only for the final target
 - keep focus writes asynchronous so slow applications cannot block command intake
 - keep horizontal navigation position-only unless a replacement proves synchronous size work cannot enter the input path
-- keep vertical workspace transitions position-only and all-or-nothing; use an
-  immediate switch when any participating AX lane or display topology cannot
-  animate safely within the refresh budget
+- keep vertical workspace transitions position-only and all-or-nothing; switch
+  at once when the overlay cannot draw the motion
 - settle latency-sensitive windows outside the speculative path while preserving their real targets, hidden state, and parking state
 
 The scrolling workspace is one continuous horizontal strip.
 
-- animate entering, visible, and leaving windows on the same movement timeline when their AX lane permits it
+- animate entering, visible, and leaving windows on the same overlay timeline; each native window moves once
 - never impose an arbitrary cap that leaves an entering ribbon window unanimated
 - never minimize managed windows to implement virtual workspaces
 - park inactive-workspace windows through topology and Accessibility, never visual opacity

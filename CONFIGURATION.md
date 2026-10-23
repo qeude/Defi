@@ -157,23 +157,18 @@ cursor movement. CLI commands and native app focus changes never warp pointer.
 
 ## `[animation]`
 
-Controls scrolling-column focus and managed layout animations, including width
-changes, column/window moves, stacking, and floating transitions.
-The macOS Reduce Motion preference also disables these animations, including
-workspace transitions and mouse-driven reordering.
+Moves windows on a Defi overlay, on every display: column navigation, width
+and order changes, stacking, opened and closed windows, mouse drops,
+click-to-focus scrolling, and vertical workspace switches.
 
 ```toml
 [animation]
 enabled = true
-duration_ms = 125
-window_proxies = true
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Enables visual scrolling and managed layout animations, including resizing, column/window moves, stacking, and floating transitions. |
-| `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. Workspace switches from native focus, such as a click, the Dock, or Command-Tab, are always immediate. `0` disables animation even when `enabled = true`. |
-| `window_proxies` | `true` | boolean | Draws column navigation, width and order changes, vertical workspace switches, click-to-focus scrolling and mouse reordering on a Defi overlay from captured window pictures, while each native window moves once to its target underneath, so motion never waits on slow applications. Opened and closed windows, drops after a mouse drag (with a slot placeholder under the dragged window), and workspaces activated from the Dock or Command-Tab move on the overlay too. Proxies follow a critically damped spring instead of `duration_ms` and keep their velocity when a new command retargets them. Pictures of visible windows refresh about every half second while the Mac is in use, every 4 seconds after 10 seconds without input, and fill resized proxies without stretching; the app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. Uses Screen Recording when it is already granted and never asks for it. Without permission or on multiple displays, motion uses native Accessibility animation; with Reduce Motion it is immediate. A motion the overlay cannot draw while permission is granted, for example before the wallpaper is captured, is immediate. |
+| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh about every half second while the Mac is in use, every 4 seconds after 10 seconds without input, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay uses Screen Recording when it is already granted and never asks for it. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
 
 ## `[overview]`
 
@@ -189,7 +184,7 @@ window_corner_radius = 12
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
-| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false`, together with `[animation].window_proxies = false`, to opt out of Screen Recording entirely. |
+| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false`, together with `[animation].enabled = false`, to opt out of Screen Recording entirely. |
 | `window_corner_radius` | `12` | number from `0` to `64` | Rounds window cards and their borders in the Overview. |
 
 Opening the Overview zooms the real windows out to their cards, and closing it
@@ -687,7 +682,6 @@ enabled = true
 
 [animation]
 enabled = true
-duration_ms = 125
 
 [overview]
 zoom = 0.5
