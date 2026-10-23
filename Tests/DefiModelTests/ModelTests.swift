@@ -75,4 +75,26 @@ struct ModelTests {
     #expect(singleManagedWindowID(processID: nil, in: [solo]) == nil)
     #expect(singleManagedWindowID(processID: 42, in: []) == nil)
   }
+
+  @Test
+  func `Sending a column does not follow it`() {
+    #expect(Command.moveColumnToWorkspace(.named("web"), follow: true).followsWindowMove)
+    #expect(!Command.moveColumnToWorkspace(.named("web"), follow: false).followsWindowMove)
+  }
+
+  @Test(arguments: [
+    (Command.moveColumn(.right), true),
+    (Command.moveWindow(.down), true),
+    (Command.cycleWidth(.next), true),
+    (Command.maximizeColumn, true),
+    (Command.toggleFloating, true),
+    (Command.joinWindow(.left), true),
+    (Command.unjoinWindows, true),
+    (Command.focusColumn(.right), false),
+    (Command.toggleOverview, false),
+  ])
+  func selectedLayoutEditsAnimate(testCase: (command: Command, expected: Bool)) {
+    #expect(testCase.command.editsSelectedLayout == testCase.expected)
+    #expect(testCase.command.animatesManagedLayout == testCase.expected)
+  }
 }
