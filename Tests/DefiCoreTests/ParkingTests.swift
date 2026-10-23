@@ -47,6 +47,28 @@ struct ParkingTests {
   }
 
   @Test
+  func `The isolated staircase of a desk with the built-in on the left parks clear of both displays`() throws {
+    let externalID = MonitorID(rawValue: 1), builtInID = MonitorID(rawValue: 2)
+    let technical = isolatedDisplayArrangement([
+      externalID: external.frame,
+      builtInID: Rect(x: -1_512, y: 323, width: 1_512, height: 982),
+    ], primary: externalID)
+    #expect(technical[externalID] == external.frame)
+    let builtInFrame = try #require(technical[builtInID])
+    #expect(builtInFrame == Rect(x: 2_560, y: -982, width: 1_512, height: 982))
+    let builtIn = Display(frame: builtInFrame, visible: Rect(
+      x: builtInFrame.x, y: builtInFrame.y + 33, width: 1_512, height: 949))
+    let parkedExternal = park(window, on: external, among: [builtIn])
+    let parkedBuiltIn = park(window, on: builtIn, among: [external])
+    #expect(parkedExternal == Rect(x: -1_199, y: 1_365, width: 1_200, height: 900))
+    #expect(parkedBuiltIn == Rect(x: 4_071, y: -32, width: 1_200, height: 900))
+    #expect(intersection(parkedExternal, builtInFrame).width
+      * intersection(parkedExternal, builtInFrame).height == 0)
+    #expect(intersection(parkedBuiltIn, external.frame).width
+      * intersection(parkedBuiltIn, external.frame).height == 0)
+  }
+
+  @Test
   func `The measured side by side arrangement parks where macOS keeps the windows`() {
     let builtIn = Display(
       frame: Rect(x: 2_560, y: 390, width: 1_512, height: 982),
