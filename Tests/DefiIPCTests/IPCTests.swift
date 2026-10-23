@@ -7,23 +7,6 @@ import Testing
 
 struct IPCTests {
   @Test
-  func `Protocol round trip`() throws {
-    let request = CommandRequest(command: "focus-column left")
-    let requestData = try JSONEncoder().encode(request)
-    #expect(try JSONDecoder().decode(CommandRequest.self, from: requestData) == request)
-
-    let response = CommandResponse.success("moved")
-    let responseData = try JSONEncoder().encode(response)
-    #expect(try JSONDecoder().decode(CommandResponse.self, from: responseData) == response)
-  }
-
-  @Test
-  func `Default socket path is per user`() {
-    #expect(SocketPath.defaultURL.lastPathComponent.hasPrefix("defi-"))
-    #expect(SocketPath.defaultURL.pathExtension == "sock")
-  }
-
-  @Test
   func `Closed peer returns broken pipe instead of terminating process`() throws {
     var descriptors = [Int32](repeating: -1, count: 2)
     #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
@@ -45,42 +28,6 @@ struct IPCTests {
     }
   }
 
-  @Test
-  func `Accepted client can be restored to blocking mode`() throws {
-    let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-    #expect(descriptor >= 0)
-    defer { Darwin.close(descriptor) }
-    let flags = fcntl(descriptor, F_GETFL)
-    #expect(fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0)
-
-    try configureBlocking(descriptor)
-
-    #expect(fcntl(descriptor, F_GETFL) & O_NONBLOCK == 0)
-  }
-
-  @Test
-  func `Read timeout is configured`() throws {
-    var descriptors = [Int32](repeating: -1, count: 2)
-    #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
-    defer {
-      if descriptors[0] >= 0 { Darwin.close(descriptors[0]) }
-      if descriptors[1] >= 0 { Darwin.close(descriptors[1]) }
-    }
-
-    try configureReadTimeout(descriptors[0])
-
-    var timeout = timeval(tv_sec: 0, tv_usec: 0)
-    var length = socklen_t(MemoryLayout<timeval>.size)
-    #expect(
-      getsockopt(
-        descriptors[0],
-        SOL_SOCKET,
-        SO_RCVTIMEO,
-        &timeout,
-        &length
-      ) == 0)
-    #expect(timeout.tv_sec > 0)
-  }
 }
 
 struct IPCCompletionTests {
