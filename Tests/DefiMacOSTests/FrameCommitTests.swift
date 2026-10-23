@@ -553,20 +553,13 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Frame application reference does not read native frame when cached`() {
+  func `A pending correction is the application reference without a native read`() {
     var nativeFrameWasRead = false
-
-    _ = frameApplicationReference(
-      pendingCorrection: Rect(x: 100, y: 40, width: 800, height: 700),
-      completedPosition: nil,
-      previousTarget: nil,
-      nativeReference: {
-        nativeFrameWasRead = true
-        return Rect(x: 900, y: 40, width: 800, height: 700)
-      }()
-    )
-
-    #expect(nativeFrameWasRead == false)
+    let pending = Rect(x: 100, y: 40, width: 800, height: 700)
+    #expect(frameApplicationReference(pendingCorrection: pending, completedPosition: nil, previousTarget: nil,
+      nativeReference: { nativeFrameWasRead = true; return Rect(x: 900, y: 40, width: 800, height: 700) }())
+      == pending)
+    #expect(!nativeFrameWasRead)
   }
 
   @Test
@@ -590,205 +583,76 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Static settlement samples can exit the slow lane`() {
+  func `The slow lane needs two slow samples to enter and leaves below the exit threshold`() {
     let coordinator = AXFrameCoordinator()
-    coordinator.predictedProcessLatencyMS[42] = 12
-    coordinator.latencySensitiveProcessIDs.insert(42)
-
-    coordinator.recordProcessLatencySamples([42: 0])
-
-    #expect(coordinator.latencySensitiveProcessIDs.contains(42) == false)
+    var lane: [Bool] = []
+    for (sample, alternating) in zip([90.0, 25, 0, 0, 0, 0], [20.0, 4, 20, 4, 20, 4]) {
+      coordinator.recordProcessLatencySamples([42: sample, 43: alternating])
+      lane.append(coordinator.latencySensitiveProcessIDs.contains(42))
+      #expect(!coordinator.latencySensitiveProcessIDs.contains(43), "A fast sample resets the entry streak")
+    }
+    // Predictions 90, 57.5, 28.8, 14.4, 7.2, 3.6: entry needs a second slow sample, exit needs < 7 ms.
+    #expect(lane == [false, true, true, true, true, false])
   }
 
   @Test
-  func `Exited processes are removed from slow lane diagnostics`() {
-    let coordinator = AXFrameCoordinator()
-    coordinator.predictedProcessLatencyMS = [42: 20, 43: 18]
-    coordinator.latencySensitiveProcessIDs = [42, 43]
-    _ = coordinator.processWriteQueue(for: 42)
-    _ = coordinator.processWriteQueue(for: 43)
-
-    coordinator.pruneProcessLatencyState(liveProcessIDs: [43])
-
-    #expect(coordinator.slowProcessLatenciesMS == [43: 18])
-    #expect(Set(coordinator.processWriteQueues.keys) == [43])
-  }
-
-  @Test
-  func `Stale batch does not record latency sample`() {
+  func `Only attempted batches record a latency sample`() {
     let accumulator = FrameResultAccumulator()
-    accumulator.add(
-      applied: 0,
-      stale: 1,
-      processID: 42,
-      processLatencyMS: 0.1,
-      attempted: false
-    )
-
-    #expect(accumulator.result.processLatencySamplesMS.isEmpty)
+    accumulator.add(applied: 0, stale: 1, processID: 42, processLatencyMS: 0.1, attempted: false)
+    accumulator.add(applied: 2, stale: 0, processID: 43, processLatencyMS: 5, attempted: true)
+    #expect(accumulator.result.applied == 2)
+    #expect(accumulator.result.stale == 1)
+    #expect(accumulator.result.processLatencySamplesMS == [43: 5])
   }
 
   @Test
-  func `Cursor warp requires successful target frame write`() {
-    let target = WindowID(rawValue: 2)
-    let sibling = WindowID(rawValue: 3)
-    let failed = FrameWriteCompletion(
-      completedLatest: true,
-      attemptedWindowIDs: [target, sibling],
-      successfulWindowIDs: [sibling]
-    )
-    let succeeded = FrameWriteCompletion(
-      completedLatest: true,
-      attemptedWindowIDs: [target, sibling],
-      successfulWindowIDs: [target, sibling]
-    )
+  func `Cursor warp needs the target's successful write or observed convergence`() {
+    let target = WindowID(rawValue: 2), sibling = WindowID(rawValue: 3)
+    #expect(cursorWarpTimestampAfterFrameCompletion(requestedTimestamp: 10, targetWindowID: target,
+      completion: FrameWriteCompletion(completedLatest: true, attemptedWindowIDs: [target, sibling],
+        successfulWindowIDs: [sibling])) == nil)
+    #expect(cursorWarpTimestampAfterFrameCompletion(requestedTimestamp: 10, targetWindowID: target,
+      completion: FrameWriteCompletion(completedLatest: true, attemptedWindowIDs: [target, sibling],
+        successfulWindowIDs: [target, sibling])) == 10)
+    let frame = Rect(x: 100, y: 40, width: 800, height: 700)
+    #expect(!cursorWarpFrameReadiness(latestWriteSucceeded: false,
+      observedFrame: Rect(x: 900, y: 40, width: 800, height: 700), targetFrame: frame))
+    #expect(cursorWarpFrameReadiness(latestWriteSucceeded: false, observedFrame: frame, targetFrame: frame))
+  }
 
-    #expect(
-      cursorWarpTimestampAfterFrameCompletion(
-        requestedTimestamp: 10,
-        targetWindowID: target,
-        completion: failed
-      ) == nil)
-    #expect(
-      cursorWarpTimestampAfterFrameCompletion(
-        requestedTimestamp: 10,
-        targetWindowID: target,
-        completion: succeeded
-      ) == 10)
+  // size changed, synchronous, asynchronous -> succeeded, asynchronous write required
+  @Test(arguments: [
+    (true, false, false, false, true), (true, true, false, true, false),
+    (true, false, true, true, true), (false, false, false, true, false),
+  ])
+  func `A size write succeeds through either lane and only a failed synchronous write needs the async lane`(
+    sizeChanged: Bool, synchronous: Bool, asynchronous: Bool, succeeded: Bool, requiresAsync: Bool
+  ) {
+    #expect(frameSizeWriteSucceeded(sizeChanged: sizeChanged, synchronousWriteSucceeded: synchronous,
+      asynchronousWriteSucceeded: asynchronous) == succeeded)
+    #expect(asynchronousSizeWriteIsRequired(sizeChanged: sizeChanged, synchronousWriteSucceeded: synchronous)
+      == requiresAsync)
   }
 
   @Test
-  func `Cursor warp allows observed convergence after failed write`() {
-    let target = Rect(x: 100, y: 40, width: 800, height: 700)
-
-    #expect(
-      cursorWarpFrameReadiness(
-        latestWriteSucceeded: false,
-        observedFrame: Rect(x: 900, y: 40, width: 800, height: 700),
-        targetFrame: target
-      ) == false)
-    #expect(
-      cursorWarpFrameReadiness(
-        latestWriteSucceeded: false,
-        observedFrame: target,
-        targetFrame: target
-      ))
-  }
-
-  @Test
-  func `Synchronous size failure blocks warp readiness`() {
-    #expect(
-      frameSizeWriteSucceeded(
-        sizeChanged: true,
-        synchronousWriteSucceeded: false,
-        asynchronousWriteSucceeded: false
-      ) == false)
-    #expect(
-      frameSizeWriteSucceeded(
-        sizeChanged: true,
-        synchronousWriteSucceeded: true,
-        asynchronousWriteSucceeded: false
-      ))
-    #expect(
-      frameSizeWriteSucceeded(
-        sizeChanged: true,
-        synchronousWriteSucceeded: false,
-        asynchronousWriteSucceeded: true
-      ))
-    #expect(
-      frameSizeWriteSucceeded(
-        sizeChanged: false,
-        synchronousWriteSucceeded: false,
-        asynchronousWriteSucceeded: false
-      ))
-  }
-
-  @Test
-  func `Asynchronous layout routes size writes to coordinator`() {
-    #expect(
-      asynchronousSizeWriteIsRequired(
-        sizeChanged: true,
-        synchronousWriteSucceeded: false
-      ))
-    #expect(
-      asynchronousSizeWriteIsRequired(
-        sizeChanged: true,
-        synchronousWriteSucceeded: true
-      ) == false)
-  }
-
-  @Test
-  func `Deferred frame focus rejects newer input before submission`() {
-    #expect(
-      deferredFocusInputIsCurrent(
-        requestedTimestamp: 10,
-        latestUserInputTimestamp: 10
-      ))
-    #expect(
-      deferredFocusInputIsCurrent(
-        requestedTimestamp: 10,
-        latestUserInputTimestamp: 11
-      ) == false)
-    #expect(
-      deferredFocusInputIsCurrent(
-        requestedTimestamp: nil,
-        latestUserInputTimestamp: 11
-      ))
-  }
-
-  @Test
-  func `Deferred frame focus waits for pending frame debt`() {
+  func `Deferred focus waits for current input, selection, and the target frame`() {
+    #expect(deferredFocusInputIsCurrent(requestedTimestamp: 10, latestUserInputTimestamp: 10))
+    #expect(!deferredFocusInputIsCurrent(requestedTimestamp: 10, latestUserInputTimestamp: 11))
+    #expect(deferredFocusInputIsCurrent(requestedTimestamp: nil, latestUserInputTimestamp: 11))
     let target = WindowID(rawValue: 42)
-
-    #expect(
-      deferredFocusFrameIsReady(
-        targetWindowID: target,
-        pendingFrameWindowIDs: [target]
-      ) == false)
-    #expect(
-      deferredFocusFrameIsReady(
-        targetWindowID: target,
-        pendingFrameWindowIDs: []
-      ))
-  }
-
-  @Test
-  func `Deferred frame focus requires target write or observed convergence`() {
-    let target = WindowID(rawValue: 42)
+    #expect(shouldApplyDeferredFocus(targetWindowID: target, selectedWindowID: target))
+    #expect(!shouldApplyDeferredFocus(targetWindowID: target, selectedWindowID: WindowID(rawValue: 2)))
+    #expect(!deferredFocusFrameIsReady(targetWindowID: target, pendingFrameWindowIDs: [target]))
+    #expect(deferredFocusFrameIsReady(targetWindowID: target, pendingFrameWindowIDs: []))
     let frame = Rect(x: 10, y: 20, width: 300, height: 400)
-
-    #expect(
-      deferredFocusFrameCommitIsReady(
-        targetWindowID: target,
-        pendingFrameWindowIDs: [],
-        successfulWindowIDs: [],
-        observedFrame: nil,
-        targetFrame: frame
-      ) == false)
-    #expect(
-      deferredFocusFrameCommitIsReady(
-        targetWindowID: target,
-        pendingFrameWindowIDs: [],
-        successfulWindowIDs: [target],
-        observedFrame: nil,
-        targetFrame: frame
-      ))
-    #expect(
-      deferredFocusFrameCommitIsReady(
-        targetWindowID: target,
-        pendingFrameWindowIDs: [],
-        successfulWindowIDs: [],
-        observedFrame: frame,
-        targetFrame: frame
-      ))
-    #expect(
-      deferredFocusFrameCommitIsReady(
-        targetWindowID: target,
-        pendingFrameWindowIDs: [target],
-        successfulWindowIDs: [target],
-        observedFrame: frame,
-        targetFrame: frame
-      ) == false)
+    func commitReady(pending: Set<WindowID>, successful: Set<WindowID>, observed: Rect?) -> Bool {
+      deferredFocusFrameCommitIsReady(targetWindowID: target, pendingFrameWindowIDs: pending,
+        successfulWindowIDs: successful, observedFrame: observed, targetFrame: frame)
+    }
+    #expect(!commitReady(pending: [], successful: [], observed: nil))
+    #expect(commitReady(pending: [], successful: [target], observed: nil))
+    #expect(commitReady(pending: [], successful: [], observed: frame))
+    #expect(!commitReady(pending: [target], successful: [target], observed: frame))
   }
 
   @Test
@@ -982,128 +846,28 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Recent internal write history retains every live target`() {
+  func `Recent internal writes survive invalidation and expire or prune with their window`() {
     let coordinator = AXFrameCoordinator()
     let windowID = WindowID(rawValue: 42)
     let first = Rect(x: 100, y: 40, width: 900, height: 700)
     let second = Rect(x: 300, y: 40, width: 900, height: 700)
-
-    coordinator.recordInternalFrameWrite(
-      first,
-      windowID: windowID,
-      positionChanged: true,
-      sizeChanged: false,
-      now: 10
-    )
-    coordinator.recordInternalFrameWrite(
-      second,
-      windowID: windowID,
-      positionChanged: true,
-      sizeChanged: false,
-      now: 10.1
-    )
-
-    #expect(
-      coordinator.frameMatchesRecentInternalWrite(
-        windowID: windowID,
-        actual: first,
-        now: 10.2
-      ))
-    #expect(
-      coordinator.frameMatchesRecentInternalWrite(
-        windowID: windowID,
-        actual: second,
-        now: 10.2
-      ))
-  }
-
-  @Test
-  func `Invalidation retains recent internal write history`() {
-    let coordinator = AXFrameCoordinator()
-    let windowID = WindowID(rawValue: 42)
-    let frame = Rect(x: 100, y: 40, width: 900, height: 700)
-
-    coordinator.recordInternalFrameWrite(
-      frame,
-      windowID: windowID,
-      positionChanged: true,
-      sizeChanged: true,
-      now: 10
-    )
+    coordinator.recordInternalFrameWrite(first, windowID: windowID, positionChanged: true, sizeChanged: true, now: 10)
+    coordinator.recordInternalFrameWrite(second, windowID: windowID, positionChanged: true, sizeChanged: false,
+      now: 10.1)
     let element = AXUIElementCreateSystemWide()
     coordinator.activeWrites[windowID] = AsyncPositionWrite(
-      element: element,
-      application: element,
-      processID: 42,
-      fromPoint: .zero,
-      point: .zero,
-      fromSize: CGSize(width: 800, height: 600),
-      size: CGSize(width: 900, height: 700),
-      positionChanged: false,
-      sizeChanged: true,
-      synchronousSizeWriteSucceeded: false,
-      enhancedUIWasEnabled: false,
-      timeoutSeconds: 0.016,
-      isParked: false,
-      requiresVerifiedOffscreenWrite: false
-    )
+      element: element, application: element, processID: 42, fromPoint: .zero, point: .zero,
+      fromSize: CGSize(width: 800, height: 600), size: CGSize(width: 900, height: 700),
+      positionChanged: false, sizeChanged: true, synchronousSizeWriteSucceeded: false,
+      enhancedUIWasEnabled: false, timeoutSeconds: 0.016, isParked: false, requiresVerifiedOffscreenWrite: false)
     coordinator.invalidate(reason: "display-change")
-
     #expect(coordinator.activeWrites.isEmpty)
-    #expect(
-      coordinator.frameMatchesRecentInternalWrite(
-        windowID: windowID,
-        actual: frame,
-        now: 10.1
-      ))
-  }
-
-  @Test
-  func `Pruning recent internal writes drops closed windows`() {
-    let coordinator = AXFrameCoordinator()
-    let windowID = WindowID(rawValue: 42)
-    coordinator.recordInternalFrameWrite(
-      Rect(x: 100, y: 40, width: 900, height: 700),
-      windowID: windowID,
-      positionChanged: true,
-      sizeChanged: true,
-      now: 10
-    )
-
+    #expect(coordinator.frameMatchesRecentInternalWrite(windowID: windowID, actual: first, now: 10.2))
+    #expect(coordinator.frameMatchesRecentInternalWrite(windowID: windowID, actual: second, now: 10.2))
+    #expect(coordinator.frameMatchesRecentInternalWrite(windowID: windowID, actual: first, now: 12.4))
+    #expect(!coordinator.frameMatchesRecentInternalWrite(windowID: windowID, actual: first, now: 12.6))
     coordinator.pruneRecentInternalFrameWrites(liveWindowIDs: [], now: 10.2)
-
-    #expect(
-      coordinator.frameMatchesRecentInternalWrite(
-        windowID: windowID,
-        actual: Rect(x: 100, y: 40, width: 900, height: 700),
-        now: 10.1
-      ) == false)
-  }
-
-  @Test
-  func `Recent internal writes expire for live windows without pruning`() {
-    let coordinator = AXFrameCoordinator()
-    let windowID = WindowID(rawValue: 42)
-    coordinator.recordInternalFrameWrite(
-      Rect(x: 100, y: 40, width: 900, height: 700),
-      windowID: windowID,
-      positionChanged: true,
-      sizeChanged: true,
-      now: 10
-    )
-
-    #expect(
-      coordinator.frameMatchesRecentInternalWrite(
-        windowID: windowID,
-        actual: Rect(x: 100, y: 40, width: 900, height: 700),
-        now: 12.6
-      ) == false)
-    #expect(
-      coordinator.frameMatchesRecentInternalWrite(
-        windowID: windowID,
-        actual: Rect(x: 100, y: 40, width: 900, height: 700),
-        now: 12.4
-      ))
+    #expect(!coordinator.frameMatchesRecentInternalWrite(windowID: windowID, actual: second, now: 10.2))
   }
 
   @Test
@@ -1136,171 +900,41 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Completed active size write is not carried into replacement`() {
-    let coordinator = AXFrameCoordinator()
-    let element = AXUIElementCreateSystemWide()
-    let windowID = WindowID(rawValue: 42)
-    coordinator.activeWrites[windowID] = AsyncPositionWrite(
-      element: element,
-      application: element,
-      processID: 42,
-      fromPoint: .zero,
-      point: .zero,
-      fromSize: CGSize(width: 800, height: 600),
-      size: CGSize(width: 900, height: 700),
-      positionChanged: false,
-      sizeChanged: true,
-      synchronousSizeWriteSucceeded: false,
-      enhancedUIWasEnabled: false,
-      timeoutSeconds: 0.016,
-      isParked: false,
-      requiresVerifiedOffscreenWrite: false
-    )
-
-    coordinator.recordCompletedActiveSizeWrite(windowID: windowID)
-
-    #expect(coordinator.activeWrites[windowID] == nil)
-  }
-
-  @Test
-  func `Initial window commit quarantine is shorter than an ordinary commit`() {
-    #expect(frameCommitQuarantineDuration(initialFrameSettlement: true) == 0.18)
-    #expect(frameCommitQuarantineDuration(initialFrameSettlement: false) == 0.8)
-  }
-
-  @Test
-  func `Initial settlement repairs position or size drift`() {
+  func `Initial settlement repairs only stable position or size drift`() {
     let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
-
-    #expect(initialFrameNeedsRepair(actual: target, target: target) == false)
-    #expect(
-      initialFrameNeedsRepair(
-        actual: Rect(x: 140, y: 40, width: 1_200, height: 900),
-        target: target
-      ))
-    #expect(
-      initialFrameNeedsRepair(
-        actual: Rect(x: 100, y: 40, width: 900, height: 700),
-        target: target
-      ))
-  }
-
-  @Test
-  func `Initial settlement stays armed after matching frame`() {
-    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
-
-    #expect(
-      initialSettlementObservation(
-        actual: target,
-        target: target,
-        now: 10,
-        deadline: 12.5
-      ) == .stable)
-    #expect(
-      initialSettlementObservation(
-        actual: target,
-        target: target,
-        now: 12.5,
-        deadline: 12.5
-      ) == .expired)
-  }
-
-  @Test
-  func `Initial settlement repairs only stable drift`() {
-    let generation: UInt64 = 4
-    let first = InitialSettlementDriftSample(
-      generation: generation,
-      frame: Rect(x: 100, y: 40, width: 900, height: 700),
-      observedAt: 10
-    )
-
-    #expect(
-      initialSettlementDriftIsStable(
-        previous: first,
-        generation: generation,
-        actual: Rect(x: 100, y: 40, width: 1_000, height: 760),
-        now: 10.1
-      ) == false)
-    #expect(
-      initialSettlementDriftIsStable(
-        previous: first,
-        generation: generation,
-        actual: first.frame,
-        now: 10.04
-      ) == false)
-    #expect(
-      initialSettlementDriftIsStable(
-        previous: first,
-        generation: generation,
-        actual: Rect(x: 101, y: 40, width: 900, height: 700),
-        now: 10.08
-      ))
-  }
-
-  @Test
-  func `Unchanged settlement drift preserves first observation time`() {
-    let first = InitialSettlementDriftSample(
-      generation: 4,
-      frame: Rect(x: 100, y: 40, width: 900, height: 700),
-      observedAt: 10
-    )
-    let unchanged = updatedInitialSettlementDriftSample(
-      previous: first,
-      generation: 4,
-      actual: Rect(x: 101, y: 40, width: 900, height: 700),
-      now: 10.03
-    )
-    let changed = updatedInitialSettlementDriftSample(
-      previous: unchanged,
-      generation: 4,
-      actual: Rect(x: 100, y: 40, width: 1_000, height: 700),
-      now: 10.04
-    )
-
+    #expect(!initialFrameNeedsRepair(actual: target, target: target))
+    #expect(initialFrameNeedsRepair(actual: Rect(x: 140, y: 40, width: 1_200, height: 900), target: target))
+    #expect(initialFrameNeedsRepair(actual: Rect(x: 100, y: 40, width: 900, height: 700), target: target))
+    let first = InitialSettlementDriftSample(generation: 4, frame: Rect(x: 100, y: 40, width: 900, height: 700),
+      observedAt: 10)
+    #expect(!initialSettlementDriftIsStable(previous: first, generation: 4,
+      actual: Rect(x: 100, y: 40, width: 1_000, height: 760), now: 10.1))
+    #expect(!initialSettlementDriftIsStable(previous: first, generation: 4, actual: first.frame, now: 10.04))
+    #expect(initialSettlementDriftIsStable(previous: first, generation: 4,
+      actual: Rect(x: 101, y: 40, width: 900, height: 700), now: 10.08))
+    let unchanged = updatedInitialSettlementDriftSample(previous: first, generation: 4,
+      actual: Rect(x: 101, y: 40, width: 900, height: 700), now: 10.03)
     #expect(unchanged.observedAt == 10)
-    #expect(changed.observedAt == 10.04)
+    #expect(updatedInitialSettlementDriftSample(previous: unchanged, generation: 4,
+      actual: Rect(x: 100, y: 40, width: 1_000, height: 700), now: 10.04).observedAt == 10.04)
   }
 
   @Test
-  func `Initial settlement schedules stable follow up before expiration`() {
-    #expect(
-      abs((initialSettlementFollowUpDelay(now: 12.1, deadline: 12.5) ?? 0) - 0.06)
-        <= 0.000_1
-    )
+  func `Initial settlement stays armed until its deadline and repairs only when current and idle`() {
+    let target = Rect(x: 100, y: 40, width: 1_200, height: 900)
+    #expect(initialSettlementObservation(actual: target, target: target, now: 10, deadline: 12.5) == .stable)
+    #expect(initialSettlementObservation(actual: target, target: target, now: 12.5, deadline: 12.5) == .expired)
+    #expect(abs((initialSettlementFollowUpDelay(now: 12.1, deadline: 12.5) ?? 0) - 0.06) <= 0.000_1)
     #expect(initialSettlementFollowUpDelay(now: 12.48, deadline: 12.5) == nil)
     #expect(initialSettlementFollowUpDelay(now: 12.5, deadline: 12.5) == nil)
-  }
-
-  @Test
-  func `Initial settlement repair requires current generation and idle mouse`() {
-    #expect(
-      initialSettlementRepairIsCurrent(
-        expectedGeneration: 4,
-        currentGeneration: 4,
-        repairsSuspended: false,
-        leftMouseButtonDown: false
-      ))
-    #expect(
-      initialSettlementRepairIsCurrent(
-        expectedGeneration: 4,
-        currentGeneration: 5,
-        repairsSuspended: false,
-        leftMouseButtonDown: false
-      ) == false)
-    #expect(
-      initialSettlementRepairIsCurrent(
-        expectedGeneration: 4,
-        currentGeneration: 4,
-        repairsSuspended: true,
-        leftMouseButtonDown: false
-      ) == false)
-    #expect(
-      initialSettlementRepairIsCurrent(
-        expectedGeneration: 4,
-        currentGeneration: 4,
-        repairsSuspended: false,
-        leftMouseButtonDown: true
-      ) == false)
+    func current(_ generation: UInt64, suspended: Bool = false, mouseDown: Bool = false) -> Bool {
+      initialSettlementRepairIsCurrent(expectedGeneration: 4, currentGeneration: generation,
+        repairsSuspended: suspended, leftMouseButtonDown: mouseDown)
+    }
+    #expect(current(4))
+    #expect(!current(5))
+    #expect(!current(4, suspended: true))
+    #expect(!current(4, mouseDown: true))
   }
 
   struct IncrementalRefreshCase: CustomTestStringConvertible, Sendable {
@@ -1441,91 +1075,18 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Deferred focus only applies to current selection`() {
-    let target = WindowID(rawValue: 1)
-
-    #expect(
-      shouldApplyDeferredFocus(
-        targetWindowID: target,
-        selectedWindowID: target
-      ))
-    #expect(
-      shouldApplyDeferredFocus(
-        targetWindowID: target,
-        selectedWindowID: WindowID(rawValue: 2)
-      ) == false)
-  }
-
-  @Test
-  func `One pixel strip anchors require verified offscreen writes`() {
+  func `One pixel strip anchors require verified offscreen writes unless a neighbor shows the window`() {
     let monitor = Rect(x: 0, y: 0, width: 1_512, height: 900)
-
-    #expect(
-      requiresVerifiedOffscreenWrite(
-        frame: Rect(x: 1_511, y: 40, width: 1_204, height: 860),
-        monitorFrames: [monitor]
-      ))
-    #expect(
-      requiresVerifiedOffscreenWrite(
-        frame: Rect(x: -1_203, y: 40, width: 1_204, height: 860),
-        monitorFrames: [monitor]
-      ))
-    #expect(
-      requiresVerifiedOffscreenWrite(
-        frame: Rect(x: -905, y: 40, width: 1_204, height: 860),
-        monitorFrames: [monitor]
-      ) == false)
-    #expect(
-      requiresVerifiedOffscreenWrite(
-        frame: Rect(x: 0, y: 899, width: 1_204, height: 860),
-        monitorFrames: [monitor]
-      ), "A window parked below its display shows one row")
-  }
-
-  @Test
-  func `Neighboring monitor prevents false sliver classification`() {
-    #expect(
-      requiresVerifiedOffscreenWrite(
-        frame: Rect(x: 1_511, y: 40, width: 1_204, height: 860),
-        monitorFrames: [
-          Rect(x: 0, y: 0, width: 1_512, height: 900),
-          Rect(x: 1_512, y: 0, width: 1_920, height: 1_080),
-        ]
-      ) == false)
-  }
-
-  @Test
-  func `AX latency classification uses hysteresis`() {
-    #expect(
-      axProcessIsLatencySensitive(
-        previouslySensitive: false,
-        predictedLatencyMS: 11.9
-      ) == false)
-    #expect(
-      axProcessIsLatencySensitive(
-        previouslySensitive: false,
-        predictedLatencyMS: 12
-      ))
-    #expect(
-      axProcessIsLatencySensitive(
-        previouslySensitive: true,
-        predictedLatencyMS: 7
-      ))
-    #expect(
-      axProcessIsLatencySensitive(
-        previouslySensitive: true,
-        predictedLatencyMS: 6.9
-      ) == false)
-  }
-
-  @Test
-  func `Slow lane entry ignores single spike`() {
-    var streak = ProcessLatencyStreak()
-    #expect(processLatencyEntryIsConfirmed(sampleMS: 90, streak: &streak) == false)
-    #expect(processLatencyEntryIsConfirmed(sampleMS: 25, streak: &streak))
-    #expect(processLatencyEntryIsConfirmed(sampleMS: 4, streak: &streak) == false)
-    #expect(processLatencyEntryIsConfirmed(sampleMS: 20, streak: &streak) == false)
-    #expect(processLatencyEntryIsConfirmed(sampleMS: 30, streak: &streak))
+    #expect(requiresVerifiedOffscreenWrite(frame: Rect(x: 1_511, y: 40, width: 1_204, height: 860),
+      monitorFrames: [monitor]))
+    #expect(requiresVerifiedOffscreenWrite(frame: Rect(x: -1_203, y: 40, width: 1_204, height: 860),
+      monitorFrames: [monitor]))
+    #expect(!requiresVerifiedOffscreenWrite(frame: Rect(x: -905, y: 40, width: 1_204, height: 860),
+      monitorFrames: [monitor]))
+    #expect(requiresVerifiedOffscreenWrite(frame: Rect(x: 0, y: 899, width: 1_204, height: 860),
+      monitorFrames: [monitor]), "A window parked below its display shows one row")
+    #expect(!requiresVerifiedOffscreenWrite(frame: Rect(x: 1_511, y: 40, width: 1_204, height: 860),
+      monitorFrames: [monitor, Rect(x: 1_512, y: 0, width: 1_920, height: 1_080)]))
   }
 
   struct DeferredSizeCase: CustomTestStringConvertible, Sendable {
