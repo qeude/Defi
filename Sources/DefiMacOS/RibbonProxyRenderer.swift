@@ -523,11 +523,11 @@ final class RibbonProxyRenderer {
         frame: native[request.id] ?? request.frame, distance: request.distance)
     }
     let visibleIDs = Set(visible.map(\.id))
-    // ScreenCaptureKit fallback: only windows never captured, or resized since (a
-    // display change); a cropped picture made each landing wait.
+    // ScreenCaptureKit fallback: only windows never captured, resized since (a display
+    // change), or expired by an appearance change; a cropped picture made each landing wait.
     requests = requests.filter { request in
       (ribbonProxyWindowServerCapture == nil || !visibleIDs.contains(request.id)) && store.picture(request.id).map {
-        !ribbonProxyPictureMatches(captured: $0.size, native: native[request.id] ?? request.frame)
+        $0.capturedAt == 0 || !ribbonProxyPictureMatches(captured: $0.size, native: native[request.id] ?? request.frame)
       } ?? true
     }
     // Short passes keep stills and visible windows from queueing behind slow
