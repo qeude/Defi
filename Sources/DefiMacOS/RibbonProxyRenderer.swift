@@ -887,11 +887,7 @@ final class RibbonProxyPresenter {
     } else if let placeholder {
       placeholder.removeFromSuperlayer(); self.placeholder = nil
     }
-    for sublayer in layers.root.sublayers ?? [] {
-      for faded in [sublayer] + (sublayer.sublayers ?? []) {
-        faded.removeAnimation(forKey: "fade"); faded.opacity = 1
-      }
-    }
+    layers.root.removeAnimation(forKey: "fade")
     layers.root.opacity = 1
     layers.root.isHidden = false
     layers.root.mask = nil
@@ -1088,40 +1084,39 @@ final class RibbonProxyPresenter {
         }
       }
       ribbonProxyLogger.notice("fade ms=\(Int((CACurrentMediaTime() - self.veiledSince) * 1_000))")
-      let fade = CABasicAnimation(keyPath: "opacity")
-      fade.fromValue = 1; fade.toValue = 0; fade.duration = duration
-      fade.timingFunction = CAMediaTimingFunction(name: veiled.isEmpty ? .easeOut : .easeInEaseOut)
-      fade.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
-      fade.beginTime = layers.root.convertTime(CACurrentMediaTime(), from: nil)
-      func fadeOut(_ layer: CALayer) { layer.opacity = 0; layer.add(fade, forKey: "fade") }
-      // The focused ring stays until the native one shows: that waits for native focus.
-      let ring = selectedID.flatMap { windowLayers[$0] }
-      let holdsRing = ring?.sublayers?.contains { $0.name == "border" && !$0.isHidden } == true
-      for sublayer in layers.root.sublayers ?? [] {
-        if holdsRing, let ring, sublayer === ring {
-          for part in ring.sublayers ?? [] where part.name != "border" { fadeOut(part) }
-        } else {
-          fadeOut(sublayer)
-        }
-      }
       ribbonProxyCommit(#line)
-      RibbonProxyStore.shared.isMoving = false
-      // The real rings come back under the fading cards, so no frame goes without one.
+      // The real rings come back under the cards. The focused one waits for native
+      // focus, so the cards stay until it shows: fading first left it without a ring.
       borderRestore?.cancel(); borderRestore = nil
       if bordersHidden { bordersHidden = false; setBordersHidden?(false) }
-      let selectedID = holdsRing ? selectedID : nil, nativeRingShown = nativeRingShown
+      // The ribbon is still: border tracking goes back to full rate.
+      RibbonProxyStore.shared.isMoving = false
+      let ringID = selectedID.flatMap { id in
+        windowLayers[id]?.sublayers?.contains { $0.name == "border" && !$0.isHidden } == true ? id : nil
+      }
+      let nativeRingShown = nativeRingShown, easing = veiled.isEmpty ? CAMediaTimingFunctionName.easeOut : .easeInEaseOut
       Task {
-        try? await Task.sleep(for: .milliseconds(Int(duration * 1_000) + 10))
-        if let selectedID, let nativeRingShown {
-          let held = CACurrentMediaTime(), deadline = held + 1.5
-          while generation == fadeToken, CACurrentMediaTime() < deadline,
-            await !nativeRingShown(selectedID) {
+        if let ringID, let nativeRingShown {
+          // shortcut: a slow app's focus beyond 300 ms still leaves a short gap.
+          let held = CACurrentMediaTime(), deadline = held + 0.3
+          while generation == fadeToken, CACurrentMediaTime() < deadline, await !nativeRingShown(ringID) {
             try? await Task.sleep(for: .milliseconds(8))
           }
           ribbonProxyLogger.notice("ring-handoff ms=\(Int((CACurrentMediaTime() - held) * 1_000))")
           // One more frame: the native ring is set, not yet composited.
           try? await Task.sleep(for: .milliseconds(17))
         }
+        guard generation == fadeToken, let layers = self.layers else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1; fade.toValue = 0; fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: easing)
+        layers.root.opacity = 0
+        fade.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        fade.beginTime = layers.root.convertTime(CACurrentMediaTime(), from: nil)
+        layers.root.add(fade, forKey: "fade")
+        ribbonProxyCommit(#line)
+        try? await Task.sleep(for: .milliseconds(Int(duration * 1_000) + 10))
         guard generation == fadeToken else { return }
         cancel("landed")
       }
