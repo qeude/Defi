@@ -337,6 +337,64 @@ struct HotKeyTests {
   }
 
   @Test
+  func overviewModeRoutesBoundKeysToOverviewWithoutCommands() throws {
+    let bindings = Dictionary(uniqueKeysWithValues: try [
+      ("hyper-left", "focus-column left"), ("hyper-1", "workspace dev"),
+      ("hyper-2", "focus-workspace-position 2"), ("hyper-3", "focus-workspace-name web"),
+    ].map { (try Key(accelerator: $0.0, aliases: aliases), $0.1) })
+    let actions = Mutex<[OverviewKeyAction]>([])
+    let invocations = HotKeyInvocationRecorder()
+    let context = InputMonitor(
+      bindings: bindings, userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { invocations.append($0) },
+      deliverOverview: { action in actions.withLock { $0.append(action) } },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    context.setHotKeysRegistered(true)
+    context.setOverviewModeEnabled(true)
+    for code: CGKeyCode in [123, 18, 19, 20] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = [.maskAlternate, .maskCommand, .maskControl]
+      #expect(context.intercept(type: .keyDown, event: event) == nil)
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(actions.withLock { $0 } == [.left, .workspace(.named("dev")),
+      .workspace(.position(2)), .workspace(.named("web"))])
+    #expect(invocations.commands.isEmpty, "Overview keys must not mutate the native workspace")
+    #expect(context.capturedKeyCount == 4)
+  }
+
+  @Test
+  func heldCheatsheetShortcutTogglesOnceWhileOtherCommandsRepeat() throws {
+    let toggle = try Key(accelerator: "hyper-slash", aliases: aliases)
+    let focus = try Key(accelerator: "hyper-right", aliases: aliases)
+    let (context, invocations) = makeContext(bindings: [toggle: "toggle-cheatsheet", focus: "focus-column right"])
+    for key in [toggle, focus] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+      event.flags = CGEventFlags(rawValue: key.modifierBits)
+      _ = context.handle(type: .keyDown, event: event)
+      event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(invocations.commands == ["toggle-cheatsheet", "focus-column right", "focus-column right"])
+  }
+
+  @Test
+  func scrollWheelRecordsUserInput() throws {
+    let tracker = UserInputTracker()
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: tracker,
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in })
+    let scroll = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+      wheelCount: 1, wheel1: 1, wheel2: 0, wheel3: 0))
+    scroll.timestamp = 9_000_000_000
+    _ = context.handle(type: .scrollWheel, event: scroll)
+    #expect(tracker.latestEventTimestamp == 9)
+  }
+
+  @Test
   func unregisteredShortcutCannotTriggerACommand() throws {
     let key = try Key(accelerator: "hyper-left", aliases: aliases)
     let (context, invocations) = makeContext(bindings: [key: "focus-column left"])
