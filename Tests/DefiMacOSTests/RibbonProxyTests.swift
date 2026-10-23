@@ -50,9 +50,9 @@ struct RibbonProxyTests {
     let frame = Rect(x: 0, y: 0, width: 500, height: 800)
     let moved = Rect(x: -400, y: 0, width: 500, height: 800)
     func moves(_ monitor: WindowProxyMonitor, displays: Int = 2, targets: [WindowID: Rect],
-      previous: [WindowID: Rect], opened: Set<WindowID> = [], carried: Set<WindowID> = []) -> Bool {
+      previous: [WindowID: Rect], opened: Set<WindowID> = [], dropped: WindowID? = nil) -> Bool {
       windowProxyDisplayMoves(monitor, displayCount: displays, ribbonTargets: targets,
-        previousRibbonFrames: previous, opened: opened, carried: carried)
+        previousRibbonFrames: previous, opened: opened, dropped: dropped)
     }
     #expect(!moves(left, targets: [a: frame], previous: [a: frame, c: frame]))
     #expect(moves(left, displays: 1, targets: [a: frame], previous: [a: frame]))
@@ -61,8 +61,8 @@ struct RibbonProxyTests {
     // A window leaving the ribbon (closed, sent away) reflows the display.
     #expect(moves(left, targets: [a: frame], previous: [a: frame, b: frame]))
     #expect(moves(left, targets: [a: frame], previous: [a: frame], opened: [b]))
-    #expect(!moves(left, targets: [a: frame], previous: [a: frame], opened: [c], carried: [c]))
-    #expect(moves(left, targets: [a: frame], previous: [a: frame], carried: [a]))
+    #expect(!moves(left, targets: [a: frame], previous: [a: frame], opened: [c], dropped: c))
+    #expect(moves(left, targets: [a: frame], previous: [a: frame], dropped: a))
     var switched = left
     switched.workspaceShift = -800
     #expect(moves(switched, targets: [:], previous: [:]))

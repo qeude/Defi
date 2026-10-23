@@ -1066,15 +1066,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(actual.height, window.frame.height, accuracy: 2)
   }
 
-  func testHorizontalAnimationFrameWritesPositionWithoutSize() throws {
-    try verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: 0.15)
-  }
-
-  func testDisabledHorizontalAnimationWritesOnlyTheFinalPosition() throws {
-    try verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: 0)
-  }
-
-  private func verifyHorizontalFrameWritesPositionWithoutSize(animationDuration: Double) throws {
+  func testHorizontalFrameWritesPositionWithoutSize() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     guard let window = testWindows(in: snapshot).first else {
@@ -1100,86 +1092,16 @@ final class DesktopE2ETests: XCTestCase {
           height: original.height
         )
       )
-    ], animationDuration: animationDuration, animationRefreshRateHz: 120,
-       animationDisplayIDs: Set(snapshot.monitors.map { $0.id.rawValue })) }
+    ]) }
     XCTAssertTrue(pumpRunLoop(until: {
       !onNavigation { platform.hasPendingFrameWrites }
     }, timeout: 2))
-    let frames = onNavigation { platform.frameCoordinatorPerformance.animationFrames }
-    if animationDuration > 0 { XCTAssertGreaterThan(frames, 1) }
-    else { XCTAssertEqual(frames, 1) }
 
     XCTAssertGreaterThan(onNavigation { platform.successfulPositionWriteCount }, positionWrites)
     XCTAssertEqual(onNavigation { platform.successfulSizeWriteCount }, sizeWrites)
   }
 
-  func testManagedResizeAnimationConvergesWithAdaptiveSizeWrites() throws {
-    let platform = try makePlatform()
-    let snapshot = platform.snapshot(config: Config())
-    guard let monitor = snapshot.monitors.first else {
-      throw XCTSkip("No desktop monitor")
-    }
-    guard let window = testWindows(in: snapshot).first(where: {
-      $0.frame.width >= 500
-        && $0.frame.x < monitor.frame.x + monitor.frame.width
-        && $0.frame.x + $0.frame.width > monitor.frame.x
-    }) else {
-      throw XCTSkip("No visible resizable desktop window")
-    }
-    let original = window.frame
-    let target = Rect(
-      x: original.x,
-      y: original.y,
-      width: original.width - 120,
-      height: original.height
-    )
-    defer {
-      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
-      pumpRunLoop(for: 0.3)
-    }
-    XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 1))
-    let sizeWrites = onNavigation { platform.successfulSizeWriteCount }
-    // A recent stall must adapt the width animation instead of discarding it.
-    if let processID = window.processID {
-      platform.frameCoordinator.recordProcessLatencySamples([processID: 70])
-    }
-
-    onNavigation { platform.apply(
-      [FrameAssignment(windowID: window.id, frame: target)],
-      animationDuration: 0.08,
-      animationRefreshRateHz: 120,
-      animateSizeChanges: true,
-      source: "command-layout-animation"
-    ) }
-    XCTAssertTrue(
-      pumpRunLoop(
-        until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } },
-        timeout: 1
-      )
-    )
-
-    var actual: Rect?
-    let converged = pumpRunLoop(
-      until: {
-        actual = platform.snapshot(config: Config()).windows
-          .first(where: { $0.id == window.id })?.frame
-        return abs((actual?.width ?? .infinity) - target.width) <= 2
-      },
-      timeout: 1
-    )
-    XCTAssertTrue(
-      converged,
-      "resize animation did not converge; app=\(window.appID) target=\(target) actual=\(String(describing: actual)) trace=\(onNavigation { platform.frameCoordinatorTrace })"
-    )
-    XCTAssertEqual(actual?.width ?? 0, target.width, accuracy: 2)
-    XCTAssertGreaterThanOrEqual(
-      onNavigation { platform.successfulSizeWriteCount } - sizeWrites,
-      3,
-      "A resize animation must write intermediate sizes, not only its final size."
-    )
-  }
-
-  func testAnimatedFullWidthConvergesFromBothViewportEdges() throws {
+  func testFullWidthConvergesFromBothViewportEdges() throws {
     let platform = try makePlatform()
     let snapshot = platform.snapshot(config: Config())
     let monitor = try XCTUnwrap(snapshot.monitors.first)
@@ -1198,11 +1120,10 @@ final class DesktopE2ETests: XCTestCase {
         width: monitor.frame.width / 2, height: original.height)
       onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: start)]) }
       XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 2))
-      // Refresh the observed starting frame before the animated enlargement.
+      // Refresh the observed starting frame before the enlargement.
       _ = platform.snapshot(config: Config())
       onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: full)],
-        animationDuration: 0.125, animationRefreshRateHz: 120,
-        animateSizeChanges: true, source: "command-layout-animation") }
+        source: "command-layout-animation") }
       XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 2))
       var actual: Rect?
       let converged = pumpRunLoop(until: {
@@ -1261,7 +1182,7 @@ final class DesktopE2ETests: XCTestCase {
     ) }
     XCTAssertTrue(
       pumpRunLoop(
-        until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } },
+        until: { !onNavigation { platform.hasPendingFrameWrites } },
         timeout: 0.8
       )
     )
@@ -1272,221 +1193,6 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(actual?.x ?? 0, anchored.x, accuracy: 2)
     XCTAssertEqual(actual?.y ?? 0, anchored.y, accuracy: 2)
     XCTAssertEqual(onNavigation { platform.hiddenWindowCount }, 0)
-  }
-
-  func testReenteringWindowJoinsFirstAnimatedRibbonSample() throws {
-    let platform = try makePlatform()
-    let snapshot = platform.snapshot(config: Config())
-    let windows = testWindows(in: snapshot)
-    guard let monitor = snapshot.monitors.first(where: { monitor in
-      windows.filter { monitor.physicalFrame.contains(centerOf: $0.frame) }.count >= 2
-    }) else {
-      throw XCTSkip("Need two manageable desktop windows on the same monitor")
-    }
-    let monitorWindows = windows.filter { monitor.physicalFrame.contains(centerOf: $0.frame) }
-    let window = monitorWindows[0]
-    let neighbor = monitorWindows[1]
-    let original = window.frame
-    let neighborOriginal = neighbor.frame
-    let parked = resolveParkingPlacement(
-      for: original,
-      ownerFrame: monitor.physicalFrame,
-      parkingFrame: monitor.frame,
-      allMonitorFrames: snapshot.monitors.map(\.physicalFrame),
-      preferredSide: .right
-    ).frame
-    let target = Rect(
-      x: monitor.physicalFrame.x + monitor.physicalFrame.width - original.width - 8,
-      y: original.y,
-      width: original.width,
-      height: original.height
-    )
-    let neighborTarget = Rect(
-      x: neighborOriginal.x - original.width - 16,
-      y: neighborOriginal.y,
-      width: neighborOriginal.width,
-      height: neighborOriginal.height
-    )
-    defer {
-      onNavigation { platform.apply([
-        FrameAssignment(windowID: window.id, frame: original),
-        FrameAssignment(windowID: neighbor.id, frame: neighborOriginal),
-      ]) }
-      pumpRunLoop(for: 0.3)
-    }
-
-    onNavigation { platform.apply(
-      [
-        FrameAssignment(windowID: window.id, frame: parked),
-        FrameAssignment(windowID: neighbor.id, frame: neighborOriginal),
-      ],
-      hiddenWindowIDs: [window.id],
-    ) }
-    pumpRunLoop(for: 0.3)
-    onNavigation { platform.apply(
-      [
-        FrameAssignment(windowID: window.id, frame: target),
-        FrameAssignment(windowID: neighbor.id, frame: neighborTarget),
-      ],
-      animationDuration: 0.05,
-      animationRefreshRateHz: 120,
-      source: "command-animation"
-    ) }
-    pumpRunLoop(for: 0.4)
-
-    let actual = platform.snapshot(config: Config()).windows
-      .first(where: { $0.id == window.id })?.frame
-    let performance = onNavigation { platform.frameCoordinatorPerformance }
-    let maximumAnimationFrames = completedFrameSpringSamples(
-      duration: 0.05,
-      refreshRateHz: 120
-    ).count + 1
-    XCTAssertEqual(actual?.x ?? 0, target.x, accuracy: 2)
-    XCTAssertGreaterThanOrEqual(performance.animationFrames, 2)
-    XCTAssertLessThanOrEqual(performance.animationFrames, maximumAnimationFrames)
-  }
-
-  func testPostAnimationCommitLagDoesNotTriggerUnanimatedCorrection() throws {
-    let platform = try makePlatform()
-    let snapshot = platform.snapshot(config: Config())
-    guard let monitor = snapshot.monitors.first else {
-      throw XCTSkip("No desktop monitor")
-    }
-    let candidates = testWindows(in: snapshot).filter { window in
-      let intersectionWidth = max(
-        min(
-          window.frame.x + window.frame.width,
-          monitor.frame.x + monitor.frame.width
-        ) - max(window.frame.x, monitor.frame.x),
-        0
-      )
-      return !window.intrinsicSize
-        && intersectionWidth >= window.frame.width * 0.5
-    }
-    guard !candidates.isEmpty else {
-      throw XCTSkip("No manageable desktop window")
-    }
-
-    let competingPlatform = try makePlatform()
-    _ = competingPlatform.snapshot(config: Config())
-    var selected:
-      (
-        window: Window,
-        original: Rect,
-        target: Rect,
-        expectation: FrameCommitExpectation
-      )?
-    var failedPreconditions: [String] = []
-    for window in candidates.sorted(by: { $0.frame.width > $1.frame.width }) {
-      let original = window.frame
-      let animatedWidth = max(original.width - 160, 200)
-      let target = Rect(
-        x: original.x + 80,
-        y: original.y,
-        width: animatedWidth,
-        height: original.height
-      )
-      let intermediate = Rect(
-        x: original.x + 40,
-        y: original.y,
-        width: animatedWidth,
-        height: original.height
-      )
-      onNavigation { platform.apply(
-        [FrameAssignment(windowID: window.id, frame: target)],
-        animationDuration: 0.05,
-        animationRefreshRateHz: 120,
-        source: "test-animation"
-      ) }
-      guard pumpRunLoop(
-        until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } },
-        timeout: 0.5
-      ) else {
-        failedPreconditions.append("\(window.appID):animation")
-        onNavigation { competingPlatform.apply([
-          FrameAssignment(windowID: window.id, frame: original)
-        ]) }
-        pumpRunLoop(for: 0.15)
-        onNavigation { platform.acceptObservedFrame(original, for: window.id) }
-        continue
-      }
-
-      var competingWriteConverged = false
-      var lastCompetingFrame: Rect?
-      for _ in 0..<10 where !competingWriteConverged {
-        onNavigation { competingPlatform.apply([
-          FrameAssignment(windowID: window.id, frame: intermediate)
-        ]) }
-        competingWriteConverged = pumpRunLoop(
-          until: {
-            let actual = competingPlatform.snapshot(config: Config()).windows
-              .first(where: { $0.id == window.id })?.frame
-            lastCompetingFrame = actual
-            return abs((actual?.x ?? .infinity) - intermediate.x) <= 2
-          },
-          timeout: 0.03
-        )
-      }
-      if competingWriteConverged,
-        let expectation = platform.frameCommitExpectations[window.id]
-      {
-        selected = (window, original, target, expectation)
-        break
-      }
-      failedPreconditions.append(
-        "\(window.appID):\(String(describing: lastCompetingFrame))"
-      )
-      onNavigation { competingPlatform.apply([
-        FrameAssignment(windowID: window.id, frame: original)
-      ]) }
-      pumpRunLoop(for: 0.15)
-      onNavigation { platform.acceptObservedFrame(original, for: window.id) }
-    }
-    guard let selected else {
-      XCTFail(
-        "test must force a delayed intermediate commit before checking quarantine; attempts=\(failedPreconditions)"
-      )
-      return
-    }
-    let window = selected.window
-    let original = selected.original
-    let target = selected.target
-    let expectation = selected.expectation
-    defer {
-      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: original)]) }
-      pumpRunLoop(for: 0.3)
-    }
-    let observationStartedAt = ProcessInfo.processInfo.systemUptime
-    platform.frameCommitExpectations[window.id] = FrameCommitExpectation(
-      from: expectation.from,
-      target: expectation.target,
-      issuedAt: observationStartedAt,
-      deadline: observationStartedAt
-        + frameCommitQuarantineDuration(
-          animationDuration: 0.05,
-          initialFrameSettlement: false
-        ),
-      observedAt: expectation.observedAt
-    )
-
-    let writesBeforeDesktopSync = onNavigation { platform.successfulPositionWriteCount }
-    onNavigation { platform.requestFrameRefresh(for: window.id) }
-    let delayedSnapshot = platform.snapshot(config: Config())
-    onNavigation { platform.apply(
-      [FrameAssignment(windowID: window.id, frame: target)],
-      source: "desktop-sync"
-    ) }
-    pumpRunLoop(for: 0.08)
-
-    XCTAssertTrue(delayedSnapshot.targetMismatches.isEmpty)
-    XCTAssertGreaterThan(onNavigation { platform.frameCommitPerformance }.deferred, 0)
-    XCTAssertEqual(
-      onNavigation { platform.successfulPositionWriteCount },
-      writesBeforeDesktopSync
-    )
-    XCTAssertFalse(
-      onNavigation { platform.frameCoordinatorTrace }.contains("source=desktop-sync")
-    )
   }
 
   func testNativeFocusEmitsPlatformEvent() throws {
@@ -2659,7 +2365,6 @@ final class DesktopE2ETests: XCTestCase {
       actual = platform.frame(of: element)
       return actual.map { abs($0.x - target.x) <= 2 && abs($0.y - target.y) <= 2 } == true
     }, timeout: 1.5), "the native frame must converge, independently of the snapshot refresh budget")
-    XCTAssertFalse(onNavigation { platform.hasPendingAnimatedFrameWrites })
     XCTAssertEqual(actual?.x ?? 0, target.x, accuracy: 2)
     XCTAssertEqual(actual?.y ?? 0, target.y, accuracy: 2)
     XCTAssertEqual(onNavigation { platform.hiddenWindowCount }, 1)
@@ -2776,8 +2481,6 @@ final class DesktopE2ETests: XCTestCase {
         )
         onNavigation { platform.apply(
           [FrameAssignment(windowID: window.id, frame: target)],
-          animationDuration: invalidatesDisplayState ? 0 : 0.035,
-          animateSizeChanges: !invalidatesDisplayState,
           source: "test-monitor-height"
         ) }
         XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 2))
@@ -2879,7 +2582,7 @@ final class DesktopE2ETests: XCTestCase {
           [FrameAssignment(windowID: window.id, frame: target)],
           hiddenWindowIDs: [window.id]
         ) }
-        XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingAnimatedFrameWrites } }, timeout: 2))
+        XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFrameWrites } }, timeout: 2))
         pumpRunLoop(for: 0.2)
         let element = try XCTUnwrap(platform.elements[window.id])
         let actual = try XCTUnwrap(platform.frame(of: element))

@@ -51,13 +51,6 @@ struct DaemonCommandPolicyTests {
     #expect(state.isCurrentSession(3))
   }
 
-  @Test(arguments: [20.0, 21.0])
-  func nativeFocusAnimationSurvivesItsOwnSnapshotButYieldsToNewerInput(timestamp: Double) {
-    #expect(desktopSnapshotWaitsForCommandAnimation(animationPending: true,
-      latestCommandInputTimestamp: 10, latestNativeFocusAnimationInputTimestamp: 20,
-      mouseFocusIntentTimestamp: timestamp, keyboardFocusIntentTimestamp: nil) == (timestamp == 20))
-  }
-
   @Test func changedNativeFocusAnimatesOnlyItsMonitor() {
     let monitor = MonitorID(rawValue: 2)
     #expect(nativeFocusAnimationMonitorID(focusedMonitorID: monitor, floating: false,
@@ -214,50 +207,6 @@ struct DaemonCommandPolicyTests {
     toggleState.finishApplying(request, actualIsOpen: false)
     #expect(toggleState.snapshot().actualIsOpen == false)
     #expect(toggleState.snapshot().desiredIsOpen == nil)
-  }
-
-  @Test
-  func outgoingTransitionParkingIsReservedForLaterMonitorLayouts() throws {
-    let outgoingMonitor = Rect(x: -1_200, y: 400, width: 800, height: 600)
-    let laterMonitor = Rect(x: 0, y: 0, width: 800, height: 600)
-    let deltaY = -600.0
-    var shiftedLaterMonitor = laterMonitor
-    shiftedLaterMonitor.y -= deltaY
-    let strip = continuousStripFramesForActiveWorkspace(
-      [
-        FrameAssignment(
-          windowID: WindowID(rawValue: 1),
-          frame: Rect(x: -100, y: 400, width: 300, height: 600)
-        )
-      ],
-      viewport: outgoingMonitor,
-      ownerFrame: outgoingMonitor,
-      allMonitorFrames: [outgoingMonitor, shiftedLaterMonitor]
-    )
-    let reservations = parkedFrameReservations(in: strip, translatedBy: deltaY)
-    let outgoingFrame = try #require(reservations.first)
-    let laterPlacement = resolveParkingPlacement(
-      for: Rect(x: 0, y: 0, width: 300, height: 600),
-      ownerFrame: laterMonitor,
-      allMonitorFrames: [outgoingMonitor, laterMonitor],
-      reservedParkingFrames: reservations,
-      preferredSide: .left
-    )
-    let overlapWidth = max(
-      min(laterPlacement.frame.x + laterPlacement.frame.width,
-          outgoingFrame.x + outgoingFrame.width)
-        - max(laterPlacement.frame.x, outgoingFrame.x),
-      0
-    )
-    let overlapHeight = max(
-      min(laterPlacement.frame.y + laterPlacement.frame.height,
-          outgoingFrame.y + outgoingFrame.height)
-        - max(laterPlacement.frame.y, outgoingFrame.y),
-      0
-    )
-
-    #expect(outgoingFrame == Rect(x: -401, y: -200, width: 300, height: 600))
-    #expect(overlapWidth * overlapHeight == 0)
   }
 
   @Test
@@ -534,17 +483,6 @@ struct DaemonCommandPolicyTests {
     #expect(state.monitors[0].workspaces[0].scrollOffset == 0.6)
   }
 
-  @Test(arguments: [9.0, 11.0])
-  func externalActivationOnlyPreemptsOlderCommandAnimation(timestamp: Double) {
-    #expect(desktopSnapshotWaitsForCommandAnimation(
-      animationPending: true,
-      latestCommandInputTimestamp: 10,
-      mouseFocusIntentTimestamp: nil,
-      keyboardFocusIntentTimestamp: nil,
-      applicationActivationTimestamp: timestamp
-    ) == (timestamp < 10))
-  }
-
   @Test(arguments: [false, true])
   func nativeActivationIsRevalidatedAfterLookup(closeIntent: Bool) throws {
     let tracker = UserInputTracker()
@@ -715,31 +653,6 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
-  func backgroundSnapshotWaitsForTheCurrentCommandAnimation() {
-    #expect(
-      desktopSnapshotWaitsForCommandAnimation(
-        animationPending: true,
-        latestCommandInputTimestamp: 10,
-        mouseFocusIntentTimestamp: nil,
-        keyboardFocusIntentTimestamp: nil
-      ))
-    #expect(
-      desktopSnapshotWaitsForCommandAnimation(
-        animationPending: true,
-        latestCommandInputTimestamp: 10,
-        mouseFocusIntentTimestamp: 11,
-        keyboardFocusIntentTimestamp: nil
-      ) == false)
-  }
-
-  @Test
-  func verticalWorkspaceTransitionUsesAPerceivableMinimumDuration() {
-    #expect(workspaceVerticalTransitionDuration(configuredDurationMS: 0) == 0)
-    #expect(workspaceVerticalTransitionDuration(configuredDurationMS: 35) == 0.18)
-    #expect(workspaceVerticalTransitionDuration(configuredDurationMS: 250) == 0.25)
-  }
-
-  @Test
   func verticalWorkspaceTransitionRejectsAOverlappingMonitorPath() {
     let owner = Rect(x: 0, y: 0, width: 1_000, height: 800)
 
@@ -754,74 +667,6 @@ struct DaemonCommandPolicyTests {
         ownerFrame: owner,
         otherMonitorFrames: [Rect(x: 0, y: 800, width: 1_000, height: 800)]
       )
-    )
-  }
-
-  @Test
-  func verticalWorkspaceTransitionRejectsAnUncoveredDisplayMargin() {
-    let physicalFrame = Rect(x: 0, y: 0, width: 1_512, height: 982)
-
-    #expect(
-      workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
-        viewport: physicalFrame,
-        physicalFrame: physicalFrame
-      )
-    )
-    #expect(
-      workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
-        viewport: Rect(x: 0, y: 33, width: 1_512, height: 900),
-        physicalFrame: physicalFrame
-      ) == false
-    )
-  }
-
-  @Test
-  func verticalWorkspaceRibbonClearsThePhysicalMonitor() {
-    let physicalFrame = Rect(x: 0, y: 0, width: 1_512, height: 982)
-    let windowFrame = Rect(x: 4, y: 37, width: 1_204, height: 900)
-
-    #expect(
-      windowFrame.y
-        + workspaceVerticalRibbonOffset(
-          relativePosition: 1,
-          physicalFrame: physicalFrame
-        ) >= physicalFrame.y + physicalFrame.height
-    )
-    #expect(
-      windowFrame.y + windowFrame.height
-        + workspaceVerticalRibbonOffset(
-          relativePosition: -1,
-          physicalFrame: physicalFrame
-        ) <= physicalFrame.y
-    )
-  }
-
-  @Test
-  func inactiveWorkspaceOnlyJoinsTheRibbonWhileLeaving() {
-    let monitorID = MonitorID(rawValue: 1)
-    let outgoingWorkspaceID = WorkspaceID(rawValue: "dev")
-    let transition = WorkspaceVerticalTransition(
-      monitorID: monitorID,
-      outgoingWorkspaceID: outgoingWorkspaceID,
-      direction: 1
-    )
-    let physicalFrame = Rect(x: 0, y: 0, width: 1_512, height: 982)
-
-    #expect(
-      outgoingWorkspaceVerticalRibbonOffset(
-        workspaceID: outgoingWorkspaceID,
-        monitorID: monitorID,
-        transition: transition,
-        physicalFrame: physicalFrame
-      ) == -982
-    )
-    #expect(
-      outgoingWorkspaceVerticalRibbonOffset(
-        workspaceID: WorkspaceID(rawValue: "web"),
-        monitorID: monitorID,
-        transition: transition,
-        physicalFrame: physicalFrame
-      ) == nil
     )
   }
 
@@ -1008,22 +853,6 @@ struct DaemonCommandPolicyTests {
         animatedFocus: false,
         workspaceFocus: false
       ) == false)
-  }
-
-  @Test
-  func crossMonitorAnimationWaitsForEveryDisplayAtTheSlowestCadence() {
-    let source = MonitorID(rawValue: 1)
-    let destination = MonitorID(rawValue: 2)
-
-    let timing = animationDisplayTiming(
-      monitorIDs: [source, destination],
-      activeMonitorID: destination,
-      fallbackMonitorID: source,
-      refreshRates: [source: 60, destination: 120]
-    )
-
-    #expect(timing.refreshRateHz == 60)
-    #expect(timing.displayIDs == [1, 2])
   }
 
   @Test

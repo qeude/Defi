@@ -143,28 +143,14 @@ public func parseBorderColor(_ value: String) -> UInt32? {
 
 public struct AnimationConfig: Codable, Equatable, Sendable {
   public var enabled: Bool
-  public var durationMS: Int
-  public var windowProxies: Bool
 
-  public init(enabled: Bool = true, durationMS: Int = 125, windowProxies: Bool = true) {
+  public init(enabled: Bool = true) {
     self.enabled = enabled
-    self.durationMS = durationMS
-    self.windowProxies = windowProxies
-  }
-
-  enum CodingKeys: String, CodingKey {
-    case enabled
-    case durationMS = "duration_ms"
-    case windowProxies = "window_proxies"
   }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    let defaults = AnimationConfig()
-    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
-    durationMS = try values.decodeIfPresent(Int.self, forKey: .durationMS) ?? defaults.durationMS
-    windowProxies = try values.decodeIfPresent(Bool.self, forKey: .windowProxies)
-      ?? defaults.windowProxies
+    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? AnimationConfig().enabled
   }
 }
 

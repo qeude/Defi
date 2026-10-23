@@ -524,8 +524,7 @@ extension Daemon {
       )
       // When frames are already in flight the reducer must run on the live
       // state after the displayed-frame rebase, so skip the validation copy.
-      let rebasesPendingFrame =
-        !scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites
+      let rebasesPendingFrame = !scrollAnimations.isEmpty
       let validationState =
         try rebasesPendingFrame
         ? nil
@@ -607,7 +606,6 @@ extension Daemon {
         mouseFollowsFocus: config.input.mouseFollowsFocus,
         capturedInputTimestamp: inputTimestamp
       )
-      mouseReorderAnimationActive = false
       latestCommandInputTimestamp = resolvedLatestCommandInputTimestamp(
         previousTimestamp: latestCommandInputTimestamp,
         capturedInputTimestamp: inputTimestamp,
@@ -630,10 +628,7 @@ extension Daemon {
       {
         preemptMouseGesture()
       }
-      let animatedManagedLayout =
-        animatesManagedLayout
-        && animationsEnabled
-        && config.animation.durationMS > 0
+      let animatedManagedLayout = animatesManagedLayout && animationsEnabled
       let previousWorkspaceID = commandMonitorID.flatMap { monitorID in
         let activationMonitorID =
           intendedWorkspaceID.flatMap {
@@ -644,13 +639,7 @@ extension Daemon {
         })?.activeWorkspace
       }
       let preCommandWindowMonitorIDs = state.windowLocationMap()
-      let inFlightAnimationMonitorIDs = Set(
-        scrollAnimations.keys.map(\.monitorID)
-      ).union(
-        platform.pendingAnimatedFrameWindowIDs.compactMap {
-          preCommandWindowMonitorIDs[$0]?.monitorID
-        }
-      )
+      let inFlightAnimationMonitorIDs = Set(scrollAnimations.keys.map(\.monitorID))
       if rebasesPendingFrame {
         var rebaseMonitorIDs = inFlightAnimationMonitorIDs
         rebaseMonitorIDs.formUnion([commandMonitorID, activeMonitorID].compactMap { $0 })

@@ -102,8 +102,6 @@ struct ConfigTests {
     #expect(config.workspaces.defaultName == nil)
     #expect(config.layout.defaultColumnWidth == 0.8)
     #expect(config.animation.enabled)
-    #expect(config.animation.durationMS == 125)
-    #expect(config.animation.windowProxies)
     #expect(config.overview.zoom == 0.5)
     #expect(config.overview.windowPreviews)
     #expect(config.overview.windowCornerRadius == 12)
@@ -244,9 +242,7 @@ struct ConfigTests {
       gaps = 4
 
       [animation]
-      enabled = true
-      duration_ms = 120
-      window_proxies = false
+      enabled = false
 
       [workspaces]
       names = ["dev", "web"]
@@ -264,8 +260,7 @@ struct ConfigTests {
     let config = try Config.decode(data)
 
     #expect(config.layout.gaps == 4)
-    #expect(config.animation.durationMS == 120)
-    #expect(!config.animation.windowProxies)
+    #expect(!config.animation.enabled)
     #expect(config.workspaces.defaultName == "dev")
     #expect(config.keys["hyper-1"] == "workspace dev")
     #expect(config.keys["hyper-shift-1"] == "move-column-to-workspace-name dev")

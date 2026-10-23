@@ -782,14 +782,14 @@ final class RibbonProxyPresenter {
   private var landedRefresh: [RibbonProxyRefresh] = []
   private var stills: [RibbonProxyRefresh] = []
 
-  // Returns false when the regular native animation must run instead.
+  // Returns false when windows must move at once instead.
   func begin(windows: [RibbonProxyWindow], viewport nextViewport: Rect, generation submission: UInt64,
     nativeTargets: [WindowID: Rect], duration: TimeInterval, selectedWindowID: WindowID?,
-    draggedWindowID: WindowID? = nil, dragSlot: Rect? = nil, keepsOffscreen: Bool = false,
+    keepsOffscreen: Bool = false,
     managedWindowIDs: Set<WindowID> = [], borderWindowIDs: Set<WindowID>? = nil) -> Bool {
     let began = CACurrentMediaTime()
     // Any layout landing mid-drag leaves the carried proxy to the pointer.
-    let draggedWindowID = draggedWindowID ?? drag.heldWindowID
+    let draggedWindowID = drag.heldWindowID
     func fallback(_ reason: String) -> Bool {
       lastFallback = reason
       ribbonProxyLogger.notice("fallback \(reason, privacy: .public)")
@@ -939,8 +939,7 @@ final class RibbonProxyPresenter {
     }
     if case .dropping = drag { drag = .idle }
     if draggedWindowID != nil {
-      if let slot = dragSlot { ownSlot = slot }
-      if let slot = previewSlot ?? dragSlot { showPlaceholder(at: local(slot, area), in: layers) }
+      if let slot = previewSlot ?? ownSlot { showPlaceholder(at: local(slot, area), in: layers) }
     } else if let placeholder {
       placeholder.removeFromSuperlayer(); self.placeholder = nil
     }

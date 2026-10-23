@@ -88,44 +88,6 @@ func workspaceTransitionPathIsClear(
   }
 }
 
-func workspaceVerticalTransitionDuration(
-  configuredDurationMS: Int
-) -> TimeInterval {
-  guard configuredDurationMS > 0 else { return 0 }
-  return max(TimeInterval(configuredDurationMS) / 1_000, 0.18)
-}
-
-func workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
-  viewport: Rect,
-  physicalFrame: Rect
-) -> Bool {
-  viewport.y - physicalFrame.y <= 0.5
-    && physicalFrame.y + physicalFrame.height
-      - (viewport.y + viewport.height) <= 0.5
-}
-
-func workspaceVerticalRibbonOffset(
-  relativePosition: Int,
-  physicalFrame: Rect
-) -> Double {
-  Double(relativePosition) * physicalFrame.height
-}
-
-func outgoingWorkspaceVerticalRibbonOffset(
-  workspaceID: WorkspaceID,
-  monitorID: MonitorID,
-  transition: WorkspaceVerticalTransition?,
-  physicalFrame: Rect
-) -> Double? {
-  guard transition?.monitorID == monitorID,
-    transition?.outgoingWorkspaceID == workspaceID
-  else { return nil }
-  return workspaceVerticalRibbonOffset(
-    relativePosition: -(transition?.direction ?? 0),
-    physicalFrame: physicalFrame
-  )
-}
-
 @NavigationActor
 extension Daemon {
   var animationsEnabled: Bool {
@@ -136,10 +98,7 @@ extension Daemon {
   func safeWorkspaceVerticalTransition(
     _ intent: WorkspaceTransitionIntent
   ) -> WorkspaceVerticalTransition? {
-    let duration = workspaceVerticalTransitionDuration(
-      configuredDurationMS: config.animation.durationMS
-    )
-    guard animationsEnabled, duration > 0,
+    guard animationsEnabled,
       pendingDisplaySyncDeadlines.isEmpty,
       latestMonitors.count == state.monitors.count,
       let monitor = state.monitors.first(where: { $0.id == intent.monitorID }),
@@ -151,31 +110,16 @@ extension Daemon {
       }),
       let ownerFrame = latestMonitors.first(where: {
         $0.id == intent.monitorID
-      })?.physicalFrame,
-      let viewport = viewportsByMonitor[intent.monitorID],
-      // The overlay sits below the menu bar and the Dock and native windows jump once,
-      // so nothing slides over reserved areas; a fallback switches immediately.
-      platform.windowProxiesEnabled || workspaceVerticalTransitionCanAnimateWithoutReservedAreaLeak(
-        viewport: viewport,
-        physicalFrame: ownerFrame
-      )
+      })?.physicalFrame
     else { return nil }
-    let outgoingWindowIDs = Set(
+    // The overlay also slides to and from an empty workspace: the other side, or the
+    // wallpaper alone, moves on the same timeline.
+    let participantWindowIDs = Set(
       outgoing.columns.flatMap(\.windows) + outgoing.floatingWindows
+        + incoming.columns.flatMap(\.windows) + incoming.floatingWindows
     )
-    let participantWindowIDs = outgoingWindowIDs.union(
-      incoming.columns.flatMap(\.windows) + incoming.floatingWindows
-    )
-    // The proxy overlay also animates to and from an empty workspace: the
-    // other side, or the wallpaper alone, slides on the same timeline.
-    guard platform.windowProxiesEnabled ? !participantWindowIDs.isEmpty : !outgoingWindowIDs.isEmpty,
+    guard !participantWindowIDs.isEmpty,
       participantWindowIDs.isSubset(of: platform.frameWritableWindowIDs),
-      // The proxy overlay animates without the AX lanes; it only needs one write each.
-      platform.windowProxiesEnabled || platform.positionsCanAnimateTogether(
-        windowIDs: participantWindowIDs,
-        animationDuration: duration,
-        refreshRateHz: activeDisplayRefreshRate
-      ),
       participantWindowIDs.isDisjoint(with: state.nativeFullscreenWindowIDs),
       workspaceTransitionPathIsClear(
         ownerFrame: ownerFrame,
@@ -204,16 +148,13 @@ extension Daemon {
       (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)?,
     commandPerformance: CommandPerformanceContext
   ) {
-    let duration = workspaceVerticalTransitionDuration(
-      configuredDurationMS: config.animation.durationMS
-    )
     beginFrameAnimationActivity()
     applyCurrentLayout(
       monitorIDs: affectedMonitorIDs,
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
-      animationDuration: duration,
+      animated: true,
       positionsOnly: true,
       focusWindowIDAfterCommit: focusWindowIDAfterCommit,
       focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
@@ -229,7 +170,6 @@ extension Daemon {
   }
 
   func startScrollAnimationsIfNeeded() {
-    let duration = TimeInterval(config.animation.durationMS) / 1_000
     let now = ProcessInfo.processInfo.systemUptime
     for monitorIndex in state.monitors.indices {
       let activeWorkspace = state.monitors[monitorIndex].activeWorkspace
@@ -242,7 +182,6 @@ extension Daemon {
         let target = state.monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset
         guard state.monitors[monitorIndex].workspaces[workspaceIndex].id == activeWorkspace,
           animationsEnabled,
-          duration > 0,
           abs(current - target) >= 0.000_1
         else {
           state.monitors[monitorIndex].workspaces[workspaceIndex].scrollOffset = target
@@ -296,14 +235,13 @@ extension Daemon {
     commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
     guard !scrollAnimations.isEmpty else { return false }
-    let duration = TimeInterval(config.animation.durationMS) / 1_000
     snapScrollOffsetsToTargets()
     applyCurrentLayout(
       monitorIDs: monitorIDs,
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
-      animationDuration: duration,
+      animated: true,
       skipping: skippedWindowIDs,
       positionsOnly: true,
       forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
@@ -320,8 +258,7 @@ extension Daemon {
     forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
-    let duration = TimeInterval(config.animation.durationMS) / 1_000
-    guard animationsEnabled, duration > 0 else { return false }
+    guard animationsEnabled else { return false }
     snapScrollOffsetsToTargets()
     beginFrameAnimationActivity()
     applyCurrentLayout(
@@ -329,8 +266,7 @@ extension Daemon {
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
-      animationDuration: duration,
-      animateSizeChanges: true,
+      animated: true,
       skipping: skippedWindowIDs,
       forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
       commandPerformance: commandPerformance,
@@ -342,17 +278,7 @@ extension Daemon {
 
   func cancelAnimationForMouseGesture() {
     needsDesktopSync = true
-    guard
-      mouseGestureAnimationCancellationIsNeeded(
-        mouseReorderAnimationActive: mouseReorderAnimationActive,
-        scrollAnimationActive: !scrollAnimations.isEmpty,
-        animatedWritesPending:
-          platform.hasPendingAnimatedFrameWrites
-          || platform.hasPendingDeferredParkingWrites
-      )
-    else {
-      return
-    }
+    guard !scrollAnimations.isEmpty else { return }
     rebaseActiveScrollOffsetToDisplayedFrames()
     if activelyResizedWindowID == nil {
       mouseGestureDisplayedOriginFrames = Dictionary(
@@ -385,7 +311,6 @@ extension Daemon {
     mouseGestureGeneration &+= 1
     mouseGestureSettlement = nil
     mouseGesturePreempted = false
-    mouseReorderAnimationActive = false
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
     proxyPreviewTarget = nil

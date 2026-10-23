@@ -49,10 +49,7 @@ extension MacOSPlatform {
     hiddenWindowIDs: Set<WindowID> = [],
     skipping requestedSkippedWindowIDs: Set<WindowID> = [],
     asynchronousPositionTimeoutSeconds: Float = 0.016,
-    animationDuration: TimeInterval = 0,
-    animationRefreshRateHz: Double = 60,
-    animationDisplayIDs: Set<UInt64> = [],
-    animateSizeChanges: Bool = false,
+    animated: Bool = false,
     positionsOnly: Bool = false,
     updateVisibility: Bool = true,
     stagesVisibleBeforeParking: Bool = false,
@@ -88,20 +85,16 @@ extension MacOSPlatform {
     )
     let horizontalRibbonNavigation = source == "command-animation" && positionsOnly
       && lastMonitorFrames.count == 1 && !ribbonFrames.isEmpty
-    let usesWindowProxies = windowProxiesEnabled && applyWindowProxies(
-      assignments: assignments, ribbonFrames: ribbonFrames,
-      previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
-      hiddenWindowIDs: hiddenWindowIDs, source: source, animationDuration: animationDuration)
+    if windowProxiesEnabled {
+      applyWindowProxies(assignments: assignments, ribbonFrames: ribbonFrames,
+        previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
+        hiddenWindowIDs: hiddenWindowIDs, source: source, animated: animated)
+    }
     // One switch, one slide: a later apply (a restore, a repair) must not reuse it.
     for index in windowProxyMonitors.indices { windowProxyMonitors[index].workspaceShift = nil }
-    // Native windows jump once to their targets underneath the proxy overlay. A
-    // vertical switch admitted only because of proxies must not slide natively.
-    let animationDuration = usesWindowProxies
-      || (windowProxiesEnabled && windowProxyNativeInstantSources.contains(source))
-      // With proxies on, a motion the overlay could not draw (surface or wallpaper not
-      // ready yet) jumps once instead of falling back to per-frame AX writes.
-      || (windowProxiesEnabled && RibbonProxyStore.shared.isAuthorized && windowProxySources.contains(source))
-      ? 0 : animationDuration
+    // Native windows jump once to their targets, under the overlay when it draws the motion.
+    let animationDuration: TimeInterval = 0, animateSizeChanges = false
+    let animationRefreshRateHz = 60.0, animationDisplayIDs: Set<UInt64> = []
     let applyStartedAt = ProcessInfo.processInfo.systemUptime
     let tracesInitialFrame = !newlyDiscoveredWindowIDs.isEmpty
     if tracesInitialFrame {
@@ -722,23 +715,17 @@ func frameTransitionIsPending(target: Rect?, observed: Rect?) -> Bool {
 // switches and click-to-focus scrolling all draw through the proxy overlay.
 extension MacOSPlatform {
   /// Every workspace switch slides vertically on the overlay, even when the daemon
-  /// switched immediately; other sources animate when they asked for a duration.
-  func windowProxyMotionDuration(source: String, animationDuration: TimeInterval,
+  /// switched immediately; other sources move when they asked for motion.
+  func windowProxyMotionDuration(source: String, animated: Bool,
     hasRibbon: Bool, workspaceShift: Double?) -> TimeInterval? {
-    if workspaceShift != nil { return animationDuration > 0 ? animationDuration : ribbonProxySpringDuration }
-    return windowProxySources.contains(source) && animationDuration > 0 && hasRibbon ? animationDuration : nil
+    workspaceShift != nil || windowProxySources.contains(source) && animated && hasRibbon
+      ? ribbonProxySpringDuration : nil
   }
 }
-
-/// Motions admitted only because proxies can draw them; without the overlay they jump.
-let windowProxyNativeInstantSources: Set<String> = [
-  "workspace-transition", "window-lifecycle-animation", "mouse-drop-animation",
-]
 
 let windowProxySources: Set<String> = [
   "window-lifecycle-animation", "mouse-drop-animation",
   "command-animation", "command-layout-animation", "workspace-transition", "native-focus-animation",
-  "mouse-reorder-animation",
 ]
 
 func windowProxyVisibleOverlap(_ frame: Rect, _ area: Rect) -> Double {
@@ -751,9 +738,9 @@ func windowProxyVisibleOverlap(_ frame: Rect, _ area: Rect) -> Double {
 /// stay untouched.
 func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
   ribbonTargets: [WindowID: Rect], previousRibbonFrames: [WindowID: Rect],
-  opened: Set<WindowID>, carried: Set<WindowID>) -> Bool {
+  opened: Set<WindowID>, dropped: WindowID?) -> Bool {
   displayCount == 1 || monitor.workspaceShift != nil
-    || !monitor.windowIDs.isDisjoint(with: opened.union(carried))
+    || !monitor.windowIDs.isDisjoint(with: opened.union([dropped].compactMap { $0 }))
     || ribbonTargets.contains { id, to in previousRibbonFrames[id].map { !approximatelyEqual($0, to) } ?? true }
     || previousRibbonFrames.keys.contains { monitor.windowIDs.contains($0) && ribbonTargets[$0] == nil }
 }
@@ -800,13 +787,11 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
 
 @NavigationActor
 extension MacOSPlatform {
-  // Returns true when the proxy overlay presents this motion on any display. Runs
-  // entirely on the navigation actor: command intake never waits for the main thread.
+  // Runs entirely on the navigation actor: command intake never waits for the main thread.
   func applyWindowProxies(assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
     previousRibbonFrames: [WindowID: Rect], skippedWindowIDs: Set<WindowID>,
-    hiddenWindowIDs: Set<WindowID>, source: String, animationDuration: TimeInterval) -> Bool {
+    hiddenWindowIDs: Set<WindowID>, source: String, animated: Bool) {
     let allWindows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
-    var presented = false
     // Each display moves on its own overlay, exactly as a single display does.
     for monitor in windowProxyMonitors {
       guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else {
@@ -821,12 +806,10 @@ extension MacOSPlatform {
         assignments: assignments.filter { owned.contains($0.windowID) }, ribbonFrames: ribbon,
         previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
         hiddenWindowIDs: hiddenWindowIDs, allWindows: allWindows,
-        motion: windowProxyMotionDuration(source: source, animationDuration: animationDuration,
+        motion: windowProxyMotionDuration(source: source, animated: animated,
           hasRibbon: !ribbon.isEmpty, workspaceShift: monitor.workspaceShift))
       if released, !shown { presenter.landDrop() }
-      presented = shown || presented
     }
-    return presented
   }
 
   private func applyWindowProxies(on monitor: WindowProxyMonitor, presenter: RibbonProxyPresenter,
@@ -845,7 +828,7 @@ extension MacOSPlatform {
     let opened = newlyDiscoveredWindowIDs
     let moves = windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
       ribbonTargets: ribbonTargets, previousRibbonFrames: previousRibbonFrames, opened: opened,
-      carried: Set([windowProxyDraggedWindowID, windowProxyDroppedWindowID].compactMap { $0 }))
+      dropped: windowProxyDroppedWindowID)
     // A plain layout landing mid-motion (scroll to keep focus visible, a drop settling)
     // continues the running motion toward its targets instead of cutting it.
     let duration = moves ? duration ?? (!ribbonFrames.isEmpty
@@ -925,13 +908,9 @@ extension MacOSPlatform {
         await MainActor.run { self?.borderManager.showsActiveRing(for: windowID) ?? true }
       }
     }
-    // Only the display carrying the window holds its proxy to the pointer.
-    let dragged = windowProxyDraggedWindowID.flatMap { monitor.windowIDs.contains($0) ? $0 : nil }
     return presenter.begin(windows: proxies, viewport: viewport,
       generation: frameSubmissionGeneration, nativeTargets: targets, duration: duration,
-      selectedWindowID: desiredSelectedWindowID, draggedWindowID: dragged,
-      dragSlot: dragged.flatMap { id in
-        ribbonFrames.first { $0.windowID == id }?.frame
-      }, managedWindowIDs: Set(allWindows.keys), borderWindowIDs: monitor.windowIDs)
+      selectedWindowID: desiredSelectedWindowID, managedWindowIDs: Set(allWindows.keys),
+      borderWindowIDs: monitor.windowIDs)
   }
 }

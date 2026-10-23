@@ -519,22 +519,6 @@ struct MouseReorderingTests {
   }
 
   @Test
-  func `Mouse reorder animation survives later drag samples`() {
-    #expect(
-      mouseGestureAnimationCancellationIsNeeded(
-        mouseReorderAnimationActive: true,
-        scrollAnimationActive: false,
-        animatedWritesPending: true
-      ) == false)
-    #expect(
-      mouseGestureAnimationCancellationIsNeeded(
-        mouseReorderAnimationActive: false,
-        scrollAnimationActive: true,
-        animatedWritesPending: true
-      ))
-  }
-
-  @Test
   func `Post release settlement waits for stable late frame`() {
     let initial = Rect(x: 0, y: 0, width: 500, height: 700)
     let released = Rect(x: 300, y: 0, width: 500, height: 700)
@@ -551,8 +535,7 @@ struct MouseReorderingTests {
     let changed = advanceMouseGestureSettlement(
       settlement,
       actualFrame: late,
-      now: 10.1,
-      animationPending: false
+      now: 10.1
     )
     #expect(changed.shouldFinish == false)
     #expect(changed.settlement.observedPostReleaseChange)
@@ -560,35 +543,9 @@ struct MouseReorderingTests {
     let stable = advanceMouseGestureSettlement(
       changed.settlement,
       actualFrame: late,
-      now: 10.16,
-      animationPending: false
+      now: 10.16
     )
     #expect(stable.shouldFinish)
-  }
-
-  @Test
-  func `Post release settlement waits for reorder animation`() {
-    let frame = Rect(x: 300, y: 0, width: 500, height: 700)
-    let settlement = MouseGestureSettlement(
-      generation: 4,
-      windowID: WindowID(rawValue: 1),
-      initialFrame: Rect(x: 0, y: 0, width: 500, height: 700),
-      releasedFrame: frame,
-      now: 10,
-      maximumDuration: 0.25
-    )
-
-    let update = advanceMouseGestureSettlement(
-      settlement,
-      actualFrame: frame,
-      now: 10.3,
-      animationPending: true
-    )
-
-    #expect(update.shouldFinish == false)
-    #expect(
-      abs(update.settlement.nextCheckAt - 10.35) <= 0.000_1
-    )
   }
 
   @Test
@@ -606,8 +563,7 @@ struct MouseReorderingTests {
     let update = advanceMouseGestureSettlement(
       settlement,
       actualFrame: frame,
-      now: 10.25,
-      animationPending: false
+      now: 10.25
     )
 
     #expect(update.shouldFinish)
@@ -910,7 +866,6 @@ struct DesktopSynchronizationTests {
   struct SynchronizationCase: CustomTestStringConvertible, Sendable {
     let name: String
     var scrollAnimationActive = false
-    var animatedWritesPending = false
     var mouseGestureSyncPending = false
     var needsDesktopSync = true
     var periodicSyncDue = false
@@ -931,18 +886,6 @@ struct DesktopSynchronizationTests {
       isReady: false
     ),
     SynchronizationCase(
-      name: "live mouse sync bypasses pending reorder animation",
-      animatedWritesPending: true,
-      mouseGestureSyncPending: true,
-      isReady: true
-    ),
-    SynchronizationCase(
-      name: "pending reorder animation defers sync without mouse gesture",
-      animatedWritesPending: true,
-      commandQuietPeriodElapsed: true,
-      isReady: false
-    ),
-    SynchronizationCase(
       name: "native focus sync bypasses command quiet period",
       nativeFocusSyncPending: true,
       isReady: true
@@ -959,24 +902,10 @@ struct DesktopSynchronizationTests {
       isReady: false
     ),
     SynchronizationCase(
-      name: "native focus sync bypasses pending animation writes",
-      animatedWritesPending: true,
-      nativeFocusSyncPending: true,
-      isReady: true
-    ),
-    SynchronizationCase(
-      name: "native focus sync bypasses scroll animation and pending writes",
+      name: "native focus sync bypasses scroll animation",
       scrollAnimationActive: true,
-      animatedWritesPending: true,
       nativeFocusSyncPending: true,
       isReady: true
-    ),
-    SynchronizationCase(
-      name: "native focus without newer human intent waits for pending writes",
-      animatedWritesPending: true,
-      nativeFocusSyncPending: true,
-      nativeFocusHasNewerHumanIntent: false,
-      isReady: false
     ),
     SynchronizationCase(
       name: "frame debt bypasses command quiet period",
@@ -990,7 +919,6 @@ struct DesktopSynchronizationTests {
     #expect(
       desktopSynchronizationIsReady(
         scrollAnimationActive: scenario.scrollAnimationActive,
-        animatedWritesPending: scenario.animatedWritesPending,
         mouseGestureSyncPending: scenario.mouseGestureSyncPending,
         needsDesktopSync: scenario.needsDesktopSync,
         periodicSyncDue: scenario.periodicSyncDue,

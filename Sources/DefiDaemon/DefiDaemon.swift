@@ -175,14 +175,10 @@ final class Daemon {
   var mouseGestureGeneration: UInt64 = 0
   var mouseGestureSettlement: MouseGestureSettlement?
   var mouseGesturePreempted = false
-  var mouseReorderAnimationActive = false
   var floatingWindowFrames: [WindowID: Rect] = [:]
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
-  var lastAnimationFrameCount = 0
-  var lastAnimationDurationMS = 0.0
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
-  var latestNativeFocusAnimationInputTimestamp: TimeInterval = 0
   var commandGeneration: UInt64 = 0
   var deferredMouseFocusIntent: DeferredMouseFocusIntent?
   var consumedMouseFocusIntentTimestamp: TimeInterval = 0
@@ -345,7 +341,6 @@ final class Daemon {
       rearmPointerFocusTransition()
       scrollAnimations.removeAll(keepingCapacity: true)
       finishMouseGestureTracking()
-      mouseReorderAnimationActive = false
       frameNotificationsSuspended = false
     pendingDisplaySyncDeadlines.removeAll(keepingCapacity: true)
     supersededDesktopSnapshotRequest = nil
@@ -396,34 +391,20 @@ final class Daemon {
       platform.requestFrameRefresh(for: mouseGestureSettlement.windowID)
       needsDesktopSync = true
     }
-    if mouseReorderAnimationActive
-      && !platform.hasPendingAnimatedFrameWrites
-    {
-      mouseReorderAnimationActive = false
-    }
     let liveBorderGesture = platform.isLeftMouseButtonDown
     let mouseGestureSyncPending =
       needsDesktopSync
       && (liveBorderGesture || activelyResizedWindowID != nil)
-    if mouseGestureSyncPending
-      && (!scrollAnimations.isEmpty || platform.hasPendingAnimatedFrameWrites)
-    {
+    if mouseGestureSyncPending && !scrollAnimations.isEmpty {
       cancelAnimationForMouseGesture()
     }
-    let animatedWritesPending = platform.hasPendingAnimatedFrameWrites
     let nativeFocusSyncPending = platform.hasPendingNativeFocusEvent
-    let recentCommandAnimationInputTimestamp =
-      animatedWritesPending
-        && now - latestCommandInputTimestamp < 0.3
-      ? latestCommandInputTimestamp
-      : nil
     let pendingCommandFocusInputTimestamp = [
       pendingAnimatedFocus?.focusInputTimestamp,
       submittedCommandFocus?.focusInputTimestamp,
       pendingWorkspaceFocus?.focusInputTimestamp,
       submittedCommandFocusRequestTimestamp,
       submittedWorkspaceFocusRequestTimestamp,
-      recentCommandAnimationInputTimestamp,
     ].compactMap { $0 }.max()
     let latestFocusIntentTimestamp = max(
       platform.userInputTracker.snapshot.latestFocusIntent?.timestamp ?? 0,
@@ -438,7 +419,7 @@ final class Daemon {
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
     }
-    if scrollAnimations.isEmpty && !animatedWritesPending && !liveBorderGesture {
+    if scrollAnimations.isEmpty && !liveBorderGesture {
       if frameNotificationsSuspended {
         platform.setFrameNotificationsEnabled(true)
         frameNotificationsSuspended = false
@@ -516,7 +497,6 @@ final class Daemon {
       || (nativeFocusSyncPending && nativeFocusHasNewerHumanIntent),
       desktopSynchronizationIsReady(
       scrollAnimationActive: !scrollAnimations.isEmpty,
-      animatedWritesPending: animatedWritesPending,
       mouseGestureSyncPending: mouseGestureSyncPending,
       needsDesktopSync: needsDesktopSync,
       periodicSyncDue:
@@ -553,7 +533,7 @@ final class Daemon {
         consumePeriodicWindowRefresh: periodicWindowRefreshDue
       )
     }
-    if liveBorderGesture || animatedWritesPending {
+    if liveBorderGesture {
       platform.refreshWindowBorders()
     }
   }

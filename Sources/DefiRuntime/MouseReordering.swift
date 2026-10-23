@@ -60,15 +60,6 @@ public struct MouseGestureSettlementUpdate: Equatable, Sendable {
   }
 }
 
-public func mouseGestureAnimationCancellationIsNeeded(
-  mouseReorderAnimationActive: Bool,
-  scrollAnimationActive: Bool,
-  animatedWritesPending: Bool
-) -> Bool {
-  !mouseReorderAnimationActive
-    && (scrollAnimationActive || animatedWritesPending)
-}
-
 public func mouseGestureSettlementMaximumDuration(
   latencySensitive: Bool
 ) -> Double {
@@ -88,7 +79,6 @@ public func advanceMouseGestureSettlement(
   _ current: MouseGestureSettlement,
   actualFrame: Rect,
   now: Double,
-  animationPending: Bool,
   frameTolerance: Double = 1,
   pollInterval: Double = 0.05,
   quietDuration: Double = 0.05
@@ -107,11 +97,9 @@ public func advanceMouseGestureSettlement(
   let converged = next.observedPostReleaseChange
     && now >= (next.stableSince ?? now) + quietDuration
   let timedOut = now >= next.expiresAt
-  let shouldFinish = (converged || timedOut) && !animationPending
+  let shouldFinish = converged || timedOut
   if shouldFinish {
     next.nextCheckAt = now
-  } else if animationPending && (converged || timedOut) {
-    next.nextCheckAt = now + pollInterval
   } else if let stableSince = next.stableSince {
     next.nextCheckAt = min(stableSince + quietDuration, next.expiresAt)
   } else {
@@ -518,7 +506,6 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
 
 public func desktopSynchronizationIsReady(
   scrollAnimationActive: Bool,
-  animatedWritesPending: Bool,
   mouseGestureSyncPending: Bool,
   needsDesktopSync: Bool,
   periodicSyncDue: Bool,
@@ -530,16 +517,10 @@ public func desktopSynchronizationIsReady(
 ) -> Bool {
   let nativeFocusPreemptsAnimation =
     nativeFocusSyncPending && nativeFocusHasNewerHumanIntent
-  guard !scrollAnimationActive || nativeFocusPreemptsAnimation,
-    commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending
-      || frameDebtPending || lifecycleEventPending,
-    needsDesktopSync || periodicSyncDue
-  else {
-    return false
-  }
-  return !animatedWritesPending
-    || nativeFocusPreemptsAnimation
-    || (mouseGestureSyncPending && needsDesktopSync)
+  return (!scrollAnimationActive || nativeFocusPreemptsAnimation)
+    && (commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending
+      || frameDebtPending || lifecycleEventPending)
+    && (needsDesktopSync || periodicSyncDue)
 }
 
 private func activeColumnIndex(

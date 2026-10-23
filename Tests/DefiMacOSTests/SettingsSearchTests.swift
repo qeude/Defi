@@ -23,7 +23,7 @@ struct SettingsSearchTests {
     #expect(result.destination.anchor == .option(.reservedTop))
   }
 
-  @Test(arguments: [SettingsOption.animations, .animationDuration])
+  @Test(arguments: [SettingsOption.animations])
   func animationOptionsLiveOnAppearancePage(option: SettingsOption) throws {
     let results = SettingsSearchCatalog.results(matching: option.terms, config: Config(), shortcuts: [])
     let result = try #require(results.first { $0.destination == .option(option) })
@@ -41,8 +41,8 @@ struct SettingsSearchTests {
   func whitespaceAndUnknownQueriesDoNotReplacePageNavigation() {
     #expect(SettingsSearchCatalog.results(matching: " \n ", config: Config(), shortcuts: []).isEmpty)
     #expect(SettingsSearchCatalog.results(matching: "unfindable-value", config: Config(), shortcuts: []).isEmpty)
-    let results = SettingsSearchCatalog.results(matching: "animation duration", config: Config(), shortcuts: [])
-    #expect(results.map(\.destination) == [.option(.animationDuration)])
+    let results = SettingsSearchCatalog.results(matching: "enable animations", config: Config(), shortcuts: [])
+    #expect(results.map(\.destination) == [.option(.animations)])
   }
 
   @Test(arguments: ["---", "___", "+++", " -_+ \n"])

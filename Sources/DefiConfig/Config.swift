@@ -137,9 +137,6 @@ public struct Config: Equatable, Sendable {
     guard layout.reservedBottom.isFinite, (0...512).contains(layout.reservedBottom) else {
       throw ConfigError.invalidValue("layout.reserved_bottom")
     }
-    guard (0...2_000).contains(animation.durationMS) else {
-      throw ConfigError.invalidValue("animation.duration_ms")
-    }
     guard overview.zoom.isFinite, (0...0.75).contains(overview.zoom) else {
       throw ConfigError.invalidValue("overview.zoom")
     }

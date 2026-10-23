@@ -29,8 +29,6 @@ public final class MacOSPlatform {
   public var windowProxiesEnabled = false {
     didSet { RibbonProxyPresenter.enabled = windowProxiesEnabled }
   }
-  /// The tiled window the pointer is carrying; live reorders leave its proxy to the pointer.
-  public var windowProxyDraggedWindowID: WindowID?
   /// Each display moves on its own overlay.
   public var windowProxyMonitors: [WindowProxyMonitor] = []
   /// The overlay is drawing a motion; desktop reads wait for its landing.
