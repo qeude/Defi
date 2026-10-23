@@ -4,11 +4,25 @@ import DefiModel
 public func isolatedDisplayArrangement(
   _ frames: [MonitorID: Rect], primary: MonitorID
 ) -> [MonitorID: Rect] {
-  guard let primaryFrame = frames[primary], frames.count > 1 else { return frames }
+  guard frames[primary] != nil, frames.count > 1 else { return frames }
   let verticalOrder = frames.values.sorted { $0.y < $1.y }
   guard zip(verticalOrder, verticalOrder.dropFirst()).contains(where: {
     $0.y + $0.height > $1.y
   }) else { return frames }
+  return displayStaircase(frames, primary: primary)
+}
+
+/// True when the frames already have the shape Defi applies, which
+/// `isolatedDisplayArrangement` keeps unchanged because it has no vertical overlap.
+public func isDisplayStaircase(_ frames: [MonitorID: Rect], primary: MonitorID) -> Bool {
+  frames.count > 1 && frames[primary] != nil && displayStaircase(frames, primary: primary) == frames
+}
+
+/// Widest first along x, each top at the previous bottom, anchored on the primary.
+private func displayStaircase(
+  _ frames: [MonitorID: Rect], primary: MonitorID
+) -> [MonitorID: Rect] {
+  let primaryFrame = frames[primary]!
   let ordered = frames.keys.sorted {
     let left = frames[$0]!, right = frames[$1]!
     return left.width == right.width ? $0.rawValue < $1.rawValue : left.width > right.width

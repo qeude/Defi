@@ -102,6 +102,31 @@ Defi keeps the display arrangement chosen in System Settings. Commands such as
 `focus-monitor` and the pointer follow that arrangement. Each display has its
 own ribbon and workspace stack.
 
+The desk arrangement is restored for the login session when Defi stops, so
+macOS does not undo that restoration after the process exits. On reopening,
+Defi applies the staircase again only if isolation is needed. Isolation uses
+the public CoreGraphics application-lifetime scope, so WindowServer also reverts
+to the session configuration when the process terminates unexpectedly. Reconnected
+combinations reuse their desk map within the daemon session. A native rearrangement
+of the same displays becomes the new desk map; resolution and main-display
+changes preserve the existing desk relationships.
+Defi also saves the desk map for the current login session. If macOS retains
+the exact technical arrangement across a restart, Defi recovers that map;
+a different native arrangement takes precedence.
+
+System Settings shows the technical arrangement while Defi runs. Other apps see
+these native coordinates too. Change the arrangement directly in System Settings;
+Defi adopts it without restarting. A vertical arrangement remains as selected,
+with native pointer crossings. Arrangements requiring isolation return to the
+technical staircase while retaining the selected desk map for navigation.
+`defi status` reports `displayArrangement=isolated` and `displayPointerWarps`.
+If the native arrangement already has Defi's staircase shape and no desk map is
+known, Defi cannot tell the real desk: it reports `displayArrangement=ambiguous`
+and keeps native pointer crossings. Rearrange the displays in System Settings >
+Displays; Defi adopts the new arrangement and isolates it again.
+If macOS refuses the transaction, Defi reports `failed:<code>` and keeps native
+pointer routing; isolation is then unavailable until a successful reconfiguration.
+
 A hidden window waits in a corner or along an edge of its own display, with one
 point of its edge left on that display. Defi picks the first spot that stays
 clear of every other display.

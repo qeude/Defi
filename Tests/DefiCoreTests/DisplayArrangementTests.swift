@@ -74,4 +74,62 @@ struct DisplayArrangementTests {
       technical: technical, desk: desk
     )?.monitorID == external) // Here the edge intersection is y=650.
   }
+
+  @Test
+  func `Partial ribbon remains visible without crossing another display`() throws {
+    let desk = [
+      laptop: Rect(x: -1_512, y: 50, width: 1_512, height: 982),
+      external: Rect(x: 0, y: 0, width: 1_920, height: 1_080),
+    ]
+    let isolated = isolatedDisplayArrangement(desk, primary: external)
+    for id in [laptop, external] {
+      let owner = try #require(isolated[id])
+      let neighbor = try #require(isolated[id == laptop ? external : laptop])
+      for x in [owner.x - owner.width * 0.6, owner.x + owner.width * 0.8] {
+        let partial = FrameAssignment(windowID: WindowID(rawValue: 1), frame: Rect(
+          x: x, y: owner.y + 40, width: owner.width * 0.8, height: owner.height - 80
+        ))
+        let strip = continuousStripFramesForActiveWorkspace(
+          [partial], viewport: owner,
+          park: { parkedFrame($0, display: owner, visibleFrame: owner, otherDisplays: [neighbor]) }
+        )
+        #expect(strip.parkedWindowIDs.isEmpty)
+        #expect(strip.frames == [partial])
+        let overlapX = max(0, min(partial.frame.x + partial.frame.width, neighbor.x + neighbor.width) - max(partial.frame.x, neighbor.x))
+        let overlapY = max(0, min(partial.frame.y + partial.frame.height, neighbor.y + neighbor.height) - max(partial.frame.y, neighbor.y))
+        #expect(overlapX * overlapY == 0)
+      }
+    }
+    #expect(isolated[external]?.x == 0)
+    #expect(isolated[external]?.y == 0)
+    #expect(spatialMonitor(from: laptop, toward: .right, frames: desk) == external)
+  }
+
+  @Test
+  func `Only Defi's own staircase shape is recognized as a staircase`() {
+    let third = MonitorID(rawValue: 3)
+    let staircase = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      laptop: Rect(x: 2_560, y: -982, width: 1_512, height: 982),
+    ]
+    let sideBySide = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      laptop: Rect(x: 2_560, y: 0, width: 1_512, height: 982),
+    ]
+    let threeDisplays = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      third: Rect(x: 2_560, y: -1_080, width: 1_920, height: 1_080),
+      laptop: Rect(x: 4_480, y: -2_062, width: 1_512, height: 982),
+    ]
+    let vertical = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      laptop: Rect(x: 0, y: -982, width: 1_512, height: 982),
+    ]
+    #expect(isDisplayStaircase(staircase, primary: external))
+    #expect(!isDisplayStaircase(sideBySide, primary: external))
+    #expect(isDisplayStaircase(threeDisplays, primary: external))
+    #expect(!isDisplayStaircase(vertical, primary: external))
+    #expect(!isDisplayStaircase([external: staircase[external]!], primary: external))
+    #expect(isolatedDisplayArrangement(sideBySide, primary: external) == staircase)
+  }
 }
