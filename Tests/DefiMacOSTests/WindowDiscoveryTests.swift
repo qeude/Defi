@@ -432,256 +432,90 @@ struct NativeWindowTabDiscoveryTests {
     #expect(order == [1, 3, 0, 2])
   }
 
-  @Test
-  func `Native tab backing windows collapse behind their AX representative`() {
-    let representative = window(id: 1, title: "Defi")
-    let firstTab = window(
-      id: 2,
-      title: "Defi",
-      frame: Rect(x: 100, y: 40, width: 1_202, height: 899)
-    )
-    let secondTab = window(
-      id: 3,
-      title: "Defi",
-      frame: Rect(x: 100, y: 40, width: 1_202, height: 900)
-    )
-    let standalone = window(id: 4, title: "Other")
+  struct TabMembershipCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let representativeTitle: String
+    // Windows after the representative (id 1).
+    let windows: [Window]
+    let group: NativeWindowTabGroup
+    var retained: Set<UInt64> = []
+    var observed: Set<UInt64> = []
+    let backing: Set<UInt64>
 
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, firstTab, secondTab, standalone, firstTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"])
-      ]
-    )
+    var testDescription: String { name }
+  }
 
-    #expect(backingWindowIDs[representative.id] == [firstTab.id, secondTab.id])
+  static func tab(_ id: UInt64, _ title: String, x: Double = 100, width: Double = 1_200,
+    height: Double = 900) -> Window {
+    Window(id: WindowID(rawValue: id), appID: "com.mitchellh.ghostty", title: title,
+      frame: Rect(x: x, y: 40, width: width, height: height), role: kAXWindowRole,
+      subrole: kAXStandardWindowSubrole, processID: 42, monitorID: MonitorID(rawValue: 1))
+  }
+
+  static func ids(_ raw: Set<UInt64>) -> Set<WindowID> { Set(raw.map(WindowID.init(rawValue:))) }
+
+  static let tabMembershipCases = [
+    TabMembershipCase(name: "backing windows within a few points collapse behind the representative",
+      representativeTitle: "Defi",
+      windows: [tab(2, "Defi", width: 1_202, height: 899), tab(3, "Defi", width: 1_202), tab(4, "Other"),
+        tab(2, "Defi", width: 1_202, height: 899)],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"]), backing: [2, 3]),
+    TabMembershipCase(name: "ambiguous membership leaves windows untouched", representativeTitle: "Defi",
+      windows: [tab(2, "Defi"), tab(3, "Defi"), tab(4, "Defi")],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"]), backing: []),
+    TabMembershipCase(name: "known members survive temporary frame divergence", representativeTitle: "Defi",
+      windows: [tab(2, "Defi", x: 2_000), tab(3, "Defi", x: -2_000)],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"], backingWindowIDs: ids([2, 3])), backing: [2, 3]),
+    TabMembershipCase(name: "a known direct backing stays coalesced when rediscovered", representativeTitle: "Defi",
+      windows: [tab(2, "Defi")],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"], selectedTabTitle: "Defi", backingWindowIDs: ids([2])),
+      backing: [2]),
+    TabMembershipCase(name: "unique titles recover membership after a visible restart", representativeTitle: "Selected",
+      windows: [tab(2, "First", x: 2_000), tab(3, "Second", x: -2_000)],
+      group: NativeWindowTabGroup(tabTitles: ["First", "Second"]), backing: [2, 3]),
+    TabMembershipCase(name: "a growing group absorbs its newly observed backing window", representativeTitle: "Third",
+      windows: [tab(2, "First"), tab(3, "Second")],
+      group: NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"], selectedTabTitle: "Third",
+        backingWindowIDs: ids([2])), retained: [2], observed: [3], backing: [2, 3]),
+    TabMembershipCase(name: "the selected AppKit tab absorbs the retained previous window", representativeTitle: "Recents",
+      windows: [tab(2, "Desktop", x: -2_000)],
+      group: NativeWindowTabGroup(tabTitles: ["Desktop", "Recents"], selectedTabTitle: "Recents"), retained: [2],
+      backing: [2]),
+  ]
+
+  @Test(arguments: tabMembershipCases)
+  func `Native tab membership coalesces only unambiguous backing windows`(_ scenario: TabMembershipCase) {
+    let representative = WindowID(rawValue: 1)
+    let backing = nativeTabBackingWindowIDsByRepresentative(
+      windows: [Self.tab(1, scenario.representativeTitle)] + scenario.windows,
+      groupsByRepresentativeID: [representative: scenario.group], retainedWindowIDs: Self.ids(scenario.retained),
+      additionalBackingWindowIDsByRepresentative: scenario.observed.isEmpty ? [:]
+        : [representative: Self.ids(scenario.observed)])
+    #expect(backing[representative] ?? [] == Self.ids(scenario.backing))
   }
 
   @Test
-  func `Ambiguous native tab membership leaves windows untouched`() {
-    let representative = window(id: 1, title: "Defi")
-    let candidates = (2...4).map { window(id: UInt64($0), title: "Defi") }
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative] + candidates,
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"])
-      ]
-    )
-
-    #expect(backingWindowIDs.isEmpty)
-  }
-
-  @Test
-  func `Known native tab members survive temporary frame divergence`() {
-    let representative = window(id: 1, title: "Defi")
-    let firstTab = window(
-      id: 2,
-      title: "Defi",
-      frame: Rect(x: 2_000, y: 40, width: 1_200, height: 900)
-    )
-    let secondTab = window(
-      id: 3,
-      title: "Defi",
-      frame: Rect(x: -2_000, y: 40, width: 1_200, height: 900)
-    )
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, firstTab, secondTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["Defi", "Defi"],
-          backingWindowIDs: [firstTab.id, secondTab.id]
-        )
-      ]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [firstTab.id, secondTab.id])
-  }
-
-  @Test
-  func `Known direct native tab backing stays coalesced when rediscovered`() {
-    let representative = window(id: 1, title: "Defi")
-    let backing = window(id: 2, title: "Defi")
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, backing],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["Defi", "Defi"],
-          selectedTabTitle: "Defi",
-          backingWindowIDs: [backing.id]
-        )
-      ]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [backing.id])
-  }
-
-  @Test
-  func `Unique native tab titles recover membership after a visible restart`() {
-    let representative = window(id: 1, title: "Selected")
-    let firstTab = window(
-      id: 2,
-      title: "First",
-      frame: Rect(x: 2_000, y: 40, width: 1_200, height: 900)
-    )
-    let secondTab = window(
-      id: 3,
-      title: "Second",
-      frame: Rect(x: -2_000, y: 40, width: 1_200, height: 900)
-    )
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, firstTab, secondTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"]
-        )
-      ]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [firstTab.id, secondTab.id])
-  }
-
-  @Test
-  func `Native tab representative swaps identity with a known member`() {
-    let oldRepresentativeID = WindowID(rawValue: 1)
-    let firstMemberID = WindowID(rawValue: 2)
-    let secondMemberID = WindowID(rawValue: 3)
-
-    let rebound = nativeWindowTabGroupRebindingKnownMembers(
-      NativeWindowTabGroup(tabTitles: ["First", "Second"]),
-      representativeID: firstMemberID,
-      processID: processID,
-      previousGroupsByRepresentativeID: [
-        oldRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          backingWindowIDs: [firstMemberID, secondMemberID]
-        )
-      ],
-      previousProcessIDs: [oldRepresentativeID: processID]
-    )
-
-    #expect(rebound.backingWindowIDs == [oldRepresentativeID, secondMemberID])
-
-    let directRebound = nativeWindowTabGroupRebindingKnownMembers(
-      NativeWindowTabGroup(
-        tabTitles: ["First", "Second"],
-        selectedTabTitle: "First"
-      ),
-      representativeID: firstMemberID,
-      processID: processID,
-      previousGroupsByRepresentativeID: [
-        oldRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          selectedTabTitle: "Second",
-          backingWindowIDs: [firstMemberID]
-        )
-      ],
-      previousProcessIDs: [oldRepresentativeID: processID]
-    )
-
-    #expect(directRebound.backingWindowIDs == [oldRepresentativeID])
-
-    let resizedGroup = nativeWindowTabGroupRebindingKnownMembers(
-      NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"]),
-      representativeID: oldRepresentativeID,
-      processID: processID,
-      previousGroupsByRepresentativeID: [
-        oldRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          backingWindowIDs: [firstMemberID, secondMemberID]
-        )
-      ],
-      previousProcessIDs: [oldRepresentativeID: processID]
-    )
-
-    #expect(resizedGroup.backingWindowIDs == [firstMemberID, secondMemberID])
-  }
-
-  @Test
-  func `Growing native tab group absorbs its newly observed backing window`() {
-    let representative = window(id: 1, title: "Third")
-    let knownBacking = window(id: 2, title: "First")
-    let newBacking = window(id: 3, title: "Second")
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, knownBacking, newBacking],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["First", "Second", "Third"],
-          selectedTabTitle: "Third",
-          backingWindowIDs: [knownBacking.id]
-        )
-      ],
-      retainedWindowIDs: [knownBacking.id],
-      additionalBackingWindowIDsByRepresentative: [
-        representative.id: [newBacking.id]
-      ]
-    )
-
-    #expect(
-      backingWindowIDs[representative.id] == [knownBacking.id, newBacking.id]
-    )
-  }
-
-  @Test
-  func `New native tab representative replaces the previous logical window`() {
-    let previousRepresentativeID = WindowID(rawValue: 1)
-    let newRepresentativeID = WindowID(rawValue: 2)
-
-    let replacements = nativeWindowTabRepresentativeReplacements(
-      previousWindowIDs: [previousRepresentativeID],
-      nextWindowIDs: [newRepresentativeID],
-      groupsByRepresentativeID: [
-        newRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          backingWindowIDs: [previousRepresentativeID]
-        )
-      ]
-    )
-
-    #expect(replacements == [previousRepresentativeID: newRepresentativeID])
-  }
-
-  @Test
-  func `Ambiguous native tab replacement does not change logical identity`() {
-    let replacements = nativeWindowTabRepresentativeReplacements(
-      previousWindowIDs: [WindowID(rawValue: 1), WindowID(rawValue: 2)],
-      nextWindowIDs: [WindowID(rawValue: 3)],
-      groupsByRepresentativeID: [
-        WindowID(rawValue: 3): NativeWindowTabGroup(
-          tabTitles: ["First", "Second", "Third"],
-          backingWindowIDs: [WindowID(rawValue: 1), WindowID(rawValue: 2)]
-        )
-      ]
-    )
-
-    #expect(replacements.isEmpty)
-  }
-
-  @Test
-  func `Selected AppKit tab absorbs the retained previous window`() {
-    let representative = window(id: 1, title: "Recents")
-    let previousTab = window(
-      id: 2,
-      title: "Desktop",
-      frame: Rect(x: -2_000, y: 40, width: 1_200, height: 900)
-    )
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, previousTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["Desktop", "Recents"],
-          selectedTabTitle: "Recents"
-        )
-      ],
-      retainedWindowIDs: [previousTab.id]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [previousTab.id])
+  func `A native tab representative swap keeps logical identity unless ambiguous`() {
+    let old = WindowID(rawValue: 1), first = WindowID(rawValue: 2), second = WindowID(rawValue: 3)
+    func rebound(_ group: NativeWindowTabGroup, representative: WindowID, previous: NativeWindowTabGroup)
+      -> Set<WindowID> {
+      nativeWindowTabGroupRebindingKnownMembers(group, representativeID: representative, processID: processID,
+        previousGroupsByRepresentativeID: [old: previous], previousProcessIDs: [old: processID]).backingWindowIDs
+    }
+    let known = NativeWindowTabGroup(tabTitles: ["First", "Second"], backingWindowIDs: [first, second])
+    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second"]), representative: first, previous: known)
+      == [old, second])
+    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second"], selectedTabTitle: "First"),
+      representative: first, previous: NativeWindowTabGroup(tabTitles: ["First", "Second"], selectedTabTitle: "Second",
+        backingWindowIDs: [first])) == [old])
+    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"]), representative: old,
+      previous: known) == [first, second])
+    #expect(nativeWindowTabRepresentativeReplacements(previousWindowIDs: [old], nextWindowIDs: [first],
+      groupsByRepresentativeID: [first: NativeWindowTabGroup(tabTitles: ["First", "Second"], backingWindowIDs: [old])])
+      == [old: first])
+    #expect(nativeWindowTabRepresentativeReplacements(previousWindowIDs: [old, first], nextWindowIDs: [second],
+      groupsByRepresentativeID: [second: NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"],
+        backingWindowIDs: [old, first])]).isEmpty, "An ambiguous replacement keeps every logical identity")
   }
 
   @Test
@@ -703,23 +537,6 @@ struct NativeWindowTabDiscoveryTests {
         Rect(x: 140, y: 240, width: 600, height: 40),
         windowFrame: frame
       ) == false
-    )
-  }
-
-  private func window(
-    id: UInt64,
-    title: String,
-    frame: Rect? = nil
-  ) -> Window {
-    Window(
-      id: WindowID(rawValue: id),
-      appID: "com.mitchellh.ghostty",
-      title: title,
-      frame: frame ?? self.frame,
-      role: kAXWindowRole,
-      subrole: kAXStandardWindowSubrole,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
     )
   }
 }
