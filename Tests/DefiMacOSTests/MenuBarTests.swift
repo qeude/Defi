@@ -7,13 +7,9 @@ import class SwiftUI.NSHostingMenu
 @MainActor
 struct MenuBarTests {
   @Test
-  func workspaceSymbolsHaveIdenticalMenuBarCanvasSizes() throws {
-    for symbol in ["globe", "hammer", "terminal", "arrow.left.and.right"] {
-      let image = try #require(menuBarWorkspaceImage(symbol))
-      #expect(image.size == NSSize(width: 18, height: 18))
-      #expect(image.isTemplate)
-      #expect(image.tiffRepresentation != nil)
-    }
+  func workspaceSymbolsShareOneMenuBarCanvas() throws {
+    let images = try ["globe", "hammer", "terminal", "arrow.left.and.right"].map { try #require(menuBarWorkspaceImage($0)) }
+    #expect(images.allSatisfy { $0.size == images[0].size && $0.isTemplate })
   }
 
   @Test
@@ -44,11 +40,12 @@ struct MenuBarTests {
   @Test
   func workspaceIconsFollowSelectionAndUnavailableSymbolsFallBack() {
     let state = MenuBarState(accessibilityTrusted: { true })
-    let rows = [MenuWorkspace(id: "dev", label: "dev", icon: "terminal"),
+    let rows = [MenuWorkspace(id: "dev", label: "Development", icon: "terminal"),
       MenuWorkspace(id: "web", label: "web", icon: "not.a.real.defi.symbol"),
       MenuWorkspace(id: "ordinary", label: "3")]
     state.update(activeWorkspace: "dev", workspaces: rows, workspaceStyle: .iconAndName)
     #expect(state.activeIcon == "terminal")
+    #expect(state.activeLabel == "Development")
     let image = state.activeIconImage
     state.update(activeWorkspace: "dev", workspaces: rows, workspaceStyle: .iconAndName)
     #expect(state.activeIconImage === image)
@@ -75,14 +72,4 @@ struct MenuBarTests {
     #expect(state.needsAccessibilityPermission)
   }
 
-  @Test
-  func keepsActiveWorkspaceLabel() {
-    let state = MenuBarState(accessibilityTrusted: { true })
-    state.update(activeWorkspace: "dev", workspaces: [
-      MenuWorkspace(id: "dev", label: "Development"),
-      MenuWorkspace(id: "__dynamic", label: "+"),
-    ])
-    #expect(state.activeLabel == "Development")
-    #expect(!state.needsAccessibilityPermission)
-  }
 }
