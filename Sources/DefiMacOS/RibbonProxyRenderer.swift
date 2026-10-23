@@ -1103,8 +1103,8 @@ final class RibbonProxyPresenter {
             try? await Task.sleep(for: .milliseconds(8))
           }
           ribbonProxyLogger.notice("ring-handoff ms=\(Int((CACurrentMediaTime() - held) * 1_000))")
-          // One more frame: the native ring is set, not yet composited.
-          try? await Task.sleep(for: .milliseconds(17))
+          // A few frames: the native ring is set, and can reach the screen a frame or two late.
+          try? await Task.sleep(for: .milliseconds(40))
         }
         guard generation == fadeToken, let layers = self.layers else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)

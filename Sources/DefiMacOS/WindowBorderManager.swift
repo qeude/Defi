@@ -22,6 +22,7 @@ final class WindowBorderManager {
     didSet {
       guard oldValue != presentationHidden else { return }
       for overlay in overlays.values { overlay.setPresentationHidden(presentationHidden) }
+      CATransaction.flush()
     }
   }
   /// Corner radii last sent to the ribbon overlay, which draws the same rings.
