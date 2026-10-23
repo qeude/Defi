@@ -80,7 +80,8 @@ A dialog, sheet, or modal window whose monitor and workspace follow its owning
 window and which cannot be managed independently from that owner.
 
 **Parking**:
-The offscreen placement of windows from inactive workspaces without hiding or
+The offscreen placement of windows from inactive workspaces and of offscreen
+columns, in a corner or along an edge of their own display, without hiding or
 minimizing them.
 _Avoid_: Hiding, minimizing
 

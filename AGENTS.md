@@ -120,7 +120,15 @@ The scrolling workspace is one continuous horizontal strip.
 - never impose an arbitrary cap that leaves an entering ribbon window unanimated
 - never minimize managed windows to implement virtual workspaces
 - park inactive-workspace windows through topology and Accessibility, never visual opacity
-- keep same-workspace offscreen columns at their verified one-pixel strip anchors
+- park every hidden window, from an inactive workspace or an offscreen column,
+  at its own size with a one-point sliver on its own display; take the first of
+  its bottom-right corner, bottom-left corner, right edge, left edge, and bottom
+  edge that stays clear of every other display, else the one with the least
+  overlap; macOS pulls a window onto the display under most of its width and
+  keeps its title bar above that display's visible bottom, so judge each spot
+  where macOS will leave it
+- never change the display arrangement; commands and pointer navigation use
+  native display coordinates
 - keep native click, Dock, and Command-Tab focus compatible with virtual-workspace activation
 - ignore redundant native focus on the already-selected window; no reflow or animation from a plain click
 
