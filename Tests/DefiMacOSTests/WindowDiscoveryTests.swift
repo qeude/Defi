@@ -76,184 +76,66 @@ struct WindowDiscoveryTests {
 
   @NavigationActor
   @Test
-  func `Pending native focus reuses stable window for unknown but not mismatched process`() {
+  func `Pending native focus reuses the stable window only for an unknown or verified process`() {
     let platform = MacOSPlatform()
-    let window = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
+    let window = Window(id: WindowID(rawValue: 1), appID: "com.example.app", title: "Main", frame: frame,
+      processID: processID, monitorID: MonitorID(rawValue: 1))
     platform.lastFocusedWindowByProcess[processID] = window.id
-
     #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
-
     platform.nativeFocusEventPending = true
     #expect(platform.stableWindowID(processID: processID, in: [window]) == nil)
     platform.nativeFocusEventHasUnknownProcess = true
     #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
-
     platform.nativeFocusEventHasUnknownProcess = false
     platform.nativeFocusEventProcessIDs = [99]
     #expect(platform.stableWindowID(processID: processID, in: [window]) == nil)
-  }
-
-  @NavigationActor
-  @Test
-  func `Pending native focus accepts verified single window fallback`() {
-    let platform = MacOSPlatform()
-    let window = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
-    platform.nativeFocusEventPending = true
+    platform.lastFocusedWindowByProcess = [:]
     platform.nativeFocusEventProcessIDs = [processID]
-
-    #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
+    #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id,
+      "A verified process accepts its single window")
   }
 
   @Test
-  func `Focused auxiliary window does not select distant managed window`() {
-    let managed = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
-
-    #expect(
-      focusedWindowIDMatchingFrame(
-        processID: processID,
-        focusedFrame: Rect(x: 400, y: 300, width: 500, height: 300),
-        windows: [managed]
-      ) == nil)
+  func `Focused frame matches a managed window through small drift but not a distant auxiliary window`() {
+    let managed = Window(id: WindowID(rawValue: 1), appID: "com.example.app", title: "Main", frame: frame,
+      processID: processID, monitorID: MonitorID(rawValue: 1))
+    #expect(focusedWindowIDMatchingFrame(processID: processID,
+      focusedFrame: Rect(x: 400, y: 300, width: 500, height: 300), windows: [managed]) == nil)
+    #expect(focusedWindowIDMatchingFrame(processID: processID,
+      focusedFrame: Rect(x: frame.x + 2, y: frame.y, width: frame.width, height: frame.height),
+      windows: [managed]) == managed.id)
   }
 
   @Test
-  func `Focused managed window matches small snapshot frame drift`() {
-    let managed = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
-
-    #expect(
-      focusedWindowIDMatchingFrame(
-        processID: processID,
-        focusedFrame: Rect(
-          x: frame.x + 2,
-          y: frame.y,
-          width: frame.width,
-          height: frame.height
-        ),
-        windows: [managed]
-      ) == managed.id)
-  }
-
-  @Test
-  func `Window matching prefers exact frame over empty title`() {
-    let exactFrame = CGWindowRecord(
-      id: 1,
-      processID: processID,
-      layer: 0,
-      title: "WhatsApp 🔊",
-      frame: frame
-    )
-    let emptyTitleStrip = CGWindowRecord(
-      id: 2,
-      processID: processID,
-      layer: 0,
-      title: "",
-      frame: Rect(x: 0, y: 0, width: 2_560, height: 30)
-    )
-
-    let match = bestCGWindow(
-      processID: processID,
-      title: "WhatsApp - Helium",
-      frame: frame,
-      records: [emptyTitleStrip, exactFrame]
-    )
-
-    #expect(match?.id == exactFrame.id)
-  }
-
-  @Test
-  func stalePreferredIdentityRequiresVerificationAgainstCurrentGeometry() {
-    let stale = CGWindowRecord(
-      id: 56, processID: processID, layer: 0, title: "",
-      frame: Rect(x: 3_000, y: 37, width: 1_200, height: 800)
-    )
-    let current = CGWindowRecord(id: 19609, processID: processID, layer: 0, title: "", frame: frame)
-    #expect(cgWindowDiscoveryNeedsExactID(
-      preferredWindowID: WindowID(rawValue: 56), processID: processID,
-      title: "Window", frame: frame, records: [stale, current], excluding: []
-    ))
-    #expect(!cgWindowDiscoveryNeedsExactID(
-      preferredWindowID: WindowID(rawValue: 19609), processID: processID,
-      title: "Window", frame: frame, records: [stale, current], excluding: []
-    ))
-  }
-
-  @Test
-  func `Identical public windows require an exact identifier`() {
-    let records = [1, 2].map {
-      CGWindowRecord(
-        id: CGWindowID($0),
-        processID: processID,
-        layer: 0,
-        title: "Defi",
-        frame: frame
-      )
+  func `Window matching prefers the exact frame, breaks ties by title, and rejects unrelated surfaces`() {
+    func record(_ id: CGWindowID, _ title: String, _ frame: Rect) -> CGWindowRecord {
+      CGWindowRecord(id: id, processID: processID, layer: 0, title: title, frame: frame)
     }
-
-    #expect(
-      cgWindowDiscoveryNeedsExactID(
-        processID: processID,
-        title: "Defi",
-        frame: frame,
-        records: records,
-        excluding: []
-      )
-    )
-    #expect(
-      !cgWindowDiscoveryNeedsExactID(
-        processID: processID,
-        title: "Defi",
-        frame: frame,
-        records: [records[0]],
-        excluding: []
-      )
-    )
+    func match(_ title: String, _ records: [CGWindowRecord]) -> CGWindowID? {
+      bestCGWindow(processID: processID, title: title, frame: frame, records: records)?.id
+    }
+    #expect(match("WhatsApp - Helium", [record(2, "", Rect(x: 0, y: 0, width: 2_560, height: 30)),
+      record(1, "WhatsApp 🔊", frame)]) == 1)
+    #expect(match("Window", [record(1, "Other", frame), record(2, "Window", frame)]) == 2)
+    #expect(match("Picture in Picture", [record(1, "", Rect(x: 104, y: 34, width: 2_554, height: 1_354))]) == nil)
   }
 
   @Test
-  func `Window matching rejects unrelated surface`() {
-    let unrelated = CGWindowRecord(
-      id: 1,
-      processID: processID,
-      layer: 0,
-      title: "",
-      frame: Rect(x: 104, y: 34, width: 2_554, height: 1_354)
-    )
-
-    #expect(
-      bestCGWindow(
-        processID: processID,
-        title: "Picture in Picture",
-        frame: frame,
-        records: [unrelated]
-      ) == nil)
+  func `An exact window identifier is needed for identical windows or a stale preferred identity`() {
+    let stale = CGWindowRecord(id: 56, processID: processID, layer: 0, title: "",
+      frame: Rect(x: 3_000, y: 37, width: 1_200, height: 800))
+    let current = CGWindowRecord(id: 19609, processID: processID, layer: 0, title: "", frame: frame)
+    #expect(cgWindowDiscoveryNeedsExactID(preferredWindowID: WindowID(rawValue: 56), processID: processID,
+      title: "Window", frame: frame, records: [stale, current], excluding: []))
+    #expect(!cgWindowDiscoveryNeedsExactID(preferredWindowID: WindowID(rawValue: 19609), processID: processID,
+      title: "Window", frame: frame, records: [stale, current], excluding: []))
+    let identical = [1, 2].map {
+      CGWindowRecord(id: CGWindowID($0), processID: processID, layer: 0, title: "Defi", frame: frame)
+    }
+    #expect(cgWindowDiscoveryNeedsExactID(processID: processID, title: "Defi", frame: frame, records: identical,
+      excluding: []))
+    #expect(!cgWindowDiscoveryNeedsExactID(processID: processID, title: "Defi", frame: frame,
+      records: [identical[0]], excluding: []))
   }
 
   struct FocusRecoveryCase: CustomTestStringConvertible, Sendable {
@@ -309,175 +191,26 @@ struct WindowDiscoveryTests {
   }
 
   @Test
-  func `Window matching uses title to break geometry tie`() {
-    let wrongTitle = CGWindowRecord(
-      id: 1,
-      processID: processID,
-      layer: 0,
-      title: "Other",
-      frame: frame
-    )
-    let matchingTitle = CGWindowRecord(
-      id: 2,
-      processID: processID,
-      layer: 0,
-      title: "Window",
-      frame: frame
-    )
-
-    let match = bestCGWindow(
-      processID: processID,
-      title: "Window",
-      frame: frame,
-      records: [wrongTitle, matchingTitle]
-    )
-
-    #expect(match?.id == matchingTitle.id)
-  }
-
-  @Test
-  func `Preferred window ID requires live CG record from same process`() {
-    let live = CGWindowRecord(
-      id: 42,
-      processID: processID,
-      layer: 0,
-      title: "Window",
-      frame: frame
-    )
-    let recycledByAnotherProcess = CGWindowRecord(
-      id: 42,
-      processID: 7,
-      layer: 0,
-      title: "Other",
-      frame: frame
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [live],
-        excluding: []
-      )?.id == 42)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [],
-        excluding: []
-      ) == nil)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [recycledByAnotherProcess],
-        excluding: []
-      ) == nil)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [live],
-        excluding: [42]
-      ) == nil)
-  }
-
-  @Test
-  func `Fresh AX window ID resolves after its old cached ID is occupied`() {
-    let occupied = CGWindowRecord(
-      id: 43,
-      processID: processID,
-      layer: 0,
-      title: "Refreshed",
-      frame: frame
-    )
-    let current = CGWindowRecord(
-      id: 44,
-      processID: processID,
-      layer: 0,
-      title: "Sibling",
-      frame: frame
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        axWindowID: 44,
-        preferredWindowID: WindowID(rawValue: 43),
-        processID: processID,
-        title: "Sibling",
-        frame: frame,
-        records: [occupied, current],
-        excluding: [43]
-      )?.id == 44)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 43),
-        processID: processID,
-        title: "Sibling",
-        frame: frame,
-        records: [occupied, current],
-        excluding: [43]
-      ) == nil)
-  }
-
-  @Test
-  func `AX window ID bypasses redacted window server geometry`() {
-    let live = CGWindowRecord(
-      id: 42,
-      processID: processID,
-      layer: 0,
-      title: "",
-      frame: Rect(x: 0, y: 940, width: 500, height: 500)
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        axWindowID: 42,
-        preferredWindowID: nil,
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [live],
-        excluding: []
-      )?.id == 42)
-  }
-
-  @Test
-  func `Missing preferred window record does not rematch unrelated live window`() {
-    let otherLiveWindow = CGWindowRecord(
-      id: 43,
-      processID: processID,
-      layer: 0,
-      title: "Window",
-      frame: frame
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [otherLiveWindow],
-        excluding: []
-      ) == nil)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: nil,
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [otherLiveWindow],
-        excluding: []
-      )?.id == 43)
+  func `Discovery binds the AX or preferred window ID only to a live record of the same process`() {
+    func record(_ id: CGWindowID, _ title: String, process: pid_t = 42, frame: Rect? = nil) -> CGWindowRecord {
+      CGWindowRecord(id: id, processID: process, layer: 0, title: title, frame: frame ?? self.frame)
+    }
+    func resolve(ax: UInt32? = nil, preferred: UInt64?, title: String = "Window", _ records: [CGWindowRecord],
+      excluding: Set<CGWindowID> = []) -> CGWindowID? {
+      cgWindowRecordForDiscovery(axWindowID: ax, preferredWindowID: preferred.map(WindowID.init(rawValue:)),
+        processID: processID, title: title, frame: frame, records: records, excluding: excluding)?.id
+    }
+    #expect(resolve(preferred: 42, [record(42, "Window")]) == 42)
+    #expect(resolve(preferred: 42, []) == nil)
+    #expect(resolve(preferred: 42, [record(42, "Other", process: 7)]) == nil, "recycled by another process")
+    #expect(resolve(preferred: 42, [record(42, "Window")], excluding: [42]) == nil)
+    let refreshed = [record(43, "Refreshed"), record(44, "Sibling")]
+    #expect(resolve(ax: 44, preferred: 43, title: "Sibling", refreshed, excluding: [43]) == 44)
+    #expect(resolve(preferred: 43, title: "Sibling", refreshed, excluding: [43]) == nil)
+    #expect(resolve(ax: 42, preferred: nil, [record(42, "", frame: Rect(x: 0, y: 940, width: 500, height: 500))]) == 42,
+      "the AX window ID bypasses redacted geometry")
+    #expect(resolve(preferred: 42, [record(43, "Window")]) == nil, "a missing preferred record does not rematch")
+    #expect(resolve(preferred: nil, [record(43, "Window")]) == 43)
   }
 
   @Test(arguments: [
@@ -550,123 +283,42 @@ struct WindowDiscoveryTests {
       ) == [WindowID(rawValue: UInt64(requested.id)): frame])
   }
 
-  @Test
-  func `Standard closable resizable window is tiled`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "net.imput.helium",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .tiled)
-  }
-
-  @Test
-  func `Control less picture in picture window floats`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "net.imput.helium",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test(arguments: ["AXSystemDialog", "AXSystemFloatingWindow"])
-  func `App-drawn popups stay unmanaged unless modal`(subrole: String) {
-    func classify(isModal: Bool) -> WindowDisposition {
-      classifyWindow(
-        role: kAXWindowRole, subrole: subrole, appID: "com.example.app",
-        hasCloseButton: false, canResize: false, isModal: isModal,
-        configuredFloating: false, forceTiling: false)
-    }
-    #expect(classify(isModal: false) == .ignored)
-    #expect(classify(isModal: true) == .floating)
-  }
-
+  // role, subrole, app, close button, resizable, modal, configured floating, force tiling -> disposition
   @Test(arguments: [
-    (kAXWindowRole, Optional("AXDialog")),
-    (kAXWindowRole, Optional("AXFloatingWindow")),
-    (kAXSheetRole, nil),
-  ])
-  func `Dialogs and sheets float by default`(
-    testCase: (role: String, subrole: String?)
-  ) {
-    #expect(
-      classifyWindow(
-        role: testCase.role,
-        subrole: testCase.subrole,
-        appID: "com.example.app",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
+    (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", true, true, false, false, false, .tiled),
+    // a control-less picture in picture window
+    (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", false, false, false, false, false, .floating),
+    // app-drawn popups stay unmanaged unless modal
+    (kAXWindowRole, "AXSystemDialog", "com.example.app", false, false, false, false, false, .ignored),
+    (kAXWindowRole, "AXSystemDialog", "com.example.app", false, false, true, false, false, .floating),
+    (kAXWindowRole, "AXSystemFloatingWindow", "com.example.app", false, false, false, false, false, .ignored),
+    (kAXWindowRole, "AXSystemFloatingWindow", "com.example.app", false, false, true, false, false, .floating),
+    (kAXWindowRole, "AXDialog", "com.example.app", false, false, false, false, false, .floating),
+    (kAXWindowRole, "AXFloatingWindow", "com.example.app", false, false, false, false, false, .floating),
+    (kAXSheetRole, nil, "com.example.app", false, false, false, false, false, .floating),
+    (kAXWindowRole, kAXStandardWindowSubrole, "com.example.app", true, true, true, false, false, .floating),
+    // only Apple's Quick Look service bundle floats, in any case
+    (kAXWindowRole, kAXStandardWindowSubrole, "com.apple.quicklook.QuickLookUIService", true, true, false, false, false,
+      .floating),
+    (kAXWindowRole, kAXStandardWindowSubrole, "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE", true, true, false, false, false,
+      .floating),
+    (kAXWindowRole, kAXStandardWindowSubrole, "com.example.quicklook.editor", true, true, false, false, false, .tiled),
+    (kAXWindowRole, kAXUnknownSubrole, "com.example.app", false, false, false, true, false, .floating),
+    (kAXWindowRole, kAXUnknownSubrole, "net.imput.helium", false, false, false, false, true, .tiled),
+  ] as [(String, String?, String, Bool, Bool, Bool, Bool, Bool, WindowDisposition)])
+  func `Window classification follows role, controls, and rules`(role: String, subrole: String?, appID: String,
+    hasCloseButton: Bool, canResize: Bool, isModal: Bool, configuredFloating: Bool, forceTiling: Bool,
+    disposition: WindowDisposition) {
+    #expect(classifyWindow(role: role, subrole: subrole, appID: appID, hasCloseButton: hasCloseButton,
+      canResize: canResize, isModal: isModal, configuredFloating: configuredFloating, forceTiling: forceTiling)
+      == disposition)
   }
 
   @Test
-  func `Modal standard window floats even when resizable`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "com.example.app",
-        hasCloseButton: true,
-        canResize: true,
-        isModal: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test
-  func `Quick look service window floats even when standard`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "com.apple.quicklook.QuickLookUIService",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test
-  func `Configured floating tracks unknown auxiliary window`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXUnknownSubrole,
-        appID: "com.example.app",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: true,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test
-  func `Transient close button failure preserves managed window`() {
-    #expect(
-      shouldTreatWindowAsClosable(
-        error: .cannotComplete,
-        hasValue: false,
-        wasPreviouslyManaged: true
-      ))
-    #expect(
-      shouldTreatWindowAsClosable(
-        error: .cannotComplete,
-        hasValue: false,
-        wasPreviouslyManaged: false
-      ) == false)
+  func `Only a transient close button failure keeps a managed window closable`() {
+    #expect(shouldTreatWindowAsClosable(error: .cannotComplete, hasValue: false, wasPreviouslyManaged: true))
+    #expect(!shouldTreatWindowAsClosable(error: .cannotComplete, hasValue: false, wasPreviouslyManaged: false))
+    #expect(!shouldTreatWindowAsClosable(error: .noValue, hasValue: false, wasPreviouslyManaged: true))
   }
 
   @Test(
@@ -741,132 +393,22 @@ struct WindowDiscoveryTests {
       ) == false)
   }
 
-  @Test
-  func `Missing close button remains unmanaged`() {
-    #expect(
-      shouldTreatWindowAsClosable(
-        error: .noValue,
-        hasValue: false,
-        wasPreviouslyManaged: true
-      ) == false)
+  @Test(arguments: [(true, true, true), (true, false, false), (false, true, false)])
+  func `Activation selects a specific window only past unmanaged auxiliary windows`(activates: Bool,
+    hasAuxiliary: Bool, selects: Bool) {
+    #expect(shouldSelectSpecificWindow(activatesApplication: activates, hasUnmanagedAuxiliaryWindows: hasAuxiliary,
+      hasMultipleManagedWindows: false, focusWritePending: false, targetWasLastFocused: true) == selects)
   }
 
-  @Test
-  func `Force tiling overrides window shape filter`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXUnknownSubrole,
-        appID: "net.imput.helium",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: false,
-        forceTiling: true
-      ) == .tiled)
-  }
-
-  @Test
-  func `Application activation selects target with unmanaged auxiliary windows`() {
-    #expect(
-      shouldSelectSpecificWindow(
-        activatesApplication: true,
-        hasUnmanagedAuxiliaryWindows: true,
-        hasMultipleManagedWindows: false,
-        focusWritePending: false,
-        targetWasLastFocused: true
-      ))
-  }
-
-  @Test
-  func `Stable single window focus keeps fast path`() {
-    #expect(
-      shouldSelectSpecificWindow(
-        activatesApplication: true,
-        hasUnmanagedAuxiliaryWindows: false,
-        hasMultipleManagedWindows: false,
-        focusWritePending: false,
-        targetWasLastFocused: true
-      ) == false)
-  }
-
-  @Test
-  func `Frontmost single window defers selection to async validation`() {
-    #expect(
-      shouldSelectSpecificWindow(
-        activatesApplication: false,
-        hasUnmanagedAuxiliaryWindows: true,
-        hasMultipleManagedWindows: false,
-        focusWritePending: false,
-        targetWasLastFocused: true
-      ) == false)
-  }
 }
 
 struct WindowClassificationReviewFeedbackTests {
-  @Test func successfulSiblingDoesNotClearFailingElementRetries() {
-    let processID: pid_t = 42
-    let failing = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateApplication(processID)
-    )
-    let successful = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateSystemWide()
-    )
-    var failures = [failing: 2]
-
-    failures[successful] = nil
-
-    #expect(failures[failing] == 2)
-  }
-
-  @Test func vanishedWindowRetryIdentityIsRemoved() {
-    let processID: pid_t = 42
-    let vanished = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateApplication(processID)
-    )
-    let live = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateSystemWide()
-    )
-
-    let failures = [vanished: 2, live: 1].filter { [live].contains($0.key) }
-
-    #expect(failures[vanished] == nil)
-    #expect(failures[live] == 1)
-  }
-
   @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {
     #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 1) == false)
     #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 2) == false)
     #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 3))
   }
 
-  @Test func quickLookRuleMatchesOnlyAppleServiceBundleID() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating
-    )
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "com.example.quicklook.editor",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .tiled
-    )
-  }
 }
 
 struct NativeWindowTabDiscoveryTests {
