@@ -18,11 +18,6 @@ func layoutWindowIDsOutsideSubmissionScope(
     : []
 }
 
-func parkedFrameReservations(in plan: ContinuousStripPlan) -> [Rect] {
-  let parkedWindowIDs = plan.parkedWindowIDs
-  return plan.frames.compactMap { parkedWindowIDs.contains($0.windowID) ? $0.frame : nil }
-}
-
 @NavigationActor
 extension Daemon {
   func applyCurrentLayout(
@@ -59,22 +54,12 @@ extension Daemon {
     var hiddenWindowIDs = Set<WindowID>()
     var outOfScopeWindowIDs = Set<WindowID>()
     var cachedMonitorIDs = Set<MonitorID>()
-    let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
     let viewports = viewportsByMonitor
     let overviewParksWindows = overviewState.isOpen
       && overviewState.usesWorkspaceParking
     let liveMonitorIDs = Set(state.monitors.map(\.id))
     layoutPlansByMonitor = layoutPlansByMonitor.filter {
       liveMonitorIDs.contains($0.key)
-    }
-    var reservedParkingFrames: [Rect] = []
-    if let monitorIDs {
-      for monitor in state.monitors where !monitorIDs.contains(monitor.id) {
-        guard let cached = layoutPlansByMonitor[monitor.id] else { continue }
-        reservedParkingFrames.append(contentsOf: cached.assignments.compactMap {
-          cached.hiddenWindowIDs.contains($0.windowID) ? $0.frame : nil
-        })
-      }
     }
     for monitorIndex in state.monitors.indices {
       let monitor = state.monitors[monitorIndex]
@@ -97,16 +82,15 @@ extension Daemon {
         continue
       }
       guard let viewport = viewports[monitor.id] else { continue }
-      let physicalFrame = monitorSnapshot.physicalFrame
-      let activeWorkspaceIndex =
-        monitor.workspaces.firstIndex {
-          $0.id == monitor.activeWorkspace
-        } ?? 0
+      let otherDisplays = latestMonitors.filter { $0.id != monitor.id }.map(\.physicalFrame)
+      let park = {
+        parkedFrame($0, display: monitorSnapshot.physicalFrame,
+          visibleFrame: monitorSnapshot.frame, otherDisplays: otherDisplays)
+      }
       var monitorAssignments: [FrameAssignment] = []
       var monitorBorderAssignments: [FrameAssignment] = []
       var monitorNativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
       var monitorHiddenWindowIDs = Set<WindowID>()
-      var monitorParkingFrames: [Rect] = []
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
         let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
         let workspaceWindows = workspace.columns
@@ -124,16 +108,10 @@ extension Daemon {
           ribbonFrames.append(contentsOf: sizedFrames)
           let strip = continuousStripFramesForActiveWorkspace(
             sizedFrames,
-            viewport: viewport,
-            ownerFrame: physicalFrame,
-            parkingFrame: viewport,
-            allMonitorFrames: allPhysicalMonitorFrames,
-            reservedParkingFrames: reservedParkingFrames,
-            preservingExitSide: animationsEnabled && animated
+            viewport: viewport, park: park
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
-          monitorParkingFrames.append(contentsOf: parkedFrameReservations(in: strip))
           if workspaceTransition?.monitorID != monitor.id {
             monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
           }
@@ -146,11 +124,7 @@ extension Daemon {
                 windows: workspaceWindows,
                 settings: state.layout
               ),
-              viewport: viewport,
-              ownerFrame: physicalFrame,
-              parkingFrame: viewport,
-              allMonitorFrames: allPhysicalMonitorFrames,
-              preservingExitSide: animationsEnabled && animated
+              viewport: viewport, park: park
             )
             monitorNativeFullscreenPlaceholderAssignments.append(
               contentsOf: fullscreenStrip.frames.filter {
@@ -173,16 +147,10 @@ extension Daemon {
         } else {
           monitorHiddenWindowIDs.formUnion(sizedFrames.map(\.windowID))
           let floatingFrames = floatingAssignments(in: workspace)
-          let parked = parkFramesInSafeCorner(
-            sizedFrames + floatingFrames,
-            ownerFrame: physicalFrame,
-            parkingFrame: viewport,
-            allMonitorFrames: allPhysicalMonitorFrames,
-            reservedParkingFrames: reservedParkingFrames,
-            preferredSide: workspaceIndex < activeWorkspaceIndex ? .left : .right
-          )
+          let parked = (sizedFrames + floatingFrames).map {
+            FrameAssignment(windowID: $0.windowID, frame: park($0.frame))
+          }
           monitorHiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
-          monitorParkingFrames.append(contentsOf: parked.map(\.frame))
           monitorAssignments.append(contentsOf: parked)
           monitorBorderAssignments.append(contentsOf: parked)
         }
@@ -195,8 +163,6 @@ extension Daemon {
         hiddenWindowIDs: monitorHiddenWindowIDs
       )
       layoutPlansByMonitor[monitor.id] = plan
-      // Workspaces on one monitor share parking anchors; reserve them only across monitors.
-      reservedParkingFrames.append(contentsOf: monitorParkingFrames)
       assignments.append(contentsOf: plan.assignments)
       outOfScopeWindowIDs.formUnion(
         layoutWindowIDsOutsideSubmissionScope(
