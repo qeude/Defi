@@ -2360,8 +2360,100 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(onNavigation { platform.hiddenWindowCount }, 1)
   }
 
+  func testIsolatedDisplayArrangementPreservesPartialRibbonAndRestores() throws {
+    let platform = try makePlatform()
+    let initialFrames = DisplayArrangementController.currentFrames()
+    guard initialFrames.count > 1 else { throw XCTSkip("Requires two connected displays") }
+    let initial = platform.snapshot(config: Config())
+    let window = try XCTUnwrap(testWindows(in: initial).first)
+    let initialPointer = CGEvent(source: nil)?.location
+    let controller = DisplayArrangementController()
+    defer {
+      controller.restore()
+      // Never commit a leaked staircase to the macOS session; keep the restored desk.
+      let leaked = isDisplayStaircase(initialFrames, primary: MonitorID(rawValue: UInt64(CGMainDisplayID())))
+      if !leaked {
+        XCTAssertEqual(DisplayArrangementController.apply(initialFrames, scope: .forSession), .success)
+      }
+      pumpRunLoop(for: 0.3)
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: window.frame)]) }
+      if let initialPointer { CGWarpMouseCursorPosition(initialPointer) }
+      if !leaked { XCTAssertEqual(DisplayArrangementController.currentFrames(), initialFrames) }
+    }
+    // Exercise the transformed arrangement even when the user's displays are vertical.
+    let primary = MonitorID(rawValue: UInt64(CGMainDisplayID()))
+    var deskFrames = initialFrames
+    var nextX = try XCTUnwrap(initialFrames[primary]).width
+    for id in initialFrames.keys.sorted(by: { $0.rawValue < $1.rawValue }) where id != primary {
+      deskFrames[id]?.x = nextX
+      deskFrames[id]?.y = 0
+      nextX += initialFrames[id]!.width
+    }
+    XCTAssertEqual(DisplayArrangementController.apply(deskFrames), .success)
+    pumpRunLoop(for: 0.3)
+    XCTAssertEqual(DisplayArrangementController.currentFrames(), deskFrames)
+    _ = controller.reconcile()
+    XCTAssertEqual(controller.status, "isolated")
+    pumpRunLoop(for: 0.3)
+    let monitors = platform.discoverMonitors()
+    XCTAssertEqual(controller.deskFrames, deskFrames)
+    let technical = DisplayArrangementController.currentFrames()
+    var crossings = 0
+    for frame in technical.values {
+      let edges: [(Double, Double, Double, Double)] = [
+        (frame.x, frame.y + frame.height / 2, -5, 0),
+        (frame.x + frame.width - 1, frame.y + frame.height / 2, 5, 0),
+        (frame.x + frame.width / 2, frame.y, 0, -5),
+        (frame.x + frame.width / 2, frame.y + frame.height - 1, 0, 5),
+      ]
+      for (x, y, dx, dy) in edges {
+        guard let expected = displayPointerDestination(
+          x: x, y: y, deltaX: dx, deltaY: dy, technical: technical, desk: deskFrames
+        ) else { continue }
+        let event = try XCTUnwrap(CGEvent(
+          mouseEventSource: nil, mouseType: .mouseMoved,
+          mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: .left
+        ))
+        event.setDoubleValueField(.mouseEventDeltaX, value: dx)
+        event.setDoubleValueField(.mouseEventDeltaY, value: dy)
+        XCTAssertTrue(controller.pointerRouter.route(event))
+        let observed = try XCTUnwrap(CGEvent(source: nil)?.location)
+        XCTAssertEqual(observed.x, expected.x, accuracy: 2)
+        XCTAssertEqual(observed.y, expected.y, accuracy: 2)
+        crossings += 1
+      }
+    }
+    XCTAssertGreaterThan(crossings, 0)
+    for monitor in monitors {
+      let frame = monitor.frame
+      let target = Rect(
+        x: frame.x + frame.width * 0.8, y: frame.y,
+        width: window.frame.width, height: min(window.frame.height, frame.height)
+      )
+      onNavigation { platform.apply([FrameAssignment(windowID: window.id, frame: target)]) }
+      pumpRunLoop(for: 0.2)
+      let element = try XCTUnwrap(platform.elements[window.id])
+      let actual = try XCTUnwrap(platform.frame(of: element))
+      XCTAssertEqual(actual.x, target.x, accuracy: 2)
+      XCTAssertEqual(actual.width, target.width, accuracy: 2)
+      let rect = CGRect(x: actual.x, y: actual.y, width: actual.width, height: actual.height)
+      let visible = rect.intersection(CGRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height))
+      XCTAssertGreaterThan(visible.width, 100, "The neighboring column's preview disappeared")
+      for other in monitors where other.id != monitor.id {
+        let neighbor = other.physicalFrame
+        let overlap = rect.intersection(CGRect(x: neighbor.x, y: neighbor.y, width: neighbor.width, height: neighbor.height))
+        XCTAssertTrue(overlap.isNull || overlap.isEmpty, "Partial ribbon leaked onto another display")
+      }
+    }
+    XCTAssertEqual(controller.restore(), deskFrames)
+  }
+
   func testMonitorTransferFillsDestinationHeight() throws {
     let platform = try makePlatform()
+    // Match the running daemon's geometry; stopping it now restores the desk.
+    let arrangement = DisplayArrangementController()
+    defer { arrangement.restore() }
+    if arrangement.reconcile() { pumpRunLoop(for: 0.3) }
     let snapshot = platform.snapshot(config: Config())
     let monitors = snapshot.monitors.sorted { $0.frame.height < $1.frame.height }
     guard let smaller = monitors.first, let taller = monitors.last,
@@ -2394,6 +2486,74 @@ final class DesktopE2ETests: XCTestCase {
         }, timeout: 1), "monitor=\(monitor.id) invalidated=\(invalidatesDisplayState) target=\(target) actual=\(String(describing: actual)) trace=\(onNavigation { platform.frameCoordinatorTrace })")
       }
     }
+  }
+
+  func testDisplayCrossingDeliversDestinationMotionWithoutAnotherEvent() throws {
+    _ = try makePlatform()
+    let original = DisplayArrangementController.currentFrames()
+    guard original.count == 2 else { throw XCTSkip("Requires two monitors") }
+    let cursor = try XCTUnwrap(CGEvent(source: nil)?.location)
+    let primary = MonitorID(rawValue: UInt64(CGMainDisplayID()))
+    let other = try XCTUnwrap(original.keys.first { $0 != primary })
+    var desk = original
+    let sourceFrame = try XCTUnwrap(original[primary])
+    desk[other]?.x = sourceFrame.x + sourceFrame.width
+    desk[other]?.y = sourceFrame.y
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    func makeController() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: DisplayArrangementController.currentFrames,
+        applyFrames: DisplayArrangementController.apply, primaryDisplay: { primary },
+        stateURL: directory.appending(path: "arrangement.json"), sessionID: "desktop-test"
+      )
+    }
+    var controller = makeController()
+    defer {
+      controller.restore()
+      if !isDisplayStaircase(original, primary: primary) { // Never commit a leaked staircase.
+        XCTAssertEqual(DisplayArrangementController.apply(original, scope: .forSession), .success)
+      }
+      CGWarpMouseCursorPosition(cursor)
+    }
+    XCTAssertEqual(DisplayArrangementController.apply(desk), .success)
+    pumpRunLoop(for: 0.3)
+    _ = controller.reconcile()
+    let technical = DisplayArrangementController.currentFrames()
+    controller.restore()
+    XCTAssertEqual(DisplayArrangementController.apply(technical), .success)
+    controller = makeController()
+    _ = controller.reconcile()
+    XCTAssertEqual(controller.deskFrames, desk)
+    let source = try XCTUnwrap(technical[primary])
+    let x = source.x + source.width - 1
+    let y = source.y + min(source.height, original[other]!.height) / 2
+    let destination = try XCTUnwrap(displayPointerDestination(
+      x: x, y: y, deltaX: 5, deltaY: 0, technical: technical, desk: desk
+    ))
+    let received = DesktopValue<[PointerMotionInvocation]>([])
+    let pointerRouter = controller.pointerRouter
+    let manager = onNavigation { HotKeyManager(
+      config: Config(input: InputConfig(focusFollowsMouse: true)),
+      pointerMotionHandler: { invocation in
+        DispatchQueue.main.async { received.value.append(invocation) }
+      },
+      displayPointerRouter: pointerRouter
+    ) { _ in } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+    let event = try XCTUnwrap(CGEvent(
+      mouseEventSource: CGEventSource(stateID: .hidSystemState),
+      mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: .left
+    ))
+    event.setDoubleValueField(.mouseEventDeltaX, value: 5)
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    event.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: {
+      received.value.contains { $0.location == CGPoint(x: destination.x, y: destination.y) && $0.windowID == nil }
+    }, timeout: 0.5), "First crossing event did not deliver the destination: \(received.value)")
+    print("DEFI_E2E pointer-crossing-delivery-ms=\((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)")
+    XCTAssertEqual(controller.pointerRouter.warpCount, 1)
   }
 
   func testParkingAvoidsEveryOtherConnectedMonitor() throws {
