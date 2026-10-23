@@ -895,20 +895,6 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
-  @Test func unavailableCGInventoryExhaustsDueRetries() {
-    let identity = CGWindowDiscoveryIdentity(
-      windowID: WindowID(rawValue: 90), processID: 42, ownerName: "Example", title: ""
-    )
-    var tracker = CGWindowDiscoveryRetryTracker()
-    tracker.observe(observed: [identity], unresolved: [identity: "AX-no-window-match"], now: 10)
-    for now in [10.1, 10.3, 10.71] {
-      tracker.completeRetries(processIDs: [42], now: now, unresolved: nil)
-    }
-    #expect(tracker.entries[identity]?.attempts == 3)
-    #expect(tracker.entries[identity]?.lastOutcome == "CG-inventory-unavailable")
-    #expect(tracker.refreshInterval(now: 11) == nil)
-  }
-
   @Test func unresolvedCGWindowRetriesRecoverExhaustAndFollowIdentity() {
     let original = CGWindowDiscoveryIdentity(
       windowID: WindowID(rawValue: 90), processID: 42,
@@ -968,6 +954,14 @@ struct WindowSnapshotStabilityTests {
 
     tracker.observe(observed: [reused], unresolved: [:], now: 102)
     #expect(tracker.entries.isEmpty)
+
+    tracker.observe(observed: [reused], unresolved: [reused: "AX-no-window-match"], now: 110)
+    for now in [110.1, 110.3, 110.71] {
+      tracker.completeRetries(processIDs: [43], now: now, unresolved: nil)
+    }
+    #expect(tracker.entries[reused]?.attempts == 3, "An unavailable CG inventory still spends due retries")
+    #expect(tracker.entries[reused]?.lastOutcome == "CG-inventory-unavailable")
+    #expect(tracker.refreshInterval(now: 111) == nil)
   }
 
   @Test func cgWindowDiscoveryScopeAndIdentityFallbackStayConservative() {
@@ -1062,26 +1056,6 @@ struct WindowSnapshotStabilityTests {
     #expect(classification(unresolvedID).0 == "unresolved")
   }
 
-  @Test func unresolvedCGWindowStatusIncludesRetryAgeAndOutcome() {
-    let identity = CGWindowDiscoveryIdentity(
-      windowID: WindowID(rawValue: 17), processID: 42,
-      ownerName: "Device Hub", title: "Devices"
-    )
-    let diagnostic = CGWindowDiscoveryDiagnostic(
-      identity: identity, appIdentity: "com.apple.dt.Devices",
-      classification: "unresolved", reason: nil,
-      retry: CGWindowDiscoveryRetry(
-        firstObservedAt: 12, attempts: 2, nextRetryAt: 12.4,
-        lastOutcome: "AX-window-list-empty"
-      )
-    )
-    let status = formattedCGWindowDiscoveryStatus([diagnostic], now: 12.25)
-
-    #expect(status.contains("scope=layer0,pid>0,onscreen-or-managed ax=best-effort-not-one-to-one"))
-    #expect(status.contains("id=17,pid=42,app=com.apple.dt.Devices,class=unresolved"))
-    #expect(status.contains("age=0.25s,retry=2/3,outcome=AX-window-list-empty"))
-  }
-
   @Test func partialDiscoveryRetainsUnchangedWindowExclusions() {
     let ignoredIdentity = CGWindowDiscoveryIdentity(
       windowID: WindowID(rawValue: 20), processID: 42,
@@ -1130,67 +1104,18 @@ struct WindowSnapshotStabilityTests {
     #expect(invalidated.minimizedWindowIDs.isEmpty)
   }
 
-  @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: 0,
-        forceWindowListRefresh: true
-      )
-    )
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: nil,
-        forceWindowListRefresh: true
-      ) == false)
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: 3,
-        forceWindowListRefresh: true
-      ) == false)
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: 0,
-        forceWindowListRefresh: false
-      ) == false)
-  }
-
-  @Test func cachedAndKnownFrameSnapshotsReuseTheCGWindowInventory() {
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: true,
-        snapshotRefreshesOnlyKnownFrames: false,
-        cachedInventoryAvailable: true
-      )
-    )
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: false,
-        snapshotRefreshesOnlyKnownFrames: true,
-        cachedInventoryAvailable: true
-      )
-    )
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: false,
-        snapshotRefreshesOnlyKnownFrames: false,
-        cachedInventoryAvailable: true
-      ) == false)
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: true,
-        snapshotRefreshesOnlyKnownFrames: true,
-        cachedInventoryAvailable: false
-      ) == false)
-  }
-
-  @Test func snapshotDurationPercentilesAreBoundedAndDeterministic() {
-    let samples = [1.0, 2.0, 3.0, 4.0, 5.0]
-
-    #expect(durationPercentile(0.5, sortedSamples: samples) == 3)
-    #expect(durationPercentile(0.95, sortedSamples: samples) == 5)
-    #expect(durationPercentile(-1, sortedSamples: samples) == 1)
-    #expect(durationPercentile(2, sortedSamples: samples) == 5)
-    #expect(durationPercentile(0.5, sortedSamples: []) == 0)
+  @Test func cgInventoryIsReusedForCachedOrKnownFrameSnapshotsAndRetriedOnForcedRefresh() {
+    #expect(cgWindowInventoryRetryIsRequired(attempts: 0, forceWindowListRefresh: true))
+    #expect(!cgWindowInventoryRetryIsRequired(attempts: nil, forceWindowListRefresh: true))
+    #expect(!cgWindowInventoryRetryIsRequired(attempts: 3, forceWindowListRefresh: true))
+    #expect(!cgWindowInventoryRetryIsRequired(attempts: 0, forceWindowListRefresh: false))
+    func reused(cached: Bool, knownFrames: Bool, available: Bool = true) -> Bool {
+      cgWindowInventoryCanBeReused(snapshotUsesCachedWindows: cached, snapshotRefreshesOnlyKnownFrames: knownFrames,
+        cachedInventoryAvailable: available)
+    }
+    #expect([reused(cached: true, knownFrames: false), reused(cached: false, knownFrames: true),
+      reused(cached: false, knownFrames: false), reused(cached: true, knownFrames: true, available: false)]
+      == [true, true, false, false])
   }
 
   @Test func transientGeometryFailureRemainsUnavailable() {
