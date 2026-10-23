@@ -1355,7 +1355,7 @@ final class DesktopE2ETests: XCTestCase {
     }, "Native cancel must remove the exact shortcut filter")
     XCTAssertTrue(window.makeFirstResponder(search))
     let focusedEditor = try XCTUnwrap(search.currentEditor() as? NSTextView)
-    focusedEditor.insertText("animation duration", replacementRange: NSRange(location: 0, length: 0))
+    focusedEditor.insertText("border width", replacementRange: NSRange(location: 0, length: 0))
     XCTAssertTrue(pumpRunLoop(until: {
       descendants().compactMap { $0 as? NSTableView }.first?.numberOfRows == 1
     }, timeout: 2))
