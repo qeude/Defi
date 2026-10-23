@@ -24,68 +24,46 @@ struct ParkingTests {
       otherDisplays: others.map(\.frame))
   }
 
-  @Test
-  func `A single display parks in its bottom right corner above the Dock`() {
-    #expect(park(window, on: external, among: [])
-      == Rect(x: 2_559, y: 1_365, width: 1_200, height: 900))
+  static let externalFrame = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
+  static let externalVisible = Rect(x: 0, y: 30, width: 2_560, height: 1_367)
+  static let rightFrame = Rect(x: 2_560, y: 0, width: 1_512, height: 982)
+  static let rightVisible = Rect(x: 2_560, y: 33, width: 1_512, height: 949)
+  static let stairFrame = Rect(x: 2_560, y: -982, width: 1_512, height: 982)
+  static let stairVisible = Rect(x: 2_560, y: -949, width: 1_512, height: 949)
+  static let sideFrame = Rect(x: 2_560, y: 390, width: 1_512, height: 982)
+  static let sideVisible = Rect(x: 2_560, y: 423, width: 1_512, height: 949)
+
+  // display, visible frame, other displays -> parked origin of a 1200 x 900 window
+  @Test(arguments: [
+    // a single display parks in its bottom right corner above the Dock
+    (externalFrame, externalVisible, [], 2_559.0, 1_365.0),
+    // a display to the right moves external parking to the bottom left corner
+    (externalFrame, externalVisible, [rightFrame], -1_199, 1_365),
+    (rightFrame, rightVisible, [externalFrame], 4_071, 950),
+    // the staircase keeps each display on a free bottom corner
+    (externalFrame, externalVisible, [stairFrame], -1_199, 1_365),
+    (stairFrame, stairVisible, [externalFrame], 4_071, -32),
+    // the measured side-by-side arrangement parks where macOS keeps the windows
+    (externalFrame, externalVisible, [sideFrame], -1_199, 1_365),
+    (sideFrame, sideVisible, [externalFrame], 4_071, 1_340),
+    // a display below keeps the bottom right corner clear
+    (externalFrame, externalVisible, [Rect(x: 0, y: 1_440, width: 1_512, height: 982)], 2_559, 1_365),
+  ] as [(Rect, Rect, [Rect], Double, Double)])
+  func `Each display parks in a free bottom corner`(display: Rect, visible: Rect, others: [Rect], x: Double,
+    y: Double) {
+    #expect(parkedFrame(window, display: display, visibleFrame: visible, otherDisplays: others)
+      == Rect(x: x, y: y, width: 1_200, height: 900))
   }
 
   @Test
-  func `A display to the right moves external parking to the bottom left corner`() {
-    #expect(park(window, on: external, among: [builtInRight])
-      == Rect(x: -1_199, y: 1_365, width: 1_200, height: 900))
-    #expect(park(window, on: builtInRight, among: [external])
-      == Rect(x: 4_071, y: 950, width: 1_200, height: 900))
-  }
-
-  @Test
-  func `A staircase keeps each display on a free bottom corner`() {
-    #expect(park(window, on: external, among: [builtInStaircase])
-      == Rect(x: -1_199, y: 1_365, width: 1_200, height: 900))
-    #expect(park(window, on: builtInStaircase, among: [external])
-      == Rect(x: 4_071, y: -32, width: 1_200, height: 900))
-  }
-
-  @Test
-  func `The isolated staircase of a desk with the built-in on the left parks clear of both displays`() throws {
+  func `A built-in on the left is isolated into the same staircase`() throws {
     let externalID = MonitorID(rawValue: 1), builtInID = MonitorID(rawValue: 2)
     let technical = isolatedDisplayArrangement([
       externalID: external.frame,
       builtInID: Rect(x: -1_512, y: 323, width: 1_512, height: 982),
     ], primary: externalID)
-    #expect(technical[externalID] == external.frame)
-    let builtInFrame = try #require(technical[builtInID])
-    #expect(builtInFrame == Rect(x: 2_560, y: -982, width: 1_512, height: 982))
-    let builtIn = Display(frame: builtInFrame, visible: Rect(
-      x: builtInFrame.x, y: builtInFrame.y + 33, width: 1_512, height: 949))
-    let parkedExternal = park(window, on: external, among: [builtIn])
-    let parkedBuiltIn = park(window, on: builtIn, among: [external])
-    #expect(parkedExternal == Rect(x: -1_199, y: 1_365, width: 1_200, height: 900))
-    #expect(parkedBuiltIn == Rect(x: 4_071, y: -32, width: 1_200, height: 900))
-    #expect(intersection(parkedExternal, builtInFrame).width
-      * intersection(parkedExternal, builtInFrame).height == 0)
-    #expect(intersection(parkedBuiltIn, external.frame).width
-      * intersection(parkedBuiltIn, external.frame).height == 0)
-  }
-
-  @Test
-  func `The measured side by side arrangement parks where macOS keeps the windows`() {
-    let builtIn = Display(
-      frame: Rect(x: 2_560, y: 390, width: 1_512, height: 982),
-      visible: Rect(x: 2_560, y: 423, width: 1_512, height: 949))
-    #expect(park(window, on: external, among: [builtIn])
-      == Rect(x: -1_199, y: 1_365, width: 1_200, height: 900))
-    #expect(park(window, on: builtIn, among: [external])
-      == Rect(x: 4_071, y: 1_340, width: 1_200, height: 900))
-  }
-
-  @Test
-  func `A display below keeps the bottom right corner clear`() {
-    let below = Display(
-      frame: Rect(x: 0, y: 1_440, width: 1_512, height: 982),
-      visible: Rect(x: 0, y: 1_473, width: 1_512, height: 949))
-    #expect(park(window, on: external, among: [below])
-      == Rect(x: 2_559, y: 1_365, width: 1_200, height: 900))
+    #expect(technical == [externalID: external.frame, builtInID: builtInStaircase.frame],
+      "so it parks like the staircase rows of the corner table")
   }
 
   @Test
