@@ -10,10 +10,8 @@ import Testing
 struct DefiSettingsModelTests {
   @Test
   func windowGapKeepsScreenEdgesWhereTheyWere() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+    let url = try configFile()
+    defer { removeConfig(url) }
     try Data("[layout]\ngaps = 6\nouter_left_gap = 10\n".utf8).write(to: url)
     let model = DefiSettingsModel(configURL: url)
 
@@ -37,10 +35,8 @@ struct DefiSettingsModelTests {
 
   @Test(arguments: ["up", "down", "1"])
   func workspaceRenamePreservesDirectionalAndPositionalShortcuts(name: String) throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+    let url = try configFile()
+    defer { removeConfig(url) }
     let relative = name == "1" ? "move-window-to-workspace-position 1" : "move-window-to-workspace \(name)"
     try Data("""
       [workspaces]
@@ -58,9 +54,9 @@ struct DefiSettingsModelTests {
 
   @Test
   func disabledGeneratedShortcutCanRestoreItsDefault() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = DefiSettingsModel(configURL: directory.appending(path: "config.toml"))
+    let url = configURL()
+    defer { removeConfig(url) }
+    let model = DefiSettingsModel(configURL: url)
     let row = try #require(model.shortcutRows.first { $0.accelerator == "alt-left" })
     model.removeShortcut(row)
     let disabled = try #require(model.shortcutRows.first { $0.accelerator == row.accelerator })
@@ -73,10 +69,8 @@ struct DefiSettingsModelTests {
 
   @Test
   func workspaceIconsPersistAndFollowRenameAndDeletion() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+    let url = try configFile()
+    defer { removeConfig(url) }
     try Data("[workspaces]\nnames = [\"dev\"]\n".utf8).write(to: url)
     let model = DefiSettingsModel(configURL: url)
     #expect(model.config.menuBar.workspaceStyle == .name)
@@ -108,10 +102,8 @@ struct DefiSettingsModelTests {
 
   @Test
   func dragReorderingPreservesRulesAndWorkspaceAssignments() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+    let url = try configFile()
+    defer { removeConfig(url) }
     try Data("""
       [workspaces]
       names = ["dev", "web", "tools"]
@@ -184,10 +176,8 @@ struct DefiSettingsModelTests {
 
   @Test
   func recordingRejectsOccupiedShortcutAndPreservesFile() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+    let url = try configFile()
+    defer { removeConfig(url) }
     let original = Data("# Keep my settings\n".utf8)
     try original.write(to: url)
     let model = DefiSettingsModel(configURL: url)
@@ -210,10 +200,8 @@ struct DefiSettingsModelTests {
 
   @Test
   func recordingEveryExistingCombinationKeepsItsBinding() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+    let url = try configFile()
+    defer { removeConfig(url) }
     let original = Data("default_key_modifier = \"hyper\"\n[modifier_combinations]\nhyper = \"Alt + Cmd + Ctrl\"\n".utf8)
     try original.write(to: url)
     let model = DefiSettingsModel(configURL: url)
@@ -229,9 +217,8 @@ struct DefiSettingsModelTests {
 
   @Test
   func recordingSameShortcutAgainIsIdempotent() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appending(path: "config.toml")
+    let url = configURL()
+    defer { removeConfig(url) }
     let model = DefiSettingsModel(configURL: url)
     let original = try #require(model.shortcutRows.first)
     model.moveShortcut(original, to: "ctrl-alt-x")
@@ -249,63 +236,52 @@ struct DefiSettingsModelTests {
   }
 
   @Test
-  func firstEditCreatesMissingConfiguration() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appending(path: "config.toml")
-    let model = DefiSettingsModel(configURL: url)
+  func editsWriteOnlyValidConfiguration() throws {
+    let missing = configURL()
+    defer { removeConfig(missing) }
+    DefiSettingsModel(configURL: missing).set(table: "layout", key: "gaps", value: "16")
+    #expect(try Config.load(from: missing).layout.gaps == 16)
 
-    model.set(table: "layout", key: "gaps", value: "16")
-
-    #expect(try Config.load(from: url).layout.gaps == 16)
-  }
-
-  @Test
-  func invalidEditKeepsOriginalFile() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+    let url = try configFile()
+    defer { removeConfig(url) }
     let original = Data("[layout]\ngaps = 8 # keep\n".utf8)
     try original.write(to: url)
     let model = DefiSettingsModel(configURL: url)
-
     model.set(table: "layout", key: "gaps", value: "300")
-
     #expect(try Data(contentsOf: url) == original)
-    #expect(model.message != nil)
+    #expect(model.config.layout.gaps == 8)
+    #expect(model.message?.hasPrefix("Settings could not be saved") == true)
   }
 
   @Test
-  func externalEditWinsOverPendingSettingsWrite() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
+  func externalReplacementRefreshesAndWinsOverPendingWrite() throws {
+    let url = try configFile()
+    defer { removeConfig(url) }
     try Data("[layout]\ngaps = 8\n".utf8).write(to: url)
     let model = DefiSettingsModel(configURL: url)
+    try Data("[layout]\ngaps = 10\n".utf8).write(to: url, options: .atomic)
+    model.refreshExternalChanges()
+    #expect(model.config.layout.gaps == 10)
+
     let external = Data("[layout]\ngaps = 12\n".utf8)
     try external.write(to: url, options: .atomic)
-
     model.set(table: "layout", key: "outer_top_gap", value: "20")
-
     #expect(try Data(contentsOf: url) == external)
     #expect(model.config.layout.gaps == 12)
     #expect(model.message?.contains("changed outside Settings") == true)
   }
 
-  @Test
-  func externalAtomicReplacementRefreshesSettings() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appending(path: "config.toml")
-    try Data("[layout]\ngaps = 8\n".utf8).write(to: url)
-    let model = DefiSettingsModel(configURL: url)
-    try Data("[layout]\ngaps = 12\n".utf8).write(to: url, options: .atomic)
+  private func configURL() -> URL {
+    FileManager.default.temporaryDirectory.appending(path: UUID().uuidString).appending(path: "config.toml")
+  }
 
-    model.refreshExternalChanges()
+  private func configFile() throws -> URL {
+    let url = configURL()
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    return url
+  }
 
-    #expect(model.config.layout.gaps == 12)
+  private func removeConfig(_ url: URL) {
+    try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
   }
 }
