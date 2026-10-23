@@ -192,7 +192,7 @@ struct OverviewTests {
 
     #expect(ribbon.x == bounds.x)
     #expect(ribbon.width == bounds.width)
-    #expect(ribbon.height == (bounds.height - 56) / 2)
+    #expect(ribbon.height == 272)
     #expect(ribbon.y == bounds.y + (bounds.height - ribbon.height) / 2)
     #expect(projection.workspaces[0].visibleFrame == Rect(
       x: ribbon.x
@@ -207,6 +207,11 @@ struct OverviewTests {
       + 200 * ribbon.height / monitorFrame.height)
     #expect(floating.frame.y == ribbon.y + 100 * ribbon.height / monitorFrame.height)
     #expect(floating.frame.width / floating.frame.height == 2)
+    let zoomed = projectOverview(
+      snapshot: OverviewSnapshot(monitors: [Monitor(id: monitorID, workspaces: [workspace],
+        activeWorkspace: workspace.id)], monitorFrames: [monitorID: monitorFrame], windows: [:]),
+      monitorID: monitorID, bounds: bounds, viewport: OverviewViewport(), layout: LayoutSettings(), zoom: 0.25)
+    #expect(zoomed.workspaces[0].frame.height == 136, "Zoom scales the ribbon")
   }
 
   @Test
@@ -283,32 +288,6 @@ struct OverviewTests {
     #expect(active.y + active.height / 2 == bounds.y + bounds.height / 2)
     #expect(previous.y + previous.height - bounds.y == active.height / 2)
     #expect(bounds.y + bounds.height - next.y == active.height / 2)
-  }
-
-  @Test
-  func `Zoom scales workspace ribbons`() {
-    let workspace = Workspace(id: WorkspaceID(rawValue: "dev"))
-    let bounds = Rect(x: 0, y: 0, width: 1_200, height: 600)
-    let projection = projectOverview(
-      snapshot: OverviewSnapshot(
-        monitors: [
-          Monitor(
-            id: monitorID,
-            workspaces: [workspace],
-            activeWorkspace: workspace.id
-          )
-        ],
-        monitorFrames: [monitorID: monitorFrame],
-        windows: [:]
-      ),
-      monitorID: monitorID,
-      bounds: bounds,
-      viewport: OverviewViewport(),
-      layout: LayoutSettings(),
-      zoom: 0.25
-    )
-
-    #expect(projection.workspaces[0].frame.height == (bounds.height - 56) * 0.25)
   }
 
   @Test
