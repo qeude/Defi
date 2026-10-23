@@ -183,6 +183,10 @@ Choose verification by the changed behavior:
   `python3 script/verify.py full [--filter DesktopE2ETests/testName]` chains both
   phases and waits for the desktop automatically. Inspect progress with
   `python3 script/verify.py status [run-directory]`.
+  Desktop tests use Defi-owned fixture windows only. A run with one display
+  reports the two-display lane under `desktop.not_run`; that lane is not
+  covered, so name it in the handoff. The render budget is an opt-in perf
+  lane (`DEFI_E2E_PERF=1`), outside pass/fail.
 
 Complete the applicable checks and fix failures caused by the requested change
 before handoff. Report any check that could not run and why.
