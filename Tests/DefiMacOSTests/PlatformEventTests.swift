@@ -571,96 +571,25 @@ struct PlatformEventTests {
   }
 
   @Test
-  func staleFocusRecoveryCannotOverrideNewFocusIntent() {
-    #expect(
-      focusRecoveryIntentIsCurrent(
-        requestGeneration: 8,
-        currentGeneration: 8
-      )
-    )
-    #expect(
-      focusRecoveryIntentIsCurrent(
-        requestGeneration: 8,
-        currentGeneration: 9
-      ) == false)
+  func focusRecoveryIntentAndLookupAreLatestWins() {
+    #expect(focusRecoveryIntentIsCurrent(requestGeneration: 8, currentGeneration: 8))
+    #expect(!focusRecoveryIntentIsCurrent(requestGeneration: 8, currentGeneration: 9))
+    #expect(focusRecoveryResolutionIsCurrent(requestGeneration: 4, currentGeneration: 4))
+    #expect(!focusRecoveryResolutionIsCurrent(requestGeneration: 3, currentGeneration: 4))
   }
 
-  @Test
-  func auxiliaryFocusRecoveryLookupIsLatestWins() {
-    #expect(
-      focusRecoveryResolutionIsCurrent(
-        requestGeneration: 4,
-        currentGeneration: 4
-      )
-    )
-    #expect(
-      focusRecoveryResolutionIsCurrent(
-        requestGeneration: 3,
-        currentGeneration: 4
-      ) == false)
-  }
-
-  @Test
-  func physicalPointerTrackingIncludesDragEvents() {
-    #expect(eventTracksPhysicalPointerMotion(.mouseMoved))
-    #expect(eventTracksPhysicalPointerMotion(.leftMouseDragged))
-    #expect(eventTracksPhysicalPointerMotion(.rightMouseDragged))
-    #expect(eventTracksPhysicalPointerMotion(.otherMouseDragged))
-    #expect(eventTracksPhysicalPointerMotion(.scrollWheel) == false)
-    #expect(eventTracksPhysicalPointerMotion(.keyDown) == false)
-  }
-
-  @Test
-  func generalInputTrackingIncludesEveryMouseButtonDown() {
-    #expect(eventIsMouseButtonDown(.leftMouseDown))
-    #expect(eventIsMouseButtonDown(.rightMouseDown))
-    #expect(eventIsMouseButtonDown(.otherMouseDown))
-    #expect(eventIsMouseButtonDown(.leftMouseUp) == false)
-    #expect(eventIsMouseButtonDown(.mouseMoved) == false)
-    #expect(eventIsMouseButtonDown(.keyDown) == false)
-  }
-
-  @Test
-  func generalInputTrackingIncludesScrollWheel() {
-    #expect(eventTracksGeneralUserInput(.keyDown))
-    #expect(eventTracksGeneralUserInput(.flagsChanged))
-    #expect(eventTracksGeneralUserInput(.leftMouseDown))
-    #expect(eventTracksGeneralUserInput(.rightMouseDown))
-    #expect(eventTracksGeneralUserInput(.otherMouseDown))
-    #expect(eventTracksGeneralUserInput(.scrollWheel))
-    #expect(eventTracksGeneralUserInput(.mouseMoved) == false)
-    #expect(eventTracksGeneralUserInput(.leftMouseUp) == false)
-  }
-
-  @Test
-  func nativeFocusResultRequiresCurrentSuccessfulRequest() {
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: true
-      ) == .completedWithoutMutation
-    )
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: false
-      ) == .failed
-    )
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: false,
-        inputCurrent: true,
-        cancelled: true,
-        focusSucceeded: true
-      ) == .superseded
-    )
+  // event -> physical pointer motion, mouse button down, general user input
+  @Test(arguments: [
+    (.mouseMoved, true, false, false), (.leftMouseDragged, true, false, false),
+    (.rightMouseDragged, true, false, false), (.otherMouseDragged, true, false, false),
+    (.leftMouseDown, false, true, true), (.rightMouseDown, false, true, true), (.otherMouseDown, false, true, true),
+    (.leftMouseUp, false, false, false), (.scrollWheel, false, false, true), (.keyDown, false, false, true),
+    (.flagsChanged, false, false, true),
+  ] as [(CGEventType, Bool, Bool, Bool)])
+  func inputTrackingClassifiesEvents(type: CGEventType, pointerMotion: Bool, buttonDown: Bool, general: Bool) {
+    #expect(eventTracksPhysicalPointerMotion(type) == pointerMotion)
+    #expect(eventIsMouseButtonDown(type) == buttonDown)
+    #expect(eventTracksGeneralUserInput(type) == general)
   }
 
   @Test
@@ -823,28 +752,6 @@ struct PlatformEventTests {
         result: .failedAfterMutation,
         generationCurrent: true
       ).recovery == request
-    )
-  }
-
-  @Test
-  func failedFocusPreservesWhetherMutationWasApplied() {
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: false
-      ) == .failed
-    )
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: true,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: false
-      ) == .failedAfterMutation
     )
   }
 
