@@ -168,48 +168,6 @@ struct HotKeyTests {
     #expect(try configuredHotKeys(overridden)[key]?.command == "focus-column first")
   }
 
-  @Test(arguments: [CGEventType.mouseMoved, .leftMouseDragged])
-  func routedPointerEventsDeliverDestinationWithoutStaleSourceFocus(type: CGEventType) async throws {
-    let first = MonitorID(rawValue: 1), second = MonitorID(rawValue: 2)
-    let desk = [
-      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
-      second: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
-    ]
-    let router = DisplayPointerRouter(warpPointer: { _ in .success })
-    let motions = Mutex<[PointerMotionInvocation]>([])
-    router.update(technical: isolatedDisplayArrangement(desk, primary: first), desk: desk)
-    let context = InputMonitor(
-      bindings: [:], userInputTracker: UserInputTracker(),
-      pointerMotionTracker: PointerMotionTracker(), displayPointerRouter: router,
-      tracksPointerWindowTransitions: true,
-      deliver: { _ in }, deliverOverview: { _ in },
-      deliverPointerMotion: { invocation in motions.withLock { $0.append(invocation) } },
-      tapReenabled: { _ in }
-    )
-    let event = try #require(CGEvent(
-      mouseEventSource: nil, mouseType: type,
-      mouseCursorPosition: CGPoint(x: 999, y: 350), mouseButton: .left
-    ))
-    event.setDoubleValueField(.mouseEventDeltaX, value: 5)
-    event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 42)
-    #expect(context.intercept(type: type, event: event) != nil)
-    #expect(context.handle(type: type, event: event) != nil)
-    #expect(router.warpCount == 1)
-    #expect(event.location == CGPoint(x: 1_002, y: -350))
-    if type == .mouseMoved {
-      let deadline = ContinuousClock.now + .seconds(2)
-      while motions.withLock({ $0.isEmpty }), ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(10))
-      }
-      let delivered = motions.withLock { $0 }
-      #expect(delivered.count == 1)
-      #expect(delivered.first?.windowID == nil)
-      #expect(delivered.first?.location == event.location)
-    } else {
-      #expect(motions.withLock { $0.isEmpty })
-    }
-  }
-
   private let aliases = [
     "hyper": "Alt + Cmd + Ctrl"
   ]

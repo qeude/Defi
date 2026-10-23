@@ -166,44 +166,7 @@ extension Daemon {
     }.joined(separator: ",")
   }
 
-  func invalidateDisplayArrangement() {
-    displayPointerRouter.invalidate()
-    displayReconciliationPending = true
-    displayReconciliationGeneration &+= 1
-    DispatchQueue.main.async { [self] in displayArrangement.invalidate() }
-  }
-
-  func reconcileDisplays() {
-    guard !displayReconciliationInFlight else { return }
-    displayReconciliationInFlight = true
-    let generation = displayReconciliationGeneration
-    let session = desktopSessionGeneration
-    platform.invalidateFrameStateForDisplayChange()
-    DispatchQueue.main.async { [self] in
-      let changed = displayArrangement.reconcile()
-      let deskFrames = displayArrangement.deskFrames
-      let status = displayArrangement.status
-      let pending = displayArrangement.needsReconciliation
-      NavigationActor.enqueue { [self] in
-        displayReconciliationInFlight = false
-        guard desktopSessionActive, desktopSessionGeneration == session else { return }
-        displayDeskFrames = deskFrames
-        displayArrangementStatus = status
-        if displayReconciliationGeneration == generation {
-          displayReconciliationPending = pending
-        }
-        if changed {
-          scheduleDisplayReconciliation()
-        } else {
-          needsDesktopSync = true
-          scheduleTick()
-        }
-      }
-    }
-  }
-
   func scheduleDisplayReconciliation() {
-    invalidateDisplayArrangement()
     closeOverview()
     handleCheatsheetInput(.dismiss)
     displayConfigurationEventCount += 1

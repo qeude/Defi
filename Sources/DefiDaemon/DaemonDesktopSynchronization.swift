@@ -127,11 +127,6 @@ extension Daemon {
     if desktopSnapshotInFlight {
       return
     }
-    // Cheap flag first: isEnabled queries the event tap and can block this actor for tens of ms.
-    if displayReconciliationPending, hotKeys?.isEnabled == true {
-      reconcileDisplays()
-      return
-    }
     supersededDesktopSnapshotRequest = nil
     desktopSnapshotInFlight = true
     platform.beginSnapshot(

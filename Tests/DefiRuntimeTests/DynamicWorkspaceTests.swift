@@ -171,14 +171,13 @@ struct DynamicWorkspaceTests {
       primary: Rect(x: 0, y: 0, width: 1_000, height: 700),
       secondary: Rect(x: 1_000, y: 0, width: 2_000, height: 1_400),
     ]
-    let technical = isolatedDisplayArrangement(frames, primary: primary)
     try reduce(.moveWorkspaceToMonitor(.right), on: primary, state: &state,
-               monitorFrames: frames, viewports: technical)
+               monitorFrames: frames, viewports: frames)
     #expect(state.monitors[1].activeWorkspace == dev)
     #expect(state.monitors[1].workspaces[0].affinity == secondary)
     #expect(state.location(containing: tiled.id)?.monitorID == secondary)
     #expect(state.location(containing: floating.id)?.monitorID == secondary)
-    #expect(state.windows[floating.id]?.frame.x == technical[secondary]?.x)
+    #expect(state.windows[floating.id]?.frame.x == 1_000)
     state.retainMonitors([primary])
     state.retainMonitors([primary, secondary])
     #expect(state.monitors[1].activeWorkspace == dev)

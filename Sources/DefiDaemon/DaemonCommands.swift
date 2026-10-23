@@ -475,9 +475,7 @@ extension Daemon {
       let commandInputTimestamp = inputTimestamp ?? receivedAt ?? commandStartedAt
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
       let routingMonitorFrames = Dictionary(
-        uniqueKeysWithValues: latestMonitors.map {
-          ($0.id, displayDeskFrames[$0.id] ?? $0.physicalFrame)
-        }
+        uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }
       )
       let commandViewports = viewportsByMonitor
       if case .focusMonitor(let direction) = command {
