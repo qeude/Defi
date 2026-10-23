@@ -519,85 +519,29 @@ struct MouseReorderingTests {
   }
 
   @Test
-  func `Post release settlement waits for stable late frame`() {
+  func `Post release settlement waits for a stable late frame, else its deadline, and learns from it`() {
     let initial = Rect(x: 0, y: 0, width: 500, height: 700)
     let released = Rect(x: 300, y: 0, width: 500, height: 700)
     let late = Rect(x: 700, y: 0, width: 500, height: 700)
-    let settlement = MouseGestureSettlement(
-      generation: 4,
-      windowID: WindowID(rawValue: 1),
-      initialFrame: initial,
-      releasedFrame: released,
-      now: 10,
-      maximumDuration: 0.8
-    )
-
-    let changed = advanceMouseGestureSettlement(
-      settlement,
-      actualFrame: late,
-      now: 10.1
-    )
-    #expect(changed.shouldFinish == false)
+    let fast = mouseGestureSettlementMaximumDuration(latencySensitive: false)
+    #expect(mouseGestureSettlementMaximumDuration(latencySensitive: true) > fast, "slow apps get longer")
+    func settlement(_ duration: Double) -> MouseGestureSettlement {
+      MouseGestureSettlement(generation: 4, windowID: WindowID(rawValue: 1), initialFrame: initial,
+        releasedFrame: released, now: 10, maximumDuration: duration)
+    }
+    let changed = advanceMouseGestureSettlement(settlement(0.8), actualFrame: late, now: 10.1)
+    #expect(!changed.shouldFinish)
     #expect(changed.settlement.observedPostReleaseChange)
-
-    let stable = advanceMouseGestureSettlement(
-      changed.settlement,
-      actualFrame: late,
-      now: 10.16
-    )
-    #expect(stable.shouldFinish)
-  }
-
-  @Test
-  func `Post release settlement finishes at deadline without late frame`() {
-    let frame = Rect(x: 300, y: 0, width: 500, height: 700)
-    let settlement = MouseGestureSettlement(
-      generation: 4,
-      windowID: WindowID(rawValue: 1),
-      initialFrame: Rect(x: 0, y: 0, width: 500, height: 700),
-      releasedFrame: frame,
-      now: 10,
-      maximumDuration: 0.25
-    )
-
-    let update = advanceMouseGestureSettlement(
-      settlement,
-      actualFrame: frame,
-      now: 10.25
-    )
-
-    #expect(update.shouldFinish)
-  }
-
-  @Test
-  func `Slow post release settlement gets longer deadline`() {
-    #expect(mouseGestureSettlementMaximumDuration(latencySensitive: false) == 0.25)
-    #expect(mouseGestureSettlementMaximumDuration(latencySensitive: true) == 0.8)
-  }
-
-  @Test
-  func `Post release settlement uses late frame for width learning`() {
+    #expect(advanceMouseGestureSettlement(changed.settlement, actualFrame: late, now: 10.16).shouldFinish)
+    #expect(!advanceMouseGestureSettlement(settlement(fast), actualFrame: released, now: 10 + fast / 2).shouldFinish)
+    #expect(advanceMouseGestureSettlement(settlement(fast), actualFrame: released, now: 10 + fast).shouldFinish)
     let external = Rect(x: 0, y: 0, width: 600, height: 700)
-    let late = Rect(x: 0, y: 0, width: 800, height: 700)
-
-    #expect(
-      mouseGestureWidthLearningFrame(
-        externallyChangedFrame: external,
-        actualFrame: late,
-        postReleaseSettlementActive: true
-      ) == external)
-    #expect(
-      mouseGestureWidthLearningFrame(
-        externallyChangedFrame: nil,
-        actualFrame: late,
-        postReleaseSettlementActive: true
-      ) == late)
-    #expect(
-      mouseGestureWidthLearningFrame(
-        externallyChangedFrame: nil,
-        actualFrame: late,
-        postReleaseSettlementActive: false
-      ) == nil)
+    #expect(mouseGestureWidthLearningFrame(externallyChangedFrame: external, actualFrame: late,
+      postReleaseSettlementActive: true) == external)
+    #expect(mouseGestureWidthLearningFrame(externallyChangedFrame: nil, actualFrame: late,
+      postReleaseSettlementActive: true) == late)
+    #expect(mouseGestureWidthLearningFrame(externallyChangedFrame: nil, actualFrame: late,
+      postReleaseSettlementActive: false) == nil)
   }
 
   @Test
