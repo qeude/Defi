@@ -19,6 +19,7 @@ import verify
 import desktop_session
 import ribbon_stress
 import animation_benchmark
+import test_coverage
 from test_performance_experiments import PerformanceExperimentsTests
 from test_motion_probe import MotionProbeTests
 
@@ -434,6 +435,17 @@ class WorkflowTests(unittest.TestCase):
                 result = subprocess.run([str(ROOT / "script/check_signing.sh"), str(installed), str(staged)],
                     env=dict(os.environ, PATH=str(root)+os.pathsep+os.environ["PATH"]), capture_output=True, text=True)
                 self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_coverage_groups_source_lines_by_module(self):
+        def entry(name, covered, count):
+            return {"filename": str(ROOT / name), "summary": {"lines": {"covered": covered, "count": count}}}
+        export = {"data": [{"files": [entry("Sources/DefiCore/A.swift", 3, 4),
+                                      entry("Sources/DefiCore/B.swift", 1, 4),
+                                      entry("Tests/DefiCoreTests/T.swift", 9, 9)]}]}
+        self.assertEqual(test_coverage.summarize(export), {
+            "modules": {"DefiCore": {"covered": 4, "count": 8, "percent": 50.0}},
+            "files": {"DefiCore/A.swift": {"covered": 3, "count": 4, "percent": 75.0},
+                      "DefiCore/B.swift": {"covered": 1, "count": 4, "percent": 25.0}}})
 
     def test_invalid_build_mode_fails_before_build_or_install(self):
         result = subprocess.run([str(ROOT / "script/build_and_run.sh"), "--typo"], capture_output=True, text=True)
