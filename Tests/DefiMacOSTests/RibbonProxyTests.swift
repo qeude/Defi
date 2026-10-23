@@ -1,4 +1,6 @@
 import CoreGraphics
+import DefiConfig
+import QuartzCore
 import DefiModel
 import Testing
 @testable import DefiMacOS
@@ -176,6 +178,17 @@ struct RibbonProxyTests {
     let image = try #require(context.makeImage())
     let edge = try #require(ribbonProxyEdgeColor(image)?.components)
     #expect(edge[2] > 0.9 && edge[0] < 0.1)
+  }
+
+  @Test func theCardRingHugsTheWindowLikeTheNativeRing() throws {
+    let layer = CALayer(), ring = CALayer()
+    ring.name = "border"; ring.borderWidth = 4
+    layer.addSublayer(ring)
+    layer.setValue(16.0, forKey: "defiWindowRadius")
+    let frames = ribbonProxySublayerFrames(layer, size: CGSize(width: 800, height: 600),
+      borderStyle: WindowBorderStyle(config: BordersConfig(placement: "outside")))
+    #expect(frames.first?.1 == CGRect(x: -4, y: -4, width: 808, height: 608))
+    #expect(ring.cornerRadius == 20)
   }
 
   @Test func theRightAndBottomBordersWeighTheSame() throws {

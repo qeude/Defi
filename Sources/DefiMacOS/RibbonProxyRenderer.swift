@@ -686,6 +686,8 @@ final class RibbonProxyPresenter {
     }
   }
   var borderStyle: WindowBorderStyle?
+  /// Native corner radii, so each card and its ring match the real window's.
+  var cornerRadii: [WindowID: Double] = [:]
   /// Hides or shows native borders on the main thread; the overlay draws its own.
   var setBordersHidden: (@Sendable (Bool) -> Void)?
   private(set) var lastFallback = "none"
@@ -1086,6 +1088,9 @@ final class RibbonProxyPresenter {
       fade.beginTime = layers.root.convertTime(CACurrentMediaTime(), from: nil)
       layers.root.add(fade, forKey: "fade")
       ribbonProxyCommit(#line)
+      // The real rings come back under the fading cards, so no frame goes without one.
+      borderRestore?.cancel(); borderRestore = nil
+      if bordersHidden { bordersHidden = false; setBordersHidden?(false) }
       Task {
         try? await Task.sleep(for: .milliseconds(Int(duration * 1_000) + 10))
         guard generation == fadeToken else { return }
@@ -1411,6 +1416,10 @@ final class RibbonProxyPresenter {
     let badged = window.appID != "" && picture.map { picture in
       abs(window.from.y - window.to.y) > window.to.height / 2 && CACurrentMediaTime() - picture.capturedAt > 10
     } ?? true
+    let radius = cornerRadii[window.id] ?? 12
+    layer.setValue(radius, forKey: ribbonProxyRadiusKey)
+    sublayers["content"]?.cornerRadius = radius
+    sublayers["veil"]?.cornerRadius = radius
     setContents(sublayers["content"], picture?.contents)
     sublayers["content"]?.masksToBounds = picture.map {
       $0.size.width > window.to.width + 0.5 || $0.size.height > window.to.height + 0.5
@@ -1681,6 +1690,8 @@ func ribbonProxyCommit(_ line: Int) {
   if ms > 2 { ribbonProxyLogger.notice("slow-commit line=\(line) ms=\(Int(ms))") }
 }
 
+private let ribbonProxyRadiusKey = "defiWindowRadius"
+
 func ribbonProxySublayerFrames(_ layer: CALayer, size: CGSize,
   borderStyle: WindowBorderStyle?) -> [(CALayer, CGRect)] {
   (layer.sublayers ?? []).compactMap { sublayer in
@@ -1694,12 +1705,12 @@ func ribbonProxySublayerFrames(_ layer: CALayer, size: CGSize,
       return (sublayer, CGRect(x: size.width / 2 - 32, y: size.height / 2 - 32, width: 64, height: 64))
     case "border":
       guard let borderStyle else { return nil }
-      let geometry = overviewWindowBorderGeometry(
-        cardFrame: Rect(x: 0, y: 0, width: size.width, height: size.height),
-        cardRadius: 12, width: sublayer.borderWidth, placement: borderStyle.placement)
-      sublayer.cornerRadius = geometry.radius
-      return (sublayer, CGRect(x: geometry.frame.x, y: geometry.frame.y,
-        width: geometry.frame.width, height: geometry.frame.height))
+      // The native ring exactly: outside, it starts at the window edge and keeps its curve.
+      let radius = layer.value(forKey: ribbonProxyRadiusKey) as? Double ?? 12
+      let outset = borderStyle.placement == .outside ? sublayer.borderWidth : 0
+      sublayer.cornerRadius = radius + outset
+      return (sublayer, CGRect(x: -outset, y: -outset, width: size.width + 2 * outset,
+        height: size.height + 2 * outset))
     default: return nil
     }
   }

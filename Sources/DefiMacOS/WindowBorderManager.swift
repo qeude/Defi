@@ -3,6 +3,7 @@ import CoreFoundation
 import Darwin
 import DefiCore
 import DefiModel
+import DefiRuntime
 
 @MainActor
 final class WindowBorderManager {
@@ -23,6 +24,8 @@ final class WindowBorderManager {
       for overlay in overlays.values { overlay.setPresentationHidden(presentationHidden) }
     }
   }
+  /// Corner radii last sent to the ribbon overlay, which draws the same rings.
+  private var reportedRadii: [WindowID: Double] = [:]
   private var appliedPlans = 0
   private var skippedPlans = 0
   private var geometryUpdateCount = 0
@@ -215,6 +218,11 @@ final class WindowBorderManager {
     radiusProvider.retain(
       windowIDs: trackedWindowIDs.union(overlays.keys)
     )
+    let radii = Dictionary(uniqueKeysWithValues: trackedWindowIDs.map { ($0, radius(for: $0)) })
+    if radii != reportedRadii {
+      reportedRadii = radii
+      NavigationActor.enqueue { RibbonProxyPresenter.shared.cornerRadii.merge(radii) { $1 } }
+    }
     let desiredAssignments = plan.inactive + [plan.active].compactMap { $0 }
     let desiredWindowIDs = Set(desiredAssignments.map(\.windowID))
     for assignment in desiredAssignments where overlays[assignment.windowID] == nil {
