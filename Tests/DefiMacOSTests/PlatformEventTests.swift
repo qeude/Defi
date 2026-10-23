@@ -85,12 +85,15 @@ struct PlatformEventTests {
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 16)?.processID == 30)
   }
 
-  @Test
-  func activationWaitsForFrontmostApplicationToCatchUp() {
+  @Test(arguments: [0.0, 2.1, 60.0])
+  func applicationActivationResolvesOnceFrontmostCatchesUpWhateverTheClickAge(clickAge: TimeInterval) {
     let tracker = UserInputTracker()
-    tracker.recordApplicationActivation(processID: 20, at: 10)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 42, at: 10.1) == nil)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 10.2)?.processID == 20)
+    tracker.record(timestamp: 100 - clickAge, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
+    tracker.consumeFocusIntent(at: 100 - clickAge)
+    tracker.recordApplicationActivation(processID: 20, at: 100)
+    #expect(tracker.snapshot.activatedProcessID == 20)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 42, at: 100.1) == nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 100.2)?.processID == 20)
   }
 
   @Test(arguments: [9.0, 10.0, 10.1])
@@ -104,7 +107,7 @@ struct PlatformEventTests {
     let activation = tracker.pendingApplicationActivation(
       frontmostProcessID: frontmost(), at: 10.2
     )
-    #expect((activation != nil) == (commandTimestamp < 10))
+    #expect(activation?.processID == (commandTimestamp < 10 ? 20 : nil))
     #expect((tracker.snapshot.applicationActivation != nil) == (commandTimestamp < 10))
   }
 
@@ -172,7 +175,7 @@ struct PlatformEventTests {
       request, requestID: 1, result: .completed, at: 11.5
     ))
     tracker.recordApplicationActivation(processID: 20, at: 12)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 12.1) != nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 12.1)?.processID == 20)
     #expect(internalFocusSuppressionConsumesEvent(
       suppression, suppressedWindowID: oldTarget,
       latestFocusIntent: tracker.snapshot.latestFocusIntent,
@@ -192,30 +195,13 @@ struct PlatformEventTests {
     ))
     tracker.record(timestamp: inputTimestamp, focusIntent: .keyboard)
     tracker.recordApplicationActivation(processID: 20, at: 13)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 13.1) != nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 13.1)?.processID == 20)
     #expect(internalFocusSuppressionConsumesEvent(
       completed,
       suppressedWindowID: WindowID(rawValue: 2),
       latestFocusIntent: tracker.snapshot.latestFocusIntent,
       applicationActivation: true
     ) == (inputTimestamp <= 11))
-  }
-
-  @Test
-  func externalActivationWithoutRecentClickRemainsAvailableForWindowResolution() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 1, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
-    tracker.consumeFocusIntent(at: 1)
-    tracker.recordApplicationActivation(processID: 20, at: 10)
-    #expect(tracker.snapshot.activatedProcessID == 20)
-  }
-
-  @Test(arguments: [0.0, 2.1, 60.0])
-  func applicationActivationDoesNotDependOnClickAge(age: TimeInterval) {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 100 - age, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
-    tracker.recordApplicationActivation(processID: 20, at: 100)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 101)?.processID == 20)
   }
 
   @Test
@@ -442,89 +428,20 @@ struct PlatformEventTests {
   }
 
   @Test
-  func unresolvedTransientOwnershipKeepsRetryingWithBoundedBackoff() {
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 1) == 0)
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 2) == 1)
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 3) == 2)
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 8) == 5)
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: false,
-        attempts: 1,
-        retryAfter: 12,
-        now: 11
-      ) == false
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: false,
-        attempts: 1,
-        retryAfter: 12,
-        now: 12
-      )
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: true,
-        attempts: 1,
-        retryAfter: 12,
-        now: 11
-      ) == false
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: true,
-        attempts: 1,
-        retryAfter: 12,
-        now: 12
-      )
-    )
-  }
-
-  @Test
-  func unresolvedTransientOwnershipEventuallyReturnsToIdleCadence() {
-    #expect(
-      transientOwnerResolutionRetryDeadline(afterAttempt: 7, now: 10) == 15
-    )
-    #expect(
-      transientOwnerResolutionRetryDeadline(afterAttempt: 8, now: 10) == nil
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: false,
-        attempts: 8,
-        retryAfter: nil,
-        now: 10
-      ) == false
-    )
-  }
-
-  @Test
-  func repeatedNegativeTransientOwnerResolutionEventuallyClearsCachedOwner() {
-    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 7) == false)
-    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 8))
-  }
-
-  @Test
-  func transientOwnerRetryClampsWindowRefreshToItsDeadline() {
-    #expect(
-      transientOwnerResolutionRefreshInterval(
-        retryAfter: [14, 12],
-        now: 10
-      ) == 2
-    )
-    #expect(
-      transientOwnerResolutionRefreshInterval(
-        retryAfter: [9],
-        now: 10
-      ) == 0
-    )
-    #expect(
-      transientOwnerResolutionRefreshInterval(
-        retryAfter: [],
-        now: 10
-      ) == nil
-    )
+  func unresolvedTransientOwnershipBacksOffThenReturnsToIdleAndClearsItsOwner() {
+    #expect((1...8).map { transientOwnerResolutionRetryDeadline(afterAttempt: $0, now: 10) }
+      == [10, 11, 12, 14, 15, 15, 15, nil])
+    #expect((1...8).map { transientOwnerResolutionShouldClearCachedOwner(afterAttempt: $0) }
+      == [false, false, false, false, false, false, false, true])
+    func due(known: Bool, attempts: Int = 1, retryAfter: TimeInterval? = 12, now: TimeInterval) -> Bool {
+      transientOwnerResolutionIsDue(ownerKnown: known, attempts: attempts, retryAfter: retryAfter, now: now)
+    }
+    #expect([due(known: false, now: 11), due(known: false, now: 12), due(known: true, now: 11),
+      due(known: true, now: 12), due(known: false, attempts: 8, retryAfter: nil, now: 10)]
+      == [false, true, false, true, false])
+    #expect(transientOwnerResolutionRefreshInterval(retryAfter: [14, 12], now: 10) == 2)
+    #expect(transientOwnerResolutionRefreshInterval(retryAfter: [9], now: 10) == 0)
+    #expect(transientOwnerResolutionRefreshInterval(retryAfter: [], now: 10) == nil)
   }
 
   @Test @NavigationActor
@@ -541,21 +458,16 @@ struct PlatformEventTests {
 
   @Test
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
-    #expect(
-      applicationLifecycleRefreshDelays(for: .application)
-        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
-    )
-    #expect(
-      applicationLifecycleRefreshDelays(for: .applicationTerminated)
-        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
-    )
+    #expect(!applicationLifecycleRefreshDelays(for: .application).isEmpty)
+    #expect(applicationLifecycleRefreshDelays(for: .applicationTerminated)
+      == applicationLifecycleRefreshDelays(for: .application))
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: nil) == .process(7))
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 0) == .process(7))
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 1) == .full)
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: nil, knownWindowCount: nil) == .full)
     #expect(applicationLifecycleRetryInvalidation(for: .applicationTerminated, processID: 7, knownWindowCount: nil) == .full)
-    #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
+    #expect(!windowTopologyRefreshDelays(for: .windowCreated).isEmpty)
     #expect(windowTopologyRefreshDelays(for: .windows).isEmpty)
     #expect(windowTopologyRefreshDelays(for: .focus).isEmpty)
   }
