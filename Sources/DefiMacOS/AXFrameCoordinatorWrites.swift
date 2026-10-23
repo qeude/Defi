@@ -400,7 +400,7 @@ extension AXFrameCoordinator {
         // position resizes after the move instead.
         let currentPoint = completedPosition(for: item.key) ?? item.value.fromPoint
         let resizesAfterMove = requiresAsynchronousSizeWrite && positionWriteRequired
-          && size.width > item.value.fromSize.width + 0.5
+          && (size.width > item.value.fromSize.width + 0.5 || size.height > item.value.fromSize.height + 0.5)
           && !requiresVerifiedOffscreenWrite(
             frame: Rect(x: point.x, y: point.y, width: size.width, height: size.height),
             monitorFrames: frame.monitorFrames)
