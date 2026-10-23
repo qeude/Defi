@@ -260,91 +260,26 @@ struct WindowSnapshotStabilityTests {
     #expect(result.windows.first { $0.id == second.id } == second)
   }
 
-  @Test func newlyDiscoveredWindowWinsOverAnUnresolvedPreviousIdentity() {
+  @Test("An unresolved window is kept only until discovery or WindowServer settles it", .bug(id: 89))
+  func unresolvedWindowIsKeptOnlyUntilDiscoveryOrWindowServerSettlesIt() {
     let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [window.id],
-        ignoredWindowIDs: [],
-        unresolvedWindowIDs: [window.id],
-        cgWindows: nil,
-        cachedWindowState: nil
-      ).isEmpty
-    )
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        unresolvedWindowIDs: [window.id],
-        cgWindows: nil,
-        cachedWindowState: nil
-      ) == [window.id]
-    )
-  }
-
-  @Test("Unresolved discovery cannot revive a confirmed closed window", .bug(id: 89))
-  func unresolvedWindowDoesNotOverrideConfirmedClosure() {
-    let window = makeWindow(id: 42)
-    let retainedWindowIDs = cachedWindowIDsToRetain(
-      processID: processID,
-      previousWindows: [window],
-      discoveredWindowIDs: [],
-      ignoredWindowIDs: [],
-      unresolvedWindowIDs: [window.id],
-      cgWindows: [CGWindowRecord(
-        id: 42,
-        processID: processID,
-        layer: 0,
-        title: window.title,
-        frame: window.frame,
-        isOnscreen: false
-      )],
-      cachedWindowState: { _ in (.invalidUIElement, nil) }
-    )
-
-    #expect(retainedWindowIDs.isEmpty)
-  }
-
-  @Test func unresolvedWindowSurvivesUnavailableCGInventoryAfterInvalidAXRead() {
-    let window = makeWindow(id: 42)
-    let retainedWindowIDs = cachedWindowIDsToRetain(
-      processID: processID,
-      previousWindows: [window],
-      discoveredWindowIDs: [],
-      ignoredWindowIDs: [],
-      unresolvedWindowIDs: [window.id],
-      cgWindows: nil,
-      cachedWindowState: { _ in (.invalidUIElement, nil) }
-    )
-
-    #expect(retainedWindowIDs == [window.id])
-  }
-
-  @Test func unresolvedWindowIsRemovedWhenCGReassignsItsIDToAnotherProcess() {
-    let window = makeWindow(id: 42)
-    let retainedWindowIDs = cachedWindowIDsToRetain(
-      processID: processID,
-      previousWindows: [window],
-      discoveredWindowIDs: [],
-      ignoredWindowIDs: [],
-      unresolvedWindowIDs: [window.id],
-      cgWindows: [CGWindowRecord(
-        id: 42,
-        processID: processID + 1,
-        layer: 0,
-        title: window.title,
-        frame: window.frame,
-        isOnscreen: true
-      )],
-      cachedWindowState: { _ in (.cannotComplete, nil) }
-    )
-
-    #expect(retainedWindowIDs.isEmpty)
+    func retained(discovered: Set<WindowID> = [], cg: [CGWindowRecord]?,
+      state: ((WindowID) -> (error: AXError, minimized: Bool?))?) -> Set<WindowID> {
+      cachedWindowIDsToRetain(processID: processID, previousWindows: [window], discoveredWindowIDs: discovered,
+        ignoredWindowIDs: [], unresolvedWindowIDs: [window.id], cgWindows: cg, cachedWindowState: state)
+    }
+    func record(process: pid_t, onscreen: Bool) -> CGWindowRecord {
+      CGWindowRecord(id: 42, processID: process, layer: 0, title: window.title, frame: window.frame,
+        isOnscreen: onscreen)
+    }
+    #expect(retained(cg: nil, state: nil) == [window.id])
+    #expect(retained(discovered: [window.id], cg: nil, state: nil).isEmpty, "a newly discovered window wins")
+    #expect(retained(cg: nil, state: { _ in (.invalidUIElement, nil) }) == [window.id],
+      "an invalid AX read without CG inventory keeps it")
+    #expect(retained(cg: [record(process: processID, onscreen: false)], state: { _ in (.invalidUIElement, nil) })
+      .isEmpty, "a confirmed closure is not revived")
+    #expect(retained(cg: [record(process: processID + 1, onscreen: true)], state: { _ in (.cannotComplete, nil) })
+      .isEmpty, "WindowServer reassigned its ID to another process")
   }
 
   @Test func createdWindowBypassesLaggingApplicationWindowList() {
