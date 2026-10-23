@@ -460,6 +460,7 @@ public final class MacOSPlatform {
   @MainActor var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
   @MainActor var borderStackingRefreshState = WindowBorderStackingRefreshState()
   @MainActor var borderStackingRefreshTask: Task<Void, Never>?
+  @MainActor var borderSettleTask: Task<Void, Never>?
   @MainActor var borderStyle = WindowBorderStyle(
     enabled: true,
     width: 4,

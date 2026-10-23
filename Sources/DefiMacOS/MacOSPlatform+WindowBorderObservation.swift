@@ -540,6 +540,19 @@ extension MacOSPlatform {
     }
   }
 
+  /// Keeps visible rings on the real frames for a moment: an app can still clamp,
+  /// round, or move its window after the motion landed.
+  func settleWindowBordersOnRealFrames() {
+    borderSettleTask?.cancel()
+    borderSettleTask = Task { @MainActor [weak self] in
+      for _ in 0..<45 {
+        guard let self, !Task.isCancelled else { return }
+        refreshWindowBorderGeometry(windowIDs: borderManager.liveGeometryWindowIDs)
+        try? await Task.sleep(for: .milliseconds(33))
+      }
+    }
+  }
+
   public func presentHideWindowBorders() {
     borderManager.hide()
     syncWindowBorderSubscriptions()
@@ -595,11 +608,15 @@ extension MacOSPlatform {
 
   private func resolvedBorderFrame(for windowID: WindowID) -> Rect? {
     let windowServerDriven = windowServerDrivesBorders
+    // Between Defi's own writes, WindowServer bounds are the real frame now; the AX
+    // read-back queues behind a slow app's writes and lagged up to a second.
+    let realFrame = windowServerDriven || frameCoordinator.borderWriteIsRecent(for: windowID)
+      ? nil : borderBoundsProvider.frame(for: windowID)
     return windowBorderGeometryFrame(
       windowServerDriven: windowServerDriven,
       windowServerFrame: windowServerDriven ? borderBoundsProvider.frame(for: windowID) : nil,
       displayedFrame: windowServerDriven
-        ? nil : frameCoordinator.latestDisplayedBorderFrame(for: windowID),
+        ? nil : realFrame ?? frameCoordinator.latestDisplayedBorderFrame(for: windowID),
       plannedFrame: borderFrames.first(where: { $0.windowID == windowID })?.frame
     )
   }

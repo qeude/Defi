@@ -867,7 +867,10 @@ extension MacOSPlatform {
     if presenter.setBordersHidden == nil {
       presenter.setBordersHidden = { [weak self] hidden in
         DispatchQueue.main.async {
-          MainActor.assumeIsolated { self?.borderManager.presentationHidden = hidden }
+          MainActor.assumeIsolated {
+            self?.borderManager.presentationHidden = hidden
+            if !hidden { self?.settleWindowBordersOnRealFrames() }
+          }
         }
       }
       presenter.nativeRingShown = { [weak self] windowID in
