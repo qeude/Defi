@@ -382,7 +382,9 @@ final class DesktopE2ETests: XCTestCase {
   }
 
   func testCarbonReservationsReleaseForRecordingTextEditingAndStop() throws {
-    _ = try preflight()
+    let platform = try preflight()
+    let fixtures = try openFixtures(platform)
+    defer { closeFixtures(fixtures) }
     let key = try Key(accelerator: "ctrl-alt-cmd-slash", aliases: [:])
     func reservationIsFree() -> Bool {
       var reference: EventHotKeyRef?
@@ -411,20 +413,17 @@ final class DesktopE2ETests: XCTestCase {
     let text = NSTextView(frame: NSRect(x: 10, y: 50, width: 250, height: 60))
     window.contentView?.addSubview(recorder)
     window.contentView?.addSubview(text)
-    let frontmost = NSWorkspace.shared.frontmostApplication
     let originalPolicy = NSApplication.shared.activationPolicy()
-    NSApplication.shared.setActivationPolicy(.regular)
-    window.makeKeyAndOrderFront(nil)
-    NSApplication.shared.activate()
     defer {
       recorder.stopRecording()
       window.close()
       settingsTextInputFocused.withLock { $0 = false }
       NSApplication.shared.setActivationPolicy(originalPolicy)
-      frontmost?.activate()
       pumpApplicationEvents(until: { !window.isVisible }, timeout: 0.5)
     }
-    XCTAssertTrue(pumpApplicationEvents(until: { NSApplication.shared.isActive && window.isKeyWindow }, timeout: 2),
+    try activateTestRunner(through: fixtures, platform)
+    window.makeKeyAndOrderFront(nil)
+    XCTAssertTrue(pumpApplicationEvents(until: { window.isKeyWindow }, timeout: 2),
       "The test window must be key before foreground delivery is observed")
     let foreground = DesktopValue(0)
     let localMonitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -444,10 +443,14 @@ final class DesktopE2ETests: XCTestCase {
     func captureEnabled() -> Bool { onNavigation { manager.isHotKeyCaptureEnabled } }
 
     press()
-    press(repeating: true)
-    XCTAssertTrue(pumpApplicationEvents(until: { commands.withLock { $0.count == 2 } }, timeout: 1))
+    XCTAssertTrue(pumpApplicationEvents(until: { commands.withLock { $0.count == 1 } }, timeout: 1))
     pumpApplicationEvents(until: { foreground.value > 0 }, timeout: 0.1)
     XCTAssertEqual(foreground.value, 0, "Carbon must reserve the shortcut from the foreground app")
+    // A posted repeat is not HID autorepeat; whether Carbon reserves it varies, so only delivery is asserted.
+    press(repeating: true)
+    XCTAssertTrue(pumpApplicationEvents(until: { commands.withLock { $0.count == 2 } }, timeout: 1))
+    pumpApplicationEvents(until: { false }, timeout: 0.1)
+    let leakedRepeats = foreground.value
 
     recorder.performClick(nil)
     XCTAssertTrue(pumpApplicationEvents(until: { !captureEnabled() }, timeout: 1))
@@ -472,7 +475,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(pumpApplicationEvents(until: { !captureEnabled() }, timeout: 1))
     XCTAssertTrue(reservationIsFree(), "Text editing must release the reservation")
     press()
-    XCTAssertTrue(pumpApplicationEvents(until: { foreground.value == 1 }, timeout: 1))
+    XCTAssertTrue(pumpApplicationEvents(until: { foreground.value == leakedRepeats + 1 }, timeout: 1))
     window.makeFirstResponder(recorder)
     settingsTextInputFocused.withLock { $0 = false }
     XCTAssertTrue(pumpApplicationEvents(until: captureEnabled, timeout: 1))
@@ -483,7 +486,7 @@ final class DesktopE2ETests: XCTestCase {
     managerStopped = true
     XCTAssertTrue(pumpApplicationEvents(until: reservationIsFree, timeout: 1), "Stopping must release the reservation")
     press()
-    XCTAssertTrue(pumpApplicationEvents(until: { foreground.value == 2 }, timeout: 1))
+    XCTAssertTrue(pumpApplicationEvents(until: { foreground.value == leakedRepeats + 2 }, timeout: 1))
     XCTAssertEqual(commands.withLock { $0 }, Array(repeating: "focus-column right", count: 4))
 
     var reference: EventHotKeyRef?
@@ -523,8 +526,9 @@ final class DesktopE2ETests: XCTestCase {
   // MARK: Settings
 
   func testSettingsSearchRevealsOffscreenOptionAgain() throws {
-    _ = try preflight()
-    let frontmost = NSWorkspace.shared.frontmostApplication
+    let platform = try preflight()
+    let fixtures = try openFixtures(platform)
+    defer { closeFixtures(fixtures) }
     let originalPolicy = NSApplication.shared.activationPolicy()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -537,11 +541,10 @@ final class DesktopE2ETests: XCTestCase {
     defer {
       window.close()
       NSApplication.shared.setActivationPolicy(originalPolicy)
-      frontmost?.activate()
       try? FileManager.default.removeItem(at: directory)
     }
+    try activateTestRunner(through: fixtures, platform)
     window.makeKeyAndOrderFront(nil)
-    NSApplication.shared.activate()
     func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
     func descendants() -> [NSView] { window.contentView.map(views) ?? [] }
     func reservedTopField() -> NSTextField? {
@@ -552,7 +555,7 @@ final class DesktopE2ETests: XCTestCase {
         !target.visibleRect.isEmpty, let scroll = target.enclosingScrollView else { return false }
       return !target.convert(target.visibleRect, to: scroll.contentView).intersection(scroll.contentView.bounds).isEmpty
     }
-    XCTAssertTrue(pumpRunLoop(until: { window.isKeyWindow && descendants().contains { $0 is NSTableView } }, timeout: 2))
+    XCTAssertTrue(pumpApplicationEvents(until: { window.isKeyWindow && descendants().contains { $0 is NSTableView } }, timeout: 2))
     let sidebar = try XCTUnwrap(descendants().compactMap { $0 as? NSTableView }.first)
     XCTAssertTrue(window.makeFirstResponder(sidebar))
     let down = try XCTUnwrap(NSEvent.keyEvent(
@@ -653,7 +656,18 @@ final class DesktopE2ETests: XCTestCase {
     controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
     XCTAssertEqual(controller.retainedPanelCount, screens.count)
     XCTAssertTrue(panels().allSatisfy { !$0.isVisible }, "Preparing must not show the Overview")
-    let ready = await waitUntil(timeout: 6) { controller.surfaceCaptureState == "ready" }
+    func prepareUntilReady() async -> Bool {
+      // The daemon re-prepares on every discovery tick; a capture past its deadline retries the same way.
+      var last = Date.distantPast
+      return await waitUntil(timeout: 10) {
+        if Date().timeIntervalSince(last) > 1 {
+          last = Date()
+          controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
+        }
+        return controller.surfaceCaptureState == "ready"
+      }
+    }
+    let ready = await prepareUntilReady()
     XCTAssertTrue(ready, "Capture state=\(controller.surfaceCaptureState)")
     let original = try XCTUnwrap(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID])?[windowID])
     OverviewSurfaceCapture.shared.prepare([OverviewSurfaceRequest(windowID: windowID,
@@ -661,8 +675,7 @@ final class DesktopE2ETests: XCTestCase {
       width: original.width, height: original.height)], enabled: true)
     XCTAssertNil(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]),
       "A reused ID must stop exposing the previous owner's pixels immediately, including during throttle")
-    controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
-    let recaptured = await waitUntil(timeout: 8) { controller.surfaceCaptureState == "ready" }
+    let recaptured = await prepareUntilReady()
     XCTAssertTrue(recaptured, "Capture state=\(controller.surfaceCaptureState)")
     let frames = try XCTUnwrap(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]))
     let projection = projectOverview(snapshot: fixtureSnapshot, monitorID: monitorID,
@@ -857,7 +870,7 @@ final class DesktopE2ETests: XCTestCase {
         XCTAssertTrue(pumpRunLoop(until: {
           actual = platform.frame(of: element)
           return actual.map { abs($0.height - target.height) <= 2 && abs($0.y - target.y) <= 2 } == true
-        }, timeout: 1), "Monitor transfer must fill the destination height: monitor=\(monitor.id) invalidated=\(invalidatesDisplayState) target=\(target) actual=\(String(describing: actual))")
+        }, timeout: 1), "Monitor transfer must fill the destination height: monitor=\(monitor.id) invalidated=\(invalidatesDisplayState) target=\(target) actual=\(String(describing: actual)) trace=\(onNavigation { platform.frameCoordinatorTrace })")
       }
     }
     for monitor in snapshot.monitors {
@@ -1118,12 +1131,28 @@ final class DesktopE2ETests: XCTestCase {
     frontmostBeforeFixtures?.activate()
   }
 
+  /// AX focus brings a fixture forward even when cooperative activation refuses the runner's request.
   private func activate(_ process: Process, focusing id: WindowID, _ platform: MacOSPlatform) throws {
-    try XCTUnwrap(NSRunningApplication(processIdentifier: process.processIdentifier)).activate()
+    // An active runner must yield before any other app can take activation.
+    NSApplication.shared.yieldActivation(to: try XCTUnwrap(NSRunningApplication(processIdentifier: process.processIdentifier)))
+    onNavigation { platform.focus(id) }
     XCTAssertTrue(pumpRunLoop(until: {
       platform.snapshot(config: Config()).focusedWindowID == id
         && NSWorkspace.shared.frontmostApplication?.processIdentifier == process.processIdentifier
-    }, timeout: 2), "The fixture must hold native focus before the next request")
+    }, timeout: 2), "The fixture must hold native focus before the next request: frontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1) target=\(process.processIdentifier) runner=\(getpid()) focused=\(String(describing: platform.snapshot(config: Config()).focusedWindowID)) id=\(id)")
+  }
+
+  /// Cooperative activation lets the runner activate only when the active app yields to it.
+  private func activateTestRunner(through fixtures: DesktopFocusFixturePair, _ platform: MacOSPlatform) throws {
+    try activate(fixtures.floatingProcess, focusing: fixtures.floatingWindowID, platform)
+    let source = try XCTUnwrap(NSRunningApplication(processIdentifier: fixtures.floatingProcess.processIdentifier))
+    NSApplication.shared.setActivationPolicy(.regular)
+    fixtures.yieldActivation(to: getpid())
+    // Activation arrives as an AppKit event, so only the application event loop observes it.
+    XCTAssertTrue(pumpApplicationEvents(until: {
+      NSRunningApplication.current.activate(from: source, options: [])
+      return NSApplication.shared.isActive
+    }, timeout: 2), "The frontmost fixture must yield activation to the test runner")
   }
 
   private func settleFrames(_ platform: MacOSPlatform) -> Bool {

@@ -31,8 +31,14 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
     self.window = window
     NSApplication.shared.activate()
 
+    // Cooperative activation: only the active app can let the test runner activate.
     DispatchQueue.global().async {
-      _ = FileHandle.standardInput.readDataToEndOfFile()
+      while let line = readLine() {
+        guard line.hasPrefix("yield "), let pid = pid_t(line.dropFirst(6)) else { continue }
+        DispatchQueue.main.async {
+          NSRunningApplication(processIdentifier: pid).map { NSApplication.shared.yieldActivation(to: $0) }
+        }
+      }
       DispatchQueue.main.async {
         window.close()
         NSApplication.shared.terminate(nil)
