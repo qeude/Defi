@@ -870,6 +870,9 @@ extension MacOSPlatform {
           MainActor.assumeIsolated { self?.borderManager.presentationHidden = hidden }
         }
       }
+      presenter.nativeRingShown = { [weak self] windowID in
+        await MainActor.run { self?.borderManager.showsActiveRing(for: windowID) ?? true }
+      }
     }
     return presenter.begin(windows: proxies, viewport: viewport,
       generation: frameSubmissionGeneration, nativeTargets: targets, duration: duration,

@@ -690,6 +690,9 @@ final class RibbonProxyPresenter {
   var cornerRadii: [WindowID: Double] = [:]
   /// Hides or shows native borders on the main thread; the overlay draws its own.
   var setBordersHidden: (@Sendable (Bool) -> Void)?
+  /// Whether the native ring of this focused window is on screen.
+  var nativeRingShown: (@Sendable (WindowID) async -> Bool)?
+  private var selectedID: WindowID?
   private(set) var lastFallback = "none"
 
   private var layers: RibbonProxyLayers?
@@ -802,6 +805,7 @@ final class RibbonProxyPresenter {
 
     let previous = presenting ? windowLayers.mapValues { ($0.presentation() ?? $0).frame } : [:]
     generation &+= 1
+    selectedID = selectedWindowID
     borderRestore?.cancel(); borderRestore = nil
     CATransaction.begin(); CATransaction.setDisableActions(true)
     layers.backdrop.frame = layers.root.bounds
@@ -883,7 +887,11 @@ final class RibbonProxyPresenter {
     } else if let placeholder {
       placeholder.removeFromSuperlayer(); self.placeholder = nil
     }
-    layers.root.removeAnimation(forKey: "fade")
+    for sublayer in layers.root.sublayers ?? [] {
+      for faded in [sublayer] + (sublayer.sublayers ?? []) {
+        faded.removeAnimation(forKey: "fade"); faded.opacity = 1
+      }
+    }
     layers.root.opacity = 1
     layers.root.isHidden = false
     layers.root.mask = nil
@@ -1083,16 +1091,37 @@ final class RibbonProxyPresenter {
       let fade = CABasicAnimation(keyPath: "opacity")
       fade.fromValue = 1; fade.toValue = 0; fade.duration = duration
       fade.timingFunction = CAMediaTimingFunction(name: veiled.isEmpty ? .easeOut : .easeInEaseOut)
-      layers.root.opacity = 0
       fade.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
       fade.beginTime = layers.root.convertTime(CACurrentMediaTime(), from: nil)
-      layers.root.add(fade, forKey: "fade")
+      func fadeOut(_ layer: CALayer) { layer.opacity = 0; layer.add(fade, forKey: "fade") }
+      // The focused ring stays until the native one shows: that waits for native focus.
+      let ring = selectedID.flatMap { windowLayers[$0] }
+      let holdsRing = ring?.sublayers?.contains { $0.name == "border" && !$0.isHidden } == true
+      for sublayer in layers.root.sublayers ?? [] {
+        if holdsRing, let ring, sublayer === ring {
+          for part in ring.sublayers ?? [] where part.name != "border" { fadeOut(part) }
+        } else {
+          fadeOut(sublayer)
+        }
+      }
       ribbonProxyCommit(#line)
+      RibbonProxyStore.shared.isMoving = false
       // The real rings come back under the fading cards, so no frame goes without one.
       borderRestore?.cancel(); borderRestore = nil
       if bordersHidden { bordersHidden = false; setBordersHidden?(false) }
+      let selectedID = holdsRing ? selectedID : nil, nativeRingShown = nativeRingShown
       Task {
         try? await Task.sleep(for: .milliseconds(Int(duration * 1_000) + 10))
+        if let selectedID, let nativeRingShown {
+          let held = CACurrentMediaTime(), deadline = held + 1.5
+          while generation == fadeToken, CACurrentMediaTime() < deadline,
+            await !nativeRingShown(selectedID) {
+            try? await Task.sleep(for: .milliseconds(8))
+          }
+          ribbonProxyLogger.notice("ring-handoff ms=\(Int((CACurrentMediaTime() - held) * 1_000))")
+          // One more frame: the native ring is set, not yet composited.
+          try? await Task.sleep(for: .milliseconds(17))
+        }
         guard generation == fadeToken else { return }
         cancel("landed")
       }
