@@ -58,6 +58,7 @@ extension Daemon {
     var nativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
     var outOfScopeWindowIDs = Set<WindowID>()
+    var cachedMonitorIDs = Set<MonitorID>()
     let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
     let viewports = viewportsByMonitor
     let overviewParksWindows = overviewState.isOpen
@@ -87,6 +88,7 @@ extension Daemon {
         )
         hiddenWindowIDs.formUnion(cached.hiddenWindowIDs)
         outOfScopeWindowIDs.formUnion(cached.assignments.map(\.windowID))
+        cachedMonitorIDs.insert(monitor.id)
         continue
       }
       guard
@@ -241,7 +243,8 @@ extension Daemon {
       viewports[monitor.id].map { viewport in
         WindowProxyMonitor(viewport: viewport,
           windowIDs: Set(monitor.workspaces.flatMap { $0.columns.flatMap(\.windows) + $0.floatingWindows }),
-          workspaceShift: shifts ? workspaceShifts[monitor.id] : nil)
+          workspaceShift: shifts ? workspaceShifts[monitor.id] : nil,
+          laidOut: !cachedMonitorIDs.contains(monitor.id))
       }
     }
     platform.apply(

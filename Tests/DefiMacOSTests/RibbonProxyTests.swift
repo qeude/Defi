@@ -1,5 +1,6 @@
 import CoreGraphics
 import DefiConfig
+import DefiCore
 import QuartzCore
 import DefiModel
 import Testing
@@ -66,6 +67,25 @@ struct RibbonProxyTests {
     var switched = left
     switched.workspaceShift = -800
     #expect(moves(switched, targets: [:], previous: [:]))
+  }
+
+  @Test func aLayoutLimitedToOneDisplayLeavesTheOtherStillOnTheNextFullLayout() {
+    let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2)
+    let slot = Rect(x: 0, y: 40, width: 500, height: 800)
+    let next = Rect(x: -400, y: 40, width: 500, height: 800)
+    let side = Rect(x: 2564, y: -932, width: 488, height: 915)
+    let external = WindowProxyMonitor(viewport: Rect(x: 0, y: 0, width: 2560, height: 1440), windowIDs: [a])
+    let builtIn = WindowProxyMonitor(viewport: Rect(x: 2560, y: -949, width: 1512, height: 949),
+      windowIDs: [b], laidOut: false)
+    let history = windowProxyRibbonHistory([FrameAssignment(windowID: a, frame: next)],
+      previous: [a: slot, b: side], monitors: [external, builtIn])
+    #expect(history == [a: next, b: side])
+    let laidOut = WindowProxyMonitor(viewport: builtIn.viewport, windowIDs: [b])
+    #expect(!windowProxyDisplayMoves(laidOut, displayCount: 2, ribbonTargets: [a: next, b: side],
+      previousRibbonFrames: history, opened: [], dropped: nil))
+    // Laid out without ribbon frames (an emptied workspace), its windows have left.
+    #expect(windowProxyRibbonHistory([FrameAssignment(windowID: a, frame: next)],
+      previous: [a: slot, b: side], monitors: [external, laidOut]) == [a: next])
   }
 
   @Test func enteringWindowTravelsWithTheSharedNavigationMotion() {

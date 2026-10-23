@@ -16,11 +16,15 @@ public struct WindowProxyMonitor: Equatable, Sendable {
   /// Vertical travel of a workspace switch on this display, so windows entering an
   /// empty or emptied ribbon still know where to come from.
   public var workspaceShift: Double?
+  /// False when the layout reused this display's previous plan: nothing on it moves.
+  public let laidOut: Bool
 
-  public init(viewport: Rect, windowIDs: Set<WindowID>, workspaceShift: Double? = nil) {
+  public init(viewport: Rect, windowIDs: Set<WindowID>, workspaceShift: Double? = nil,
+    laidOut: Bool = true) {
     self.viewport = viewport
     self.windowIDs = windowIDs
     self.workspaceShift = workspaceShift
+    self.laidOut = laidOut
   }
 }
 

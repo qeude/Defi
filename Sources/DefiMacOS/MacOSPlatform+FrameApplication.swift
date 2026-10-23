@@ -45,15 +45,8 @@ extension MacOSPlatform {
     source: String = "platform"
   ) {
     let previousRibbonFrames = previousLogicalRibbonFrames
-    previousLogicalRibbonFrames = Dictionary(uniqueKeysWithValues:
-      ribbonFrames.map { ($0.windowID, $0.frame) })
-    // A display this layout left out keeps its history: its next layout must not read
-    // as every window entering.
-    let laidOut = Set(ribbonFrames.map(\.windowID)).union(
-      assignments.lazy.map(\.windowID).filter { !requestedSkippedWindowIDs.contains($0) })
-    for monitor in windowProxyMonitors where monitor.windowIDs.isDisjoint(with: laidOut) {
-      for id in monitor.windowIDs { previousLogicalRibbonFrames[id] = previousRibbonFrames[id] }
-    }
+    previousLogicalRibbonFrames = windowProxyRibbonHistory(ribbonFrames,
+      previous: previousRibbonFrames, monitors: windowProxyMonitors)
     frameSubmissionGeneration &+= 1
     let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
@@ -491,6 +484,17 @@ func windowProxyVisibleOverlap(_ frame: Rect, _ area: Rect) -> Double {
   return max(min(frame.x + frame.width, area.x + area.width) - max(frame.x, area.x), 0)
 }
 
+/// The logical ribbon frames the next layout moves from. A display this layout left
+/// out keeps its own: its next layout must not read as every window entering.
+func windowProxyRibbonHistory(_ ribbonFrames: [FrameAssignment], previous: [WindowID: Rect],
+  monitors: [WindowProxyMonitor]) -> [WindowID: Rect] {
+  var history = Dictionary(uniqueKeysWithValues: ribbonFrames.map { ($0.windowID, $0.frame) })
+  for monitor in monitors where !monitor.laidOut {
+    for id in monitor.windowIDs { history[id] = previous[id] }
+  }
+  return history
+}
+
 /// Whether a layout moves anything on one display. With several displays a command
 /// usually moves one of them: the others present nothing, so their borders and windows
 /// stay untouched.
@@ -559,6 +563,11 @@ extension MacOSPlatform {
       let owned = monitor.windowIDs
       let presenter = RibbonProxyPresenter.on(display)
       let released = windowProxyDroppedWindowID.map { !owned.contains($0) && presenter.release($0) } ?? false
+      // Its windows are absent from this layout's ribbon, not leaving it.
+      guard monitor.laidOut else {
+        if released { presenter.landDrop() }
+        continue
+      }
       let ribbon = ribbonFrames.filter { owned.contains($0.windowID) }
       let shown = applyWindowProxies(on: monitor, presenter: presenter,
         assignments: assignments.filter { owned.contains($0.windowID) }, ribbonFrames: ribbon,
