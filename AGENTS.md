@@ -127,8 +127,15 @@ The scrolling workspace is one continuous horizontal strip.
   overlap; macOS pulls a window onto the display under most of its width and
   keeps its title bar above that display's visible bottom, so judge each spot
   where macOS will leave it
-- never change the display arrangement; commands and pointer navigation use
-  native display coordinates
+- when display heights overlap, apply the temporary display staircase so
+  partially visible columns never spill onto another display; commands and
+  pointer crossings follow the desk the user arranged in System Settings
+- never adopt Defi's own staircase as the desk; report
+  `displayArrangement=ambiguous` until the user rearranges the displays
+- restore the desk for the login session on shutdown, and never commit a
+  staircase with session scope, including in test cleanup
+- compute parking in the technical coordinates the daemon lays out in, so a
+  parked corner never sits under another display of the staircase
 - keep native click, Dock, and Command-Tab focus compatible with virtual-workspace activation
 - ignore redundant native focus on the already-selected window; no reflow or animation from a plain click
 

@@ -10,6 +10,18 @@ Defi's logical representation of one connected macOS display. Each monitor owns
 an independent ordered stack of workspaces.
 _Avoid_: Screen, output
 
+**Desk**:
+The display arrangement the user chose in System Settings. Commands and pointer
+crossings between monitors follow the desk.
+_Avoid_: Layout, display layout
+
+**Display staircase**:
+A temporary corner-to-corner display arrangement that Defi applies while display
+heights overlap on the desk, so a partially visible column never reaches another
+display. Defi restores the desk when it stops and never adopts the staircase as
+the desk.
+_Avoid_: Isolation, technical layout
+
 **Workspace**:
 A globally unique virtual collection of windows owned by exactly one monitor at
 a time. A workspace is either ordinary or named and may move between monitors.
