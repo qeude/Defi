@@ -93,7 +93,7 @@ final class AXFrameAccessibilityWriter {
         guard shouldApply() else { return false }
         guard apply(write, point: point) == .success else { continue }
         guard let actual = readPosition(write.element) else { return true }
-        if pointDistance(actual, point) <= 1 {
+        if parkedPositionHolds(actual, target: point) {
           return true
         }
       }

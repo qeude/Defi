@@ -676,6 +676,7 @@ extension SnapshotEngine {
     var deferredMismatchCount = 0
     var settledCommitLatenciesMS: [Double] = []
     var commandObservations: [(CommandPerformanceContext, WindowID, Rect, Rect, Rect)] = []
+    let hiddenWindowIDs = lastHiddenWindowIDs
     for window in windows
     where freshObservationIDs.contains(window.id)
       && !nativeFullscreenWindowIDs.contains(window.id)
@@ -710,7 +711,8 @@ extension SnapshotEngine {
         continue
       }
       guard let target = targetFrames[window.id],
-        !approximatelyEqual(window.frame, target)
+        !approximatelyEqual(window.frame, target),
+        !(hiddenWindowIDs.contains(window.id) && parkedFrameHolds(window.frame, target: target))
       else {
         continue
       }

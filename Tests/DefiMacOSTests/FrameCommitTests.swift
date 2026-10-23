@@ -464,6 +464,45 @@ struct FrameCommitTests {
   }
 
   @Test
+  func parkedWindowStoppedByItsTitleBarIsNoDrift() {
+    let target = Rect(x: 2_559, y: 1_365, width: 1_270, height: 1_359)
+    #expect(parkedFrameHolds(Rect(x: 2_559, y: 1_345, width: 1_270, height: 1_359), target: target))
+    #expect(!parkedFrameHolds(Rect(x: 2_559, y: 1_265, width: 1_270, height: 1_359), target: target),
+      "Pulled back onto the display")
+    #expect(!parkedFrameHolds(Rect(x: 2_000, y: 1_365, width: 1_270, height: 1_359), target: target),
+      "Moved sideways")
+    #expect(!parkedFrameHolds(Rect(x: 2_559, y: 1_365, width: 800, height: 1_359), target: target),
+      "Resized")
+  }
+
+  @Test(arguments: [(20.0, 0), (100.0, 1)])
+  func parkedWindowStoppedByItsTitleBarNeedsNoRepair(raisedBy: Double, repairs: Int) {
+    let point = CGPoint(x: 2_559, y: 1_365)
+    let writes = Mutex(0)
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in writes.withLock { $0 += 1 }; return true },
+      positionReader: { _ in CGPoint(x: point.x, y: point.y - raisedBy) }))
+    let windowID = WindowID(rawValue: 1)
+    let element = AXUIElementCreateApplication(-1)
+    let size = CGSize(width: 1_200, height: 900)
+    coordinator.parkingTargets[windowID] = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: point, point: point, fromSize: size, size: size,
+      positionChanged: true, sizeChanged: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: true, requiresVerifiedOffscreenWrite: false
+    )
+    let schedule = ParkingVerificationSchedule(
+      expectedPoint: point, deadline: ProcessInfo.processInfo.systemUptime + 1.4)
+    coordinator.parkingVerificationSchedules[windowID] = schedule
+
+    coordinator.verifyParkingTarget(
+      windowID: windowID, expectedPoint: point, schedule: schedule, isFinalCheck: true)
+    #expect(writes.withLock { $0 } == repairs * 2)
+    #expect((coordinator.parkingVerificationSchedules[windowID] == nil) == (repairs == 0))
+  }
+
+  @Test
   func interruptedRibbonDoesNotMistakeUncommittedParkingTargetForAppliedPosition() {
     let target = Rect(x: -1505, y: 37, width: 1506, height: 902)
     let actual = CGPoint(x: -231, y: 37)
@@ -489,6 +528,11 @@ struct FrameCommitTests {
       == CGPoint(x: target.x, y: native.y))
     #expect(frameWritePosition(target: destination, from: start, horizontalOnly: false)
       == destination)
+    let parked = CGPoint(x: 2_559, y: 1_439)
+    #expect(frameWritePosition(target: destination, from: parked, horizontalOnly: true)
+      == destination, "A column leaving its parked corner must reach the ribbon's height")
+    #expect(frameWriteIntent(reference: Rect(x: 2_559, y: 1_439, width: 1506, height: 902),
+      target: target, positionsOnly: true, horizontalOnly: true).position)
   }
 
   private func makeMotionWrite(
@@ -1431,6 +1475,11 @@ struct FrameCommitTests {
         frame: Rect(x: -905, y: 40, width: 1_204, height: 860),
         monitorFrames: [monitor]
       ) == false)
+    #expect(
+      requiresVerifiedOffscreenWrite(
+        frame: Rect(x: 0, y: 899, width: 1_204, height: 860),
+        monitorFrames: [monitor]
+      ), "A window parked below its display shows one row")
   }
 
   @Test

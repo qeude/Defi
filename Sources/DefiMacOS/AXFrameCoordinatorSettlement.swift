@@ -310,7 +310,7 @@ extension AXFrameCoordinator {
       lock.lock()
       completedParkingChecks += 1
       lock.unlock()
-      guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else {
+      guard !parkedPositionHolds(actual, target: expectedPoint) else {
         verified = true
         return
       }
@@ -333,7 +333,7 @@ extension AXFrameCoordinator {
         return
       }
       guard let repaired = accessibilityWriter.readPosition(write.element),
-        accessibilityWriter.pointDistance(repaired, expectedPoint) <= 1
+        parkedPositionHolds(repaired, target: expectedPoint)
       else { return }
       guard parkingVerificationIsCurrent(
         windowID: windowID,

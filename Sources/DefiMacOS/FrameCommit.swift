@@ -10,8 +10,15 @@ struct FrameWriteIntent: Equatable, Sendable {
   let size: Bool
 }
 
+/// Horizontal navigation keeps an app's own vertical clamp (a few points), never
+/// a parked window's place below its display.
+func keepsNativeY(from startY: Double, to targetY: Double, horizontalOnly: Bool) -> Bool {
+  horizontalOnly && abs(targetY - startY) < 40
+}
+
 func frameWritePosition(target: CGPoint, from start: CGPoint, horizontalOnly: Bool) -> CGPoint {
-  CGPoint(x: target.x, y: horizontalOnly ? start.y : target.y)
+  CGPoint(x: target.x,
+    y: keepsNativeY(from: start.y, to: target.y, horizontalOnly: horizontalOnly) ? start.y : target.y)
 }
 
 func frameWriteIntent(
@@ -22,7 +29,8 @@ func frameWriteIntent(
 ) -> FrameWriteIntent {
   FrameWriteIntent(
     position: abs(reference.x - target.x) >= 0.5
-      || (!horizontalOnly && abs(reference.y - target.y) >= 0.5),
+      || (!keepsNativeY(from: reference.y, to: target.y, horizontalOnly: horizontalOnly)
+        && abs(reference.y - target.y) >= 0.5),
     size: !positionsOnly
       && (abs(reference.width - target.width) >= 0.5
         || abs(reference.height - target.height) >= 0.5)
