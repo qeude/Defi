@@ -578,12 +578,24 @@ struct WindowDiscoveryTests {
       ) == .floating)
   }
 
+  @Test(arguments: ["AXSystemDialog", "AXSystemFloatingWindow"])
+  func `App-drawn popups stay unmanaged unless modal`(subrole: String) {
+    func classify(isModal: Bool) -> WindowDisposition {
+      classifyWindow(
+        role: kAXWindowRole, subrole: subrole, appID: "com.example.app",
+        hasCloseButton: false, canResize: false, isModal: isModal,
+        configuredFloating: false, forceTiling: false)
+    }
+    #expect(classify(isModal: false) == .ignored)
+    #expect(classify(isModal: true) == .floating)
+  }
+
   @Test(arguments: [
-    (kAXWindowRole, Optional("AXSystemDialog")),
+    (kAXWindowRole, Optional("AXDialog")),
     (kAXWindowRole, Optional("AXFloatingWindow")),
     (kAXSheetRole, nil),
   ])
-  func `System dialogs and sheets float by default`(
+  func `Dialogs and sheets float by default`(
     testCase: (role: String, subrole: String?)
   ) {
     #expect(

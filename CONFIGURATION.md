@@ -611,8 +611,10 @@ Multiple matching rules combine in file order:
 - last matching `initial_column_width` that specifies a value wins
 - boolean values combine with OR; later `false` cannot clear an earlier `true`
 
-Defi automatically floats sheets, dialogs, system dialogs, native floating
-panels, and standard windows identified as fixed-size or auxiliary. Floating
+Defi automatically floats sheets, dialogs, modal windows, native floating
+panels, and standard windows identified as fixed-size or auxiliary. Non-modal
+system-dialog and system-floating windows are app-drawn menus or palettes and
+stay unmanaged; `floating = true` in an app rule still manages them. Floating
 windows keep observed size and position, park with their workspace, and remain
 isolated per monitor. Use `force_tiling = true` only for windows known to behave
 correctly when resized.

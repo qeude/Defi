@@ -643,6 +643,9 @@ func classifyWindow(
     return .floating
   }
   guard subrole != nil else { return .unavailable }
+  // App-drawn menus and palettes (Yab's action menu): AeroSpace, yabai, OmniWM and
+  // Amethyst never manage these subroles either. A modal one floats above.
+  if subrole == "AXSystemDialog" || subrole == "AXSystemFloatingWindow" { return .ignored }
   if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {
     return .tiled
   }
