@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import DefiConfig
 import DefiModel
@@ -56,5 +57,49 @@ struct CheatsheetHotKeyTests {
     #expect(shortcuts.contains { $0.keys == "✦←" && $0.command == "Focus column first" })
     #expect(shortcuts.contains { $0.keys == "✦/" && $0.command == "Toggle cheatsheet" })
     #expect(shortcuts.contains { $0.command == "Focus column left" } == false)
+  }
+}
+
+@MainActor
+struct CheatsheetPanelTests {
+  @Test
+  func `Panel fits its content and never restores a closed panel or takes focus`() async throws {
+    let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let controller = CheatsheetController(config: Config(
+      modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], defaultKeyModifier: "hyper"
+    ))
+    defer { controller.close() }
+    func visiblePanel() -> NSWindow? {
+      NSApplication.shared.windows.first { $0.title == "Defi keyboard shortcuts" && $0.isVisible }
+    }
+    controller.show(on: nil)
+    let first = try #require(visiblePanel())
+    #expect(!first.canBecomeKey)
+    #expect(!first.canBecomeMain)
+    #expect(!first.styleMask.contains(.titled))
+    controller.close()
+    controller.show(on: nil)
+    let current = try #require(visiblePanel())
+    let deadline = ContinuousClock.now + .seconds(2)
+    while (first.isVisible || current.alphaValue < 0.99), ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!first.isVisible, "A closed panel must not reappear")
+    #expect(abs(current.alphaValue - 1) < 0.01)
+    #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier == frontmost)
+    let screen = try #require(current.screen)
+    #expect(current.frame.height < screen.visibleFrame.height - 48)
+    #expect(current.frame.width < screen.visibleFrame.width - 48)
+    #expect(current.frame.width > 600)
+    #expect(abs(current.frame.midX - screen.visibleFrame.midX) <= 1)
+    #expect(abs(current.frame.midY - screen.visibleFrame.midY) <= 1)
+    let fitted = current.frame
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(current.frame == fitted, "The fitted panel must not resize after showing")
+    controller.close()
+    while current.isVisible, ContinuousClock.now < deadline + .seconds(1) {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!current.isVisible)
   }
 }
