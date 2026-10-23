@@ -64,7 +64,7 @@ struct CheatsheetHotKeyTests {
 struct CheatsheetPanelTests {
   @Test
   func `Panel fits its content and never restores a closed panel or takes focus`() async throws {
-    let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let wasActive = NSApplication.shared.isActive
     let controller = CheatsheetController(config: Config(
       modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], defaultKeyModifier: "hyper"
     ))
@@ -86,7 +86,7 @@ struct CheatsheetPanelTests {
     }
     #expect(!first.isVisible, "A closed panel must not reappear")
     #expect(abs(current.alphaValue - 1) < 0.01)
-    #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier == frontmost)
+    #expect(NSApplication.shared.isActive == wasActive, "Showing the panel must not activate Defi")
     let screen = try #require(current.screen)
     #expect(current.frame.height < screen.visibleFrame.height - 48)
     #expect(current.frame.width < screen.visibleFrame.width - 48)
