@@ -1118,77 +1118,30 @@ struct WindowSnapshotStabilityTests {
       == [true, true, false, false])
   }
 
-  @Test func transientGeometryFailureRemainsUnavailable() {
-    #expect(
-      windowGeometryDiscovery(minimized: false, frame: { nil }) == .unavailable
-    )
+  @Test func geometryDiscoveryIgnoresMinimizedAndTinyWindowsAndKeepsFailuresUnavailable() {
+    var reads = 0
+    #expect(windowGeometryDiscovery(minimized: true) { reads += 1; return frame } == .ignored)
+    #expect(reads == 0, "A minimized window does not read its geometry")
+    #expect(windowGeometryDiscovery(minimized: false) { Rect(x: 0, y: 0, width: 79, height: 60) } == .ignored)
+    #expect(windowGeometryDiscovery(minimized: false) { nil } == .unavailable)
+    #expect(windowGeometryDiscovery(minimized: false) { frame } == .usable(frame))
   }
 
-  @Test func minimizedAndAuxiliarySizedWindowsRemainIgnored() {
-    #expect(
-      windowGeometryDiscovery(minimized: true, frame: { frame }) == .ignored
-    )
-    #expect(
-      windowGeometryDiscovery(
-        minimized: false,
-        frame: { Rect(x: 0, y: 0, width: 79, height: 60) }
-      ) == .ignored
-    )
-  }
-
-  @Test func minimizedWindowDoesNotReadGeometry() {
-    var geometryReadCount = 0
-
-    let discovery = windowGeometryDiscovery(minimized: true) {
-      geometryReadCount += 1
-      return frame
-    }
-
-    #expect(discovery == .ignored)
-    #expect(geometryReadCount == 0)
-  }
-
-  @Test func minimizedFallbackWindowSkipsRemainingAttributeReads() {
-    var remainingReadCount = 0
-    func recordRead<Value>(_ value: Value) -> Value {
-      remainingReadCount += 1
-      return value
-    }
-
-    let attributes = fallbackWindowAttributes(
-      minimized: { true },
-      frame: { recordRead(frame) },
-      title: { recordRead("Window") },
-      role: { recordRead(kAXWindowRole) },
-      subrole: { recordRead(kAXStandardWindowSubrole) },
-      modal: { recordRead(true) }
-    )
-
-    #expect(attributes.minimized == true)
-    #expect(attributes.frame == nil)
-    #expect(attributes.title.isEmpty)
-    #expect(attributes.role == nil)
-    #expect(attributes.subrole == nil)
-    #expect(remainingReadCount == 0)
-  }
-
-  @Test func fallbackWindowAttributesPreservesModalState() {
-    let attributes = fallbackWindowAttributes(
-      minimized: { false },
-      frame: { frame },
-      title: { "Sheet" },
-      role: { kAXWindowRole },
-      subrole: { kAXStandardWindowSubrole },
-      modal: { true }
-    )
-
-    #expect(attributes.modal == true)
-  }
-
-  @Test func usableWindowGeometryRemainsDiscoverable() {
-    #expect(
-      windowGeometryDiscovery(minimized: false, frame: { frame }) == .usable(frame)
-    )
+  @Test func fallbackAttributesStopAtMinimizedAndKeepModalState() {
+    var reads = 0
+    func read<Value>(_ value: Value) -> Value { reads += 1; return value }
+    let minimized = fallbackWindowAttributes(minimized: { true }, frame: { read(frame) }, title: { read("Window") },
+      role: { read(kAXWindowRole) }, subrole: { read(kAXStandardWindowSubrole) }, modal: { read(true) })
+    #expect(minimized.minimized == true)
+    #expect(minimized.frame == nil)
+    #expect(minimized.title.isEmpty)
+    #expect(minimized.role == nil)
+    #expect(minimized.subrole == nil)
+    #expect(reads == 0)
+    let sheet = fallbackWindowAttributes(minimized: { false }, frame: { frame }, title: { "Sheet" },
+      role: { kAXWindowRole }, subrole: { kAXStandardWindowSubrole }, modal: { true })
+    #expect(sheet.modal == true)
+    #expect(sheet.title == "Sheet")
   }
 
   @Test(arguments: [true, false], ["", "Duplicate"])
@@ -1335,19 +1288,20 @@ struct WindowSnapshotStabilityTests {
     #expect(retained.isEmpty)
   }
 
-  @Test func unavailableCGInventoryPreservesCachedWindow() {
+  @Test func cachedWindowsSurviveOnlyUnconfirmedAccessibilityOmissions() {
     let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: nil,
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ) == [window.id]
-    )
+    func retained(discovered: Set<WindowID> = [], ignored: Set<WindowID> = [], cg: [CGWindowRecord]? = nil,
+      state: ((WindowID) -> (error: AXError, minimized: Bool?))?) -> Set<WindowID> {
+      cachedWindowIDsToRetain(processID: processID, previousWindows: [window], discoveredWindowIDs: discovered,
+        ignoredWindowIDs: ignored, cgWindows: cg, cachedWindowState: state)
+    }
+    let listed = [makeCGWindow(id: 42)]
+    #expect(retained(state: { _ in (.cannotComplete, nil) }) == [window.id], "no CG inventory")
+    #expect(retained(cg: listed, state: nil) == [window.id], "the application's AX connection failed")
+    #expect(retained(cg: listed, state: { _ in (.success, true) }).isEmpty, "minimized")
+    #expect(retained(discovered: [window.id], cg: listed, state: { _ in (.cannotComplete, nil) }).isEmpty)
+    #expect(retained(ignored: [window.id], cg: listed, state: { _ in (.cannotComplete, nil) }).isEmpty)
+    #expect(retained(cg: [], state: { _ in (.cannotComplete, nil) }).isEmpty, "closed")
   }
 
   @Test func cachedWindowDoesNotProvideFreshFrameObservation() {
@@ -1471,21 +1425,6 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
-  @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
-    let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [makeCGWindow(id: 42)],
-        cachedWindowState: { _ in (.success, true) }
-      ).isEmpty
-    )
-  }
-
   @Test(arguments: [AXError.invalidUIElement, .cannotComplete, .success], [true, false])
   func invalidHiddenCachedWindowIsRemovedWithoutGrace(error: AXError, isOnscreen: Bool) {
     let window = makeWindow(id: 42)
@@ -1498,57 +1437,6 @@ struct WindowSnapshotStabilityTests {
       cachedWindowState: { _ in (error, nil) }
     )
     #expect(retained.isEmpty == (error == .invalidUIElement && !isOnscreen))
-  }
-
-  @Test func applicationAccessibilityFailureDoesNotProbeCachedWindows() {
-    let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [makeCGWindow(id: 42)],
-        cachedWindowState: nil
-      ) == [window.id]
-    )
-  }
-
-  @Test func rediscoveredIgnoredAndClosedWindowsDoNotUseCache() {
-    let window = makeWindow(id: 42)
-    let cgWindows = [makeCGWindow(id: 42)]
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [window.id],
-        ignoredWindowIDs: [],
-        cgWindows: cgWindows,
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ).isEmpty
-    )
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [window.id],
-        cgWindows: cgWindows,
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ).isEmpty
-    )
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [],
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ).isEmpty
-    )
   }
 
   private func makeWindow(id: UInt64) -> Window {
