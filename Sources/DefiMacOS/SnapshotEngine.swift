@@ -327,6 +327,12 @@ final class SnapshotEngine: @unchecked Sendable {
     set { withLockedStorage { $0.lastNativeFocusedWindowID = newValue } }
   }
 
+  /// The focused window is an unmanaged app-drawn popup (a custom menu or palette).
+  var nativeFocusIsAppPopup: Bool {
+    get { withLockedStorage { $0.nativeFocusIsAppPopup } }
+    set { withLockedStorage { $0.nativeFocusIsAppPopup = newValue } }
+  }
+
   var verifiedNativeFocusedWindowID: WindowID? {
     get { withLockedStorage { $0.verifiedNativeFocusedWindowID } }
     set { withLockedStorage { $0.verifiedNativeFocusedWindowID = newValue } }
@@ -1213,6 +1219,8 @@ extension SnapshotEngine {
     requiresConfirmedWindow: Bool = false
   ) -> WindowID? {
     if let focus = discoveryMeasurementAccess?.nativeFocus { return focus(windows) }
+    // Proven again by each read: a stale popup flag would pause pointer focus for good.
+    nativeFocusIsAppPopup = false
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
       .withTimeout(
@@ -1297,6 +1305,14 @@ extension SnapshotEngine {
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
       return exact.key
     }
+    nativeFocusIsAppPopup = AXMessagingTimeoutAccess.shared.withTimeout(
+      focusSnapshotAccessibilityTimeoutSeconds, elements: [focusedElement]
+    ) {
+      var subrole: CFTypeRef?, modal: CFTypeRef?
+      AXUIElementCopyAttributeValue(focusedElement, kAXSubroleAttribute as CFString, &subrole)
+      AXUIElementCopyAttributeValue(focusedElement, kAXModalAttribute as CFString, &modal)
+      return isAppDrawnPopup(subrole: subrole as? String, isModal: modal as? Bool ?? false)
+    } ?? false
     guard
       let focusedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
         focusSnapshotAccessibilityTimeoutSeconds,
@@ -1636,6 +1652,7 @@ private struct Storage {
   var lastMonitorFrames: [Rect] = []
   var pendingFrameDebtWindowIDs: Set<WindowID> = Set<WindowID>()
   var lastNativeFocusedWindowID: WindowID? = nil
+  var nativeFocusIsAppPopup = false
   var verifiedNativeFocusedWindowID: WindowID? = nil
   var lastUnconfirmedActivationTimestamp: TimeInterval?
 }

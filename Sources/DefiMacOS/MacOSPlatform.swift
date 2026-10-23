@@ -449,6 +449,9 @@ public final class MacOSPlatform {
   @MainActor var borderFrames: [FrameAssignment] = []
   @MainActor var borderSelectedWindowID: WindowID?
   var desiredSelectedWindowID: WindowID?
+  /// Pointer focus waits while an app's own menu or palette has focus: moving
+  /// out of it would focus another window and close it.
+  public nonisolated var nativeFocusIsAppPopup: Bool { snapshotEngine.nativeFocusIsAppPopup }
   nonisolated var lastNativeFocusedWindowID: WindowID? {
     get { snapshotEngine.lastNativeFocusedWindowID }
     set { snapshotEngine.lastNativeFocusedWindowID = newValue }

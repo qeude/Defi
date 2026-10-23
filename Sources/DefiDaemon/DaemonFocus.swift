@@ -63,6 +63,12 @@ extension Daemon {
 
   private func applyPointerMotion(_ invocation: PointerMotionInvocation, pointerWindowID: WindowID?) {
     defer { if pendingPointerFocus != nil { scheduleTick() } }
+    // Left unrecorded, so the window under the pointer focuses on the next motion
+    // once the popup closes.
+    if config.input.focusFollowsMouse, platform.nativeFocusIsAppPopup {
+      pointerFocusIgnoredCount += 1
+      return
+    }
     guard lastPointerWindowID != pointerWindowID else {
       pointerFocusObservedCount += 1
       return
