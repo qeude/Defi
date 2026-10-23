@@ -457,8 +457,8 @@ struct DaemonCommandPolicyTests {
       && !ordinary.consumePeriodicWindowRefresh)
   }
 
-  @Test
-  func shutdownLaysOutTiledWindowsAndKeepsFloatingFrames() {
+  @Test(arguments: [0.0, -700.0])
+  func shutdownUsesObservedDisplayOriginsForTiledAndFloatingWindows(restoredY: Double) {
     let monitorID = MonitorID(rawValue: 1), workspaceID = WorkspaceID(rawValue: "dev")
     let tiled = WindowID(rawValue: 1), floating = WindowID(rawValue: 2)
     var state = RuntimeState(config: Config(layout: LayoutConfig(gaps: 0)))
@@ -473,11 +473,13 @@ struct DaemonCommandPolicyTests {
         id: monitorID, frame: Rect(x: 1_000, y: -670, width: 1_000, height: 650),
         physicalFrame: Rect(x: 1_000, y: -700, width: 1_000, height: 700)
       )],
+      restoredDisplayFrames: [monitorID: Rect(x: 1_000, y: restoredY, width: 1_000, height: 700)],
       floatingFrames: [floating: floatingFrame]
     )
     #expect(assignments.first { $0.windowID == tiled }?.frame
-      == Rect(x: 1_004, y: -666, width: 792, height: 642))
-    #expect(assignments.first { $0.windowID == floating }?.frame == floatingFrame)
+      == Rect(x: 1_004, y: restoredY + 34, width: 792, height: 642))
+    #expect(assignments.first { $0.windowID == floating }?.frame
+      == Rect(x: 1_400, y: restoredY + 130, width: 200, height: 200))
     #expect(state.monitors[0].workspaces[0].scrollOffset == 0.6)
   }
 

@@ -33,6 +33,7 @@ public final class HotKeyManager {
   private let cheatsheetHandler: @NavigationActor @Sendable (CheatsheetInput) -> Void
   private let cheatsheetModifierBits: UInt64?
   private let userInputTracker: UserInputTracker
+  private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
   private var context: InputMonitor?
   private var thread: Thread?
@@ -66,6 +67,7 @@ public final class HotKeyManager {
     userInputTracker: UserInputTracker = UserInputTracker(),
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
+    displayPointerRouter: DisplayPointerRouter? = nil,
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
@@ -77,7 +79,7 @@ public final class HotKeyManager {
     self.handler = handler
     self.registrationHandler = registrationHandler
     tracksPointerMotion =
-      config.input.focusFollowsMouse || config.input.mouseFollowsFocus
+      displayPointerRouter != nil || config.input.focusFollowsMouse || config.input.mouseFollowsFocus
     self.pointerMotionHandler = config.input.focusFollowsMouse
       ? pointerMotionHandler
       : nil
@@ -92,6 +94,7 @@ public final class HotKeyManager {
     ).modifierBits
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
+    self.displayPointerRouter = displayPointerRouter
     var bindings: [Key: String] = [:]
     var bindingError: HotKeyError?
     do {
@@ -146,6 +149,7 @@ public final class HotKeyManager {
       bindings: bindings,
       userInputTracker: userInputTracker,
       pointerMotionTracker: pointerMotionTracker,
+      displayPointerRouter: displayPointerRouter,
       tracksPointerWindowTransitions: pointerMotionHandler != nil,
       cheatsheetModifierBits: bindingError == nil ? cheatsheetModifierBits : nil,
       deliverCheatsheet: { input in
@@ -179,8 +183,15 @@ public final class HotKeyManager {
         closeIntentHandler(timestamp, processID)
       }
     }
+    // Install interception first so passive observation sees routed pointer events.
     // Ordinary shortcuts always pass through the filtering callback unchanged.
-    let interceptorMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+    let interceptorMask = mask & ~CGEventMask(
+      (1 << CGEventType.flagsChanged.rawValue)
+        | (1 << CGEventType.leftMouseDown.rawValue)
+        | (1 << CGEventType.rightMouseDown.rawValue)
+        | (1 << CGEventType.otherMouseDown.rawValue)
+        | (1 << CGEventType.scrollWheel.rawValue)
+    )
     let interceptorCallback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else { return Unmanaged.passUnretained(event) }
       return Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
@@ -260,6 +271,7 @@ final class InputMonitor: @unchecked Sendable {
 
   private let bindings: [Key: String]
   private let userInputTracker: UserInputTracker
+  private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
   private let tracksPointerWindowTransitions: Bool
   private let deliver: @Sendable (HotKeyInvocation) -> Void
@@ -296,6 +308,7 @@ final class InputMonitor: @unchecked Sendable {
     bindings: [Key: String],
     userInputTracker: UserInputTracker,
     pointerMotionTracker: PointerMotionTracker,
+    displayPointerRouter: DisplayPointerRouter? = nil,
     tracksPointerWindowTransitions: Bool,
     cheatsheetModifierBits: UInt64? = nil,
     deliverCheatsheet: @escaping @Sendable (CheatsheetInput) -> Void = { _ in },
@@ -312,6 +325,7 @@ final class InputMonitor: @unchecked Sendable {
     self.deliverCheatsheet = deliverCheatsheet
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
+    self.displayPointerRouter = displayPointerRouter
     self.tracksPointerWindowTransitions = tracksPointerWindowTransitions
     self.deliver = deliver
     self.deliverOverview = deliverOverview
@@ -402,6 +416,8 @@ final class InputMonitor: @unchecked Sendable {
     if eventTracksPhysicalPointerMotion(type) {
       pointerMotionTracker.record(timestamp: timestamp)
       if type == .mouseMoved, tracksPointerWindowTransitions {
+        // Hit-test the destination immediately; the event's window ID still
+        // describes the source screen before the warp.
         let rawWindowID = event.getIntegerValueField(
           .mouseEventWindowUnderMousePointer
         )
@@ -540,10 +556,16 @@ final class InputMonitor: @unchecked Sendable {
     }
   }
 
-  /// The active tap only intercepts modal key input.
+  /// The active tap only intercepts modal input and routes physical pointer movement.
   func intercept(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       return handle(type: type, event: event)
+    }
+    if eventTracksPhysicalPointerMotion(type) {
+      if displayPointerRouter?.route(event) == true {
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 0)
+      }
+      return Unmanaged.passUnretained(event)
     }
     guard type == .keyDown else { return Unmanaged.passUnretained(event) }
     if let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {

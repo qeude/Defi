@@ -83,6 +83,15 @@ final class Daemon {
   let configURL: URL
   var config: Config
   let platform = MacOSPlatform()
+  nonisolated let displayPointerRouter = DisplayPointerRouter()
+  @MainActor lazy var displayArrangement = DisplayArrangementController(
+    pointerRouter: displayPointerRouter, sessionID: topologySessionID
+  )
+  var displayDeskFrames: [MonitorID: Rect] = [:]
+  var displayArrangementStatus = "native"
+  var displayReconciliationPending = true
+  var displayReconciliationInFlight = false
+  var displayReconciliationGeneration: UInt64 = 0
   @MainActor lazy var accessibilityPermissionMonitor = AccessibilityPermissionMonitor()
   var windowManagementStarted = false
   let server: UnixSocketServer
@@ -305,6 +314,8 @@ final class Daemon {
 
   func handleDesktopSessionActivity(_ active: Bool) {
     guard desktopSessionActive != active else { return }
+    if active { invalidateDisplayArrangement() }
+    displayPointerRouter.setActive(active)
     desktopSessionActive = active
     if !active { handleCheatsheetInput(.dismiss) }
     desktopSessionGeneration &+= 1

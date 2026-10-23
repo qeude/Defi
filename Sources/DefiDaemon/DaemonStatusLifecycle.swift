@@ -178,6 +178,7 @@ extension Daemon {
     }.joined(separator: ",")
     return
       "running session=\(desktopSessionActive ? "active" : "inactive") monitors=\(latestMonitors.count)[\(displaySizes)] windows=\(managedCount) floating=\(floatingCount) workspace=\(workspace) focused=\(focused) fullscreenSuspended=\(state.nativeFullscreenWindowIDs.count)[\(fullscreenWindowIDs)] columnWidth=\(focusedColumnState) menuBar=\(config.menuBar.enabled ? "installed" : "missing") hotkeys=\(hotKeyState) bindings=\(bindingCount) captured=\(capturedHotKeyCount) processed=\(processedHotKeyCount) queued=\(pendingHotKeyCommands.count) tapReenables=\(tapReenableCount) cheatsheet=\(cheatsheetState.isVisible ? "open" : "closed") overview=\(overviewOpen ? "open" : "closed") overviewPanels=\(overviewPanels) overviewRetainedPanels=\(overviewState.retainedPanelCount) overviewPreviewConfig=\(config.overview.windowPreviews) overviewPermission=\(overviewPermission) overviewCaptures=\(overviewCaptures) overviewPreviews=\(overviewPreviews) overviewPreviewCacheMiB=\(overviewPreviewCacheMiB) overviewPreviewFailures=\(overviewPreviewFailures) overviewFirstPreviewMs=\(overviewFirstPreviewMs) overviewLastPreviewMs=\(overviewLastPreviewMs) overviewReceivedPreviews=\(overviewState.receivedPreviews) events=\(observedPlatformEventCount) focusDedup=\(ignoredRedundantNativeFocusCount) closeFocusPreserved=\(preservedWindowRemovalFocusCount) displayEvents=\(displayConfigurationEventCount) displayRetries=\(pendingDisplaySyncDeadlines.count) drift=\(targetMismatches.count)[\(driftDetails)] resize=\(resize) visibility=\(visibility) hidden=\(platform.hiddenWindowCount) borders=\(borders.visible) borderNodes=\(borders.allocated) borderDormant=\(borders.dormant) borderOpacity=\(borderOpacity) borderSurfaceMiB=\(borderSurfaceMiB) borderCapture=\(borders.captureEnabled) borderPlans=\(borders.appliedPlans) borderSkips=\(borders.skippedPlans) borderGeometry=\(borders.geometryUpdates) snapshots=\(snapshotPerformance.full)/\(snapshotPerformance.incremental)/\(snapshotPerformance.cached) appInventories=\(snapshotPerformance.applicationInventories) snapshotMs=\(snapshotMS) snapshotMaxMs=\(snapshotMaxMS) snapshotCG=\(snapshotPerformance.cgCopies)/\(snapshotCGMS)/\(snapshotCGMaxMS) axReads=\(attributeReads.batched)/\(attributeReads.fallback) parkingChecks=\(parking.checks) parkingRepairs=\(parking.repairs) initialChecks=\(initialSettlement.checks) initialRepairs=\(initialSettlement.repairs) settling=\(frameCommit.settling) deferredCommits=\(frameCommit.deferred) observedCommits=\(frameCommit.observed) observedCommitMaxMs=\(observedCommitMaxMS) slowApps=\(platform.latencySensitiveProcessCount) slowAppDetails=[\(platform.latencySensitiveProcessDescription)] axAppDetails=[\(platform.processLatencyDescription)] posWrites=\(platform.successfulPositionWriteCount) stalePos=\(platform.skippedStalePositionWriteCount) droppedFrames=\(platform.droppedPositionFrameCount) displayedRebases=\(displayedFrameRebaseCount) displayedDelta=\(displayedRebaseDelta) sizeWrites=\(platform.successfulSizeWriteCount) displayHz=\(displayHz) timerHz=\(timerHz) axPending=\(platform.windowProxiesMoving) axFrameMs=\(axFrameMS) axFrameMaxMs=\(axFrameMaxMS) axSlowFrames=\(axFramePerformance.slowFrames) focusPending=\(platform.hasPendingFocusWrite) focusFast=\(focusPerformance.fastPaths) focusCancelled=\(focusPerformance.cancelled) focusRetries=\(focusPerformance.retries) focusMainMs=\(focusMainMS) focusRaiseMs=\(focusRaiseMS) focusActivateMs=\(focusActivateMS) animating=\(platform.windowProxiesMoving) commandMs=\(commandMS) frameMs=\(frameMS) focusMs=\(focusMS)"
+      + " displayArrangement=\(displayArrangementStatus) displayPointerWarps=\(displayPointerRouter.warpCount)"
       + " overviewRender=\(overviewState.renderPerformance) overviewSurface=\(overviewState.surfaceCapture) overviewSurfaceStreams=\(overviewState.surfaceStreams) overviewSurfacePoolMiB=\(String(format: "%.2f", Double(overviewState.surfacePoolBytes) / 1_048_576)) overviewSurfaceTransitions=\(overviewState.surfaceTransitions) overviewSurfaceFallbacks=\(overviewState.surfaceFallbacks) overviewPreviewClosings=\(overviewState.previewClosings) overviewSurfaceAcquireMs=\(String(format: "%.1f", overviewState.surfaceAcquireMs))"
       + " overviewOpening=\(overviewState.openingTransitionHistory)"
       + " topologyObservers=\(platform.hasReliableWindowTopologyObservation) appWindowLists=\(snapshotPerformance.applicationWindowListReads)"
@@ -338,7 +339,7 @@ extension Daemon {
     return true
   }
 
-  func restoreAllWindows(alreadyClaimed: Bool = false) async {
+  func restoreAllWindows(restoringDisplays: Bool = false, alreadyClaimed: Bool = false) async {
     if !alreadyClaimed {
       while !beginWindowRestoration() { try? await Task.sleep(for: .milliseconds(10)) }
     }
@@ -354,9 +355,13 @@ extension Daemon {
     }
 
     await platform.prepareForRestore()
+    let restoredDisplayFrames = restoringDisplays
+      ? await displayArrangement.restore()
+      : Dictionary(uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) })
     let assignments = windowRestorationAssignments(
       state: state,
       monitors: latestMonitors,
+      restoredDisplayFrames: restoredDisplayFrames,
       floatingFrames: floatingWindowFrames
     )
     platform.apply(assignments, skipping: state.nativeFullscreenWindowIDs)
@@ -390,7 +395,7 @@ extension Daemon {
     diagnostics.flush()
     platform.hideWindowBorders()
     platform.hideNativeFullscreenPlaceholders()
-    await restoreAllWindows()
+    await restoreAllWindows(restoringDisplays: true)
     server.removeSocketFile()
     log("stopped; windows restored")
     exit(0)
@@ -427,14 +432,24 @@ func desktopTimerFrequency(requested: Double, sessionActive: Bool) -> Double {
   sessionActive ? min(max(requested, 1), 240) : 0
 }
 
+/// Use CoreGraphics' observed post-restore origins; NSScreen may still cache the
+/// technical arrangement until its next notification. Preserve the known insets.
 func windowRestorationAssignments(
   state: RuntimeState,
   monitors: [MonitorSnapshot],
+  restoredDisplayFrames: [MonitorID: Rect],
   floatingFrames: [WindowID: Rect]
 ) -> [FrameAssignment] {
   var assignments: [FrameAssignment] = []
   for monitor in state.monitors {
-    guard let viewport = monitors.first(where: { $0.id == monitor.id })?.frame else { continue }
+    guard let previous = monitors.first(where: { $0.id == monitor.id }),
+      let physical = restoredDisplayFrames[monitor.id]
+    else { continue }
+    var viewport = previous.frame
+    viewport.x += physical.x - previous.physicalFrame.x
+    viewport.y += physical.y - previous.physicalFrame.y
+    viewport.width += physical.width - previous.physicalFrame.width
+    viewport.height += physical.height - previous.physicalFrame.height
     for var workspace in monitor.workspaces {
       workspace.scrollOffset = 0
       let windows = workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] }
@@ -446,7 +461,10 @@ func windowRestorationAssignments(
         guard !state.nativeFullscreenWindowIDs.contains(windowID),
           let frame = floatingFrames[windowID] ?? state.windows[windowID]?.frame
         else { continue }
-        assignments.append(FrameAssignment(windowID: windowID, frame: frame))
+        assignments.append(FrameAssignment(
+          windowID: windowID,
+          frame: rebasedFloatingFrame(frame, from: previous.frame, to: viewport)
+        ))
       }
     }
   }
