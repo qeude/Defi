@@ -485,7 +485,7 @@ final class Daemon {
     let commandQuietPeriodElapsed =
       now - latestCommandInputTimestamp >= 0.3
     // AX reads and WindowServer queries mid-motion cost the overlay frames: they wait
-    // for its landing, except while the pointer drives a gesture or the user focused
+    // until it stops, except while the pointer drives a gesture or the user focused
     // another window (a click, the Dock, Command-Tab).
     if !platform.windowProxiesMoving || mouseGestureSyncPending || liveBorderGesture
       || (nativeFocusSyncPending && nativeFocusHasNewerHumanIntent),

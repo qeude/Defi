@@ -11,13 +11,14 @@ struct RibbonProxyTests {
     let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2)
     let targets = [a: Rect(x: 10, y: 40, width: 800, height: 900),
       b: Rect(x: 830, y: 40, width: 600, height: 900)]
-    var native = [a: Rect(x: 11, y: 41, width: 800, height: 900)]
-    #expect(!ribbonProxyLanded(native: native, targets: targets))
-    native[b] = Rect(x: 900, y: 40, width: 600, height: 900)
+    var native = [a: Rect(x: 11, y: 41, width: 800, height: 900),
+      b: Rect(x: 900, y: 40, width: 600, height: 900)]
     #expect(!ribbonProxyLanded(native: native, targets: targets))
     native[b] = Rect(x: 832, y: 40, width: 600, height: 900)
     #expect(ribbonProxyLanded(native: native, targets: targets))
     #expect(ribbonProxyLanded(native: [:], targets: [:]))
+    // A window closed mid-motion is gone from the WindowServer: nothing holds the landing.
+    #expect(ribbonProxyLanded(native: [a: native[a]!], targets: targets))
     // A terminal snapped 4 px lower on its cell grid has still landed.
     #expect(ribbonProxyLanded(native: [a: Rect(x: 10, y: 44, width: 800, height: 896)],
       targets: [a: targets[a]!]))

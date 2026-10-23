@@ -28,7 +28,8 @@ func ribbonProxyPictureMatches(captured: CGSize, native: Rect) -> Bool {
 /// The overlay may lift once every visible native window sits on its target.
 func ribbonProxyLanded(native: [WindowID: Rect], targets: [WindowID: Rect]) -> Bool {
   targets.allSatisfy { id, target in
-    guard let frame = native[id] else { return false }
+    // Closed: nothing left to land, and its picture must not linger.
+    guard let frame = native[id] else { return true }
     // Apps may snap their vertical extent (Ghostty sits 4 px lower on its cell grid);
     // the horizontal placement is what the ribbon controls exactly.
     return abs(frame.x - target.x) < 3 && abs(frame.width - target.width) < 3
@@ -1004,6 +1005,7 @@ final class RibbonProxyPresenter {
     Task.detached(priority: .userInitiated) {
       // The spring decides how long the motion lasts; the overlay stays until it settles.
       do { try await Task.sleep(for: .seconds(stop)) } catch { return }
+      NavigationActor.enqueue { presenter.stopped(token) }
       // Native windows move from the start, under the opaque overlay: they usually wait
       // here already, and apps that apply moves late still get a short grace.
       let deadline = CACurrentMediaTime() + 0.9
@@ -1028,7 +1030,7 @@ final class RibbonProxyPresenter {
       // Position only: an app refusing the asked size is in place, not late.
       func arrived(_ id: WindowID) -> Bool {
         guard let target = expected[id] else { return cleared(id) }
-        return native[id].map { abs($0.x - target.x) < 3 && abs($0.y - target.y) < 12 } ?? false
+        return native[id].map { abs($0.x - target.x) < 3 && abs($0.y - target.y) < 12 } ?? true
       }
       let late = Set(expected.keys).union(leaving).filter { !arrived($0) }
       if !landed, !late.isEmpty {
@@ -1079,6 +1081,13 @@ final class RibbonProxyPresenter {
       }
     }
     return true
+  }
+
+  /// The spring has stopped: a still overlay costs the compositor nothing, so reads and
+  /// captures (a close, a new window) no longer wait for slow apps to land.
+  private func stopped(_ token: UInt64) {
+    guard generation == token, presenting, drag == .idle else { return }
+    RibbonProxyStore.shared.setMoving(false, display)
   }
 
   /// Lifts the overlay everywhere but over `frames` (native, slow apps' outgoing windows).
