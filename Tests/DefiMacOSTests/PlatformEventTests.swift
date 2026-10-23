@@ -2189,162 +2189,59 @@ struct PlatformEventTests {
   }
 
   @Test
-  func simpleClickSynchronizesDesktopOnRelease() {
-    var normalizer = MouseGestureEventNormalizer()
-    let mouseDown = normalizer.actions(
-      for: .leftMouseDown
-    )
-    let mouseUp = normalizer.actions(for: .leftMouseUp)
-
-    #expect(
-      mouseDown
-        == MouseGestureEventNormalizer.Actions(
-          refreshBorderStacking: true,
-          startsGesture: true
-        )
-    )
-    #expect(mouseUp.needsGestureSynchronization == false)
-    #expect(mouseUp.endsFocusInteraction)
-    #expect(platformEventCancelsMouseAnimation(.mouseRelease) == false)
+  func mouseGestureSynchronizesOnlyWhileDraggingAndEndsOnRelease() {
+    typealias Actions = MouseGestureEventNormalizer.Actions
+    var click = MouseGestureEventNormalizer()
+    let press = click.actions(for: .leftMouseDown)
+    #expect(press == Actions(refreshBorderStacking: true, startsGesture: true))
+    let clickUp = click.actions(for: .leftMouseUp)
+    #expect(!clickUp.needsGestureSynchronization)
+    #expect(clickUp.endsFocusInteraction)
+    #expect(!platformEventCancelsMouseAnimation(.mouseRelease))
     #expect(platformEventCancelsMouseAnimation(.mouse))
+
+    var drag = MouseGestureEventNormalizer()
+    _ = drag.actions(for: .leftMouseDown)
+    let synchronizes = [drag.actions(for: .leftMouseDragged), drag.actions(for: .leftMouseDragged),
+      drag.actions(for: .leftMouseUp)].map(\.needsGestureSynchronization)
+    #expect(synchronizes == [true, true, true])
+    let secondRelease = drag.actions(for: .leftMouseUp)
+    #expect(secondRelease == Actions(), "A second release is ignored")
+    let next = drag.actions(for: .leftMouseDown)
+    #expect(next.startsGesture)
+    #expect(!next.needsGestureSynchronization, "The next press starts a fresh gesture")
+
+    #expect([NSEvent.EventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp]
+      .map(eventStartsMouseFocusInteraction) == [true, true, true, false, false, false])
   }
 
   @Test
-  func draggedGestureKeepsSynchronizingUntilMouseUp() {
-    var normalizer = MouseGestureEventNormalizer()
-    let mouseDown = normalizer.actions(
-      for: .leftMouseDown
-    )
-    let firstMouseDragged = normalizer.actions(
-      for: .leftMouseDragged
-    )
-    let secondMouseDragged = normalizer.actions(
-      for: .leftMouseDragged
-    )
-    let firstMouseUp = normalizer.actions(
-      for: .leftMouseUp
-    )
-    let secondMouseUp = normalizer.actions(
-      for: .leftMouseUp
-    )
+  func mouseInteractionEndsOnlyWhenEveryHeldButtonIsReleasedOrReset() {
+    var held = MouseGestureEventNormalizer()
+    _ = held.actions(for: .leftMouseDown)
+    _ = held.actions(for: .rightMouseDown, buttonNumber: 1)
+    let releases = [held.actions(for: .otherMouseUp, buttonNumber: 2), held.actions(for: .leftMouseUp),
+      held.actions(for: .rightMouseUp, buttonNumber: 1)]
+    #expect(releases[0] == MouseGestureEventNormalizer.Actions(), "An unrelated button is ignored")
+    #expect(releases.map(\.endsFocusInteraction) == [false, false, true])
 
-    #expect(mouseDown.refreshBorderStacking)
-    #expect(mouseDown.needsGestureSynchronization == false)
-    #expect(firstMouseDragged.needsGestureSynchronization)
-    #expect(secondMouseDragged.needsGestureSynchronization)
-    #expect(firstMouseUp.needsGestureSynchronization)
-    #expect(firstMouseUp.endsFocusInteraction)
-    #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
+    var reset = MouseGestureEventNormalizer()
+    _ = reset.actions(for: .leftMouseDown)
+    let resets = [reset.reset(), reset.reset()]
+    #expect(resets == [true, false], "Only a held gesture requests a synthetic release")
+    let release = reset.actions(for: .leftMouseUp)
+    #expect(release == MouseGestureEventNormalizer.Actions())
   }
 
   @Test
-  func mouseReleaseWaitsForEveryHeldButton() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-    _ = normalizer.actions(for: .rightMouseDown, buttonNumber: 1)
-
-    let leftUp = normalizer.actions(for: .leftMouseUp)
-    #expect(leftUp.endsFocusInteraction == false)
-
-    let rightUp = normalizer.actions(for: .rightMouseUp, buttonNumber: 1)
-    #expect(rightUp.endsFocusInteraction)
-  }
-
-  @Test
-  func mouseReleaseMustMatchInitiatingButton() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-
-    let unrelatedRelease = normalizer.actions(
-      for: .otherMouseUp,
-      buttonNumber: 2
-    )
-    #expect(unrelatedRelease == MouseGestureEventNormalizer.Actions())
-    #expect(
-      normalizer.actions(for: .leftMouseUp).endsFocusInteraction
-    )
-  }
-
-  @Test
-  func everyMouseButtonDownStartsFocusInteraction() {
-    #expect(eventStartsMouseFocusInteraction(.leftMouseDown))
-    #expect(eventStartsMouseFocusInteraction(.rightMouseDown))
-    #expect(eventStartsMouseFocusInteraction(.otherMouseDown))
-    #expect(eventStartsMouseFocusInteraction(.leftMouseUp) == false)
-    #expect(eventStartsMouseFocusInteraction(.rightMouseUp) == false)
-    #expect(eventStartsMouseFocusInteraction(.otherMouseUp) == false)
-  }
-
-  @Test
-  func coalescedNextMouseDownStartsFreshGesture() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-    _ = normalizer.actions(for: .leftMouseDragged)
-    _ = normalizer.actions(for: .leftMouseUp)
-
-    let nextMouseDown = normalizer.actions(for: .leftMouseDown)
-
-    #expect(nextMouseDown.startsGesture)
-    #expect(nextMouseDown.needsGestureSynchronization == false)
-  }
-
-  @Test
-  func resettingHeldMouseGestureRequestsSyntheticRelease() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-
-    let resetHeldButtons = normalizer.reset()
-    let resetEmptyGesture = normalizer.reset()
-    #expect(resetHeldButtons)
-    #expect(resetEmptyGesture == false)
-    #expect(
-      normalizer.actions(for: .leftMouseUp)
-        == MouseGestureEventNormalizer.Actions()
-    )
-  }
-
-  @Test
-  func mouseGestureRefreshesClickedWindowProcess() {
-    let clickedWindowID = WindowID(rawValue: 10)
-    let focusedWindowID = WindowID(rawValue: 20)
-
-    #expect(
-      mouseGestureRefreshProcessID(
-        latestFocusIntent: .init(
-          timestamp: 1,
-          source: .mouse(windowID: clickedWindowID)
-        ),
-        focusedWindowID: focusedWindowID,
-        processIDs: [clickedWindowID: 100, focusedWindowID: 200]
-      ) == 100
-    )
-  }
-
-  @Test
-  func mouseGestureFallsBackToFocusedProcessWhenClickIsUnknown() {
-    let focusedWindowID = WindowID(rawValue: 20)
-
-    #expect(
-      mouseGestureRefreshProcessID(
-        latestFocusIntent: .init(
-          timestamp: 1,
-          source: .mouse(windowID: WindowID(rawValue: 10))
-        ),
-        focusedWindowID: focusedWindowID,
-        processIDs: [focusedWindowID: 200]
-      ) == 200
-    )
-  }
-
-  @Test
-  func mouseGestureRequiresFullRefreshWithoutKnownProcess() {
-    #expect(
-      mouseGestureRefreshProcessID(
-        latestFocusIntent: nil,
-        focusedWindowID: WindowID(rawValue: 20),
-        processIDs: [:]
-      ) == nil
-    )
+  func mouseGestureRefreshesTheClickedThenFocusedProcess() {
+    let clicked = WindowID(rawValue: 10), focused = WindowID(rawValue: 20)
+    let intent = UserInputTracker.FocusIntent(timestamp: 1, source: .mouse(windowID: clicked))
+    #expect(mouseGestureRefreshProcessID(latestFocusIntent: intent, focusedWindowID: focused,
+      processIDs: [clicked: 100, focused: 200]) == 100)
+    #expect(mouseGestureRefreshProcessID(latestFocusIntent: intent, focusedWindowID: focused,
+      processIDs: [focused: 200]) == 200)
+    #expect(mouseGestureRefreshProcessID(latestFocusIntent: nil, focusedWindowID: focused, processIDs: [:]) == nil)
   }
 
   @Test
@@ -2398,335 +2295,68 @@ struct PlatformEventTests {
     )
   }
 
-  @Test
-  func frontmostBorderOccluderIgnoresTinyAuxiliaryWindows() {
-    let auxiliaryWindow = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
+  struct BorderOccluderCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    // Windows above the focused window (id 9), front to back.
+    let above: [WindowStackEntry]
+    var focused = WindowStackEntry(windowID: WindowID(rawValue: 9), processID: 8, layer: normal,
+      frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354))
+    var monitors: [Rect] = [Rect(x: 0, y: 0, width: 2_560, height: 1_440)]
+    var known: Set<WindowID> = []
+    let frontmost: Bool
+    var upperBound: UInt64? = nil
 
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: auxiliaryWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 8, y: 40, width: 66, height: 20)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
+    var testDescription: String { name }
   }
 
-  @Test
-  func frontmostBorderOccluderKeepsDialogsAheadOfFocusedWindow() {
-    let dialog = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
+  static let normal = NSWindow.Level.normal.rawValue
+  static let floating = NSWindow.Level.floating.rawValue
 
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: dialog,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 400, y: 300, width: 640, height: 480)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost == false)
-    #expect(result.upperBoundWindowID == nil)
+  static func entry(_ id: UInt64, _ processID: pid_t, _ layer: Int, _ frame: Rect) -> WindowStackEntry {
+    WindowStackEntry(windowID: WindowID(rawValue: id), processID: processID, layer: layer, frame: frame)
   }
 
-  @Test
-  func sameAppSiblingAboveInZOrderDoesNotOccludeWithoutOverlap() {
-    let sibling = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
+  static let borderOccluderCases = [
+    BorderOccluderCase(name: "a tiny auxiliary window does not occlude",
+      above: [entry(1, 7, normal, Rect(x: 520, y: 40, width: 66, height: 20))], frontmost: true),
+    BorderOccluderCase(name: "a dialog stays ahead of the focused window",
+      above: [entry(1, 7, normal, Rect(x: 900, y: 400, width: 640, height: 480))], frontmost: false),
+    BorderOccluderCase(name: "a same-app sibling above without overlap does not occlude",
+      above: [entry(1, 8, normal, Rect(x: 2, y: 34, width: 500, height: 1_354))],
+      focused: entry(9, 8, normal, Rect(x: 514, y: 34, width: 900, height: 1_354)), known: [WindowID(rawValue: 1)],
+      frontmost: true),
+    BorderOccluderCase(name: "a floating picture in picture bounds the border",
+      above: [entry(1, 7, floating, Rect(x: 1_400, y: 700, width: 420, height: 390))], frontmost: true, upperBound: 1),
+    BorderOccluderCase(name: "the backmost floating window bounds the border; Defi's own surfaces are ignored",
+      above: [entry(1, 7, floating, Rect(x: 600, y: 200, width: 400, height: 300)),
+        entry(2, 8, floating, Rect(x: 900, y: 600, width: 400, height: 300)),
+        entry(3, 99, floating, Rect(x: 514, y: 34, width: 20, height: 1_354))], frontmost: true, upperBound: 2),
+    BorderOccluderCase(name: "a higher-level system window needs no floating bound",
+      above: [entry(1, 7, NSWindow.Level.statusBar.rawValue, Rect(x: 0, y: 0, width: 2_560, height: 30))],
+      frontmost: true),
+    BorderOccluderCase(name: "an offscreen auxiliary window cannot demote a picture in picture bound",
+      above: [entry(1, 7, floating, Rect(x: 1_819, y: 981, width: 418, height: 390)),
+        entry(2, 8, normal, Rect(x: 4_283, y: 469, width: 360, height: 287))], frontmost: true, upperBound: 1),
+    BorderOccluderCase(name: "an untracked same-process auxiliary window cannot demote a picture in picture bound",
+      above: [entry(1, 8, floating, Rect(x: 357, y: 730, width: 418, height: 390)),
+        entry(2, 8, normal, Rect(x: 2_200, y: 469, width: 360, height: 287))], frontmost: true, upperBound: 1),
+    BorderOccluderCase(name: "a tracked same-process dialog stays above the border",
+      above: [entry(1, 8, normal, Rect(x: 900, y: 400, width: 640, height: 480))],
+      known: [WindowID(rawValue: 1), WindowID(rawValue: 9)], frontmost: false),
+    BorderOccluderCase(name: "a window on another monitor cannot demote the border",
+      above: [entry(1, 7, normal, Rect(x: 2_600, y: 40, width: 1_800, height: 1_000))],
+      monitors: [Rect(x: 0, y: 0, width: 2_560, height: 1_440), Rect(x: 2_560, y: 0, width: 1_920, height: 1_080)],
+      frontmost: true),
+  ]
 
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: sibling,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 900, height: 1_354)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 910, y: 34, width: 900, height: 1_354)
-        ),
-      ],
-      knownWindowIDs: [sibling]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
+  @Test(arguments: borderOccluderCases)
+  func borderStackingFindsTheOccludersThatMatter(_ scenario: BorderOccluderCase) {
+    let result = windowBorderStacking(targetWindowID: scenario.focused.windowID, ownProcessID: 99,
+      floatingLevel: Self.floating, entries: scenario.above + [scenario.focused], monitorFrames: scenario.monitors,
+      knownWindowIDs: scenario.known)
+    #expect(result.activeWindowIsFrontmost == scenario.frontmost)
+    #expect(result.upperBoundWindowID == scenario.upperBound.map(WindowID.init(rawValue:)))
+    #expect(result.upperBoundLevel == (scenario.upperBound == nil ? nil : Self.floating))
   }
 
-  @Test
-  func floatingPictureInPictureBoundsFrontmostBorder() {
-    let pictureInPicture = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: pictureInPicture,
-          processID: 7,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 1_400, y: 700, width: 420, height: 390)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == pictureInPicture)
-    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
-  }
-
-  @Test
-  func backmostFloatingOccluderBoundsBorderBelowEveryFloatingWindow() {
-    let frontPictureInPicture = WindowID(rawValue: 1)
-    let backPictureInPicture = WindowID(rawValue: 2)
-    let ownBorderSurface = WindowID(rawValue: 3)
-    let focusedWindow = WindowID(rawValue: 4)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: frontPictureInPicture,
-          processID: 7,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 200, y: 200, width: 400, height: 300)
-        ),
-        WindowStackEntry(
-          windowID: backPictureInPicture,
-          processID: 8,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 900, y: 600, width: 400, height: 300)
-        ),
-        WindowStackEntry(
-          windowID: ownBorderSurface,
-          processID: 99,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 2, y: 34, width: 20, height: 1_354)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == backPictureInPicture)
-  }
-
-  @Test
-  func higherLevelWindowNeedsNoExplicitFloatingUpperBound() {
-    let systemWindow = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: systemWindow,
-          processID: 7,
-          layer: NSWindow.Level.statusBar.rawValue,
-          frame: Rect(x: 0, y: 0, width: 2_560, height: 30)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
-  }
-
-  @Test
-  func offscreenAuxiliaryWindowCannotDemotePictureInPictureBorder() {
-    let pictureInPicture = WindowID(rawValue: 1)
-    let parkedAuxiliaryWindow = WindowID(rawValue: 2)
-    let focusedWindow = WindowID(rawValue: 3)
-    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: pictureInPicture,
-          processID: 7,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 1_819, y: 981, width: 418, height: 390)
-        ),
-        WindowStackEntry(
-          windowID: parkedAuxiliaryWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 4_283, y: 469, width: 360, height: 287)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [monitor]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == pictureInPicture)
-    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
-  }
-
-  @Test
-  func untrackedSameProcessAuxiliaryCannotDemotePictureInPictureBorder() {
-    let pictureInPicture = WindowID(rawValue: 1)
-    let auxiliaryWindow = WindowID(rawValue: 2)
-    let focusedWindow = WindowID(rawValue: 3)
-    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: pictureInPicture,
-          processID: 8,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 357, y: 730, width: 418, height: 390)
-        ),
-        WindowStackEntry(
-          windowID: auxiliaryWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2_200, y: 469, width: 360, height: 287)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [monitor]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == pictureInPicture)
-    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
-  }
-
-  @Test
-  func trackedSameProcessDialogStaysAboveSelectedWindowBorder() {
-    let dialog = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: dialog,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 900, y: 400, width: 640, height: 480)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [monitor],
-      knownWindowIDs: [dialog, focusedWindow]
-    )
-
-    #expect(result.activeWindowIsFrontmost == false)
-    #expect(result.upperBoundWindowID == nil)
-  }
-
-  @Test
-  func normalWindowOnAnotherMonitorCannotDemoteBorder() {
-    let otherMonitorWindow = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-    let firstMonitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-    let secondMonitor = Rect(x: 2_560, y: 0, width: 1_920, height: 1_080)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: otherMonitorWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2_600, y: 40, width: 1_800, height: 1_000)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [firstMonitor, secondMonitor]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
-  }
 }
