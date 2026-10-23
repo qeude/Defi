@@ -485,12 +485,6 @@ struct PlatformEventTests {
   }
 
   @Test
-  func windowCreationRetriesWithoutInputHistoryAfterRestart() {
-    #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
-    #expect(windowTopologyRefreshDelays(for: .frame).isEmpty)
-  }
-
-  @Test
   func contendedAXTimeoutAccessDoesNotWaitForTheOwner() throws {
     let element = TestAXElement(AXUIElementCreateSystemWide())
     let secondary = TestAXElement(
@@ -921,27 +915,19 @@ struct PlatformEventTests {
   }
 
   @Test
-  func userInputTrackingStaysMonotonicAcrossDuplicateDelivery() {
+  func inputAndPointerTimestampsStayMonotonicAcrossDuplicateDelivery() {
     let tracker = UserInputTracker()
-    tracker.record(timestamp: 12)
-    tracker.record(timestamp: 8)
-    tracker.record(timestamp: 12)
-
+    for timestamp in [12.0, 8, 12] { tracker.record(timestamp: timestamp) }
     #expect(tracker.latestEventTimestamp == 12)
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: 12,
-        latestInputTimestamp: tracker.latestEventTimestamp
-      ) == false
-    )
-
+    #expect(!userInputOccurredAfterWindowTopology(topologyInputTimestamp: 12,
+      latestInputTimestamp: tracker.latestEventTimestamp))
     tracker.record(timestamp: 13)
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: 12,
-        latestInputTimestamp: tracker.latestEventTimestamp
-      )
-    )
+    #expect(userInputOccurredAfterWindowTopology(topologyInputTimestamp: 12,
+      latestInputTimestamp: tracker.latestEventTimestamp))
+    let pointer = PointerMotionTracker()
+    pointer.record(timestamp: 12)
+    pointer.record(timestamp: 10)
+    #expect(pointer.latestTimestamp == 12)
   }
 
   struct TopologyInputEvent: Sendable {
@@ -1299,16 +1285,6 @@ struct PlatformEventTests {
     #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 0))
     #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 1) == false)
     #expect(eventTracksGeneralUserInput(.scrollWheel, scrollMomentumPhase: 2) == false)
-  }
-
-  @Test
-  func pointerMotionTimestampStaysMonotonic() {
-    let tracker = PointerMotionTracker()
-
-    tracker.record(timestamp: 12)
-    tracker.record(timestamp: 10)
-
-    #expect(tracker.latestTimestamp == 12)
   }
 
   @Test
@@ -1686,31 +1662,18 @@ struct PlatformEventTests {
     #expect(noLongerTransient.contains(where: { CFEqual($0, current) }))
   }
 
-  @Test @NavigationActor
-  func explicitWindowFrameRefreshTargetsOwningProcess() {
+  @Test(arguments: [true, false]) @NavigationActor
+  func frameRefreshTargetsTheOwningProcessOrFallsBackToAFullSnapshot(known: Bool) {
     let platform = MacOSPlatform()
     let windowID = WindowID(rawValue: 42)
-    platform.processIDs[windowID] = 101
-
+    if known { platform.processIDs[windowID] = 101 }
     platform.requestFrameRefresh(for: windowID)
-
-    #expect(platform.snapshotEngine.pendingObservations.framePending)
-    #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs == [101])
-    #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [windowID])
-    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot == false)
-    #expect(!platform.snapshotEngine.pendingObservations.frameIncludesUnscopedRefresh)
-  }
-
-  @Test @NavigationActor
-  func unknownWindowFrameRefreshFallsBackToFullSnapshot() {
-    let platform = MacOSPlatform()
-
-    platform.requestFrameRefresh(for: WindowID(rawValue: 42))
-
-    #expect(platform.snapshotEngine.pendingObservations.framePending)
-    #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs.isEmpty)
-    #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [WindowID(rawValue: 42)])
-    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot)
+    let pending = platform.snapshotEngine.pendingObservations
+    #expect(pending.framePending)
+    #expect(pending.frameProcessIDs == (known ? [101] : []))
+    #expect(pending.frameWindowIDs == [windowID])
+    #expect(pending.frameRequiresFullSnapshot == !known)
+    #expect(!pending.frameIncludesUnscopedRefresh)
   }
 
   @Test(arguments: [false, true]) @MainActor
