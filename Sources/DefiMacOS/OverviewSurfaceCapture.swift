@@ -90,6 +90,9 @@ final class OverviewSurfaceCapture {
       pendingRequests = nil
       deferredPreparation?.cancel(); deferredPreparation = nil
       if preparation != nil { return }
+      // Already captured: recapturing unchanged requests every few seconds kept the
+      // recording indicator lit while nothing moved.
+      if captures.count == requests.count { return }
       if failedRequests == requests && now - lastPreparationAt < 5 { return }
     }
     if preparation != nil || now - lastPreparationAt < 1 {

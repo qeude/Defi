@@ -276,15 +276,10 @@ final class RibbonProxyRenderer {
           }
           if let ready = RibbonProxyStore.shared.screen(containing: frame) { requestBackground(ready) }
         }
-        idleRefresh = idleRefresh ?? Task { [weak self] in
-          while true {
-            do { try await Task.sleep(for: .seconds(0.5)) } catch { return }
-            self?.scheduleRefresh(after: 0, afterLanding: false)
-          }
-        }
+        // No refresh at rest: every capture lights the recording indicator, so pictures
+        // are taken on events only (a landing, a layout, a resize).
         return
       }
-      idleRefresh?.cancel(); idleRefresh = nil
       RibbonProxyStore.shared.clear()
       panel?.orderOut(nil); panel = nil
     }
@@ -300,7 +295,6 @@ final class RibbonProxyRenderer {
   private var appearanceObserver: NSObjectProtocol?
   /// Windows a running presentation waits for: captured first, reported at once.
   private var urgent: Set<WindowID> = []
-  private var idleRefresh: Task<Void, Never>?
   private var refreshing = false
   private var refreshQueued = false
   private var refreshAfterLanding = false
@@ -491,18 +485,15 @@ final class RibbonProxyRenderer {
     store.retainPictures(alive)
     pendingRefresh.removeAll { !alive.contains($0.id) }
     let now = CACurrentMediaTime()
-    // Visible content barely changes while nobody touches the machine.
-    let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState,
-      eventType: CGEventType(rawValue: ~0)!)
-    let visibleStaleness = idle < 10 ? 0.45 : 4
-    // Windows in view refresh every second with one cheap WindowServer call;
-    // others every minute, or at once when missing or resized.
+    // Missing or resized windows are captured at once; after a landing, windows in view
+    // are recaptured too, others when older than a minute.
     // shortcut: unchanged windows are recaptured too; a per-window damage signal would skip them.
     var requests = pendingRefresh.filter { window in
       guard let picture = store.picture(window.id),
         ribbonProxyPictureMatches(captured: picture.size, native: window.frame)
       else { return true }
-      return now - picture.capturedAt > (window.distance == 0 ? visibleStaleness : 60)
+      // Aged pictures refresh only with a landing: a layout at rest captures nothing.
+      return afterLanding && now - picture.capturedAt > (window.distance == 0 ? 0.45 : 60)
     }.sorted { $0.distance < $1.distance }
     // The wallpaper gates every presentation, so it is captured first, once per
     // display geometry.
