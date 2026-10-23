@@ -785,7 +785,11 @@ extension Daemon {
         let previewed = proxyPreviewTarget != nil
         proxyPreviewTarget = nil
         var droppedOnOverlay = false
+        // The preview belongs to this gesture only if the window really moved: an edge
+        // resize never drops.
         if previewed, let gestureWindowID,
+          let actualFrame, let mouseGestureInitialFrame,
+          mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame),
           let event = CGEvent(source: nil),
           let target = mouseDropTarget(gestureWindowID,
             pointer: (Double(event.location.x), Double(event.location.y)),
