@@ -243,15 +243,22 @@ struct RibbonProxyTests {
     #expect(plan.first?.to == Rect(x: 3564, y: -945, width: 488, height: 941))
   }
 
-  @Test func theEdgeColourIsThePictureBorderColour() throws {
-    let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-    let context = try #require(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
-      bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-    context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
-    let image = try #require(context.makeImage())
-    let edge = try #require(ribbonProxyEdgeColor(image)?.components)
-    #expect(edge[2] > 0.9 && edge[0] < 0.1)
+  @Test func theEdgeColourWeighsTheRightAndBottomBordersEqually() throws {
+    func edge(blueBottomRows: Int) throws -> [CGFloat] {
+      let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+      let context = try #require(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
+        bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+      context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+      context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+      context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+      context.fill(CGRect(x: 0, y: 0, width: 100, height: blueBottomRows))
+      let image = try #require(context.makeImage())
+      return try #require(ribbonProxyEdgeColor(image)?.components)
+    }
+    let blue = try edge(blueBottomRows: 100)
+    #expect(blue[2] > 0.9 && blue[0] < 0.1)
+    let split = try edge(blueBottomRows: 2)
+    #expect(abs(split[0] - split[2]) < 0.1)
   }
 
   @Test func theCardRingHugsTheWindowLikeTheNativeRing() throws {
@@ -265,17 +272,5 @@ struct RibbonProxyTests {
     #expect(ring.cornerRadius == 20)
   }
 
-  @Test func theRightAndBottomBordersWeighTheSame() throws {
-    let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-    let context = try #require(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
-      bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-    context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
-    context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 100, height: 2))
-    let image = try #require(context.makeImage())
-    let edge = try #require(ribbonProxyEdgeColor(image)?.components)
-    #expect(abs(edge[0] - edge[2]) < 0.1)
-  }
 }
 
