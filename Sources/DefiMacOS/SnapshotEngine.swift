@@ -1097,13 +1097,21 @@ extension SnapshotEngine {
       || window.role != kAXWindowRole
       || window.subrole != kAXStandardWindowSubrole
     {
+      // Only popup subroles hinge on modality: a modal one is a real dialog.
+      let isModal = !forceTiling && !configuredFloating
+        && isAppDrawnPopup(subrole: window.subrole, isModal: false)
+        && (preparedModalState ?? {
+          var modal: CFTypeRef?
+          AXUIElementCopyAttributeValue(element, kAXModalAttribute as CFString, &modal)
+          return modal as? Bool ?? false
+        }())
       return classifyWindow(
         role: window.role,
         subrole: window.subrole,
         appID: window.appID,
         hasCloseButton: false,
         canResize: false,
-        isModal: false,
+        isModal: isModal,
         configuredFloating: configuredFloating,
         forceTiling: forceTiling
       )
@@ -1219,8 +1227,9 @@ extension SnapshotEngine {
     requiresConfirmedWindow: Bool = false
   ) -> WindowID? {
     if let focus = discoveryMeasurementAccess?.nativeFocus { return focus(windows) }
-    // Proven again by each read: a stale popup flag would pause pointer focus for good.
-    nativeFocusIsAppPopup = false
+    // Stored once per read, on every exit: pointer focus never sees a half-done read.
+    var focusedPopup = false
+    defer { nativeFocusIsAppPopup = focusedPopup }
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
       .withTimeout(
@@ -1305,13 +1314,14 @@ extension SnapshotEngine {
     if let exact = elements.first(where: { CFEqual($0.value, focusedElement) }) {
       return exact.key
     }
-    nativeFocusIsAppPopup = AXMessagingTimeoutAccess.shared.withTimeout(
+    focusedPopup = AXMessagingTimeoutAccess.shared.withTimeout(
       focusSnapshotAccessibilityTimeoutSeconds, elements: [focusedElement]
     ) {
-      var subrole: CFTypeRef?, modal: CFTypeRef?
-      AXUIElementCopyAttributeValue(focusedElement, kAXSubroleAttribute as CFString, &subrole)
-      AXUIElementCopyAttributeValue(focusedElement, kAXModalAttribute as CFString, &modal)
-      return isAppDrawnPopup(subrole: subrole as? String, isModal: modal as? Bool ?? false)
+      var values: CFArray?
+      AXUIElementCopyMultipleAttributeValues(focusedElement,
+        [kAXSubroleAttribute, kAXModalAttribute] as CFArray, [], &values)
+      let read = values as? [Any] ?? []
+      return isAppDrawnPopup(subrole: read.first as? String, isModal: read.dropFirst().first as? Bool ?? false)
     } ?? false
     guard
       let focusedFrame = AXMessagingTimeoutAccess.shared.withTimeout(

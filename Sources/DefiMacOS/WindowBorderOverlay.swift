@@ -352,11 +352,10 @@ private final class BorderSegment {
   }
 
   func setPresentationHidden(_ hidden: Bool) {
-    // The view, not its backing layer: AppKit rewrites a layer-backed view's layer
-    // visibility on its next update, which brought the ring back mid-drag.
+    // Both: AppKit rewrites a layer-backed view's layer visibility on its next update,
+    // which brought the ring back mid-drag, while the view alone reached the screen
+    // frames late, after the overlay that stood in for it had faded.
     rootView.isHidden = hidden
-    // The layer too, now: left to AppKit's next display pass, the ring came back
-    // frames after the ribbon overlay that stood in for it had faded.
     rootView.layer?.isHidden = hidden
   }
 

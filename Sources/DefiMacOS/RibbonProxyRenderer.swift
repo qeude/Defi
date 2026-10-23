@@ -247,8 +247,6 @@ final class RibbonProxyRenderer {
   var enabled = false {
     didSet {
       guard !enabled else {
-        // Like TrellisWM at rest: visible pictures follow their content, so the next
-        // motion starts from what is on screen and lands without a content jump.
         // Light and dark mode redraw every window and may swap the wallpaper: pictures
         // stay as stand-ins but are recaptured as soon as each window is in view.
         appearanceObserver = appearanceObserver ?? DistributedNotificationCenter.default().addObserver(
@@ -492,6 +490,8 @@ final class RibbonProxyRenderer {
       guard let picture = store.picture(window.id),
         ribbonProxyPictureMatches(captured: picture.size, native: window.frame)
       else { return true }
+      // Expired by an appearance change: recaptured at once.
+      if picture.capturedAt == 0 { return true }
       // Aged pictures refresh only with a landing: a layout at rest captures nothing.
       return afterLanding && now - picture.capturedAt > (window.distance == 0 ? 0.45 : 60)
     }.sorted { $0.distance < $1.distance }
@@ -769,6 +769,8 @@ final class RibbonProxyPresenter {
     // Managed windows outside this motion are never stills: the cached list can still
     // show one at the place it just left, which would cross the new workspace.
     let managed = Set(windows.map(\.id)).union(managedWindowIDs)
+    // Radii arrive for visible windows only and are kept for later entries; closed ones go.
+    if !managedWindowIDs.isEmpty { cornerRadii = cornerRadii.filter { managed.contains($0.key) } }
     // Whole frames: the capture returns the whole window and the root layer clips it.
     let unmanaged = onScreen.compactMap { window -> (id: WindowID, processID: Int32, frame: Rect)? in
       guard !managed.contains(window.id), window.processID != getpid(), window.layer == 0,

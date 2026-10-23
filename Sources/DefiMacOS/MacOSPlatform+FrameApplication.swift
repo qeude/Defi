@@ -869,7 +869,7 @@ extension MacOSPlatform {
         DispatchQueue.main.async {
           MainActor.assumeIsolated {
             self?.borderManager.presentationHidden = hidden
-            if !hidden { self?.settleWindowBordersOnRealFrames() }
+            if hidden { self?.borderSettleTask?.cancel() } else { self?.settleWindowBordersOnRealFrames() }
           }
         }
       }
