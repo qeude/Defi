@@ -15,6 +15,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 from desktop_lock import acquire, inherited_lock, owner
+from desktop_session import daemon_count
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -58,15 +59,28 @@ def desktop_counts(log, xml_path=None):
     finished = re.findall(r"^Test Case '(.+)' (passed|failed|skipped) \(([0-9.]+) seconds\)\.$", log, re.MULTILINE)
     if Counter(started) != Counter(name for name, _, _ in finished):
         raise RuntimeError("Incomplete XCTest case events; inspect desktop-tests.log")
-    counts = {"tests": len(finished), "skipped": sum(state == "skipped" for _, state, _ in finished),
-              "failed": sum(state == "failed" for _, state, _ in finished)}
+    # A lane that cannot run here (two displays, opt-in perf) names itself; any other skip is a gap.
+    def method(name):
+        return name.rstrip("]").split(" ")[-1]
+    markers = {method(name): (lane, reason) for lane, name, reason in
+               re.findall(r"^DEFI_E2E not-run lane=(\S+) test=(.+?) reason=(.*)$", log, re.MULTILINE)}
+    skipped = [method(name) for name, state, _ in finished if state == "skipped"]
+    not_run = {}
+    for name in skipped:
+        if name in markers:
+            lane, reason = markers[name]
+            not_run.setdefault(lane, {})[name] = reason
+    counts = {"tests": len(finished), "failed": sum(state == "failed" for _, state, _ in finished),
+              "skipped": sum(name not in markers for name in skipped), "not_run": not_run}
     if xml_path is not None:
         suite = ET.Element("testsuite", name="DesktopE2ETests", tests=str(counts["tests"]),
-                           skipped=str(counts["skipped"]), failures=str(counts["failed"]))
+                           skipped=str(len(skipped)),
+                           failures=str(counts["failed"]))
         for name, state, seconds in finished:
             case = ET.SubElement(suite, "testcase", name=name, time=seconds)
             if state != "passed":
-                ET.SubElement(case, "skipped" if state == "skipped" else "failure")
+                ET.SubElement(case, "skipped" if state == "skipped" else "failure",
+                              message=" ".join(markers.get(method(name), ())))
         ET.ElementTree(suite).write(xml_path, encoding="utf-8", xml_declaration=True)
     return counts
 
@@ -211,6 +225,7 @@ def main():
                 cli = installed / "Contents/MacOS/defi"
                 try:
                     run_step("status-before", [str(cli), "status"], directory, report)
+                    report["daemons"] = {"before": daemon_count()}
                     run_step("desktop-tests", [str(ROOT / "script/test_desktop.sh"), "--run-built-tests", args.filter], directory, report)
                 finally:
                     log_path = directory / "desktop-tests.log"
@@ -240,6 +255,9 @@ def main():
                         report["restoration"] = "failed"
                         report["restoration_error"] = str(error)
                         raise
+                    report.setdefault("daemons", {})["after"] = daemon_count()
+                    if report["daemons"] != {"before": 1, "after": 1}:
+                        raise RuntimeError("Expected exactly one defi-daemon: " + json.dumps(report["daemons"]))
         if source_identity() != report["source"]:
             report["status"] = "invalidated"
             raise RuntimeError("Source changed during verification; results do not certify the current tree")

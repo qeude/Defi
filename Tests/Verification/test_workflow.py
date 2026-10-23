@@ -189,7 +189,7 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(behavior=behavior), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 (root / "script").mkdir()
-                for name in ["verify.py", "desktop_lock.py"]:
+                for name in ["verify.py", "desktop_lock.py", "desktop_session.py"]:
                     shutil.copy2(ROOT / "script" / name, root / "script" / name)
                 (root / "Tests/Verification").mkdir(parents=True)
                 (root / "Tests/Verification/test_workflow.py").write_text("print('fixture workflow check')\n")
@@ -263,8 +263,13 @@ class WorkflowTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "results.xml"
-            self.assertEqual(verify.desktop_counts(log, path), {"tests": 3, "skipped": 1, "failed": 1})
+            self.assertEqual(verify.desktop_counts(log, path), {"tests": 3, "skipped": 1, "failed": 1, "not_run": {}})
             self.assertIn("<skipped", path.read_text())
+        lane = ("Test Case '-[DefiMacOSTests.DesktopE2ETests testTwoDisplay]' started.\n"
+                "DEFI_E2E not-run lane=two-display test=-[DesktopE2ETests testTwoDisplay] reason=requires 2 displays, found 1\n"
+                "Test Case '-[DefiMacOSTests.DesktopE2ETests testTwoDisplay]' skipped (0.001 seconds).")
+        self.assertEqual(verify.desktop_counts(log + "\n" + lane), {"tests": 4, "skipped": 1, "failed": 1,
+            "not_run": {"two-display": {"testTwoDisplay": "requires 2 displays, found 1"}}})
         self.assertEqual(verify.desktop_counts("")["tests"], 0)
         with self.assertRaises(RuntimeError):
             verify.desktop_counts("Test Case 'truncated' started.")
