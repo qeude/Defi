@@ -5,7 +5,7 @@ import Testing
 
 @testable import DefiMacOS
 
-struct FrameComponentPerformanceTests {
+struct ClampedFrameWriteTests {
   private final class NativeState {
     var point = CGPoint(x: 0, y: 40)
     var size = CGSize(width: 800, height: 700)
@@ -53,7 +53,7 @@ struct FrameComponentPerformanceTests {
       generation: 1, source: "command-layout-animation", writes: [id: write], monitorFrames: [display], stagesVisibleBeforeParking: false, completion: nil
     )
     coordinator.recordCompletedPosition(state.point, windowID: id)
-    for i in 1...4 {
+    for _ in 1...4 {
       _ = coordinator.applyBatch(
         ProcessWriteBatch(processID: -1, writes: [(id, write)]), frame: frame)
       if !lateMove { #expect(abs(state.point.x + state.size.width - 1200) < 0.5) }
