@@ -89,6 +89,7 @@ struct WindowBorderTests {
     #expect(plan.active?.windowID.rawValue == active)
     #expect(plan.active.map { $0.frame } == active.map { frames[Int($0) - 1].frame })
     #expect(plan.inactive.count == inactive)
+    #expect(plan.inactive.allSatisfy { !hidden.contains($0.windowID.rawValue) })
     #expect(plan.tracked.count == tracked)
   }
 

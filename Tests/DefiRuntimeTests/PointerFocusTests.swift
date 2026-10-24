@@ -537,6 +537,15 @@ struct PointerFocusTests {
   }
 
   @Test
+  func keyboardFocusWarpsOnlyWhenMouseFollowsAndAlwaysKeepsAnInputGuard() {
+    #expect(keyboardCursorWarpTimestamp(mouseFollowsFocus: true, capturedInputTimestamp: 12) == 12)
+    #expect(keyboardCursorWarpTimestamp(mouseFollowsFocus: true, capturedInputTimestamp: nil) == nil)
+    #expect(keyboardCursorWarpTimestamp(mouseFollowsFocus: false, capturedInputTimestamp: 12) == nil)
+    #expect(commandFocusInputTimestamp(capturedInputTimestamp: 12, commandHandledAt: 14) == 12)
+    #expect(commandFocusInputTimestamp(capturedInputTimestamp: nil, commandHandledAt: 14) == 14)
+  }
+
+  @Test
   func pointerFocusIntentYieldsOnlyToNewerInputOrTransition() {
     #expect(!pointerFocusRequestIsCurrent(requestGeneration: 4, currentGeneration: 5, pointerTimestamp: 12,
       latestUserInputTimestamp: 12), "a newer pointer transition invalidates without general input")
