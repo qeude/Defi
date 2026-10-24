@@ -801,6 +801,25 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `A pointer resting on the edge of a stacked display keeps the previewed target`() throws {
+    var state = try makeState(windowCount: 2)
+    state.attachMonitor(secondMonitorID)
+    let below = Rect(x: 0, y: viewport.height, width: viewport.width, height: viewport.height)
+    let viewports = [monitorID: viewport, secondMonitorID: below]
+    func target(_ y: Double, previous: MouseDropTarget? = nil) -> MouseDropTarget? {
+      mouseDropTarget(WindowID(rawValue: 1), pointer: (viewport.width / 2, y), previous: previous,
+        state: state, viewports: viewports, monitorFrames: viewports)
+    }
+    let above = try #require(target(viewport.height - 10))
+    guard case .display = target(viewport.height + 10) else {
+      Issue.record("past the edge, the pointer targets the display below")
+      return
+    }
+
+    #expect(target(viewport.height + 10, previous: above) == above)
+  }
+
+  @Test
   func `A drop on another display lands at the gap under the pointer`() throws {
     var (state, viewports) = try makeTwoDisplayState()
     state.monitors[0].workspaces[0].columns[0].width = .pixels(300)

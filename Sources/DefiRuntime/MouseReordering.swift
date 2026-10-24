@@ -694,8 +694,11 @@ public func mouseDropTarget(
     windowID, pointer: pointer, state: state, viewports: viewports, monitorFrames: monitorFrames)
   // No target (the window's own stack, off every display) leaves the drop to the native path.
   guard let previous, let target, target != previous else { return target }
-  let held = [-mouseDropHysteresis, mouseDropHysteresis].contains { offset in
-    rawMouseDropTarget(windowID, pointer: (pointer.x + offset, pointer.y), state: state,
+  // Both axes: displays can sit side by side or stacked.
+  let offsets = [(-mouseDropHysteresis, 0.0), (mouseDropHysteresis, 0),
+    (0, -mouseDropHysteresis), (0, mouseDropHysteresis)]
+  let held = offsets.contains { dx, dy in
+    rawMouseDropTarget(windowID, pointer: (pointer.x + dx, pointer.y + dy), state: state,
       viewports: viewports, monitorFrames: monitorFrames) == previous
   }
   return held ? previous : target
