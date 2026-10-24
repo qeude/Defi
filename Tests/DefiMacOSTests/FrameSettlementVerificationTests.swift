@@ -344,6 +344,31 @@ struct FrameSettlementVerificationTests {
     #expect(final.targetMismatches == [FrameMismatch(windowID: id, actual: rollback, target: target)])
   }
 
+  @MainActor @Test func reissuedTargetAgainstAMinimumWidthIsOnlyObservedAtItsDeadline() async {
+    let (platform, reads, id, start) = await fixture()
+    defer { withExtendedLifetime(platform) {} }
+    let engine = platform.snapshotEngine
+    let clamped = Rect(x: 2, y: 37, width: 772, height: 902)
+    setFrame(clamped, id: id, reads: reads)
+    reads.state.withLock { $0.now = start + 0.9 }
+    let first = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
+    #expect(first.targetMismatches == [FrameMismatch(windowID: id, actual: clamped, target: target)])
+    reads.state.withLock { $0.now = start + 1 }
+    platform.frameCoordinator.running = true
+    await platform.apply([FrameAssignment(windowID: id, frame: target)], updateVisibility: false)
+    platform.frameCoordinator.drain()
+    setFrame(clamped, id: id, reads: reads)
+    reads.state.withLock { $0.now = start + 1.2 }
+    engine.recordObservation(.frame, processID: 41, windowID: id)
+    let early = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
+    #expect(early.targetMismatches == [])
+    #expect(early.freshFrameObservationIDs == [])
+    reads.state.withLock { $0.now = start + 1.9 }
+    let deadline = engine.snapshot(config: Config(), forceFullWindowRefresh: false)
+    #expect(deadline.freshFrameObservationIDs == [id])
+    #expect(deadline.targetMismatches == [FrameMismatch(windowID: id, actual: clamped, target: target)])
+  }
+
   @MainActor @Test func anotherProcessCommitDoesNotCancelOrRefreshThisWindowsSibling() async {
     let (platform, reads, id, start) = await fixture()
     defer { withExtendedLifetime(platform) {} }

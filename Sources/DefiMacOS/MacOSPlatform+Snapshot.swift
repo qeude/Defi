@@ -674,6 +674,8 @@ extension SnapshotEngine {
     var externallyChangedFrames: [WindowID: Rect] = [:]
     var targetMismatches: [FrameMismatch] = []
     var deferredMismatchCount = 0
+    // A commit read that cannot conclude neither confirms nor clears an observed mismatch.
+    var inconclusiveObservationIDs = Set<WindowID>()
     var settledCommitLatenciesMS: [Double] = []
     var commandObservations: [(CommandPerformanceContext, WindowID, Rect, Rect, Rect)] = []
     let hiddenWindowIDs = lastHiddenWindowIDs
@@ -690,8 +692,10 @@ extension SnapshotEngine {
         switch observeFrameCommit(read, actual: window.frame, sampledAt: snapshotStartedAt,
           now: now, externalGesture: externalResizeGestureActive) {
         case .stale:
+          inconclusiveObservationIDs.insert(window.id)
           continue
         case .deferred:
+          inconclusiveObservationIDs.insert(window.id)
           deferredMismatchCount += 1
           deferredFrameCommitMismatchCount += 1
           continue
@@ -955,7 +959,7 @@ extension SnapshotEngine {
       mouseFocusIntentWindowID: mouseFocusIntentWindowID,
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
-      freshFrameObservationIDs: freshObservationIDs,
+      freshFrameObservationIDs: freshObservationIDs.subtracting(inconclusiveObservationIDs),
       targetMismatches: targetMismatches,
       frontmostProcessID: frontmostProcessID
     )
