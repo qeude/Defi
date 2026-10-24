@@ -76,184 +76,66 @@ struct WindowDiscoveryTests {
 
   @NavigationActor
   @Test
-  func `Pending native focus reuses stable window for unknown but not mismatched process`() {
+  func `Pending native focus reuses the stable window only for an unknown or verified process`() {
     let platform = MacOSPlatform()
-    let window = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
+    let window = Window(id: WindowID(rawValue: 1), appID: "com.example.app", title: "Main", frame: frame,
+      processID: processID, monitorID: MonitorID(rawValue: 1))
     platform.lastFocusedWindowByProcess[processID] = window.id
-
     #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
-
     platform.nativeFocusEventPending = true
     #expect(platform.stableWindowID(processID: processID, in: [window]) == nil)
     platform.nativeFocusEventHasUnknownProcess = true
     #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
-
     platform.nativeFocusEventHasUnknownProcess = false
     platform.nativeFocusEventProcessIDs = [99]
     #expect(platform.stableWindowID(processID: processID, in: [window]) == nil)
-  }
-
-  @NavigationActor
-  @Test
-  func `Pending native focus accepts verified single window fallback`() {
-    let platform = MacOSPlatform()
-    let window = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
-    platform.nativeFocusEventPending = true
+    platform.lastFocusedWindowByProcess = [:]
     platform.nativeFocusEventProcessIDs = [processID]
-
-    #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id)
+    #expect(platform.stableWindowID(processID: processID, in: [window]) == window.id,
+      "A verified process accepts its single window")
   }
 
   @Test
-  func `Focused auxiliary window does not select distant managed window`() {
-    let managed = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
-
-    #expect(
-      focusedWindowIDMatchingFrame(
-        processID: processID,
-        focusedFrame: Rect(x: 400, y: 300, width: 500, height: 300),
-        windows: [managed]
-      ) == nil)
+  func `Focused frame matches a managed window through small drift but not a distant auxiliary window`() {
+    let managed = Window(id: WindowID(rawValue: 1), appID: "com.example.app", title: "Main", frame: frame,
+      processID: processID, monitorID: MonitorID(rawValue: 1))
+    #expect(focusedWindowIDMatchingFrame(processID: processID,
+      focusedFrame: Rect(x: 400, y: 300, width: 500, height: 300), windows: [managed]) == nil)
+    #expect(focusedWindowIDMatchingFrame(processID: processID,
+      focusedFrame: Rect(x: frame.x + 2, y: frame.y, width: frame.width, height: frame.height),
+      windows: [managed]) == managed.id)
   }
 
   @Test
-  func `Focused managed window matches small snapshot frame drift`() {
-    let managed = Window(
-      id: WindowID(rawValue: 1),
-      appID: "com.example.app",
-      title: "Main",
-      frame: frame,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
-    )
-
-    #expect(
-      focusedWindowIDMatchingFrame(
-        processID: processID,
-        focusedFrame: Rect(
-          x: frame.x + 2,
-          y: frame.y,
-          width: frame.width,
-          height: frame.height
-        ),
-        windows: [managed]
-      ) == managed.id)
-  }
-
-  @Test
-  func `Window matching prefers exact frame over empty title`() {
-    let exactFrame = CGWindowRecord(
-      id: 1,
-      processID: processID,
-      layer: 0,
-      title: "WhatsApp 🔊",
-      frame: frame
-    )
-    let emptyTitleStrip = CGWindowRecord(
-      id: 2,
-      processID: processID,
-      layer: 0,
-      title: "",
-      frame: Rect(x: 0, y: 0, width: 2_560, height: 30)
-    )
-
-    let match = bestCGWindow(
-      processID: processID,
-      title: "WhatsApp - Helium",
-      frame: frame,
-      records: [emptyTitleStrip, exactFrame]
-    )
-
-    #expect(match?.id == exactFrame.id)
-  }
-
-  @Test
-  func stalePreferredIdentityRequiresVerificationAgainstCurrentGeometry() {
-    let stale = CGWindowRecord(
-      id: 56, processID: processID, layer: 0, title: "",
-      frame: Rect(x: 3_000, y: 37, width: 1_200, height: 800)
-    )
-    let current = CGWindowRecord(id: 19609, processID: processID, layer: 0, title: "", frame: frame)
-    #expect(cgWindowDiscoveryNeedsExactID(
-      preferredWindowID: WindowID(rawValue: 56), processID: processID,
-      title: "Window", frame: frame, records: [stale, current], excluding: []
-    ))
-    #expect(!cgWindowDiscoveryNeedsExactID(
-      preferredWindowID: WindowID(rawValue: 19609), processID: processID,
-      title: "Window", frame: frame, records: [stale, current], excluding: []
-    ))
-  }
-
-  @Test
-  func `Identical public windows require an exact identifier`() {
-    let records = [1, 2].map {
-      CGWindowRecord(
-        id: CGWindowID($0),
-        processID: processID,
-        layer: 0,
-        title: "Defi",
-        frame: frame
-      )
+  func `Window matching prefers the exact frame, breaks ties by title, and rejects unrelated surfaces`() {
+    func record(_ id: CGWindowID, _ title: String, _ frame: Rect) -> CGWindowRecord {
+      CGWindowRecord(id: id, processID: processID, layer: 0, title: title, frame: frame)
     }
-
-    #expect(
-      cgWindowDiscoveryNeedsExactID(
-        processID: processID,
-        title: "Defi",
-        frame: frame,
-        records: records,
-        excluding: []
-      )
-    )
-    #expect(
-      !cgWindowDiscoveryNeedsExactID(
-        processID: processID,
-        title: "Defi",
-        frame: frame,
-        records: [records[0]],
-        excluding: []
-      )
-    )
+    func match(_ title: String, _ records: [CGWindowRecord]) -> CGWindowID? {
+      bestCGWindow(processID: processID, title: title, frame: frame, records: records)?.id
+    }
+    #expect(match("WhatsApp - Helium", [record(2, "", Rect(x: 0, y: 0, width: 2_560, height: 30)),
+      record(1, "WhatsApp 🔊", frame)]) == 1)
+    #expect(match("Window", [record(1, "Other", frame), record(2, "Window", frame)]) == 2)
+    #expect(match("Picture in Picture", [record(1, "", Rect(x: 104, y: 34, width: 2_554, height: 1_354))]) == nil)
   }
 
   @Test
-  func `Window matching rejects unrelated surface`() {
-    let unrelated = CGWindowRecord(
-      id: 1,
-      processID: processID,
-      layer: 0,
-      title: "",
-      frame: Rect(x: 104, y: 34, width: 2_554, height: 1_354)
-    )
-
-    #expect(
-      bestCGWindow(
-        processID: processID,
-        title: "Picture in Picture",
-        frame: frame,
-        records: [unrelated]
-      ) == nil)
+  func `An exact window identifier is needed for identical windows or a stale preferred identity`() {
+    let stale = CGWindowRecord(id: 56, processID: processID, layer: 0, title: "",
+      frame: Rect(x: 3_000, y: 37, width: 1_200, height: 800))
+    let current = CGWindowRecord(id: 19609, processID: processID, layer: 0, title: "", frame: frame)
+    #expect(cgWindowDiscoveryNeedsExactID(preferredWindowID: WindowID(rawValue: 56), processID: processID,
+      title: "Window", frame: frame, records: [stale, current], excluding: []))
+    #expect(!cgWindowDiscoveryNeedsExactID(preferredWindowID: WindowID(rawValue: 19609), processID: processID,
+      title: "Window", frame: frame, records: [stale, current], excluding: []))
+    let identical = [1, 2].map {
+      CGWindowRecord(id: CGWindowID($0), processID: processID, layer: 0, title: "Defi", frame: frame)
+    }
+    #expect(cgWindowDiscoveryNeedsExactID(processID: processID, title: "Defi", frame: frame, records: identical,
+      excluding: []))
+    #expect(!cgWindowDiscoveryNeedsExactID(processID: processID, title: "Defi", frame: frame,
+      records: [identical[0]], excluding: []))
   }
 
   struct FocusRecoveryCase: CustomTestStringConvertible, Sendable {
@@ -309,175 +191,26 @@ struct WindowDiscoveryTests {
   }
 
   @Test
-  func `Window matching uses title to break geometry tie`() {
-    let wrongTitle = CGWindowRecord(
-      id: 1,
-      processID: processID,
-      layer: 0,
-      title: "Other",
-      frame: frame
-    )
-    let matchingTitle = CGWindowRecord(
-      id: 2,
-      processID: processID,
-      layer: 0,
-      title: "Window",
-      frame: frame
-    )
-
-    let match = bestCGWindow(
-      processID: processID,
-      title: "Window",
-      frame: frame,
-      records: [wrongTitle, matchingTitle]
-    )
-
-    #expect(match?.id == matchingTitle.id)
-  }
-
-  @Test
-  func `Preferred window ID requires live CG record from same process`() {
-    let live = CGWindowRecord(
-      id: 42,
-      processID: processID,
-      layer: 0,
-      title: "Window",
-      frame: frame
-    )
-    let recycledByAnotherProcess = CGWindowRecord(
-      id: 42,
-      processID: 7,
-      layer: 0,
-      title: "Other",
-      frame: frame
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [live],
-        excluding: []
-      )?.id == 42)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [],
-        excluding: []
-      ) == nil)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [recycledByAnotherProcess],
-        excluding: []
-      ) == nil)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [live],
-        excluding: [42]
-      ) == nil)
-  }
-
-  @Test
-  func `Fresh AX window ID resolves after its old cached ID is occupied`() {
-    let occupied = CGWindowRecord(
-      id: 43,
-      processID: processID,
-      layer: 0,
-      title: "Refreshed",
-      frame: frame
-    )
-    let current = CGWindowRecord(
-      id: 44,
-      processID: processID,
-      layer: 0,
-      title: "Sibling",
-      frame: frame
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        axWindowID: 44,
-        preferredWindowID: WindowID(rawValue: 43),
-        processID: processID,
-        title: "Sibling",
-        frame: frame,
-        records: [occupied, current],
-        excluding: [43]
-      )?.id == 44)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 43),
-        processID: processID,
-        title: "Sibling",
-        frame: frame,
-        records: [occupied, current],
-        excluding: [43]
-      ) == nil)
-  }
-
-  @Test
-  func `AX window ID bypasses redacted window server geometry`() {
-    let live = CGWindowRecord(
-      id: 42,
-      processID: processID,
-      layer: 0,
-      title: "",
-      frame: Rect(x: 0, y: 940, width: 500, height: 500)
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        axWindowID: 42,
-        preferredWindowID: nil,
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [live],
-        excluding: []
-      )?.id == 42)
-  }
-
-  @Test
-  func `Missing preferred window record does not rematch unrelated live window`() {
-    let otherLiveWindow = CGWindowRecord(
-      id: 43,
-      processID: processID,
-      layer: 0,
-      title: "Window",
-      frame: frame
-    )
-
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: WindowID(rawValue: 42),
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [otherLiveWindow],
-        excluding: []
-      ) == nil)
-    #expect(
-      cgWindowRecordForDiscovery(
-        preferredWindowID: nil,
-        processID: processID,
-        title: "Window",
-        frame: frame,
-        records: [otherLiveWindow],
-        excluding: []
-      )?.id == 43)
+  func `Discovery binds the AX or preferred window ID only to a live record of the same process`() {
+    func record(_ id: CGWindowID, _ title: String, process: pid_t = 42, frame: Rect? = nil) -> CGWindowRecord {
+      CGWindowRecord(id: id, processID: process, layer: 0, title: title, frame: frame ?? self.frame)
+    }
+    func resolve(ax: UInt32? = nil, preferred: UInt64?, title: String = "Window", _ records: [CGWindowRecord],
+      excluding: Set<CGWindowID> = []) -> CGWindowID? {
+      cgWindowRecordForDiscovery(axWindowID: ax, preferredWindowID: preferred.map(WindowID.init(rawValue:)),
+        processID: processID, title: title, frame: frame, records: records, excluding: excluding)?.id
+    }
+    #expect(resolve(preferred: 42, [record(42, "Window")]) == 42)
+    #expect(resolve(preferred: 42, []) == nil)
+    #expect(resolve(preferred: 42, [record(42, "Other", process: 7)]) == nil, "recycled by another process")
+    #expect(resolve(preferred: 42, [record(42, "Window")], excluding: [42]) == nil)
+    let refreshed = [record(43, "Refreshed"), record(44, "Sibling")]
+    #expect(resolve(ax: 44, preferred: 43, title: "Sibling", refreshed, excluding: [43]) == 44)
+    #expect(resolve(preferred: 43, title: "Sibling", refreshed, excluding: [43]) == nil)
+    #expect(resolve(ax: 42, preferred: nil, [record(42, "", frame: Rect(x: 0, y: 940, width: 500, height: 500))]) == 42,
+      "the AX window ID bypasses redacted geometry")
+    #expect(resolve(preferred: 42, [record(43, "Window")]) == nil, "a missing preferred record does not rematch")
+    #expect(resolve(preferred: nil, [record(43, "Window")]) == 43)
   }
 
   @Test(arguments: [
@@ -550,123 +283,42 @@ struct WindowDiscoveryTests {
       ) == [WindowID(rawValue: UInt64(requested.id)): frame])
   }
 
-  @Test
-  func `Standard closable resizable window is tiled`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "net.imput.helium",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .tiled)
-  }
-
-  @Test
-  func `Control less picture in picture window floats`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "net.imput.helium",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test(arguments: ["AXSystemDialog", "AXSystemFloatingWindow"])
-  func `App-drawn popups stay unmanaged unless modal`(subrole: String) {
-    func classify(isModal: Bool) -> WindowDisposition {
-      classifyWindow(
-        role: kAXWindowRole, subrole: subrole, appID: "com.example.app",
-        hasCloseButton: false, canResize: false, isModal: isModal,
-        configuredFloating: false, forceTiling: false)
-    }
-    #expect(classify(isModal: false) == .ignored)
-    #expect(classify(isModal: true) == .floating)
-  }
-
+  // role, subrole, app, close button, resizable, modal, configured floating, force tiling -> disposition
   @Test(arguments: [
-    (kAXWindowRole, Optional("AXDialog")),
-    (kAXWindowRole, Optional("AXFloatingWindow")),
-    (kAXSheetRole, nil),
-  ])
-  func `Dialogs and sheets float by default`(
-    testCase: (role: String, subrole: String?)
-  ) {
-    #expect(
-      classifyWindow(
-        role: testCase.role,
-        subrole: testCase.subrole,
-        appID: "com.example.app",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
+    (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", true, true, false, false, false, .tiled),
+    // a control-less picture in picture window
+    (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", false, false, false, false, false, .floating),
+    // app-drawn popups stay unmanaged unless modal
+    (kAXWindowRole, "AXSystemDialog", "com.example.app", false, false, false, false, false, .ignored),
+    (kAXWindowRole, "AXSystemDialog", "com.example.app", false, false, true, false, false, .floating),
+    (kAXWindowRole, "AXSystemFloatingWindow", "com.example.app", false, false, false, false, false, .ignored),
+    (kAXWindowRole, "AXSystemFloatingWindow", "com.example.app", false, false, true, false, false, .floating),
+    (kAXWindowRole, "AXDialog", "com.example.app", false, false, false, false, false, .floating),
+    (kAXWindowRole, "AXFloatingWindow", "com.example.app", false, false, false, false, false, .floating),
+    (kAXSheetRole, nil, "com.example.app", false, false, false, false, false, .floating),
+    (kAXWindowRole, kAXStandardWindowSubrole, "com.example.app", true, true, true, false, false, .floating),
+    // only Apple's Quick Look service bundle floats, in any case
+    (kAXWindowRole, kAXStandardWindowSubrole, "com.apple.quicklook.QuickLookUIService", true, true, false, false, false,
+      .floating),
+    (kAXWindowRole, kAXStandardWindowSubrole, "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE", true, true, false, false, false,
+      .floating),
+    (kAXWindowRole, kAXStandardWindowSubrole, "com.example.quicklook.editor", true, true, false, false, false, .tiled),
+    (kAXWindowRole, kAXUnknownSubrole, "com.example.app", false, false, false, true, false, .floating),
+    (kAXWindowRole, kAXUnknownSubrole, "net.imput.helium", false, false, false, false, true, .tiled),
+  ] as [(String, String?, String, Bool, Bool, Bool, Bool, Bool, WindowDisposition)])
+  func `Window classification follows role, controls, and rules`(role: String, subrole: String?, appID: String,
+    hasCloseButton: Bool, canResize: Bool, isModal: Bool, configuredFloating: Bool, forceTiling: Bool,
+    disposition: WindowDisposition) {
+    #expect(classifyWindow(role: role, subrole: subrole, appID: appID, hasCloseButton: hasCloseButton,
+      canResize: canResize, isModal: isModal, configuredFloating: configuredFloating, forceTiling: forceTiling)
+      == disposition)
   }
 
   @Test
-  func `Modal standard window floats even when resizable`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "com.example.app",
-        hasCloseButton: true,
-        canResize: true,
-        isModal: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test
-  func `Quick look service window floats even when standard`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "com.apple.quicklook.QuickLookUIService",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test
-  func `Configured floating tracks unknown auxiliary window`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXUnknownSubrole,
-        appID: "com.example.app",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: true,
-        forceTiling: false
-      ) == .floating)
-  }
-
-  @Test
-  func `Transient close button failure preserves managed window`() {
-    #expect(
-      shouldTreatWindowAsClosable(
-        error: .cannotComplete,
-        hasValue: false,
-        wasPreviouslyManaged: true
-      ))
-    #expect(
-      shouldTreatWindowAsClosable(
-        error: .cannotComplete,
-        hasValue: false,
-        wasPreviouslyManaged: false
-      ) == false)
+  func `Only a transient close button failure keeps a managed window closable`() {
+    #expect(shouldTreatWindowAsClosable(error: .cannotComplete, hasValue: false, wasPreviouslyManaged: true))
+    #expect(!shouldTreatWindowAsClosable(error: .cannotComplete, hasValue: false, wasPreviouslyManaged: false))
+    #expect(!shouldTreatWindowAsClosable(error: .noValue, hasValue: false, wasPreviouslyManaged: true))
   }
 
   @Test(
@@ -741,132 +393,22 @@ struct WindowDiscoveryTests {
       ) == false)
   }
 
-  @Test
-  func `Missing close button remains unmanaged`() {
-    #expect(
-      shouldTreatWindowAsClosable(
-        error: .noValue,
-        hasValue: false,
-        wasPreviouslyManaged: true
-      ) == false)
+  @Test(arguments: [(true, true, true), (true, false, false), (false, true, false)])
+  func `Activation selects a specific window only past unmanaged auxiliary windows`(activates: Bool,
+    hasAuxiliary: Bool, selects: Bool) {
+    #expect(shouldSelectSpecificWindow(activatesApplication: activates, hasUnmanagedAuxiliaryWindows: hasAuxiliary,
+      hasMultipleManagedWindows: false, focusWritePending: false, targetWasLastFocused: true) == selects)
   }
 
-  @Test
-  func `Force tiling overrides window shape filter`() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXUnknownSubrole,
-        appID: "net.imput.helium",
-        hasCloseButton: false,
-        canResize: false,
-        configuredFloating: false,
-        forceTiling: true
-      ) == .tiled)
-  }
-
-  @Test
-  func `Application activation selects target with unmanaged auxiliary windows`() {
-    #expect(
-      shouldSelectSpecificWindow(
-        activatesApplication: true,
-        hasUnmanagedAuxiliaryWindows: true,
-        hasMultipleManagedWindows: false,
-        focusWritePending: false,
-        targetWasLastFocused: true
-      ))
-  }
-
-  @Test
-  func `Stable single window focus keeps fast path`() {
-    #expect(
-      shouldSelectSpecificWindow(
-        activatesApplication: true,
-        hasUnmanagedAuxiliaryWindows: false,
-        hasMultipleManagedWindows: false,
-        focusWritePending: false,
-        targetWasLastFocused: true
-      ) == false)
-  }
-
-  @Test
-  func `Frontmost single window defers selection to async validation`() {
-    #expect(
-      shouldSelectSpecificWindow(
-        activatesApplication: false,
-        hasUnmanagedAuxiliaryWindows: true,
-        hasMultipleManagedWindows: false,
-        focusWritePending: false,
-        targetWasLastFocused: true
-      ) == false)
-  }
 }
 
 struct WindowClassificationReviewFeedbackTests {
-  @Test func successfulSiblingDoesNotClearFailingElementRetries() {
-    let processID: pid_t = 42
-    let failing = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateApplication(processID)
-    )
-    let successful = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateSystemWide()
-    )
-    var failures = [failing: 2]
-
-    failures[successful] = nil
-
-    #expect(failures[failing] == 2)
-  }
-
-  @Test func vanishedWindowRetryIdentityIsRemoved() {
-    let processID: pid_t = 42
-    let vanished = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateApplication(processID)
-    )
-    let live = AXWindowElementIdentity(
-      processID: processID,
-      element: AXUIElementCreateSystemWide()
-    )
-
-    let failures = [vanished: 2, live: 1].filter { [live].contains($0.key) }
-
-    #expect(failures[vanished] == nil)
-    #expect(failures[live] == 1)
-  }
-
   @Test func repeatedBatchFailuresDisableBatchedAttributeReads() {
     #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 1) == false)
     #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 2) == false)
     #expect(shouldDisableBatchedWindowAttributeReads(failureCount: 3))
   }
 
-  @Test func quickLookRuleMatchesOnlyAppleServiceBundleID() {
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .floating
-    )
-    #expect(
-      classifyWindow(
-        role: kAXWindowRole,
-        subrole: kAXStandardWindowSubrole,
-        appID: "com.example.quicklook.editor",
-        hasCloseButton: true,
-        canResize: true,
-        configuredFloating: false,
-        forceTiling: false
-      ) == .tiled
-    )
-  }
 }
 
 struct NativeWindowTabDiscoveryTests {
@@ -890,256 +432,90 @@ struct NativeWindowTabDiscoveryTests {
     #expect(order == [1, 3, 0, 2])
   }
 
-  @Test
-  func `Native tab backing windows collapse behind their AX representative`() {
-    let representative = window(id: 1, title: "Defi")
-    let firstTab = window(
-      id: 2,
-      title: "Defi",
-      frame: Rect(x: 100, y: 40, width: 1_202, height: 899)
-    )
-    let secondTab = window(
-      id: 3,
-      title: "Defi",
-      frame: Rect(x: 100, y: 40, width: 1_202, height: 900)
-    )
-    let standalone = window(id: 4, title: "Other")
+  struct TabMembershipCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let representativeTitle: String
+    // Windows after the representative (id 1).
+    let windows: [Window]
+    let group: NativeWindowTabGroup
+    var retained: Set<UInt64> = []
+    var observed: Set<UInt64> = []
+    let backing: Set<UInt64>
 
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, firstTab, secondTab, standalone, firstTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"])
-      ]
-    )
+    var testDescription: String { name }
+  }
 
-    #expect(backingWindowIDs[representative.id] == [firstTab.id, secondTab.id])
+  static func tab(_ id: UInt64, _ title: String, x: Double = 100, width: Double = 1_200,
+    height: Double = 900) -> Window {
+    Window(id: WindowID(rawValue: id), appID: "com.mitchellh.ghostty", title: title,
+      frame: Rect(x: x, y: 40, width: width, height: height), role: kAXWindowRole,
+      subrole: kAXStandardWindowSubrole, processID: 42, monitorID: MonitorID(rawValue: 1))
+  }
+
+  static func ids(_ raw: Set<UInt64>) -> Set<WindowID> { Set(raw.map(WindowID.init(rawValue:))) }
+
+  static let tabMembershipCases = [
+    TabMembershipCase(name: "backing windows within a few points collapse behind the representative",
+      representativeTitle: "Defi",
+      windows: [tab(2, "Defi", width: 1_202, height: 899), tab(3, "Defi", width: 1_202), tab(4, "Other"),
+        tab(2, "Defi", width: 1_202, height: 899)],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"]), backing: [2, 3]),
+    TabMembershipCase(name: "ambiguous membership leaves windows untouched", representativeTitle: "Defi",
+      windows: [tab(2, "Defi"), tab(3, "Defi"), tab(4, "Defi")],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"]), backing: []),
+    TabMembershipCase(name: "known members survive temporary frame divergence", representativeTitle: "Defi",
+      windows: [tab(2, "Defi", x: 2_000), tab(3, "Defi", x: -2_000)],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"], backingWindowIDs: ids([2, 3])), backing: [2, 3]),
+    TabMembershipCase(name: "a known direct backing stays coalesced when rediscovered", representativeTitle: "Defi",
+      windows: [tab(2, "Defi")],
+      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"], selectedTabTitle: "Defi", backingWindowIDs: ids([2])),
+      backing: [2]),
+    TabMembershipCase(name: "unique titles recover membership after a visible restart", representativeTitle: "Selected",
+      windows: [tab(2, "First", x: 2_000), tab(3, "Second", x: -2_000)],
+      group: NativeWindowTabGroup(tabTitles: ["First", "Second"]), backing: [2, 3]),
+    TabMembershipCase(name: "a growing group absorbs its newly observed backing window", representativeTitle: "Third",
+      windows: [tab(2, "First"), tab(3, "Second")],
+      group: NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"], selectedTabTitle: "Third",
+        backingWindowIDs: ids([2])), retained: [2], observed: [3], backing: [2, 3]),
+    TabMembershipCase(name: "the selected AppKit tab absorbs the retained previous window", representativeTitle: "Recents",
+      windows: [tab(2, "Desktop", x: -2_000)],
+      group: NativeWindowTabGroup(tabTitles: ["Desktop", "Recents"], selectedTabTitle: "Recents"), retained: [2],
+      backing: [2]),
+  ]
+
+  @Test(arguments: tabMembershipCases)
+  func `Native tab membership coalesces only unambiguous backing windows`(_ scenario: TabMembershipCase) {
+    let representative = WindowID(rawValue: 1)
+    let backing = nativeTabBackingWindowIDsByRepresentative(
+      windows: [Self.tab(1, scenario.representativeTitle)] + scenario.windows,
+      groupsByRepresentativeID: [representative: scenario.group], retainedWindowIDs: Self.ids(scenario.retained),
+      additionalBackingWindowIDsByRepresentative: scenario.observed.isEmpty ? [:]
+        : [representative: Self.ids(scenario.observed)])
+    #expect(backing[representative] ?? [] == Self.ids(scenario.backing))
   }
 
   @Test
-  func `Ambiguous native tab membership leaves windows untouched`() {
-    let representative = window(id: 1, title: "Defi")
-    let candidates = (2...4).map { window(id: UInt64($0), title: "Defi") }
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative] + candidates,
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"])
-      ]
-    )
-
-    #expect(backingWindowIDs.isEmpty)
-  }
-
-  @Test
-  func `Known native tab members survive temporary frame divergence`() {
-    let representative = window(id: 1, title: "Defi")
-    let firstTab = window(
-      id: 2,
-      title: "Defi",
-      frame: Rect(x: 2_000, y: 40, width: 1_200, height: 900)
-    )
-    let secondTab = window(
-      id: 3,
-      title: "Defi",
-      frame: Rect(x: -2_000, y: 40, width: 1_200, height: 900)
-    )
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, firstTab, secondTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["Defi", "Defi"],
-          backingWindowIDs: [firstTab.id, secondTab.id]
-        )
-      ]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [firstTab.id, secondTab.id])
-  }
-
-  @Test
-  func `Known direct native tab backing stays coalesced when rediscovered`() {
-    let representative = window(id: 1, title: "Defi")
-    let backing = window(id: 2, title: "Defi")
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, backing],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["Defi", "Defi"],
-          selectedTabTitle: "Defi",
-          backingWindowIDs: [backing.id]
-        )
-      ]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [backing.id])
-  }
-
-  @Test
-  func `Unique native tab titles recover membership after a visible restart`() {
-    let representative = window(id: 1, title: "Selected")
-    let firstTab = window(
-      id: 2,
-      title: "First",
-      frame: Rect(x: 2_000, y: 40, width: 1_200, height: 900)
-    )
-    let secondTab = window(
-      id: 3,
-      title: "Second",
-      frame: Rect(x: -2_000, y: 40, width: 1_200, height: 900)
-    )
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, firstTab, secondTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"]
-        )
-      ]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [firstTab.id, secondTab.id])
-  }
-
-  @Test
-  func `Native tab representative swaps identity with a known member`() {
-    let oldRepresentativeID = WindowID(rawValue: 1)
-    let firstMemberID = WindowID(rawValue: 2)
-    let secondMemberID = WindowID(rawValue: 3)
-
-    let rebound = nativeWindowTabGroupRebindingKnownMembers(
-      NativeWindowTabGroup(tabTitles: ["First", "Second"]),
-      representativeID: firstMemberID,
-      processID: processID,
-      previousGroupsByRepresentativeID: [
-        oldRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          backingWindowIDs: [firstMemberID, secondMemberID]
-        )
-      ],
-      previousProcessIDs: [oldRepresentativeID: processID]
-    )
-
-    #expect(rebound.backingWindowIDs == [oldRepresentativeID, secondMemberID])
-
-    let directRebound = nativeWindowTabGroupRebindingKnownMembers(
-      NativeWindowTabGroup(
-        tabTitles: ["First", "Second"],
-        selectedTabTitle: "First"
-      ),
-      representativeID: firstMemberID,
-      processID: processID,
-      previousGroupsByRepresentativeID: [
-        oldRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          selectedTabTitle: "Second",
-          backingWindowIDs: [firstMemberID]
-        )
-      ],
-      previousProcessIDs: [oldRepresentativeID: processID]
-    )
-
-    #expect(directRebound.backingWindowIDs == [oldRepresentativeID])
-
-    let resizedGroup = nativeWindowTabGroupRebindingKnownMembers(
-      NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"]),
-      representativeID: oldRepresentativeID,
-      processID: processID,
-      previousGroupsByRepresentativeID: [
-        oldRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          backingWindowIDs: [firstMemberID, secondMemberID]
-        )
-      ],
-      previousProcessIDs: [oldRepresentativeID: processID]
-    )
-
-    #expect(resizedGroup.backingWindowIDs == [firstMemberID, secondMemberID])
-  }
-
-  @Test
-  func `Growing native tab group absorbs its newly observed backing window`() {
-    let representative = window(id: 1, title: "Third")
-    let knownBacking = window(id: 2, title: "First")
-    let newBacking = window(id: 3, title: "Second")
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, knownBacking, newBacking],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["First", "Second", "Third"],
-          selectedTabTitle: "Third",
-          backingWindowIDs: [knownBacking.id]
-        )
-      ],
-      retainedWindowIDs: [knownBacking.id],
-      additionalBackingWindowIDsByRepresentative: [
-        representative.id: [newBacking.id]
-      ]
-    )
-
-    #expect(
-      backingWindowIDs[representative.id] == [knownBacking.id, newBacking.id]
-    )
-  }
-
-  @Test
-  func `New native tab representative replaces the previous logical window`() {
-    let previousRepresentativeID = WindowID(rawValue: 1)
-    let newRepresentativeID = WindowID(rawValue: 2)
-
-    let replacements = nativeWindowTabRepresentativeReplacements(
-      previousWindowIDs: [previousRepresentativeID],
-      nextWindowIDs: [newRepresentativeID],
-      groupsByRepresentativeID: [
-        newRepresentativeID: NativeWindowTabGroup(
-          tabTitles: ["First", "Second"],
-          backingWindowIDs: [previousRepresentativeID]
-        )
-      ]
-    )
-
-    #expect(replacements == [previousRepresentativeID: newRepresentativeID])
-  }
-
-  @Test
-  func `Ambiguous native tab replacement does not change logical identity`() {
-    let replacements = nativeWindowTabRepresentativeReplacements(
-      previousWindowIDs: [WindowID(rawValue: 1), WindowID(rawValue: 2)],
-      nextWindowIDs: [WindowID(rawValue: 3)],
-      groupsByRepresentativeID: [
-        WindowID(rawValue: 3): NativeWindowTabGroup(
-          tabTitles: ["First", "Second", "Third"],
-          backingWindowIDs: [WindowID(rawValue: 1), WindowID(rawValue: 2)]
-        )
-      ]
-    )
-
-    #expect(replacements.isEmpty)
-  }
-
-  @Test
-  func `Selected AppKit tab absorbs the retained previous window`() {
-    let representative = window(id: 1, title: "Recents")
-    let previousTab = window(
-      id: 2,
-      title: "Desktop",
-      frame: Rect(x: -2_000, y: 40, width: 1_200, height: 900)
-    )
-
-    let backingWindowIDs = nativeTabBackingWindowIDsByRepresentative(
-      windows: [representative, previousTab],
-      groupsByRepresentativeID: [
-        representative.id: NativeWindowTabGroup(
-          tabTitles: ["Desktop", "Recents"],
-          selectedTabTitle: "Recents"
-        )
-      ],
-      retainedWindowIDs: [previousTab.id]
-    )
-
-    #expect(backingWindowIDs[representative.id] == [previousTab.id])
+  func `A native tab representative swap keeps logical identity unless ambiguous`() {
+    let old = WindowID(rawValue: 1), first = WindowID(rawValue: 2), second = WindowID(rawValue: 3)
+    func rebound(_ group: NativeWindowTabGroup, representative: WindowID, previous: NativeWindowTabGroup)
+      -> Set<WindowID> {
+      nativeWindowTabGroupRebindingKnownMembers(group, representativeID: representative, processID: processID,
+        previousGroupsByRepresentativeID: [old: previous], previousProcessIDs: [old: processID]).backingWindowIDs
+    }
+    let known = NativeWindowTabGroup(tabTitles: ["First", "Second"], backingWindowIDs: [first, second])
+    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second"]), representative: first, previous: known)
+      == [old, second])
+    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second"], selectedTabTitle: "First"),
+      representative: first, previous: NativeWindowTabGroup(tabTitles: ["First", "Second"], selectedTabTitle: "Second",
+        backingWindowIDs: [first])) == [old])
+    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"]), representative: old,
+      previous: known) == [first, second])
+    #expect(nativeWindowTabRepresentativeReplacements(previousWindowIDs: [old], nextWindowIDs: [first],
+      groupsByRepresentativeID: [first: NativeWindowTabGroup(tabTitles: ["First", "Second"], backingWindowIDs: [old])])
+      == [old: first])
+    #expect(nativeWindowTabRepresentativeReplacements(previousWindowIDs: [old, first], nextWindowIDs: [second],
+      groupsByRepresentativeID: [second: NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"],
+        backingWindowIDs: [old, first])]).isEmpty, "An ambiguous replacement keeps every logical identity")
   }
 
   @Test
@@ -1161,23 +537,6 @@ struct NativeWindowTabDiscoveryTests {
         Rect(x: 140, y: 240, width: 600, height: 40),
         windowFrame: frame
       ) == false
-    )
-  }
-
-  private func window(
-    id: UInt64,
-    title: String,
-    frame: Rect? = nil
-  ) -> Window {
-    Window(
-      id: WindowID(rawValue: id),
-      appID: "com.mitchellh.ghostty",
-      title: title,
-      frame: frame ?? self.frame,
-      role: kAXWindowRole,
-      subrole: kAXStandardWindowSubrole,
-      processID: processID,
-      monitorID: MonitorID(rawValue: 1)
     )
   }
 }

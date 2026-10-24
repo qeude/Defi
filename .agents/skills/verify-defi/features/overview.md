@@ -27,4 +27,4 @@ Pass: `overview=open`, `overviewPermission=granted`, `overviewReceivedPreviews` 
 - Status is published on change. Read it a few seconds after opening; `overviewCaptures` is in-flight work and returns to 0.
 - `overviewReceivedPreviews=0` with `overviewPreviewFailures=0` and no ScreenCaptureKit activity in the log means captures never started, usually a wedged daemon. `defi service restart` recovers it. Check `/usr/bin/log` for `overview-capture` errors.
 - The overview can close on its own when focus changes; poll `overview=` rather than assuming it stayed open.
-- Another covering test: `DesktopE2ETests/testOverviewShowsBothMonitorsBeforeLoadingPreviews`.
+- Another covering test: `DesktopE2ETests/testOverviewOpensOnEveryDisplayAndZoomsWithOrWithoutPreviews`.

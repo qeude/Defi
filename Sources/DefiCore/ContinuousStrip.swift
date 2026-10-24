@@ -26,58 +26,24 @@ public struct ContinuousStripPlan: Equatable, Sendable {
   }
 }
 
+/// Columns that show more than a sliver of the viewport stay in place; `park`
+/// places the others.
 public func continuousStripFramesForActiveWorkspace(
   _ frames: [FrameAssignment],
   viewport: Rect,
-  ownerFrame: Rect? = nil,
-  parkingFrame: Rect? = nil,
-  allMonitorFrames: [Rect]? = nil,
-  reservedParkingFrames: [Rect] = [],
-  preservingExitSide: Bool = false
+  park: (Rect) -> Rect
 ) -> ContinuousStripPlan {
-  let parkingOwnerFrame = ownerFrame ?? viewport
-  let parkingMonitorFrames = allMonitorFrames ?? [parkingOwnerFrame]
-  var strip: [FrameAssignment] = []
-  var left: [FrameAssignment] = []
-  var right: [FrameAssignment] = []
-
-  for assignment in frames {
-    let visibleWidth = max(
+  var visibility: [WindowID: WindowVisibilityState] = [:]
+  let planned = frames.map { assignment in
+    let visibleWidth =
       min(assignment.frame.x + assignment.frame.width, viewport.x + viewport.width)
-        - max(assignment.frame.x, viewport.x),
-      0
-    )
-    if visibleWidth > parkedSliverWidth {
-      strip.append(assignment)
-    } else if assignment.frame.x + assignment.frame.width
-      <= viewport.x + (preservingExitSide ? parkedSliverWidth : 0)
-    {
-      left.append(assignment)
-    } else {
-      right.append(assignment)
+      - max(assignment.frame.x, viewport.x)
+    guard visibleWidth <= parkedSliverWidth else {
+      visibility[assignment.windowID] = .visible
+      return assignment
     }
+    visibility[assignment.windowID] = .parked
+    return FrameAssignment(windowID: assignment.windowID, frame: park(assignment.frame))
   }
-  left.sort {
-    ($0.frame.x + $0.frame.width) > ($1.frame.x + $1.frame.width)
-  }
-  right.sort { $0.frame.x < $1.frame.x }
-
-  var visibility = Dictionary(
-    uniqueKeysWithValues: strip.map { ($0.windowID, WindowVisibilityState.visible) }
-  )
-  for (assignments, side) in [(left, ParkingSide.left), (right, ParkingSide.right)] {
-    strip.append(contentsOf: parkFramesInSafeCorner(
-      assignments,
-      ownerFrame: parkingOwnerFrame,
-      parkingFrame: parkingFrame,
-      allMonitorFrames: parkingMonitorFrames,
-      reservedParkingFrames: reservedParkingFrames,
-      preferredSide: side,
-      preservingVerticalPosition: true
-    ))
-    for assignment in assignments {
-      visibility[assignment.windowID] = .parked
-    }
-  }
-  return ContinuousStripPlan(frames: strip, visibilityByWindowID: visibility)
+  return ContinuousStripPlan(frames: planned, visibilityByWindowID: visibility)
 }

@@ -14,55 +14,16 @@ struct MonitorTests {
   )
 
   @Test
-  func `Monitor geometry detects display replacement`() {
-    let externalDisplay = MonitorSnapshot(
-      id: MonitorID(rawValue: 3),
-      frame: Rect(x: 0, y: 30, width: 2_560, height: 1_362),
-      physicalFrame: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
-      refreshRateHz: 120
-    )
-
-    #expect(monitorGeometryChanged(from: [internalDisplay], to: [externalDisplay]))
-  }
-
-  @Test
-  func `Monitor geometry detects visible frame resize`() {
-    let resized = MonitorSnapshot(
-      id: internalDisplay.id,
-      frame: Rect(x: 0, y: 0, width: 1_512, height: 880),
-      physicalFrame: internalDisplay.physicalFrame,
-      refreshRateHz: 120
-    )
-
-    #expect(monitorGeometryChanged(from: [internalDisplay], to: [resized]))
-  }
-
-  @Test
-  func `Monitor geometry ignores refresh rate only change`() {
-    let changedRefreshRate = MonitorSnapshot(
-      id: internalDisplay.id,
-      frame: internalDisplay.frame,
-      physicalFrame: internalDisplay.physicalFrame,
-      refreshRateHz: 60
-    )
-
-    #expect(monitorGeometryChanged(from: [internalDisplay], to: [changedRefreshRate]) == false)
-  }
-
-  @Test
-  func `Monitor geometry ignores ordering`() {
-    let externalDisplay = MonitorSnapshot(
-      id: MonitorID(rawValue: 3),
-      frame: Rect(x: 1_512, y: 0, width: 2_560, height: 1_362),
-      physicalFrame: Rect(x: 1_512, y: 0, width: 2_560, height: 1_440),
-      refreshRateHz: 120
-    )
-
-    #expect(
-      monitorGeometryChanged(
-        from: [internalDisplay, externalDisplay],
-        to: [externalDisplay, internalDisplay]
-      ) == false)
+  func `Monitor geometry changes with displays and visible frames, not refresh rate or order`() {
+    func display(_ id: UInt64, x: Double = 0, visibleHeight: Double = 901, refresh: Double = 120) -> MonitorSnapshot {
+      MonitorSnapshot(id: MonitorID(rawValue: id), frame: Rect(x: x, y: 0, width: 1_512, height: visibleHeight),
+        physicalFrame: Rect(x: x, y: 0, width: 1_512, height: 982), refreshRateHz: refresh)
+    }
+    let external = display(3, x: 1_512)
+    #expect(monitorGeometryChanged(from: [internalDisplay], to: [display(3)]))
+    #expect(monitorGeometryChanged(from: [internalDisplay], to: [display(1, visibleHeight: 880)]))
+    #expect(!monitorGeometryChanged(from: [internalDisplay], to: [display(1, refresh: 60)]))
+    #expect(!monitorGeometryChanged(from: [internalDisplay, external], to: [external, internalDisplay]))
   }
 
   @Test

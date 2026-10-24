@@ -74,9 +74,7 @@ extension AXFrameCoordinator {
         expectedGeneration: settlementTarget.generation,
         currentGeneration: settlementTarget.generation,
         repairsSuspended: initialSettlementRepairsSuspended,
-        leftMouseButtonDown: leftMouseButtonDown,
-        animationRunning: activeAnimationRunning
-          || (pending?.animationDuration ?? 0) > 0
+        leftMouseButtonDown: leftMouseButtonDown
       )
     else {
       lock.unlock()
@@ -253,9 +251,7 @@ extension AXFrameCoordinator {
       expectedGeneration: generation,
       currentGeneration: currentTarget.generation,
       repairsSuspended: initialSettlementRepairsSuspended,
-      leftMouseButtonDown: leftMouseButtonDown,
-      animationRunning: activeAnimationRunning
-        || (pending?.animationDuration ?? 0) > 0
+      leftMouseButtonDown: leftMouseButtonDown
     )
   }
 
@@ -314,7 +310,7 @@ extension AXFrameCoordinator {
       lock.lock()
       completedParkingChecks += 1
       lock.unlock()
-      guard accessibilityWriter.pointDistance(actual, expectedPoint) > 1 else {
+      guard !parkedPositionHolds(actual, target: expectedPoint) else {
         verified = true
         return
       }
@@ -337,7 +333,7 @@ extension AXFrameCoordinator {
         return
       }
       guard let repaired = accessibilityWriter.readPosition(write.element),
-        accessibilityWriter.pointDistance(repaired, expectedPoint) <= 1
+        parkedPositionHolds(repaired, target: expectedPoint)
       else { return }
       guard parkingVerificationIsCurrent(
         windowID: windowID,
@@ -404,24 +400,8 @@ extension AXFrameCoordinator {
   }
 }
 
-/// Animation display gaps above this are slow enough to be felt; the 50 ms
-/// bound is about three 60 Hz frames, well past the normal ~8-17 ms pulse.
-public let animationDisplayGapAnomalyMS = 50.0
-
-/// Largest display-pulse gap of a finished animation clock trace event, if it
-/// crossed `animationDisplayGapAnomalyMS`.
-public func slowAnimationDisplayGapMS(_ event: String) -> Double? {
-  guard event.hasPrefix("clock "),
-    let range = event.range(of: "displayGapMs="),
-    let gap = Double(event[range.upperBound...].prefix { !$0.isWhitespace }),
-    gap > animationDisplayGapAnomalyMS
-  else { return nil }
-  return gap
-}
-
 func traceEventIsDiagnosticAnomaly(_ event: String) -> Bool {
-  if slowAnimationDisplayGapMS(event) != nil { return true }
-  return [
+  [
     "focus-recovery ",
     "initial-repair ",
     "parking-repair ",

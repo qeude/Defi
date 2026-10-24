@@ -27,6 +27,8 @@ final class SnapshotEngine: @unchecked Sendable {
 
   let frameCoordinator: AXFrameCoordinator
   let userInputTracker: UserInputTracker
+  /// The overlay is drawing a motion; replaced in tests.
+  var overlayMoving: @Sendable () -> Bool = { RibbonProxyStore.shared.isMoving }
 
   private func withLockedStorage<T>(_ body: (inout Storage) -> T) -> T {
     lock.lock()

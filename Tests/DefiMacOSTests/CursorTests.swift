@@ -298,177 +298,67 @@ struct CursorTests {
     )
   }
 
-  @Test
-  func frontmostManagedWindowWinsOverRetainedTiledWindow() {
-    let tiledWindowID = WindowID(rawValue: 1)
-    let floatingWindowID = WindowID(rawValue: 2)
+  struct HitTestCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let front: CGWindowID
+    let processID: pid_t
+    var layer = 0
+    var title: String? = nil
+    var managed: Set<WindowID> = [WindowID(rawValue: 1)]
+    var nonblocking: Set<CGWindowID> = []
+    let hit: ManagedPointerHit
+
+    var testDescription: String { name }
+  }
+
+  static let hitTestCases = [
+    HitTestCase(name: "frontmost managed window wins over a retained tiled window", front: 2, processID: 20,
+      managed: [WindowID(rawValue: 1), WindowID(rawValue: 2)], hit: .managed(WindowID(rawValue: 2))),
+    HitTestCase(name: "elevated managed sheet wins over its tiled window", front: 2, processID: 10, layer: 8,
+      managed: [WindowID(rawValue: 1), WindowID(rawValue: 2)], hit: .managed(WindowID(rawValue: 2))),
+    HitTestCase(name: "elevated auxiliary window blocks", front: 9, processID: 10, layer: 8, hit: .blocked),
+    HitTestCase(name: "transparent system overlay passes through", front: 9, processID: 90, layer: 20,
+      nonblocking: [9], hit: .managed(WindowID(rawValue: 1))),
+    HitTestCase(name: "visible Dock surface blocks", front: 9, processID: 90, layer: 20, title: "Dock",
+      hit: .blocked),
+    HitTestCase(name: "unmanaged front window blocks", front: 9, processID: 90, hit: .blocked),
+    HitTestCase(name: "managed process auxiliary window blocks", front: 9, processID: 10, hit: .blocked),
+    HitTestCase(name: "known transparent normal surface passes through", front: 9, processID: 999,
+      nonblocking: [9], hit: .managed(WindowID(rawValue: 1))),
+  ]
+
+  @Test(arguments: hitTestCases)
+  func frontSurfaceDecidesManagedHit(_ scenario: HitTestCase) {
     let records = [
-      record(id: 2, processID: 20),
+      record(id: scenario.front, processID: scenario.processID, layer: scenario.layer, title: scenario.title),
       record(id: 1, processID: 10),
     ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [tiledWindowID, floatingWindowID]
-      ) == .managed(floatingWindowID)
-    )
+    #expect(managedPointerHitTest(at: CGPoint(x: 300, y: 500), records: records,
+      managedWindowIDs: scenario.managed, nonblockingWindowIDs: scenario.nonblocking) == scenario.hit)
   }
 
-  @Test
-  func elevatedManagedWindowWinsOverTiledWindow() {
-    let tiledWindowID = WindowID(rawValue: 1)
-    let sheetWindowID = WindowID(rawValue: 2)
+  // title, frame, memory usage -> transparent, whether the managed window behind is hit at (300, 500)
+  @Test(arguments: [
+    ("Dock", Rect(x: 0, y: 0, width: 1512, height: 982), nil, true, true),
+    // the visible Dock strip is no full-display overlay and does not cover the point
+    ("Dock", Rect(x: 0, y: 930, width: 1512, height: 52), nil, false, true),
+    // a nameless lightweight Dock surface is transparent without capture permission
+    ("", Rect(x: 0, y: 0, width: 1512, height: 982), 2_368, true, true),
+    // a nameless full-display Mission Control surface blocks
+    ("", Rect(x: 0, y: 0, width: 1512, height: 982), nil, false, false),
+  ] as [(String, Rect, Int?, Bool, Bool)])
+  func onlyFullDisplayDockOverlayIsTransparent(title: String, frame: Rect, memoryUsage: Int?,
+    transparent: Bool, hitsManaged: Bool) {
     let records = [
-      record(id: 2, processID: 10, layer: 8),
-      record(id: 1, processID: 10),
+      record(id: 9, processID: 90, layer: 20, title: title, frame: frame, memoryUsage: memoryUsage),
+      record(id: 1, processID: 10, frame: Rect(x: 0, y: 0, width: 1512, height: 982)),
     ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [tiledWindowID, sheetWindowID]
-      ) == .managed(sheetWindowID)
-    )
-  }
-
-  @Test
-  func elevatedAuxiliaryWindowBlocksManagedWindowBehindIt() {
-    let records = [
-      record(id: 9, processID: 10, layer: 8),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [WindowID(rawValue: 1)]
-      ) == .blocked
-    )
-  }
-
-  @Test
-  func transparentSystemOverlayDoesNotBlockManagedWindow() {
-    let managedWindowID = WindowID(rawValue: 1)
-    let records = [
-      record(id: 9, processID: 90, layer: 20),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [managedWindowID],
-        nonblockingWindowIDs: [9]
-      ) == .managed(managedWindowID)
-    )
-  }
-
-  @Test
-  func onlyFullDisplayDockSurfaceIsTransparentToHitTesting() {
-    let physicalFrame = Rect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = Rect(x: 0, y: 37, width: 1512, height: 901)
-    let records = [
-      record(
-        id: 9,
-        processID: 90,
-        layer: 20,
-        title: "Dock",
-        frame: physicalFrame
-      ),
-      record(
-        id: 8,
-        processID: 90,
-        layer: 20,
-        title: "Dock",
-        frame: Rect(x: 0, y: 930, width: 1512, height: 52)
-      ),
-    ]
-
-    #expect(
-      transparentDockOverlayWindowIDs(
-        records: records,
-        dockProcessIDs: [90],
-        monitorFrames: [visibleFrame]
-      ) == [9]
-    )
-  }
-
-  @Test
-  func namelessLightweightDockSurfaceIsTransparentWithoutCapturePermission() {
-    let physicalFrame = Rect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = Rect(x: 0, y: 37, width: 1512, height: 901)
-    let records = [
-      record(
-        id: 9,
-        processID: 90,
-        layer: 20,
-        title: "",
-        frame: physicalFrame,
-        memoryUsage: 2_368
-      ),
-      record(id: 1, processID: 10, frame: physicalFrame),
-    ]
-
-    #expect(
-      transparentDockOverlayWindowIDs(
-        records: records,
-        dockProcessIDs: [90],
-        monitorFrames: [visibleFrame]
-      ) == [9]
-    )
-  }
-
-  @Test
-  func fullDisplayMissionControlSurfaceBlocksManagedWindow() {
-    let physicalFrame = Rect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = Rect(x: 0, y: 37, width: 1512, height: 901)
-    let records = [
-      record(
-        id: 9,
-        processID: 90,
-        layer: 20,
-        title: "",
-        frame: physicalFrame
-      ),
-      record(id: 1, processID: 10, frame: physicalFrame),
-    ]
-    let transparentWindowIDs = transparentDockOverlayWindowIDs(
-      records: records,
-      dockProcessIDs: [90],
-      monitorFrames: [visibleFrame]
-    )
-
-    #expect(transparentWindowIDs.isEmpty)
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [WindowID(rawValue: 1)],
-        nonblockingWindowIDs: transparentWindowIDs
-      ) == .blocked
-    )
-  }
-
-  @Test
-  func visibleDockSurfaceStillBlocksManagedWindow() {
-    let records = [
-      record(id: 9, processID: 90, layer: 20, title: "Dock"),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [WindowID(rawValue: 1)],
-        nonblockingWindowIDs: []
-      ) == .blocked
-    )
+    let transparentIDs = transparentDockOverlayWindowIDs(records: records, dockProcessIDs: [90],
+      monitorFrames: [Rect(x: 0, y: 37, width: 1512, height: 901)])
+    #expect(transparentIDs == (transparent ? [9] : []))
+    #expect(managedPointerHitTest(at: CGPoint(x: 300, y: 500), records: records,
+      managedWindowIDs: [WindowID(rawValue: 1)], nonblockingWindowIDs: transparentIDs)
+      == (hitsManaged ? .managed(WindowID(rawValue: 1)) : .blocked))
   }
 
   struct CursorOverlayCase: CustomTestStringConvertible, Sendable {
@@ -534,57 +424,6 @@ struct CursorTests {
         managedWindowIDs: [WindowID(rawValue: 1)],
         nonblockingWindowIDs: transparentWindowIDs
       ) == (scenario.isTransparent ? .managed(WindowID(rawValue: 1)) : .blocked)
-    )
-  }
-
-  @Test
-  func unmanagedFrontWindowBlocksManagedWindowBehindIt() {
-    let records = [
-      record(id: 9, processID: 90),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [WindowID(rawValue: 1)]
-      ) == .blocked
-    )
-  }
-
-  @Test
-  func managedProcessAuxiliaryWindowBlocksManagedWindowBehindIt() {
-    let managedWindowID = WindowID(rawValue: 1)
-    let records = [
-      record(id: 9, processID: 10),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [managedWindowID]
-      ) == .blocked
-    )
-  }
-
-  @Test
-  func knownTransparentNormalSurfaceAllowsManagedWindowBehindIt() {
-    let managedWindowID = WindowID(rawValue: 1)
-    let records = [
-      record(id: 9, processID: 999),
-      record(id: 1, processID: 10),
-    ]
-
-    #expect(
-      managedPointerHitTest(
-        at: CGPoint(x: 300, y: 500),
-        records: records,
-        managedWindowIDs: [managedWindowID],
-        nonblockingWindowIDs: [9]
-      ) == .managed(managedWindowID)
     )
   }
 

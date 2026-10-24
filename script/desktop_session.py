@@ -40,8 +40,13 @@ def stop():
 
 
 def start():
-    command('service', 'start')
-    for _ in range(100):
+    for attempt in range(100):
+        # LaunchServices can refuse a launch (-600) just after the previous instance exits.
+        if attempt % 10 == 0 and daemon_count() == 0:
+            try:
+                command('service', 'start')
+            except subprocess.CalledProcessError:
+                pass
         try:
             status = command('status')
             if (daemon_count() == 1 and 'monitors=0[' not in status

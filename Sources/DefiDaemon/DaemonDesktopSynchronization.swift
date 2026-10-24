@@ -96,23 +96,6 @@ func shouldCloseOverviewAfterNativeFocusChange(
     > overviewOpenedAt
 }
 
-func desktopSnapshotWaitsForCommandAnimation(
-  animationPending: Bool,
-  latestCommandInputTimestamp: TimeInterval,
-  latestNativeFocusAnimationInputTimestamp: TimeInterval = 0,
-  mouseFocusIntentTimestamp: TimeInterval?,
-  keyboardFocusIntentTimestamp: TimeInterval?,
-  mouseGestureActive: Bool = false,
-  applicationActivationTimestamp: TimeInterval? = nil
-) -> Bool {
-  guard animationPending, !mouseGestureActive else { return false }
-  return max(
-    mouseFocusIntentTimestamp ?? 0,
-    keyboardFocusIntentTimestamp ?? 0,
-    applicationActivationTimestamp ?? 0
-  ) <= max(latestCommandInputTimestamp, latestNativeFocusAnimationInputTimestamp)
-}
-
 @NavigationActor
 extension Daemon {
   func synchronizeDesktop(
@@ -732,11 +715,9 @@ extension Daemon {
             platform.carryWindowProxy(gestureWindowID, stretches: true)
           }
         }
-        // With the overlay, a drag never reorders for real: the overlay shows the
-        // layout the drop would produce at the pointer, and the drop applies it.
-        if platform.windowProxiesEnabled, let gestureWindowID,
-          state.windows[gestureWindowID]?.floating == false
-        {
+        // A drag never reorders for real: the overlay shows the layout the drop would
+        // produce at the pointer, and the drop applies it.
+        if let gestureWindowID, state.windows[gestureWindowID]?.floating == false {
           // A click or a resize is no drop: only a moved window previews one.
           let moved = actualFrame.flatMap { actual in
             mouseGestureInitialFrame.map { mouseFrameWasTranslated(from: $0, to: actual) }
@@ -744,49 +725,37 @@ extension Daemon {
           let target = moved ? CGEvent(source: nil).flatMap { event in
             mouseDropTarget(gestureWindowID,
               pointer: (Double(event.location.x), Double(event.location.y)),
-              state: state, viewports: viewportsByMonitor)
+              previous: proxyPreviewTarget, state: state, viewports: viewportsByMonitor,
+              monitorFrames: physicalMonitorFrames)
           } : nil
           if target != proxyPreviewTarget {
             proxyPreviewTarget = target
             var preview = state
             if let target {
-              applyMouseDrop(gestureWindowID, target, state: &preview, viewports: viewportsByMonitor)
+              applyMouseDrop(gestureWindowID, target, state: &preview, viewports: viewportsByMonitor,
+                monitorFrames: physicalMonitorFrames)
             }
+            platform.recordPerformanceTrace(
+              "mouse-drop-preview window=\(gestureWindowID.rawValue) target=\(target.map { "\($0)" } ?? "none")")
             platform.presentWindowProxyPreview(
-              mouseDropPreviewFrames(around: gestureWindowID, in: preview, viewports: viewportsByMonitor),
+              mouseDropPreviewFrames(in: preview, viewports: viewportsByMonitor),
               heldWindowID: gestureWindowID)
           }
-        } else if let gestureWindowID,
-          let actualFrame,
-          let mouseGestureInitialFrame,
-          mouseFrameWasTranslated(
-            from: mouseGestureInitialFrame,
-            to: actualFrame
-          ),
-          reorderTiledWindowAfterMouseDrag(
-            gestureWindowID,
-            actualFrame: actualFrame,
-            initialFrame: mouseGestureInitialFrame,
-            state: &state,
-            viewports: viewportsByMonitor
-          )
-        {
-          mouseReordered = true
-          platform.recordPerformanceTrace(
-            "mouse-reorder-live window=\(gestureWindowID.rawValue)"
-          )
         }
       } else {
-        let previewed = proxyPreviewTarget != nil
+        let previewedTarget = proxyPreviewTarget
         proxyPreviewTarget = nil
+        platform.endWindowProxyPreview()
         var droppedOnOverlay = false
-        if previewed, let gestureWindowID,
+        if previewedTarget != nil, let gestureWindowID,
           let event = CGEvent(source: nil),
           let target = mouseDropTarget(gestureWindowID,
             pointer: (Double(event.location.x), Double(event.location.y)),
-            state: state, viewports: viewportsByMonitor)
+            previous: previewedTarget, state: state, viewports: viewportsByMonitor,
+            monitorFrames: physicalMonitorFrames)
         {
-          mouseReordered = applyMouseDrop(gestureWindowID, target, state: &state, viewports: viewportsByMonitor)
+          mouseReordered = applyMouseDrop(gestureWindowID, target, state: &state, viewports: viewportsByMonitor,
+            monitorFrames: physicalMonitorFrames)
           droppedOnOverlay = true
           platform.recordPerformanceTrace("mouse-drop window=\(gestureWindowID.rawValue) target=\(target)")
         } else if let gestureWindowID,
@@ -802,17 +771,19 @@ extension Daemon {
           )
         {
           mouseReordered = true
-          if let destination = state.monitorID(containing: gestureWindowID),
-            destination != mouseGestureScrollAnchor?.monitorID
-          {
-            mouseGestureScrollAnchor = nil
-            activeMonitorID = destination
-            nativelyFocusedMonitorID = destination
-            if nativeFocusFrameMonitorID != nil { nativeFocusFrameMonitorID = destination }
-          }
           platform.recordPerformanceTrace(
             "mouse-reorder window=\(gestureWindowID.rawValue)"
           )
+        }
+        // A drop on another display makes it the active one.
+        if mouseReordered, let gestureWindowID,
+          let destination = state.monitorID(containing: gestureWindowID),
+          destination != mouseGestureScrollAnchor?.monitorID
+        {
+          mouseGestureScrollAnchor = nil
+          activeMonitorID = destination
+          nativelyFocusedMonitorID = destination
+          if nativeFocusFrameMonitorID != nil { nativeFocusFrameMonitorID = destination }
         }
         if mouseGestureEnded,
           let gestureWindowID,
@@ -820,8 +791,7 @@ extension Daemon {
           let actualFrame
         {
           let now = ProcessInfo.processInfo.systemUptime
-          animatesMouseDrop = platform.windowProxiesEnabled && animationsEnabled
-            && config.animation.durationMS > 0 && state.windows[gestureWindowID]?.floating == false
+          animatesMouseDrop = animationsEnabled && state.windows[gestureWindowID]?.floating == false
             && (mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame)
               || mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame))
           if animatesMouseDrop {
@@ -857,8 +827,7 @@ extension Daemon {
           let update = advanceMouseGestureSettlement(
             settlement,
             actualFrame: actualFrame,
-            now: ProcessInfo.processInfo.systemUptime,
-            animationPending: platform.hasPendingAnimatedFrameWrites
+            now: ProcessInfo.processInfo.systemUptime
           )
           mouseGestureSettlement = update.settlement
           if update.shouldFinish {
@@ -907,11 +876,6 @@ extension Daemon {
     if tracesWindowCreation {
       platform.recordPerformanceTrace("sync-before-layout")
     }
-    let animatesMouseReorder =
-      mouseReordered
-      && snapshot.leftMouseButtonDown
-      && animationsEnabled
-      && config.animation.durationMS > 0
     let nativeAnimationMonitorID = nativeFocusAnimationMonitorID(
       focusedMonitorID: nativelyFocusedMonitorID,
       floating: focusedWindowIDForAlignment.flatMap { state.windows[$0]?.floating } == true,
@@ -926,18 +890,13 @@ extension Daemon {
       monitor.workspaces.first { $0.id == monitor.activeWorkspace }
     }.map { abs($0.scrollOffset - $0.targetScrollOffset) >= 0.000_1 } == true
     let animatesNativeFocus = nativeAnimationMonitorID != nil
-      && nativeFocusRequiresMovement
-      && animationsEnabled && config.animation.durationMS > 0
-    // Opened and closed windows reflow their neighbours on the proxy overlay only;
-    // native lifecycle reflow stays immediate.
-    let animatesLifecycle = !animatesNativeFocus && !animatesMouseReorder
-      && !nativelyActivatedWorkspace && !snapshot.leftMouseButtonDown
-      && platform.windowProxiesEnabled && animationsEnabled && config.animation.durationMS > 0
+      && nativeFocusRequiresMovement && animationsEnabled
+    // Opened and closed windows reflow their neighbours on the overlay.
+    let animatesLifecycle = !animatesNativeFocus
+      && !nativelyActivatedWorkspace && !snapshot.leftMouseButtonDown && animationsEnabled
       && Set(state.windows.keys) != previouslyManagedWindowIDs
-    let animatesFocusOrReorder = animatesNativeFocus || animatesMouseReorder
     snapScrollOffsetsToTargets()
-    if animatesMouseReorder { mouseReorderAnimationActive = true }
-    if animatesFocusOrReorder { beginFrameAnimationActivity() }
+    if animatesNativeFocus { beginFrameAnimationActivity() }
     let nativeFocusSkippedWindowIDs = nativeFocusPendingSkippedWindowIDs(
       // A focus event retired by this snapshot without a native focus change no longer gates writes.
       nativeFocusWasPending: nativeFocusWasPending
@@ -964,51 +923,27 @@ extension Daemon {
     } else {
       nativeCursorWarpIsCurrentAfterCommit = nil
     }
-    if !animatesNativeFocus, desktopSnapshotWaitsForCommandAnimation(
-      animationPending: platform.hasPendingAnimatedFrameWrites,
-      latestCommandInputTimestamp: latestCommandInputTimestamp,
-      latestNativeFocusAnimationInputTimestamp: latestNativeFocusAnimationInputTimestamp,
-      mouseFocusIntentTimestamp: snapshot.mouseFocusIntentTimestamp,
-      keyboardFocusIntentTimestamp: snapshot.keyboardFocusIntentTimestamp,
-      mouseGestureActive: mouseResizeGestureActive,
-      applicationActivationTimestamp: nativeFocusFrameMonitorID != nil
-        ? snapshot.applicationActivationTimestamp : nil
-    ) {
-      needsDesktopSync = true
-    } else {
-      if animatesNativeFocus {
-        latestNativeFocusAnimationInputTimestamp = max(
-          snapshot.latestUserInputTimestamp,
-          snapshot.mouseFocusIntentTimestamp ?? 0,
-          snapshot.keyboardFocusIntentTimestamp ?? 0,
-          snapshot.applicationActivationTimestamp ?? 0
-        )
-      }
-      applyCurrentLayout(
-        monitorIDs: animatesNativeFocus ? nativeAnimationMonitorID.map { [$0] } : nil,
-        asynchronousPositions: true,
-        updateVisibility: true,
-        positionTimeoutSeconds: 0.05,
-        animationDuration: animatesFocusOrReorder || animatesLifecycle || animatesMouseDrop
-          ? TimeInterval(config.animation.durationMS) / 1_000
-          : 0,
-        skipping: nativeFocusSkippedWindowIDs,
-        positionsOnly: animatesMouseReorder || animatesNativeFocus,
-        stagesVisibleBeforeParking: nativelyActivatedWorkspace,
-        cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
-        cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
-        cursorWarpIsCurrentAfterCommit:
-          nativeCursorWarpIsCurrentAfterCommit,
-        forceFloatingFrameWrites: displayGeometryChanged,
-        forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs,
-        source: animatesNativeFocus
-          ? "native-focus-animation"
-          : (nativelyActivatedWorkspace ? "native-workspace"
-            : (animatesMouseReorder ? "mouse-reorder-animation"
-              : (animatesMouseDrop ? "mouse-drop-animation"
-                : (animatesLifecycle ? "window-lifecycle-animation" : "desktop-sync"))))
-      )
-    }
+    applyCurrentLayout(
+      monitorIDs: animatesNativeFocus ? nativeAnimationMonitorID.map { [$0] } : nil,
+      asynchronousPositions: true,
+      updateVisibility: true,
+      positionTimeoutSeconds: 0.05,
+      animated: animatesNativeFocus || animatesLifecycle || animatesMouseDrop,
+      skipping: nativeFocusSkippedWindowIDs,
+      positionsOnly: animatesNativeFocus,
+      stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+      cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
+      cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
+      cursorWarpIsCurrentAfterCommit:
+        nativeCursorWarpIsCurrentAfterCommit,
+      forceFloatingFrameWrites: displayGeometryChanged,
+      forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs,
+      source: animatesNativeFocus
+        ? "native-focus-animation"
+        : (nativelyActivatedWorkspace ? "native-workspace"
+          : (animatesMouseDrop ? "mouse-drop-animation"
+            : (animatesLifecycle ? "window-lifecycle-animation" : "desktop-sync")))
+    )
     if let guardedRemovalFocus {
       platform.focus(
         guardedRemovalFocus.windowID,
@@ -1027,24 +962,5 @@ extension Daemon {
 
 func mouseFrameWasResized(from initial: Rect, to actual: Rect) -> Bool {
   abs(actual.width - initial.width) > 2 || abs(actual.height - initial.height) > 2
-}
-
-/// The active-workspace layout of `state` around `windowID`, for the drop preview.
-func mouseDropPreviewFrames(
-  around windowID: WindowID, in state: RuntimeState, viewports: [MonitorID: Rect]
-) -> [WindowID: Rect] {
-  guard let monitor = state.monitors.first(where: { monitor in
-      monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.columns.contains { $0.windows.contains(windowID) } }
-    }),
-    let viewport = viewports[monitor.id],
-    var workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
-  else { return [:] }
-  // The drop scrolls to keep the window in view; the preview shows that final scroll.
-  workspace.scrollOffset = workspace.targetScrollOffset
-  return Dictionary(computeLayout(
-    workspace: workspace, viewport: viewport,
-    windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
-    settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
-  ).map { ($0.windowID, $0.frame) }) { first, _ in first }
 }
 

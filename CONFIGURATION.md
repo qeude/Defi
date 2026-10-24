@@ -98,35 +98,49 @@ Set `enabled = false` when SketchyBar owns workspace presentation.
 
 ## Multiple displays
 
-Vertically separated displays keep their native arrangement and native pointer
-movement. If display heights overlap, Defi uses a temporary corner-to-corner
-staircase in macOS. Each horizontal ribbon keeps real partial-window previews
-without spilling onto another display. Defi remembers the original desk arrangement for
-`focus-monitor`, window/column/workspace monitor moves, and pointer crossings.
-This applies to ordinary mouse movement and dragging, independently of the
-focus-follows-mouse and mouse-follows-focus options. Mirrored displays are left
-unchanged.
+Displays stacked vertically keep their native arrangement and native pointer
+movement. When display heights overlap, as with side-by-side displays, a ribbon
+column that is partly visible would spill onto the neighboring display. Defi
+then moves the displays into a temporary corner-to-corner staircase. Each
+ribbon keeps its partial columns without spilling onto another display.
+Mirrored displays are left unchanged.
 
-The desk arrangement is restored for the login session when Defi stops, so
-macOS does not undo that restoration after the process exits. On reopening,
-Defi applies the staircase again only if isolation is needed. Isolation uses
-the public CoreGraphics application-lifetime scope, so WindowServer also reverts
-to the session configuration when the process terminates unexpectedly. Reconnected
-combinations reuse their desk map within the daemon session. A native rearrangement
-of the same displays becomes the new desk map; resolution and main-display
-changes preserve the existing desk relationships.
-Defi also saves the desk map for the current login session. If macOS retains
-the exact technical arrangement across a restart, Defi recovers that map;
-a different native arrangement takes precedence.
+Defi remembers the arrangement chosen in System Settings as the desk.
+`focus-monitor`, monitor moves of windows, columns, and workspaces, and the
+pointer follow the desk. When the pointer reaches an edge shared on the desk,
+Defi moves it to the matching point of the neighboring display. This works for
+ordinary movement and dragging, with or without the focus-follows-mouse and
+mouse-follows-focus options.
 
-System Settings shows the technical arrangement while Defi runs. Other apps see
-these native coordinates too. Change the arrangement directly in System Settings;
-Defi adopts it without restarting. A vertical arrangement remains as selected,
-with native pointer crossings. Arrangements requiring isolation return to the
-technical staircase while retaining the selected desk map for navigation.
-`defi status` reports `displayArrangement=isolated` and `displayPointerWarps`.
-If macOS refuses the transaction, Defi reports `failed:<code>` and keeps native
-pointer routing; isolation is then unavailable until a successful reconfiguration.
+The staircase is temporary. Defi restores the desk for the login session when
+it stops, so the restoration outlasts the process. The staircase uses the
+CoreGraphics application-lifetime scope, so macOS also returns to the desk if
+Defi terminates unexpectedly. On start, Defi applies the staircase again only
+when the desk needs it. Defi saves the desk for the current login session and
+recovers it if macOS keeps the staircase across a Defi restart.
+
+Defi never adopts its own staircase as the desk. System Settings shows the
+staircase while Defi runs, and other apps see its coordinates. Change the
+arrangement in System Settings at any time. Defi adopts the new arrangement as
+the desk and isolates it again when needed. Resolution and main-display changes
+keep the existing desk.
+
+`defi status` reports `displayArrangement` and `displayPointerWarps`.
+
+| `displayArrangement` | Meaning |
+| --- | --- |
+| `native` | The desk needs no staircase. |
+| `isolated` | The staircase is active and the pointer follows the desk. |
+| `ambiguous` | The displays already form Defi's staircase and no desk is known. Defi keeps native pointer movement. Rearrange the displays in System Settings > Displays and Defi isolates them again. |
+| `observation-mismatch` | macOS accepted the change but reported other display frames. Defi restores the previous arrangement and keeps native pointer movement until a later change succeeds. |
+| `failed:<code>` | macOS refused the change. Defi keeps native pointer movement until a later change succeeds. |
+
+A hidden window waits in a corner or along an edge of its own display, with one
+point of its edge left on that display, or its title bar along the bottom edge.
+Hidden windows are inactive-workspace windows and ribbon columns scrolled out of
+view. Defi picks the first spot that stays clear of every other display, or the
+one that overlaps them least when none does, using the frames of the staircase
+while it is active.
 
 ## `[input]`
 
@@ -157,23 +171,18 @@ cursor movement. CLI commands and native app focus changes never warp pointer.
 
 ## `[animation]`
 
-Controls scrolling-column focus and managed layout animations, including width
-changes, column/window moves, stacking, and floating transitions.
-The macOS Reduce Motion preference also disables these animations, including
-workspace transitions and mouse-driven reordering.
+Moves windows on a Defi overlay, on every display: column navigation, width
+and order changes, stacking, opened and closed windows, mouse drops,
+click-to-focus scrolling, and vertical workspace switches.
 
 ```toml
 [animation]
 enabled = true
-duration_ms = 125
-window_proxies = true
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Enables visual scrolling and managed layout animations, including resizing, column/window moves, stacking, and floating transitions. |
-| `duration_ms` | `125` | integer from `0` to `2000` | Animation duration in milliseconds. Vertical workspace transitions use at least 180 ms when the usable viewport covers the physical display; otherwise they switch immediately to prevent reserved-area leaks. Workspace switches from native focus, such as a click, the Dock, or Command-Tab, are always immediate. `0` disables animation even when `enabled = true`. |
-| `window_proxies` | `true` | boolean | Draws column navigation, width and order changes, vertical workspace switches, click-to-focus scrolling and mouse reordering on a Defi overlay from captured window pictures, while each native window moves once to its target underneath, so motion never waits on slow applications. Opened and closed windows, drops after a mouse drag (with a slot placeholder under the dragged window), and workspaces activated from the Dock or Command-Tab move on the overlay too. Proxies follow a critically damped spring instead of `duration_ms` and keep their velocity when a new command retargets them. Pictures of visible windows refresh about every half second while the Mac is in use, every 4 seconds after 10 seconds without input, and fill resized proxies without stretching; the app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. Uses Screen Recording when it is already granted and never asks for it. Without permission or on multiple displays, motion uses native Accessibility animation; with Reduce Motion it is immediate. A motion the overlay cannot draw while permission is granted, for example before the wallpaper is captured, is immediate. |
+| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh about every half second while the Mac is in use, every 4 seconds after 10 seconds without input, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay uses Screen Recording when it is already granted and never asks for it. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
 
 ## `[overview]`
 
@@ -189,7 +198,7 @@ window_corner_radius = 12
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
-| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false`, together with `[animation].window_proxies = false`, to opt out of Screen Recording entirely. |
+| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false`, together with `[animation].enabled = false`, to opt out of Screen Recording entirely. |
 | `window_corner_radius` | `12` | number from `0` to `64` | Rounds window cards and their borders in the Overview. |
 
 Opening the Overview zooms the real windows out to their cards, and closing it
@@ -701,7 +710,6 @@ enabled = true
 
 [animation]
 enabled = true
-duration_ms = 125
 
 [overview]
 zoom = 0.5

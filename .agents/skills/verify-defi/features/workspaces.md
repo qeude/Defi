@@ -27,4 +27,4 @@ Pass: `workspace=` equals the target, `hidden=` equals the parked window count, 
 - Names depend on the user's config; read them from `list-workspaces --json` first.
 - `--monitor <n>` is 1-based display index, while `id` in JSON is the monitor ID.
 - Always restore the initial workspace.
-- Covering tests: `testFocusedWindowRemainsResolvableWhileParkedOffscreen`, `testUnhiddenOnePixelStripAnchorConvergesWithRealWindowFrame`.
+- Covering test: `testParkingConvergesAndRepairs`.

@@ -49,7 +49,7 @@ Use when available.
 - With one column on the workspace nothing moves; check `list-workspaces --json` window counts first.
 - Slow apps (`slowAppDetails`) legitimately settle later. Wait for `axPending=false`.
 - Visual smoothness needs Computer Use with human-paced input, not a tight loop.
-- Covering tests: `testHorizontalAnimationFrameWritesPositionWithoutSize`, `testRapidNativeFocusKeepsLatestIntent`.
+- Covering tests: `testFrameWritesConvergeOnRealWindows`, `testFocusFollowsLatestNativeIntent`.
 - Centering needs one monitor and TextEdit not running; the script refuses otherwise.
 - On-overflow decides when the selected window changes. A width change or
   column move afterwards keeps that decision; it is not a second focus change.

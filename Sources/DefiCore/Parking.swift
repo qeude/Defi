@@ -1,182 +1,46 @@
 import DefiModel
 
-public enum ParkingSide: Equatable, Sendable {
-  case left
-  case right
-}
+/// How much higher than predicted an app with a tall title bar may stop.
+public let parkingVerticalSlack = 60.0
 
-public struct ParkingPlacement: Equatable, Sendable {
-  public let frame: Rect
-  public let side: ParkingSide
-
-  public init(frame: Rect, side: ParkingSide) {
-    self.frame = frame
-    self.side = side
-  }
-}
-
-public func resolveParkingPlacement(
-  for frame: Rect,
-  ownerFrame: Rect,
-  parkingFrame: Rect? = nil,
-  allMonitorFrames: [Rect],
-  reservedParkingFrames: [Rect] = [],
-  preferredSide: ParkingSide,
-  anchorSize: Double = parkedSliverWidth,
-  preferredY: Double? = nil
-) -> ParkingPlacement {
-  let anchor = max(anchorSize, 1)
-  let writableFrame = parkingFrame ?? ownerFrame
-  let targetY = preferredY
-    ?? (writableFrame.y + max(writableFrame.height - frame.height, 0))
-  let ownerIndex = allMonitorFrames.firstIndex(of: ownerFrame)
-  let otherFrames = allMonitorFrames.enumerated().compactMap { index, monitorFrame in
-    index == ownerIndex ? nil : monitorFrame
-  }
-  let verticalOrigins = parkingVerticalOrigins(
-    for: frame,
-    targetY: targetY,
-    ownerFrame: ownerFrame,
-    otherFrames: otherFrames,
-    reservedParkingFrames: reservedParkingFrames
-  )
-  let candidates = [preferredSide, opposite(preferredSide)].flatMap { side in
-    verticalOrigins.map { y in
-      let x =
-        side == .left
-        ? ownerFrame.x - frame.width + anchor
-        : ownerFrame.x + ownerFrame.width - anchor
-      return ParkingPlacement(
-        frame: Rect(
-          x: x,
-          y: y,
-          width: frame.width,
-          height: frame.height
-        ),
-        side: side
-      )
+/// Where a hidden window waits: at its own size, one point inside a corner or an
+/// edge of its display, at the first spot clear of every other display.
+///
+/// macOS keeps a window's title bar between the menu bar and the visible bottom
+/// of the display under most of its width, so a spot under another display would
+/// be pulled onto it.
+public func parkedFrame(
+  _ frame: Rect, display: Rect, visibleFrame: Rect, otherDisplays: [Rect]
+) -> Rect {
+  let sliver = parkedSliverWidth
+  let left = display.x, right = display.x + display.width
+  let top = visibleFrame.y
+  // The shortest title bar macOS keeps above the visible bottom.
+  let bottom = visibleFrame.y + visibleFrame.height - 32
+  let width = frame.width, height = frame.height
+  let candidates = [
+    (right - sliver, bottom), (left - width + sliver, bottom),
+    (right - sliver, top), (left - width + sliver, top), (left, bottom),
+  ].map { Rect(x: $0.0, y: $0.1, width: width, height: height) }
+  func overlap(_ candidate: Rect) -> Double {
+    let probe = Rect(
+      x: candidate.x, y: candidate.y - parkingVerticalSlack,
+      width: width, height: height + parkingVerticalSlack
+    )
+    let own = horizontalOverlap(candidate, display)
+    return otherDisplays.reduce(0) { total, other in
+      let shared = horizontalOverlap(candidate, other)
+      return total + (shared > own ? shared * height : intersectionArea(probe, other))
     }
   }
-  return candidates.min {
-    parkingScore(
-      $0, ownerFrame: ownerFrame, otherFrames: otherFrames,
-      reservedParkingFrames: reservedParkingFrames,
-      targetY: targetY, preferredSide: preferredSide
-    ) < parkingScore(
-      $1, ownerFrame: ownerFrame, otherFrames: otherFrames,
-      reservedParkingFrames: reservedParkingFrames,
-      targetY: targetY, preferredSide: preferredSide
-    )
-  } ?? candidates[0]
+  return candidates.min { overlap($0) < overlap($1) }!
 }
 
-public func parkFramesInSafeCorner(
-  _ frames: [FrameAssignment],
-  ownerFrame: Rect,
-  parkingFrame: Rect? = nil,
-  allMonitorFrames: [Rect],
-  reservedParkingFrames: [Rect] = [],
-  preferredSide: ParkingSide,
-  preservingVerticalPosition: Bool = false
-) -> [FrameAssignment] {
-  frames.map { assignment in
-    let placement = resolveParkingPlacement(
-      for: assignment.frame,
-      ownerFrame: ownerFrame,
-      parkingFrame: parkingFrame,
-      allMonitorFrames: allMonitorFrames,
-      reservedParkingFrames: reservedParkingFrames,
-      preferredSide: preferredSide,
-      preferredY: preservingVerticalPosition ? assignment.frame.y : nil
-    )
-    return FrameAssignment(
-      windowID: assignment.windowID,
-      frame: placement.frame
-    )
-  }
-}
-
-private func opposite(_ side: ParkingSide) -> ParkingSide {
-  side == .left ? .right : .left
-}
-
-private func parkingScore(
-  _ placement: ParkingPlacement,
-  ownerFrame: Rect,
-  otherFrames: [Rect],
-  reservedParkingFrames: [Rect],
-  targetY: Double,
-  preferredSide: ParkingSide
-) -> (Double, Int, Double, Int) {
-  let ownerVerticalOverlap = verticalIntersectionLength(
-    placement.frame,
-    ownerFrame
-  )
-  let lanePenalty = ownerVerticalOverlap > 0 ? 0 : 1
-  let protectedOverlap = otherFrames.reduce(0) {
-    $0 + intersectionArea(placement.frame, $1)
-  } + reservedParkingFrames.reduce(0) {
-    $0 + intersectionArea(placement.frame, $1)
-  }
-  let verticalDistance = abs(placement.frame.y - targetY)
-  let sidePenalty = placement.side == preferredSide ? 0 : 1
-  // Avoid leaking onto another monitor before preferring the owner's lane.
-  return (protectedOverlap, lanePenalty, verticalDistance, sidePenalty)
-}
-
-private func parkingVerticalOrigins(
-  for frame: Rect,
-  targetY: Double,
-  ownerFrame: Rect,
-  otherFrames: [Rect],
-  reservedParkingFrames: [Rect]
-) -> [Double] {
-  var origins: [Double] = []
-  func append(_ value: Double) {
-    guard value.isFinite,
-      !origins.contains(where: { abs($0 - value) < 0.5 })
-    else {
-      return
-    }
-    origins.append(value)
-  }
-
-  append(targetY)
-  append(ownerFrame.y)
-  append(ownerFrame.y + ownerFrame.height - frame.height)
-  for otherFrame in otherFrames {
-    append(otherFrame.y - frame.height)
-    append(otherFrame.y + otherFrame.height)
-  }
-  for reservedFrame in reservedParkingFrames {
-    append(reservedFrame.y - frame.height)
-    append(reservedFrame.y + reservedFrame.height)
-  }
-  let top = otherFrames.reduce(ownerFrame.y) { min($0, $1.y) }
-  let bottom = otherFrames.reduce(ownerFrame.y + ownerFrame.height) {
-    max($0, $1.y + $1.height)
-  }
-  // These outer lanes provide a non-overlapping fallback for aligned displays.
-  append(top - frame.height)
-  append(bottom)
-  return origins
-}
-
-private func verticalIntersectionLength(_ lhs: Rect, _ rhs: Rect) -> Double {
-  max(
-    min(lhs.y + lhs.height, rhs.y + rhs.height) - max(lhs.y, rhs.y),
-    0
-  )
+private func horizontalOverlap(_ lhs: Rect, _ rhs: Rect) -> Double {
+  max(min(lhs.x + lhs.width, rhs.x + rhs.width) - max(lhs.x, rhs.x), 0)
 }
 
 private func intersectionArea(_ lhs: Rect, _ rhs: Rect) -> Double {
-  let width = max(
-    min(lhs.x + lhs.width, rhs.x + rhs.width) - max(lhs.x, rhs.x),
-    0
-  )
-  let height = max(
-    min(lhs.y + lhs.height, rhs.y + rhs.height) - max(lhs.y, rhs.y),
-    0
-  )
-  return width * height
+  let height = min(lhs.y + lhs.height, rhs.y + rhs.height) - max(lhs.y, rhs.y)
+  return horizontalOverlap(lhs, rhs) * max(height, 0)
 }

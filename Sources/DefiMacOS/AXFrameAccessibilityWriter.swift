@@ -77,7 +77,6 @@ final class AXFrameAccessibilityWriter {
     forceOffscreenAccess: Bool = false,
     verifyParkedPosition: Bool = true,
     enhancedUIManagedByBatch: Bool = false,
-    nativePositionIsVerified: (() -> Bool)? = nil,
     shouldApply: () -> Bool = { true }
   ) -> Bool {
     guard shouldApply() else { return false }
@@ -93,9 +92,8 @@ final class AXFrameAccessibilityWriter {
       for _ in 0..<2 {
         guard shouldApply() else { return false }
         guard apply(write, point: point) == .success else { continue }
-        if nativePositionIsVerified?() == true { return true }
         guard let actual = readPosition(write.element) else { return true }
-        if pointDistance(actual, point) <= 1 {
+        if parkedPositionHolds(actual, target: point) {
           return true
         }
       }

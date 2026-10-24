@@ -17,8 +17,6 @@ struct FocusMutationTests {
     var paused = false
     var obsolete = false
     var obsoleteCalls = 0
-    var mutations = 0
-    var nativeErrors = 0
     var selected = 0
     var timeouts = 0
     var mainCalls = 0
@@ -28,8 +26,6 @@ struct FocusMutationTests {
 
   private struct Proof {
     let obsoleteCalls: Int
-    let mutations: Int
-    let nativeErrors: Int
     let selected: Int
     let old: [NativeFocusCompletion]
     let target: [NativeFocusCompletion]
@@ -76,8 +72,6 @@ struct FocusMutationTests {
     }
     let mutate: (AXUIElement, Bool) -> AXError = { element, succeeds in
       state.withLock { value in
-        value.mutations += 1
-        if !succeeds { value.nativeErrors += 1 }
         let old = CFEqual(element, oldElement) || CFEqual(element, foreground)
         if old && value.obsolete { value.obsoleteCalls += 1 }
         if succeeds && !CFEqual(element, foreground) { value.selected = old ? 71 : 72 }
@@ -153,8 +147,7 @@ struct FocusMutationTests {
     writer.queue.sync {}
     #expect(!writer.isBusy)
     return state.withLock {
-      Proof(obsoleteCalls: $0.obsoleteCalls, mutations: $0.mutations,
-        nativeErrors: $0.nativeErrors, selected: $0.selected,
+      Proof(obsoleteCalls: $0.obsoleteCalls, selected: $0.selected,
         old: $0.completions[71] ?? [], target: $0.completions[72] ?? [],
         carriedRecovery: writer.carriedFocusRecovery)
     }
@@ -220,73 +213,5 @@ struct FocusMutationTests {
     #expect(proof.obsoleteCalls == 0)
     #expect(proof.old == [NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)])
     #expect(proof.carriedRecovery == nil)
-  }
-
-  @Test(.enabled(if: ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1"))
-  func performanceFocus() throws {
-    var obsolete = 0, mutations = 0, completed = 0, errors = 0, supersessions = 0
-    var nativeErrors = 0
-    for _ in 0..<8 {
-      for gap in Gap.allCases where gap != .inFlightMain {
-        let proof = try race(gap)
-        obsolete += proof.obsoleteCalls
-        mutations += proof.mutations
-        nativeErrors += proof.nativeErrors
-        completed += proof.old.count + proof.target.count
-        if proof.old.first?.result == .superseded
-          || proof.old.first?.result == .supersededAfterMutation { supersessions += 1 }
-        if proof.selected != 72 || proof.old.count != 1
-          || proof.target != [NativeFocusCompletion(result: .completed, recoveryRequest: nil)]
-          || proof.carriedRecovery != nil
-        { errors += 1 }
-      }
-    }
-    #expect(errors == 0)
-    #expect(supersessions == 48)
-    #expect(nativeErrors == 24)
-    try emit("focus-races", operations: completed, errors: errors,
-      output: ["final_target": 72, "completions": completed, "races": 48,
-        "supersessions": supersessions, "pending_recoveries": 0],
-      metrics: ["obsolete_mutations": Double(obsolete), "native_mutations": Double(mutations),
-        "expected_injected_ax_errors": Double(nativeErrors)])
-
-    let selected = Mutex(0), calls = Mutex(0), done = DispatchSemaphore(value: 0)
-    let failures = Mutex(0)
-    let writer = AXFocusWriter(operations: AXFocusOperations(
-      targetIsFocused: { _, _ in false },
-      setMain: { _ in selected.withLock { $0 = 72 }; calls.withLock { $0 += 1 }; return .success },
-      raise: { _ in calls.withLock { $0 += 1 }; return .success },
-      applicationIsActive: { _ in true },
-      prepareActivation: { { _ in calls.withLock { $0 += 1 }; return .success } },
-      activateApplication: { _ in true },
-      withTimeout: { _, _, perform in perform() }
-    ))
-    let target = request(-72)
-    let start = ProcessInfo.processInfo.systemUptime
-    for _ in 0..<512 {
-      writer.submit(target) { completion in
-        if completion != NativeFocusCompletion(result: .completed, recoveryRequest: nil) {
-          failures.withLock { $0 += 1 }
-        }
-        done.signal()
-      }
-      try #require(done.wait(timeout: .now() + 5) == .success)
-    }
-    writer.queue.sync {}
-    let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
-    #expect(selected.withLock { $0 } == 72)
-    #expect(calls.withLock { $0 } == 1024)
-    #expect(failures.withLock { $0 } == 0)
-    try emit("focus-ordinary", operations: 512, errors: failures.withLock { $0 },
-      output: ["final_target": 72, "completions": 512, "native_mutations": calls.withLock { $0 }],
-      metrics: ["elapsed_ms": elapsed])
-  }
-
-  private func emit(
-    _ name: String, operations: Int, errors: Int, output: [String: Int], metrics: [String: Double]
-  ) throws {
-    let data = try JSONSerialization.data(withJSONObject: ["case": name,
-      "operations": operations, "errors": errors, "output": output, "metrics": metrics])
-    print("DEFI_PERF_JSON " + String(decoding: data, as: UTF8.self))
   }
 }

@@ -285,228 +285,105 @@ struct FloatingWindowTests {
     )
   }
 
-  @Test
-  func `Existing tile becoming modal reclassifies as automatic floater`() throws {
+  @Test(arguments: [false, true])
+  func `A tile becoming modal turns into an automatic floater and keeps the selection`(modalFocused: Bool) throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
-    let selectedTile = window(77)
-    let modalTile = window(78)
+    let selectedTile = window(77), modalTile = window(78)
     try discoverWindow(selectedTile, decision: RuleDecision(), state: &state)
     try discoverWindow(modalTile, decision: RuleDecision(), state: &state)
-    focusWindow(selectedTile.id, state: &state)
-    var observed = modalTile
-    observed.floating = true
-    observed.floatingOrigin = .automatic
-
-    reconcileWindows([selectedTile, observed], config: config, state: &state)
-
+    focusWindow(modalFocused ? modalTile.id : selectedTile.id, state: &state)
+    reconcileWindows([selectedTile, automaticFloater(modalTile)], config: config, state: &state)
     let workspace = state.monitors[0].workspaces[0]
     #expect(workspace.floatingWindows == [modalTile.id])
     #expect(workspace.columns.flatMap(\.windows) == [selectedTile.id])
-    #expect(state.windows[modalTile.id]?.floating == true)
     #expect(state.windows[modalTile.id]?.floatingOrigin == .automatic)
-    #expect(state.selectedWindowID(on: monitorID) == selectedTile.id)
+    #expect(workspace.focusedLayer == (modalFocused ? .floating : .tiled))
+    #expect(state.selectedWindowID(on: monitorID) == (modalFocused ? modalTile.id : selectedTile.id))
   }
 
   @Test
-  func `Temporary modal restores stack and column width`() throws {
+  func `Temporary modals restore their stack, order, and width without undoing sibling edits`() throws {
     let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let sibling = window(82)
-    let modal = window(83)
-    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
-    try discoverWindow(modal, decision: RuleDecision(), state: &state)
-    var workspace = state.monitors[0].workspaces[0]
-    workspace.columns = [
-      Column(
-        windows: [sibling.id, modal.id],
-        focusedWindow: 0,
-        width: .pixels(913),
-        preMaximizedWidth: .fraction(0.7)
-      )
-    ]
-    state.monitors[0].workspaces[0] = workspace
-    var observedModal = modal
-    observedModal.floating = true
-    observedModal.floatingOrigin = .automatic
-    reconcileWindows([sibling, observedModal], config: config, state: &state)
-    var observedTiled = modal
-    observedTiled.floating = false
-    observedTiled.floatingOrigin = nil
-
-    reconcileWindows([sibling, observedTiled], config: config, state: &state)
-
-    let restored = state.monitors[0].workspaces[0]
-    #expect(restored.columns.count == 1)
-    #expect(restored.columns[0].windows == [sibling.id, modal.id])
-    #expect(restored.columns[0].width == .pixels(913))
-    #expect(restored.columns[0].preMaximizedWidth == .fraction(0.7))
-  }
-
-  @Test
-  func `Temporary modal preserves sibling width edits`() throws {
-    let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let sibling = window(84)
-    let modal = window(85)
-    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
-    try discoverWindow(modal, decision: RuleDecision(), state: &state)
-    state.monitors[0].workspaces[0].columns = [
-      Column(
-        windows: [sibling.id, modal.id],
-        focusedWindow: 0,
-        width: .pixels(700)
-      )
-    ]
-    var observedModal = modal
-    observedModal.floating = true
-    observedModal.floatingOrigin = .automatic
-    reconcileWindows([sibling, observedModal], config: config, state: &state)
-    state.monitors[0].workspaces[0].columns[0].width = .pixels(950)
-    var observedTiled = modal
-    observedTiled.floating = false
-    observedTiled.floatingOrigin = nil
-
-    reconcileWindows([sibling, observedTiled], config: config, state: &state)
-
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(950))
-  }
-
-  @Test
-  func `Concurrent temporary modals restore original stack order`() throws {
-    let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let windows = [window(90), window(91), window(92)]
-    for window in windows {
-      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    func state(_ windows: [Window], columns: [Column]) throws -> RuntimeState {
+      var state = RuntimeState(config: config)
+      state.attachMonitor(monitorID)
+      for window in windows { try discoverWindow(window, decision: RuleDecision(), state: &state) }
+      state.monitors[0].workspaces[0].columns = columns
+      return state
     }
-    state.monitors[0].workspaces[0].columns = [
-      Column(
-        windows: windows.map(\.id),
-        focusedWindow: 0,
-        width: .fraction(state.layout.defaultColumnWidth)
-      )
-    ]
+    let sibling = window(82), modal = window(83)
+    var stacked = try state([sibling, modal], columns: [Column(windows: [sibling.id, modal.id], focusedWindow: 0,
+      width: .pixels(913), preMaximizedWidth: .fraction(0.7))])
+    reconcileWindows([sibling, automaticFloater(modal)], config: config, state: &stacked)
+    var edited = stacked
+    reconcileWindows([sibling, modal], config: config, state: &stacked)
+    #expect(stacked.monitors[0].workspaces[0].columns == [Column(windows: [sibling.id, modal.id], focusedWindow: 0,
+      width: .pixels(913), preMaximizedWidth: .fraction(0.7))])
+    edited.monitors[0].workspaces[0].columns[0].width = .pixels(950)
+    reconcileWindows([sibling, modal], config: config, state: &edited)
+    #expect(edited.monitors[0].workspaces[0].columns[0].width == .pixels(950), "a sibling width edit survives")
 
-    var firstModal = windows[0]
-    firstModal.floating = true
-    firstModal.floatingOrigin = .automatic
-    reconcileWindows([firstModal, windows[1], windows[2]], config: config, state: &state)
-    var secondModal = windows[1]
-    secondModal.floating = true
-    secondModal.floatingOrigin = .automatic
-    reconcileWindows([firstModal, secondModal, windows[2]], config: config, state: &state)
-    var firstTiled = windows[0]
-    firstTiled.floating = false
-    reconcileWindows([firstTiled, secondModal, windows[2]], config: config, state: &state)
-    var secondTiled = windows[1]
-    secondTiled.floating = false
-    reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
+    let three = [window(90), window(91), window(92)]
+    var concurrent = try state(three, columns: [Column(windows: three.map(\.id), focusedWindow: 0,
+      width: .fraction(0.8))])
+    reconcileWindows([automaticFloater(three[0]), three[1], three[2]], config: config, state: &concurrent)
+    reconcileWindows([automaticFloater(three[0]), automaticFloater(three[1]), three[2]], config: config,
+      state: &concurrent)
+    reconcileWindows([three[0], automaticFloater(three[1]), three[2]], config: config, state: &concurrent)
+    reconcileWindows(three, config: config, state: &concurrent)
+    #expect(concurrent.monitors[0].workspaces[0].columns[0].windows == three.map(\.id))
 
-    #expect(state.monitors[0].workspaces[0].columns[0].windows == windows.map(\.id))
+    let standalone = [window(94), window(95), window(96)]
+    var columns = try state(standalone, columns: standalone.map { Column(window: $0.id, width: .pixels(900)) })
+    reconcileWindows([automaticFloater(standalone[0]), automaticFloater(standalone[1]), standalone[2]],
+      config: config, state: &columns)
+    reconcileWindows([standalone[0], automaticFloater(standalone[1]), standalone[2]], config: config, state: &columns)
+    reconcileWindows(standalone, config: config, state: &columns)
+    #expect(columns.monitors[0].workspaces[0].columns.map(\.windows) == standalone.map { [$0.id] })
   }
 
   @Test
-  func `Concurrent standalone modals restore original column order`() throws {
+  func `A restored modal keeps the focus that is current when it returns`() throws {
     let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let windows = [window(94), window(95), window(96)]
-    for window in windows {
-      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    func state(_ windows: [Window]) throws -> RuntimeState {
+      var state = RuntimeState(config: config)
+      state.attachMonitor(monitorID)
+      for window in windows { try discoverWindow(window, decision: RuleDecision(), state: &state) }
+      return state
     }
-    state.monitors[0].workspaces[0].columns = windows.map {
-      Column(window: $0.id, width: .pixels(900))
-    }
-
-    var firstModal = windows[0]
-    firstModal.floating = true
-    firstModal.floatingOrigin = .automatic
-    var secondModal = windows[1]
-    secondModal.floating = true
-    secondModal.floatingOrigin = .automatic
-    reconcileWindows([firstModal, secondModal, windows[2]], config: config, state: &state)
-
-    var firstTiled = windows[0]
-    firstTiled.floating = false
-    reconcileWindows([firstTiled, secondModal, windows[2]], config: config, state: &state)
-    var secondTiled = windows[1]
-    secondTiled.floating = false
-    reconcileWindows([firstTiled, secondTiled, windows[2]], config: config, state: &state)
-
-    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == windows.map { [$0.id] })
-  }
-
-  @Test
-  func `Restored modal restores inactive column focus`() throws {
-    let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let windows = [window(97), window(98), window(99)]
-    for window in windows {
-      try discoverWindow(window, decision: RuleDecision(), state: &state)
-    }
-    state.monitors[0].workspaces[0].columns = [
-      Column(window: windows[0].id, width: .pixels(900)),
-      Column(
-        windows: [windows[1].id, windows[2].id],
-        focusedWindow: 1,
-        width: .pixels(900)
-      ),
-    ]
-    state.monitors[0].workspaces[0].focusedColumn = 0
-
-    var modal = windows[2]
-    modal.floating = true
-    modal.floatingOrigin = .automatic
-    reconcileWindows([windows[0], windows[1], modal], config: config, state: &state)
+    let inactive = [window(97), window(98), window(99)]
+    var inactiveColumn = try state(inactive)
+    inactiveColumn.monitors[0].workspaces[0].columns = [Column(window: inactive[0].id, width: .pixels(900)),
+      Column(windows: [inactive[1].id, inactive[2].id], focusedWindow: 1, width: .pixels(900))]
+    inactiveColumn.monitors[0].workspaces[0].focusedColumn = 0
+    var modal = automaticFloater(inactive[2])
+    reconcileWindows([inactive[0], inactive[1], modal], config: config, state: &inactiveColumn)
     modal.floating = false
-    reconcileWindows([windows[0], windows[1], modal], config: config, state: &state)
+    reconcileWindows([inactive[0], inactive[1], modal], config: config, state: &inactiveColumn)
+    #expect(inactiveColumn.monitors[0].workspaces[0].columns[1].focusedWindow == 1)
+    #expect(inactiveColumn.selectedWindowID(on: monitorID) == inactive[0].id)
 
-    #expect(state.monitors[0].workspaces[0].columns[1].focusedWindow == 1)
-    #expect(state.selectedWindowID(on: monitorID) == windows[0].id)
-  }
+    let stack = [window(100), window(101), window(102)]
+    var newer = try state(stack)
+    newer.monitors[0].workspaces[0].columns = [Column(windows: stack.map(\.id), focusedWindow: 0,
+      width: .pixels(900))]
+    newer.monitors[0].workspaces[0].focusedColumn = 0
+    reconcileWindows([automaticFloater(stack[0]), stack[1], stack[2]], config: config, state: &newer)
+    newer.monitors[0].workspaces[0].focusedLayer = .tiled
+    newer.monitors[0].workspaces[0].columns[0].focusedWindow = 1
+    reconcileWindows(stack, config: config, state: &newer)
+    #expect(newer.monitors[0].workspaces[0].columns[0].focusedWindow == 2, "the newer focus moved with the stack")
+    #expect(newer.selectedWindowID(on: monitorID) == stack[2].id)
 
-  @Test
-  func `Restored modal preserves newer focus inside its stack`() throws {
-    let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let windows = [window(100), window(101), window(102)]
-    for item in windows {
-      try discoverWindow(item, decision: RuleDecision(), state: &state)
-    }
-    state.monitors[0].workspaces[0].columns = [
-      Column(
-        windows: windows.map(\.id),
-        focusedWindow: 0,
-        width: .pixels(900)
-      )
-    ]
-    state.monitors[0].workspaces[0].focusedColumn = 0
-
-    var modal = windows[0]
-    modal.floating = true
-    modal.floatingOrigin = .automatic
-    reconcileWindows([modal, windows[1], windows[2]], config: config, state: &state)
-    state.monitors[0].workspaces[0].focusedLayer = .tiled
-    state.monitors[0].workspaces[0].columns[0].focusedWindow = 1
-
-    var restored = modal
-    restored.floating = false
-    restored.floatingOrigin = nil
-    reconcileWindows(
-      [restored, windows[1], windows[2]],
-      config: config,
-      state: &state
-    )
-
-    #expect(state.monitors[0].workspaces[0].columns[0].focusedWindow == 2)
-    #expect(state.selectedWindowID(on: monitorID) == windows[2].id)
+    let shifted = window(86), selected = window(87)
+    var shift = try state([shifted, selected])
+    focusWindow(selected.id, state: &shift)
+    reconcileWindows([automaticFloater(shifted), selected], config: config, state: &shift)
+    reconcileWindows([shifted, selected], config: config, state: &shift)
+    #expect(shift.selectedWindowID(on: monitorID) == selected.id, "focus identity survives the column shift")
+    #expect(shift.monitors[0].workspaces[0].columns.flatMap(\.windows) == [shifted.id, selected.id])
   }
 
   @Test
@@ -529,50 +406,6 @@ struct FloatingWindowTests {
 
     #expect(state.suspendedTiledPlacements[modal.id] == nil)
     #expect(state.windows[modal.id]?.floatingOrigin == .user)
-  }
-
-  @Test
-  func `Restored modal keeps focused window identity after column shift`() throws {
-    let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let modal = window(86)
-    let selected = window(87)
-    try discoverWindow(modal, decision: RuleDecision(), state: &state)
-    try discoverWindow(selected, decision: RuleDecision(), state: &state)
-    focusWindow(selected.id, state: &state)
-    var observedModal = modal
-    observedModal.floating = true
-    observedModal.floatingOrigin = .automatic
-    reconcileWindows(
-      [modal, selected].map { $0.id == modal.id ? observedModal : $0 }, config: config,
-      state: &state)
-    var observedTiled = modal
-    observedTiled.floating = false
-    observedTiled.floatingOrigin = nil
-
-    reconcileWindows([observedTiled, selected], config: config, state: &state)
-
-    #expect(state.selectedWindowID(on: monitorID) == selected.id)
-    #expect(state.monitors[0].workspaces[0].columns.flatMap(\.windows) == [modal.id, selected.id])
-  }
-
-  @Test
-  func `Focused tile becoming modal remains selected as floater`() throws {
-    let config = Config()
-    var state = RuntimeState(config: config)
-    state.attachMonitor(monitorID)
-    let modalTile = window(79)
-    try discoverWindow(modalTile, decision: RuleDecision(), state: &state)
-    var observed = modalTile
-    observed.floating = true
-    observed.floatingOrigin = .automatic
-
-    reconcileWindows([observed], config: config, state: &state)
-
-    let workspace = state.monitors[0].workspaces[0]
-    #expect(workspace.focusedLayer == .floating)
-    #expect(state.selectedWindowID(on: monitorID) == modalTile.id)
   }
 
   @Test
@@ -674,6 +507,13 @@ struct FloatingWindowTests {
     #expect(state.selectedWindowID(on: externalMonitorID) == floater.id)
     #expect(state.windows[floater.id]?.monitorID == externalMonitorID)
     #expect(state.suspendedTiledPlacements[floater.id] == nil)
+  }
+
+  private func automaticFloater(_ window: Window) -> Window {
+    var observed = window
+    observed.floating = true
+    observed.floatingOrigin = .automatic
+    return observed
   }
 
   private func window(_ rawValue: UInt64, floating: Bool = false) -> Window {

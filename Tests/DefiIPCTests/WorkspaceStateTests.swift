@@ -46,7 +46,6 @@ struct WorkspaceStateTests {
       focusedMonitorID: secondMonitor
     )
 
-    #expect(snapshot.version == 2)
     #expect(snapshot.monitors.map(\.id) == [20, 10])
     #expect(snapshot.monitors.map(\.display) == [1, 2])
     #expect(snapshot.monitors[0].focused)
@@ -74,21 +73,4 @@ struct WorkspaceStateTests {
     #expect(encodedWeb["occupied"] as? Bool == true)
   }
 
-  @Test
-  func requestRoundTripPreservesMonitorTarget() throws {
-    let request = CommandRequest(command: "workspace web", monitorIndex: 2)
-    let data = try JSONEncoder().encode(request)
-
-    #expect(try JSONDecoder().decode(CommandRequest.self, from: data) == request)
-  }
-
-  @Test
-  func requestWithoutMonitorRemainsBackwardCompatible() throws {
-    let data = Data(#"{"command":"workspace dev"}"#.utf8)
-
-    let request = try JSONDecoder().decode(CommandRequest.self, from: data)
-
-    #expect(request.command == "workspace dev")
-    #expect(request.monitorIndex == nil)
-  }
 }

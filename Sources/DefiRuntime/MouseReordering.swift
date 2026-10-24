@@ -60,15 +60,6 @@ public struct MouseGestureSettlementUpdate: Equatable, Sendable {
   }
 }
 
-public func mouseGestureAnimationCancellationIsNeeded(
-  mouseReorderAnimationActive: Bool,
-  scrollAnimationActive: Bool,
-  animatedWritesPending: Bool
-) -> Bool {
-  !mouseReorderAnimationActive
-    && (scrollAnimationActive || animatedWritesPending)
-}
-
 public func mouseGestureSettlementMaximumDuration(
   latencySensitive: Bool
 ) -> Double {
@@ -88,7 +79,6 @@ public func advanceMouseGestureSettlement(
   _ current: MouseGestureSettlement,
   actualFrame: Rect,
   now: Double,
-  animationPending: Bool,
   frameTolerance: Double = 1,
   pollInterval: Double = 0.05,
   quietDuration: Double = 0.05
@@ -107,11 +97,9 @@ public func advanceMouseGestureSettlement(
   let converged = next.observedPostReleaseChange
     && now >= (next.stableSince ?? now) + quietDuration
   let timedOut = now >= next.expiresAt
-  let shouldFinish = (converged || timedOut) && !animationPending
+  let shouldFinish = converged || timedOut
   if shouldFinish {
     next.nextCheckAt = now
-  } else if animationPending && (converged || timedOut) {
-    next.nextCheckAt = now + pollInterval
   } else if let stableSince = next.stableSince {
     next.nextCheckAt = min(stableSince + quietDuration, next.expiresAt)
   } else {
@@ -518,7 +506,6 @@ public func reorderTiledWindowAfterCompletedMouseDrag(
 
 public func desktopSynchronizationIsReady(
   scrollAnimationActive: Bool,
-  animatedWritesPending: Bool,
   mouseGestureSyncPending: Bool,
   needsDesktopSync: Bool,
   periodicSyncDue: Bool,
@@ -530,16 +517,10 @@ public func desktopSynchronizationIsReady(
 ) -> Bool {
   let nativeFocusPreemptsAnimation =
     nativeFocusSyncPending && nativeFocusHasNewerHumanIntent
-  guard !scrollAnimationActive || nativeFocusPreemptsAnimation,
-    commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending
-      || frameDebtPending || lifecycleEventPending,
-    needsDesktopSync || periodicSyncDue
-  else {
-    return false
-  }
-  return !animatedWritesPending
-    || nativeFocusPreemptsAnimation
-    || (mouseGestureSyncPending && needsDesktopSync)
+  return (!scrollAnimationActive || nativeFocusPreemptsAnimation)
+    && (commandQuietPeriodElapsed || mouseGestureSyncPending || nativeFocusSyncPending
+      || frameDebtPending || lifecycleEventPending)
+    && (needsDesktopSync || periodicSyncDue)
 }
 
 private func activeColumnIndex(
@@ -705,24 +686,56 @@ public func stackTiledWindow(
 public enum MouseDropTarget: Equatable, Sendable {
   case column(index: Int)
   case stack(MouseStackTarget)
+  /// A gap in another display's active workspace, counted in its current columns.
+  case display(MonitorID, workspaceID: WorkspaceID, gap: Int)
 }
+
+/// Keeps a pointer resting on a boundary from flipping the target, and the preview with it.
+private let mouseDropHysteresis = 24.0
 
 public func mouseDropTarget(
   _ windowID: WindowID,
   pointer: (x: Double, y: Double),
+  previous: MouseDropTarget? = nil,
   state: RuntimeState,
-  viewports: [MonitorID: Rect]
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect] = [:]
+) -> MouseDropTarget? {
+  let target = rawMouseDropTarget(
+    windowID, pointer: pointer, state: state, viewports: viewports, monitorFrames: monitorFrames)
+  // No target (the window's own stack, off every display) leaves the drop to the native path.
+  guard let previous, let target, target != previous else { return target }
+  // Both axes: displays can sit side by side or stacked.
+  let offsets = [(-mouseDropHysteresis, 0.0), (mouseDropHysteresis, 0),
+    (0, -mouseDropHysteresis), (0, mouseDropHysteresis)]
+  let held = offsets.contains { dx, dy in
+    rawMouseDropTarget(windowID, pointer: (pointer.x + dx, pointer.y + dy), state: state,
+      viewports: viewports, monitorFrames: monitorFrames) == previous
+  }
+  return held ? previous : target
+}
+
+private func rawMouseDropTarget(
+  _ windowID: WindowID,
+  pointer: (x: Double, y: Double),
+  state: RuntimeState,
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect]
 ) -> MouseDropTarget? {
   guard let layout = mouseDropLayout(windowID, state: state, viewports: viewports) else { return nil }
   let viewport = layout.viewport
   let source = layout.workspace.columns[layout.sourceColumnIndex]
-  // Off the monitor, or within its own stack, the native drop path decides: it moves
-  // the window across displays and reorders rows.
-  let sourceFrame = source.windows.compactMap { layout.frames[$0] }.first
   guard pointer.x >= viewport.x, pointer.x <= viewport.x + viewport.width,
-    pointer.y >= viewport.y, pointer.y <= viewport.y + viewport.height,
-    source.windows.count == 1
-      || sourceFrame.map({ pointer.x < $0.x || pointer.x > $0.x + $0.width }) ?? true
+    pointer.y >= viewport.y, pointer.y <= viewport.y + viewport.height
+  else {
+    return mouseDisplayDropTarget(
+      pointer: pointer, sourceMonitorID: layout.monitorID, state: state,
+      viewports: viewports, monitorFrames: monitorFrames)
+  }
+  // Within its own stack, the native drop path decides: it reorders rows.
+  let sourceFrame = source.windows.compactMap { layout.frames[$0] }.first
+  guard source.windows.count == 1
+    || sourceFrame.map({ pointer.x < $0.x || pointer.x > $0.x + $0.width }) ?? true
   else { return nil }
   if let stack = mouseStackTarget(windowID, layout, pointer: pointer, state: state) { return .stack(stack) }
   let leavesColumn = source.windows.count == 1
@@ -738,11 +751,15 @@ public func applyMouseDrop(
   _ windowID: WindowID,
   _ target: MouseDropTarget,
   state: inout RuntimeState,
-  viewports: [MonitorID: Rect]
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect] = [:]
 ) -> Bool {
   switch target {
   case .stack(let stack):
     return stackTiledWindow(windowID, into: stack, state: &state, viewports: viewports)
+  case .display(let monitorID, let workspaceID, let gap):
+    return dropTiledWindow(windowID, onto: monitorID, workspaceID: workspaceID, gap: gap,
+      state: &state, viewports: viewports, monitorFrames: monitorFrames)
   case .column(let index):
     guard
       let monitorIndex = state.monitors.firstIndex(where: { monitor in
@@ -771,4 +788,114 @@ public func applyMouseDrop(
     synchronizeScrollOffsets(state: &state, viewports: viewports)
     return true
   }
+}
+
+/// Every display's active-workspace layout in `state`, for the drop preview: a drop on
+/// another display closes the gap on its own and opens the slot on the other.
+public func mouseDropPreviewFrames(in state: RuntimeState, viewports: [MonitorID: Rect]) -> [WindowID: Rect] {
+  var frames: [WindowID: Rect] = [:]
+  for monitor in state.monitors {
+    guard let viewport = viewports[monitor.id],
+      var workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
+    else { continue }
+    // The drop scrolls to keep the window in view; the preview shows that final scroll.
+    workspace.scrollOffset = workspace.targetScrollOffset
+    for placement in computeLayout(
+      workspace: workspace, viewport: viewport,
+      windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+      settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
+    ) where frames[placement.windowID] == nil {
+      frames[placement.windowID] = placement.frame
+    }
+  }
+  return frames
+}
+
+/// The gap under the pointer on another display; nil when the pointer is on none.
+private func mouseDisplayDropTarget(
+  pointer: (x: Double, y: Double),
+  sourceMonitorID: MonitorID,
+  state: RuntimeState,
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect]
+) -> MouseDropTarget? {
+  guard
+    let monitorID = mouseDropMonitor(
+      Rect(x: pointer.x, y: pointer.y, width: 0, height: 0), monitorFrames: monitorFrames),
+    monitorID != sourceMonitorID,
+    let monitor = state.monitors.first(where: { $0.id == monitorID }),
+    let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
+    let viewport = viewports[monitorID]
+  else { return nil }
+  let frames = Dictionary(
+    computeLayout(
+      workspace: workspace, viewport: viewport,
+      windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+      settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
+    ).map { ($0.windowID, $0.frame) }) { first, _ in first }
+  let gap = workspace.columns.firstIndex {
+    centerX(for: $0, frames: frames).map { $0 >= pointer.x } ?? false
+  } ?? workspace.columns.count
+  return .display(monitorID, workspaceID: workspace.id, gap: gap)
+}
+
+/// Moves a tiled window into another display's active workspace at `gap`; false and no
+/// change when the destination is no longer active or the gap is out of range.
+private func dropTiledWindow(
+  _ windowID: WindowID,
+  onto monitorID: MonitorID,
+  workspaceID: WorkspaceID,
+  gap: Int,
+  state: inout RuntimeState,
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect]
+) -> Bool {
+  guard state.windows[windowID]?.floating == false,
+    !state.nativeFullscreenWindowIDs.contains(windowID),
+    activeColumnIndex(containing: windowID, state: state) != nil,
+    state.monitorID(containing: windowID) != monitorID,
+    let destination = state.monitors.first(where: { $0.id == monitorID }),
+    destination.activeWorkspace == workspaceID,
+    let workspace = destination.workspaces.first(where: { $0.id == workspaceID }),
+    (0...workspace.columns.count).contains(gap)
+  else { return false }
+  // Transient columns move along and shift indices: the gap follows the column after it.
+  let anchorWindowID = workspace.columns.indices.contains(gap) ? workspace.columns[gap].windows.first : nil
+  // Focus can prune empty workspaces, so indices resolve afterward.
+  _ = focusWindow(windowID, state: &state)
+  guard
+    let sourceMonitorIndex = state.monitors.firstIndex(where: { monitor in
+      monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.columns.contains { $0.windows.contains(windowID) } }
+    }),
+    let sourceWorkspaceIndex = state.monitors[sourceMonitorIndex].workspaces.firstIndex(where: {
+      $0.id == state.monitors[sourceMonitorIndex].activeWorkspace
+    }),
+    let targetMonitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }),
+    let targetWorkspaceIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(where: {
+      $0.id == workspaceID
+    })
+  else { return false }
+  moveFocusedSelection(
+    movesWholeColumn: false, follow: true, preservesUserFloatingPlacement: true,
+    sourceMonitorIndex: sourceMonitorIndex, sourceWorkspaceIndex: sourceWorkspaceIndex,
+    targetMonitorIndex: targetMonitorIndex, targetWorkspaceIndex: targetWorkspaceIndex,
+    monitorFrames: monitorFrames, viewports: viewports, state: &state
+  )
+  guard
+    let landedIndex = state.monitors[targetMonitorIndex].workspaces.firstIndex(where: { $0.id == workspaceID }),
+    let columnIndex = state.monitors[targetMonitorIndex].workspaces[landedIndex].columns.firstIndex(where: {
+      $0.windows.contains(windowID)
+    })
+  else { return false }
+  var landed = state.monitors[targetMonitorIndex].workspaces[landedIndex]
+  let column = landed.columns.remove(at: columnIndex)
+  let insertionIndex = anchorWindowID.flatMap { anchor in
+    landed.columns.firstIndex { $0.windows.contains(anchor) }
+  } ?? landed.columns.count
+  landed.columns.insert(column, at: insertionIndex)
+  landed.focusedColumn = insertionIndex
+  landed.focusedLayer = .tiled
+  state.monitors[targetMonitorIndex].workspaces[landedIndex] = landed
+  synchronizeScrollOffsets(state: &state, viewports: viewports)
+  return true
 }

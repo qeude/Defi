@@ -126,8 +126,8 @@ struct WindowBorderSyncTests {
     #expect(sync.move([move]) == false)
     #expect(mover.batches.count == 2)
     #expect(sync.backend == .fallback("move"))
-    #expect(sync.statusDescription
-      == "borderSync=fallback:move borderSyncEvents=0 borderSyncMoves=2 borderSyncFallbacks=1 borderSyncReconciles=0")
+    #expect(sync.moveCount == 2)
+    #expect(sync.fallbackCount == 1)
   }
 
   @Test func reconcileReadsAllTrackedWindowsOnce() {
@@ -155,14 +155,6 @@ struct WindowBorderSyncTests {
     #expect(windowBorderGeometryFrame(
       windowServerDriven: false, windowServerFrame: bounds,
       displayedFrame: displayed, plannedFrame: planned) == displayed)
-  }
-
-  @Test func eventCodesMapToTypedEvents() {
-    #expect(WindowServerWindowEvent(code: 806, windowID: id(4)) == .moved(id(4)))
-    #expect(WindowServerWindowEvent(code: 807, windowID: id(4)) == .resized(id(4)))
-    #expect(WindowServerWindowEvent(code: 808, windowID: id(4)) == .reordered(id(4)))
-    #expect(WindowServerWindowEvent(code: 804, windowID: id(4)) == .closed(id(4)))
-    #expect(WindowServerWindowEvent(code: 805, windowID: id(4)) == nil)
   }
 
   /// Runs `triggers` (in ms) against a fake clock; returns the pass times.

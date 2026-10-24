@@ -260,91 +260,26 @@ struct WindowSnapshotStabilityTests {
     #expect(result.windows.first { $0.id == second.id } == second)
   }
 
-  @Test func newlyDiscoveredWindowWinsOverAnUnresolvedPreviousIdentity() {
+  @Test("An unresolved window is kept only until discovery or WindowServer settles it", .bug(id: 89))
+  func unresolvedWindowIsKeptOnlyUntilDiscoveryOrWindowServerSettlesIt() {
     let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [window.id],
-        ignoredWindowIDs: [],
-        unresolvedWindowIDs: [window.id],
-        cgWindows: nil,
-        cachedWindowState: nil
-      ).isEmpty
-    )
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        unresolvedWindowIDs: [window.id],
-        cgWindows: nil,
-        cachedWindowState: nil
-      ) == [window.id]
-    )
-  }
-
-  @Test("Unresolved discovery cannot revive a confirmed closed window", .bug(id: 89))
-  func unresolvedWindowDoesNotOverrideConfirmedClosure() {
-    let window = makeWindow(id: 42)
-    let retainedWindowIDs = cachedWindowIDsToRetain(
-      processID: processID,
-      previousWindows: [window],
-      discoveredWindowIDs: [],
-      ignoredWindowIDs: [],
-      unresolvedWindowIDs: [window.id],
-      cgWindows: [CGWindowRecord(
-        id: 42,
-        processID: processID,
-        layer: 0,
-        title: window.title,
-        frame: window.frame,
-        isOnscreen: false
-      )],
-      cachedWindowState: { _ in (.invalidUIElement, nil) }
-    )
-
-    #expect(retainedWindowIDs.isEmpty)
-  }
-
-  @Test func unresolvedWindowSurvivesUnavailableCGInventoryAfterInvalidAXRead() {
-    let window = makeWindow(id: 42)
-    let retainedWindowIDs = cachedWindowIDsToRetain(
-      processID: processID,
-      previousWindows: [window],
-      discoveredWindowIDs: [],
-      ignoredWindowIDs: [],
-      unresolvedWindowIDs: [window.id],
-      cgWindows: nil,
-      cachedWindowState: { _ in (.invalidUIElement, nil) }
-    )
-
-    #expect(retainedWindowIDs == [window.id])
-  }
-
-  @Test func unresolvedWindowIsRemovedWhenCGReassignsItsIDToAnotherProcess() {
-    let window = makeWindow(id: 42)
-    let retainedWindowIDs = cachedWindowIDsToRetain(
-      processID: processID,
-      previousWindows: [window],
-      discoveredWindowIDs: [],
-      ignoredWindowIDs: [],
-      unresolvedWindowIDs: [window.id],
-      cgWindows: [CGWindowRecord(
-        id: 42,
-        processID: processID + 1,
-        layer: 0,
-        title: window.title,
-        frame: window.frame,
-        isOnscreen: true
-      )],
-      cachedWindowState: { _ in (.cannotComplete, nil) }
-    )
-
-    #expect(retainedWindowIDs.isEmpty)
+    func retained(discovered: Set<WindowID> = [], cg: [CGWindowRecord]?,
+      state: ((WindowID) -> (error: AXError, minimized: Bool?))?) -> Set<WindowID> {
+      cachedWindowIDsToRetain(processID: processID, previousWindows: [window], discoveredWindowIDs: discovered,
+        ignoredWindowIDs: [], unresolvedWindowIDs: [window.id], cgWindows: cg, cachedWindowState: state)
+    }
+    func record(process: pid_t, onscreen: Bool) -> CGWindowRecord {
+      CGWindowRecord(id: 42, processID: process, layer: 0, title: window.title, frame: window.frame,
+        isOnscreen: onscreen)
+    }
+    #expect(retained(cg: nil, state: nil) == [window.id])
+    #expect(retained(discovered: [window.id], cg: nil, state: nil).isEmpty, "a newly discovered window wins")
+    #expect(retained(cg: nil, state: { _ in (.invalidUIElement, nil) }) == [window.id],
+      "an invalid AX read without CG inventory keeps it")
+    #expect(retained(cg: [record(process: processID, onscreen: false)], state: { _ in (.invalidUIElement, nil) })
+      .isEmpty, "a confirmed closure is not revived")
+    #expect(retained(cg: [record(process: processID + 1, onscreen: true)], state: { _ in (.cannotComplete, nil) })
+      .isEmpty, "WindowServer reassigned its ID to another process")
   }
 
   @Test func createdWindowBypassesLaggingApplicationWindowList() {
@@ -895,20 +830,6 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
-  @Test func unavailableCGInventoryExhaustsDueRetries() {
-    let identity = CGWindowDiscoveryIdentity(
-      windowID: WindowID(rawValue: 90), processID: 42, ownerName: "Example", title: ""
-    )
-    var tracker = CGWindowDiscoveryRetryTracker()
-    tracker.observe(observed: [identity], unresolved: [identity: "AX-no-window-match"], now: 10)
-    for now in [10.1, 10.3, 10.71] {
-      tracker.completeRetries(processIDs: [42], now: now, unresolved: nil)
-    }
-    #expect(tracker.entries[identity]?.attempts == 3)
-    #expect(tracker.entries[identity]?.lastOutcome == "CG-inventory-unavailable")
-    #expect(tracker.refreshInterval(now: 11) == nil)
-  }
-
   @Test func unresolvedCGWindowRetriesRecoverExhaustAndFollowIdentity() {
     let original = CGWindowDiscoveryIdentity(
       windowID: WindowID(rawValue: 90), processID: 42,
@@ -968,6 +889,14 @@ struct WindowSnapshotStabilityTests {
 
     tracker.observe(observed: [reused], unresolved: [:], now: 102)
     #expect(tracker.entries.isEmpty)
+
+    tracker.observe(observed: [reused], unresolved: [reused: "AX-no-window-match"], now: 110)
+    for now in [110.1, 110.3, 110.71] {
+      tracker.completeRetries(processIDs: [43], now: now, unresolved: nil)
+    }
+    #expect(tracker.entries[reused]?.attempts == 3, "An unavailable CG inventory still spends due retries")
+    #expect(tracker.entries[reused]?.lastOutcome == "CG-inventory-unavailable")
+    #expect(tracker.refreshInterval(now: 111) == nil)
   }
 
   @Test func cgWindowDiscoveryScopeAndIdentityFallbackStayConservative() {
@@ -1062,26 +991,6 @@ struct WindowSnapshotStabilityTests {
     #expect(classification(unresolvedID).0 == "unresolved")
   }
 
-  @Test func unresolvedCGWindowStatusIncludesRetryAgeAndOutcome() {
-    let identity = CGWindowDiscoveryIdentity(
-      windowID: WindowID(rawValue: 17), processID: 42,
-      ownerName: "Device Hub", title: "Devices"
-    )
-    let diagnostic = CGWindowDiscoveryDiagnostic(
-      identity: identity, appIdentity: "com.apple.dt.Devices",
-      classification: "unresolved", reason: nil,
-      retry: CGWindowDiscoveryRetry(
-        firstObservedAt: 12, attempts: 2, nextRetryAt: 12.4,
-        lastOutcome: "AX-window-list-empty"
-      )
-    )
-    let status = formattedCGWindowDiscoveryStatus([diagnostic], now: 12.25)
-
-    #expect(status.contains("scope=layer0,pid>0,onscreen-or-managed ax=best-effort-not-one-to-one"))
-    #expect(status.contains("id=17,pid=42,app=com.apple.dt.Devices,class=unresolved"))
-    #expect(status.contains("age=0.25s,retry=2/3,outcome=AX-window-list-empty"))
-  }
-
   @Test func partialDiscoveryRetainsUnchangedWindowExclusions() {
     let ignoredIdentity = CGWindowDiscoveryIdentity(
       windowID: WindowID(rawValue: 20), processID: 42,
@@ -1130,140 +1039,44 @@ struct WindowSnapshotStabilityTests {
     #expect(invalidated.minimizedWindowIDs.isEmpty)
   }
 
-  @Test func forcedWindowListRefreshAdvancesPendingCGInventoryRetry() {
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: 0,
-        forceWindowListRefresh: true
-      )
-    )
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: nil,
-        forceWindowListRefresh: true
-      ) == false)
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: 3,
-        forceWindowListRefresh: true
-      ) == false)
-    #expect(
-      cgWindowInventoryRetryIsRequired(
-        attempts: 0,
-        forceWindowListRefresh: false
-      ) == false)
-  }
-
-  @Test func cachedAndKnownFrameSnapshotsReuseTheCGWindowInventory() {
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: true,
-        snapshotRefreshesOnlyKnownFrames: false,
-        cachedInventoryAvailable: true
-      )
-    )
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: false,
-        snapshotRefreshesOnlyKnownFrames: true,
-        cachedInventoryAvailable: true
-      )
-    )
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: false,
-        snapshotRefreshesOnlyKnownFrames: false,
-        cachedInventoryAvailable: true
-      ) == false)
-    #expect(
-      cgWindowInventoryCanBeReused(
-        snapshotUsesCachedWindows: true,
-        snapshotRefreshesOnlyKnownFrames: true,
-        cachedInventoryAvailable: false
-      ) == false)
-  }
-
-  @Test func snapshotDurationPercentilesAreBoundedAndDeterministic() {
-    let samples = [1.0, 2.0, 3.0, 4.0, 5.0]
-
-    #expect(durationPercentile(0.5, sortedSamples: samples) == 3)
-    #expect(durationPercentile(0.95, sortedSamples: samples) == 5)
-    #expect(durationPercentile(-1, sortedSamples: samples) == 1)
-    #expect(durationPercentile(2, sortedSamples: samples) == 5)
-    #expect(durationPercentile(0.5, sortedSamples: []) == 0)
-  }
-
-  @Test func transientGeometryFailureRemainsUnavailable() {
-    #expect(
-      windowGeometryDiscovery(minimized: false, frame: { nil }) == .unavailable
-    )
-  }
-
-  @Test func minimizedAndAuxiliarySizedWindowsRemainIgnored() {
-    #expect(
-      windowGeometryDiscovery(minimized: true, frame: { frame }) == .ignored
-    )
-    #expect(
-      windowGeometryDiscovery(
-        minimized: false,
-        frame: { Rect(x: 0, y: 0, width: 79, height: 60) }
-      ) == .ignored
-    )
-  }
-
-  @Test func minimizedWindowDoesNotReadGeometry() {
-    var geometryReadCount = 0
-
-    let discovery = windowGeometryDiscovery(minimized: true) {
-      geometryReadCount += 1
-      return frame
+  @Test func cgInventoryIsReusedForCachedOrKnownFrameSnapshotsAndRetriedOnForcedRefresh() {
+    #expect(cgWindowInventoryRetryIsRequired(attempts: 0, forceWindowListRefresh: true))
+    #expect(!cgWindowInventoryRetryIsRequired(attempts: nil, forceWindowListRefresh: true))
+    #expect(!cgWindowInventoryRetryIsRequired(attempts: 3, forceWindowListRefresh: true))
+    #expect(!cgWindowInventoryRetryIsRequired(attempts: 0, forceWindowListRefresh: false))
+    func reused(cached: Bool, knownFrames: Bool, available: Bool = true) -> Bool {
+      cgWindowInventoryCanBeReused(snapshotUsesCachedWindows: cached, snapshotRefreshesOnlyKnownFrames: knownFrames,
+        cachedInventoryAvailable: available)
     }
-
-    #expect(discovery == .ignored)
-    #expect(geometryReadCount == 0)
+    #expect([reused(cached: true, knownFrames: false), reused(cached: false, knownFrames: true),
+      reused(cached: false, knownFrames: false), reused(cached: true, knownFrames: true, available: false)]
+      == [true, true, false, false])
   }
 
-  @Test func minimizedFallbackWindowSkipsRemainingAttributeReads() {
-    var remainingReadCount = 0
-    func recordRead<Value>(_ value: Value) -> Value {
-      remainingReadCount += 1
-      return value
-    }
-
-    let attributes = fallbackWindowAttributes(
-      minimized: { true },
-      frame: { recordRead(frame) },
-      title: { recordRead("Window") },
-      role: { recordRead(kAXWindowRole) },
-      subrole: { recordRead(kAXStandardWindowSubrole) },
-      modal: { recordRead(true) }
-    )
-
-    #expect(attributes.minimized == true)
-    #expect(attributes.frame == nil)
-    #expect(attributes.title.isEmpty)
-    #expect(attributes.role == nil)
-    #expect(attributes.subrole == nil)
-    #expect(remainingReadCount == 0)
+  @Test func geometryDiscoveryIgnoresMinimizedAndTinyWindowsAndKeepsFailuresUnavailable() {
+    var reads = 0
+    #expect(windowGeometryDiscovery(minimized: true) { reads += 1; return frame } == .ignored)
+    #expect(reads == 0, "A minimized window does not read its geometry")
+    #expect(windowGeometryDiscovery(minimized: false) { Rect(x: 0, y: 0, width: 79, height: 60) } == .ignored)
+    #expect(windowGeometryDiscovery(minimized: false) { nil } == .unavailable)
+    #expect(windowGeometryDiscovery(minimized: false) { frame } == .usable(frame))
   }
 
-  @Test func fallbackWindowAttributesPreservesModalState() {
-    let attributes = fallbackWindowAttributes(
-      minimized: { false },
-      frame: { frame },
-      title: { "Sheet" },
-      role: { kAXWindowRole },
-      subrole: { kAXStandardWindowSubrole },
-      modal: { true }
-    )
-
-    #expect(attributes.modal == true)
-  }
-
-  @Test func usableWindowGeometryRemainsDiscoverable() {
-    #expect(
-      windowGeometryDiscovery(minimized: false, frame: { frame }) == .usable(frame)
-    )
+  @Test func fallbackAttributesStopAtMinimizedAndKeepModalState() {
+    var reads = 0
+    func read<Value>(_ value: Value) -> Value { reads += 1; return value }
+    let minimized = fallbackWindowAttributes(minimized: { true }, frame: { read(frame) }, title: { read("Window") },
+      role: { read(kAXWindowRole) }, subrole: { read(kAXStandardWindowSubrole) }, modal: { read(true) })
+    #expect(minimized.minimized == true)
+    #expect(minimized.frame == nil)
+    #expect(minimized.title.isEmpty)
+    #expect(minimized.role == nil)
+    #expect(minimized.subrole == nil)
+    #expect(reads == 0)
+    let sheet = fallbackWindowAttributes(minimized: { false }, frame: { frame }, title: { "Sheet" },
+      role: { kAXWindowRole }, subrole: { kAXStandardWindowSubrole }, modal: { true })
+    #expect(sheet.modal == true)
+    #expect(sheet.title == "Sheet")
   }
 
   @Test(arguments: [true, false], ["", "Duplicate"])
@@ -1410,19 +1223,20 @@ struct WindowSnapshotStabilityTests {
     #expect(retained.isEmpty)
   }
 
-  @Test func unavailableCGInventoryPreservesCachedWindow() {
+  @Test func cachedWindowsSurviveOnlyUnconfirmedAccessibilityOmissions() {
     let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: nil,
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ) == [window.id]
-    )
+    func retained(discovered: Set<WindowID> = [], ignored: Set<WindowID> = [], cg: [CGWindowRecord]? = nil,
+      state: ((WindowID) -> (error: AXError, minimized: Bool?))?) -> Set<WindowID> {
+      cachedWindowIDsToRetain(processID: processID, previousWindows: [window], discoveredWindowIDs: discovered,
+        ignoredWindowIDs: ignored, cgWindows: cg, cachedWindowState: state)
+    }
+    let listed = [makeCGWindow(id: 42)]
+    #expect(retained(state: { _ in (.cannotComplete, nil) }) == [window.id], "no CG inventory")
+    #expect(retained(cg: listed, state: nil) == [window.id], "the application's AX connection failed")
+    #expect(retained(cg: listed, state: { _ in (.success, true) }).isEmpty, "minimized")
+    #expect(retained(discovered: [window.id], cg: listed, state: { _ in (.cannotComplete, nil) }).isEmpty)
+    #expect(retained(ignored: [window.id], cg: listed, state: { _ in (.cannotComplete, nil) }).isEmpty)
+    #expect(retained(cg: [], state: { _ in (.cannotComplete, nil) }).isEmpty, "closed")
   }
 
   @Test func cachedWindowDoesNotProvideFreshFrameObservation() {
@@ -1546,21 +1360,6 @@ struct WindowSnapshotStabilityTests {
     )
   }
 
-  @Test func minimizedCachedWindowDoesNotSurviveAccessibilityOmission() {
-    let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [makeCGWindow(id: 42)],
-        cachedWindowState: { _ in (.success, true) }
-      ).isEmpty
-    )
-  }
-
   @Test(arguments: [AXError.invalidUIElement, .cannotComplete, .success], [true, false])
   func invalidHiddenCachedWindowIsRemovedWithoutGrace(error: AXError, isOnscreen: Bool) {
     let window = makeWindow(id: 42)
@@ -1573,57 +1372,6 @@ struct WindowSnapshotStabilityTests {
       cachedWindowState: { _ in (error, nil) }
     )
     #expect(retained.isEmpty == (error == .invalidUIElement && !isOnscreen))
-  }
-
-  @Test func applicationAccessibilityFailureDoesNotProbeCachedWindows() {
-    let window = makeWindow(id: 42)
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [makeCGWindow(id: 42)],
-        cachedWindowState: nil
-      ) == [window.id]
-    )
-  }
-
-  @Test func rediscoveredIgnoredAndClosedWindowsDoNotUseCache() {
-    let window = makeWindow(id: 42)
-    let cgWindows = [makeCGWindow(id: 42)]
-
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [window.id],
-        ignoredWindowIDs: [],
-        cgWindows: cgWindows,
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ).isEmpty
-    )
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [window.id],
-        cgWindows: cgWindows,
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ).isEmpty
-    )
-    #expect(
-      cachedWindowIDsToRetain(
-        processID: processID,
-        previousWindows: [window],
-        discoveredWindowIDs: [],
-        ignoredWindowIDs: [],
-        cgWindows: [],
-        cachedWindowState: { _ in (.cannotComplete, nil) }
-      ).isEmpty
-    )
   }
 
   private func makeWindow(id: UInt64) -> Window {

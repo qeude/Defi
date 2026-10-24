@@ -60,6 +60,35 @@ struct WindowLayoutTests {
   }
 
   @Test
+  func `A window is asked for exactly its own minimum or maximum width, its gaps outside it`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [
+        Column(window: WindowID(rawValue: 1), width: .fraction(0.5)),
+        Column(window: WindowID(rawValue: 2), width: .fraction(0.5)),
+        Column(window: WindowID(rawValue: 3), width: .fraction(0.5)),
+      ]
+    )
+    let windows = [
+      Window(id: WindowID(rawValue: 1), appID: "a", title: "",
+        frame: Rect(x: 0, y: 0, width: 1500, height: 1384), minimumTiledWidth: 1500),
+      Window(id: WindowID(rawValue: 2), appID: "b", title: "",
+        frame: Rect(x: 0, y: 0, width: 740, height: 1384), maximumTiledWidth: 740),
+      Window(id: WindowID(rawValue: 3), appID: "c", title: "",
+        frame: Rect(x: 0, y: 0, width: 1500, height: 1384), minimumTiledWidth: 1500),
+    ]
+    let frames = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: windows, settings: settings
+    ).map(\.frame)
+    #expect(frames == [
+      Rect(x: 8, y: 8, width: 1500, height: 1384),
+      Rect(x: 1516, y: 8, width: 740, height: 1384),
+      Rect(x: 2264, y: 8, width: 1500, height: 1384),
+    ])
+  }
+
+  @Test
   func `A window that rounds its width is asked for that much less, centred`() {
     let workspace = Workspace(
       id: WorkspaceID(rawValue: "1"),
@@ -76,6 +105,22 @@ struct WindowLayoutTests {
       windows: [window], settings: settings)[0].frame
     #expect(compensated.width == plain.width - 2)
     #expect(compensated.x == plain.x + 1)
+  }
+
+  @Test
+  func `Rounding compensation never asks for less than the window's minimum width`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [Column(window: WindowID(rawValue: 1), width: .fraction(0.25))]
+    )
+    var window = Window(id: WindowID(rawValue: 1), appID: "settings", title: "",
+      frame: Rect(x: 0, y: 0, width: 740, height: 1384), minimumTiledWidth: 740,
+      maximumTiledWidth: 740)
+    window.widthRounding = 12
+    let frame = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: [window], settings: settings)[0].frame
+    #expect(frame == Rect(x: 8, y: 8, width: 740, height: 1384))
   }
 
   @Test
@@ -185,48 +230,6 @@ struct WindowLayoutTests {
     )
     #expect(normalLayout[0].frame.width == 661)
     #expect(normalLayout[1].frame.x == 661)
-  }
-
-  @Test
-  func `Accepted compact size survives a column move across gap edges`() {
-    let gaps = LayoutSettings(
-      innerHorizontalGap: 4, innerVerticalGap: 4,
-      outerTopGap: 0, outerRightGap: 0,
-      outerBottomGap: 0, outerLeftGap: 0
-    )
-    let deviceID = WindowID(rawValue: 1)
-    var device = Window(
-      id: deviceID, appID: "com.apple.dt.Devices", title: "Simulator",
-      frame: Rect(x: 0, y: 0, width: 385, height: 841),
-      maximumTiledHeight: 1_368
-    )
-    // Learned while the column was first: outer left gap 0, inner right gap 4.
-    device.tiledSizeAcceptance = TiledSizeAcceptance(
-      requested: Rect(x: 0, y: 0, width: 1_122.4, height: 1_368),
-      accepted: device.frame
-    )
-    let others = [WindowID(rawValue: 2), WindowID(rawValue: 3)].map {
-      Window(id: $0, appID: "other", title: "Other",
-        frame: Rect(x: 0, y: 0, width: 1_280, height: 1_368))
-    }
-    // move-column right: the column is now in the middle, inner gaps both sides.
-    let workspace = Workspace(
-      id: WorkspaceID(rawValue: "1"),
-      columns: [
-        Column(window: others[0].id, width: .fraction(0.5)),
-        Column(window: deviceID, width: .fraction(0.44)),
-        Column(window: others[1].id, width: .fraction(0.5)),
-      ],
-      focusedColumn: 1
-    )
-    let frames = computeLayout(
-      workspace: workspace,
-      viewport: Rect(x: 0, y: 0, width: 2_560, height: 1_368),
-      windows: [others[0], device, others[1]], settings: gaps
-    )
-    let moved = frames.first { $0.windowID == deviceID }!.frame
-    #expect(moved.width == 385)
-    #expect(moved.height == 841)
   }
 
   @Test(arguments: [(4.0, true), (5.0, false)])

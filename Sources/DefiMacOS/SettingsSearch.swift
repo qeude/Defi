@@ -27,7 +27,6 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case widthPresets
   case screenMargins
   case animations
-  case animationDuration
   case reservedTop
   case reservedBottom
   case hyperSymbol
@@ -74,7 +73,6 @@ enum SettingsOption: String, CaseIterable, Sendable {
       "layout.gaps default gap outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges"
     )
     case .animations: (.appearance, "Enable animations", "animation.enabled")
-    case .animationDuration: (.appearance, "Animation duration", "animation.duration_ms")
     case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top")
     case .reservedBottom: (.layout, "Reserved bottom area", "layout.reserved_bottom")
     case .hyperSymbol: (.input, "Show Hyper as ✦", "displayHyperSymbol hyper shortcut display")

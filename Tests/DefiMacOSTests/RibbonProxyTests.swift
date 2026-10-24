@@ -1,5 +1,6 @@
 import CoreGraphics
 import DefiConfig
+import DefiCore
 import QuartzCore
 import DefiModel
 import Testing
@@ -10,18 +11,38 @@ struct RibbonProxyTests {
     let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2)
     let targets = [a: Rect(x: 10, y: 40, width: 800, height: 900),
       b: Rect(x: 830, y: 40, width: 600, height: 900)]
-    var native = [a: Rect(x: 11, y: 41, width: 800, height: 900)]
-    #expect(!ribbonProxyLanded(native: native, targets: targets))
-    native[b] = Rect(x: 900, y: 40, width: 600, height: 900)
+    var native = [a: Rect(x: 11, y: 41, width: 800, height: 900),
+      b: Rect(x: 900, y: 40, width: 600, height: 900)]
     #expect(!ribbonProxyLanded(native: native, targets: targets))
     native[b] = Rect(x: 832, y: 40, width: 600, height: 900)
     #expect(ribbonProxyLanded(native: native, targets: targets))
     #expect(ribbonProxyLanded(native: [:], targets: [:]))
+    // A window closed mid-motion is gone from the WindowServer: nothing holds the landing.
+    #expect(ribbonProxyLanded(native: [a: native[a]!], targets: targets))
     // A terminal snapped 4 px lower on its cell grid has still landed.
     #expect(ribbonProxyLanded(native: [a: Rect(x: 10, y: 44, width: 800, height: 896)],
       targets: [a: targets[a]!]))
     #expect(!ribbonProxyLanded(native: [a: Rect(x: 14, y: 40, width: 800, height: 900)],
       targets: [a: targets[a]!]))
+  }
+
+  @Test func landingDoesNotWaitForAWindowAnchoredInASliver() {
+    let finder = WindowID(rawValue: 1), xcode = WindowID(rawValue: 2)
+    let display = Rect(x: 0, y: 0, width: 2560, height: 1440)
+    // An offscreen column's anchor shows one point; macOS keeps Xcode 20 pt higher.
+    let targets = [finder: Rect(x: 1702, y: 34, width: 740, height: 1359),
+      xcode: Rect(x: -1269, y: 1365, width: 1270, height: 1359)]
+    let awaited = ribbonProxyLandingTargets(targets, area: display)
+    #expect(awaited == [finder: Rect(x: 1702, y: 34, width: 740, height: 1359)])
+    #expect(ribbonProxyLanded(native: [finder: Rect(x: 1702, y: 34, width: 740, height: 1359),
+      xcode: Rect(x: -1269, y: 1345, width: 1270, height: 1359)], targets: awaited))
+  }
+
+  @Test func aWindowMovingToASliverAnchorMustLeaveBeforeTheOverlayLifts() {
+    let display = Rect(x: 0, y: 0, width: 2560, height: 1440)
+    let visible = Rect(x: 400, y: 34, width: 1270, height: 1359)
+    #expect(ribbonProxyLeaves(from: visible, to: Rect(x: -1269, y: 1365, width: 1270, height: 1359), area: display))
+    #expect(!ribbonProxyLeaves(from: visible, to: Rect(x: 1000, y: 34, width: 1270, height: 1359), area: display))
   }
 
   @Test func landingStartsWhenTheRibbonVisiblyStops() {
@@ -42,6 +63,52 @@ struct RibbonProxyTests {
     #expect(ribbonProxyDistance(Rect(x: 900, y: 0, width: 400, height: 800), viewport) == 0)
     #expect(ribbonProxyDistance(Rect(x: 1200, y: 0, width: 400, height: 800), viewport) == 200)
     #expect(ribbonProxyDistance(Rect(x: -700, y: 0, width: 400, height: 800), viewport) == 300)
+  }
+
+  @Test func onlyTheDisplayALayoutMovesPresentsWithSeveralDisplays() {
+    let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2), c = WindowID(rawValue: 3)
+    let left = WindowProxyMonitor(viewport: Rect(x: 0, y: 0, width: 1000, height: 800), windowIDs: [a, b])
+    let frame = Rect(x: 0, y: 0, width: 500, height: 800)
+    let moved = Rect(x: -400, y: 0, width: 500, height: 800)
+    func moves(_ monitor: WindowProxyMonitor, displays: Int = 2, targets: [WindowID: Rect],
+      previous: [WindowID: Rect], opened: Set<WindowID> = [], dropped: WindowID? = nil) -> Bool {
+      windowProxyDisplayMoves(monitor, displayCount: displays, ribbonTargets: targets,
+        previousRibbonFrames: previous, opened: opened, dropped: dropped)
+    }
+    #expect(!moves(left, targets: [a: frame], previous: [a: frame, c: frame]))
+    #expect(moves(left, displays: 1, targets: [a: frame], previous: [a: frame]))
+    #expect(moves(left, targets: [a: moved], previous: [a: frame]))
+    #expect(moves(left, targets: [a: frame, b: frame], previous: [a: frame]))
+    // A window leaving the ribbon (closed, sent away) reflows the display.
+    #expect(moves(left, targets: [a: frame], previous: [a: frame, b: frame]))
+    #expect(moves(left, targets: [a: frame], previous: [a: frame], opened: [b]))
+    #expect(!moves(left, targets: [a: frame], previous: [a: frame], opened: [c], dropped: c))
+    #expect(moves(left, targets: [a: frame], previous: [a: frame], dropped: a))
+    // A window this layout skips (a focus change pending elsewhere) stays where it is.
+    #expect(!windowProxyDisplayMoves(left, displayCount: 2, ribbonTargets: [:],
+      previousRibbonFrames: [a: frame], opened: [], dropped: nil, skipped: [a]))
+    var switched = left
+    switched.workspaceShift = -800
+    #expect(moves(switched, targets: [:], previous: [:]))
+  }
+
+  @Test func aLayoutLimitedToOneDisplayLeavesTheOtherStillOnTheNextFullLayout() {
+    let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2)
+    let slot = Rect(x: 0, y: 40, width: 500, height: 800)
+    let next = Rect(x: -400, y: 40, width: 500, height: 800)
+    let side = Rect(x: 2564, y: -932, width: 488, height: 915)
+    let external = WindowProxyMonitor(viewport: Rect(x: 0, y: 0, width: 2560, height: 1440), windowIDs: [a])
+    let builtIn = WindowProxyMonitor(viewport: Rect(x: 2560, y: -949, width: 1512, height: 949),
+      windowIDs: [b], laidOut: false)
+    let history = windowProxyRibbonHistory([FrameAssignment(windowID: a, frame: next)],
+      previous: [a: slot, b: side], monitors: [external, builtIn])
+    #expect(history == [a: next, b: side])
+    let laidOut = WindowProxyMonitor(viewport: builtIn.viewport, windowIDs: [b])
+    #expect(!windowProxyDisplayMoves(laidOut, displayCount: 2, ribbonTargets: [a: next, b: side],
+      previousRibbonFrames: history, opened: [], dropped: nil))
+    // Laid out without ribbon frames (an emptied workspace), its windows have left.
+    #expect(windowProxyRibbonHistory([FrameAssignment(windowID: a, frame: next)],
+      previous: [a: slot, b: side], monitors: [external, laidOut]) == [a: next])
   }
 
   @Test func enteringWindowTravelsWithTheSharedNavigationMotion() {
@@ -169,15 +236,51 @@ struct RibbonProxyTests {
     #expect(plan.first?.to == Rect(x: 4, y: 34, width: 1270, height: 1360))
   }
 
-  @Test func theEdgeColourIsThePictureBorderColour() throws {
-    let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-    let context = try #require(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
-      bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-    context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
-    let image = try #require(context.makeImage())
-    let edge = try #require(ribbonProxyEdgeColor(image)?.components)
-    #expect(edge[2] > 0.9 && edge[0] < 0.1)
+  @Test func aDroppedWindowSettlesWhereItsNeighboursSettleOnANotchedDisplay() {
+    let dropped = WindowID(rawValue: 1), b = WindowID(rawValue: 2), c = WindowID(rawValue: 3)
+    // The display clamps every 941-pt window 13 pt above its ribbon place.
+    let plan = windowProxyMotion(
+      ribbonTargets: [dropped: Rect(x: 3564, y: -932, width: 488, height: 915),
+        b: Rect(x: 2564, y: -932, width: 488, height: 915), c: Rect(x: 3064, y: -932, width: 488, height: 915)],
+      otherTargets: [:],
+      previousLogical: [dropped: Rect(x: 3064, y: -932, width: 489, height: 915),
+        b: Rect(x: 2564, y: -932, width: 489, height: 915), c: Rect(x: 3564, y: -932, width: 489, height: 915)],
+      observed: [dropped: Rect(x: 3300, y: -790, width: 489, height: 941),
+        b: Rect(x: 2564, y: -945, width: 489, height: 941), c: Rect(x: 3564, y: -945, width: 489, height: 941)],
+      dropped: dropped)
+    let byID = Dictionary(uniqueKeysWithValues: plan.map { ($0.id, $0) })
+    #expect(byID[dropped]?.to == Rect(x: 3564, y: -945, width: 488, height: 941))
+    #expect(byID[c]?.to == Rect(x: 3064, y: -945, width: 488, height: 941))
+  }
+
+  @Test func aLearnedPlacementSurvivesAColumnReflowedOnePointNarrower() {
+    let dropped = WindowID(rawValue: 1)
+    let settle = RibbonProxySettle(target: Rect(x: 3064, y: -932, width: 489, height: 915),
+      native: Rect(x: 3064, y: -945, width: 489, height: 941))
+    let plan = windowProxyMotion(
+      ribbonTargets: [dropped: Rect(x: 3564, y: -932, width: 488, height: 915)], otherTargets: [:],
+      previousLogical: [dropped: Rect(x: 3064, y: -932, width: 489, height: 915)],
+      observed: [dropped: Rect(x: 3300, y: -790, width: 489, height: 941)],
+      settled: [dropped: settle!], dropped: dropped)
+    #expect(plan.first?.to == Rect(x: 3564, y: -945, width: 488, height: 941))
+  }
+
+  @Test func theEdgeColourWeighsTheRightAndBottomBordersEqually() throws {
+    func edge(blueBottomRows: Int) throws -> [CGFloat] {
+      let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+      let context = try #require(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
+        bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+      context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+      context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+      context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+      context.fill(CGRect(x: 0, y: 0, width: 100, height: blueBottomRows))
+      let image = try #require(context.makeImage())
+      return try #require(ribbonProxyEdgeColor(image)?.components)
+    }
+    let blue = try edge(blueBottomRows: 100)
+    #expect(blue[2] > 0.9 && blue[0] < 0.1)
+    let split = try edge(blueBottomRows: 2)
+    #expect(abs(split[0] - split[2]) < 0.1)
   }
 
   @Test func theCardRingHugsTheWindowLikeTheNativeRing() throws {
@@ -191,17 +294,5 @@ struct RibbonProxyTests {
     #expect(ring.cornerRadius == 20)
   }
 
-  @Test func theRightAndBottomBordersWeighTheSame() throws {
-    let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-    let context = try #require(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
-      bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-    context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
-    context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 100, height: 2))
-    let image = try #require(context.makeImage())
-    let edge = try #require(ribbonProxyEdgeColor(image)?.components)
-    #expect(abs(edge[0] - edge[2]) < 0.1)
-  }
 }
 

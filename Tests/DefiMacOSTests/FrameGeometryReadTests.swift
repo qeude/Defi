@@ -16,17 +16,16 @@ struct FrameGeometryReadTests {
       element: element, application: element, processID: processID,
       fromPoint: .zero, point: CGPoint(x: 100, y: 40),
       fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
-      positionChanged: true, sizeChanged: sizeChanged, animatesSize: false,
+      positionChanged: true, sizeChanged: sizeChanged,
       synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
-      timeoutSeconds: 0.016, isParked: false, isReentering: false,
+      timeoutSeconds: 0.016, isParked: false,
       requiresVerifiedOffscreenWrite: false
     )
   }
 
   private func frame(_ writes: [WindowID: AsyncPositionWrite]) -> QueuedPositionFrame {
     QueuedPositionFrame(
-      generation: 0, source: "geometry-test", writes: writes, animatedWindowIDs: [],
-      animationDuration: 0, refreshRateHz: 120, displayIDs: [], initialProgressVelocity: 0,
+      generation: 0, source: "geometry-test", writes: writes,
       stagesVisibleBeforeParking: false, completion: nil
     )
   }

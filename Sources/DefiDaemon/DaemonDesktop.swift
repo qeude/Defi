@@ -8,26 +8,6 @@ import DefiRuntime
 import Foundation
 import OSLog
 
-struct AnimationDisplayTiming: Equatable {
-  let refreshRateHz: Double
-  let displayIDs: Set<UInt64>
-}
-
-func animationDisplayTiming(
-  monitorIDs: Set<MonitorID>?,
-  activeMonitorID: MonitorID?,
-  fallbackMonitorID: MonitorID?,
-  refreshRates: [MonitorID: Double]
-) -> AnimationDisplayTiming {
-  let selectedMonitorIDs = monitorIDs.flatMap { $0.isEmpty ? nil : $0 }
-    ?? Set([activeMonitorID ?? fallbackMonitorID].compactMap { $0 })
-  let selectedRefreshRates = selectedMonitorIDs.compactMap { refreshRates[$0] }
-  return AnimationDisplayTiming(
-    refreshRateHz: selectedRefreshRates.min() ?? 60,
-    displayIDs: Set(selectedMonitorIDs.map(\.rawValue))
-  )
-}
-
 func layoutWindowIDsOutsideSubmissionScope(
   _ plan: MonitorLayoutPlan,
   monitorID: MonitorID,
@@ -38,19 +18,6 @@ func layoutWindowIDsOutsideSubmissionScope(
     : []
 }
 
-func parkedFrameReservations(
-  in plan: ContinuousStripPlan,
-  translatedBy deltaY: Double = 0
-) -> [Rect] {
-  let parkedWindowIDs = plan.parkedWindowIDs
-  return plan.frames.compactMap { assignment in
-    guard parkedWindowIDs.contains(assignment.windowID) else { return nil }
-    var frame = assignment.frame
-    frame.y += deltaY
-    return frame
-  }
-}
-
 @NavigationActor
 extension Daemon {
   func applyCurrentLayout(
@@ -58,8 +25,7 @@ extension Daemon {
     asynchronousPositions: Bool = false,
     updateVisibility: Bool? = nil,
     positionTimeoutSeconds: Float = 0.016,
-    animationDuration: TimeInterval = 0,
-    animateSizeChanges: Bool = false,
+    animated: Bool = false,
     skipping additionalSkippedWindowIDs: Set<WindowID> = [],
     positionsOnly: Bool = false,
     stagesVisibleBeforeParking: Bool = false,
@@ -87,22 +53,13 @@ extension Daemon {
     var nativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
     var outOfScopeWindowIDs = Set<WindowID>()
-    let allPhysicalMonitorFrames = latestMonitors.map(\.physicalFrame)
+    var cachedMonitorIDs = Set<MonitorID>()
     let viewports = viewportsByMonitor
     let overviewParksWindows = overviewState.isOpen
       && overviewState.usesWorkspaceParking
     let liveMonitorIDs = Set(state.monitors.map(\.id))
     layoutPlansByMonitor = layoutPlansByMonitor.filter {
       liveMonitorIDs.contains($0.key)
-    }
-    var reservedParkingFrames: [Rect] = []
-    if let monitorIDs {
-      for monitor in state.monitors where !monitorIDs.contains(monitor.id) {
-        guard let cached = layoutPlansByMonitor[monitor.id] else { continue }
-        reservedParkingFrames.append(contentsOf: cached.assignments.compactMap {
-          cached.hiddenWindowIDs.contains($0.windowID) ? $0.frame : nil
-        })
-      }
     }
     for monitorIndex in state.monitors.indices {
       let monitor = state.monitors[monitorIndex]
@@ -116,6 +73,7 @@ extension Daemon {
         )
         hiddenWindowIDs.formUnion(cached.hiddenWindowIDs)
         outOfScopeWindowIDs.formUnion(cached.assignments.map(\.windowID))
+        cachedMonitorIDs.insert(monitor.id)
         continue
       }
       guard
@@ -124,16 +82,15 @@ extension Daemon {
         continue
       }
       guard let viewport = viewports[monitor.id] else { continue }
-      let physicalFrame = monitorSnapshot.physicalFrame
-      let activeWorkspaceIndex =
-        monitor.workspaces.firstIndex {
-          $0.id == monitor.activeWorkspace
-        } ?? 0
+      let otherDisplays = latestMonitors.filter { $0.id != monitor.id }.map(\.physicalFrame)
+      let park = {
+        parkedFrame($0, display: monitorSnapshot.physicalFrame,
+          visibleFrame: monitorSnapshot.frame, otherDisplays: otherDisplays)
+      }
       var monitorAssignments: [FrameAssignment] = []
       var monitorBorderAssignments: [FrameAssignment] = []
       var monitorNativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
       var monitorHiddenWindowIDs = Set<WindowID>()
-      var monitorParkingFrames: [Rect] = []
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
         let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
         let workspaceWindows = workspace.columns
@@ -151,16 +108,10 @@ extension Daemon {
           ribbonFrames.append(contentsOf: sizedFrames)
           let strip = continuousStripFramesForActiveWorkspace(
             sizedFrames,
-            viewport: viewport,
-            ownerFrame: physicalFrame,
-            parkingFrame: viewport,
-            allMonitorFrames: allPhysicalMonitorFrames,
-            reservedParkingFrames: reservedParkingFrames,
-            preservingExitSide: animationsEnabled && animationDuration > 0
+            viewport: viewport, park: park
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
-          monitorParkingFrames.append(contentsOf: parkedFrameReservations(in: strip))
           if workspaceTransition?.monitorID != monitor.id {
             monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
           }
@@ -173,11 +124,7 @@ extension Daemon {
                 windows: workspaceWindows,
                 settings: state.layout
               ),
-              viewport: viewport,
-              ownerFrame: physicalFrame,
-              parkingFrame: viewport,
-              allMonitorFrames: allPhysicalMonitorFrames,
-              preservingExitSide: animationsEnabled && animationDuration > 0
+              viewport: viewport, park: park
             )
             monitorNativeFullscreenPlaceholderAssignments.append(
               contentsOf: fullscreenStrip.frames.filter {
@@ -197,60 +144,13 @@ extension Daemon {
               monitorAssignments.append(assignment)
             }
           }
-        } else if !overviewParksWindows,
-          // The proxy overlay draws the outgoing slide: native windows park at once
-          // instead of moving offscreen vertically, where macOS clamps them into view.
-          !config.animation.windowProxies,
-          let deltaY = outgoingWorkspaceVerticalRibbonOffset(
-            workspaceID: workspace.id,
-            monitorID: monitor.id,
-            transition: workspaceTransition,
-            physicalFrame: physicalFrame
-          )
-        {
-          let transitionParkingFrames = reservedParkingFrames.map {
-            var frame = $0
-            frame.y -= deltaY
-            return frame
-          }
-          // A shifted neighbor can match the owner, so keep the owner first.
-          let transitionMonitorFrames = [physicalFrame] + latestMonitors.compactMap {
-            snapshot -> Rect? in
-            guard snapshot.id != monitor.id else { return nil }
-            var frame = snapshot.physicalFrame
-            frame.y -= deltaY
-            return frame
-          }
-          let strip = continuousStripFramesForActiveWorkspace(
-            sizedFrames,
-            viewport: viewport,
-            ownerFrame: physicalFrame,
-            parkingFrame: viewport,
-            allMonitorFrames: transitionMonitorFrames,
-            reservedParkingFrames: transitionParkingFrames,
-            preservingExitSide: animationsEnabled && animationDuration > 0
-          )
-          let leaving = (strip.frames + floatingAssignments(in: workspace)).map {
-            translatedAssignment($0, deltaY: deltaY)
-          }
-          monitorParkingFrames.append(
-            contentsOf: parkedFrameReservations(in: strip, translatedBy: deltaY)
-          )
-          monitorAssignments.append(contentsOf: leaving)
-          monitorBorderAssignments.append(contentsOf: leaving)
         } else {
           monitorHiddenWindowIDs.formUnion(sizedFrames.map(\.windowID))
           let floatingFrames = floatingAssignments(in: workspace)
-          let parked = parkFramesInSafeCorner(
-            sizedFrames + floatingFrames,
-            ownerFrame: physicalFrame,
-            parkingFrame: viewport,
-            allMonitorFrames: allPhysicalMonitorFrames,
-            reservedParkingFrames: reservedParkingFrames,
-            preferredSide: workspaceIndex < activeWorkspaceIndex ? .left : .right
-          )
+          let parked = (sizedFrames + floatingFrames).map {
+            FrameAssignment(windowID: $0.windowID, frame: park($0.frame))
+          }
           monitorHiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
-          monitorParkingFrames.append(contentsOf: parked.map(\.frame))
           monitorAssignments.append(contentsOf: parked)
           monitorBorderAssignments.append(contentsOf: parked)
         }
@@ -263,8 +163,6 @@ extension Daemon {
         hiddenWindowIDs: monitorHiddenWindowIDs
       )
       layoutPlansByMonitor[monitor.id] = plan
-      // Workspaces on one monitor share parking anchors; reserve them only across monitors.
-      reservedParkingFrames.append(contentsOf: monitorParkingFrames)
       assignments.append(contentsOf: plan.assignments)
       outOfScopeWindowIDs.formUnion(
         layoutWindowIDsOutsideSubmissionScope(
@@ -286,14 +184,6 @@ extension Daemon {
       asynchronousPositions
       ? assignments.map(roundAnimatedPosition)
       : assignments
-    let animationTiming = animationDisplayTiming(
-      monitorIDs: monitorIDs,
-      activeMonitorID: activeMonitorID,
-      fallbackMonitorID: latestMonitors.first?.id,
-      refreshRates: Dictionary(
-        uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.refreshRateHz) }
-      )
-    )
     let selectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
@@ -305,28 +195,31 @@ extension Daemon {
       "frame-submit source=\(source) cg=\(commandPerformance?.generation.description ?? "none") layoutMs=\(String(format: "%.2f", layoutMS))"
     )
     platform.stageWindowBorderSelection(selectedWindowID)
-    platform.windowProxiesEnabled = config.animation.windowProxies
-    platform.windowProxyDraggedWindowID =
-      source == "mouse-reorder-animation" ? activelyResizedWindowID : nil
+    // Without animations (or with Reduce Motion), the overlay and its pictures are not needed.
+    platform.windowProxiesEnabled = animationsEnabled
     platform.windowProxyDroppedWindowID =
       source == "mouse-drop-animation" ? proxyDroppedWindowID : nil
     proxyDroppedWindowID = nil
     // Incoming windows enter opposite to where the outgoing workspace leaves.
     // Consumed either way so the history stays current; with animations off (Reduce
-    // Motion, `enabled = false` or `duration_ms = 0`) the switch is immediate.
-    let workspaceShift = consumeWorkspaceSwitchShift(source: source)
-    platform.windowProxyWorkspaceShift =
-      animationsEnabled && config.animation.durationMS > 0 ? workspaceShift : nil
+    // Motion or `enabled = false`) the switch is immediate.
+    let workspaceShifts = consumeWorkspaceSwitchShifts(source: source)
+    let shifts = animationsEnabled
+    platform.windowProxyMonitors = state.monitors.compactMap { monitor in
+      viewports[monitor.id].map { viewport in
+        WindowProxyMonitor(viewport: viewport,
+          windowIDs: Set(monitor.workspaces.flatMap { $0.columns.flatMap(\.windows) + $0.floatingWindows }),
+          workspaceShift: shifts ? workspaceShifts[monitor.id] : nil,
+          laidOut: !cachedMonitorIDs.contains(monitor.id))
+      }
+    }
     platform.apply(
       platformAssignments,
       ribbonFrames: ribbonFrames,
       hiddenWindowIDs: hiddenWindowIDs,
       skipping: skipped,
       asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
-      animationDuration: animationDuration,
-      animationRefreshRateHz: animationTiming.refreshRateHz,
-      animationDisplayIDs: animationTiming.displayIDs,
-      animateSizeChanges: animateSizeChanges,
+      animated: animated,
       positionsOnly: positionsOnly,
       updateVisibility: updateVisibility ?? !asynchronousPositions,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
@@ -386,40 +279,39 @@ extension Daemon {
       )
     }
   }
-
-  private func translatedAssignment(
-    _ assignment: FrameAssignment,
-    deltaY: Double
-  ) -> FrameAssignment {
-    var frame = assignment.frame
-    frame.y += deltaY
-    return FrameAssignment(windowID: assignment.windowID, frame: frame)
-  }
 }
 
 extension Daemon {
   /// Vertical travel when a monitor's active workspace changed since the last layout,
   /// whichever path switched it (command, Dock, Command-Tab, focus): the overlay then
   /// always moves workspaces vertically, in their stacking order.
-  func consumeWorkspaceSwitchShift(source: String) -> Double? {
-    var shift: Double?
+  func consumeWorkspaceSwitchShifts(source: String) -> [MonitorID: Double] {
+    var shifts: [MonitorID: Double] = [:]
     for monitor in state.monitors {
       let previous = proxyActiveWorkspaces[monitor.id]
       proxyActiveWorkspaces[monitor.id] = monitor.activeWorkspace
       // The stack as it was: the workspace left may since have been removed.
       let order = proxyWorkspaceOrders.updateValue(monitor.workspaces.map(\.id), forKey: monitor.id)
         ?? monitor.workspaces.map(\.id)
-      guard shift == nil, !source.hasPrefix("overview"), let previous,
-        previous != monitor.activeWorkspace,
+      guard !source.hasPrefix("overview"), let previous,
         let height = latestMonitors.first(where: { $0.id == monitor.id })?.physicalFrame.height
       else { continue }
-      let from = order.firstIndex(of: previous) ?? order.count
-      // A workspace created since joins the end of the stack.
-      let to = order.firstIndex(of: monitor.activeWorkspace) ?? order.count
-      // Niri's stack: moving down slides the content up.
-      shift = (to > from ? -1 : 1) * height
+      shifts[monitor.id] = workspaceSwitchShift(from: previous, to: monitor.activeWorkspace,
+        order: order, height: height)
     }
-    return shift
+    return shifts
   }
+}
+
+/// Vertical travel of a switch within one monitor's workspace stack, as it was before
+/// the switch; nil when the active workspace did not change.
+func workspaceSwitchShift(from previous: WorkspaceID, to active: WorkspaceID,
+  order: [WorkspaceID], height: Double) -> Double? {
+  guard previous != active else { return nil }
+  let from = order.firstIndex(of: previous) ?? order.count
+  // A workspace created since joins the end of the stack.
+  let to = order.firstIndex(of: active) ?? order.count
+  // Niri's stack: moving down slides the content up.
+  return (to > from ? -1 : 1) * height
 }
 

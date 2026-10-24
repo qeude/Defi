@@ -658,13 +658,6 @@ private struct AppearanceSettingsView: View {
           value: model.config.animation.enabled
         )
           .settingsSearchTarget(.animations)
-        SettingsNumberRow(
-          title: SettingsOption.animationDuration.title, value: Double(model.config.animation.durationMS),
-          range: 0...2_000, step: 5, unit: "ms",
-
-          onChange: { model.set(table: "animation", key: "duration_ms", value: String(Int($0.rounded()))) }
-        )
-          .settingsSearchTarget(.animationDuration)
       }
       Section("Overview") {
         SettingsNumberRow(

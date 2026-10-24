@@ -60,20 +60,6 @@ extension MacOSPlatform {
       })
   }
 
-  public func positionsCanAnimateTogether(
-    windowIDs: Set<WindowID>,
-    animationDuration: TimeInterval,
-    refreshRateHz: Double
-  ) -> Bool {
-    let processIDs = windowIDs.compactMap { self.processIDs[$0] }
-    guard processIDs.count == windowIDs.count else { return false }
-    return frameCoordinator.animationSupportsIntermediateFrames(
-      processIDs: Set(processIDs),
-      animationDuration: animationDuration,
-      refreshRateHz: refreshRateHz
-    )
-  }
-
   public var latencySensitiveProcessCount: Int {
     frameCoordinator.slowProcessIDs.count
   }
@@ -270,16 +256,14 @@ extension MacOSPlatform {
     (
       lastDurationMS: Double,
       maximumDurationMS: Double,
-      slowFrames: Int,
-      animationFrames: Int,
-      animationDurationMS: Double
+      slowFrames: Int
     )
   {
     frameCoordinator.performance
   }
 
   public var successfulSizeWriteCount: Int {
-    sizeWriteCount + frameCoordinator.animatedSizeWriteCount
+    sizeWriteCount + frameCoordinator.asynchronousSizeWriteCount
   }
 
   public var frameApplyDurationMS: Double {
@@ -462,14 +446,6 @@ extension MacOSPlatform {
     focusWriter.performance
   }
 
-  public var hasPendingAnimatedFrameWrites: Bool {
-    frameCoordinator.isAnimating
-  }
-
-  public var hasPendingDeferredParkingWrites: Bool {
-    frameCoordinator.hasPendingDeferredParkingWrites
-  }
-
   public var hasPendingFrameWrites: Bool {
     frameCoordinator.isBusy
   }
@@ -482,10 +458,6 @@ extension MacOSPlatform {
       observedFrame: latestObservedFrames[windowID],
       targetFrame: targetFrames[windowID]
     )
-  }
-
-  public var pendingAnimatedFrameWindowIDs: Set<WindowID> {
-    frameCoordinator.pendingAnimatedWindowIDs
   }
 
   public var pendingFrameWindowIDs: Set<WindowID> {

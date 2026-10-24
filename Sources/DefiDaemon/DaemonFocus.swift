@@ -227,9 +227,7 @@ extension Daemon {
             self.pointerFocusAppliedCount += 1
             self.platform.commitWindowBorderSelection(windowID)
             self.startScrollAnimationsIfNeeded()
-            if self.dispatchScrollAnimationIfNeeded() {
-              self.latestNativeFocusAnimationInputTimestamp = timestamp
-            }
+            _ = self.dispatchScrollAnimationIfNeeded()
             self.needsDesktopSync = true
             self.updateMenuBar()
           case .resumeDisplaced:

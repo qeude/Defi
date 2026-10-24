@@ -90,7 +90,8 @@ struct DisplayArrangementTests {
           x: x, y: owner.y + 40, width: owner.width * 0.8, height: owner.height - 80
         ))
         let strip = continuousStripFramesForActiveWorkspace(
-          [partial], viewport: owner, allMonitorFrames: Array(isolated.values)
+          [partial], viewport: owner,
+          park: { parkedFrame($0, display: owner, visibleFrame: owner, otherDisplays: [neighbor]) }
         )
         #expect(strip.parkedWindowIDs.isEmpty)
         #expect(strip.frames == [partial])
@@ -102,5 +103,33 @@ struct DisplayArrangementTests {
     #expect(isolated[external]?.x == 0)
     #expect(isolated[external]?.y == 0)
     #expect(spatialMonitor(from: laptop, toward: .right, frames: desk) == external)
+  }
+
+  @Test
+  func `Only Defi's own staircase shape is recognized as a staircase`() {
+    let third = MonitorID(rawValue: 3)
+    let staircase = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      laptop: Rect(x: 2_560, y: -982, width: 1_512, height: 982),
+    ]
+    let sideBySide = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      laptop: Rect(x: 2_560, y: 0, width: 1_512, height: 982),
+    ]
+    let threeDisplays = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      third: Rect(x: 2_560, y: -1_080, width: 1_920, height: 1_080),
+      laptop: Rect(x: 4_480, y: -2_062, width: 1_512, height: 982),
+    ]
+    let vertical = [
+      external: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      laptop: Rect(x: 0, y: -982, width: 1_512, height: 982),
+    ]
+    #expect(isDisplayStaircase(staircase, primary: external))
+    #expect(!isDisplayStaircase(sideBySide, primary: external))
+    #expect(isDisplayStaircase(threeDisplays, primary: external))
+    #expect(!isDisplayStaircase(vertical, primary: external))
+    #expect(!isDisplayStaircase([external: staircase[external]!], primary: external))
+    #expect(isolatedDisplayArrangement(sideBySide, primary: external) == staircase)
   }
 }
