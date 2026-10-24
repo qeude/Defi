@@ -132,13 +132,15 @@ keep the existing desk.
 | `native` | The desk needs no staircase. |
 | `isolated` | The staircase is active and the pointer follows the desk. |
 | `ambiguous` | The displays already form Defi's staircase and no desk is known. Defi keeps native pointer movement. Rearrange the displays in System Settings > Displays and Defi isolates them again. |
+| `observation-mismatch` | macOS accepted the change but reported other display frames. Defi restores the previous arrangement and keeps native pointer movement until a later change succeeds. |
 | `failed:<code>` | macOS refused the change. Defi keeps native pointer movement until a later change succeeds. |
 
 A hidden window waits in a corner or along an edge of its own display, with one
-point of its edge left on that display. Hidden windows are inactive-workspace
-windows and ribbon columns scrolled out of view. Defi picks the first spot that
-stays clear of every other display, using the frames of the staircase while it
-is active.
+point of its edge left on that display, or its title bar along the bottom edge.
+Hidden windows are inactive-workspace windows and ribbon columns scrolled out of
+view. Defi picks the first spot that stays clear of every other display, or the
+one that overlaps them least when none does, using the frames of the staircase
+while it is active.
 
 ## `[input]`
 

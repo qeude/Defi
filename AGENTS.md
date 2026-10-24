@@ -121,7 +121,8 @@ The scrolling workspace is one continuous horizontal strip.
 - never minimize managed windows to implement virtual workspaces
 - park inactive-workspace windows through topology and Accessibility, never visual opacity
 - park every hidden window, from an inactive workspace or an offscreen column,
-  at its own size with a one-point sliver on its own display; take the first of
+  at its own size, leaving a one-point sliver on its own display (a title bar
+  along the bottom edge); take the first of
   its bottom-right corner, bottom-left corner, right edge, left edge, and bottom
   edge that stays clear of every other display, else the one with the least
   overlap; macOS pulls a window onto the display under most of its width and
