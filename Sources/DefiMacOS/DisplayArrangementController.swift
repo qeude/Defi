@@ -53,7 +53,11 @@ public final class DisplayArrangementController {
     self.sessionID = sessionID
     if let stateURL, let data = try? Data(contentsOf: stateURL),
       let stored = try? JSONDecoder().decode(StoredDisplayArrangement.self, from: data),
-      stored.version == 1, stored.sessionID == sessionID
+      stored.version == 1, stored.sessionID == sessionID,
+      stored.desk.values.allSatisfy({ frame in
+        [frame.x, frame.y, frame.width, frame.height].allSatisfy(\.isFinite)
+          && frame.width > 0 && frame.height > 0
+      })
     {
       savedState = stored
     }
@@ -80,11 +84,7 @@ public final class DisplayArrangementController {
     // Recover only our exact last geometry; a new native arrangement wins.
     if appliedFrames.isEmpty, let savedState, savedState.technical == current,
       Set(savedState.desk.keys) == Set(current.keys),
-      !isDisplayStaircase(savedState.desk, primary: primary),
-      savedState.desk.values.allSatisfy({ frame in
-        [frame.x, frame.y, frame.width, frame.height].allSatisfy(\.isFinite)
-          && frame.width > 0 && frame.height > 0
-      })
+      !isDisplayStaircase(savedState.desk, primary: primary)
     {
       deskFrames = savedState.desk
       appliedFrames = current

@@ -440,4 +440,29 @@ struct DisplayArrangementControllerTests {
     #expect(writes == 1)
     #expect(restarted.pointerRouter.route(try crossing()))
   }
+
+  @Test
+  func `A corrupted desk record is never adopted for the staircase`() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    var current = [
+      first: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      second: Rect(x: 2_560, y: 0, width: 1_512, height: 982),
+    ]
+    func controller() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current },
+        applyFrames: { frames, _ in current = frames; return .success },
+        primaryDisplay: { first }, stateURL: stateURL, sessionID: "s"
+      )
+    }
+    _ = controller().reconcile()
+    let saved = try String(contentsOf: stateURL, encoding: .utf8)
+    try saved.replacingOccurrences(of: "1512", with: "0").write(to: stateURL, atomically: true, encoding: .utf8)
+    let restarted = controller()
+    _ = restarted.reconcile()
+    #expect(restarted.status == "ambiguous")
+    #expect(restarted.deskFrames.isEmpty)
+  }
 }
