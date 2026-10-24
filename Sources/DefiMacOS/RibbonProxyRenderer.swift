@@ -1333,7 +1333,8 @@ final class RibbonProxyPresenter {
       drag = .stretching(id)
       if let held = windows.first(where: { $0.id == id }) {
         RibbonProxyPointerTrack.shared.set(.stretch(RibbonProxyStretch(
-          id: id, layer: layer, area: layers.area, base: held.to, widths: widths,
+          // Its ribbon place: a fast drag has resized the native window before the overlay starts.
+          id: id, layer: layer, area: layers.area, base: slot ?? held.to, widths: widths,
           ribbon: windows.compactMap { window in
             window.id == id ? nil : windowLayers[window.id].map { ($0, window.to) }
           },
@@ -1964,8 +1965,8 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
       mode = .carry(id: id, layer: layer, area: area, grab: offset)
     case .stretch(var stretch):
       if stretch.anchor == nil, let start = ribbonProxyNativeFrames([stretch.id])[stretch.id] {
-        stretch.anchor = (Double(point.x), start,
-          abs(start.x - stretch.base.x) > abs(start.x + start.width - stretch.base.x - stretch.base.width))
+        // The pointer is on the held edge; the native frame has barely changed yet.
+        stretch.anchor = (Double(point.x), start, Double(point.x) < start.x + start.width / 2)
       }
       if let anchor = stretch.anchor {
         let delta = point.x - anchor.pointerX

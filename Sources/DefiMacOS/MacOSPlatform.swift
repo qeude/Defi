@@ -130,6 +130,23 @@ public final class MacOSPlatform {
     presentPendingWindowProxyPreview()
   }
 
+  /// Starts the stretch at the first drag event that shows the pressed window resizing in
+  /// the WindowServer: waiting for a snapshot left its neighbours still while the native
+  /// edge already moved.
+  func stretchWindowProxyEarly(_ windowID: WindowID, pressing: Bool) {
+    // Tiled windows only: a floating one has no ribbon place.
+    guard previousLogicalRibbonFrames[windowID] != nil,
+      let frame = ribbonProxyNativeFrames([windowID])[windowID] else { return }
+    if pressing { pressedWindowFrame = (windowID, frame); return }
+    guard let (pressedID, start) = pressedWindowFrame, pressedID == windowID,
+      abs(frame.width - start.width) >= 2, abs(frame.y - start.y) < 1,
+      abs(frame.x - start.x) < 1 || abs(frame.x + frame.width - start.x - start.width) < 1
+    else { return }
+    pressedWindowFrame = nil
+    carryWindowProxy(windowID, stretches: true)
+  }
+  private var pressedWindowFrame: (WindowID, Rect)?
+
   private func presentPendingWindowProxyPreview() {
     guard let (frames, id) = windowProxyPreview else { return }
     for presenter in RibbonProxyPresenter.all { presenter.preview(frames, heldWindowID: id) }
@@ -147,11 +164,14 @@ public final class MacOSPlatform {
     // pointer); only windows off screen take their logical place.
     return windows.compactMap { id, window -> RibbonProxyWindow? in
       guard let processID = window.processID else { return nil }
-      if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01 {
+      let logical = previousLogicalRibbonFrames[id]
+      // A window still on its way to or from its parking corner is not on the ribbon yet.
+      if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01,
+        logical.map({ abs($0.y - frame.y) < 40 }) ?? true {
         return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
       }
       // Parked at a corner, its native y is the display's bottom: the ribbon place is logical.
-      guard let logical = previousLogicalRibbonFrames[id] else { return nil }
+      guard let logical else { return nil }
       return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: logical, to: logical)
     }
   }
