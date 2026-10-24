@@ -108,6 +108,22 @@ struct WindowLayoutTests {
   }
 
   @Test
+  func `Rounding compensation never asks for less than the window's minimum width`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [Column(window: WindowID(rawValue: 1), width: .fraction(0.25))]
+    )
+    var window = Window(id: WindowID(rawValue: 1), appID: "settings", title: "",
+      frame: Rect(x: 0, y: 0, width: 740, height: 1384), minimumTiledWidth: 740,
+      maximumTiledWidth: 740)
+    window.widthRounding = 12
+    let frame = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: [window], settings: settings)[0].frame
+    #expect(frame == Rect(x: 8, y: 8, width: 740, height: 1384))
+  }
+
+  @Test
   func `Each viewport produces its own monitor sized layout`() {
     let noGaps = LayoutSettings(
       defaultColumnWidth: 0.8,

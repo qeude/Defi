@@ -328,10 +328,12 @@ private func horizontalGaps(columnIndex: Int, columnCount: Int, settings: Layout
     + (columnIndex + 1 == columnCount ? max(settings.outerRightGap, 0) : inner)
 }
 
-/// Narrows a request by the window's learned rounding, centred in its slot.
+/// Narrows a request by the window's learned rounding, centred in its slot; never below
+/// the window's minimum, which the app would only widen back.
 private func compensatingWidthRounding(_ target: Rect, for window: Window) -> Rect {
   guard let rounding = window.widthRounding, rounding > 0, rounding < target.width else { return target }
-  return Rect(x: target.x + rounding / 2, y: target.y, width: target.width - rounding, height: target.height)
+  let width = max(target.width - rounding, min(window.minimumTiledWidth ?? 0, target.width))
+  return Rect(x: target.x + (target.width - width) / 2, y: target.y, width: width, height: target.height)
 }
 
 /// Up to this many points wider than requested is an app rounding its size, never a
