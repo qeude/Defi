@@ -107,4 +107,26 @@ struct CheatsheetPanelTests {
     }
     #expect(!current.isVisible)
   }
+
+  @Test
+  func `Panel opens on the requested display`() async throws {
+    let controller = CheatsheetController(config: Config())
+    defer { controller.close() }
+    func visiblePanels() -> [NSWindow] {
+      NSApplication.shared.windows.filter { $0.title == "Defi keyboard shortcuts" && $0.isVisible }
+    }
+    for screen in NSScreen.screens {
+      let number = try #require(
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint64Value)
+      // The previous panel fades out before the next one is checked.
+      let deadline = ContinuousClock.now + .seconds(2)
+      while !visiblePanels().isEmpty, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      controller.show(on: MonitorID(rawValue: number))
+      let panel = try #require(visiblePanels().first)
+      #expect(screen.visibleFrame.contains(panel.frame), "Panel must open inside display \(number)")
+      controller.close()
+    }
+  }
 }

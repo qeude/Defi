@@ -24,8 +24,10 @@ public final class CheatsheetController {
       x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
       width: size.width, height: size.height
     )
+    // With a screen, the content rect is relative to that screen's origin.
     let panel = CheatsheetPanel(
-      contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+      contentRect: frame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY),
+      styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered, defer: false, screen: screen
     )
     panel.title = "Defi keyboard shortcuts"
