@@ -44,6 +44,12 @@ func ribbonProxyLandingTargets(_ targets: [WindowID: Rect], area: Rect) -> [Wind
   targets.filter { windowProxyVisibleOverlap($0.value, area) > 2 }
 }
 
+/// A window leaving view, landing at most a sliver like the targets a landing skips: the
+/// overlay waits until it is gone.
+func ribbonProxyLeaves(from: Rect, to: Rect, area: Rect) -> Bool {
+  from.ribbonIntersects(area) && windowProxyVisibleOverlap(to, area) <= 2
+}
+
 /// How an app adjusted a window Defi asked for at a target of `size` (its own clamp,
 /// cell grid or minimum size): learned at each landing.
 struct RibbonProxySettle: Sendable, Equatable {
@@ -1004,7 +1010,7 @@ final class RibbonProxyPresenter {
     // Windows leaving the screen must be gone too, or a slow app's outgoing window
     // pops back into view when the overlay lifts.
     let leaving = Set(windows.filter {
-      $0.id != draggedWindowID && $0.from.ribbonIntersects(area) && !$0.to.ribbonIntersects(area)
+      $0.id != draggedWindowID && ribbonProxyLeaves(from: $0.from, to: $0.to, area: area)
     }.map(\.id)).union(unsettledLeaving.subtracting(expected.keys).subtracting([draggedWindowID].compactMap { $0 }))
     unsettledLeaving = leaving
     let drawn = Set(shown.map(\.id) + [draggedWindowID].compactMap { $0 })

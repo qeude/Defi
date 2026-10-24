@@ -38,6 +38,13 @@ struct RibbonProxyTests {
       xcode: Rect(x: -1269, y: 1345, width: 1270, height: 1359)], targets: awaited))
   }
 
+  @Test func aWindowMovingToASliverAnchorMustLeaveBeforeTheOverlayLifts() {
+    let display = Rect(x: 0, y: 0, width: 2560, height: 1440)
+    let visible = Rect(x: 400, y: 34, width: 1270, height: 1359)
+    #expect(ribbonProxyLeaves(from: visible, to: Rect(x: -1269, y: 1365, width: 1270, height: 1359), area: display))
+    #expect(!ribbonProxyLeaves(from: visible, to: Rect(x: 1000, y: 34, width: 1270, height: 1359), area: display))
+  }
+
   @Test func landingStartsWhenTheRibbonVisiblyStops() {
     // A column step stops visibly about 0.31 s in, a tiny nudge sooner, never past settling.
     #expect(abs(ribbonProxyVisualStop(travel: 1_300) - 0.31) < 0.02)
