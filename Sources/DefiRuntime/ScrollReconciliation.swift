@@ -86,6 +86,15 @@ public func learnTiledWindowWidth(
   }
   state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
     .columns[learned.columnIndex].width = .pixels(learned.width)
+  // A dragged left edge keeps the window where it was released: the ribbon before it
+  // scrolls by the same amount, as the overlay showed during the drag.
+  let leftEdgeShift = learned.targetX - actualFrame.x
+  if abs(leftEdgeShift) >= 1,
+    let viewportWidth = viewports[state.monitors[learned.monitorIndex].id]?.width, viewportWidth > 0
+  {
+    state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex].scrollOffset +=
+      leftEdgeShift / viewportWidth
+  }
   synchronizeScrollOffsets(state: &state, viewports: viewports)
   return true
 }
@@ -140,7 +149,8 @@ private func tiledWindowWidthLearning(
   workspaceIndex: Int,
   columnIndex: Int,
   requestedWidth: Double,
-  width: Double
+  width: Double,
+  targetX: Double
 )? {
   guard state.windows[windowID]?.intrinsicSize != true else { return nil }
   for monitorIndex in state.monitors.indices {
@@ -203,7 +213,8 @@ private func tiledWindowWidthLearning(
         workspaceIndex,
         columnIndex,
         currentSlotWidth,
-        learnedWidth
+        learnedWidth,
+        target.x
       )
     }
   }

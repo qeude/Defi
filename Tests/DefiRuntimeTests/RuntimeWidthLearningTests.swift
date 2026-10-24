@@ -600,6 +600,32 @@ struct RuntimeWidthLearningTests {
   }
 
   @Test
+  func `Dragged left edge keeps the window where it was released`() throws {
+    var (state, _) = try singleWindowState()
+    let sibling = Window(
+      id: WindowID(rawValue: 2),
+      appID: "terminal",
+      title: "Terminal",
+      frame: Rect(x: 512, y: 12, width: 476, height: 676),
+      monitorID: monitorID
+    )
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].focusedColumn = 1
+    let before = try #require(targets(state)[sibling.id])
+
+    #expect(learnTiledWindowWidth(
+      sibling.id,
+      actualFrame: Rect(x: before.x - 100, y: before.y, width: before.width + 100, height: before.height),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    let after = try #require(targets(state)[sibling.id])
+    #expect(after.x == before.x - 100)
+    #expect(after.width == before.width + 100)
+  }
+
+  @Test
   func `Stacked column applies the learned width to siblings within their bounds`() throws {
     var (state, id) = try singleWindowState()
     let sibling = Window(
