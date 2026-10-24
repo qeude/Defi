@@ -500,11 +500,13 @@ func windowProxyRibbonHistory(_ ribbonFrames: [FrameAssignment], previous: [Wind
 /// stay untouched.
 func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
   ribbonTargets: [WindowID: Rect], previousRibbonFrames: [WindowID: Rect],
-  opened: Set<WindowID>, dropped: WindowID?) -> Bool {
+  opened: Set<WindowID>, dropped: WindowID?, skipped: Set<WindowID> = []) -> Bool {
   displayCount == 1 || monitor.workspaceShift != nil
     || !monitor.windowIDs.isDisjoint(with: opened.union([dropped].compactMap { $0 }))
     || ribbonTargets.contains { id, to in previousRibbonFrames[id].map { !approximatelyEqual($0, to) } ?? true }
-    || previousRibbonFrames.keys.contains { monitor.windowIDs.contains($0) && ribbonTargets[$0] == nil }
+    || previousRibbonFrames.keys.contains {
+      monitor.windowIDs.contains($0) && ribbonTargets[$0] == nil && !skipped.contains($0)
+    }
 }
 
 /// Plans each proxy from what is on screen to its target. Windows without a
@@ -604,7 +606,7 @@ extension MacOSPlatform {
     let opened = newlyDiscoveredWindowIDs
     let moves = windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
       ribbonTargets: ribbonTargets, previousRibbonFrames: previousRibbonFrames, opened: opened,
-      dropped: windowProxyDroppedWindowID)
+      dropped: windowProxyDroppedWindowID, skipped: skippedWindowIDs)
     // A plain layout landing mid-motion (scroll to keep focus visible, a drop settling)
     // continues the running motion toward its targets instead of cutting it.
     let duration = moves ? duration ?? (!ribbonFrames.isEmpty

@@ -77,6 +77,9 @@ struct RibbonProxyTests {
     #expect(moves(left, targets: [a: frame], previous: [a: frame], opened: [b]))
     #expect(!moves(left, targets: [a: frame], previous: [a: frame], opened: [c], dropped: c))
     #expect(moves(left, targets: [a: frame], previous: [a: frame], dropped: a))
+    // A window this layout skips (a focus change pending elsewhere) stays where it is.
+    #expect(!windowProxyDisplayMoves(left, displayCount: 2, ribbonTargets: [:],
+      previousRibbonFrames: [a: frame], opened: [], dropped: nil, skipped: [a]))
     var switched = left
     switched.workspaceShift = -800
     #expect(moves(switched, targets: [:], previous: [:]))
