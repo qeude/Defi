@@ -82,9 +82,8 @@ final class WindowBorderManager {
   func showsActiveRing(for windowID: WindowID) -> Bool {
     // Suppressed borders never come back on their own: nothing to wait for.
     guard !isSuppressed else { return true }
-    guard !presentationHiddenWindowIDs.contains(windowID), activeWindowID == windowID,
-      let overlay = overlays[windowID] else { return false }
-    return overlay.isVisible && overlay.opacity > 0
+    guard activeWindowID == windowID, let overlay = overlays[windowID] else { return false }
+    return !overlay.isPresentationHidden && overlay.isVisible && overlay.opacity > 0
   }
 
   func revealPendingBorders() {
@@ -137,6 +136,7 @@ final class WindowBorderManager {
         let windowID, displayedFrame != nil, overlays[windowID] == nil
       {
         overlay.retarget(to: windowID, preservingBacking: true)
+        overlay.setPresentationHidden(presentationHiddenWindowIDs.contains(windowID))
         overlays[previousActiveWindowID] = nil
         overlays[windowID] = overlay
       } else {

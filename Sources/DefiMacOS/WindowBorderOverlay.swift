@@ -89,7 +89,9 @@ final class BorderOverlay {
     )
   }
 
+  private(set) var isPresentationHidden = false
   func setPresentationHidden(_ hidden: Bool) {
+    isPresentationHidden = hidden
     for segment in segments.values { segment.setPresentationHidden(hidden) }
   }
 

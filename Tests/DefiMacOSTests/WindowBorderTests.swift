@@ -459,6 +459,25 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func selectionHandoffShowsTheNewWindowWhenOnlyTheOldOneWasHidden() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let hidden = WindowID(rawValue: 1), shown = WindowID(rawValue: 2)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    for windowID in [hidden, shown] {
+      let plan = planWindowBorders(
+        frames: [FrameAssignment(windowID: windowID, frame: frame)],
+        selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+      )
+      manager.prepareForSelection(windowID, displayedFrame: frame)
+      manager.sync(plan, displayedFrames: [windowID: frame], stacking: frontmostStacking(for: windowID))
+      manager.revealPendingBorders()
+      if windowID == hidden { manager.setPresentationHidden([hidden], for: 1) }
+    }
+    #expect(manager.showsActiveRing(for: shown))
+  }
+
+  @Test @MainActor
   func suppressedBordersStayHiddenUntilRestored() {
     let manager = WindowBorderManager()
     let windowID = WindowID(rawValue: 1)
