@@ -60,6 +60,35 @@ struct WindowLayoutTests {
   }
 
   @Test
+  func `A window is asked for exactly its own minimum or maximum width, its gaps outside it`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [
+        Column(window: WindowID(rawValue: 1), width: .fraction(0.5)),
+        Column(window: WindowID(rawValue: 2), width: .fraction(0.5)),
+        Column(window: WindowID(rawValue: 3), width: .fraction(0.5)),
+      ]
+    )
+    let windows = [
+      Window(id: WindowID(rawValue: 1), appID: "a", title: "",
+        frame: Rect(x: 0, y: 0, width: 1500, height: 1384), minimumTiledWidth: 1500),
+      Window(id: WindowID(rawValue: 2), appID: "b", title: "",
+        frame: Rect(x: 0, y: 0, width: 740, height: 1384), maximumTiledWidth: 740),
+      Window(id: WindowID(rawValue: 3), appID: "c", title: "",
+        frame: Rect(x: 0, y: 0, width: 1500, height: 1384), minimumTiledWidth: 1500),
+    ]
+    let frames = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: windows, settings: settings
+    ).map(\.frame)
+    #expect(frames == [
+      Rect(x: 8, y: 8, width: 1500, height: 1384),
+      Rect(x: 1516, y: 8, width: 740, height: 1384),
+      Rect(x: 2264, y: 8, width: 1500, height: 1384),
+    ])
+  }
+
+  @Test
   func `A window that rounds its width is asked for that much less, centred`() {
     let workspace = Workspace(
       id: WorkspaceID(rawValue: "1"),

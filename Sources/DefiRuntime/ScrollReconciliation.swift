@@ -90,21 +90,23 @@ public func learnTiledWindowWidthConstraint(
     state: state,
     viewports: viewports
   ) else { return false }
+  // Bounds are the window's own width; the layout adds its column's gaps.
+  let width = actualFrame.width
   if learned.width > learned.requestedWidth + 0.5,
-    learned.width > (state.windows[windowID]?.minimumTiledWidth ?? 0) + 0.5
+    width > (state.windows[windowID]?.minimumTiledWidth ?? 0) + 0.5
   {
-    state.windows[windowID]?.minimumTiledWidth = learned.width
+    state.windows[windowID]?.minimumTiledWidth = width
     if let maximum = state.windows[windowID]?.maximumTiledWidth,
-      maximum < learned.width
+      maximum < width
     {
       state.windows[windowID]?.maximumTiledWidth = nil
     }
   } else if learned.width < learned.requestedWidth - 0.5,
-    learned.width < (state.windows[windowID]?.maximumTiledWidth ?? .infinity) - 0.5
+    width < (state.windows[windowID]?.maximumTiledWidth ?? .infinity) - 0.5
   {
-    state.windows[windowID]?.maximumTiledWidth = learned.width
+    state.windows[windowID]?.maximumTiledWidth = width
     if let minimum = state.windows[windowID]?.minimumTiledWidth,
-      minimum > learned.width
+      minimum > width
     {
       state.windows[windowID]?.minimumTiledWidth = nil
     }

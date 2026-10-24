@@ -205,6 +205,40 @@ struct RuntimeWidthConstraintTests {
   }
 
   @Test
+  func learnedWidthBoundsAreTheWindowsOwnWidthBetweenGaps() throws {
+    let monitorID = MonitorID(rawValue: 1)
+    let narrowID = WindowID(rawValue: 1)
+    let wideID = WindowID(rawValue: 2)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.layout = LayoutSettings()
+    state.windows = [
+      narrowID: Window(id: narrowID, appID: "settings", title: "Settings",
+        frame: Rect(x: 0, y: 0, width: 800, height: 700)),
+      wideID: Window(id: wideID, appID: "editor", title: "Editor",
+        frame: Rect(x: 800, y: 0, width: 500, height: 700)),
+    ]
+    state.monitors[0].workspaces[0].columns = [
+      Column(window: narrowID, width: .fraction(0.8)),
+      Column(window: wideID, width: .fraction(0.33)),
+    ]
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    #expect(learnTiledWindowWidthConstraint(narrowID, actualFrame: Rect(x: 8, y: 8, width: 560, height: 684),
+      state: &state, viewports: [monitorID: viewport]))
+    #expect(learnTiledWindowWidthConstraint(wideID, actualFrame: Rect(x: 576, y: 8, width: 400, height: 684),
+      state: &state, viewports: [monitorID: viewport]))
+    #expect(state.windows[narrowID]?.maximumTiledWidth == 560)
+    #expect(state.windows[wideID]?.minimumTiledWidth == 400)
+    state.monitors[0].workspaces[0].columns.swapAt(0, 1)
+    let frames = computeLayout(workspace: state.monitors[0].workspaces[0], viewport: viewport,
+      windows: Array(state.windows.values), settings: state.layout)
+    #expect(frames == [
+      FrameAssignment(windowID: wideID, frame: Rect(x: 8, y: 8, width: 400, height: 684)),
+      FrameAssignment(windowID: narrowID, frame: Rect(x: 416, y: 8, width: 560, height: 684)),
+    ])
+  }
+
+  @Test
   func acceptedMaximumWidthReflowsAndSkipsEquivalentPresets() throws {
     let monitorID = MonitorID(rawValue: 1)
     let constrainedID = WindowID(rawValue: 1)

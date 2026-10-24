@@ -17,8 +17,9 @@ public func computeLayout(
   var frames: [FrameAssignment] = []
 
   for (columnIndex, column) in workspace.columns.enumerated() {
+    let gaps = horizontalGaps(columnIndex: columnIndex, columnCount: workspace.columns.count, settings: settings)
     let preferredWidth = preferredColumnLayoutWidth(
-      column, viewport: viewport, windowsByID: windowsByID
+      column, viewport: viewport, windowsByID: windowsByID, gaps: gaps
     )
     let acceptedSizes = acceptedTiledSizes(
       column,
@@ -33,7 +34,8 @@ public func computeLayout(
       column,
       preferredWidth: preferredWidth,
       acceptedSizes: acceptedSizes,
-      windowsByID: windowsByID
+      windowsByID: windowsByID,
+      gaps: gaps
     )
     let height = viewport.height / Double(max(column.windows.count, 1))
 
@@ -56,8 +58,8 @@ public func computeLayout(
         )
       } else if let window = windowsByID[windowID] {
         let constrainedWidth = max(
-          min(width, window.maximumTiledWidth ?? width),
-          effectiveMinimumTiledWidth(window.minimumTiledWidth, requested: width)
+          min(width, window.maximumTiledWidth.map { $0 + gaps } ?? width),
+          effectiveMinimumTiledWidth(window.minimumTiledWidth.map { $0 + gaps }, requested: width)
         )
         frame = Rect(
           x: x + (width - constrainedWidth) / 2,
@@ -144,8 +146,9 @@ func columnLayoutWidth(
   columnIndex: Int,
   columnCount: Int
 ) -> Double {
+  let gaps = horizontalGaps(columnIndex: columnIndex, columnCount: columnCount, settings: settings)
   let preferredWidth = preferredColumnLayoutWidth(
-    column, viewport: viewport, windowsByID: windowsByID
+    column, viewport: viewport, windowsByID: windowsByID, gaps: gaps
   )
   let acceptedSizes = acceptedTiledSizes(
     column,
@@ -160,14 +163,16 @@ func columnLayoutWidth(
     column,
     preferredWidth: preferredWidth,
     acceptedSizes: acceptedSizes,
-    windowsByID: windowsByID
+    windowsByID: windowsByID,
+    gaps: gaps
   )
 }
 
 private func preferredColumnLayoutWidth(
   _ column: Column,
   viewport: Rect,
-  windowsByID: [WindowID: Window]
+  windowsByID: [WindowID: Window],
+  gaps: Double
 ) -> Double {
   let intrinsicWidth = column.windows.lazy
     .compactMap { windowsByID[$0] }
@@ -181,11 +186,11 @@ private func preferredColumnLayoutWidth(
 
   let minimumTiledWidth = column.windows.lazy
     .compactMap { windowsByID[$0]?.minimumTiledWidth }
-    .max() ?? 0
+    .max().map { $0 + gaps } ?? 0
   let maximumTiledWidths = column.windows
     .compactMap { windowsByID[$0]?.maximumTiledWidth }
   let maximumTiledWidth = maximumTiledWidths.count == column.windows.count
-    ? maximumTiledWidths.max()
+    ? maximumTiledWidths.max().map { $0 + gaps }
     : nil
   let requestedWidth: Double
   switch column.width {
@@ -208,6 +213,7 @@ private func acceptedTiledSizes(
   settings: LayoutSettings
 ) -> [WindowID: TiledSizeAcceptance] {
   let height = viewport.height / Double(max(column.windows.count, 1))
+  let gaps = horizontalGaps(columnIndex: columnIndex, columnCount: columnCount, settings: settings)
   return Dictionary(
     uniqueKeysWithValues: column.windows.enumerated().compactMap { windowIndex, windowID in
       guard let window = windowsByID[windowID], !window.intrinsicSize,
@@ -217,8 +223,8 @@ private func acceptedTiledSizes(
         return nil
       }
       let constrainedWidth = max(
-        min(preferredWidth, window.maximumTiledWidth ?? preferredWidth),
-        effectiveMinimumTiledWidth(window.minimumTiledWidth, requested: preferredWidth)
+        min(preferredWidth, window.maximumTiledWidth.map { $0 + gaps } ?? preferredWidth),
+        effectiveMinimumTiledWidth(window.minimumTiledWidth.map { $0 + gaps }, requested: preferredWidth)
       )
       let frame = Rect(
         x: (preferredWidth - constrainedWidth) / 2,
@@ -266,7 +272,8 @@ private func effectiveColumnLayoutWidth(
   _ column: Column,
   preferredWidth: Double,
   acceptedSizes: [WindowID: TiledSizeAcceptance],
-  windowsByID: [WindowID: Window]
+  windowsByID: [WindowID: Window],
+  gaps: Double
 ) -> Double {
   guard !column.windows.isEmpty,
     acceptedSizes.count == column.windows.count
@@ -274,7 +281,7 @@ private func effectiveColumnLayoutWidth(
     return preferredWidth
   }
   let minimumTiledWidth = effectiveMinimumTiledWidth(
-    column.windows.lazy.compactMap { windowsByID[$0]?.minimumTiledWidth }.max(),
+    column.windows.lazy.compactMap { windowsByID[$0]?.minimumTiledWidth }.max().map { $0 + gaps },
     requested: preferredWidth)
   let contraction = column.windows.compactMap { acceptedSizes[$0] }
     .map { $0.requested.width - $0.accepted.width }
@@ -312,6 +319,13 @@ private func applyGaps(
     width: max(rect.width - clampedLeft - clampedRight, 1),
     height: max(rect.height - clampedTop - clampedBottom, 1)
   )
+}
+
+/// Width bounds are the window's own; its column also holds the gaps beside it.
+private func horizontalGaps(columnIndex: Int, columnCount: Int, settings: LayoutSettings) -> Double {
+  let inner = max(settings.innerHorizontalGap, 0)
+  return (columnIndex == 0 ? max(settings.outerLeftGap, 0) : inner)
+    + (columnIndex + 1 == columnCount ? max(settings.outerRightGap, 0) : inner)
 }
 
 /// Narrows a request by the window's learned rounding, centred in its slot.
