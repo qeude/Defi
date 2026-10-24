@@ -396,9 +396,9 @@ final class DesktopE2ETests: XCTestCase {
     }
     XCTAssertTrue(reservationIsFree(), "No earlier hotkey manager may still hold the shortcut")
 
-    let commands = Mutex<[String]>([])
+    let commands = CommandLog()
     let manager = onNavigation { HotKeyManager(config: Config(keys: ["ctrl-alt-cmd-slash": "focus-column right"])) {
-      invocation in commands.withLock { $0.append(invocation.command) } } }
+      invocation in commands.append(invocation.command) } }
     try startHotKeys(manager)
     var managerStopped = false
     defer { if !managerStopped { onNavigation { manager.stop() } } }
@@ -443,12 +443,12 @@ final class DesktopE2ETests: XCTestCase {
     func captureEnabled() -> Bool { onNavigation { manager.isHotKeyCaptureEnabled } }
 
     press()
-    XCTAssertTrue(pumpApplicationEvents(until: { commands.withLock { $0.count == 1 } }, timeout: 1))
+    XCTAssertTrue(pumpApplicationEvents(until: { commands.count == 1 }, timeout: 1))
     pumpApplicationEvents(until: { foreground.value > 0 }, timeout: 0.1)
     XCTAssertEqual(foreground.value, 0, "Carbon must reserve the shortcut from the foreground app")
     // A posted repeat is not HID autorepeat; whether Carbon reserves it varies, so only delivery is asserted.
     press(repeating: true)
-    XCTAssertTrue(pumpApplicationEvents(until: { commands.withLock { $0.count == 2 } }, timeout: 1))
+    XCTAssertTrue(pumpApplicationEvents(until: { commands.count == 2 }, timeout: 1))
     pumpApplicationEvents(until: { false }, timeout: 0.1)
     let leakedRepeats = foreground.value
 
@@ -468,7 +468,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(recorded.value, ["alt-cmd-ctrl-slash"], "Escape must cancel recording without recording a shortcut")
     XCTAssertTrue(pumpApplicationEvents(until: captureEnabled, timeout: 1))
     press()
-    XCTAssertTrue(pumpApplicationEvents(until: { commands.withLock { $0.count == 3 } }, timeout: 1))
+    XCTAssertTrue(pumpApplicationEvents(until: { commands.count == 3 }, timeout: 1))
 
     window.makeFirstResponder(text)
     settingsTextInputFocused.withLock { $0 = true }
@@ -480,14 +480,14 @@ final class DesktopE2ETests: XCTestCase {
     settingsTextInputFocused.withLock { $0 = false }
     XCTAssertTrue(pumpApplicationEvents(until: captureEnabled, timeout: 1))
     press()
-    XCTAssertTrue(pumpApplicationEvents(until: { commands.withLock { $0.count == 4 } }, timeout: 1))
+    XCTAssertTrue(pumpApplicationEvents(until: { commands.count == 4 }, timeout: 1))
 
     onNavigation { manager.stop() }
     managerStopped = true
     XCTAssertTrue(pumpApplicationEvents(until: reservationIsFree, timeout: 1), "Stopping must release the reservation")
     press()
     XCTAssertTrue(pumpApplicationEvents(until: { foreground.value == leakedRepeats + 2 }, timeout: 1))
-    XCTAssertEqual(commands.withLock { $0 }, Array(repeating: "focus-column right", count: 4))
+    XCTAssertEqual(commands.all, Array(repeating: "focus-column right", count: 4))
 
     var reference: EventHotKeyRef?
     XCTAssertEqual(RegisterEventHotKey(UInt32(key.code), key.carbonModifiers,
@@ -498,7 +498,7 @@ final class DesktopE2ETests: XCTestCase {
     let tracker = UserInputTracker()
     let failing = onNavigation { HotKeyManager(config: Config(keys: [
       "ctrl-alt-cmd-a": "focus-column left", "ctrl-alt-cmd-slash": "focus-column right",
-    ]), userInputTracker: tracker) { invocation in commands.withLock { $0.append(invocation.command) } } }
+    ]), userInputTracker: tracker) { invocation in commands.append(invocation.command) } }
     try onNavigation { try failing.start() }
     defer { onNavigation { failing.stop() } }
     XCTAssertTrue(pumpRunLoop(until: { onNavigation { failing.bindingError != nil } }, timeout: 1))
@@ -520,7 +520,7 @@ final class DesktopE2ETests: XCTestCase {
     arrow.type = .keyUp
     arrow.post(tap: .cghidEventTap)
     XCTAssertTrue(pumpRunLoop(until: { tracker.latestEventTimestamp > 0 }, timeout: 1))
-    XCTAssertEqual(commands.withLock { $0.count }, 4)
+    XCTAssertEqual(commands.count, 4)
   }
 
   // MARK: Settings
@@ -1237,6 +1237,14 @@ private func onNavigation<T>(_ body: @NavigationActor () throws -> T) rethrows -
   try NavigationActor.shared.queue.sync {
     try NavigationActor.assumeIsolated(body)
   }
+}
+
+/// Hotkey callbacks run on the navigation actor while the test reads on the main actor.
+private final class CommandLog: Sendable {
+  private let commands = Mutex<[String]>([])
+  func append(_ command: String) { commands.withLock { $0.append(command) } }
+  var count: Int { commands.withLock { $0.count } }
+  var all: [String] { commands.withLock { $0 } }
 }
 
 @MainActor
