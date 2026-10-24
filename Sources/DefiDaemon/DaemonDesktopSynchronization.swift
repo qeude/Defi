@@ -251,8 +251,8 @@ extension Daemon {
     let previousSelectedWindowID = previousActiveMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }.map { snapshot.windowIDReplacements[$0] ?? $0 }
-    let mouseGestureEnded =
-      snapshot.mouseResizeGestureObserved && !snapshot.leftMouseButtonDown
+    let mouseGestureEnded = !snapshot.leftMouseButtonDown
+      && (snapshot.mouseResizeGestureObserved || mouseGestureChangedWindowFrame)
     let mouseInteractionEnded =
       mouseGestureEnded || snapshot.mouseFocusReleaseObserved
     let previousFloatingMonitorIDs: [WindowID: MonitorID] = Dictionary(
@@ -419,6 +419,7 @@ extension Daemon {
     var mouseResizeGestureActive =
       !mouseGesturePreempted
       && (snapshot.leftMouseButtonDown
+        || mouseGestureEnded
         || snapshot.mouseResizeGestureObserved
         || postReleaseMouseGestureActive)
     let reassignedFloatingMonitorIDs = updateFloatingWindowFrames(
@@ -716,8 +717,10 @@ extension Daemon {
           let actualFrame, let mouseGestureInitialFrame
         {
           if mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame) {
+            mouseGestureChangedWindowFrame = true
             platform.carryWindowProxy(gestureWindowID, stretches: false)
           } else if mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame) {
+            mouseGestureChangedWindowFrame = true
             platform.carryWindowProxy(gestureWindowID, stretches: true)
           }
         }
