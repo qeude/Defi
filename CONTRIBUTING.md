@@ -45,7 +45,7 @@ the maintainer's optional setup, not an installation default.
 Run the complete automated verification:
 
 ```sh
-python3 script/verify.py full --filter DesktopE2ETests/testSnapshotUsesUniqueWindowIDsPerProcess
+python3 script/verify.py full --filter DesktopE2ETests/testFocusFollowsLatestNativeIntent
 ```
 
 Omit `--filter` for the full native suite. Preparation happens locally; installation
@@ -89,14 +89,21 @@ for the exclusive desktop phase:
 ```sh
 python3 script/verify.py desktop dist/verification/<run-directory> --wait
 # Or target one native scenario:
-python3 script/verify.py desktop dist/verification/<run-directory> --wait --filter DesktopE2ETests/testSnapshotUsesUniqueWindowIDsPerProcess
+python3 script/verify.py desktop dist/verification/<run-directory> --wait --filter DesktopE2ETests/testFocusFollowsLatestNativeIntent
 ```
 
 This installs the exact prepared bundle without rebuilding it. It rejects source
 or artifact changes, compiles test code before reserving the desktop, and records
 normalized XCTest XML plus status and trace logs. XCTest case events are read
 from the serial runner: SwiftPM's parallel XML writer can hide skipped cases. Zero executed tests or skipped tests
-produce an incomplete result, not a full pass. Visual inspection remains separate
+produce an incomplete result, not a full pass. Desktop tests drive only Defi-owned
+fixture windows and start with one preflight that fails loudly without
+Accessibility, Screen Recording, or with Reduce Motion enabled. Two lanes may skip
+by name: `testTwoDisplay*` tests need two displays, and
+`testPerfOverviewNavigationRenderBudget` runs only with `DEFI_E2E_PERF=1`. The
+report lists them under `desktop.not_run` with their reason; they never count
+as passed. The report also records the session `restoration` and the
+`daemons` count before and after, which must both be exactly one. Visual inspection remains separate
 and is always reported as `not-run`; automated checks do not certify animation
 quality or realistic Dock and Command-Tab interactions.
 

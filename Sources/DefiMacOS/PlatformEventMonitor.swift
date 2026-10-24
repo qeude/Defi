@@ -249,7 +249,7 @@ final class PlatformEventMonitor {
     guard desktopSessionActive else { return }
     if eventStartsMouseFocusInteraction(event.type) {
       // Only a left click interrupts the motion: hiding the overlay reveals late windows.
-      if event.type == .leftMouseDown { NavigationActor.enqueue { RibbonProxyPresenter.shared.cancel() } }
+      if event.type == .leftMouseDown { NavigationActor.enqueue { RibbonProxyPresenter.cancelAll() } }
       let rawWindowID =
         event.cgEvent?.getIntegerValueField(
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
@@ -267,7 +267,7 @@ final class PlatformEventMonitor {
       liveFrameHandler()
     }
     if event.type == .leftMouseUp {
-      NavigationActor.enqueue { RibbonProxyPresenter.shared.endDrag() }
+      NavigationActor.enqueue { RibbonProxyPresenter.endDrag() }
     }
     let actions = mouseGestureNormalizer.actions(
       for: event.type,

@@ -23,7 +23,7 @@ Rules that override convenience (from `AGENTS.md`):
 | Daemon wiring, platform integration, desktop-visible | stage + desktop | `python3 script/verify.py local --stage` then `python3 script/verify.py desktop dist/verification/<run> --wait [--filter DesktopE2ETests/<test>]` |
 | Animation, focus, parking, hotkeys, Dock/Command-Tab, overview visuals | all of the above plus live drive | sections below |
 
-`verify.py local` never installs and forces `DEFI_E2E=0`. `desktop` installs the exact staged bundle, runs XCTest, and restores the session store. Zero executed or skipped tests count as incomplete, not pass.
+`verify.py local` never installs and forces `DEFI_E2E=0`. `desktop` installs the exact staged bundle, runs XCTest, and restores the session store. Zero executed or skipped tests count as incomplete, not pass. Only the two-display lane (`testTwoDisplay*`, needs two displays) and the opt-in perf lane (`DEFI_E2E_PERF=1`) may skip; `result.json` lists them under `desktop.not_run`, which is not a pass.
 
 ## Launch
 

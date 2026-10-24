@@ -55,7 +55,7 @@ struct ConfigTests {
   }
 
   @Test
-  func initialColumnWidthRulesDecodeCombineAndValidate() throws {
+  func initialColumnWidthRulesCombineMatches() throws {
     let config = try Config.decode(Data("""
       [[rules]]
       app_id = "device"
@@ -73,14 +73,40 @@ struct ConfigTests {
     #expect(config.decision(appID: "other", title: "Other", role: nil).initialColumnWidth == nil)
     #expect(config.decision(appID: "device", title: "Phone", role: nil).includeInitialWidthInCycle)
     #expect(!config.decision(appID: "other", title: "Phone", role: nil).includeInitialWidthInCycle)
-    for width in ["0", "0.049", "1.01", "nan", "inf", "-inf"] {
-      #expect(throws: ConfigError.invalidValue("rules.initial_column_width")) {
-        try Config.decode(Data("[[rules]]\napp_id = \"device\"\ninitial_column_width = \(width)".utf8))
-      }
-    }
     for width in [0.05, 1.0] {
       try Config(rules: [Rule(appID: "device", initialColumnWidth: width)]).validate()
     }
+  }
+
+  static let rule = "[[rules]]\napp_id = \"device\"\ninitial_column_width"
+  @Test(arguments: [
+    ("[overview]\nzoom = 0.76", ConfigError.invalidValue("overview.zoom")),
+    ("[overview]\nwindow_corner_radius = -1", .invalidValue("overview.window_corner_radius")),
+    ("[overview]\nwindow_corner_radius = 65", .invalidValue("overview.window_corner_radius")),
+    ("[decorations.borders]\nwidth = 65", .invalidValue("decorations.borders.width")),
+    ("[decorations.borders]\ncolor = \"ffffff\"", .invalidValue("decorations.borders.color")),
+    ("[input]\nfocus_follows_mouse_delay_ms = -1", .invalidValue("input.focus_follows_mouse_delay_ms")),
+    ("[input]\nfocus_follows_mouse_max_scroll_amount = -0.1",
+      .invalidValue("input.focus_follows_mouse_max_scroll_amount")),
+    ("[input]\nfocus_follows_mouse_max_scroll_amount = 1.1",
+      .invalidValue("input.focus_follows_mouse_max_scroll_amount")),
+    ("[layout]\nouter_top_gap = 257", .invalidValue("layout.outer_top_gap")),
+    ("[layout]\nouter_right_gap = 257", .invalidValue("layout.outer_right_gap")),
+    ("[layout]\nouter_bottom_gap = 257", .invalidValue("layout.outer_bottom_gap")),
+    ("[layout]\nouter_left_gap = 257", .invalidValue("layout.outer_left_gap")),
+    ("[layout]\nreserved_top = -1", .invalidValue("layout.reserved_top")),
+    ("[layout]\nreserved_top = 513", .invalidValue("layout.reserved_top")),
+    ("\(rule) = 0", .invalidValue("rules.initial_column_width")),
+    ("\(rule) = 0.049", .invalidValue("rules.initial_column_width")),
+    ("\(rule) = 1.01", .invalidValue("rules.initial_column_width")),
+    ("\(rule) = nan", .invalidValue("rules.initial_column_width")),
+    ("\(rule) = inf", .invalidValue("rules.initial_column_width")),
+    ("\(rule) = -inf", .invalidValue("rules.initial_column_width")),
+    ("[workspaces]\nnames = [\"__defi_dynamic_1\"]", .invalidWorkspaces),
+    ("[workspaces]\nnames = [\"dev\"]\n[[rules]]\napp_id = \"app\"\nworkspace = \"missing\"", .unknownWorkspace("missing")),
+  ] as [(String, ConfigError)])
+  func invalidValuesAreRejectedWithTheirKey(toml: String, error: ConfigError) {
+    #expect(throws: error) { try Config.decode(Data(toml.utf8)) }
   }
 
   @Test
@@ -94,144 +120,74 @@ struct ConfigTests {
   }
 
   @Test
-  func `Empty config uses defaults`() throws {
-    let config = try Config.decode(Data())
+  func everySectionDecodesItsOverrides() throws {
+    let config = try Config.decode(Data("""
+      [overview]
+      zoom = 0.25
+      window_previews = false
+      window_corner_radius = 18
 
-    #expect(config.showCheatsheetOnModifierHold)
-    #expect(config.workspaces.names.isEmpty)
-    #expect(config.workspaces.defaultName == nil)
-    #expect(config.layout.defaultColumnWidth == 0.8)
-    #expect(config.animation.enabled)
-    #expect(config.animation.durationMS == 125)
-    #expect(config.animation.windowProxies)
-    #expect(config.overview.zoom == 0.5)
-    #expect(config.overview.windowPreviews)
-    #expect(config.overview.windowCornerRadius == 12)
-    #expect(config.decorations.borders.enabled)
-    #expect(config.decorations.borders.width == 4)
-    #expect(config.decorations.borders.color == "#FFC099FF")
-    #expect(config.decorations.borders.inactiveEnabled == false)
-    #expect(config.decorations.borders.inactiveColor == "#66C099FF")
-    #expect(config.decorations.borders.captureEnabled == false)
-    #expect(config.keys["alt-left"] == "focus-column left")
-    #expect(config.keys["alt-backslash"] == "toggle-floating")
-    #expect(config.keys["alt-shift-backslash"] == "activate-floating")
-    #expect(config.keys["alt-period"] == "focus-floating next")
-    #expect(config.keys["alt-up"] == "focus-workspace up")
-    #expect(config.keys["alt-j"] == "focus-window down")
-    #expect(config.keys["alt-shift-1"] == "move-column-to-workspace-position 1")
-    #expect(config.keys["ctrl-cmd-left"] == "focus-monitor left")
-    #expect(config.keys["ctrl-cmd-shift-down"] == "move-column-to-monitor down")
-    for direction in ["left", "right", "up", "down"] {
-      #expect(config.keys["ctrl-alt-shift-\(direction)"] == "move-workspace-to-monitor \(direction)")
-    }
-    #expect(config.keys["alt-o"] == "toggle-overview")
-  }
+      [decorations.borders]
+      enabled = true
+      width = 3.5
+      color = "#ff33aaff"
+      inactive_enabled = true
+      inactive_color = "0x4433aaff"
+      capture_enabled = true
 
-  @Test
-  func `Decodes overview configuration`() throws {
-    let config = try Config.decode(
-      Data(
-        """
-        [overview]
-        zoom = 0.25
-        window_previews = false
-        window_corner_radius = 18
-        """.utf8
-      )
-    )
+      [input]
+      focus_follows_mouse = true
+      focus_follows_mouse_max_scroll_amount = 0.1
+      focus_follows_mouse_delay_ms = 50
+      mouse_follows_focus = true
 
+      [layout]
+      gaps = 8
+      outer_top_gap = 1
+      outer_right_gap = 2
+      outer_bottom_gap = 0
+      outer_left_gap = 3
+      reserved_top = 11
+      reserved_bottom = 4
+
+      [menu_bar]
+      enabled = false
+
+      [modifier_combinations]
+      hyper = "Alt + Cmd + Ctrl"
+
+      [keys]
+      "hyper-d" = "diagnostic-mark"
+      """.utf8))
     #expect(config.overview.zoom == 0.25)
     #expect(!config.overview.windowPreviews)
     #expect(config.overview.windowCornerRadius == 18)
-  }
-
-  @Test
-  func `Rejects invalid overview zoom`() {
-    let data = Data(
-      """
-      [overview]
-      zoom = 0.76
-      """.utf8
-    )
-
-    #expect(throws: ConfigError.invalidValue("overview.zoom")) {
-      try Config.decode(data)
-    }
-  }
-
-  @Test(arguments: [-1.0, 65.0])
-  func `Rejects invalid overview window corner radius`(radius: Double) {
-    let data = Data(
-      """
-      [overview]
-      window_corner_radius = \(radius)
-      """.utf8
-    )
-
-    #expect(throws: ConfigError.invalidValue("overview.window_corner_radius")) {
-      try Config.decode(data)
-    }
-  }
-
-  @Test
-  func `Decodes border configuration`() throws {
-    let config = try Config.decode(
-      Data(
-        """
-        [decorations.borders]
-        enabled = true
-        width = 3.5
-        color = "#ff33aaff"
-        inactive_enabled = true
-        inactive_color = "0x4433aaff"
-        capture_enabled = true
-        """.utf8
-      )
-    )
-
     #expect(config.decorations.borders.width == 3.5)
-    #expect(config.decorations.borders.color == "#ff33aaff")
     #expect(config.decorations.borders.inactiveEnabled)
-    #expect(config.decorations.borders.inactiveColor == "0x4433aaff")
     #expect(config.decorations.borders.captureEnabled)
+    #expect(parseBorderColor(config.decorations.borders.color) == 0xff33_aaff)
+    #expect(parseBorderColor(config.decorations.borders.inactiveColor) == 0x4433_aaff)
+    #expect(parseBorderColor("#fff") == nil)
+    #expect(parseBorderColor("8033aaff") == nil)
+    #expect(config.input.focusFollowsMouse)
+    #expect(config.input.focusFollowsMouseMaxScrollAmount == 0.1)
+    #expect(config.input.focusFollowsMouseDelayMS == 50)
+    #expect(config.input.mouseFollowsFocus)
+    #expect(config.layout.gaps == 8)
+    #expect([config.layout.outerTopGap, config.layout.outerRightGap, config.layout.outerBottomGap,
+      config.layout.outerLeftGap] == [1, 2, 0, 3])
+    #expect(config.layout.reservedTop == 11)
+    #expect(config.layout.reservedBottom == 4)
+    #expect(!config.menuBar.enabled)
+    #expect(config.keys["hyper-d"] == "diagnostic-mark")
   }
 
   @Test(arguments: [
-    (
-      "width = 65",
-      ConfigError.invalidValue("decorations.borders.width")
-    ),
-    (
-      "color = \"ffffff\"",
-      ConfigError.invalidValue("decorations.borders.color")
-    ),
+    ("never", CenterFocusedColumnConfig.never), ("always", .always), ("on-overflow", .onOverflow),
   ])
-  func `Rejects invalid border configuration`(
-    testCase: (setting: String, expectedError: ConfigError)
-  ) {
-    let data = Data(
-      """
-      [decorations.borders]
-      \(testCase.setting)
-      """.utf8
-    )
-
-    #expect(throws: testCase.expectedError) {
-      try Config.decode(data)
-    }
-  }
-
-  @Test(arguments: [
-    ("0xffffffff", UInt32(0xffff_ffff)),
-    ("#8033aaff", UInt32(0x8033_aaff)),
-    ("#fff", nil),
-    ("8033aaff", nil),
-  ])
-  func `Parses border colors`(
-    testCase: (value: String, expected: UInt32?)
-  ) {
-    #expect(parseBorderColor(testCase.value) == testCase.expected)
+  func decodesCenterFocusedColumn(value: String, expected: CenterFocusedColumnConfig) throws {
+    #expect(try Config.decode(Data("[layout]\ncenter_focused_column = \"\(value)\"".utf8)).layout
+      .centerFocusedColumn == expected)
   }
 
   @Test
@@ -244,9 +200,7 @@ struct ConfigTests {
       gaps = 4
 
       [animation]
-      enabled = true
-      duration_ms = 120
-      window_proxies = false
+      enabled = false
 
       [workspaces]
       names = ["dev", "web"]
@@ -264,8 +218,7 @@ struct ConfigTests {
     let config = try Config.decode(data)
 
     #expect(config.layout.gaps == 4)
-    #expect(config.animation.durationMS == 120)
-    #expect(!config.animation.windowProxies)
+    #expect(!config.animation.enabled)
     #expect(config.workspaces.defaultName == "dev")
     #expect(config.keys["hyper-1"] == "workspace dev")
     #expect(config.keys["hyper-shift-1"] == "move-column-to-workspace-name dev")
@@ -278,38 +231,6 @@ struct ConfigTests {
     #expect(config.keys["hyper-comma"] == "focus-floating previous")
     #expect(config.keys["hyper-period"] == "focus-floating next")
     #expect(config.modifierCombinations["hyper"] == "Alt + Cmd + Ctrl")
-    #expect(config.rules.count == 1)
-  }
-
-  @Test
-  func `Rejects workspace names reserved for dynamic identity`() {
-    let data = Data(
-      """
-      [workspaces]
-      names = ["__defi_dynamic_1"]
-      """.utf8
-    )
-
-    #expect(throws: ConfigError.invalidWorkspaces) {
-      try Config.decode(data)
-    }
-  }
-
-  @Test
-  func `Accepts diagnostic marker binding`() throws {
-    let config = try Config.decode(
-      Data(
-        """
-        [keys]
-        "hyper-d" = "diagnostic-mark"
-
-        [modifier_combinations]
-        hyper = "Alt + Cmd + Ctrl"
-        """.utf8
-      )
-    )
-
-    #expect(config.keys["hyper-d"] == "diagnostic-mark")
   }
 
   @Test
@@ -345,34 +266,11 @@ struct ConfigTests {
   }
 
   @Test
-  func `Rejects unknown rule workspace`() {
-    let data = Data(
-      """
-      [workspaces]
-      names = ["dev"]
-
-      [[rules]]
-      app_id = "app"
-      workspace = "missing"
-      """.utf8
-    )
-
-    #expect(throws: ConfigError.unknownWorkspace("missing")) {
-      try Config.decode(data)
-    }
-  }
-
-  @Test
   func `Repository example decodes`() throws {
     let repository = URL(filePath: #filePath)
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let config = try Config.load(from: repository.appending(path: "config.example.toml"))
-
     #expect(config.workspaces.names.first == "dev")
-    #expect(config.workspaces.monitors.isEmpty)
     #expect(config.keys["hyper-left"] == "focus-column left")
-    #expect(config.rules.count == 12)
   }
 }

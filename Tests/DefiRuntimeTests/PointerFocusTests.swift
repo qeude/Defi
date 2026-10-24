@@ -476,44 +476,6 @@ struct PointerFocusTests {
   }
 
   @Test
-  func cursorWarpRequiresEnabledKeyboardInput() {
-    #expect(
-      keyboardCursorWarpTimestamp(
-        mouseFollowsFocus: true,
-        capturedInputTimestamp: 12
-      ) == 12
-    )
-    #expect(
-      keyboardCursorWarpTimestamp(
-        mouseFollowsFocus: true,
-        capturedInputTimestamp: nil
-      ) == nil
-    )
-    #expect(
-      keyboardCursorWarpTimestamp(
-        mouseFollowsFocus: false,
-        capturedInputTimestamp: 12
-      ) == nil
-    )
-  }
-
-  @Test
-  func commandFocusAlwaysKeepsAnInputGuard() {
-    #expect(
-      commandFocusInputTimestamp(
-        capturedInputTimestamp: 12,
-        commandHandledAt: 14
-      ) == 12
-    )
-    #expect(
-      commandFocusInputTimestamp(
-        capturedInputTimestamp: nil,
-        commandHandledAt: 14
-      ) == 14
-    )
-  }
-
-  @Test
   func displayChangeRequeueKeepsPointerInputGuard() {
     #expect(
       pointerDisplacedFocusInputTimestamp(
@@ -575,48 +537,27 @@ struct PointerFocusTests {
   }
 
   @Test
-  func newerPointerTransitionInvalidatesRequestWithoutGeneralInput() {
-    #expect(
-      pointerFocusRequestIsCurrent(
-        requestGeneration: 4,
-        currentGeneration: 5,
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 12
-      ) == false)
+  func keyboardFocusWarpsOnlyWhenMouseFollowsAndAlwaysKeepsAnInputGuard() {
+    #expect(keyboardCursorWarpTimestamp(mouseFollowsFocus: true, capturedInputTimestamp: 12) == 12)
+    #expect(keyboardCursorWarpTimestamp(mouseFollowsFocus: true, capturedInputTimestamp: nil) == nil)
+    #expect(keyboardCursorWarpTimestamp(mouseFollowsFocus: false, capturedInputTimestamp: 12) == nil)
+    #expect(commandFocusInputTimestamp(capturedInputTimestamp: 12, commandHandledAt: 14) == 12)
+    #expect(commandFocusInputTimestamp(capturedInputTimestamp: nil, commandHandledAt: 14) == 14)
   }
 
   @Test
-  func pointerFocusIntentOnlyYieldsToNewerInput() {
-    #expect(!pointerFocusIntentIsCurrent(pointerTimestamp: 12,
-      latestUserInputTimestamp: 10, latestPointerMotionTimestamp: 13))
-    #expect(pointerFocusIntentIsCurrent(pointerTimestamp: 12,
-      latestUserInputTimestamp: 10, latestPointerMotionTimestamp: 12))
-    #expect(
-      pointerFocusIntentIsCurrent(
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 12
-      )
-    )
-    #expect(
-      pointerFocusIntentIsCurrent(
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 13
-      ) == false)
-  }
-
-  @Test
-  func stalePointerCancellationDoesNotRearmTransition() {
-    #expect(
-      cancelledPointerFocusShouldRearm(
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 12
-      )
-    )
-    #expect(
-      cancelledPointerFocusShouldRearm(
-        pointerTimestamp: 12,
-        latestUserInputTimestamp: 13
-      ) == false)
+  func pointerFocusIntentYieldsOnlyToNewerInputOrTransition() {
+    #expect(!pointerFocusRequestIsCurrent(requestGeneration: 4, currentGeneration: 5, pointerTimestamp: 12,
+      latestUserInputTimestamp: 12), "a newer pointer transition invalidates without general input")
+    #expect(!pointerFocusIntentIsCurrent(pointerTimestamp: 12, latestUserInputTimestamp: 10,
+      latestPointerMotionTimestamp: 13))
+    #expect(pointerFocusIntentIsCurrent(pointerTimestamp: 12, latestUserInputTimestamp: 10,
+      latestPointerMotionTimestamp: 12))
+    #expect(pointerFocusIntentIsCurrent(pointerTimestamp: 12, latestUserInputTimestamp: 12))
+    #expect(!pointerFocusIntentIsCurrent(pointerTimestamp: 12, latestUserInputTimestamp: 13))
+    #expect(cancelledPointerFocusShouldRearm(pointerTimestamp: 12, latestUserInputTimestamp: 12))
+    #expect(!cancelledPointerFocusShouldRearm(pointerTimestamp: 12, latestUserInputTimestamp: 13),
+      "a stale cancellation does not rearm the transition")
   }
 
   @Test
@@ -683,60 +624,21 @@ struct PointerFocusTests {
   }
 
   @Test
-  func focusReadinessIsIsolatedPerMonitorAndTargetWindow() {
-    let otherMonitorID = MonitorID(rawValue: 2)
-    let targetWindowID = WindowID(rawValue: 1)
-    let otherWindowID = WindowID(rawValue: 2)
-
-    #expect(
-      focusTargetIsReady(
-        targetMonitorID: monitorID,
-        targetWindowID: targetWindowID,
-        scrollingMonitorIDs: [otherMonitorID],
-        pendingFrameWindowIDs: [otherWindowID]
-      )
-    )
-    #expect(
-      focusTargetIsReady(
-        targetMonitorID: monitorID,
-        targetWindowID: targetWindowID,
-        scrollingMonitorIDs: [monitorID],
-        pendingFrameWindowIDs: []
-      ) == false)
-    #expect(
-      focusTargetIsReady(
-        targetMonitorID: monitorID,
-        targetWindowID: targetWindowID,
-        scrollingMonitorIDs: [],
-        pendingFrameWindowIDs: [targetWindowID]
-      ) == false)
-    #expect(
-      focusTargetIsReady(
-        targetMonitorID: monitorID,
-        targetWindowID: targetWindowID,
-        scrollingMonitorIDs: [],
-        pendingFrameWindowIDs: [otherWindowID]
-      )
-    )
-  }
-
-  @Test
-  func pointerFocusReadinessRemainsMonitorWide() {
-    let otherMonitorID = MonitorID(rawValue: 2)
-
-    #expect(
-      focusMonitorIsReady(
-        targetMonitorID: monitorID,
-        scrollingMonitorIDs: [],
-        pendingFrameMonitorIDs: [monitorID]
-      ) == false)
-    #expect(
-      focusMonitorIsReady(
-        targetMonitorID: monitorID,
-        scrollingMonitorIDs: [otherMonitorID],
-        pendingFrameMonitorIDs: [otherMonitorID]
-      )
-    )
+  func focusReadinessIsIsolatedPerMonitorWhilePointerReadinessIsMonitorWide() {
+    let other = MonitorID(rawValue: 2)
+    let target = WindowID(rawValue: 1), otherWindow = WindowID(rawValue: 2)
+    func ready(scrolling: Set<MonitorID>, pending: Set<WindowID>) -> Bool {
+      focusTargetIsReady(targetMonitorID: monitorID, targetWindowID: target, scrollingMonitorIDs: scrolling,
+        pendingFrameWindowIDs: pending)
+    }
+    #expect(ready(scrolling: [other], pending: [otherWindow]))
+    #expect(!ready(scrolling: [monitorID], pending: []))
+    #expect(!ready(scrolling: [], pending: [target]))
+    #expect(ready(scrolling: [], pending: [otherWindow]))
+    #expect(!focusMonitorIsReady(targetMonitorID: monitorID, scrollingMonitorIDs: [],
+      pendingFrameMonitorIDs: [monitorID]))
+    #expect(focusMonitorIsReady(targetMonitorID: monitorID, scrollingMonitorIDs: [other],
+      pendingFrameMonitorIDs: [other]))
   }
 
   private func makeState(

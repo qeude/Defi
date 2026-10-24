@@ -24,65 +24,83 @@ struct WorkspaceScrollingTests {
     #expect(abs((diff[1].frame.x) - (407.2)) <= 0.001)
   }
 
-  @Test
-  func `Never centering preserves visible column`() {
-    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
-    let columns = (1...4).map {
-      Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5))
-    }
-
+  @Test(arguments: [
+    (CenterFocusedColumn.never, UInt64?.none, 2, 0.5),
+    (.never, 1, 2, 0.5),
+    (.always, 2, 2, 0.75),
+    (.always, nil, 1, 0.25),
+    (.onOverflow, nil, 2, 0.5),
+    (.onOverflow, 2, 2, 0.5),
+    (.onOverflow, 1, 2, 0.75),
+    (.onOverflow, 4, 1, 0.25),
+  ])
+  func `Centering follows the prior and new selected columns`(
+    mode: CenterFocusedColumn, previousWindow: UInt64?, focusedColumn: Int, expected: Double
+  ) {
     var workspace = Workspace(
       id: WorkspaceID(rawValue: "1"),
-      columns: columns,
-      focusedColumn: 1
+      columns: (1...4).map {
+        Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5))
+      },
+      focusedColumn: focusedColumn
     )
-    #expect(abs((focusedColumnTargetScrollOffset(
-        workspace: workspace, viewport: viewport,
-        settings: LayoutSettings(centerFocusedColumn: .never)
-      )) - (0)) <= 0.001)
+    workspace.scrollFocus = previousWindow.map {
+      ScrollFocus(windowID: WindowID(rawValue: $0), centered: false)
+    }
 
-    workspace.focusedColumn = 2
-    #expect(abs((focusedColumnTargetScrollOffset(
-        workspace: workspace, viewport: viewport,
-        settings: LayoutSettings(centerFocusedColumn: .never)
-      )) - (0.5)) <= 0.001)
-
-    workspace.focusedColumn = 3
-    workspace.scrollOffset = 0.5
-    #expect(abs((focusedColumnTargetScrollOffset(
-        workspace: workspace, viewport: viewport,
-        settings: LayoutSettings(centerFocusedColumn: .never)
-      )) - (1)) <= 0.001)
+    #expect(
+      focusedColumnTargetScrollOffset(
+        workspace: workspace,
+        viewport: Rect(x: 0, y: 0, width: 1_000, height: 700),
+        settings: LayoutSettings(centerFocusedColumn: mode)
+      ) == expected
+    )
   }
 
   @Test
-  func `Always centering centers target`() throws {
-    let centered = LayoutSettings(
-      defaultColumnWidth: 0.5,
-      centerFocusedColumn: .always,
-      innerHorizontalGap: 0,
-      innerVerticalGap: 0,
-      outerTopGap: 0,
-      outerRightGap: 0,
-      outerBottomGap: 0,
-      outerLeftGap: 0
+  func `On-overflow left-aligns an oversized column`() {
+    var workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [
+        Column(window: WindowID(rawValue: 1), width: .fraction(0.5)),
+        Column(window: WindowID(rawValue: 2), width: .pixels(1_500)),
+        Column(window: WindowID(rawValue: 3), width: .fraction(0.5)),
+      ],
+      focusedColumn: 1
     )
-    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
-    insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: centered)
-    insertNewWindow(WindowID(rawValue: 2), into: &workspace, settings: centered)
-    insertNewWindow(WindowID(rawValue: 3), into: &workspace, settings: centered)
-    workspace.focusedColumn = 0
+    workspace.scrollFocus = ScrollFocus(windowID: WindowID(rawValue: 1), centered: false)
 
-    try focusColumn(.right, in: &workspace, settings: centered)
-    workspace.scrollOffset = workspace.targetScrollOffset
-    let diff = computeLayout(
-      workspace: workspace,
-      viewport: Rect(x: 0, y: 0, width: 1_000, height: 900),
-      settings: centered
+    #expect(
+      focusedColumnTargetScrollOffset(
+        workspace: workspace,
+        viewport: Rect(x: 0, y: 0, width: 1_000, height: 700),
+        settings: LayoutSettings(centerFocusedColumn: .onOverflow)
+      ) == 0.5
     )
-
-    #expect(abs((workspace.targetScrollOffset) - (0.25)) <= 0.001)
-    #expect(abs((diff[1].frame.x) - (250)) <= 0.001)
   }
 
+  @Test
+  func `Switching centering modes keeps the on-overflow decision`() {
+    var workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: (1...4).map {
+        Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5))
+      },
+      focusedColumn: 2
+    )
+    workspace.scrollFocus = ScrollFocus(windowID: WindowID(rawValue: 1), centered: false)
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let modes: [CenterFocusedColumn] = [.never, .onOverflow]
+    let targets = modes.map { mode in
+      let target = focusedColumnScrollTarget(
+        workspace: workspace, viewport: viewport,
+        settings: LayoutSettings(centerFocusedColumn: mode)
+      )
+      workspace.scrollFocus = target.focus
+      return target.offset
+    }
+
+    #expect(targets == [0.5, 0.75])
+    #expect(workspace.scrollFocus == ScrollFocus(windowID: WindowID(rawValue: 3), centered: true))
+  }
 }

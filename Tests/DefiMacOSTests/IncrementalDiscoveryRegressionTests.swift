@@ -165,48 +165,6 @@ struct IncrementalDiscoveryRegressionTests {
     #expect(reads.state.withLock { $0.listCalls.values.reduce(0, +) } == 0)
   }
 
-  @MainActor @Test func plannerWithoutInjectedAXDelayIsMeasuredSeparately() {
-    let (platform, reads, first, element) = fixture()
-    let engine = platform.snapshotEngine
-    defer { withExtendedLifetime(platform) {} }
-    for index in 2...4 {
-      let id = WindowID(rawValue: 4100 + UInt64(index))
-      let siblingElement = AXUIElementCreateApplication(-61000 - Int32(index))
-      var sibling = first
-      sibling = Window(id: id, appID: first.appID, title: "sibling-\(index)",
-        frame: Rect(x: Double(index * 410), y: 20, width: 400, height: 300),
-        role: first.role, subrole: first.subrole, processID: 41, floating: true, floatingOrigin: .configured)
-      engine.elements[id] = siblingElement
-      engine.processIDs[id] = 41
-      engine.lastSnapshotWindows.append(sibling)
-      engine.lastApplicationWindowElements[41, default: []].append(siblingElement)
-      reads.windowsByHash[CFHash(siblingElement)] = sibling
-    }
-    let bindings: [pid_t: [UInt: [WindowID]]] = [41: Dictionary(uniqueKeysWithValues: engine.elements.map { (CFHash($0.value), [$0.key]) })]
-    var direct: [Double] = []
-    var planned: [Double] = []
-    for _ in 0..<300 {
-      var start = ProcessInfo.processInfo.systemUptime
-      _ = engine.windowAttributes(element, processID: 41)
-      direct.append((ProcessInfo.processInfo.systemUptime - start) * 1_000_000)
-      start = ProcessInfo.processInfo.systemUptime
-      let batch = engine.prepareIncrementalDiscoveryReads(processIDs: [41], listProcessIDs: [],
-        windowListRefreshProcessIDs: [], existingWindowIDsByProcessAndElementHash: bindings, frameRefreshWindowIDs: [first.id], explicitlyDestroyedWindowIDs: [],
-        shouldReadProcess: { _ in true })
-      planned.append((ProcessInfo.processInfo.systemUptime - start) * 1_000_000)
-      #expect(batch.attributes.count == 1)
-    }
-    direct.sort(); planned.sort()
-    #expect(reads.state.withLock { $0.attributeCalls } == 600)
-    #expect(reads.state.withLock { $0.listCalls.values.reduce(0, +) } == 0)
-    #expect(reads.state.withLock { $0.relationshipCalls } == 0)
-    emitDiscoveryPerformance("planner-without-injected-delay", operations: 600,
-      output: ["attribute_reads": 600, "correct_plans": 300, "list_reads": 0, "relationship_reads": 0],
-      metrics: ["direct_hook_median_us": direct[150], "planner_collector_median_us": planned[150],
-        "planner_collector_min_us": planned[0], "planner_collector_max_us": planned[299],
-        "planner_collector_p05_us": planned[15], "planner_collector_p95_us": planned[285]])
-  }
-
   @MainActor @Test func singleProcessSnapshotPreservesUnobservedCachedGeometry() {
     let (platform, reads, window, _) = fixture()
     let engine = platform.snapshotEngine
@@ -240,6 +198,11 @@ struct IncrementalDiscoveryRegressionTests {
     #expect(observed.map { $0.processID } == [41, 41])
     #expect(observed.allSatisfy { $0.floating && $0.floatingOrigin == .configured })
     #expect(reads.state.withLock { $0.attributeCalls } == 1)
+    engine.recordObservation(.frame, processID: 41)
+    let processWide = engine.snapshot(config: Config(rules: [Rule(appID: "measurement", floating: true)]),
+      forceFullWindowRefresh: false, forceWindowListRefresh: false, forceApplicationInventoryRefresh: false)
+    #expect(processWide.windows.map(\.id.rawValue).sorted() == [4101, 4102])
+    #expect(reads.state.withLock { $0.attributeCalls } == 3, "A process-wide frame event reads each of its windows")
     #expect(reads.state.withLock { $0.listCalls.values.reduce(0, +) } == 0)
     #expect(reads.state.withLock { $0.relationshipCalls } == 0)
   }

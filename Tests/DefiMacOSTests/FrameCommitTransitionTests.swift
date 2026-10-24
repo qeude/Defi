@@ -224,78 +224,30 @@ struct FrameCommitTransitionTests {
   }
 
   @Test
-  func emptyVisibleFramePlanConvergesAfterItsParkingWrite() {
-    let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
-    var latency = CommandLatencyAccumulator()
-    latency.begin(context)
-    latency.recordFocusExpectation(context, expectsFocus: false)
-    _ = latency.recordPlan(
-      context,
-      expectedWindowIDs: [],
-      hasFrameWrites: true,
-      at: 10.002
-    )
-    #expect(latency.performance.convergence.count == 0)
-    _ = latency.recordFirstWrite(context, at: 10.003)
-
-    latency.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
-
-    #expect(latency.performance.superseded == 0)
-    #expect(latency.performance.convergence.count == 1)
-  }
-
-  @Test
-  func parkingOnlyPlanConvergesWithoutWaitingForUnmeasuredWrites() {
+  func plansWithoutMeasuredWindowsConvergeAfterTheirWriteOrFocus() {
     let parked = WindowID(rawValue: 1)
-    let plan = commandPerformanceFramePlan(
-      writeWindowIDs: [parked],
-      hiddenWindowIDs: [parked],
-      availableWindowIDs: [parked]
-    )
+    let parkingOnly = commandPerformanceFramePlan(writeWindowIDs: [parked], hiddenWindowIDs: [parked],
+      availableWindowIDs: [parked])
+    #expect(parkingOnly.expectedWindowIDs.isEmpty)
+    #expect(!parkingOnly.hasMeasuredFrameWrites)
     let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
-    var latency = CommandLatencyAccumulator()
-    latency.begin(context)
-
-    _ = latency.recordPlan(
-      context,
-      expectedWindowIDs: plan.expectedWindowIDs,
-      hasFrameWrites: plan.hasMeasuredFrameWrites,
-      at: 10.002
-    )
-
-    #expect(plan.expectedWindowIDs.isEmpty)
-    #expect(plan.hasMeasuredFrameWrites == false)
-    #expect(latency.performance.convergence.count == 1)
-  }
-
-  @Test
-  func focusOnlyPlanConvergesOnlyAfterSuccessfulFocus() {
-    let context = CommandPerformanceContext(generation: 1, inputTimestamp: 10)
-    var cancelled = CommandLatencyAccumulator()
-    cancelled.begin(context)
-    cancelled.recordFocusExpectation(context, expectsFocus: true)
-    _ = cancelled.recordPlan(
-      context,
-      expectedWindowIDs: [],
-      hasFrameWrites: false,
-      at: 10.002
-    )
-    cancelled.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
-    #expect(cancelled.performance.superseded == 1)
-
-    var completed = CommandLatencyAccumulator()
-    completed.begin(context)
-    completed.recordFocusExpectation(context, expectsFocus: true)
-    _ = completed.recordPlan(
-      context,
-      expectedWindowIDs: [],
-      hasFrameWrites: false,
-      at: 10.002
-    )
-    _ = completed.recordFocus(context, at: 10.010)
-    completed.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
-    #expect(completed.performance.superseded == 0)
-    #expect(completed.performance.convergence.count == 1)
+    // expects focus, has frame writes, writes, focuses -> converged, superseded
+    for (expectsFocus, writes, wrote, focused, converged, superseded) in [
+      (false, parkingOnly.hasMeasuredFrameWrites, false, false, 1, 0),
+      (false, true, true, false, 1, 0), (true, false, false, false, 0, 1), (true, false, false, true, 1, 0),
+    ] {
+      var latency = CommandLatencyAccumulator()
+      latency.begin(context)
+      latency.recordFocusExpectation(context, expectsFocus: expectsFocus)
+      _ = latency.recordPlan(context, expectedWindowIDs: parkingOnly.expectedWindowIDs, hasFrameWrites: writes,
+        at: 10.002)
+      if writes { #expect(latency.performance.convergence.count == 0) }
+      if wrote { _ = latency.recordFirstWrite(context, at: 10.003) }
+      if focused { _ = latency.recordFocus(context, at: 10.010) }
+      latency.begin(CommandPerformanceContext(generation: 2, inputTimestamp: 20))
+      #expect(latency.performance.convergence.count == converged)
+      #expect(latency.performance.superseded == superseded)
+    }
   }
 
   static let positionOnlyExpectation = FrameCommitExpectation(

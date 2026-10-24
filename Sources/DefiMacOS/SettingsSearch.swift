@@ -27,7 +27,6 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case widthPresets
   case screenMargins
   case animations
-  case animationDuration
   case reservedTop
   case reservedBottom
   case hyperSymbol
@@ -67,14 +66,13 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .logs: (.general, "Open Logs Folder…", "diagnostics logs")
     case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues")
     case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width")
-    case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center")
+    case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center on overflow")
     case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove")
     case .screenMargins: (
       .layout, "Spacing",
       "layout.gaps default gap outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges"
     )
     case .animations: (.appearance, "Enable animations", "animation.enabled")
-    case .animationDuration: (.appearance, "Animation duration", "animation.duration_ms")
     case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top")
     case .reservedBottom: (.layout, "Reserved bottom area", "layout.reserved_bottom")
     case .hyperSymbol: (.input, "Show Hyper as ✦", "displayHyperSymbol hyper shortcut display")

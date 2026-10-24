@@ -8,22 +8,79 @@ import DefiCore
 import DefiModel
 import OSLog
 
+/// A display's ribbon as the overlay sees it: where it is and every managed window it
+/// owns, on any of its workspaces.
+public struct WindowProxyMonitor: Equatable, Sendable {
+  public let viewport: Rect
+  public let windowIDs: Set<WindowID>
+  /// Vertical travel of a workspace switch on this display, so windows entering an
+  /// empty or emptied ribbon still know where to come from.
+  public var workspaceShift: Double?
+  /// False when the layout reused this display's previous plan: nothing on it moves.
+  public let laidOut: Bool
+
+  public init(viewport: Rect, windowIDs: Set<WindowID>, workspaceShift: Double? = nil,
+    laidOut: Bool = true) {
+    self.viewport = viewport
+    self.windowIDs = windowIDs
+    self.workspaceShift = workspaceShift
+    self.laidOut = laidOut
+  }
+}
+
 @NavigationActor
 public final class MacOSPlatform {
   public var windowProxiesEnabled = false {
-    didSet { RibbonProxyPresenter.shared.enabled = windowProxiesEnabled }
+    didSet { RibbonProxyPresenter.enabled = windowProxiesEnabled }
   }
-  /// The tiled window the pointer is carrying; live reorders leave its proxy to the pointer.
-  public var windowProxyDraggedWindowID: WindowID?
-  /// Vertical travel of a workspace switch, so windows entering an empty or
-  /// emptied ribbon still know where to come from.
-  public var windowProxyWorkspaceShift: Double?
+  /// Each display moves on its own overlay.
+  public var windowProxyMonitors: [WindowProxyMonitor] = []
   /// The overlay is drawing a motion; desktop reads wait for its landing.
   public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
   /// Shows the layout a drop at the pointer would produce, on the overlay only.
+  /// `frames` cover every display: a drop on another one closes the gap here and opens
+  /// the slot there.
   public func presentWindowProxyPreview(_ frames: [WindowID: Rect], heldWindowID: WindowID) {
     guard windowProxiesEnabled else { return }
-    RibbonProxyPresenter.shared.preview(frames, heldWindowID: heldWindowID)
+    windowProxyPreview = (frames, heldWindowID)
+    hostWindowProxyPreview()
+    presentPendingWindowProxyPreview()
+  }
+  /// The pointer let go: the next drag starts without a preview.
+  public func endWindowProxyPreview() { windowProxyPreview = nil }
+  private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID)?
+  private var windowProxyHostRetryAt: TimeInterval = 0
+
+  /// Puts the display the drop would land on (not the carried window's own) on its
+  /// overlay, so its ribbon can make room as it does on a single display.
+  @discardableResult
+  private func hostWindowProxyPreview() -> Bool {
+    let now = ProcessInfo.processInfo.systemUptime
+    guard RibbonProxyPresenter.isCarrying, let (frames, id) = windowProxyPreview, let slot = frames[id],
+      now >= windowProxyHostRetryAt,
+      let monitor = windowProxyMonitors.first(where: {
+        !$0.windowIDs.contains(id) && slot.ribbonIntersects($0.viewport)
+      }),
+      let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID
+    else { return false }
+    let presenter = RibbonProxyPresenter.on(display)
+    guard presenter.hostedWindowID != id, !presenter.isCarrying else { return false }
+    guard let carried = lastSnapshotWindows.first(where: { $0.id == id }), let processID = carried.processID,
+      let native = ribbonProxyNativeFrames([id])[id]
+    else {
+      windowProxyHostRetryAt = now + 0.1
+      return false
+    }
+    let windows = windowProxyCarryWindows(monitor) + [RibbonProxyWindow(id: id, appID: carried.appID,
+      processID: processID, from: native, to: native)]
+    guard presenter.host(id, windows: windows, viewport: monitor.viewport,
+      generation: frameSubmissionGeneration)
+    else {
+      // The overlay there is not ready (surface, background): the next drag event retries.
+      windowProxyHostRetryAt = now + 0.1
+      return false
+    }
+    return true
   }
 
   /// The tiled window just released by the pointer; it starts from where it was dropped.
@@ -32,17 +89,53 @@ public final class MacOSPlatform {
   /// Hands a tiled window dragged by the pointer to the overlay: its proxy follows the
   /// pointer over every window drawn where it is now.
   public func carryWindowProxy(_ windowID: WindowID, stretches: Bool) {
-    let presenter = RibbonProxyPresenter.shared
+    if RibbonProxyPresenter.isCarrying {
+      if hostWindowProxyPreview() { presentPendingWindowProxyPreview() }
+      return
+    }
     let now = ProcessInfo.processInfo.systemUptime
-    guard windowProxiesEnabled, !presenter.isCarrying, lastMonitorFrames.count == 1,
-      now >= windowProxyCarryRetryAt, let viewport = lastMonitorFrames.first else { return }
-    let windows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
+    guard windowProxiesEnabled, now >= windowProxyCarryRetryAt,
+      let monitor = windowProxyMonitors.first(where: { $0.windowIDs.contains(windowID) }) else { return }
+    guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else {
+      DispatchQueue.main.async { RibbonProxyRenderer.shared.refreshEnvironment() }
+      windowProxyCarryRetryAt = now + 0.1
+      return
+    }
+    let presenter = RibbonProxyPresenter.on(display)
+    presenter.carry(windowID, stretches: stretches, windows: windowProxyCarryWindows(monitor),
+      viewport: monitor.viewport,
+      slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
+    // A drag event arrives every frame: a refused carry waits instead of re-reading the
+    // WindowServer list each time.
+    guard presenter.isCarrying else {
+      windowProxyCarryRetryAt = now + 0.1
+      return
+    }
+    // A preview computed before the carry started applies now; one from an earlier drag goes.
+    guard windowProxyPreview?.heldWindowID == windowID else {
+      windowProxyPreview = nil
+      return
+    }
+    hostWindowProxyPreview()
+    presentPendingWindowProxyPreview()
+  }
+
+  private func presentPendingWindowProxyPreview() {
+    guard let (frames, id) = windowProxyPreview else { return }
+    for presenter in RibbonProxyPresenter.all { presenter.preview(frames, heldWindowID: id) }
+  }
+  private var windowProxyCarryRetryAt: TimeInterval = 0
+
+  /// A display's windows for a drag: the whole ribbon, so windows off screen join it at
+  /// their logical place (natively they sit parked at the edge).
+  private func windowProxyCarryWindows(_ monitor: WindowProxyMonitor) -> [RibbonProxyWindow] {
+    let viewport = monitor.viewport
+    let windows = Dictionary(lastSnapshotWindows.filter { monitor.windowIDs.contains($0.id) }
+      .map { ($0.id, $0) }) { first, _ in first }
     let native = ribbonProxyNativeFrames(Set(windows.keys))
-    // Drags and resizes preview the whole ribbon, so windows off screen join it at
-    // their logical place (natively they sit parked at the edge).
     // Visible windows start exactly where they are (the held one is already under the
     // pointer); only windows off screen take their logical place.
-    let proxies = windows.compactMap { id, window -> RibbonProxyWindow? in
+    return windows.compactMap { id, window -> RibbonProxyWindow? in
       guard let processID = window.processID else { return nil }
       if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01 {
         return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
@@ -51,13 +144,7 @@ public final class MacOSPlatform {
       let frame = native[id].map { Rect(x: logical.x, y: $0.y, width: logical.width, height: $0.height) } ?? logical
       return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
     }
-    presenter.carry(windowID, stretches: stretches, windows: proxies, viewport: viewport,
-      slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
-    // A drag event arrives every frame: a refused carry waits instead of re-reading the
-    // WindowServer list each time.
-    if !presenter.isCarrying { windowProxyCarryRetryAt = now + 0.1 }
   }
-  private var windowProxyCarryRetryAt: TimeInterval = 0
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   nonisolated let snapshotEngine: SnapshotEngine
 
@@ -538,7 +625,7 @@ public final class MacOSPlatform {
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
     let now = ProcessInfo.processInfo.systemUptime
     if !entered.isEmpty {
-      RibbonProxyPresenter.shared.cancel()
+      RibbonProxyPresenter.cancelAll()
       frameSubmissionGeneration &+= 1
       if entered.contains(where: frameCoordinator.isBusy(for:)) {
         frameCoordinator.invalidate(reason: "native-fullscreen")

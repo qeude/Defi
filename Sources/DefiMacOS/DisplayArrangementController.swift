@@ -53,7 +53,11 @@ public final class DisplayArrangementController {
     self.sessionID = sessionID
     if let stateURL, let data = try? Data(contentsOf: stateURL),
       let stored = try? JSONDecoder().decode(StoredDisplayArrangement.self, from: data),
-      stored.version == 1, stored.sessionID == sessionID
+      stored.version == 1, stored.sessionID == sessionID,
+      stored.desk.values.allSatisfy({ frame in
+        [frame.x, frame.y, frame.width, frame.height].allSatisfy(\.isFinite)
+          && frame.width > 0 && frame.height > 0
+      })
     {
       savedState = stored
     }
@@ -75,14 +79,12 @@ public final class DisplayArrangementController {
       pending = true
       return false
     }
+    let primary = primaryDisplay()
     // Display-mode changes can commit our temporary origins to the macOS session.
     // Recover only our exact last geometry; a new native arrangement wins.
     if appliedFrames.isEmpty, let savedState, savedState.technical == current,
       Set(savedState.desk.keys) == Set(current.keys),
-      savedState.desk.values.allSatisfy({ frame in
-        [frame.x, frame.y, frame.width, frame.height].allSatisfy(\.isFinite)
-          && frame.width > 0 && frame.height > 0
-      })
+      !isDisplayStaircase(savedState.desk, primary: primary)
     {
       deskFrames = savedState.desk
       appliedFrames = current
@@ -94,7 +96,6 @@ public final class DisplayArrangementController {
       return false
     }
     let ids = Set(current.keys)
-    let primary = primaryDisplay()
     guard let primaryFrame = current[primary] else {
       pending = true
       return false
@@ -116,12 +117,18 @@ public final class DisplayArrangementController {
     if !sameDisplays, let saved = savedArrangements[ids] {
       deskFrames = saved
     } else if !sizesChanged && !translatedOnly {
-      deskFrames = current
+      deskFrames = desk(for: current, primary: primary)
     }
     if let anchor = deskFrames[primary] {
       deskFrames = deskFrames.mapValues {
         Rect(x: $0.x - anchor.x, y: $0.y - anchor.y, width: $0.width, height: $0.height)
       }
+    }
+    guard !deskFrames.isEmpty else {
+      appliedFrames = current
+      pointerRouter.update(technical: current, desk: current)
+      status = "ambiguous"
+      return false
     }
     savedArrangements[ids] = deskFrames
     guard current.count > 1,
@@ -146,15 +153,25 @@ public final class DisplayArrangementController {
       // Never run a logical pointer map against geometry the OS did not accept.
       if observed != current { _ = applyFrames(current, .forAppOnly) }
       appliedFrames = readFrames()
-      deskFrames = appliedFrames
+      deskFrames = desk(for: appliedFrames, primary: primary)
       pointerRouter.update(technical: appliedFrames, desk: appliedFrames)
-      status = result == .success ? "observation-mismatch" : "failed:\(result.rawValue)"
+      status = deskFrames.isEmpty ? "ambiguous"
+        : result == .success ? "observation-mismatch" : "failed:\(result.rawValue)"
       return observed != current
     }
     appliedFrames = observed
     pointerRouter.update(technical: observed, desk: deskFrames)
     status = "isolated"
     return true
+  }
+
+  /// Our own staircase is never the user's desk: keep a known desk or leave it unknown.
+  /// Limit: a user who really arranges that exact corner-touching diagonal is ambiguous.
+  private func desk(for frames: [MonitorID: Rect], primary: MonitorID) -> [MonitorID: Rect] {
+    guard isDisplayStaircase(frames, primary: primary) else { return frames }
+    return [deskFrames, savedState?.desk ?? [:]].first {
+      Set($0.keys) == Set(frames.keys) && !isDisplayStaircase($0, primary: primary)
+    } ?? [:]
   }
 
   @discardableResult

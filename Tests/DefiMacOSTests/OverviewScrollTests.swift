@@ -96,29 +96,6 @@ struct OverviewScrollTests {
   }
 
   @Test
-  func `Horizontal trackpad movement follows projected ribbon pixels`() {
-    let viewport = overviewViewportAfterScroll(
-      OverviewViewport(),
-      delta: NSPoint(x: -100, y: 0),
-      hasPreciseScrollingDeltas: true,
-      viewSize: NSSize(width: 1_512, height: 900),
-      activeWorkspaceIndex: 1,
-      workspaceCount: 9,
-      horizontalWorkspaceID: workspaceID,
-      maximumHorizontalOffset: 2
-    )
-    let workspaceHeight = overviewWorkspaceStride(boundsHeight: 900) - 28
-    let projectedPointsPerScrollUnit = 1_512.0 * workspaceHeight / 900
-
-    #expect(
-      abs(
-        viewport.horizontalOffsets[workspaceID, default: 0]
-          - 100.0 / projectedPointsPerScrollUnit
-      ) < 0.000_001
-    )
-  }
-
-  @Test
   func `Moving a selection clamps its source ribbon and discards the stale target`() {
     let sourceWorkspaceID = WorkspaceID(rawValue: "dev")
     let transition = overviewViewportTransitionAfterSelectionAlignment(

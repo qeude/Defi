@@ -50,8 +50,8 @@ Recording is requested once, before the Overview is presented; the overlay only
 uses a permission already granted.
 In the Overview, denial, revocation, or `overview.window_previews = false`
 degrades to cards without errors, repeated prompts, or loss of the zoom
-animation. Without the permission, the overlay is off and motion uses native
-Accessibility animation. Navigation,
+animation. Without the permission, the overlay is off and windows move at once.
+Navigation,
 focus, and window movement never depend on capture.
 
 ## Product shape
@@ -110,18 +110,33 @@ Current strategy may evolve when replacement preserves the same outcomes and tes
 - coalesce transient focus changes during rapid navigation; commit real AX focus only for the final target
 - keep focus writes asynchronous so slow applications cannot block command intake
 - keep horizontal navigation position-only unless a replacement proves synchronous size work cannot enter the input path
-- keep vertical workspace transitions position-only and all-or-nothing; use an
-  immediate switch when any participating AX lane or display topology cannot
-  animate safely within the refresh budget
+- keep vertical workspace transitions position-only and all-or-nothing; switch
+  at once when the overlay cannot draw the motion
 - settle latency-sensitive windows outside the speculative path while preserving their real targets, hidden state, and parking state
 
 The scrolling workspace is one continuous horizontal strip.
 
-- animate entering, visible, and leaving windows on the same movement timeline when their AX lane permits it
+- animate entering, visible, and leaving windows on the same overlay timeline; each native window moves once
 - never impose an arbitrary cap that leaves an entering ribbon window unanimated
 - never minimize managed windows to implement virtual workspaces
 - park inactive-workspace windows through topology and Accessibility, never visual opacity
-- keep same-workspace offscreen columns at their verified one-pixel strip anchors
+- park every hidden window, from an inactive workspace or an offscreen column,
+  at its own size, leaving a one-point sliver on its own display (a title bar
+  along the bottom edge); take the first of
+  its bottom-right corner, bottom-left corner, right edge, left edge, and bottom
+  edge that stays clear of every other display, else the one with the least
+  overlap; macOS pulls a window onto the display under most of its width and
+  keeps its title bar above that display's visible bottom, so judge each spot
+  where macOS will leave it
+- when display heights overlap, apply the temporary display staircase so
+  partially visible columns never spill onto another display; commands and
+  pointer crossings follow the desk the user arranged in System Settings
+- never adopt Defi's own staircase as the desk; report
+  `displayArrangement=ambiguous` until the user rearranges the displays
+- restore the desk for the login session on shutdown, and never commit a
+  staircase with session scope, including in test cleanup
+- compute parking in the technical coordinates the daemon lays out in, so a
+  parked corner never sits under another display of the staircase
 - keep native click, Dock, and Command-Tab focus compatible with virtual-workspace activation
 - ignore redundant native focus on the already-selected window; no reflow or animation from a plain click
 
@@ -169,6 +184,10 @@ Choose verification by the changed behavior:
   `python3 script/verify.py full [--filter DesktopE2ETests/testName]` chains both
   phases and waits for the desktop automatically. Inspect progress with
   `python3 script/verify.py status [run-directory]`.
+  Desktop tests use Defi-owned fixture windows only. A run with one display
+  reports the two-display lane under `desktop.not_run`; that lane is not
+  covered, so name it in the handoff. The render budget is an opt-in perf
+  lane (`DEFI_E2E_PERF=1`), outside pass/fail.
 
 Complete the applicable checks and fix failures caused by the requested change
 before handoff. Report any check that could not run and why.

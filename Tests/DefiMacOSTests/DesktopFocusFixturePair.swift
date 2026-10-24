@@ -76,6 +76,11 @@ final class DesktopFocusFixturePair {
     }
   }
 
+  /// Lets the test runner become the active app; only the frontmost fixture's yield applies.
+  func yieldActivation(to processID: pid_t) {
+    for input in inputs { input.fileHandleForWriting.write(Data("yield \(processID)\n".utf8)) }
+  }
+
   func close() throws {
     guard Self.stop([tiledProcess, floatingProcess], inputs: inputs, pump: pump) else {
       throw Failure.unsupported("Fixture children did not exit after EOF, SIGTERM, and SIGKILL")

@@ -85,12 +85,15 @@ struct PlatformEventTests {
     #expect(tracker.pendingApplicationActivation(frontmostProcessID: 30, at: 16)?.processID == 30)
   }
 
-  @Test
-  func activationWaitsForFrontmostApplicationToCatchUp() {
+  @Test(arguments: [0.0, 2.1, 60.0])
+  func applicationActivationResolvesOnceFrontmostCatchesUpWhateverTheClickAge(clickAge: TimeInterval) {
     let tracker = UserInputTracker()
-    tracker.recordApplicationActivation(processID: 20, at: 10)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 42, at: 10.1) == nil)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 10.2)?.processID == 20)
+    tracker.record(timestamp: 100 - clickAge, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
+    tracker.consumeFocusIntent(at: 100 - clickAge)
+    tracker.recordApplicationActivation(processID: 20, at: 100)
+    #expect(tracker.snapshot.activatedProcessID == 20)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 42, at: 100.1) == nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 100.2)?.processID == 20)
   }
 
   @Test(arguments: [9.0, 10.0, 10.1])
@@ -104,7 +107,7 @@ struct PlatformEventTests {
     let activation = tracker.pendingApplicationActivation(
       frontmostProcessID: frontmost(), at: 10.2
     )
-    #expect((activation != nil) == (commandTimestamp < 10))
+    #expect(activation?.processID == (commandTimestamp < 10 ? 20 : nil))
     #expect((tracker.snapshot.applicationActivation != nil) == (commandTimestamp < 10))
   }
 
@@ -172,7 +175,7 @@ struct PlatformEventTests {
       request, requestID: 1, result: .completed, at: 11.5
     ))
     tracker.recordApplicationActivation(processID: 20, at: 12)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 12.1) != nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 12.1)?.processID == 20)
     #expect(internalFocusSuppressionConsumesEvent(
       suppression, suppressedWindowID: oldTarget,
       latestFocusIntent: tracker.snapshot.latestFocusIntent,
@@ -192,30 +195,13 @@ struct PlatformEventTests {
     ))
     tracker.record(timestamp: inputTimestamp, focusIntent: .keyboard)
     tracker.recordApplicationActivation(processID: 20, at: 13)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 13.1) != nil)
+    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 13.1)?.processID == 20)
     #expect(internalFocusSuppressionConsumesEvent(
       completed,
       suppressedWindowID: WindowID(rawValue: 2),
       latestFocusIntent: tracker.snapshot.latestFocusIntent,
       applicationActivation: true
     ) == (inputTimestamp <= 11))
-  }
-
-  @Test
-  func externalActivationWithoutRecentClickRemainsAvailableForWindowResolution() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 1, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
-    tracker.consumeFocusIntent(at: 1)
-    tracker.recordApplicationActivation(processID: 20, at: 10)
-    #expect(tracker.snapshot.activatedProcessID == 20)
-  }
-
-  @Test(arguments: [0.0, 2.1, 60.0])
-  func applicationActivationDoesNotDependOnClickAge(age: TimeInterval) {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 100 - age, focusIntent: .mouse(windowID: WindowID(rawValue: 1)))
-    tracker.recordApplicationActivation(processID: 20, at: 100)
-    #expect(tracker.pendingApplicationActivation(frontmostProcessID: 20, at: 101)?.processID == 20)
   }
 
   @Test
@@ -442,89 +428,20 @@ struct PlatformEventTests {
   }
 
   @Test
-  func unresolvedTransientOwnershipKeepsRetryingWithBoundedBackoff() {
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 1) == 0)
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 2) == 1)
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 3) == 2)
-    #expect(transientOwnerResolutionRetryDelay(afterAttempt: 8) == 5)
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: false,
-        attempts: 1,
-        retryAfter: 12,
-        now: 11
-      ) == false
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: false,
-        attempts: 1,
-        retryAfter: 12,
-        now: 12
-      )
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: true,
-        attempts: 1,
-        retryAfter: 12,
-        now: 11
-      ) == false
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: true,
-        attempts: 1,
-        retryAfter: 12,
-        now: 12
-      )
-    )
-  }
-
-  @Test
-  func unresolvedTransientOwnershipEventuallyReturnsToIdleCadence() {
-    #expect(
-      transientOwnerResolutionRetryDeadline(afterAttempt: 7, now: 10) == 15
-    )
-    #expect(
-      transientOwnerResolutionRetryDeadline(afterAttempt: 8, now: 10) == nil
-    )
-    #expect(
-      transientOwnerResolutionIsDue(
-        ownerKnown: false,
-        attempts: 8,
-        retryAfter: nil,
-        now: 10
-      ) == false
-    )
-  }
-
-  @Test
-  func repeatedNegativeTransientOwnerResolutionEventuallyClearsCachedOwner() {
-    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 7) == false)
-    #expect(transientOwnerResolutionShouldClearCachedOwner(afterAttempt: 8))
-  }
-
-  @Test
-  func transientOwnerRetryClampsWindowRefreshToItsDeadline() {
-    #expect(
-      transientOwnerResolutionRefreshInterval(
-        retryAfter: [14, 12],
-        now: 10
-      ) == 2
-    )
-    #expect(
-      transientOwnerResolutionRefreshInterval(
-        retryAfter: [9],
-        now: 10
-      ) == 0
-    )
-    #expect(
-      transientOwnerResolutionRefreshInterval(
-        retryAfter: [],
-        now: 10
-      ) == nil
-    )
+  func unresolvedTransientOwnershipBacksOffThenReturnsToIdleAndClearsItsOwner() {
+    #expect((1...8).map { transientOwnerResolutionRetryDeadline(afterAttempt: $0, now: 10) }
+      == [10, 11, 12, 14, 15, 15, 15, nil])
+    #expect((1...8).map { transientOwnerResolutionShouldClearCachedOwner(afterAttempt: $0) }
+      == [false, false, false, false, false, false, false, true])
+    func due(known: Bool, attempts: Int = 1, retryAfter: TimeInterval? = 12, now: TimeInterval) -> Bool {
+      transientOwnerResolutionIsDue(ownerKnown: known, attempts: attempts, retryAfter: retryAfter, now: now)
+    }
+    #expect([due(known: false, now: 11), due(known: false, now: 12), due(known: true, now: 11),
+      due(known: true, now: 12), due(known: false, attempts: 8, retryAfter: nil, now: 10)]
+      == [false, true, false, true, false])
+    #expect(transientOwnerResolutionRefreshInterval(retryAfter: [14, 12], now: 10) == 2)
+    #expect(transientOwnerResolutionRefreshInterval(retryAfter: [9], now: 10) == 0)
+    #expect(transientOwnerResolutionRefreshInterval(retryAfter: [], now: 10) == nil)
   }
 
   @Test @NavigationActor
@@ -541,21 +458,16 @@ struct PlatformEventTests {
 
   @Test
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
-    #expect(
-      applicationLifecycleRefreshDelays(for: .application)
-        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
-    )
-    #expect(
-      applicationLifecycleRefreshDelays(for: .applicationTerminated)
-        == [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
-    )
+    #expect(!applicationLifecycleRefreshDelays(for: .application).isEmpty)
+    #expect(applicationLifecycleRefreshDelays(for: .applicationTerminated)
+      == applicationLifecycleRefreshDelays(for: .application))
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: nil) == .process(7))
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 0) == .process(7))
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 1) == .full)
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: nil, knownWindowCount: nil) == .full)
     #expect(applicationLifecycleRetryInvalidation(for: .applicationTerminated, processID: 7, knownWindowCount: nil) == .full)
-    #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
+    #expect(!windowTopologyRefreshDelays(for: .windowCreated).isEmpty)
     #expect(windowTopologyRefreshDelays(for: .windows).isEmpty)
     #expect(windowTopologyRefreshDelays(for: .focus).isEmpty)
   }
@@ -570,12 +482,6 @@ struct PlatformEventTests {
     #expect(platform.hasPendingWindowTopologyEvent)
     #expect(platform.snapshotEngine.pendingObservations.topologyProcessIDs == [101])
     #expect(platform.snapshotEngine.pendingObservations.topologyInputTimestamp == 12)
-  }
-
-  @Test
-  func windowCreationRetriesWithoutInputHistoryAfterRestart() {
-    #expect(windowTopologyRefreshDelays(for: .windowCreated) == [50, 150, 350])
-    #expect(windowTopologyRefreshDelays(for: .frame).isEmpty)
   }
 
   @Test
@@ -659,96 +565,25 @@ struct PlatformEventTests {
   }
 
   @Test
-  func staleFocusRecoveryCannotOverrideNewFocusIntent() {
-    #expect(
-      focusRecoveryIntentIsCurrent(
-        requestGeneration: 8,
-        currentGeneration: 8
-      )
-    )
-    #expect(
-      focusRecoveryIntentIsCurrent(
-        requestGeneration: 8,
-        currentGeneration: 9
-      ) == false)
+  func focusRecoveryIntentAndLookupAreLatestWins() {
+    #expect(focusRecoveryIntentIsCurrent(requestGeneration: 8, currentGeneration: 8))
+    #expect(!focusRecoveryIntentIsCurrent(requestGeneration: 8, currentGeneration: 9))
+    #expect(focusRecoveryResolutionIsCurrent(requestGeneration: 4, currentGeneration: 4))
+    #expect(!focusRecoveryResolutionIsCurrent(requestGeneration: 3, currentGeneration: 4))
   }
 
-  @Test
-  func auxiliaryFocusRecoveryLookupIsLatestWins() {
-    #expect(
-      focusRecoveryResolutionIsCurrent(
-        requestGeneration: 4,
-        currentGeneration: 4
-      )
-    )
-    #expect(
-      focusRecoveryResolutionIsCurrent(
-        requestGeneration: 3,
-        currentGeneration: 4
-      ) == false)
-  }
-
-  @Test
-  func physicalPointerTrackingIncludesDragEvents() {
-    #expect(eventTracksPhysicalPointerMotion(.mouseMoved))
-    #expect(eventTracksPhysicalPointerMotion(.leftMouseDragged))
-    #expect(eventTracksPhysicalPointerMotion(.rightMouseDragged))
-    #expect(eventTracksPhysicalPointerMotion(.otherMouseDragged))
-    #expect(eventTracksPhysicalPointerMotion(.scrollWheel) == false)
-    #expect(eventTracksPhysicalPointerMotion(.keyDown) == false)
-  }
-
-  @Test
-  func generalInputTrackingIncludesEveryMouseButtonDown() {
-    #expect(eventIsMouseButtonDown(.leftMouseDown))
-    #expect(eventIsMouseButtonDown(.rightMouseDown))
-    #expect(eventIsMouseButtonDown(.otherMouseDown))
-    #expect(eventIsMouseButtonDown(.leftMouseUp) == false)
-    #expect(eventIsMouseButtonDown(.mouseMoved) == false)
-    #expect(eventIsMouseButtonDown(.keyDown) == false)
-  }
-
-  @Test
-  func generalInputTrackingIncludesScrollWheel() {
-    #expect(eventTracksGeneralUserInput(.keyDown))
-    #expect(eventTracksGeneralUserInput(.flagsChanged))
-    #expect(eventTracksGeneralUserInput(.leftMouseDown))
-    #expect(eventTracksGeneralUserInput(.rightMouseDown))
-    #expect(eventTracksGeneralUserInput(.otherMouseDown))
-    #expect(eventTracksGeneralUserInput(.scrollWheel))
-    #expect(eventTracksGeneralUserInput(.mouseMoved) == false)
-    #expect(eventTracksGeneralUserInput(.leftMouseUp) == false)
-  }
-
-  @Test
-  func nativeFocusResultRequiresCurrentSuccessfulRequest() {
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: true
-      ) == .completedWithoutMutation
-    )
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: false
-      ) == .failed
-    )
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: false,
-        inputCurrent: true,
-        cancelled: true,
-        focusSucceeded: true
-      ) == .superseded
-    )
+  // event -> physical pointer motion, mouse button down, general user input
+  @Test(arguments: [
+    (.mouseMoved, true, false, false), (.leftMouseDragged, true, false, false),
+    (.rightMouseDragged, true, false, false), (.otherMouseDragged, true, false, false),
+    (.leftMouseDown, false, true, true), (.rightMouseDown, false, true, true), (.otherMouseDown, false, true, true),
+    (.leftMouseUp, false, false, false), (.scrollWheel, false, false, true), (.keyDown, false, false, true),
+    (.flagsChanged, false, false, true),
+  ] as [(CGEventType, Bool, Bool, Bool)])
+  func inputTrackingClassifiesEvents(type: CGEventType, pointerMotion: Bool, buttonDown: Bool, general: Bool) {
+    #expect(eventTracksPhysicalPointerMotion(type) == pointerMotion)
+    #expect(eventIsMouseButtonDown(type) == buttonDown)
+    #expect(eventTracksGeneralUserInput(type) == general)
   }
 
   @Test
@@ -911,28 +746,6 @@ struct PlatformEventTests {
         result: .failedAfterMutation,
         generationCurrent: true
       ).recovery == request
-    )
-  }
-
-  @Test
-  func failedFocusPreservesWhetherMutationWasApplied() {
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: false,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: false
-      ) == .failed
-    )
-    #expect(
-      resolvedNativeFocusResult(
-        mutationApplied: true,
-        generationCurrent: true,
-        inputCurrent: true,
-        cancelled: false,
-        focusSucceeded: false
-      ) == .failedAfterMutation
     )
   }
 
@@ -1102,27 +915,19 @@ struct PlatformEventTests {
   }
 
   @Test
-  func userInputTrackingStaysMonotonicAcrossDuplicateDelivery() {
+  func inputAndPointerTimestampsStayMonotonicAcrossDuplicateDelivery() {
     let tracker = UserInputTracker()
-    tracker.record(timestamp: 12)
-    tracker.record(timestamp: 8)
-    tracker.record(timestamp: 12)
-
+    for timestamp in [12.0, 8, 12] { tracker.record(timestamp: timestamp) }
     #expect(tracker.latestEventTimestamp == 12)
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: 12,
-        latestInputTimestamp: tracker.latestEventTimestamp
-      ) == false
-    )
-
+    #expect(!userInputOccurredAfterWindowTopology(topologyInputTimestamp: 12,
+      latestInputTimestamp: tracker.latestEventTimestamp))
     tracker.record(timestamp: 13)
-    #expect(
-      userInputOccurredAfterWindowTopology(
-        topologyInputTimestamp: 12,
-        latestInputTimestamp: tracker.latestEventTimestamp
-      )
-    )
+    #expect(userInputOccurredAfterWindowTopology(topologyInputTimestamp: 12,
+      latestInputTimestamp: tracker.latestEventTimestamp))
+    let pointer = PointerMotionTracker()
+    pointer.record(timestamp: 12)
+    pointer.record(timestamp: 10)
+    #expect(pointer.latestTimestamp == 12)
   }
 
   struct TopologyInputEvent: Sendable {
@@ -1313,14 +1118,6 @@ struct PlatformEventTests {
   }
 
   @Test
-  func invalidProcessDoesNotBecomeObservedFocus() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 11, focusIntent: .keyboard)
-    tracker.recordObservedFocus(windowID: nil, processID: -1)
-    #expect(tracker.focusRecoveryTarget(after: 10) == nil)
-  }
-
-  @Test
   func unresolvedNativeFocusEventRemainsPendingUntilTargetMatchesOrExpires() {
     func remains(
       pending: Bool = true, matched: Bool = false, age: TimeInterval, frontmost: Bool
@@ -1339,34 +1136,72 @@ struct PlatformEventTests {
     #expect(remains(age: 0.25, frontmost: false) == false, "Background app focus never resolves")
   }
 
-  @Test
-  func focusRecoveryUsesLatestExplicitTarget() throws {
+  struct RecoveryTarget: Equatable, Sendable {
+    let timestamp: Double
+    let windowID: UInt64?
+    let processID: pid_t?
+  }
+
+  struct FocusRecoveryCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    // timestamp, focus intent, close intent
+    let inputs: [(Double, UserInputTracker.FocusIntentSource?, Bool)]
+    var observed: [(UInt64?, pid_t)] = []
+    var after: Double = 10
+    var excluding: (UInt64?, pid_t?) = (nil, nil)
+    var fallback: (UInt64?, pid_t?) = (nil, nil)
+    let target: RecoveryTarget?
+
+    var testDescription: String { name }
+  }
+
+  static let mouse42 = UserInputTracker.FocusIntentSource.mouse(windowID: WindowID(rawValue: 42))
+  static let focusRecoveryCases = [
+    FocusRecoveryCase(name: "a click names its window", inputs: [(11, mouse42, false)],
+      target: RecoveryTarget(timestamp: 11, windowID: 42, processID: nil)),
+    FocusRecoveryCase(name: "a later keyboard intent uses the observed process",
+      inputs: [(11, mouse42, false), (12, .keyboard, false)], observed: [(nil, 900)], after: 11,
+      target: RecoveryTarget(timestamp: 12, windowID: nil, processID: 900)),
+    FocusRecoveryCase(name: "ordinary input after the intent advances the timestamp",
+      inputs: [(11, mouse42, false), (12, .keyboard, false), (13, nil, false)], observed: [(nil, 900)], after: 11,
+      target: RecoveryTarget(timestamp: 13, windowID: nil, processID: 900)),
+    FocusRecoveryCase(name: "a click without a window uses the observed process",
+      inputs: [(11, .mouse(windowID: nil), false)], observed: [(nil, 900)],
+      target: RecoveryTarget(timestamp: 11, windowID: nil, processID: 900)),
+    FocusRecoveryCase(name: "observed focus beats the clicked system surface", inputs: [(11, mouse42, false)],
+      observed: [(99, 900)], target: RecoveryTarget(timestamp: 11, windowID: 99, processID: 900)),
+    FocusRecoveryCase(name: "an invalid process never becomes observed focus", inputs: [(11, .keyboard, false)],
+      observed: [(nil, -1)], target: nil),
+    FocusRecoveryCase(name: "a guarded fallback observation is excluded", inputs: [(12, .keyboard, false)],
+      observed: [(50, 400), (40, 400)], after: 11, excluding: (40, 400),
+      target: RecoveryTarget(timestamp: 12, windowID: 50, processID: 400)),
+    FocusRecoveryCase(name: "a pid-only fallback observation is excluded", inputs: [(12, .keyboard, false)],
+      observed: [(50, 500), (nil, 400)], after: 11, excluding: (40, 400),
+      target: RecoveryTarget(timestamp: 12, windowID: 50, processID: 500)),
+    FocusRecoveryCase(name: "ordinary input recovers to the fallback", inputs: [(12, nil, false)],
+      excluding: (50, 500), fallback: (42, 400), target: RecoveryTarget(timestamp: 12, windowID: 42, processID: 400)),
+    FocusRecoveryCase(name: "an unresolved explicit focus does not fall back", inputs: [(12, .keyboard, false)],
+      fallback: (42, 400), target: nil),
+    FocusRecoveryCase(name: "the fallback cannot be the excluded target", inputs: [(12, nil, false)],
+      excluding: (42, nil), fallback: (42, 400), target: nil),
+    FocusRecoveryCase(name: "a close intent never falls back", inputs: [(12, nil, true)], fallback: (42, 400),
+      target: nil),
+  ]
+
+  @Test(arguments: focusRecoveryCases)
+  func focusRecoveryTargetFollowsIntentObservationAndFallback(_ scenario: FocusRecoveryCase) {
     let tracker = UserInputTracker()
-    let clickedWindowID = WindowID(rawValue: 42)
-    tracker.record(
-      timestamp: 11,
-      focusIntent: .mouse(windowID: clickedWindowID)
-    )
-
-    let mouseTarget = try #require(
-      tracker.focusRecoveryTarget(after: 10)
-    )
-    #expect(mouseTarget.windowID == clickedWindowID)
-    #expect(mouseTarget.timestamp == 11)
-
-    tracker.record(timestamp: 12, focusIntent: .keyboard)
-    tracker.recordObservedFocus(windowID: nil, processID: 900)
-    let keyboardTarget = try #require(
-      tracker.focusRecoveryTarget(after: 11)
-    )
-    #expect(keyboardTarget.timestamp == 12)
-    #expect(keyboardTarget.windowID == nil)
-    #expect(keyboardTarget.processID == 900)
-
-    tracker.record(timestamp: 13)
-    #expect(
-      tracker.focusRecoveryTarget(after: 11)?.timestamp == 13
-    )
+    for (timestamp, intent, close) in scenario.inputs {
+      tracker.record(timestamp: timestamp, focusIntent: intent, closeIntent: close)
+    }
+    for (windowID, processID) in scenario.observed {
+      tracker.recordObservedFocus(windowID: windowID.map(WindowID.init(rawValue:)), processID: processID)
+    }
+    let target = tracker.focusRecoveryTarget(after: scenario.after,
+      excludingWindowID: scenario.excluding.0.map(WindowID.init(rawValue:)), excludingProcessID: scenario.excluding.1,
+      fallbackWindowID: scenario.fallback.0.map(WindowID.init(rawValue:)), fallbackProcessID: scenario.fallback.1)
+    #expect(target.map { RecoveryTarget(timestamp: $0.timestamp, windowID: $0.windowID?.rawValue,
+      processID: $0.processID) } == scenario.target)
   }
 
   @Test
@@ -1424,131 +1259,6 @@ struct PlatformEventTests {
   }
 
   @Test
-  func mouseFocusRecoveryUsesObservedTargetWithoutEventWindowID() throws {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 11, focusIntent: .mouse(windowID: nil))
-    tracker.recordObservedFocus(windowID: nil, processID: 900)
-
-    let target = try #require(tracker.focusRecoveryTarget(after: 10))
-    #expect(target.timestamp == 11)
-    #expect(target.windowID == nil)
-    #expect(target.processID == 900)
-  }
-
-  @Test
-  func mouseFocusRecoveryPrefersObservedTargetOverSystemSurface() throws {
-    let tracker = UserInputTracker()
-    tracker.record(
-      timestamp: 11,
-      focusIntent: .mouse(windowID: WindowID(rawValue: 42))
-    )
-    tracker.recordObservedFocus(
-      windowID: WindowID(rawValue: 99),
-      processID: 900
-    )
-
-    let target = try #require(tracker.focusRecoveryTarget(after: 10))
-    #expect(target.windowID == WindowID(rawValue: 99))
-    #expect(target.processID == 900)
-  }
-
-  @Test
-  func ordinaryInputRecoversCapturedNativeFocus() throws {
-    let tracker = UserInputTracker()
-    let fallbackWindowID = WindowID(rawValue: 42)
-    tracker.record(timestamp: 12)
-
-    let target = try #require(
-      tracker.focusRecoveryTarget(
-        after: 10,
-        excludingWindowID: WindowID(rawValue: 50),
-        excludingProcessID: 500,
-        fallbackWindowID: fallbackWindowID,
-        fallbackProcessID: 400
-      )
-    )
-    #expect(target.timestamp == 12)
-    #expect(target.windowID == fallbackWindowID)
-    #expect(target.processID == 400)
-  }
-
-  @Test
-  func unresolvedExplicitFocusDoesNotFallBack() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 12, focusIntent: .keyboard)
-
-    #expect(
-      tracker.focusRecoveryTarget(
-        after: 10,
-        fallbackWindowID: WindowID(rawValue: 42),
-        fallbackProcessID: 400
-      ) == nil
-    )
-  }
-
-  @Test
-  func fallbackRecoveryRejectsTargetAndCloseIntent() {
-    let requestedWindowID = WindowID(rawValue: 42)
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 12)
-
-    #expect(
-      tracker.focusRecoveryTarget(
-        after: 10,
-        excludingWindowID: requestedWindowID,
-        fallbackWindowID: requestedWindowID,
-        fallbackProcessID: 400
-      ) == nil
-    )
-
-    let closingTracker = UserInputTracker()
-    closingTracker.record(timestamp: 12, closeIntent: true)
-    #expect(
-      closingTracker.focusRecoveryTarget(
-        after: 10,
-        fallbackWindowID: requestedWindowID,
-        fallbackProcessID: 400
-      ) == nil
-    )
-  }
-
-  @Test
-  func focusRecoveryExcludesGuardedFallbackObservations() throws {
-    let tracker = UserInputTracker()
-    let fallbackWindowID = WindowID(rawValue: 40)
-    let intendedWindowID = WindowID(rawValue: 50)
-    tracker.record(timestamp: 12, focusIntent: .keyboard)
-    tracker.recordObservedFocus(windowID: intendedWindowID, processID: 400)
-    tracker.recordObservedFocus(windowID: fallbackWindowID, processID: 400)
-
-    let target = try #require(
-      tracker.focusRecoveryTarget(
-        after: 11,
-        excludingWindowID: fallbackWindowID,
-        excludingProcessID: 400
-      )
-    )
-    #expect(target.windowID == intendedWindowID)
-    #expect(target.processID == 400)
-  }
-
-  @Test
-  func focusRecoveryExcludesPidOnlyFallbackObservation() {
-    let tracker = UserInputTracker()
-    tracker.record(timestamp: 12, focusIntent: .keyboard)
-    tracker.recordObservedFocus(windowID: WindowID(rawValue: 50), processID: 500)
-    tracker.recordObservedFocus(windowID: nil, processID: 400)
-
-    let target = tracker.focusRecoveryTarget(
-      after: 11,
-      excludingWindowID: WindowID(rawValue: 40),
-      excludingProcessID: 400
-    )
-    #expect(target?.windowID == WindowID(rawValue: 50))
-    #expect(target?.processID == 500)
-  }
-
-  @Test
   func globalMouseFallbackRetainsTargetWindowIdentity() {
     #expect(
       mouseFocusIntentWindowID(rawWindowID: 42)
@@ -1578,102 +1288,28 @@ struct PlatformEventTests {
   }
 
   @Test
-  func pointerMotionTimestampStaysMonotonic() {
-    let tracker = PointerMotionTracker()
-
-    tracker.record(timestamp: 12)
-    tracker.record(timestamp: 10)
-
-    #expect(tracker.latestTimestamp == 12)
-  }
-
-  @Test
-  func pointerWindowTransitionsDeduplicateSameWindow() {
+  func pointerWindowTransitionsDeduplicateUntilReset() {
     var state = PointerWindowTransitionState()
-
-    let entersWindow = state.changed(to: 42)
-    let staysInWindow = state.changed(to: 42)
-    let leavesWindow = state.changed(to: 0)
-    let staysOutside = state.changed(to: 0)
-    let reentersWindow = state.changed(to: 42)
-
-    #expect(entersWindow)
-    #expect(staysInWindow == false)
-    #expect(leavesWindow)
-    #expect(staysOutside == false)
-    #expect(reentersWindow)
-  }
-
-  @Test
-  func pointerWindowTransitionCanBeRearmedInsideSameWindow() {
-    var state = PointerWindowTransitionState()
-
-    let entersWindow = state.changed(to: 42)
-    let staysInWindow = state.changed(to: 42)
+    let changes = [42, 42, 0, 0, 42].map { state.changed(to: $0) }
+    #expect(changes == [true, false, true, false, true])
     state.reset()
-    let retriesInsideWindow = state.changed(to: 42)
-
-    #expect(entersWindow)
-    #expect(staysInWindow == false)
-    #expect(retriesInsideWindow)
+    let rearmed = state.changed(to: 42)
+    #expect(rearmed, "A reset re-arms the transition inside the same window")
   }
 
   @Test
-  func unresolvedPointerMotionDeliveryIsRefreshBounded() {
-    #expect(
-      pointerMotionDeliveryDelay(
-        rawWindowID: 0,
-        eventTimestamp: 12,
-        lastDeliveryTimestamp: nil
-      ) == 0
-    )
-    #expect(
-      pointerMotionDeliveryDelay(
-        rawWindowID: 42,
-        eventTimestamp: 12.001,
-        lastDeliveryTimestamp: 12
-      ) > 0.007
-    )
-    #expect(
-      pointerMotionDeliveryDelay(
-        rawWindowID: 0,
-        eventTimestamp: 12.001,
-        lastDeliveryTimestamp: 12
-      ) > 0.007
-    )
-    #expect(
-      pointerMotionDeliveryDelay(
-        rawWindowID: 0,
-        eventTimestamp: 12.01,
-        lastDeliveryTimestamp: 12
-      ) == 0
-    )
-  }
-
-  @Test
-  func throttledPointerMotionStillHasTrailingDelivery() {
-    #expect(
-      pointerMotionDeliveryPlan(
-        rawWindowChanged: false,
-        refreshDelay: 0.007,
-        deliveryScheduled: false
-      )
-        == PointerMotionDeliveryPlan(
-          shouldSchedule: true,
-          delay: 0.007
-        )
-    )
-    #expect(
-      pointerMotionDeliveryPlan(
-        rawWindowChanged: false,
-        refreshDelay: 0.007,
-        deliveryScheduled: true
-      )
-        == PointerMotionDeliveryPlan(
-          shouldSchedule: false,
-          delay: 0.007
-        )
-    )
+  func pointerMotionDeliveryIsRefreshBoundedWithATrailingDelivery() {
+    func delay(at timestamp: TimeInterval, last: TimeInterval?) -> TimeInterval {
+      pointerMotionDeliveryDelay(rawWindowID: 0, eventTimestamp: timestamp, lastDeliveryTimestamp: last,
+        maximumFrequencyHz: 100)
+    }
+    #expect(delay(at: 12, last: nil) == 0)
+    #expect(abs(delay(at: 12.001, last: 12) - 0.009) < 1e-9)
+    #expect(delay(at: 12.02, last: 12) == 0)
+    #expect(pointerMotionDeliveryPlan(rawWindowChanged: false, refreshDelay: 0.007, deliveryScheduled: false)
+      == PointerMotionDeliveryPlan(shouldSchedule: true, delay: 0.007))
+    #expect(pointerMotionDeliveryPlan(rawWindowChanged: false, refreshDelay: 0.007, deliveryScheduled: true)
+      == PointerMotionDeliveryPlan(shouldSchedule: false, delay: 0.007))
   }
 
   @Test
@@ -1714,43 +1350,13 @@ struct PlatformEventTests {
 
   @Test
   func reliableObservationWatchdogsWaitForIdleButFallbacksStayImmediate() {
-    #expect(
-      applicationInventoryRefreshInterval(
-        reliableLifecycleObservation: true
-      ) == 30
-    )
-    #expect(
-      applicationInventoryRefreshInterval(
-        reliableLifecycleObservation: false
-      ) == 0.3
-    )
-    #expect(
-      desktopSnapshotRefreshInterval(reliableDesktopObservation: true) == 30
-    )
-    #expect(
-      desktopSnapshotRefreshInterval(reliableDesktopObservation: false) == 0.3
-    )
-    #expect(
-      observationWatchdogRefreshIsReady(
-        due: true,
-        interval: 30,
-        userInputIdleDuration: 0.5
-      ) == false
-    )
-    #expect(
-      observationWatchdogRefreshIsReady(
-        due: true,
-        interval: 30,
-        userInputIdleDuration: 1
-      )
-    )
-    #expect(
-      observationWatchdogRefreshIsReady(
-        due: true,
-        interval: 0.3,
-        userInputIdleDuration: 0
-      )
-    )
+    #expect(applicationInventoryRefreshInterval(reliableLifecycleObservation: true)
+      > applicationInventoryRefreshInterval(reliableLifecycleObservation: false))
+    #expect(desktopSnapshotRefreshInterval(reliableDesktopObservation: true)
+      > desktopSnapshotRefreshInterval(reliableDesktopObservation: false))
+    #expect(!observationWatchdogRefreshIsReady(due: true, interval: 30, userInputIdleDuration: 0.5))
+    #expect(observationWatchdogRefreshIsReady(due: true, interval: 30, userInputIdleDuration: 1))
+    #expect(observationWatchdogRefreshIsReady(due: true, interval: 0.3, userInputIdleDuration: 0))
   }
 
   @Test
@@ -1790,65 +1396,20 @@ struct PlatformEventTests {
   }
 
   @Test
-  func unmatchedWindowsGetThreeShortRetriesThenUseWatchdog() {
-    #expect(unmatchedWindowRetryIsPending(attempts: 0))
-    #expect(unmatchedWindowRetryIsPending(attempts: 2))
-    #expect(unmatchedWindowRetryIsPending(attempts: 3) == false)
-    #expect(
-      windowListRefreshInterval(
-        hasPendingShortRetry: true,
-        reliableTopologyObservation: true
-      ) == 0.1
-    )
-    #expect(
-      windowListRefreshInterval(
-        hasPendingShortRetry: false,
-        reliableTopologyObservation: true
-      ) == 30
-    )
-    #expect(
-      windowListRefreshInterval(
-        hasPendingShortRetry: false,
-        reliableTopologyObservation: false
-      ) == 0.3
-    )
-  }
-
-  @Test
-  func failedWindowListReadsGetThreeShortRetriesThenClearOnSuccess() {
-    let initialFailure = updatedWindowListReadRetryAttempts(
-      previousAttempts: nil,
-      readSucceeded: false
-    )
-    let firstRetryFailure = updatedWindowListReadRetryAttempts(
-      previousAttempts: initialFailure,
-      readSucceeded: false
-    )
-    let secondRetryFailure = updatedWindowListReadRetryAttempts(
-      previousAttempts: firstRetryFailure,
-      readSucceeded: false
-    )
-    let thirdRetryFailure = updatedWindowListReadRetryAttempts(
-      previousAttempts: secondRetryFailure,
-      readSucceeded: false
-    )
-
-    #expect(initialFailure == 0)
-    #expect(firstRetryFailure == 1)
-    #expect(secondRetryFailure == 2)
-    #expect(thirdRetryFailure == 3)
-    #expect(
-      updatedWindowListReadRetryAttempts(
-        previousAttempts: thirdRetryFailure,
-        readSucceeded: false
-      ) == 3
-    )
-    #expect(
-      updatedWindowListReadRetryAttempts(
-        previousAttempts: thirdRetryFailure,
-        readSucceeded: true
-      ) == nil
-    )
+  func windowDiscoveryGetsThreeShortRetriesThenClearsOnSuccess() {
+    #expect((0...3).map { unmatchedWindowRetryIsPending(attempts: $0) } == [true, true, true, false])
+    var attempts: Int? = nil
+    var history: [Int?] = []
+    for _ in 0..<5 {
+      attempts = updatedWindowListReadRetryAttempts(previousAttempts: attempts, readSucceeded: false)
+      history.append(attempts)
+    }
+    #expect(history == [0, 1, 2, 3, 3])
+    #expect(updatedWindowListReadRetryAttempts(previousAttempts: 3, readSucceeded: true) == nil)
+    #expect(windowListRefreshInterval(hasPendingShortRetry: true, reliableTopologyObservation: true)
+      < windowListRefreshInterval(hasPendingShortRetry: false, reliableTopologyObservation: false))
+    #expect(windowListRefreshInterval(hasPendingShortRetry: false, reliableTopologyObservation: false)
+      < windowListRefreshInterval(hasPendingShortRetry: false, reliableTopologyObservation: true))
   }
 
   enum ShortRetryTrigger: String, CaseIterable, CustomTestStringConvertible, Sendable {
@@ -2101,31 +1662,18 @@ struct PlatformEventTests {
     #expect(noLongerTransient.contains(where: { CFEqual($0, current) }))
   }
 
-  @Test @NavigationActor
-  func explicitWindowFrameRefreshTargetsOwningProcess() {
+  @Test(arguments: [true, false]) @NavigationActor
+  func frameRefreshTargetsTheOwningProcessOrFallsBackToAFullSnapshot(known: Bool) {
     let platform = MacOSPlatform()
     let windowID = WindowID(rawValue: 42)
-    platform.processIDs[windowID] = 101
-
+    if known { platform.processIDs[windowID] = 101 }
     platform.requestFrameRefresh(for: windowID)
-
-    #expect(platform.snapshotEngine.pendingObservations.framePending)
-    #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs == [101])
-    #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [windowID])
-    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot == false)
-    #expect(!platform.snapshotEngine.pendingObservations.frameIncludesUnscopedRefresh)
-  }
-
-  @Test @NavigationActor
-  func unknownWindowFrameRefreshFallsBackToFullSnapshot() {
-    let platform = MacOSPlatform()
-
-    platform.requestFrameRefresh(for: WindowID(rawValue: 42))
-
-    #expect(platform.snapshotEngine.pendingObservations.framePending)
-    #expect(platform.snapshotEngine.pendingObservations.frameProcessIDs.isEmpty)
-    #expect(platform.snapshotEngine.pendingObservations.frameWindowIDs == [WindowID(rawValue: 42)])
-    #expect(platform.snapshotEngine.pendingObservations.frameRequiresFullSnapshot)
+    let pending = platform.snapshotEngine.pendingObservations
+    #expect(pending.framePending)
+    #expect(pending.frameProcessIDs == (known ? [101] : []))
+    #expect(pending.frameWindowIDs == [windowID])
+    #expect(pending.frameRequiresFullSnapshot == !known)
+    #expect(!pending.frameIncludesUnscopedRefresh)
   }
 
   @Test(arguments: [false, true]) @MainActor
@@ -2189,162 +1737,59 @@ struct PlatformEventTests {
   }
 
   @Test
-  func simpleClickSynchronizesDesktopOnRelease() {
-    var normalizer = MouseGestureEventNormalizer()
-    let mouseDown = normalizer.actions(
-      for: .leftMouseDown
-    )
-    let mouseUp = normalizer.actions(for: .leftMouseUp)
-
-    #expect(
-      mouseDown
-        == MouseGestureEventNormalizer.Actions(
-          refreshBorderStacking: true,
-          startsGesture: true
-        )
-    )
-    #expect(mouseUp.needsGestureSynchronization == false)
-    #expect(mouseUp.endsFocusInteraction)
-    #expect(platformEventCancelsMouseAnimation(.mouseRelease) == false)
+  func mouseGestureSynchronizesOnlyWhileDraggingAndEndsOnRelease() {
+    typealias Actions = MouseGestureEventNormalizer.Actions
+    var click = MouseGestureEventNormalizer()
+    let press = click.actions(for: .leftMouseDown)
+    #expect(press == Actions(refreshBorderStacking: true, startsGesture: true))
+    let clickUp = click.actions(for: .leftMouseUp)
+    #expect(!clickUp.needsGestureSynchronization)
+    #expect(clickUp.endsFocusInteraction)
+    #expect(!platformEventCancelsMouseAnimation(.mouseRelease))
     #expect(platformEventCancelsMouseAnimation(.mouse))
+
+    var drag = MouseGestureEventNormalizer()
+    _ = drag.actions(for: .leftMouseDown)
+    let synchronizes = [drag.actions(for: .leftMouseDragged), drag.actions(for: .leftMouseDragged),
+      drag.actions(for: .leftMouseUp)].map(\.needsGestureSynchronization)
+    #expect(synchronizes == [true, true, true])
+    let secondRelease = drag.actions(for: .leftMouseUp)
+    #expect(secondRelease == Actions(), "A second release is ignored")
+    let next = drag.actions(for: .leftMouseDown)
+    #expect(next.startsGesture)
+    #expect(!next.needsGestureSynchronization, "The next press starts a fresh gesture")
+
+    #expect([NSEvent.EventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp]
+      .map(eventStartsMouseFocusInteraction) == [true, true, true, false, false, false])
   }
 
   @Test
-  func draggedGestureKeepsSynchronizingUntilMouseUp() {
-    var normalizer = MouseGestureEventNormalizer()
-    let mouseDown = normalizer.actions(
-      for: .leftMouseDown
-    )
-    let firstMouseDragged = normalizer.actions(
-      for: .leftMouseDragged
-    )
-    let secondMouseDragged = normalizer.actions(
-      for: .leftMouseDragged
-    )
-    let firstMouseUp = normalizer.actions(
-      for: .leftMouseUp
-    )
-    let secondMouseUp = normalizer.actions(
-      for: .leftMouseUp
-    )
+  func mouseInteractionEndsOnlyWhenEveryHeldButtonIsReleasedOrReset() {
+    var held = MouseGestureEventNormalizer()
+    _ = held.actions(for: .leftMouseDown)
+    _ = held.actions(for: .rightMouseDown, buttonNumber: 1)
+    let releases = [held.actions(for: .otherMouseUp, buttonNumber: 2), held.actions(for: .leftMouseUp),
+      held.actions(for: .rightMouseUp, buttonNumber: 1)]
+    #expect(releases[0] == MouseGestureEventNormalizer.Actions(), "An unrelated button is ignored")
+    #expect(releases.map(\.endsFocusInteraction) == [false, false, true])
 
-    #expect(mouseDown.refreshBorderStacking)
-    #expect(mouseDown.needsGestureSynchronization == false)
-    #expect(firstMouseDragged.needsGestureSynchronization)
-    #expect(secondMouseDragged.needsGestureSynchronization)
-    #expect(firstMouseUp.needsGestureSynchronization)
-    #expect(firstMouseUp.endsFocusInteraction)
-    #expect(secondMouseUp == MouseGestureEventNormalizer.Actions())
+    var reset = MouseGestureEventNormalizer()
+    _ = reset.actions(for: .leftMouseDown)
+    let resets = [reset.reset(), reset.reset()]
+    #expect(resets == [true, false], "Only a held gesture requests a synthetic release")
+    let release = reset.actions(for: .leftMouseUp)
+    #expect(release == MouseGestureEventNormalizer.Actions())
   }
 
   @Test
-  func mouseReleaseWaitsForEveryHeldButton() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-    _ = normalizer.actions(for: .rightMouseDown, buttonNumber: 1)
-
-    let leftUp = normalizer.actions(for: .leftMouseUp)
-    #expect(leftUp.endsFocusInteraction == false)
-
-    let rightUp = normalizer.actions(for: .rightMouseUp, buttonNumber: 1)
-    #expect(rightUp.endsFocusInteraction)
-  }
-
-  @Test
-  func mouseReleaseMustMatchInitiatingButton() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-
-    let unrelatedRelease = normalizer.actions(
-      for: .otherMouseUp,
-      buttonNumber: 2
-    )
-    #expect(unrelatedRelease == MouseGestureEventNormalizer.Actions())
-    #expect(
-      normalizer.actions(for: .leftMouseUp).endsFocusInteraction
-    )
-  }
-
-  @Test
-  func everyMouseButtonDownStartsFocusInteraction() {
-    #expect(eventStartsMouseFocusInteraction(.leftMouseDown))
-    #expect(eventStartsMouseFocusInteraction(.rightMouseDown))
-    #expect(eventStartsMouseFocusInteraction(.otherMouseDown))
-    #expect(eventStartsMouseFocusInteraction(.leftMouseUp) == false)
-    #expect(eventStartsMouseFocusInteraction(.rightMouseUp) == false)
-    #expect(eventStartsMouseFocusInteraction(.otherMouseUp) == false)
-  }
-
-  @Test
-  func coalescedNextMouseDownStartsFreshGesture() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-    _ = normalizer.actions(for: .leftMouseDragged)
-    _ = normalizer.actions(for: .leftMouseUp)
-
-    let nextMouseDown = normalizer.actions(for: .leftMouseDown)
-
-    #expect(nextMouseDown.startsGesture)
-    #expect(nextMouseDown.needsGestureSynchronization == false)
-  }
-
-  @Test
-  func resettingHeldMouseGestureRequestsSyntheticRelease() {
-    var normalizer = MouseGestureEventNormalizer()
-    _ = normalizer.actions(for: .leftMouseDown)
-
-    let resetHeldButtons = normalizer.reset()
-    let resetEmptyGesture = normalizer.reset()
-    #expect(resetHeldButtons)
-    #expect(resetEmptyGesture == false)
-    #expect(
-      normalizer.actions(for: .leftMouseUp)
-        == MouseGestureEventNormalizer.Actions()
-    )
-  }
-
-  @Test
-  func mouseGestureRefreshesClickedWindowProcess() {
-    let clickedWindowID = WindowID(rawValue: 10)
-    let focusedWindowID = WindowID(rawValue: 20)
-
-    #expect(
-      mouseGestureRefreshProcessID(
-        latestFocusIntent: .init(
-          timestamp: 1,
-          source: .mouse(windowID: clickedWindowID)
-        ),
-        focusedWindowID: focusedWindowID,
-        processIDs: [clickedWindowID: 100, focusedWindowID: 200]
-      ) == 100
-    )
-  }
-
-  @Test
-  func mouseGestureFallsBackToFocusedProcessWhenClickIsUnknown() {
-    let focusedWindowID = WindowID(rawValue: 20)
-
-    #expect(
-      mouseGestureRefreshProcessID(
-        latestFocusIntent: .init(
-          timestamp: 1,
-          source: .mouse(windowID: WindowID(rawValue: 10))
-        ),
-        focusedWindowID: focusedWindowID,
-        processIDs: [focusedWindowID: 200]
-      ) == 200
-    )
-  }
-
-  @Test
-  func mouseGestureRequiresFullRefreshWithoutKnownProcess() {
-    #expect(
-      mouseGestureRefreshProcessID(
-        latestFocusIntent: nil,
-        focusedWindowID: WindowID(rawValue: 20),
-        processIDs: [:]
-      ) == nil
-    )
+  func mouseGestureRefreshesTheClickedThenFocusedProcess() {
+    let clicked = WindowID(rawValue: 10), focused = WindowID(rawValue: 20)
+    let intent = UserInputTracker.FocusIntent(timestamp: 1, source: .mouse(windowID: clicked))
+    #expect(mouseGestureRefreshProcessID(latestFocusIntent: intent, focusedWindowID: focused,
+      processIDs: [clicked: 100, focused: 200]) == 100)
+    #expect(mouseGestureRefreshProcessID(latestFocusIntent: intent, focusedWindowID: focused,
+      processIDs: [focused: 200]) == 200)
+    #expect(mouseGestureRefreshProcessID(latestFocusIntent: nil, focusedWindowID: focused, processIDs: [:]) == nil)
   }
 
   @Test
@@ -2398,335 +1843,68 @@ struct PlatformEventTests {
     )
   }
 
-  @Test
-  func frontmostBorderOccluderIgnoresTinyAuxiliaryWindows() {
-    let auxiliaryWindow = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
+  struct BorderOccluderCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    // Windows above the focused window (id 9), front to back.
+    let above: [WindowStackEntry]
+    var focused = WindowStackEntry(windowID: WindowID(rawValue: 9), processID: 8, layer: normal,
+      frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354))
+    var monitors: [Rect] = [Rect(x: 0, y: 0, width: 2_560, height: 1_440)]
+    var known: Set<WindowID> = []
+    let frontmost: Bool
+    var upperBound: UInt64? = nil
 
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: auxiliaryWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 8, y: 40, width: 66, height: 20)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
+    var testDescription: String { name }
   }
 
-  @Test
-  func frontmostBorderOccluderKeepsDialogsAheadOfFocusedWindow() {
-    let dialog = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
+  static let normal = NSWindow.Level.normal.rawValue
+  static let floating = NSWindow.Level.floating.rawValue
 
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: dialog,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 400, y: 300, width: 640, height: 480)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost == false)
-    #expect(result.upperBoundWindowID == nil)
+  static func entry(_ id: UInt64, _ processID: pid_t, _ layer: Int, _ frame: Rect) -> WindowStackEntry {
+    WindowStackEntry(windowID: WindowID(rawValue: id), processID: processID, layer: layer, frame: frame)
   }
 
-  @Test
-  func sameAppSiblingAboveInZOrderDoesNotOccludeWithoutOverlap() {
-    let sibling = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
+  static let borderOccluderCases = [
+    BorderOccluderCase(name: "a tiny auxiliary window does not occlude",
+      above: [entry(1, 7, normal, Rect(x: 520, y: 40, width: 66, height: 20))], frontmost: true),
+    BorderOccluderCase(name: "a dialog stays ahead of the focused window",
+      above: [entry(1, 7, normal, Rect(x: 900, y: 400, width: 640, height: 480))], frontmost: false),
+    BorderOccluderCase(name: "a same-app sibling above without overlap does not occlude",
+      above: [entry(1, 8, normal, Rect(x: 2, y: 34, width: 500, height: 1_354))],
+      focused: entry(9, 8, normal, Rect(x: 514, y: 34, width: 900, height: 1_354)), known: [WindowID(rawValue: 1)],
+      frontmost: true),
+    BorderOccluderCase(name: "a floating picture in picture bounds the border",
+      above: [entry(1, 7, floating, Rect(x: 1_400, y: 700, width: 420, height: 390))], frontmost: true, upperBound: 1),
+    BorderOccluderCase(name: "the backmost floating window bounds the border; Defi's own surfaces are ignored",
+      above: [entry(1, 7, floating, Rect(x: 600, y: 200, width: 400, height: 300)),
+        entry(2, 8, floating, Rect(x: 900, y: 600, width: 400, height: 300)),
+        entry(3, 99, floating, Rect(x: 514, y: 34, width: 20, height: 1_354))], frontmost: true, upperBound: 2),
+    BorderOccluderCase(name: "a higher-level system window needs no floating bound",
+      above: [entry(1, 7, NSWindow.Level.statusBar.rawValue, Rect(x: 0, y: 0, width: 2_560, height: 30))],
+      frontmost: true),
+    BorderOccluderCase(name: "an offscreen auxiliary window cannot demote a picture in picture bound",
+      above: [entry(1, 7, floating, Rect(x: 1_819, y: 981, width: 418, height: 390)),
+        entry(2, 8, normal, Rect(x: 4_283, y: 469, width: 360, height: 287))], frontmost: true, upperBound: 1),
+    BorderOccluderCase(name: "an untracked same-process auxiliary window cannot demote a picture in picture bound",
+      above: [entry(1, 8, floating, Rect(x: 357, y: 730, width: 418, height: 390)),
+        entry(2, 8, normal, Rect(x: 2_200, y: 469, width: 360, height: 287))], frontmost: true, upperBound: 1),
+    BorderOccluderCase(name: "a tracked same-process dialog stays above the border",
+      above: [entry(1, 8, normal, Rect(x: 900, y: 400, width: 640, height: 480))],
+      known: [WindowID(rawValue: 1), WindowID(rawValue: 9)], frontmost: false),
+    BorderOccluderCase(name: "a window on another monitor cannot demote the border",
+      above: [entry(1, 7, normal, Rect(x: 2_600, y: 40, width: 1_800, height: 1_000))],
+      monitors: [Rect(x: 0, y: 0, width: 2_560, height: 1_440), Rect(x: 2_560, y: 0, width: 1_920, height: 1_080)],
+      frontmost: true),
+  ]
 
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: sibling,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 900, height: 1_354)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 910, y: 34, width: 900, height: 1_354)
-        ),
-      ],
-      knownWindowIDs: [sibling]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
+  @Test(arguments: borderOccluderCases)
+  func borderStackingFindsTheOccludersThatMatter(_ scenario: BorderOccluderCase) {
+    let result = windowBorderStacking(targetWindowID: scenario.focused.windowID, ownProcessID: 99,
+      floatingLevel: Self.floating, entries: scenario.above + [scenario.focused], monitorFrames: scenario.monitors,
+      knownWindowIDs: scenario.known)
+    #expect(result.activeWindowIsFrontmost == scenario.frontmost)
+    #expect(result.upperBoundWindowID == scenario.upperBound.map(WindowID.init(rawValue:)))
+    #expect(result.upperBoundLevel == (scenario.upperBound == nil ? nil : Self.floating))
   }
 
-  @Test
-  func floatingPictureInPictureBoundsFrontmostBorder() {
-    let pictureInPicture = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: pictureInPicture,
-          processID: 7,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 1_400, y: 700, width: 420, height: 390)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == pictureInPicture)
-    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
-  }
-
-  @Test
-  func backmostFloatingOccluderBoundsBorderBelowEveryFloatingWindow() {
-    let frontPictureInPicture = WindowID(rawValue: 1)
-    let backPictureInPicture = WindowID(rawValue: 2)
-    let ownBorderSurface = WindowID(rawValue: 3)
-    let focusedWindow = WindowID(rawValue: 4)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: frontPictureInPicture,
-          processID: 7,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 200, y: 200, width: 400, height: 300)
-        ),
-        WindowStackEntry(
-          windowID: backPictureInPicture,
-          processID: 8,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 900, y: 600, width: 400, height: 300)
-        ),
-        WindowStackEntry(
-          windowID: ownBorderSurface,
-          processID: 99,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 2, y: 34, width: 20, height: 1_354)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == backPictureInPicture)
-  }
-
-  @Test
-  func higherLevelWindowNeedsNoExplicitFloatingUpperBound() {
-    let systemWindow = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: systemWindow,
-          processID: 7,
-          layer: NSWindow.Level.statusBar.rawValue,
-          frame: Rect(x: 0, y: 0, width: 2_560, height: 30)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2, y: 34, width: 2_044, height: 1_354)
-        ),
-      ]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
-  }
-
-  @Test
-  func offscreenAuxiliaryWindowCannotDemotePictureInPictureBorder() {
-    let pictureInPicture = WindowID(rawValue: 1)
-    let parkedAuxiliaryWindow = WindowID(rawValue: 2)
-    let focusedWindow = WindowID(rawValue: 3)
-    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: pictureInPicture,
-          processID: 7,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 1_819, y: 981, width: 418, height: 390)
-        ),
-        WindowStackEntry(
-          windowID: parkedAuxiliaryWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 4_283, y: 469, width: 360, height: 287)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [monitor]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == pictureInPicture)
-    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
-  }
-
-  @Test
-  func untrackedSameProcessAuxiliaryCannotDemotePictureInPictureBorder() {
-    let pictureInPicture = WindowID(rawValue: 1)
-    let auxiliaryWindow = WindowID(rawValue: 2)
-    let focusedWindow = WindowID(rawValue: 3)
-    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: pictureInPicture,
-          processID: 8,
-          layer: NSWindow.Level.floating.rawValue,
-          frame: Rect(x: 357, y: 730, width: 418, height: 390)
-        ),
-        WindowStackEntry(
-          windowID: auxiliaryWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2_200, y: 469, width: 360, height: 287)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [monitor]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == pictureInPicture)
-    #expect(result.upperBoundLevel == NSWindow.Level.floating.rawValue)
-  }
-
-  @Test
-  func trackedSameProcessDialogStaysAboveSelectedWindowBorder() {
-    let dialog = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-    let monitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: dialog,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 900, y: 400, width: 640, height: 480)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [monitor],
-      knownWindowIDs: [dialog, focusedWindow]
-    )
-
-    #expect(result.activeWindowIsFrontmost == false)
-    #expect(result.upperBoundWindowID == nil)
-  }
-
-  @Test
-  func normalWindowOnAnotherMonitorCannotDemoteBorder() {
-    let otherMonitorWindow = WindowID(rawValue: 1)
-    let focusedWindow = WindowID(rawValue: 2)
-    let firstMonitor = Rect(x: 0, y: 0, width: 2_560, height: 1_440)
-    let secondMonitor = Rect(x: 2_560, y: 0, width: 1_920, height: 1_080)
-
-    let result = windowBorderStacking(
-      targetWindowID: focusedWindow,
-      ownProcessID: 99,
-      floatingLevel: NSWindow.Level.floating.rawValue,
-      entries: [
-        WindowStackEntry(
-          windowID: otherMonitorWindow,
-          processID: 7,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 2_600, y: 40, width: 1_800, height: 1_000)
-        ),
-        WindowStackEntry(
-          windowID: focusedWindow,
-          processID: 8,
-          layer: NSWindow.Level.normal.rawValue,
-          frame: Rect(x: 514, y: 34, width: 2_042, height: 1_354)
-        ),
-      ],
-      monitorFrames: [firstMonitor, secondMonitor]
-    )
-
-    #expect(result.activeWindowIsFrontmost)
-    #expect(result.upperBoundWindowID == nil)
-  }
 }

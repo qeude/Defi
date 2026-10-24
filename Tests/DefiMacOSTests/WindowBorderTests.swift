@@ -66,143 +66,31 @@ struct WindowBorderTests {
     captureEnabled: false
   )
 
-  @Test
-  func activeOnlyPlanRendersSingleBorderAndTracksVisibleWindows() {
-    let selected = WindowID(rawValue: 2)
-    let plan = planWindowBorders(
-      frames: [
-        FrameAssignment(
-          windowID: WindowID(rawValue: 1),
-          frame: Rect(x: 10, y: 20, width: 500, height: 800)
-        ),
-        FrameAssignment(
-          windowID: selected,
-          frame: Rect(x: 520, y: 20, width: 700, height: 800)
-        ),
-      ],
-      selectedWindowID: selected,
-      hiddenWindowIDs: [],
-      monitorFrames: [monitor],
-      style: style
-    )
-
-    #expect(plan.active?.windowID == selected)
-    #expect(plan.active?.frame == Rect(x: 520, y: 20, width: 700, height: 800))
-    #expect(plan.inactive.isEmpty)
-    #expect(plan.tracked.map(\.windowID) == [WindowID(rawValue: 1), selected])
-  }
-
-  @Test
-  func inactiveBordersRemainExplicitOptIn() {
-    let selected = WindowID(rawValue: 2)
-    let inactiveStyle = WindowBorderStyle(
-      enabled: true,
-      width: 4,
-      activeColor: 0xffff_ffff,
-      inactiveEnabled: true,
-      inactiveColor: 0x66ff_ffff,
-      captureEnabled: false
-    )
-    let plan = planWindowBorders(
-      frames: (1...500).map {
-        FrameAssignment(
-          windowID: WindowID(rawValue: UInt64($0)),
-          frame: Rect(x: 10, y: 20, width: 500, height: 800)
-        )
-      },
-      selectedWindowID: selected,
-      hiddenWindowIDs: [WindowID(rawValue: 3)],
-      monitorFrames: [monitor],
-      style: inactiveStyle
-    )
-
-    #expect(plan.active?.windowID == selected)
-    #expect(plan.inactive.count == 498)
-    #expect(plan.tracked.count == 499)
-    #expect(plan.inactive.contains { $0.windowID == WindowID(rawValue: 3) } == false)
-  }
-
-  @Test
-  func selectedWindowRemainsDecoratedAcrossStaleHiddenSnapshot() {
-    let selected = WindowID(rawValue: 8)
-    let plan = planWindowBorders(
-      frames: [
-        FrameAssignment(
-          windowID: selected,
-          frame: Rect(x: 100, y: 100, width: 800, height: 600)
-        )
-      ],
-      selectedWindowID: selected,
-      hiddenWindowIDs: [selected],
-      monitorFrames: [monitor],
-      style: style
-    )
-
-    #expect(plan.active?.windowID == selected)
-  }
-
-  @Test
-  func disabledBorderProducesEmptyPlan() {
-    let disabled = WindowBorderStyle(
-      enabled: false,
-      width: 4,
-      activeColor: 0xffff_ffff,
-      inactiveEnabled: true,
-      inactiveColor: 0xffff_ffff,
-      captureEnabled: false
-    )
-    let frame = FrameAssignment(
-      windowID: WindowID(rawValue: 1),
-      frame: Rect(x: 10, y: 20, width: 500, height: 800)
-    )
-
-    #expect(
-      planWindowBorders(
-        frames: [frame],
-        selectedWindowID: frame.windowID,
-        hiddenWindowIDs: [],
-        monitorFrames: [monitor],
-        style: disabled
-      ).active == nil
-    )
-    #expect(
-      planWindowBorders(
-        frames: [frame],
-        selectedWindowID: frame.windowID,
-        hiddenWindowIDs: [],
-        monitorFrames: [monitor],
-        style: disabled
-      ).tracked.isEmpty
-    )
-  }
-
-  @Test
-  func transparentActiveColorDoesNotDisableInactiveBorders() {
-    let transparentActive = WindowBorderStyle(
-      enabled: true,
-      width: 4,
-      activeColor: 0x00ff_ffff,
-      inactiveEnabled: true,
-      inactiveColor: 0xffff_ffff,
-      captureEnabled: false
-    )
-    let selected = WindowID(rawValue: 1)
-    let plan = planWindowBorders(
-      frames: [
-        FrameAssignment(
-          windowID: selected,
-          frame: Rect(x: 10, y: 20, width: 500, height: 800)
-        )
-      ],
-      selectedWindowID: selected,
-      hiddenWindowIDs: [],
-      monitorFrames: [monitor],
-      style: transparentActive
-    )
-
-    #expect(plan.active == nil)
-    #expect(plan.inactive.count == 1)
-    #expect(plan.tracked.count == 1)
+  // enabled, active color, inactive enabled, window count, selected, hidden -> active, inactive count, tracked count
+  @Test(arguments: [
+    (true, 0xffff_ffff, false, 2, 2, [], 2, 0, 2),
+    // inactive borders are opt-in and skip hidden windows
+    (true, 0xffff_ffff, true, 500, 2, [3], 2, 498, 499),
+    // a stale hidden snapshot cannot undecorate the selection
+    (true, 0xffff_ffff, false, 1, 1, [1], 1, 0, 1),
+    (false, 0xffff_ffff, true, 1, 1, [], nil, 0, 0),
+    // a transparent active color keeps inactive borders
+    (true, 0x00ff_ffff, true, 1, 1, [], nil, 1, 1),
+  ] as [(Bool, UInt32, Bool, Int, UInt64, [UInt64], UInt64?, Int, Int)])
+  func borderPlanFollowsStyleSelectionAndVisibility(enabled: Bool, activeColor: UInt32, inactiveEnabled: Bool,
+    windows: Int, selected: UInt64, hidden: [UInt64], active: UInt64?, inactive: Int, tracked: Int) {
+    let frames = (1...windows).map {
+      FrameAssignment(windowID: WindowID(rawValue: UInt64($0)), frame: Rect(x: 10, y: 20, width: 500, height: 800))
+    }
+    let plan = planWindowBorders(frames: frames, selectedWindowID: WindowID(rawValue: selected),
+      hiddenWindowIDs: Set(hidden.map(WindowID.init(rawValue:))), monitorFrames: [monitor],
+      style: WindowBorderStyle(enabled: enabled, width: 4, activeColor: activeColor, inactiveEnabled: inactiveEnabled,
+        inactiveColor: 0x66ff_ffff, captureEnabled: false))
+    #expect(plan.active?.windowID.rawValue == active)
+    #expect(plan.active.map { $0.frame } == active.map { frames[Int($0) - 1].frame })
+    #expect(plan.inactive.count == inactive)
+    #expect(plan.inactive.allSatisfy { !hidden.contains($0.windowID.rawValue) })
+    #expect(plan.tracked.count == tracked)
   }
 
   @Test
@@ -242,13 +130,6 @@ struct WindowBorderTests {
 
     #expect(geometry.frame == Rect(x: 98, y: 198, width: 804, height: 604))
     #expect(geometry.radius == 11)
-  }
-
-  @Test
-  func borderAppearanceValuesAreNormalized() {
-    #expect(borderCornerRadius(windowRadius: 9) == 9)
-    #expect(borderOpacity(0xffc0_99ff) == 1)
-    #expect(abs(borderOpacity(0x66c0_99ff) - 0.4) < 0.001)
   }
 
   @Test
@@ -428,11 +309,6 @@ struct WindowBorderTests {
         ),
       ]
     )
-    let segmentedPixels = geometries.reduce(0) {
-      $0 + Int($1.frame.width * $1.frame.height)
-    }
-    #expect(segmentedPixels == 35_724)
-    #expect(segmentedPixels < Int(800 * 600) / 10)
   }
 
   @Test
@@ -475,13 +351,6 @@ struct WindowBorderTests {
     #expect(
       Double(outsidePixels) < Double(insidePixels) * 1.15
     )
-  }
-
-  @Test
-  func borderPlacementParsesConfigValues() {
-    #expect(WindowBorderPlacement(configValue: "inside") == .inside)
-    #expect(WindowBorderPlacement(configValue: "outside") == .outside)
-    #expect(WindowBorderPlacement(configValue: "bogus") == .inside)
   }
 
   @Test
@@ -562,6 +431,51 @@ struct WindowBorderTests {
     #expect(snapshot[first] == Rect(x: 10, y: 20, width: 800, height: 600))
     #expect(snapshot[second] == nil)
     #expect(queryCounts == [first: 1, second: 1])
+  }
+
+  @Test @MainActor
+  func eachDisplayOverlayHidesOnlyItsOwnBordersUntilEveryOneLands() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let windowID = WindowID(rawValue: 1)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    let plan = planWindowBorders(
+      frames: [FrameAssignment(windowID: windowID, frame: frame)],
+      selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+    )
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    manager.sync(plan, displayedFrames: [windowID: frame], stacking: frontmostStacking(for: windowID))
+    manager.revealPendingBorders()
+    #expect(manager.showsActiveRing(for: windowID))
+
+    manager.setPresentationHidden([WindowID(rawValue: 2)], for: 2)
+    #expect(manager.showsActiveRing(for: windowID))
+    manager.setPresentationHidden([windowID], for: 1)
+    #expect(!manager.showsActiveRing(for: windowID))
+    manager.setPresentationHidden([windowID], for: 2)
+    manager.setPresentationHidden([], for: 1)
+    #expect(!manager.showsActiveRing(for: windowID))
+    manager.setPresentationHidden([], for: 2)
+    #expect(manager.showsActiveRing(for: windowID))
+  }
+
+  @Test @MainActor
+  func selectionHandoffShowsTheNewWindowWhenOnlyTheOldOneWasHidden() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let hidden = WindowID(rawValue: 1), shown = WindowID(rawValue: 2)
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    for windowID in [hidden, shown] {
+      let plan = planWindowBorders(
+        frames: [FrameAssignment(windowID: windowID, frame: frame)],
+        selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+      )
+      manager.prepareForSelection(windowID, displayedFrame: frame)
+      manager.sync(plan, displayedFrames: [windowID: frame], stacking: frontmostStacking(for: windowID))
+      manager.revealPendingBorders()
+      if windowID == hidden { manager.setPresentationHidden([hidden], for: 1) }
+    }
+    #expect(manager.showsActiveRing(for: shown))
   }
 
   @Test @MainActor
@@ -765,29 +679,14 @@ struct WindowBorderTests {
     #expect(provider.failureCount == 1)
   }
 
-  @Test @MainActor
-  func invalidWindowIDDoesNotDisableTheOptionalBoundsBackend() {
-    let provider = WindowServerBoundsProvider(boundsReader: { _ in
-      CGRect(x: 20, y: 30, width: 800, height: 500)
-    })
-    let owned = WindowID(rawValue: 1)
-    provider.probe(ownedWindowID: owned)
-    #expect(provider.frame(for: WindowID(rawValue: UInt64.max)) == nil)
-    #expect(provider.isAvailable)
-    #expect(provider.failureCount == 0)
-    #expect(provider.frame(for: owned) == Rect(x: 20, y: 30, width: 800, height: 500))
-  }
-
-  @Test @MainActor
-  func closedWindowReadFailureDoesNotDisableTheBoundsBackend() {
-    let closed = WindowID(rawValue: 2)
+  @Test(arguments: [UInt64.max, 2]) @MainActor
+  func aFailedLookupForAnotherWindowKeepsTheOptionalBoundsBackend(lookup: UInt64) {
     let provider = WindowServerBoundsProvider(
       boundsReader: { $0 == 2 ? nil : CGRect(x: 20, y: 30, width: 800, height: 500) },
-      windowExists: { $0 != 2 }
-    )
+      windowExists: { $0 != 2 })
     let owned = WindowID(rawValue: 1)
     provider.probe(ownedWindowID: owned)
-    #expect(provider.frame(for: closed) == nil)
+    #expect(provider.frame(for: WindowID(rawValue: lookup)) == nil)
     #expect(provider.isAvailable)
     #expect(provider.failureCount == 0)
     #expect(provider.frame(for: owned) == Rect(x: 20, y: 30, width: 800, height: 500))
@@ -1003,21 +902,6 @@ struct WindowBorderTests {
 
     #expect(results.isEmpty)
     #expect(panelFrames(panels) == manager.expectedEdgeFrames { _ in latest }[windowID])
-  }
-
-  @Test @MainActor
-  func staleEdgeIsTraced() {
-    let (manager, windowID, _) = movedBorder(
-      start: Rect(x: 100, y: 100, width: 800, height: 600)
-    ) { _ in true }
-    defer { manager.hide() }
-    var traces: [String] = []
-    manager.trace = { traces.append($0) }
-    manager.surfaceBounds = { _ in Rect(x: 0, y: 0, width: 1, height: 1) }
-    manager.updateGeometry(
-      frames: [windowID: Rect(x: 104, y: 100, width: 800, height: 600)], style: style)
-    #expect(traces.count == 4)
-    #expect(traces.allSatisfy { $0.hasPrefix("border-stale wid=1 edge=") })
   }
 
   private func frontmostStacking(

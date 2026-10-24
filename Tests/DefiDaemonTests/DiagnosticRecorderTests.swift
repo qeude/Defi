@@ -66,8 +66,6 @@ struct DiagnosticRecorderTests {
     #expect(AutoMarkPolicy.reason(for: sample(firstWriteMS: 120, focusMS: 400)) == nil)
     #expect(AutoMarkPolicy.reason(for: sample(firstWriteMS: 151, focusMS: nil)) == "firstWriteMS=151")
     #expect(AutoMarkPolicy.reason(for: sample(firstWriteMS: 10, focusMS: 501)) == "focusMS=501")
-    #expect(slowAnimationDisplayGapMS("clock g=1 displayPulses=9 displayGapMs=62.50 timerSteps=0") == 62.5)
-    #expect(slowAnimationDisplayGapMS("clock g=1 displayPulses=9 displayGapMs=17.00 timerSteps=0") == nil)
 
     var limiter = AutoMarkLimiter()
     var results = [limiter.allow(at: 100), limiter.allow(at: 129)]

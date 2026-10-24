@@ -390,14 +390,8 @@ struct CommandLatencyAccumulator {
   }
 }
 
-func frameCommitQuarantineDuration(
-  animationDuration: TimeInterval,
-  initialFrameSettlement: Bool
-) -> TimeInterval {
-  if initialFrameSettlement {
-    return max(animationDuration + 0.12, 0.18)
-  }
-  return max(animationDuration + 0.25, 0.8)
+func frameCommitQuarantineDuration(initialFrameSettlement: Bool) -> TimeInterval {
+  initialFrameSettlement ? 0.18 : 0.8
 }
 
 func initialFrameNeedsRepair(
@@ -486,12 +480,10 @@ func initialSettlementRepairIsCurrent(
   expectedGeneration: UInt64,
   currentGeneration: UInt64?,
   repairsSuspended: Bool,
-  leftMouseButtonDown: Bool,
-  animationRunning: Bool
+  leftMouseButtonDown: Bool
 ) -> Bool {
   !repairsSuspended
     && !leftMouseButtonDown
-    && !animationRunning
     && currentGeneration == expectedGeneration
 }
 
@@ -564,26 +556,30 @@ func borderRefreshBlockedBySettling(
   }
 }
 
+/// Whether macOS left a parked window where `parkedFrame` expects it; an app
+/// with a taller title bar stops a little higher.
+func parkedPositionHolds(_ actual: CGPoint, target: CGPoint) -> Bool {
+  abs(actual.x - target.x) <= 1
+    && actual.y <= target.y + 1 && actual.y >= target.y - parkingVerticalSlack
+}
+
+func parkedFrameHolds(_ actual: Rect, target: Rect) -> Bool {
+  abs(actual.width - target.width) < 1 && abs(actual.height - target.height) < 1
+    && parkedPositionHolds(CGPoint(x: actual.x, y: actual.y), target: CGPoint(x: target.x, y: target.y))
+}
+
+/// Whether a frame shows at most a sliver (a corner, an edge column or row) on
+/// every display.
 func requiresVerifiedOffscreenWrite(
   frame: Rect,
   monitorFrames: [Rect],
   maximumVisibleWidth: Double = parkedSliverWidth + 0.5
 ) -> Bool {
-  let visibleWidth = monitorFrames.reduce(0.0) { currentMaximum, monitor in
-    let verticalIntersection = max(
-      min(frame.y + frame.height, monitor.y + monitor.height)
-        - max(frame.y, monitor.y),
-      0
-    )
-    guard verticalIntersection > 0 else { return currentMaximum }
-    let horizontalIntersection = max(
-      min(frame.x + frame.width, monitor.x + monitor.width)
-        - max(frame.x, monitor.x),
-      0
-    )
-    return max(currentMaximum, horizontalIntersection)
+  monitorFrames.allSatisfy { monitor in
+    let width = min(frame.x + frame.width, monitor.x + monitor.width) - max(frame.x, monitor.x)
+    let height = min(frame.y + frame.height, monitor.y + monitor.height) - max(frame.y, monitor.y)
+    return width <= 0 || height <= 0 || min(width, height) <= maximumVisibleWidth
   }
-  return visibleWidth <= maximumVisibleWidth
 }
 
 func axProcessIsLatencySensitive(

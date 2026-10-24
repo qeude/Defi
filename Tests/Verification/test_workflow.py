@@ -19,6 +19,7 @@ import verify
 import desktop_session
 import ribbon_stress
 import animation_benchmark
+import test_coverage
 from test_performance_experiments import PerformanceExperimentsTests
 from test_motion_probe import MotionProbeTests
 
@@ -188,7 +189,7 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(behavior=behavior), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 (root / "script").mkdir()
-                for name in ["verify.py", "desktop_lock.py"]:
+                for name in ["verify.py", "desktop_lock.py", "desktop_session.py"]:
                     shutil.copy2(ROOT / "script" / name, root / "script" / name)
                 (root / "Tests/Verification").mkdir(parents=True)
                 (root / "Tests/Verification/test_workflow.py").write_text("print('fixture workflow check')\n")
@@ -262,8 +263,13 @@ class WorkflowTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "results.xml"
-            self.assertEqual(verify.desktop_counts(log, path), {"tests": 3, "skipped": 1, "failed": 1})
+            self.assertEqual(verify.desktop_counts(log, path), {"tests": 3, "skipped": 1, "failed": 1, "not_run": {}})
             self.assertIn("<skipped", path.read_text())
+        lane = ("Test Case '-[DefiMacOSTests.DesktopE2ETests testTwoDisplay]' started.\n"
+                "DEFI_E2E not-run lane=two-display test=-[DesktopE2ETests testTwoDisplay] reason=requires 2 displays, found 1\n"
+                "Test Case '-[DefiMacOSTests.DesktopE2ETests testTwoDisplay]' skipped (0.001 seconds).")
+        self.assertEqual(verify.desktop_counts(log + "\n" + lane), {"tests": 4, "skipped": 1, "failed": 1,
+            "not_run": {"two-display": {"testTwoDisplay": "requires 2 displays, found 1"}}})
         self.assertEqual(verify.desktop_counts("")["tests"], 0)
         with self.assertRaises(RuntimeError):
             verify.desktop_counts("Test Case 'truncated' started.")
@@ -434,6 +440,38 @@ class WorkflowTests(unittest.TestCase):
                 result = subprocess.run([str(ROOT / "script/check_signing.sh"), str(installed), str(staged)],
                     env=dict(os.environ, PATH=str(root)+os.pathsep+os.environ["PATH"]), capture_output=True, text=True)
                 self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_session_start_retries_a_refused_launch_without_a_second_daemon(self):
+        running = [0]
+        launches = []
+
+        def command(*args):
+            if args == ('service', 'start'):
+                launches.append(running[0])
+                if len(launches) == 1:
+                    raise subprocess.CalledProcessError(1, 'defi')
+                running[0] = 1
+                return ''
+            if running[0] == 0:
+                raise subprocess.CalledProcessError(1, 'defi')
+            return 'running monitors=2[1,2] snapshots=3/3'
+
+        with patch.object(desktop_session, 'command', side_effect=command), \
+                patch.object(desktop_session, 'daemon_count', side_effect=lambda: running[0]), \
+                patch.object(desktop_session.time, 'sleep'):
+            desktop_session.start()
+        self.assertEqual(launches, [0, 0])
+
+    def test_coverage_groups_source_lines_by_module(self):
+        def entry(name, covered, count):
+            return {"filename": str(ROOT / name), "summary": {"lines": {"covered": covered, "count": count}}}
+        export = {"data": [{"files": [entry("Sources/DefiCore/A.swift", 3, 4),
+                                      entry("Sources/DefiCore/B.swift", 1, 4),
+                                      entry("Tests/DefiCoreTests/T.swift", 9, 9)]}]}
+        self.assertEqual(test_coverage.summarize(export), {
+            "modules": {"DefiCore": {"covered": 4, "count": 8, "percent": 50.0}},
+            "files": {"DefiCore/A.swift": {"covered": 3, "count": 4, "percent": 75.0},
+                      "DefiCore/B.swift": {"covered": 1, "count": 4, "percent": 25.0}}})
 
     def test_invalid_build_mode_fails_before_build_or_install(self):
         result = subprocess.run([str(ROOT / "script/build_and_run.sh"), "--typo"], capture_output=True, text=True)

@@ -22,10 +22,28 @@ private final class HotKeyInvocationRecorder: Sendable {
 
 @Suite
 struct OverviewHotKeyTests {
-  @Test func overviewToggleIsACancelActionWhileOverviewCapturesInput() {
-    #expect(overviewKeyAction(keyCode: 31, modifierBits: UInt64.max,
-      configuredCommand: "toggle-overview") == .cancel)
+  static let hyper = hotKeyModifierBits([.maskAlternate, .maskCommand, .maskControl])
+  static let hyperShift = hyper | hotKeyModifierBits([.maskShift])
+
+  // key code, modifiers, configured command -> action
+  @Test(arguments: [
+    (31, UInt64.max, "toggle-overview", .cancel),
+    (33, hyper, "focus-column first", .firstColumn), (0, hyper, "focus-column first", .firstColumn),
+    (30, hyper, "focus-column last", .lastColumn),
+    (126, hyper, "focus-workspace up", .workspaceUp), (125, hyper, "focus-workspace down", .workspaceDown),
+    (18, hyper, "workspace dev", .workspace(.named("dev"))),
+    (19, hyper, "focus-workspace-position 2", .workspace(.position(2))),
+    (20, hyper, "focus-workspace-name dev-secondary", .workspace(.named("dev-secondary"))),
+    (123, 0, nil, .left), (123, hyper, "focus-column left", .left), (123, hyper, nil, nil),
+    (123, hyperShift, "move-column left", .layout(.moveColumn(.left))),
+    (126, hyperShift, "move-window up", .moveUp), (125, hyperShift, "move-window down", .moveDown),
+    (36, 0, nil, .select), (36, hyper, "focus-column left", nil), (53, 0, nil, .cancel), (0, 0, nil, nil),
+  ] as [(CGKeyCode, UInt64, String?, OverviewKeyAction?)])
+  func overviewKeyActionFollowsKeyAndBinding(keyCode: CGKeyCode, modifiers: UInt64, command: String?,
+    action: OverviewKeyAction?) {
+    #expect(overviewKeyAction(keyCode: keyCode, modifierBits: modifiers, configuredCommand: command) == action)
   }
+
   @Test(arguments: [false, true])
   func settingsTargetKeyEventsRespectTextFocus(textFocused: Bool) throws {
     let key = try Key(accelerator: "alt-left", aliases: [:])
@@ -50,32 +68,6 @@ struct OverviewHotKeyTests {
     }
   }
 
-  @Test(arguments: [(CGKeyCode(33), "focus-column first"), (CGKeyCode(30), "focus-column last")])
-  func overviewCapturesRibbonEndpointBindings(keyCode: CGKeyCode, command: String) {
-    let hyper = hotKeyModifierBits([.maskAlternate, .maskCommand, .maskControl])
-    #expect(overviewKeyAction(keyCode: keyCode, modifierBits: hyper,
-      configuredCommand: command) != nil,
-      "Endpoint bindings must not fall through to the native active workspace")
-    #expect(overviewKeyAction(keyCode: keyCode, modifierBits: hyper,
-      configuredCommand: command) == (command.hasSuffix("first") ? .firstColumn : .lastColumn))
-    #expect(overviewKeyAction(keyCode: 0, modifierBits: hyper,
-      configuredCommand: command) == (command.hasSuffix("first") ? .firstColumn : .lastColumn))
-  }
-
-  @Test func overviewCapturesWorkspaceBindings() {
-    let hyper = hotKeyModifierBits([.maskAlternate, .maskCommand, .maskControl])
-    #expect(overviewKeyAction(keyCode: 126, modifierBits: hyper,
-      configuredCommand: "focus-workspace up") == .workspaceUp)
-    #expect(overviewKeyAction(keyCode: 125, modifierBits: hyper,
-      configuredCommand: "focus-workspace down") == .workspaceDown)
-    #expect(overviewKeyAction(keyCode: 18, modifierBits: hyper,
-      configuredCommand: "workspace dev") == .workspace(.named("dev")))
-    #expect(overviewKeyAction(keyCode: 19, modifierBits: hyper,
-      configuredCommand: "focus-workspace-position 2") == .workspace(.position(2)))
-    #expect(overviewKeyAction(keyCode: 20, modifierBits: hyper,
-      configuredCommand: "focus-workspace-name dev-secondary") == .workspace(.named("dev-secondary")))
-  }
-
   @Test(arguments: [false, true])
   func interceptedModalKeysStillUpdateUserActivity(overview: Bool) throws {
     let tracker = UserInputTracker()
@@ -95,55 +87,6 @@ struct OverviewHotKeyTests {
     #expect(tracker.snapshot.latestCapturedCommandTimestamp == (overview ? 7 : 0))
   }
 
-  @Test
-  func `Overview routes navigation and local layout edits`() {
-    let hyper = hotKeyModifierBits([
-      .maskAlternate,
-      .maskCommand,
-      .maskControl,
-    ])
-
-    #expect(overviewKeyAction(keyCode: 123, modifierBits: 0) == .left)
-    #expect(
-      overviewKeyAction(
-        keyCode: 123,
-        modifierBits: hyper,
-        configuredCommand: "focus-column left"
-      ) == .left
-    )
-    #expect(overviewKeyAction(keyCode: 123, modifierBits: hyper) == nil)
-    #expect(
-      overviewKeyAction(
-        keyCode: 123,
-        modifierBits: hyper | hotKeyModifierBits([.maskShift]),
-        configuredCommand: "move-column left"
-      ) == .layout(.moveColumn(.left))
-    )
-    #expect(
-      overviewKeyAction(
-        keyCode: 126,
-        modifierBits: hyper | hotKeyModifierBits([.maskShift]),
-        configuredCommand: "move-window up"
-      ) == .moveUp
-    )
-    #expect(
-      overviewKeyAction(
-        keyCode: 125,
-        modifierBits: hyper | hotKeyModifierBits([.maskShift]),
-        configuredCommand: "move-window down"
-      ) == .moveDown
-    )
-    #expect(overviewKeyAction(keyCode: 36, modifierBits: 0) == .select)
-    #expect(
-      overviewKeyAction(
-        keyCode: 36,
-        modifierBits: hyper,
-        configuredCommand: "focus-column left"
-      ) == nil
-    )
-    #expect(overviewKeyAction(keyCode: 53, modifierBits: 0) == .cancel)
-    #expect(overviewKeyAction(keyCode: 0, modifierBits: 0) == nil)
-  }
 }
 
 struct HotKeyTests {
@@ -235,31 +178,24 @@ struct HotKeyTests {
   }
 
   @Test(arguments: [
-    ("hyper-left", CGKeyCode(123), false),
-    ("hyper-shift-1", CGKeyCode(18), true),
-    ("hyper-equal", CGKeyCode(24), false),
-    ("hyper-minus", CGKeyCode(27), false),
-    ("hyper-f", CGKeyCode(3), false),
-    ("hyper-backslash", CGKeyCode(42), false),
-    ("hyper-comma", CGKeyCode(43), false),
-    ("hyper-period", CGKeyCode(47), false),
-  ])
-  func `Hyper bindings use expected key codes and modifiers`(
-    testCase: (accelerator: String, code: CGKeyCode, shift: Bool)
-  ) throws {
-    var expectedModifiers = CGEventFlags([
-      .maskAlternate,
-      .maskCommand,
-      .maskControl,
-    ])
-    if testCase.shift {
-      expectedModifiers.insert(.maskShift)
-    }
-
-    let key = try Key(accelerator: testCase.accelerator, aliases: aliases)
-
-    #expect(key.code == testCase.code)
-    #expect(key.modifierBits == expectedModifiers.rawValue)
+    ("hyper-left", 123, [.maskAlternate, .maskCommand, .maskControl], optionKey | cmdKey | controlKey),
+    ("hyper-shift-1", 18, [.maskAlternate, .maskCommand, .maskControl, .maskShift],
+      optionKey | cmdKey | controlKey | shiftKey),
+    ("hyper-equal", 24, [.maskAlternate, .maskCommand, .maskControl], optionKey | cmdKey | controlKey),
+    ("hyper-minus", 27, [.maskAlternate, .maskCommand, .maskControl], optionKey | cmdKey | controlKey),
+    ("hyper-f", 3, [.maskAlternate, .maskCommand, .maskControl], optionKey | cmdKey | controlKey),
+    ("hyper-backslash", 42, [.maskAlternate, .maskCommand, .maskControl], optionKey | cmdKey | controlKey),
+    ("hyper-comma", 43, [.maskAlternate, .maskCommand, .maskControl], optionKey | cmdKey | controlKey),
+    ("hyper-period", 47, [.maskAlternate, .maskCommand, .maskControl], optionKey | cmdKey | controlKey),
+    ("alt-left", 123, [.maskAlternate], optionKey),
+    ("ctrl-shift-right", 124, [.maskControl, .maskShift], controlKey | shiftKey),
+  ] as [(String, CGKeyCode, CGEventFlags, Int)])
+  func acceleratorsResolveKeyCodeAndModifiers(accelerator: String, code: CGKeyCode, flags: CGEventFlags,
+    carbon: Int) throws {
+    let key = try Key(accelerator: accelerator, aliases: aliases)
+    #expect(key.code == code)
+    #expect(key.modifierBits == flags.rawValue)
+    #expect(key.carbonModifiers == UInt32(carbon))
   }
 
   @NavigationActor
@@ -277,84 +213,86 @@ struct HotKeyTests {
     #expect(manager.tracksPointerMotion)
   }
 
-  @Test
-  func `Input observation runs after remappers`() {
-    #expect(hotKeyEventTapPlacement == .tailAppendEventTap)
-    #expect(inputMonitorTapOptions == .listenOnly)
-  }
-
-  @Test
-  func `Registered hyper shortcut triggers without filtering its event`() throws {
-    let hyper = CGEventFlags([
-      .maskAlternate,
-      .maskCommand,
-      .maskControl,
-    ])
-    let boundKey = try Key(accelerator: "hyper-1", aliases: aliases)
-    let (context, invocations) = makeContext(
-      bindings: [boundKey: "workspace 1"]
-    )
-    let event = try #require(
-      CGEvent(keyboardEventSource: nil, virtualKey: 18, keyDown: true)
-    )
-    event.flags = hyper
-
-    let forwardedEvent = context.handle(type: .keyDown, event: event)
-
-    #expect(forwardedEvent?.takeUnretainedValue() === event)
+  // key code, flags, registered -> commands; every event reaches the application unchanged
+  @Test(arguments: [
+    (18, [.maskAlternate, .maskCommand, .maskControl], true, ["workspace 1"]),
+    (18, [.maskCommand], true, []),
+    (19, [.maskAlternate, .maskCommand, .maskControl], true, []),
+    (18, [.maskAlternate, .maskCommand, .maskControl], false, []),
+  ] as [(CGKeyCode, CGEventFlags, Bool, [String])])
+  func shortcutsTriggerOnlyTheirRegisteredChordAndForwardEveryEvent(code: CGKeyCode, flags: CGEventFlags,
+    registered: Bool, commands: [String]) throws {
+    let (context, invocations) = makeContext(bindings: [try Key(accelerator: "hyper-1", aliases: aliases): "workspace 1"])
+    context.setHotKeysRegistered(registered)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+    event.flags = flags
+    #expect(context.handle(type: .keyDown, event: event)?.takeUnretainedValue() === event)
     #expect(context.intercept(type: .keyDown, event: event)?.takeUnretainedValue() === event)
-    #expect(invocations.commands == ["workspace 1"])
-
-    let modifierRelease = try #require(
-      CGEvent(keyboardEventSource: nil, virtualKey: 59, keyDown: false)
-    )
+    #expect(event.flags == flags)
+    #expect(invocations.commands == commands)
+    #expect(context.capturedKeyCount == commands.count)
+    let modifierRelease = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 59, keyDown: false))
     modifierRelease.type = .flagsChanged
     modifierRelease.flags = [.maskAlternate, .maskCommand]
-
-    #expect(
-      context.handle(type: .flagsChanged, event: modifierRelease)?
-        .takeUnretainedValue() === modifierRelease
-    )
+    #expect(context.handle(type: .flagsChanged, event: modifierRelease)?.takeUnretainedValue() === modifierRelease)
   }
 
   @Test
-  func `Bare command shortcut reaches the foreground application unchanged`() throws {
-    let (context, invocations) = makeContext(
-      bindings: [
-        try Key(accelerator: "hyper-1", aliases: aliases): "workspace 1"
-      ]
-    )
-    let event = try #require(
-      CGEvent(keyboardEventSource: nil, virtualKey: 18, keyDown: true)
-    )
-    event.flags = [.maskCommand]
-
-    let forwardedEvent = context.handle(type: .keyDown, event: event)
-
-    #expect(forwardedEvent?.takeUnretainedValue() === event)
-    #expect(event.flags == [.maskCommand])
-    #expect(invocations.commands.isEmpty)
+  func overviewModeRoutesBoundKeysToOverviewWithoutCommands() throws {
+    let bindings = Dictionary(uniqueKeysWithValues: try [
+      ("hyper-left", "focus-column left"), ("hyper-1", "workspace dev"),
+      ("hyper-2", "focus-workspace-position 2"), ("hyper-3", "focus-workspace-name web"),
+    ].map { (try Key(accelerator: $0.0, aliases: aliases), $0.1) })
+    let actions = Mutex<[OverviewKeyAction]>([])
+    let invocations = HotKeyInvocationRecorder()
+    let context = InputMonitor(
+      bindings: bindings, userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { invocations.append($0) },
+      deliverOverview: { action in actions.withLock { $0.append(action) } },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    context.setHotKeysRegistered(true)
+    context.setOverviewModeEnabled(true)
+    for code: CGKeyCode in [123, 18, 19, 20] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = [.maskAlternate, .maskCommand, .maskControl]
+      #expect(context.intercept(type: .keyDown, event: event) == nil)
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(actions.withLock { $0 } == [.left, .workspace(.named("dev")),
+      .workspace(.position(2)), .workspace(.named("web"))])
+    #expect(invocations.commands.isEmpty, "Overview keys must not mutate the native workspace")
+    #expect(context.capturedKeyCount == 4)
   }
 
   @Test
-  func unregisteredShortcutCannotTriggerACommand() throws {
-    let key = try Key(accelerator: "hyper-left", aliases: aliases)
-    let (context, invocations) = makeContext(bindings: [key: "focus-column left"])
-    context.setHotKeysRegistered(false)
-    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
-    event.flags = CGEventFlags(rawValue: key.modifierBits)
-    #expect(context.handle(type: .keyDown, event: event)?.takeUnretainedValue() === event)
-    #expect(invocations.commands.isEmpty)
-    #expect(context.capturedKeyCount == 0)
+  func heldCheatsheetShortcutTogglesOnceWhileOtherCommandsRepeat() throws {
+    let toggle = try Key(accelerator: "hyper-slash", aliases: aliases)
+    let focus = try Key(accelerator: "hyper-right", aliases: aliases)
+    let (context, invocations) = makeContext(bindings: [toggle: "toggle-cheatsheet", focus: "focus-column right"])
+    for key in [toggle, focus] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+      event.flags = CGEventFlags(rawValue: key.modifierBits)
+      _ = context.handle(type: .keyDown, event: event)
+      event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(invocations.commands == ["toggle-cheatsheet", "focus-column right", "focus-column right"])
   }
 
-  @Test(arguments: [
-    ("alt-left", UInt32(optionKey)),
-    ("ctrl-shift-right", UInt32(controlKey | shiftKey)),
-    ("hyper-shift-1", UInt32(optionKey | cmdKey | controlKey | shiftKey)),
-  ])
-  func carbonModifiersMatchConfiguredModifiers(accelerator: String, modifiers: UInt32) throws {
-    #expect(try Key(accelerator: accelerator, aliases: aliases).carbonModifiers == modifiers)
+  @Test
+  func scrollWheelRecordsUserInput() throws {
+    let tracker = UserInputTracker()
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: tracker,
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in })
+    let scroll = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+      wheelCount: 1, wheel1: 1, wheel2: 0, wheel3: 0))
+    scroll.timestamp = 9_000_000_000
+    _ = context.handle(type: .scrollWheel, event: scroll)
+    #expect(tracker.latestEventTimestamp == 9)
   }
 
   @Test(arguments: [pid_t(0), 4242])
@@ -387,29 +325,6 @@ struct HotKeyTests {
     #expect(intents.withLock { $0.map(\.processID) } == [expectedProcessID])
   }
 
-  @Test
-  func `Unbound hyper shortcut is not downgraded to a command shortcut`() throws {
-    let hyper = CGEventFlags([
-      .maskAlternate,
-      .maskCommand,
-      .maskControl,
-    ])
-    let (context, invocations) = makeContext(
-      bindings: [
-        try Key(accelerator: "hyper-1", aliases: aliases): "workspace 1"
-      ]
-    )
-    let event = try #require(
-      CGEvent(keyboardEventSource: nil, virtualKey: 19, keyDown: true)
-    )
-    event.flags = hyper
-
-    let forwardedEvent = context.handle(type: .keyDown, event: event)
-
-    #expect(forwardedEvent?.takeUnretainedValue() === event)
-    #expect(event.flags == hyper)
-    #expect(invocations.commands.isEmpty)
-  }
 }
 
 struct HotKeyModifierReleaseTests {
@@ -419,50 +334,17 @@ struct HotKeyModifierReleaseTests {
     .maskControl,
   ])
 
-  @Test
-  func capturedChordReleasesDoNotBecomeNewInput() {
+  // flags after capturing Hyper -> whether each change is new input
+  @Test(arguments: [
+    ([[.maskAlternate, .maskCommand], [.maskAlternate], []], [false, false, false]),
+    ([[.maskAlternate, .maskCommand, .maskControl, .maskShift]], [true]),
+    ([[.maskAlternate, .maskCommand], [.maskAlternate, .maskCommand, .maskControl]], [false, true]),
+  ] as [([CGEventFlags], [Bool])])
+  func onlyNewModifierPressesAfterACapturedChordBecomeInput(changes: [CGEventFlags], records: [Bool]) {
     var state = CapturedHotKeyModifierReleaseState()
     state.capture(modifierBits: hyper)
-
-    let recordsControlRelease = state.shouldRecord(
-      flagsChangedTo: hotKeyModifierBits([.maskAlternate, .maskCommand])
-    )
-    let recordsCommandRelease = state.shouldRecord(
-      flagsChangedTo: hotKeyModifierBits([.maskAlternate])
-    )
-    let recordsAlternateRelease = state.shouldRecord(flagsChangedTo: 0)
-
-    #expect(recordsControlRelease == false)
-    #expect(recordsCommandRelease == false)
-    #expect(recordsAlternateRelease == false)
+    #expect(changes.map { state.shouldRecord(flagsChangedTo: hotKeyModifierBits($0)) } == records)
     #expect(state.heldModifierBits == 0)
   }
 
-  @Test
-  func newModifierPressAfterCaptureBecomesNewInput() {
-    var state = CapturedHotKeyModifierReleaseState()
-    state.capture(modifierBits: hyper)
-
-    let hyperShift = hyper | hotKeyModifierBits([.maskShift])
-    let recordsShiftPress = state.shouldRecord(flagsChangedTo: hyperShift)
-
-    #expect(recordsShiftPress)
-    #expect(state.heldModifierBits == 0)
-  }
-
-  @Test
-  func repressAfterPartialReleaseBecomesNewInput() {
-    var state = CapturedHotKeyModifierReleaseState()
-    state.capture(modifierBits: hyper)
-    let withoutControl = hotKeyModifierBits([.maskAlternate, .maskCommand])
-
-    let recordsControlRelease = state.shouldRecord(
-      flagsChangedTo: withoutControl
-    )
-    let recordsControlRepress = state.shouldRecord(flagsChangedTo: hyper)
-
-    #expect(recordsControlRelease == false)
-    #expect(recordsControlRepress)
-    #expect(state.heldModifierBits == 0)
-  }
 }

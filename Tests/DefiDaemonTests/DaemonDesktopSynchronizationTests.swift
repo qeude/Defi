@@ -13,6 +13,8 @@ struct DaemonDesktopSynchronizationTests {
     (CenterFocusedColumnConfig.always, UInt64(2), 0.25),
     (CenterFocusedColumnConfig.always, UInt64(3), 0.75),
     (CenterFocusedColumnConfig.never, UInt64(3), 0.5),
+    (CenterFocusedColumnConfig.onOverflow, UInt64(2), 0.0),
+    (CenterFocusedColumnConfig.onOverflow, UInt64(3), 0.75),
   ])
   @NavigationActor
   func nativeDesktopFocusRespectsConfiguredScroll(
@@ -68,6 +70,7 @@ struct DaemonDesktopSynchronizationTests {
         )
       }
       focusWindow(WindowID(rawValue: 1), state: &daemon.state)
+      synchronizeScrollOffsets(state: &daemon.state, viewports: [monitorID: monitor.frame])
       daemon.state.monitors[0].workspaces[0].scrollOffset = 0
       daemon.state.monitors[0].workspaces[0].targetScrollOffset = 0
       #expect(daemon.state.selectedWindowID(on: monitorID) == WindowID(rawValue: 1))

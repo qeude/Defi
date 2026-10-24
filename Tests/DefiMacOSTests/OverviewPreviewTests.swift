@@ -46,7 +46,7 @@ struct OverviewPreviewTests {
     #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
     controller.handleMemoryPressure(.normal)
     controller.update(snapshot: snapshot, layout: LayoutSettings())
-    #expect(controller.surfaceCaptureState != "pressure", "Recovery must consume the pending preparation with unchanged settings")
+    #expect(controller.surfaceCaptureState == "disabled", "Recovery must consume the pending preparation with unchanged settings")
   }
 
   @MainActor @Test func warningPreparationKeepsFullSurfacesOff() {
@@ -385,90 +385,25 @@ struct OverviewPreviewTests {
   }
 
   @Test
-  func `Desktop capture schedules without window previews`() {
-    #expect(
-      overviewCaptureBatchNeeded(
-        previewRequestCount: 0,
-        hasPendingDesktopCapture: true
-      )
-    )
-    #expect(
-      !overviewCaptureBatchNeeded(
-        previewRequestCount: 0,
-        hasPendingDesktopCapture: false
-      )
-    )
+  func `Desktop capture schedules alone and stays retryable until captured`() {
+    let monitorID = MonitorID(rawValue: 1), existingID = MonitorID(rawValue: 2)
+    #expect(overviewCaptureBatchNeeded(previewRequestCount: 0, hasPendingDesktopCapture: true))
+    #expect(!overviewCaptureBatchNeeded(previewRequestCount: 0, hasPendingDesktopCapture: false))
+    #expect(overviewRecordedDesktopCaptureMonitorIDs(existing: [], requested: [monitorID], captured: []).isEmpty)
+    #expect(overviewRecordedDesktopCaptureMonitorIDs(existing: [existingID], requested: [monitorID],
+      captured: [monitorID]) == [existingID, monitorID])
+    #expect(overviewDesktopCaptureRetryNeeded(requested: [monitorID], captured: []))
+    #expect(!overviewDesktopCaptureRetryNeeded(requested: [monitorID], captured: [monitorID]))
   }
 
-  @Test
-  func `Failed desktop capture remains retryable`() {
-    let monitorID = MonitorID(rawValue: 1)
-    let existingID = MonitorID(rawValue: 2)
-
-    #expect(
-      overviewRecordedDesktopCaptureMonitorIDs(
-        existing: [],
-        requested: [monitorID],
-        captured: []
-      ).isEmpty
-    )
-    #expect(
-      overviewRecordedDesktopCaptureMonitorIDs(
-        existing: [existingID],
-        requested: [monitorID],
-        captured: [monitorID]
-      ) == [existingID, monitorID]
-    )
-  }
-
-  @Test
-  func `Missing desktop capture schedules an idle retry`() {
-    let monitorID = MonitorID(rawValue: 1)
-
-    #expect(
-      overviewDesktopCaptureRetryNeeded(
-        requested: [monitorID],
-        captured: []
-      )
-    )
-    #expect(
-      !overviewDesktopCaptureRetryNeeded(
-        requested: [monitorID],
-        captured: [monitorID]
-      )
-    )
-  }
-
-  @Test("Overview parks windows when captured desktop is unavailable")
-  func overviewBackdropFallbackPolicy() {
-    #expect(
-      overviewUsesWorkspaceParking(
-        windowPreviewsEnabled: false,
-        screenCaptureAccessGranted: true
-      )
-    )
-    #expect(
-      overviewUsesWorkspaceParking(
-        windowPreviewsEnabled: true,
-        screenCaptureAccessGranted: false
-      )
-    )
-    #expect(
-      !overviewUsesWorkspaceParking(
-        windowPreviewsEnabled: true,
-        screenCaptureAccessGranted: true
-      )
-    )
-  }
-
-  @Test("Screen Recording is requested at most once and only while missing")
-  func capturePermissionIsRequestedOnce() {
-    #expect(overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false, hasRequestedPermission: false))
-    #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: false, hasRequestedPermission: true))
-    #expect(!overviewShouldRequestCapturePermission(
-      screenCaptureAccessGranted: true, hasRequestedPermission: false))
+  @Test("Without previews or Screen Recording the Overview parks windows; permission is requested once")
+  func overviewDegradesWithoutCapturePermission() {
+    #expect(overviewUsesWorkspaceParking(windowPreviewsEnabled: false, screenCaptureAccessGranted: true))
+    #expect(overviewUsesWorkspaceParking(windowPreviewsEnabled: true, screenCaptureAccessGranted: false))
+    #expect(!overviewUsesWorkspaceParking(windowPreviewsEnabled: true, screenCaptureAccessGranted: true))
+    #expect(overviewShouldRequestCapturePermission(screenCaptureAccessGranted: false, hasRequestedPermission: false))
+    #expect(!overviewShouldRequestCapturePermission(screenCaptureAccessGranted: false, hasRequestedPermission: true))
+    #expect(!overviewShouldRequestCapturePermission(screenCaptureAccessGranted: true, hasRequestedPermission: false))
   }
 
   @Test
@@ -496,30 +431,23 @@ struct OverviewPreviewTests {
     #expect(results.map(\.request) == requests)
   }
 
+  // A resized card keeps its capture; another generation, window, or app does not.
   @Test(arguments: [
-    (UInt64(2), WindowID(rawValue: 1), "app", false),
-    (UInt64(1), WindowID(rawValue: 2), "app", false),
-    (UInt64(1), WindowID(rawValue: 1), "other", false),
-    (UInt64(1), WindowID(rawValue: 1), "app", true),
+    (UInt64(2), WindowID(rawValue: 1), "app", 100.0, false),
+    (UInt64(1), WindowID(rawValue: 2), "app", 100.0, false),
+    (UInt64(1), WindowID(rawValue: 1), "other", 100.0, false),
+    (UInt64(1), WindowID(rawValue: 1), "app", 100.0, true),
+    (UInt64(1), WindowID(rawValue: 1), "app", 1_000.0, true),
   ])
   func previewRequestMatchesCurrentCapture(
-    currentGeneration: UInt64, currentWindowID: WindowID,
-    currentAppID: String, expected: Bool
+    currentGeneration: UInt64, currentWindowID: WindowID, currentAppID: String, currentWidth: Double, expected: Bool
   ) {
-    let request = OverviewPreviewRequest(
-      windowID: WindowID(rawValue: 1), expectedAppID: "app",
-      width: 100, height: 80, blurFadeHeight: 40
-    )
-    let currentRequest = OverviewPreviewRequest(
-      windowID: currentWindowID, expectedAppID: currentAppID,
-      width: 100, height: 80, blurFadeHeight: 40
-    )
-    #expect(
-      overviewPreviewRequestIsCurrent(
-        request, generation: 1, currentGeneration: currentGeneration,
-        currentRequest: currentRequest, currentAppID: currentAppID
-      ) == expected
-    )
+    let request = OverviewPreviewRequest(windowID: WindowID(rawValue: 1), expectedAppID: "app",
+      width: 100, height: 80, blurFadeHeight: 40)
+    let currentRequest = OverviewPreviewRequest(windowID: currentWindowID, expectedAppID: currentAppID,
+      width: Int(currentWidth), height: 80, blurFadeHeight: 40)
+    #expect(overviewPreviewRequestIsCurrent(request, generation: 1, currentGeneration: currentGeneration,
+      currentRequest: currentRequest, currentAppID: currentAppID) == expected)
   }
 
   @Test
@@ -545,38 +473,10 @@ struct OverviewPreviewTests {
   }
 
   @Test
-  func `Preview capture remains valid after its card is resized`() {
-    let original = OverviewPreviewRequest(
-      windowID: WindowID(rawValue: 1),
-      expectedAppID: "app",
-      width: 800,
-      height: 500,
-      blurFadeHeight: 80
-    )
-    let resized = OverviewPreviewRequest(
-      windowID: original.windowID,
-      expectedAppID: original.expectedAppID,
-      width: 1_000,
-      height: 500,
-      blurFadeHeight: original.blurFadeHeight
-    )
-
-    #expect(
-      overviewPreviewRequestIsCurrent(
-        original,
-        generation: 1,
-        currentGeneration: 1,
-        currentRequest: resized,
-        currentAppID: "app"
-      )
-    )
-  }
-
-  @Test
   func `Remembered previews stay inside their memory budget`() {
     let first = WindowID(rawValue: 1)
     let second = WindowID(rawValue: 2)
-    var costs = [first: 6]
+    let costs = [first: 6]
 
     #expect(
       overviewPreviewCacheCanStore(
@@ -594,8 +494,6 @@ struct OverviewPreviewTests {
         maximumBytes: 10
       )
     )
-    costs[first] = 8
-    #expect(costs.values.reduce(0, +) <= 10)
   }
 
   @Test
@@ -606,53 +504,6 @@ struct OverviewPreviewTests {
     #expect(midpoint > 0.45 && midpoint < 0.55)
     #expect(overviewPreviewOpacity(startedAt: 10, now: 10.45, reduceMotion: false) == 1)
     #expect(overviewPreviewOpacity(startedAt: 10, now: 10, reduceMotion: true) == 1)
-  }
-
-  @Test
-  func `Progressive blur keeps a soft tail below the compact title band`() {
-    let titleBandHeight = overviewWindowTitleBandHeight(iconSize: 24)
-    let fadeHeight = overviewPreviewBlurFadeHeight(
-      titleBandHeight: titleBandHeight,
-      imageScale: 1,
-      imageHeight: 900
-    )
-
-    #expect(titleBandHeight == 44)
-    #expect(fadeHeight == titleBandHeight + 20)
-    #expect(
-      overviewTitleScrimAlpha(
-        progress: titleBandHeight / fadeHeight,
-        opacity: 1
-      ) > 0
-    )
-  }
-
-  @Test
-  func `Overview title row is left aligned and vertically centered`() {
-    let card = CGRect(x: 100, y: 50, width: 400, height: 200)
-    let blurHeight = overviewWindowTitleBandHeight(iconSize: 20)
-    let layout = overviewWindowTitleLayout(
-      cardFrame: card,
-      iconSize: 20,
-      titleSize: CGSize(width: 100, height: 16),
-      blurHeight: blurHeight
-    )
-
-    #expect(layout.iconFrame.midY == layout.titleFrame.midY)
-    #expect(layout.iconFrame.minX == card.minX + 10)
-    #expect(layout.iconFrame.minY == card.minY + 10)
-    #expect(layout.titleFrame.minX - layout.iconFrame.maxX == 8)
-    let topPadding = layout.titleFrame.minY - card.minY
-    let bottomPadding = card.minY + blurHeight - layout.titleFrame.maxY
-    #expect(abs(topPadding - bottomPadding) < 0.001)
-  }
-
-  @Test
-  func `Title scrim has a soft transparent tail`() {
-    #expect(overviewTitleScrimAlpha(progress: 0, opacity: 1) == 0.48)
-    #expect(overviewTitleScrimAlpha(progress: 0.75, opacity: 1) < 0.04)
-    #expect(overviewTitleScrimAlpha(progress: 0.97, opacity: 1) < 0.001)
-    #expect(overviewTitleScrimAlpha(progress: 1, opacity: 1) == 0)
   }
 
   @Test

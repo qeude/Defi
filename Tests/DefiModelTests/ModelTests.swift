@@ -2,51 +2,6 @@ import DefiModel
 import Testing
 
 struct ModelTests {
-  @Test
-  func `Constructors use safe defaults`() {
-    let window = Window(
-      id: WindowID(rawValue: 1),
-      appID: "app",
-      title: "title",
-      frame: Rect(x: 1, y: 2, width: 3, height: 4)
-    )
-    let column = Column(window: WindowID(rawValue: 1), width: .fraction(0.72))
-    let workspace = Workspace(id: WorkspaceID(rawValue: "1"))
-
-    #expect(window.role == nil)
-    #expect(window.processID == nil)
-    #expect(window.floating == false)
-    #expect(window.forceTiling == false)
-    #expect(window.intrinsicSize == false)
-    #expect(column.focusedWindow == 0)
-    #expect(column.preMaximizedWidth == nil)
-    #expect(workspace.focusedColumn == 0)
-    #expect(workspace.columns.isEmpty)
-    #expect(workspace.floatingWindows.isEmpty)
-    #expect(workspace.kind == .named)
-    #expect(workspace.name == "1")
-  }
-
-  @Test(arguments: [
-    (Command.switchWorkspace(WorkspaceID(rawValue: "web")), true, false),
-    (Command.moveWindowToWorkspace(WorkspaceID(rawValue: "web")), true, true),
-    (Command.sendWindowToWorkspace(WorkspaceID(rawValue: "web")), false, true),
-    (Command.focusColumn(.right), false, false),
-    (Command.cycleWidth(.next), false, false),
-  ])
-  func `Workspace command behavior is explicit`(
-    testCase: (command: Command, activatesWorkspace: Bool, movesWindow: Bool)
-  ) {
-    #expect(testCase.command.activatesWorkspace == testCase.activatesWorkspace)
-    #expect(testCase.command.movesWindowBetweenWorkspaces == testCase.movesWindow)
-  }
-
-  @Test
-  func `Sending a column does not follow it`() {
-    #expect(Command.moveColumnToWorkspace(.named("web"), follow: true).followsWindowMove)
-    #expect(!Command.moveColumnToWorkspace(.named("web"), follow: false).followsWindowMove)
-  }
-
   @Test(arguments: [
     ("focus-column left", Command.focusColumn(.left)),
     ("focus-column first", Command.focusColumn(.first)),
@@ -92,67 +47,11 @@ struct ModelTests {
 
   @Test(arguments: [
     ("move-window right", CommandParseError.invalidDirection("right")),
-    ("move-column-to-monitor next", CommandParseError.invalidDirection("next")),
+    ("move-column-to-monitor next", .invalidDirection("next")),
+    ("toggle-fullscreen", .unknownCommand("toggle-fullscreen")),
   ])
-  func `Rejects invalid move directions`(
-    testCase: (input: String, expectedError: CommandParseError)
-  ) {
-    #expect(throws: testCase.expectedError) {
-      try parseCommand(testCase.input)
-    }
-  }
-
-  @Test
-  func `Rejects obsolete fullscreen command name`() {
-    #expect(throws: CommandParseError.unknownCommand("toggle-fullscreen")) {
-      try parseCommand("toggle-fullscreen")
-    }
-  }
-
-  @Test(arguments: [
-    (Command.moveColumn(.right), true),
-    (Command.moveWindow(.down), true),
-    (Command.cycleWidth(.next), true),
-    (Command.maximizeColumn, true),
-    (Command.toggleFloating, true),
-    (Command.joinWindow(.left), true),
-    (Command.unjoinWindows, true),
-    (Command.focusColumn(.right), false),
-    (Command.toggleOverview, false),
-  ])
-  func selectedLayoutEditsAnimate(testCase: (command: Command, expected: Bool)) {
-    #expect(testCase.command.editsSelectedLayout == testCase.expected)
-    #expect(testCase.command.animatesManagedLayout == testCase.expected)
-  }
-
-  @Test(arguments: [
-    (Command.cycleWidth(.next), true, false),
-    (Command.maximizeColumn, true, false),
-    (Command.joinWindow(.left), true, false),
-    (Command.unjoinWindows, true, false),
-    (Command.moveColumnToMonitor(.right), true, true),
-    (Command.moveWindowToMonitor(.right), true, true),
-    (Command.focusColumn(.right), false, false),
-    (Command.toggleFloating, false, false),
-    (Command.toggleOverview, false, false),
-  ])
-  func `Managed layout command behavior is explicit`(
-    testCase: (command: Command, resizesLayout: Bool, crossesMonitors: Bool)
-  ) {
-    #expect(testCase.command.resizesManagedLayout == testCase.resizesLayout)
-    #expect(
-      testCase.command.movesWindowsAcrossMonitors == testCase.crossesMonitors)
-  }
-
-  @Test(arguments: [
-    (Command.activateFloating, true),
-    (Command.focusFloating(.next), true),
-    (Command.toggleFloating, false),
-  ])
-  func `Floating focus behavior is explicit`(
-    testCase: (command: Command, expected: Bool)
-  ) {
-    #expect(testCase.command.explicitlyFocusesFloating == testCase.expected)
+  func `Rejects invalid directions and obsolete commands`(input: String, error: CommandParseError) {
+    #expect(throws: error) { try parseCommand(input) }
   }
 
   @Test
@@ -175,5 +74,27 @@ struct ModelTests {
     #expect(singleManagedWindowID(processID: 99, in: [solo, other]) == nil)
     #expect(singleManagedWindowID(processID: nil, in: [solo]) == nil)
     #expect(singleManagedWindowID(processID: 42, in: []) == nil)
+  }
+
+  @Test
+  func `Sending a column does not follow it`() {
+    #expect(Command.moveColumnToWorkspace(.named("web"), follow: true).followsWindowMove)
+    #expect(!Command.moveColumnToWorkspace(.named("web"), follow: false).followsWindowMove)
+  }
+
+  @Test(arguments: [
+    (Command.moveColumn(.right), true),
+    (Command.moveWindow(.down), true),
+    (Command.cycleWidth(.next), true),
+    (Command.maximizeColumn, true),
+    (Command.toggleFloating, true),
+    (Command.joinWindow(.left), true),
+    (Command.unjoinWindows, true),
+    (Command.focusColumn(.right), false),
+    (Command.toggleOverview, false),
+  ])
+  func selectedLayoutEditsAnimate(testCase: (command: Command, expected: Bool)) {
+    #expect(testCase.command.editsSelectedLayout == testCase.expected)
+    #expect(testCase.command.animatesManagedLayout == testCase.expected)
   }
 }

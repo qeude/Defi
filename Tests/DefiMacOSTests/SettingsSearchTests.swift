@@ -5,12 +5,15 @@ import Testing
 @testable import DefiMacOS
 
 struct SettingsSearchTests {
-  @Test(arguments: ["version", "github", "updates", "release notes"])
-  func aboutSearchOpensDedicatedPage(query: String) throws {
+  @Test(arguments: [
+    ("version", .option(.about)), ("github", .option(.about)), ("updates", .option(.about)),
+    ("release notes", .option(.about)), ("default gap", .option(.screenMargins)),
+    ("gap between windows", .option(.screenMargins)), ("outer_left_gap", .option(.screenMargins)),
+    ("screen margins", .option(.screenMargins)), ("enable animations", .option(.animations)),
+  ] as [(String, SettingsDestination)])
+  func queryFindsDestinationFirst(query: String, destination: SettingsDestination) {
     let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
-    let result = try #require(results.first { $0.destination == .option(.about) })
-    #expect(result.destination.page == .about)
-    #expect(result.destination.anchor == .option(.about))
+    #expect(results.first?.destination == destination)
   }
 
   @Test(arguments: ["  RESERVED_TOP \n", "Layout.reserved_top", "reserved top area"])
@@ -23,41 +26,15 @@ struct SettingsSearchTests {
     #expect(result.destination.anchor == .option(.reservedTop))
   }
 
-  @Test(arguments: [SettingsOption.animations, .animationDuration])
-  func animationOptionsLiveOnAppearancePage(option: SettingsOption) throws {
-    let results = SettingsSearchCatalog.results(matching: option.terms, config: Config(), shortcuts: [])
-    let result = try #require(results.first { $0.destination == .option(option) })
-    #expect(result.destination.page == .appearance)
-    #expect(result.context == "Appearance")
-  }
-
-  @Test(arguments: ["default gap", "gap between windows", "outer_left_gap", "screen margins"])
-  func findsSpacingEditor(query: String) throws {
-    let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
-    #expect(results.first?.destination == .option(.screenMargins))
-  }
-
-  @Test
-  func whitespaceAndUnknownQueriesDoNotReplacePageNavigation() {
-    #expect(SettingsSearchCatalog.results(matching: " \n ", config: Config(), shortcuts: []).isEmpty)
-    #expect(SettingsSearchCatalog.results(matching: "unfindable-value", config: Config(), shortcuts: []).isEmpty)
-    let results = SettingsSearchCatalog.results(matching: "animation duration", config: Config(), shortcuts: [])
-    #expect(results.map(\.destination) == [.option(.animationDuration)])
-  }
-
-  @Test(arguments: ["---", "___", "+++", " -_+ \n"])
-  func separatorOnlyQueriesDoNotMatchResultsOrShortcuts(query: String) {
-    #expect(SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: []).isEmpty)
-    let filter = SettingsShortcutFilter.query(query)
-    #expect(!filter.includes("focus-column left"))
-  }
-
-  @Test(arguments: ["", " \n \t"])
-  func blankQueriesKeepAllShortcutsWithoutSearchResults(query: String) {
+  // Blank queries keep every shortcut; separator-only and unknown queries match nothing.
+  @Test(arguments: [
+    ("", true), (" \n \t", true), (" \n ", true), ("unfindable-value", false),
+    ("---", false), ("___", false), ("+++", false), (" -_+ \n", false),
+  ])
+  func queriesWithoutSearchResults(query: String, keepsShortcuts: Bool) {
     #expect(SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: []).isEmpty)
     let commands = ["focus-column left", "focus-column right", "reload"]
-    let filter = SettingsShortcutFilter.query(query)
-    #expect(commands.filter(filter.includes) == ["focus-column left", "focus-column right", "reload"])
+    #expect(commands.filter(SettingsShortcutFilter.query(query).includes) == (keepsShortcuts ? commands : []))
   }
 
   @Test(arguments: ["hyper-left", "control+option+command+left", "⌃⌥⌘←", "✦←"])

@@ -1,3 +1,4 @@
+import CoreGraphics
 import DefiConfig
 import DefiCore
 import DefiModel
@@ -13,57 +14,65 @@ struct NativeFullscreenTests {
     physicalFrame: Rect(x: 0, y: 0, width: 1_512, height: 982)
   )
 
-  @Test(arguments: [1, 2])
-  func `Physical screen coverage detects tracked observations`(observationCount: Int) {
-    let window = makeWindow(id: 1, processID: 10, frame: monitor.physicalFrame)
+  struct DetectionCase: CustomTestStringConvertible, Sendable {
+    let name: String
+    let windows: [Window]
+    var surfaces: [CGWindowRecord] = []
+    var lastFocused: [Int32: WindowID] = [:]
+    let fullscreen: Set<WindowID>
 
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: Array(repeating: window, count: observationCount),
-        cgWindows: [],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [:]
-      ) == [window.id]
-    )
+    var testDescription: String { name }
   }
 
-  @Test
-  func `Late native fullscreen observation is recognized after the transition`() {
-    let windowID = WindowID(rawValue: 1)
-    let beforeEntry = makeWindow(id: 1, processID: 10, frame: monitor.frame)
-    let afterEntry = makeWindow(id: 1, processID: 10, frame: monitor.physicalFrame)
-    let fullscreenSurface = CGWindowRecord(
-      id: 99,
-      processID: 10,
-      layer: 0,
-      title: "Fullscreen",
-      frame: monitor.physicalFrame
-    )
+  static let visible = Rect(x: 0, y: 23, width: 1_512, height: 959)
+  static let physical = Rect(x: 0, y: 0, width: 1_512, height: 982)
 
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [beforeEntry],
-        cgWindows: [],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [10: windowID]
-      ).isEmpty
-    )
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [beforeEntry],
-        cgWindows: [fullscreenSurface],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [10: windowID]
-      ) == [windowID]
-    )
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [afterEntry],
-        cgWindows: [],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [10: windowID]
-      ) == [windowID]
-    )
+  static func window(_ id: UInt64, _ frame: Rect, floating: Bool = false) -> Window {
+    Window(id: WindowID(rawValue: id), appID: "app", title: "Window \(id)", frame: frame, processID: 10,
+      floating: floating)
+  }
+
+  static func surface(_ id: CGWindowID, _ frame: Rect, title: String = "", onscreen: Bool = true) -> CGWindowRecord {
+    CGWindowRecord(id: id, processID: 10, layer: 0, title: title, frame: frame, isOnscreen: onscreen)
+  }
+
+  static let menuBand = Rect(x: 0, y: 0, width: 1_512, height: 33)
+  static let belowBand = Rect(x: 0, y: 33, width: 1_512, height: 949)
+  static let detectionCases = [
+    DetectionCase(name: "a window covering the physical screen", windows: [window(1, physical)],
+      fullscreen: [WindowID(rawValue: 1)]),
+    DetectionCase(name: "duplicate observations of one window", windows: [window(1, physical), window(1, physical)],
+      fullscreen: [WindowID(rawValue: 1)]),
+    DetectionCase(name: "a visible-frame window alone", windows: [window(1, visible)],
+      lastFocused: [10: WindowID(rawValue: 1)], fullscreen: []),
+    DetectionCase(name: "a late fullscreen surface for the focused window", windows: [window(1, visible)],
+      surfaces: [surface(99, physical)], lastFocused: [10: WindowID(rawValue: 1)], fullscreen: [WindowID(rawValue: 1)]),
+    DetectionCase(name: "a visible frame and picture in picture",
+      windows: [window(1, visible), window(2, Rect(x: 900, y: 500, width: 400, height: 300), floating: true)],
+      fullscreen: []),
+    DetectionCase(name: "a maximized surface without the menu band", windows: [window(1, visible)],
+      surfaces: [surface(99, visible)], fullscreen: []),
+    DetectionCase(name: "adjacent surfaces covering the screen", windows: [window(1, visible)],
+      surfaces: [surface(99, belowBand), surface(100, menuBand)], fullscreen: [WindowID(rawValue: 1)]),
+    DetectionCase(name: "stale offscreen surfaces behind a visible parent", windows: [window(1, visible)],
+      surfaces: [surface(99, belowBand, onscreen: false), surface(100, menuBand, onscreen: false),
+        surface(1, visible, title: "Window 1")], lastFocused: [10: WindowID(rawValue: 1)], fullscreen: []),
+    DetectionCase(name: "a helper surface picks the process's last focused window",
+      windows: [window(1, visible), window(2, visible)], surfaces: [surface(99, physical)],
+      lastFocused: [10: WindowID(rawValue: 2)], fullscreen: [WindowID(rawValue: 2)]),
+    DetectionCase(name: "an ambiguous helper surface does not guess", windows: [window(1, visible), window(2, visible)],
+      surfaces: [surface(99, physical)], fullscreen: []),
+    DetectionCase(name: "an exact surface wins over stale process focus",
+      windows: [window(1, visible), window(2, physical)], surfaces: [surface(2, physical)],
+      lastFocused: [10: WindowID(rawValue: 1)], fullscreen: [WindowID(rawValue: 2)]),
+    DetectionCase(name: "a remapped surface keeps the logical window identity", windows: [window(99, physical)],
+      lastFocused: [10: WindowID(rawValue: 1)], fullscreen: [WindowID(rawValue: 1)]),
+  ]
+
+  @Test(arguments: detectionCases)
+  func `Native fullscreen detection matches surfaces to the right window`(_ scenario: DetectionCase) {
+    #expect(nativeFullscreenWindowIDs(windows: scenario.windows, cgWindows: scenario.surfaces, monitors: [monitor],
+      lastFocusedWindowByProcess: scenario.lastFocused) == scenario.fullscreen)
   }
 
   @NavigationActor
@@ -138,222 +147,6 @@ struct NativeFullscreenTests {
     )
     #expect(
       Set(state.windows.keys) == Set([1, 2, 3].map { WindowID(rawValue: $0) })
-    )
-  }
-
-  @Test
-  func `Visible frame and picture in picture are not fullscreen`() {
-    let tiled = makeWindow(id: 1, processID: 10, frame: monitor.frame)
-    let pictureInPicture = makeWindow(
-      id: 2,
-      processID: 20,
-      frame: Rect(x: 900, y: 500, width: 400, height: 300),
-      floating: true
-    )
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [tiled, pictureInPicture],
-        cgWindows: [],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [:]
-      ).isEmpty
-    )
-  }
-
-  @Test
-  func `Maximized surface without its missing top band is not fullscreen`() {
-    let window = makeWindow(id: 1, processID: 10, frame: monitor.frame)
-    let surface = CGWindowRecord(
-      id: 99,
-      processID: 10,
-      layer: 0,
-      title: "",
-      frame: monitor.frame
-    )
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [window],
-        cgWindows: [surface],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [:]
-      ).isEmpty
-    )
-  }
-
-  @Test
-  func `Adjacent process surfaces can cover the physical screen`() {
-    let window = makeWindow(id: 1, processID: 10, frame: monitor.frame)
-    let surfaces = [
-      CGWindowRecord(
-        id: 99,
-        processID: 10,
-        layer: 0,
-        title: "",
-        frame: Rect(x: 0, y: 33, width: 1_512, height: 949)
-      ),
-      CGWindowRecord(
-        id: 100,
-        processID: 10,
-        layer: 0,
-        title: "",
-        frame: Rect(x: 0, y: 0, width: 1_512, height: 33)
-      ),
-    ]
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [window],
-        cgWindows: surfaces,
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [:]
-      ) == [window.id]
-    )
-  }
-
-  @Test
-  func `Stale offscreen fullscreen surfaces do not hide visible parent`() {
-    let window = makeWindow(id: 1, processID: 10, frame: monitor.frame)
-    let surfaces = [
-      CGWindowRecord(
-        id: 99,
-        processID: 10,
-        layer: 0,
-        title: "",
-        frame: Rect(x: 0, y: 33, width: 1_512, height: 949),
-        isOnscreen: false
-      ),
-      CGWindowRecord(
-        id: 100,
-        processID: 10,
-        layer: 0,
-        title: "",
-        frame: Rect(x: 0, y: 0, width: 1_512, height: 33),
-        isOnscreen: false
-      ),
-      CGWindowRecord(
-        id: 1,
-        processID: 10,
-        layer: 0,
-        title: "Window 1",
-        frame: monitor.frame,
-        isOnscreen: true
-      ),
-    ]
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [window],
-        cgWindows: surfaces,
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [10: window.id]
-      ).isEmpty
-    )
-  }
-
-  @Test
-  func `Fullscreen helper selects last focused window from its process`() {
-    let first = makeWindow(id: 1, processID: 10, frame: monitor.frame)
-    let second = makeWindow(id: 2, processID: 10, frame: monitor.frame)
-    let helper = CGWindowRecord(
-      id: 99,
-      processID: 10,
-      layer: 0,
-      title: "",
-      frame: monitor.physicalFrame
-    )
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [first, second],
-        cgWindows: [helper],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [10: second.id]
-      ) == [second.id]
-    )
-  }
-
-  @Test
-  func `Exact fullscreen surface wins over stale process focus`() {
-    let processID: Int32 = 10
-    let staleFocused = makeWindow(
-      id: 1,
-      processID: processID,
-      frame: monitor.frame
-    )
-    let fullscreen = makeWindow(
-      id: 2,
-      processID: processID,
-      frame: monitor.physicalFrame
-    )
-    let fullscreenSurface = CGWindowRecord(
-      id: 2,
-      processID: processID,
-      layer: 0,
-      title: "Video",
-      frame: monitor.physicalFrame
-    )
-    let detected = nativeFullscreenWindowIDs(
-      windows: [staleFocused, fullscreen],
-      cgWindows: [fullscreenSurface],
-      monitors: [monitor],
-      lastFocusedWindowByProcess: [processID: staleFocused.id]
-    )
-
-    #expect(detected == [fullscreen.id])
-    #expect(
-      retainedNativeFullscreenProcessIDsByWindowID(
-        detectedWindowIDs: detected,
-        previous: [staleFocused.id: processID],
-        observedProcessIDs: [
-          staleFocused.id: processID,
-          fullscreen.id: processID,
-        ],
-        fullscreenProcessIDs: [processID],
-        explicitlyRemovedWindowIDs: []
-      ) == [fullscreen.id: processID]
-    )
-  }
-
-  @Test
-  func `Remapped fullscreen surface keeps previous logical window identity`() {
-    let surfaceWindow = makeWindow(
-      id: 99,
-      processID: 10,
-      frame: monitor.physicalFrame
-    )
-    let logicalWindowID = WindowID(rawValue: 1)
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [surfaceWindow],
-        cgWindows: [],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [10: logicalWindowID]
-      ) == [logicalWindowID]
-    )
-  }
-
-  @Test
-  func `Ambiguous fullscreen helper does not guess`() {
-    let first = makeWindow(id: 1, processID: 10, frame: monitor.frame)
-    let second = makeWindow(id: 2, processID: 10, frame: monitor.frame)
-    let helper = CGWindowRecord(
-      id: 99,
-      processID: 10,
-      layer: 0,
-      title: "",
-      frame: monitor.physicalFrame
-    )
-
-    #expect(
-      nativeFullscreenWindowIDs(
-        windows: [first, second],
-        cgWindows: [helper],
-        monitors: [monitor],
-        lastFocusedWindowByProcess: [:]
-      ).isEmpty
     )
   }
 
@@ -533,27 +326,17 @@ struct NativeFullscreenTests {
   }
 
   @Test
-  func `Inactive space retains fullscreen identity while process still covers display`() {
-    let windowID = WindowID(rawValue: 1)
+  func `Fullscreen identity follows the detected window and survives an inactive space while the process covers the display`() {
+    let stale = WindowID(rawValue: 1), fullscreen = WindowID(rawValue: 2)
     let processID: Int32 = 10
-
-    let retained = retainedNativeFullscreenProcessIDsByWindowID(
-      detectedWindowIDs: [],
-      previous: [windowID: processID],
-      observedProcessIDs: [:],
-      fullscreenProcessIDs: [processID],
-      explicitlyRemovedWindowIDs: []
-    )
-    #expect(retained == [windowID: processID])
-    #expect(
-      retainedNativeFullscreenProcessIDsByWindowID(
-        detectedWindowIDs: [],
-        previous: retained,
-        observedProcessIDs: [:],
-        fullscreenProcessIDs: [],
-        explicitlyRemovedWindowIDs: []
-      ).isEmpty
-    )
+    #expect(retainedNativeFullscreenProcessIDsByWindowID(detectedWindowIDs: [fullscreen], previous: [stale: processID],
+      observedProcessIDs: [stale: processID, fullscreen: processID], fullscreenProcessIDs: [processID],
+      explicitlyRemovedWindowIDs: []) == [fullscreen: processID])
+    let retained = retainedNativeFullscreenProcessIDsByWindowID(detectedWindowIDs: [], previous: [stale: processID],
+      observedProcessIDs: [:], fullscreenProcessIDs: [processID], explicitlyRemovedWindowIDs: [])
+    #expect(retained == [stale: processID])
+    #expect(retainedNativeFullscreenProcessIDsByWindowID(detectedWindowIDs: [], previous: retained,
+      observedProcessIDs: [:], fullscreenProcessIDs: [], explicitlyRemovedWindowIDs: []).isEmpty)
   }
 
   @Test

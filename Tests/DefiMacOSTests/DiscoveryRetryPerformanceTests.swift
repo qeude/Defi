@@ -141,7 +141,7 @@ struct DiscoveryRetryPerformanceTests {
         }
       }
     }
-    #expect(discoveryAt != nil)
+    #expect(discoveryAt == 0.25)
     #expect(engine.windowListReadRetryAttemptsByProcess[41] == 3)
     let state = fixture.state.withLock { $0 }
     emitDiscoveryPerformance("known-process-retries", operations: 36,

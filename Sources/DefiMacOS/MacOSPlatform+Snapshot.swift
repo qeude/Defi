@@ -119,7 +119,8 @@ extension SnapshotEngine {
     }
     var effectiveIncrementalProcessIDs = incrementalProcessIDs
     let deferredAgeAtPartition = deferredFreshReadsStartedAt
-    let defersBackgroundReads = frameCoordinator.isAnimating
+    // Reads mid-motion cost the overlay frames: background processes wait a little.
+    let defersBackgroundReads = overlayMoving()
       && !eventRequiresFullSnapshot && !forceApplicationInventoryRefresh
     let eventProcessIDs = topologyProcessIDs.union(frameProcessIDs).union(fallbackFreshReadProcessIDs)
     let retainedIDs = retainedWindowIDs
@@ -129,7 +130,7 @@ extension SnapshotEngine {
       retainedWindowRefreshProcessIDs(
         retainedWindowIDs: retainedIDs, processIDs: retainedWindowProcesses,
         deadlines: retentionDeadlines,
-        deferringUntil: frameCoordinator.hasPendingHorizontalMotion ? now + 0.5 : nil
+        deferringUntil: overlayMoving() ? now + 0.5 : nil
       )
     }
     let urgentProcessIDs = eventProcessIDs.union(
@@ -284,7 +285,7 @@ extension SnapshotEngine {
     func shouldReadProcess(_ processID: pid_t) -> Bool {
       let now = ProcessInfo.processInfo.systemUptime
       guard !eventRequiresFullSnapshot, !forceApplicationInventoryRefresh,
-        !alwaysReadsProcesses.contains(processID), frameCoordinator.isAnimating,
+        !alwaysReadsProcesses.contains(processID), overlayMoving(),
         !urgentRetentionProcessIDs(at: now).contains(processID),
         (deferredAgeAtPartition ?? deferredFreshReadsStartedAt)
           .map({ now - $0 < 0.5 }) ?? true
@@ -673,8 +674,11 @@ extension SnapshotEngine {
     var externallyChangedFrames: [WindowID: Rect] = [:]
     var targetMismatches: [FrameMismatch] = []
     var deferredMismatchCount = 0
+    // A commit read that cannot conclude neither confirms nor clears an observed mismatch.
+    var inconclusiveObservationIDs = Set<WindowID>()
     var settledCommitLatenciesMS: [Double] = []
     var commandObservations: [(CommandPerformanceContext, WindowID, Rect, Rect, Rect)] = []
+    let hiddenWindowIDs = lastHiddenWindowIDs
     for window in windows
     where freshObservationIDs.contains(window.id)
       && !nativeFullscreenWindowIDs.contains(window.id)
@@ -688,8 +692,10 @@ extension SnapshotEngine {
         switch observeFrameCommit(read, actual: window.frame, sampledAt: snapshotStartedAt,
           now: now, externalGesture: externalResizeGestureActive) {
         case .stale:
+          inconclusiveObservationIDs.insert(window.id)
           continue
         case .deferred:
+          inconclusiveObservationIDs.insert(window.id)
           deferredMismatchCount += 1
           deferredFrameCommitMismatchCount += 1
           continue
@@ -709,7 +715,8 @@ extension SnapshotEngine {
         continue
       }
       guard let target = targetFrames[window.id],
-        !approximatelyEqual(window.frame, target)
+        !approximatelyEqual(window.frame, target),
+        !(hiddenWindowIDs.contains(window.id) && parkedFrameHolds(window.frame, target: target))
       else {
         continue
       }
@@ -952,7 +959,7 @@ extension SnapshotEngine {
       mouseFocusIntentWindowID: mouseFocusIntentWindowID,
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
-      freshFrameObservationIDs: freshObservationIDs,
+      freshFrameObservationIDs: freshObservationIDs.subtracting(inconclusiveObservationIDs),
       targetMismatches: targetMismatches,
       frontmostProcessID: frontmostProcessID
     )

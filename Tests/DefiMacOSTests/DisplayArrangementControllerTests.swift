@@ -350,4 +350,119 @@ struct DisplayArrangementControllerTests {
     #expect(!controller.reconcile())
     #expect(writes == 1)
   }
+
+  @Test
+  func `A committed staircase never replaces the desk after a failed apply`() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      second: Rect(x: 2_560, y: 0, width: 1_512, height: 982),
+    ]
+    let staircase = [
+      first: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      second: Rect(x: 2_560, y: -982, width: 1_512, height: 982),
+    ]
+    var current = desk
+    var applies = false
+    func controller() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current },
+        applyFrames: { frames, _ in
+          guard applies else { return .failure }
+          current = frames
+          return .success
+        }, primaryDisplay: { first }, stateURL: stateURL, sessionID: "s"
+      )
+    }
+    let initial = controller()
+    _ = initial.reconcile()
+    #expect(initial.status.hasPrefix("failed:"))
+    current = staircase // macOS commits the staircase to the session.
+    initial.invalidate()
+    _ = initial.reconcile()
+    #expect(initial.deskFrames == desk)
+    applies = true
+    let restarted = controller()
+    _ = restarted.reconcile()
+    #expect(restarted.deskFrames == desk)
+    #expect(restarted.status == "isolated")
+    #expect(restarted.restore() == desk)
+  }
+
+  @Test
+  func `A staircase without a desk record stays ambiguous until the user rearranges`() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    var current = [
+      first: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      second: Rect(x: 2_560, y: -982, width: 1_512, height: 982),
+    ]
+    var writes = 0
+    func controller(_ router: DisplayPointerRouter) -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current },
+        applyFrames: { frames, _ in current = frames; writes += 1; return .success },
+        primaryDisplay: { first }, pointerRouter: router, stateURL: stateURL, sessionID: "s"
+      )
+    }
+    func crossing() throws -> CGEvent {
+      let event = try #require(CGEvent(
+        mouseEventSource: nil, mouseType: .mouseMoved,
+        mouseCursorPosition: CGPoint(x: 2_559, y: 400), mouseButton: .left
+      ))
+      event.setDoubleValueField(.mouseEventDeltaX, value: 5)
+      return event
+    }
+    let router = DisplayPointerRouter(warpPointer: { _ in .success })
+    let fresh = controller(router)
+    #expect(!fresh.reconcile())
+    #expect(fresh.status == "ambiguous")
+    #expect(fresh.deskFrames.isEmpty)
+    #expect(!router.route(try crossing()))
+    #expect(fresh.restore() == current)
+    #expect(writes == 0)
+    let restarted = controller(DisplayPointerRouter(warpPointer: { _ in .success }))
+    _ = restarted.reconcile()
+    #expect(restarted.status == "ambiguous") // The staircase was not saved as the desk.
+    #expect(restarted.deskFrames.isEmpty)
+    let rearranged = [
+      first: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      second: Rect(x: 2_560, y: 200, width: 1_512, height: 982),
+    ]
+    current = rearranged
+    restarted.invalidate()
+    #expect(restarted.reconcile())
+    #expect(restarted.status == "isolated")
+    #expect(restarted.deskFrames == rearranged)
+    #expect(writes == 1)
+    #expect(restarted.pointerRouter.route(try crossing()))
+  }
+
+  @Test
+  func `A corrupted desk record is never adopted for the staircase`() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    var current = [
+      first: Rect(x: 0, y: 0, width: 2_560, height: 1_440),
+      second: Rect(x: 2_560, y: 0, width: 1_512, height: 982),
+    ]
+    func controller() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current },
+        applyFrames: { frames, _ in current = frames; return .success },
+        primaryDisplay: { first }, stateURL: stateURL, sessionID: "s"
+      )
+    }
+    _ = controller().reconcile()
+    let saved = try String(contentsOf: stateURL, encoding: .utf8)
+    try saved.replacingOccurrences(of: "1512", with: "0").write(to: stateURL, atomically: true, encoding: .utf8)
+    let restarted = controller()
+    _ = restarted.reconcile()
+    #expect(restarted.status == "ambiguous")
+    #expect(restarted.deskFrames.isEmpty)
+  }
 }
