@@ -1938,6 +1938,8 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
     DispatchQueue.main.async { MainActor.assumeIsolated { RibbonProxyPointerTicker.shared.run(on: area) } }
   }
 
+  var isStretching: Bool { lock.withLock { if case .stretch = mode { true } else { false } } }
+
   func addGuest(_ layer: CALayer, area: Rect) { lock.withLock { guests.append((layer, area)) } }
   func removeGuest(_ layer: CALayer?) { lock.withLock { guests.removeAll { $0.layer === layer } } }
 

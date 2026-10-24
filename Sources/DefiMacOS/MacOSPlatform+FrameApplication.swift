@@ -543,9 +543,11 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
     // dropped the window.
     let offset = id == dropped ? siblingClamp : previousLogical[id].map { native.y - $0.y } ?? 0
     let clamp = clamped && abs(offset) < 40 ? offset : 0
+    // Off the ribbon without history (another workspace's window re-parked): it stays
+    // put. Shifted with the ribbon, it crossed the screen into its parking corner.
     let start = leavingFrom ?? previousLogical[id]
-      ?? Rect(x: logicalTo.x - shared.x, y: logicalTo.y - shared.y,
-        width: logicalTo.width, height: logicalTo.height)
+      ?? (ribbonTargets[id] == nil ? logicalTo : Rect(x: logicalTo.x - shared.x, y: logicalTo.y - shared.y,
+        width: logicalTo.width, height: logicalTo.height))
     // Where this app really put the window last time it had this size (its own cell
     // grid or clamp): the picture lands exactly on the window, not a few points off.
     if let settle = settled[id], settle.matches(logicalTo) {

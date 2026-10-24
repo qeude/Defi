@@ -39,6 +39,7 @@ public final class MacOSPlatform {
   public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
   /// The overlay holds the pointer's window (a carry or a stretch).
   public var windowProxyCarrying: Bool { RibbonProxyPresenter.isCarrying }
+  public var windowProxyStretching: Bool { RibbonProxyPointerTrack.shared.isStretching }
   /// The window's frame now, from the WindowServer: desktop reads wait while the
   /// overlay draws, so a snapshot can still hold an older frame.
   public func windowServerFrame(_ windowID: WindowID) -> Rect? {
@@ -136,7 +137,7 @@ public final class MacOSPlatform {
   /// moves its edge only later. Elsewhere, the WindowServer must show the resize.
   func stretchWindowProxyEarly(_ windowID: WindowID, pressing: Bool) {
     // Tiled windows only: a floating one has no ribbon place.
-    guard previousLogicalRibbonFrames[windowID] != nil,
+    guard pressing || pressedWindow?.id == windowID, previousLogicalRibbonFrames[windowID] != nil,
       let frame = ribbonProxyNativeFrames([windowID])[windowID],
       let pointer = CGEvent(source: nil)?.location else { return }
     if pressing {

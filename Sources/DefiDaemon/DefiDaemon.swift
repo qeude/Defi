@@ -389,6 +389,13 @@ final class Daemon {
       needsDesktopSync = true
     }
     let liveBorderGesture = platform.isLeftMouseButtonDown
+    // The overlay stretches the ribbon until release, which learns the width. A snapshot
+    // meanwhile waited on the WindowServer, busy with the live resize, while holding the
+    // connection the overlay commits through: the stretch froze for half a second.
+    if liveBorderGesture, platform.windowProxyStretching, mouseGestureInitialFrame != nil {
+      setTimerFrequency(min(activeDisplayRefreshRate, 120))
+      return
+    }
     let mouseGestureSyncPending =
       needsDesktopSync
       && (liveBorderGesture || activelyResizedWindowID != nil)
