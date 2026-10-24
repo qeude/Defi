@@ -775,6 +775,27 @@ public func applyMouseDrop(
   }
 }
 
+/// Every display's active-workspace layout in `state`, for the drop preview: a drop on
+/// another display closes the gap on its own and opens the slot on the other.
+public func mouseDropPreviewFrames(in state: RuntimeState, viewports: [MonitorID: Rect]) -> [WindowID: Rect] {
+  var frames: [WindowID: Rect] = [:]
+  for monitor in state.monitors {
+    guard let viewport = viewports[monitor.id],
+      var workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
+    else { continue }
+    // The drop scrolls to keep the window in view; the preview shows that final scroll.
+    workspace.scrollOffset = workspace.targetScrollOffset
+    for placement in computeLayout(
+      workspace: workspace, viewport: viewport,
+      windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+      settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
+    ) where frames[placement.windowID] == nil {
+      frames[placement.windowID] = placement.frame
+    }
+  }
+  return frames
+}
+
 /// The gap under the pointer on another display; nil when the pointer is on none.
 private func mouseDisplayDropTarget(
   pointer: (x: Double, y: Double),

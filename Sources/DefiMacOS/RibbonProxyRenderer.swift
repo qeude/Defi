@@ -958,7 +958,7 @@ final class RibbonProxyPresenter {
     }
     if case .dropping = drag { drag = .idle }
     if draggedWindowID != nil {
-      if let slot = previewSlot ?? ownSlot { showPlaceholder(at: local(slot, area), in: layers) }
+      showSlot(in: layers)
     } else if let placeholder {
       placeholder.removeFromSuperlayer(); self.placeholder = nil
     }
@@ -1290,8 +1290,7 @@ final class RibbonProxyPresenter {
   func cancel(_ reason: String = "external") {
     generation &+= 1
     expectedTargets = [:]; requestedTargets = [:]
-    // The pointer track belongs to the display holding a window, if any.
-    if drag.heldWindowID != nil { RibbonProxyPointerTrack.shared.set(nil) }
+    releasePointerTrack()
     drag = .idle; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []
     guard presenting, let layers else { return }
     removePlaceholder()
@@ -1311,7 +1310,15 @@ final class RibbonProxyPresenter {
     }
   }
 
-  var isCarrying: Bool { drag.heldWindowID != nil }
+  /// Holds the pointer's window (a carry or a stretch), not a preview of another display's.
+  var isCarrying: Bool {
+    if case .hosting = drag { return false }
+    return drag.heldWindowID != nil
+  }
+  var hostedWindowID: WindowID? {
+    if case .hosting(let id) = drag { return id }
+    return nil
+  }
 
   /// A tiled window started moving under the pointer: from here its proxy follows the
   /// pointer on the overlay, lifted, while the native window moves unseen below.
@@ -1348,15 +1355,36 @@ final class RibbonProxyPresenter {
       ribbonProxyStartNow(lift, on: shadow)
     }
     ownSlot = slot; previewSlot = nil
-    if let slot { showPlaceholder(at: local(slot, layers.area), in: layers) }
+    showSlot(in: layers)
     ribbonProxyCommit(#line)
     RibbonProxyPointerTrack.shared.set(.carry(id: id, layer: layer, area: layers.area, grab: nil))
+  }
+
+  /// Another display's carried window entered this one: this ribbon goes on the overlay
+  /// to preview the drop, and a copy of the carried proxy follows the pointer here too,
+  /// above the native window hidden below. `windows` include the carried one.
+  func host(_ id: WindowID, windows: [RibbonProxyWindow], viewport: Rect,
+    generation submission: UInt64) -> Bool {
+    guard case .idle = drag, begin(windows: windows, viewport: viewport, generation: submission,
+      nativeTargets: [:], duration: ribbonProxySpringDuration, selectedWindowID: id,
+      keepsOffscreen: true),
+      let layer = windowLayers[id], let layers
+    else { return false }
+    drag = .hosting(id)
+    ownSlot = nil; previewSlot = nil
+    ribbonProxyLogger.notice("host id=\(id.rawValue)")
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    layer.zPosition = 200_000
+    layer.sublayers?.first { $0.name == "shadow" }?.opacity = 1
+    ribbonProxyCommit(#line)
+    RibbonProxyPointerTrack.shared.addGuest(layer, area: layers.area)
+    return true
   }
 
   /// Lays every other window out as the drop at the pointer would, on the overlay only,
   /// and marks the carried window's place in that layout.
   func preview(_ frames: [WindowID: Rect], heldWindowID: WindowID) {
-    guard drag == .carrying(heldWindowID), let layers else { return }
+    guard drag == .carrying(heldWindowID) || drag == .hosting(heldWindowID), let layers else { return }
     let now = CACurrentMediaTime()
     CATransaction.begin(); CATransaction.setDisableActions(true)
     for (id, layer) in windowLayers where id != heldWindowID {
@@ -1387,7 +1415,7 @@ final class RibbonProxyPresenter {
       }
     }
     previewSlot = frames[heldWindowID]
-    if let slot = previewSlot ?? ownSlot { showPlaceholder(at: local(slot, layers.area), in: layers) }
+    showSlot(in: layers)
     ribbonProxyCommit(#line)
   }
 
@@ -1395,8 +1423,8 @@ final class RibbonProxyPresenter {
   /// takes over from wherever it is; without one, the overlay lands on its own.
   func endDrag() {
     guard let id = drag.heldWindowID else { return }
-    let carried = drag == .carrying(id)
-    RibbonProxyPointerTrack.shared.set(nil)
+    let carried = drag == .carrying(id) || drag == .hosting(id)
+    releasePointerTrack()
     drag = .dropping(id)
     ribbonProxyLogger.notice("drop id=\(id.rawValue) slot=\(self.placeholder.map { Int($0.frame.minX) } ?? -1)")
     if carried, let layer = windowLayers[id], let slot = placeholder?.frame {
@@ -1435,6 +1463,25 @@ final class RibbonProxyPresenter {
     guard case .dropping = drag else { return }
     drag = .idle
     land(generation, timedOut: false)
+  }
+
+  /// The pointer track belongs to the display holding the window; a hosting display
+  /// only lets go of its copy.
+  private func releasePointerTrack() {
+    if case .hosting(let id) = drag {
+      RibbonProxyPointerTrack.shared.removeGuest(windowLayers[id])
+    } else if drag.heldWindowID != nil {
+      RibbonProxyPointerTrack.shared.set(nil)
+    }
+  }
+
+  /// The landing zone, on the display the drop lands on only.
+  private func showSlot(in layers: RibbonProxyLayers) {
+    if let slot = previewSlot ?? ownSlot, slot.ribbonIntersects(layers.area) {
+      showPlaceholder(at: local(slot, layers.area), in: layers)
+    } else {
+      removePlaceholder()
+    }
   }
 
   private func showPlaceholder(at slot: CGRect, in layers: RibbonProxyLayers) {
@@ -1760,11 +1807,13 @@ enum RibbonProxyDrag: Equatable {
   case carrying(WindowID)
   /// A tiled window resized by the pointer: its proxy follows the native frame.
   case stretching(WindowID)
+  /// Another display's carried window is over this one: it previews the drop here.
+  case hosting(WindowID)
   case dropping(WindowID)
 
   var heldWindowID: WindowID? {
     switch self {
-    case .carrying(let id), .stretching(let id): id
+    case .carrying(let id), .stretching(let id), .hosting(let id): id
     case .idle, .dropping: nil
     }
   }
@@ -1871,9 +1920,11 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
   static let shared = RibbonProxyPointerTrack()
   private let lock = NSLock()
   private var mode: Mode?
+  /// Copies of the carried window on the other displays previewing its drop.
+  private var guests: [(layer: CALayer, area: Rect)] = []
 
   func set(_ mode: Mode?) {
-    lock.withLock { self.mode = mode }
+    lock.withLock { self.mode = mode; if mode == nil { guests = [] } }
     let area: Rect? = switch mode {
     case .carry(_, _, let area, _): area
     case .stretch(let stretch): stretch.area
@@ -1882,9 +1933,13 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
     DispatchQueue.main.async { MainActor.assumeIsolated { RibbonProxyPointerTicker.shared.run(on: area) } }
   }
 
+  func addGuest(_ layer: CALayer, area: Rect) { lock.withLock { guests.append((layer, area)) } }
+  func removeGuest(_ layer: CALayer?) { lock.withLock { guests.removeAll { $0.layer === layer } } }
+
   /// `point` is in global top-left coordinates.
   func move(to point: CGPoint) {
-    guard var mode = lock.withLock({ self.mode }) else { return }
+    guard let (current, guests) = lock.withLock({ self.mode.map { ($0, self.guests) } }) else { return }
+    var mode = current
     CATransaction.begin(); CATransaction.setDisableActions(true)
     switch mode {
     case .carry(let id, let layer, let area, let grab):
@@ -1897,6 +1952,11 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
       } ?? CGPoint(x: layer.position.x - local.x, y: layer.position.y - local.y)
       layer.removeAnimation(forKey: "position")
       layer.position = CGPoint(x: local.x + offset.x, y: local.y + offset.y)
+      for guest in guests {
+        let there = ribbonProxyLocal(point, in: guest.area)
+        guest.layer.removeAnimation(forKey: "position")
+        guest.layer.position = CGPoint(x: there.x + offset.x, y: there.y + offset.y)
+      }
       mode = .carry(id: id, layer: layer, area: area, grab: offset)
     case .stretch(var stretch):
       if stretch.anchor == nil, let start = ribbonProxyNativeFrames([stretch.id])[stretch.id] {

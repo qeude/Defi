@@ -813,6 +813,24 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `A display drop preview closes the gap here and opens the slot there`() throws {
+    var (state, viewports) = try makeTwoDisplayState()
+    let target = MouseDropTarget.display(secondMonitorID, workspaceID: state.monitors[1].workspaces[0].id, gap: 1)
+    #expect(applyMouseDrop(WindowID(rawValue: 1), target, state: &state, viewports: viewports,
+      monitorFrames: viewports))
+    let after = mouseDropPreviewFrames(in: state, viewports: viewports)
+
+    let held = try #require(after[WindowID(rawValue: 1)])
+    #expect(held.x >= secondViewport.x && held.x < secondViewport.x + secondViewport.width)
+    // The window left behind fills its display.
+    let second = try #require(after[WindowID(rawValue: 2)])
+    #expect(second.x >= viewport.x && second.x + second.width <= viewport.x + viewport.width)
+    // Its new neighbour on the other display makes room after it.
+    let fourth = try #require(after[WindowID(rawValue: 4)])
+    #expect(fourth.x >= held.x + held.width)
+  }
+
+  @Test
   func `A display drop keeps its gap when transient columns move along`() throws {
     var (state, viewports) = try makeTwoDisplayState()
     state.windows[WindowID(rawValue: 2)]?.transientOwnerID = WindowID(rawValue: 1)

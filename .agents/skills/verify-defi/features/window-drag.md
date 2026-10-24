@@ -33,6 +33,6 @@ The script requires exactly one monitor and exits otherwise. Drive cross-monitor
 - The daemon traces each preview change as `mouse-drop-preview window=<id> target=<target>` (or `target=none`). The script reads the latest one. Judge the overlay motion and borders by eye.
 - Membership comes from `~/Library/Application Support/Defi/workspace-topology.json`, which the daemon rewrites after each sync; the script polls it until it converges.
 - The target follows the pointer, not the window: macOS can stop a window from following the pointer off screen. While the pointer stays over the source column the drag is a no-op by design.
-- The overlay carries a window only with one monitor. With several monitors the native window follows the pointer, there is no preview, and the drop still commits on release.
+- Over another display, that display's overlay goes up too: its ribbon makes room, it shows the slot, and a copy of the carried window follows the pointer there. The source display closes the gap. The daemon traces `host id=<id>` in the `ribbon-proxy` log category when it starts.
 - With `animation.window_proxies = false` the older live reorder runs instead: columns move while the button is held.
 - Covering unit tests: `MouseReorderingTests` (target selection, stacking, hysteresis, commit, invalidation).

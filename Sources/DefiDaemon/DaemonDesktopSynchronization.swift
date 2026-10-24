@@ -738,7 +738,7 @@ extension Daemon {
             platform.recordPerformanceTrace(
               "mouse-drop-preview window=\(gestureWindowID.rawValue) target=\(target.map { "\($0)" } ?? "none")")
             platform.presentWindowProxyPreview(
-              mouseDropPreviewFrames(around: gestureWindowID, in: preview, viewports: viewportsByMonitor),
+              mouseDropPreviewFrames(in: preview, viewports: viewportsByMonitor),
               heldWindowID: gestureWindowID)
           }
         }
@@ -961,24 +961,5 @@ extension Daemon {
 
 func mouseFrameWasResized(from initial: Rect, to actual: Rect) -> Bool {
   abs(actual.width - initial.width) > 2 || abs(actual.height - initial.height) > 2
-}
-
-/// The active-workspace layout of `state` around `windowID`, for the drop preview.
-func mouseDropPreviewFrames(
-  around windowID: WindowID, in state: RuntimeState, viewports: [MonitorID: Rect]
-) -> [WindowID: Rect] {
-  guard let monitor = state.monitors.first(where: { monitor in
-      monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.columns.contains { $0.windows.contains(windowID) } }
-    }),
-    let viewport = viewports[monitor.id],
-    var workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
-  else { return [:] }
-  // The drop scrolls to keep the window in view; the preview shows that final scroll.
-  workspace.scrollOffset = workspace.targetScrollOffset
-  return Dictionary(computeLayout(
-    workspace: workspace, viewport: viewport,
-    windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
-    settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
-  ).map { ($0.windowID, $0.frame) }) { first, _ in first }
 }
 
