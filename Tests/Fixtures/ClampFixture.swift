@@ -103,7 +103,14 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
     window.title = "Defi Performance \(getpid()) \(id)"
     window.isReleasedWhenClosed = false
     window.delegate = self
-    if let size = fixtureSize("DEFI_FIXTURE_MIN") { window.minSize = size }
+    if let size = fixtureSize("DEFI_FIXTURE_MIN") {
+      window.minSize = size
+      // Open at the minimum like real apps: the window server reports a minimum
+      // no larger than the current frame, so a smaller first frame understates it.
+      let frame = window.frame
+      window.setFrame(NSRect(x: frame.minX, y: frame.minY, width: max(frame.width, size.width),
+        height: max(frame.height, size.height)), display: false)
+    }
     if let size = fixtureSize("DEFI_FIXTURE_MAX") { window.maxSize = size }
     if let size = fixtureSize("DEFI_FIXTURE_ASPECT") { window.aspectRatio = size }
     let input = InputView(string: "Type here to verify the keyboard recipient")

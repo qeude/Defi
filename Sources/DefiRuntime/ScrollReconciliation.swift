@@ -25,10 +25,36 @@ public func applyOverviewScrollOffsets(
   return changedMonitorIDs
 }
 
+/// Splits stacks that no longer fit their monitor; a no-op when all fit.
+@discardableResult
+public func separateInfeasibleStacks(
+  state: inout RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> Bool {
+  var changed = false
+  for monitorIndex in state.monitors.indices {
+    guard let viewport = viewports[state.monitors[monitorIndex].id] else { continue }
+    for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+      changed =
+        separateInfeasibleStacks(
+          in: &state.monitors[monitorIndex].workspaces[workspaceIndex],
+          viewport: viewport,
+          windowsByID: state.windows,
+          settings: state.layout,
+          excludingWindowIDs: state.nativeFullscreenWindowIDs
+        ) || changed
+    }
+  }
+  return changed
+}
+
 public func synchronizeScrollOffsets(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]
 ) {
+  // Every command, snapshot, display and config reconciliation passes here, so
+  // stacks converge everywhere without touching each caller.
+  separateInfeasibleStacks(state: &state, viewports: viewports)
   for monitorIndex in state.monitors.indices {
     let monitorID = state.monitors[monitorIndex].id
     guard let viewport = viewports[monitorID] else { continue }

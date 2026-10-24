@@ -27,6 +27,7 @@ struct WindowSizeConstraints: Equatable, Sendable {
   let minimumWidth: Double?
   let maximumWidth: Double?
   let maximumHeight: Double?
+  let minimumHeight: Double?
 }
 
 func normalizedWindowSizeConstraints(
@@ -43,7 +44,8 @@ func normalizedWindowSizeConstraints(
   let width = dimension(minimum: minimum.width, maximum: maximum.width)
   let height = dimension(minimum: minimum.height, maximum: maximum.height)
   return WindowSizeConstraints(
-    minimumWidth: width.0, maximumWidth: width.1, maximumHeight: height.1
+    minimumWidth: width.0, maximumWidth: width.1, maximumHeight: height.1,
+    minimumHeight: height.0
   )
 }
 

@@ -1081,7 +1081,8 @@ extension SnapshotEngine {
         forceTiling: false,
         minimumTiledWidth: sizeConstraints?.minimumWidth,
         maximumTiledWidth: sizeConstraints?.maximumWidth,
-        maximumTiledHeight: sizeConstraints?.maximumHeight
+        maximumTiledHeight: sizeConstraints?.maximumHeight,
+        minimumTiledHeight: sizeConstraints?.minimumHeight
       ), resolvedWindowID, decision
     )
   }
@@ -1714,7 +1715,8 @@ func windowSizeConstraintsForSnapshot(
   guard overviewActive else { return freshRead() }
   return previousWindow.map {
     WindowSizeConstraints(minimumWidth: $0.minimumTiledWidth,
-      maximumWidth: $0.maximumTiledWidth, maximumHeight: $0.maximumTiledHeight)
+      maximumWidth: $0.maximumTiledWidth, maximumHeight: $0.maximumTiledHeight,
+      minimumHeight: $0.minimumTiledHeight)
   }
 }
 

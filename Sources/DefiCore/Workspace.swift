@@ -266,7 +266,8 @@ public func maximizeColumn(_ column: inout Column, defaultWidth: Double) {
 public func joinFocusedWindow(
   _ direction: Direction,
   in workspace: inout Workspace,
-  settings: LayoutSettings
+  settings: LayoutSettings,
+  stackFit: ([WindowID]) -> StackFit = { _ in .fits }
 ) throws {
   let sourceColumnIndex = workspace.focusedColumn
   guard workspace.columns.indices.contains(sourceColumnIndex) else {
@@ -290,6 +291,13 @@ public func joinFocusedWindow(
   let sourceWindowIndex = workspace.columns[sourceColumnIndex].focusedWindow
   guard workspace.columns[sourceColumnIndex].windows.indices.contains(sourceWindowIndex) else {
     throw LayoutError.emptyWorkspace
+  }
+  // Reject before mutating so a refused join leaves membership, focus and scroll intact.
+  if case .rejected(let rejection) = stackFit(
+    workspace.columns[targetColumnIndex].windows
+      + [workspace.columns[sourceColumnIndex].windows[sourceWindowIndex]]
+  ) {
+    throw rejection
   }
   let windowID = workspace.columns[sourceColumnIndex].windows.remove(at: sourceWindowIndex)
 

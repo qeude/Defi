@@ -37,15 +37,15 @@ public func computeLayout(
       windowsByID: windowsByID,
       gaps: gaps
     )
-    let height = viewport.height / Double(max(column.windows.count, 1))
+    let heights = stackSlotHeights(
+      column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
+    )
+    var slotY = viewport.y
 
     for (windowIndex, windowID) in column.windows.enumerated() {
-      let slot = Rect(
-        x: x,
-        y: viewport.y + height * Double(windowIndex),
-        width: width,
-        height: height
-      )
+      let height = heights[windowIndex]
+      let slot = Rect(x: x, y: slotY, width: width, height: height)
+      slotY += height
       let frame: Rect
       if let window = windowsByID[windowID], window.intrinsicSize {
         let intrinsicWidth = min(max(window.frame.width, 1), width)
@@ -61,24 +61,28 @@ public func computeLayout(
           min(width, window.maximumTiledWidth.map { $0 + gaps } ?? width),
           effectiveMinimumTiledWidth(window.minimumTiledWidth.map { $0 + gaps }, requested: width)
         )
+        let constrainedHeight = constrainedStackWindowHeight(
+          slotHeight: height, window: window, windowIndex: windowIndex,
+          windowCount: column.windows.count, settings: settings
+        )
         frame = Rect(
           x: x + (width - constrainedWidth) / 2,
-          y: slot.y,
+          y: slot.y + max(height - constrainedHeight, 0) / 2,
           width: constrainedWidth,
-          height: height
+          height: constrainedHeight
         )
       } else {
         frame = slot
       }
 
-      var target = applyGaps(
+      var target = cappedStackFrame(applyGaps(
         frame,
         columnIndex: columnIndex,
         columnCount: workspace.columns.count,
         windowIndex: windowIndex,
         windowCount: column.windows.count,
         settings: settings
-      )
+      ), window: windowsByID[windowID])
       if acceptedSizes[windowID] == nil, let window = windowsByID[windowID] {
         target = compensatingWidthRounding(target, for: window)
       }
@@ -212,7 +216,10 @@ private func acceptedTiledSizes(
   windowsByID: [WindowID: Window],
   settings: LayoutSettings
 ) -> [WindowID: TiledSizeAcceptance] {
-  let height = viewport.height / Double(max(column.windows.count, 1))
+  let heights = stackSlotHeights(
+    column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
+  )
+  let offsets = heights.reduce(into: [0.0]) { $0.append($0.last! + $1) }
   let gaps = horizontalGaps(columnIndex: columnIndex, columnCount: columnCount, settings: settings)
   return Dictionary(
     uniqueKeysWithValues: column.windows.enumerated().compactMap { windowIndex, windowID in
@@ -228,18 +235,21 @@ private func acceptedTiledSizes(
       )
       let frame = Rect(
         x: (preferredWidth - constrainedWidth) / 2,
-        y: viewport.y + height * Double(windowIndex),
+        y: viewport.y + offsets[windowIndex],
         width: constrainedWidth,
-        height: height
+        height: constrainedStackWindowHeight(
+          slotHeight: heights[windowIndex], window: window, windowIndex: windowIndex,
+          windowCount: column.windows.count, settings: settings
+        )
       )
-      let requested = compensatingWidthRounding(applyGaps(
+      let requested = compensatingWidthRounding(cappedStackFrame(applyGaps(
         frame,
         columnIndex: columnIndex,
         columnCount: columnCount,
         windowIndex: windowIndex,
         windowCount: column.windows.count,
         settings: settings
-      ), for: window)
+      ), window: window), for: window)
       // Moving a column across a gap edge shifts the request by exactly an
       // outer/inner gap difference; the app's clamp is unchanged, so its accepted
       // size still applies. Any other change is a new request.

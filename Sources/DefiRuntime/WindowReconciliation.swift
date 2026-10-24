@@ -233,6 +233,7 @@ public func reconcileWindows(
         if fullscreenWindowIDs.contains(window.id) {
           updated.minimumTiledWidth = nil
           updated.maximumTiledWidth = nil
+          updated.minimumTiledHeight = nil
           updated.maximumTiledHeight = nil
         } else if window.minimumTiledWidth != nil
           || window.maximumTiledWidth != nil
