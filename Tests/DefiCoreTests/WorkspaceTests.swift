@@ -74,6 +74,29 @@ struct WorkspaceTests {
   }
 
   @Test(arguments: [
+    (Direction.next, ColumnWidth.pixels(700), ColumnWidth.fraction(0.75)),
+    (Direction.previous, ColumnWidth.pixels(700), ColumnWidth.fraction(0.5)),
+    (Direction.next, ColumnWidth.pixels(1_100), ColumnWidth.fraction(0.25)),
+    (Direction.previous, ColumnWidth.pixels(200), ColumnWidth.fraction(1)),
+    (Direction.next, ColumnWidth.fraction(0.6), ColumnWidth.fraction(0.75)),
+    (Direction.previous, ColumnWidth.fraction(0.6), ColumnWidth.fraction(0.5)),
+  ])
+  func `Cycling from a width off the presets steps from the real width`(
+    testCase: (direction: Direction, width: ColumnWidth, expectedWidth: ColumnWidth)
+  ) {
+    var column = Column(window: WindowID(rawValue: 1), width: testCase.width)
+
+    cycleWidth(
+      of: &column,
+      direction: testCase.direction,
+      presets: [0.25, 0.5, 0.75, 1],
+      viewportWidth: 1_000
+    )
+
+    #expect(column.width == testCase.expectedWidth)
+  }
+
+  @Test(arguments: [
     (
       Direction.next,
       [1.0, 0.33, 0.5, 0.66, 0.8],

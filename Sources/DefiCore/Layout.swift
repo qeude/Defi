@@ -322,7 +322,7 @@ private func applyGaps(
 }
 
 /// Width bounds are the window's own; its column also holds the gaps beside it.
-private func horizontalGaps(columnIndex: Int, columnCount: Int, settings: LayoutSettings) -> Double {
+public func horizontalGaps(columnIndex: Int, columnCount: Int, settings: LayoutSettings) -> Double {
   let inner = max(settings.innerHorizontalGap, 0)
   return (columnIndex == 0 ? max(settings.outerLeftGap, 0) : inner)
     + (columnIndex + 1 == columnCount ? max(settings.outerRightGap, 0) : inner)

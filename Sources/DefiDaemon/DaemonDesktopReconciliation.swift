@@ -49,6 +49,11 @@ func settledTiledSizeClamp(_ current: FrameMismatch, previous: FrameMismatch?) -
 struct WidthMismatchObservationState {
   var mismatchesByWindowID: [WindowID: FrameMismatch] = [:]
   var observedSince: [WindowID: TimeInterval] = [:]
+
+  mutating func forget(_ windowID: WindowID) {
+    mismatchesByWindowID[windowID] = nil
+    observedSince[windowID] = nil
+  }
 }
 
 func updateWidthMismatchObservationState(

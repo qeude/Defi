@@ -167,6 +167,9 @@ final class Daemon {
   var proxyWorkspaceOrders: [MonitorID: [WorkspaceID]] = [:]
   /// The window released by a proxied drop, until its drop layout is applied.
   var proxyDroppedWindowID: WindowID?
+  /// The held window moved or resized, so a button-up ends the gesture even before
+  /// its release event lands.
+  var mouseGestureChangedWindowFrame = false
   /// The drop the overlay is previewing during a drag; applied for real on release.
   var proxyPreviewTarget: MouseDropTarget?
   var mouseGestureInitialFrame: Rect?

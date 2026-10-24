@@ -69,10 +69,16 @@ public func mouseGestureSettlementMaximumDuration(
 public func mouseGestureWidthLearningFrame(
   externallyChangedFrame: Rect?,
   actualFrame: Rect?,
-  postReleaseSettlementActive: Bool
+  postReleaseSettlementActive: Bool,
+  actualFrameMatchesRecentDefiWrite: Bool = false,
+  overlayHoldsGesture: Bool = false,
+  releasedResizeFrame: Rect? = nil
 ) -> Rect? {
-  externallyChangedFrame
-    ?? (postReleaseSettlementActive ? actualFrame : nil)
+  // The overlay stretches the ribbon at the pointer; a layout mid-drag would restart
+  // its motion from the native frames, so the width is learned on release.
+  if overlayHoldsGesture { return nil }
+  return releasedResizeFrame ?? externallyChangedFrame
+    ?? (postReleaseSettlementActive && !actualFrameMatchesRecentDefiWrite ? actualFrame : nil)
 }
 
 public func advanceMouseGestureSettlement(
