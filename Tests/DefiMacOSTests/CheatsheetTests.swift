@@ -125,6 +125,7 @@ struct CheatsheetPanelTests {
       }
       controller.show(on: MonitorID(rawValue: number))
       let panel = try #require(visiblePanels().first)
+      #expect(panel.screen == screen, "Panel must open on display \(number)")
       #expect(screen.visibleFrame.contains(panel.frame), "Panel must open inside display \(number)")
       controller.close()
     }
