@@ -81,18 +81,20 @@ struct CheatsheetPanelTests {
     controller.show(on: nil)
     let current = try #require(visiblePanel())
     let screen = try #require(current.screen)
-    let unfitted = current.frame
     let deadline = ContinuousClock.now + .seconds(2)
-    // Without a fade (Reduce Motion) the panel is opaque at once; the fit still follows.
-    while first.isVisible || current.alphaValue < 0.99 || current.frame == unfitted,
-      ContinuousClock.now < deadline {
+    // The fit can follow an opaque panel (no fade under Reduce Motion), and on a small
+    // screen it keeps the largest frame: wait for the frame to hold still instead.
+    var settled = current.frame, stableSince = ContinuousClock.now
+    while first.isVisible || current.alphaValue < 0.99
+      || ContinuousClock.now - stableSince < .milliseconds(150), ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(10))
+      if current.frame != settled { settled = current.frame; stableSince = ContinuousClock.now }
     }
     #expect(!first.isVisible, "A closed panel must not reappear")
     #expect(abs(current.alphaValue - 1) < 0.01)
     #expect(NSApplication.shared.isActive == wasActive, "Showing the panel must not activate Defi")
-    #expect(current.frame.height < screen.visibleFrame.height - 48)
-    #expect(current.frame.width < screen.visibleFrame.width - 48)
+    #expect(current.frame.height <= screen.visibleFrame.height - 48)
+    #expect(current.frame.width <= screen.visibleFrame.width - 48)
     #expect(current.frame.width > 600)
     #expect(abs(current.frame.midX - screen.visibleFrame.midX) <= 1)
     #expect(abs(current.frame.midY - screen.visibleFrame.midY) <= 1)
