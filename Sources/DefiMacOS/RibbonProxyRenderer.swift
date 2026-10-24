@@ -37,6 +37,13 @@ func ribbonProxyLanded(native: [WindowID: Rect], targets: [WindowID: Rect]) -> B
   }
 }
 
+/// The native targets a landing waits for. A target showing at most a sliver (an
+/// offscreen column's anchor) is out of view like a leaving window, and macOS may keep
+/// it a title bar higher than asked.
+func ribbonProxyLandingTargets(_ targets: [WindowID: Rect], area: Rect) -> [WindowID: Rect] {
+  targets.filter { windowProxyVisibleOverlap($0.value, area) > 2 }
+}
+
 /// How an app adjusted a window Defi asked for at a target of `size` (its own clamp,
 /// cell grid or minimum size): learned at each landing.
 struct RibbonProxySettle: Sendable, Equatable {
@@ -965,7 +972,7 @@ final class RibbonProxyPresenter {
       bordersHidden = true; hiddenBorderIDs = borders; setBordersHidden(true)
     }
 
-    expectedTargets = nativeTargets.filter { $0.key != draggedWindowID && $0.value.ribbonIntersects(area) }
+    expectedTargets = ribbonProxyLandingTargets(nativeTargets.filter { $0.key != draggedWindowID }, area: area)
     requestedTargets = requested.filter { expectedTargets[$0.key] != nil }
     presentedSubmission = submission
     landedRefresh = windows.map {

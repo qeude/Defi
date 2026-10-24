@@ -26,6 +26,18 @@ struct RibbonProxyTests {
       targets: [a: targets[a]!]))
   }
 
+  @Test func landingDoesNotWaitForAWindowAnchoredInASliver() {
+    let finder = WindowID(rawValue: 1), xcode = WindowID(rawValue: 2)
+    let display = Rect(x: 0, y: 0, width: 2560, height: 1440)
+    // An offscreen column's anchor shows one point; macOS keeps Xcode 20 pt higher.
+    let targets = [finder: Rect(x: 1702, y: 34, width: 740, height: 1359),
+      xcode: Rect(x: -1269, y: 1365, width: 1270, height: 1359)]
+    let awaited = ribbonProxyLandingTargets(targets, area: display)
+    #expect(awaited == [finder: Rect(x: 1702, y: 34, width: 740, height: 1359)])
+    #expect(ribbonProxyLanded(native: [finder: Rect(x: 1702, y: 34, width: 740, height: 1359),
+      xcode: Rect(x: -1269, y: 1345, width: 1270, height: 1359)], targets: awaited))
+  }
+
   @Test func landingStartsWhenTheRibbonVisiblyStops() {
     // A column step stops visibly about 0.31 s in, a tiny nudge sooner, never past settling.
     #expect(abs(ribbonProxyVisualStop(travel: 1_300) - 0.31) < 0.02)
