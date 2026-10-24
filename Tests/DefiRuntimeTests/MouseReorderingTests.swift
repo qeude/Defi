@@ -566,6 +566,33 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `Overlay stretch learns the width once, on release`() {
+    let dragged = Rect(x: 0, y: 0, width: 600, height: 700)
+    let released = Rect(x: 0, y: 0, width: 640, height: 700)
+
+    #expect(
+      mouseGestureWidthLearningFrame(
+        externallyChangedFrame: dragged,
+        actualFrame: dragged,
+        postReleaseSettlementActive: false,
+        overlayHoldsGesture: true
+      ) == nil)
+    #expect(
+      mouseGestureWidthLearningFrame(
+        externallyChangedFrame: nil,
+        actualFrame: released,
+        postReleaseSettlementActive: false,
+        releasedResizeFrame: released
+      ) == released)
+    #expect(
+      mouseGestureWidthLearningFrame(
+        externallyChangedFrame: dragged,
+        actualFrame: dragged,
+        postReleaseSettlementActive: false
+      ) == dragged)
+  }
+
+  @Test
   func `Resize is not classified as translation`() throws {
     let state = try makeState(windowCount: 1)
     let windowID = WindowID(rawValue: 1)

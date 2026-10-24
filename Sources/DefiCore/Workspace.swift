@@ -180,7 +180,8 @@ public func cycleWidth(
   direction: Direction,
   presets: [Double],
   minimumFraction: Double? = nil,
-  maximumFraction: Double? = nil
+  maximumFraction: Double? = nil,
+  viewportWidth: Double? = nil
 ) {
   guard !presets.isEmpty else { return }
   func effectiveWidth(_ preset: Double) -> Double {
@@ -207,15 +208,44 @@ public func cycleWidth(
     column.preMaximizedWidth = nil
     return
   }
-  guard case .fraction(let current) = column.width else {
-    column.width = .fraction(presets[0])
+  let current: Double
+  switch column.width {
+  case .fraction(let fraction):
+    current = fraction
+  case .pixels(let width):
+    guard let viewportWidth, viewportWidth > 0 else {
+      column.width = .fraction(presets[0])
+      column.preMaximizedWidth = nil
+      return
+    }
+    current = width / viewportWidth
+  }
+
+  guard let currentIndex = presets.firstIndex(where: { abs($0 - current) < .ulpOfOne }) else {
+    // A width off the presets, such as one set by a native resize, steps to the
+    // nearest preset in the requested direction.
+    let currentEffectiveWidth = effectiveWidth(current)
+    let tolerance = viewportWidth.flatMap { $0 > 0 ? 1 / $0 : nil } ?? .ulpOfOne
+    let wider = presets.filter { effectiveWidth($0) > currentEffectiveWidth + tolerance }
+    let narrower = presets.filter { effectiveWidth($0) < currentEffectiveWidth - tolerance }
+    let target: Double?
+    switch direction {
+    case .next, .right:
+      target = wider.min() ?? narrower.min()
+    case .previous, .left:
+      target = narrower.max() ?? wider.max()
+    case .first:
+      target = presets.first
+    case .last:
+      target = presets.last
+    case .up, .down:
+      target = nil
+    }
+    guard let target else { return }
+    column.width = .fraction(target)
     column.preMaximizedWidth = nil
     return
   }
-
-  let currentIndex =
-    presets.firstIndex(where: { abs($0 - current) < .ulpOfOne })
-    ?? nearestPresetIndex(current: current, presets: presets)
   var nextIndex = currentIndex
   let step: Int
   switch direction {

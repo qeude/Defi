@@ -663,6 +663,7 @@ extension Daemon {
     var mouseReordered = false
     // A released tiled window glides from where it was dropped into its slot.
     var animatesMouseDrop = false
+    var releasedResizeFrame: Rect?
     if !displayGeometryChanged && mouseResizeGestureActive {
       let physicalMonitorFrames = Dictionary(uniqueKeysWithValues: latestMonitors.map {
         ($0.id, $0.physicalFrame)
@@ -799,6 +800,9 @@ extension Daemon {
           let mouseGestureInitialFrame,
           let actualFrame
         {
+          if !droppedOnOverlay, mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame) {
+            releasedResizeFrame = actualFrame
+          }
           let now = ProcessInfo.processInfo.systemUptime
           animatesMouseDrop = animationsEnabled && state.windows[gestureWindowID]?.floating == false
             && (mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame)
@@ -856,7 +860,9 @@ extension Daemon {
           postReleaseSettlementActive: postReleaseMouseGestureActive,
           actualFrameMatchesRecentDefiWrite: actualFrame.map {
             platform.frameMatchesPendingInternalWrite(windowID: gestureWindowID, actual: $0)
-          } ?? false
+          } ?? false,
+          overlayHoldsGesture: snapshot.leftMouseButtonDown && platform.windowProxyCarrying,
+          releasedResizeFrame: releasedResizeFrame
         )
       {
         _ = learnTiledWindowWidth(

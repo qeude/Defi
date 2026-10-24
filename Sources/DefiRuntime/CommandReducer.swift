@@ -179,7 +179,8 @@ public func reduce(
           direction: direction,
           presets: presets,
           minimumFraction: minimumFraction,
-          maximumFraction: maximumFraction
+          maximumFraction: maximumFraction,
+          viewportWidth: viewports[state.monitors[monitorIndex].id]?.width
         )
         state.monitors[monitorIndex].workspaces[index].targetScrollOffset =
           focusedColumnLeftScrollOffset(

@@ -172,8 +172,3 @@ public func repairWorkspaceScroll(
   )
 }
 
-func nearestPresetIndex(current: Double, presets: [Double]) -> Int {
-  presets.indices.min {
-    abs(presets[$0] - current) < abs(presets[$1] - current)
-  } ?? 0
-}

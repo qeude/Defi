@@ -70,9 +70,14 @@ public func mouseGestureWidthLearningFrame(
   externallyChangedFrame: Rect?,
   actualFrame: Rect?,
   postReleaseSettlementActive: Bool,
-  actualFrameMatchesRecentDefiWrite: Bool = false
+  actualFrameMatchesRecentDefiWrite: Bool = false,
+  overlayHoldsGesture: Bool = false,
+  releasedResizeFrame: Rect? = nil
 ) -> Rect? {
-  externallyChangedFrame
+  // The overlay stretches the ribbon at the pointer; a layout mid-drag would restart
+  // its motion from the native frames, so the width is learned on release.
+  if overlayHoldsGesture { return nil }
+  return releasedResizeFrame ?? externallyChangedFrame
     ?? (postReleaseSettlementActive && !actualFrameMatchesRecentDefiWrite ? actualFrame : nil)
 }
 
