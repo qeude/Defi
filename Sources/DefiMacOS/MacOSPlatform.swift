@@ -39,6 +39,11 @@ public final class MacOSPlatform {
   public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
   /// The overlay holds the pointer's window (a carry or a stretch).
   public var windowProxyCarrying: Bool { RibbonProxyPresenter.isCarrying }
+  /// The window's frame now, from the WindowServer: desktop reads wait while the
+  /// overlay draws, so a snapshot can still hold an older frame.
+  public func windowServerFrame(_ windowID: WindowID) -> Rect? {
+    ribbonProxyNativeFrames([windowID])[windowID]
+  }
   /// Shows the layout a drop at the pointer would produce, on the overlay only.
   /// `frames` cover every display: a drop on another one closes the gap here and opens
   /// the slot there.

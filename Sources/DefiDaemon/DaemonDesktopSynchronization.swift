@@ -800,13 +800,14 @@ extension Daemon {
           let mouseGestureInitialFrame,
           let actualFrame
         {
-          if !droppedOnOverlay, mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame) {
-            releasedResizeFrame = actualFrame
+          let releasedFrame = platform.windowServerFrame(gestureWindowID) ?? actualFrame
+          if !droppedOnOverlay, mouseFrameWasResized(from: mouseGestureInitialFrame, to: releasedFrame) {
+            releasedResizeFrame = releasedFrame
           }
           let now = ProcessInfo.processInfo.systemUptime
           animatesMouseDrop = animationsEnabled && state.windows[gestureWindowID]?.floating == false
-            && (mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame)
-              || mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame))
+            && (mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: releasedFrame)
+              || mouseFrameWasResized(from: mouseGestureInitialFrame, to: releasedFrame))
           if animatesMouseDrop {
             // The overlay carries the window into its slot, so Defi writes the final
             // frame now instead of waiting for the native window to settle where it
@@ -822,7 +823,7 @@ extension Daemon {
               generation: mouseGestureGeneration,
               windowID: gestureWindowID,
               initialFrame: mouseGestureInitialFrame,
-              releasedFrame: actualFrame,
+              releasedFrame: releasedFrame,
               now: now,
               maximumDuration: mouseGestureSettlementMaximumDuration(
                 latencySensitive: platform.latencySensitiveWindowIDs.contains(
