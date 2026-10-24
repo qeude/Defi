@@ -130,22 +130,30 @@ public final class MacOSPlatform {
     presentPendingWindowProxyPreview()
   }
 
-  /// Starts the stretch at the first drag event that shows the pressed window resizing in
-  /// the WindowServer: waiting for a snapshot left its neighbours still while the native
-  /// edge already moved.
+  /// Starts the stretch at the first drag event of a resize, without waiting for a
+  /// snapshot: the native edge moved while the neighbours stood still. Pressed on a side
+  /// edge, a horizontal move is enough; an app that resizes in steps (a terminal's cells)
+  /// moves its edge only later. Elsewhere, the WindowServer must show the resize.
   func stretchWindowProxyEarly(_ windowID: WindowID, pressing: Bool) {
     // Tiled windows only: a floating one has no ribbon place.
     guard previousLogicalRibbonFrames[windowID] != nil,
-      let frame = ribbonProxyNativeFrames([windowID])[windowID] else { return }
-    if pressing { pressedWindowFrame = (windowID, frame); return }
-    guard let (pressedID, start) = pressedWindowFrame, pressedID == windowID,
-      abs(frame.width - start.width) >= 2, abs(frame.y - start.y) < 1,
-      abs(frame.x - start.x) < 1 || abs(frame.x + frame.width - start.x - start.width) < 1
-    else { return }
-    pressedWindowFrame = nil
+      let frame = ribbonProxyNativeFrames([windowID])[windowID],
+      let pointer = CGEvent(source: nil)?.location else { return }
+    if pressing {
+      let onSideEdge = Double(pointer.y) >= frame.y && Double(pointer.y) <= frame.y + frame.height
+        && ((frame.x - 8)...(frame.x + 3) ~= Double(pointer.x)
+          || (frame.x + frame.width - 3)...(frame.x + frame.width + 8) ~= Double(pointer.x))
+      pressedWindow = (windowID, frame, onSideEdge ? Double(pointer.x) : nil)
+      return
+    }
+    guard let (pressedID, start, edgePointerX) = pressedWindow, pressedID == windowID else { return }
+    let resizing = abs(frame.width - start.width) >= 2 && abs(frame.y - start.y) < 1
+      && (abs(frame.x - start.x) < 1 || abs(frame.x + frame.width - start.x - start.width) < 1)
+    guard resizing || edgePointerX.map({ abs(Double(pointer.x) - $0) >= 2 }) == true else { return }
+    pressedWindow = nil
     carryWindowProxy(windowID, stretches: true)
   }
-  private var pressedWindowFrame: (WindowID, Rect)?
+  private var pressedWindow: (id: WindowID, frame: Rect, edgePointerX: Double?)?
 
   private func presentPendingWindowProxyPreview() {
     guard let (frames, id) = windowProxyPreview else { return }
