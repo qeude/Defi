@@ -269,6 +269,23 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `A request just under the window's minimum is a clamp, not rounding`() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1), appID: "com.apple.mail", title: "Mail",
+      frame: Rect(x: 0, y: 0, width: 800, height: 738), monitorID: monitorID,
+      minimumTiledWidth: 751
+    )
+    try discoverWindow(window, decision: RuleDecision(), state: &state)
+    state.acceptTiledWindowFrame(
+      Rect(x: 4, y: 34, width: 751, height: 1360),
+      requested: Rect(x: 4, y: 34, width: 736, height: 1360), for: window.id)
+    #expect(state.windows[window.id]?.widthRounding == nil)
+  }
+
+  @Test
   func `Native bounded tile size settles and mode changes retry the preferred tile`() throws {
     let config = Config()
     var state = RuntimeState(config: config)

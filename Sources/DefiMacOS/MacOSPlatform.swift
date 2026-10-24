@@ -109,8 +109,11 @@ public final class MacOSPlatform {
       return
     }
     let presenter = RibbonProxyPresenter.on(display)
-    presenter.carry(windowID, stretches: stretches, windows: windowProxyCarryWindows(monitor),
-      viewport: monitor.viewport,
+    let window = lastSnapshotWindows.first { $0.id == windowID }
+    let minimumWidth = max(window?.minimumTiledWidth ?? 0, 240)
+    presenter.carry(windowID, stretches: stretches,
+      widths: minimumWidth...max(window?.maximumTiledWidth ?? .infinity, minimumWidth),
+      windows: windowProxyCarryWindows(monitor), viewport: monitor.viewport,
       slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
     // A drag event arrives every frame: a refused carry waits instead of re-reading the
     // WindowServer list each time.
@@ -147,9 +150,9 @@ public final class MacOSPlatform {
       if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01 {
         return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
       }
+      // Parked at a corner, its native y is the display's bottom: the ribbon place is logical.
       guard let logical = previousLogicalRibbonFrames[id] else { return nil }
-      let frame = native[id].map { Rect(x: logical.x, y: $0.y, width: logical.width, height: $0.height) } ?? logical
-      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: logical, to: logical)
     }
   }
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]

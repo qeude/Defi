@@ -684,7 +684,8 @@ public struct RuntimeState: Equatable, Sendable {
     _ frame: Rect, requested: Rect, for windowID: WindowID
   ) {
     guard let window = windows[windowID] else { return }
-    let overshoot = frame.width - requested.width
+    // Held at its minimum is a clamp, not rounding: centring it opened a wider gap.
+    let overshoot = frame.width - max(requested.width, window.minimumTiledWidth ?? 0)
     let rounding = (window.widthRounding ?? 0) + overshoot
     if !window.floating, !window.intrinsicSize,
       !nativeFullscreenWindowIDs.contains(windowID),
