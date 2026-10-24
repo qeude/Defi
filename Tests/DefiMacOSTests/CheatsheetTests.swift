@@ -80,14 +80,17 @@ struct CheatsheetPanelTests {
     controller.close()
     controller.show(on: nil)
     let current = try #require(visiblePanel())
+    let screen = try #require(current.screen)
+    let unfitted = current.frame
     let deadline = ContinuousClock.now + .seconds(2)
-    while (first.isVisible || current.alphaValue < 0.99), ContinuousClock.now < deadline {
+    // Without a fade (Reduce Motion) the panel is opaque at once; the fit still follows.
+    while first.isVisible || current.alphaValue < 0.99 || current.frame == unfitted,
+      ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(10))
     }
     #expect(!first.isVisible, "A closed panel must not reappear")
     #expect(abs(current.alphaValue - 1) < 0.01)
     #expect(NSApplication.shared.isActive == wasActive, "Showing the panel must not activate Defi")
-    let screen = try #require(current.screen)
     #expect(current.frame.height < screen.visibleFrame.height - 48)
     #expect(current.frame.width < screen.visibleFrame.width - 48)
     #expect(current.frame.width > 600)

@@ -46,8 +46,14 @@ struct SettingsSearchViewTests {
 
   @Test
   func cancelAfterKeyboardSelectionRestoresPages() throws {
+    // The settings view switches the activation policy of the shared test process.
+    let policy = NSApplication.shared.activationPolicy()
     let (window, directory) = try hostSettings()
-    defer { window.close(); try? FileManager.default.removeItem(at: directory) }
+    defer {
+      window.close()
+      NSApplication.shared.setActivationPolicy(policy)
+      try? FileManager.default.removeItem(at: directory)
+    }
     func rows() -> Int? { descendants(window).compactMap { $0 as? NSTableView }.first?.numberOfRows }
     func shortcutFilter() -> String? {
       descendants(window).compactMap { $0 as? NSTextField }
