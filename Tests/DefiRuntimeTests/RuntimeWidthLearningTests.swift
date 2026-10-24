@@ -553,7 +553,7 @@ struct RuntimeWidthLearningTests {
 
   @Test
   func `Mouse resize clamped by the app minimum learns that minimum and keeps it`() throws {
-    var (state, id) = try singleWindowState(minimum: 400)
+    var (state, id) = try singleWindowState(minimum: 376)
 
     #expect(learnTiledWindowWidth(
       id,
@@ -563,13 +563,13 @@ struct RuntimeWidthLearningTests {
     ))
 
     #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(400))
-    #expect(state.windows[id]?.minimumTiledWidth == 400)
+    #expect(state.windows[id]?.minimumTiledWidth == 376)
     #expect(targets(state)[id]?.width == 376)
   }
 
   @Test
   func `Frame already at its bounded target is not learned as a user width`() throws {
-    var (state, id) = try singleWindowState(minimum: 600)
+    var (state, id) = try singleWindowState(minimum: 576)
 
     #expect(!learnTiledWindowWidth(
       id,
@@ -579,7 +579,7 @@ struct RuntimeWidthLearningTests {
     ))
 
     #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
-    #expect(state.windows[id]?.minimumTiledWidth == 600)
+    #expect(state.windows[id]?.minimumTiledWidth == 576)
   }
 
   @Test
@@ -612,7 +612,7 @@ struct RuntimeWidthLearningTests {
     try discoverWindow(sibling, decision: RuleDecision(), state: &state)
     state.monitors[0].workspaces[0].columns.removeLast()
     state.monitors[0].workspaces[0].columns[0].windows.append(sibling.id)
-    state.windows[sibling.id]?.maximumTiledWidth = 450
+    state.windows[sibling.id]?.maximumTiledWidth = 426
 
     #expect(learnTiledWindowWidth(
       id,
@@ -622,13 +622,13 @@ struct RuntimeWidthLearningTests {
     ))
 
     #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
-    #expect(state.windows[sibling.id]?.maximumTiledWidth == 450)
+    #expect(state.windows[sibling.id]?.maximumTiledWidth == 426)
     let frames = targets(state)
     #expect(frames[id]?.width == 576)
     #expect(frames[sibling.id]?.width == 426)
 
     state.windows[sibling.id]?.maximumTiledWidth = nil
-    state.windows[sibling.id]?.minimumTiledWidth = 700
+    state.windows[sibling.id]?.minimumTiledWidth = 676
     #expect(learnTiledWindowWidth(
       id,
       actualFrame: Rect(x: 12, y: 12, width: 476, height: 332),

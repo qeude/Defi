@@ -77,10 +77,11 @@ public func learnTiledWindowWidth(
     viewports: viewports
   ) else { return false }
   // The real frame proves the window accepts this width; drop only contradicted bounds.
-  if let minimum = state.windows[windowID]?.minimumTiledWidth, learned.width < minimum - 0.5 {
+  // Bounds are the window's own width; the layout adds its column's gaps.
+  if let minimum = state.windows[windowID]?.minimumTiledWidth, actualFrame.width < minimum - 0.5 {
     state.windows[windowID]?.minimumTiledWidth = nil
   }
-  if let maximum = state.windows[windowID]?.maximumTiledWidth, learned.width > maximum + 0.5 {
+  if let maximum = state.windows[windowID]?.maximumTiledWidth, actualFrame.width > maximum + 0.5 {
     state.windows[windowID]?.maximumTiledWidth = nil
   }
   state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
@@ -179,15 +180,17 @@ private func tiledWindowWidthLearning(
       case .pixels(let width):
         configuredSlotWidth = width
       }
+      let gaps = horizontalGaps(
+        columnIndex: columnIndex, columnCount: workspace.columns.count, settings: state.layout)
       let minimumTiledWidth = workspace.columns[columnIndex].windows.compactMap {
         state.windows[$0]?.minimumTiledWidth
-      }.max() ?? 0
+      }.max().map { $0 + gaps } ?? 0
       let maximumTiledWidths = workspace.columns[columnIndex].windows.compactMap {
         state.windows[$0]?.maximumTiledWidth
       }
       let maximumTiledWidth =
         maximumTiledWidths.count == workspace.columns[columnIndex].windows.count
-        ? maximumTiledWidths.max()
+        ? maximumTiledWidths.max().map { $0 + gaps }
         : nil
       let currentSlotWidth = max(
         min(configuredSlotWidth, maximumTiledWidth ?? configuredSlotWidth),
