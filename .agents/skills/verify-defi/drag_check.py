@@ -46,6 +46,7 @@ def drag(fixture, window_number, targets, workspace, display_width, hold=.35):
     Targets stay 80 pt inside the display so macOS edge tiling never engages."""
     x, y, w, _ = frame(fixture, window_number)
     sx, sy = round(x + w / 2), round(y + 12)
+    since = trace_time()
     script, last = [f'm:{sx},{sy}', 'w:80', f'dd:{sx},{sy}', 'w:120'], sx
     for target in targets:
         target = min(max(round(target), 80), display_width - 80)
@@ -54,7 +55,7 @@ def drag(fixture, window_number, targets, workspace, display_width, hold=.35):
         last = target
     try:
         subprocess.run(['cliclick', *script, f'w:{int(hold * 1000)}'], check=True)
-        previews = shown_preview()
+        previews = shown_preview(since)
         held = columns(workspace)
         held_frame = frame(fixture, window_number)
     finally:
@@ -62,9 +63,18 @@ def drag(fixture, window_number, targets, workspace, display_width, hold=.35):
     return previews, held, held_frame, last
 
 
-def shown_preview():
-    """The drop target the overlay is previewing, from the daemon's latest preview trace."""
-    requested = re.findall(r'mouse-drop-preview window=\d+ target=(.+)', session.command('trace'))
+def trace_time():
+    """The daemon's latest trace timestamp, so a drag reads only its own preview events."""
+    stamps = re.findall(r'^(\d+\.\d+) ', session.command('trace'), re.M)
+    return float(stamps[-1]) if stamps else 0.0
+
+
+def shown_preview(since):
+    """The drop target the overlay is previewing, from this drag's latest preview trace."""
+    requested = [target for stamp, target in
+                 re.findall(r'^(\d+\.\d+) mouse-drop-preview window=\d+ target=(.+)$',
+                            session.command('trace'), re.M)
+                 if float(stamp) > since]
     return [] if not requested or requested[-1] == 'none' else [requested[-1]]
 
 

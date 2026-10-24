@@ -790,6 +790,17 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `No target under the pointer is never held by the hysteresis`() throws {
+    var state = try makeState(windowCount: 3)
+    narrowColumns(&state)
+    let edge = viewport.x + viewport.width
+    let inside = try #require(dropTarget(1, edge - 10, state: state))
+
+    #expect(dropTarget(1, edge + 10, state: state) == nil)
+    #expect(dropTarget(1, edge + 10, previous: inside, state: state) == nil)
+  }
+
+  @Test
   func `A drop on another display lands at the gap under the pointer`() throws {
     var (state, viewports) = try makeTwoDisplayState()
     state.monitors[0].workspaces[0].columns[0].width = .pixels(300)

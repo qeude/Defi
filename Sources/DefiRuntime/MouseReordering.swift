@@ -692,7 +692,8 @@ public func mouseDropTarget(
 ) -> MouseDropTarget? {
   let target = rawMouseDropTarget(
     windowID, pointer: pointer, state: state, viewports: viewports, monitorFrames: monitorFrames)
-  guard let previous, target != previous else { return target }
+  // No target (the window's own stack, off every display) leaves the drop to the native path.
+  guard let previous, let target, target != previous else { return target }
   let held = [-mouseDropHysteresis, mouseDropHysteresis].contains { offset in
     rawMouseDropTarget(windowID, pointer: (pointer.x + offset, pointer.y), state: state,
       viewports: viewports, monitorFrames: monitorFrames) == previous

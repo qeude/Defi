@@ -745,6 +745,7 @@ extension Daemon {
       } else {
         let previewedTarget = proxyPreviewTarget
         proxyPreviewTarget = nil
+        platform.endWindowProxyPreview()
         var droppedOnOverlay = false
         if previewedTarget != nil, let gestureWindowID,
           let event = CGEvent(source: nil),

@@ -44,8 +44,10 @@ public final class MacOSPlatform {
     guard windowProxiesEnabled else { return }
     windowProxyPreview = (frames, heldWindowID)
     hostWindowProxyPreview()
-    for presenter in RibbonProxyPresenter.all { presenter.preview(frames, heldWindowID: heldWindowID) }
+    presentPendingWindowProxyPreview()
   }
+  /// The pointer let go: the next drag starts without a preview.
+  public func endWindowProxyPreview() { windowProxyPreview = nil }
   private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID)?
   private var windowProxyHostRetryAt: TimeInterval = 0
 
@@ -54,17 +56,21 @@ public final class MacOSPlatform {
   @discardableResult
   private func hostWindowProxyPreview() -> Bool {
     let now = ProcessInfo.processInfo.systemUptime
-    guard let (frames, id) = windowProxyPreview, let slot = frames[id], now >= windowProxyHostRetryAt,
+    guard RibbonProxyPresenter.isCarrying, let (frames, id) = windowProxyPreview, let slot = frames[id],
+      now >= windowProxyHostRetryAt,
       let monitor = windowProxyMonitors.first(where: {
         !$0.windowIDs.contains(id) && slot.ribbonIntersects($0.viewport)
       }),
       let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID
     else { return false }
     let presenter = RibbonProxyPresenter.on(display)
-    guard presenter.hostedWindowID != id, !presenter.isCarrying,
-      let carried = lastSnapshotWindows.first(where: { $0.id == id }), let processID = carried.processID,
+    guard presenter.hostedWindowID != id, !presenter.isCarrying else { return false }
+    guard let carried = lastSnapshotWindows.first(where: { $0.id == id }), let processID = carried.processID,
       let native = ribbonProxyNativeFrames([id])[id]
-    else { return false }
+    else {
+      windowProxyHostRetryAt = now + 0.1
+      return false
+    }
     let windows = windowProxyCarryWindows(monitor) + [RibbonProxyWindow(id: id, appID: carried.appID,
       processID: processID, from: native, to: native)]
     guard presenter.host(id, windows: windows, viewport: monitor.viewport,
@@ -84,12 +90,9 @@ public final class MacOSPlatform {
   /// pointer over every window drawn where it is now.
   public func carryWindowProxy(_ windowID: WindowID, stretches: Bool) {
     if RibbonProxyPresenter.isCarrying {
-      if hostWindowProxyPreview(), let (frames, id) = windowProxyPreview {
-        for presenter in RibbonProxyPresenter.all { presenter.preview(frames, heldWindowID: id) }
-      }
+      if hostWindowProxyPreview() { presentPendingWindowProxyPreview() }
       return
     }
-    windowProxyPreview = nil
     let now = ProcessInfo.processInfo.systemUptime
     guard windowProxiesEnabled, now >= windowProxyCarryRetryAt,
       let monitor = windowProxyMonitors.first(where: { $0.windowIDs.contains(windowID) }) else { return }
@@ -104,7 +107,22 @@ public final class MacOSPlatform {
       slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
     // A drag event arrives every frame: a refused carry waits instead of re-reading the
     // WindowServer list each time.
-    if !presenter.isCarrying { windowProxyCarryRetryAt = now + 0.1 }
+    guard presenter.isCarrying else {
+      windowProxyCarryRetryAt = now + 0.1
+      return
+    }
+    // A preview computed before the carry started applies now; one from an earlier drag goes.
+    guard windowProxyPreview?.heldWindowID == windowID else {
+      windowProxyPreview = nil
+      return
+    }
+    hostWindowProxyPreview()
+    presentPendingWindowProxyPreview()
+  }
+
+  private func presentPendingWindowProxyPreview() {
+    guard let (frames, id) = windowProxyPreview else { return }
+    for presenter in RibbonProxyPresenter.all { presenter.preview(frames, heldWindowID: id) }
   }
   private var windowProxyCarryRetryAt: TimeInterval = 0
 

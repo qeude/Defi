@@ -34,5 +34,5 @@ The script requires exactly one monitor and exits otherwise. Drive cross-monitor
 - Membership comes from `~/Library/Application Support/Defi/workspace-topology.json`, which the daemon rewrites after each sync; the script polls it until it converges.
 - The target follows the pointer, not the window: macOS can stop a window from following the pointer off screen. While the pointer stays over the source column the drag is a no-op by design.
 - Over another display, that display's overlay goes up too: its ribbon makes room, it shows the slot, and a copy of the carried window follows the pointer there. The source display closes the gap. The daemon traces `host id=<id>` in the `ribbon-proxy` log category when it starts.
-- With `animation.window_proxies = false` the older live reorder runs instead: columns move while the button is held.
+- With `animation.enabled = false`, Reduce Motion, or without Screen Recording, there is no overlay: the native window follows the pointer and the drop still commits on release.
 - Covering unit tests: `MouseReorderingTests` (target selection, stacking, hysteresis, commit, invalidation).
