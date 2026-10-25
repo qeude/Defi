@@ -246,8 +246,11 @@ final class WindowCaptureStore: @unchecked Sendable {
         replaced = locked {
           reducing.remove(id)
           // A newer capture replaced it meanwhile: plan again once this batch ends.
-          guard pictures[id]?.contents === picture.contents else { return true }
-          pictures[id] = reduced
+          guard let current = pictures[id], current.contents === picture.contents else { return true }
+          // Keeps an expiry (appearance change) made while reducing.
+          var replacement = reduced
+          replacement?.capturedAt = current.capturedAt
+          pictures[id] = replacement
           return false
         } || replaced
       }
