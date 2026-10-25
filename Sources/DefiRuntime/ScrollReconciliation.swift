@@ -64,6 +64,15 @@ public func learnTiledWindowWidth(
     state: state,
     viewports: viewports
   ) else { return false }
+  // The real frame proves the window accepts this width; drop only contradicted bounds,
+  // even when the column already has this width.
+  // Bounds are the window's own width; the layout adds its column's gaps.
+  if let minimum = state.windows[windowID]?.minimumTiledWidth, actualFrame.width < minimum - 0.5 {
+    state.windows[windowID]?.minimumTiledWidth = nil
+  }
+  if let maximum = state.windows[windowID]?.maximumTiledWidth, actualFrame.width > maximum + 0.5 {
+    state.windows[windowID]?.maximumTiledWidth = nil
+  }
   // Ignore the window's own bounds so the gap allowance maps the observed frame to its slot.
   var unbounded = state
   unbounded.monitors[bounded.monitorIndex].workspaces[bounded.workspaceIndex]
@@ -79,14 +88,6 @@ public func learnTiledWindowWidth(
     state: unbounded,
     viewports: viewports
   ) else { return false }
-  // The real frame proves the window accepts this width; drop only contradicted bounds.
-  // Bounds are the window's own width; the layout adds its column's gaps.
-  if let minimum = state.windows[windowID]?.minimumTiledWidth, actualFrame.width < minimum - 0.5 {
-    state.windows[windowID]?.minimumTiledWidth = nil
-  }
-  if let maximum = state.windows[windowID]?.maximumTiledWidth, actualFrame.width > maximum + 0.5 {
-    state.windows[windowID]?.maximumTiledWidth = nil
-  }
   state.windows[windowID]?.widthRounding = nil
   state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
     .columns[learned.columnIndex].width = .pixels(learned.width)

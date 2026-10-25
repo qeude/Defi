@@ -664,4 +664,49 @@ struct RuntimeWidthLearningTests {
     #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(500))
     #expect(targets(state)[id]?.width == 676)
   }
+
+  @Test
+  func `Mouse resize forgets the learned width rounding`() throws {
+    var (state, id) = try singleWindowState()
+    state.windows[id]?.widthRounding = 4
+
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 576, height: 676),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.windows[id]?.widthRounding == nil)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(targets(state)[id]?.width == 576)
+  }
+
+  @Test
+  func `Stacked window resized past its maximum to the column width drops the maximum`() throws {
+    var (state, id) = try singleWindowState()
+    let sibling = Window(
+      id: WindowID(rawValue: 2),
+      appID: "terminal",
+      title: "Terminal",
+      frame: Rect(x: 512, y: 12, width: 476, height: 676),
+      monitorID: monitorID
+    )
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].columns.removeLast()
+    state.monitors[0].workspaces[0].columns[0].windows.append(sibling.id)
+    state.windows[id]?.maximumTiledWidth = 426
+    #expect(targets(state)[id]?.width == 426)
+
+    // The column already has this width, so only the contradicted bound changes.
+    #expect(!learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 476, height: 332),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.windows[id]?.maximumTiledWidth == nil)
+    #expect(targets(state)[id]?.width == 476)
+  }
 }

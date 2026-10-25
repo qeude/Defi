@@ -1967,7 +1967,7 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
       mode = .carry(id: id, layer: layer, area: area, grab: offset)
     case .stretch(var stretch):
       if stretch.anchor == nil, let start = ribbonProxyNativeFrames([stretch.id])[stretch.id] {
-        // The pointer is on the held edge; the native frame has barely changed yet.
+        // The pointer is on the held edge; a fast drag may already have resized the native frame.
         stretch.anchor = (Double(point.x), start, Double(point.x) < start.x + start.width / 2)
       }
       if let anchor = stretch.anchor {

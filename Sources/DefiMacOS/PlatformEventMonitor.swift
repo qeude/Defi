@@ -21,7 +21,8 @@ final class PlatformEventMonitor {
   private let desktopSessionStateProvider: () -> DesktopSessionState
   private let windowEventHandler: (PlatformEventKind, pid_t?, AXUIElement) -> Void
   /// Left-button events, with the window the button went down on.
-  private let liveFrameHandler: (_ pressedWindowID: WindowID?, _ type: NSEvent.EventType) -> Void
+  private let liveFrameHandler:
+    (_ pressedWindowID: WindowID?, _ type: NSEvent.EventType, _ pointer: CGPoint?) -> Void
   private var pressedWindowID: WindowID?
   private let borderStackingHandler: () -> Void
   private let mouseGestureStartedHandler: () -> Void
@@ -56,7 +57,7 @@ final class PlatformEventMonitor {
     desktopSessionStateProvider: @escaping () -> DesktopSessionState =
       currentDesktopSessionState,
     windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
-    liveFrameHandler: @escaping (WindowID?, NSEvent.EventType) -> Void = { _, _ in },
+    liveFrameHandler: @escaping (WindowID?, NSEvent.EventType, CGPoint?) -> Void = { _, _, _ in },
     borderStackingHandler: @escaping () -> Void = {},
     mouseGestureStartedHandler: @escaping () -> Void = {},
     now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -258,7 +259,7 @@ final class PlatformEventMonitor {
         ) ?? Int64(event.windowNumber)
       if event.type == .leftMouseDown {
         pressedWindowID = mouseFocusIntentWindowID(rawWindowID: rawWindowID)
-        liveFrameHandler(pressedWindowID, event.type)
+        liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
       }
       userInputTracker.record(
         timestamp: event.timestamp,
@@ -270,7 +271,7 @@ final class PlatformEventMonitor {
       )
     }
     if event.type == .leftMouseDragged || event.type == .leftMouseUp {
-      liveFrameHandler(pressedWindowID, event.type)
+      liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
     }
     if event.type == .leftMouseUp {
       NavigationActor.enqueue { RibbonProxyPresenter.endDrag() }

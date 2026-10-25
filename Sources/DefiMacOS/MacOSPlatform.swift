@@ -111,9 +111,9 @@ public final class MacOSPlatform {
     }
     let presenter = RibbonProxyPresenter.on(display)
     let window = lastSnapshotWindows.first { $0.id == windowID }
-    let minimumWidth = max(window?.minimumTiledWidth ?? 0, 240)
-    presenter.carry(windowID, stretches: stretches,
-      widths: minimumWidth...max(window?.maximumTiledWidth ?? .infinity, minimumWidth),
+    let maximumWidth = window?.maximumTiledWidth ?? .infinity
+    let minimumWidth = min(max(window?.minimumTiledWidth ?? 0, 240), maximumWidth)
+    presenter.carry(windowID, stretches: stretches, widths: minimumWidth...maximumWidth,
       windows: windowProxyCarryWindows(monitor), viewport: monitor.viewport,
       slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
     // A drag event arrives every frame: a refused carry waits instead of re-reading the
@@ -135,11 +135,10 @@ public final class MacOSPlatform {
   /// snapshot: the native edge moved while the neighbours stood still. Pressed on a side
   /// edge, a horizontal move is enough; an app that resizes in steps (a terminal's cells)
   /// moves its edge only later. Elsewhere, the WindowServer must show the resize.
-  func stretchWindowProxyEarly(_ windowID: WindowID, pressing: Bool) {
+  func stretchWindowProxyEarly(_ windowID: WindowID, pressing: Bool, pointer: CGPoint) {
     // Tiled windows only: a floating one has no ribbon place.
     guard pressing || pressedWindow?.id == windowID, previousLogicalRibbonFrames[windowID] != nil,
-      let frame = ribbonProxyNativeFrames([windowID])[windowID],
-      let pointer = CGEvent(source: nil)?.location else { return }
+      let frame = ribbonProxyNativeFrames([windowID])[windowID] else { return }
     if pressing {
       let onSideEdge = Double(pointer.y) >= frame.y && Double(pointer.y) <= frame.y + frame.height
         && ((frame.x - 8)...(frame.x + 3) ~= Double(pointer.x)

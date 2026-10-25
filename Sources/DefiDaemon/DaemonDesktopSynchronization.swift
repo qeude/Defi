@@ -251,7 +251,8 @@ extension Daemon {
     let previousSelectedWindowID = previousActiveMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }.map { snapshot.windowIDReplacements[$0] ?? $0 }
-    let mouseGestureEnded = !snapshot.leftMouseButtonDown
+    // A settling release already ended: later snapshots advance its settlement.
+    let mouseGestureEnded = !snapshot.leftMouseButtonDown && mouseGestureSettlement == nil
       && (snapshot.mouseResizeGestureObserved || mouseGestureChangedWindowFrame)
     let mouseInteractionEnded =
       mouseGestureEnded || snapshot.mouseFocusReleaseObserved
@@ -869,12 +870,14 @@ extension Daemon {
           releasedResizeFrame: releasedResizeFrame
         )
       {
-        _ = learnTiledWindowWidth(
+        let learned = learnTiledWindowWidth(
           gestureWindowID,
           actualFrame: widthLearningFrame,
           state: &state,
           viewports: viewportsByMonitor
         )
+        // The learned scroll keeps a released left edge in place; the anchor would undo it.
+        if learned, !snapshot.leftMouseButtonDown { mouseGestureScrollAnchor = nil }
       }
     } else {
       finishMouseGestureTracking()
