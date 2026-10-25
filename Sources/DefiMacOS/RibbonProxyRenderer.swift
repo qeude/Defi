@@ -387,7 +387,8 @@ final class RibbonProxyRenderer {
     panel.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue + 1)
     // The default panel fade on orderOut produced the earlier handoff ghosting.
     panel.animationBehavior = .none
-    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+    // No .fullScreenAuxiliary: window pictures must never cover a fullscreen Space.
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
     panel.sharingType = .none
     panel.title = "Defi Ribbon"
     let view = NSView(frame: CGRect(origin: .zero, size: frame.size))
