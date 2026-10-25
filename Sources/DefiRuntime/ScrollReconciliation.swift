@@ -33,8 +33,11 @@ public func separateInfeasibleStacks(
 ) -> Bool {
   var changed = false
   for monitorIndex in state.monitors.indices {
-    guard let viewport = viewports[state.monitors[monitorIndex].id] else { continue }
-    for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+    let monitorID = state.monitors[monitorIndex].id
+    guard let viewport = viewports[monitorID] else { continue }
+    // A workspace migrated after display loss keeps its stacks for when it returns.
+    for workspaceIndex in state.monitors[monitorIndex].workspaces.indices
+    where state.monitors[monitorIndex].workspaces[workspaceIndex].affinity.map({ $0 == monitorID }) ?? true {
       changed =
         separateInfeasibleStacks(
           in: &state.monitors[monitorIndex].workspaces[workspaceIndex],

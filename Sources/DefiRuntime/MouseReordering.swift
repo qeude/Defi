@@ -582,8 +582,6 @@ public struct MouseStackTarget: Equatable, Sendable {
   public let workspaceID: WorkspaceID
   public let columnIndex: Int
   public let row: Int
-  /// Where the window will sit once stacked, in layout coordinates.
-  public let preview: Rect
 }
 
 public func mouseStackTarget(
@@ -645,12 +643,8 @@ private func mouseStackTarget(
     // A stack that cannot fit is no target: the drop reorders instead of stacking and splitting.
     guard stackFit(stacked, windowsByID: state.windows, viewport: layout.viewport, settings: state.layout) == .fits
     else { continue }
-    let heights = stackSlotHeights(stacked, windowsByID: state.windows,
-      viewport: Rect(x: layout.viewport.x, y: top, width: layout.viewport.width, height: bottom - top),
-      settings: state.layout)
     return MouseStackTarget(
-      monitorID: layout.monitorID, workspaceID: layout.workspace.id, columnIndex: columnIndex, row: row,
-      preview: Rect(x: first.x, y: top + heights[..<row].reduce(0, +), width: first.width, height: heights[row]))
+      monitorID: layout.monitorID, workspaceID: layout.workspace.id, columnIndex: columnIndex, row: row)
   }
   return nil
 }

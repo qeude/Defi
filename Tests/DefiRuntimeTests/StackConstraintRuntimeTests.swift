@@ -83,4 +83,18 @@ struct StackConstraintRuntimeTests {
     #expect(!separateInfeasibleStacks(state: &state, viewports: viewports))
     #expect(state.monitors[0].workspaces[0].columns == separated.monitors[0].workspaces[0].columns)
   }
+
+  @Test
+  func `A workspace migrated from a lost display keeps its stacks`() throws {
+    var state = try makeState(windowCount: 3, minimumHeight: 300)
+    state.monitors[0].workspaces[0].columns = [
+      Column(windows: (1...3).map { WindowID(rawValue: $0) }, focusedWindow: 0, width: .fraction(0.5))
+    ]
+    state.monitors[0].workspaces[0].affinity = MonitorID(rawValue: 2)
+    let before = state
+
+    #expect(!separateInfeasibleStacks(
+      state: &state, viewports: [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800)]))
+    #expect(state == before)
+  }
 }

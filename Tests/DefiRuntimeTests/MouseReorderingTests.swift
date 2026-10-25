@@ -720,7 +720,6 @@ struct MouseReorderingTests {
       dragged, pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
       state: state, viewports: [monitorID: viewport]))
     #expect(target.row == 1)
-    #expect(target.preview.height == host.height / 2)
     #expect(stackTiledWindow(dragged, into: target, state: &state, viewports: [monitorID: viewport]))
     #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [
       [WindowID(rawValue: 2), WindowID(rawValue: 1)],
@@ -749,9 +748,10 @@ struct MouseReorderingTests {
     let target = try #require(mouseStackTarget(
       WindowID(rawValue: 1), pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
       state: state, viewports: [monitorID: viewport]))
-    #expect(target.row == 1)
-    #expect(target.preview.height >= 450)
-    #expect(abs(target.preview.y + target.preview.height - (host.y + host.height)) < 0.001)
+    #expect(stackTiledWindow(WindowID(rawValue: 1), into: target, state: &state, viewports: [monitorID: viewport]))
+    let held = try #require(mouseDropPreviewFrames(in: state, viewports: [monitorID: viewport])[WindowID(rawValue: 1)])
+    #expect(held.height >= 450)
+    #expect(abs(held.y + held.height - (host.y + host.height)) < 0.001)
   }
 
   @Test
