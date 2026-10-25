@@ -37,7 +37,7 @@ struct SettingsSearchTests {
     #expect(commands.filter(SettingsShortcutFilter.query(query).includes) == (keepsShortcuts ? commands : []))
   }
 
-  @Test(arguments: ["hyper-left", "control+option+command+left", "⌃⌥⌘←", "✦←"])
+  @Test(arguments: ["hyper-left", "control+option+command+left", "⌃⌥⌘←", "✧←"])
   func findsConfiguredCombinationAndAliases(query: String) throws {
     var config = Config()
     config.modifierCombinations["hyper"] = "ctrl+alt+cmd"

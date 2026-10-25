@@ -46,17 +46,74 @@ struct CheatsheetHotKeyTests {
   }
 
   @Test
+  func `Help groups shortcuts by action and shows each Shift chord in full`() {
+    func row(
+      _ key: String, _ action: String, _ shifted: String? = nil,
+      modifiers: String = "⌥", shiftedModifiers: String = "⌥⇧"
+    ) -> ShortcutRow {
+      ShortcutRow(modifiers: modifiers, key: key, action: action,
+        shifted: shifted.map { ShiftedShortcut(modifiers: shiftedModifiers, action: $0) })
+    }
+    #expect(shortcutGroups(config: Config()) == [
+      ShortcutGroup(title: "Columns", rows: [
+        row("←", "Column left", "Move column left"), row("→", "Column right", "Move column right"),
+        row("[", "First column", "Move column to first"),
+        row("]", "Last column", "Move column to last"),
+      ]),
+      ShortcutGroup(title: "Windows in a column", rows: [
+        row("K", "Window up", "Move window up"), row("J", "Window down", "Move window down"),
+        row(";", "Join left column"), row("'", "Join right column"), row("R", "Unjoin"),
+      ]),
+      ShortcutGroup(title: "Workspaces", rows: [
+        row("↑", "Workspace up", "Move column to workspace up"),
+        row("↓", "Workspace down", "Move column to workspace down"),
+        row("1–9", "Workspace 1–9", "Move column to workspace 1–9"), row("O", "Overview"),
+      ]),
+      ShortcutGroup(title: "Monitors", rows: [
+        row("←↑↓→", "Focus monitor", "Move column to monitor",
+          modifiers: "⌃⌘", shiftedModifiers: "⌃⇧⌘"),
+        row("←↑↓→", "Move workspace to monitor", modifiers: "⌃⌥⇧"),
+      ]),
+      ShortcutGroup(title: "Size", rows: [
+        row("−", "Narrower"), row("=", "Wider"), row("F", "Maximize column"),
+      ]),
+      ShortcutGroup(title: "Floating", rows: [
+        row("\\", "Float or tile window", "Show floating layer"),
+        row(",", "Previous floating"), row(".", "Next floating"),
+      ]),
+    ])
+  }
+
+  @Test
   func `Help includes configured overrides and abbreviates Hyper`() {
     let config = Config(
       modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
       defaultKeyModifier: "hyper",
       keys: ["hyper-left": "focus-column first", "hyper-slash": "toggle-cheatsheet"]
     )
-    let shortcuts = shortcutGroups(config: config).flatMap(\.shortcuts)
-    #expect(shortcuts.count == config.keys.count)
-    #expect(shortcuts.contains { $0.keys == "✦←" && $0.command == "Focus column first" })
-    #expect(shortcuts.contains { $0.keys == "✦/" && $0.command == "Toggle cheatsheet" })
-    #expect(shortcuts.contains { $0.command == "Focus column left" } == false)
+    let groups = shortcutGroups(config: config)
+    let rows = groups.flatMap(\.rows)
+    #expect(rows.contains(ShortcutRow(modifiers: "✧", key: "←", action: "First column",
+      shifted: ShiftedShortcut(modifiers: "✧⇧", action: "Move column left"))))
+    #expect(groups.last == ShortcutGroup(title: "Other", rows: [
+      ShortcutRow(modifiers: "✧", key: "/", action: "Shortcuts", shifted: nil),
+    ]))
+    #expect(!rows.contains { $0.action == "Column left" })
+  }
+
+  @Test
+  func `Help keeps named workspaces apart and shows shortcuts outside the default modifier`() {
+    let config = Config(keys: [
+      "alt-1": "workspace mail", "alt-2": "focus-workspace-position 2",
+      "alt-shift-g": "toggle-overview", "ctrl-g": "maximize-column",
+    ])
+    let rows = shortcutGroups(config: config).flatMap(\.rows)
+    #expect(rows.contains(ShortcutRow(modifiers: "⌥", key: "1", action: "Workspace mail",
+      shifted: ShiftedShortcut(modifiers: "⌥⇧", action: "Move column to workspace 1"))))
+    #expect(rows.contains(ShortcutRow(modifiers: "⌥", key: "2–9", action: "Workspace 2–9",
+      shifted: ShiftedShortcut(modifiers: "⌥⇧", action: "Move column to workspace 2–9"))))
+    #expect(rows.contains(ShortcutRow(modifiers: "⌥⇧", key: "G", action: "Overview", shifted: nil)))
+    #expect(rows.contains(ShortcutRow(modifiers: "⌃", key: "G", action: "Maximize column", shifted: nil)))
   }
 }
 

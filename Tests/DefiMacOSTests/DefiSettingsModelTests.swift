@@ -146,11 +146,11 @@ struct DefiSettingsModelTests {
   @Test
   func hyperDisplayDoesNotChangeShortcutMeaning() {
     let aliases = ["hyper": "Ctrl + Alt + Cmd"]
-    #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases) == "✦⇧K")
-    #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: [:]) == "✦K")
+    #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases) == "✧⇧K")
+    #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: [:]) == "✧K")
     #expect(shortcutKeyLabel("hyper-k", aliases: aliases, displayHyper: false) == "⌃⌥⌘K")
     #expect(shortcutKeyLabel("hyper-k", aliases: aliases, hyperIncludesShift: true) == "⌃⌥⌘K")
-    #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases, hyperIncludesShift: true) == "✦K")
+    #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases, hyperIncludesShift: true) == "✧K")
     #expect(shortcutKeyLabel("alt-k", aliases: [:]) == "⌥K")
   }
 

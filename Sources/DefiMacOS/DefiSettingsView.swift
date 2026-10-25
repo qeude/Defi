@@ -436,7 +436,7 @@ private struct InputSettingsView: View {
         }
       }
       Section("Shortcut display") {
-        Toggle("Show Hyper (\(hyperIncludesShift ? "⌃⌥⇧⌘" : "⌃⌥⌘")) as ✦", isOn: $displayHyper)
+        Toggle("Show Hyper (\(hyperIncludesShift ? "⌃⌥⇧⌘" : "⌃⌥⌘")) as ✧", isOn: $displayHyper)
           .settingsSearchTarget(.hyperSymbol)
         Toggle(SettingsOption.hyperShift.title, isOn: $hyperIncludesShift)
           .settingsSearchTarget(.hyperShift)

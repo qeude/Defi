@@ -406,7 +406,7 @@ modifier release. Toggle again, press Escape, click, or execute any Defi shortcu
 to close it. After a shortcut, release the modifiers before holding again.
 Configuration reload and display or session changes also dismiss the help.
 Settings → Input → Shortcut display controls whether matching Control–Option–Command
-combinations appear as `✦`, and whether Shift is included in that abbreviation.
+combinations appear as `✧`, and whether Shift is included in that abbreviation.
 These display preferences also apply to the cheatsheet; they do not change key
 bindings or modifier aliases. Other combinations show their individual modifier
 symbols. The cheatsheet fade respects `[animation].enabled` and Reduce Motion.
