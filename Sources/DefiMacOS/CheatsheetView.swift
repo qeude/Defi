@@ -5,6 +5,7 @@ struct CheatsheetView: View {
   let size: CGSize
   let contentSizeChanged: (CGSize) -> Void
   @State private var contentSize: CGSize?
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     ScrollView([.horizontal, .vertical]) {
@@ -26,9 +27,22 @@ struct CheatsheetView: View {
       width: min(contentSize?.width ?? size.width, size.width),
       height: min(contentSize?.height ?? size.height, size.height)
     )
-    // Opaque, so the text never competes with the windows behind it.
-    .background(.background, in: .rect(cornerRadius: 20))
+    // Solid at the top for legibility, then fading down into the glass.
+    .background(
+      LinearGradient(
+        stops: [
+          .init(color: core.opacity(0.94), location: 0),
+          .init(color: core.opacity(0.94), location: 0.4),
+          .init(color: core.opacity(0), location: 1),
+        ],
+        startPoint: .top, endPoint: .bottom
+      ),
+      in: .rect(cornerRadius: 20)
+    )
+    .glassEffect(.regular, in: .rect(cornerRadius: 20))
   }
+
+  private var core: Color { colorScheme == .dark ? .black : .white }
 
   /// Sections fill columns in reading order, balanced by row count.
   private var columns: [[ShortcutGroup]] {
