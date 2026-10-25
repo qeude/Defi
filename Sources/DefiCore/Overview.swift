@@ -17,6 +17,8 @@ public struct OverviewSnapshot: Equatable, Sendable {
   public let floatingFrames: [WindowID: Rect]
   public let activeMonitorID: MonitorID?
   public let nativeFullscreenWindowIDs: Set<WindowID>
+  /// The desk the user arranged, which monitor commands follow; empty uses `monitorFrames`.
+  public let routingFrames: [MonitorID: Rect]
 
   public init(
     monitors: [Monitor],
@@ -24,7 +26,8 @@ public struct OverviewSnapshot: Equatable, Sendable {
     windows: [WindowID: Window],
     floatingFrames: [WindowID: Rect] = [:],
     activeMonitorID: MonitorID? = nil,
-    nativeFullscreenWindowIDs: Set<WindowID> = []
+    nativeFullscreenWindowIDs: Set<WindowID> = [],
+    routingFrames: [MonitorID: Rect] = [:]
   ) {
     self.monitors = monitors
     self.monitorFrames = monitorFrames
@@ -32,6 +35,7 @@ public struct OverviewSnapshot: Equatable, Sendable {
     self.floatingFrames = floatingFrames
     self.activeMonitorID = activeMonitorID
     self.nativeFullscreenWindowIDs = nativeFullscreenWindowIDs
+    self.routingFrames = routingFrames.isEmpty ? monitorFrames : routingFrames
   }
 }
 

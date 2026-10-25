@@ -850,10 +850,13 @@ public final class OverviewController: NSObject {
       close()
     case .select:
       chooseSelection()
-    case .left, .right, .up, .down, .firstColumn, .lastColumn, .workspaceUp, .workspaceDown, .workspace:
+    case .left, .right, .up, .down, .firstColumn, .lastColumn, .workspaceUp, .workspaceDown, .workspace,
+      .monitor:
       navigate(action)
     case .moveUp, .moveDown:
       moveSelectionVertically(action)
+    case .moveToMonitor(let direction):
+      moveSelectionToMonitor(direction)
     case .layout(let command):
       _ = applyLayoutCommand(command)
     }
@@ -928,6 +931,9 @@ public final class OverviewController: NSObject {
         snapshot: snapshot
       ), target != selection
     else { return }
+    if selection?.location.monitorID != target.location.monitorID {
+      activateMonitorHandler(target.location.monitorID)
+    }
     selection = target
     selectionsByWorkspace[target.location.workspaceID] = target
     hasDeferredSelection = true
@@ -950,70 +956,108 @@ public final class OverviewController: NSObject {
   }
 
   private func moveSelectionVertically(_ action: OverviewKeyAction) {
-    guard !selectionCommitPending else { return }
-    guard let snapshot,
-      case .window(let windowID, let monitorID, let workspaceID) = selection,
-      let window = snapshot.windows[windowID],
-      window.transientOwnerID == nil,
-      snapshot.nativeFullscreenWindowIDs.contains(windowID) == false,
-      let monitor = snapshot.monitors.first(where: { $0.id == monitorID }),
-      let workspaceIndex = monitor.workspaces.firstIndex(where: {
-        $0.id == workspaceID
-      })
+    guard let snapshot, case let (window, monitor, workspace)? = movableSelection(in: snapshot),
+      let workspaceIndex = monitor.workspaces.firstIndex(where: { $0.id == workspace.id })
     else { return }
-    let workspace = monitor.workspaces[workspaceIndex]
+    let windowID = window.id
     let delta = action == .moveUp ? -1 : 1
-    let target: OverviewDropTarget
-    if let columnIndex = workspace.columns.firstIndex(where: {
-      $0.windows.contains(windowID)
-    }),
+    let columnIndex = workspace.columns.firstIndex(where: { $0.windows.contains(windowID) })
+    if let columnIndex,
       let windowIndex = workspace.columns[columnIndex].windows.firstIndex(of: windowID),
       workspace.columns[columnIndex].windows.indices.contains(windowIndex + delta)
     {
-      target = .stack(
-        monitorID: monitorID,
-        workspaceID: workspaceID,
-        columnIndex: columnIndex,
-        windowIndex: delta < 0 ? windowIndex - 1 : windowIndex + 2
+      commitOverviewDrop(
+        windowID: windowID,
+        appID: window.appID,
+        sourceMonitorID: monitor.id,
+        sourceWorkspaceID: workspace.id,
+        target: .stack(
+          monitorID: monitor.id,
+          workspaceID: workspace.id,
+          columnIndex: columnIndex,
+          windowIndex: delta < 0 ? windowIndex - 1 : windowIndex + 2
+        )
       )
+      return
+    }
+    guard monitor.workspaces.indices.contains(workspaceIndex + delta) else { return }
+    let targetWorkspace = monitor.workspaces[workspaceIndex + delta]
+    transferSelection(window, from: (monitor.id, workspace), to: monitor.id,
+      workspace: targetWorkspace, columnIndex: min(columnIndex ?? 0, targetWorkspace.columns.count),
+      snapshot: snapshot)
+  }
+
+  private func moveSelectionToMonitor(_ direction: Direction) {
+    guard let snapshot, case let (window, monitor, workspace)? = movableSelection(in: snapshot),
+      let targetMonitorID = spatialMonitor(from: monitor.id, toward: direction, frames: snapshot.routingFrames),
+      let targetMonitor = snapshot.monitors.first(where: { $0.id == targetMonitorID }),
+      let targetWorkspace = displayedWorkspace(on: targetMonitor)
+    else { return }
+    transferSelection(window, from: (monitor.id, workspace), to: targetMonitorID,
+      workspace: targetWorkspace,
+      columnIndex: targetWorkspace.columns.isEmpty ? 0 : targetWorkspace.focusedColumn + 1,
+      snapshot: snapshot)
+  }
+
+  private func movableSelection(in snapshot: OverviewSnapshot) -> (Window, Monitor, Workspace)? {
+    guard !selectionCommitPending,
+      case .window(let windowID, let monitorID, let workspaceID) = selection,
+      let window = snapshot.windows[windowID],
+      window.transientOwnerID == nil,
+      !snapshot.nativeFullscreenWindowIDs.contains(windowID),
+      let monitor = snapshot.monitors.first(where: { $0.id == monitorID }),
+      let workspace = monitor.workspaces.first(where: { $0.id == workspaceID })
+    else { return nil }
+    return (window, monitor, workspace)
+  }
+
+  /// Tiled windows open a new column; floating ones keep their place relative to the monitor.
+  private func transferSelection(
+    _ window: Window,
+    from source: (monitorID: MonitorID, workspace: Workspace),
+    to monitorID: MonitorID,
+    workspace targetWorkspace: Workspace,
+    columnIndex: Int,
+    snapshot: OverviewSnapshot
+  ) {
+    let target: OverviewDropTarget
+    let windowID = window.id
+    if source.workspace.columns.contains(where: { $0.windows.contains(windowID) }) {
+      target = .newColumn(monitorID: monitorID, workspaceID: targetWorkspace.id, columnIndex: columnIndex)
     } else {
-      let targetWorkspaceIndex = workspaceIndex + delta
-      guard monitor.workspaces.indices.contains(targetWorkspaceIndex) else { return }
-      let targetWorkspace = monitor.workspaces[targetWorkspaceIndex]
-      if let columnIndex = workspace.columns.firstIndex(where: {
-        $0.windows.contains(windowID)
-      }) {
-        target = .newColumn(
-          monitorID: monitorID,
-          workspaceID: targetWorkspace.id,
-          columnIndex: min(columnIndex, targetWorkspace.columns.count)
+      guard source.workspace.floatingWindows.contains(windowID),
+        let monitorFrame = snapshot.monitorFrames[source.monitorID],
+        let frame = snapshot.floatingFrames[windowID],
+        monitorFrame.width > 0,
+        monitorFrame.height > 0
+      else { return }
+      target = .floating(
+        monitorID: monitorID,
+        workspaceID: targetWorkspace.id,
+        relativeFrame: Rect(
+          x: (frame.x - monitorFrame.x) / monitorFrame.width,
+          y: (frame.y - monitorFrame.y) / monitorFrame.height,
+          width: frame.width / monitorFrame.width,
+          height: frame.height / monitorFrame.height
         )
-      } else {
-        guard workspace.floatingWindows.contains(windowID),
-          let monitorFrame = snapshot.monitorFrames[monitorID],
-          let frame = snapshot.floatingFrames[windowID],
-          monitorFrame.width > 0,
-          monitorFrame.height > 0
-        else { return }
-        target = .floating(
-          monitorID: monitorID,
-          workspaceID: targetWorkspace.id,
-          relativeFrame: Rect(
-            x: (frame.x - monitorFrame.x) / monitorFrame.width,
-            y: (frame.y - monitorFrame.y) / monitorFrame.height,
-            width: frame.width / monitorFrame.width,
-            height: frame.height / monitorFrame.height
-          )
-        )
-      }
+      )
     }
     commitOverviewDrop(
       windowID: windowID,
       appID: window.appID,
-      sourceMonitorID: monitorID,
-      sourceWorkspaceID: workspaceID,
+      sourceMonitorID: source.monitorID,
+      sourceWorkspaceID: source.workspace.id,
       target: target
     )
+  }
+
+  /// The workspace the overview currently centers on that monitor.
+  private func displayedWorkspace(on monitor: Monitor) -> Workspace? {
+    guard let activeIndex = monitor.workspaces.firstIndex(where: { $0.id == monitor.activeWorkspace })
+    else { return monitor.workspaces.first }
+    let offset = (viewportAnimations[monitor.id]?.to ?? viewports[monitor.id])?.workspaceOffset ?? 0
+    let index = min(max(activeIndex + Int(offset.rounded()), 0), monitor.workspaces.count - 1)
+    return monitor.workspaces[index]
   }
 
   private func navigationTarget(
@@ -1051,6 +1095,17 @@ public final class OverviewController: NSObject {
       }
       return firstSelection(in: destinationWorkspace, monitorID: destinationMonitor.id)
         ?? .workspace(monitorID: destinationMonitor.id, workspaceID: destinationWorkspace.id)
+    case .monitor(let direction):
+      guard let targetID = spatialMonitor(from: monitor.id, toward: direction, frames: snapshot.routingFrames),
+        let target = snapshot.monitors.first(where: { $0.id == targetID }),
+        let targetWorkspace = displayedWorkspace(on: target)
+      else { return selection }
+      if let remembered = selectionsByWorkspace[targetWorkspace.id],
+        remembered.location.monitorID == targetID, remembered.isValid(in: snapshot) {
+        return remembered
+      }
+      return firstSelection(in: targetWorkspace, monitorID: targetID)
+        ?? .workspace(monitorID: targetID, workspaceID: targetWorkspace.id)
     case .left, .right:
       let delta = action == .left ? -1 : 1
       if case .window(let windowID, _, _) = selection,
@@ -1111,7 +1166,7 @@ public final class OverviewController: NSObject {
         monitorID: monitor.id,
         workspaceID: monitor.workspaces[adjacentIndex].id
       )
-    case .moveUp, .moveDown, .select, .cancel, .layout:
+    case .moveUp, .moveDown, .moveToMonitor, .select, .cancel, .layout:
       return selection
     }
   }

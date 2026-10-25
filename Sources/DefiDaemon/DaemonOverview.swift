@@ -343,8 +343,16 @@ extension Daemon {
       windows: state.windows,
       floatingFrames: floatingWindowFrames,
       activeMonitorID: activeMonitorID,
-      nativeFullscreenWindowIDs: state.nativeFullscreenWindowIDs
+      nativeFullscreenWindowIDs: state.nativeFullscreenWindowIDs,
+      routingFrames: routingMonitorFrames
     )
+  }
+
+  /// Monitor commands follow the desk the user arranged, not the technical staircase.
+  var routingMonitorFrames: [MonitorID: Rect] {
+    Dictionary(uniqueKeysWithValues: latestMonitors.map {
+      ($0.id, displayDeskFrames[$0.id] ?? $0.physicalFrame)
+    })
   }
 
   private func focusFromOverview(
