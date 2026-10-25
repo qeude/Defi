@@ -329,7 +329,9 @@ final class WindowCaptureCache {
     RibbonProxyRenderer.shared.refreshEnvironment()
     guard RibbonProxyStore.shared.isAuthorized else { return }
     WindowCaptureStore.shared.markShown(windows.filter { $0.distance == 0 }.map(\.id))
-    if landing { overviewRefreshes.formUnion(windows.filter { $0.distance == 0 }.map(\.id)) }
+    if landing, ribbonProxyWindowServerCapture == nil {
+      overviewRefreshes.formUnion(windows.filter { $0.distance == 0 }.map(\.id))
+    }
     let ids = Set(windows.map(\.id))
     pendingRefresh = windows + pendingRefresh.filter { !ids.contains($0.id) }
     for screen in RibbonProxyStore.shared.allScreens where displays.contains(screen.displayID) {
@@ -441,7 +443,9 @@ final class WindowCaptureCache {
       // Reduced to fit the byte cap: recaptured once shown, not on every landing.
       if picture.isReduced && window.distance > 0 { return false }
       // Aged pictures refresh only with a landing: a layout at rest captures nothing.
-      return afterLanding && now - picture.capturedAt > (window.distance == 0 ? 0.45 : 60)
+      // Outstanding Overview refreshes stay selected across passes until attempted.
+      return overviewRefreshes.contains(window.id)
+        || (afterLanding && now - picture.capturedAt > (window.distance == 0 ? 0.45 : 60))
     }.sorted { $0.distance < $1.distance }
     // The wallpaper gates every presentation, so it is captured first, once per
     // display geometry. A display gone or reshaped since its request uses its current geometry.

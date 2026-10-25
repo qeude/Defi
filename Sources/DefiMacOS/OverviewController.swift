@@ -1362,7 +1362,8 @@ public final class OverviewController: NSObject {
 
   /// The shared pictures of this snapshot's windows, owner-checked.
   private func sharedPreviews(for snapshot: OverviewSnapshot) -> [WindowID: WindowPicture] {
-    guard windowPreviewsEnabled, !usesWorkspaceParking else { return [:] }
+    // Permission, not the parking mode chosen at opening: previews enabled mid-session show.
+    guard windowPreviewsEnabled, CGPreflightScreenCaptureAccess() else { return [:] }
     let store = WindowCaptureStore.shared
     return Dictionary(uniqueKeysWithValues: snapshot.windows.compactMap { id, window in
       store.picture(id).flatMap {
