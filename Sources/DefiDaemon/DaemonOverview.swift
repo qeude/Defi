@@ -314,19 +314,16 @@ extension Daemon {
       panelCount: controller.panelCount, retainedPanelCount: controller.retainedPanelCount,
       permission: controller.previewPermissionState.rawValue,
       captures: controller.inFlightPreviewCount, previews: controller.previewCacheCount,
-      memoryBytes: controller.rememberedPreviewMemoryBytes, failures: controller.previewFailureCount,
+      memoryBytes: controller.captureCacheBytes, failures: controller.previewFailureCount,
       firstPreviewMs: controller.firstPreviewMs, lastPreviewMs: controller.lastPreviewMs,
       receivedPreviews: controller.receivedPreviewCount
     )
     projection.renderPerformance = controller.renderPerformance
     projection.sessionGeneration = controller.sessionGeneration
-    projection.surfaceCapture = controller.surfaceCaptureState
-    projection.surfaceStreams = controller.surfaceStreamCount
-    projection.surfacePoolBytes = controller.surfaceEstimatedPoolBytes
+    projection.captureCache = controller.captureCacheDescription
     projection.surfaceTransitions = controller.surfaceTransitionCount
     projection.surfaceFallbacks = controller.surfaceFallbackCount
     projection.previewClosings = controller.previewClosingCount
-    projection.surfaceAcquireMs = controller.surfaceAcquireMs
     projection.openingTransitionHistory = controller.openingTransitionHistory
     NavigationActor.enqueue { [self] in
       overviewState = projection
@@ -604,13 +601,10 @@ extension Daemon {
 struct OverviewPresentationState: Sendable {
   var sessionGeneration: UInt64 = 0
   var renderPerformance = "none"
-  var surfaceCapture = "disabled"
-  var surfaceStreams = 0
-  var surfacePoolBytes = 0
+  var captureCache = "none"
   var surfaceTransitions = 0
   var surfaceFallbacks = 0
   var previewClosings = 0
-  var surfaceAcquireMs: Double = 0
   var openingTransitionHistory = "none"
   var isOpen = false
   var usesWorkspaceParking = false

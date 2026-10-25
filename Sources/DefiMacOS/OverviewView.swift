@@ -20,7 +20,8 @@ final class OverviewView: NSView {
   // Cross-fades the wallpaper on the next render; Core Animation runs the fade.
   private var desktopFadeDuration: TimeInterval = 0
   var hasDesktopImage: Bool { desktopImage != nil }
-  private var previews: [WindowID: NSImage] = [:]
+  private var previews: [WindowID: WindowPicture] = [:]
+  private var blurredPreviews: [WindowID: CGImage] = [:]
   var surfaceWindowIDs = Set<WindowID>() {
     didSet { if oldValue != surfaceWindowIDs { needsDisplay = true } }
   }
@@ -29,7 +30,7 @@ final class OverviewView: NSView {
   }
   private var previewOpacities: [WindowID: Double] = [:]
   // Image being replaced, kept underneath until the new preview finishes fading in.
-  private var outgoingPreviews: [WindowID: NSImage] = [:]
+  private var outgoingPreviews: [WindowID: WindowPicture] = [:]
   private var mouseDownPoint: NSPoint?
   private var mouseDownWindowID: WindowID?
   private var mouseDownOverflow: (workspaceID: WorkspaceID, direction: Int)?
@@ -103,6 +104,7 @@ final class OverviewView: NSView {
 
   func discardPreviewImages() {
     previews.removeAll(keepingCapacity: false)
+    blurredPreviews.removeAll(keepingCapacity: false)
     outgoingPreviews.removeAll(keepingCapacity: false)
     previewOpacities.removeAll()
     titleCache.prune(windowIDs: [])
@@ -130,16 +132,19 @@ final class OverviewView: NSView {
     drag: OverviewDragPresentation?,
     borderStyle: WindowBorderStyle,
     windowCornerRadius: Double,
-    previews: [WindowID: NSImage],
+    previews: [WindowID: WindowPicture],
+    blurredPreviews: [WindowID: CGImage] = [:],
     previewOpacities: [WindowID: Double]
   ) -> Bool {
     let visibleWindowIDs = Set(projection.workspaces.flatMap(\.windows).map(\.windowID))
     let visiblePreviews = previews.filter { visibleWindowIDs.contains($0.key) }
+    let visibleBlurs = blurredPreviews.filter { visiblePreviews[$0.key] != nil }
     let visibleOpacities = previewOpacities.filter { visiblePreviews[$0.key] != nil }
     guard self.snapshot != snapshot || self.projection != projection
       || self.selection != selection || self.drag != drag
       || self.borderStyle != borderStyle || self.windowCornerRadius != windowCornerRadius
       || self.previews != visiblePreviews || self.previewOpacities != visibleOpacities
+      || self.blurredPreviews != visibleBlurs
     else { return false }
     presentationUpdateCount += 1
     if self.snapshot != snapshot { titleCache.prune(windowIDs: Set(snapshot.windows.keys)) }
@@ -150,17 +155,19 @@ final class OverviewView: NSView {
     self.borderStyle = borderStyle
     self.windowCornerRadius = windowCornerRadius
     self.previews = visiblePreviews
+    self.blurredPreviews = visibleBlurs
     self.previewOpacities = visibleOpacities
     dropSettledOutgoingPreviews()
     needsDisplay = true
     return true
   }
 
-  func updatePreview(_ image: NSImage, for windowID: WindowID, opacity: Double) {
-    if let current = previews[windowID], current !== image, opacity < 1 {
+  func updatePreview(_ picture: WindowPicture, blurred: CGImage?, for windowID: WindowID, opacity: Double) {
+    if let current = previews[windowID], current != picture, opacity < 1 {
       outgoingPreviews[windowID] = current
     }
-    previews[windowID] = image
+    previews[windowID] = picture
+    blurredPreviews[windowID] = blurred
     previewOpacities[windowID] = opacity
     dropSettledOutgoingPreviews()
     needsDisplay = true
@@ -319,9 +326,9 @@ final class OverviewView: NSView {
     let bounds = CGRect(origin: .zero, size: size)
     let preview = previews[card.windowID]
     if surfaceWindowIDs.contains(card.windowID), let preview {
-      show(layers.preview, preview, in: bounds)
+      show(layers.preview, preview.contents, in: bounds)
       layers.preview.opacity = 1
-      for layer in [layers.outgoing, layers.scrim, layers.icon, layers.title, layers.fullScreen] {
+      for layer in [layers.outgoing, layers.blur, layers.scrim, layers.icon, layers.title, layers.fullScreen] {
         layer.isHidden = true
       }
       return
@@ -332,22 +339,33 @@ final class OverviewView: NSView {
       let opacity = previewOpacities[card.windowID] ?? 1
       let outgoing = outgoingPreviews[card.windowID]
       if let outgoing {
-        show(layers.outgoing, outgoing, in: bounds,
-          contentsRect: aspectFillContentsRect(for: outgoing, in: size))
+        show(layers.outgoing, outgoing.contents, in: bounds,
+          contentsRect: aspectFillContentsRect(for: outgoing.size, in: size))
       } else {
         layers.outgoing.isHidden = true
       }
-      show(layers.preview, preview, in: bounds,
-        contentsRect: aspectFillContentsRect(for: preview, in: size))
+      let contentsRect = aspectFillContentsRect(for: preview.size, in: size)
+      show(layers.preview, preview.contents, in: bounds, contentsRect: contentsRect)
       layers.preview.opacity = Float(opacity)
       let fadeHeight = overviewPreviewBlurFadeHeight(
         titleBandHeight: titleBandHeight, imageScale: 1, imageHeight: size.height)
+      // The blurred copy lines up with the picture; its mask keeps only the title band.
+      let blurred = blurredPreviews[card.windowID]
+      if blurred != nil, layers.blur.contents == nil, opacity >= 1 {
+        let reveal = CABasicAnimation(keyPath: "opacity")
+        reveal.fromValue = 0
+        reveal.duration = 0.2
+        layers.blur.add(reveal, forKey: "reveal")
+      }
+      show(layers.blur, blurred, in: bounds, contentsRect: contentsRect)
+      setFrame(layers.blurMask, CGRect(x: 0, y: 0, width: size.width, height: fadeHeight))
+      layers.blur.opacity = Float(outgoing == nil ? opacity : 1)
       show(layers.scrim, titleScrimImage,
         in: CGRect(x: 0, y: 0, width: size.width, height: fadeHeight))
       // Cross-fades keep the scrim steady; only a first reveal fades it in.
       layers.scrim.opacity = Float(outgoing == nil ? opacity : 1)
     } else {
-      for layer in [layers.preview, layers.outgoing, layers.scrim] { layer.isHidden = true }
+      for layer in [layers.preview, layers.outgoing, layers.blur, layers.scrim] { layer.isHidden = true }
     }
     let title = window.title.isEmpty ? window.appID : window.title
     let fontSize = min(13, max(size.height * 0.09, 10))
@@ -546,7 +564,7 @@ final class OverviewView: NSView {
 
   private func show(
     _ layer: CALayer,
-    _ image: NSImage?,
+    _ image: AnyObject?,
     in frame: CGRect,
     contentsRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
   ) {
@@ -571,10 +589,10 @@ final class OverviewView: NSView {
 
   // The unit rectangle of the image that fills `size`, anchored to the leading edge
   // like the window's own content.
-  private func aspectFillContentsRect(for image: NSImage, in size: CGSize) -> CGRect {
-    guard image.size.width > 0, image.size.height > 0, size.width > 0, size.height > 0
+  private func aspectFillContentsRect(for imageSize: CGSize, in size: CGSize) -> CGRect {
+    guard imageSize.width > 0, imageSize.height > 0, size.width > 0, size.height > 0
     else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
-    let imageRatio = image.size.width / image.size.height
+    let imageRatio = imageSize.width / imageSize.height
     let frameRatio = size.width / size.height
     if imageRatio > frameRatio {
       return CGRect(x: 0, y: 0, width: frameRatio / imageRatio, height: 1)
@@ -811,15 +829,25 @@ private final class OverviewCardLayers {
   let root = CALayer()
   let outgoing = CALayer()
   let preview = CALayer()
+  let blur = CALayer()
+  let blurMask = CALayer()
   let scrim = CALayer()
   let icon = CALayer()
   let title = CALayer()
   let fullScreen = CALayer()
+  // Opaque at the top edge, clear at the band's end: the blur fades into the picture.
+  static let blurMaskImage = overviewLabelBitmap(size: CGSize(width: 1, height: 128), scale: 1) {
+    NSGradient(colorsAndLocations: (.black, 0), (.black, 0.35), (NSColor.black.withAlphaComponent(0.5), 0.7),
+      (.clear, 1))?.draw(
+      from: NSPoint(x: 0.5, y: 0), to: NSPoint(x: 0.5, y: 128), options: [])
+  }?.cgImage(forProposedRect: nil, context: nil, hints: nil)
 
   init() {
     root.masksToBounds = true
-    for layer in [outgoing, preview, scrim] { layer.contentsGravity = .resize }
-    root.sublayers = [outgoing, preview, scrim, icon, title, fullScreen]
+    for layer in [outgoing, preview, blur, blurMask, scrim] { layer.contentsGravity = .resize }
+    blurMask.contents = Self.blurMaskImage
+    blur.mask = blurMask
+    root.sublayers = [outgoing, preview, blur, scrim, icon, title, fullScreen]
   }
 }
 

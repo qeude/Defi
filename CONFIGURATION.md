@@ -212,36 +212,28 @@ If access is denied, revoked, or unavailable, the Overview opens with cards,
 never prompts again in the same daemon session, and reports no error. Protected
 content and capture errors also leave the cards fully usable.
 
-While the Overview is closed, preparation captures one-shot screenshots of the
-active workspace's visible windows and up to two nearby offscreen windows at
-native resolution, at most once per second and one batch at a time. It never
-starts persistent capture streams. Opening freezes one fixed screenshot set
-through the zoom and the Overview session; these are snapshots, not live video.
+Navigation animations and the Overview share one window capture cache: one
+picture per window, one refresh rule and one memory budget. Pictures are
+one-shot screenshots taken on events (a landing, a layout, a resize, an Overview
+opening), never persistent capture streams, and each consumer scales the same
+picture on the GPU. Opening the Overview shows whatever the cache holds at once
+and refreshes the cards in view; the zoom uses the shared full-resolution
+picture of each visible window whose size still matches it.
 
-The retained NV12 buffers use public AVFoundation video layers without video
-encoding or per-frame CGImage conversion. NV12 preserves luma resolution but
-subsamples chroma. A conservative 256 MiB screenshot/renderer overlap estimate
-bounds the selected window set; this is not a bound on total process or
-WindowServer RAM. Inactive cards use one-shot captures in the existing 32 MiB
-compact-preview cache. No pixels are written to disk and no frame history is
-retained. Public screenshot capture may still involve macOS permission or
-transient capture UI; this option does not suppress system privacy indicators.
+When permission, geometry or a missing picture prevents a complete transition,
+windows zoom as placeholder cards or the normal Overview opens instead.
+Changing the Overview projection returns to ordinary card previews. Escape can
+zoom back when native frames and Overview offsets are unchanged; selecting a
+different window/workspace uses the existing native path. Snapshot freshness
+during typing or animated content, shadows, widgets and native fullscreen
+windows remain limits.
 
-When permission, geometry, readiness, snapshot age or the budget prevents a
-complete transition, the normal Overview opens instead. Changing the Overview
-projection returns to ordinary card previews. A cold start still needs screenshot
-preparation. Escape can zoom back when native frames and Overview offsets are
-unchanged; selecting a different window/workspace uses the existing native path.
-Snapshot freshness during typing or animated content, shadows, widgets and
-native fullscreen windows remain limits of this experiment.
-
-Ordinary remembered previews are memory-only, contain no audio or cursor, and
-use at most 32 MiB between Overview sessions. The surface experiment has the
-additional budgets described above. Defi validates the window and process identity before
-reuse, requests a fresh image immediately, and removes the remembered image if
-that capture fails. Remembered previews are limited to 512 pixels on their longest
-edge and retained until macOS signals memory pressure or their window identity
-changes. Full-resolution previews are released on close. Closed Overview panels
+Captured pictures are memory-only and contain no audio or cursor. The cache is
+capped at 512 MiB: the most recently shown windows keep full resolution, older
+ones are reduced to 512 pixels on their longest edge, and the oldest are dropped
+past the cap. A memory pressure warning lowers the cap to a quarter; critical
+pressure releases every picture. Defi validates the window and process identity
+before showing a picture. Closed Overview panels
 and their desktop images are released after 60 seconds or under memory pressure. A full-display
 screen share can include the Overview and the
 content shown in its cards; sharing one selected application or window does not

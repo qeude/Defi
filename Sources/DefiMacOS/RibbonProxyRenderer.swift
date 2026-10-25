@@ -90,71 +90,6 @@ func ribbonProxyDistance(_ frame: Rect, _ area: Rect) -> Double {
   max(area.x - frame.x - frame.width, frame.x - area.x - area.width, 0)
 }
 
-struct RibbonProxyPicture: @unchecked Sendable {
-  // An IOSurface or CGImage; the buffer keeps a captured surface alive.
-  let contents: AnyObject
-  var buffer: CVPixelBuffer? = nil
-  /// In points; `pixelScale` pixels per point (2 for Retina captures).
-  let size: CGSize
-  var capturedAt: TimeInterval
-  var pixelScale: CGFloat = 1
-  /// The colour along the right and bottom edges: fills a frame larger than the
-  /// picture, which is never scaled up.
-  let edge: CGColor?
-
-  init(contents: AnyObject, buffer: CVPixelBuffer? = nil, size: CGSize, capturedAt: TimeInterval,
-    pixelScale: CGFloat = 1) {
-    self.contents = contents
-    self.buffer = buffer
-    self.size = size
-    self.capturedAt = capturedAt
-    self.pixelScale = pixelScale
-    edge = CFGetTypeID(contents) == CGImage.typeID ? ribbonProxyEdgeColor(contents as! CGImage) : nil
-  }
-}
-
-/// Average colour of the picture's right and bottom borders.
-func ribbonProxyEdgeColor(_ image: CGImage) -> CGColor? {
-  let strip = max(image.width / 50, 2)
-  // The context writes through this pointer after its initializer returns.
-  let pixel = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)
-  pixel.initialize(repeating: 0, count: 4)
-  defer { pixel.deallocate() }
-  guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-    let context = CGContext(data: pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-    let right = image.cropping(to: CGRect(x: image.width - strip, y: 0, width: strip, height: image.height)),
-    let bottom = image.cropping(to: CGRect(x: 0, y: image.height - strip, width: image.width, height: strip))
-  else { return nil }
-  context.interpolationQuality = .medium
-  // Opaque, then half over it: both borders weigh the same.
-  context.draw(right, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-  context.setAlpha(0.5)
-  context.draw(bottom, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-  // Premultiplied: transparent corners leave alpha below 1.
-  let alpha = max(CGFloat(pixel[3]), 1)
-  return CGColor(srgbRed: CGFloat(pixel[0]) / alpha, green: CGFloat(pixel[1]) / alpha,
-    blue: CGFloat(pixel[2]) / alpha, alpha: 1)
-}
-
-/// A single-window capture as a picture, or nil when it does not match the window.
-/// Kept as the CGImage: an IOSurface copy ignores contentsScale and showed Retina
-/// pictures at twice their size.
-func ribbonProxyPicture(_ images: [CGImage]?, native: Rect) -> RibbonProxyPicture? {
-  guard let images, images.count == 1, let image = images.first,
-    let points = ribbonProxyCapturedPoints(image, native: native) else { return nil }
-  return RibbonProxyPicture(contents: image, size: points.size, capturedAt: CACurrentMediaTime(),
-    pixelScale: points.scale)
-}
-
-/// The point size of a capture of a window `native` points large, at 1× or Retina.
-func ribbonProxyCapturedPoints(_ image: CGImage, native: Rect) -> (size: CGSize, scale: CGFloat)? {
-  for scale in [2.0, 1.0, 3.0] {
-    let size = CGSize(width: Double(image.width) / scale, height: Double(image.height) / scale)
-    if ribbonProxyPictureMatches(captured: size, native: native) { return (size, CGFloat(scale)) }
-  }
-  return nil
-}
 
 struct RibbonProxyScreen: Sendable {
   let displayID: CGDirectDisplayID
@@ -173,13 +108,11 @@ struct RibbonProxyRefresh: Sendable {
   let distance: Double
 }
 
-/// Capture results shared between the main-thread capturer and the navigation
+/// Screen and motion state shared between the main thread and the navigation
 /// presenter, so a navigation never waits for the main thread.
 final class RibbonProxyStore: @unchecked Sendable {
   static let shared = RibbonProxyStore()
   private let lock = NSLock()
-  private var pictures: [WindowID: RibbonProxyPicture] = [:]
-  private var backgrounds: [CGDirectDisplayID: CGImage] = [:]
   private var icons: [Int32: CGImage] = [:]
   private var screens: [RibbonProxyScreen] = []
   private var authorized = false
@@ -222,16 +155,6 @@ final class RibbonProxyStore: @unchecked Sendable {
     return body()
   }
 
-  func picture(_ id: WindowID) -> RibbonProxyPicture? { locked { pictures[id] } }
-  func setPicture(_ picture: RibbonProxyPicture, for id: WindowID) { locked { pictures[id] = picture } }
-  var pictureIDs: Set<WindowID> { locked { Set(pictures.keys) } }
-  /// Every picture becomes stale (kept as a stand-in until recaptured).
-  func expirePictures() { locked { pictures = pictures.mapValues { var picture = $0; picture.capturedAt = 0; return picture } } }
-  func retainPictures(_ ids: Set<WindowID>) { locked { pictures = pictures.filter { ids.contains($0.key) } } }
-  func background(_ id: CGDirectDisplayID) -> CGImage? { locked { backgrounds[id] } }
-  func setBackground(_ image: CGImage, for id: CGDirectDisplayID) { locked { backgrounds[id] = image } }
-  func icon(_ processID: Int32) -> CGImage? { locked { icons[processID] } }
-  func setIcon(_ icon: CGImage, for processID: Int32) { locked { icons[processID] = icon } }
   func screen(containing area: Rect) -> RibbonProxyScreen? {
     let x = area.x + area.width / 2, y = area.y + area.height / 2
     return locked {
@@ -247,11 +170,10 @@ final class RibbonProxyStore: @unchecked Sendable {
     let ids = Set(screens.map(\.displayID))
     locked {
       self.screens = screens; self.authorized = authorized
-      backgrounds = backgrounds.filter { ids.contains($0.key) }
       movingDisplays.formIntersection(ids)
     }
+    WindowCaptureStore.shared.retainBackgrounds(ids)
   }
-  func clear() { locked { pictures = [:]; backgrounds = [:] } }
 }
 
 struct RibbonProxyLayers: @unchecked Sendable {
@@ -268,26 +190,11 @@ final class RibbonProxyRenderer {
   var enabled = false {
     didSet {
       guard !enabled else {
-        // Light and dark mode redraw every window and may swap the wallpaper: pictures
-        // stay as stand-ins but are recaptured as soon as each window is in view.
-        appearanceObserver = appearanceObserver ?? DistributedNotificationCenter.default().addObserver(
-          forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
-        ) { _ in
-          MainActor.assumeIsolated {
-            let renderer = RibbonProxyRenderer.shared
-            guard renderer.enabled else { return }
-            ribbonProxyLogger.notice("appearance-changed pictures expired")
-            RibbonProxyStore.shared.expirePictures()
-            for screen in RibbonProxyStore.shared.allScreens { renderer.requestBackground(screen, force: true) }
-            renderer.scheduleRefresh(after: 0.3, afterLanding: false)
-          }
-        }
         refreshEnvironment()
-        // No refresh at rest: every capture lights the recording indicator, so pictures
-        // are taken on events only (a landing, a layout, a resize).
+        // No refresh at rest: pictures are taken on events only (a landing, a layout, a resize).
         return
       }
-      RibbonProxyStore.shared.clear()
+      if oldValue { WindowCaptureStore.shared.clear() }
       for panel in panels.values { panel.orderOut(nil) }
       panels = [:]
     }
@@ -295,22 +202,6 @@ final class RibbonProxyRenderer {
   /// One overlay per display, as each display moves on its own.
   private var panels: [CGDirectDisplayID: NSPanel] = [:]
   private var presentedDisplays: Set<CGDirectDisplayID> = []
-  private var refresh: Task<Void, Never>?
-  private var refreshDue: CFTimeInterval = 0
-  private var refreshQueuedSoon = false
-  /// The last pass found a motion running: retry shortly, never in a tight loop.
-  private var refreshBlockedByMotion = false
-  private var slowCapturesRunning = false
-  private var appearanceObserver: NSObjectProtocol?
-  /// Windows a running presentation waits for: captured first, reported at once.
-  private var urgent: Set<WindowID> = []
-  private var refreshing = false
-  private var refreshQueued = false
-  private var refreshAfterLanding = false
-  private var pendingRefresh: [RibbonProxyRefresh] = []
-  private var pendingStills: [RibbonProxyRefresh] = []
-  private var pendingDisplays: [CGDirectDisplayID: RibbonProxyScreen] = [:]
-  private var forcedBackgrounds: Set<CGDirectDisplayID> = []
 
   /// The overlay never blocks the pointer: Defi's hit test skips it.
   var surfaceWindowIDs: Set<CGWindowID> {
@@ -349,7 +240,7 @@ final class RibbonProxyRenderer {
       if let prepared = prepareSurface(area: screen.frame, display: screen.displayID) {
         NavigationActor.enqueue { RibbonProxyPresenter.on(screen.displayID).adopt(prepared) }
       }
-      requestBackground(screen)
+      WindowCaptureCache.shared.requestBackground(screen)
     }
   }
 
@@ -407,300 +298,6 @@ final class RibbonProxyRenderer {
     return panel
   }
 
-  /// Keeps pictures warm for the next navigation. Missing or resized pictures are
-  /// captured promptly; others refresh rarely.
-  func noteWindows(_ windows: [RibbonProxyRefresh], afterLanding: Bool) {
-    refreshEnvironment()
-    guard enabled, RibbonProxyStore.shared.isAuthorized else { return }
-    // Layouts carry only the windows they move: merge, so every window stays known
-    // (and warm) until it closes.
-    let ids = Set(windows.map(\.id))
-    pendingRefresh = windows + pendingRefresh.filter { !ids.contains($0.id) }
-    for window in windows where window.distance == 0 {
-      if let screen = RibbonProxyStore.shared.screen(containing: window.frame) {
-        pendingDisplays[screen.displayID] = screen
-      }
-    }
-    for processID in Set(windows.map(\.processID)) { prepareIcon(processID) }
-    // Right after a landing: rapid navigation would otherwise start the next motion
-    // first, and pictures aged until every arrival showed an old one under a veil.
-    scheduleRefresh(after: afterLanding ? 0.05 : 0.5, afterLanding: afterLanding)
-  }
-
-  /// Unmanaged windows shown still on the overlay; refreshed with each landing.
-  func noteStills(_ windows: [RibbonProxyRefresh]) {
-    guard enabled else { return }
-    pendingStills = windows
-    guard !windows.isEmpty else { return }
-    scheduleRefresh(after: 0, afterLanding: true)
-  }
-
-  func captureSoon(_ windows: [RibbonProxyRefresh]) {
-    guard enabled, RibbonProxyStore.shared.isAuthorized else { return }
-    let ids = Set(windows.map(\.id))
-    urgent.formUnion(ids)
-    pendingRefresh = windows + pendingRefresh.filter { !ids.contains($0.id) }
-    for processID in Set(windows.map(\.processID)) { prepareIcon(processID) }
-    scheduleRefresh(after: 0.03, afterLanding: false)
-  }
-
-  /// The few windows a running motion shows veiled or empty, captured as soon as their
-  /// native window sits fully on screen below the overlay. One small capture each,
-  /// off the main thread; the usual refresh stays paused while moving.
-  func requestBackground(_ screen: RibbonProxyScreen, force: Bool = false) {
-    pendingDisplays[screen.displayID] = screen
-    if force { forcedBackgrounds.insert(screen.displayID) }
-    scheduleRefresh(after: 0, afterLanding: false)
-  }
-
-  private func prepareIcon(_ processID: Int32) {
-    guard RibbonProxyStore.shared.icon(processID) == nil else { return }
-    Task.detached(priority: .utility) {
-      var rect = CGRect(x: 0, y: 0, width: 64, height: 64)
-      guard let icon = NSRunningApplication(processIdentifier: processID)?.icon?
-        .cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return }
-      RibbonProxyStore.shared.setIcon(icon, for: processID)
-    }
-  }
-
-  // Throttled, not debounced: rapid navigation must not postpone captures
-  // forever. A running batch is never cancelled; it reruns once.
-  private func scheduleRefresh(after delay: TimeInterval, afterLanding: Bool) {
-    refreshAfterLanding = refreshAfterLanding || afterLanding
-    guard !refreshing else {
-      refreshQueued = true
-      refreshQueuedSoon = refreshQueuedSoon || delay < 0.1
-      return
-    }
-    let due = CACurrentMediaTime() + delay
-    // A sooner request (a landing waiting for a fresh picture) replaces a pass that
-    // is still only waiting to start.
-    if refresh != nil {
-      guard due < refreshDue else { return }
-      refresh?.cancel()
-    }
-    refreshDue = due
-    refresh = Task { [weak self] in
-      do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-      guard let self else { return }
-      refreshing = true
-      let afterLanding = refreshAfterLanding
-      refreshAfterLanding = false
-      await refreshPictures(afterLanding: afterLanding)
-      // A pass skipped for a running motion captured nothing: no overlay commit.
-      if !refreshBlockedByMotion { NavigationActor.enqueue { RibbonProxyPresenter.picturesArrived() } }
-      refreshing = false
-      refresh = nil
-      if refreshQueued {
-        let soon = refreshQueuedSoon, blocked = refreshBlockedByMotion
-        refreshQueued = false; refreshQueuedSoon = false; refreshBlockedByMotion = false
-        // A landing's fade still counts as moving: 50 ms later, not 0.5 s, or rapid
-        // navigation postpones every refresh.
-        scheduleRefresh(after: blocked ? 0.05 : soon ? 0 : 0.5, afterLanding: false)
-      }
-    }
-  }
-
-  private func refreshPictures(afterLanding: Bool) async {
-    let store = RibbonProxyStore.shared
-    guard !store.isMoving else { refreshQueued = true; refreshBlockedByMotion = true; return }
-    // One WindowServer list per pass, off the main thread (which also drives the
-    // drag ticker): it gives native frames, stacking and liveness at once.
-    let known = store.pictureIDs.union(pendingRefresh.map(\.id))
-    let (onScreen, alive) = await Task.detached(priority: .utility) {
-      let onScreen = ribbonProxyOnScreenWindows()
-      let shown = Set(onScreen.map(\.id))
-      // Hidden and minimized windows are alive but absent from the on-screen list.
-      return (onScreen, shown.union(ribbonProxyNativeFrames(known.subtracting(shown)).keys))
-    }.value
-    guard !store.isMoving else { refreshQueued = true; refreshBlockedByMotion = true; return }
-    store.onScreen = onScreen
-    store.retainPictures(alive)
-    pendingRefresh.removeAll { !alive.contains($0.id) }
-    let now = CACurrentMediaTime()
-    // Missing or resized windows are captured at once; after a landing, windows in view
-    // are recaptured too, others when older than a minute.
-    // shortcut: unchanged windows are recaptured too; a per-window damage signal would skip them.
-    var requests = pendingRefresh.filter { window in
-      guard let picture = store.picture(window.id),
-        ribbonProxyPictureMatches(captured: picture.size, native: window.frame)
-      else { return true }
-      // Expired by an appearance change: recaptured at once.
-      if picture.capturedAt == 0 { return true }
-      // Aged pictures refresh only with a landing: a layout at rest captures nothing.
-      return afterLanding && now - picture.capturedAt > (window.distance == 0 ? 0.45 : 60)
-    }.sorted { $0.distance < $1.distance }
-    // The wallpaper gates every presentation, so it is captured first, once per
-    // display geometry. A display gone or reshaped since its request uses its current geometry.
-    let screens = Dictionary(store.allScreens.map { ($0.displayID, $0) }) { first, _ in first }
-    pendingDisplays = pendingDisplays.compactMapValues { screens[$0.displayID] }
-    var displays = pendingDisplays.values.filter { display in
-      forcedBackgrounds.contains(display.displayID) || store.background(display.displayID)?.width
-        != Int(display.frame.width * display.scale)
-    }
-    forcedBackgrounds.subtract(displays.map(\.displayID))
-    // ScreenCaptureKit lights the recording indicator and pays a privacy check (tccd,
-    // systemstatusd) per call: the WindowServer capture covers the wallpaper and every
-    // window, parked ones included, and ScreenCaptureKit is only its fallback.
-    if let capture = ribbonProxyWindowServerCapture {
-      for shown in displays {
-        guard let image = await Task.detached(priority: .userInitiated, operation: {
-          ribbonProxyDesktopImage(CGRect(x: shown.frame.x, y: shown.frame.y,
-            width: shown.frame.width, height: shown.frame.height), capture)
-        }).value, image.width == Int(shown.frame.width * shown.scale) else { continue }
-        store.setBackground(image, for: shown.displayID)
-        displays.removeAll { $0.displayID == shown.displayID }
-      }
-    }
-    // Native frames, not targets: a window still resizing is captured, and cropped,
-    // at its real size.
-    let native = Dictionary(onScreen.map { ($0.id, $0.frame) }) { first, _ in first }
-    let visible = requests.compactMap { request -> RibbonProxyRefresh? in
-      guard ribbonProxyWindowServerCapture != nil
-        || native[request.id].map(ribbonProxyFullyOnScreen) == true else { return nil }
-      return RibbonProxyRefresh(id: request.id, appID: request.appID, processID: request.processID,
-        frame: native[request.id] ?? request.frame, distance: request.distance)
-    }
-    let visibleIDs = Set(visible.map(\.id))
-    // ScreenCaptureKit fallback: only windows never captured, resized since (a display
-    // change), or expired by an appearance change; a cropped picture made each landing wait.
-    requests = requests.filter { request in
-      (ribbonProxyWindowServerCapture == nil || !visibleIDs.contains(request.id)) && store.picture(request.id).map {
-        $0.capturedAt == 0 || !ribbonProxyPictureMatches(captured: $0.size, native: native[request.id] ?? request.frame)
-      } ?? true
-    }
-    // Short passes keep stills and visible windows from queueing behind slow
-    // ScreenCaptureKit captures of parked windows; the rest follows next pass.
-    if requests.count > 3 { requests = Array(requests.prefix(3)); refreshQueued = true }
-    guard !displays.isEmpty || !visible.isEmpty || !requests.isEmpty || !pendingStills.isEmpty
-    else { return }
-    // One call per window: a multi-window call returns a single composite whose
-    // extent did not reliably match the requested frames, losing every picture.
-    if let capture = ribbonProxyWindowServerCapture {
-      // A landing waits for these: capture them together, report each at once.
-      let pressing = visible.filter { urgent.contains($0.id) }
-      await withTaskGroup(of: (RibbonProxyRefresh, RibbonProxyPicture?).self) { group in
-        for request in pressing {
-          guard let id = CGWindowID(exactly: request.id.rawValue) else { continue }
-          group.addTask(priority: .userInitiated) { (request, ribbonProxyPicture(capture([id]), native: request.frame)) }
-        }
-        for await (request, picture) in group {
-          urgent.remove(request.id)
-          if let picture { store.setPicture(picture, for: request.id) }
-          // Reported even when the app had not redrawn yet: the presenter asks again.
-          NavigationActor.enqueue { RibbonProxyPresenter.picturesArrived() }
-        }
-      }
-      let pressed = Set(pressing.map(\.id))
-      for request in visible where !store.isMoving && !pressed.contains(request.id) {
-        guard let id = CGWindowID(exactly: request.id.rawValue) else { continue }
-        let started = CACurrentMediaTime()
-        let picture = await Task.detached(priority: .utility) {
-          ribbonProxyPicture(capture([id]), native: request.frame)
-        }.value
-        ribbonProxyLogger.debug("capture-fast id=\(id) ok=\(picture != nil) expected=\(Int(request.frame.width))x\(Int(request.frame.height)) ms=\(Int((CACurrentMediaTime() - started) * 1_000))")
-        if let picture { store.setPicture(picture, for: request.id) }
-      }
-    }
-    // Unmanaged windows may overlap managed ones, so each gets its own call.
-    if let capture = ribbonProxyWindowServerCapture {
-      for still in pendingStills {
-        if let picture = store.picture(still.id), !afterLanding || now - picture.capturedAt < 2,
-          ribbonProxyPictureMatches(captured: picture.size, native: still.frame) { continue }
-        guard let id = CGWindowID(exactly: still.id.rawValue) else { continue }
-        let picture = await Task.detached(priority: .utility) {
-          ribbonProxyPicture(capture([id]), native: still.frame)
-        }.value
-        ribbonProxyLogger.notice("capture-still id=\(still.id.rawValue) ok=\(picture != nil) expected=\(Int(still.frame.width))x\(Int(still.frame.height))")
-        if let picture {
-          store.setPicture(picture, for: still.id)
-        } else {
-          // Gone or no longer capturable: the next presentation reports it again if still visible.
-          pendingStills.removeAll { $0.id == still.id }
-        }
-      }
-    }
-    // ScreenCaptureKit (wallpaper, never-seen windows) can stall for seconds, e.g.
-    // while macOS asks for permission: it runs apart, so visible windows above keep
-    // refreshing every pass and a landing never waits behind it.
-    if (!displays.isEmpty || !requests.isEmpty) && !slowCapturesRunning {
-      slowCapturesRunning = true
-      let slowRequests = requests, slowDisplays = displays
-      Task { [weak self] in
-        await self?.slowCaptures(displays: slowDisplays, requests: slowRequests)
-        self?.slowCapturesRunning = false
-        NavigationActor.enqueue { RibbonProxyPresenter.picturesArrived() }
-      }
-    }
-  }
-
-  private func slowCaptures(displays: [RibbonProxyScreen], requests: [RibbonProxyRefresh]) async {
-    let store = RibbonProxyStore.shared
-    var content: SCShareableContent?
-    if !displays.isEmpty || !requests.isEmpty {
-      guard await overviewCaptureLimiter.acquire() else { return }
-      do {
-        content = try await withOverviewCaptureTimeout {
-          try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        }
-        await overviewCaptureLimiter.release()
-      } catch {
-        await overviewCaptureLimiter.release(error: error as NSError)
-      }
-    }
-    for display in displays {
-      guard let content,
-        let scDisplay = content.displays.first(where: { $0.displayID == display.displayID }) else { continue }
-      let filter = SCContentFilter(display: scDisplay,
-        including: content.windows.filter { $0.windowLayer < 0 })
-      filter.includeMenuBar = false
-      if let buffer = await capture(filter, width: display.frame.width * display.scale,
-        height: display.frame.height * display.scale), let image = ribbonProxyTaggedImage(buffer) {
-        store.setBackground(image, for: display.displayID)
-      }
-    }
-    guard let content, !requests.isEmpty else { return }
-    let windows = Dictionary(content.windows.map { ($0.windowID, $0) }) { first, _ in first }
-    for request in requests where !Task.isCancelled && !store.isMoving {
-      guard let id = CGWindowID(exactly: request.id.rawValue), let window = windows[id],
-        window.owningApplication?.bundleIdentifier == request.appID
-      else { continue }
-      let scale = CGFloat(store.screen(containing: request.frame)?.scale ?? 2)
-      // Backing resolution like the WindowServer captures: a 1× picture swapped for a 2×
-      // one mid-dissolve was drawn at the wrong scale, the content visibly zooming.
-      let buffer = await capture(SCContentFilter(desktopIndependentWindow: window),
-        width: window.frame.width * scale, height: window.frame.height * scale)
-      ribbonProxyLogger.notice("capture-sck id=\(request.id.rawValue) ok=\(buffer != nil)")
-      if let buffer, let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() {
-        store.setPicture(RibbonProxyPicture(contents: ribbonProxyTaggedImage(buffer) ?? surface, buffer: buffer,
-          size: window.frame.size, capturedAt: CACurrentMediaTime(), pixelScale: scale), for: request.id)
-      }
-    }
-  }
-
-  // IOSurface-backed BGRA: layers display it without a CPU copy or re-upload.
-  private func capture(_ filter: SCContentFilter, width: CGFloat, height: CGFloat) async -> CVPixelBuffer? {
-    let configuration = SCStreamConfiguration()
-    configuration.pixelFormat = kCVPixelFormatType_32BGRA
-    configuration.width = max(Int(width.rounded()), 2)
-    configuration.height = max(Int(height.rounded()), 2)
-    configuration.showsCursor = false
-    configuration.capturesAudio = false
-    configuration.ignoreShadowsSingleWindow = true
-    guard await overviewCaptureLimiter.acquire() else { return nil }
-    do {
-      let sample = try await withOverviewCaptureTimeout {
-        try await SCScreenshotManager.captureSampleBuffer(contentFilter: filter, configuration: configuration)
-      }
-      await overviewCaptureLimiter.release()
-      guard let buffer = CMSampleBufferGetImageBuffer(sample),
-        CVPixelBufferGetIOSurface(buffer) != nil else { return nil }
-      return buffer
-    } catch {
-      await overviewCaptureLimiter.release(error: error as NSError)
-      return nil
-    }
-  }
 }
 
 /// Navigation side: presents and lands the overlay without waiting for the main thread.
@@ -816,7 +413,7 @@ final class RibbonProxyPresenter {
       cancel()
       return false
     }
-    let store = RibbonProxyStore.shared
+    let store = RibbonProxyStore.shared, pictures = WindowCaptureStore.shared
     guard Self.enabled, duration > 0, !store.reduceMotion
     else { return fallback("disabled") }
     guard store.isAuthorized else {
@@ -834,10 +431,10 @@ final class RibbonProxyPresenter {
       prepareSurface(area)
       return fallback("surface")
     }
-    guard let background = store.background(screen.displayID),
+    guard let background = pictures.background(screen.displayID),
       background.width == Int(screen.frame.width * screen.scale)
     else {
-      DispatchQueue.main.async { RibbonProxyRenderer.shared.requestBackground(screen) }
+      DispatchQueue.main.async { WindowCaptureCache.shared.requestBackground(screen) }
       return fallback("background")
     }
     var shown = windows.filter {
@@ -862,7 +459,7 @@ final class RibbonProxyPresenter {
       return (window.id, window.processID, window.frame)
     }
     let missing = unmanaged.filter { window in
-      guard let picture = store.picture(window.id) else { return true }
+      guard let picture = pictures.picture(window.id) else { return true }
       return !ribbonProxyPictureMatches(captured: picture.size, native: window.frame)
     }
     // An uncapturable still must not cost the animation: it is briefly covered
@@ -993,13 +590,13 @@ final class RibbonProxyPresenter {
     veiledSince = CACurrentMediaTime()
     refreshing = Set(windows.filter { window in
       window.appID != "" && !veiled.contains(window.id) && window.to.ribbonIntersects(area)
-        && store.picture(window.id).map { veiledSince - $0.capturedAt > 1.5 } == true
+        && pictures.picture(window.id).map { veiledSince - $0.capturedAt > 1.5 } == true
     }.map(\.id))
-    let unpictured = shown.filter { store.picture($0.id) == nil }.map(\.id.rawValue)
+    let unpictured = shown.filter { pictures.picture($0.id) == nil }.map(\.id.rawValue)
     // Pictures that do not match their window's size or are old: the landing shows the
     // live content reflowed or changed, which reads as a zoom or resize.
     let mismatched = shown.compactMap { window -> String? in
-      guard let picture = store.picture(window.id) else { return nil }
+      guard let picture = pictures.picture(window.id) else { return nil }
       let age = Int(CACurrentMediaTime() - picture.capturedAt)
       guard !ribbonProxyPictureMatches(captured: picture.size, native: window.to) || age >= 10 else { return nil }
       return "\(window.id.rawValue):\(Int(picture.size.width))x\(Int(picture.size.height))->\(Int(window.to.width))x\(Int(window.to.height)),\(age)s"
@@ -1008,6 +605,7 @@ final class RibbonProxyPresenter {
     let token = generation, expected = expectedTargets, requested = requestedTargets
     let display = display, presenter = self
     store.setCurrentMotion(token, display)
+    pictures.markShown(shown.map(\.id))
     // Windows leaving the screen must be gone too, or a slow app's outgoing window
     // pops back into view when the overlay lifts.
     let leaving = Set(windows.filter {
@@ -1127,7 +725,7 @@ final class RibbonProxyPresenter {
     // images. A fresh capture lands once the app has redrawn at its new size; at most
     // 0.9 s, and a timed-out landing does not wait again.
     let resized = landedRefresh.filter { window in
-      window.distance == 0 && RibbonProxyStore.shared.picture(window.id).map {
+      window.distance == 0 && WindowCaptureStore.shared.picture(window.id).map {
         !ribbonProxyPictureMatches(captured: $0.size, native: window.frame)
       } == true
     }
@@ -1135,7 +733,7 @@ final class RibbonProxyPresenter {
       awaitingFresh = Set(resized.map(\.id))
       ribbonProxyLogger.debug("await-fresh ids=\(resized.map { "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))" }, privacy: .public)")
       RibbonProxyStore.shared.setMoving(false, display)
-      DispatchQueue.main.async { RibbonProxyRenderer.shared.captureSoon(resized) }
+      DispatchQueue.main.async { WindowCaptureCache.shared.captureSoon(resized) }
       Task { [weak self] in
         try? await Task.sleep(for: .milliseconds(900))
         guard let self, generation == token, !awaitingFresh.isEmpty else { return }
@@ -1209,8 +807,8 @@ final class RibbonProxyPresenter {
     }
     let windows = landedRefresh, stills = stills
     DispatchQueue.main.async {
-      RibbonProxyRenderer.shared.noteWindows(windows, afterLanding: true)
-      RibbonProxyRenderer.shared.noteStills(stills)
+      WindowCaptureCache.shared.noteWindows(windows, afterLanding: true)
+      WindowCaptureCache.shared.noteStills(stills)
     }
   }
 
@@ -1224,7 +822,7 @@ final class RibbonProxyPresenter {
       for id in awaitingFresh {
         guard let layer = windowLayers[id],
           let content = layer.sublayers?.first(where: { $0.name == "content" }),
-          let picture = RibbonProxyStore.shared.picture(id),
+          let picture = WindowCaptureStore.shared.picture(id),
           abs(picture.size.width - content.bounds.width) < 3, abs(picture.size.height - content.bounds.height) < 3
         else { continue }
         content.contents = picture.contents
@@ -1240,7 +838,7 @@ final class RibbonProxyPresenter {
         let again = landedRefresh.filter { awaitingFresh.contains($0.id) }
         Task {
           try? await Task.sleep(for: .milliseconds(60))
-          DispatchQueue.main.async { RibbonProxyRenderer.shared.captureSoon(again) }
+          DispatchQueue.main.async { WindowCaptureCache.shared.captureSoon(again) }
         }
       }
     }
@@ -1248,7 +846,7 @@ final class RibbonProxyPresenter {
     CATransaction.begin(); CATransaction.setAnimationDuration(0.22)
     CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
     for id in veiled.union(refreshing) {
-      guard let layer = windowLayers[id], let picture = RibbonProxyStore.shared.picture(id),
+      guard let layer = windowLayers[id], let picture = WindowCaptureStore.shared.picture(id),
         picture.capturedAt > veiledSince else { continue }
       for sublayer in layer.sublayers ?? [] {
         switch sublayer.name {
@@ -1268,7 +866,7 @@ final class RibbonProxyPresenter {
     CATransaction.begin(); CATransaction.setAnimationDuration(0.18)
     for (id, layer) in windowLayers {
       guard let content = layer.sublayers?.first(where: { $0.name == "content" }),
-        content.contents == nil, let picture = RibbonProxyStore.shared.picture(id) else { continue }
+        content.contents == nil, let picture = WindowCaptureStore.shared.picture(id) else { continue }
       content.contents = picture.contents
       content.contentsScale = picture.pixelScale
       content.backgroundColor = picture.edge
@@ -1409,7 +1007,7 @@ final class RibbonProxyPresenter {
       // Stacking shrinks the window in place: its picture is cropped to the new frame
       // instead of overflowing it at full height.
       if let content = layer.sublayers?.first(where: { $0.name == "content" }),
-        let picture = RibbonProxyStore.shared.picture(id) {
+        let picture = WindowCaptureStore.shared.picture(id) {
         content.masksToBounds = picture.size.width > to.width + 0.5 || picture.size.height > to.height + 0.5
       }
       let starts = Dictionary(sublayerFrames(layer, size: current.size).map { (ObjectIdentifier($0.0), $0.1) }) { a, _ in a }
@@ -1590,7 +1188,7 @@ final class RibbonProxyPresenter {
     selected: Bool) -> (pictured: Bool, badged: Bool) {
     let sublayers = Dictionary((layer.sublayers ?? []).compactMap { sublayer in
       sublayer.name.map { ($0, sublayer) } }) { first, _ in first }
-    let picture = RibbonProxyStore.shared.picture(window.id)
+    let picture = WindowCaptureStore.shared.picture(window.id)
     // A cropped picture still reads as the window: only a missing picture, or an old one
     // arriving vertically from another workspace, gets the icon over a veil.
     let badged = window.appID != "" && picture.map { picture in
@@ -1607,7 +1205,7 @@ final class RibbonProxyPresenter {
     } ?? false
     sublayers["content"]?.contentsScale = picture?.pixelScale ?? 1
     sublayers["content"]?.backgroundColor = picture.map { $0.edge } ?? CGColor(gray: 0.16, alpha: 1)
-    setContents(sublayers["icon"], badged ? RibbonProxyStore.shared.icon(window.processID) : nil)
+    setContents(sublayers["icon"], badged ? WindowCaptureStore.shared.icon(window.processID) : nil)
     sublayers["veil"]?.isHidden = !(badged && picture != nil)
     sublayers["veil"]?.opacity = 1
     sublayers["icon"]?.opacity = 1
@@ -1647,7 +1245,7 @@ private func cgRect(_ rect: CGRect) -> Rect {
 }
 
 @MainActor
-private func ribbonProxyFullyOnScreen(_ frame: Rect) -> Bool {
+func ribbonProxyFullyOnScreen(_ frame: Rect) -> Bool {
   NSScreen.screens.contains {
     let screen = cgRect($0.frame)
     return frame.x >= screen.x && frame.x + frame.width <= screen.x + screen.width
@@ -1723,7 +1321,7 @@ func ribbonProxyNativeFrames(_ ids: Set<WindowID>) -> [WindowID: Rect] {
 /// Front-to-back on-screen windows, for unmanaged stills and stacking order.
 typealias RibbonProxyOnScreenWindow = (id: WindowID, processID: Int32, layer: Int, frame: Rect)
 
-private func ribbonProxyOnScreenWindows() -> [RibbonProxyOnScreenWindow] {
+func ribbonProxyOnScreenWindows() -> [RibbonProxyOnScreenWindow] {
   let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
     kCGNullWindowID) as? [[String: Any]] ?? []
   return infos.compactMap { info in

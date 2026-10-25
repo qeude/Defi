@@ -18,7 +18,7 @@ final class OverviewPreviewClosingScene {
   var zoomsWallpaper: Bool { endsSquare }
 
   init?(projection: OverviewProjection, workspaceID: WorkspaceID, screen: NSScreen,
-    previews: [WindowID: NSImage], wallpaper: NSImage? = nil, cornerRadius: Double = 12,
+    previews: [WindowID: WindowPicture], wallpaper: NSImage? = nil, cornerRadius: Double = 12,
     targets: [FrameAssignment], windows: [WindowID: Window]) {
     guard let workspace = projection.workspaces.first(where: { $0.workspaceID == workspaceID })
     else { return nil }
@@ -82,7 +82,7 @@ final class OverviewPreviewClosingScene {
         width: card.frame.width, height: card.frame.height)
       // Windows without a captured image zoom back as cards from verified native frames.
       let item = overviewCardLayer(
-        image: previews[card.windowID]?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+        image: previews[card.windowID]?.contents,
         size: source.size)
       Self.place(item, source: source, scale: screen.backingScaleFactor, cornerRadius: self.cornerRadius)
       layer.addSublayer(item)

@@ -630,7 +630,7 @@ extension MacOSPlatform {
           distance: distance)
       }
       DispatchQueue.main.async {
-        RibbonProxyRenderer.shared.noteWindows(noted, afterLanding: false)
+        WindowCaptureCache.shared.noteWindows(noted, afterLanding: false)
       }
       return false
     }
