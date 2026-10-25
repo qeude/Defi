@@ -333,11 +333,11 @@ private final class BorderSegment {
     panel.hasShadow = false
     panel.sharingType = .none
     panel.level = .normal
+    // No .fullScreenAuxiliary: borders of other windows must stay off fullscreen Spaces.
     panel.collectionBehavior = [
       .canJoinAllSpaces,
       .stationary,
       .ignoresCycle,
-      .fullScreenAuxiliary,
       .transient,
     ]
     panel.hidesOnDeactivate = false

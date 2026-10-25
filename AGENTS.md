@@ -121,11 +121,12 @@ The scrolling workspace is one continuous horizontal strip.
 - never minimize managed windows to implement virtual workspaces
 - park inactive-workspace windows through topology and Accessibility, never visual opacity
 - park every hidden window, from an inactive workspace or an offscreen column,
-  at its own size, leaving a one-point sliver on its own display (a title bar
-  along the bottom edge); take the first of
-  its bottom-right corner, bottom-left corner, right edge, left edge, and bottom
-  edge that stays clear of every other display, else the one with the least
-  overlap; macOS pulls a window onto the display under most of its width and
+  at its own size and height, leaving a one-point sliver on its own display, so
+  any uncovered motion is a short horizontal slide; take the first of the side
+  edge nearest the window, the other side edge, its bottom-right corner,
+  bottom-left corner, top-right corner, top-left corner, and bottom edge that
+  stays clear of every other display, else the one with the least overlap;
+  macOS pulls a window onto the display under most of its width and
   keeps its title bar above that display's visible bottom, so judge each spot
   where macOS will leave it
 - when display heights overlap, apply the temporary display staircase so
@@ -136,7 +137,7 @@ The scrolling workspace is one continuous horizontal strip.
 - restore the desk for the login session on shutdown, and never commit a
   staircase with session scope, including in test cleanup
 - compute parking in the technical coordinates the daemon lays out in, so a
-  parked corner never sits under another display of the staircase
+  parked window never sits under another display of the staircase
 - keep native click, Dock, and Command-Tab focus compatible with virtual-workspace activation
 - ignore redundant native focus on the already-selected window; no reflow or animation from a plain click
 

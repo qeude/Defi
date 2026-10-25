@@ -20,7 +20,10 @@ final class PlatformEventMonitor {
   private let desktopSessionHandler: (DesktopSessionActivityChange) -> Void
   private let desktopSessionStateProvider: () -> DesktopSessionState
   private let windowEventHandler: (PlatformEventKind, pid_t?, AXUIElement) -> Void
-  private let liveFrameHandler: () -> Void
+  /// Left-button events, with the window the button went down on.
+  private let liveFrameHandler:
+    (_ pressedWindowID: WindowID?, _ type: NSEvent.EventType, _ pointer: CGPoint?) -> Void
+  private var pressedWindowID: WindowID?
   private let borderStackingHandler: () -> Void
   private let mouseGestureStartedHandler: () -> Void
   private let now: () -> TimeInterval
@@ -54,7 +57,7 @@ final class PlatformEventMonitor {
     desktopSessionStateProvider: @escaping () -> DesktopSessionState =
       currentDesktopSessionState,
     windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
-    liveFrameHandler: @escaping () -> Void = {},
+    liveFrameHandler: @escaping (WindowID?, NSEvent.EventType, CGPoint?) -> Void = { _, _, _ in },
     borderStackingHandler: @escaping () -> Void = {},
     mouseGestureStartedHandler: @escaping () -> Void = {},
     now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -254,6 +257,10 @@ final class PlatformEventMonitor {
         event.cgEvent?.getIntegerValueField(
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
         ) ?? Int64(event.windowNumber)
+      if event.type == .leftMouseDown {
+        pressedWindowID = mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+        liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
+      }
       userInputTracker.record(
         timestamp: event.timestamp,
         focusIntent: event.type == .leftMouseDown
@@ -264,7 +271,7 @@ final class PlatformEventMonitor {
       )
     }
     if event.type == .leftMouseDragged || event.type == .leftMouseUp {
-      liveFrameHandler()
+      liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
     }
     if event.type == .leftMouseUp {
       NavigationActor.enqueue { RibbonProxyPresenter.endDrag() }

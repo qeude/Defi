@@ -32,35 +32,6 @@ struct OverviewPreviewTests {
     #expect(item.cornerRadius == 0)
   }
 
-  @MainActor @Test func settingChangesWaitForMemoryPressureRecovery() {
-    let controller = OverviewController(focusWindow: { _, _, _, _ in },
-      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
-      openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
-    let snapshot = OverviewSnapshot(monitors: [], monitorFrames: [:], windows: [:])
-    controller.open(snapshot: snapshot, layout: LayoutSettings(), windowPreviewsEnabled: false)
-    defer { controller.close(); controller.prepare(windowPreviewsEnabled: false) }
-    controller.handleMemoryPressure(.warning)
-    controller.update(snapshot: snapshot, layout: LayoutSettings(),
-      windowPreviewsEnabled: true)
-    #expect(controller.surfaceCaptureState == "pressure")
-    #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
-    controller.handleMemoryPressure(.normal)
-    controller.update(snapshot: snapshot, layout: LayoutSettings())
-    #expect(controller.surfaceCaptureState == "disabled", "Recovery must consume the pending preparation with unchanged settings")
-  }
-
-  @MainActor @Test func warningPreparationKeepsFullSurfacesOff() {
-    let controller = OverviewController(focusWindow: { _, _, _, _ in },
-      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
-      openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
-    defer { controller.handleMemoryPressure(.normal); controller.prepare(windowPreviewsEnabled: false) }
-    controller.handleMemoryPressure(.warning)
-    controller.prepare(windowPreviewsEnabled: true,
-      snapshot: OverviewSnapshot(monitors: [], monitorFrames: [:], windows: [:]), layout: LayoutSettings())
-    #expect(controller.surfaceCaptureState == "pressure")
-    #expect(OverviewSurfacePlanner.shared.requests.isEmpty)
-  }
-
   @MainActor @Test func pressureRecoveryRequestsPreloadingWithoutAnotherOpening() {
     var preparations = 0
     let controller = OverviewController(focusWindow: { _, _, _, _ in },
@@ -77,37 +48,6 @@ struct OverviewPreviewTests {
     #expect(preparations == 1)
   }
 
-  @MainActor @Test func pressureReserveKeepsOnlyPreferredImagesWithinItsBudget() {
-    let cache = OverviewPreviewCache(maximumBytes: 100)
-    let ids = (1...3).map { WindowID(rawValue: UInt64($0)) }
-    let image = NSImage(size: NSSize(width: 10, height: 10))
-    for id in ids {
-      cache.store(image, byteCost: 30, for: Window(id: id, appID: "test", title: "Test",
-        frame: Rect(x: 0, y: 0, width: 10, height: 10), processID: 42))
-    }
-    cache.retain([ids[1], ids[2]], maximumBytes: 35)
-    #expect(Set(cache.images.keys) == [ids[1]])
-    #expect(cache.byteCount == 30)
-    cache.removeAll()
-    #expect(cache.byteCount == 0)
-  }
-  @Test func missingOrUnreadyImageDoesNotCancelOtherOpeningSurfaces() {
-    let first = WindowID(rawValue: 1), missing = WindowID(rawValue: 2)
-    let warming = WindowID(rawValue: 3), unrelated = WindowID(rawValue: 4)
-    #expect(overviewReadySurfaceIDs(requested: [first, missing, warming],
-      captured: [first, warming, unrelated], displayReady: [first, unrelated]) == [first])
-    #expect(overviewReadySurfaceIDs(requested: [missing],
-      captured: [first], displayReady: [first]).isEmpty)
-  }
-  @Test
-  func ribbonRejectsARescaledCaptureOfADifferentNativeSize() {
-    let native = Rect(x: 2, y: 37, width: 752, height: 902)
-    // A configured output of 1504 pixels can still contain a screenshot of a
-    // 1508-point source window. Matching output dimensions does not prove fidelity.
-    #expect(!overviewSurfaceMatchesNativeSize(source: CGSize(width: 1508, height: 902), native: native))
-    #expect(overviewSurfaceMatchesNativeSize(source: CGSize(width: 752, height: 902), native: native))
-    #expect(!overviewSurfaceMatchesNativeSize(source: CGSize(width: CGFloat.nan, height: 902), native: native))
-  }
   @Test
   func deniedCaptureStopsAllQueuedAndFutureAttempts() async {
     let limiter = OverviewCaptureLimiter(limit: 1)
@@ -184,43 +124,6 @@ struct OverviewPreviewTests {
     #expect(await limiter.acquire())
     await limiter.release()
   }
-  @Test
-  func overlappingBatchesShareCaptureSlotsWithoutRetainingDeliveredImages() async {
-    let limiter = OverviewCaptureLimiter(limit: 2)
-    let probe = CaptureProbe()
-    let delivered = CaptureProbe()
-    let requests = (1...8).map { OverviewPreviewRequest(windowID: WindowID(rawValue: UInt64($0)),
-      expectedAppID: "test", width: 100, height: 80, blurFadeHeight: 20) }
-    let capture: @Sendable (OverviewPreviewRequest) async -> OverviewPreviewCaptureResult = { request in
-      await limiter.acquire()
-      await probe.begin()
-      try? await Task.sleep(for: .milliseconds(5))
-      await probe.end()
-      await limiter.release()
-      return OverviewPreviewCaptureResult(request: request, image: nil)
-    }
-    let complete: @Sendable (OverviewPreviewCaptureResult) async -> Void = { _ in await delivered.begin() }
-    async let first = runOverviewPreviewCaptures(requests, retainResults: false,
-      completed: complete, capture: capture)
-    async let second = runOverviewPreviewCaptures(requests, retainResults: false,
-      completed: complete, capture: capture)
-    let results = await (first, second)
-    #expect(results.0.isEmpty && results.1.isEmpty)
-    #expect(await probe.maximum == 2)
-    #expect(await delivered.maximum == requests.count * 2)
-  }
-  @Test
-  func allWorkspacePreviewBatchFitsDecodedMemoryBudget() {
-    let requests = (1...100).map { OverviewPreviewRequest(
-      windowID: WindowID(rawValue: UInt64($0)), expectedAppID: "test",
-      width: 1600, height: 1200, blurFadeHeight: 100) }
-    let bounded = boundedOverviewPreviewRequests(requests, maximumBytes: 8 * 1024 * 1024)
-    #expect(bounded.count == requests.count)
-    #expect(bounded.reduce(0) { $0 + $1.width * $1.height * 4 } <= 8 * 1024 * 1024)
-    #expect(bounded[0].width < requests[0].width)
-    #expect(bounded.map(\.windowID) == requests.map(\.windowID))
-    #expect(boundedOverviewPreviewRequests(requests, maximumBytes: 0).isEmpty)
-  }
   @MainActor @Test func titleRasterCacheReusesLabelsAndBoundsMemory() throws {
     let cache = OverviewTitleCache(maximumBytes: 12_000)
     let id = WindowID(rawValue: 1)
@@ -243,99 +146,6 @@ struct OverviewPreviewTests {
     }
     cache.prune(windowIDs: [])
     #expect(cache.byteCount == 0)
-  }
-
-  @Test func surfaceCaptureBudgetIncludesProducerLatestAndDisplayedBuffers() {
-    let request = OverviewSurfaceRequest(windowID: WindowID(rawValue: 1),
-      appID: "test", processID: 1, width: 2_560, height: 1_600)
-    #expect(overviewSurfaceRequestsFit([request]))
-    #expect(overviewSurfaceRequestsFit([request, request]))
-    #expect(!overviewSurfaceRequestsFit(Array(repeating: request, count: 12)))
-    #expect(request.estimatedPoolBytes == 2_560 * 1_600 * 6)
-  }
-
-  @MainActor @Test func disabledSurfaceCaptureDoesNotStartStreams() {
-    let capture = OverviewSurfaceCapture()
-    capture.prepare([], enabled: false)
-    #expect(capture.state == "disabled")
-    #expect(capture.streamCount == 0)
-    #expect(capture.estimatedPoolBytes == 0)
-  }
-
-  @Test func previewPixelSizeKeepsCardAspectWhenCapped() {
-    let large = overviewPreviewPixelSize(cardWidth: 2_000, cardHeight: 1_040, scale: 2)
-    #expect(large.width <= 1_024 && large.height <= 768)
-    #expect(abs(Double(large.width) / Double(large.height) - 2_000.0 / 1_040.0) < 0.01)
-    let small = overviewPreviewPixelSize(cardWidth: 100, cardHeight: 60, scale: 2)
-    #expect(small.width == 200 && small.height == 120)
-  }
-
-  @Test func capturesSelectedMonitorOutwardFromSelection() {
-    func candidate(_ id: UInt64, monitor: UInt64, x: Double) -> OverviewPreviewCandidate {
-      OverviewPreviewCandidate(
-        request: OverviewPreviewRequest(windowID: WindowID(rawValue: id), expectedAppID: "test",
-          width: 100, height: 80, blurFadeHeight: 20),
-        monitorID: MonitorID(rawValue: monitor), centerX: x, centerY: 0)
-    }
-    let order = overviewPreviewCaptureOrder(
-      [candidate(1, monitor: 2, x: 500), candidate(2, monitor: 1, x: 900),
-       candidate(3, monitor: 1, x: 500), candidate(4, monitor: 1, x: 100),
-       candidate(3, monitor: 1, x: 500), candidate(5, monitor: 2, x: 450)],
-      selectedMonitorID: MonitorID(rawValue: 1), anchor: (x: 450, y: 0))
-    #expect(order.map(\.windowID.rawValue) == [3, 4, 2, 1, 5])
-  }
-
-  @Test func fastPreviewArrivesBeforeSlowCaptureCompletes() async {
-    let (stream, continuation) = AsyncStream<Bool>.makeStream()
-    let timeout = Task {
-      try? await Task.sleep(for: .milliseconds(500))
-      continuation.yield(false)
-      continuation.finish()
-    }
-    defer { timeout.cancel() }
-    let requests = (1...2).map {
-      OverviewPreviewRequest(windowID: WindowID(rawValue: UInt64($0)), expectedAppID: "test",
-        width: 100, height: 80, blurFadeHeight: 20)
-    }
-    let results = await runOverviewPreviewCaptures(requests, completed: { result in
-      if result.request == requests[0] {
-        continuation.yield(true)
-        continuation.finish()
-      }
-    }) { request in
-      if request == requests[1] {
-        // The slow capture cannot finish until the fast result has been delivered.
-        for await delivered in stream { #expect(delivered); break }
-      }
-      return OverviewPreviewCaptureResult(request: request, image: nil)
-    }
-    #expect(results.map(\.request) == requests)
-  }
-
-  @Test @MainActor
-  func compactPreviewsKeepTwentyFourLargeWindowsWithinTheCacheBudget() throws {
-    let context = try #require(CGContext(
-      data: nil, width: 1600, height: 1200, bitsPerComponent: 8,
-      bytesPerRow: 6400, space: CGColorSpaceCreateDeviceRGB(),
-      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ))
-    let original = try #require(context.makeImage())
-    let compact = try #require(compactOverviewPreview(original))
-    #expect(compact.width == 512)
-    #expect(compact.height == 384)
-    let cache = OverviewPreviewCache()
-    for id in 1...24 {
-      let window = Window(
-        id: WindowID(rawValue: UInt64(id)), appID: "test", title: "Test",
-        frame: Rect(x: 0, y: 0, width: 1600, height: 1200), processID: 42
-      )
-      cache.store(
-        NSImage(cgImage: compact, size: .zero),
-        byteCost: compact.bytesPerRow * compact.height, for: window
-      )
-    }
-    #expect(cache.images.count == 24)
-    #expect(cache.byteCount < 32 * 1024 * 1024)
   }
 
   @Test @MainActor
@@ -361,41 +171,6 @@ struct OverviewPreviewTests {
     #expect(update(radius: 14))
   }
 
-  @Test @MainActor
-  func rememberedCacheBoundsReplacementsAndPrunesReusedWindowIDs() {
-    let cache = OverviewPreviewCache(maximumBytes: 100)
-    var window = Window(
-      id: WindowID(rawValue: 1), appID: "test.app", title: "Test",
-      frame: Rect(x: 0, y: 0, width: 10, height: 10), processID: 42
-    )
-    let image = NSImage(size: NSSize(width: 10, height: 10))
-    cache.store(image, byteCost: 80, for: window)
-    cache.store(image, byteCost: 90, for: window)
-    #expect(cache.byteCount == 90)
-    #expect(cache.images.count == 1)
-    window.processID = 43
-    #expect(cache.prune(windows: [window.id: window]) == [window.id])
-    #expect(cache.byteCount == 0)
-    cache.store(image, byteCost: 101, for: window)
-    #expect(cache.images.isEmpty)
-    cache.store(image, byteCost: 80, for: window)
-    cache.removeAll()
-    #expect(cache.images.isEmpty)
-    #expect(cache.byteCount == 0)
-  }
-
-  @Test
-  func `Desktop capture schedules alone and stays retryable until captured`() {
-    let monitorID = MonitorID(rawValue: 1), existingID = MonitorID(rawValue: 2)
-    #expect(overviewCaptureBatchNeeded(previewRequestCount: 0, hasPendingDesktopCapture: true))
-    #expect(!overviewCaptureBatchNeeded(previewRequestCount: 0, hasPendingDesktopCapture: false))
-    #expect(overviewRecordedDesktopCaptureMonitorIDs(existing: [], requested: [monitorID], captured: []).isEmpty)
-    #expect(overviewRecordedDesktopCaptureMonitorIDs(existing: [existingID], requested: [monitorID],
-      captured: [monitorID]) == [existingID, monitorID])
-    #expect(overviewDesktopCaptureRetryNeeded(requested: [monitorID], captured: []))
-    #expect(!overviewDesktopCaptureRetryNeeded(requested: [monitorID], captured: [monitorID]))
-  }
-
   @Test("Without previews or Screen Recording the Overview parks windows; permission is requested once")
   func overviewDegradesWithoutCapturePermission() {
     #expect(overviewUsesWorkspaceParking(windowPreviewsEnabled: false, screenCaptureAccessGranted: true))
@@ -407,93 +182,85 @@ struct OverviewPreviewTests {
   }
 
   @Test
-  func `Capture scheduler never exceeds its bound and preserves order`() async {
-    let probe = CaptureProbe()
-    let requests = (1...7).map {
-      OverviewPreviewRequest(
-        windowID: WindowID(rawValue: UInt64($0)),
-        expectedAppID: "app",
-        width: 100,
-        height: 80,
-        blurFadeHeight: 40
-      )
+  func `Capture budget keeps recent windows sharp, reduces older ones, then drops`() {
+    func entry(_ id: UInt64, bytes: Int, reduced: Int?, shown: TimeInterval) -> WindowCaptureBudgetEntry {
+      WindowCaptureBudgetEntry(id: WindowID(rawValue: id), bytes: bytes, reducedBytes: reduced, shownAt: shown)
     }
-
-    let results = await runOverviewPreviewCaptures(requests) { request in
-      await probe.begin()
-      await Task.yield()
-      await probe.end()
-      return OverviewPreviewCaptureResult(request: request, image: nil)
-    }
-
-    let maximum = await probe.maximum
-    #expect(maximum > 0 && maximum <= overviewPreviewMaximumConcurrentCaptures)
-    #expect(results.map(\.request) == requests)
-  }
-
-  // A resized card keeps its capture; another generation, window, or app does not.
-  @Test(arguments: [
-    (UInt64(2), WindowID(rawValue: 1), "app", 100.0, false),
-    (UInt64(1), WindowID(rawValue: 2), "app", 100.0, false),
-    (UInt64(1), WindowID(rawValue: 1), "other", 100.0, false),
-    (UInt64(1), WindowID(rawValue: 1), "app", 100.0, true),
-    (UInt64(1), WindowID(rawValue: 1), "app", 1_000.0, true),
-  ])
-  func previewRequestMatchesCurrentCapture(
-    currentGeneration: UInt64, currentWindowID: WindowID, currentAppID: String, currentWidth: Double, expected: Bool
-  ) {
-    let request = OverviewPreviewRequest(windowID: WindowID(rawValue: 1), expectedAppID: "app",
-      width: 100, height: 80, blurFadeHeight: 40)
-    let currentRequest = OverviewPreviewRequest(windowID: currentWindowID, expectedAppID: currentAppID,
-      width: Int(currentWidth), height: 80, blurFadeHeight: 40)
-    #expect(overviewPreviewRequestIsCurrent(request, generation: 1, currentGeneration: currentGeneration,
-      currentRequest: currentRequest, currentAppID: currentAppID) == expected)
+    let entries = [
+      entry(1, bytes: 40, reduced: 4, shown: 30),
+      entry(2, bytes: 40, reduced: 4, shown: 20),
+      entry(3, bytes: 20, reduced: 2, shown: 10),
+      entry(4, bytes: 40, reduced: 4, shown: 5),
+      // Older but small enough to fit: still reduced, recency alone decides.
+      entry(6, bytes: 3, reduced: 1, shown: 1),
+      entry(5, bytes: 9, reduced: nil, shown: 0),
+    ]
+    let plan = windowCaptureBudgetPlan(entries, limit: 90)
+    #expect(plan.reduce == [3, 4, 6].map { WindowID(rawValue: $0) })
+    #expect(plan.drop == [WindowID(rawValue: 5)])
+    let roomy = windowCaptureBudgetPlan(entries, limit: 1_000)
+    #expect(roomy.reduce.isEmpty && roomy.drop.isEmpty)
   }
 
   @Test
-  func `Preview capture rejects a reused window ID from another app`() {
-    #expect(
-      overviewPreviewOwnerMatches(
-        expectedAppID: "com.example.original",
-        capturedAppID: "com.example.original"
-      )
-    )
-    #expect(
-      overviewPreviewOwnerMatches(
-        expectedAppID: "com.example.original",
-        capturedAppID: "com.example.replacement"
-      ) == false
-    )
-    #expect(
-      overviewPreviewOwnerMatches(
-        expectedAppID: "com.example.original",
-        capturedAppID: nil
-      ) == false
-    )
+  func `Store reduces the least recently shown picture, then releases all under pressure`() async throws {
+    func picture() throws -> WindowPicture {
+      let context = try #require(CGContext(data: nil, width: 1_024, height: 1_024, bitsPerComponent: 8,
+        bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+      return WindowPicture(contents: try #require(context.makeImage()),
+        size: CGSize(width: 512, height: 512), capturedAt: 1, pixelScale: 2)
+    }
+    let full = try picture()
+    let store = WindowCaptureStore(byteLimit: full.byteCost + full.byteCost / 2)
+    let old = WindowID(rawValue: 1), recent = WindowID(rawValue: 2)
+    func refresh(_ id: WindowID) -> RibbonProxyRefresh {
+      RibbonProxyRefresh(id: id, appID: "app", processID: 42, frame: Rect(x: 0, y: 0, width: 512, height: 512),
+        distance: 0)
+    }
+    store.markShown([old])
+    store.setPicture(full, for: refresh(old))
+    try await Task.sleep(for: .milliseconds(5))
+    store.markShown([recent])
+    store.setPicture(try picture(), for: refresh(recent))
+    // Reduction runs on a utility queue, which parallel tests can starve for seconds.
+    let deadline = Date().addingTimeInterval(30)
+    while store.reducedCount == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(store.picture(old)?.isReduced == true)
+    #expect(store.picture(recent)?.isReduced == false)
+    #expect(store.byteCount <= full.byteCost + full.byteCost / 2)
+    store.applyMemoryPressure(.critical)
+    #expect(store.count == 0)
   }
 
   @Test
-  func `Remembered previews stay inside their memory budget`() {
-    let first = WindowID(rawValue: 1)
-    let second = WindowID(rawValue: 2)
-    let costs = [first: 6]
+  func `Reduced picture keeps its point size for every consumer`() throws {
+    let context = try #require(CGContext(data: nil, width: 2_048, height: 1_024, bitsPerComponent: 8,
+      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    let image = try #require(context.makeImage())
+    var picture = WindowPicture(contents: image, size: CGSize(width: 1_024, height: 512),
+      capturedAt: 7, pixelScale: 2)
+    picture.appID = "app"; picture.processID = 42
+    let reducedBytes = try #require(picture.reducedByteCost)
+    let reduced = try #require(picture.reduced())
+    #expect(reduced.isReduced && reduced.reducedByteCost == nil)
+    #expect(reduced.size == picture.size && reduced.capturedAt == 7)
+    #expect(reduced.pixelScale == 0.5 && reduced.byteCost == reducedBytes)
+    #expect(reduced.appID == "app" && reduced.processID == 42)
+    #expect(ribbonProxyPictureMatches(captured: reduced.size, native: Rect(x: 0, y: 0, width: 1_024, height: 512)))
+  }
 
-    #expect(
-      overviewPreviewCacheCanStore(
-        windowID: second,
-        byteCost: 5,
-        currentByteCosts: costs,
-        maximumBytes: 10
-      ) == false
-    )
-    #expect(
-      overviewPreviewCacheCanStore(
-        windowID: first,
-        byteCost: 8,
-        currentByteCosts: costs,
-        maximumBytes: 10
-      )
-    )
+  @Test
+  func `Blurred title band copy is small and keeps the picture aspect`() throws {
+    let context = try #require(CGContext(data: nil, width: 1_600, height: 1_000, bitsPerComponent: 8,
+      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 800, height: 1_000))
+    let image = try #require(context.makeImage())
+    let blurred = try #require(overviewBlurredPreview(image))
+    #expect(blurred.width == 256 && blurred.height == 160)
   }
 
   @Test
@@ -506,45 +273,4 @@ struct OverviewPreviewTests {
     #expect(overviewPreviewOpacity(startedAt: 10, now: 10, reduceMotion: true) == 1)
   }
 
-  @Test
-  func `Progressive blur preserves the captured image dimensions`() throws {
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
-    let context = try #require(
-      CGContext(
-        data: nil,
-        width: 64,
-        height: 64,
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: bitmapInfo
-      )
-    )
-    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 32, height: 64))
-    context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
-    context.fill(CGRect(x: 32, y: 0, width: 32, height: 64))
-    let image = try #require(context.makeImage())
-    let blurred = try #require(
-      progressivelyBlurredOverviewPreview(image, fadeHeight: 24)
-    )
-
-    #expect(blurred.width == image.width)
-    #expect(blurred.height == image.height)
-  }
-}
-
-private actor CaptureProbe {
-  private var current = 0
-  private(set) var maximum = 0
-
-  func begin() {
-    current += 1
-    maximum = max(maximum, current)
-  }
-
-  func end() {
-    current -= 1
-  }
 }

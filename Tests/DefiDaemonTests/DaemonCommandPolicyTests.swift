@@ -239,6 +239,37 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func userHeldGestureWidthDoesNotAgeIntoConstraint() {
+    let windowID = WindowID(rawValue: 1)
+    let held = FrameMismatch(
+      windowID: windowID,
+      actual: Rect(x: 2, y: 34, width: 1_202, height: 1_353),
+      target: Rect(x: 2, y: 34, width: 2_554, height: 1_353)
+    )
+    var duringGesture = updateWidthMismatchObservationState(
+      previous: WidthMismatchObservationState(),
+      current: [held],
+      freshObservationIDs: [windowID],
+      now: 10
+    )
+    duringGesture.forget(windowID)
+    let afterRelease = updateWidthMismatchObservationState(
+      previous: duringGesture,
+      current: [held],
+      freshObservationIDs: [windowID],
+      now: 11
+    )
+
+    #expect(afterRelease.observedSince[windowID] == 11)
+    #expect(!persistentWidthMismatch(
+      held,
+      previous: duringGesture.mismatchesByWindowID[windowID],
+      observedSince: afterRelease.observedSince[windowID],
+      now: 11
+    ))
+  }
+
+  @Test
   func widthConstraintRequiresRepeatedSettledMismatch() {
     let windowID = WindowID(rawValue: 1)
     let target = Rect(x: 2, y: 34, width: 2_554, height: 1_353)

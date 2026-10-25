@@ -167,6 +167,9 @@ final class Daemon {
   var proxyWorkspaceOrders: [MonitorID: [WorkspaceID]] = [:]
   /// The window released by a proxied drop, until its drop layout is applied.
   var proxyDroppedWindowID: WindowID?
+  /// The held window moved or resized, so a button-up ends the gesture even before
+  /// its release event lands.
+  var mouseGestureChangedWindowFrame = false
   /// The drop the overlay is previewing during a drag; applied for real on release.
   var proxyPreviewTarget: MouseDropTarget?
   var mouseGestureInitialFrame: Rect?
@@ -386,6 +389,13 @@ final class Daemon {
       needsDesktopSync = true
     }
     let liveBorderGesture = platform.isLeftMouseButtonDown
+    // The overlay stretches the ribbon until release, which learns the width. A snapshot
+    // meanwhile waited on the WindowServer, busy with the live resize, while holding the
+    // connection the overlay commits through: the stretch froze for half a second.
+    if liveBorderGesture, platform.windowProxyStretching, mouseGestureInitialFrame != nil {
+      setTimerFrequency(min(activeDisplayRefreshRate, 120))
+      return
+    }
     let mouseGestureSyncPending =
       needsDesktopSync
       && (liveBorderGesture || activelyResizedWindowID != nil)

@@ -35,24 +35,36 @@ struct ParkingTests {
 
   // display, visible frame, other displays -> parked origin of a 1200 x 900 window
   @Test(arguments: [
-    // a single display parks in its bottom right corner above the Dock
-    (externalFrame, externalVisible, [], 2_559.0, 1_365.0),
-    // a display to the right moves external parking to the bottom left corner
-    (externalFrame, externalVisible, [rightFrame], -1_199, 1_365),
-    (rightFrame, rightVisible, [externalFrame], 4_071, 950),
-    // the staircase keeps each display on a free bottom corner
-    (externalFrame, externalVisible, [stairFrame], -1_199, 1_365),
+    // a single display parks at the side edge nearest the window, at its height
+    (externalFrame, externalVisible, [], -1_199.0, 40.0),
+    (externalFrame, externalVisible, [rightFrame], -1_199, 40),
+    // the near edge touches the other display, so the far edge takes it
+    (rightFrame, rightVisible, [externalFrame], 4_071, 40),
+    // the staircase keeps each display on a free side edge, inside its own rows
+    (externalFrame, externalVisible, [stairFrame], -1_199, 40),
     (stairFrame, stairVisible, [externalFrame], 4_071, -32),
     // the measured side-by-side arrangement parks where macOS keeps the windows
-    (externalFrame, externalVisible, [sideFrame], -1_199, 1_365),
-    (sideFrame, sideVisible, [externalFrame], 4_071, 1_340),
-    // a display below keeps the bottom right corner clear
-    (externalFrame, externalVisible, [Rect(x: 0, y: 1_440, width: 1_512, height: 982)], 2_559, 1_365),
+    (externalFrame, externalVisible, [sideFrame], -1_199, 40),
+    (sideFrame, sideVisible, [externalFrame], 4_071, 423),
+    (externalFrame, externalVisible, [Rect(x: 0, y: 1_440, width: 1_512, height: 982)], -1_199, 40),
   ] as [(Rect, Rect, [Rect], Double, Double)])
-  func `Each display parks in a free bottom corner`(display: Rect, visible: Rect, others: [Rect], x: Double,
+  func `Each display parks at a free side edge`(display: Rect, visible: Rect, others: [Rect], x: Double,
     y: Double) {
     #expect(parkedFrame(window, display: display, visibleFrame: visible, otherDisplays: others)
       == Rect(x: x, y: y, width: 1_200, height: 900))
+  }
+
+  @Test
+  func `A window on the right half parks at the right edge`() {
+    #expect(park(Rect(x: 2_000, y: 40, width: 1_200, height: 900), on: external, among: [])
+      == Rect(x: 2_559, y: 40, width: 1_200, height: 900))
+  }
+
+  @Test
+  func `Displays on both sides leave the bottom edge`() {
+    let left = Rect(x: -2_560, y: 0, width: 2_560, height: 1_440)
+    #expect(park(window, on: external, among: [Display(frame: left, visible: left), builtInRight])
+      == Rect(x: 0, y: 1_365, width: 1_200, height: 900))
   }
 
   @Test
@@ -92,7 +104,7 @@ struct ParkingTests {
       ).frames[0].frame
     }
     #expect(parked == Array(
-      repeating: Rect(x: -1_199, y: 1_365, width: 1_200, height: 900), count: 4))
+      repeating: Rect(x: -1_199, y: 40, width: 1_200, height: 900), count: 4))
   }
 
   @Test(arguments: [0.0, 1.0, 1.5])
@@ -104,7 +116,7 @@ struct ParkingTests {
       viewport: external.frame, park: { park($0, on: external, among: []) }
     )
     #expect(plan.frames[0].frame == (overlap > 1
-      ? frame : Rect(x: 2_559, y: 1_365, width: 1_200, height: 900)))
+      ? frame : Rect(x: -1_199, y: 40, width: 1_200, height: 900)))
     #expect(plan.parkedWindowIDs == (overlap > 1 ? [] : [id]))
   }
 

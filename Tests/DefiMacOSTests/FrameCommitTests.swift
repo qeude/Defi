@@ -363,6 +363,34 @@ struct FrameCommitTests {
   }
 
   @Test
+  func `Only an in-flight write target matches a late frame`() {
+    let windowID = WindowID(rawValue: 42)
+    let coordinator = AXFrameCoordinator()
+    let completed = Rect(x: 100, y: 40, width: 800, height: 700)
+    coordinator.recordInternalFrameWrite(
+      completed, windowID: windowID, positionChanged: true, sizeChanged: true, now: 0
+    )
+    coordinator.activeWindowIDs = [windowID]
+    coordinator.activeWrites[windowID] = makeMotionWrite(fromX: 100, toX: 400, sizeChanged: true)
+
+    #expect(coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 401, y: 40, width: 900, height: 700)))
+    #expect(!coordinator.frameMatchesPendingInternalWrite(windowID: windowID, actual: completed))
+
+    coordinator.recordCompletedActiveSizeWrite(windowID: windowID)
+    #expect(!coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 400, y: 40, width: 900, height: 700)))
+
+    coordinator.completedPositions[windowID] = CGPoint(x: 1_200, y: 40)
+    coordinator.activeWrites[windowID] = makeMotionWrite(
+      fromX: 100, toX: 400, sizeChanged: true, positionChanged: false)
+    #expect(coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 1_200, y: 40, width: 900, height: 700)))
+    #expect(!coordinator.frameMatchesPendingInternalWrite(
+      windowID: windowID, actual: Rect(x: 400, y: 40, width: 900, height: 700)))
+  }
+
+  @Test
   func `Display invalidation rejects an old queued frame without replacing its parking target`() {
     let windowID = WindowID(rawValue: 42)
     let coordinator = AXFrameCoordinator()
@@ -537,7 +565,8 @@ struct FrameCommitTests {
 
   private func makeMotionWrite(
     fromX: Double, toX: Double, sizeChanged: Bool = false, processID: pid_t = 42,
-    isParked: Bool = false, toY: Double = 40
+    isParked: Bool = false, toY: Double = 40,
+    positionChanged: Bool = true
   ) -> AsyncPositionWrite {
     // Handles only: these tests never read or mutate the real desktop.
     let element = AXUIElementCreateSystemWide()
@@ -545,7 +574,7 @@ struct FrameCommitTests {
       element: element, application: element, processID: processID,
       fromPoint: CGPoint(x: fromX, y: 40), point: CGPoint(x: toX, y: toY),
       fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 900, height: 700),
-      positionChanged: true, sizeChanged: sizeChanged,
+      positionChanged: positionChanged, sizeChanged: sizeChanged,
       synchronousSizeWriteSucceeded: !sizeChanged, enhancedUIWasEnabled: false,
       timeoutSeconds: 0.016, isParked: isParked,
       requiresVerifiedOffscreenWrite: false

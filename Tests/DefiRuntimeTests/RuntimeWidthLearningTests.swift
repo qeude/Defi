@@ -468,4 +468,245 @@ struct RuntimeWidthLearningTests {
     #expect(state.monitors[0].workspaces[0].columns[0].preMaximizedWidth == .fraction(0.8))
   }
 
+  private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+
+  private func singleWindowState(
+    minimum: Double? = nil,
+    maximum: Double? = nil,
+    width: ColumnWidth = .fraction(0.5)
+  ) throws -> (RuntimeState, WindowID) {
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    let window = Window(
+      id: WindowID(rawValue: 1),
+      appID: "editor",
+      title: "Editor",
+      frame: Rect(x: 12, y: 12, width: 476, height: 676),
+      monitorID: monitorID
+    )
+    try discoverWindow(window, decision: RuleDecision(), state: &state)
+    state.windows[window.id]?.minimumTiledWidth = minimum
+    state.windows[window.id]?.maximumTiledWidth = maximum
+    state.monitors[0].workspaces[0].columns[0].width = width
+    return (state, window.id)
+  }
+
+  private func targets(_ state: RuntimeState) -> [WindowID: Rect] {
+    Dictionary(uniqueKeysWithValues: computeLayout(
+      workspace: state.monitors[0].workspaces[0],
+      viewport: viewport,
+      windows: Array(state.windows.values),
+      settings: state.layout
+    ).map { ($0.windowID, $0.frame) })
+  }
+
+  @Test
+  func `Mouse resize keeps bounds the observed frame does not contradict`() throws {
+    var (state, id) = try singleWindowState(minimum: 300, maximum: 900)
+
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 576, height: 676),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(state.windows[id]?.minimumTiledWidth == 300)
+    #expect(state.windows[id]?.maximumTiledWidth == 900)
+    #expect(targets(state)[id]?.width == 576)
+  }
+
+  @Test
+  func `Mouse resize below a minimum drops only the minimum`() throws {
+    var (state, id) = try singleWindowState(minimum: 550, maximum: 900)
+
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 476, height: 676),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(500))
+    #expect(state.windows[id]?.minimumTiledWidth == nil)
+    #expect(state.windows[id]?.maximumTiledWidth == 900)
+    #expect(targets(state)[id]?.width == 476)
+  }
+
+  @Test
+  func `Mouse resize above a maximum drops only the maximum`() throws {
+    var (state, id) = try singleWindowState(minimum: 300, maximum: 550, width: .fraction(0.8))
+
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 676, height: 676),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(700))
+    #expect(state.windows[id]?.minimumTiledWidth == 300)
+    #expect(state.windows[id]?.maximumTiledWidth == nil)
+    #expect(targets(state)[id]?.width == 676)
+  }
+
+  @Test
+  func `Mouse resize clamped by the app minimum learns that minimum and keeps it`() throws {
+    var (state, id) = try singleWindowState(minimum: 376)
+
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 376, height: 676),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(400))
+    #expect(state.windows[id]?.minimumTiledWidth == 376)
+    #expect(targets(state)[id]?.width == 376)
+  }
+
+  @Test
+  func `Frame already at its bounded target is not learned as a user width`() throws {
+    var (state, id) = try singleWindowState(minimum: 576)
+
+    #expect(!learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 576, height: 676),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
+    #expect(state.windows[id]?.minimumTiledWidth == 576)
+  }
+
+  @Test
+  func `Height only resize learns nothing and keeps automatic heights`() throws {
+    var (state, id) = try singleWindowState(minimum: 300)
+
+    #expect(!learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 476, height: 400),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
+    #expect(state.windows[id]?.minimumTiledWidth == 300)
+    #expect(state.windows[id]?.maximumTiledWidth == nil)
+    #expect(targets(state)[id] == Rect(x: 12, y: 12, width: 476, height: 676))
+  }
+
+  @Test
+  func `Dragged left edge keeps the window where it was released`() throws {
+    var (state, _) = try singleWindowState()
+    let sibling = Window(
+      id: WindowID(rawValue: 2),
+      appID: "terminal",
+      title: "Terminal",
+      frame: Rect(x: 512, y: 12, width: 476, height: 676),
+      monitorID: monitorID
+    )
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].focusedColumn = 1
+    let before = try #require(targets(state)[sibling.id])
+
+    #expect(learnTiledWindowWidth(
+      sibling.id,
+      actualFrame: Rect(x: before.x - 100, y: before.y, width: before.width + 100, height: before.height),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    let after = try #require(targets(state)[sibling.id])
+    #expect(after.x == before.x - 100)
+    #expect(after.width == before.width + 100)
+  }
+
+  @Test
+  func `Stacked column applies the learned width to siblings within their bounds`() throws {
+    var (state, id) = try singleWindowState()
+    let sibling = Window(
+      id: WindowID(rawValue: 2),
+      appID: "terminal",
+      title: "Terminal",
+      frame: Rect(x: 512, y: 12, width: 476, height: 676),
+      monitorID: monitorID
+    )
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].columns.removeLast()
+    state.monitors[0].workspaces[0].columns[0].windows.append(sibling.id)
+    state.windows[sibling.id]?.maximumTiledWidth = 426
+
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 576, height: 332),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(state.windows[sibling.id]?.maximumTiledWidth == 426)
+    let frames = targets(state)
+    #expect(frames[id]?.width == 576)
+    #expect(frames[sibling.id]?.width == 426)
+
+    state.windows[sibling.id]?.maximumTiledWidth = nil
+    state.windows[sibling.id]?.minimumTiledWidth = 676
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 476, height: 332),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(500))
+    #expect(targets(state)[id]?.width == 676)
+  }
+
+  @Test
+  func `Mouse resize forgets the learned width rounding`() throws {
+    var (state, id) = try singleWindowState()
+    state.windows[id]?.widthRounding = 4
+
+    #expect(learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 576, height: 676),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.windows[id]?.widthRounding == nil)
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(targets(state)[id]?.width == 576)
+  }
+
+  @Test
+  func `Stacked window resized past its maximum to the column width drops the maximum`() throws {
+    var (state, id) = try singleWindowState()
+    let sibling = Window(
+      id: WindowID(rawValue: 2),
+      appID: "terminal",
+      title: "Terminal",
+      frame: Rect(x: 512, y: 12, width: 476, height: 676),
+      monitorID: monitorID
+    )
+    try discoverWindow(sibling, decision: RuleDecision(), state: &state)
+    state.monitors[0].workspaces[0].columns.removeLast()
+    state.monitors[0].workspaces[0].columns[0].windows.append(sibling.id)
+    state.windows[id]?.maximumTiledWidth = 426
+    #expect(targets(state)[id]?.width == 426)
+
+    // The column already has this width, so only the contradicted bound changes.
+    #expect(!learnTiledWindowWidth(
+      id,
+      actualFrame: Rect(x: 12, y: 12, width: 476, height: 332),
+      state: &state,
+      viewports: [monitorID: viewport]
+    ))
+
+    #expect(state.windows[id]?.maximumTiledWidth == nil)
+    #expect(targets(state)[id]?.width == 476)
+  }
 }

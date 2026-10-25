@@ -37,6 +37,14 @@ public final class MacOSPlatform {
   public var windowProxyMonitors: [WindowProxyMonitor] = []
   /// The overlay is drawing a motion; desktop reads wait for its landing.
   public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
+  /// The overlay holds the pointer's window (a carry or a stretch).
+  public var windowProxyCarrying: Bool { RibbonProxyPresenter.isCarrying }
+  public var windowProxyStretching: Bool { RibbonProxyPointerTrack.shared.isStretching }
+  /// The window's frame now, from the WindowServer: desktop reads wait while the
+  /// overlay draws, so a snapshot can still hold an older frame.
+  public func windowServerFrame(_ windowID: WindowID) -> Rect? {
+    ribbonProxyNativeFrames([windowID])[windowID]
+  }
   /// Shows the layout a drop at the pointer would produce, on the overlay only.
   /// `frames` cover every display: a drop on another one closes the gap here and opens
   /// the slot there.
@@ -102,8 +110,11 @@ public final class MacOSPlatform {
       return
     }
     let presenter = RibbonProxyPresenter.on(display)
-    presenter.carry(windowID, stretches: stretches, windows: windowProxyCarryWindows(monitor),
-      viewport: monitor.viewport,
+    let window = lastSnapshotWindows.first { $0.id == windowID }
+    let maximumWidth = window?.maximumTiledWidth ?? .infinity
+    let minimumWidth = min(max(window?.minimumTiledWidth ?? 0, 240), maximumWidth)
+    presenter.carry(windowID, stretches: stretches, widths: minimumWidth...maximumWidth,
+      windows: windowProxyCarryWindows(monitor), viewport: monitor.viewport,
       slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
     // A drag event arrives every frame: a refused carry waits instead of re-reading the
     // WindowServer list each time.
@@ -119,6 +130,30 @@ public final class MacOSPlatform {
     hostWindowProxyPreview()
     presentPendingWindowProxyPreview()
   }
+
+  /// Starts the stretch at the first drag event of a resize, without waiting for a
+  /// snapshot: the native edge moved while the neighbours stood still. Pressed on a side
+  /// edge, a horizontal move is enough; an app that resizes in steps (a terminal's cells)
+  /// moves its edge only later. Elsewhere, the WindowServer must show the resize.
+  func stretchWindowProxyEarly(_ windowID: WindowID, pressing: Bool, pointer: CGPoint) {
+    // Tiled windows only: a floating one has no ribbon place.
+    guard pressing || pressedWindow?.id == windowID, previousLogicalRibbonFrames[windowID] != nil,
+      let frame = ribbonProxyNativeFrames([windowID])[windowID] else { return }
+    if pressing {
+      let onSideEdge = Double(pointer.y) >= frame.y && Double(pointer.y) <= frame.y + frame.height
+        && ((frame.x - 8)...(frame.x + 3) ~= Double(pointer.x)
+          || (frame.x + frame.width - 3)...(frame.x + frame.width + 8) ~= Double(pointer.x))
+      pressedWindow = (windowID, frame, onSideEdge ? Double(pointer.x) : nil)
+      return
+    }
+    guard let (pressedID, start, edgePointerX) = pressedWindow, pressedID == windowID else { return }
+    let resizing = abs(frame.width - start.width) >= 2 && abs(frame.y - start.y) < 1
+      && (abs(frame.x - start.x) < 1 || abs(frame.x + frame.width - start.x - start.width) < 1)
+    guard resizing || edgePointerX.map({ abs(Double(pointer.x) - $0) >= 2 }) == true else { return }
+    pressedWindow = nil
+    carryWindowProxy(windowID, stretches: true)
+  }
+  private var pressedWindow: (id: WindowID, frame: Rect, edgePointerX: Double?)?
 
   private func presentPendingWindowProxyPreview() {
     guard let (frames, id) = windowProxyPreview else { return }
@@ -137,12 +172,15 @@ public final class MacOSPlatform {
     // pointer); only windows off screen take their logical place.
     return windows.compactMap { id, window -> RibbonProxyWindow? in
       guard let processID = window.processID else { return nil }
-      if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01 {
+      let logical = previousLogicalRibbonFrames[id]
+      // A window still on its way to or from its parking corner is not on the ribbon yet.
+      if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01,
+        logical.map({ abs($0.y - frame.y) < 40 }) ?? true {
         return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
       }
-      guard let logical = previousLogicalRibbonFrames[id] else { return nil }
-      let frame = native[id].map { Rect(x: logical.x, y: $0.y, width: logical.width, height: $0.height) } ?? logical
-      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
+      // Parked at a corner, its native y is the display's bottom: the ribbon place is logical.
+      guard let logical else { return nil }
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: logical, to: logical)
     }
   }
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]

@@ -75,7 +75,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .animations: (.appearance, "Enable animations", "animation.enabled")
     case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top")
     case .reservedBottom: (.layout, "Reserved bottom area", "layout.reserved_bottom")
-    case .hyperSymbol: (.input, "Show Hyper as ✦", "displayHyperSymbol hyper shortcut display")
+    case .hyperSymbol: (.input, "Show Hyper as ✧", "displayHyperSymbol hyper shortcut display")
     case .hyperShift: (.input, "Include Shift in Hyper", "displayHyperIncludesShift shortcut display")
     case .focusFollowsPointer: (.input, "Focus follows pointer", "input.focus_follows_mouse mouse")
     case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse")

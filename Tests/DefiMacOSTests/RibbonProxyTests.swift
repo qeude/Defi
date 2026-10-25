@@ -129,6 +129,19 @@ struct RibbonProxyTests {
     #expect(byID[b]?.to == Rect(x: 220, y: 40, width: 1000, height: 920))
   }
 
+  @Test func anotherWorkspacesParkedWindowStaysPutWhenTheRibbonMoves() {
+    let a = WindowID(rawValue: 1), parked = WindowID(rawValue: 2)
+    let corner = Rect(x: 1511, y: 907, width: 746, height: 898)
+    let plan = windowProxyMotion(
+      ribbonTargets: [a: Rect(x: 304, y: 40, width: 1000, height: 900)],
+      otherTargets: [parked: corner],
+      previousLogical: [a: Rect(x: 4, y: 40, width: 1000, height: 900)],
+      observed: [a: Rect(x: 4, y: 40, width: 1000, height: 900), parked: corner])
+    let byID = Dictionary(uniqueKeysWithValues: plan.map { ($0.id, $0) })
+    #expect(byID[parked]?.from == corner)
+    #expect(byID[parked]?.to == corner)
+  }
+
   @Test func learnedAppPlacementPutsThePictureExactlyOnTheWindow() {
     let a = WindowID(rawValue: 1)
     let target = Rect(x: 220, y: 40, width: 1000, height: 900)

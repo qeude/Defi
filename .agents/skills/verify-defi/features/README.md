@@ -10,4 +10,5 @@ Maintained verification source for `verify-defi`. One file per user-facing featu
 | Service lifecycle and single instance | [service-lifecycle.md](service-lifecycle.md) | restart keeps one daemon and the session store |
 | Width change animation (maximize, cycle, shrink) | [width-animation.md](width-animation.md) | `resize_check.sh`: every change ANIMATED, no jump, drift=0 |
 | Stacks within size constraints (balance, rejected joins, separation) | [stacks.md](stacks.md) | `stacks_check.py`: every scenario PASS, `daemons=1` |
+| Native column resizing (edge drag) | [column-resizing.md](column-resizing.md) | real drag sets `columnWidth=pixels:`, neighbor reflows, width survives navigation |
 | Single-window native drag with overlay preview | [window-drag.md](window-drag.md) | `drag_check.py`: every case PASS, membership unchanged while held |

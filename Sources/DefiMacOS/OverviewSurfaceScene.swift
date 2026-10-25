@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import DefiCore
 import DefiModel
 import QuartzCore
@@ -13,7 +12,8 @@ final class OverviewSurfaceScene {
   private(set) var openingContentDescription = "none"
   private var entries: [(WindowID, CALayer, CGRect, CGRect)]
   private var fallbackIDs: Set<WindowID> = []
-  private let frames: [WindowID: OverviewSurfaceFrame]
+  /// Windows shown by their own full-resolution picture, not a stand-in card.
+  var surfaceWindowIDs: Set<WindowID> { Set(entries.map(\.0)).subtracting(fallbackIDs) }
   private(set) var nativeFrames: [WindowID: CGRect]
   let projection: OverviewProjection
   private let nativeOwners: [WindowID: Int32]
@@ -21,16 +21,12 @@ final class OverviewSurfaceScene {
 
   init?(
     projection: OverviewProjection, workspaceID: WorkspaceID, screen: NSScreen,
-    surfaces: [WindowID: OverviewSurfaceFrame], windows: [WindowID: Window], cornerRadius: Double = 12,
-    previews: [WindowID: NSImage]? = nil
+    pictures: [WindowID: WindowPicture], windows: [WindowID: Window], cornerRadius: Double = 12
   ) {
     guard let workspace = projection.workspaces.first(where: { $0.workspaceID == workspaceID }),
-      !workspace.windows.isEmpty, (!surfaces.isEmpty || previews != nil),
-      surfaces.keys.allSatisfy({ OverviewSurfaceCapture.shared.displayLayer(for: $0) != nil })
+      !workspace.windows.isEmpty
     else { return nil }
-    let workspaceIDs = previews == nil
-      ? Set(workspace.windows.map(\.windowID)).intersection(surfaces.keys)
-      : Set(workspace.windows.map(\.windowID))
+    let workspaceIDs = Set(workspace.windows.map(\.windowID))
     let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
     let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
     let screenOrigin = CGPoint(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY)
@@ -50,8 +46,6 @@ final class OverviewSurfaceScene {
       frames[id] = rect.offsetBy(dx: -screenOrigin.x, dy: -screenOrigin.y)
       order[id] = index
     }
-    guard previews != nil || workspaceIDs.allSatisfy({ frames[$0] != nil }) else { return nil }
-    self.frames = surfaces.filter { workspaceIDs.contains($0.key) }
     nativeFrames = frames
     nativeOwners = owners
     self.projection = projection
@@ -72,19 +66,17 @@ final class OverviewSurfaceScene {
       let target = CGRect(x: card.frame.x, y: card.frame.y,
         width: card.frame.width, height: card.frame.height)
       let item: CALayer
-      if let frame = surfaces[card.windowID],
-        overviewSurfaceMatchesNativeSize(source: frame.sourceSize, native: Rect(
-          x: source.minX, y: source.minY, width: source.width, height: source.height)),
-        let displayLayer = OverviewSurfaceCapture.shared.displayLayer(for: card.windowID) {
-        item = displayLayer
-        _ = enqueueWindowSurface(frame, on: displayLayer)
+      let picture = pictures[card.windowID]
+      if let picture, !picture.isReduced, ribbonProxyPictureMatches(captured: picture.size,
+        native: Rect(x: source.minX, y: source.minY, width: source.width, height: source.height)) {
+        // The shared full-resolution picture; Core Animation scales it, no copy.
+        item = CALayer()
+        item.contents = picture.contents
       } else {
         // Only visible native windows need the opening fallback. Parked columns
         // must not fly into the overview from their one-pixel strip anchors.
-        guard previews != nil, source.intersects(layer.bounds) else { continue }
-        item = overviewCardLayer(
-          image: previews?[card.windowID]?.cgImage(forProposedRect: nil, context: nil, hints: nil),
-          size: source.size)
+        guard source.intersects(layer.bounds) else { continue }
+        item = overviewCardLayer(image: picture?.contents, size: source.size)
         if item.contents != nil { cachedCount += 1 }
         fallbackIDs.insert(card.windowID)
       }
@@ -178,7 +170,7 @@ final class OverviewSurfaceScene {
 /// A window-sized stand-in for a zoom transition. Without an image it keeps the
 /// window's silhouette legible; only the small symbol is rasterized.
 @MainActor
-func overviewCardLayer(image: CGImage?, size: CGSize) -> CALayer {
+func overviewCardLayer(image: AnyObject?, size: CGSize) -> CALayer {
   let item = CALayer()
   item.contents = image
   item.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor

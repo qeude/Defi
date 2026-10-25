@@ -500,9 +500,19 @@ extension MacOSPlatform {
     PlatformEventMonitor(
       handler: handler, userInputTracker: userInputTracker,
       desktopSessionHandler: desktopSessionHandler, windowEventHandler: windowEventHandler,
-      liveFrameHandler: { [weak self] in
+      liveFrameHandler: { [weak self] pressedWindowID, type, eventPointer in
         guard let self else { return }
-        self.enqueueBorderGeometry(self.borderManager.liveGeometryWindowIDs, requiresNativeRead: true)
+        if type != .leftMouseDown {
+          self.enqueueBorderGeometry(self.borderManager.liveGeometryWindowIDs, requiresNativeRead: true)
+        }
+        // The event's own location: the queue may run after the pointer left the edge.
+        if let pressedWindowID, type != .leftMouseUp,
+          let pointer = eventPointer ?? CGEvent(source: nil)?.location
+        {
+          NavigationActor.enqueue {
+            self.stretchWindowProxyEarly(pressedWindowID, pressing: type == .leftMouseDown, pointer: pointer)
+          }
+        }
       },
       borderStackingHandler: { [weak self] in
         self?.presentScheduleWindowBorderStackingRefresh()

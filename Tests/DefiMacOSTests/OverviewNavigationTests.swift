@@ -228,4 +228,71 @@ struct OverviewNavigationTests {
     controller.selectionCommitCompleted()
     #expect(controller.isOpen == false)
   }
+
+  private static func twoMonitorSnapshot(routingFrames: [MonitorID: Rect] = [:]) -> OverviewSnapshot {
+    let ids = (1...3).map { WindowID(rawValue: UInt64($0)) }
+    let left = Monitor(id: MonitorID(rawValue: 1), workspaces: [Workspace(id: WorkspaceID(rawValue: "left"),
+      columns: [Column(window: ids[0], width: .fraction(0.5))])], activeWorkspace: WorkspaceID(rawValue: "left"))
+    let right = Monitor(id: MonitorID(rawValue: 2), workspaces: [Workspace(id: WorkspaceID(rawValue: "right"),
+      columns: [Column(window: ids[1], width: .fraction(0.5)), Column(window: ids[2], width: .fraction(0.5))],
+      focusedColumn: 1)], activeWorkspace: WorkspaceID(rawValue: "right"))
+    return OverviewSnapshot(monitors: [left, right],
+      monitorFrames: [left.id: Rect(x: 0, y: 0, width: 1000, height: 800),
+        right.id: Rect(x: 1000, y: 0, width: 1000, height: 800)],
+      windows: Dictionary(uniqueKeysWithValues: ids.map {
+        ($0, Window(id: $0, appID: "test", title: "Window", frame: Rect(x: 0, y: 0, width: 100, height: 100)))
+      }), activeMonitorID: left.id, routingFrames: routingFrames)
+  }
+
+  @Test func monitorBindingSelectsTheNeighborMonitorsFocusedWindow() {
+    var focused: [WindowID] = [], activated: [MonitorID] = []
+    let controller = OverviewController(focusWindow: { id, _, _, _ in focused.append(id) },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { activated.append($0) },
+      openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
+    controller.open(snapshot: Self.twoMonitorSnapshot(), layout: LayoutSettings(), windowPreviewsEnabled: false)
+    defer { controller.close(); controller.close() }
+    controller.handleKey(.monitor(.left))
+    controller.handleKey(.monitor(.right))
+    controller.handleKey(.monitor(.right))
+    #expect(activated == [MonitorID(rawValue: 2)])
+    controller.handleKey(.select)
+    #expect(focused == [WindowID(rawValue: 3)])
+  }
+
+  @Test func moveToMonitorDropsTheSelectionAfterTheNeighborsFocusedColumn() {
+    var drops: [(WindowID, MonitorID, OverviewDropTarget)] = []
+    let controller = OverviewController(focusWindow: { _, _, _, _ in },
+      focusWorkspace: { _, _ in }, drop: { id, _, source, _, target in drops.append((id, source, target)) },
+      activateMonitor: { _ in }, openStateChanged: { _ in }, notificationCenter: NotificationCenter(),
+      commitScrollOffsets: { _ in })
+    controller.open(snapshot: Self.twoMonitorSnapshot(), layout: LayoutSettings(), windowPreviewsEnabled: false)
+    defer { controller.close(); controller.close() }
+    controller.handleKey(.moveToMonitor(.left))
+    #expect(drops.isEmpty)
+    controller.handleKey(.moveToMonitor(.right))
+    #expect(drops.count == 1)
+    #expect(drops.first?.0 == WindowID(rawValue: 1))
+    #expect(drops.first?.1 == MonitorID(rawValue: 1))
+    #expect(drops.first?.2 == .newColumn(monitorID: MonitorID(rawValue: 2),
+      workspaceID: WorkspaceID(rawValue: "right"), columnIndex: 2))
+  }
+
+  @Test func monitorShortcutsFollowTheArrangedDeskOverTechnicalFrames() {
+    var drops: [OverviewDropTarget] = []
+    let controller = OverviewController(focusWindow: { _, _, _, _ in },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, target in drops.append(target) },
+      activateMonitor: { _ in }, openStateChanged: { _ in }, notificationCenter: NotificationCenter(),
+      commitScrollOffsets: { _ in })
+    // The desk puts the second monitor left of the first, unlike its technical frame.
+    controller.open(snapshot: Self.twoMonitorSnapshot(routingFrames: [
+      MonitorID(rawValue: 1): Rect(x: 0, y: 0, width: 1000, height: 800),
+      MonitorID(rawValue: 2): Rect(x: -1000, y: 0, width: 1000, height: 800),
+    ]), layout: LayoutSettings(), windowPreviewsEnabled: false)
+    defer { controller.close(); controller.close() }
+    controller.handleKey(.moveToMonitor(.right))
+    #expect(drops.isEmpty)
+    controller.handleKey(.moveToMonitor(.left))
+    #expect(drops == [.newColumn(monitorID: MonitorID(rawValue: 2),
+      workspaceID: WorkspaceID(rawValue: "right"), columnIndex: 2)])
+  }
 }

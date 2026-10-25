@@ -251,8 +251,9 @@ extension Daemon {
     let previousSelectedWindowID = previousActiveMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }.map { snapshot.windowIDReplacements[$0] ?? $0 }
-    let mouseGestureEnded =
-      snapshot.mouseResizeGestureObserved && !snapshot.leftMouseButtonDown
+    // A settling release already ended: later snapshots advance its settlement.
+    let mouseGestureEnded = !snapshot.leftMouseButtonDown && mouseGestureSettlement == nil
+      && (snapshot.mouseResizeGestureObserved || mouseGestureChangedWindowFrame)
     let mouseInteractionEnded =
       mouseGestureEnded || snapshot.mouseFocusReleaseObserved
     let previousFloatingMonitorIDs: [WindowID: MonitorID] = Dictionary(
@@ -419,6 +420,7 @@ extension Daemon {
     var mouseResizeGestureActive =
       !mouseGesturePreempted
       && (snapshot.leftMouseButtonDown
+        || mouseGestureEnded
         || snapshot.mouseResizeGestureObserved
         || postReleaseMouseGestureActive)
     let reassignedFloatingMonitorIDs = updateFloatingWindowFrames(
@@ -663,6 +665,7 @@ extension Daemon {
     var mouseReordered = false
     // A released tiled window glides from where it was dropped into its slot.
     var animatesMouseDrop = false
+    var releasedResizeFrame: Rect?
     if !displayGeometryChanged && mouseResizeGestureActive {
       let physicalMonitorFrames = Dictionary(uniqueKeysWithValues: latestMonitors.map {
         ($0.id, $0.physicalFrame)
@@ -686,6 +689,11 @@ extension Daemon {
         focusedWindowID: snapshot.focusedWindowID,
         state: state
       )
+      if let gestureWindowID {
+        // A user-held width must not age into an app constraint once the gesture ends.
+        targetMismatchObservationState.forget(gestureWindowID)
+        lastTiledSizeMismatches[gestureWindowID] = nil
+      }
       mouseGestureScrollAnchor = resolvedMouseGestureScrollAnchor(
         current: mouseGestureScrollAnchor,
         gestureWindowID: gestureWindowID,
@@ -710,8 +718,10 @@ extension Daemon {
           let actualFrame, let mouseGestureInitialFrame
         {
           if mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame) {
+            mouseGestureChangedWindowFrame = true
             platform.carryWindowProxy(gestureWindowID, stretches: false)
           } else if mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame) {
+            mouseGestureChangedWindowFrame = true
             platform.carryWindowProxy(gestureWindowID, stretches: true)
           }
         }
@@ -747,7 +757,11 @@ extension Daemon {
         proxyPreviewTarget = nil
         platform.endWindowProxyPreview()
         var droppedOnOverlay = false
+        // The preview belongs to this gesture only if the window really moved: an edge
+        // resize never drops.
         if previewedTarget != nil, let gestureWindowID,
+          let actualFrame, let mouseGestureInitialFrame,
+          mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame),
           let event = CGEvent(source: nil),
           let target = mouseDropTarget(gestureWindowID,
             pointer: (Double(event.location.x), Double(event.location.y)),
@@ -790,10 +804,14 @@ extension Daemon {
           let mouseGestureInitialFrame,
           let actualFrame
         {
+          let releasedFrame = platform.windowServerFrame(gestureWindowID) ?? actualFrame
+          if !droppedOnOverlay, mouseFrameWasResized(from: mouseGestureInitialFrame, to: releasedFrame) {
+            releasedResizeFrame = releasedFrame
+          }
           let now = ProcessInfo.processInfo.systemUptime
           animatesMouseDrop = animationsEnabled && state.windows[gestureWindowID]?.floating == false
-            && (mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame)
-              || mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame))
+            && (mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: releasedFrame)
+              || mouseFrameWasResized(from: mouseGestureInitialFrame, to: releasedFrame))
           if animatesMouseDrop {
             // The overlay carries the window into its slot, so Defi writes the final
             // frame now instead of waiting for the native window to settle where it
@@ -809,7 +827,7 @@ extension Daemon {
               generation: mouseGestureGeneration,
               windowID: gestureWindowID,
               initialFrame: mouseGestureInitialFrame,
-              releasedFrame: actualFrame,
+              releasedFrame: releasedFrame,
               now: now,
               maximumDuration: mouseGestureSettlementMaximumDuration(
                 latencySensitive: platform.latencySensitiveWindowIDs.contains(
@@ -844,15 +862,22 @@ extension Daemon {
             gestureWindowID
           ],
           actualFrame: actualFrame,
-          postReleaseSettlementActive: postReleaseMouseGestureActive
+          postReleaseSettlementActive: postReleaseMouseGestureActive,
+          actualFrameMatchesRecentDefiWrite: actualFrame.map {
+            platform.frameMatchesPendingInternalWrite(windowID: gestureWindowID, actual: $0)
+          } ?? false,
+          overlayHoldsGesture: snapshot.leftMouseButtonDown && platform.windowProxyCarrying,
+          releasedResizeFrame: releasedResizeFrame
         )
       {
-        _ = learnTiledWindowWidth(
+        let learned = learnTiledWindowWidth(
           gestureWindowID,
           actualFrame: widthLearningFrame,
           state: &state,
           viewports: viewportsByMonitor
         )
+        // The learned scroll keeps a released left edge in place; the anchor would undo it.
+        if learned, !snapshot.leftMouseButtonDown { mouseGestureScrollAnchor = nil }
       }
     } else {
       finishMouseGestureTracking()

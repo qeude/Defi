@@ -49,6 +49,8 @@ public enum OverviewKeyAction: Equatable, Sendable {
   case workspaceUp
   case workspaceDown
   case workspace(WorkspaceTarget)
+  case monitor(Direction)
+  case moveToMonitor(Direction)
   case moveUp
   case moveDown
   case select
@@ -74,6 +76,11 @@ func overviewKeyAction(
       case .relative(.down): return .workspaceDown
       default: return .workspace(target)
       }
+    case .focusMonitor(let direction): return .monitor(direction)
+    // shortcut: the overview moves the selected window alone, even for move-column-to-monitor;
+    // move whole columns once overview drops can carry a column.
+    case .moveColumnToMonitor(let direction), .moveWindowToMonitor(let direction):
+      return .moveToMonitor(direction)
     default:
       if command.editsSelectedLayout { return .layout(command) }
     }

@@ -83,22 +83,49 @@ public func learnTiledWindowWidth(
   state: inout RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> Bool {
-  let previousMinimum = state.windows[windowID]?.minimumTiledWidth
-  let previousMaximum = state.windows[windowID]?.maximumTiledWidth
-  state.windows[windowID]?.minimumTiledWidth = nil
-  state.windows[windowID]?.maximumTiledWidth = nil
-  guard let learned = tiledWindowWidthLearning(
+  // A frame that already matches its bounded target carries no user width.
+  guard let bounded = tiledWindowWidthLearning(
     windowID,
     actualFrame: actualFrame,
     state: state,
     viewports: viewports
-  ) else {
-    state.windows[windowID]?.minimumTiledWidth = previousMinimum
-    state.windows[windowID]?.maximumTiledWidth = previousMaximum
-    return false
+  ) else { return false }
+  // The real frame proves the window accepts this width; drop only contradicted bounds,
+  // even when the column already has this width.
+  // Bounds are the window's own width; the layout adds its column's gaps.
+  if let minimum = state.windows[windowID]?.minimumTiledWidth, actualFrame.width < minimum - 0.5 {
+    state.windows[windowID]?.minimumTiledWidth = nil
   }
+  if let maximum = state.windows[windowID]?.maximumTiledWidth, actualFrame.width > maximum + 0.5 {
+    state.windows[windowID]?.maximumTiledWidth = nil
+  }
+  // Ignore the window's own bounds so the gap allowance maps the observed frame to its slot.
+  var unbounded = state
+  unbounded.monitors[bounded.monitorIndex].workspaces[bounded.workspaceIndex]
+    .columns[bounded.columnIndex].width = .pixels(bounded.requestedWidth)
+  unbounded.windows[windowID]?.minimumTiledWidth = nil
+  unbounded.windows[windowID]?.maximumTiledWidth = nil
+  // The user chose this width: any learned rounding is stale, and an app that does
+  // round learns it again from the next write.
+  unbounded.windows[windowID]?.widthRounding = nil
+  guard let learned = tiledWindowWidthLearning(
+    windowID,
+    actualFrame: actualFrame,
+    state: unbounded,
+    viewports: viewports
+  ) else { return false }
+  state.windows[windowID]?.widthRounding = nil
   state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
     .columns[learned.columnIndex].width = .pixels(learned.width)
+  // A dragged left edge keeps the window where it was released: the ribbon before it
+  // scrolls by the same amount, as the overlay showed during the drag.
+  let leftEdgeShift = learned.targetX - actualFrame.x
+  if abs(leftEdgeShift) >= 1,
+    let viewportWidth = viewports[state.monitors[learned.monitorIndex].id]?.width, viewportWidth > 0
+  {
+    state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex].scrollOffset +=
+      leftEdgeShift / viewportWidth
+  }
   synchronizeScrollOffsets(state: &state, viewports: viewports)
   return true
 }
@@ -153,7 +180,8 @@ private func tiledWindowWidthLearning(
   workspaceIndex: Int,
   columnIndex: Int,
   requestedWidth: Double,
-  width: Double
+  width: Double,
+  targetX: Double
 )? {
   guard state.windows[windowID]?.intrinsicSize != true else { return nil }
   for monitorIndex in state.monitors.indices {
@@ -193,15 +221,17 @@ private func tiledWindowWidthLearning(
       case .pixels(let width):
         configuredSlotWidth = width
       }
+      let gaps = horizontalGaps(
+        columnIndex: columnIndex, columnCount: workspace.columns.count, settings: state.layout)
       let minimumTiledWidth = workspace.columns[columnIndex].windows.compactMap {
         state.windows[$0]?.minimumTiledWidth
-      }.max() ?? 0
+      }.max().map { $0 + gaps } ?? 0
       let maximumTiledWidths = workspace.columns[columnIndex].windows.compactMap {
         state.windows[$0]?.maximumTiledWidth
       }
       let maximumTiledWidth =
         maximumTiledWidths.count == workspace.columns[columnIndex].windows.count
-        ? maximumTiledWidths.max()
+        ? maximumTiledWidths.max().map { $0 + gaps }
         : nil
       let currentSlotWidth = max(
         min(configuredSlotWidth, maximumTiledWidth ?? configuredSlotWidth),
@@ -214,7 +244,8 @@ private func tiledWindowWidthLearning(
         workspaceIndex,
         columnIndex,
         currentSlotWidth,
-        learnedWidth
+        learnedWidth,
+        target.x
       )
     }
   }

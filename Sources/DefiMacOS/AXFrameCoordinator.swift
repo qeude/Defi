@@ -496,6 +496,30 @@ final class AXFrameCoordinator: @unchecked Sendable {
     } == true
   }
 
+  func frameMatchesPendingInternalWrite(windowID: WindowID, actual: Rect) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    let inFlight = [
+      pending?.writes[windowID],
+      activeWriteIsPendingLocked(for: windowID) ? activeWrites[windowID] : nil,
+    ].compactMap { $0 }
+    return inFlight.contains { write in
+      // Size-only writes leave the window at its completed origin, as the recorder assumes.
+      let origin = write.positionChanged
+        ? write.point : completedPositions[windowID] ?? write.fromPoint
+      return DefiMacOS.frameMatchesRecentInternalWrite(
+        actual: actual,
+        write: RecentInternalFrameWrite(
+          frame: Rect(x: origin.x, y: origin.y,
+            width: write.size.width, height: write.size.height),
+          positionChanged: write.positionChanged,
+          sizeChanged: write.sizeChanged,
+          deadline: .infinity
+        )
+      )
+    }
+  }
+
   var trace: String {
     lock.lock()
     defer { lock.unlock() }

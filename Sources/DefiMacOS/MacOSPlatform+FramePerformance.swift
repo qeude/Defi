@@ -96,6 +96,11 @@ extension MacOSPlatform {
     frameCoordinator.droppedCount
   }
 
+  /// Only an in-flight write can land late; a completed one may equal a width the user dragged back to.
+  public func frameMatchesPendingInternalWrite(windowID: WindowID, actual: Rect) -> Bool {
+    frameCoordinator.frameMatchesPendingInternalWrite(windowID: windowID, actual: actual)
+  }
+
   public func completedPosition(for windowID: WindowID) -> CGPoint? {
     frameCoordinator.completedPosition(for: windowID)
   }

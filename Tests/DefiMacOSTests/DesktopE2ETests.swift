@@ -657,42 +657,33 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(controller.retainedPanelCount, screens.count)
     XCTAssertTrue(panels().allSatisfy { !$0.isVisible }, "Preparing must not show the Overview")
     func prepareUntilReady() async -> Bool {
-      // The daemon re-prepares on every discovery tick; a capture past its deadline retries the same way.
+      // The daemon re-prepares on every discovery tick; a missed capture retries the same way.
       var last = Date.distantPast
       return await waitUntil(timeout: 10) {
         if Date().timeIntervalSince(last) > 1 {
           last = Date()
           controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
         }
-        return controller.surfaceCaptureState == "ready"
+        return WindowCaptureStore.shared.picture(windowID).map {
+          !$0.isReduced && $0.processID == processID && $0.appID == appID
+        } == true
       }
     }
     let ready = await prepareUntilReady()
-    XCTAssertTrue(ready, "Capture state=\(controller.surfaceCaptureState)")
-    let original = try XCTUnwrap(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID])?[windowID])
-    OverviewSurfaceCapture.shared.prepare([OverviewSurfaceRequest(windowID: windowID,
-      appID: "different.owner", processID: processID + 1,
-      width: original.width, height: original.height)], enabled: true)
-    XCTAssertNil(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]),
-      "A reused ID must stop exposing the previous owner's pixels immediately, including during throttle")
-    let recaptured = await prepareUntilReady()
-    XCTAssertTrue(recaptured, "Capture state=\(controller.surfaceCaptureState)")
-    let frames = try XCTUnwrap(OverviewSurfaceCapture.shared.frames(windowIDs: [windowID]))
+    XCTAssertTrue(ready, "Shared captures=\(controller.captureCacheDescription)")
+    let picture = try XCTUnwrap(WindowCaptureStore.shared.picture(windowID))
     let projection = projectOverview(snapshot: fixtureSnapshot, monitorID: monitorID,
       bounds: Rect(x: 0, y: 0, width: screen.frame.width, height: screen.frame.height),
       viewport: OverviewViewport(), layout: layout, zoom: 0.5)
     let scene = try XCTUnwrap(OverviewSurfaceScene(projection: projection, workspaceID: workspace.id,
-      screen: screen, surfaces: frames, windows: windows))
+      screen: screen, pictures: [windowID: picture], windows: windows))
+    XCTAssertEqual(scene.surfaceWindowIDs, [windowID])
     scene.animate(opening: true, duration: 0)
-    let texture = try XCTUnwrap(OverviewSurfaceCapture.shared.displayLayer(for: windowID))
+    let texture = try XCTUnwrap(scene.layer.sublayers?.first)
+    XCTAssertTrue((texture.contents as AnyObject?) === picture.contents, "The zoom must draw the shared picture, not a copy")
     XCTAssertEqual(texture.cornerRadius * texture.transform.m11, 12, accuracy: 0.01,
       "The Overview texture must match the card's radius after scaling")
-    _ = try XCTUnwrap(OverviewSurfaceScene(projection: projection, workspaceID: workspace.id,
-      screen: screen, surfaces: frames, windows: windows))
-    XCTAssertTrue(CATransform3DIsIdentity(texture.transform), "A reused texture must start at native scale")
     XCTAssertEqual(texture.bounds.size, nativeBounds.size)
-    // The capture preparation deadline fires after 3 seconds; it must not discard a ready capture.
-    try await Task.sleep(for: .seconds(3.2))
 
     controller.open(snapshot: fixtureSnapshot, layout: layout, windowPreviewsEnabled: true)
     XCTAssertEqual(panels().filter(\.isVisible).count, screens.count, "Every display must show the Overview without waiting for captures")
@@ -754,15 +745,30 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(hidden)
     XCTAssertEqual(destination.frame, fixtureFrame)
 
+    // A reused window number must never show the previous owner's pixels.
+    var foreignWindows = fixtureSnapshot.windows
+    foreignWindows[windowID]?.appID = "different.owner"
+    let foreign = OverviewSnapshot(monitors: fixtureSnapshot.monitors, monitorFrames: monitorFrames,
+      windows: foreignWindows, activeMonitorID: monitorID)
+    controller.open(snapshot: foreign, layout: layout, windowPreviewsEnabled: true)
+    XCTAssertEqual(controller.previewCacheCount, 0)
+    controller.close()
+    let foreignHidden = await waitUntil(timeout: 2) { panels().allSatisfy { !$0.isVisible } }
+    XCTAssertTrue(foreignHidden)
+
+    // Captures requested by the earlier phases must not land after the clear.
+    let idle = await waitUntil(timeout: 5) { !WindowCaptureCache.shared.isCapturing }
+    XCTAssertTrue(idle)
+    WindowCaptureStore.shared.clear()
     controller.prepare(windowPreviewsEnabled: false)
     let zooms = controller.surfaceTransitionCount
     controller.open(snapshot: fixtureSnapshot, layout: layout, windowPreviewsEnabled: false)
-    XCTAssertTrue(OverviewSurfacePlanner.shared.requests.isEmpty, "Opting out of previews must not prepare any capture")
+    try await Task.sleep(for: .milliseconds(600))
+    XCTAssertEqual(WindowCaptureStore.shared.count, 0, "Opting out of previews must not request any capture")
     XCTAssertEqual(controller.surfaceTransitionCount, zooms + 1, "The zoom must run from verified native frames without previews")
     XCTAssertTrue(controller.openingTransitionHistory.contains("started(surfaces:0,"), controller.openingTransitionHistory)
     controller.close()
     controller.prepare(windowPreviewsEnabled: false)
-    XCTAssertEqual(controller.surfaceStreamCount, 0)
   }
 
   func testOverviewNavigationResumesFromDisplayedPosition() async throws {
@@ -1036,7 +1042,15 @@ final class DesktopE2ETests: XCTestCase {
     image.lockFocus()
     NSGradient(starting: .systemBlue, ending: .systemOrange)!.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024), angle: 45)
     image.unlockFocus()
-    let previews = windows.mapValues { _ in image }
+    // Full-resolution shared pictures, scaled by the layers like the live cache.
+    let context = try XCTUnwrap(CGContext(data: nil, width: 2_400, height: 2_600, bitsPerComponent: 8,
+      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(NSColor.systemTeal.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: 2_400, height: 2_600))
+    let picture = WindowPicture(contents: try XCTUnwrap(context.makeImage()),
+      size: CGSize(width: 1_200, height: 1_300), capturedAt: 1, pixelScale: 2)
+    let blurred = try XCTUnwrap(overviewBlurredPreview(try XCTUnwrap(picture.image)))
+    let previews = windows.mapValues { _ in picture }
     panel.setDesktopImage(image)
     panel.show()
     var costs: [Double] = []
@@ -1048,7 +1062,7 @@ final class DesktopE2ETests: XCTestCase {
       let started = CACurrentMediaTime()
       panel.view.update(snapshot: snapshot, projection: projection, selection: nil, drag: nil,
         borderStyle: WindowBorderStyle(config: BordersConfig()), windowCornerRadius: 12,
-        previews: previews, previewOpacities: [:])
+        previews: previews, blurredPreviews: previews.mapValues { _ in blurred }, previewOpacities: [:])
       panel.view.displayIfNeeded()
       if index >= 20 { costs.append(CACurrentMediaTime() - started) }
       if index % 20 == 0 { await Task.yield() }
