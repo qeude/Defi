@@ -277,6 +277,9 @@ final class WindowCaptureCache {
   /// Overview cards in view: without the WindowServer capture, ScreenCaptureKit refreshes
   /// them once per opening, as it refreshes nothing else that is merely old.
   private var overviewRefreshes: Set<WindowID> = []
+  /// ScreenCaptureKit failures by the frame they failed at: skipped until the window
+  /// changes or an Overview opening retries it, so a backlog never stalls behind them.
+  private var fallbackFailures: [WindowID: Rect] = [:]
   /// Windows a running presentation waits for: captured first, reported at once.
   private var urgent: Set<WindowID> = []
   private var refreshing = false
@@ -333,7 +336,9 @@ final class WindowCaptureCache {
     guard RibbonProxyStore.shared.isAuthorized else { return }
     WindowCaptureStore.shared.markShown(windows.filter { $0.distance == 0 }.map(\.id))
     if landing, ribbonProxyWindowServerCapture == nil {
-      overviewRefreshes.formUnion(windows.filter { $0.distance == 0 }.map(\.id))
+      let shown = windows.filter { $0.distance == 0 }.map(\.id)
+      overviewRefreshes.formUnion(shown)
+      for id in shown { fallbackFailures[id] = nil }
     }
     let ids = Set(windows.map(\.id))
     pendingRefresh = windows + pendingRefresh.filter { !ids.contains($0.id) }
@@ -494,6 +499,7 @@ final class WindowCaptureCache {
     // ScreenCaptureKit fallback: only windows never captured, resized since (a display
     // change), or expired by an appearance change; a cropped picture made each landing wait.
     requests = requests.filter { request in
+      if fallbackFailures[request.id] == request.frame { return false }
       if ribbonProxyWindowServerCapture == nil, overviewRefreshes.contains(request.id) { return true }
       return (ribbonProxyWindowServerCapture == nil || !visibleIDs.contains(request.id)) && store.picture(request.id).map {
         $0.capturedAt == 0 || !ribbonProxyPictureMatches(captured: $0.size, native: native[request.id] ?? request.frame)
@@ -558,16 +564,16 @@ final class WindowCaptureCache {
       slowCapturesRunning = true
       let slowRequests = requests, slowDisplays = displays
       Task { [weak self] in
-        let captured = await self?.slowCaptures(displays: slowDisplays, requests: slowRequests) ?? 0
+        let attempted = await self?.slowCaptures(displays: slowDisplays, requests: slowRequests) ?? 0
         self?.slowCapturesRunning = false
-        // A pass queued meanwhile skipped the backlog; continue it while captures succeed.
-        if backlog && captured > 0 { self?.scheduleRefresh(after: 0, afterLanding: false) }
+        // A pass queued meanwhile skipped the backlog; failures are skipped next, so it ends.
+        if backlog && attempted > 0 { self?.scheduleRefresh(after: 0, afterLanding: false) }
         announceWindowCaptures()
       }
     }
   }
 
-  /// Returns the number of window pictures captured.
+  /// Returns the number of windows attempted, captured or failed.
   @discardableResult
   private func slowCaptures(displays: [RibbonProxyScreen], requests: [RibbonProxyRefresh]) async -> Int {
     let store = WindowCaptureStore.shared, ribbon = RibbonProxyStore.shared
@@ -595,14 +601,18 @@ final class WindowCaptureCache {
       }
     }
     guard let content, !requests.isEmpty else { return 0 }
-    var captured = 0
+    var attempted = 0
     let windows = Dictionary(content.windows.map { ($0.windowID, $0) }) { first, _ in first }
     for request in requests where !Task.isCancelled && !ribbon.isMoving {
       // One attempt per opening, captured or not.
       overviewRefreshes.remove(request.id)
+      attempted += 1
       guard let id = CGWindowID(exactly: request.id.rawValue), let window = windows[id],
         window.owningApplication?.bundleIdentifier == request.appID
-      else { continue }
+      else {
+        fallbackFailures[request.id] = request.frame
+        continue
+      }
       let scale = CGFloat(ribbon.screen(containing: request.frame)?.scale ?? 2)
       // Backing resolution like the WindowServer captures: a 1× picture swapped for a 2×
       // one mid-dissolve was drawn at the wrong scale, the content visibly zooming.
@@ -612,12 +622,13 @@ final class WindowCaptureCache {
       if let buffer, let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() {
         store.setPicture(WindowPicture(contents: ribbonProxyTaggedImage(buffer) ?? surface, buffer: buffer,
           size: window.frame.size, capturedAt: CACurrentMediaTime(), pixelScale: scale), for: request)
-        captured += 1
+        fallbackFailures[request.id] = nil
       } else {
         failureCount += 1
+        fallbackFailures[request.id] = request.frame
       }
     }
-    return captured
+    return attempted
   }
 
   // IOSurface-backed BGRA: layers display it without a CPU copy or re-upload.
