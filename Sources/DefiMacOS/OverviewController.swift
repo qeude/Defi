@@ -185,7 +185,8 @@ public final class OverviewController: NSObject {
   // Shared pictures shown this session; the cache owns the memory.
   private var previews: [WindowID: WindowPicture] = [:]
   // Small blurred title-band copies, kept across sessions until their picture changes.
-  private var blurredPreviews: [WindowID: (source: AnyObject, image: CGImage?)] = [:]
+  // Keyed by a non-owning identity: a released picture must not stay resident here.
+  private var blurredPreviews: [WindowID: (source: ObjectIdentifier, image: CGImage?)] = [:]
   private var blurTask: Task<Void, Never>?
   private var shownDesktops: [MonitorID: CGImage] = [:]
   // Bounded per session: a failing wallpaper capture is retried on later updates.
@@ -1421,7 +1422,7 @@ public final class OverviewController: NSObject {
           overviewBlurredPreview(image)
         }.value
         guard !Task.isCancelled else { break }
-        self.blurredPreviews[id] = (picture.contents, blurred)
+        self.blurredPreviews[id] = (ObjectIdentifier(picture.contents), blurred)
         if self.previews[id] == picture { self.updatePanels(scheduleCaptures: false) }
       }
       self?.blurTask = nil
@@ -1430,7 +1431,7 @@ public final class OverviewController: NSObject {
 
   private func nextBlur() -> (WindowID, WindowPicture, CGImage)? {
     let pending = previews.filter { id, picture in
-      picture.image != nil && blurredPreviews[id]?.source !== picture.contents
+      picture.image != nil && blurredPreviews[id]?.source != ObjectIdentifier(picture.contents)
     }
     guard let (id, picture) = pending.first(where: { previewMonitorIDs[$0.key] != nil }) ?? pending.first,
       let image = picture.image else { return nil }

@@ -271,6 +271,9 @@ final class WindowCaptureCache {
   /// The last pass found a motion running: retry shortly, never in a tight loop.
   private var refreshBlockedByMotion = false
   private var slowCapturesRunning = false
+  /// Overview cards in view: without the WindowServer capture, ScreenCaptureKit refreshes
+  /// them once per opening, as it refreshes nothing else that is merely old.
+  private var overviewRefreshes: Set<WindowID> = []
   /// Windows a running presentation waits for: captured first, reported at once.
   private var urgent: Set<WindowID> = []
   private var refreshing = false
@@ -326,6 +329,7 @@ final class WindowCaptureCache {
     RibbonProxyRenderer.shared.refreshEnvironment()
     guard RibbonProxyStore.shared.isAuthorized else { return }
     WindowCaptureStore.shared.markShown(windows.filter { $0.distance == 0 }.map(\.id))
+    if landing { overviewRefreshes.formUnion(windows.filter { $0.distance == 0 }.map(\.id)) }
     let ids = Set(windows.map(\.id))
     pendingRefresh = windows + pendingRefresh.filter { !ids.contains($0.id) }
     for screen in RibbonProxyStore.shared.allScreens where displays.contains(screen.displayID) {
@@ -477,13 +481,15 @@ final class WindowCaptureCache {
     // ScreenCaptureKit fallback: only windows never captured, resized since (a display
     // change), or expired by an appearance change; a cropped picture made each landing wait.
     requests = requests.filter { request in
-      (ribbonProxyWindowServerCapture == nil || !visibleIDs.contains(request.id)) && store.picture(request.id).map {
+      if ribbonProxyWindowServerCapture == nil, overviewRefreshes.contains(request.id) { return true }
+      return (ribbonProxyWindowServerCapture == nil || !visibleIDs.contains(request.id)) && store.picture(request.id).map {
         $0.capturedAt == 0 || !ribbonProxyPictureMatches(captured: $0.size, native: native[request.id] ?? request.frame)
       } ?? true
     }
     // Short passes keep stills and visible windows from queueing behind slow
     // ScreenCaptureKit captures of parked windows; the rest follows next pass.
-    if requests.count > 3 { requests = Array(requests.prefix(3)); refreshQueued = true }
+    let backlog = requests.count > 3
+    if backlog { requests = Array(requests.prefix(3)); refreshQueued = true }
     guard !displays.isEmpty || !visible.isEmpty || !requests.isEmpty || !pendingStills.isEmpty
     else { return }
     // One call per window: a multi-window call returns a single composite whose
@@ -539,18 +545,22 @@ final class WindowCaptureCache {
       slowCapturesRunning = true
       let slowRequests = requests, slowDisplays = displays
       Task { [weak self] in
-        await self?.slowCaptures(displays: slowDisplays, requests: slowRequests)
+        let captured = await self?.slowCaptures(displays: slowDisplays, requests: slowRequests) ?? 0
         self?.slowCapturesRunning = false
+        // A pass queued meanwhile skipped the backlog; continue it while captures succeed.
+        if backlog && captured > 0 { self?.scheduleRefresh(after: 0, afterLanding: false) }
         announceWindowCaptures()
       }
     }
   }
 
-  private func slowCaptures(displays: [RibbonProxyScreen], requests: [RibbonProxyRefresh]) async {
+  /// Returns the number of window pictures captured.
+  @discardableResult
+  private func slowCaptures(displays: [RibbonProxyScreen], requests: [RibbonProxyRefresh]) async -> Int {
     let store = WindowCaptureStore.shared, ribbon = RibbonProxyStore.shared
     var content: SCShareableContent?
     if !displays.isEmpty || !requests.isEmpty {
-      guard await overviewCaptureLimiter.acquire() else { return }
+      guard await overviewCaptureLimiter.acquire() else { return 0 }
       do {
         content = try await withOverviewCaptureTimeout {
           try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -571,9 +581,12 @@ final class WindowCaptureCache {
         store.setBackground(image, for: display.displayID)
       }
     }
-    guard let content, !requests.isEmpty else { return }
+    guard let content, !requests.isEmpty else { return 0 }
+    var captured = 0
     let windows = Dictionary(content.windows.map { ($0.windowID, $0) }) { first, _ in first }
     for request in requests where !Task.isCancelled && !ribbon.isMoving {
+      // One attempt per opening, captured or not.
+      overviewRefreshes.remove(request.id)
       guard let id = CGWindowID(exactly: request.id.rawValue), let window = windows[id],
         window.owningApplication?.bundleIdentifier == request.appID
       else { continue }
@@ -586,8 +599,12 @@ final class WindowCaptureCache {
       if let buffer, let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() {
         store.setPicture(WindowPicture(contents: ribbonProxyTaggedImage(buffer) ?? surface, buffer: buffer,
           size: window.frame.size, capturedAt: CACurrentMediaTime(), pixelScale: scale), for: request)
+        captured += 1
+      } else {
+        failureCount += 1
       }
     }
+    return captured
   }
 
   // IOSurface-backed BGRA: layers display it without a CPU copy or re-upload.
