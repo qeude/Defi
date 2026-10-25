@@ -3,8 +3,11 @@ import DefiModel
 /// How much higher than predicted an app with a tall title bar may stop.
 public let parkingVerticalSlack = 60.0
 
-/// Where a hidden window waits: at its own size, one point inside a corner or an
-/// edge of its display, at the first spot clear of every other display.
+/// Where a hidden window waits: at its own size and height, one point inside
+/// the side edge of its display nearest to it, so any uncovered motion is a
+/// short horizontal slide. Corners, then the bottom edge, are the fallback when
+/// both side edges touch another display; the first spot clear of every other
+/// display wins.
 ///
 /// macOS keeps a window's title bar between the menu bar and the visible bottom
 /// of the display under most of its width, so a spot under another display would
@@ -18,10 +21,14 @@ public func parkedFrame(
   // The shortest title bar macOS keeps above the visible bottom.
   let bottom = visibleFrame.y + visibleFrame.height - 32
   let width = frame.width, height = frame.height
-  let candidates = [
+  let y = min(max(frame.y, top), bottom)
+  let rightEdge = (right - sliver, y), leftEdge = (left - width + sliver, y)
+  let sides = frame.x + width / 2 < left + display.width / 2
+    ? [leftEdge, rightEdge] : [rightEdge, leftEdge]
+  let candidates = (sides + [
     (right - sliver, bottom), (left - width + sliver, bottom),
     (right - sliver, top), (left - width + sliver, top), (left, bottom),
-  ].map { Rect(x: $0.0, y: $0.1, width: width, height: height) }
+  ]).map { Rect(x: $0.0, y: $0.1, width: width, height: height) }
   func overlap(_ candidate: Rect) -> Double {
     let probe = Rect(
       x: candidate.x, y: candidate.y - parkingVerticalSlack,
