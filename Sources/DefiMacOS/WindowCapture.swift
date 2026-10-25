@@ -417,9 +417,15 @@ final class WindowCaptureCache {
     }
   }
 
+  /// A pass blocked by a running motion retries shortly, keeping its landing refresh.
+  private func deferForMotion(afterLanding: Bool) {
+    refreshQueued = true; refreshBlockedByMotion = true
+    refreshAfterLanding = refreshAfterLanding || afterLanding
+  }
+
   private func refreshPictures(afterLanding: Bool) async {
     let store = WindowCaptureStore.shared, ribbon = RibbonProxyStore.shared
-    guard !ribbon.isMoving else { refreshQueued = true; refreshBlockedByMotion = true; return }
+    guard !ribbon.isMoving else { return deferForMotion(afterLanding: afterLanding) }
     // One WindowServer list per pass, off the main thread (which also drives the
     // drag ticker): it gives native frames, stacking and liveness at once.
     let known = store.pictureIDs.union(pendingRefresh.map(\.id))
@@ -429,7 +435,7 @@ final class WindowCaptureCache {
       // Hidden and minimized windows are alive but absent from the on-screen list.
       return (onScreen, shown.union(ribbonProxyNativeFrames(known.subtracting(shown)).keys))
     }.value
-    guard !ribbon.isMoving else { refreshQueued = true; refreshBlockedByMotion = true; return }
+    guard !ribbon.isMoving else { return deferForMotion(afterLanding: afterLanding) }
     ribbon.onScreen = onScreen
     store.retainPictures(alive)
     pendingRefresh.removeAll { !alive.contains($0.id) }

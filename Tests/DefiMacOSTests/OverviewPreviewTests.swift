@@ -223,7 +223,9 @@ struct OverviewPreviewTests {
     try await Task.sleep(for: .milliseconds(5))
     store.markShown([recent])
     store.setPicture(try picture(), for: refresh(recent))
-    for _ in 0..<200 where store.reducedCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
+    // Reduction runs on a utility queue, which parallel tests can starve for seconds.
+    let deadline = Date().addingTimeInterval(30)
+    while store.reducedCount == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
     #expect(store.picture(old)?.isReduced == true)
     #expect(store.picture(recent)?.isReduced == false)
     #expect(store.byteCount <= full.byteCost + full.byteCost / 2)
