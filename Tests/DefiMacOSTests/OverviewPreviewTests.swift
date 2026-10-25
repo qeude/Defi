@@ -203,6 +203,35 @@ struct OverviewPreviewTests {
   }
 
   @Test
+  func `Store reduces the least recently shown picture, then releases all under pressure`() async throws {
+    func picture() throws -> WindowPicture {
+      let context = try #require(CGContext(data: nil, width: 1_024, height: 1_024, bitsPerComponent: 8,
+        bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+      return WindowPicture(contents: try #require(context.makeImage()),
+        size: CGSize(width: 512, height: 512), capturedAt: 1, pixelScale: 2)
+    }
+    let full = try picture()
+    let store = WindowCaptureStore(byteLimit: full.byteCost + full.byteCost / 2)
+    let old = WindowID(rawValue: 1), recent = WindowID(rawValue: 2)
+    func refresh(_ id: WindowID) -> RibbonProxyRefresh {
+      RibbonProxyRefresh(id: id, appID: "app", processID: 42, frame: Rect(x: 0, y: 0, width: 512, height: 512),
+        distance: 0)
+    }
+    store.markShown([old])
+    store.setPicture(full, for: refresh(old))
+    try await Task.sleep(for: .milliseconds(5))
+    store.markShown([recent])
+    store.setPicture(try picture(), for: refresh(recent))
+    for _ in 0..<200 where store.reducedCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(store.picture(old)?.isReduced == true)
+    #expect(store.picture(recent)?.isReduced == false)
+    #expect(store.byteCount <= full.byteCost + full.byteCost / 2)
+    store.applyMemoryPressure(.critical)
+    #expect(store.count == 0)
+  }
+
+  @Test
   func `Reduced picture keeps its point size for every consumer`() throws {
     let context = try #require(CGContext(data: nil, width: 2_048, height: 1_024, bitsPerComponent: 8,
       bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),

@@ -664,7 +664,9 @@ final class DesktopE2ETests: XCTestCase {
           last = Date()
           controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
         }
-        return WindowCaptureStore.shared.picture(windowID).map { !$0.isReduced && $0.processID == processID } == true
+        return WindowCaptureStore.shared.picture(windowID).map {
+          !$0.isReduced && $0.processID == processID && $0.appID == appID
+        } == true
       }
     }
     let ready = await prepareUntilReady()
@@ -754,6 +756,9 @@ final class DesktopE2ETests: XCTestCase {
     let foreignHidden = await waitUntil(timeout: 2) { panels().allSatisfy { !$0.isVisible } }
     XCTAssertTrue(foreignHidden)
 
+    // Captures requested by the earlier phases must not land after the clear.
+    let idle = await waitUntil(timeout: 5) { !WindowCaptureCache.shared.isCapturing }
+    XCTAssertTrue(idle)
     WindowCaptureStore.shared.clear()
     controller.prepare(windowPreviewsEnabled: false)
     let zooms = controller.surfaceTransitionCount

@@ -172,7 +172,13 @@ final class WindowCaptureStore: @unchecked Sendable {
   private var reducing: Set<WindowID> = []
   private var backgrounds: [CGDirectDisplayID: CGImage] = [:]
   private var icons: [Int32: CGImage] = [:]
-  private var limit = WindowCaptureStore.byteLimit
+  private var limit: Int
+  private let fullLimit: Int
+
+  init(byteLimit: Int = WindowCaptureStore.byteLimit) {
+    fullLimit = byteLimit
+    limit = byteLimit
+  }
 
   private func locked<T>(_ body: () -> T) -> T {
     lock.lock(); defer { lock.unlock() }
@@ -216,7 +222,7 @@ final class WindowCaptureStore: @unchecked Sendable {
   /// Warning quarters the cap; critical drops every picture; normal restores the cap.
   func applyMemoryPressure(_ events: DispatchSource.MemoryPressureEvent) {
     if events.contains(.critical) { clear() }
-    locked { limit = events.contains(.normal) ? Self.byteLimit : Self.byteLimit / 4 }
+    locked { limit = events.contains(.normal) ? fullLimit : fullLimit / 4 }
     enforceBudget()
   }
 
@@ -234,15 +240,20 @@ final class WindowCaptureStore: @unchecked Sendable {
     guard !work.isEmpty else { return }
     // shortcut: a one-time CPU downscale per demoted picture; the GPU draws every consumer.
     DispatchQueue.global(qos: .utility).async { [self] in
+      var replaced = false
       for (id, picture) in work {
         let reduced = picture.reduced()
-        locked {
+        replaced = locked {
           reducing.remove(id)
-          // A newer capture replaced it meanwhile and keeps its own budget decision.
-          guard pictures[id]?.contents === picture.contents else { return }
+          // A newer capture replaced it meanwhile: plan again once this batch ends.
+          guard pictures[id]?.contents === picture.contents else { return true }
           pictures[id] = reduced
-        }
+          return false
+        } || replaced
       }
+      if replaced { enforceBudget() }
+      // Consumers holding the full pictures swap to the reduced ones and release them.
+      DispatchQueue.main.async { announceWindowCaptures() }
     }
   }
 }

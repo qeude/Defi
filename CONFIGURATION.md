@@ -182,7 +182,7 @@ enabled = true
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh about every half second while the Mac is in use, every 4 seconds after 10 seconds without input, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay uses Screen Recording when it is already granted and never asks for it. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
+| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh after each landing, never at rest, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay uses Screen Recording when it is already granted and never asks for it. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
 
 ## `[overview]`
 
@@ -234,7 +234,7 @@ ones are reduced to 512 pixels on their longest edge, and the oldest are dropped
 past the cap. A memory pressure warning lowers the cap to a quarter; critical
 pressure releases every picture. Defi validates the window and process identity
 before showing a picture. Closed Overview panels
-and their desktop images are released after 60 seconds or under memory pressure. A full-display
+and their desktop images are released right after the closing animation. A full-display
 screen share can include the Overview and the
 content shown in its cards; sharing one selected application or window does not
 normally include Defi's overlay.

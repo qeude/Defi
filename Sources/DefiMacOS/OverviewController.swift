@@ -188,7 +188,9 @@ public final class OverviewController: NSObject {
   private var blurredPreviews: [WindowID: (source: AnyObject, image: CGImage?)] = [:]
   private var blurTask: Task<Void, Never>?
   private var shownDesktops: [MonitorID: CGImage] = [:]
-  private var requestedDesktops = false
+  // Bounded per session: a failing wallpaper capture is retried on later updates.
+  private var desktopRequests = 0
+  private static let desktopRequestLimit = 5
   private var capturesObserver: NSObjectProtocol?
   private var previewRevealStartedAt: [WindowID: TimeInterval] = [:]
   private var previewCacheExpiry: DispatchWorkItem?
@@ -296,6 +298,11 @@ public final class OverviewController: NSObject {
       isUnderMemoryPressure = true
       WindowCaptureStore.shared.applyMemoryPressure(events)
       if events.contains(.critical) { blurredPreviews.removeAll() }
+      // An open Overview must not keep pictures the cache just released.
+      if isOpen, let snapshot {
+        previews = sharedPreviews(for: snapshot)
+        updatePanels(scheduleCaptures: false)
+      }
       idlePreparationEnabled = !events.contains(.critical)
       if !isOpen {
         releaseIdleOverviewResources()
@@ -452,7 +459,7 @@ public final class OverviewController: NSObject {
     blurredPreviews = blurredPreviews.filter { snapshot.windows[$0.key] != nil }
     resetPreviewFadeAnimation()
     attemptedPreviewWindowIDs.removeAll(keepingCapacity: true)
-    requestedDesktops = false
+    desktopRequests = 0
     previewPermissionState = windowPreviewsEnabled ? .notDetermined : .disabled
     selection = initialSelection(in: snapshot)
     selectionsByWorkspace.removeAll(keepingCapacity: true)
@@ -1289,11 +1296,13 @@ public final class OverviewController: NSObject {
     let requests = overviewCaptureRequests(snapshot: snapshot, shown: projections).filter {
       !attemptedPreviewWindowIDs.contains($0.id)
     }
-    let displays = requestedDesktops ? [] : panels.keys.compactMap { CGDirectDisplayID(exactly: $0.rawValue) }
+    let displays = desktopRequests >= Self.desktopRequestLimit || usesWorkspaceParking ? [] : panels.keys
+      .compactMap { CGDirectDisplayID(exactly: $0.rawValue) }
+      .filter { WindowCaptureStore.shared.background($0) == nil }
     guard !requests.isEmpty || !displays.isEmpty else { return }
     defer { presentationChanged() }
     attemptedPreviewWindowIDs.formUnion(requests.map(\.id))
-    requestedDesktops = true
+    if !displays.isEmpty { desktopRequests += 1 }
     let generation = sessionGeneration
     previewTask = Task { @MainActor [weak self] in
       await Task.yield()
