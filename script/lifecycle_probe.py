@@ -141,7 +141,7 @@ def trial(out, label, repeats, sampler_bin, pause):
         return analyze(states, events, records[-1]['t'], records[0]['displays'][0], numbers, trace, logs)
     finally:
         if sampler and sampler.poll() is None:
-            sampler.kill()
+            sampler.kill(); sampler.wait()
         for f in fixtures:
             f.close()
 
