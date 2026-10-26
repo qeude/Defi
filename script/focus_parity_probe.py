@@ -134,7 +134,7 @@ def run(out, trials, hold_ms):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('output', type=Path)
-    p.add_argument('--trials', type=int, default=5)
+    p.add_argument('--trials', type=lambda v: max(1, int(v)), default=5)
     p.add_argument('--hold-ms', type=int, default=110, help='how long each click holds the button')
     args = p.parse_args()
     if inherited_lock() is None:

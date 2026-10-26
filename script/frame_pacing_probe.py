@@ -85,13 +85,15 @@ def trial(out, label, rounds, record):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('output', type=Path)
-    p.add_argument('--bundle', action='append', required=True, help='LABEL=path')
+    p.add_argument('output', type=Path, nargs='?')
+    p.add_argument('--bundle', action='append', default=[], help='LABEL=path')
     p.add_argument('--rounds', type=int, default=2)
     p.add_argument('--analyze', type=Path, help='only analyze this recording')
     args = p.parse_args()
     if args.analyze:
         print(json.dumps(bursts(args.analyze), indent=1)); return
+    if not args.output or not args.bundle:
+        p.error('OUT and --bundle are required unless --analyze')
     if inherited_lock() is None:
         p.error('run under script/desktop_lock.py --wait')
     record = int(args.rounds * 8 * GAP + 3)

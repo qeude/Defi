@@ -69,7 +69,7 @@ def analyze(states, events, end, display, fixtures, trace, logs):
 
 
 def trial(out, label, repeats, sampler_bin, pause):
-    fixtures = []
+    fixtures, sampler = [], None
     try:
         for i in range(2):
             fixtures.append(pe.Fixture(out / 'PerformanceFixture', out / f'{label}-fixture-{i}.jsonl'))
@@ -140,6 +140,8 @@ def trial(out, label, repeats, sampler_bin, pause):
         (out / f'{label}-overlay.txt').write_text('\n'.join(f'{t:.3f} {l}' for t, l in logs))
         return analyze(states, events, records[-1]['t'], records[0]['displays'][0], numbers, trace, logs)
     finally:
+        if sampler and sampler.poll() is None:
+            sampler.kill()
         for f in fixtures:
             f.close()
 
