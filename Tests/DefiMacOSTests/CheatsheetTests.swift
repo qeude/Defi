@@ -188,3 +188,29 @@ struct CheatsheetPanelTests {
     }
   }
 }
+
+struct CheatsheetLayoutTests {
+  // Natural sizes with one to four columns, measured from the default bindings.
+  let sizes = [
+    CGSize(width: 760, height: 1300), CGSize(width: 1427, height: 745),
+    CGSize(width: 1692, height: 462), CGSize(width: 2100, height: 400),
+  ]
+
+  @Test
+  func `Layout prefers the column count shaped like the screen`() {
+    #expect(CheatsheetLayout(contentSizes: sizes, available: CGSize(width: 2512, height: 1367)).columns == 2)
+    #expect(CheatsheetLayout(contentSizes: sizes, available: CGSize(width: 1392, height: 2470)).columns == 1)
+    #expect(CheatsheetLayout(contentSizes: sizes, available: CGSize(width: 5072, height: 1367)).columns == 3)
+  }
+
+  @Test
+  func `Layout shrinks the best fit down to a readable floor, then scrolls`() {
+    let small = CheatsheetLayout(contentSizes: sizes, available: CGSize(width: 1232, height: 715))
+    #expect(small.columns == 2)
+    #expect(small.scale < 1 && small.scale >= CheatsheetLayout.minimumScale)
+    #expect(small.panelSize == small.scaledSize)
+    let tiny = CheatsheetLayout(contentSizes: sizes, available: CGSize(width: 600, height: 400))
+    #expect(tiny.scale == CheatsheetLayout.minimumScale)
+    #expect(tiny.panelSize == CGSize(width: 600, height: 400))
+  }
+}

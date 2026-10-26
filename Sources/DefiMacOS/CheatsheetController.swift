@@ -19,7 +19,18 @@ public final class CheatsheetController {
     }) ?? NSScreen.main else { return }
     close()
     let bounds = screen.visibleFrame
-    let size = CGSize(width: bounds.width - 48, height: bounds.height - 48)
+    let groups = shortcutGroups(
+      config: config,
+      displayHyper: UserDefaults.standard.object(forKey: "displayHyperSymbol") as? Bool ?? true,
+      hyperIncludesShift: UserDefaults.standard.bool(forKey: "displayHyperIncludesShift")
+    )
+    let layout = CheatsheetLayout(
+      contentSizes: (1...max(1, min(4, groups.count))).map {
+        NSHostingView(rootView: CheatsheetContent(groups: groups, columnCount: $0)).fittingSize
+      },
+      available: CGSize(width: bounds.width - 48, height: bounds.height - 48)
+    )
+    let size = layout.panelSize
     let frame = CGRect(
       x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
       width: size.width, height: size.height
@@ -42,26 +53,7 @@ public final class CheatsheetController {
     panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     self.panel = panel
-    let hosting = NSHostingView(rootView: CheatsheetView(
-      groups: shortcutGroups(
-        config: config,
-        displayHyper: UserDefaults.standard.object(forKey: "displayHyperSymbol") as? Bool ?? true,
-        hyperIncludesShift: UserDefaults.standard.bool(forKey: "displayHyperIncludesShift")
-      ), size: size,
-      contentSizeChanged: { [weak self, weak panel] measured in
-        DispatchQueue.main.async {
-          guard let self, let panel, self.panel === panel else { return }
-          let fitted = CGSize(
-            width: min(measured.width, size.width), height: min(measured.height, size.height)
-          )
-          let frame = CGRect(
-            x: bounds.midX - fitted.width / 2, y: bounds.midY - fitted.height / 2,
-            width: fitted.width, height: fitted.height
-          )
-          if panel.frame != frame { panel.setFrame(frame, display: false) }
-        }
-      }
-    ))
+    let hosting = NSHostingView(rootView: CheatsheetView(groups: groups, layout: layout))
     hosting.sizingOptions = []
     panel.contentView = hosting
     let animated = config.animation.enabled
