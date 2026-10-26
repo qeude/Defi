@@ -238,6 +238,16 @@ private struct GeneralSettingsView: View {
         if !model.accessibilityGranted {
           Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }
         }
+        LabeledContent(
+          SettingsOption.screenRecording.title,
+          value: model.screenCaptureAvailable ? "Granted" : "Not granted")
+          .settingsSearchTarget(.screenRecording)
+        if !model.screenCaptureAvailable {
+          Text("Animations and Overview previews need Screen Recording. Without it, windows move at once.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Button("Open Screen Recording Settings…") { model.openScreenRecordingSettings() }
+        }
       }
       Section("General") {
         Toggle(
@@ -679,11 +689,6 @@ private struct AppearanceSettingsView: View {
           key: "window_previews", value: model.config.overview.windowPreviews
         )
           .settingsSearchTarget(.windowPreviews)
-        if model.config.overview.windowPreviews && !model.screenCaptureAvailable {
-          Text("Screen Recording permission is required for previews. Overview still works without them.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
       }
     }
     .formStyle(.grouped)

@@ -82,7 +82,15 @@ first stable release.
 On first launch, Defi requests **Accessibility** access. Grant it in System
 Settings; Defi starts managing windows automatically, without a restart.
 Defi needs this permission to focus and arrange windows.
-Screen Recording is only needed if you enable window previews in Overview.
+
+Defi then requests **Screen Recording**. Many apps apply a window move late, so
+moving real windows frame by frame stutters. Defi instead takes a picture of
+each window, animates the pictures on an overlay, and moves each real window
+once underneath. The Overview shows the same pictures in its cards. These
+pictures stay in memory on your Mac. Defi never writes them to disk and never
+sends them anywhere; it contains no network code. Without Screen Recording,
+windows move at once and the Overview shows cards without pictures. You can
+check or change the permission in Defi Settings › General.
 
 Enable **Launch at Login** in the menu bar if you want Defi to start with macOS.
 
@@ -177,8 +185,8 @@ names, or other private information. Share only the relevant, redacted parts.
 
 Defi manages its own virtual workspaces, not native macOS Spaces. Apps can
 impose window size constraints or expose limited Accessibility support, so
-please report app-specific behavior. Screen Recording is optional; Overview
-window previews are off by default. There is no automatic update checker yet.
+please report app-specific behavior. Screen Recording is optional; without it,
+animations and Overview window previews are off. There is no automatic update checker yet.
 
 ## Contribute
 

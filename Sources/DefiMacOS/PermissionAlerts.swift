@@ -30,10 +30,25 @@ func presentDefiAlert(title: String, message: String) {
   alert.runModal()
 }
 
+/// macOS shows its prompt only while the decision is undetermined, so later launches stay silent.
+public func requestDefiScreenRecordingIfNeeded() {
+  guard Bundle.main.bundleURL.pathExtension == "app", !CGPreflightScreenCaptureAccess() else { return }
+  _ = CGRequestScreenCaptureAccess()
+}
+
 @MainActor
 public func openDefiAccessibilitySettings() {
-  guard let url = URL(
-    string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-  ) else { return }
+  openDefiPrivacySettings("Privacy_Accessibility")
+}
+
+@MainActor
+public func openDefiScreenRecordingSettings() {
+  openDefiPrivacySettings("Privacy_ScreenCapture")
+}
+
+@MainActor
+private func openDefiPrivacySettings(_ pane: String) {
+  guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")
+  else { return }
   NSWorkspace.shared.open(url)
 }

@@ -46,8 +46,8 @@ their position and size change only through public Accessibility.
 Window previews, the Overview zoom, and the window proxy overlay capture window
 pictures and are on by default. They use the WindowServer window capture and fall
 back to ScreenCaptureKit, which lights the menu bar recording indicator. Screen
-Recording is requested once, before the Overview is presented; the overlay only
-uses a permission already granted.
+Recording is requested once Accessibility is granted, and again before the
+first Overview of a session if still missing.
 In the Overview, denial, revocation, or `overview.window_previews = false`
 degrades to cards without errors, repeated prompts, or loss of the zoom
 animation. Without the permission, the overlay is off and windows move at once.

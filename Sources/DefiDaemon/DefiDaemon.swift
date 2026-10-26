@@ -280,6 +280,8 @@ final class Daemon {
     guard !windowManagementStarted, !shouldShutdown else { return }
     windowManagementStarted = true
     DispatchQueue.main.async { [menuBar] in menuBar.refreshAccessibilityPermission() }
+    // After the Accessibility grant, so the two system prompts never stack.
+    Task.detached(priority: .utility) { requestDefiScreenRecordingIfNeeded() }
     platform.startObserving(
       { [weak self] in
         guard let self, desktopSessionActive else { return }

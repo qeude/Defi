@@ -664,6 +664,10 @@ public final class DefiSettingsModel {
     openDefiAccessibilitySettings()
   }
 
+  public func openScreenRecordingSettings() {
+    openDefiScreenRecordingSettings()
+  }
+
   public func openDocumentation() {
     guard let url = URL(string: "https://github.com/qeude/Defi/blob/main/CONFIGURATION.md") else {
       return

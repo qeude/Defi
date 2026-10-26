@@ -15,6 +15,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Sendable {
 
 enum SettingsOption: String, CaseIterable, Sendable {
   case accessibility
+  case screenRecording
   case launchAtLogin
   case menuBar
   case workspaceDisplay
@@ -58,6 +59,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   private var metadata: (page: SettingsPage, title: String, terms: String) {
     switch self {
     case .accessibility: (.general, "Accessibility", "permissions accessibility settings")
+    case .screenRecording: (.general, "Screen Recording", "permissions screen recording capture animations previews")
     case .launchAtLogin: (.general, "Launch Defi at login", "startup launch login")
     case .menuBar: (.general, "Show Defi in the menu bar", "menu_bar.enabled")
     case .workspaceDisplay: (.general, "Named workspace display", "menu_bar.workspace_style icon only icon and name name only")

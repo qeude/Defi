@@ -182,7 +182,7 @@ enabled = true
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh after each landing, never at rest, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay uses Screen Recording when it is already granted and never asks for it. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
+| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh after each landing, never at rest, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay needs Screen Recording, which Defi requests once Accessibility is granted. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
 
 ## `[overview]`
 
@@ -198,7 +198,7 @@ window_corner_radius = 12
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
 | `zoom` | `0.5` | number from `0` to `0.75` | Scales workspaces and windows. Lower values show more of the neighboring workspaces. |
-| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false`, together with `[animation].enabled = false`, to opt out of Screen Recording entirely. |
+| `window_previews` | `true` | boolean | Shows captured window images in cards. Set to `false`, together with `[animation].enabled = false`, so Defi takes no pictures even when Screen Recording is granted. |
 | `window_corner_radius` | `12` | number from `0` to `64` | Rounds window cards and their borders in the Overview. |
 
 Opening the Overview zooms the real windows out to their cards, and closing it
@@ -206,8 +206,10 @@ zooms them back. This works with or without previews: a window without a
 captured image animates as a placeholder card from its verified native frame.
 Reduced motion or `animation.enabled = false` switches without zooming.
 
-With `window_previews = true`, Defi asks for Screen Recording once, before the
-first Overview is presented, so the system prompt is not covered by the panel.
+Defi asks for Screen Recording right after Accessibility is granted. If it is
+still missing and `window_previews = true`, Defi asks once more before the first Overview is presented, so the system
+prompt is not covered by the panel. Settings › General shows the permission
+and opens its System Settings pane.
 If access is denied, revoked, or unavailable, the Overview opens with cards,
 never prompts again in the same daemon session, and reports no error. Protected
 content and capture errors also leave the cards fully usable.
