@@ -680,34 +680,24 @@ public struct RuntimeState: Equatable, Sendable {
     windows[windowID]?.frame = frame
   }
 
+  /// Records the size an app settled at for a request. A height-bounded window keeps
+  /// any clamp; any other tiled window keeps a snap of a few points, which a neighbour
+  /// absorbs. A read right after a write can still show the old size, so a snap is
+  /// only learnt once settled.
   public mutating func acceptTiledWindowFrame(
-    _ frame: Rect, requested: Rect, for windowID: WindowID
+    _ frame: Rect, requested: Rect, for windowID: WindowID, settled: Bool
   ) {
     guard let window = windows[windowID] else { return }
-    // Held at its minimum is a clamp, not rounding: centring it opened a wider gap.
-    let overshoot = frame.width - max(requested.width, window.minimumTiledWidth ?? 0)
-    let rounding = (window.widthRounding ?? 0) + overshoot
+    let acceptance = TiledSizeAcceptance(requested: requested, accepted: frame)
     if !window.floating, !window.intrinsicSize,
-      !nativeFullscreenWindowIDs.contains(windowID),
-      overshoot > 0.5, rounding <= tiledWidthRoundingLimit
-    {
-      // The overshoot depends on the requested width: a later one adds up, and only
-      // narrows the request, so it converges within the limit.
-      windows[windowID]?.widthRounding = rounding
-      updateWindowFrame(frame, for: windowID)
-      return
-    }
-    if !window.floating, !window.intrinsicSize,
-      window.maximumTiledHeight != nil,
       !nativeFullscreenWindowIDs.contains(windowID),
       frame.width.isFinite, frame.height.isFinite,
       frame.width > 0, frame.height > 0,
       abs(frame.width - requested.width) >= 1
-        || abs(frame.height - requested.height) >= 1
+        || abs(frame.height - requested.height) >= 1,
+      window.maximumTiledHeight != nil || (settled && isTiledSizeSnap(acceptance))
     {
-      windows[windowID]?.tiledSizeAcceptance = TiledSizeAcceptance(
-        requested: requested, accepted: frame
-      )
+      windows[windowID]?.tiledSizeAcceptance = acceptance
     }
     updateWindowFrame(frame, for: windowID)
   }

@@ -88,39 +88,60 @@ struct WindowLayoutTests {
     ])
   }
 
-  @Test
-  func `A window that rounds its width is asked for that much less, centred`() {
+  /// Two half-width columns on a 2560-point display; `settled` maps a column to the
+  /// width its window settled at when asked for the 1268 points it is given.
+  private func halfColumns(settled: [Int: Double]) -> [Rect] {
     let workspace = Workspace(
       id: WorkspaceID(rawValue: "1"),
-      columns: [Column(window: WindowID(rawValue: 1), width: .fraction(0.5))]
+      columns: [1, 2].map { Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5)) }
     )
-    var window = Window(id: WindowID(rawValue: 1), appID: "ghostty", title: "",
-      frame: Rect(x: 0, y: 0, width: 1272, height: 1360))
-    let plain = computeLayout(
+    let windows = [1, 2].map { index in
+      var window = Window(id: WindowID(rawValue: UInt64(index)), appID: "app", title: "",
+        frame: Rect(x: 0, y: 0, width: 1268, height: 1384))
+      if let width = settled[index] {
+        let x = index == 1 ? 8.0 : 1284.0
+        window.tiledSizeAcceptance = TiledSizeAcceptance(
+          requested: Rect(x: x, y: 8, width: 1268, height: 1384),
+          accepted: Rect(x: x, y: 8, width: width, height: 1384))
+      }
+      return window
+    }
+    return computeLayout(
       workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
-      windows: [window], settings: settings)[0].frame
-    window.widthRounding = 2
-    let compensated = computeLayout(
-      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
-      windows: [window], settings: settings)[0].frame
-    #expect(compensated.width == plain.width - 2)
-    #expect(compensated.x == plain.x + 1)
+      windows: windows, settings: settings
+    ).map(\.frame)
   }
 
   @Test
-  func `Rounding compensation never asks for less than the window's minimum width`() {
-    let workspace = Workspace(
-      id: WorkspaceID(rawValue: "1"),
-      columns: [Column(window: WindowID(rawValue: 1), width: .fraction(0.25))]
-    )
-    var window = Window(id: WindowID(rawValue: 1), appID: "settings", title: "",
-      frame: Rect(x: 0, y: 0, width: 740, height: 1384), minimumTiledWidth: 740,
-      maximumTiledWidth: 740)
-    window.widthRounding = 12
-    let frame = computeLayout(
-      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
-      windows: [window], settings: settings)[0].frame
-    #expect(frame == Rect(x: 8, y: 8, width: 740, height: 1384))
+  func `A column that snaps narrower keeps its gaps and the next column absorbs it`() {
+    #expect(halfColumns(settled: [1: 1266]) == [
+      Rect(x: 8, y: 8, width: 1266, height: 1384),
+      Rect(x: 1282, y: 8, width: 1270, height: 1384),
+    ])
+  }
+
+  @Test
+  func `A last column that snaps is absorbed by the previous column`() {
+    #expect(halfColumns(settled: [2: 1266]) == [
+      Rect(x: 8, y: 8, width: 1270, height: 1384),
+      Rect(x: 1286, y: 8, width: 1266, height: 1384),
+    ])
+  }
+
+  @Test
+  func `A column that snaps wider shrinks the next column by as much`() {
+    #expect(halfColumns(settled: [1: 1271]) == [
+      Rect(x: 8, y: 8, width: 1271, height: 1384),
+      Rect(x: 1287, y: 8, width: 1265, height: 1384),
+    ])
+  }
+
+  @Test
+  func `Columns that all snap keep their gaps and leave the difference at the outer edge`() {
+    #expect(halfColumns(settled: [1: 1266, 2: 1266]) == [
+      Rect(x: 8, y: 8, width: 1266, height: 1384),
+      Rect(x: 1282, y: 8, width: 1266, height: 1384),
+    ])
   }
 
   @Test

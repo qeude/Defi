@@ -222,7 +222,7 @@ struct WindowLifecycleTests {
     provisional.height = 738
     for _ in 0..<3 {
       state.acceptTiledWindowFrame(
-        provisional, requested: requested, for: window.id
+        provisional, requested: requested, for: window.id, settled: false
       )
       var observed = window
       observed.frame = provisional
@@ -232,57 +232,49 @@ struct WindowLifecycleTests {
       #expect(layout(state) == requested)
     }
 
-    state.acceptTiledWindowFrame(provisional, requested: requested, for: window.id)
+    state.acceptTiledWindowFrame(provisional, requested: requested, for: window.id, settled: true)
     #expect(layout(state) == requested)
     #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
   }
 
   @Test
-  func `Widths a few points over the request add up as rounding within the limit`() throws {
+  func `A width a few points off the request is kept only once settled`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
     let window = Window(
-      id: WindowID(rawValue: 1), appID: "ghostty", title: "Terminal",
-      frame: Rect(x: 0, y: 0, width: 800, height: 738), monitorID: monitorID,
-      maximumTiledHeight: 1371
+      id: WindowID(rawValue: 1), appID: "com.mitchellh.ghostty", title: "Terminal",
+      frame: Rect(x: 0, y: 0, width: 800, height: 738), monitorID: monitorID
     )
     try discoverWindow(window, decision: RuleDecision(), state: &state)
-    let requested = Rect(x: 4, y: 34, width: 1270, height: 1360)
-    state.acceptTiledWindowFrame(
-      Rect(x: 3, y: 34, width: 1272, height: 1360), requested: requested, for: window.id)
-    #expect(state.windows[window.id]?.widthRounding == 2)
+    let requested = Rect(x: 4, y: 34, width: 1270, height: 1356)
+    let snapped = Rect(x: 6, y: 34, width: 1268, height: 1356)
+    state.acceptTiledWindowFrame(snapped, requested: requested, for: window.id, settled: false)
     #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
-    var narrowed = requested
-    narrowed.width -= 2
-    state.acceptTiledWindowFrame(
-      Rect(x: 3, y: 34, width: 1272, height: 1360), requested: narrowed, for: window.id)
-    #expect(state.windows[window.id]?.widthRounding == 6)
-    narrowed.width -= 4
-    state.acceptTiledWindowFrame(
-      Rect(x: 7, y: 34, width: 1264, height: 1360), requested: narrowed, for: window.id)
-    #expect(state.windows[window.id]?.widthRounding == 6)
-    state.acceptTiledWindowFrame(
-      Rect(x: 0, y: 34, width: 1278, height: 1360), requested: narrowed, for: window.id)
-    #expect(state.windows[window.id]?.widthRounding == 6)
-    #expect(state.windows[window.id]?.tiledSizeAcceptance?.accepted.width == 1278)
+
+    state.acceptTiledWindowFrame(snapped, requested: requested, for: window.id, settled: true)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance
+      == TiledSizeAcceptance(requested: requested, accepted: snapped))
+    var observed = window
+    observed.frame = snapped
+    reconcileWindows([observed], config: config, state: &state)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance?.accepted == snapped)
   }
 
   @Test
-  func `A request just under the window's minimum is a clamp, not rounding`() throws {
+  func `A settled width far from the request is a bound, not a snap`() throws {
     let config = Config()
     var state = RuntimeState(config: config)
     state.attachMonitor(monitorID)
     let window = Window(
       id: WindowID(rawValue: 1), appID: "com.apple.mail", title: "Mail",
-      frame: Rect(x: 0, y: 0, width: 800, height: 738), monitorID: monitorID,
-      minimumTiledWidth: 751
+      frame: Rect(x: 0, y: 0, width: 800, height: 738), monitorID: monitorID
     )
     try discoverWindow(window, decision: RuleDecision(), state: &state)
     state.acceptTiledWindowFrame(
-      Rect(x: 4, y: 34, width: 751, height: 1360),
-      requested: Rect(x: 4, y: 34, width: 736, height: 1360), for: window.id)
-    #expect(state.windows[window.id]?.widthRounding == nil)
+      Rect(x: 4, y: 34, width: 1200, height: 1356),
+      requested: Rect(x: 4, y: 34, width: 1270, height: 1356), for: window.id, settled: true)
+    #expect(state.windows[window.id]?.tiledSizeAcceptance == nil)
   }
 
   @Test
@@ -306,7 +298,7 @@ struct WindowLifecycleTests {
     let requested = layout(state, viewport: viewport)
     let preferredWidth = state.monitors[0].workspaces[0].columns[0].width
     window.frame = Rect(x: requested.x, y: requested.y, width: 344, height: 738)
-    state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id)
+    state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id, settled: false)
     var cachedBeforeWrite = window
     cachedBeforeWrite.frame = requested
     reconcileWindows([cachedBeforeWrite], config: config, state: &state)
@@ -316,7 +308,7 @@ struct WindowLifecycleTests {
       let settled = layout(state, viewport: viewport)
       #expect(settled.width == window.frame.width)
       #expect(settled.height == window.frame.height)
-      state.acceptTiledWindowFrame(window.frame, requested: settled, for: window.id)
+      state.acceptTiledWindowFrame(window.frame, requested: settled, for: window.id, settled: false)
     }
     #expect(state.monitors[0].workspaces[0].columns[0].width == preferredWidth)
     // A new layout target must also get a chance to resize the window.
@@ -330,7 +322,7 @@ struct WindowLifecycleTests {
     #expect(layout(state, viewport: viewport) == requested)
 
     window.frame.height = 738
-    state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id)
+    state.acceptTiledWindowFrame(window.frame, requested: requested, for: window.id, settled: false)
     window.maximumTiledHeight = nil
     reconcileWindows([window], config: config, state: &state)
     #expect(state.windows[window.id]?.maximumTiledHeight == nil)

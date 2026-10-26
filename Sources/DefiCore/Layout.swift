@@ -15,6 +15,9 @@ public func computeLayout(
   let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
   var x = viewport.x - workspace.scrollOffset * viewport.width
   var frames: [FrameAssignment] = []
+  let widths = columnLayoutWidths(
+    workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings
+  )
 
   for (columnIndex, column) in workspace.columns.enumerated() {
     let gaps = horizontalGaps(columnIndex: columnIndex, columnCount: workspace.columns.count, settings: settings)
@@ -30,13 +33,7 @@ public func computeLayout(
       windowsByID: windowsByID,
       settings: settings
     )
-    let width = effectiveColumnLayoutWidth(
-      column,
-      preferredWidth: preferredWidth,
-      acceptedSizes: acceptedSizes,
-      windowsByID: windowsByID,
-      gaps: gaps
-    )
+    let width = widths[columnIndex]
     let heights = stackSlotHeights(
       column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
     )
@@ -83,9 +80,6 @@ public func computeLayout(
         windowCount: column.windows.count,
         settings: settings
       ), window: windowsByID[windowID])
-      if acceptedSizes[windowID] == nil, let window = windowsByID[windowID] {
-        target = compensatingWidthRounding(target, for: window)
-      }
       if let acceptance = acceptedSizes[windowID] {
         target.x += (target.width - acceptance.accepted.width) / 2
         target.y += (target.height - acceptance.accepted.height) / 2
@@ -142,34 +136,56 @@ func workspaceForLayout(
   return result
 }
 
-func columnLayoutWidth(
-  _ column: Column,
+/// Column widths, gaps included. A column whose windows settled a few points off
+/// their request keeps their real width, and the next column, else the previous one,
+/// absorbs the difference when it got its own request: gaps stay exact and the
+/// columns still span their fractions. Only a column at its preferred width absorbs,
+/// so what an absorbing window settles at never feeds back into the layout.
+public func columnLayoutWidths(
+  _ columns: [Column],
   viewport: Rect,
   windowsByID: [WindowID: Window],
-  settings: LayoutSettings,
-  columnIndex: Int,
-  columnCount: Int
-) -> Double {
-  let gaps = horizontalGaps(columnIndex: columnIndex, columnCount: columnCount, settings: settings)
-  let preferredWidth = preferredColumnLayoutWidth(
-    column, viewport: viewport, windowsByID: windowsByID, gaps: gaps
-  )
-  let acceptedSizes = acceptedTiledSizes(
-    column,
-    preferredWidth: preferredWidth,
-    columnIndex: columnIndex,
-    columnCount: columnCount,
-    viewport: viewport,
-    windowsByID: windowsByID,
-    settings: settings
-  )
-  return effectiveColumnLayoutWidth(
-    column,
-    preferredWidth: preferredWidth,
-    acceptedSizes: acceptedSizes,
-    windowsByID: windowsByID,
-    gaps: gaps
-  )
+  settings: LayoutSettings
+) -> [Double] {
+  let sizes = columns.indices.map { columnIndex -> (preferred: Double, width: Double) in
+    let gaps = horizontalGaps(columnIndex: columnIndex, columnCount: columns.count, settings: settings)
+    let preferredWidth = preferredColumnLayoutWidth(
+      columns[columnIndex], viewport: viewport, windowsByID: windowsByID, gaps: gaps
+    )
+    let acceptedSizes = acceptedTiledSizes(
+      columns[columnIndex],
+      preferredWidth: preferredWidth,
+      columnIndex: columnIndex,
+      columnCount: columns.count,
+      viewport: viewport,
+      windowsByID: windowsByID,
+      settings: settings
+    )
+    return (preferredWidth, effectiveColumnLayoutWidth(
+      columns[columnIndex],
+      preferredWidth: preferredWidth,
+      acceptedSizes: acceptedSizes,
+      windowsByID: windowsByID,
+      gaps: gaps
+    ))
+  }
+  let absorbs = columns.indices.map { columnIndex in
+    sizes[columnIndex].width == sizes[columnIndex].preferred
+      && columns[columnIndex].windows.allSatisfy { windowID in
+        windowsByID[windowID].map { !$0.intrinsicSize && $0.maximumTiledWidth == nil } ?? true
+      }
+  }
+  var widths = sizes.map(\.width)
+  for columnIndex in columns.indices {
+    let deviation = sizes[columnIndex].width - sizes[columnIndex].preferred
+    guard deviation != 0, abs(deviation) <= tiledWidthRoundingLimit,
+      let absorber = [columnIndex + 1, columnIndex - 1].first(where: {
+        columns.indices.contains($0) && absorbs[$0]
+      })
+    else { continue }
+    widths[absorber] -= deviation
+  }
+  return widths
 }
 
 private func preferredColumnLayoutWidth(
@@ -224,8 +240,8 @@ private func acceptedTiledSizes(
   return Dictionary(
     uniqueKeysWithValues: column.windows.enumerated().compactMap { windowIndex, windowID in
       guard let window = windowsByID[windowID], !window.intrinsicSize,
-        window.maximumTiledHeight != nil,
-        let acceptance = window.tiledSizeAcceptance
+        let acceptance = window.tiledSizeAcceptance,
+        window.maximumTiledHeight != nil || isTiledSizeSnap(acceptance)
       else {
         return nil
       }
@@ -242,14 +258,14 @@ private func acceptedTiledSizes(
           windowCount: column.windows.count, settings: settings
         )
       )
-      let requested = compensatingWidthRounding(cappedStackFrame(applyGaps(
+      let requested = cappedStackFrame(applyGaps(
         frame,
         columnIndex: columnIndex,
         columnCount: columnCount,
         windowIndex: windowIndex,
         windowCount: column.windows.count,
         settings: settings
-      ), window: window), for: window)
+      ), window: window)
       // Moving a column across a gap edge shifts the request by exactly an
       // outer/inner gap difference; the app's clamp is unchanged, so its accepted
       // size still applies. Any other change is a new request.
@@ -296,9 +312,7 @@ private func effectiveColumnLayoutWidth(
   let contraction = column.windows.compactMap { acceptedSizes[$0] }
     .map { $0.requested.width - $0.accepted.width }
     .min() ?? 0
-  // A window that rounds its width up does not widen its column.
-  let widening = contraction < 0 && contraction >= -tiledWidthRoundingLimit ? 0 : contraction
-  return max(preferredWidth - widening, minimumTiledWidth)
+  return max(preferredWidth - contraction, minimumTiledWidth)
 }
 
 private func applyGaps(
@@ -338,17 +352,15 @@ public func horizontalGaps(columnIndex: Int, columnCount: Int, settings: LayoutS
     + (columnIndex + 1 == columnCount ? max(settings.outerRightGap, 0) : inner)
 }
 
-/// Narrows a request by the window's learned rounding, centred in its slot; never below
-/// the window's minimum, which the app would only widen back.
-private func compensatingWidthRounding(_ target: Rect, for window: Window) -> Rect {
-  guard let rounding = window.widthRounding, rounding > 0, rounding < target.width else { return target }
-  let width = max(target.width - rounding, min(window.minimumTiledWidth ?? 0, target.width))
-  return Rect(x: target.x + (target.width - width) / 2, y: target.y, width: width, height: target.height)
-}
-
-/// Up to this many points wider than requested is an app rounding its size, never a
-/// width constraint: the column keeps its width and the request is compensated.
+/// Up to this many points off its request is an app snapping its size, never a width
+/// constraint: its column takes the real width and a neighbour absorbs the difference.
 public let tiledWidthRoundingLimit = 16.0
+
+/// Whether an app settled a few points off its request, as when snapping to whole cells.
+public func isTiledSizeSnap(_ acceptance: TiledSizeAcceptance) -> Bool {
+  abs(acceptance.accepted.width - acceptance.requested.width) <= tiledWidthRoundingLimit
+    && abs(acceptance.accepted.height - acceptance.requested.height) <= tiledWidthRoundingLimit
+}
 
 /// A learned minimum width only binds beyond rounding: a window that merely rounds a
 /// request up must not widen its column past the share it was given.

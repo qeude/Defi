@@ -244,7 +244,7 @@ extension Daemon {
           if !positionsOnly,
             let requested = platformAssignments.first(where: { $0.windowID == windowID })?.frame
           {
-            state.acceptTiledWindowFrame(frame, requested: requested, for: windowID)
+            state.acceptTiledWindowFrame(frame, requested: requested, for: windowID, settled: false)
           } else {
             state.updateWindowFrame(frame, for: windowID)
           }

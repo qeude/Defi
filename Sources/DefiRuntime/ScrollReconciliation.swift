@@ -108,16 +108,16 @@ public func learnTiledWindowWidth(
     .columns[bounded.columnIndex].width = .pixels(bounded.requestedWidth)
   unbounded.windows[windowID]?.minimumTiledWidth = nil
   unbounded.windows[windowID]?.maximumTiledWidth = nil
-  // The user chose this width: any learned rounding is stale, and an app that does
-  // round learns it again from the next write.
-  unbounded.windows[windowID]?.widthRounding = nil
+  // The user chose this width: a settled snap is stale, and an app that does snap
+  // settles again after the next write.
+  unbounded.windows[windowID]?.tiledSizeAcceptance = nil
   guard let learned = tiledWindowWidthLearning(
     windowID,
     actualFrame: actualFrame,
     state: unbounded,
     viewports: viewports
   ) else { return false }
-  state.windows[windowID]?.widthRounding = nil
+  state.windows[windowID]?.tiledSizeAcceptance = nil
   state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
     .columns[learned.columnIndex].width = .pixels(learned.width)
   // A dragged left edge keeps the window where it was released: the ribbon before it

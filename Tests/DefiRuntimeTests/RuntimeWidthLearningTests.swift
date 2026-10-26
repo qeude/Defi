@@ -666,9 +666,11 @@ struct RuntimeWidthLearningTests {
   }
 
   @Test
-  func `Mouse resize forgets the learned width rounding`() throws {
+  func `Mouse resize forgets the settled snap`() throws {
     var (state, id) = try singleWindowState()
-    state.windows[id]?.widthRounding = 4
+    state.windows[id]?.tiledSizeAcceptance = TiledSizeAcceptance(
+      requested: Rect(x: 12, y: 12, width: 576, height: 676),
+      accepted: Rect(x: 12, y: 12, width: 572, height: 676))
 
     #expect(learnTiledWindowWidth(
       id,
@@ -677,7 +679,7 @@ struct RuntimeWidthLearningTests {
       viewports: [monitorID: viewport]
     ))
 
-    #expect(state.windows[id]?.widthRounding == nil)
+    #expect(state.windows[id]?.tiledSizeAcceptance == nil)
     #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
     #expect(targets(state)[id]?.width == 576)
   }

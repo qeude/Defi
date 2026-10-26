@@ -298,7 +298,8 @@ extension Daemon {
         state.windows[mismatch.windowID]?.tiledSizeAcceptance, target: mismatch.target),
         settledTiledSizeClamp(mismatch, previous: previous)
       else { continue }
-      state.acceptTiledWindowFrame(mismatch.actual, requested: mismatch.target, for: mismatch.windowID)
+      state.acceptTiledWindowFrame(
+        mismatch.actual, requested: mismatch.target, for: mismatch.windowID, settled: true)
     }
     lastTiledSizeMismatches = lastTiledSizeMismatches.filter { state.windows[$0.key] != nil }
   }
@@ -314,9 +315,8 @@ extension Daemon {
     )
     for mismatch in mismatches {
       guard abs(mismatch.actual.width - mismatch.target.width) >= 2,
-        // Slightly wider than asked is the app rounding (compensated), not a minimum.
-        mismatch.actual.width < mismatch.target.width
-          || mismatch.actual.width - mismatch.target.width > tiledWidthRoundingLimit,
+        // A few points off is the app snapping (absorbed by a neighbour), not a bound.
+        abs(mismatch.actual.width - mismatch.target.width) > tiledWidthRoundingLimit,
         persistentWidthMismatch(
           mismatch,
           previous: previousByWindowID[mismatch.windowID],
