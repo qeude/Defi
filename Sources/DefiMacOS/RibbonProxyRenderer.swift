@@ -516,6 +516,18 @@ final class RibbonProxyPresenter {
       y: (screen.frame.y + screen.frame.height - area.y - area.height) / screen.frame.height,
       width: area.width / screen.frame.width, height: area.height / screen.frame.height)
     let shownIDs = Set(shown.map(\.id))
+    // The windows in view outrank parked ones and those the motion carries off screen for the budget,
+    // planned with the same recency: what it restores stays full. A stand-in in view left
+    // blurred for the whole motion is veiled under its app icon, as in Trellis.
+    let inView = Set(shown.filter {
+      ribbonProxyShows(local($0.from, area), in: layers.root.bounds)
+        || ribbonProxyShows(local($0.to, area), in: layers.root.bounds)
+    }.map(\.id))
+    let now = CACurrentMediaTime()
+    pictures.markShown(Array(shownIDs), at: now)
+    pictures.markShown(Array(inView), at: now + 0.001)
+    let reduced = shownIDs.filter { pictures.picture($0)?.isReduced == true }
+    let blurred = inView.intersection(reduced).subtracting(pictures.restore(Array(reduced)))
     // One command can submit twice (layout, then scroll) with a narrower window set;
     // mid-motion, a window left out keeps travelling instead of vanishing.
     for (id, layer) in windowLayers where !shownIDs.contains(id) && previous[id] == nil {
@@ -559,7 +571,12 @@ final class RibbonProxyPresenter {
       layer.removeAllAnimations()
       layer.isHidden = false
       for sublayer in layer.sublayers ?? [] { sublayer.removeAllAnimations() }
-      let styled = style(layer, for: window, selected: window.id == selectedWindowID)
+      let styled = style(layer, for: window, selected: window.id == selectedWindowID,
+        blurred: blurred.contains(window.id))
+      // A window parked for the whole motion has no border at rest: its sliver gets none here.
+      if !ribbonProxyShows(from, in: layers.root.bounds), !ribbonProxyShows(to, in: layers.root.bounds) {
+        layer.sublayers?.first { $0.name == "border" }?.isHidden = true
+      }
       if styled.pictured { pictured += 1 }
       if styled.badged { badged += 1; veiled.insert(window.id) } else { veiled.remove(window.id) }
       if pictures.picture(window.id)?.isReduced == true { standIns.insert(window.id) } else { standIns.remove(window.id) }
@@ -636,9 +653,6 @@ final class RibbonProxyPresenter {
     let token = generation, expected = expectedTargets, requested = requestedTargets
     let display = display, presenter = self
     store.setCurrentMotion(token, display)
-    pictures.markShown(shown.map(\.id))
-    // Planned with the same recency as the budget: what it restores stays full.
-    pictures.restore(Array(standIns))
     // A new window shows the picture taken where macOS placed it: its capture at the slot
     // size dissolves in mid-motion, so the landing has nothing to wait for.
     let redrawn = shown.filter(\.appears)
@@ -931,9 +945,7 @@ final class RibbonProxyPresenter {
           let picture = WindowCaptureStore.shared.picture(id),
           abs(picture.size.width - content.bounds.width) < 3, abs(picture.size.height - content.bounds.height) < 3
         else { continue }
-        content.contents = picture.contents
-        content.contentsScale = picture.pixelScale
-        content.backgroundColor = picture.edge
+        show(picture, in: content)
         awaitingFresh.remove(id)
       }
       ribbonProxyCommit(#line)
@@ -948,15 +960,12 @@ final class RibbonProxyPresenter {
         }
       }
     }
-    // Restored stand-ins sharpen in place, without a dissolve: one blended with the new
-    // contentsScale drew the reduced picture at a quarter of its size.
+    // Restored stand-ins sharpen in place, without a dissolve.
     CATransaction.begin(); CATransaction.setDisableActions(true)
     for id in standIns {
       guard let layer = windowLayers[id], let picture = WindowCaptureStore.shared.picture(id), !picture.isReduced,
         let content = layer.sublayers?.first(where: { $0.name == "content" }) else { continue }
-      content.contents = picture.contents
-      content.contentsScale = picture.pixelScale
-      content.backgroundColor = picture.edge
+      show(picture, in: content)
       standIns.remove(id)
     }
     CATransaction.commit()
@@ -969,9 +978,7 @@ final class RibbonProxyPresenter {
       for sublayer in layer.sublayers ?? [] {
         switch sublayer.name {
         case "content":
-          sublayer.contents = picture.contents
-          sublayer.contentsScale = picture.pixelScale
-          sublayer.backgroundColor = picture.edge
+          show(picture, in: sublayer)
           // A slot-sized picture arriving while the window still grows is cropped by it.
           let shown = (sublayer.presentation() ?? sublayer).bounds.size
           if picture.size.width > shown.width + 0.5 || picture.size.height > shown.height + 0.5 {
@@ -994,11 +1001,20 @@ final class RibbonProxyPresenter {
     for (id, layer) in windowLayers {
       guard let content = layer.sublayers?.first(where: { $0.name == "content" }),
         content.contents == nil, let picture = WindowCaptureStore.shared.picture(id) else { continue }
-      content.contents = picture.contents
-      content.contentsScale = picture.pixelScale
-      content.backgroundColor = picture.edge
+      show(picture, in: content)
     }
     ribbonProxyCommit(#line)
+  }
+
+  /// A dissolve between pictures of different pixel scales draws the outgoing one at the
+  /// incoming scale, a brief zoom: those swap at once, the others dissolve.
+  private func show(_ picture: WindowPicture, in content: CALayer) {
+    let rescaled = abs(content.contentsScale - picture.pixelScale) > 0.01
+    if rescaled { CATransaction.begin(); CATransaction.setDisableActions(true) }
+    content.contents = picture.contents
+    content.contentsScale = picture.pixelScale
+    content.backgroundColor = picture.edge
+    if rescaled { CATransaction.commit() }
   }
 
   /// Whether a newer layout moves windows the running motion is still carrying.
@@ -1317,15 +1333,15 @@ final class RibbonProxyPresenter {
   /// Styles the proxy; returns whether it shows a picture and whether the app
   /// icon is laid over it.
   private func style(_ layer: CALayer, for window: RibbonProxyWindow,
-    selected: Bool) -> (pictured: Bool, badged: Bool) {
+    selected: Bool, blurred: Bool) -> (pictured: Bool, badged: Bool) {
     let sublayers = Dictionary((layer.sublayers ?? []).compactMap { sublayer in
       sublayer.name.map { ($0, sublayer) } }) { first, _ in first }
     let picture = WindowCaptureStore.shared.picture(window.id)
     // A cropped picture still reads as the window: only a missing picture, or an old one
     // arriving vertically from another workspace, gets the icon over a veil.
-    let badged = window.appID != "" && picture.map { picture in
+    let badged = window.appID != "" && (blurred || picture.map { picture in
       abs(window.from.y - window.to.y) > window.to.height / 2 && CACurrentMediaTime() - picture.capturedAt > 10
-    } ?? true
+    } ?? true)
     let radius = cornerRadii[window.id] ?? 12
     layer.setValue(radius, forKey: ribbonProxyRadiusKey)
     sublayers["content"]?.cornerRadius = radius

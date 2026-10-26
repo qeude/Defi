@@ -293,12 +293,12 @@ struct OverviewPreviewTests {
     try await settle { store.picture(first)?.isReduced == true && store.picture(first)?.full != nil }
     #expect(store.picture(first)?.isReduced == true)
     // Not the most recent: restoring it would not fit, so it stays reduced.
-    store.restore([first])
+    #expect(store.restore([first]).isEmpty)
     try await Task.sleep(for: .milliseconds(200))
     #expect(store.picture(first)?.isReduced == true)
     // Shown again: it is restored, and the other one gives up its full resolution.
     store.markShown([first], at: 3)
-    store.restore([first])
+    #expect(store.restore([first]) == [first])
     try await settle { store.picture(first)?.isReduced == false && store.picture(second)?.isReduced == true }
     #expect(store.picture(first)?.isReduced == false && store.picture(first)?.capturedAt == 3)
     #expect(store.picture(second)?.isReduced == true)
