@@ -117,6 +117,10 @@ struct WindowDiscoveryTests {
     #expect(match("WhatsApp - Helium", [record(2, "", Rect(x: 0, y: 0, width: 2_560, height: 30)),
       record(1, "WhatsApp 🔊", frame)]) == 1)
     #expect(match("Window", [record(1, "Other", frame), record(2, "Window", frame)]) == 2)
+    let orderedOut = CGWindowRecord(id: 1, processID: processID, layer: 0, title: "Window", frame: frame, isOnscreen: false)
+    #expect(match("Window", [orderedOut, record(2, "Window", frame)]) == 2, "A hidden native tab is never the match")
+    #expect(!cgWindowDiscoveryNeedsExactID(processID: processID, title: "Window", frame: frame,
+      records: [orderedOut, record(2, "Window", frame)], excluding: []))
     #expect(match("Picture in Picture", [record(1, "", Rect(x: 104, y: 34, width: 2_554, height: 1_354))]) == nil)
   }
 
@@ -136,6 +140,11 @@ struct WindowDiscoveryTests {
       excluding: []))
     #expect(!cgWindowDiscoveryNeedsExactID(processID: processID, title: "Defi", frame: frame,
       records: [identical[0]], excluding: []))
+    // A new tab matching only its group's hidden tab.
+    let hiddenTab = CGWindowRecord(id: 58, processID: processID, layer: 0, title: "Defi", frame: frame,
+      isOnscreen: false)
+    #expect(cgWindowDiscoveryNeedsExactID(processID: processID, title: "Defi", frame: frame,
+      records: [hiddenTab], excluding: []))
   }
 
   struct FocusRecoveryCase: CustomTestStringConvertible, Sendable {
@@ -432,90 +441,107 @@ struct NativeWindowTabDiscoveryTests {
     #expect(order == [1, 3, 0, 2])
   }
 
-  struct TabMembershipCase: CustomTestStringConvertible, Sendable {
+  struct TabTransitionCase: CustomTestStringConvertible, Sendable {
     let name: String
-    let representativeTitle: String
-    // Windows after the representative (id 1).
-    let windows: [Window]
-    let group: NativeWindowTabGroup
-    var retained: Set<UInt64> = []
-    var observed: Set<UInt64> = []
-    let backing: Set<UInt64>
+    let previous: [UInt64: Rect]
+    let listed: [UInt64: Rect]
+    var tabbed: Set<UInt64> = []
+    var hidden: [UInt64: Set<UInt64>] = [:]
+    /// WindowServer records: on screen, or ordered out. Absent IDs are destroyed.
+    let onscreen: [UInt64: Rect]
+    var orderedOut: [UInt64: Rect] = [:]
+    let replacements: [UInt64: UInt64]
+    let nextHidden: [UInt64: Set<UInt64>]
 
     var testDescription: String { name }
   }
 
-  static func tab(_ id: UInt64, _ title: String, x: Double = 100, width: Double = 1_200,
-    height: Double = 900) -> Window {
-    Window(id: WindowID(rawValue: id), appID: "com.mitchellh.ghostty", title: title,
-      frame: Rect(x: x, y: 40, width: width, height: height), role: kAXWindowRole,
-      subrole: kAXStandardWindowSubrole, processID: 42, monitorID: MonitorID(rawValue: 1))
-  }
+  static let groupFrame = Rect(x: 100, y: 40, width: 1_200, height: 900)
+  static let elsewhere = Rect(x: 1_400, y: 40, width: 1_200, height: 900)
 
-  static func ids(_ raw: Set<UInt64>) -> Set<WindowID> { Set(raw.map(WindowID.init(rawValue:))) }
-
-  static let tabMembershipCases = [
-    TabMembershipCase(name: "backing windows within a few points collapse behind the representative",
-      representativeTitle: "Defi",
-      windows: [tab(2, "Defi", width: 1_202, height: 899), tab(3, "Defi", width: 1_202), tab(4, "Other"),
-        tab(2, "Defi", width: 1_202, height: 899)],
-      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"]), backing: [2, 3]),
-    TabMembershipCase(name: "ambiguous membership leaves windows untouched", representativeTitle: "Defi",
-      windows: [tab(2, "Defi"), tab(3, "Defi"), tab(4, "Defi")],
-      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"]), backing: []),
-    TabMembershipCase(name: "known members survive temporary frame divergence", representativeTitle: "Defi",
-      windows: [tab(2, "Defi", x: 2_000), tab(3, "Defi", x: -2_000)],
-      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"], backingWindowIDs: ids([2, 3])), backing: [2, 3]),
-    TabMembershipCase(name: "a known direct backing stays coalesced when rediscovered", representativeTitle: "Defi",
-      windows: [tab(2, "Defi")],
-      group: NativeWindowTabGroup(tabTitles: ["Defi", "Defi"], selectedTabTitle: "Defi", backingWindowIDs: ids([2])),
-      backing: [2]),
-    TabMembershipCase(name: "unique titles recover membership after a visible restart", representativeTitle: "Selected",
-      windows: [tab(2, "First", x: 2_000), tab(3, "Second", x: -2_000)],
-      group: NativeWindowTabGroup(tabTitles: ["First", "Second"]), backing: [2, 3]),
-    TabMembershipCase(name: "a growing group absorbs its newly observed backing window", representativeTitle: "Third",
-      windows: [tab(2, "First"), tab(3, "Second")],
-      group: NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"], selectedTabTitle: "Third",
-        backingWindowIDs: ids([2])), retained: [2], observed: [3], backing: [2, 3]),
-    TabMembershipCase(name: "the selected AppKit tab absorbs the retained previous window", representativeTitle: "Recents",
-      windows: [tab(2, "Desktop", x: -2_000)],
-      group: NativeWindowTabGroup(tabTitles: ["Desktop", "Recents"], selectedTabTitle: "Recents"), retained: [2],
-      backing: [2]),
+  static let tabTransitionCases = [
+    TabTransitionCase(name: "a new tab takes over the column of the tab it covers",
+      previous: [1: groupFrame], listed: [3: groupFrame], tabbed: [3],
+      onscreen: [3: groupFrame], orderedOut: [1: groupFrame], replacements: [1: 3], nextHidden: [3: [1]]),
+    TabTransitionCase(name: "a new tab does not wait for WindowServer to order the old one out",
+      previous: [1: groupFrame], listed: [1: groupFrame, 3: groupFrame], tabbed: [3],
+      onscreen: [1: groupFrame], orderedOut: [3: groupFrame], replacements: [1: 3], nextHidden: [3: [1]]),
+    TabTransitionCase(name: "switching to a known hidden tab swaps the visible member",
+      previous: [3: groupFrame], listed: [1: groupFrame], hidden: [3: [1]],
+      onscreen: [1: groupFrame], orderedOut: [3: groupFrame], replacements: [3: 1], nextHidden: [1: [3]]),
+    TabTransitionCase(name: "a known member waits while the visible tab is still listed and on screen",
+      previous: [3: groupFrame], listed: [1: groupFrame, 3: groupFrame], tabbed: [1], hidden: [3: [1]],
+      onscreen: [3: groupFrame], orderedOut: [1: groupFrame], replacements: [:], nextHidden: [3: [1]]),
+    TabTransitionCase(name: "closing the visible tab reveals a hidden member in place",
+      previous: [1: groupFrame], listed: [3: groupFrame], hidden: [1: [3]],
+      onscreen: [3: groupFrame], replacements: [1: 3], nextHidden: [:]),
+    TabTransitionCase(name: "closing a hidden tab only forgets it",
+      previous: [1: groupFrame], listed: [1: groupFrame], hidden: [1: [2, 3]],
+      onscreen: [1: groupFrame], orderedOut: [2: groupFrame], replacements: [:], nextHidden: [1: [2]]),
+    TabTransitionCase(name: "a new window of the same app keeps its own column",
+      previous: [1: groupFrame], listed: [1: groupFrame, 3: elsewhere],
+      onscreen: [1: groupFrame, 3: elsewhere], replacements: [:], nextHidden: [:]),
+    TabTransitionCase(name: "a new tab whose tab bar is not yet readable replaces the departed tab",
+      previous: [1: groupFrame], listed: [3: groupFrame], hidden: [1: [2]],
+      onscreen: [3: groupFrame], orderedOut: [1: groupFrame, 2: groupFrame], replacements: [1: 3],
+      nextHidden: [3: [1, 2]]),
+    TabTransitionCase(name: "a new window at the same frame without tabs keeps its own column",
+      previous: [1: groupFrame], listed: [1: groupFrame, 3: groupFrame],
+      onscreen: [1: groupFrame, 3: groupFrame], replacements: [:], nextHidden: [:]),
+    TabTransitionCase(name: "a tab dragged out of its group becomes an ordinary window",
+      previous: [1: groupFrame], listed: [1: elsewhere, 2: groupFrame], hidden: [1: [2]],
+      onscreen: [1: elsewhere, 2: groupFrame], replacements: [:], nextHidden: [:]),
+    TabTransitionCase(name: "two managed windows at one frame are ambiguous",
+      previous: [1: groupFrame, 4: groupFrame], listed: [3: groupFrame], tabbed: [3],
+      onscreen: [3: groupFrame], orderedOut: [1: groupFrame, 4: groupFrame], replacements: [:], nextHidden: [:]),
+    TabTransitionCase(name: "a tabbed window elsewhere is not the covered tab",
+      previous: [1: groupFrame], listed: [1: groupFrame, 3: elsewhere], tabbed: [3],
+      onscreen: [1: groupFrame, 3: elsewhere], replacements: [:], nextHidden: [:]),
   ]
 
-  @Test(arguments: tabMembershipCases)
-  func `Native tab membership coalesces only unambiguous backing windows`(_ scenario: TabMembershipCase) {
-    let representative = WindowID(rawValue: 1)
-    let backing = nativeTabBackingWindowIDsByRepresentative(
-      windows: [Self.tab(1, scenario.representativeTitle)] + scenario.windows,
-      groupsByRepresentativeID: [representative: scenario.group], retainedWindowIDs: Self.ids(scenario.retained),
-      additionalBackingWindowIDsByRepresentative: scenario.observed.isEmpty ? [:]
-        : [representative: Self.ids(scenario.observed)])
-    #expect(backing[representative] ?? [] == Self.ids(scenario.backing))
+  @Test(arguments: tabTransitionCases)
+  func `A native tab group stays one logical window`(_ scenario: TabTransitionCase) {
+    func ids<Value>(_ raw: [UInt64: Value]) -> [WindowID: Value] {
+      Dictionary(uniqueKeysWithValues: raw.map { (WindowID(rawValue: $0.key), $0.value) })
+    }
+    func set(_ raw: Set<UInt64>) -> Set<WindowID> { Set(raw.map(WindowID.init(rawValue:))) }
+    let surfaces = ids(scenario.onscreen.mapValues { NativeTabSurface(frame: $0, isOnscreen: true) })
+      .merging(ids(scenario.orderedOut.mapValues { NativeTabSurface(frame: $0, isOnscreen: false) })) { $1 }
+    let transition = nativeTabTransition(previousFrames: ids(scenario.previous), listedFrames: ids(scenario.listed),
+      tabbedIDs: set(scenario.tabbed), hiddenMembersByVisibleID: ids(scenario.hidden).mapValues(set),
+      surfaces: surfaces)
+    #expect(transition.replacements == ids(scenario.replacements).mapValues(WindowID.init(rawValue:)))
+    #expect(transition.hiddenMembersByVisibleID == ids(scenario.nextHidden).mapValues(set))
   }
 
   @Test
-  func `A native tab representative swap keeps logical identity unless ambiguous`() {
-    let old = WindowID(rawValue: 1), first = WindowID(rawValue: 2), second = WindowID(rawValue: 3)
-    func rebound(_ group: NativeWindowTabGroup, representative: WindowID, previous: NativeWindowTabGroup)
-      -> Set<WindowID> {
-      nativeWindowTabGroupRebindingKnownMembers(group, representativeID: representative, processID: processID,
-        previousGroupsByRepresentativeID: [old: previous], previousProcessIDs: [old: processID]).backingWindowIDs
+  func `A tab group settles once only its visible member is listed and on screen`() {
+    let visible = WindowID(rawValue: 1), hidden = WindowID(rawValue: 2)
+    let frame = Self.groupFrame
+    func settling(listed: [WindowID], onscreen: [WindowID]) -> Bool {
+      nativeTabGroupsAreSettling([visible: [hidden]],
+        listedFrames: Dictionary(uniqueKeysWithValues: listed.map { ($0, frame) }),
+        surfaces: [visible: NativeTabSurface(frame: frame, isOnscreen: onscreen.contains(visible)),
+          hidden: NativeTabSurface(frame: frame, isOnscreen: onscreen.contains(hidden))])
     }
-    let known = NativeWindowTabGroup(tabTitles: ["First", "Second"], backingWindowIDs: [first, second])
-    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second"]), representative: first, previous: known)
-      == [old, second])
-    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second"], selectedTabTitle: "First"),
-      representative: first, previous: NativeWindowTabGroup(tabTitles: ["First", "Second"], selectedTabTitle: "Second",
-        backingWindowIDs: [first])) == [old])
-    #expect(rebound(NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"]), representative: old,
-      previous: known) == [first, second])
-    #expect(nativeWindowTabRepresentativeReplacements(previousWindowIDs: [old], nextWindowIDs: [first],
-      groupsByRepresentativeID: [first: NativeWindowTabGroup(tabTitles: ["First", "Second"], backingWindowIDs: [old])])
-      == [old: first])
-    #expect(nativeWindowTabRepresentativeReplacements(previousWindowIDs: [old, first], nextWindowIDs: [second],
-      groupsByRepresentativeID: [second: NativeWindowTabGroup(tabTitles: ["First", "Second", "Third"],
-        backingWindowIDs: [old, first])]).isEmpty, "An ambiguous replacement keeps every logical identity")
+    #expect(settling(listed: [visible], onscreen: [visible]) == false)
+    #expect(settling(listed: [visible], onscreen: [hidden]))
+    #expect(settling(listed: [visible, hidden], onscreen: [visible]))
+    #expect(settling(listed: [], onscreen: [visible]))
+  }
+
+  @Test
+  func `A process with tab groups is reread briefly after events and while unsettled`() {
+    func deadline(_ previous: TimeInterval?, groups: Bool = true, event: Bool = false, settling: Bool = false)
+      -> TimeInterval? {
+      nativeTabSettleDeadline(previous: previous, hasGroups: groups, observedEvent: event, settling: settling, now: 10)
+    }
+    #expect(deadline(nil, event: true) == 10.7)
+    #expect(deadline(nil, settling: true) == 11)
+    #expect(deadline(10.2) == 10.2)
+    #expect(deadline(9.9) == nil)
+    #expect(deadline(9.9, settling: true) == 9.9, "An unsettled group stops rereading after its second")
+    #expect(deadline(nil, groups: false, event: true, settling: true) == nil)
   }
 
   @Test

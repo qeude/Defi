@@ -326,6 +326,28 @@ struct NativeFullscreenTests {
   }
 
   @Test
+  func `Fullscreen exit ends once the window is back at its own size`() {
+    let windowID = WindowID(rawValue: 1)
+    let entered = stabilizedNativeFullscreenWindowIDs(
+      detectedWindowIDs: [windowID], previousExitDeadlines: [:], explicitlyRemovedWindowIDs: [], now: 10)
+    let fullscreen = CGWindowRecord(id: 1, processID: 7, layer: 0, title: "",
+      frame: Rect(x: 0, y: 0, width: 1512, height: 982), isOnscreen: true)
+    let restored = CGWindowRecord(id: 1, processID: 7, layer: 0, title: "",
+      frame: Rect(x: 762, y: 37, width: 746, height: 895), isOnscreen: true)
+    let stillCovering = stabilizedNativeFullscreenWindowIDs(
+      detectedWindowIDs: [], previousExitDeadlines: entered.exitDeadlines, explicitlyRemovedWindowIDs: [],
+      restoredWindowIDs: restoredNativeFullscreenWindowIDs(cgWindows: [fullscreen], monitors: [monitor]),
+      now: 10.1)
+    let back = stabilizedNativeFullscreenWindowIDs(
+      detectedWindowIDs: [], previousExitDeadlines: entered.exitDeadlines, explicitlyRemovedWindowIDs: [],
+      restoredWindowIDs: restoredNativeFullscreenWindowIDs(cgWindows: [restored], monitors: [monitor]),
+      now: 10.1)
+
+    #expect(stillCovering.windowIDs == [windowID])
+    #expect(back.windowIDs.isEmpty)
+  }
+
+  @Test
   func `Fullscreen identity follows the detected window and survives an inactive space while the process covers the display`() {
     let stale = WindowID(rawValue: 1), fullscreen = WindowID(rawValue: 2)
     let processID: Int32 = 10

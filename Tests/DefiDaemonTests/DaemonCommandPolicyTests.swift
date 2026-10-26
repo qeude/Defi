@@ -23,6 +23,9 @@ struct DaemonCommandPolicyTests {
     #expect(nativeFocusPendingSkippedWindowIDs(
       nativeFocusWasPending: true, focusMonitorID: main,
       windowMonitorIDs: windows, previouslyManagedWindowIDs: managed) == [other, floating])
+    #expect(nativeFocusPendingSkippedWindowIDs(
+      nativeFocusWasPending: true, animatesOpening: true, focusMonitorID: nil,
+      windowMonitorIDs: windows, previouslyManagedWindowIDs: managed).isEmpty)
   }
 
   @Test func completedOverviewSelectionAllowsWarpUntilSuperseded() {

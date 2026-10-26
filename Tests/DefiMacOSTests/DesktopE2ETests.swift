@@ -61,12 +61,17 @@ final class DesktopE2ETests: XCTestCase {
     }, timeout: 2), "Stale focus recovery must not override the latest rapid focus intent")
 
     let events = DesktopValue(0)
-    onNavigation { platform.startObserving { DispatchQueue.main.async { events.value += 1 } } }
+    let activated = DesktopValue<[WindowID]>([])
+    onNavigation { platform.startObserving({ DispatchQueue.main.async { events.value += 1 } },
+      activatedWindowHandler: { id, _ in DispatchQueue.main.async { activated.value.append(id) } }) }
     // The monitor registers an unretained display callback; it must not outlive this platform.
     defer { platform.eventMonitor?.stop() }
     onNavigation { platform.focus(tiled) }
     XCTAssertTrue(pumpRunLoop(until: { events.value > 0 && focused() == tiled }, timeout: 2),
       "Native focus must emit a platform event and converge on the target")
+    try activate(fixtures.floatingProcess, focusing: floating, platform)
+    XCTAssertTrue(pumpRunLoop(until: { activated.value.last == floating }, timeout: 2),
+      "An app activation must hand over its focused window, as Command-Tab moves the ribbon at once")
 
     let snapshot = platform.snapshot(config: Config())
     let monitor = try XCTUnwrap(snapshot.monitors.first { monitor in

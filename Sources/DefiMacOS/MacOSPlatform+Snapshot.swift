@@ -363,6 +363,7 @@ extension SnapshotEngine {
       detectedWindowIDs: detectedNativeFullscreenWindowIDs,
       previousExitDeadlines: nativeFullscreenExitDeadlines,
       explicitlyRemovedWindowIDs: explicitlyDestroyedWindowIDs,
+      restoredWindowIDs: restoredNativeFullscreenWindowIDs(cgWindows: fullscreenCGWindows, monitors: monitors),
       now: snapshotStartedAt
     )
     nativeFullscreenExitDeadlines = stabilizedNativeFullscreen.exitDeadlines
@@ -383,6 +384,9 @@ extension SnapshotEngine {
       cgWindows: fullscreenCGWindows,
       monitors: monitors
     ).intersection(nativeFullscreenWindowIDs)
+      // In the exit grace the real window is back on the desktop: its placeholder
+      // would show around the window's rounded corners.
+      .union(nativeFullscreenWindowIDs.subtracting(detectedNativeFullscreenWindowIDs))
     var retries = cgWindowDiscoveryRetries
     var diagnostics = cgWindowDiscoveryDiagnostics
     var unresolvedOutcomes: [CGWindowDiscoveryIdentity: String] = [:]
@@ -521,6 +525,7 @@ extension SnapshotEngine {
     newlyDiscoveredWindowIDs =
       hasCompletedWindowSnapshot
       ? nextWindowIDs.subtracting(previousElements.keys)
+        .subtracting(windowIDReplacements.values)
       : []
     if tracesWindowTopology
       || !newlyDiscoveredWindowIDs.isEmpty

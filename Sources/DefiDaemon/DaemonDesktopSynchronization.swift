@@ -33,11 +33,14 @@ func coalescedDesktopSnapshotRequest(
 /// and its own creation usually emits the pending focus event.
 func nativeFocusPendingSkippedWindowIDs(
   nativeFocusWasPending: Bool,
+  animatesOpening: Bool = false,
   focusMonitorID: MonitorID?,
   windowMonitorIDs: [WindowID: MonitorID?],
   previouslyManagedWindowIDs: Set<WindowID>
 ) -> Set<WindowID> {
-  guard nativeFocusWasPending else { return [] }
+  // An opened window's own focus event is pending: holding its neighbours back moved
+  // them a snapshot later, unanimated, after the window had opened over them.
+  guard nativeFocusWasPending, !animatesOpening else { return [] }
   return Set(windowMonitorIDs.compactMap { windowID, monitorID in
     previouslyManagedWindowIDs.contains(windowID)
       && (focusMonitorID == nil || monitorID != focusMonitorID) ? windowID : nil
@@ -926,6 +929,7 @@ extension Daemon {
       // A focus event retired by this snapshot without a native focus change no longer gates writes.
       nativeFocusWasPending: nativeFocusWasPending
         && (platform.hasPendingNativeFocusEvent || snapshot.nativeFocusChanged),
+      animatesOpening: animatesLifecycle && !Set(state.windows.keys).isSubset(of: previouslyManagedWindowIDs),
       focusMonitorID: nativeFocusFrameMonitorID,
       windowMonitorIDs: {
         let locations = state.windowLocationMap()

@@ -513,7 +513,7 @@ func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
 /// known start (entering from parking) travel with the shared motion.
 func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID: Rect],
   previousLogical: [WindowID: Rect], observed: [WindowID: Rect], verticalShift: Double? = nil,
-  settled: [WindowID: RibbonProxySettle] = [:], dropped: WindowID? = nil)
+  settled: [WindowID: RibbonProxySettle] = [:], dropped: WindowID? = nil, opened: Set<WindowID> = [])
   -> [(id: WindowID, from: Rect, to: Rect)] {
   let targets = otherTargets.merging(ribbonTargets) { _, ribbon in ribbon }
   let shared = verticalShift.map { CGPoint(x: 0, y: $0) } ?? targets.lazy.compactMap { id, to in
@@ -528,6 +528,15 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
   }
   let siblingClamp = Dictionary(grouping: siblingClamps) { $0 }
     .max { ($0.value.count, -abs($0.key), $0.key) < ($1.value.count, -abs($1.key), $1.key) }?.key ?? 0
+  // A window entering the ribbon rides the scroll of the column on its left, as in Niri:
+  // columns on its right also moved aside to make room for it.
+  func ribbonShift(_ target: Rect) -> CGPoint {
+    guard verticalShift == nil else { return shared }
+    let left = ribbonTargets.filter { id, to in previousLogical[id] != nil && to.x + to.width <= target.x + 1 }
+      .max { ($0.value.x, $0.key.rawValue) < ($1.value.x, $1.key.rawValue) }
+    return left.flatMap { id, to in previousLogical[id].map { CGPoint(x: to.x - $0.x, y: to.y - $0.y) } }
+      ?? shared
+  }
   return targets.compactMap { id, target in
     guard let native = observed[id] else { return nil }
     // In a vertical switch, leaving windows slide off with the shift on the overlay,
@@ -538,16 +547,18 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
       ?? target
     // Native clamping (a few points) owns the vertical extent; a real height change,
     // like stacking into a column, takes the layout's.
-    let clamped = abs(native.height - logicalTo.height) < 40
+    // A window just opened is as tall as macOS spawned it (Ghostty: 12 pt under the window
+    // it opened over), which says nothing of the app's clamp.
+    let clamped = !opened.contains(id) && abs(native.height - logicalTo.height) < 40
     // Only a small offset is an app's own clamp; a large one is where the pointer
     // dropped the window.
     let offset = id == dropped ? siblingClamp : previousLogical[id].map { native.y - $0.y } ?? 0
     let clamp = clamped && abs(offset) < 40 ? offset : 0
     // Off the ribbon without history (another workspace's window re-parked): it stays
     // put. Shifted with the ribbon, it crossed the screen into its parking corner.
+    let shift = ribbonTargets[id] == nil ? .zero : ribbonShift(logicalTo)
     let start = leavingFrom ?? previousLogical[id]
-      ?? (ribbonTargets[id] == nil ? logicalTo : Rect(x: logicalTo.x - shared.x, y: logicalTo.y - shared.y,
-        width: logicalTo.width, height: logicalTo.height))
+      ?? Rect(x: logicalTo.x - shift.x, y: logicalTo.y - shift.y, width: logicalTo.width, height: logicalTo.height)
     // Where this app really put the window last time it had this size (its own cell
     // grid or clamp): the picture lands exactly on the window, not a few points off.
     if let settle = settled[id], settle.matches(logicalTo) {
@@ -640,7 +651,7 @@ extension MacOSPlatform {
     let planned = windowProxyMotion(ribbonTargets: ribbonTargets, otherTargets: otherTargets,
       previousLogical: previousRibbonFrames, observed: observed,
       verticalShift: workspaceShift, settled: RibbonProxyStore.shared.settled,
-      dropped: windowProxyDroppedWindowID)
+      dropped: windowProxyDroppedWindowID, opened: opened)
     if let shift = workspaceShift {
       ribbonProxyLogger.notice("workspace-switch shift=\(Int(shift))")
     }
@@ -648,11 +659,18 @@ extension MacOSPlatform {
     let dropped = windowProxyDroppedWindowID.flatMap { id in
       ribbonProxyNativeFrames([id])[id].map { (id, $0) }
     }
+    // A window just opened is on screen where macOS placed it: captured there before any
+    // native write, it grows in its slot as itself instead of as an icon card.
+    let spawned = planned.compactMap { plan -> RibbonProxyRefresh? in
+      guard opened.contains(plan.id), let frame = observed[plan.id], let window = windows[plan.id],
+        let processID = window.processID, windowProxyVisibleOverlap(frame, viewport) > 1.01 else { return nil }
+      return RibbonProxyRefresh(id: plan.id, appID: window.appID, processID: processID, frame: frame, distance: 0)
+    }
+    captureSpawnedWindows(spawned)
     var proxies = planned.compactMap { plan -> RibbonProxyWindow? in
       guard let window = windows[plan.id], let processID = window.processID else { return nil }
       let appears = opened.contains(plan.id)
-      let from = appears ? plan.to
-        : plan.id == dropped?.0 ? dropped?.1 ?? plan.from : plan.from
+      let from = plan.id == dropped?.0 ? dropped?.1 ?? plan.from : plan.from
       return RibbonProxyWindow(id: plan.id, appID: window.appID, processID: processID,
         from: from, to: plan.to, appears: appears)
     }
@@ -683,6 +701,9 @@ extension MacOSPlatform {
         DispatchQueue.main.async {
           MainActor.assumeIsolated {
             guard let self else { return }
+            // Rings shown again sit on the real frames from their first frame: a ring kept
+            // from before the motion (a new window's spawn place) flashed there once.
+            if windowIDs.isEmpty { self.refreshWindowBorderGeometry(windowIDs: self.borderManager.liveGeometryWindowIDs) }
             self.borderManager.setPresentationHidden(windowIDs, for: display)
             // A display landing settles every border on real frames, others still moving included.
             if windowIDs.isEmpty { self.settleWindowBordersOnRealFrames() } else { self.borderSettleTask?.cancel() }
@@ -698,5 +719,51 @@ extension MacOSPlatform {
       duration: duration,
       selectedWindowID: desiredSelectedWindowID, managedWindowIDs: Set(allWindows.keys),
       borderWindowIDs: monitor.windowIDs)
+  }
+
+  /// The display a new window lands on: the selected window's, as Defi places it there.
+  func holdWindowProxiesForOpening(_ processID: pid_t) {
+    let all = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
+    // shortcut: an app rule sending the window to another display or floating it holds
+    // the screen still for 0.5 s; read the app rules here if that shows up.
+    guard let monitor = windowProxyMonitors.first(where: { monitor in
+      desiredSelectedWindowID.map(monitor.windowIDs.contains) ?? false
+    }) ?? windowProxyMonitors.first,
+      let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else { return }
+    let shown = all.compactMap { id, window -> RibbonProxyWindow? in
+      let frame = latestObservedFrames[id] ?? window.frame
+      guard monitor.windowIDs.contains(id), let owner = window.processID,
+        windowProxyVisibleOverlap(frame, monitor.viewport) > 1.01 else { return nil }
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: owner, from: frame, to: frame)
+    }
+    RibbonProxyPresenter.on(display).hold(windows: shown, viewport: monitor.viewport,
+      generation: frameSubmissionGeneration, processID: processID,
+      selectedWindowID: desiredSelectedWindowID, managedWindowIDs: Set(all.keys),
+      borderWindowIDs: monitor.windowIDs)
+  }
+
+  /// `frame` is nil for a dialog, a panel or a tab. A new native tab can also show
+  /// first without its tab bar, over its group's window: it takes that slot, nothing moves.
+  func releaseOpeningHoldUnlessOwnWindow(_ processID: pid_t, at frame: Rect?) {
+    let opensColumn = frame.map { frame in
+      !lastSnapshotWindows.contains { window in
+        window.processID == processID
+          && frameDistance(latestObservedFrames[window.id] ?? window.frame, frame) <= 2
+      }
+    } ?? false
+    if !opensColumn { RibbonProxyPresenter.releaseHolds() }
+  }
+
+  private func captureSpawnedWindows(_ windows: [RibbonProxyRefresh]) {
+    guard !windows.isEmpty, RibbonProxyStore.shared.isAuthorized,
+      let capture = ribbonProxyWindowServerCapture else { return }
+    let started = CACurrentMediaTime()
+    for window in windows where WindowCaptureStore.shared.picture(window.id) == nil {
+      guard let number = CGWindowID(exactly: window.id.rawValue), let images = capture([number]),
+        images.count == 1, let image = images.first,
+        let scale = RibbonProxyStore.shared.screen(containing: window.frame)?.scale else { continue }
+      WindowCaptureStore.shared.setPicture(ribbonProxyGrowingPicture(image, scale: scale), for: window)
+    }
+    ribbonProxyLogger.notice("capture-spawned ids=\(windows.map(\.id.rawValue), privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1_000))")
   }
 }

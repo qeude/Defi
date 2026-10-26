@@ -152,8 +152,10 @@ extension SnapshotEngine {
       var unresolvedOutcomesByProcess: [pid_t: Set<String>] = [:]
       var refreshedProcessIDs = Set<pid_t>()
       var attemptedFrameWindowIDs = Set<WindowID>()
-      var nextNativeWindowTabGroups: [WindowID: NativeWindowTabGroup] = [:]
+      var nextNativeTabHiddenMembers: [WindowID: Set<WindowID>] = [:]
+      var tabbedWindowIDs = Set<WindowID>()
       var nextRetainedWindowIDs = Set<WindowID>()
+      var windowIDReplacements: [WindowID: WindowID] = [:]
       var cachedSnapshotWindowIDs = Set<WindowID>()
   
       var deferredReadProcessIDs = Set<pid_t>()
@@ -181,7 +183,7 @@ extension SnapshotEngine {
         for (windowID, element) in cachedElements {
           nextElements[windowID] = element
           nextProcessIDs[windowID] = processID
-          nextNativeWindowTabGroups[windowID] = nativeWindowTabGroupsByWindowID[windowID]
+          nextNativeTabHiddenMembers[windowID] = nativeTabHiddenMembersByWindowID[windowID]
         }
         return true
       }
@@ -481,7 +483,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             windows.append(cached)
             nextElements[previousWindowID] = element
             nextProcessIDs[previousWindowID] = processID
-            nextNativeWindowTabGroups[previousWindowID] = nativeWindowTabGroupsByWindowID[previousWindowID]
+            nextNativeTabHiddenMembers[previousWindowID] = nativeTabHiddenMembersByWindowID[previousWindowID]
             cachedSnapshotWindowIDs.insert(previousWindowID)
             continue
           }
@@ -617,44 +619,19 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             for: disposition,
             configuredFloating: decision.floating
           )
-          var nativeTabGroup: NativeWindowTabGroup?
-          if refreshesWindowList || previousWindowID == nil {
-            // ponytail: native tab groups are small; index physical IDs if this scan grows.
-            let belongsToKnownNativeTabGroup =
-              nativeWindowTabGroupsByWindowID[tracked.id] != nil
-              || nativeWindowTabGroupsByWindowID.values.contains {
-                $0.backingWindowIDs.contains(tracked.id)
-              }
-            nativeTabGroup = AXMessagingTimeoutAccess.shared.withTimeout(
+          if previousWindowID == nil {
+            let hasTabs = AXMessagingTimeoutAccess.shared.withTimeout(
               snapshotAccessibilityTimeoutSeconds,
               elements: [element]
             ) {
-              self.nativeWindowTabGroup(
-                in: element,
-                windowFrame: tracked.frame,
-                allowsTransientFrameMismatch:
-                  belongsToKnownNativeTabGroup
-              )
+              self.nativeWindowHasTabs(in: element, windowFrame: tracked.frame)
             }
-          } else {
-            nativeTabGroup = previousWindowID.flatMap {
-              nativeWindowTabGroupsByWindowID[$0]
-            }
-          }
-          if let detectedGroup = nativeTabGroup {
-            nativeTabGroup = nativeWindowTabGroupRebindingKnownMembers(
-              detectedGroup,
-              representativeID: tracked.id,
-              processID: processID,
-              previousGroupsByRepresentativeID:
-                nativeWindowTabGroupsByWindowID,
-              previousProcessIDs: previousProcessIDs
-            )
+            if hasTabs == true { tabbedWindowIDs.insert(tracked.id) }
           }
           windows.append(tracked)
           nextElements[tracked.id] = element
           nextProcessIDs[tracked.id] = processID
-          nextNativeWindowTabGroups[tracked.id] = nativeTabGroup
+          nextNativeTabHiddenMembers[tracked.id] = nativeTabHiddenMembersByWindowID[tracked.id]
         }
 
         let previousWindows = previousWindowsByProcess[processID] ?? []
@@ -733,8 +710,8 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           windows.append(previousWindow)
           nextElements[previousWindow.id] = previousElement
           nextProcessIDs[previousWindow.id] = processID
-          nextNativeWindowTabGroups[previousWindow.id] =
-            nativeWindowTabGroupsByWindowID[previousWindow.id]
+          nextNativeTabHiddenMembers[previousWindow.id] =
+            nativeTabHiddenMembersByWindowID[previousWindow.id]
           if applicationWindows[processID]?.contains(where: {
             CFEqual($0, previousElement)
           }) != true {
@@ -742,56 +719,78 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
         }
 
-        let processNativeTabGroups = nextNativeWindowTabGroups.filter {
-          nextProcessIDs[$0.key] == processID
-        }
-        let newlyObservedProcessWindowIDs = Set(
-          windows.lazy.filter { $0.processID == processID }.map(\.id)
-        ).subtracting(previousElements.keys)
-        let additionalBackingWindowIDsByRepresentative:
-          [WindowID: Set<WindowID>] = Dictionary(
-            uniqueKeysWithValues: processNativeTabGroups.compactMap {
-              representativeID, group in
-              guard let previousGroup =
-                  nativeWindowTabGroupsByWindowID[representativeID],
-                group.tabTitles.count == previousGroup.tabTitles.count + 1
-              else { return nil }
-              return (representativeID, newlyObservedProcessWindowIDs)
-            }
-          )
-        let nativeTabBackingIDsByRepresentative =
-          nativeTabBackingWindowIDsByRepresentative(
-            windows: windows.filter { $0.processID == processID },
-            groupsByRepresentativeID: processNativeTabGroups,
-            retainedWindowIDs: processRetainedWindowIDs,
-            additionalBackingWindowIDsByRepresentative:
-              additionalBackingWindowIDsByRepresentative
-          )
-        let nativeTabBackingIDs = Set(
-          nativeTabBackingIDsByRepresentative.values.flatMap { $0 }
+        // Without WindowServer records nothing departs; known groups carry over unchanged.
+        guard let records = publicCGWindows() else { continue }
+        let surfaces = Dictionary(
+          records.filter { $0.processID == processID }.map {
+            (WindowID(rawValue: UInt64($0.id)), NativeTabSurface(frame: $0.frame, isOnscreen: $0.isOnscreen))
+          },
+          uniquingKeysWith: { first, _ in first }
         )
-        if nativeTabBackingIDs.isEmpty == false {
-          for (representativeID, backingWindowIDs) in
-            nativeTabBackingIDsByRepresentative
-          {
-            nextNativeWindowTabGroups[representativeID]?.backingWindowIDs =
-              backingWindowIDs
-          }
-          windows.removeAll { nativeTabBackingIDs.contains($0.id) }
-          for windowID in nativeTabBackingIDs {
-            nextElements[windowID] = nil
-            nextProcessIDs[windowID] = nil
-            nextNativeWindowTabGroups[windowID] = nil
-          }
-          let representativeIDs = nativeTabBackingIDsByRepresentative.keys.sorted {
-            $0.rawValue < $1.rawValue
-          }.map { String($0.rawValue) }.joined(separator: ",")
-          let backingIDs = nativeTabBackingIDs.sorted {
-            $0.rawValue < $1.rawValue
-          }.map { String($0.rawValue) }.joined(separator: ",")
-          frameCoordinator.recordTrace(
-            "native-tabs pid=\(processID) representatives=[\(representativeIDs)] backing=[\(backingIDs)]"
+        let processWindows = windows.filter { $0.processID == processID }
+        let listedFrames = Dictionary(
+          processWindows.filter { !processRetainedWindowIDs.contains($0.id) }.map { ($0.id, $0.frame) },
+          uniquingKeysWith: { first, _ in first }
+        )
+        let previousTabGroups = nativeTabHiddenMembersByWindowID.filter { previousProcessIDs[$0.key] == processID }
+        let tabTransition = nativeTabTransition(
+          previousFrames: Dictionary(
+            // A destroyed visible tab still hands its slot to the revealed one; a minimized window does not.
+            previousWindows.filter { ignoredWindowReasonsByID[$0.id] == nil }.map { ($0.id, $0.frame) },
+            uniquingKeysWith: { first, _ in first }
+          ),
+          listedFrames: listedFrames,
+          tabbedIDs: tabbedWindowIDs,
+          hiddenMembersByVisibleID: previousTabGroups,
+          surfaces: surfaces
+        )
+        let hiddenTabWindowIDs = tabTransition.hiddenWindowIDs
+          .union(tabTransition.replacements.keys)
+        windows.removeAll { hiddenTabWindowIDs.contains($0.id) }
+        for windowID in hiddenTabWindowIDs {
+          nextElements[windowID] = nil
+          nextProcessIDs[windowID] = nil
+        }
+        for window in processWindows {
+          nextNativeTabHiddenMembers[window.id] = tabTransition.hiddenMembersByVisibleID[window.id]
+        }
+        windowIDReplacements.merge(tabTransition.replacements) { _, latest in latest }
+        // Accessibility and WindowServer report a tab change at different times, and both
+        // can still show the old tab when its event arrives: reread briefly.
+        nativeTabSettleDeadlines[processID] = nativeTabSettleDeadline(
+          previous: nativeTabSettleDeadlines[processID],
+          hasGroups: !tabTransition.hiddenMembersByVisibleID.isEmpty,
+          observedEvent: topologyProcessIDs.contains(processID),
+          settling: nativeTabGroupsAreSettling(
+            tabTransition.hiddenMembersByVisibleID,
+            listedFrames: listedFrames,
+            surfaces: surfaces
+          ),
+          now: discoveryNow
+        )
+        if let deadline = nativeTabSettleDeadlines[processID], deadline > discoveryNow {
+          recordProcessWindowRetryRead(
+            processID: processID, now: discoveryNow, retained: tabTransition.hiddenWindowIDs
           )
+          // A closed visible tab keeps its slot until Accessibility lists the revealed one.
+          for previousWindow in previousWindows
+          where nextElements[previousWindow.id] == nil
+            && tabTransition.hiddenMembersByVisibleID[previousWindow.id] != nil
+          {
+            guard let previousElement = previousElements[previousWindow.id] else { continue }
+            windows.append(previousWindow)
+            nextElements[previousWindow.id] = previousElement
+            nextProcessIDs[previousWindow.id] = processID
+            nextNativeTabHiddenMembers[previousWindow.id] =
+              tabTransition.hiddenMembersByVisibleID[previousWindow.id]
+          }
+        }
+        if !tabTransition.replacements.isEmpty || tabTransition.hiddenMembersByVisibleID != previousTabGroups {
+          let groups = tabTransition.hiddenMembersByVisibleID.sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue):\($0.value.map(\.rawValue).sorted())" }.joined(separator: ",")
+          let replaced = tabTransition.replacements.sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue)->\($0.value.rawValue)" }.joined(separator: ",")
+          frameCoordinator.recordTrace("native-tabs pid=\(processID) replaced=[\(replaced)] hidden=[\(groups)]")
         }
       }
     resolveTransientOwners(
@@ -805,15 +804,10 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         ? Set(nextProcessIDs.values)
         : topologyProcessIDs
     )
-    let liveNativeWindowTabGroups = nextNativeWindowTabGroups.filter {
+    nativeTabHiddenMembersByWindowID = nextNativeTabHiddenMembers.filter {
       nextElements[$0.key] != nil
     }
-    let windowIDReplacements = nativeWindowTabRepresentativeReplacements(
-      previousWindowIDs: Set(previousElements.keys),
-      nextWindowIDs: Set(nextElements.keys),
-      groupsByRepresentativeID: liveNativeWindowTabGroups
-    )
-    nativeWindowTabGroupsByWindowID = liveNativeWindowTabGroups
+    nativeTabSettleDeadlines = nativeTabSettleDeadlines.filter { nextApplications[$0.key] != nil }
     let titleMatchedIgnoredReasons = uniquelyMatchedCGWindowReasons(
       records: publicCGWindows() ?? [], candidatesByProcess: ignoredWindowCandidates
     )

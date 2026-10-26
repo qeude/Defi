@@ -25,7 +25,8 @@ final class PlatformEventMonitor {
     (_ pressedWindowID: WindowID?, _ type: NSEvent.EventType, _ pointer: CGPoint?) -> Void
   private var pressedWindowID: WindowID?
   private let borderStackingHandler: () -> Void
-  private let mouseGestureStartedHandler: () -> Void
+  /// A left press: with the window a plain click pressed, nil under a modifier.
+  private let mouseGestureStartedHandler: (_ clickedWindowID: WindowID?) -> Void
   private let now: () -> TimeInterval
   private let addNotification: (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError
   private let removeNotification: (AXObserver, AXUIElement, CFString) -> AXError
@@ -59,7 +60,7 @@ final class PlatformEventMonitor {
     windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
     liveFrameHandler: @escaping (WindowID?, NSEvent.EventType, CGPoint?) -> Void = { _, _, _ in },
     borderStackingHandler: @escaping () -> Void = {},
-    mouseGestureStartedHandler: @escaping () -> Void = {},
+    mouseGestureStartedHandler: @escaping (WindowID?) -> Void = { _ in },
     now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
     addNotification: @escaping (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError = AXObserverAddNotification,
     removeNotification: @escaping (AXObserver, AXUIElement, CFString) -> AXError = AXObserverRemoveNotification
@@ -284,7 +285,9 @@ final class PlatformEventMonitor {
       borderStackingHandler()
     }
     if actions.startsGesture {
-      mouseGestureStartedHandler()
+      // A modified click (Command keeps the app in the background) is not a focus.
+      let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+      mouseGestureStartedHandler(modifiers.isEmpty ? pressedWindowID : nil)
     }
     if actions.needsGestureSynchronization {
       handler(.mouse, nil)
@@ -675,6 +678,8 @@ final class PlatformEventMonitor {
       element: application,
       notifications: [
         kAXFocusedWindowChangedNotification,
+        // A native tab switch or close changes only the main window.
+        kAXMainWindowChangedNotification,
         kAXWindowCreatedNotification,
       ]
     ) {

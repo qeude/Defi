@@ -529,6 +529,12 @@ public final class MacOSPlatform {
     get { snapshotEngine.verifiedNativeFocusedWindowID }
     set { snapshotEngine.verifiedNativeFocusedWindowID = newValue }
   }
+  /// Defi focused one of this app's windows lately: its activation may be that focus's
+  /// echo, not the user's.
+  public nonisolated func internalFocusIsRecent(processID: pid_t) -> Bool {
+    let now = ProcessInfo.processInfo.systemUptime, owners = processIDs
+    return internalFocusSuppressions.contains { $0.value.deadline >= now && owners[$0.key] == processID }
+  }
   nonisolated var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
     get { snapshotEngine.internalFocusSuppressions }
     set { snapshotEngine.internalFocusSuppressions = newValue }

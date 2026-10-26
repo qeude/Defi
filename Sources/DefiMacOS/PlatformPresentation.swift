@@ -163,13 +163,15 @@ extension MacOSPlatform {
     _ handler: @escaping @NavigationActor @Sendable () -> Void,
     desktopSessionHandler: @escaping @NavigationActor @Sendable (Bool) -> Void = { _ in },
     displayConfigurationHandler: @escaping @NavigationActor @Sendable () -> Void = {},
-    mouseGestureStartedHandler: @escaping @NavigationActor @Sendable () -> Void = {},
-    mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {}
+    mouseGestureStartedHandler: @escaping @NavigationActor @Sendable (WindowID?) -> Void = { _ in },
+    mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {},
+    activatedWindowHandler: @escaping @NavigationActor @Sendable (WindowID, TimeInterval) -> Void = { _, _ in }
   ) {
     enqueuePresentation {
       $0.presentStartObserving(handler, desktopSessionHandler: desktopSessionHandler,
         displayConfigurationHandler: displayConfigurationHandler,
-        mouseGestureStartedHandler: mouseGestureStartedHandler, mouseGestureHandler: mouseGestureHandler)
+        mouseGestureStartedHandler: mouseGestureStartedHandler, mouseGestureHandler: mouseGestureHandler,
+        activatedWindowHandler: activatedWindowHandler)
     }
   }
 

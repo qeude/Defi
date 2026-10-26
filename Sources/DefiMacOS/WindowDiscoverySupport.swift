@@ -48,22 +48,6 @@ func windowDiscoveryCandidateComesFirst(
   return lhsIndex < rhsIndex
 }
 
-struct NativeWindowTabGroup: Equatable, Sendable {
-  let tabTitles: [String]
-  let selectedTabTitle: String?
-  var backingWindowIDs: Set<WindowID>
-
-  init(
-    tabTitles: [String],
-    selectedTabTitle: String? = nil,
-    backingWindowIDs: Set<WindowID> = []
-  ) {
-    self.tabTitles = tabTitles
-    self.selectedTabTitle = selectedTabTitle
-    self.backingWindowIDs = backingWindowIDs
-  }
-}
-
 func nativeTabGroupFrameIsInWindowChrome(
   _ tabGroupFrame: Rect,
   windowFrame: Rect
@@ -84,180 +68,122 @@ func nativeTabGroupFrameIsInWindowChrome(
     && tabGroupFrame.y + tabGroupFrame.height <= windowFrame.y + 96
 }
 
-func nativeWindowTabGroupRebindingKnownMembers(
-  _ detectedGroup: NativeWindowTabGroup,
-  representativeID: WindowID,
-  processID: pid_t,
-  previousGroupsByRepresentativeID: [WindowID: NativeWindowTabGroup],
-  previousProcessIDs: [WindowID: pid_t]
-) -> NativeWindowTabGroup {
-  if let previousGroup = previousGroupsByRepresentativeID[representativeID],
-    previousGroup.tabTitles.count <= detectedGroup.tabTitles.count
-  {
-    var rebound = detectedGroup
-    rebound.backingWindowIDs = previousGroup.backingWindowIDs
-    return rebound
-  }
-
-  let replacements = previousGroupsByRepresentativeID.filter {
-    previousRepresentativeID, previousGroup in
-    previousProcessIDs[previousRepresentativeID] == processID
-      && previousGroup.tabTitles.count == detectedGroup.tabTitles.count
-      && previousGroup.backingWindowIDs.contains(representativeID)
-  }
-  guard replacements.count == 1,
-    let replacement = replacements.first
-  else { return detectedGroup }
-
-  var reboundBackingWindowIDs = replacement.value.backingWindowIDs
-  reboundBackingWindowIDs.insert(replacement.key)
-  reboundBackingWindowIDs.remove(representativeID)
-  guard reboundBackingWindowIDs.count == detectedGroup.tabTitles.count
-    || reboundBackingWindowIDs.count + 1 == detectedGroup.tabTitles.count
-  else {
-    return detectedGroup
-  }
-  var rebound = detectedGroup
-  rebound.backingWindowIDs = reboundBackingWindowIDs
-  return rebound
+/// A native tab group is one logical window: Defi manages its visible member and remembers
+/// the hidden members by WindowServer ID. Titles never decide membership; siblings often
+/// share them. AppKit lists only the selected tab in Accessibility and orders the others
+/// out at the group's frame. WindowServer can still report the previous order when the
+/// Accessibility list already shows the new tab, so a new tab does not wait for it.
+///
+/// "Gone" means no longer listed, ordered out, or destroyed.
+///
+/// | Event              | Managed member V        | Newly listed window A      | Result                 |
+/// |--------------------|-------------------------|----------------------------|------------------------|
+/// | new tab            | any                     | at V's frame, AX tabs      | V -> A, hidden + V     |
+/// | new tab, no AX tabs| gone                    | at V's frame               | V -> A, hidden + V     |
+/// | switch tab         | gone                    | hidden H at V's frame      | V -> H, hidden + V - H |
+/// | close visible tab  | destroyed               | hidden H at V's frame      | V -> H, hidden - H     |
+/// | close hidden tab   | listed                  | none                       | hidden - H             |
+/// | new window, Cmd-N  | listed                  | elsewhere, or without tabs | new column             |
+/// | tab dragged out    | listed, moved           | H or the tab, elsewhere    | new column, released   |
+///
+/// A pair needs the same process, frames within `maximumFrameDistance`, and exactly one
+/// candidate on each side; anything else is ordinary window handling.
+struct NativeTabSurface: Equatable {
+  let frame: Rect
+  let isOnscreen: Bool
 }
 
-func nativeWindowTabRepresentativeReplacements(
-  previousWindowIDs: Set<WindowID>,
-  nextWindowIDs: Set<WindowID>,
-  groupsByRepresentativeID: [WindowID: NativeWindowTabGroup]
-) -> [WindowID: WindowID] {
-  let removedWindowIDs = previousWindowIDs.subtracting(nextWindowIDs)
-  let candidates = nextWindowIDs.subtracting(previousWindowIDs).compactMap {
-    representativeID -> (WindowID, WindowID)? in
-    guard let group = groupsByRepresentativeID[representativeID] else {
-      return nil
-    }
-    let previousRepresentatives = group.backingWindowIDs.intersection(
-      removedWindowIDs
-    )
-    guard previousRepresentatives.count == 1,
-      let previousRepresentativeID = previousRepresentatives.first
-    else { return nil }
-    return (previousRepresentativeID, representativeID)
-  }
-  let candidateCounts = Dictionary(grouping: candidates, by: \.0).mapValues(\.count)
-  return Dictionary(
-    uniqueKeysWithValues: candidates.filter { candidateCounts[$0.0] == 1 }
-  )
+struct NativeTabTransition: Equatable {
+  /// Previous visible member to the member that now represents the same logical window.
+  var replacements: [WindowID: WindowID] = [:]
+  var hiddenMembersByVisibleID: [WindowID: Set<WindowID>] = [:]
+
+  var hiddenWindowIDs: Set<WindowID> { Set(hiddenMembersByVisibleID.values.joined()) }
 }
 
-func nativeTabBackingWindowIDsByRepresentative(
-  windows: [Window],
-  groupsByRepresentativeID: [WindowID: NativeWindowTabGroup],
-  retainedWindowIDs: Set<WindowID> = [],
-  additionalBackingWindowIDsByRepresentative: [WindowID: Set<WindowID>] = [:],
-  maximumFrameDistance: Double = 8
-) -> [WindowID: Set<WindowID>] {
-  let representatives = Set(groupsByRepresentativeID.keys)
-  let windowsByID = Dictionary(windows.map { ($0.id, $0) }) { current, _ in current }
-  let uniqueWindows = Array(windowsByID.values)
-  var backingWindowIDsByRepresentative: [WindowID: Set<WindowID>] = [:]
-  var claimedWindowIDs = Set<WindowID>()
-
-  for representativeID in representatives.sorted(by: { $0.rawValue < $1.rawValue }) {
-    guard let representative = windowsByID[representativeID],
-      let processID = representative.processID,
-      let group = groupsByRepresentativeID[representativeID],
-      group.tabTitles.isEmpty == false
-    else { continue }
-
-    var directTabTitles = group.tabTitles
-    if let selectedTabTitle = group.selectedTabTitle,
-      let selectedIndex = directTabTitles.firstIndex(of: selectedTabTitle)
-    {
-      directTabTitles.remove(at: selectedIndex)
-    } else {
-      directTabTitles = []
-    }
-    var interpretations: [(titles: [String], requiresRetention: Bool)] = []
-    if group.backingWindowIDs.count <= group.tabTitles.count
-    {
-      interpretations.append((group.tabTitles, false))
-    }
-    if directTabTitles.isEmpty == false,
-      group.backingWindowIDs.count <= directTabTitles.count
-    {
-      interpretations.append((directTabTitles, true))
-    }
-
-    func matchingBackingWindowIDs(
-      titles: [String],
-      requiresRetention: Bool
-    ) -> Set<WindowID>? {
-      var remainingTitles = Dictionary(grouping: titles, by: { $0 }).mapValues(\.count)
-      let knownBackingWindows = group.backingWindowIDs.compactMap { windowsByID[$0] }
-        .filter { window in
-          representatives.contains(window.id) == false
-            && claimedWindowIDs.contains(window.id) == false
-            && window.processID == processID
-            && window.role == representative.role
-            && window.subrole == representative.subrole
-        }
-      guard knownBackingWindows.count <= titles.count else { return nil }
-      var backingWindowIDs = Set(knownBackingWindows.map(\.id))
-      for window in knownBackingWindows {
-        guard let count = remainingTitles[window.title], count > 0 else {
-          return nil
-        }
-        remainingTitles[window.title] = count - 1
-      }
-      remainingTitles = remainingTitles.filter { $0.value > 0 }
-
-      let eligibleCandidates = uniqueWindows.filter { window in
-        window.id != representativeID
-          && representatives.contains(window.id) == false
-          && claimedWindowIDs.contains(window.id) == false
-          && backingWindowIDs.contains(window.id) == false
-          && window.processID == processID
-          && window.role == representative.role
-          && window.subrole == representative.subrole
-          && remainingTitles[window.title] != nil
-          && (
-            !requiresRetention
-              || retainedWindowIDs.contains(window.id)
-              || additionalBackingWindowIDsByRepresentative[representativeID]?
-                .contains(window.id) == true
-          )
-      }
-      let nearbyCandidates = eligibleCandidates.filter {
-        frameDistance($0.frame, representative.frame) <= maximumFrameDistance
-      }
-      let nearbyTitles = Dictionary(grouping: nearbyCandidates, by: \.title)
-        .mapValues(\.count)
-      let eligibleTitles = Dictionary(grouping: eligibleCandidates, by: \.title)
-        .mapValues(\.count)
-      let candidates: [Window]
-      if nearbyTitles == remainingTitles {
-        candidates = nearbyCandidates
-      } else if eligibleTitles == remainingTitles {
-        candidates = eligibleCandidates
-      } else {
-        return nil
-      }
-      backingWindowIDs.formUnion(candidates.lazy.map(\.id))
-      return backingWindowIDs.count == titles.count ? backingWindowIDs : nil
-    }
-
-    let matches = interpretations.compactMap {
-      matchingBackingWindowIDs(
-        titles: $0.titles,
-        requiresRetention: $0.requiresRetention
-      )
-    }
-    guard let backingWindowIDs = matches.first,
-      matches.dropFirst().allSatisfy({ $0 == backingWindowIDs })
-    else { continue }
-    backingWindowIDsByRepresentative[representativeID] = backingWindowIDs
-    claimedWindowIDs.formUnion(backingWindowIDs)
+/// One process's transition between two snapshots.
+/// - Parameters:
+///   - previousFrames: windows managed in the previous snapshot.
+///   - listedFrames: windows the Accessibility list shows now, with their frames.
+///   - tabbedIDs: listed windows with an `AXTabGroup` of two or more tabs.
+///   - surfaces: the process's WindowServer records; a missing ID is destroyed.
+func nativeTabTransition(
+  previousFrames: [WindowID: Rect],
+  listedFrames: [WindowID: Rect],
+  tabbedIDs: Set<WindowID>,
+  hiddenMembersByVisibleID: [WindowID: Set<WindowID>],
+  surfaces: [WindowID: NativeTabSurface],
+  maximumFrameDistance: Double = 2
+) -> NativeTabTransition {
+  func near(_ lhs: Rect, _ rhs: Rect) -> Bool {
+    frameDistance(lhs, rhs) <= maximumFrameDistance
   }
+  let arrivals = listedFrames.filter { previousFrames[$0.key] == nil }
+  let pairs = previousFrames.flatMap { member, lastFrame in
+    let frame = surfaces[member]?.frame ?? lastFrame
+    let departed = listedFrames[member] == nil || surfaces[member]?.isOnscreen != true
+    let hidden = hiddenMembersByVisibleID[member] ?? []
+    return arrivals.compactMap { arrived, arrivedFrame -> (WindowID, WindowID)? in
+      // Only a new tab may claim a slot whose window is still listed; a known member
+      // waits for it to leave, or both would claim the slot in turn.
+      near(frame, arrivedFrame)
+        && (departed || (tabbedIDs.contains(arrived) && !hidden.contains(arrived)))
+        ? (member, arrived) : nil
+    }
+  }
+  let memberCounts = Dictionary(grouping: pairs, by: \.0).mapValues(\.count)
+  let arrivedCounts = Dictionary(grouping: pairs, by: \.1).mapValues(\.count)
+  var transition = NativeTabTransition()
+  var hidden = hiddenMembersByVisibleID.filter { previousFrames[$0.key] != nil }
+  for (member, arrived) in pairs
+  where memberCounts[member] == 1 && arrivedCounts[arrived] == 1 {
+    transition.replacements[member] = arrived
+    var members = hidden.removeValue(forKey: member) ?? []
+    members.insert(member)
+    members.remove(arrived)
+    hidden[arrived] = members
+  }
+  // A destroyed member is gone; one listed away from the group became an ordinary window.
+  transition.hiddenMembersByVisibleID = Dictionary(uniqueKeysWithValues: hidden.compactMap {
+    visible, members in
+    let groupFrame = listedFrames[visible] ?? surfaces[visible]?.frame
+    let kept = members.filter { member in
+      guard surfaces[member] != nil else { return false }
+      guard let listedFrame = listedFrames[member] else { return true }
+      return groupFrame.map { near(listedFrame, $0) } ?? false
+    }
+    return kept.isEmpty ? nil : (visible, kept)
+  })
+  return transition
+}
 
-  return backingWindowIDsByRepresentative
+/// Until when a process with native tab groups is reread: briefly after each of its events,
+/// and at most a second while its groups stay unsettled.
+func nativeTabSettleDeadline(
+  previous: TimeInterval?,
+  hasGroups: Bool,
+  observedEvent: Bool,
+  settling: Bool,
+  now: TimeInterval
+) -> TimeInterval? {
+  guard hasGroups else { return nil }
+  var deadline = previous
+  if settling, deadline == nil { deadline = now + 1 }
+  // The idle timer wakes at most every 0.3 s; leave room for two rereads.
+  if observedEvent { deadline = max(deadline ?? now, now + 0.7) }
+  return settling || deadline.map { $0 > now } == true ? deadline : nil
+}
+
+/// Accessibility and WindowServer still disagree about which member of a group is visible.
+func nativeTabGroupsAreSettling(
+  _ hiddenMembersByVisibleID: [WindowID: Set<WindowID>],
+  listedFrames: [WindowID: Rect],
+  surfaces: [WindowID: NativeTabSurface]
+) -> Bool {
+  hiddenMembersByVisibleID.contains { visible, members in
+    listedFrames[visible] == nil || surfaces[visible]?.isOnscreen != true
+      || members.contains { listedFrames[$0] != nil || surfaces[$0]?.isOnscreen == true }
+  }
 }
 
 struct AXWindowAttributes: Sendable {

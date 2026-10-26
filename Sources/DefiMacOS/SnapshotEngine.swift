@@ -587,9 +587,14 @@ final class SnapshotEngine: @unchecked Sendable {
     set { withLockedStorage { $0.windowManagementCapabilities = newValue } }
   }
 
-  var nativeWindowTabGroupsByWindowID: [WindowID: NativeWindowTabGroup] {
-    get { withLockedStorage { $0.nativeWindowTabGroupsByWindowID } }
-    set { withLockedStorage { $0.nativeWindowTabGroupsByWindowID = newValue } }
+  var nativeTabHiddenMembersByWindowID: [WindowID: Set<WindowID>] {
+    get { withLockedStorage { $0.nativeTabHiddenMembersByWindowID } }
+    set { withLockedStorage { $0.nativeTabHiddenMembersByWindowID = newValue } }
+  }
+
+  var nativeTabSettleDeadlines: [pid_t: TimeInterval] {
+    get { withLockedStorage { $0.nativeTabSettleDeadlines } }
+    set { withLockedStorage { $0.nativeTabSettleDeadlines = newValue } }
   }
 
   var enhancedUIByProcess: [pid_t: Bool] {
@@ -1037,6 +1042,8 @@ extension SnapshotEngine {
         privateWindowIDLookupCount += 1
       }
       if let axWindowID {
+        // The exact window is not listed yet: discovery retries rather than taking
+        // another window's identity.
         record =
           cgWindowRecordForDiscovery(
             axWindowID: axWindowID,
@@ -1046,7 +1053,7 @@ extension SnapshotEngine {
             frame: frame,
             records: eligibleCGWindows,
             excluding: usedCGWindowIDs
-          ) ?? record
+          ) ?? (record?.id == axWindowID ? record : nil)
       }
     }
     guard let resolvedWindowID = record?.id else {
@@ -1400,45 +1407,16 @@ extension SnapshotEngine {
     return frameFromAXValues(positionValue: positionValue, sizeValue: sizeValue)
   }
 
-  func nativeWindowTabGroup(
-    in element: AXUIElement,
-    windowFrame: Rect,
-    allowsTransientFrameMismatch: Bool = false
-  ) -> NativeWindowTabGroup? {
-    guard let children = copyElements(element, attribute: kAXChildrenAttribute) else {
-      return nil
-    }
-    for child in children {
-      guard value(child, attribute: kAXRoleAttribute, as: String.self) == kAXTabGroupRole,
-        let tabGroupFrame = frame(of: child),
-        allowsTransientFrameMismatch
-          || nativeTabGroupFrameIsInWindowChrome(
-            tabGroupFrame,
-            windowFrame: windowFrame
-          ),
-        let tabs = copyElements(child, attribute: kAXTabsAttribute),
-        tabs.count > 1
-      else { continue }
-      let selectedTabTitle: String?
-      if let selectedTabValue = copyAttribute(child, name: kAXValueAttribute),
-        CFGetTypeID(selectedTabValue) == AXUIElementGetTypeID()
-      {
-        selectedTabTitle = value(
-          selectedTabValue as! AXUIElement,
-          attribute: kAXTitleAttribute,
-          as: String.self
-        )
-      } else {
-        selectedTabTitle = nil
-      }
-      return NativeWindowTabGroup(
-        tabTitles: tabs.map {
-          value($0, attribute: kAXTitleAttribute, as: String.self) ?? ""
-        },
-        selectedTabTitle: selectedTabTitle
-      )
-    }
-    return nil
+  /// Accessibility evidence that a window shows native tabs: an `AXTabGroup` with two or
+  /// more tabs in its title bar.
+  func nativeWindowHasTabs(in element: AXUIElement, windowFrame: Rect) -> Bool {
+    copyElements(element, attribute: kAXChildrenAttribute)?.contains { child in
+      value(child, attribute: kAXRoleAttribute, as: String.self) == kAXTabGroupRole
+        && frame(of: child).map {
+          nativeTabGroupFrameIsInWindowChrome($0, windowFrame: windowFrame)
+        } == true
+        && (copyElements(child, attribute: kAXTabsAttribute)?.count ?? 0) > 1
+    } ?? false
   }
 
   func windowAttributes(
@@ -1596,7 +1574,8 @@ private struct Storage {
   var fallbackWindowAttributeReadCount = 0
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] =
     [:]
-  var nativeWindowTabGroupsByWindowID: [WindowID: NativeWindowTabGroup] = [:]
+  var nativeTabHiddenMembersByWindowID: [WindowID: Set<WindowID>] = [:]
+  var nativeTabSettleDeadlines: [pid_t: TimeInterval] = [:]
   var windowManagementMetadataReadCount = 0
   var windowManagementMetadataReuseCount = 0
   var privateWindowIDLookupCount = 0
@@ -1742,7 +1721,8 @@ extension SnapshotEngine {
       let retained = retainedWindowRefreshProcessIDs(
         retainedWindowIDs: state.retainedWindowIDs, processIDs: state.processIDs
       ).intersection(state.applications.keys)
-      let pending = Set(unmatched).union(failedLists).union(retained)
+      let settlingTabs = state.nativeTabSettleDeadlines.compactMap { $0.value > now ? $0.key : nil }
+      let pending = Set(unmatched).union(failedLists).union(retained).union(settlingTabs)
       var deadlines = state.processWindowRetryDeadlines.filter { pending.contains($0.key) }
       for pid in pending where deadlines[pid] == nil { deadlines[pid] = now + 0.1 }
       for (windowID, deadline) in state.retainedWindowDeadlines {

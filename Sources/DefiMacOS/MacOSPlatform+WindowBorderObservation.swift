@@ -34,8 +34,9 @@ extension MacOSPlatform {
     _ handler: @escaping @NavigationActor @Sendable () -> Void,
     desktopSessionHandler: @escaping @NavigationActor @Sendable (Bool) -> Void = { _ in },
     displayConfigurationHandler: @escaping @NavigationActor @Sendable () -> Void = {},
-    mouseGestureStartedHandler: @escaping @NavigationActor @Sendable () -> Void = {},
-    mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {}
+    mouseGestureStartedHandler: @escaping @NavigationActor @Sendable (WindowID?) -> Void = { _ in },
+    mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {},
+    activatedWindowHandler: @escaping @NavigationActor @Sendable (WindowID, TimeInterval) -> Void = { _, _ in }
   ) {
     guard eventMonitor == nil else { return }
     if observationMeasurementAccess == nil {
@@ -75,6 +76,42 @@ extension MacOSPlatform {
         createdElement: kind == .windowCreated ? element : nil,
         inputTimestamp: eventInputTimestamp
       )
+      // A window opening: the screen holds still until the ribbon opens it in its slot,
+      // instead of macOS drawing it over the others first. Accessory apps' popovers and
+      // panels are not windows to open in the ribbon.
+      if kind == .windowCreated, let processID, let element,
+        NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular {
+        NavigationActor.enqueue { [weak self] in self?.holdWindowProxiesForOpening(processID) }
+        // An app's later dialogs, panels and native tabs open where they are: checked
+        // after the hold, off the main thread, since the read waits on the app.
+        if (previousWindowCount ?? 0) > 0 {
+          let created = UncheckedSendable(value: element)
+          DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            let frame = ownWindowFrame(created.value)
+            NavigationActor.enqueue { [weak self] in
+              self?.releaseOpeningHoldUnlessOwnWindow(processID, at: frame)
+            }
+          }
+        }
+      }
+      // An app brought forward (Command-Tab, the Dock): its focused window alone is read, so
+      // the ribbon moves as at a keyboard command instead of after a read of all its windows.
+      if kind == .focus, let processID, let self,
+        let activation = userInputTracker.snapshot.applicationActivation, activation.processID == processID {
+        let elements = UncheckedSendable(value: self.elements)
+        Task.detached(priority: .userInteractive) {
+          guard let focused = applicationFocusedWindow(processID),
+            let windowID = elements.value.first(where: { CFEqual($0.value, focused) })?.key else { return }
+          NavigationActor.enqueue { activatedWindowHandler(windowID, activation.timestamp) }
+        }
+      }
+      // Only a destroyed window element resolves here: its ring goes before macOS's
+      // close animation, not after the next snapshot. A quit app's windows go at once.
+      let closing = kind == .windows ? windowID.map { [$0] } ?? []
+        : kind == .applicationTerminated ? (self?.processIDs.filter { $0.value == processID }.map(\.key) ?? []) : []
+      if !closing.isEmpty {
+        self?.enqueuePresentation { platform in closing.forEach(platform.borderManager.hideClosing) }
+      }
       if kind == .windowCreated || kind == .windows, let processID {
         self?.frameCoordinator.recordTrace(
           "window-event kind=\(String(describing: kind)) pid=\(processID)"
@@ -200,7 +237,7 @@ extension MacOSPlatform {
       windowEventHandler: { kind, processID, element in
         handleEvent(kind, processID, element)
       },
-      mouseGestureStartedHandler: { NavigationActor.enqueue { mouseGestureStartedHandler() } }
+      mouseGestureStartedHandler: { windowID in NavigationActor.enqueue { mouseGestureStartedHandler(windowID) } }
     )
     monitor.start()
     eventMonitor = monitor
@@ -495,7 +532,7 @@ extension MacOSPlatform {
     handler: @escaping (PlatformEventKind, pid_t?) -> Void,
     desktopSessionHandler: @escaping (DesktopSessionActivityChange) -> Void = { _ in },
     windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
-    mouseGestureStartedHandler: @escaping () -> Void = {}
+    mouseGestureStartedHandler: @escaping (WindowID?) -> Void = { _ in }
   ) -> PlatformEventMonitor {
     PlatformEventMonitor(
       handler: handler, userInputTracker: userInputTracker,
@@ -727,4 +764,15 @@ extension MacOSPlatform {
     CGEventSource.buttonState(.combinedSessionState, button: .left)
   }
 
+}
+
+/// The application's focused window, read with a short timeout: a busy app keeps the
+/// usual path, which reads its windows anyway.
+func applicationFocusedWindow(_ processID: pid_t) -> AXUIElement? {
+  let application = AXUIElementCreateApplication(processID)
+  AXUIElementSetMessagingTimeout(application, 0.1)
+  var value: CFTypeRef?
+  guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
+    let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+  return (value as! AXUIElement)
 }

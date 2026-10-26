@@ -71,29 +71,35 @@ identity from tab titles or assume the selected tab keeps one WindowServer ID.
 
 ## Current Defi path
 
-`nativeWindowTabGroup` finds an `AXTabGroup`, reads its tabs and selected item,
-and records the observed titles in
-[`SnapshotEngine.swift`](../../Sources/DefiMacOS/SnapshotEngine.swift#L995).
+AppKit lists only the selected tab in Accessibility. Inactive tabs stay in the
+WindowServer inventory, ordered out at the group's frame. Defi therefore keeps,
+per visible member, the IDs of its ordered-out members, and decides transitions
+from WindowServer state, never from titles.
 
-`nativeTabBackingWindowIDsByRepresentative` associates physical windows by
-process, role, subrole, title multiset, and frame proximity in
-[`WindowDiscoverySupport.swift`](../../Sources/DefiMacOS/WindowDiscoverySupport.swift#L134).
-Discovery removes those backing windows from the managed snapshot in
-[`MacOSPlatform+WindowSnapshotDiscovery.swift`](../../Sources/DefiMacOS/MacOSPlatform%2BWindowSnapshotDiscovery.swift#L560).
+`nativeWindowHasTabs` reads the `AXTabGroup` of a newly discovered window in
+[`SnapshotEngine.swift`](../../Sources/DefiMacOS/SnapshotEngine.swift).
+`nativeTabTransition` pairs, per process, a managed window that was ordered
+out or destroyed with a new on-screen window at the same frame, when the new
+window shows tabs or is a known hidden member, and only when the pair is unique.
+Its transition table lives with the code in
+[`WindowDiscoverySupport.swift`](../../Sources/DefiMacOS/WindowDiscoverySupport.swift).
+Discovery drops the departed and hidden members from the snapshot and emits the
+pair as `DesktopSnapshot.windowIDReplacements`; `reconcileWindows` migrates
+runtime state before remove and add handling in
+[`WindowReconciliation.swift`](../../Sources/DefiRuntime/WindowReconciliation.swift).
 
-`nativeWindowTabRepresentativeReplacements` forms a unique pair between a
-missing representative and a new representative that contains it among its
-backing IDs in
-[`WindowDiscoverySupport.swift`](../../Sources/DefiMacOS/WindowDiscoverySupport.swift#L109).
-`DesktopSnapshot.windowIDReplacements` carries that pair to
-`reconcileWindows`, which migrates runtime state before remove and add handling
-in [`WindowReconciliation.swift`](../../Sources/DefiRuntime/WindowReconciliation.swift#L164).
+A tab switch or the close of the visible tab posts only
+`kAXMainWindowChangedNotification`, so Defi observes it alongside the focused
+window. The Accessibility list and WindowServer can both still show the old tab
+when that event arrives; Defi rereads a process with tab groups briefly after
+each of its events, and for at most a second while a group stays unsettled.
 
-The discovery tests cover unique and ambiguous matches. Runtime tests cover
-column order, width, scroll, and focus preservation:
+When WindowServer records tie on frame, Quartz matching prefers the on-screen
+record, so a new window never borrows a hidden tab's ID.
 
-- [`WindowDiscoveryTests.swift`](../../Tests/DefiMacOSTests/WindowDiscoveryTests.swift#L1027)
-- [`WindowLifecycleTests.swift`](../../Tests/DefiRuntimeTests/WindowLifecycleTests.swift#L161)
+`script/native_tab_probe.py` drives a fixture through new tab, switch, close
+visible, close hidden, and a same-title new window, and reports the column
+count, neighbour movement, and overlay presentations per step.
 
 ## Remaining rule
 

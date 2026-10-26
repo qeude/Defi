@@ -24,5 +24,6 @@ print(ProcessInfo.processInfo.systemUptime, hit)
 for type in [CGEventType.leftMouseDown, .leftMouseUp] {
   CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?
     .post(tap: .cghidEventTap)
-  usleep(20_000)
+  // CLICK_HOLD_MS: how long the button stays down, a human click's 80 to 120 ms or the 20 ms default.
+  usleep(UInt32(ProcessInfo.processInfo.environment["CLICK_HOLD_MS"].flatMap(UInt32.init) ?? 20) * 1_000)
 }

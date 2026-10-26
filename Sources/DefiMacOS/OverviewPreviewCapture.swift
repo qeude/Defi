@@ -59,7 +59,7 @@ private let overviewCaptureLogger = Logger(subsystem: "com.qeude.defi", category
 
 struct OverviewCaptureTimeoutError: Error {}
 
-private struct UncheckedSendable<Value>: @unchecked Sendable { let value: Value }
+struct UncheckedSendable<Value>: @unchecked Sendable { let value: Value }
 
 // A ScreenCaptureKit call that never returns would hold the single limiter slot until
 // restart. Abandon it after the deadline so the next overview session can capture.

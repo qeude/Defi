@@ -1,3 +1,4 @@
+import CoreGraphics
 import DefiMacOS
 import DefiModel
 import DefiRuntime
@@ -107,6 +108,53 @@ extension Daemon {
         pointerFocusIgnoredCount += 1
       }
     }
+  }
+
+  /// A click on another window moves the ribbon at the press, as the keyboard does, instead
+  /// of after the button's release, macOS's activation and a read of the app's windows.
+  /// macOS focuses the window itself; its focus event then finds it already selected.
+  /// shortcut: a press macOS never turns into focus (a first-mouse drag out of a background
+  /// window) leaves the selection ahead of native focus until the next focus change; give it
+  /// back after the release if that proves common.
+  func focusClickedWindow(_ windowID: WindowID) {
+    selectNativeTarget(windowID, trace: "click-focus",
+      inputAt: platform.userInputTracker.snapshot.latestFocusIntent?.timestamp)
+  }
+
+  /// Command-Tab or the Dock brought this window's app forward. Defi's own focus work
+  /// activates apps too: after it focused this app lately, or a newer command, the usual
+  /// path decides.
+  func focusActivatedWindow(_ windowID: WindowID, activatedAt timestamp: TimeInterval) {
+    let input = platform.userInputTracker.snapshot
+    guard input.applicationActivation?.timestamp == timestamp,
+      timestamp > max(latestCommandInputTimestamp, input.latestCapturedCommandTimestamp),
+      let processID = state.windows[windowID]?.processID,
+      !platform.internalFocusIsRecent(processID: processID),
+      !CGEventSource.buttonState(.combinedSessionState, button: .left)
+    else { return }
+    selectNativeTarget(windowID, trace: "activation-focus", inputAt: timestamp)
+  }
+
+  /// Selects a window the user chose natively and moves the ribbon to it on the keyboard's
+  /// path. Only a window on an active workspace: a workspace switch keeps the usual path.
+  private func selectNativeTarget(_ windowID: WindowID, trace: String, inputAt: TimeInterval?) {
+    guard !shouldShutdown, !restorationInFlight, !overviewState.isOpen,
+      !platform.nativeFocusIsAppPopup,
+      let monitorID = focusWindowFromPointer(
+        windowID, activeMonitorID: activeMonitorID, state: &state, viewports: viewportsByMonitor)
+    else { return }
+    focus.interrupt()
+    platform.invalidateFocusRecovery(recoveringTo: windowID)
+    invalidateSubmittedCommandFocus(recoveringTo: windowID)
+    invalidateSubmittedWorkspaceFocus(recoveringTo: windowID)
+    cancelSubmittedPointerFocus(recoveringTo: windowID)
+    activeMonitorID = monitorID
+    platform.recordPerformanceTrace("\(trace) window=\(windowID.rawValue) inputAgeMs=\(inputAt.map { String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - $0) * 1_000) } ?? "none")")
+    platform.commitWindowBorderSelection(windowID)
+    startScrollAnimationsIfNeeded()
+    _ = dispatchScrollAnimationIfNeeded()
+    needsDesktopSync = true
+    updateMenuBar()
   }
 
   func finishPendingPointerFocusIfReady() {

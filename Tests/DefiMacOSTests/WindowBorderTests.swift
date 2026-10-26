@@ -465,6 +465,29 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
+  func closingWindowRingStaysHiddenWhilePlansStillTrackIt() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let windowID = WindowID(rawValue: 1)
+    func sync(_ frame: Rect) {
+      let plan = planWindowBorders(
+        frames: [FrameAssignment(windowID: windowID, frame: frame)],
+        selectedWindowID: windowID, hiddenWindowIDs: [], monitorFrames: [monitor], style: style
+      )
+      manager.sync(plan, displayedFrames: [windowID: frame], stacking: frontmostStacking(for: windowID))
+      manager.revealPendingBorders()
+    }
+    let frame = Rect(x: 100, y: 100, width: 800, height: 600)
+    manager.prepareForSelection(windowID, displayedFrame: frame)
+    sync(frame)
+    #expect(manager.showsActiveRing(for: windowID))
+    manager.hideClosing(windowID)
+    #expect(!manager.showsActiveRing(for: windowID))
+    sync(Rect(x: 104, y: 104, width: 792, height: 592))
+    #expect(!manager.showsActiveRing(for: windowID))
+  }
+
+  @Test @MainActor
   func selectionHandoffShowsTheNewWindowWhenOnlyTheOldOneWasHidden() {
     let manager = WindowBorderManager()
     defer { manager.hide() }

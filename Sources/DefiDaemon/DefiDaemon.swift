@@ -296,13 +296,18 @@ final class Daemon {
         guard self?.desktopSessionActive == true else { return }
         self?.scheduleDisplayReconciliation()
       },
-      mouseGestureStartedHandler: { [weak self] in
+      mouseGestureStartedHandler: { [weak self] clickedWindowID in
         guard self?.desktopSessionActive == true else { return }
         self?.beginMouseGesture()
+        if let clickedWindowID { self?.focusClickedWindow(clickedWindowID) }
       },
       mouseGestureHandler: { [weak self] in
         guard self?.desktopSessionActive == true else { return }
         self?.cancelAnimationForMouseGesture()
+      },
+      activatedWindowHandler: { [weak self] windowID, activatedAt in
+        guard self?.desktopSessionActive == true else { return }
+        self?.focusActivatedWindow(windowID, activatedAt: activatedAt)
       }
     )
 

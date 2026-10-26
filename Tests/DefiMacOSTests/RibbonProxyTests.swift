@@ -129,7 +129,35 @@ struct RibbonProxyTests {
     #expect(byID[b]?.to == Rect(x: 220, y: 40, width: 1000, height: 920))
   }
 
-  @Test func anotherWorkspacesParkedWindowStaysPutWhenTheRibbonMoves() {
+  @Test func openedColumnRidesTheScrollOfItsLeftNeighbour() {
+    let left = WindowID(rawValue: 1), opened = WindowID(rawValue: 2), right = WindowID(rawValue: 3)
+    func column(_ x: Double) -> Rect { Rect(x: x, y: 37, width: 744, height: 895) }
+    // Opened after the focused column: the ribbon scrolls 744 pt left, the right column
+    // also moves aside by the new column's width.
+    let plan = windowProxyMotion(
+      ribbonTargets: [left: column(18), opened: column(762), right: column(1506)],
+      otherTargets: [:],
+      previousLogical: [left: column(762), right: column(1506)],
+      observed: [left: column(762), opened: Rect(x: 120, y: 350, width: 640, height: 472), right: column(1506)])
+    let byID = Dictionary(uniqueKeysWithValues: plan.map { ($0.id, $0) })
+    #expect(byID[opened]?.from == column(1506))
+    #expect(byID[opened]?.to == column(762))
+  }
+
+  @Test func openedWindowLandsAtItsSlotHeightNotItsSpawnHeight() {
+    let previous = WindowID(rawValue: 1), opened = WindowID(rawValue: 2)
+    func column(_ x: Double) -> Rect { Rect(x: x, y: 37, width: 744, height: 895) }
+    // Opened just inside the window before it, as Ghostty does: 12 pt shorter.
+    let plan = windowProxyMotion(
+      ribbonTargets: [previous: column(18), opened: column(762)],
+      otherTargets: [:],
+      previousLogical: [previous: column(762)],
+      observed: [previous: column(762), opened: Rect(x: 768, y: 43, width: 732, height: 883)],
+      opened: [opened])
+    #expect(Dictionary(uniqueKeysWithValues: plan.map { ($0.id, $0) })[opened]?.to == column(762))
+  }
+
+    @Test func anotherWorkspacesParkedWindowStaysPutWhenTheRibbonMoves() {
     let a = WindowID(rawValue: 1), parked = WindowID(rawValue: 2)
     let corner = Rect(x: 1511, y: 907, width: 746, height: 898)
     let plan = windowProxyMotion(

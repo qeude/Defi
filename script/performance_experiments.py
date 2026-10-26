@@ -445,9 +445,11 @@ def wait_owned(fixtures, expected, workspace, discovered, require_focus=True, se
     error = 'No observation'
     while time.monotonic() < deadline:
         status = session.command('status')
-        monitors = json.loads(session.command('list-workspaces', '--json'))['monitors']
+        # The workload lives on its workspace's monitor; other displays only stay as they are.
+        monitors = [m for m in json.loads(session.command('list-workspaces', '--json'))['monitors']
+                    if any(w['id'] == workspace for w in m['workspaces'])]
         if len(monitors) != 1:
-            raise RuntimeError('Frozen native workload requires one monitor')
+            raise RuntimeError('Frozen native workload requires its workspace on one monitor')
         trace = session.command('trace')
         for group in re.findall(r'window-snapshot .*?discovered=\d+\[([\d,]*)\]', trace):
             discovered.update(int(value) for value in group.split(',') if value)

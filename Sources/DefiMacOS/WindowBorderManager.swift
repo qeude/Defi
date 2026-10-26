@@ -228,6 +228,8 @@ final class WindowBorderManager {
     lastPlan = plan
     lastDisplayedFrames = displayedFrames
     appliedPlans += 1
+    let now = CACurrentMediaTime()
+    closingUntil = closingUntil.filter { $0.value > now && trackedWindowIDs.contains($0.key) }
     radiusProvider.retain(
       windowIDs: trackedWindowIDs.union(overlays.keys)
     )
@@ -236,7 +238,8 @@ final class WindowBorderManager {
       reportedRadii = radii
       NavigationActor.enqueue { RibbonProxyPresenter.cornerRadii.merge(radii) { $1 } }
     }
-    let desiredAssignments = plan.inactive + [plan.active].compactMap { $0 }
+    let desiredAssignments = (plan.inactive + [plan.active].compactMap { $0 })
+      .filter { closingUntil[$0.windowID] == nil }
     let desiredWindowIDs = Set(desiredAssignments.map(\.windowID))
     for assignment in desiredAssignments where overlays[assignment.windowID] == nil {
       _ = reusableOrNewOverlay(
@@ -245,7 +248,7 @@ final class WindowBorderManager {
       )
     }
 
-    if let assignment = plan.active {
+    if let assignment = plan.active, closingUntil[assignment.windowID] == nil {
       if let overlay = overlays[assignment.windowID] {
         overlay.setStacking(
           stacking.targetWindowID == assignment.windowID
@@ -263,7 +266,7 @@ final class WindowBorderManager {
       }
     }
 
-    for assignment in plan.inactive {
+    for assignment in plan.inactive where closingUntil[assignment.windowID] == nil {
       guard let overlay = overlays[assignment.windowID] else { continue }
       overlay.setStacking(.inactive(for: assignment.windowID))
       overlay.sync(
@@ -292,6 +295,19 @@ final class WindowBorderManager {
       if spareOverlays.count < 4 { spareOverlays.append(overlay) } else { overlay.close() }
     }
     compositorCommitPending = true
+  }
+
+  /// Windows closing: plans keep them until the next snapshot drops them.
+  private var closingUntil: [WindowID: CFTimeInterval] = [:]
+  /// A closing window's ring goes at once: macOS shrinks the window for ~180 ms first,
+  /// which the ring would outline.
+  func hideClosing(_ windowID: WindowID) {
+    // shortcut: a window wrongly reported closed gets its ring back only with the next
+    // plan change after 1 s; track destroyed elements if one ever stays.
+    closingUntil[windowID] = CACurrentMediaTime() + 1
+    guard let overlay = overlays[windowID], overlay.isVisible else { return }
+    overlay.hide()
+    CATransaction.flush()
   }
 
   func hide() {

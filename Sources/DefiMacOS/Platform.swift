@@ -289,12 +289,16 @@ func stabilizedNativeFullscreenWindowIDs(
   detectedWindowIDs: Set<WindowID>,
   previousExitDeadlines: [WindowID: TimeInterval],
   explicitlyRemovedWindowIDs: Set<WindowID>,
+  restoredWindowIDs: Set<WindowID> = [],
   now: TimeInterval,
   exitGrace: TimeInterval = 0.75
 ) -> (windowIDs: Set<WindowID>, exitDeadlines: [WindowID: TimeInterval]) {
   // ponytail: one fixed Space-transition grace; tune only if real traces demand it.
+  // A window back on the desktop at its own size has finished exiting: the grace
+  // only held its layout, focus ring and placeholder about a second longer.
   var deadlines = previousExitDeadlines.filter {
     $0.value > now && !explicitlyRemovedWindowIDs.contains($0.key)
+      && !restoredWindowIDs.contains($0.key)
   }
   for windowID in detectedWindowIDs {
     deadlines[windowID] = now + exitGrace
@@ -350,6 +354,19 @@ func fullscreenFrameMatches(
     && abs(candidate.y - physicalFrame.y) <= tolerance
     && abs(candidate.width - physicalFrame.width) <= tolerance
     && abs(candidate.height - physicalFrame.height) <= tolerance
+}
+
+/// Windows whose own surface is on screen without covering a display.
+func restoredNativeFullscreenWindowIDs(
+  cgWindows: [CGWindowRecord],
+  monitors: [MonitorSnapshot]
+) -> Set<WindowID> {
+  Set(cgWindows.compactMap { record in
+    guard record.isOnscreen, record.layer == 0,
+      !monitors.contains(where: { activeFullscreenSurfaceMatches(record.frame, $0.physicalFrame) })
+    else { return nil }
+    return WindowID(rawValue: UInt64(record.id))
+  })
 }
 
 private func activeFullscreenSurfaceMatches(
@@ -509,6 +526,8 @@ func bestCGWindow(
       if abs(lhsDistance - rhsDistance) > 0.5 {
         return lhsDistance < rhsDistance
       }
+      // An ordered-out native tab shares its visible sibling's frame and often its title.
+      if lhs.isOnscreen != rhs.isOnscreen { return lhs.isOnscreen }
       return windowTitleMatchRank(lhs.title, title) < windowTitleMatchRank(rhs.title, title)
     }),
     frameDistance(closest.frame, frame) <= maximumDistance
@@ -538,6 +557,9 @@ func cgWindowDiscoveryNeedsExactID(
   if let preferredWindowID, preferredWindowID.rawValue != UInt64(closest.id) {
     return true
   }
+  // A hidden tab shares its group's title and frame: a new tab, not yet listed on
+  // screen, would otherwise take its identity.
+  if preferredWindowID == nil, !closest.isOnscreen { return true }
   let closestDistance = frameDistance(closest.frame, frame)
   let closestTitleRank = windowTitleMatchRank(closest.title, title)
   return records.contains { candidate in
@@ -545,6 +567,7 @@ func cgWindowDiscoveryNeedsExactID(
       && candidate.processID == processID
       && !usedWindowIDs.contains(candidate.id)
       && abs(frameDistance(candidate.frame, frame) - closestDistance) <= 0.5
+      && candidate.isOnscreen == closest.isOnscreen
       && windowTitleMatchRank(candidate.title, title) == closestTitleRank
   }
 }
@@ -620,6 +643,27 @@ private let automaticFloatingWindowSubroles: Set<String> = [
 private let automaticFloatingWindowApplicationIDs: Set<String> = [
   "com.apple.quicklook.quicklookuiservice"
 ]
+
+/// The frame of a titled document window outside a native tab group, read with a short
+/// timeout; nil for other windows or when the app does not answer.
+func ownWindowFrame(_ element: AXUIElement) -> Rect? {
+  AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+    var values: CFArray?
+    AXUIElementCopyMultipleAttributeValues(element,
+      [kAXSubroleAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXChildrenAttribute] as CFArray,
+      [], &values)
+    let read = values as? [AnyObject] ?? []
+    guard read.count == 4, read[0] as? String == kAXStandardWindowSubrole else { return nil }
+    let tabbed = (read[3] as? [AXUIElement] ?? []).contains { child in
+      var role: CFTypeRef?, tabs: CFTypeRef?
+      AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
+      guard role as? String == kAXTabGroupRole else { return false }
+      AXUIElementCopyAttributeValue(child, kAXTabsAttribute as CFString, &tabs)
+      return ((tabs as? [AXUIElement])?.count ?? 0) > 1
+    }
+    return tabbed ? nil : frameFromAXValues(positionValue: read[1], sizeValue: read[2])
+  }
+}
 
 /// App-drawn menus and palettes (Yab's action menu). AeroSpace, yabai, OmniWM and
 /// Amethyst never manage these subroles either; a modal one is a real dialog.

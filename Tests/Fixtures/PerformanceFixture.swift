@@ -7,6 +7,7 @@ private struct FixtureCommand: Decodable, Sendable {
   let id: String?
   let delay: Double?
   let period: Double?
+  let of: String?
 }
 
 @MainActor
@@ -52,6 +53,12 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
   }
   func windowDidBecomeKey(_ notification: Notification) { keyChanged(notification, key: true) }
   func windowDidResignKey(_ notification: Notification) { keyChanged(notification, key: false) }
+  func windowDidChangeOcclusionState(_ notification: Notification) {
+    guard let window = notification.object as? NSWindow else { return }
+    let id = windows.first { $0.value === window }?.key ?? "closed"
+    events.append(["kind": "occlusion", "id": id, "visible": window.occlusionState.contains(.visible),
+                   "at": ProcessInfo.processInfo.systemUptime])
+  }
   func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
     (client as? InputView)?.editor
   }
@@ -65,10 +72,12 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
     events.append(["kind": "button", "id": sender.identifier?.rawValue ?? "", "at": ProcessInfo.processInfo.systemUptime])
   }
 
-  private func create(_ id: String) {
+  /// `of` names an existing window whose title the new one copies; `tab` adds it to that window's native tab group,
+  /// `over` opens it just inside that window's frame, as Ghostty opens a new window over the focused one.
+  private func create(_ id: String, of parent: NSWindow? = nil, tab: Bool = false, over: Bool = false) {
     let window = NSWindow(contentRect: NSRect(x: 120, y: 160, width: 640, height: 440),
       styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-    window.title = "Defi Performance \(getpid()) \(id)"
+    window.title = parent?.title ?? "Defi Performance \(getpid()) \(id)"
     window.isReleasedWhenClosed = false
     window.delegate = self
     let input = InputView(string: "Type here to verify the keyboard recipient")
@@ -84,7 +93,11 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
     button.frame = NSRect(x: 24, y: 72, width: 160, height: 32)
     window.contentView?.addSubview(input)
     window.contentView?.addSubview(button)
+    // A distinct colour per window makes overlaps visible in screen recordings.
+    window.backgroundColor = NSColor(hue: CGFloat(windows.count) * 0.17, saturation: 0.55, brightness: 0.95, alpha: 1)
     windows[id] = window
+    if over, let parent { window.setFrame(parent.frame.insetBy(dx: 6, dy: 6), display: false) }
+    if tab, let parent { parent.addTabbedWindow(window, ordered: .above) }
     window.makeKeyAndOrderFront(nil)
     window.makeFirstResponder(input)
     NSApplication.shared.activate()
@@ -119,7 +132,7 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
     let top = NSScreen.screens.first?.frame.maxY ?? 0
     let rows = windows.sorted { $0.key < $1.key }.map { id, window -> [String: Any] in
       let frame = window.frame
-      return ["id": id, "windowNumber": window.windowNumber, "key": window.isKeyWindow,
+      return ["id": id, "windowNumber": window.windowNumber, "key": window.isKeyWindow, "visible": window.tabGroup.map { $0.selectedWindow === window } ?? window.isVisible,
               "frame": [frame.minX, top - frame.maxY, frame.width, frame.height]]
     }
     var value: [String: Any] = ["seq": seq, "pid": getpid(), "at": ProcessInfo.processInfo.systemUptime,
@@ -141,7 +154,7 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
       guard let id = value.id, !id.isEmpty, id.count <= 80, used.insert(id).inserted else {
         throw NSError(domain: "Invalid or reused window ID", code: 2)
       }
-      if value.command == "create" { create(id) }
+      if value.command == "create" { create(id, of: try value.of.map(existing)) }
       else {
         pending += 1
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [self] in
@@ -149,9 +162,29 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
           create(id)
         }
       }
+    case "tab":
+      guard let id = value.id, !id.isEmpty, id.count <= 80, used.insert(id).inserted else {
+        throw NSError(domain: "Invalid or reused window ID", code: 2)
+      }
+      create(id, of: try existing(value.of), tab: true)
+    case "over":
+      guard let id = value.id, !id.isEmpty, id.count <= 80, used.insert(id).inserted else {
+        throw NSError(domain: "Invalid or reused window ID", code: 2)
+      }
+      create(id, of: try existing(value.of), over: true)
+    case "select-tab":
+      let window = try existing(value.id)
+      window.tabGroup?.selectedWindow = window
+      window.makeKeyAndOrderFront(nil)
+      completed += 1
     case "close":
       guard let id = value.id, let window = windows[id] else { throw NSError(domain: "Unknown ID", code: 3) }
       window.close()
+      completed += 1
+    case "fullscreen":
+      guard let id = value.id, let window = windows[id] else { throw NSError(domain: "Unknown ID", code: 3) }
+      window.collectionBehavior.insert(.fullScreenPrimary)
+      window.toggleFullScreen(nil)
       completed += 1
     case "set-delay": delay = duration; completed += 1
     case "set-busy":
@@ -173,6 +206,11 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
     }
     report(seq: value.seq)
     if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+  }
+
+  private func existing(_ id: String?) throws -> NSWindow {
+    guard let id, let window = windows[id] else { throw NSError(domain: "Unknown ID", code: 3) }
+    return window
   }
 
   private func quit() {
