@@ -1,7 +1,6 @@
 import AppKit
 import DefiCore
 import DefiModel
-import ImageIO
 
 @MainActor
 protocol OverviewViewDelegate: AnyObject {
@@ -38,7 +37,8 @@ final class OverviewPanel {
   private var surfaceGeneration: UInt64 = 0
   var openingTransitionChanged: ((String) -> Void)?
   private var openingTransitionInProgress = false
-  private var desktopImageTask: Task<Void, Never>?
+  // The captured desktop shown, forgotten with the images so a reopen shows it again.
+  var capturedDesktop: CGImage?
 
   init(
     monitorID: MonitorID,
@@ -106,8 +106,6 @@ final class OverviewPanel {
   }
 
   func setDesktopImage(_ image: NSImage, fadeDuration: TimeInterval = 0) {
-    desktopImageTask?.cancel()
-    desktopImageTask = nil
     if usesCapturedDesktop {
       if fadeDuration > 0, desktopView.layer?.contents != nil {
         let transition = CATransition()
@@ -136,31 +134,6 @@ final class OverviewPanel {
       window.alphaValue = 1
       window.orderFrontRegardless()
     }
-    loadWallpaperIfNeeded()
-  }
-
-  // Decoded ahead of the first open so the panel never shows black while the wallpaper loads.
-  func loadWallpaperIfNeeded() {
-    guard !view.hasDesktopImage, desktopImageTask == nil else { return }
-    desktopImageTask = Task { @MainActor [weak self] in
-      guard !Task.isCancelled, let screen = self?.window.screen,
-        let url = NSWorkspace.shared.desktopImageURL(for: screen)
-      else { return }
-      let maximumSize = max(screen.frame.width, screen.frame.height) * screen.backingScaleFactor
-      let image = await Task.detached(priority: .utility) {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil as CGImage? }
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
-          kCGImageSourceCreateThumbnailFromImageAlways: true,
-          kCGImageSourceCreateThumbnailWithTransform: true,
-          kCGImageSourceThumbnailMaxPixelSize: maximumSize,
-          kCGImageSourceShouldCacheImmediately: true,
-        ] as CFDictionary)
-      }.value
-      guard !Task.isCancelled, let self else { return }
-      self.desktopImageTask = nil
-      guard !self.view.hasDesktopImage, let image else { return }
-      self.setDesktopImage(NSImage(cgImage: image, size: screen.frame.size))
-    }
   }
 
   func hide() {
@@ -180,7 +153,6 @@ final class OverviewPanel {
     glassView.alphaValue = 0
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
-    loadWallpaperIfNeeded()
     window.orderFrontRegardless()
     scene.animate(opening: true, duration: duration)
     NSAnimationContext.runAnimationGroup { context in
@@ -311,9 +283,8 @@ final class OverviewPanel {
 
   func discardImages() {
     cancelSurfaceTransition()
-    desktopImageTask?.cancel()
-    desktopImageTask = nil
     desktopView.layer?.contents = nil
+    capturedDesktop = nil
     view.discardPreviewImages()
     view.setDesktopImage(nil)
   }
@@ -331,8 +302,6 @@ final class OverviewPanel {
   }
 
   private func orderOut() {
-    desktopImageTask?.cancel()
-    desktopImageTask = nil
     view.discardPreviewImages()
     window.orderOut(nil)
   }
