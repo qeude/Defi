@@ -14,8 +14,18 @@ struct CheatsheetView: View {
     .scrollIndicators(.hidden)
     .scrollDisabled(layout.panelSize == layout.scaledSize)
     .frame(width: layout.panelSize.width, height: layout.panelSize.height)
-    // A flat tint keeps every row equally legible over any desktop.
-    .background(core.opacity(0.88), in: .rect(cornerRadius: 20))
+    // Solid at the top for legibility, then fading down into the glass.
+    .background(
+      LinearGradient(
+        stops: [
+          .init(color: core.opacity(0.94), location: 0),
+          .init(color: core.opacity(0.94), location: 0.4),
+          .init(color: core.opacity(0), location: 1),
+        ],
+        startPoint: .top, endPoint: .bottom
+      ),
+      in: .rect(cornerRadius: 20)
+    )
     .glassEffect(.regular, in: .rect(cornerRadius: 20))
   }
 
