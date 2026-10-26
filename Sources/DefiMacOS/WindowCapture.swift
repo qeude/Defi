@@ -327,8 +327,10 @@ final class WindowCaptureStore: @unchecked Sendable {
 
   /// Decompresses the reduced pictures among `ids` that the cap keeps at full resolution
   /// once restored, off the caller's thread; consumers swap to them when announced.
-  func restore(_ ids: [WindowID]) {
-    let work: [(WindowID, WindowPicture)] = locked {
+  /// Returns the reduced pictures among `ids` that become sharp.
+  @discardableResult
+  func restore(_ ids: [WindowID]) -> Set<WindowID> {
+    let (sharpening, work): (Set<WindowID>, [(WindowID, WindowPicture)]) = locked {
       // Planned as if every restorable picture were full: what fits is restored, and
       // the next budget pass keeps it rather than reducing it again.
       let plan = windowCaptureBudgetPlan(pictures.map { id, picture in
@@ -338,13 +340,13 @@ final class WindowCaptureStore: @unchecked Sendable {
           reducible: restorable != nil || picture.reducedByteCost != nil, shownAt: shown[id] ?? 0)
       }, limit: limit)
       let kept = Set(ids).subtracting(plan.reduce).subtracting(plan.drop)
-      return kept.compactMap { id in
-        guard let picture = pictures[id], picture.isReduced, picture.full != nil,
-          restoring.insert(id).inserted else { return nil }
+        .filter { pictures[$0]?.isReduced == true && pictures[$0]?.full != nil }
+      return (kept, kept.compactMap { id in
+        guard let picture = pictures[id], restoring.insert(id).inserted else { return nil }
         return (id, picture)
-      }
+      })
     }
-    guard !work.isEmpty else { return }
+    guard !work.isEmpty else { return sharpening }
     pixelQueue.async { [self] in
       for (id, picture) in work {
         // Per picture: Core Image and CoreVideo autorelease their full-size buffers.
@@ -360,6 +362,7 @@ final class WindowCaptureStore: @unchecked Sendable {
       enforceBudget()
       DispatchQueue.main.async { announceWindowCaptures() }
     }
+    return sharpening
   }
 
   /// Every picture becomes stale (kept as a stand-in until recaptured).
