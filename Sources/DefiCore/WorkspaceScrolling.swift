@@ -112,8 +112,9 @@ private func columnWidthsInViewports(
   windowsByID: [WindowID: Window],
   settings: LayoutSettings
 ) -> [Double] {
-  columnLayoutWidths(columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
-    .map { $0 / max(viewport.width, 1) }
+  let stripWidth = stripViewport(viewport, settings: settings).width
+  return columnLayoutWidths(columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
+    .map { $0 / stripWidth }
 }
 
 public func repairWorkspaceScroll(

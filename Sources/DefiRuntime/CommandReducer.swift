@@ -145,22 +145,21 @@ public func reduce(
           state.windows[windowID]?.minimumTiledWidth = nil
           state.windows[windowID]?.maximumTiledWidth = nil
         }
-        let minimumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
-          viewport in
-          guard viewport.width > 0 else { return nil }
+        let stripWidth = viewports[state.monitors[monitorIndex].id].map {
+          stripViewport($0, settings: state.layout).width
+        }
+        let minimumFraction: Double? = stripWidth.flatMap { stripWidth in
           let minimumWidth = column.windows.compactMap {
             state.windows[$0]?.minimumTiledWidth
           }.max()
-          return minimumWidth.map { $0 / viewport.width }
+          return minimumWidth.map { ($0 + horizontalGaps(settings: state.layout)) / stripWidth }
         }
-        let maximumFraction: Double? = viewports[state.monitors[monitorIndex].id].flatMap {
-          viewport in
-          guard viewport.width > 0 else { return nil }
+        let maximumFraction: Double? = stripWidth.flatMap { stripWidth in
           let maximumWidths = column.windows.compactMap {
             state.windows[$0]?.maximumTiledWidth
           }
           guard maximumWidths.count == column.windows.count else { return nil }
-          return maximumWidths.max().map { $0 / viewport.width }
+          return maximumWidths.max().map { ($0 + horizontalGaps(settings: state.layout)) / stripWidth }
         }
         var presets = layout.presetColumnWidths
         if column.windows.indices.contains(column.focusedWindow),
@@ -182,7 +181,7 @@ public func reduce(
           presets: presets,
           minimumFraction: minimumFraction,
           maximumFraction: maximumFraction,
-          viewportWidth: viewports[state.monitors[monitorIndex].id]?.width
+          viewportWidth: stripWidth
         )
         state.monitors[monitorIndex].workspaces[index].targetScrollOffset =
           focusedColumnLeftScrollOffset(

@@ -96,7 +96,8 @@ struct RuntimeFocusTests {
     )
 
     #expect(
-      abs(state.monitors[0].workspaces[0].targetScrollOffset - 0.1) <= 0.001
+      // The strip of the 1000-wide screen is 992 wide.
+      abs(state.monitors[0].workspaces[0].targetScrollOffset - (0.2 + 900.0 / 992 - 1)) <= 0.001
     )
   }
 

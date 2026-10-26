@@ -21,7 +21,9 @@ struct WorkspaceScrollingTests {
     )
 
     #expect(abs((workspace.targetScrollOffset) - (0.44)) <= 0.001)
-    #expect(abs((diff[1].frame.x) - (407.2)) <= 0.001)
+    // The 1432-wide strip starts 4 before the screen, so the window ends 8 before its edge.
+    #expect(abs((diff[1].frame.x) - (408.96)) <= 0.001)
+    #expect(abs(diff[1].frame.x + diff[1].frame.width - 1_432) <= 0.001)
   }
 
   @Test(arguments: [

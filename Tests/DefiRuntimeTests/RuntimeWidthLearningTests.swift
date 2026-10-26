@@ -412,7 +412,7 @@ struct RuntimeWidthLearningTests {
     )
 
     #expect(learned)
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(592))
   }
 
   @Test
@@ -511,7 +511,7 @@ struct RuntimeWidthLearningTests {
       viewports: [monitorID: viewport]
     ))
 
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(592))
     #expect(state.windows[id]?.minimumTiledWidth == 300)
     #expect(state.windows[id]?.maximumTiledWidth == 900)
     #expect(targets(state)[id]?.width == 576)
@@ -528,7 +528,7 @@ struct RuntimeWidthLearningTests {
       viewports: [monitorID: viewport]
     ))
 
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(500))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(492))
     #expect(state.windows[id]?.minimumTiledWidth == nil)
     #expect(state.windows[id]?.maximumTiledWidth == 900)
     #expect(targets(state)[id]?.width == 476)
@@ -545,7 +545,7 @@ struct RuntimeWidthLearningTests {
       viewports: [monitorID: viewport]
     ))
 
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(700))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(692))
     #expect(state.windows[id]?.minimumTiledWidth == 300)
     #expect(state.windows[id]?.maximumTiledWidth == nil)
     #expect(targets(state)[id]?.width == 676)
@@ -562,7 +562,7 @@ struct RuntimeWidthLearningTests {
       viewports: [monitorID: viewport]
     ))
 
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(400))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(392))
     #expect(state.windows[id]?.minimumTiledWidth == 376)
     #expect(targets(state)[id]?.width == 376)
   }
@@ -588,7 +588,7 @@ struct RuntimeWidthLearningTests {
 
     #expect(!learnTiledWindowWidth(
       id,
-      actualFrame: Rect(x: 12, y: 12, width: 476, height: 400),
+      actualFrame: Rect(x: 12, y: 12, width: 480, height: 400),
       state: &state,
       viewports: [monitorID: viewport]
     ))
@@ -596,7 +596,7 @@ struct RuntimeWidthLearningTests {
     #expect(state.monitors[0].workspaces[0].columns[0].width == .fraction(0.5))
     #expect(state.windows[id]?.minimumTiledWidth == 300)
     #expect(state.windows[id]?.maximumTiledWidth == nil)
-    #expect(targets(state)[id] == Rect(x: 12, y: 12, width: 476, height: 676))
+    #expect(targets(state)[id] == Rect(x: 12, y: 12, width: 480, height: 676))
   }
 
   @Test
@@ -647,7 +647,7 @@ struct RuntimeWidthLearningTests {
       viewports: [monitorID: viewport]
     ))
 
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(592))
     #expect(state.windows[sibling.id]?.maximumTiledWidth == 426)
     let frames = targets(state)
     #expect(frames[id]?.width == 576)
@@ -661,7 +661,7 @@ struct RuntimeWidthLearningTests {
       state: &state,
       viewports: [monitorID: viewport]
     ))
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(500))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(492))
     #expect(targets(state)[id]?.width == 676)
   }
 
@@ -680,7 +680,7 @@ struct RuntimeWidthLearningTests {
     ))
 
     #expect(state.windows[id]?.tiledSizeAcceptance == nil)
-    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(600))
+    #expect(state.monitors[0].workspaces[0].columns[0].width == .pixels(592))
     #expect(targets(state)[id]?.width == 576)
   }
 
@@ -703,12 +703,12 @@ struct RuntimeWidthLearningTests {
     // The column already has this width, so only the contradicted bound changes.
     #expect(!learnTiledWindowWidth(
       id,
-      actualFrame: Rect(x: 12, y: 12, width: 476, height: 332),
+      actualFrame: Rect(x: 12, y: 12, width: 480, height: 332),
       state: &state,
       viewports: [monitorID: viewport]
     ))
 
     #expect(state.windows[id]?.maximumTiledWidth == nil)
-    #expect(targets(state)[id]?.width == 476)
+    #expect(targets(state)[id]?.width == 480)
   }
 }

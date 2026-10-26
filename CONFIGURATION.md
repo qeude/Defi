@@ -57,8 +57,11 @@ reserved_bottom = 0
 | `reserved_top` | `0` | number from `0` to `512` | Additional top inset after the macOS visible frame, for bars extending below the native menu-bar exclusion. |
 | `reserved_bottom` | `0` | number from `0` to `512` | Additional bottom inset after the macOS visible frame. |
 
-Widths are monitor-relative fractions. Existing pixel widths learned from
-manual resize remain pixel-based and scale when monitor geometry changes.
+Widths are fractions of the monitor's usable width: the monitor width minus the
+left and right outer gaps, plus the space between two windows. Fractions summing to `1` fill the
+monitor exactly, with `gaps` between windows and the outer gap at each monitor
+edge, whichever column sits there. Existing pixel widths learned from manual
+resize remain pixel-based and scale when monitor geometry changes.
 
 Reserved values are extra insets, not raw bar dimensions. See
 [SketchyBar integration](contrib/sketchybar/README.md) for overlap calculation and live commands.

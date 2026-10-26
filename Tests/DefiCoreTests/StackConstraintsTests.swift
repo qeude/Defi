@@ -59,9 +59,9 @@ struct StackConstraintsTests {
     ).map(\.frame)
 
     #expect(frames == [
-      Rect(x: 8, y: 8, width: 484, height: 184),
-      Rect(x: 8, y: 200, width: 484, height: 500),
-      Rect(x: 8, y: 708, width: 484, height: 184),
+      Rect(x: 8, y: 8, width: 488, height: 184),
+      Rect(x: 8, y: 200, width: 488, height: 500),
+      Rect(x: 8, y: 708, width: 488, height: 184),
     ])
   }
 

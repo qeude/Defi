@@ -33,7 +33,7 @@ struct WindowLayoutTests {
       diff[0]
         == FrameAssignment(
           windowID: WindowID(rawValue: 1),
-          frame: Rect(x: 8, y: 88, width: 304, height: 624)
+          frame: Rect(x: 8, y: 88, width: 312, height: 624)
         ))
   }
 
@@ -253,8 +253,8 @@ struct WindowLayoutTests {
     #expect(normalLayout[1].frame.x == 661)
   }
 
-  @Test(arguments: [(4.0, true), (5.0, false)])
-  func `Accepted compact size survives only gap-edge request shifts`(shift: Double, reused: Bool) {
+  @Test(arguments: [(0.0, true), (4.0, false)])
+  func `Accepted compact size survives only its own width request`(shift: Double, reused: Bool) {
     let gaps = LayoutSettings(
       innerHorizontalGap: 4, innerVerticalGap: 4,
       outerTopGap: 8, outerRightGap: 8,
@@ -266,9 +266,10 @@ struct WindowLayoutTests {
       frame: Rect(x: 0, y: 0, width: 385, height: 841),
       maximumTiledHeight: 1_368
     )
-    // In the middle the request is 0.44 * 2560 - 4 - 4 = 1118.4 wide and 1352 tall.
+    // The strip is 2560 - 8 - 8 + 4 + 4 wide, so the request is 0.44 * 2552 - 4 - 4
+    // = 1114.88 wide and 1352 tall wherever the column sits.
     device.tiledSizeAcceptance = TiledSizeAcceptance(
-      requested: Rect(x: 0, y: 0, width: 1_118.4 + shift, height: 1_352),
+      requested: Rect(x: 0, y: 0, width: 1_114.88 + shift, height: 1_352),
       accepted: device.frame
     )
     let others = [WindowID(rawValue: 2), WindowID(rawValue: 3)].map {

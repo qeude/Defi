@@ -270,7 +270,7 @@ extension Daemon {
         logicalValue: workspace.scrollOffset,
         expectedMinusDisplayedDeltas: deltas,
         maximumAbsoluteDelta: viewport.width,
-        logicalScale: viewport.width
+        logicalScale: stripViewport(viewport, settings: state.layout).width
       )
     else {
       return

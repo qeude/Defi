@@ -221,8 +221,9 @@ public func separateInfeasibleStacks(
   let widths = columnLayoutWidths(
     workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings
   )
+  let stripWidth = stripViewport(viewport, settings: settings).width
   let shift = insertedLeftOfFocus.reduce(0.0) { total, index in
-    total + widths[index] / max(viewport.width, 1)
+    total + widths[index] / stripWidth
   }
   workspace.scrollOffset += shift
   workspace.targetScrollOffset += shift

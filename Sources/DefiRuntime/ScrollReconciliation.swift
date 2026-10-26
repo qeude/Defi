@@ -124,10 +124,10 @@ public func learnTiledWindowWidth(
   // scrolls by the same amount, as the overlay showed during the drag.
   let leftEdgeShift = learned.targetX - actualFrame.x
   if abs(leftEdgeShift) >= 1,
-    let viewportWidth = viewports[state.monitors[learned.monitorIndex].id]?.width, viewportWidth > 0
+    let viewport = viewports[state.monitors[learned.monitorIndex].id]
   {
     state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex].scrollOffset +=
-      leftEdgeShift / viewportWidth
+      leftEdgeShift / stripViewport(viewport, settings: state.layout).width
   }
   synchronizeScrollOffsets(state: &state, viewports: viewports)
   return true
@@ -220,12 +220,11 @@ private func tiledWindowWidthLearning(
       let configuredSlotWidth: Double
       switch workspace.columns[columnIndex].width {
       case .fraction(let fraction):
-        configuredSlotWidth = viewport.width * fraction
+        configuredSlotWidth = stripViewport(viewport, settings: state.layout).width * fraction
       case .pixels(let width):
         configuredSlotWidth = width
       }
-      let gaps = horizontalGaps(
-        columnIndex: columnIndex, columnCount: workspace.columns.count, settings: state.layout)
+      let gaps = horizontalGaps(settings: state.layout)
       let minimumTiledWidth = workspace.columns[columnIndex].windows.compactMap {
         state.windows[$0]?.minimumTiledWidth
       }.max().map { $0 + gaps } ?? 0

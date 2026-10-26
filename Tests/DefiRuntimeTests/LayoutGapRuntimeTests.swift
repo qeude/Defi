@@ -81,7 +81,7 @@ struct LayoutGapRuntimeTests {
     )[1].frame
 
     #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0)
-    #expect(frame.x + frame.width == 994)
+    #expect(frame.x + frame.width == 992)
 
     state.monitors[0].workspaces[workspaceIndex].scrollOffset = 0.5
     synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
@@ -94,7 +94,7 @@ struct LayoutGapRuntimeTests {
     )[1].frame
 
     #expect(state.monitors[0].workspaces[workspaceIndex].targetScrollOffset == 0.5)
-    #expect(leftAlignedFrame.x == 6)
+    #expect(leftAlignedFrame.x == 8)
   }
 
   @Test
