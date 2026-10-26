@@ -669,9 +669,13 @@ final class DesktopE2ETests: XCTestCase {
           last = Date()
           controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
         }
+        // Defi captures the desktop itself, whatever the wallpaper is.
         return WindowCaptureStore.shared.picture(windowID).map {
           !$0.isReduced && $0.processID == processID && $0.appID == appID
-        } == true
+        } == true && screens.allSatisfy { screen in
+          self.monitorID(of: screen).flatMap { CGDirectDisplayID(exactly: $0.rawValue) }
+            .flatMap(WindowCaptureStore.shared.background) != nil
+        }
       }
     }
     let ready = await prepareUntilReady()

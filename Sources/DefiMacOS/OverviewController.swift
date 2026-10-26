@@ -190,7 +190,6 @@ public final class OverviewController: NSObject {
   // Keyed by a non-owning identity: a released picture must not stay resident here.
   private var blurredPreviews: [WindowID: (source: ObjectIdentifier, image: CGImage?)] = [:]
   private var blurTask: Task<Void, Never>?
-  private var shownDesktops: [MonitorID: CGImage] = [:]
   // Bounded per session: a failing wallpaper capture is retried on later updates.
   private var desktopRequests = 0
   private static let desktopRequestLimit = 5
@@ -413,7 +412,6 @@ public final class OverviewController: NSObject {
       }
     guard !canReusePanels else { return }
     closePanelsImmediately()
-    shownDesktops.removeAll()
     for monitorID in monitorIDs {
       guard let screen = screen(for: monitorID) else { continue }
       let panel = OverviewPanel(
@@ -424,7 +422,6 @@ public final class OverviewController: NSObject {
         self?.recordOpeningTransition(event, monitorID: monitorID)
       }
       panels[monitorID] = panel
-      if panel.usesCapturedDesktop { panel.loadWallpaperIfNeeded() }
     }
   }
 
@@ -1408,8 +1405,8 @@ public final class OverviewController: NSObject {
     for (monitorID, panel) in panels {
       guard let displayID = CGDirectDisplayID(exactly: monitorID.rawValue),
         let background = WindowCaptureStore.shared.background(displayID),
-        background !== shownDesktops[monitorID] else { continue }
-      shownDesktops[monitorID] = background
+        background !== panel.capturedDesktop else { continue }
+      panel.capturedDesktop = background
       // The full-resolution wallpaper the ribbon uses; the layer scales it.
       panel.setDesktopImage(NSImage(cgImage: background, size: panel.window.frame.size),
         fadeDuration: panel.view.hasDesktopImage ? fadeDuration : 0)
