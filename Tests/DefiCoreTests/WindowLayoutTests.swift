@@ -137,6 +137,32 @@ struct WindowLayoutTests {
   }
 
   @Test
+  func `A neighbour that settled its own height does not absorb`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: [1, 2].map { Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5)) }
+    )
+    var windows = [1, 2].map {
+      Window(id: WindowID(rawValue: UInt64($0)), appID: "app", title: "",
+        frame: Rect(x: 0, y: 0, width: 1268, height: 1384))
+    }
+    windows[0].tiledSizeAcceptance = TiledSizeAcceptance(
+      requested: Rect(x: 8, y: 8, width: 1268, height: 1384),
+      accepted: Rect(x: 8, y: 8, width: 1266, height: 1384))
+    windows[1].tiledSizeAcceptance = TiledSizeAcceptance(
+      requested: Rect(x: 1284, y: 8, width: 1268, height: 1384),
+      accepted: Rect(x: 1284, y: 8, width: 1268, height: 1380))
+    let frames = computeLayout(
+      workspace: workspace, viewport: Rect(x: 0, y: 0, width: 2560, height: 1400),
+      windows: windows, settings: settings
+    ).map(\.frame)
+    #expect(frames == [
+      Rect(x: 8, y: 8, width: 1266, height: 1384),
+      Rect(x: 1282, y: 10, width: 1268, height: 1380),
+    ])
+  }
+
+  @Test
   func `Columns that all snap keep their gaps and leave the difference at the outer edge`() {
     #expect(halfColumns(settled: [1: 1266, 2: 1266]) == [
       Rect(x: 8, y: 8, width: 1266, height: 1384),

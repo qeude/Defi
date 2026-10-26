@@ -60,7 +60,9 @@ reserved_bottom = 0
 Widths are fractions of the monitor's usable width: the monitor width minus the
 left and right outer gaps, plus the space between two windows. Fractions summing to `1` fill the
 monitor exactly, with `gaps` between windows and the outer gap at each monitor
-edge, whichever column sits there. Existing pixel widths learned from manual
+edge, whichever column sits there. When an app keeps a size a few points off,
+such as a terminal sized to whole characters, a neighbouring column takes up
+the difference, or the outer gap when every column does so. Existing pixel widths learned from manual
 resize remain pixel-based and scale when monitor geometry changes.
 
 Reserved values are extra insets, not raw bar dimensions. See

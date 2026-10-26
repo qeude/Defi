@@ -182,7 +182,11 @@ public func columnLayoutWidths(
   let absorbs = columns.indices.map { columnIndex in
     sizes[columnIndex].width == sizes[columnIndex].preferred
       && columns[columnIndex].windows.allSatisfy { windowID in
-        windowsByID[windowID].map { !$0.intrinsicSize && $0.maximumTiledWidth == nil } ?? true
+        // A size the app settled at, or a width bound, would not follow an absorbed width.
+        windowsByID[windowID].map {
+          !$0.intrinsicSize && $0.tiledSizeAcceptance == nil
+            && $0.minimumTiledWidth == nil && $0.maximumTiledWidth == nil
+        } ?? true
       }
   }
   var widths = sizes.map(\.width)
