@@ -83,8 +83,15 @@ extension Daemon {
       }
       guard let viewport = viewports[monitor.id] else { continue }
       let otherDisplays = latestMonitors.filter { $0.id != monitor.id }.map(\.physicalFrame)
-      let park = {
-        parkedFrame($0, display: monitorSnapshot.physicalFrame,
+      // Parking moves a window without resizing it, so its spot follows its real size;
+      // the layout size would leave a lasting size mismatch, learnt as width rounding.
+      let park = { [windows = state.windows] (assignment: FrameAssignment) -> Rect in
+        var frame = assignment.frame
+        if let size = windows[assignment.windowID]?.frame {
+          frame.width = size.width
+          frame.height = size.height
+        }
+        return parkedFrame(frame, display: monitorSnapshot.physicalFrame,
           visibleFrame: monitorSnapshot.frame, otherDisplays: otherDisplays)
       }
       var monitorAssignments: [FrameAssignment] = []
@@ -148,7 +155,7 @@ extension Daemon {
           monitorHiddenWindowIDs.formUnion(sizedFrames.map(\.windowID))
           let floatingFrames = floatingAssignments(in: workspace)
           let parked = (sizedFrames + floatingFrames).map {
-            FrameAssignment(windowID: $0.windowID, frame: park($0.frame))
+            FrameAssignment(windowID: $0.windowID, frame: park($0))
           }
           monitorHiddenWindowIDs.formUnion(floatingFrames.map(\.windowID))
           monitorAssignments.append(contentsOf: parked)

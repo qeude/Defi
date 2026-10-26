@@ -31,7 +31,7 @@ public struct ContinuousStripPlan: Equatable, Sendable {
 public func continuousStripFramesForActiveWorkspace(
   _ frames: [FrameAssignment],
   viewport: Rect,
-  park: (Rect) -> Rect
+  park: (FrameAssignment) -> Rect
 ) -> ContinuousStripPlan {
   var visibility: [WindowID: WindowVisibilityState] = [:]
   let planned = frames.map { assignment in
@@ -43,7 +43,7 @@ public func continuousStripFramesForActiveWorkspace(
       return assignment
     }
     visibility[assignment.windowID] = .parked
-    return FrameAssignment(windowID: assignment.windowID, frame: park(assignment.frame))
+    return FrameAssignment(windowID: assignment.windowID, frame: park(assignment))
   }
   return ContinuousStripPlan(frames: planned, visibilityByWindowID: visibility)
 }

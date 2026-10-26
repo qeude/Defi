@@ -91,7 +91,7 @@ struct DisplayArrangementTests {
         ))
         let strip = continuousStripFramesForActiveWorkspace(
           [partial], viewport: owner,
-          park: { parkedFrame($0, display: owner, visibleFrame: owner, otherDisplays: [neighbor]) }
+          park: { parkedFrame($0.frame, display: owner, visibleFrame: owner, otherDisplays: [neighbor]) }
         )
         #expect(strip.parkedWindowIDs.isEmpty)
         #expect(strip.frames == [partial])

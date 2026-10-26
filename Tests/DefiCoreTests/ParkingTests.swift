@@ -100,7 +100,7 @@ struct ParkingTests {
       continuousStripFramesForActiveWorkspace(
         [FrameAssignment(windowID: id, frame: Rect(x: x, y: 40, width: 1_200, height: 900))],
         viewport: external.visible,
-        park: { park($0, on: external, among: [builtInRight]) }
+        park: { park($0.frame, on: external, among: [builtInRight]) }
       ).frames[0].frame
     }
     #expect(parked == Array(
@@ -113,7 +113,7 @@ struct ParkingTests {
     let frame = Rect(x: -1_200 + overlap, y: 40, width: 1_200, height: 900)
     let plan = continuousStripFramesForActiveWorkspace(
       [FrameAssignment(windowID: id, frame: frame)],
-      viewport: external.frame, park: { park($0, on: external, among: []) }
+      viewport: external.frame, park: { park($0.frame, on: external, among: []) }
     )
     #expect(plan.frames[0].frame == (overlap > 1
       ? frame : Rect(x: -1_199, y: 40, width: 1_200, height: 900)))
