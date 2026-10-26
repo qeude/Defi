@@ -183,17 +183,19 @@ struct OverviewPreviewTests {
 
   @Test
   func `Capture budget keeps recent windows sharp, reduces older ones, then drops`() {
-    func entry(_ id: UInt64, bytes: Int, reduced: Int?, shown: TimeInterval) -> WindowCaptureBudgetEntry {
-      WindowCaptureBudgetEntry(id: WindowID(rawValue: id), bytes: bytes, reducedBytes: reduced, shownAt: shown)
+    func entry(_ id: UInt64, bytes: Int, reducible: Bool, shown: TimeInterval) -> WindowCaptureBudgetEntry {
+      WindowCaptureBudgetEntry(id: WindowID(rawValue: id), bytes: bytes, reducible: reducible, shownAt: shown)
     }
     let entries = [
-      entry(1, bytes: 40, reduced: 4, shown: 30),
-      entry(2, bytes: 40, reduced: 4, shown: 20),
-      entry(3, bytes: 20, reduced: 2, shown: 10),
-      entry(4, bytes: 40, reduced: 4, shown: 5),
+      entry(1, bytes: 40, reducible: true, shown: 30),
+      entry(2, bytes: 40, reducible: true, shown: 20),
+      entry(3, bytes: 20, reducible: true, shown: 10),
+      entry(4, bytes: 40, reducible: true, shown: 5),
       // Older but small enough to fit: still reduced, recency alone decides.
-      entry(6, bytes: 3, reduced: 1, shown: 1),
-      entry(5, bytes: 9, reduced: nil, shown: 0),
+      entry(6, bytes: 3, reducible: true, shown: 1),
+      // Already reduced: costs nothing against the cap and is kept.
+      entry(7, bytes: 0, reducible: false, shown: 0),
+      entry(5, bytes: 11, reducible: false, shown: 0),
     ]
     let plan = windowCaptureBudgetPlan(entries, limit: 90)
     #expect(plan.reduce == [3, 4, 6].map { WindowID(rawValue: $0) })
@@ -205,17 +207,17 @@ struct OverviewPreviewTests {
   @Test
   func `Store reduces the least recently shown picture, then releases all under pressure`() async throws {
     func picture() throws -> WindowPicture {
-      let context = try #require(CGContext(data: nil, width: 1_024, height: 1_024, bitsPerComponent: 8,
+      let context = try #require(CGContext(data: nil, width: 2_048, height: 2_048, bitsPerComponent: 8,
         bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
       return WindowPicture(contents: try #require(context.makeImage()),
-        size: CGSize(width: 512, height: 512), capturedAt: 1, pixelScale: 2)
+        size: CGSize(width: 1_024, height: 1_024), capturedAt: 1, pixelScale: 2)
     }
     let full = try picture()
     let store = WindowCaptureStore(byteLimit: full.byteCost + full.byteCost / 2)
     let old = WindowID(rawValue: 1), recent = WindowID(rawValue: 2)
     func refresh(_ id: WindowID) -> RibbonProxyRefresh {
-      RibbonProxyRefresh(id: id, appID: "app", processID: 42, frame: Rect(x: 0, y: 0, width: 512, height: 512),
+      RibbonProxyRefresh(id: id, appID: "app", processID: 42, frame: Rect(x: 0, y: 0, width: 1_024, height: 1_024),
         distance: 0)
     }
     store.markShown([old])
@@ -228,9 +230,78 @@ struct OverviewPreviewTests {
     while store.reducedCount == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
     #expect(store.picture(old)?.isReduced == true)
     #expect(store.picture(recent)?.isReduced == false)
-    #expect(store.byteCount <= full.byteCost + full.byteCost / 2)
+    #expect(store.byteCount < full.byteCost + full.byteCost / 2)
     store.applyMemoryPressure(.critical)
     #expect(store.count == 0)
+  }
+
+  /// A WindowServer-layout capture (BGRA, premultiplied): runs of pixels, like window content.
+  private func windowServerPicture(width: Int, height: Int) throws -> WindowPicture {
+    let space = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+    let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+      bytesPerRow: width * 4, space: space, bitmapInfo: windowPixelsBitmapInfo.rawValue))
+    let pixels = try #require(context.data).assumingMemoryBound(to: UInt32.self)
+    for index in 0..<(width * height) { pixels[index] = 0xFF00_0000 | UInt32(index / 16 & 0x00FF_FFFF) }
+    return WindowPicture(contents: try #require(context.makeImage()),
+      size: CGSize(width: width / 2, height: height / 2), capturedAt: 3, pixelScale: 2)
+  }
+
+  private func bytes(_ image: CGImage?) -> [UInt8] {
+    guard let image, let context = CGContext(data: nil, width: image.width, height: image.height,
+      bitsPerComponent: 8, bytesPerRow: image.width * 4, space: image.colorSpace!,
+      bitmapInfo: windowPixelsBitmapInfo.rawValue) else { return [] }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    return Array(UnsafeBufferPointer(start: context.data!.assumingMemoryBound(to: UInt8.self),
+      count: image.width * image.height * 4))
+  }
+
+  @Test
+  func `Reduced picture restores its full pixels, size and colours`() throws {
+    var full = try windowServerPicture(width: 2_600, height: 1_400)
+    full.appID = "app"; full.processID = 42
+    let reduced = try #require(full.reduced())
+    #expect(reduced.isReduced && reduced.full != nil)
+    let compressed = try #require(reduced.full?.data.count)
+    #expect(compressed < full.byteCost)
+    let restored = try #require(reduced.restored())
+    #expect(!restored.isReduced && restored.buffer != nil)
+    #expect(restored.size == full.size && restored.pixelScale == 2 && restored.capturedAt == 3)
+    #expect(restored.appID == "app" && restored.processID == 42)
+    #expect(restored.image?.colorSpace?.name == CGColorSpace.displayP3)
+    #expect(bytes(restored.image) == bytes(full.image))
+    // Reducing it again reuses the compressed pixels instead of compressing anew.
+    #expect(restored.reduced()?.full?.data == reduced.full?.data)
+  }
+
+  @Test
+  func `Store restores only the reduced pictures the cap keeps full`() async throws {
+    let picture = try windowServerPicture(width: 2_600, height: 1_400)
+    let store = WindowCaptureStore(byteLimit: picture.byteCost + picture.byteCost / 2)
+    let first = WindowID(rawValue: 1), second = WindowID(rawValue: 2)
+    func refresh(_ id: WindowID) -> RibbonProxyRefresh {
+      RibbonProxyRefresh(id: id, appID: "app", processID: 42, frame: Rect(x: 0, y: 0, width: 1_300, height: 700),
+        distance: 0)
+    }
+    store.markShown([first], at: 1)
+    store.setPicture(picture, for: refresh(first))
+    store.markShown([second], at: 2)
+    store.setPicture(try windowServerPicture(width: 2_600, height: 1_400), for: refresh(second))
+    func settle(_ done: () -> Bool) async throws {
+      let deadline = Date().addingTimeInterval(30)
+      while !done(), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    }
+    try await settle { store.picture(first)?.isReduced == true && store.picture(first)?.full != nil }
+    #expect(store.picture(first)?.isReduced == true)
+    // Not the most recent: restoring it would not fit, so it stays reduced.
+    store.restore([first])
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(store.picture(first)?.isReduced == true)
+    // Shown again: it is restored, and the other one gives up its full resolution.
+    store.markShown([first], at: 3)
+    store.restore([first])
+    try await settle { store.picture(first)?.isReduced == false && store.picture(second)?.isReduced == true }
+    #expect(store.picture(first)?.isReduced == false && store.picture(first)?.capturedAt == 3)
+    #expect(store.picture(second)?.isReduced == true)
   }
 
   @Test

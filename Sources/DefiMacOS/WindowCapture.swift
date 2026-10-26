@@ -1,4 +1,7 @@
+import Accelerate
 import AppKit
+import Compression
+import CoreImage
 import CoreMedia
 import CoreVideo
 import DefiModel
@@ -21,8 +24,10 @@ struct WindowPicture: @unchecked Sendable {
   /// Set by the store from the capture request; consumers compare it with their window.
   var appID = ""
   var processID: Int32 = 0
-  /// Scaled down to fit the byte cap; recaptured at full resolution once shown.
+  /// Scaled down to fit the byte cap; restored from `full`, else recaptured once shown.
   var isReduced = false
+  /// The full-resolution pixels, compressed: kept from the first reduction on.
+  var full: WindowPixels? = nil
   let byteCost: Int
 
   init(contents: AnyObject, buffer: CVPixelBuffer? = nil, size: CGSize, capturedAt: TimeInterval,
@@ -34,7 +39,8 @@ struct WindowPicture: @unchecked Sendable {
     self.pixelScale = pixelScale
     let image = CFGetTypeID(contents) == CGImage.typeID ? (contents as! CGImage) : nil
     edge = image.flatMap(ribbonProxyEdgeColor)
-    byteCost = buffer.map(CVPixelBufferGetDataSize) ?? image.map { $0.bytesPerRow * $0.height }
+    byteCost = buffer.map { CVPixelBufferGetBytesPerRow($0) * CVPixelBufferGetHeight($0) }
+      ?? image.map { $0.bytesPerRow * $0.height }
       ?? Int(size.width * size.height * pixelScale * pixelScale * 4)
   }
 
@@ -47,17 +53,108 @@ struct WindowPicture: @unchecked Sendable {
   }
 
   /// The same point size at a lower pixel scale: every consumer draws it unchanged.
+  /// One surface holds the full pixels: the stand-in is scaled and the original compressed from it.
   func reduced() -> WindowPicture? {
     guard let image, let pixels = windowPictureReducedPixels(image),
-      let small = windowPictureResized(image, width: pixels.width, height: pixels.height)
-    else { return nil }
+      let source = buffer ?? windowPixelsSurface(image) else { return nil }
+    CVPixelBufferLockBaseAddress(source, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(source, .readOnly) }
+    guard let small = windowPictureResized(source, width: pixels.width, height: pixels.height,
+      colorSpace: image.colorSpace) else { return nil }
     var picture = WindowPicture(contents: small, size: size, capturedAt: capturedAt,
       pixelScale: CGFloat(pixels.width) / max(size.width, 1))
     picture.appID = appID; picture.processID = processID; picture.isReduced = true
+    picture.full = full ?? WindowPixels(source, colorSpace: image.colorSpace)
+    return picture
+  }
+
+  /// The full-resolution picture a reduced one stands in for, decompressed.
+  func restored() -> WindowPicture? {
+    guard isReduced, let full, let buffer = full.buffer(), let image = ribbonProxyTaggedImage(buffer)
+    else { return nil }
+    var picture = WindowPicture(contents: image, buffer: buffer, size: size, capturedAt: capturedAt,
+      pixelScale: CGFloat(full.width) / max(size.width, 1))
+    picture.appID = appID; picture.processID = processID; picture.full = full
     return picture
   }
 }
 
+/// A full-resolution BGRA picture, LZ4-compressed: a window shrinks tens of times and
+/// decompresses in about 10 ms, straight into an IOSurface the layers display as is.
+struct WindowPixels: @unchecked Sendable {
+  let data: Data
+  let width: Int
+  let height: Int
+  /// The row stride of an IOSurface this size: restoration decodes into it in place.
+  let bytesPerRow: Int
+  let colorSpace: CGColorSpace?
+
+  /// From a locked BGRA surface. Nil below a fourfold saving (video, photos): the reduced
+  /// picture is then recaptured instead.
+  init?(_ source: CVPixelBuffer, colorSpace: CGColorSpace?) {
+    guard let base = CVPixelBufferGetBaseAddress(source)?.assumingMemoryBound(to: UInt8.self) else { return nil }
+    let stride = CVPixelBufferGetBytesPerRow(source), height = CVPixelBufferGetHeight(source)
+    let length = stride * height
+    guard let data = windowPixelsScratch(length / 4, { scratch, capacity -> Data? in
+      let count = compression_encode_buffer(scratch, capacity, base, length, nil, COMPRESSION_LZ4)
+      return count > 0 ? Data(bytes: scratch, count: count) : nil
+    }) else { return nil }
+    self.data = data
+    width = CVPixelBufferGetWidth(source); self.height = height; bytesPerRow = stride
+    self.colorSpace = colorSpace
+  }
+
+  var fullByteCount: Int { bytesPerRow * height }
+
+  func buffer() -> CVPixelBuffer? {
+    guard let buffer = windowPixelsBuffer(width: width, height: height),
+      CVPixelBufferGetBytesPerRow(buffer) == bytesPerRow else { return nil }
+    CVPixelBufferLockBaseAddress(buffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+    guard let base = CVPixelBufferGetBaseAddress(buffer)?.assumingMemoryBound(to: UInt8.self) else { return nil }
+    let decoded = data.withUnsafeBytes {
+      compression_decode_buffer(base, fullByteCount, $0.bindMemory(to: UInt8.self).baseAddress!, data.count,
+        nil, COMPRESSION_LZ4)
+    }
+    guard decoded == fullByteCount else { return nil }
+    if let colorSpace { CVBufferSetAttachment(buffer, kCVImageBufferCGColorSpaceKey, colorSpace, .shouldPropagate) }
+    return buffer
+  }
+}
+
+/// No colour management: pixels are copied as captured.
+let windowPixelsContext = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull(),
+  .cacheIntermediates: false])
+
+/// The capture's pixels in a BGRA surface of our own. Core Image reads the capture on the GPU:
+/// copies through Core Graphics allocated the whole picture, and the allocator kept each one.
+private func windowPixelsSurface(_ image: CGImage) -> CVPixelBuffer? {
+  guard let buffer = windowPixelsBuffer(width: image.width, height: image.height) else { return nil }
+  windowPixelsContext.render(CIImage(cgImage: image), to: buffer,
+    bounds: CGRect(x: 0, y: 0, width: image.width, height: image.height), colorSpace: nil)
+  return buffer
+}
+
+private func windowPixelsBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+  var buffer: CVPixelBuffer?
+  CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA,
+    [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer)
+  return buffer
+}
+
+/// Pages returned to the system on exit: the allocator would keep a freed multi-megabyte block.
+private func windowPixelsScratch<T>(_ capacity: Int,
+  _ body: (UnsafeMutablePointer<UInt8>, Int) -> T?) -> T? {
+  guard capacity > 0, let pages = mmap(nil, capacity, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
+    pages != MAP_FAILED else { return nil }
+  defer { munmap(pages, capacity) }
+  return body(pages.assumingMemoryBound(to: UInt8.self), capacity)
+}
+
+let windowPixelsBitmapInfo = CGBitmapInfo(rawValue:
+  CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)
+
+// A stand-in for the few frames a restoration takes, and for Overview cards.
 let windowPictureReducedLongSide = 512
 
 func windowPictureReducedPixels(_ image: CGImage?) -> (width: Int, height: Int)? {
@@ -67,15 +164,29 @@ func windowPictureReducedPixels(_ image: CGImage?) -> (width: Int, height: Int)?
   return (max(Int(Double(image.width) * scale), 1), max(Int(Double(image.height) * scale), 1))
 }
 
-func windowPictureResized(_ image: CGImage, width: Int, height: Int) -> CGImage? {
-  guard let context = CGContext(
-    data: nil, width: width, height: height, bitsPerComponent: 8,
-    bytesPerRow: width * 4, space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-  ) else { return nil }
-  context.interpolationQuality = .medium
-  context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-  return context.makeImage()
+/// Scaled on the CPU from a locked BGRA surface: a Core Image scale kept hundreds of
+/// megabytes of intermediate surfaces cached.
+func windowPictureResized(_ source: CVPixelBuffer, width: Int, height: Int,
+  colorSpace: CGColorSpace?) -> CGImage? {
+  guard let base = CVPixelBufferGetBaseAddress(source) else { return nil }
+  var input = vImage_Buffer(data: base, height: vImagePixelCount(CVPixelBufferGetHeight(source)),
+    width: vImagePixelCount(CVPixelBufferGetWidth(source)), rowBytes: CVPixelBufferGetBytesPerRow(source))
+  var pixels = Data(count: width * height * 4)
+  let flags = vImage_Flags(kvImageHighQualityResampling)
+  let scaled = pixels.withUnsafeMutableBytes { output -> Bool in
+    var result = vImage_Buffer(data: output.baseAddress, height: vImagePixelCount(height),
+      width: vImagePixelCount(width), rowBytes: width * 4)
+    let temporary = vImageScale_ARGB8888(&input, &result, nil, flags | vImage_Flags(kvImageGetTempBufferSize))
+    if temporary < 0 { return false }
+    if temporary == 0 { return vImageScale_ARGB8888(&input, &result, nil, flags) == kvImageNoError }
+    return windowPixelsScratch(temporary) { scratch, _ in
+      vImageScale_ARGB8888(&input, &result, scratch, flags) == kvImageNoError
+    } ?? false
+  }
+  guard scaled, let provider = CGDataProvider(data: pixels as CFData) else { return nil }
+  return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+    space: colorSpace ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: windowPixelsBitmapInfo, provider: provider,
+    decode: nil, shouldInterpolate: true, intent: .defaultIntent)
 }
 
 /// Average colour of the picture's right and bottom borders.
@@ -132,13 +243,16 @@ func announceWindowCaptures() {
 
 struct WindowCaptureBudgetEntry {
   let id: WindowID
+  /// WindowServer bytes held: zero once reduced.
   let bytes: Int
-  /// Nil when the picture is already reduced or too small to shrink.
-  let reducedBytes: Int?
+  /// False when the picture is already reduced or too small to shrink.
+  let reducible: Bool
   let shownAt: TimeInterval
 }
 
-/// Most recently shown first: full resolution until the cap, then reduced, then dropped.
+/// Most recently shown first: full resolution until the cap, then reduced; a picture too
+/// small to reduce is dropped. Only full captures count against the cap: they stay resident
+/// in WindowServer, while reduced copies are ours and compressible.
 /// Once one picture is reduced every older one is too, so recency alone decides.
 func windowCaptureBudgetPlan(_ entries: [WindowCaptureBudgetEntry], limit: Int)
   -> (reduce: [WindowID], drop: [WindowID]) {
@@ -147,11 +261,10 @@ func windowCaptureBudgetPlan(_ entries: [WindowCaptureBudgetEntry], limit: Int)
   for entry in entries.sorted(by: {
     $0.shownAt != $1.shownAt ? $0.shownAt > $1.shownAt : $0.id.rawValue < $1.id.rawValue
   }) {
-    if (full || entry.reducedBytes == nil) && entry.bytes <= remaining {
+    if (full || !entry.reducible) && entry.bytes <= remaining {
       remaining -= entry.bytes
-    } else if let reduced = entry.reducedBytes, reduced <= remaining {
+    } else if entry.reducible {
       full = false
-      remaining -= reduced
       reduce.append(entry.id)
     } else {
       full = false
@@ -165,11 +278,16 @@ func windowCaptureBudgetPlan(_ entries: [WindowCaptureBudgetEntry], limit: Int)
 /// under one byte cap. Thread-safe so a navigation never waits for the main thread.
 final class WindowCaptureStore: @unchecked Sendable {
   static let shared = WindowCaptureStore()
-  static let byteLimit = 512 * 1_024 * 1_024
+  // Full captures are WindowServer IOSurfaces: each byte held stays resident and
+  // uncompressed in WindowServer. Reduced copies are ours and compressible.
+  static let byteLimit = 128 * 1_024 * 1_024
   private let lock = NSLock()
   private var pictures: [WindowID: WindowPicture] = [:]
   private var shown: [WindowID: TimeInterval] = [:]
   private var reducing: Set<WindowID> = []
+  private var restoring: Set<WindowID> = []
+  /// Serial: each reduction or restoration allocates a full-size surface.
+  private let pixelQueue = DispatchQueue(label: "com.qeude.defi.capture-pixels", qos: .userInitiated)
   private var backgrounds: [CGDirectDisplayID: CGImage] = [:]
   private var icons: [Int32: CGImage] = [:]
   private var limit: Int
@@ -187,8 +305,12 @@ final class WindowCaptureStore: @unchecked Sendable {
 
   func picture(_ id: WindowID) -> WindowPicture? { locked { pictures[id] } }
   var pictureIDs: Set<WindowID> { locked { Set(pictures.keys) } }
-  var byteCount: Int { locked { pictures.values.reduce(0) { $0 + $1.byteCost } } }
+  var byteCount: Int { locked { pictures.values.reduce(0) { $0 + $1.byteCost + ($1.full?.data.count ?? 0) } } }
   var reducedCount: Int { locked { pictures.values.filter(\.isReduced).count } }
+  var compressedCount: Int { locked { pictures.values.filter { $0.full != nil }.count } }
+  /// Full-resolution bytes held as surfaces: what the cap bounds.
+  var fullByteCount: Int { locked { pictures.values.filter { !$0.isReduced }.reduce(0) { $0 + $1.byteCost } } }
+  var backgroundByteCount: Int { locked { backgrounds.values.reduce(0) { $0 + $1.bytesPerRow * $1.height } } }
   var count: Int { locked { pictures.count } }
 
   func setPicture(_ picture: WindowPicture, for window: RibbonProxyRefresh) {
@@ -199,9 +321,45 @@ final class WindowCaptureStore: @unchecked Sendable {
   }
 
   /// A consumer displayed these windows: they keep full resolution longest.
-  func markShown(_ ids: [WindowID]) {
-    let now = CACurrentMediaTime()
-    locked { for id in ids { shown[id] = now } }
+  func markShown(_ ids: [WindowID], at time: TimeInterval = CACurrentMediaTime()) {
+    locked { for id in ids { shown[id] = time } }
+  }
+
+  /// Decompresses the reduced pictures among `ids` that the cap keeps at full resolution
+  /// once restored, off the caller's thread; consumers swap to them when announced.
+  func restore(_ ids: [WindowID]) {
+    let work: [(WindowID, WindowPicture)] = locked {
+      // Planned as if every restorable picture were full: what fits is restored, and
+      // the next budget pass keeps it rather than reducing it again.
+      let plan = windowCaptureBudgetPlan(pictures.map { id, picture in
+        let restorable = picture.isReduced ? picture.full : nil
+        return WindowCaptureBudgetEntry(id: id,
+          bytes: restorable?.fullByteCount ?? (picture.isReduced ? 0 : picture.byteCost),
+          reducible: restorable != nil || picture.reducedByteCost != nil, shownAt: shown[id] ?? 0)
+      }, limit: limit)
+      let kept = Set(ids).subtracting(plan.reduce).subtracting(plan.drop)
+      return kept.compactMap { id in
+        guard let picture = pictures[id], picture.isReduced, picture.full != nil,
+          restoring.insert(id).inserted else { return nil }
+        return (id, picture)
+      }
+    }
+    guard !work.isEmpty else { return }
+    pixelQueue.async { [self] in
+      for (id, picture) in work {
+        // Per picture: Core Image and CoreVideo autorelease their full-size buffers.
+        let restored = autoreleasepool { picture.restored() }
+        locked {
+          restoring.remove(id)
+          guard let restored, pictures[id]?.contents === picture.contents else { return }
+          var replacement = restored
+          replacement.capturedAt = pictures[id]?.capturedAt ?? restored.capturedAt
+          pictures[id] = replacement
+        }
+      }
+      enforceBudget()
+      DispatchQueue.main.async { announceWindowCaptures() }
+    }
   }
 
   /// Every picture becomes stale (kept as a stand-in until recaptured).
@@ -229,8 +387,8 @@ final class WindowCaptureStore: @unchecked Sendable {
   private func enforceBudget() {
     let work: [(WindowID, WindowPicture)] = locked {
       let plan = windowCaptureBudgetPlan(pictures.map { id, picture in
-        WindowCaptureBudgetEntry(id: id, bytes: picture.byteCost,
-          reducedBytes: picture.reducedByteCost, shownAt: shown[id] ?? 0)
+        WindowCaptureBudgetEntry(id: id, bytes: picture.isReduced ? 0 : picture.byteCost,
+          reducible: picture.reducedByteCost != nil, shownAt: shown[id] ?? 0)
       }, limit: limit)
       for id in plan.drop { pictures[id] = nil }
       return plan.reduce.compactMap { id in
@@ -238,11 +396,11 @@ final class WindowCaptureStore: @unchecked Sendable {
       }
     }
     guard !work.isEmpty else { return }
-    // shortcut: a one-time CPU downscale per demoted picture; the GPU draws every consumer.
-    DispatchQueue.global(qos: .utility).async { [self] in
+    // shortcut: a one-time downscale and compression per demoted picture; the GPU draws every consumer.
+    pixelQueue.async { [self] in
       var replaced = false
       for (id, picture) in work {
-        let reduced = picture.reduced()
+        let reduced = autoreleasepool { picture.reduced() }
         replaced = locked {
           reducing.remove(id)
           // A newer capture replaced it meanwhile: plan again once this batch ends.
@@ -312,7 +470,13 @@ final class WindowCaptureCache {
   func noteWindows(_ windows: [RibbonProxyRefresh], afterLanding: Bool) {
     RibbonProxyRenderer.shared.refreshEnvironment()
     guard RibbonProxyRenderer.shared.enabled, RibbonProxyStore.shared.isAuthorized else { return }
-    WindowCaptureStore.shared.markShown(windows.filter { $0.distance == 0 }.map(\.id))
+    let store = WindowCaptureStore.shared
+    // A neighbour enters on the next step: kept sharp right behind the windows in view,
+    // which are recaptured instead.
+    let neighbours = windows.filter { $0.distance > 0 && $0.distance < $0.frame.width }.map(\.id)
+    store.markShown(neighbours, at: CACurrentMediaTime() - 1)
+    store.markShown(windows.filter { $0.distance == 0 }.map(\.id))
+    store.restore(neighbours)
     // Layouts carry only the windows they move: merge, so every window stays known
     // (and warm) until it closes.
     let ids = Set(windows.map(\.id))

@@ -176,7 +176,9 @@ public final class OverviewController: NSObject {
   /// The shared window capture cache, as shown by status.
   public var captureCacheDescription: String {
     let store = WindowCaptureStore.shared
-    return "pictures:\(store.count),reduced:\(store.reducedCount)"
+    return "pictures:\(store.count),reduced:\(store.reducedCount),compressed:\(store.compressedCount)"
+      + ",fullMiB:\(String(format: "%.1f", Double(store.fullByteCount) / 1_048_576))"
+      + ",backgroundMiB:\(String(format: "%.1f", Double(store.backgroundByteCount) / 1_048_576))"
   }
   var surfacePresentedFrameCount: Int { panels.values.reduce(0) { $0 + $1.surfacePresentedFrameCount } }
   private var idlePreparationEnabled = true

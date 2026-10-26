@@ -379,6 +379,8 @@ final class RibbonProxyPresenter {
   private var veiledSince: CFTimeInterval = 0
   /// Windows shown from an older picture, recaptured while the motion runs.
   private var refreshing: Set<WindowID> = []
+  /// Windows shown from a reduced picture, sharpened once its full one is restored.
+  private var standIns: Set<WindowID> = []
   /// The carried window's own slot in the ribbon, and a stacking slot that overrides it.
   private var ownSlot: Rect?
   private var previewSlot: Rect?
@@ -537,6 +539,7 @@ final class RibbonProxyPresenter {
       let styled = style(layer, for: window, selected: window.id == selectedWindowID)
       if styled.pictured { pictured += 1 }
       if styled.badged { badged += 1; veiled.insert(window.id) } else { veiled.remove(window.id) }
+      if pictures.picture(window.id)?.isReduced == true { standIns.insert(window.id) } else { standIns.remove(window.id) }
       // The active window travels above the windows it crosses, as in Niri.
       layer.zPosition = window.id == selectedWindowID ? 100_000 : depth[window.id] ?? 0
       ribbonProxyMove(layer, from: from, to: to, velocity: velocity)
@@ -587,6 +590,7 @@ final class RibbonProxyPresenter {
     // Captures load the compositor that draws this motion, so none start now: a
     // picture that arrives anyway (an urgent capture) replaces an old or veiled card.
     veiled.formIntersection(shownIDs)
+    standIns.formIntersection(shownIDs)
     veiledSince = CACurrentMediaTime()
     refreshing = Set(windows.filter { window in
       window.appID != "" && !veiled.contains(window.id) && window.to.ribbonIntersects(area)
@@ -606,6 +610,8 @@ final class RibbonProxyPresenter {
     let display = display, presenter = self
     store.setCurrentMotion(token, display)
     pictures.markShown(shown.map(\.id))
+    // Planned with the same recency as the budget: what it restores stays full.
+    pictures.restore(Array(standIns))
     // Windows leaving the screen must be gone too, or a slow app's outgoing window
     // pops back into view when the overlay lifts.
     let leaving = Set(windows.filter {
@@ -842,6 +848,18 @@ final class RibbonProxyPresenter {
         }
       }
     }
+    // Restored stand-ins sharpen in place, without a dissolve: one blended with the new
+    // contentsScale drew the reduced picture at a quarter of its size.
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    for id in standIns {
+      guard let layer = windowLayers[id], let picture = WindowCaptureStore.shared.picture(id), !picture.isReduced,
+        let content = layer.sublayers?.first(where: { $0.name == "content" }) else { continue }
+      content.contents = picture.contents
+      content.contentsScale = picture.pixelScale
+      content.backgroundColor = picture.edge
+      standIns.remove(id)
+    }
+    CATransaction.commit()
     // A fresh picture lifts the veil and icon in one smooth dissolve.
     CATransaction.begin(); CATransaction.setAnimationDuration(0.22)
     CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
@@ -890,7 +908,7 @@ final class RibbonProxyPresenter {
     generation &+= 1
     expectedTargets = [:]; requestedTargets = [:]
     releasePointerTrack()
-    drag = .idle; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []
+    drag = .idle; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []; standIns = []
     guard presenting, let layers else { return }
     removePlaceholder()
     if reason != "landed" { ribbonProxyLogger.notice("cancel \(reason, privacy: .public)") }
@@ -899,7 +917,9 @@ final class RibbonProxyPresenter {
     CATransaction.begin(); CATransaction.setDisableActions(true)
     layers.root.isHidden = true
     layers.root.mask = nil
-    for layer in windowLayers.values { layer.removeAllAnimations() }
+    // The next motion styles fresh layers: kept ones pinned pictures the store had let go.
+    for layer in windowLayers.values { layer.removeFromSuperlayer() }
+    windowLayers = [:]
     ribbonProxyCommit(#line)
     // Rapid navigation keeps borders hidden instead of toggling them per step.
     borderRestore = Task { [weak self] in
