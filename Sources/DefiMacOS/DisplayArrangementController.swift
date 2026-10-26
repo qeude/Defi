@@ -264,6 +264,7 @@ public final class DisplayPointerRouter: @unchecked Sendable {
 
   public convenience init() {
     // A warp otherwise freezes physical pointer motion for 0.25 s after each crossing.
+    // The interval applies to every warp in the process; the closure keeps the source alive.
     nonisolated(unsafe) let source = CGEventSource(stateID: .combinedSessionState)
     source?.localEventsSuppressionInterval = 0
     self.init(warpPointer: { point in
