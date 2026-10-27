@@ -355,9 +355,9 @@ Example:
 names = ["dev", "web", "tools"]
 ```
 
-This generates stable `alt-1 = "workspace dev"`, `alt-2 = "workspace web"`,
-and `alt-3 = "workspace tools"` bindings. `alt-4` through `alt-9` address the
-current monitor's dynamic positions. Matching `alt-shift-N` bindings use
+This generates stable `ctrl-alt-1 = "workspace dev"`, `ctrl-alt-2 = "workspace web"`,
+and `ctrl-alt-3 = "workspace tools"` bindings. `ctrl-alt-4` through `ctrl-alt-9` address the
+current monitor's dynamic positions. Matching `ctrl-alt-shift-N` bindings use
 `move-column-to-workspace-name` and follow the moved column. Positions are
 1-based, do not wrap, and values beyond the current stack select trailing.
 
@@ -374,20 +374,25 @@ hyper = "Alt + Cmd + Ctrl"
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `default_key_modifier` | `"alt"` | modifier name, hyphen-separated modifiers, or alias | Prefix used for every generated default binding. |
+| `default_key_modifier` | `"ctrl-alt"` | modifier name, hyphen-separated modifiers, or alias | Prefix used for every generated default binding. |
 
 Changing this value moves all generated navigation, layout, floating-window,
 stacking, and first-nine-workspace bindings to the new prefix. If a generated
 accelerator matches a fixed monitor shortcut, the generated binding takes
 precedence, including when aliases or modifier ordering differ. If the modifier
 already includes Shift, base navigation wins over the equivalent Shift binding.
-Explicit `[keys]` overrides still take precedence over both.
+Explicit `[keys]` overrides still take precedence over both. With a Hyper
+(`Alt + Cmd + Ctrl`) modifier, `ctrl-cmd-alt-<arrow>` is column focus, so bind
+`move-workspace-to-monitor` yourself if you need it.
 
 ## `show_cheatsheet_on_modifier_hold`
 
 Defaults to `true`. Hold `default_key_modifier` alone for 600 ms to show the
-configured shortcuts on the active monitor without changing focus. Releasing the
-modifier closes the help. Pressing another key before the delay cancels it.
+configured shortcuts on the active monitor without changing focus. With a
+combination such as the default Control-Option, the delay starts once every
+modifier of the combination is down and no other modifier is. Releasing any of
+them, adding another modifier, or pressing another key before the delay cancels
+it; releasing the modifier closes the help.
 
 Set this root-level option to `false` to disable hold-to-show. The
 `toggle-cheatsheet` action remains available independently, so both triggers can
@@ -397,7 +402,7 @@ be used together:
 show_cheatsheet_on_modifier_hold = false
 
 [keys]
-"alt-slash" = "toggle-cheatsheet"
+"ctrl-alt-slash" = "toggle-cheatsheet"
 ```
 
 There is no default binding for `toggle-cheatsheet`. It keeps the help open after
@@ -466,10 +471,10 @@ generated accelerator is supported through the optional root-level
 `disabled_keys` array:
 
 ```toml
-disabled_keys = ["alt-left"]
+disabled_keys = ["ctrl-alt-left"]
 ```
 
-This suppresses the generated `alt-left` binding while keeping the other
+This suppresses the generated `ctrl-alt-left` binding while keeping the other
 generated shortcuts. Settings can disable and restore generated shortcuts for
 you.
 
@@ -523,7 +528,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `move-column-to-monitor left\|right\|up\|down` | Move focused column to the nearest monitor. | `ctrl-cmd-shift-<arrow>` |
 | `move-window-to-monitor left\|right\|up\|down` | Move only the focused window to the nearest monitor in that direction. | unset |
 | `reorder-workspace up\|down` | Reorder the active workspace inside its monitor stack. | unset |
-| `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace and update its monitor affinity. | `ctrl-alt-shift-<arrow>` |
+| `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace and update its monitor affinity. | `ctrl-cmd-alt-<arrow>` |
 | `cycle-width previous` | Select previous width preset, wrapping. | `<mod>-minus` |
 | `cycle-width next` | Select next width preset, wrapping. | `<mod>-equal` |
 | `maximize-column` | Toggle focused column between full width and previous width. | `<mod>-f` |
@@ -693,7 +698,7 @@ These values are active without config. Normal config should contain overrides
 only.
 
 ```toml
-default_key_modifier = "alt"
+default_key_modifier = "ctrl-alt"
 show_cheatsheet_on_modifier_hold = true
 
 [layout]
@@ -730,29 +735,29 @@ names = []
 [modifier_combinations]
 
 [keys]
-"alt-left" = "focus-column left"
-"alt-right" = "focus-column right"
-"alt-j" = "focus-window down"
-"alt-k" = "focus-window up"
-"alt-up" = "focus-workspace up"
-"alt-down" = "focus-workspace down"
-"alt-o" = "toggle-overview"
-"alt-leftbracket" = "focus-column first"
-"alt-rightbracket" = "focus-column last"
+"ctrl-alt-left" = "focus-column left"
+"ctrl-alt-right" = "focus-column right"
+"ctrl-alt-j" = "focus-window down"
+"ctrl-alt-k" = "focus-window up"
+"ctrl-alt-up" = "focus-workspace up"
+"ctrl-alt-down" = "focus-workspace down"
+"ctrl-alt-o" = "toggle-overview"
+"ctrl-alt-leftbracket" = "focus-column first"
+"ctrl-alt-rightbracket" = "focus-column last"
 
-"alt-shift-left" = "move-column left"
-"alt-shift-right" = "move-column right"
-"alt-shift-j" = "move-window down"
-"alt-shift-k" = "move-window up"
-"alt-shift-up" = "move-column-to-workspace up"
-"alt-shift-down" = "move-column-to-workspace down"
-"alt-shift-leftbracket" = "move-column first"
-"alt-shift-rightbracket" = "move-column last"
+"ctrl-alt-shift-left" = "move-column left"
+"ctrl-alt-shift-right" = "move-column right"
+"ctrl-alt-shift-j" = "move-window down"
+"ctrl-alt-shift-k" = "move-window up"
+"ctrl-alt-shift-up" = "move-column-to-workspace up"
+"ctrl-alt-shift-down" = "move-column-to-workspace down"
+"ctrl-alt-shift-leftbracket" = "move-column first"
+"ctrl-alt-shift-rightbracket" = "move-column last"
 
-"alt-1" = "focus-workspace-position 1"
-# ... through alt-9
-"alt-shift-1" = "move-column-to-workspace-position 1"
-# ... through alt-shift-9
+"ctrl-alt-1" = "focus-workspace-position 1"
+# ... through ctrl-alt-9
+"ctrl-alt-shift-1" = "move-column-to-workspace-position 1"
+# ... through ctrl-alt-shift-9
 
 "ctrl-cmd-left" = "focus-monitor left"
 "ctrl-cmd-right" = "focus-monitor right"
@@ -762,21 +767,21 @@ names = []
 "ctrl-cmd-shift-right" = "move-column-to-monitor right"
 "ctrl-cmd-shift-up" = "move-column-to-monitor up"
 "ctrl-cmd-shift-down" = "move-column-to-monitor down"
-"ctrl-alt-shift-left" = "move-workspace-to-monitor left"
-"ctrl-alt-shift-right" = "move-workspace-to-monitor right"
-"ctrl-alt-shift-up" = "move-workspace-to-monitor up"
-"ctrl-alt-shift-down" = "move-workspace-to-monitor down"
+"ctrl-cmd-alt-left" = "move-workspace-to-monitor left"
+"ctrl-cmd-alt-right" = "move-workspace-to-monitor right"
+"ctrl-cmd-alt-up" = "move-workspace-to-monitor up"
+"ctrl-cmd-alt-down" = "move-workspace-to-monitor down"
 
-"alt-minus" = "cycle-width previous"
-"alt-equal" = "cycle-width next"
-"alt-f" = "maximize-column"
-"alt-backslash" = "toggle-floating"
-"alt-shift-backslash" = "activate-floating"
-"alt-comma" = "focus-floating previous"
-"alt-period" = "focus-floating next"
-"alt-semicolon" = "join-window left"
-"alt-quote" = "join-window right"
-"alt-r" = "unjoin-windows"
+"ctrl-alt-minus" = "cycle-width previous"
+"ctrl-alt-equal" = "cycle-width next"
+"ctrl-alt-f" = "maximize-column"
+"ctrl-alt-backslash" = "toggle-floating"
+"ctrl-alt-shift-backslash" = "activate-floating"
+"ctrl-alt-comma" = "focus-floating previous"
+"ctrl-alt-period" = "focus-floating next"
+"ctrl-alt-semicolon" = "join-window left"
+"ctrl-alt-quote" = "join-window right"
+"ctrl-alt-r" = "unjoin-windows"
 
 # No rules by default.
 ```

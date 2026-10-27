@@ -57,7 +57,7 @@ struct DefiSettingsModelTests {
     let url = configURL()
     defer { removeConfig(url) }
     let model = DefiSettingsModel(configURL: url)
-    let row = try #require(model.shortcutRows.first { $0.accelerator == "alt-left" })
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "ctrl-alt-left" })
     model.removeShortcut(row)
     let disabled = try #require(model.shortcutRows.first { $0.accelerator == row.accelerator })
     #expect(disabled.isEnabled == false)
@@ -233,6 +233,8 @@ struct DefiSettingsModelTests {
     model.moveShortcut(current, to: original.accelerator)
     #expect(model.message == nil)
     #expect(model.config.keys[original.accelerator] == original.command)
+    #expect(model.config.keyOverrides.isEmpty)
+    #expect(model.config.disabledKeys.isEmpty)
   }
 
   @Test

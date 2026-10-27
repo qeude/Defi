@@ -96,24 +96,25 @@ Enable **Launch at Login** in the menu bar if you want Defi to start with macOS.
 
 ## Keyboard controls
 
-Built-in shortcuts use Option. Hold Option on its own to show the shortcut
-guide, or start with these:
+Built-in shortcuts use Control + Option, which leaves Option free for typing
+and word-by-word text editing. Hold Control + Option on their own to show the
+shortcut guide, or start with these:
 
 | Action | Shortcut |
 | --- | --- |
-| Focus a column | Option + ← / → |
-| Switch workspace | Option + ↑ / ↓ |
-| Focus a window in a stack | Option + J / K |
-| Move a column left or right | Option + Shift + ← / → |
-| Move a column to another workspace | Option + Shift + ↑ / ↓ |
-| Cycle column width | Option + − / = |
-| Toggle full column width | Option + F |
-| Open Overview | Option + O |
+| Focus a column | Control + Option + ← / → |
+| Switch workspace | Control + Option + ↑ / ↓ |
+| Focus a window in a stack | Control + Option + J / K |
+| Move a column left or right | Control + Option + Shift + ← / → |
+| Move a column to another workspace | Control + Option + Shift + ↑ / ↓ |
+| Cycle column width | Control + Option + − / = |
+| Toggle full column width | Control + Option + F |
+| Open Overview | Control + Option + O |
 
-I recommend mapping a key such as Caps Lock to a **Hyper key** to avoid
-conflicts with macOS and application shortcuts. Set
-[`default_key_modifier`](CONFIGURATION.md#default_key_modifier) to match
-your combination.
+For a single-key modifier, map a key such as Caps Lock to a **Hyper key**
+(Control + Option + Command) and set
+[`default_key_modifier`](CONFIGURATION.md#default_key_modifier) to a matching
+`hyper` alias.
 
 ## Configuration
 

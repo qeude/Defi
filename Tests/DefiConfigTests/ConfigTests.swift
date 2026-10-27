@@ -7,7 +7,7 @@ struct ConfigTests {
   @Test(arguments: ["a", "alt-fn", "typo-left", "-left", "alt--left", "alt-left-", ""])
   func malformedAcceleratorsAreRejectedWithoutReplacingDefaults(accelerator: String) throws {
     let config = Config(keys: [accelerator: "diagnostic-mark"])
-    #expect(config.keys["alt-left"] == "focus-column left")
+    #expect(config.keys["ctrl-alt-left"] == "focus-column left")
     #expect(throws: ConfigError.invalidValue("keys.\(accelerator)")) {
       try config.validate()
     }
@@ -23,16 +23,25 @@ struct ConfigTests {
   }
 
   @Test
+  func defaultControlOptionBindingsKeepEveryMonitorShortcut() {
+    let keys = Config().keys
+    #expect(keys["ctrl-alt-shift-left"] == "move-column left")
+    #expect(keys["ctrl-cmd-alt-left"] == "move-workspace-to-monitor left")
+    #expect(keys["ctrl-cmd-left"] == "focus-monitor left")
+    #expect(keys["ctrl-cmd-shift-left"] == "move-column-to-monitor left")
+  }
+
+  @Test
   func disabledBuiltInShortcutLeavesOtherDefaultsAndNamedMonitorAffinity() throws {
     let config = try Config.decode(Data("""
-      disabled_keys = ["alt-left"]
+      disabled_keys = ["ctrl-alt-left"]
 
       [workspaces]
       names = ["dev"]
       monitor_ids = { dev = "display-uuid" }
       """.utf8))
-    #expect(config.keys["alt-left"] == nil)
-    #expect(config.keys["alt-right"] == "focus-column right")
+    #expect(config.keys["ctrl-alt-left"] == nil)
+    #expect(config.keys["ctrl-alt-right"] == "focus-column right")
     #expect(config.workspaces.monitorIDs == ["dev": "display-uuid"])
   }
 

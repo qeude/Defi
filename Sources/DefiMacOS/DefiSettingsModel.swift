@@ -545,13 +545,16 @@ public final class DefiSettingsModel {
     if inheritedBindings[row.accelerator] == row.command {
       disabled.append(row.accelerator)
     }
-    if inheritedBindings[accelerator] == row.command {
+    let restoresDefault = inheritedBindings.contains {
+      sameAccelerator($0.key, accelerator) && $0.value == row.command
+    }
+    if restoresDefault {
       disabled.removeAll { sameAccelerator($0, accelerator) }
     }
     var operations = [SettingsTOMLOperation.set(table: "keys", key: row.accelerator, value: nil)]
     operations.append(.set(
       table: "keys", key: accelerator,
-      value: inheritedBindings[accelerator] == row.command ? nil : tomlString(row.command)
+      value: restoresDefault ? nil : tomlString(row.command)
     ))
     operations.append(.set(
       table: "", key: "disabled_keys",

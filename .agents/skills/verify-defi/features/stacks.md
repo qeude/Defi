@@ -9,7 +9,7 @@
 
 ## How to get to it (user POV)
 
-Stack windows with `join-window left|right` (Option+; and Option+' by default) and split them with `unjoin-windows` (Option+R). Separation happens on its own after a display, Dock, reserved-area or app constraint change.
+Stack windows with `join-window left|right` (Control+Option+; and Control+Option+' by default) and split them with `unjoin-windows` (Control+Option+R). Separation happens on its own after a display, Dock, reserved-area or app constraint change.
 
 ## Driving it with the defi CLI
 
