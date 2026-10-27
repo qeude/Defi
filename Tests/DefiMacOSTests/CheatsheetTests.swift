@@ -49,7 +49,7 @@ struct CheatsheetHotKeyTests {
   func `Help groups shortcuts by action and shows each Shift chord in full`() {
     func row(
       _ key: String, _ action: String, _ shifted: String? = nil,
-      modifiers: String = "⌥", shiftedModifiers: String = "⌥⇧"
+      modifiers: String = "⌃⌥", shiftedModifiers: String = "⌃⌥⇧"
     ) -> ShortcutRow {
       ShortcutRow(modifiers: modifiers, key: key, action: action,
         shifted: shifted.map { ShiftedShortcut(modifiers: shiftedModifiers, action: $0) })
@@ -72,7 +72,7 @@ struct CheatsheetHotKeyTests {
       ShortcutGroup(title: "Monitors", rows: [
         row("←↑↓→", "Focus monitor", "Move column to monitor",
           modifiers: "⌃⌘", shiftedModifiers: "⌃⇧⌘"),
-        row("←↑↓→", "Move workspace to monitor", modifiers: "⌃⌥⇧"),
+        row("←↑↓→", "Move workspace to monitor", modifiers: "✧"),
       ]),
       ShortcutGroup(title: "Size", rows: [
         row("−", "Narrower"), row("=", "Wider"), row("F", "Maximize column"),
@@ -104,15 +104,15 @@ struct CheatsheetHotKeyTests {
   @Test
   func `Help keeps named workspaces apart and shows shortcuts outside the default modifier`() {
     let config = Config(keys: [
-      "alt-1": "workspace mail", "alt-2": "focus-workspace-position 2",
-      "alt-shift-g": "toggle-overview", "ctrl-g": "maximize-column",
+      "ctrl-alt-1": "workspace mail", "ctrl-alt-2": "focus-workspace-position 2",
+      "ctrl-alt-shift-g": "toggle-overview", "ctrl-g": "maximize-column",
     ])
     let rows = shortcutGroups(config: config).flatMap(\.rows)
-    #expect(rows.contains(ShortcutRow(modifiers: "⌥", key: "1", action: "Workspace mail",
-      shifted: ShiftedShortcut(modifiers: "⌥⇧", action: "Move column to workspace 1"))))
-    #expect(rows.contains(ShortcutRow(modifiers: "⌥", key: "2–9", action: "Workspace 2–9",
-      shifted: ShiftedShortcut(modifiers: "⌥⇧", action: "Move column to workspace 2–9"))))
-    #expect(rows.contains(ShortcutRow(modifiers: "⌥⇧", key: "G", action: "Overview", shifted: nil)))
+    #expect(rows.contains(ShortcutRow(modifiers: "⌃⌥", key: "1", action: "Workspace mail",
+      shifted: ShiftedShortcut(modifiers: "⌃⌥⇧", action: "Move column to workspace 1"))))
+    #expect(rows.contains(ShortcutRow(modifiers: "⌃⌥", key: "2–9", action: "Workspace 2–9",
+      shifted: ShiftedShortcut(modifiers: "⌃⌥⇧", action: "Move column to workspace 2–9"))))
+    #expect(rows.contains(ShortcutRow(modifiers: "⌃⌥⇧", key: "G", action: "Overview", shifted: nil)))
     #expect(rows.contains(ShortcutRow(modifiers: "⌃", key: "G", action: "Maximize column", shifted: nil)))
   }
 }

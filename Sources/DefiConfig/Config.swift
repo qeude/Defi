@@ -27,7 +27,7 @@ public struct Config: Equatable, Sendable {
     menuBar: MenuBarConfig = MenuBarConfig(),
     workspaces: WorkspacesConfig = WorkspacesConfig(),
     modifierCombinations: [String: String] = [:],
-    defaultKeyModifier: String = "alt",
+    defaultKeyModifier: String = "ctrl-alt",
     showCheatsheetOnModifierHold: Bool = true,
     disabledKeys: [String] = [],
     keys: [String: String]? = nil,
@@ -64,7 +64,7 @@ public struct Config: Equatable, Sendable {
   public static func decode(_ data: Data) throws -> Config {
     let raw = try TOMLDecoder().decode(RawConfig.self, from: data)
     let workspaces = raw.workspaces ?? WorkspacesConfig()
-    let modifier = raw.defaultKeyModifier ?? "alt"
+    let modifier = raw.defaultKeyModifier ?? "ctrl-alt"
     let config = Config(
       input: raw.input ?? InputConfig(),
       layout: raw.layout ?? LayoutConfig(),
@@ -333,10 +333,10 @@ public struct Config: Equatable, Sendable {
       "ctrl-cmd-shift-right": "move-column-to-monitor right",
       "ctrl-cmd-shift-up": "move-column-to-monitor up",
       "ctrl-cmd-shift-down": "move-column-to-monitor down",
-      "ctrl-alt-shift-left": "move-workspace-to-monitor left",
-      "ctrl-alt-shift-right": "move-workspace-to-monitor right",
-      "ctrl-alt-shift-up": "move-workspace-to-monitor up",
-      "ctrl-alt-shift-down": "move-workspace-to-monitor down",
+      "ctrl-cmd-alt-left": "move-workspace-to-monitor left",
+      "ctrl-cmd-alt-right": "move-workspace-to-monitor right",
+      "ctrl-cmd-alt-up": "move-workspace-to-monitor up",
+      "ctrl-cmd-alt-down": "move-workspace-to-monitor down",
     ]
     for number in 1...9 {
       if workspaceNames.indices.contains(number - 1) {
