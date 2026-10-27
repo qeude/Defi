@@ -26,6 +26,16 @@ func ribbonProxyPictureMatches(captured: CGSize, native: Rect) -> Bool {
   abs(captured.width - native.width) < 3 && abs(captured.height - native.height) < 3
 }
 
+/// Beyond this age the app may have redrawn: the picture no longer shows its window.
+let ribbonProxyPictureFreshness: TimeInterval = 1.5
+
+/// A held screen shows pictures in place of live windows that do not move: only a
+/// sharp, recent picture at the window's size looks the same.
+func ribbonProxyPictureShowsWindow(captured: CGSize, reduced: Bool, age: TimeInterval,
+  native: Rect) -> Bool {
+  !reduced && age <= ribbonProxyPictureFreshness && ribbonProxyPictureMatches(captured: captured, native: native)
+}
+
 /// The overlay may lift once every visible native window sits on its target.
 func ribbonProxyLanded(native: [WindowID: Rect], targets: [WindowID: Rect]) -> Bool {
   targets.allSatisfy { id, target in
@@ -127,6 +137,7 @@ final class RibbonProxyStore: @unchecked Sendable {
     set { locked { reducesMotion = newValue } }
   }
   private var movingDisplays: Set<CGDirectDisplayID> = []
+  private var zoomingOverviews: Set<MonitorID> = []
   private var onScreenCache: [RibbonProxyOnScreenWindow] = []
   private var settles: [WindowID: RibbonProxySettle] = [:]
   var settled: [WindowID: RibbonProxySettle] { locked { settles } }
@@ -146,9 +157,13 @@ final class RibbonProxyStore: @unchecked Sendable {
   }
   /// Captures load the WindowServer, which also composites the motion: none run while
   /// any display moves.
-  var isMoving: Bool { locked { !movingDisplays.isEmpty } }
+  var isMoving: Bool { locked { !movingDisplays.isEmpty || !zoomingOverviews.isEmpty } }
   func setMoving(_ moving: Bool, _ display: CGDirectDisplayID) {
     locked { if moving { movingDisplays.insert(display) } else { movingDisplays.remove(display) } }
+  }
+  /// The Overview's opening zoom is a motion too, kept apart so neither clears the other.
+  func setOverviewZooming(_ zooming: Bool, _ monitorID: MonitorID) {
+    locked { if zooming { zoomingOverviews.insert(monitorID) } else { zoomingOverviews.remove(monitorID) } }
   }
 
   private func locked<T>(_ body: () -> T) -> T {
@@ -638,7 +653,7 @@ final class RibbonProxyPresenter {
     veiledSince = CACurrentMediaTime()
     refreshing = Set(windows.filter { window in
       window.appID != "" && !veiled.contains(window.id) && window.to.ribbonIntersects(area)
-        && pictures.picture(window.id).map { veiledSince - $0.capturedAt > 1.5 } == true
+        && pictures.picture(window.id).map { veiledSince - $0.capturedAt > ribbonProxyPictureFreshness } == true
     }.map(\.id))
     let unpictured = shown.filter { pictures.picture($0.id) == nil }.map(\.id.rawValue)
     // Pictures that do not match their window's size or are old: the landing shows the
@@ -790,10 +805,14 @@ final class RibbonProxyPresenter {
   func hold(windows: [RibbonProxyWindow], viewport: Rect, generation submission: UInt64,
     processID: Int32, selectedWindowID: WindowID?, managedWindowIDs: Set<WindowID>,
     borderWindowIDs: Set<WindowID>) {
-    // A card without its picture would flash an icon over a still window.
+    // The still windows must look unchanged: a missing picture flashes an icon, a
+    // stand-in a blurred card under it, an old picture the window as it was. At rest
+    // nothing is recaptured, so macOS's own placement shows instead.
+    let now = CACurrentMediaTime()
     guard !presenting, drag == .idle, windows.allSatisfy({ window in
       WindowCaptureStore.shared.picture(window.id).map {
-        ribbonProxyPictureMatches(captured: $0.size, native: window.to)
+        ribbonProxyPictureShowsWindow(captured: $0.size, reduced: $0.isReduced,
+          age: now - $0.capturedAt, native: window.to)
       } == true
     }) else { return }
     guard begin(windows: windows, viewport: viewport, generation: submission, nativeTargets: [:],

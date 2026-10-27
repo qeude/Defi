@@ -290,7 +290,6 @@ final class AXWindowIDProvider {
 
   nonisolated(unsafe) private let libraryHandle: UnsafeMutableRawPointer?
   private let getWindow: GetWindowFunc?
-  private var disabled = false
   private var probeCompleted = false
   private var probeSucceeded = false
   private var probeAttempts = 0
@@ -318,17 +317,16 @@ final class AXWindowIDProvider {
 
   var probeResult: Bool? {
     guard probeCompleted else { return nil }
-    return getWindow != nil && probeSucceeded && !disabled
+    return getWindow != nil && probeSucceeded
   }
 
   func windowID(for element: AXUIElement) -> CGWindowID? {
     ensureProbe()
-    guard !disabled, probeSucceeded, let getWindow else { return nil }
+    guard probeSucceeded, let getWindow else { return nil }
+    // A window closing mid-read fails alone: disabling the lookup for the session
+    // left same-app windows told apart by frame and swapped.
     var windowID: CGWindowID = 0
-    guard getWindow(element, &windowID) == .success, windowID != 0 else {
-      disabled = true
-      return nil
-    }
+    guard getWindow(element, &windowID) == .success, windowID != 0 else { return nil }
     return windowID
   }
 
@@ -394,11 +392,7 @@ final class AXWindowIDProvider {
       }
       probeCompleted = true
       var windowID: CGWindowID = 0
-      if getWindow(window, &windowID) == .success, windowID != 0 {
-        probeSucceeded = true
-      } else {
-        disabled = true
-      }
+      probeSucceeded = getWindow(window, &windowID) == .success && windowID != 0
       panel.close()
       probePanel = nil
       return

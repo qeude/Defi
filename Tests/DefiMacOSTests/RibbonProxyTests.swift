@@ -7,6 +7,16 @@ import Testing
 @testable import DefiMacOS
 
 struct RibbonProxyTests {
+  @Test func overviewZoomHoldsCapturesApartFromRibbonMotion() {
+    let store = RibbonProxyStore(), display: CGDirectDisplayID = 3
+    store.setOverviewZooming(true, MonitorID(rawValue: 3))
+    store.setMoving(true, display)
+    store.setMoving(false, display)
+    #expect(store.isMoving, "A ribbon landing must not release the Overview's zoom")
+    store.setOverviewZooming(false, MonitorID(rawValue: 3))
+    #expect(!store.isMoving)
+  }
+
   @Test func landingWaitsForEveryVisibleTarget() {
     let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2)
     let targets = [a: Rect(x: 10, y: 40, width: 800, height: 900),
@@ -56,6 +66,16 @@ struct RibbonProxyTests {
     let frame = Rect(x: 0, y: 0, width: 800, height: 600)
     #expect(ribbonProxyPictureMatches(captured: CGSize(width: 801, height: 599), native: frame))
     #expect(!ribbonProxyPictureMatches(captured: CGSize(width: 700, height: 600), native: frame))
+  }
+
+  @Test func aHeldScreenShowsOnlySharpRecentPictures() {
+    let frame = Rect(x: 0, y: 0, width: 800, height: 600), size = CGSize(width: 800, height: 600)
+    #expect(ribbonProxyPictureShowsWindow(captured: size, reduced: false, age: 0.2, native: frame))
+    // A browser left a minute at rest: its stand-in or its old picture would flash.
+    #expect(!ribbonProxyPictureShowsWindow(captured: size, reduced: true, age: 0.2, native: frame))
+    #expect(!ribbonProxyPictureShowsWindow(captured: size, reduced: false, age: 60, native: frame))
+    #expect(!ribbonProxyPictureShowsWindow(captured: CGSize(width: 700, height: 600), reduced: false,
+      age: 0.2, native: frame))
   }
 
   @Test func capturesOrderByRibbonDistanceFromTheViewport() {
