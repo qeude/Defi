@@ -1,6 +1,7 @@
 import AppKit
 import DefiCore
 import DefiModel
+import Metal
 
 @MainActor
 protocol OverviewViewDelegate: AnyObject {
@@ -36,7 +37,15 @@ final class OverviewPanel {
   private var invalidatedSurfaceWindowIDs = Set<WindowID>()
   private var surfaceGeneration: UInt64 = 0
   var openingTransitionChanged: ((String) -> Void)?
-  private var openingTransitionInProgress = false
+  private var openingTransitionInProgress = false {
+    // Captures and window reads load the WindowServer that composites the zoom.
+    didSet {
+      guard oldValue != openingTransitionInProgress else { return }
+      RibbonProxyStore.shared.setOverviewZooming(openingTransitionInProgress, monitorID)
+    }
+  }
+  private var surfaceStartPending = false
+  private lazy var presentationProbe = OverviewPresentationProbe(host: rootView.layer)
   // The captured desktop shown, forgotten with the images so a reopen shows it again.
   var capturedDesktop: CGImage?
 
@@ -142,18 +151,44 @@ final class OverviewPanel {
     discardImages()
   }
 
-  func showSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>, duration: TimeInterval) {
+  /// Shows the zoom's first pose, which matches the desktop; `startSurfaceSceneWhenPresented` moves it.
+  func presentSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>) {
     cancelSurfaceTransition()
     restoreWallpaperFade()
     surfaceScene = scene
     openingTransitionInProgress = true
     openingTransitionChanged?("started(\(scene.openingContentDescription))")
-    let generation = surfaceGeneration
     view.suppressedSurfaceWindowIDs = windowIDs
     glassView.alphaValue = 0
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
     window.orderFrontRegardless()
+    window.displayIfNeeded()
+    surfaceStartPending = true
+  }
+
+  /// Starts the zoom once its first pose is on screen. A cold panel can take several
+  /// frames to appear, and a zoom whose clock ran meanwhile would show only its end.
+  func startSurfaceSceneWhenPresented(duration: TimeInterval) {
+    let generation = surfaceGeneration, requested = CACurrentMediaTime()
+    surfaceTask = Task { [weak self] in
+      // A late or missing report never holds the zoom longer than this.
+      do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+      self?.startSurfaceScene(duration: duration, generation: generation, requested: requested)
+    }
+    let reported = presentationProbe?.notifyWhenPresented { [weak self] in
+      Task { @MainActor in
+        self?.startSurfaceScene(duration: duration, generation: generation, requested: requested)
+      }
+    } ?? false
+    if !reported { startSurfaceScene(duration: duration, generation: generation, requested: requested) }
+  }
+
+  private func startSurfaceScene(duration: TimeInterval, generation: UInt64, requested: CFTimeInterval) {
+    guard surfaceStartPending, surfaceGeneration == generation, let scene = surfaceScene else { return }
+    surfaceStartPending = false
+    surfaceTask?.cancel()
+    openingTransitionChanged?("presented(ms:\(Int((CACurrentMediaTime() - requested) * 1_000)))")
     scene.animate(opening: true, duration: duration)
     NSAnimationContext.runAnimationGroup { context in
       context.duration = duration
@@ -244,6 +279,7 @@ final class OverviewPanel {
       openingTransitionChanged?("interrupted(\(reason))")
     }
     surfaceGeneration &+= 1
+    surfaceStartPending = false
     surfaceTask?.cancel()
     surfaceTask = nil
     surfaceScene?.layer.removeFromSuperlayer()
@@ -304,5 +340,36 @@ final class OverviewPanel {
   private func orderOut() {
     view.discardPreviewImages()
     window.orderOut(nil)
+  }
+}
+
+/// Reports when the panel's next frame reaches the screen, through a one-pixel drawable.
+@MainActor
+final class OverviewPresentationProbe {
+  private static let device = MTLCreateSystemDefaultDevice()
+  private static let queue = device?.makeCommandQueue()
+  private let layer = CAMetalLayer()
+
+  init?(host: CALayer?) {
+    guard let host, let device = Self.device else { return nil }
+    layer.device = device
+    layer.pixelFormat = .bgra8Unorm
+    layer.isOpaque = false
+    layer.drawableSize = CGSize(width: 1, height: 1)
+    layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+    host.addSublayer(layer)
+  }
+
+  func notifyWhenPresented(_ handler: @escaping @Sendable () -> Void) -> Bool {
+    guard let drawable = layer.nextDrawable(), let buffer = Self.queue?.makeCommandBuffer() else { return false }
+    let pass = MTLRenderPassDescriptor()
+    pass.colorAttachments[0].texture = drawable.texture
+    pass.colorAttachments[0].loadAction = .clear
+    pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+    buffer.makeRenderCommandEncoder(descriptor: pass)?.endEncoding()
+    drawable.addPresentedHandler { _ in handler() }
+    buffer.present(drawable)
+    buffer.commit()
+    return true
   }
 }

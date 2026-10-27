@@ -32,6 +32,22 @@ struct OverviewPreviewTests {
     #expect(item.cornerRadius == 0)
   }
 
+  @Test func parkedWindowsZoomFromTheirPlaceInTheStrip() {
+    let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+    let visible = (native: CGRect(x: 4, y: 34, width: 2552, height: 1356),
+      target: CGRect(x: 500, y: 300, width: 1276, height: 678))
+    // Parked at the left edge, its column is right of the visible one.
+    let parked = CGRect(x: -1269, y: 34, width: 1270, height: 1356)
+    let parkedTarget = CGRect(x: 1784, y: 300, width: 635, height: 678)
+    #expect(overviewWindowIsParked(parked, in: screen))
+    #expect(!overviewWindowIsParked(CGRect(x: 1800, y: 34, width: 1270, height: 1356), in: screen))
+    #expect(overviewZoomSource(native: visible.native, target: visible.target, screen: screen,
+      anchor: visible) == visible.native)
+    #expect(overviewZoomSource(native: parked, target: parkedTarget, screen: screen, anchor: visible)
+      == CGRect(x: 2572, y: 34, width: 1270, height: 1356))
+    #expect(overviewZoomSource(native: parked, target: parkedTarget, screen: screen, anchor: nil) == nil)
+  }
+
   @MainActor @Test func pressureRecoveryRequestsPreloadingWithoutAnotherOpening() {
     var preparations = 0
     let controller = OverviewController(focusWindow: { _, _, _, _ in },

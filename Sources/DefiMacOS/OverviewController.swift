@@ -168,6 +168,7 @@ public final class OverviewController: NSObject {
   public private(set) var sessionGeneration: UInt64 = 0
   private var windowPreviewsEnabled = false
   private var surfaceWindowIDs = Set<WindowID>()
+  private var zoomedWindowIDs = Set<WindowID>()
   public private(set) var surfaceTransitionCount = 0
   public private(set) var surfaceFallbackCount = 0
   public private(set) var previewClosingCount = 0
@@ -454,6 +455,7 @@ public final class OverviewController: NSObject {
     previewTask?.cancel()
     previewTask = nil
     surfaceWindowIDs.removeAll()
+    zoomedWindowIDs.removeAll()
     // Whatever the shared cache holds shows at once; fresher pictures cross-fade in.
     previews = sharedPreviews(for: snapshot)
     blurredPreviews = blurredPreviews.filter { snapshot.windows[$0.key] != nil }
@@ -498,6 +500,7 @@ public final class OverviewController: NSObject {
     let fadeDuration = animationsEnabled
       && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
       ? overviewOpenFadeDuration : 0
+    var zooming: [MonitorID: OverviewPanel] = [:]
     for (monitorID, panel) in panels {
       if animationsEnabled, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
         let projection = projections[monitorID],
@@ -512,13 +515,23 @@ public final class OverviewController: NSObject {
         let capturedIDs = scene.surfaceWindowIDs
         surfaceWindowIDs.formUnion(capturedIDs)
         attemptedPreviewWindowIDs.formUnion(capturedIDs)
-        panel.showSurfaceScene(scene, windowIDs: ids, duration: 0.22)
+        zoomedWindowIDs.formUnion(ids)
+        panel.presentSurfaceScene(scene, windowIDs: ids)
+        zooming[monitorID] = panel
         surfaceTransitionCount += 1
       } else {
         surfaceFallbackCount += 1
         recordOpeningTransition("fallback(animation:\(animationsEnabled),parking:\(usesWorkspaceParking),reduceMotion:\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion),previews:\(previews.count))", monitorID: monitorID)
         panel.show(fadeDuration: fadeDuration)
       }
+    }
+    // Cold pictures and panels upload before the zoom's clock starts, so it never plays unseen.
+    let commitStart = CACurrentMediaTime()
+    CATransaction.flush()
+    let commitMs = Int((CACurrentMediaTime() - commitStart) * 1_000)
+    for (monitorID, panel) in zooming {
+      recordOpeningTransition("zoom(commitMs:\(commitMs))", monitorID: monitorID)
+      panel.startSurfaceSceneWhenPresented(duration: 0.22)
     }
     schedulePreviewsIfNeeded()
   }
@@ -1345,6 +1358,8 @@ public final class OverviewController: NSObject {
     }
     previewPermissionState = .granted
     WindowCaptureCache.shared.refreshForOverview(requests, displays: displays, landing: true)
+    // Every card counts as shown; the zoomed windows stay sharp first, for the next zoom.
+    WindowCaptureStore.shared.markShown(Array(zoomedWindowIDs), at: CACurrentMediaTime() + 0.001)
   }
 
   /// Cards in `shown` projections are refreshed like windows in view; without

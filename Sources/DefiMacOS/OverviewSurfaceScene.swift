@@ -58,27 +58,34 @@ final class OverviewSurfaceScene {
     layer.masksToBounds = true
     var entries: [(WindowID, CALayer, CGRect, CGRect)] = []
     var cachedCount = 0
-    // Public CGWindow order is front to back; preserve floating/native stacking.
-    for card in workspace.windows.sorted(by: {
-      order[$0.windowID, default: 0] > order[$1.windowID, default: 0]
+    let placed = workspace.windows.compactMap { card -> (id: WindowID, native: CGRect, target: CGRect)? in
+      guard let native = frames[card.windowID], native.width > 0, native.height > 0 else { return nil }
+      return (card.windowID, native, CGRect(x: card.frame.x, y: card.frame.y,
+        width: card.frame.width, height: card.frame.height))
+    }
+    let bounds = layer.bounds
+    let anchor = placed.filter { !overviewWindowIsParked($0.native, in: bounds) }
+      .max { $0.native.width * $0.native.height < $1.native.width * $1.native.height }
+      .map { (native: $0.native, target: $0.target) }
+    // Public CGWindow order is front to back; parked windows pass under visible ones.
+    for (windowID, native, target) in placed.sorted(by: { lhs, rhs in
+      let lhsParked = overviewWindowIsParked(lhs.native, in: bounds)
+      if lhsParked != overviewWindowIsParked(rhs.native, in: bounds) { return lhsParked }
+      return order[lhs.id, default: 0] > order[rhs.id, default: 0]
     }) {
-      guard let source = frames[card.windowID], source.width > 0, source.height > 0 else { continue }
-      let target = CGRect(x: card.frame.x, y: card.frame.y,
-        width: card.frame.width, height: card.frame.height)
+      guard let source = overviewZoomSource(native: native, target: target,
+        screen: bounds, anchor: anchor) else { continue }
       let item: CALayer
-      let picture = pictures[card.windowID]
+      let picture = pictures[windowID]
       if let picture, !picture.isReduced, ribbonProxyPictureMatches(captured: picture.size,
-        native: Rect(x: source.minX, y: source.minY, width: source.width, height: source.height)) {
+        native: Rect(x: native.minX, y: native.minY, width: native.width, height: native.height)) {
         // The shared full-resolution picture; Core Animation scales it, no copy.
         item = CALayer()
         item.contents = picture.contents
       } else {
-        // Only visible native windows need the opening fallback. Parked columns
-        // must not fly into the overview from their one-pixel strip anchors.
-        guard source.intersects(layer.bounds) else { continue }
         item = overviewCardLayer(image: picture?.contents, size: source.size)
         if item.contents != nil { cachedCount += 1 }
-        fallbackIDs.insert(card.windowID)
+        fallbackIDs.insert(windowID)
       }
       item.removeFromSuperlayer(); item.removeAllAnimations()
       item.contentsGravity = .resize
@@ -91,7 +98,7 @@ final class OverviewSurfaceScene {
       item.cornerCurve = .continuous
       item.masksToBounds = true
       layer.addSublayer(item)
-      entries.append((card.windowID, item, source, target))
+      entries.append((windowID, item, source, target))
     }
     guard !entries.isEmpty else { return nil }
     self.entries = entries
@@ -165,6 +172,24 @@ final class OverviewSurfaceScene {
     }
     return current == nativeFrames
   }
+}
+
+/// A parked window shows at most a sliver of itself on its display.
+func overviewWindowIsParked(_ native: CGRect, in screen: CGRect) -> Bool {
+  let visible = native.intersection(screen)
+  return visible.isNull || visible.width * visible.height < native.width * native.height * 0.01
+}
+
+/// Where a window starts the opening zoom. A parked window starts from its place in the
+/// strip, mapped back through the anchor's zoom, never from its parking sliver.
+func overviewZoomSource(native: CGRect, target: CGRect, screen: CGRect,
+  anchor: (native: CGRect, target: CGRect)?) -> CGRect? {
+  guard overviewWindowIsParked(native, in: screen) else { return native }
+  guard let anchor, anchor.target.width > 0 else { return nil }
+  let scale = anchor.native.width / anchor.target.width
+  return CGRect(x: anchor.native.minX + (target.minX - anchor.target.minX) * scale,
+    y: anchor.native.minY + (target.minY - anchor.target.minY) * scale,
+    width: native.width, height: native.height)
 }
 
 /// A window-sized stand-in for a zoom transition. Without an image it keeps the
