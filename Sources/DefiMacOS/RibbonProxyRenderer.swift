@@ -540,9 +540,12 @@ final class RibbonProxyPresenter {
       ribbonProxyShows(local($0.from, area), in: layers.root.bounds)
         || ribbonProxyShows(local($0.to, area), in: layers.root.bounds)
     }.map(\.id))
+    // Arriving windows outrank leaving ones: under pressure, a workspace switch lands sharp.
+    let arriving = shown.filter { ribbonProxyShows(local($0.to, area), in: layers.root.bounds) }
     let now = CACurrentMediaTime()
     pictures.markShown(Array(shownIDs), at: now)
     pictures.markShown(Array(inView), at: now + 0.001)
+    pictures.markShown(arriving.map(\.id), at: now + 0.002)
     let reduced = shownIDs.filter { pictures.picture($0)?.isReduced == true }
     let blurred = inView.intersection(reduced).subtracting(pictures.restore(Array(reduced)))
     // One command can submit twice (layout, then scroll) with a narrower window set;

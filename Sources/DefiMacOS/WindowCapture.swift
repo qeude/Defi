@@ -154,8 +154,9 @@ private func windowPixelsScratch<T>(_ capacity: Int,
 let windowPixelsBitmapInfo = CGBitmapInfo(rawValue:
   CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)
 
-// A stand-in for the few frames a restoration takes, and for Overview cards.
-let windowPictureReducedLongSide = 512
+// A stand-in for the few frames a restoration takes, and for Overview cards: a quarter of a
+// 5K-wide window still reads as the window, at about 2 MB in compressible memory.
+let windowPictureReducedLongSide = 1_024
 
 func windowPictureReducedPixels(_ image: CGImage?) -> (width: Int, height: Int)? {
   guard let image else { return nil }
@@ -286,7 +287,7 @@ final class WindowCaptureStore: @unchecked Sendable {
   private var shown: [WindowID: TimeInterval] = [:]
   private var reducing: Set<WindowID> = []
   private var restoring: Set<WindowID> = []
-  /// Serial: each reduction or restoration allocates a full-size surface.
+  /// Serial: each reduction allocates a full-size surface; restorations of a batch run in parallel.
   private let pixelQueue = DispatchQueue(label: "com.qeude.defi.capture-pixels", qos: .userInitiated)
   private var backgrounds: [CGDirectDisplayID: CGImage] = [:]
   private var icons: [Int32: CGImage] = [:]
@@ -348,7 +349,9 @@ final class WindowCaptureStore: @unchecked Sendable {
     }
     guard !work.isEmpty else { return sharpening }
     pixelQueue.async { [self] in
-      for (id, picture) in work {
+      // In parallel: the windows a motion waits for sharpen together, within a frame or two.
+      DispatchQueue.concurrentPerform(iterations: work.count) { index in
+        let (id, picture) = work[index]
         // Per picture: Core Image and CoreVideo autorelease their full-size buffers.
         let restored = autoreleasepool { picture.restored() }
         locked {
@@ -380,10 +383,14 @@ final class WindowCaptureStore: @unchecked Sendable {
   func setIcon(_ icon: CGImage, for processID: Int32) { locked { icons[processID] = icon } }
   func clear() { locked { pictures = [:]; backgrounds = [:]; reducing = [] } }
 
-  /// Warning quarters the cap; critical drops every picture; normal restores the cap.
-  func applyMemoryPressure(_ events: DispatchSource.MemoryPressureEvent) {
+  /// Warning quarters the cap, but never below twice the displays' own pixels: the windows
+  /// in view and those a motion brings in stay sharp. Critical drops every picture; normal
+  /// restores the cap.
+  func applyMemoryPressure(_ events: DispatchSource.MemoryPressureEvent,
+    screens: [RibbonProxyScreen] = RibbonProxyStore.shared.allScreens) {
     if events.contains(.critical) { clear() }
-    locked { limit = events.contains(.normal) ? fullLimit : fullLimit / 4 }
+    let screenBytes = screens.reduce(0) { $0 + Int($1.frame.width * $1.frame.height * $1.scale * $1.scale * 4) }
+    locked { limit = events.contains(.normal) ? fullLimit : min(fullLimit, max(fullLimit / 4, 2 * screenBytes)) }
     enforceBudget()
   }
 
