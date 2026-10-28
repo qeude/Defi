@@ -237,8 +237,9 @@ windows remain limits.
 
 Captured pictures are memory-only and contain no audio or cursor. The cache is
 capped at 128 MiB of full-resolution pictures: the most recently shown windows keep
-full resolution, older ones are reduced to 1,024 pixels on their longest edge and keep
-their full pixels compressed. A memory pressure warning lowers the cap to a quarter,
+full resolution, older ones are reduced to 1,024 pixels on their longest edge and,
+when compressible, keep their full pixels compressed; smaller ones are dropped past the
+cap. A memory pressure warning lowers the cap to a quarter,
 but never below twice the displays' pixels; critical pressure releases every picture.
 Defi validates the window and process identity before showing a picture. Closed Overview panels
 and their desktop images are released right after the closing animation. A full-display
