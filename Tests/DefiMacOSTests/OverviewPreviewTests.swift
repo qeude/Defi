@@ -290,6 +290,26 @@ struct OverviewPreviewTests {
   }
 
   @Test
+  func `Memory pressure keeps two screens' worth of pictures full`() async throws {
+    let picture = try windowServerPicture(width: 2_600, height: 1_400)
+    let window = RibbonProxyRefresh(id: WindowID(rawValue: 1), appID: "app", processID: 42,
+      frame: Rect(x: 0, y: 0, width: 1_300, height: 700), distance: 0)
+    let screen = RibbonProxyScreen(displayID: 1, frame: Rect(x: 0, y: 0, width: 1_300, height: 700),
+      visibleFrame: Rect(x: 0, y: 0, width: 1_300, height: 700), scale: 2)
+    let kept = WindowCaptureStore(byteLimit: picture.byteCost * 2)
+    kept.setPicture(picture, for: window)
+    kept.applyMemoryPressure(.warning, screens: [screen])
+    let quartered = WindowCaptureStore(byteLimit: picture.byteCost * 2)
+    quartered.setPicture(picture, for: window)
+    quartered.applyMemoryPressure(.warning, screens: [])
+    // Reduction runs on a utility queue, which parallel tests can starve for seconds.
+    let deadline = Date().addingTimeInterval(30)
+    while quartered.reducedCount == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(quartered.reducedCount == 1)
+    #expect(kept.reducedCount == 0)
+  }
+
+  @Test
   func `Store restores only the reduced pictures the cap keeps full`() async throws {
     let picture = try windowServerPicture(width: 2_600, height: 1_400)
     let store = WindowCaptureStore(byteLimit: picture.byteCost + picture.byteCost / 2)
@@ -333,7 +353,7 @@ struct OverviewPreviewTests {
     let reduced = try #require(picture.reduced())
     #expect(reduced.isReduced && reduced.reducedByteCost == nil)
     #expect(reduced.size == picture.size && reduced.capturedAt == 7)
-    #expect(reduced.pixelScale == 0.5 && reduced.byteCost == reducedBytes)
+    #expect(reduced.pixelScale == 1 && reduced.byteCost == reducedBytes)
     #expect(reduced.appID == "app" && reduced.processID == 42)
     #expect(ribbonProxyPictureMatches(captured: reduced.size, native: Rect(x: 0, y: 0, width: 1_024, height: 512)))
   }

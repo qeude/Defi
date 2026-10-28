@@ -236,11 +236,12 @@ during typing or animated content, shadows, widgets and native fullscreen
 windows remain limits.
 
 Captured pictures are memory-only and contain no audio or cursor. The cache is
-capped at 512 MiB: the most recently shown windows keep full resolution, older
-ones are reduced to 512 pixels on their longest edge, and the oldest are dropped
-past the cap. A memory pressure warning lowers the cap to a quarter; critical
-pressure releases every picture. Defi validates the window and process identity
-before showing a picture. Closed Overview panels
+capped at 128 MiB of full-resolution pictures: the most recently shown windows keep
+full resolution, older ones are reduced to 1,024 pixels on their longest edge and,
+when compressible, keep their full pixels compressed; smaller ones are dropped past the
+cap. A memory pressure warning lowers the cap to a quarter,
+but never below twice the displays' pixels; critical pressure releases every picture.
+Defi validates the window and process identity before showing a picture. Closed Overview panels
 and their desktop images are released right after the closing animation. A full-display
 screen share can include the Overview and the
 content shown in its cards; sharing one selected application or window does not
