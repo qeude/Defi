@@ -68,14 +68,13 @@ struct RibbonProxyTests {
     #expect(!ribbonProxyPictureMatches(captured: CGSize(width: 700, height: 600), native: frame))
   }
 
-  @Test func aHeldScreenShowsOnlySharpRecentPictures() {
+  @Test func aHeldScreenShowsOnlySharpPicturesAtTheWindowsSize() {
     let frame = Rect(x: 0, y: 0, width: 800, height: 600), size = CGSize(width: 800, height: 600)
-    #expect(ribbonProxyPictureShowsWindow(captured: size, reduced: false, age: 0.2, native: frame))
-    // A browser left a minute at rest: its stand-in or its old picture would flash.
-    #expect(!ribbonProxyPictureShowsWindow(captured: size, reduced: true, age: 0.2, native: frame))
-    #expect(!ribbonProxyPictureShowsWindow(captured: size, reduced: false, age: 60, native: frame))
+    #expect(ribbonProxyPictureShowsWindow(captured: size, reduced: false, native: frame))
+    // A browser left a minute at rest: its blurred stand-in would flash.
+    #expect(!ribbonProxyPictureShowsWindow(captured: size, reduced: true, native: frame))
     #expect(!ribbonProxyPictureShowsWindow(captured: CGSize(width: 700, height: 600), reduced: false,
-      age: 0.2, native: frame))
+      native: frame))
   }
 
   @Test func capturesOrderByRibbonDistanceFromTheViewport() {
@@ -110,6 +109,16 @@ struct RibbonProxyTests {
     var switched = left
     switched.workspaceShift = -800
     #expect(moves(switched, targets: [:], previous: [:]))
+  }
+
+  @Test func aSkippedRibbonMoveIsDeferredToTheLayoutThatWritesIt() {
+    let a = WindowID(rawValue: 1), b = WindowID(rawValue: 2), c = WindowID(rawValue: 3)
+    let slot = Rect(x: 0, y: 40, width: 500, height: 800)
+    let next = Rect(x: 400, y: 40, width: 500, height: 800)
+    let frames = [a: next, b: next, c: slot].map { FrameAssignment(windowID: $0.key, frame: $0.value) }
+    // Only a skipped window whose place changed waits: written or unmoved ones do not.
+    #expect(windowProxyDeferredMoves(frames, previous: [a: slot, b: slot, c: slot], skipped: [a, c]) == [a])
+    #expect(windowProxyDeferredMoves(frames, previous: [:], skipped: [a]).isEmpty)
   }
 
   @Test func aLayoutLimitedToOneDisplayLeavesTheOtherStillOnTheNextFullLayout() {

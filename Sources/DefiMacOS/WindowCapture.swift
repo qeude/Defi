@@ -430,6 +430,9 @@ final class WindowCaptureCache {
   private(set) var failureCount = 0
   var isCapturing: Bool { refreshing || slowCapturesRunning }
   private var refresh: Task<Void, Never>?
+  private var warming: Task<Void, Never>?
+  /// Aged pictures on screen that the next pass refreshes.
+  private var warmIDs: Set<WindowID> = []
   private var refreshDue: CFTimeInterval = 0
   private var refreshQueuedSoon = false
   /// The last pass found a motion running: retry shortly, never in a tight loop.
@@ -495,6 +498,37 @@ final class WindowCaptureCache {
     scheduleRefresh(after: afterLanding ? 0.05 : 0.5, afterLanding: afterLanding)
   }
 
+  /// While someone uses the Mac, every window showing on a display is recaptured once its
+  /// picture is a second old, so the next motion departs with what the user just saw and a
+  /// window opening can hold the screen (it needs pictures under 1.5 s). An idle desktop,
+  /// fresh pictures or a running motion capture nothing, and ScreenCaptureKit never
+  /// refreshes a picture that is merely old.
+  private func keepWarm() {
+    guard warming == nil else { return }
+    warming = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(1.2))
+        guard let self else { return }
+        guard RibbonProxyRenderer.shared.enabled else { warming = nil; return }
+        guard RibbonProxyStore.shared.isAuthorized, ribbonProxyWindowServerCapture != nil,
+          !RibbonProxyStore.shared.isMoving,
+          CGEventSource.secondsSinceLastEventType(.combinedSessionState,
+            eventType: CGEventType(rawValue: ~0)!) < ribbonProxyPictureFreshness
+        else { continue }
+        // Checked here, in memory, against the last pass's WindowServer list: a pass only
+        // starts when a capture is due. Not `distance`: a staircase offsets it from the screen.
+        let now = CACurrentMediaTime(), store = WindowCaptureStore.shared
+        let shown = Set(RibbonProxyStore.shared.onScreen.filter { ribbonProxyVisibleOnScreen($0.frame) }.map(\.id))
+        let due = pendingRefresh.filter { window in
+          shown.contains(window.id) && store.picture(window.id).map { now - $0.capturedAt > 1 } == true
+        }.map(\.id)
+        guard !due.isEmpty else { continue }
+        warmIDs = Set(due)
+        scheduleRefresh(after: 0, afterLanding: false)
+      }
+    }
+  }
+
   /// The Overview opening counts as a landing: the cards it shows (distance 0) are
   /// refreshed like windows in view, the others like offscreen ribbon windows.
   /// Without a landing (idle warming) only missing, resized or expired pictures are taken.
@@ -508,7 +542,10 @@ final class WindowCaptureCache {
       for id in shown { fallbackFailures[id] = nil }
     }
     let ids = Set(windows.map(\.id))
-    pendingRefresh = windows + pendingRefresh.filter { !ids.contains($0.id) }
+    // Idle warming adds only windows the ribbon has not noted: its distances (in view or
+    // not) decide every landing's refresh, and a blanket 1 left windows in view stale.
+    pendingRefresh = landing ? windows + pendingRefresh.filter { !ids.contains($0.id) }
+      : pendingRefresh + windows.filter { window in !pendingRefresh.contains { $0.id == window.id } }
     for screen in RibbonProxyStore.shared.allScreens where displays.contains(screen.displayID) {
       pendingDisplays[screen.displayID] = screen
     }
@@ -554,6 +591,7 @@ final class WindowCaptureCache {
   // Throttled, not debounced: rapid navigation must not postpone captures
   // forever. A running batch is never cancelled; it reruns once.
   private func scheduleRefresh(after delay: TimeInterval, afterLanding: Bool) {
+    keepWarm()
     refreshAfterLanding = refreshAfterLanding || afterLanding
     guard !refreshing else {
       refreshQueued = true
@@ -600,6 +638,8 @@ final class WindowCaptureCache {
     guard !ribbon.isMoving else { return deferForMotion(afterLanding: afterLanding) }
     // One WindowServer list per pass, off the main thread (which also drives the
     // drag ticker): it gives native frames, stacking and liveness at once.
+    let warm = warmIDs
+    warmIDs = []
     let known = store.pictureIDs.union(pendingRefresh.map(\.id))
     let (onScreen, alive) = await Task.detached(priority: .utility) {
       let onScreen = ribbonProxyOnScreenWindows()
@@ -623,10 +663,11 @@ final class WindowCaptureCache {
       if picture.capturedAt == 0 { return true }
       // Reduced to fit the byte cap: recaptured once shown, not on every landing.
       if picture.isReduced && window.distance > 0 { return false }
-      // Aged pictures refresh only with a landing: a layout at rest captures nothing.
+      // Aged pictures refresh only with a landing, or on screen while the user is active.
       // Outstanding Overview refreshes stay selected across passes until attempted.
       return overviewRefreshes.contains(window.id)
         || (afterLanding && now - picture.capturedAt > (window.distance == 0 ? 0.45 : 60))
+        || warm.contains(window.id)
     }.sorted { $0.distance < $1.distance }
     // The wallpaper gates every presentation, so it is captured first, once per
     // display geometry. A display gone or reshaped since its request uses its current geometry.

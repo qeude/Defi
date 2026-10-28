@@ -44,20 +44,35 @@ extension MacOSPlatform {
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
-    let previousRibbonFrames = previousLogicalRibbonFrames
-    previousLogicalRibbonFrames = windowProxyRibbonHistory(ribbonFrames,
-      previous: previousRibbonFrames, monitors: windowProxyMonitors)
-    frameSubmissionGeneration &+= 1
-    let submissionGeneration = frameSubmissionGeneration
     let skippedWindowIDs = requestedSkippedWindowIDs.union(
       nativeFullscreenWindowIDs
     )
+    let previousRibbonFrames = previousLogicalRibbonFrames
+    // An animated layout that cannot write a window yet (its native focus still pending,
+    // a closed window's neighbour) leaves it in place; the next layout writing it, even
+    // a plain sync, moves it on the overlay instead of at once.
+    let animates = animated && windowProxySources.contains(source)
+    if animates {
+      deferredRibbonMoves = windowProxyDeferredMoves(ribbonFrames, previous: previousRibbonFrames,
+        skipped: skippedWindowIDs)
+    }
+    let resumed = deferredRibbonMoves.subtracting(skippedWindowIDs)
+      .intersection(ribbonFrames.map(\.windowID))
+    var history = windowProxyRibbonHistory(ribbonFrames,
+      previous: previousRibbonFrames, monitors: windowProxyMonitors)
+    for id in deferredRibbonMoves.intersection(skippedWindowIDs) { history[id] = previousRibbonFrames[id] }
+    previousLogicalRibbonFrames = history
+    deferredRibbonMoves.subtract(resumed)
+    frameSubmissionGeneration &+= 1
+    let submissionGeneration = frameSubmissionGeneration
     let horizontalRibbonNavigation = source == "command-animation" && positionsOnly
       && lastMonitorFrames.count == 1 && !ribbonFrames.isEmpty
     if windowProxiesEnabled {
+      let resumes = !animates && !resumed.isEmpty
       applyWindowProxies(assignments: assignments, ribbonFrames: ribbonFrames,
         previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
-        hiddenWindowIDs: hiddenWindowIDs, source: source, animated: animated)
+        hiddenWindowIDs: hiddenWindowIDs, source: resumes ? "native-focus-animation" : source,
+        animated: animated || resumes)
     }
     // One switch, one slide: a later apply (a restore, a repair) must not reuse it.
     for index in windowProxyMonitors.indices { windowProxyMonitors[index].workspaceShift = nil }
@@ -479,6 +494,15 @@ let windowProxySources: Set<String> = [
   "command-animation", "command-layout-animation", "workspace-transition", "native-focus-animation",
 ]
 
+/// Windows whose ribbon place changed but that this layout skips: they have not moved yet.
+func windowProxyDeferredMoves(_ ribbonFrames: [FrameAssignment], previous: [WindowID: Rect],
+  skipped: Set<WindowID>) -> Set<WindowID> {
+  Set(ribbonFrames.filter { assignment in
+    skipped.contains(assignment.windowID)
+      && previous[assignment.windowID].map { !approximatelyEqual($0, assignment.frame) } == true
+  }.map(\.windowID))
+}
+
 func windowProxyVisibleOverlap(_ frame: Rect, _ area: Rect) -> Double {
   guard frame.y < area.y + area.height, area.y < frame.y + frame.height else { return 0 }
   return max(min(frame.x + frame.width, area.x + area.width) - max(frame.x, area.x), 0)
@@ -751,7 +775,7 @@ extension MacOSPlatform {
           && frameDistance(latestObservedFrames[window.id] ?? window.frame, frame) <= 2
       }
     } ?? false
-    if !opensColumn { RibbonProxyPresenter.releaseHolds() }
+    if opensColumn { RibbonProxyPresenter.extendHolds() } else { RibbonProxyPresenter.releaseHolds() }
   }
 
   private func captureSpawnedWindows(_ windows: [RibbonProxyRefresh]) {

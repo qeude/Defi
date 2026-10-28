@@ -126,12 +126,17 @@ extension Daemon {
   /// path decides.
   func focusActivatedWindow(_ windowID: WindowID, activatedAt timestamp: TimeInterval) {
     let input = platform.userInputTracker.snapshot
-    guard input.applicationActivation?.timestamp == timestamp,
-      timestamp > max(latestCommandInputTimestamp, input.latestCapturedCommandTimestamp),
-      let processID = state.windows[windowID]?.processID,
-      !platform.internalFocusIsRecent(processID: processID),
-      !CGEventSource.buttonState(.combinedSessionState, button: .left)
-    else { return }
+    let processID = state.windows[windowID]?.processID
+    let skipped: String? =
+      if input.applicationActivation?.timestamp != timestamp { "superseded" }
+      else if timestamp <= max(latestCommandInputTimestamp, input.latestCapturedCommandTimestamp) { "command" }
+      else if processID == nil { "unknown-window" }
+      else if let processID, platform.internalFocusIsRecent(processID: processID) { "internal-focus" }
+      else if CGEventSource.buttonState(.combinedSessionState, button: .left) { "button-down" }
+      else { nil }
+    if let skipped {
+      return platform.recordPerformanceTrace("activation-skipped window=\(windowID.rawValue) reason=\(skipped)")
+    }
     selectNativeTarget(windowID, trace: "activation-focus", inputAt: timestamp)
   }
 

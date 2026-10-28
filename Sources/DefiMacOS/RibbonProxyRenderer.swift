@@ -30,10 +30,9 @@ func ribbonProxyPictureMatches(captured: CGSize, native: Rect) -> Bool {
 let ribbonProxyPictureFreshness: TimeInterval = 1.5
 
 /// A held screen shows pictures in place of live windows that do not move: only a
-/// sharp, recent picture at the window's size looks the same.
-func ribbonProxyPictureShowsWindow(captured: CGSize, reduced: Bool, age: TimeInterval,
-  native: Rect) -> Bool {
-  !reduced && age <= ribbonProxyPictureFreshness && ribbonProxyPictureMatches(captured: captured, native: native)
+/// sharp picture at the window's size looks the same. An old one is recaptured at once.
+func ribbonProxyPictureShowsWindow(captured: CGSize, reduced: Bool, native: Rect) -> Bool {
+  !reduced && ribbonProxyPictureMatches(captured: captured, native: native)
 }
 
 /// The overlay may lift once every visible native window sits on its target.
@@ -207,7 +206,7 @@ final class RibbonProxyRenderer {
     didSet {
       guard !enabled else {
         refreshEnvironment()
-        // No refresh at rest: pictures are taken on events only (a landing, a layout, a resize).
+        // At rest, pictures refresh only on events (a landing, a layout, a resize) or user activity.
         return
       }
       if oldValue { WindowCaptureStore.shared.clear() }
@@ -342,6 +341,7 @@ final class RibbonProxyPresenter {
   static func picturesArrived() { for presenter in presenters.values { presenter.picturesArrived() } }
   static func cancelAll(_ reason: String = "external") { for presenter in presenters.values { presenter.cancel(reason) } }
   static func releaseHolds() { for presenter in presenters.values { presenter.releaseHold() } }
+  static func extendHolds(to seconds: CFTimeInterval = 1.2) { for presenter in presenters.values { presenter.extendHold(to: seconds) } }
   static func endDrag() { for presenter in presenters.values { presenter.endDrag() } }
   /// A display gone: its motion stops and its windows' borders come back.
   static func retain(_ displays: Set<CGDirectDisplayID>) {
@@ -421,6 +421,8 @@ final class RibbonProxyPresenter {
   private var springStopped = true
   /// A launching app's first window: the screen holds still until its layout opens it.
   private var holdUntil: CFTimeInterval = 0
+  /// When the screen began holding for a new window.
+  private var holdStart: CFTimeInterval = 0
   private var holdRelease: Task<Void, Never>?
   private var bordersHidden = false
   private var borderRestore: Task<Void, Never>?
@@ -631,6 +633,7 @@ final class RibbonProxyPresenter {
     let flushMS = Int((CACurrentMediaTime() - committing) * 1_000)
     presenting = true
     holdUntil = holds ? CACurrentMediaTime() + 0.5 : 0
+    holdStart = CACurrentMediaTime()
     RibbonProxyStore.shared.setMoving(true, display)
     // This display's borders only: another display's stay as they are.
     let borders = borderWindowIDs.map { $0.union(shownIDs) } ?? managed
@@ -806,19 +809,26 @@ final class RibbonProxyPresenter {
     processID: Int32, selectedWindowID: WindowID?, managedWindowIDs: Set<WindowID>,
     borderWindowIDs: Set<WindowID>) {
     // The still windows must look unchanged: a missing picture flashes an icon, a
-    // stand-in a blurred card under it, an old picture the window as it was. At rest
-    // nothing is recaptured, so macOS's own placement shows instead.
+    // stand-in a blurred card under it. An old picture still holds: after a pause the
+    // screen rarely changed, and it is recaptured at once and dissolves into the new one,
+    // where refusing showed macOS's own placement instead.
     let now = CACurrentMediaTime()
-    guard !presenting, drag == .idle, windows.allSatisfy({ window in
+    let unsharp = windows.filter { window in
       WindowCaptureStore.shared.picture(window.id).map {
-        ribbonProxyPictureShowsWindow(captured: $0.size, reduced: $0.isReduced,
-          age: now - $0.capturedAt, native: window.to)
-      } == true
-    }) else { return }
+        ribbonProxyPictureShowsWindow(captured: $0.size, reduced: $0.isReduced, native: window.to)
+      } != true
+    }
+    guard !presenting, drag == .idle, unsharp.isEmpty else {
+      return ribbonProxyLogger.notice("open-hold-refused pid=\(processID) presenting=\(self.presenting) unsharp=\(unsharp.map { "\($0.id.rawValue):\(Int($0.to.width))x\(Int($0.to.height))" }, privacy: .public)")
+    }
     guard begin(windows: windows, viewport: viewport, generation: submission, nativeTargets: [:],
       duration: ribbonProxySpringDuration, selectedWindowID: selectedWindowID, holds: true,
       managedWindowIDs: managedWindowIDs, borderWindowIDs: borderWindowIDs) else { return }
-    ribbonProxyLogger.notice("open-hold pid=\(processID)")
+    let aged = windows.filter { window in
+      WindowCaptureStore.shared.picture(window.id).map { now - $0.capturedAt > ribbonProxyPictureFreshness } == true
+    }
+    aged.forEach(ribbonProxyCaptureNow)
+    ribbonProxyLogger.notice("open-hold pid=\(processID) recaptured=\(aged.count)")
   }
 
   /// The held window is not one the ribbon opens (a dialog, a native tab): the screen
@@ -829,6 +839,16 @@ final class RibbonProxyPresenter {
     guard let pending = holdRelease else { return }
     pending.cancel(); holdRelease = nil
     land(generation, timedOut: false)
+  }
+
+  /// The held window opens a column, but its app is slow to expose it (Finder): the screen
+  /// stays held until the layout opens it in its slot, rather than showing macOS's placement.
+  /// At most 1.2 s after the hold began, so a window never opened cannot freeze the screen.
+  func extendHold(to seconds: CFTimeInterval) {
+    let until = holdStart + min(seconds, 1.2)
+    guard presenting, holdUntil > 0, holdUntil < until else { return }
+    holdUntil = until
+    ribbonProxyLogger.notice("open-hold-extended s=\(seconds)")
   }
 
   /// Lifts the overlay everywhere but over `frames` (native, slow apps' outgoing windows).
@@ -1409,6 +1429,16 @@ final class RibbonProxyPresenter {
 private func cgRect(_ rect: CGRect) -> Rect {
   Rect(x: rect.minX, y: (NSScreen.screens.first?.frame.height ?? 0) - rect.maxY,
     width: rect.width, height: rect.height)
+}
+
+/// More of the window than a parked window's one-point sliver shows on some display.
+@MainActor
+func ribbonProxyVisibleOnScreen(_ frame: Rect) -> Bool {
+  NSScreen.screens.contains {
+    let screen = cgRect($0.frame)
+    return min(frame.x + frame.width, screen.x + screen.width) - max(frame.x, screen.x) > 1.01
+      && min(frame.y + frame.height, screen.y + screen.height) - max(frame.y, screen.y) > 1.01
+  }
 }
 
 @MainActor

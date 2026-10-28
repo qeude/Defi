@@ -81,16 +81,38 @@ extension MacOSPlatform {
       // panels are not windows to open in the ribbon.
       if kind == .windowCreated, let processID, let element,
         NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular {
-        NavigationActor.enqueue { [weak self] in self?.holdWindowProxiesForOpening(processID) }
+        // Only the latest window's check may release the hold: an earlier one timing out
+        // would cut short the hold a later window still waits on.
+        let opening = ProcessInfo.processInfo.systemUptime
+        NavigationActor.enqueue { [weak self] in
+          self?.latestOpening = opening
+          self?.holdWindowProxiesForOpening(processID)
+        }
         // An app's later dialogs, panels and native tabs open where they are: checked
         // after the hold, off the main thread, since the read waits on the app.
-        if (previousWindowCount ?? 0) > 0 {
-          let created = UncheckedSendable(value: element)
-          DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            let frame = ownWindowFrame(created.value)
+        let created = UncheckedSendable(value: element), checksOwnWindow = (previousWindowCount ?? 0) > 0
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+          let shown = applicationShownWindowIDs(processID)
+          if checksOwnWindow, let frame = ownWindowFrame(created.value) {
             NavigationActor.enqueue { [weak self] in
-              self?.releaseOpeningHoldUnlessOwnWindow(processID, at: frame)
+              guard let self, latestOpening == opening else { return }
+              releaseOpeningHoldUnlessOwnWindow(processID, at: frame)
             }
+            return
+          }
+          // A first window, or an app too slow to answer (Finder): WindowServer showing it
+          // a new standard window confirms one, and the hold waits for its layout. The
+          // screen stays held while this check runs, and moves again as soon as it fails.
+          NavigationActor.enqueue { RibbonProxyPresenter.extendHolds(to: 0.8) }
+          let deadline = ProcessInfo.processInfo.systemUptime + 0.8
+          while ProcessInfo.processInfo.systemUptime < deadline {
+            if !applicationShownWindowIDs(processID).isSubset(of: shown) {
+              return NavigationActor.enqueue { RibbonProxyPresenter.extendHolds() }
+            }
+            usleep(20_000)
+          }
+          NavigationActor.enqueue { [weak self] in
+            if self?.latestOpening == opening { RibbonProxyPresenter.releaseHolds() }
           }
         }
       }
@@ -98,10 +120,20 @@ extension MacOSPlatform {
       // the ribbon moves as at a keyboard command instead of after a read of all its windows.
       if kind == .focus, let processID, let self,
         let activation = userInputTracker.snapshot.applicationActivation, activation.processID == processID {
-        let elements = UncheckedSendable(value: self.elements)
+        let elements = UncheckedSendable(value: self.elements), coordinator = frameCoordinator
         Task.detached(priority: .userInteractive) {
-          guard let focused = applicationFocusedWindow(processID),
-            let windowID = elements.value.first(where: { CFEqual($0.value, focused) })?.key else { return }
+          func known(_ element: AXUIElement?) -> WindowID? {
+            element.flatMap { element in elements.value.first(where: { CFEqual($0.value, element) })?.key }
+          }
+          // A slow app's focused window lags its activation; one window leaves no
+          // ambiguity, as in the snapshot's own fallback, so the ribbon still animates.
+          let started = ProcessInfo.processInfo.systemUptime
+          let focused = applicationFocusedWindow(processID), focusedID = known(focused)
+          let windowID = focusedID ?? known(applicationSingleWindow(processID))
+          if focusedID == nil {
+            coordinator.recordTrace("activation-read pid=\(processID) focused=\(focused == nil ? "none" : "unknown") window=\(windowID.map { String($0.rawValue) } ?? "none") ms=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - started) * 1_000))")
+          }
+          guard let windowID else { return }
           NavigationActor.enqueue { activatedWindowHandler(windowID, activation.timestamp) }
         }
       }
@@ -775,4 +807,21 @@ func applicationFocusedWindow(_ processID: pid_t) -> AXUIElement? {
   guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
     let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
   return (value as! AXUIElement)
+}
+
+/// The standard-level windows WindowServer shows for an app, from its public list.
+func applicationShownWindowIDs(_ processID: pid_t) -> Set<WindowID> {
+  Set(ribbonProxyOnScreenWindows().filter { window in
+    window.processID == processID && window.layer == 0 && window.frame.width > 100 && window.frame.height > 100
+  }.map(\.id))
+}
+
+/// The application's only window, read with the same short timeout; nil for several.
+func applicationSingleWindow(_ processID: pid_t) -> AXUIElement? {
+  let application = AXUIElementCreateApplication(processID)
+  AXUIElementSetMessagingTimeout(application, 0.1)
+  var value: CFTypeRef?
+  guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
+    let windows = value as? [AXUIElement], windows.count == 1 else { return nil }
+  return windows[0]
 }
