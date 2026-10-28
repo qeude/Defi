@@ -645,15 +645,16 @@ private let automaticFloatingWindowApplicationIDs: Set<String> = [
 ]
 
 /// The frame of a titled document window outside a native tab group, read with a short
-/// timeout; nil for other windows or when the app does not answer.
-func ownWindowFrame(_ element: AXUIElement) -> Rect? {
+/// timeout; `.some(nil)` for other windows, nil when the app does not answer in time.
+func ownWindowFrame(_ element: AXUIElement) -> Rect?? {
   AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
     var values: CFArray?
     AXUIElementCopyMultipleAttributeValues(element,
       [kAXSubroleAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXChildrenAttribute] as CFArray,
       [], &values)
     let read = values as? [AnyObject] ?? []
-    guard read.count == 4, read[0] as? String == kAXStandardWindowSubrole else { return nil }
+    guard read.count == 4, let subrole = read[0] as? String else { return nil }
+    guard subrole == kAXStandardWindowSubrole else { return .some(nil) }
     let tabbed = (read[3] as? [AXUIElement] ?? []).contains { child in
       var role: CFTypeRef?, tabs: CFTypeRef?
       AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
@@ -661,7 +662,7 @@ func ownWindowFrame(_ element: AXUIElement) -> Rect? {
       AXUIElementCopyAttributeValue(child, kAXTabsAttribute as CFString, &tabs)
       return ((tabs as? [AXUIElement])?.count ?? 0) > 1
     }
-    return tabbed ? nil : frameFromAXValues(positionValue: read[1], sizeValue: read[2])
+    return .some(tabbed ? nil : frameFromAXValues(positionValue: read[1], sizeValue: read[2]))
   }
 }
 
