@@ -82,6 +82,11 @@ struct RibbonProxyTests {
     #expect(ribbonProxyDistance(Rect(x: 900, y: 0, width: 400, height: 800), viewport) == 0)
     #expect(ribbonProxyDistance(Rect(x: 1200, y: 0, width: 400, height: 800), viewport) == 200)
     #expect(ribbonProxyDistance(Rect(x: -700, y: 0, width: 400, height: 800), viewport) == 300)
+    // A parked sliver and a window of the workspace below are not in view.
+    #expect(ribbonProxyDistance(Rect(x: 999, y: 0, width: 400, height: 800), viewport) == 100_000)
+    #expect(ribbonProxyDistance(Rect(x: 0, y: 900, width: 400, height: 800), viewport) == 100_000)
+    // The next column touching the edge stays a neighbour.
+    #expect(ribbonProxyDistance(Rect(x: 1000, y: 0, width: 400, height: 800), viewport) == 1)
   }
 
   @Test func onlyTheDisplayALayoutMovesPresentsWithSeveralDisplays() {
@@ -351,6 +356,27 @@ struct RibbonProxyTests {
     #expect(blue[2] > 0.9 && blue[0] < 0.1)
     let split = try edge(blueBottomRows: 2)
     #expect(abs(split[0] - split[2]) < 0.1)
+  }
+
+  @Test func theEdgeColourOnlyFillsAFrameLargerThanItsPicture() throws {
+    let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try #require(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8,
+      bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(srgbRed: 0, green: 1, blue: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+    let picture = WindowPicture(contents: try #require(context.makeImage()),
+      size: CGSize(width: 40, height: 40), capturedAt: 0)
+    #expect(ribbonProxyEdgeFill(picture, covering: CGSize(width: 40, height: 40)) == nil)
+    let fill = try #require(ribbonProxyEdgeFill(picture, covering: CGSize(width: 60, height: 40))?.components)
+    #expect(fill[1] > 0.9 && fill[0] < 0.1)
+  }
+
+  @Test func aStillLayerGetsNoSpring() {
+    let layer = CALayer(), frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+    ribbonProxyMove(layer, from: frame, to: frame)
+    #expect(layer.animationKeys() == nil && layer.frame == frame)
+    ribbonProxyMove(layer, from: frame, to: frame.offsetBy(dx: 100, dy: 0))
+    #expect(layer.animationKeys() == ["position"])
   }
 
   @Test func theCardRingHugsTheWindowLikeTheNativeRing() throws {

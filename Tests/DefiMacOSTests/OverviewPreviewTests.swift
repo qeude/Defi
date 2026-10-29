@@ -287,6 +287,29 @@ struct OverviewPreviewTests {
     #expect(bytes(restored.image) == bytes(full.image))
     // Reducing it again reuses the compressed pixels instead of compressing anew.
     #expect(restored.reduced()?.full?.data == reduced.full?.data)
+    // And its own stand-in: no new scale for a picture not recaptured since.
+    #expect(restored.reduced()?.image === reduced.image)
+  }
+
+  @Test
+  func `Cap holds three screens of the largest display`() async throws {
+    let picture = try windowServerPicture(width: 2_600, height: 1_400)
+    let screen = RibbonProxyScreen(displayID: 1, frame: Rect(x: 0, y: 0, width: 1_300, height: 700),
+      visibleFrame: Rect(x: 0, y: 0, width: 1_300, height: 700), scale: 2)
+    let store = WindowCaptureStore(byteLimit: picture.byteCost)
+    store.fit([screen])
+    for id in 1...3 {
+      store.setPicture(picture, for: RibbonProxyRefresh(id: WindowID(rawValue: UInt64(id)), appID: "app",
+        processID: 42, frame: Rect(x: 0, y: 0, width: 1_300, height: 700), distance: 0))
+    }
+    // Fitted to the screen, the cap keeps all three sharp.
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(store.reducedCount == 0)
+    store.fit([])
+    // Reduction runs on a utility queue, which parallel tests can starve for seconds.
+    let deadline = Date().addingTimeInterval(30)
+    while store.reducedCount < 2, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(store.reducedCount == 2)
   }
 
   @Test
