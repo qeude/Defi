@@ -742,6 +742,11 @@ extension Daemon {
               monitorFrames: physicalMonitorFrames)
           } : nil
           if target != proxyPreviewTarget {
+            if mouseDropSlotMoved(gestureWindowID, from: proxyPreviewTarget, to: target, state: state,
+              viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames)
+            {
+              platform.playDropSlotHaptic()
+            }
             proxyPreviewTarget = target
             var preview = state
             if let target {

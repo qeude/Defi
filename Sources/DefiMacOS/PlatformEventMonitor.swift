@@ -3,6 +3,10 @@ import ApplicationServices
 import CoreGraphics
 import DefiModel
 import DefiRuntime
+import Synchronization
+
+/// The last left press came from a trackpad, not a mouse: drag haptics play only for it.
+let leftDragFromTrackpad = Atomic<Bool>(false)
 
 func delayedApplicationActivationIsCurrent(
   startedAt: TimeInterval,
@@ -279,6 +283,7 @@ final class PlatformEventMonitor {
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
         ) ?? Int64(event.windowNumber)
       if event.type == .leftMouseDown {
+        leftDragFromTrackpad.store(event.subtype == .touch, ordering: .relaxed)
         pressedWindowID = mouseFocusIntentWindowID(rawWindowID: rawWindowID)
         liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
       }

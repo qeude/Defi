@@ -715,6 +715,26 @@ public func mouseDropTarget(
   return held ? previous : target
 }
 
+/// Whether a target change moves the drop slot shown during a drag: either target, old or
+/// new, sits away from the window's own place. The first target of a drag is usually that
+/// place, and leaving it for no target changes nothing either.
+public func mouseDropSlotMoved(
+  _ windowID: WindowID,
+  from previous: MouseDropTarget?,
+  to target: MouseDropTarget?,
+  state: RuntimeState,
+  viewports: [MonitorID: Rect],
+  monitorFrames: [MonitorID: Rect] = [:]
+) -> Bool {
+  guard previous != target else { return false }
+  return [previous, target].contains { candidate in
+    var moved = state
+    return candidate.map {
+      applyMouseDrop(windowID, $0, state: &moved, viewports: viewports, monitorFrames: monitorFrames)
+    } ?? false
+  }
+}
+
 private func rawMouseDropTarget(
   _ windowID: WindowID,
   pointer: (x: Double, y: Double),
