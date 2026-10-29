@@ -12,8 +12,9 @@ drawing at every step.
 
 Measured on a 5K 120 Hz display (M1 Pro), a replica of the overlay alone drops
 about 0.4 frames per motion, while Defi drops about 3.5. The difference is
-WindowServer compositing the real windows under the translucent overlay while
-Accessibility moves them. Delaying the moves (25 ms, or to the end of the
+the real windows moving under the overlay: the replica drops as few frames
+translucent as opaque, and moving the windows costs frames whenever it happens.
+Delaying the moves (25 ms, or to the end of the
 spring), an opaque overlay (always, or only during bursts) and keeping border
 windows shown were each neutral or worse.
 
@@ -35,7 +36,9 @@ The first was prototyped (park at motion start, place 140 ms later): 99 dropped
 frames against 82 over 24 navigations, the second write adding its own. The
 second was probed with an empty `SLSSetWindowOpaqueShape` on the overlay: the call
 succeeds, but the windows below still flip to occluded at every step (21-27 changes
-in 16 navigations, against 4-5 today). Neither candidate is open today.
+in 16 navigations, against 4-5 today). Neither candidate is open today, and the
+second would not help: neither focus changes nor an opaque backdrop made the
+replica's windows occluded, and its overlay costs as little translucent.
 
 Until it is accepted, Defi keeps the translucent overlay and the measured limit
 above.
