@@ -97,7 +97,16 @@ func ribbonProxyShows(_ frame: CGRect, in bounds: CGRect) -> Bool {
 }
 
 func ribbonProxyDistance(_ frame: Rect, _ area: Rect) -> Double {
-  max(area.x - frame.x - frame.width, frame.x - area.x - area.width, 0)
+  let gap = max(area.x - frame.x - frame.width, frame.x - area.x - area.width, 0)
+  guard gap == 0 else { return gap }
+  // A parked window's sliver, or a window above or below, is not in view: as far as another
+  // workspace's. Counted in view, every landing recaptured it and the cap reduced it again.
+  let visibleHeight = min(frame.y + frame.height, area.y + area.height) - max(frame.y, area.y)
+  let visibleWidth = min(frame.x + frame.width, area.x + area.width) - max(frame.x, area.x)
+  if visibleHeight <= 4 { return 100_000 }
+  // Touching the edge without entering: the next column.
+  if visibleWidth <= 0 { return 1 }
+  return visibleWidth <= 4 ? 100_000 : 0
 }
 
 
@@ -188,6 +197,7 @@ final class RibbonProxyStore: @unchecked Sendable {
       movingDisplays.formIntersection(ids)
     }
     WindowCaptureStore.shared.retainBackgrounds(ids)
+    WindowCaptureStore.shared.fit(screens)
   }
 }
 
@@ -533,9 +543,10 @@ final class RibbonProxyPresenter {
       y: (screen.frame.y + screen.frame.height - area.y - area.height) / screen.frame.height,
       width: area.width / screen.frame.width, height: area.height / screen.frame.height)
     let shownIDs = Set(shown.map(\.id))
-    // The windows in view outrank parked ones and those the motion carries off screen for the budget,
-    // planned with the same recency: what it restores stays full. A stand-in in view left
-    // blurred for the whole motion is veiled under its app icon, as in Trellis.
+    // The windows in view outrank the others for the budget, planned with the same recency:
+    // what it restores stays full. Parked windows keep their own recency: marking them
+    // with the motion let them outrank the next column, reduced and restored at every step.
+    // A stand-in in view left blurred for the whole motion is veiled under its app icon, as in Trellis.
     let inView = Set(shown.filter {
       ribbonProxyShows(local($0.from, area), in: layers.root.bounds)
         || ribbonProxyShows(local($0.to, area), in: layers.root.bounds)
@@ -543,11 +554,10 @@ final class RibbonProxyPresenter {
     // Arriving windows outrank leaving ones: under pressure, a workspace switch lands sharp.
     let arriving = shown.filter { ribbonProxyShows(local($0.to, area), in: layers.root.bounds) }
     let now = CACurrentMediaTime()
-    pictures.markShown(Array(shownIDs), at: now)
     pictures.markShown(Array(inView), at: now + 0.001)
     pictures.markShown(arriving.map(\.id), at: now + 0.002)
-    let reduced = shownIDs.filter { pictures.picture($0)?.isReduced == true }
-    let blurred = inView.intersection(reduced).subtracting(pictures.restore(Array(reduced)))
+    let reduced = inView.filter { pictures.picture($0)?.isReduced == true }
+    let blurred = reduced.subtracting(pictures.restore(Array(reduced)))
     // One command can submit twice (layout, then scroll) with a narrower window set;
     // mid-motion, a window left out keeps travelling instead of vanishing.
     for (id, layer) in windowLayers where !shownIDs.contains(id) && previous[id] == nil {
@@ -697,6 +707,8 @@ final class RibbonProxyPresenter {
     let stop = ribbonProxyVisualStop(travel: travel)
     // The windows below redraw at their new place first; a long motion or a drag then
     // goes opaque, which spares the compositor drawing them under every frame.
+    // Opaque from the start occluded every window below at each step: apps stopped
+    // and resumed drawing on every navigation.
     springStopped = false
     if stop > 0.45 || keepsOffscreen {
       Task { [weak self] in
@@ -1055,7 +1067,9 @@ final class RibbonProxyPresenter {
     if rescaled { CATransaction.begin(); CATransaction.setDisableActions(true) }
     content.contents = picture.contents
     content.contentsScale = picture.pixelScale
-    content.backgroundColor = picture.edge
+    let size = content.presentation().map { CGSize(width: max($0.bounds.width, content.bounds.width),
+      height: max($0.bounds.height, content.bounds.height)) } ?? content.bounds.size
+    content.backgroundColor = ribbonProxyEdgeFill(picture, covering: size)
     if rescaled { CATransaction.commit() }
   }
 
@@ -1394,7 +1408,10 @@ final class RibbonProxyPresenter {
         || $0.size.width > window.from.width + 0.5 || $0.size.height > window.from.height + 0.5
     } ?? false
     sublayers["content"]?.contentsScale = picture?.pixelScale ?? 1
-    sublayers["content"]?.backgroundColor = picture.map { $0.edge } ?? CGColor(gray: 0.16, alpha: 1)
+    sublayers["content"]?.backgroundColor = picture.map {
+      ribbonProxyEdgeFill($0, covering: CGSize(width: max(window.from.width, window.to.width),
+        height: max(window.from.height, window.to.height)))
+    } ?? CGColor(gray: 0.16, alpha: 1)
     setContents(sublayers["icon"], badged ? WindowCaptureStore.shared.icon(window.processID) : nil)
     sublayers["veil"]?.isHidden = !(badged && picture != nil)
     sublayers["veil"]?.opacity = 1
@@ -1454,6 +1471,12 @@ func ribbonProxyFullyOnScreen(_ frame: Rect) -> Bool {
 }
 
 let ribbonProxyDrawingAlpha: CGFloat = 0.999
+
+/// The edge colour fills only a frame larger than its picture: under a picture that covers
+/// it, the fill is a second full-window pass the compositor blends for nothing.
+func ribbonProxyEdgeFill(_ picture: WindowPicture, covering size: CGSize) -> CGColor? {
+  picture.size.width + 0.5 >= size.width && picture.size.height + 0.5 >= size.height ? nil : picture.edge
+}
 
 /// A window macOS is still growing in: its frame is a few points off its picture, so the
 /// picture keeps its own size.
@@ -1606,8 +1629,14 @@ func ribbonProxySpringVelocity(from: CGPoint, to: CGPoint, elapsed: TimeInterval
   return CGPoint(x: (to.x - from.x) * factor, y: (to.y - from.y) * factor)
 }
 
-private func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoint = .zero) {
+func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoint = .zero) {
   layer.frame = to
+  // A still layer gets no spring: a sublayer animated in place under its moving window made
+  // the compositor redraw the whole tree each frame, about three dropped frames per motion.
+  guard from != to else {
+    layer.removeAnimation(forKey: "position"); layer.removeAnimation(forKey: "bounds.size")
+    return
+  }
   let start = CGPoint(x: from.midX, y: from.midY), end = CGPoint(x: to.midX, y: to.midY)
   let position = ribbonProxySpringAnimation("position")
   position.fromValue = NSValue(point: start); position.toValue = NSValue(point: end)

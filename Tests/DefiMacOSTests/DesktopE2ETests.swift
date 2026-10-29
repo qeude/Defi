@@ -648,7 +648,10 @@ final class DesktopE2ETests: XCTestCase {
         monitorFrames: monitorFrames, windows: windows, activeMonitorID: monitorID)
     }
     let fixtureSnapshot = snapshot([workspace], active: workspace.id)
-    let layout = LayoutSettings(outerTopGap: 0, outerRightGap: 0, outerBottomGap: 0, outerLeftGap: 0)
+    // No gap at all: every column carries the inner gap too, which would narrow the
+    // target below the fixture's native frame and refuse the verified reverse zoom.
+    let layout = LayoutSettings(innerHorizontalGap: 0, innerVerticalGap: 0,
+      outerTopGap: 0, outerRightGap: 0, outerBottomGap: 0, outerLeftGap: 0)
     let controller = OverviewController(focusWindow: { _, _, _, _ in },
       focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
       openStateChanged: { _ in }, commitScrollOffsets: { _ in })

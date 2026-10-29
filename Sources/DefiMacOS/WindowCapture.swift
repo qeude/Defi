@@ -18,8 +18,9 @@ struct WindowPicture: @unchecked Sendable {
   var capturedAt: TimeInterval
   var pixelScale: CGFloat = 1
   /// The colour along the right and bottom edges: fills a frame larger than the
-  /// picture, which is never scaled up.
-  let edge: CGColor?
+  /// picture, which is never scaled up. Read only then: computing it decodes the picture.
+  var edge: CGColor? { edgeColor.value }
+  private var edgeColor: WindowPictureEdge
 
   /// Set by the store from the capture request; consumers compare it with their window.
   var appID = ""
@@ -28,6 +29,8 @@ struct WindowPicture: @unchecked Sendable {
   var isReduced = false
   /// The full-resolution pixels, compressed: kept from the first reduction on.
   var full: WindowPixels? = nil
+  /// A restored picture's own stand-in: reducing it again costs nothing until a recapture.
+  var standIn: CGImage? = nil
   let byteCost: Int
 
   init(contents: AnyObject, buffer: CVPixelBuffer? = nil, size: CGSize, capturedAt: TimeInterval,
@@ -38,7 +41,7 @@ struct WindowPicture: @unchecked Sendable {
     self.capturedAt = capturedAt
     self.pixelScale = pixelScale
     let image = CFGetTypeID(contents) == CGImage.typeID ? (contents as! CGImage) : nil
-    edge = image.flatMap(ribbonProxyEdgeColor)
+    edgeColor = WindowPictureEdge(image)
     byteCost = buffer.map { CVPixelBufferGetBytesPerRow($0) * CVPixelBufferGetHeight($0) }
       ?? image.map { $0.bytesPerRow * $0.height }
       ?? Int(size.width * size.height * pixelScale * pixelScale * 4)
@@ -55,6 +58,13 @@ struct WindowPicture: @unchecked Sendable {
   /// The same point size at a lower pixel scale: every consumer draws it unchanged.
   /// One surface holds the full pixels: the stand-in is scaled and the original compressed from it.
   func reduced() -> WindowPicture? {
+    if let standIn, let full {
+      var picture = WindowPicture(contents: standIn, size: size, capturedAt: capturedAt,
+        pixelScale: CGFloat(standIn.width) / max(size.width, 1))
+      picture.appID = appID; picture.processID = processID; picture.isReduced = true
+      picture.full = full; picture.edgeColor = edgeColor
+      return picture
+    }
     guard let image, let pixels = windowPictureReducedPixels(image),
       let source = buffer ?? windowPixelsSurface(image) else { return nil }
     CVPixelBufferLockBaseAddress(source, .readOnly)
@@ -65,6 +75,8 @@ struct WindowPicture: @unchecked Sendable {
       pixelScale: CGFloat(pixels.width) / max(size.width, 1))
     picture.appID = appID; picture.processID = processID; picture.isReduced = true
     picture.full = full ?? WindowPixels(source, colorSpace: image.colorSpace)
+    // Keeps a colour already read; else the stand-in reads its own, small and cheap.
+    if edgeColor.isRead { picture.edgeColor = edgeColor }
     return picture
   }
 
@@ -75,7 +87,28 @@ struct WindowPicture: @unchecked Sendable {
     var picture = WindowPicture(contents: image, buffer: buffer, size: size, capturedAt: capturedAt,
       pixelScale: CGFloat(full.width) / max(size.width, 1))
     picture.appID = appID; picture.processID = processID; picture.full = full
+    picture.standIn = self.image
+    // Same pixels: the stand-in's colour holds, and decoding the full picture is spared.
+    picture.edgeColor = edgeColor
     return picture
+  }
+}
+
+/// A picture's edge colour, read on first use and shared by the stand-ins of the same pixels.
+final class WindowPictureEdge: @unchecked Sendable {
+  private let lock = NSLock()
+  private var image: CGImage?
+  private var color: CGColor?
+
+  init(_ image: CGImage?) { self.image = image }
+
+  var isRead: Bool { lock.withLock { image == nil } }
+
+  var value: CGColor? {
+    lock.withLock {
+      if let image { color = ribbonProxyEdgeColor(image); self.image = nil }
+      return color
+    }
   }
 }
 
@@ -287,16 +320,34 @@ final class WindowCaptureStore: @unchecked Sendable {
   private var shown: [WindowID: TimeInterval] = [:]
   private var reducing: Set<WindowID> = []
   private var restoring: Set<WindowID> = []
+  private var budgetDeferred = false
   /// Serial: each reduction allocates a full-size surface; restorations of a batch run in parallel.
   private let pixelQueue = DispatchQueue(label: "com.qeude.defi.capture-pixels", qos: .userInitiated)
   private var backgrounds: [CGDirectDisplayID: CGImage] = [:]
   private var icons: [Int32: CGImage] = [:]
   private var limit: Int
-  private let fullLimit: Int
+  private var fullLimit: Int
+  private let baseLimit: Int
 
   init(byteLimit: Int = WindowCaptureStore.byteLimit) {
+    baseLimit = byteLimit
     fullLimit = byteLimit
     limit = byteLimit
+  }
+
+  /// At least three screens of the largest display stay sharp: on 5K the base cap held
+  /// fewer windows than a ribbon shows and its neighbours, so every navigation reduced and
+  /// restored pictures, about a tenth of a second of CPU each.
+  func fit(_ screens: [RibbonProxyScreen]) {
+    let largest = screens.map { Int($0.frame.width * $0.frame.height * $0.scale * $0.scale * 4) }.max() ?? 0
+    let fitted = max(baseLimit, 3 * largest)
+    let changed = locked { () -> Bool in
+      guard fitted != fullLimit else { return false }
+      if limit == fullLimit { limit = fitted }
+      fullLimit = fitted
+      return true
+    }
+    if changed { enforceBudget() }
   }
 
   private func locked<T>(_ body: () -> T) -> T {
@@ -395,6 +446,17 @@ final class WindowCaptureStore: @unchecked Sendable {
   }
 
   private func enforceBudget() {
+    // A reduction reads and compresses a full picture, on the GPU too: never while the
+    // compositor draws a motion. The cap catches up once the screen is still.
+    if RibbonProxyStore.shared.isMoving {
+      let scheduled = locked { () -> Bool in defer { budgetDeferred = true }; return budgetDeferred }
+      guard !scheduled else { return }
+      pixelQueue.asyncAfter(deadline: .now() + 0.25) { [self] in
+        locked { budgetDeferred = false }
+        enforceBudget()
+      }
+      return
+    }
     let work: [(WindowID, WindowPicture)] = locked {
       let plan = windowCaptureBudgetPlan(pictures.map { id, picture in
         WindowCaptureBudgetEntry(id: id, bytes: picture.isReduced ? 0 : picture.byteCost,
