@@ -300,7 +300,7 @@ extension Daemon {
       focus.cancelSubmittedWorkspace()
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
-      finishMouseGestureTracking()
+      preemptMouseGesture()
     }
     latestMonitors = snapshot.monitors
     let previousMismatchObservationState =
@@ -666,6 +666,16 @@ extension Daemon {
     )
 
     var mouseReordered = false
+    var completedDragScrollAnchor: WorkspaceScrollAnchor?
+    if let drag = dragEdgeScrolling,
+      !drag.isCurrent(generation: mouseGestureGeneration, state: state,
+        viewports: viewportsByMonitor,
+        monitorFrames: Dictionary(uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.physicalFrame) }))
+    {
+      completedDragScrollAnchor = drag.initialAnchor
+      preemptMouseGesture()
+      mouseResizeGestureActive = false
+    }
     // A released tiled window glides from where it was dropped into its slot.
     var animatesMouseDrop = false
     var releasedResizeFrame: Rect?
@@ -735,28 +745,23 @@ extension Daemon {
           let moved = actualFrame.flatMap { actual in
             mouseGestureInitialFrame.map { mouseFrameWasTranslated(from: $0, to: actual) }
           } ?? false
-          let target = moved ? CGEvent(source: nil).flatMap { event in
-            mouseDropTarget(gestureWindowID,
-              pointer: (Double(event.location.x), Double(event.location.y)),
-              previous: proxyPreviewTarget, state: state, viewports: viewportsByMonitor,
-              monitorFrames: physicalMonitorFrames)
-          } : nil
-          if target != proxyPreviewTarget {
-            proxyPreviewTarget = target
-            var preview = state
-            if let target {
-              applyMouseDrop(gestureWindowID, target, state: &preview, viewports: viewportsByMonitor,
-                monitorFrames: physicalMonitorFrames)
+          if moved, !mouseGesturePreempted, let event = CGEvent(source: nil) {
+            if dragEdgeScrolling == nil {
+              dragEdgeScrolling = DragEdgeScrolling(windowID: gestureWindowID,
+                generation: mouseGestureGeneration, state: state,
+                viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames)
             }
-            platform.recordPerformanceTrace(
-              "mouse-drop-preview window=\(gestureWindowID.rawValue) target=\(target.map { "\($0)" } ?? "none")")
-            platform.presentWindowProxyPreview(
-              mouseDropPreviewFrames(in: preview, viewports: viewportsByMonitor),
-              heldWindowID: gestureWindowID)
+            advanceDragEdgeScrolling(pointer: (Double(event.location.x), Double(event.location.y)),
+              buttonDown: true, now: ProcessInfo.processInfo.systemUptime)
+          } else if proxyPreviewTarget != nil {
+            cancelDragEdgeScrolling()
+            proxyPreviewTarget = nil
+            platform.endWindowProxyPreview()
           }
         }
       } else {
         let previewedTarget = proxyPreviewTarget
+        let releasedDrag = dragEdgeScrolling
         proxyPreviewTarget = nil
         platform.endWindowProxyPreview()
         var droppedOnOverlay = false
@@ -765,17 +770,18 @@ extension Daemon {
         if previewedTarget != nil, let gestureWindowID,
           let actualFrame, let mouseGestureInitialFrame,
           mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame),
-          let event = CGEvent(source: nil),
-          let target = mouseDropTarget(gestureWindowID,
-            pointer: (Double(event.location.x), Double(event.location.y)),
-            previous: previewedTarget, state: state, viewports: viewportsByMonitor,
-            monitorFrames: physicalMonitorFrames)
+          let target = previewedTarget
         {
+          // Capture before the drop's focus reconciliation changes its target offset.
+          if let releasedDrag, releasedDrag.hasScrolled {
+            completedDragScrollAnchor = releasedDrag.currentAnchor(state: state)
+          }
+          dragEdgeScrolling = nil
           mouseReordered = applyMouseDrop(gestureWindowID, target, state: &state, viewports: viewportsByMonitor,
             monitorFrames: physicalMonitorFrames)
           droppedOnOverlay = true
           platform.recordPerformanceTrace("mouse-drop window=\(gestureWindowID.rawValue) target=\(target)")
-        } else if let gestureWindowID,
+        } else if releasedDrag?.hasScrolled != true, let gestureWindowID,
           let actualFrame,
           let mouseGestureInitialFrame,
           reorderTiledWindowAfterCompletedMouseDrag(
@@ -791,6 +797,10 @@ extension Daemon {
           platform.recordPerformanceTrace(
             "mouse-reorder window=\(gestureWindowID.rawValue)"
           )
+        }
+        if let releasedDrag, !droppedOnOverlay {
+          cancelDragEdgeScrolling()
+          if releasedDrag.hasScrolled { completedDragScrollAnchor = releasedDrag.initialAnchor }
         }
         // A drop on another display makes it the active one.
         if mouseReordered, let gestureWindowID,
@@ -898,6 +908,9 @@ extension Daemon {
     if animatesMouseDrop { mouseGestureScrollAnchor = nil }
     if let mouseGestureScrollAnchor {
       restoreWorkspaceScroll(mouseGestureScrollAnchor, state: &state)
+    }
+    if let completedDragScrollAnchor {
+      restoreWorkspaceScroll(completedDragScrollAnchor, state: &state)
     }
     let focusedWindowIDForAlignment =
       guardedRemovalFocus?.windowID ?? snapshot.focusedWindowID

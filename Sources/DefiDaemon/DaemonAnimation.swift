@@ -308,6 +308,7 @@ extension Daemon {
   }
 
   func beginMouseGesture() {
+    cancelDragEdgeScrolling()
     mouseGestureGeneration &+= 1
     mouseGestureSettlement = nil
     mouseGesturePreempted = false
@@ -328,6 +329,7 @@ extension Daemon {
   func finishMouseGestureTracking(
     preservingScrollAnchor: Bool = false
   ) {
+    cancelDragEdgeScrolling()
     mouseGestureSettlement = nil
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil

@@ -295,13 +295,22 @@ Screen Recording permission.
 
 ## Mouse reordering
 
-Drag a tiled window by its native title bar. Crossing a neighboring slot reorders
-the column live and animates the other columns while the dragged window stays
-under the pointer. Vertical dragging reorders windows inside the same stacked
-column. Resizing remains width learning and never changes order. Reordering stays
-inside the window's current monitor and active workspace. Mouse-down on an
-adjacent column defers scroll alignment until release, so the strip stays fixed
-under the pointer while deciding between a click and a drag.
+Drag a tiled window by its native title bar. The insertion preview follows the
+pointer; releasing commits the indicated slot. Vertical dragging reorders windows
+inside the same stacked column. Resizing remains width learning and never changes
+order. Dragging onto another monitor targets that monitor's active workspace.
+Mouse-down alone keeps the strip fixed while deciding between a click and a drag.
+
+During a native drag, hold the pointer just inside the left or right viewport edge
+for 200 ms to reveal offscreen columns. The activation zone is at most 48 points
+(or a quarter of a narrow viewport), with 12 points of exit hysteresis. Scrolling
+accelerates with edge proximity from 0.15 to 0.9 viewport widths per second, stays
+bounded by the strip, and does not catch up after a delayed frame. Moving away or
+releasing stops it; crossing onto a neighboring monitor preserves display drops
+instead of scrolling the source. A valid indicated drop keeps the scrolled
+position; cancelling the gesture restores its initial scroll. Display or column
+topology changes cancel stale previews. No configuration or Screen Recording
+permission is required for edge scrolling.
 
 ## `[workspaces]`
 

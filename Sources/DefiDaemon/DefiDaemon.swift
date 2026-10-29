@@ -174,6 +174,7 @@ final class Daemon {
   var proxyPreviewTarget: MouseDropTarget?
   var mouseGestureInitialFrame: Rect?
   var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
+  var dragEdgeScrolling: DragEdgeScrolling?
   var mouseGestureDisplayedOriginFrames: [WindowID: Rect] = [:]
   var mouseGestureGeneration: UInt64 = 0
   var mouseGestureSettlement: MouseGestureSettlement?
@@ -396,6 +397,10 @@ final class Daemon {
       needsDesktopSync = true
     }
     let liveBorderGesture = platform.isLeftMouseButtonDown
+    if dragEdgeScrolling != nil, let event = CGEvent(source: nil) {
+      advanceDragEdgeScrolling(pointer: (Double(event.location.x), Double(event.location.y)),
+        buttonDown: liveBorderGesture, now: now)
+    }
     // The overlay stretches the ribbon until release, which learns the width. A snapshot
     // meanwhile waited on the WindowServer, busy with the live resize, while holding the
     // connection the overlay commits through: the stretch froze for half a second.

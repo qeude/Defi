@@ -45,7 +45,7 @@ windows. Click a window, select it in the Dock, or use Command-Tab as usual.
 - **Keyboard controls & cheatsheet**: Customize shortcuts and hold your
   modifier key to see available commands.
 - **Mouse reordering**: Rearrange tiled
-  windows by dragging them.
+  windows by dragging them; hold near a viewport edge to reach offscreen columns.
 - **Floating windows & app rules**: Keep selected apps
   floating and route them to named workspaces.
 - **Native macOS interaction**: Keep using window clicks, the Dock, and
