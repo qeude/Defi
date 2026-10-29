@@ -28,6 +28,8 @@ func ribbonProxyPictureMatches(captured: CGSize, native: Rect) -> Bool {
 
 /// Beyond this age the app may have redrawn: the picture no longer shows its window.
 let ribbonProxyPictureFreshness: TimeInterval = 1.5
+/// A display's wallpaper capture older than this is retaken while the user is active.
+let ribbonProxyBackgroundMaxAge: TimeInterval = 15
 
 /// A held screen shows pictures in place of live windows that do not move: only a
 /// sharp picture at the window's size looks the same. An old one is recaptured at once.
