@@ -302,6 +302,9 @@ struct OverviewPreviewTests {
       store.setPicture(picture, for: RibbonProxyRefresh(id: WindowID(rawValue: UInt64(id)), appID: "app",
         processID: 42, frame: Rect(x: 0, y: 0, width: 1_300, height: 700), distance: 0))
     }
+    // Fitted to the screen, the cap keeps all three sharp.
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(store.reducedCount == 0)
     store.fit([])
     // Reduction runs on a utility queue, which parallel tests can starve for seconds.
     let deadline = Date().addingTimeInterval(30)

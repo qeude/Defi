@@ -935,6 +935,11 @@ final class RibbonProxyPresenter {
           abs(to.width - from.width) < 40, abs(to.height - from.height) < 40 else { continue }
         let starts = Dictionary(sublayerFrames(layer, size: from.size).map { (ObjectIdentifier($0.0), $0.1) }) { a, _ in a }
         ribbonProxyMove(layer, from: from, to: to)
+        if let content = layer.sublayers?.first(where: { $0.name == "content" }),
+          let picture = WindowCaptureStore.shared.picture(id) {
+          content.backgroundColor = ribbonProxyEdgeFill(picture, covering: CGSize(
+            width: max(from.width, to.width), height: max(from.height, to.height)))
+        }
         for (sublayer, end) in sublayerFrames(layer, size: to.size) {
           ribbonProxyMove(sublayer, from: starts[ObjectIdentifier(sublayer)] ?? end, to: end)
         }
@@ -1213,6 +1218,8 @@ final class RibbonProxyPresenter {
       if let content = layer.sublayers?.first(where: { $0.name == "content" }),
         let picture = WindowCaptureStore.shared.picture(id) {
         content.masksToBounds = picture.size.width > to.width + 0.5 || picture.size.height > to.height + 0.5
+        content.backgroundColor = ribbonProxyEdgeFill(picture, covering: CGSize(
+          width: max(current.width, to.width), height: max(current.height, to.height)))
       }
       let starts = Dictionary(sublayerFrames(layer, size: current.size).map { (ObjectIdentifier($0.0), $0.1) }) { a, _ in a }
       for (sublayer, end) in sublayerFrames(layer, size: to.size) {
