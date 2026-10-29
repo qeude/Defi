@@ -159,8 +159,13 @@ extension SnapshotEngine {
       var cachedSnapshotWindowIDs = Set<WindowID>()
   
       var deferredReadProcessIDs = Set<pid_t>()
+      let ownProcessID = ProcessInfo.processInfo.processIdentifier
+      // Defi is regular only while its Settings window is open; that window is tiled.
+      let readsOwnProcess = NSRunningApplication.current.activationPolicy == .regular
       func reuseCachedProcess(_ processID: pid_t) -> Bool {
-        guard let cachedApplication = previousApplications[processID] else { return false }
+        // Once Settings closes, Defi drops out of the cache so its next opening reads afresh.
+        guard processID != ownProcessID || readsOwnProcess,
+          let cachedApplication = previousApplications[processID] else { return false }
         let cachedWindows = previousWindowsByProcess[processID] ?? []
         let cachedElements = cachedWindows.compactMap { window in
           previousElements[window.id].map { (window.id, $0) }
@@ -191,6 +196,7 @@ extension SnapshotEngine {
         hasCompletedSnapshot: hasCompletedWindowSnapshot,
         topologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
         forced: forceApplicationInventoryRefresh
+          || (readsOwnProcess && previousApplications[ownProcessID] == nil)
       )
       var processIDsToRefresh = incrementalProcessIDs
       // An inventory refresh reads every running app below. Serving one from
@@ -271,9 +277,8 @@ extension SnapshotEngine {
       let baseProcessIDs = Set(baseApplications.map(\.processID))
       let runningApplications = baseApplications + fallbackApplicationIDs.keys
         .filter { !baseProcessIDs.contains($0) }.sorted().map { ($0, nil) }
-      let ownProcessID = ProcessInfo.processInfo.processIdentifier
       let readProcessIDs = Set(runningApplications.filter { candidate in
-        guard candidate.processID > 0, candidate.processID != ownProcessID else { return false }
+        guard candidate.processID > 0, candidate.processID != ownProcessID || readsOwnProcess else { return false }
         if let application = candidate.application {
           return !application.isTerminated && application.activationPolicy == .regular
         }
@@ -311,7 +316,7 @@ extension SnapshotEngine {
       let preparedApplicationWindows = preparedApplicationWindows.merging(preparedIncremental?.applications ?? [:]) { supplied, _ in supplied }
       for runningApplication in runningApplications {
         let processID = runningApplication.processID
-        guard processID > 0, processID != ownProcessID else { continue }
+        guard processID > 0, processID != ownProcessID || readsOwnProcess else { continue }
         if preparedIncremental?.deferredProcessIDs.contains(processID) == true || !shouldReadProcess(processID),
           reuseCachedProcess(processID)
         {
@@ -431,6 +436,14 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         }
         if !created.isEmpty {
           appWindows = windowCandidatesIncludingCreatedElements(appWindows ?? [], created: created)
+        }
+        if processID == ownProcessID {
+          // Defi's overlays and panels stay unmanaged.
+          appWindows = appWindows.map { windows in
+            AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: windows) {
+              windows.filter(isDefiSettingsWindow)
+            }
+          }
         }
         if appWindows == nil {
           unresolvedOutcomesByProcess[processID] = ["AX-window-list-unavailable"]
@@ -931,4 +944,12 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       windows[index].transientOwnerID = transientOwnerWindowIDs[windows[index].id]
     }
   }
+}
+
+/// Whether the window is Defi's `Settings` scene window, by the identifier SwiftUI gives it: the
+/// only Defi window the ribbon manages.
+func isDefiSettingsWindow(_ element: AXUIElement) -> Bool {
+  var identifier: CFTypeRef?
+  return AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identifier) == .success
+    && identifier as? String == "com_apple_SwiftUI_Settings_window"
 }

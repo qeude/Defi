@@ -78,9 +78,11 @@ extension MacOSPlatform {
       )
       // A window opening: the screen holds still until the ribbon opens it in its slot,
       // instead of macOS drawing it over the others first. Accessory apps' popovers and
-      // panels are not windows to open in the ribbon.
+      // panels are not windows to open in the ribbon, nor are Defi's own surfaces beside
+      // its Settings window (SwiftUI names that one only after it is created).
       if kind == .windowCreated, let processID, let element,
-        NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular {
+        NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular,
+        processID != ProcessInfo.processInfo.processIdentifier || isStandardWindow(element) {
         // Only the latest window's check may release the hold: an earlier one timing out
         // would cut short the hold a later window still waits on.
         let opening = ProcessInfo.processInfo.systemUptime
@@ -824,4 +826,10 @@ func applicationSingleWindow(_ processID: pid_t) -> AXUIElement? {
   guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
     let windows = value as? [AXUIElement], windows.count == 1 else { return nil }
   return windows[0]
+}
+
+private func isStandardWindow(_ element: AXUIElement) -> Bool {
+  var subrole: CFTypeRef?
+  return AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole) == .success
+    && subrole as? String == kAXStandardWindowSubrole
 }

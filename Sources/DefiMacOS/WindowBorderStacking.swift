@@ -93,7 +93,8 @@ func windowBorderStacking(
   monitorFrames: [Rect] = [],
   knownWindowIDs: Set<WindowID> = []
 ) -> WindowBorderStacking {
-  let externalEntries = entries.filter { $0.processID != ownProcessID }
+  // Defi's surfaces never occlude; its tiled Settings window can still be the target.
+  let externalEntries = entries.filter { $0.processID != ownProcessID || $0.windowID == targetWindowID }
   let targetMonitorFrames: [Rect]
   if let targetWindowID,
     let targetFrame = externalEntries.first(where: {

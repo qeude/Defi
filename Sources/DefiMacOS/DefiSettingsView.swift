@@ -101,17 +101,20 @@ public struct DefiSettingsView: View {
       }
     }
     .frame(minWidth: 860, idealWidth: 920, minHeight: 620, idealHeight: 680)
+    .background(ResizableSettingsWindow())
     .task {
       model.refreshSystemStatus()
       model.startWatching()
     }
     .onAppear {
       NSApplication.shared.setActivationPolicy(.regular)
+      NotificationCenter.default.post(name: defiActivationPolicyDidChange, object: nil)
       NSApplication.shared.activate()
     }
     .onDisappear {
       model.stopWatching()
       NSApplication.shared.setActivationPolicy(.accessory)
+      NotificationCenter.default.post(name: defiActivationPolicyDidChange, object: nil)
     }
     .onReceive(
       NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
@@ -139,6 +142,22 @@ public struct DefiSettingsView: View {
   private func select(_ destination: SettingsDestination) {
     let exists = SettingsSearchCatalog.contains(destination, config: model.config, shortcuts: model.shortcutRows)
     selection = SettingsRevealRequest(destination: exists ? destination : .page(destination.page))
+  }
+}
+
+/// Window discovery reads Defi itself only while it is a regular app, with Settings open.
+let defiActivationPolicyDidChange = Notification.Name("DefiActivationPolicyDidChange")
+
+/// SwiftUI keeps the Settings window fixed-size; resizable, Defi tiles it as a column.
+private struct ResizableSettingsWindow: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSView { WindowView() }
+  func updateNSView(_ nsView: NSView, context: Context) {}
+
+  final class WindowView: NSView {
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      window?.styleMask.insert(.resizable)
+    }
   }
 }
 

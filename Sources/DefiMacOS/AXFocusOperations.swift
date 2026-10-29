@@ -16,11 +16,13 @@ struct AXFocusOperations: @unchecked Sendable {
       }
     }
   }
-  var setMain: (AXUIElement) -> AXError = {
-    AXUIElementSetAttributeValue($0, kAXMainAttribute as CFString, kCFBooleanTrue)
+  var setMain: (AXUIElement) -> AXError = { element in
+    performAccessibilityWrite(on: element) {
+      AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
+    }
   }
-  var raise: (AXUIElement) -> AXError = {
-    AXUIElementPerformAction($0, kAXRaiseAction as CFString)
+  var raise: (AXUIElement) -> AXError = { element in
+    performAccessibilityWrite(on: element) { AXUIElementPerformAction(element, kAXRaiseAction as CFString) }
   }
   var applicationIsActive: (pid_t) -> Bool = {
     NSRunningApplication(processIdentifier: $0)?.isActive == true

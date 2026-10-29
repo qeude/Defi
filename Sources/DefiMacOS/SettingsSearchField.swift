@@ -8,7 +8,7 @@ struct SettingsSearchField: NSViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
   func makeNSView(context: Context) -> NSSearchField {
-    let field = NSSearchField()
+    let field = Field()
     field.placeholderString = "Search settings"
     field.setAccessibilityLabel("Search settings")
     field.sendsSearchStringImmediately = true
@@ -22,6 +22,16 @@ struct SettingsSearchField: NSViewRepresentable {
     context.coordinator.text = $text
     context.coordinator.moveToResults = moveToResults
     if field.stringValue != text { field.stringValue = text }
+  }
+
+  /// Editing suspends Defi's shortcuts. AppKit focuses the field as the window opens, during the
+  /// menu click or key that opened it, which left the Settings column without keyboard
+  /// navigation; only input in its own window, or code outside any event, starts editing.
+  final class Field: NSSearchField {
+    override func becomeFirstResponder() -> Bool {
+      if let event = NSApp.currentEvent, event.window !== window { return false }
+      return super.becomeFirstResponder()
+    }
   }
 
   @MainActor
