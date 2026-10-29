@@ -56,6 +56,16 @@ public final class MacOSPlatform {
   }
   /// The pointer let go: the next drag starts without a preview.
   public func endWindowProxyPreview() { windowProxyPreview = nil }
+  /// A light trackpad tap as a dragged window's drop slot moves, for a trackpad drag
+  /// only: macOS plays it on a Force Touch trackpad even while a mouse drags.
+  public func playDropSlotHaptic() {
+    let trackpad = leftDragFromTrackpad.load(ordering: .relaxed)
+    recordPerformanceTrace("drop-slot-haptic trackpad=\(trackpad)")
+    guard trackpad else { return }
+    DispatchQueue.main.async {
+      NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+    }
+  }
   private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID)?
   private var windowProxyHostRetryAt: TimeInterval = 0
 

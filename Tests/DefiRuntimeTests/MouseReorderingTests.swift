@@ -807,6 +807,23 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `The drop slot moves only when a target leaves or reaches another place`() throws {
+    let state = try makeState(windowCount: 3)
+    let dragged = WindowID(rawValue: 1)
+    let own = MouseDropTarget.column(index: 0)
+    let other = MouseDropTarget.column(index: 1)
+    let moved = { (from: MouseDropTarget?, to: MouseDropTarget?) in
+      mouseDropSlotMoved(dragged, from: from, to: to, state: state, viewports: [monitorID: viewport])
+    }
+    #expect(!moved(nil, own))
+    #expect(!moved(own, nil))
+    #expect(moved(own, other))
+    #expect(moved(other, own))
+    #expect(moved(nil, other))
+    #expect(!moved(other, other))
+  }
+
+  @Test
   func `A click or a vertical drag inside its own stack previews no drop`() throws {
     var state = try makeState(windowCount: 3)
     try reduce(.joinWindow(.left), on: monitorID, state: &state)
