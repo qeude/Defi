@@ -31,6 +31,8 @@ final class PlatformEventMonitor {
   private let addNotification: (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError
   private let removeNotification: (AXObserver, AXUIElement, CFString) -> AXError
   private var workspaceTokens: [NSObjectProtocol] = []
+  private var ownActivationToken: NSObjectProtocol?
+  private var ownActivationPolicyToken: NSObjectProtocol?
   private var sessionTokens: [NSObjectProtocol] = []
   private var screenTokens: [NSObjectProtocol] = []
   private var mouseMonitor: Any?
@@ -182,6 +184,24 @@ final class PlatformEventMonitor {
         }
       }
     )
+    // NSWorkspace does not report Defi's own activation, as when its Settings window opens.
+    ownActivationToken = NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, NSApplication.shared.activationPolicy() == .regular else { return }
+        self.activationGeneration &+= 1
+        let processID = ProcessInfo.processInfo.processIdentifier
+        self.userInputTracker.recordApplicationActivation(processID: processID)
+        self.handler(.focus, processID)
+      }
+    }
+    // Defi turns regular while its Settings window is open; read it at once, and drop it once closed.
+    ownActivationPolicyToken = NotificationCenter.default.addObserver(
+      forName: defiActivationPolicyDidChange, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.handler(.application, ProcessInfo.processInfo.processIdentifier) }
+    }
     for name in [
       NSWorkspace.didLaunchApplicationNotification,
       NSWorkspace.didHideApplicationNotification,
@@ -745,6 +765,10 @@ final class PlatformEventMonitor {
       center.removeObserver(token)
     }
     workspaceTokens.removeAll()
+    ownActivationToken.map(NotificationCenter.default.removeObserver)
+    ownActivationToken = nil
+    ownActivationPolicyToken.map(NotificationCenter.default.removeObserver)
+    ownActivationPolicyToken = nil
     for token in sessionTokens {
       center.removeObserver(token)
     }

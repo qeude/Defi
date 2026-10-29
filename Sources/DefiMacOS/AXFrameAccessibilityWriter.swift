@@ -183,11 +183,9 @@ final class AXFrameAccessibilityWriter {
     guard let value = AXValueCreate(.cgPoint, &point) else {
       return .failure
     }
-    return AXUIElementSetAttributeValue(
-      write.element,
-      kAXPositionAttribute as CFString,
-      value
-    )
+    return performAccessibilityWrite(on: write.element) {
+      AXUIElementSetAttributeValue(write.element, kAXPositionAttribute as CFString, value)
+    }
   }
 
   private func applySizeValue(
@@ -197,11 +195,9 @@ final class AXFrameAccessibilityWriter {
     if let sizeWriter { return sizeWriter(write, size) ? .success : .cannotComplete }
     var size = size
     guard let value = AXValueCreate(.cgSize, &size) else { return .failure }
-    return AXUIElementSetAttributeValue(
-      write.element,
-      kAXSizeAttribute as CFString,
-      value
-    )
+    return performAccessibilityWrite(on: write.element) {
+      AXUIElementSetAttributeValue(write.element, kAXSizeAttribute as CFString, value)
+    }
   }
 
   @discardableResult
