@@ -522,6 +522,8 @@ final class WindowCaptureCache {
   private var pendingStills: [RibbonProxyRefresh] = []
   private var pendingDisplays: [CGDirectDisplayID: RibbonProxyScreen] = [:]
   private var forcedBackgrounds: Set<CGDirectDisplayID> = []
+  private var agedBackgrounds: Set<CGDirectDisplayID> = []
+  private var backgroundCapturedAt: [CGDirectDisplayID: CFTimeInterval] = [:]
 
   private init() {
     // Light and dark mode redraw every window and may swap the wallpaper: pictures
@@ -587,11 +589,21 @@ final class WindowCaptureCache {
         // Checked here, in memory, against the last pass's WindowServer list: a pass only
         // starts when a capture is due. Not `distance`: a staircase offsets it from the screen.
         let now = CACurrentMediaTime(), store = WindowCaptureStore.shared
+        // Wallpaper and desktop icons change without any signal: recaptured when aged,
+        // aged from the attempt so a failing capture never retries every tick.
+        let staleScreens = RibbonProxyStore.shared.allScreens.filter {
+          backgroundCapturedAt[$0.displayID].map { now - $0 > ribbonProxyBackgroundMaxAge } == true
+        }
+        for screen in staleScreens {
+          pendingDisplays[screen.displayID] = screen
+          agedBackgrounds.insert(screen.displayID)
+          backgroundCapturedAt[screen.displayID] = now
+        }
         let shown = Set(RibbonProxyStore.shared.onScreen.filter { ribbonProxyVisibleOnScreen($0.frame) }.map(\.id))
         let due = pendingRefresh.filter { window in
           shown.contains(window.id) && store.picture(window.id).map { now - $0.capturedAt > 1 } == true
         }.map(\.id)
-        guard !due.isEmpty else { continue }
+        guard !due.isEmpty || !staleScreens.isEmpty else { continue }
         warmIDs = Set(due)
         scheduleRefresh(after: 0, afterLanding: false)
       }
@@ -743,10 +755,12 @@ final class WindowCaptureCache {
     let screens = Dictionary(ribbon.allScreens.map { ($0.displayID, $0) }) { first, _ in first }
     pendingDisplays = pendingDisplays.compactMapValues { screens[$0.displayID] }
     var displays = pendingDisplays.values.filter { display in
-      forcedBackgrounds.contains(display.displayID) || store.background(display.displayID)?.width
-        != Int(display.frame.width * display.scale)
+      forcedBackgrounds.contains(display.displayID) || agedBackgrounds.contains(display.displayID)
+        || store.background(display.displayID)?.width != Int(display.frame.width * display.scale)
     }
+    let aged = agedBackgrounds.subtracting(forcedBackgrounds)
     forcedBackgrounds.subtract(displays.map(\.displayID))
+    agedBackgrounds.subtract(displays.map(\.displayID))
     // ScreenCaptureKit lights the recording indicator and pays a privacy check (tccd,
     // systemstatusd) per call: the WindowServer capture covers the wallpaper and every
     // window, parked ones included, and ScreenCaptureKit is only its fallback.
@@ -757,8 +771,14 @@ final class WindowCaptureCache {
             width: shown.frame.width, height: shown.frame.height), capture)
         }).value, image.width == Int(shown.frame.width * shown.scale) else { continue }
         store.setBackground(image, for: shown.displayID)
+        backgroundCapturedAt[shown.displayID] = CACurrentMediaTime()
         displays.removeAll { $0.displayID == shown.displayID }
       }
+    }
+    // An aged background still fits its display: never worth a ScreenCaptureKit capture.
+    displays.removeAll { display in
+      aged.contains(display.displayID)
+        && store.background(display.displayID)?.width == Int(display.frame.width * display.scale)
     }
     // Native frames, not targets: a window still resizing is captured, and cropped,
     // at its real size.
