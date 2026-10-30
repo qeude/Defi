@@ -43,7 +43,8 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 @property --open{syntax:'<number>';inherits:false;initial-value:1}
 @property --rise{syntax:'<number>';inherits:false;initial-value:0}
 .hero{position:relative;isolation:isolate;padding:56px 20px 0;text-align:center}
-.desk-stage{position:relative;margin:88px -20px 0}
+/* The opened desk runs edge to edge and fits one screen with its legend: the reserve is the nav offset, the legend and their gaps. */
+.desk-stage{--desk-max-h:calc(100svh - var(--legend-reserve,190px));position:relative;margin:88px -20px 0}
 /* Hero backdrop: a strip of columns scrolling past, an aurora, and a lit horizon behind the desk. */
 .hero-bg{transform-origin:50% 0;position:absolute;inset:-68px 0 auto;height:min(1500px,170vh);z-index:-1;overflow:hidden;pointer-events:none}
 .hero-bg i{position:absolute;display:block}
@@ -51,12 +52,6 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .hb-aurora{left:50%;top:26%;width:1600px;height:820px;translate:-50% 0;background:radial-gradient(closest-side at 32% 58%,#54afff8c,transparent),radial-gradient(closest-side at 70% 42%,#2b6df280,transparent),radial-gradient(closest-side at 50% 80%,#3ad0ff33,transparent);animation:hb-drift 12s ease-in-out infinite alternate}
 @keyframes hb-scroll{to{transform:translateX(-360px)}}
 @keyframes hb-drift{to{transform:translateX(80px) rotate(4deg) scale(1.1)}}
-/* Tells visitors the desk is live; fades as the desk opens and leaves after the first input. */
-.desk-hint{position:absolute;top:0;left:50%;z-index:3;display:flex;align-items:center;gap:6px;padding:7px 14px 7px 12px;border-radius:999px;transform:translate(-50%,-150%);background:#26262acc;backdrop-filter:blur(16px) saturate(1.5);box-shadow:inset 0 0 0 1px #54afff59,0 8px 30px #54afff26;font-size:13px;color:var(--ink);opacity:var(--open);transition:opacity .4s,visibility .4s;cursor:pointer;will-change:opacity}
-.desk-hint kbd{min-width:22px;height:22px;font-size:11px}
-.desk-hint i{width:7px;height:7px;margin-right:4px;border-radius:50%;background:#54afff;box-shadow:0 0 0 0 #54afff99;animation:hint-pulse 1.8s ease-out infinite}
-@keyframes hint-pulse{to{box-shadow:0 0 0 9px #54afff00}}
-.desk-stage.is-touched .desk-hint{opacity:0;visibility:hidden}
 .desk-horizon{position:absolute;inset:-320px 0 auto;height:1100px;overflow:hidden;pointer-events:none;opacity:var(--open);mask-image:linear-gradient(180deg,#000 70%,transparent);will-change:opacity}
 .desk-horizon::before{content:'';position:absolute;left:50%;top:300px;width:max(2600px,240vw);aspect-ratio:1;translate:-50% 0;border-radius:50%;background:radial-gradient(closest-side,var(--bg) 97%,#54afff33);box-shadow:0 -1px 0 #dff6ffcc,0 -6px 24px #54afffaa,0 -40px 120px #54afff59,0 -120px 260px #2b6df240}
 
@@ -72,23 +67,23 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .install-button code{font:500 13px var(--mono)}
 .install-button[data-copied]::after{content:'Copied';position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;background:var(--ink);font-weight:600;font-size:14px}
 
-/* The interactive desk: a 1440 × 900 pt Mac drawn at real size, scaled to the frame */
-.desk{position:relative;z-index:1;width:100%;aspect-ratio:16/10;border-radius:24px;overflow:hidden;background:#000;transform:scale(var(--grow));transform-origin:50% 0;box-shadow:0 0 0 1.2px #ffffff26;text-align:left;cursor:default;user-select:none;-webkit-user-select:none;will-change:transform;transition:border-radius .3s}
+/* The interactive desk: a Mac 900 pt tall drawn at real size, scaled to the frame */
+.desk{position:relative;z-index:1;width:100%;aspect-ratio:16/10;min-height:200px;max-height:var(--desk-max-h);border-radius:24px;overflow:hidden;background:#000;transform:scale(var(--grow));transform-origin:50% 0;box-shadow:0 0 0 1.2px #ffffff26;text-align:left;cursor:default;user-select:none;-webkit-user-select:none;will-change:transform;transition:border-radius .3s}
 .desk.is-open{border-radius:0}
 /* The display bezel lives on its own layer so the desk only changes transform while scrolling. */
-.desk-bezel{position:absolute;top:0;left:0;width:100%;aspect-ratio:16/10;border-radius:24px;transform:scale(var(--grow));transform-origin:50% 0;box-shadow:0 0 0 12px #0b0b0d,0 0 0 13.4px #ffffff14,0 50px 120px -30px #000;opacity:var(--open);pointer-events:none;will-change:transform,opacity}
+.desk-bezel{position:absolute;top:0;left:0;width:100%;aspect-ratio:16/10;min-height:200px;max-height:var(--desk-max-h);border-radius:24px;transform:scale(var(--grow));transform-origin:50% 0;box-shadow:0 0 0 12px #0b0b0d,0 0 0 13.4px #ffffff14,0 50px 120px -30px #000;opacity:var(--open);pointer-events:none;will-change:transform,opacity}
 .desk:focus-visible{outline:3px solid var(--accent-soft);outline-offset:-3px}
-.screen{position:absolute;top:0;left:0;width:1440px;height:900px;transform:scale(var(--scale,.8));transform-origin:0 0;overflow:hidden;font:13px/1.4 -apple-system,BlinkMacSystemFont,'SF Pro Text','DM Sans',sans-serif;color:#f5f5f7;-webkit-font-smoothing:antialiased}
+.screen{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px;transform:scale(var(--scale,.8));transform-origin:0 0;overflow:hidden;font:13px/1.4 -apple-system,BlinkMacSystemFont,'SF Pro Text','DM Sans',sans-serif;color:#f5f5f7;-webkit-font-smoothing:antialiased}
 .wallpaper,.ov-backdrop{position:absolute;inset:0;background:var(--wallpaper)}
 .ov-backdrop{filter:blur(40px) saturate(1.3) brightness(.7);transform:scale(1.15);opacity:0;transition:opacity .35s}
 .is-overview .ov-backdrop{opacity:1}
-.track{position:absolute;top:0;left:0;width:1440px;height:900px;transform-origin:0 0;transition:transform var(--spring-s) var(--spring)}
+.track{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px;transform-origin:0 0;transition:transform var(--spring-s) var(--spring)}
 .is-overview .track,.track{will-change:transform}
-.ws{position:absolute;top:0;left:0;width:1440px;height:900px}
+.ws{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px}
 /* The Overview as Defi draws it (OverviewView.swift). Sizes are screen points ÷ the row scale, .469. */
 .is-overview .track{transition-duration:.16s;transition-timing-function:cubic-bezier(.33,1,.68,1)}
 .ov-zoom .track,.ov-zoom .ws{transition:transform .22s ease-in-out}
-.ws::before{content:'';position:absolute;left:0;top:24px;width:1440px;height:800px;border-radius:26px;background:linear-gradient(#0000001f,#0000001f),var(--wallpaper);opacity:0;transition:opacity .22s}
+.ws::before{content:'';position:absolute;left:0;top:24px;width:var(--screen-w,1440px);height:800px;border-radius:26px;background:linear-gradient(#0000001f,#0000001f),var(--wallpaper);opacity:0;transition:opacity .22s}
 .is-overview .ws::before{opacity:1}
 .ov-more{position:absolute;top:418px;z-index:2;display:grid;place-items:center;width:98px;height:64px;padding:0;border:0;border-radius:32px;background:#000000b8;cursor:pointer;color:#ffffffeb;font:600 30px/1 -apple-system,BlinkMacSystemFont,sans-serif;opacity:0;transition:opacity .22s;pointer-events:none}
 .ov-more.left{left:calc(26px - var(--ov-edge))}
@@ -344,11 +339,16 @@ aside p.on{background:#ffffff1f}
 .f-c.two{left:61%;width:23%;box-shadow:none;background:#16171f}
 @keyframes blink{50%{opacity:0}}
 
-.keypad{display:flex;justify-content:center;flex-wrap:wrap;gap:8px;max-width:960px;margin:34px auto 0}
-.keypad button{display:inline-flex;align-items:center;gap:4px;height:38px;padding:0 12px 0 8px;border:1px solid var(--line);border-radius:10px;background:#ffffff06;font-size:13px;color:var(--muted);transition:background .15s,transform .15s,color .15s}
+.keypad{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;max-width:100%;margin:24px auto 0}
+@media (max-width:1279px){.desk-stage{--legend-reserve:230px}}
+@media (min-width:601px) and (max-width:700px){.desk-stage{--legend-reserve:270px}}
+.keypad-lead{flex-basis:100%;margin:0 0 2px;font-size:22px;font-weight:500;line-height:1.4;color:var(--ink)}
+.keypad button{display:inline-flex;align-items:center;gap:4px;height:34px;white-space:nowrap;padding:0 6px;background:none;font-size:13px;color:var(--muted);transition:transform .15s,color .15s}
 .keypad button span{margin-left:5px}
-.keypad button:hover{background:#ffffff10;color:var(--ink)}
-.keypad button.pressed{transform:translateY(1px);background:#54afff2e;color:var(--ink);border-color:#54afff80}
+.keypad button:hover kbd{background:#3a3a40}
+.keypad button:hover,.keypad button.pressed{color:var(--ink)}
+.keypad button.pressed{transform:translateY(1px)}
+.keypad button.pressed kbd{background:#fff;border-color:#fff;color:#111}
 
 /* Sections */
 section{scroll-margin-top:80px}
@@ -519,7 +519,7 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
   .footer{flex-direction:column;text-align:center}
 }
 @media (prefers-reduced-motion:reduce){
-  .hero-bg i,.desk-hint i{animation:none}
+  .hero-bg i{animation:none}
   html{scroll-behavior:auto}
   .ill-reflow *,.term u,.foot-art *,.ill-float *,.hz-light i{animation:none!important}
   .reveal{opacity:1;transform:none}

@@ -25,7 +25,7 @@ downloads Cabinet Grotesk from Fontshare; later runs reuse the local file.
 - `main.js` composes the page, the copy buttons, the desk's opening on scroll,
   the columns of light at the page bottom,
   and the feature clips' playback.
-- `desk.js` is the interactive preview: a 1440 × 900 point Mac in dark mode,
+- `desk.js` is the interactive preview: a Mac 900 points tall and at least 1440 wide, in dark mode,
   drawn in HTML at real size and scaled to fit. It uses Defi's built-in
   defaults: 8 pt gaps, a 4 pt border outside the focused window (drawn in white rather than the app default `#C099FF`),
   widths cycling through 0.33, 0.5, 0.66 and 0.8, scrolling only as far as
@@ -45,7 +45,9 @@ downloads Cabinet Grotesk from Fontshare; later runs reuse the local file.
 - The preview opens on an ordinary crowded desktop. When the visitor scrolls,
   or after a moment, Defi opens from Spotlight and the windows leave the pile
   for their columns and workspaces. As the page scrolls, the framed desk opens to
-  the full viewport width. A key press or click before that skips the intro.
+  the full viewport width. A short window widens the desk's Mac instead of
+  cropping it, so the opened desk and the keypad fit one screen, down to about 380 px of
+  window height. A key press or click before that skips the intro.
 - Windows beyond the screen stay hidden, as Defi parks them: the desk shows
   only what the display would.
 - The desk's wallpaper is the CSS gradient `--wallpaper` in `style.css`, in the

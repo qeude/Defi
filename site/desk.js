@@ -1,7 +1,8 @@
-// A small Defi on a 1440 × 900 point Mac, drawn in HTML at real size and scaled to fit.
+// A small Defi on a Mac 900 points tall and at least 1440 wide, drawn in HTML at real size and scaled to fit.
 // Geometry, widths, border and motion follow Defi's built-in defaults (CONFIGURATION.md).
 
-const W = 1440;
+const MIN_W = 1440;
+let W = MIN_W; // Widens with the frame, so a short window still gets the desk edge to edge, like a wider display.
 const H = 900;
 const MENU = 24;
 const DOCK = 76;
@@ -14,7 +15,7 @@ const OVERVIEW_GAP = 28;
 const OVERVIEW_SCALE = ((H - 2 * OVERVIEW_GAP) * OVERVIEW_ZOOM) / H;
 const OVERVIEW_ROW = H + OVERVIEW_GAP / OVERVIEW_SCALE;
 // The panel's left edge in track points, where the "← N" pill sits 12 pt in.
-const OVERVIEW_EDGE = (W * (1 - OVERVIEW_SCALE)) / 2 / OVERVIEW_SCALE;
+const overviewEdge = () => (W * (1 - OVERVIEW_SCALE)) / 2 / OVERVIEW_SCALE;
 
 // Defi animates with a critically damped spring (mass 1, stiffness 800); sample it for CSS.
 const OMEGA = Math.sqrt(800);
@@ -180,7 +181,6 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
     <div class="dock">${DOCK_APPS.map(app => `<button type="button" class="dock-item" data-app="${app}" aria-label="${APPS[app].name}">${appIcon(app)}<span class="dot"></span><span class="tip">${APPS[app].name}</span></button>`).join('')}</div>
     <div class="cheatsheet" aria-hidden="true">${cheatsheetMarkup()}</div>
   </div>`;
-  root.style.setProperty('--ov-edge', `${OVERVIEW_EDGE}px`);
   root.style.setProperty('--spring', SPRING);
   root.style.setProperty('--spring-s', `${SPRING_S.toFixed(3)}s`);
   const screen = root.querySelector('.screen');
@@ -326,7 +326,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
       const scroll = shownScroll(space, frames);
       const selected = !messy && index === active ? focusedWin(space) : null;
       space.cols.forEach((column, i) => column.wins.forEach((win, k) => place(win,
-        messy ? { x: win.mess[0], y: win.mess[1] - index * H, w: win.mess[2], h: win.mess[3] } : stackFrame(frames[i].x - scroll, frames[i].w, k, column.wins.length),
+        messy ? { x: win.mess[0] + (W - MIN_W) / 2, y: win.mess[1] - index * H, w: win.mess[2], h: win.mess[3] } : stackFrame(frames[i].x - scroll, frames[i].w, k, column.wins.length),
         space,
         { z: messy ? win.mess[4] : '', delay: tidying ? `${(index * 4 + i) * 45}ms` : '', focused: win === selected },
       )));
@@ -334,8 +334,8 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
       space.floats.forEach(({ win, frame }) => place(win, frame, space, { z: 20, focused: win === selected, floating: true }));
       // Columns wholly past the panel's edges, counted on the row's pills.
       const [left, right] = row.querySelectorAll('.ov-more');
-      const beyondLeft = frames.filter(f => f.x + f.w - scroll < -OVERVIEW_EDGE).length;
-      const beyondRight = frames.filter(f => f.x - scroll > W + OVERVIEW_EDGE).length;
+      const beyondLeft = frames.filter(f => f.x + f.w - scroll < -overviewEdge()).length;
+      const beyondRight = frames.filter(f => f.x - scroll > W + overviewEdge()).length;
       left.textContent = beyondLeft ? `← ${beyondLeft}` : '';
       right.textContent = beyondRight ? `${beyondRight} →` : '';
     });
@@ -740,8 +740,16 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
   tick();
   setInterval(tick, 15000);
 
+  const fit = (width, height) => {
+    W = Math.max(MIN_W, (H * width) / height);
+    root.style.setProperty('--scale', height / H);
+    root.style.setProperty('--screen-w', `${W}px`);
+    root.style.setProperty('--ov-edge', `${overviewEdge()}px`);
+  };
+  fit(root.clientWidth, root.clientHeight);
   new ResizeObserver(([entry]) => {
-    root.style.setProperty('--scale', entry.contentRect.width / W);
+    fit(entry.contentRect.width, entry.contentRect.height);
+    render();
   }).observe(root);
   const syncMotion = () => root.classList.toggle('no-anim', reducedMotion.matches);
   reducedMotion.addEventListener('change', syncMotion);
