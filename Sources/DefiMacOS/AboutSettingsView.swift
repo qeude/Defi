@@ -11,6 +11,9 @@ struct AboutSettingsView: View {
         AboutSettingsHeader()
           .id(SettingsSearchAnchor.option(.about))
       }
+      if AppUpdater.shared.isEligible {
+        AboutUpdatesSection(updater: AppUpdater.shared)
+      }
       Section("Links") {
         AboutSettingsLink(
           title: "GitHub", symbol: "chevron.left.forwardslash.chevron.right",
@@ -32,6 +35,40 @@ struct AboutSettingsView: View {
     }
     .formStyle(.grouped)
     .modifier(SettingsRevealModifier(request: request))
+  }
+}
+
+@MainActor
+struct AboutUpdatesSection: View {
+  let updater: AppUpdater
+  @AppStorage(AppUpdater.automaticChecksKey) private var automaticChecks = true
+
+  private var statusText: String {
+    switch updater.status {
+    case .checking: "Checking…"
+    case .upToDate: "Defi is up to date."
+    case .installing: "Updating…"
+    case let .failed(message): message
+    case .idle: updater.availableVersion.map { "Defi \($0) is available." } ?? ""
+    }
+  }
+
+  var body: some View {
+    Section("Updates") {
+      Toggle("Automatically check for updates", isOn: $automaticChecks)
+      HStack(spacing: 12) {
+        Text(statusText)
+          .foregroundStyle(.secondary)
+        Spacer(minLength: 12)
+        if updater.availableVersion != nil {
+          Button("Update") { updater.install() }
+            .disabled(updater.status == .installing)
+        } else {
+          Button("Check for Updates") { Task { await updater.check() } }
+            .disabled(updater.status == .checking)
+        }
+      }
+    }
   }
 }
 

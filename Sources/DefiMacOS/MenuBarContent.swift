@@ -30,6 +30,17 @@ public struct MenuBarContent: View {
           openDefiAccessibilitySettings()
         }
       }
+      if let version = AppUpdater.shared.availableVersion {
+        Button("Update to Defi \(version)", systemImage: "arrow.down.circle") {
+          AppUpdater.shared.install()
+        }
+        .disabled(AppUpdater.shared.status == .installing)
+      } else if AppUpdater.shared.isEligible {
+        Button("Check for Updates…", systemImage: "arrow.triangle.2.circlepath") {
+          Task { await AppUpdater.shared.check() }
+        }
+        .disabled(AppUpdater.shared.status == .checking)
+      }
       SettingsLink {
         Text("Settings…")
       }

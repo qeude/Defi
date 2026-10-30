@@ -25,6 +25,9 @@ struct DefiDaemonMain: App {
       _menuBar = State(initialValue: menuBar)
       DefiSettingsRuntimeStatus.shared.updateConfiguration(config)
       NavigationActor.enqueue { daemon.start() }
+      MainActor.assumeIsolated {
+        AppUpdater.shared.start { NavigationActor.enqueue { daemon.handleMenuCommand("quit") } }
+      }
     } catch DaemonInstanceLockError.alreadyRunning {
       exit(0)
     } catch {

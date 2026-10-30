@@ -196,14 +196,10 @@ focused branch and conventional prefix such as `feat/`, `fix/`, `docs/`, or
 ## Release packaging
 
 Release archives are signed with a stable self-signed certificate and are not
-notarized. The Homebrew Cask removes quarantine automatically. For a
-manual installation of an official release, move `Defi.app` to
-`/Applications`, then run:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Defi.app
-open /Applications/Defi.app
-```
+notarized. The Homebrew Cask removes quarantine automatically, and
+`script/install.sh` downloads with `curl`, which adds none. A DMG downloaded
+with a browser stays quarantined until the user clicks Open Anyway in System
+Settings; the README documents those steps.
 
 Only use archives from the official Defi repository. Install through Homebrew
 with `brew install --cask qeude/tap/defi`; remove the app and its user data with
@@ -256,7 +252,7 @@ documentation for secret storage and approval controls.
 
 ### Local packaging
 
-After the required checks pass, create the non-notarized arm64 ZIP and checksum:
+After the required checks pass, create the non-notarized arm64 ZIP, DMG, and checksums:
 
 ```sh
 ./script/package_release.sh
@@ -264,8 +260,8 @@ After the required checks pass, create the non-notarized arm64 ZIP and checksum:
 
 The script validates the bundle signature and architecture, rejects private
 key material, provisioning profiles, personal source paths, and email addresses,
-then writes `Defi-v<version>.zip` and its SHA-256 file under `dist/`. Upload only
-those two files to the matching release tag.
+then writes `Defi-v<version>.zip`, `Defi-v<version>.dmg`, and their SHA-256 files
+under `dist/`. Upload only those four files to the matching release tag.
 
 Finally, update `qeude/homebrew-tap` with the release URL and SHA-256. The Cask
 must install `Defi.app`, remove `com.apple.quarantine` in `postflight`, and zap:
@@ -284,5 +280,11 @@ must install `Defi.app`, remove `com.apple.quarantine` in `postflight`, and zap:
 
 The Cask should also expose `Defi.app/Contents/MacOS/defi` through a `binary`
 stanza.
+
+Installed apps update themselves from the release marked latest: they download
+`Defi-v<version>.zip` and accept it only if it satisfies `defiReleaseRequirement`
+in `Sources/DefiMacOS/AppUpdater.swift`. Rotating the release certificate
+therefore strands every installed copy; change that requirement, the pin in
+`release.yml`, and the one in `script/install.sh` together, and expect users to reinstall by hand.
 
 See [PERFORMANCE.md](PERFORMANCE.md) for performance investigation guidance.
