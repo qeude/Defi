@@ -118,13 +118,13 @@ const updateScroll = () => {
 addEventListener('scroll', () => { scrollFrame ||= requestAnimationFrame(updateScroll); }, { passive: true });
 addEventListener('resize', updateScroll);
 
-history.scrollRestoration = 'manual';
-addEventListener('pagehide', () => sessionStorage.setItem('scrollY', scrollY));
+// A visitor coming back or following a link to a section gets the whole page before load, so the browser lands in the right place.
+const direct = location.hash || performance.getEntriesByType('navigation')[0]?.type !== 'navigate';
 let introDone = false;
 let introTimer;
 let controller;
 // The empty desk's box is cheap to lay out. Mounting inside the browser's layout step, sized from it, costs one full layout instead of two.
-const deskBox = await new Promise(resolve => {
+const deskBox = direct ? desk.getBoundingClientRect() : await new Promise(resolve => {
   const observer = new ResizeObserver(([entry]) => { observer.disconnect(); resolve(entry.contentRect); });
   observer.observe(desk);
   // A hidden tab has no layout step.
@@ -244,10 +244,8 @@ document.addEventListener('keyup', event => {
 addEventListener('blur', () => controller.hideSheet());
 
 // Below the first screen arrives after the desk has painted, so its layout never joins the desk's in one long task.
-// A visitor coming back or following a link to a section needs the page's full height at once, to land in the right place.
-const returning = performance.getEntriesByType('navigation')[0]?.type !== 'navigate';
 // The timer covers hidden tabs and crawlers, where frames may never come.
-const nextFrame = () => (returning || location.hash ? Promise.resolve() : new Promise(resolve => {
+const nextFrame = () => (direct ? Promise.resolve() : new Promise(resolve => {
   requestAnimationFrame(() => setTimeout(resolve));
   setTimeout(resolve, 100);
 }));
@@ -298,11 +296,6 @@ const sheetDraw = new IntersectionObserver(([entry]) => {
   sheetShot.innerHTML = `<div class="sheet-screen"><div class="win" style="left:8px;width:944px">${windowMarkup({ app: 'safari', title: 'GitHub — qeude/Defi' })}</div><div class="win" style="left:960px;width:472px">${windowMarkup({ app: 'ghostty', title: '~' })}</div><div class="cheatsheet on">${cheatsheetMarkup()}</div></div>`;
 }, { rootMargin: '100%' });
 sheetDraw.observe(sheetShot);
-// The browser looked for this place before the page had its height.
-if (returning) {
-  // Storage can be blocked; the page then simply opens at the top.
-  try { scrollTo({ top: Number(sessionStorage.getItem('scrollY')), behavior: 'instant' }); } catch {}
-} else if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: 'instant' });
 // After the browser's own layout of the new sections, so reading geometry forces none.
 new ResizeObserver(updateScroll).observe(closing);
 
@@ -408,7 +401,7 @@ if (!reducedMotion.matches) {
 }
 
 // Reveal on scroll.
-if (!reducedMotion.matches) {
+const setUpReveal = () => {
   const reveal = new IntersectionObserver(entries => entries.forEach(entry => {
     if (!entry.isIntersecting) return;
     entry.target.classList.add('in');
@@ -418,6 +411,11 @@ if (!reducedMotion.matches) {
     element.classList.add('reveal');
     reveal.observe(element);
   });
+};
+if (!reducedMotion.matches) {
+  // After load when the browser is restoring a position: the reveal's offset would move the place it restores to.
+  if (direct) addEventListener('load', () => setTimeout(setUpReveal));
+  else setUpReveal();
 }
 
 // The title's reveal waits for the work above, which would otherwise block it and show every word at once.
