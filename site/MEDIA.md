@@ -1,54 +1,40 @@
 # Defi landing media
 
-## Current recordings
-
-The hero and the three feature clips come from one 3840 × 2160 recording of the installed app
-(menu bar and Dock included, nothing cropped): a browser workspace, a T3 chat
-workspace, one workspace of terminals (cmatrix, btop, fastfetch), and the
-Overview. Dead time between gestures is cut. The clips are silent H.264 at 60 fps
-so the real window motion is preserved; nothing is interpolated or slowed, except in the hero (described below).
-Workspace switches in the recording are instant cuts, so the workspaces clip is
-three real workspaces cut together on the real switch frames.
+The hero no longer uses a recording: it is the interactive preview in
+`desk.js`. One recording remains, in the feature bento; the desk already shows
+workspaces, so the workspaces clip was dropped.
 
 | File | Length | Size | Used by |
 | --- | --- | --- | --- |
-| `feature-hero.mp4` | 7.2 s | 1920 × 1080 | Hero (crowded desktop, Launch Defi, tidy windows, moving between columns) |
-| `feature-hero-hd.mp4` | 7.2 s | 2880 × 1620 | Same hero for viewports of 2200 device pixels or more (Retina) |
-| `feature-widths.mp4` | 8.6 s | 1920 × 1080 | Column widths feature |
-| `feature-workspaces.mp4` | 4.1 s | 1920 × 1080 | Virtual workspaces feature (GitHub, T3 chat, terminals) |
-| `feature-overview.mp4` | 8.7 s | 1920 × 1080 | Overview feature |
+| `feature-overview.mp4` | 6 s | 1280 × 720, 120 fps | “Every window at a glance” card |
 
-The hero is a short cut of the motion film's opening (`index.html?hero=1` in the motion
-project; the film itself is for social media and is not on the site), rendered at 1.5× (2880 × 1620): 0.6 s of the real crowded desktop,
-the Raycast panel (a still) and the windows leaving to their workspaces, both
-composed from real window textures of the same recording. Then it hands over, with
-a short cross-fade, to the real footage of moving between columns with Option and
-the arrow keys (3.35 s, two key presses shown). The capture steps through
-each column move in about ten uneven frames, so both moves are rebuilt as one
-0.4 s eased slide with motion blur from stills of the same footage (`smooth.py`
-in the motion project): same windows, same focus ring, nothing invented. No captions. It loops with a 0.4 s
-cross-fade. The card rests on
-the first frame; `hero-grow.js` starts the clip as soon as the page starts opening
-it, so Defi is tidying the windows around the time the frame reaches full width. `main.js` swaps in the HD file when `devicePixelRatio × innerWidth`
-is 2200 or more, unless the browser asks to save data.
+It is cut from a 2560 × 1440 ScreenCaptureKit recording of the installed app
+on 30 October 2026 (menu bar and Dock included): a browser workspace, a
+workspace of terminals, and the Overview opening on them. Defi was driven
+through the `defi` CLI (`focus-workspace`, `focus-column`, `cycle-width`,
+`toggle-overview`) at human pace, with `RibbonProxyCapturable` set for the
+recording only, so the ribbon overlay appears as it does on screen. The cursor
+is hidden. A private calendar item in the menu bar is blurred with `delogo`.
+The poster is a mid-clip frame (`feature-overview.jpg`).
 
-Each clip has a poster (`feature-*.jpg`) taken mid-clip. The four
-silent clips weigh about 3.6 MB; only the hero clip is preloaded, the others
-load when played.
+Encoding: `fps=120`, scale to 1280 × 720, `-crf 27`, `-preset slow`,
+`-movflags +faststart`, no audio.
 
-The film (house music, 132.5 BPM, 60 fps) is the source of the hero. Its scene file
-and music generator live outside the repository (`~/.t3/defi-motion7`: `index.html`,
-`genres.py`); the 37 s web encode is kept there as `web-film/`.
+The film for the README and social media (not on the site) is one continuous
+shot in the landing's art direction: 51 s, 1920 × 1080, H.264 two-pass with
+a deep electro track synthesized for it on the film's beat grid, at 120 fps
+(README) and 60 fps (X).
+Unlike the Overview clip, it is not footage: it is rendered frame by frame from
+real window pictures, with Defi's column widths, stacks, Overview rows and
+spring (stiffness 800), every key press on the music's beat grid. Two terminal
+pictures draw real command output (`git log`, `ls`), and the second display
+reuses windows from the first. The scene, renderer and pictures live outside
+the repository in `~/.t3/defi-motion8`.
 
-Retouch: the private calendar item in the menu bar is painted over with a
-horizontal gradient sampled on either side of it. Nothing else is altered.
+Frame rate: ScreenCaptureKit delivers 120 fps while columns scroll and the
+Overview moves. Vertical workspace switches arrive at about 60 fps in the
+capture; those stretches repeat frames in the 120 fps files.
 
-Encoding: `trim`/`concat`, scale to 1920 × 1080, `-crf 28`, `-preset slow`,
-`-movflags +faststart`, no audio. The hero is encoded from the 2880 × 1620 render
-at `-crf 24` (HD, kept at full size) and `-crf 26` (scaled to 1920 × 1080).
-
-Known weak spots: the cmatrix terminal restarts (and looks empty for a moment)
-after every width change, and the Overview clip ends on fastfetch, which shows
-the hostname. The T3 sidebar (thread titles) and fastfetch (hostname, IP) are
-visible in the hero and the workspaces clip. The owner reviewed these details and
-accepted them for publication. There is no multi-monitor capture and no cheatsheet clip yet.
+`og.jpg` (1200 × 630) is the link preview image declared in `index.html`, made
+from real window captures in the desk's frame. Its URLs are absolute, so they
+must change if the site moves to another domain.
