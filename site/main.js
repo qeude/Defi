@@ -233,7 +233,7 @@ const videos = [...app.querySelectorAll('video')];
 const onScreen = new Set();
 const syncVideo = video => {
   video.controls = reducedMotion.matches;
-  if (!onScreen.has(video) || document.hidden || reducedMotion.matches) video.pause();
+  if (!onScreen.has(video) || document.hidden || reducedMotion.matches || video.dataset.userPaused) video.pause();
   else video.play().catch(() => {});
 };
 const videoObserver = new IntersectionObserver(entries => entries.forEach(({ target, isIntersecting }) => {
@@ -242,6 +242,13 @@ const videoObserver = new IntersectionObserver(entries => entries.forEach(({ tar
   syncVideo(target);
 }));
 videos.forEach(video => videoObserver.observe(video));
+// A click or tap pauses or resumes a clip, and the pause sticks; native controls handle this under reduced motion.
+videos.forEach(video => video.addEventListener('click', () => {
+  if (video.controls) return;
+  if (video.paused) delete video.dataset.userPaused;
+  else video.dataset.userPaused = 'true';
+  syncVideo(video);
+}));
 document.addEventListener('visibilitychange', () => videos.forEach(syncVideo));
 reducedMotion.addEventListener('change', () => videos.forEach(syncVideo));
 

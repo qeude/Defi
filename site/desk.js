@@ -498,6 +498,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
   }
 
   function press(code, shift = false) {
+    if (drag) return false; // a card in hand keeps the layout still until it drops
     const digit = code.match(/^Digit([1-9])$/);
     const command = digit ? `${shift ? 'move-column-to-workspace' : 'focus-workspace'}-position ${digit[1]}` : (shift ? SHIFT_KEYS : KEYS)[code];
     if (!command) return false;
@@ -512,6 +513,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
   // In the Overview, plain arrows move the selection; Return and Escape close it.
   // Moving the selection puts its column at the row's left edge, as Defi's Overview does.
   function pressInOverview(code) {
+    if (drag) return false;
     if (!overview) return false;
     if (code === 'Enter' || code === 'Escape') {
       overview = false;
