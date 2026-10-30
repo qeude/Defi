@@ -52,8 +52,8 @@ app.innerHTML = `
     <h1>Meet <span class="h1-icon">${icon(96)}</span> Defi</h1>
     <p class="lede">Your desktop, without the edges. A scrolling window manager for macOS: windows line up side by side on one strip, and the keyboard takes you along it.</p>
     <div class="actions">${installButton()}<a class="pill pill-dark pill-lg" href="${repo}">${githubIcon}<span>GitHub</span></a></div>
-    <div class="desk-stage"><button type="button" class="desk-hint"><i aria-hidden="true"></i>Interactive. Try <kbd>⌃</kbd><kbd>⌥</kbd><kbd>→</kbd></button><div class="desk-horizon" aria-hidden="true"></div><div class="desk-bezel" aria-hidden="true"></div><div class="desk" tabindex="0" role="application" aria-label="Interactive Defi preview. Use Control-Option with the arrow keys, minus, equal, O or F. Hold Control-Option to see the shortcuts."></div></div>
-    <div class="keypad" role="group" aria-label="Try Defi shortcuts">${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}" aria-label="Control-Option ${label}">${kbd(['⌃', '⌥', glyph])}<span>${label}</span></button>`).join('')}</div>
+    <div class="desk-stage"><div class="desk-horizon" aria-hidden="true"></div><div class="desk-bezel" aria-hidden="true"></div><div class="desk" tabindex="0" role="application" aria-label="Interactive Defi preview. Use Control-Option with the arrow keys, minus, equal, O or F. Hold Control-Option to see the shortcuts."></div></div>
+    <div class="keypad" role="group" aria-label="Try Defi shortcuts"><p class="keypad-lead">${matchMedia('(hover:none)').matches ? 'Tap a shortcut to try it' : 'Try it on your keyboard'}</p>${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}" aria-label="Control-Option ${label}">${kbd(['⌃', '⌥', glyph])}<span>${label}</span></button>`).join('')}</div>
     <p class="desk-caption visually-hidden" aria-live="polite"></p>
 </section>
 
@@ -118,7 +118,7 @@ const onCommand = (code, command) => {
   const button = keypadButtons.get(code);
   if (button) {
     button.classList.add('pressed');
-    setTimeout(() => button.classList.remove('pressed'), 220);
+    setTimeout(() => button.classList.remove('pressed'), 450);
   }
   if (command === 'click') return;
   // Screen readers hear the visitor's commands, not the demo's; the keypad shows the press.
@@ -126,7 +126,6 @@ const onCommand = (code, command) => {
 };
 const controller = mountDesk(desk, { reducedMotion, onCommand });
 const stopDemo = () => {
-  app.querySelector('.desk-stage').classList.add('is-touched');
   introDone = true;
   userDriven = true;
   clearInterval(demoTimer);
@@ -147,15 +146,10 @@ const syncDemo = () => {
 new IntersectionObserver(([entry]) => {
   deskVisible = entry.isIntersecting;
   syncDemo();
-}, { threshold: 0.4 }).observe(desk);
+}, { threshold: 0.2 }).observe(desk);
 document.addEventListener('visibilitychange', syncDemo);
 reducedMotion.addEventListener('change', syncDemo);
 
-// The hint shows what it says: one ⌃⌥→.
-app.querySelector('.desk-hint').addEventListener('click', () => {
-  stopDemo();
-  controller.press('ArrowRight');
-});
 desk.addEventListener('pointerenter', () => { deskHovered = true; });
 desk.addEventListener('pointerleave', () => { deskHovered = false; });
 desk.addEventListener('pointerdown', stopDemo);
@@ -204,7 +198,7 @@ const closing = app.querySelector('.closing');
 const footArt = closing.querySelector('.foot-art');
 const stage = app.querySelector('.desk-stage');
 const growing = [desk, stage.querySelector('.desk-bezel')];
-const opening = [stage.querySelector('.desk-bezel'), stage.querySelector('.desk-horizon'), stage.querySelector('.desk-hint')];
+const opening = [stage.querySelector('.desk-bezel'), stage.querySelector('.desk-horizon')];
 let scrollFrame = 0;
 const clamp01 = x => Math.min(1, Math.max(0, x));
 const updateScroll = () => {

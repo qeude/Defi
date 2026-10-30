@@ -27,7 +27,9 @@ Rhythm and type:
    edges.” line in the lede, the Homebrew command as a white copy pill, GitHub,
    then the interactive desk: a dark-mode Mac with Defi running (see
    README.md), a blue gradient wallpaper that matches the hero, a keypad of the main
-   shortcuts that light up as keys are pressed, and a hint pill above the desk.
+   shortcuts that light up as keys are pressed. The desk is capped so that, opened,
+   it runs edge to edge and fits one screen with the keypad under it. A line above
+   the keypad invites the visitor to try it.
 3. What Defi does: an uneven twelve-column bento of six cards with one-line
    descriptions. The Overview recording fills a tall card (7 columns, 2 rows)
    beside two stacked cards: Command-Tab and speed, its copy beside “120 Hz”
