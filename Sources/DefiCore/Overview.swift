@@ -465,8 +465,7 @@ public func projectOverview(
     projected.append(
       OverviewWorkspaceProjection(
         workspaceID: originalWorkspace.id,
-        label: originalWorkspace.name
-          ?? (originalWorkspace.kind == .trailing ? "+" : String(workspaceIndex + 1)),
+        label: originalWorkspace.name ?? String(workspaceIndex + 1),
         frame: workspaceFrame,
         visibleFrame: visibleFrame,
         windows: projectedWindows,

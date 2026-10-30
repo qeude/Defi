@@ -232,8 +232,7 @@ extension Daemon {
       ?? state.monitors.first
     let workspace = monitor?.activeWorkspace.rawValue ?? ""
     let workspaces = monitor?.workspaces.enumerated().map { offset, workspace in
-      MenuWorkspace(id: workspace.id.rawValue, label: workspace.name
-        ?? (workspace.kind == .trailing ? "+" : String(offset + 1)),
+      MenuWorkspace(id: workspace.id.rawValue, label: workspace.name ?? String(offset + 1),
         icon: workspace.name.map { config.workspaces.icons[$0] ?? "square.grid.2x2" })
     } ?? []
     let workspaceStyle = config.menuBar.workspaceStyle

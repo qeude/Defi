@@ -15,7 +15,7 @@ public struct MenuBarContent: View {
         Menu("Workspaces", systemImage: "rectangle.3.group") {
           ForEach(state.workspaces, id: \.id) { workspace in
             Toggle(
-              workspace.label == "+" ? "New Workspace" : workspace.label,
+              workspace.label,
               isOn: Binding(
                 get: { workspace.id == state.activeWorkspace },
                 set: { _ in commandHandler("workspace \(workspace.id)") }

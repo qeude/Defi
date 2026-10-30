@@ -641,7 +641,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
 
   // Defi's menu-bar item.
   function fillMenu() {
-    defiMenu.innerHTML = `<p class="mh">Workspaces</p>${spaces.map((space, i) => `<button type="button" role="menuitemradio" aria-checked="${i === active}" data-ws="${i}"><span class="check">${i === active ? '✓' : ''}</span>${isEmpty(space) ? 'New Workspace' : i + 1}</button>`).join('')}<hr><button type="button" role="menuitem"><span class="check"></span>Settings…<kbd>⌘,</kbd></button><hr><button type="button" role="menuitem"><span class="check"></span>Quit Defi<kbd>⌘Q</kbd></button>`;
+    defiMenu.innerHTML = `<p class="mh">Workspaces</p>${spaces.map((space, i) => `<button type="button" role="menuitemradio" aria-checked="${i === active}" data-ws="${i}"><span class="check">${i === active ? '✓' : ''}</span>${i + 1}</button>`).join('')}<hr><button type="button" role="menuitem"><span class="check"></span>Settings…<kbd>⌘,</kbd></button><hr><button type="button" role="menuitem"><span class="check"></span>Quit Defi<kbd>⌘Q</kbd></button>`;
   }
   function closeMenu() {
     defiMenu.hidden = true;
