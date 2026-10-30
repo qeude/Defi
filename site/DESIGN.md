@@ -15,7 +15,7 @@ Rhythm and type:
 - Sections share one width, `--page` (90% of the viewport, 1180 to 1480 px),
   and one opening space, `--section` (96 to 144 px), with none at their end.
   The closing takes 40 px more to mark the end.
-- Headings: 112 px for the title, 64 px for sections, 24 px for cards. Below
+- Headings: 96 px for the title, 64 px for sections, 24 px for cards. Below
   them, three text sizes: 19 px ledes, 16 px body, 13 to 14 px small print.
 - Illustrations size from their card (container units), so they fill it at
   every width.
@@ -23,13 +23,15 @@ Rhythm and type:
   passing under them never reads through.
 
 1. Navigation: wordmark, a centered pill of section links, GitHub and Install.
-2. Hero: an alpha badge, “Meet [icon] Defi”, the “Your desktop, without the
-   edges.” line in the lede, the Homebrew command as a white copy pill, GitHub,
-   then the interactive desk: a dark-mode Mac with Defi running (see
+2. Hero: an alpha badge, the title “Your desktop, without the edges.”, whose
+   last word comes apart: its letters blur towards the end and shed a little dust, and
+   the pointer brings them back into focus and pushes the dust aside. Then the Homebrew command as a white copy pill whose chevron opens the other
+   install methods (curl, DMG), GitHub, then the interactive desk: a dark-mode Mac with Defi running (see
    README.md), a blue gradient wallpaper that matches the hero, a keypad of the main
-   shortcuts that light up as keys are pressed. The desk is capped so that, opened,
-   it runs edge to edge and fits one screen with the keypad under it. A line above
-   the keypad invites the visitor to try it.
+   shortcuts that light up as keys are pressed, and a ⌃⌥ entry that shows the cheatsheet while held. The desk is capped so that, opened,
+   it runs edge to edge and fits one screen with the keypad under it. A title across the top
+   of the desk, “Go on, press ⌃⌥→”, plays the demo's shortcuts on its keys (the modifiers go down and stay, then the key lands), names the action and fades as soon as the
+   visitor takes over.
 3. What Defi does: an uneven twelve-column bento of six cards with one-line
    descriptions. The Overview recording fills a tall card (7 columns, 2 rows)
    beside two stacked cards: Command-Tab and speed, its copy beside “120 Hz”
@@ -52,6 +54,6 @@ Rhythm and type:
    and scroll sideways in a seamless loop.
 
 Under 900px the bento and the two-column sections become one column and the
-section pill is hidden. Reduced motion stops the demo, the reveal transitions
+section pill is hidden. Reduced motion stops the demo, the dissolving title, the reveal transitions
 and the decorative loops. The fake apps inside the desk are hidden from
 assistive technology; the keypad under it is the accessible control.

@@ -44,7 +44,15 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 @property --rise{syntax:'<number>';inherits:false;initial-value:0}
 .hero{position:relative;isolation:isolate;padding:56px 20px 0;text-align:center}
 /* The opened desk runs edge to edge and fits one screen with its legend: the reserve is the nav offset, the legend and their gaps. */
-.desk-stage{--desk-max-h:calc(100svh - var(--legend-reserve,190px));position:relative;margin:88px -20px 0}
+.desk-stage{--desk-max-h:calc(100svh - var(--legend-reserve,150px));position:relative;margin:64px -20px 0}
+.desk-invite{position:absolute;inset:0 0 auto;z-index:10;display:flex;flex-direction:column;align-items:center;gap:.14em;padding:clamp(14px,5%,44px) 12px clamp(48px,12%,110px);background:linear-gradient(#060911f2,#060911b3 60%,#06091100);font:500 clamp(20px,5vw,68px)/1.1 var(--display);letter-spacing:-.03em;color:var(--ink);white-space:nowrap;pointer-events:none;transition:opacity .4s}
+.desk-invite.gone{opacity:0}
+.desk-invite-line{display:flex;align-items:center;gap:.28em}
+.desk-invite small{font-size:.4em;letter-spacing:-.01em;color:var(--muted)}
+.desk-invite-keys{display:inline-flex;gap:.1em}
+.desk-invite-keys kbd{min-width:1.45em;height:1.45em;border-radius:.26em;font-size:.68em;letter-spacing:0;transition:transform .1s,background .1s,color .1s}
+.desk-invite-keys kbd:nth-child(2){transition-delay:.08s}
+.desk-invite.held kbd:not(:last-child),.desk-invite.press kbd:last-child{transform:translateY(2px);background:#fff;border-color:#fff;color:#111}
 /* Hero backdrop: a strip of columns scrolling past, an aurora, and a lit horizon behind the desk. */
 .hero-bg{transform-origin:50% 0;position:absolute;inset:-68px 0 auto;height:min(1500px,170vh);z-index:-1;overflow:hidden;pointer-events:none}
 .hero-bg i{position:absolute;display:block}
@@ -57,14 +65,35 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 
 .badge{display:inline-flex;align-items:center;gap:10px;padding:4px 12px 4px 4px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted);background:#ffffff05}
 .badge span{padding:2px 8px;border-radius:999px;background:var(--ink);color:#111;font-size:11px;font-weight:700;letter-spacing:.06em}
-.hero h1{display:flex;justify-content:center;align-items:center;gap:.22em;margin:22px 0 18px;font:500 clamp(54px,9vw,112px)/1 var(--display);letter-spacing:-.04em}
-.h1-icon img{width:.92em;height:.92em;filter:drop-shadow(0 10px 30px #2b6df255)}
+.hero h1{margin:22px 0 18px;font:500 clamp(54px,7vw,96px)/1.06 var(--display);letter-spacing:-.04em}
+.hword{display:inline-block;animation:hword .8s var(--d) var(--ease) both}
+@keyframes hword{from{opacity:0;filter:blur(10px);transform:translateY(.18em)}}
+.hletter{display:inline-block}
+.hero-baseline{display:inline-block;width:0;height:0}
+.hero-dust{position:absolute;left:0;top:0;width:100%;pointer-events:none}
 .lede{max-width:620px;margin:auto;font-size:19px;line-height:1.55;color:var(--muted)}
 .actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:30px}
 .actions.left{justify-content:flex-start;align-items:center;gap:18px;margin-top:26px}
 .install-button{position:relative;display:inline-flex;align-items:center;gap:12px;height:46px;padding:0 18px 0 20px;border-radius:999px;background:var(--ink);color:#111;transition:background .2s}
 .install-button:hover{background:#fff}
 .install-button code{font:500 13px var(--mono)}
+/* One pill: copy on the left, the other install methods on the chevron. */
+.install{position:relative;z-index:5;display:inline-flex;border-radius:999px;background:var(--ink);color:#111;transition:background .2s}
+.install:hover{background:#fff}
+.install .install-button{background:none}
+.install-more{display:flex}
+.install-more summary{display:grid;place-items:center;width:40px;margin:9px 0;padding-right:4px;border-left:1px solid #0000001f;cursor:pointer;list-style:none}
+.install-more summary::-webkit-details-marker{display:none}
+.install-more summary svg{transition:transform .2s}
+.install-more[open] summary svg{transform:rotate(180deg)}
+.install-menu{position:absolute;top:calc(100% + 10px);right:0;display:grid;grid-template-columns:minmax(0,1fr);gap:10px;width:min(560px,calc(100vw - 40px));padding:16px;border:1px solid #ffffff1f;border-radius:16px;background:var(--card);box-shadow:0 24px 60px -12px #000c;font-size:13px;color:var(--muted);text-align:left}
+.install-menu b{color:var(--ink);font-weight:500}
+.install-menu a{color:var(--ink);text-decoration:underline;text-underline-offset:2px}
+.install-menu .note{color:var(--dim)}
+.copy-line{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border-radius:9px;background:#111113;text-align:left;color:var(--ink)}
+.copy-line code{overflow-x:auto;white-space:nowrap;font:500 12px var(--mono)}
+.copy-line svg{flex:none}
+.copy-line[data-copied]::after{content:'Copied';position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;background:#111113;font-weight:600}
 .install-button[data-copied]::after{content:'Copied';position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;background:var(--ink);font-weight:600;font-size:14px}
 
 /* The interactive desk: a Mac 900 pt tall drawn at real size, scaled to the frame */
@@ -94,10 +123,10 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .ov-drop{position:absolute;z-index:50;border-radius:21px;pointer-events:none}
 .ov-drop.column{background:linear-gradient(90deg,#0000 calc(50% - 3px),#fff calc(50% - 3px) calc(50% + 3px),#0000 calc(50% + 3px)),#ffffff2e}
 .ov-drop.stack{border-radius:5px;background:#fff}
-.win{position:absolute;top:0;left:0;border-radius:16px;transition:transform var(--spring-s) var(--spring),width var(--spring-s) var(--spring),height var(--spring-s) var(--spring)}
-.win .app{position:absolute;inset:0;border-radius:inherit;overflow:hidden;box-shadow:0 0 0 .5px #0006,0 22px 50px -12px #0009}
+.win{position:absolute;top:0;left:0;border-radius:12px;transition:transform var(--spring-s) var(--spring),width var(--spring-s) var(--spring),height var(--spring-s) var(--spring)}
+.win .app{position:absolute;inset:0;border-radius:inherit;overflow:hidden;box-shadow:0 0 0 .5px #0006,0 26px 60px -10px #000b}
 .win.is-focused{box-shadow:0 0 0 4px #fff}
-.win.is-focused .app{box-shadow:0 0 0 .5px #0006,0 30px 60px -10px #000a}
+.win.is-focused .app{box-shadow:0 0 0 .5px #0006,0 36px 80px -8px #000d}
 .is-tidying .win{transition-duration:1s;transition-timing-function:cubic-bezier(.25,.9,.25,1)}
 .no-anim .track,.no-anim .ws,.no-anim .win,.no-anim .ov-backdrop{transition:none!important}
 .ov-title{position:absolute;inset:0 0 auto;z-index:1;display:flex;align-items:flex-start;gap:17px;height:137px;padding:21px 21px 0;background:linear-gradient(#0000007a,#00000045 25%,#0000001f 50%,#00000008 75%,#0000);font:500 28px/51px -apple-system,BlinkMacSystemFont,sans-serif;color:#ffffffe6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .2s;pointer-events:none;border-radius:inherit}
@@ -108,7 +137,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .is-overview .win:not(.is-floating){touch-action:none}
 .is-overview .menubar,.is-overview .dock{opacity:0;pointer-events:none}
 
-/* Menu bar (macOS 26: transparent over the wallpaper) */
+/* Menu bar (macOS 27: transparent over the wallpaper) */
 .menubar{position:absolute;inset:0 0 auto;z-index:5;height:24px;display:flex;align-items:center;gap:18px;padding:0 10px 0 18px;color:#fff;font-size:13px;text-shadow:0 0 6px #0007;transition:opacity .3s}
 .mb-apple svg{width:14px;height:17px;display:block;margin-top:-2px}
 .mb-app{font-weight:700}
@@ -139,7 +168,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .sp-result span{margin-left:auto;opacity:.8;font-size:13px}
 
 /* Dock */
-.dock{position:absolute;left:50%;bottom:6px;z-index:5;display:flex;gap:6px;padding:7px 8px;border-radius:24px;transform:translateX(-50%);background:#ffffff26;backdrop-filter:blur(24px) saturate(1.8);box-shadow:inset 0 0 0 .5px #ffffff59,0 10px 30px #0006;transition:opacity .3s}
+.dock{position:absolute;left:50%;bottom:6px;z-index:5;display:flex;gap:6px;padding:7px 8px;border-radius:24px;transform:translateX(-50%);background:#3a3c4699;backdrop-filter:blur(30px) saturate(1.6);box-shadow:inset 0 0 0 .5px #ffffff40,0 10px 30px #0006;transition:opacity .3s}
 .dock-item{position:relative;width:52px;height:52px;border-radius:13px;transition:transform .2s cubic-bezier(.3,1.4,.5,1)}
 .dock-item .app-icon{width:52px;height:52px;border-radius:12px}
 .dock-item:hover{transform:translateY(-6px) scale(1.12)}
@@ -174,7 +203,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .app-icon[data-app=music]{background:linear-gradient(#ff6a88,#f2264f)}
 .app-icon[data-app=figma]{background:#1e1e1e}
 
-/* App windows (macOS 26) */
+/* App windows (macOS 27: tighter corners, deeper shadows, frostier glass) */
 .lights{display:flex;gap:9px;flex:none}
 .lights i{width:13px;height:13px;border-radius:50%;background:#ff5f57;box-shadow:inset 0 0 0 .5px #0003}
 .lights i:nth-child(2){background:#febc2e}
@@ -340,9 +369,8 @@ aside p.on{background:#ffffff1f}
 @keyframes blink{50%{opacity:0}}
 
 .keypad{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;max-width:100%;margin:24px auto 0}
-@media (max-width:1279px){.desk-stage{--legend-reserve:230px}}
-@media (min-width:601px) and (max-width:700px){.desk-stage{--legend-reserve:270px}}
-.keypad-lead{flex-basis:100%;margin:0 0 2px;font-size:22px;font-weight:500;line-height:1.4;color:var(--ink)}
+@media (max-width:1479px){.desk-stage{--legend-reserve:190px}}
+@media (min-width:601px) and (max-width:700px){.desk-stage{--legend-reserve:230px}}
 .keypad button{display:inline-flex;align-items:center;gap:4px;height:34px;white-space:nowrap;padding:0 6px;background:none;font-size:13px;color:var(--muted);transition:transform .15s,color .15s}
 .keypad button span{margin-left:5px}
 .keypad button:hover kbd{background:#3a3a40}
@@ -511,15 +539,15 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
   .shortcuts{grid-template-columns:1fr;gap:36px}
 }
 @media (max-width:600px){
-  .hero h1{font-size:56px}
+  .hero h1{font-size:38px}
   .lede{font-size:17px}
   .install-button code{font-size:11px}
-  .keypad button span{display:none}
+  .keypad button:not(.keypad-hold) span{display:none}
   .desk{border-radius:10px;margin-top:44px}
   .footer{flex-direction:column;text-align:center}
 }
 @media (prefers-reduced-motion:reduce){
-  .hero-bg i{animation:none}
+  .hero-bg i,.hword{animation:none}
   html{scroll-behavior:auto}
   .ill-reflow *,.term u,.foot-art *,.ill-float *,.hz-light i{animation:none!important}
   .reveal{opacity:1;transform:none}
