@@ -38,8 +38,6 @@ const faq = [
   ['Is it ready for everyday use?', `Defi is an experimental alpha, self-signed and not notarized. Behavior and configuration may change before the first stable release. Read the <a href="${repo}#alpha-limitations">alpha limitations</a>.`],
 ];
 
-const heroTitle = 'Your desktop, without the edges.';
-const word = (text, delay) => `<span class="hword" style="--d:${delay}ms">${text}</span>`;
 
 // The closing light: Defi's columns (equal heights, preset widths, 8 px gaps), one focused, scrolling past in a loop.
 const lightColumns = [0.5, 0.33, 0.8, 0.5, 0.66, 0.33, 0.66, 0.5, 0.33, 0.66, 0.5, 0.8].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="width:${Math.round(w * 420)}px"></i>`).join('');
@@ -48,59 +46,14 @@ const lightColumns = [0.5, 0.33, 0.8, 0.5, 0.66, 0.33, 0.66, 0.5, 0.33, 0.66, 0.
 const miniWin = (app, cls = '') => `<span class="mw ${cls}">${appIcon(app)}</span>`;
 const card = (cls, illustration, title, text) => `<article class="card ${cls}"><div class="card-art">${illustration}</div><div class="card-copy"><h3>${title}</h3><p>${text}</p></div></article>`;
 
-app.innerHTML = `
-<header class="nav"><a class="wordmark" href="#top">${icon()}<span>Defi</span></a>
-  <nav aria-label="Main navigation" class="nav-pill"><a href="#features">Features</a><a href="#shortcuts">Shortcuts</a><a href="#faq">FAQ</a></nav>
-  <div class="nav-actions"><a class="pill pill-dark" href="${repo}">${githubIcon}<span>GitHub</span></a><a class="pill pill-light" href="#install">Install</a></div></header>
-<main id="main">
-  <section class="hero" id="top">
-    <div class="hero-bg" aria-hidden="true"><i class="hb-cols"></i><i class="hb-aurora"></i></div>
-    <p class="badge"><span>ALPHA</span>For Apple Silicon Macs on macOS 26</p>
-    <h1 aria-label="${heroTitle}"><span aria-hidden="true">${word('Your', 80)} ${word('desktop,', 160)}<br>${word('without', 400)} ${word('the', 480)} <span class="hword" data-dissolve style="--d:560ms">edges.</span></span></h1>
-    <p class="lede">Defi is a scrolling window manager for macOS: windows line up side by side on one strip, and the keyboard takes you along it.</p>
-    <div class="actions">${installButton()}<a class="pill pill-dark pill-lg" href="${repo}">${githubIcon}<span>GitHub</span></a></div>
-    <div class="desk-stage"><div class="desk-horizon" aria-hidden="true"></div><div class="desk-bezel" aria-hidden="true"></div><div class="desk" tabindex="0" role="application" aria-label="Interactive Defi preview. Use Control-Option with the arrow keys, minus, equal, O or F. Hold Control-Option to see the shortcuts."></div></div>
-    <div class="keypad" role="group" aria-label="Try Defi shortcuts">${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}" aria-label="Control-Option ${label}">${kbd(['⌃', '⌥', glyph])}<span>${label}</span></button>`).join('')}<button type="button" class="keypad-hold" aria-label="Hold Control-Option to see all shortcuts">${kbd(['⌃', '⌥'])}<span>${matchMedia('(hover:none)').matches ? 'All shortcuts' : 'Hold for all shortcuts'}</span></button></div>
-    <p class="desk-caption visually-hidden" aria-live="polite"></p>
-</section>
-
-  <section class="features" id="features" aria-labelledby="features-title">
-    <h2 id="features-title">What Defi does</h2>
-    <p class="section-lede left">A tiling window manager built around one idea from Niri: columns that scroll, on the Mac you already use.</p>
-    <div class="bento">
-      ${card('b-hero card-video', recording('feature-overview.mp4', 'feature-overview.jpg', 'Defi Overview browsing workspace rows and their windows'), 'Every window at a glance', 'Zoom out to every workspace, with live pictures of your windows. Click one to go there.')}
-      ${card('b-side', `<div class="ill-native"><div class="cmdtab">${['safari', 'ghostty', 'xcode', 'messages', 'music'].map((a, i) => `<span class="${i === 2 ? 'on' : ''}">${appIcon(a)}${i === 2 ? '<em>Xcode</em>' : ''}</span>`).join('')}</div><p>${kbd(['⌘'])}<span>+</span>${kbd(['⇥'])}</p></div>`, 'Still a Mac', 'Clicks, the Dock and Command-Tab take you to the right workspace.')}
-      ${card('b-split', `<div class="hz-light" aria-hidden="true">${[0.33, 0.5, 0.8, 0.5, 0.33].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="flex:${w}"></i>`).join('')}</div><p class="ill-hz" aria-label="120 Hz"><b aria-hidden="true">120</b><span>Hz</span></p>`, 'Fast as your keys', 'Animations at up to 120 Hz. Commands never wait for a slow app.')}
-      ${card('b-5', `<div class="mini ill-reflow">${miniWin('safari')}${miniWin('xcode', 'on new')}${miniWin('ghostty')}${miniWin('notes')}</div>`, 'Columns that reflow', 'Open a window and it joins the strip. Widen or close one and the others make room.')}
-      ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll.')}
-      ${card('b-3', `<div class="mini ill-float">${miniWin('safari')}${miniWin('ghostty')}${miniWin('notes')}${miniWin('music', 'on float')}</div>`, 'Floating when you need it', 'One key lifts a window above the columns.')}
-    </div>
-  </section>
-
-  <section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
-    <h2 id="shortcuts-title">Hold <span class="key-pair"><kbd class="key-option" aria-label="Control"><small>⌃</small><span>control</span></kbd><kbd class="key-option" aria-label="Option"><small>⌥</small><span>option</span></kbd></span></h2><div><p class="section-lede left">Forget a shortcut? Hold Control and Option for a moment and Defi shows them all on the screen you are using. Release them and they are gone.</p><a class="text-link" href="${repo}/blob/main/CONFIGURATION.md">Change them in Settings or the config ${arrow}</a></div>
-    <div class="sheet-shot" aria-hidden="true"><div class="sheet-screen"><div class="win" style="left:8px;width:944px">${windowMarkup({ app: 'safari', title: 'GitHub — qeude/Defi' })}</div><div class="win" style="left:960px;width:472px">${windowMarkup({ app: 'ghostty', title: '~' })}</div><div class="cheatsheet on">${cheatsheetMarkup()}</div></div></div>
-  </section>
-
-  <section class="faq" id="faq" aria-labelledby="faq-title">
-    <div><h2 id="faq-title">Questions</h2><p class="section-lede left">Short answers about compatibility, permissions and the alpha.</p><a class="text-link" href="${repo}#troubleshooting">Troubleshooting notes ${arrow}</a></div>
-    <div class="faq-list">${faq.map(([q, a]) => `<details><summary>${q}<i aria-hidden="true"></i></summary><p>${a}</p></details>`).join('')}</div>
-  </section>
-
-  <section class="cta" id="install" aria-labelledby="cta-title">
-    ${icon(72)}
-    <h2 id="cta-title">Try Defi on your Mac.</h2>
-    <p class="section-lede">Paste the command into Terminal, then open Defi from Applications.</p>
-    <div class="actions">${installButton()}<a class="pill pill-dark pill-lg" href="${repo}">${githubIcon}<span>Star on GitHub</span></a></div>
-  </section>
-</main>
-<div class="closing">
-<div class="foot-art" aria-hidden="true"><div class="fl-track">${lightColumns}${lightColumns}</div></div>
-<footer class="footer"><a class="wordmark" href="#top">${icon(22)}<span>Defi</span></a><p>Experimental alpha · <a href="${repo}/blob/main/LICENSE">MIT</a> · Inspired by <a href="https://github.com/YaLTeR/niri">Niri</a></p><a href="${repo}">GitHub</a></footer>
-</div>`;
+app.querySelector('.hero').insertAdjacentHTML('beforeend', `
+    <div class="keypad" role="group" aria-label="Try Defi shortcuts">${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}"><span class="visually-hidden">Control-Option </span>${['⌃', '⌥', glyph].map(key => `<kbd aria-hidden="true">${key}</kbd>`).join('')}<span>${label}</span></button>`).join('')}<button type="button" class="keypad-hold"><span class="visually-hidden">Control-Option </span>${['⌃', '⌥'].map(key => `<kbd aria-hidden="true">${key}</kbd>`).join('')}<span>${matchMedia('(hover:none)').matches ? 'All shortcuts' : 'Hold for all shortcuts'}</span></button></div>
+    <p class="desk-caption visually-hidden" aria-live="polite"></p>`);
 
 // Copy buttons
-const bindCopy = button => button.addEventListener('click', async () => {
+app.addEventListener('click', async event => {
+  const button = event.target.closest('[data-copy]');
+  if (!button) return;
   const status = button.querySelector('[role=status]');
   const text = button.dataset.copy || command;
   try {
@@ -112,7 +65,6 @@ const bindCopy = button => button.addEventListener('click', async () => {
     status.textContent = `Copy failed. The command is ${text}`;
   }
 });
-app.querySelectorAll('[data-copy]').forEach(bindCopy);
 
 // The install menu closes like a menu: on a click elsewhere or Escape.
 const closeInstallMenus = (except) => app.querySelectorAll('.install-more[open]').forEach(menu => { if (!menu.contains(except)) menu.open = false; });
@@ -141,7 +93,48 @@ const onCommand = (code, command) => {
   // Screen readers hear the visitor's commands, not the demo's; the keypad shows the press.
   if (userDriven) caption.textContent = command;
 };
-const controller = mountDesk(desk, { reducedMotion, onCommand });
+// The desk opens to the full width as it reaches the top, and the light columns rise, as the page scrolls.
+let closing;
+let footArt;
+const stage = app.querySelector('.desk-stage');
+const growing = [desk, stage.querySelector('.desk-bezel')];
+const opening = [stage.querySelector('.desk-bezel'), stage.querySelector('.desk-horizon')];
+let scrollFrame = 0;
+const clamp01 = x => Math.min(1, Math.max(0, x));
+const updateScroll = () => {
+  scrollFrame = 0;
+  // Read all geometry before writing, so a frame never forces a second layout.
+  const stageBox = stage.getBoundingClientRect();
+  const rise = closing?.getBoundingClientRect();
+  const rest = Math.min(1060, stageBox.width - 40) / stageBox.width;
+  const eased = reducedMotion.matches ? 0 : 1 - (1 - clamp01(scrollY / Math.max(1, stageBox.top + scrollY - Math.min(innerHeight * 0.1, 90)))) ** 3;
+  const grow = (rest + (1 - rest) * eased).toFixed(4);
+  const open = (1 - eased).toFixed(4);
+  for (const element of growing) element.style.setProperty('--grow', grow);
+  for (const element of opening) element.style.setProperty('--open', open);
+  // Square the corners once the desk is about 96% wide, not at the very end of the scroll.
+  desk.classList.toggle('is-open', eased > 0.85);
+  if (controller && eased > 0.17 && !introDone) startIntro();
+  if (rise) footArt.firstElementChild.style.setProperty('--rise', reducedMotion.matches ? 1 : clamp01((innerHeight - rise.top) / rise.height).toFixed(4));
+};
+addEventListener('scroll', () => { scrollFrame ||= requestAnimationFrame(updateScroll); }, { passive: true });
+addEventListener('resize', updateScroll);
+
+history.scrollRestoration = 'manual';
+addEventListener('pagehide', () => sessionStorage.setItem('scrollY', scrollY));
+let introDone = false;
+let introTimer;
+let controller;
+// The empty desk's box is cheap to lay out. Mounting inside the browser's layout step, sized from it, costs one full layout instead of two.
+const deskBox = await new Promise(resolve => {
+  const observer = new ResizeObserver(([entry]) => { observer.disconnect(); resolve(entry.contentRect); });
+  observer.observe(desk);
+  // A hidden tab has no layout step.
+  setTimeout(() => { observer.disconnect(); resolve(desk.getBoundingClientRect()); }, 200);
+});
+updateScroll();
+controller = mountDesk(desk, { reducedMotion, onCommand, size: deskBox });
+new ResizeObserver(updateScroll).observe(stage);
 const touchOnly = matchMedia('(hover:none)').matches;
 desk.insertAdjacentHTML('beforeend', `<p class="desk-invite" aria-hidden="true">${touchOnly ? 'Go on, tap a key below' : `<span class="desk-invite-line">Go on, press <span class="desk-invite-keys">${kbd(['⌃', '⌥', '→'])}</span></span><small>Right</small>`}</p>`);
 const invite = desk.querySelector('.desk-invite');
@@ -174,8 +167,6 @@ const stopDemo = () => {
   clearDemo();
 };
 // The desk opens on an ordinary crowded desktop; Defi starts from Spotlight when the visitor scrolls or after a moment.
-let introDone = false;
-let introTimer;
 const startIntro = () => {
   clearTimeout(introTimer);
   controller.launch({ done: () => setTimeout(() => { introDone = true; syncDemo(); }, 600) });
@@ -254,38 +245,71 @@ document.addEventListener('keyup', event => {
 });
 addEventListener('blur', () => controller.hideSheet());
 
-// The desk opens to the full width as it reaches the top, and the light columns rise, as the page scrolls.
-const closing = app.querySelector('.closing');
-const footArt = closing.querySelector('.foot-art');
-const stage = app.querySelector('.desk-stage');
-const growing = [desk, stage.querySelector('.desk-bezel')];
-const opening = [stage.querySelector('.desk-bezel'), stage.querySelector('.desk-horizon')];
-let scrollFrame = 0;
-const clamp01 = x => Math.min(1, Math.max(0, x));
-const updateScroll = () => {
-  scrollFrame = 0;
-  // Read all geometry before writing, so a frame never forces a second layout.
-  const stageBox = stage.getBoundingClientRect();
-  const rise = closing.getBoundingClientRect();
-  const rest = Math.min(1060, stageBox.width - 40) / stageBox.width;
-  const eased = reducedMotion.matches ? 0 : 1 - (1 - clamp01(scrollY / Math.max(1, stageBox.top + scrollY - Math.min(innerHeight * 0.1, 90)))) ** 3;
-  const grow = (rest + (1 - rest) * eased).toFixed(4);
-  const open = (1 - eased).toFixed(4);
-  for (const element of growing) element.style.setProperty('--grow', grow);
-  for (const element of opening) element.style.setProperty('--open', open);
-  // Square the corners once the desk is about 96% wide, not at the very end of the scroll.
-  desk.classList.toggle('is-open', eased > 0.85);
-  if (eased > 0.17 && !introDone) startIntro();
-  footArt.firstElementChild.style.setProperty('--rise', reducedMotion.matches ? 1 : clamp01((innerHeight - rise.top) / rise.height).toFixed(4));
-};
-addEventListener('scroll', () => { scrollFrame ||= requestAnimationFrame(updateScroll); }, { passive: true });
-addEventListener('resize', updateScroll);
-new ResizeObserver(([entry]) => entry.target.style.setProperty('--scale', entry.contentRect.width / 1440)).observe(app.querySelector('.sheet-shot'));
-updateScroll();
+// Below the first screen arrives after the desk has painted, so its layout never joins the desk's in one long task.
+// A visitor coming back or following a link to a section needs the page's full height at once, to land in the right place.
+const returning = performance.getEntriesByType('navigation')[0]?.type !== 'navigate';
+// The timer covers hidden tabs and crawlers, where frames may never come.
+const nextFrame = () => (returning || location.hash ? Promise.resolve() : new Promise(resolve => {
+  requestAnimationFrame(() => setTimeout(resolve));
+  setTimeout(resolve, 100);
+}));
+const main = app.querySelector('main');
+for (const section of [
+  `<section class="features" id="features" aria-labelledby="features-title">
+    <h2 id="features-title">What Defi does</h2>
+    <p class="section-lede left">A tiling window manager built around one idea from Niri: columns that scroll, on the Mac you already use.</p>
+    <div class="bento">
+      ${card('b-hero card-video', recording('feature-overview.mp4', 'feature-overview.jpg', 'Defi Overview browsing workspace rows and their windows'), 'Every window at a glance', 'Zoom out to every workspace, with live pictures of your windows. Click one to go there.')}
+      ${card('b-side', `<div class="ill-native"><div class="cmdtab">${['safari', 'ghostty', 'xcode', 'messages', 'music'].map((a, i) => `<span class="${i === 2 ? 'on' : ''}">${appIcon(a)}${i === 2 ? '<em>Xcode</em>' : ''}</span>`).join('')}</div><p>${kbd(['⌘'])}<span>+</span>${kbd(['⇥'])}</p></div>`, 'Still a Mac', 'Clicks, the Dock and Command-Tab take you to the right workspace.')}
+      ${card('b-split', `<div class="hz-light" aria-hidden="true">${[0.33, 0.5, 0.8, 0.5, 0.33].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="flex:${w}"></i>`).join('')}</div><p class="ill-hz" aria-label="120 Hz"><b aria-hidden="true">120</b><span>Hz</span></p>`, 'Fast as your keys', 'Animations at up to 120 Hz. Commands never wait for a slow app.')}
+      ${card('b-5', `<div class="mini ill-reflow">${miniWin('safari')}${miniWin('xcode', 'on new')}${miniWin('ghostty')}${miniWin('notes')}</div>`, 'Columns that reflow', 'Open a window and it joins the strip. Widen or close one and the others make room.')}
+      ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll.')}
+      ${card('b-3', `<div class="mini ill-float">${miniWin('safari')}${miniWin('ghostty')}${miniWin('notes')}${miniWin('music', 'on float')}</div>`, 'Floating when you need it', 'One key lifts a window above the columns.')}
+    </div>
+  </section>`,
+  `<section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
+    <h2 id="shortcuts-title">Hold <span class="key-pair"><kbd class="key-option" aria-label="Control"><small>⌃</small><span>control</span></kbd><kbd class="key-option" aria-label="Option"><small>⌥</small><span>option</span></kbd></span></h2><div><p class="section-lede left">Forget a shortcut? Hold Control and Option for a moment and Defi shows them all on the screen you are using. Release them and they are gone.</p><a class="text-link" href="${repo}/blob/main/CONFIGURATION.md">Change them in Settings or the config ${arrow}</a></div>
+    <div class="sheet-shot" aria-hidden="true"></div>
+  </section>`,
+  `<section class="faq" id="faq" aria-labelledby="faq-title">
+    <div><h2 id="faq-title">Questions</h2><p class="section-lede left">Short answers about compatibility, permissions and the alpha.</p><a class="text-link" href="${repo}#troubleshooting">Troubleshooting notes ${arrow}</a></div>
+    <div class="faq-list">${faq.map(([q, a]) => `<details><summary>${q}<i aria-hidden="true"></i></summary><p>${a}</p></details>`).join('')}</div>
+  </section>`,
+  `<section class="cta" id="install" aria-labelledby="cta-title">
+    ${icon(72)}
+    <h2 id="cta-title">Try Defi on your Mac.</h2>
+    <p class="section-lede">Paste the command into Terminal, then open Defi from Applications.</p>
+    <div class="actions">${installButton()}<a class="pill pill-dark pill-lg" href="${repo}">${githubIcon}<span>Star on GitHub</span></a></div>
+  </section>`,
+]) {
+  await nextFrame();
+  main.insertAdjacentHTML('beforeend', section);
+}
+await nextFrame();
+app.insertAdjacentHTML('beforeend', `<div class="closing">
+<div class="foot-art" aria-hidden="true"><div class="fl-track">${lightColumns}${lightColumns}</div></div>
+<footer class="footer"><a class="wordmark" href="#top">${icon(22)}<span>Defi</span></a><p>Experimental alpha · <a href="${repo}/blob/main/LICENSE">MIT</a> · Inspired by <a href="https://github.com/YaLTeR/niri">Niri</a></p><a href="${repo}">GitHub</a></footer>
+</div>`);
+closing = app.querySelector('.closing');
+footArt = closing.querySelector('.foot-art');
+const sheetShot = app.querySelector('.sheet-shot');
+new ResizeObserver(([entry]) => entry.target.style.setProperty('--scale', entry.contentRect.width / 1440)).observe(sheetShot);
+const sheetDraw = new IntersectionObserver(([entry]) => {
+  if (!entry.isIntersecting) return;
+  sheetDraw.disconnect();
+  sheetShot.innerHTML = `<div class="sheet-screen"><div class="win" style="left:8px;width:944px">${windowMarkup({ app: 'safari', title: 'GitHub — qeude/Defi' })}</div><div class="win" style="left:960px;width:472px">${windowMarkup({ app: 'ghostty', title: '~' })}</div><div class="cheatsheet on">${cheatsheetMarkup()}</div></div>`;
+}, { rootMargin: '100%' });
+sheetDraw.observe(sheetShot);
+// The browser looked for this place before the page had its height.
+if (returning) {
+  // Storage can be blocked; the page then simply opens at the top.
+  try { scrollTo({ top: Number(sessionStorage.getItem('scrollY')), behavior: 'instant' }); } catch {}
+} else if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: 'instant' });
+// After the browser's own layout of the new sections, so reading geometry forces none.
+new ResizeObserver(updateScroll).observe(closing);
 
 // The page's own rubber band: pulled past an end, the content moves away and the glow behind it stretches to fill the
 // gap, where the native one would show flat background. style.css turns the native one off.
-const main = app.querySelector('main');
 const footer = closing.querySelector('.footer');
 const heroBg = app.querySelector('.hero-bg');
 let stretch = 0;
