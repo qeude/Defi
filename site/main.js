@@ -1,4 +1,5 @@
 import './style.css';
+import { mountHeroTitle } from './hero-title.js';
 import { mountDesk, windowMarkup, appIcon, cheatsheetMarkup, DEMO } from './desk.js';
 
 const app = document.querySelector('#app');
@@ -12,7 +13,10 @@ const copyIcon = `<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24
 const arrow = '<span aria-hidden="true">→</span>';
 const kbd = keys => keys.map(key => `<kbd>${key}</kbd>`).join('');
 
-const installButton = (label = command) => `<button type="button" class="install-button" data-copy title="Copy the Homebrew command"><code>${label}</code>${copyIcon}<span class="visually-hidden" role="status"></span></button>`;
+const curlCommand = 'curl -fsSL https://raw.githubusercontent.com/qeude/Defi/main/script/install.sh | sh';
+const chevron = `<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 4.5 3.5 3.5 3.5-3.5"/></svg>`;
+const installMenu = `<details class="install-more"><summary aria-label="Other ways to install" title="Other ways to install">${chevron}</summary><div class="install-menu"><p><b>With curl</b></p><button type="button" class="copy-line" data-copy="${curlCommand}" title="Copy the curl command"><code>${curlCommand}</code>${copyIcon}<span class="visually-hidden" role="status"></span></button><p><b>With the DMG.</b> Download it from the <a href="${repo}/releases/latest">latest release</a> and drag Defi to Applications. macOS blocks its first launch: open Defi, close the warning, click Open Anyway in System Settings › Privacy &amp; Security, and confirm.</p><p class="note">Defi is self-signed and not notarized, so only install it if you trust this source.</p></div></details>`;
+const installButton = () => `<div class="install"><button type="button" class="install-button" data-copy title="Copy the Homebrew command"><code>${command}</code>${copyIcon}<span class="visually-hidden" role="status"></span></button>${installMenu}</div>`;
 
 function recording(clip, poster, description) {
   return `<video muted loop playsinline preload="none" data-autoplay poster="${media(poster)}" aria-label="${description}" width="1920" height="1080"><source src="${media(clip)}" type="video/mp4"></video>`;
@@ -30,9 +34,12 @@ const faq = [
   ['Does it control macOS Spaces?', 'No. Defi manages its own virtual workspaces and leaves native Spaces alone. Clicks, the Dock and Command-Tab still work.'],
   ['Which permissions does it need, and why?', `<span class="perm"><b>Accessibility</b> (required). It is the public macOS interface for reading, moving, resizing and focusing other apps' windows. Defi uses it to place every window in its column, focus the one you choose and park other workspaces off screen. Defi asks on first launch and starts as soon as you allow it in System Settings › Privacy & Security.</span><span class="perm"><b>Screen Recording</b> (optional). Many apps apply a move late, so moving real windows frame by frame stutters. Defi animates pictures of your windows instead and moves each real window once underneath; Overview shows the same pictures. Without it, windows move at once and Overview shows cards without pictures.</span><span class="perm"><b>Your data.</b> The pictures stay in memory on your Mac, never on disk. Defi has no network code, no analytics and no account. <code>defi uninstall --purge</code> removes the app, its data and its permissions.</span>`],
   ['Does it support several monitors?', 'Yes. Each monitor keeps its own workspaces, active workspace and layout. Switching on one leaves the others as they are.'],
-  ['Can I change the shortcuts?', `Yes. Add a TOML file to change shortcuts, gaps, column widths or app rules. See the <a href="${repo}/blob/main/CONFIGURATION.md">configuration reference</a>.`],
+  ['Can I change the shortcuts?', `Yes. Defi's Settings window changes shortcuts, gaps, column widths and app rules. The same options live in a TOML file; see the <a href="${repo}/blob/main/CONFIGURATION.md">configuration reference</a>.`],
   ['Is it ready for everyday use?', `Defi is an experimental alpha, self-signed and not notarized. Behavior and configuration may change before the first stable release. Read the <a href="${repo}#alpha-limitations">alpha limitations</a>.`],
 ];
+
+const heroTitle = 'Your desktop, without the edges.';
+const word = (text, delay) => `<span class="hword" style="--d:${delay}ms">${text}</span>`;
 
 // The closing light: Defi's columns (equal heights, preset widths, 8 px gaps), one focused, scrolling past in a loop.
 const lightColumns = [0.5, 0.33, 0.8, 0.5, 0.66, 0.33, 0.66, 0.5, 0.33, 0.66, 0.5, 0.8].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="width:${Math.round(w * 420)}px"></i>`).join('');
@@ -49,11 +56,11 @@ app.innerHTML = `
   <section class="hero" id="top">
     <div class="hero-bg" aria-hidden="true"><i class="hb-cols"></i><i class="hb-aurora"></i></div>
     <p class="badge"><span>ALPHA</span>For Apple Silicon Macs on macOS 26</p>
-    <h1>Meet <span class="h1-icon">${icon(96)}</span> Defi</h1>
-    <p class="lede">Your desktop, without the edges. A scrolling window manager for macOS: windows line up side by side on one strip, and the keyboard takes you along it.</p>
+    <h1 aria-label="${heroTitle}"><span aria-hidden="true">${word('Your', 80)} ${word('desktop,', 160)}<br>${word('without', 400)} ${word('the', 480)} <span class="hword" data-dissolve style="--d:560ms">edges.</span></span></h1>
+    <p class="lede">Defi is a scrolling window manager for macOS: windows line up side by side on one strip, and the keyboard takes you along it.</p>
     <div class="actions">${installButton()}<a class="pill pill-dark pill-lg" href="${repo}">${githubIcon}<span>GitHub</span></a></div>
     <div class="desk-stage"><div class="desk-horizon" aria-hidden="true"></div><div class="desk-bezel" aria-hidden="true"></div><div class="desk" tabindex="0" role="application" aria-label="Interactive Defi preview. Use Control-Option with the arrow keys, minus, equal, O or F. Hold Control-Option to see the shortcuts."></div></div>
-    <div class="keypad" role="group" aria-label="Try Defi shortcuts"><p class="keypad-lead">${matchMedia('(hover:none)').matches ? 'Tap a shortcut to try it' : 'Try it on your keyboard'}</p>${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}" aria-label="Control-Option ${label}">${kbd(['⌃', '⌥', glyph])}<span>${label}</span></button>`).join('')}</div>
+    <div class="keypad" role="group" aria-label="Try Defi shortcuts">${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}" aria-label="Control-Option ${label}">${kbd(['⌃', '⌥', glyph])}<span>${label}</span></button>`).join('')}<button type="button" class="keypad-hold" aria-label="Hold Control-Option to see all shortcuts">${kbd(['⌃', '⌥'])}<span>${matchMedia('(hover:none)').matches ? 'All shortcuts' : 'Hold for all shortcuts'}</span></button></div>
     <p class="desk-caption visually-hidden" aria-live="polite"></p>
 </section>
 
@@ -71,7 +78,7 @@ app.innerHTML = `
   </section>
 
   <section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
-    <h2 id="shortcuts-title">Hold <span class="key-pair"><kbd class="key-option" aria-label="Control"><small>⌃</small><span>control</span></kbd><kbd class="key-option" aria-label="Option"><small>⌥</small><span>option</span></kbd></span></h2><div><p class="section-lede left">Forget a shortcut? Hold Control and Option for a moment and Defi shows them all on the screen you are using. Release them and they are gone.</p><a class="text-link" href="${repo}/blob/main/CONFIGURATION.md">Change them in the config ${arrow}</a></div>
+    <h2 id="shortcuts-title">Hold <span class="key-pair"><kbd class="key-option" aria-label="Control"><small>⌃</small><span>control</span></kbd><kbd class="key-option" aria-label="Option"><small>⌥</small><span>option</span></kbd></span></h2><div><p class="section-lede left">Forget a shortcut? Hold Control and Option for a moment and Defi shows them all on the screen you are using. Release them and they are gone.</p><a class="text-link" href="${repo}/blob/main/CONFIGURATION.md">Change them in Settings or the config ${arrow}</a></div>
     <div class="sheet-shot" aria-hidden="true"><div class="sheet-screen"><div class="win" style="left:8px;width:944px">${windowMarkup({ app: 'safari', title: 'GitHub — qeude/Defi' })}</div><div class="win" style="left:960px;width:472px">${windowMarkup({ app: 'ghostty', title: '~' })}</div><div class="cheatsheet on">${cheatsheetMarkup()}</div></div></div>
   </section>
 
@@ -93,26 +100,36 @@ app.innerHTML = `
 </div>`;
 
 // Copy buttons
-app.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
+const bindCopy = button => button.addEventListener('click', async () => {
   const status = button.querySelector('[role=status]');
+  const text = button.dataset.copy || command;
   try {
-    await navigator.clipboard.writeText(command);
+    await navigator.clipboard.writeText(text);
     button.dataset.copied = '';
     status.textContent = 'Copied. Paste into Terminal.';
     setTimeout(() => delete button.dataset.copied, 1600);
   } catch {
-    status.textContent = `Copy failed. The command is ${command}`;
+    status.textContent = `Copy failed. The command is ${text}`;
   }
-}));
+});
+app.querySelectorAll('[data-copy]').forEach(bindCopy);
+
+// The install menu closes like a menu: on a click elsewhere or Escape.
+const closeInstallMenus = (except) => app.querySelectorAll('.install-more[open]').forEach(menu => { if (!menu.contains(except)) menu.open = false; });
+document.addEventListener('click', event => closeInstallMenus(event.target));
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeInstallMenus(); });
+
+mountHeroTitle(app.querySelector('.hero'), reducedMotion);
 
 // Interactive desk: a short demo plays until the visitor takes over.
 const desk = app.querySelector('.desk');
 const caption = app.querySelector('.desk-caption');
-const keypadButtons = new Map([...app.querySelectorAll('.keypad button')].map(button => [button.dataset.code, button]));
+const keypadButtons = new Map([...app.querySelectorAll('.keypad button[data-code]')].map(button => [button.dataset.code, button]));
 let demoTimer;
 let demoStep = 0;
 let userDriven = false;
 let deskVisible = false;
+let deskOnScreen = false;
 let deskHovered = false;
 const onCommand = (code, command) => {
   const button = keypadButtons.get(code);
@@ -125,10 +142,36 @@ const onCommand = (code, command) => {
   if (userDriven) caption.textContent = command;
 };
 const controller = mountDesk(desk, { reducedMotion, onCommand });
+const touchOnly = matchMedia('(hover:none)').matches;
+desk.insertAdjacentHTML('beforeend', `<p class="desk-invite" aria-hidden="true">${touchOnly ? 'Go on, tap a key below' : `<span class="desk-invite-line">Go on, press <span class="desk-invite-keys">${kbd(['⌃', '⌥', '→'])}</span></span><small>Right</small>`}</p>`);
+const invite = desk.querySelector('.desk-invite');
+let demoPress;
+let demoRelease;
+// The demo plays its shortcuts on the invitation's keys: the modifiers go down and stay, then the key lands and the desk moves.
+const demoKeys = new Map([...keypad.map(([code, glyph, label]) => [code, [glyph, label]]), ['Semicolon', [';', 'Join left column']], ['KeyK', ['K', 'Window up']], ['KeyJ', ['J', 'Window down']], ['KeyR', ['R', 'Unjoin']], ['BracketLeft', ['[', 'First column']]]);
+const playDemoKey = code => {
+  const key = invite.querySelector('kbd:last-child');
+  if (key) {
+    [key.textContent, invite.querySelector('small').textContent] = demoKeys.get(code);
+    invite.classList.add('held');
+  }
+  demoPress = setTimeout(() => {
+    controller.press(code);
+    invite.classList.add('press');
+    demoRelease = setTimeout(() => invite.classList.remove('held', 'press'), 350);
+  }, 450);
+};
+const clearDemo = () => {
+  clearInterval(demoTimer);
+  clearTimeout(demoPress);
+  clearTimeout(demoRelease);
+  invite.classList.remove('held', 'press');
+};
 const stopDemo = () => {
+  invite.classList.add('gone');
   introDone = true;
   userDriven = true;
-  clearInterval(demoTimer);
+  clearDemo();
 };
 // The desk opens on an ordinary crowded desktop; Defi starts from Spotlight when the visitor scrolls or after a moment.
 let introDone = false;
@@ -138,15 +181,16 @@ const startIntro = () => {
   controller.launch({ done: () => setTimeout(() => { introDone = true; syncDemo(); }, 600) });
 };
 const syncDemo = () => {
-  clearInterval(demoTimer);
+  clearDemo();
   if (deskVisible && !introDone) introTimer ||= setTimeout(startIntro, 1600);
   if (!introDone || userDriven || reducedMotion.matches || !deskVisible || document.hidden) return;
-  demoTimer = setInterval(() => controller.press(DEMO[demoStep++ % DEMO.length]), 1500);
+  demoTimer = setInterval(() => playDemoKey(DEMO[demoStep++ % DEMO.length]), 1500);
 };
 new IntersectionObserver(([entry]) => {
-  deskVisible = entry.isIntersecting;
+  deskVisible = entry.intersectionRatio >= 0.2;
+  deskOnScreen = entry.isIntersecting;
   syncDemo();
-}, { threshold: 0.2 }).observe(desk);
+}, { threshold: [0, 0.2] }).observe(desk);
 document.addEventListener('visibilitychange', syncDemo);
 reducedMotion.addEventListener('change', syncDemo);
 
@@ -163,25 +207,42 @@ keypadButtons.forEach((button, code) => button.addEventListener('click', () => {
   stopDemo();
   controller.press(code);
 }));
+const showSheet = () => {
+  stopDemo();
+  controller.launch({ quick: true });
+  controller.holdModifier();
+};
+const holdButton = app.querySelector('.keypad-hold');
+if (!touchOnly) {
+  holdButton.addEventListener('pointerdown', showSheet);
+  ['pointerup', 'pointerleave'].forEach(type => holdButton.addEventListener(type, controller.hideSheet));
+}
+holdButton.addEventListener('blur', controller.hideSheet);
+// Touch and keyboard cannot hold a button, so for them it opens and closes.
+holdButton.addEventListener('click', event => {
+  if (!touchOnly && event.detail) return;
+  if (desk.querySelector('.cheatsheet').classList.contains('on')) controller.hideSheet();
+  else showSheet();
+});
 // Every shortcut works while the preview is on screen, no click needed; plain keys only act inside the Overview.
 const modifierKeys = ['Control', 'Alt'];
 document.addEventListener('keydown', event => {
-  if (event.metaKey || event.target.closest('input, textarea, select, summary')) return;
-  const engaged = deskVisible || document.activeElement === desk || deskHovered;
+  if (event.metaKey || event.target.closest('input, textarea, select')) return;
+  // Any sliver of the desk counts: the invitation at its top shows long before a fifth of it does.
+  const engaged = deskOnScreen || document.activeElement === desk || deskHovered;
   const mod = event.ctrlKey && event.altKey;
   if (modifierKeys.includes(event.key)) {
     if (mod && engaged && !event.repeat) {
-      stopDemo();
-      controller.launch({ quick: true });
-      controller.holdModifier();
+      showSheet();
     }
     return;
   }
-  controller.hideSheet();
+  // The hold entry's own Return and Space toggle the sheet in its click handler.
+  if (!(event.target.closest('.keypad-hold') && ['Enter', ' '].includes(event.key))) controller.hideSheet();
   if (event.ctrlKey !== event.altKey) return;
   if (!engaged) return;
   // Before the visitor takes over, plain keys still scroll; Return still activates a focused link or button.
-  if (!mod && (!userDriven || (event.key === 'Enter' && event.target.closest('a, button')))) return;
+  if (!mod && (!userDriven || (['Enter', ' '].includes(event.key) && event.target.closest('a, button, summary')))) return;
   const handled = mod ? controller.press(event.code, event.shiftKey) : controller.pressInOverview(event.code);
   if (handled) {
     event.preventDefault();
