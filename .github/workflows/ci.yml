@@ -48,3 +48,4 @@ jobs:
         run: |
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
           bash Tests/Release/test_homebrew_release.sh
+          bash Tests/Release/test_install_script.sh

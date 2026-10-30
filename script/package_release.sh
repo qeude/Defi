@@ -10,6 +10,8 @@ APP_BUNDLE="$ROOT_DIR/dist/$APP_NAME.app"
 ZIP_NAME="$APP_NAME-v$VERSION.zip"
 ZIP_PATH="$ROOT_DIR/dist/$ZIP_NAME"
 CHECKSUM_PATH="$ZIP_PATH.sha256"
+DMG_NAME="$APP_NAME-v$VERSION.dmg"
+DMG_PATH="$ROOT_DIR/dist/$DMG_NAME"
 
 security find-identity -p codesigning -v \
   | grep -F "\"$IDENTITY\"" >/dev/null \
@@ -54,5 +56,19 @@ unlink "$CHECKSUM_PATH" >/dev/null 2>&1 || true
 )
 /usr/bin/unzip -tq "$ZIP_PATH"
 
+# Drag-and-drop installation. Browser downloads stay quarantined: see README.
+DMG_ROOT="$(mktemp -d)"
+trap 'rm -rf "$DMG_ROOT"' EXIT
+/usr/bin/ditto "$APP_BUNDLE" "$DMG_ROOT/$APP_NAME.app"
+ln -s /Applications "$DMG_ROOT/Applications"
+unlink "$DMG_PATH" >/dev/null 2>&1 || true
+/usr/bin/hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$DMG_ROOT" -format UDZO "$DMG_PATH"
+/usr/bin/hdiutil verify -quiet "$DMG_PATH"
+(
+  cd "$ROOT_DIR/dist"
+  /usr/bin/shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256"
+)
+
 echo "Created $ZIP_PATH"
 echo "Created $CHECKSUM_PATH"
+echo "Created $DMG_PATH"

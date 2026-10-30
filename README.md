@@ -68,12 +68,23 @@ brew install --cask qeude/tap/defi
 open /Applications/Defi.app
 ```
 
-The app is signed with a self-signed certificate and is not notarized. The
-Cask removes its quarantine attribute to allow it to open; only install if
-you trust this source.
+Or without Homebrew:
 
-For manual installation, download the ZIP and follow the instructions in
-[the release notes](https://github.com/qeude/Defi/releases/tag/v0.2.0-alpha).
+```sh
+curl -fsSL https://raw.githubusercontent.com/qeude/Defi/main/script/install.sh | sh
+```
+
+The app is signed with a self-signed certificate and is not notarized. Both
+commands avoid macOS's block on unnotarized downloads, so only install if you
+trust this source: the Cask removes the quarantine attribute, `curl` never adds
+it, and the script checks the release signature.
+
+You can also download the DMG from the
+[latest release](https://github.com/qeude/Defi/releases/latest) and drag Defi to
+Applications. macOS blocks its first launch: open Defi, close the warning, click
+**Open Anyway** in System Settings › Privacy & Security, and confirm. Updates
+then install without this step.
+
 You can also [build from source](CONTRIBUTING.md#build-and-run).
 
 The alpha is experimental. Behavior and configuration may change before the
@@ -88,7 +99,8 @@ moving real windows frame by frame stutters. Defi instead takes a picture of
 each window, animates the pictures on an overlay, and moves each real window
 once underneath. The Overview shows the same pictures in its cards. These
 pictures stay in memory on your Mac. Defi never writes them to disk and never
-sends them anywhere; it contains no network code. Without Screen Recording,
+sends them anywhere. Defi's only network use is the update check described in
+[Updates](#updates). Without Screen Recording,
 windows move at once and the Overview shows cards without pictures. You can
 check or change the permission in Defi Settings › General.
 
@@ -187,7 +199,16 @@ names, or other private information. Share only the relevant, redacted parts.
 Defi manages its own virtual workspaces, not native macOS Spaces. Apps can
 impose window size constraints or expose limited Accessibility support, so
 please report app-specific behavior. Screen Recording is optional; without it,
-animations and Overview window previews are off. There is no automatic update checker yet.
+animations and Overview window previews are off.
+
+### Updates
+
+Once a day, Defi asks GitHub for the latest release and sends nothing about you
+or your windows. When a newer version exists, a small panel offers to install
+it; Defi then downloads the release, accepts it only if it is signed by the same
+release certificate, and restarts with your workspaces intact. Turn the check
+off in Defi Settings › About, or run it by hand there or from the menu bar. Builds not signed with the
+release certificate never check. Homebrew installations can keep using `brew upgrade --cask defi`.
 
 ## Contribute
 

@@ -103,7 +103,8 @@ jobs:
           else
             gh release create "v$VERSION" --verify-tag --draft --generate-notes --title "Defi v$VERSION"
           fi
-          gh release upload "v$VERSION" "dist/Defi-v$VERSION.zip" "dist/Defi-v$VERSION.zip.sha256" --clobber
+          gh release upload "v$VERSION" "dist/Defi-v$VERSION.zip" "dist/Defi-v$VERSION.zip.sha256" \
+            "dist/Defi-v$VERSION.dmg" "dist/Defi-v$VERSION.dmg.sha256" --clobber
           if [[ "$VERSION" == *-* ]]; then
             gh release edit "v$VERSION" --draft=false --prerelease --latest=false
           else
