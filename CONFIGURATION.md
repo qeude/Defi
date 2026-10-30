@@ -327,9 +327,9 @@ Existing `monitors` entries continue to use their configured display position;
 choosing a screen in Settings converts that workspace to a UUID affinity.
 
 Each workspace belongs to exactly one monitor. Every monitor keeps one trailing
-empty workspace shown as `+`. Populating it turns it into an ordinary workspace
-and creates another trailing workspace; an empty ordinary workspace disappears
-after it becomes inactive. Named workspaces persist even when empty.
+empty workspace, labelled by its position like the others. Populating it turns
+it into an ordinary workspace and creates another trailing workspace; an empty
+ordinary workspace disappears after it becomes inactive. Named workspaces persist even when empty.
 
 New windows open in the active workspace on their monitor unless an application
 rule assigns a workspace. Defi does not remember an application’s previous workspace

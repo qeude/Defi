@@ -300,10 +300,7 @@ extension Daemon {
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
       let lines = currentWorkspaceState().monitors.map { monitor in
-        let labels = monitor.workspaces.map { workspace in
-          workspace.name
-            ?? (workspace.kind == .trailing ? "+" : String(workspace.position))
-        }
+        let labels = monitor.workspaces.map { $0.name ?? String($0.position) }
         return "\(monitor.display): \(labels.joined(separator: " "))"
       }
       return .success(lines.joined(separator: "\n"))
