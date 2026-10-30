@@ -1,15 +1,8 @@
 # Defi landing page
 
-The vertical hero opens with the headline, a compact Homebrew command, and a
-short recording of Defi that opens to full width as the page scrolls. Its muted light surface uses Velours: local deformation builds
-gradually under the cursor, retains inertia, and returns softly to rest. The
-background continues behind the feature section. GitHub links include its icon.
-
-Three feature rows (Overview, column widths, virtual workspaces) each pair a
-benefit title with a silent recording. The FAQ and installation section cover
-compatibility, Homebrew, opening the app, and granting Accessibility access.
-Project and license facts sit in the footer. Copy is English, aimed at Mac users
-and developers arriving from GitHub and communities.
+The page follows the structure of [openbot.run](https://openbot.run/): a short
+hero over an interactive preview of the product, a bento grid of features, Defi's cheatsheet, the FAQ, and a
+closing install action.
 
 ```sh
 cd site
@@ -24,44 +17,44 @@ npm run build
 npm run preview
 ```
 
-The build creates `site/dist/`, with relative asset URLs suitable for a static
-host or repository subpath. Pushes to `main` that touch `site/` are published
-to GitHub Pages by `.github/workflows/site.yml`. The first dev
-or build run downloads Cabinet Grotesk directly from Fontshare; subsequent runs
-reuse those local files. The font binaries are ignored rather than redistributed
-through this repository. Initial preparation requires network access.
+The build creates `site/dist/` with relative asset URLs, suitable for a static
+host or repository subpath. Pushes to `main` that touch `site/` are published to
+GitHub Pages by `.github/workflows/site.yml`. The first dev or build run
+downloads Cabinet Grotesk from Fontshare; later runs reuse the local file.
 
-`main.js` owns the feature registry, page composition, copy controls, and video
-lifecycle. `style.css` supplies the base layout; `direction.css` supplies the
-approved composition and responsive styling. `hero-field.js` owns the shared
-animation frame and visibility handling. `hero-grow.js` opens the hero recording
-to full width on scroll and starts or pauses it. `light-surface.js` bends the artwork
-locally using WebGL; it stops drawing at rest and restores the image on context
-loss. Narrow, coarse-pointer, and reduced-motion startup use the static artwork.
-There are no particles or global mouse parallax. Velours is the default; the
-earlier studies remain available through `?light=original`, `?light=lentille`,
-and `?light=sillage`.
+- `main.js` composes the page, the copy buttons, the desk's opening on scroll,
+  the columns of light at the page bottom,
+  and the feature clips' playback.
+- `desk.js` is the interactive preview: a 1440 × 900 point Mac in dark mode,
+  drawn in HTML at real size and scaled to fit. It uses Defi's built-in
+  defaults: 8 pt gaps, a 4 pt border outside the focused window (drawn in white rather than the app default `#C099FF`),
+  widths cycling through 0.33, 0.5, 0.66 and 0.8, scrolling only as far as
+  needed (`center_focused_column = "never"`), one empty trailing workspace, an
+  Overview drawn like OverviewView (zoom 0.5, rows 28 pt apart on their
+  wallpaper, titles inside the cards, "← N" pills, 0.22 s zoom and 0.16 s moves),
+  and Defi's spring (mass 1, stiffness 800). The menu bar carries Defi's workspace item and menu, the Dock activates
+  an app's window on its workspace, and holding Control-Option shows the cheatsheet.
+  Every built-in Control-Option shortcut drives it while it is on screen, with
+  no click needed, following DefiCore: columns, stacks (`J`/`K`, join with `;`
+  and `'`, unjoin with `R`), floating windows (`\`, `,`, `.`), widths, workspaces
+  and 1–9; Shift moves. The monitor shortcuts do nothing, as on a single display.
+  In the Overview, plain arrows put the selected column at the row's left edge,
+  the pills page a row by one column, cards drag into a stack or a new column,
+  and Return or Escape close it. A short demo plays
+  until the visitor takes over, never under reduced motion.
+- The preview opens on an ordinary crowded desktop. When the visitor scrolls,
+  or after a moment, Defi opens from Spotlight and the windows leave the pile
+  for their columns and workspaces. As the page scrolls, the framed desk opens to
+  the full viewport width. A key press or click before that skips the intro.
+- Windows beyond the screen stay hidden, as Defi parks them: the desk shows
+  only what the display would.
+- The desk's wallpaper is the CSS gradient `--wallpaper` in `style.css`, in the
+  hero's blues. The cheatsheet section reuses it.
+- `style.css` holds every style. Sizes inside the preview use container units,
+  so the same markup serves the hero desk and the cheatsheet section.
 
-`optical-motion.js` supplies scroll-driven depth with GSAP. It requires a viewport at least 900px wide and 800px tall with
-no reduced-motion preference. Other layouts use normal document flow.
+Feature clips are muted, looping and `playsinline`, play while on screen in a
+visible tab, and show native controls instead under reduced motion.
 
-The printed Option shortcuts describe Defi; the page does not handle them.
-
-Recordings are muted, looping, and `playsinline`; only the hero clip preloads.
-The hero starts as the page begins to open it. Feature clips play while they are
-on screen in a visible tab, and several visible clips may play at once; leaving
-the viewport or hiding the tab pauses them and returning resumes them. With a
-reduced-motion preference nothing autoplays and native controls appear, and
-changing the preference takes effect immediately. Otherwise a click or tap pauses
-or resumes a clip, and a pause sticks until the next click. Failed recordings show a
-poster and direct clip and README links.
-
-See [DESIGN.md](DESIGN.md), [MEDIA.md](MEDIA.md), [ART-DIRECTION.md](ART-DIRECTION.md),
-and [THIRD-PARTY.md](THIRD-PARTY.md) for composition, capture plans, and provenance.
-
-Verification: `npm run build` and `python3 ../script/verify.py local` pass.
-The production build was checked in the browser from a repository subpath:
-images, fonts, WebGL surface, GSAP, recordings, navigation, and footer
-load without horizontal overflow. Earlier motion checks verified gradual onset,
-continued release motion, exact baseline restoration, idle termination, static
-mobile/reduced-motion startup, and context-loss fallback.
+See [DESIGN.md](DESIGN.md), [MEDIA.md](MEDIA.md), [ART-DIRECTION.md](ART-DIRECTION.md)
+and [THIRD-PARTY.md](THIRD-PARTY.md).

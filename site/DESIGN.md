@@ -1,50 +1,55 @@
 # Defi landing-page design
 
-Homebrew is the primary action for Mac users and developers arriving from GitHub
-and communities. The hero keeps the exact two-line headline “Your desktop,” and
-“without the edges.” A category description, compact copy control, and GitHub
-link precede the real columns recording in a centered vertical composition.
+Reference: [openbot.run](https://openbot.run/), for its hierarchy, its
+interactive product preview, its HTML illustrations, and its restrained motion.
 
-The background is near black (`#050505`), with white text and restrained gray,
-pearl light, with one blue accent taken from the app icon (`#2b6df2`, `#7fa6ff` for text on dark). Cabinet Grotesk supplies headings and the closing
-Defi signature; DM Sans supplies body text and IBM Plex Mono the command.
-The softened artwork extends behind the hero and features. Gradual masks at the
-top, reflection boundary, and bottom prevent hard visual cutoffs.
+The background is a soft near black (`#1b1b1d`) with cards one step lighter
+(`#222225`) and hairline borders. Blue from the app icon (`#2b6df2`) carries
+the brand: the hero light, the wallpaper and the illustrations. In the desk,
+the focused window's border is white. Cabinet Grotesk sets headings, DM Sans
+the body, IBM Plex Mono the command and code. White pills are primary actions;
+outlined pills are secondary.
 
-Velours responds to pointer movement by bending the light locally. A gradual
-attack, damped center motion, and soft release retain inertia without increasing
-visual intensity. One animation-frame loop stops at rest, while hidden and
-offscreen states settle immediately. Mobile, coarse pointers, reduced motion,
-and unavailable WebGL retain a static image. Artwork provenance is recorded in
-[ART-DIRECTION.md](ART-DIRECTION.md).
+Rhythm and type:
 
-The minimal pill navigation contains Defi, Features, Shortcuts, FAQ, and GitHub
-as a plain text link (no second capsule inside the pill). The page keeps to the reference Mac app pages
-(Screen Studio, macshot, Swiftcord, Linear, Raycast, Droppy, Framer, Attio) in
-copy as well as layout: few words.
+- Sections share one width, `--page` (90% of the viewport, 1180 to 1480 px),
+  and one opening space, `--section` (96 to 144 px), with none at their end.
+  The closing takes 40 px more to mark the end.
+- Headings: 112 px for the title, 64 px for sections, 24 px for cards. Below
+  them, three text sizes: 19 px ledes, 16 px body, 13 to 14 px small print.
+- Illustrations size from their card (container units), so they fill it at
+  every width.
+- The nav floats with no band behind it; its pills are dense glass, so content
+  passing under them never reads through.
 
-Accent is blue from the app icon (`#2b6df2`). It no longer fills any button:
-the command capsule is neutral glass with only `brew` in the soft blue, and the
-closing button is pearl white. Blue is kept for focus rings and key presses in
-the motion piece.
+1. Navigation: wordmark, a centered pill of section links, GitHub and Install.
+2. Hero: an alpha badge, “Meet [icon] Defi”, the “Your desktop, without the
+   edges.” line in the lede, the Homebrew command as a white copy pill, GitHub,
+   then the interactive desk: a dark-mode Mac with Defi running (see
+   README.md), a blue gradient wallpaper that matches the hero, a keypad of the main
+   shortcuts that light up as keys are pressed, and a hint pill above the desk.
+3. What Defi does: an uneven twelve-column bento of six cards with one-line
+   descriptions. The Overview recording fills a tall card (7 columns, 2 rows)
+   beside two stacked cards: Command-Tab and speed, its copy beside “120 Hz”
+   (system face, snapping up from 0 out of a blur) over the footer's light
+   columns, which rise behind it and then breathe slowly. Below, three cards
+   of falling width (5, 4 and 3 columns): columns that reflow (a window opens
+   into the strip, widens and settles), monitors, and floating (one window
+   lifts above the columns). The illustrations are small Defi desktops: wallpaper, windows with their app
+   icon, white focus border. Only those that show a behavior move:
+   reflow and floating loop calmly from the moment their card comes into view.
+   Every claim matches the code or CONFIGURATION.md.
+4. Shortcuts: “Hold ⌃ ⌥” (two keycaps) beside Defi's real cheatsheet for the
+   built-in keys, laid out like CheatsheetView (black fading into glass, chord,
+   action, Shift chord, action), over two windows on the desk wallpaper. The
+   desk's cheatsheet uses the same markup.
+5. FAQ: two columns, plus signs that turn into minus signs.
+6. Closing: icon, title, install command, Star on GitHub, then the footer over
+   Defi's columns as light: equal heights, preset widths, 8 px gaps, one
+   brighter focused column. They reach the page bottom, rise as it scrolls in
+   and scroll sideways in a seamless loop.
 
-1. Hero: headline, the Homebrew command as the one primary action (the only
-   place the command is written out), one meta line, and the hero recording: a
-   crowded desktop, Launch Defi, windows settling into place, then moving between
-   columns with a keypress.
-2. Features: Workspace Overview, Column widths, and Virtual workspaces. Each is a
-   benefit title (56px) over a recording the width of the hero card. The hero
-   already shows the before and after, so that moment is not repeated. All
-   recordings are silent, muted loops that pause when scrolled out of view.
-3. First launch (two steps) beside the four default shortcuts.
-4. FAQ, in plain rows with a plus sign. Per-monitor behavior lives here.
-5. Closing card: a button that copies the install command and Star on GitHub.
-   The command is not written out again.
-6. Footer: wordmark, one line (alpha, MIT, Niri), GitHub.
-
-All sections share one 1040px content width and one left edge.
-
-The hero recording starts as a framed card parked on its first frame and opens to
-the full viewport width as the page scrolls; it starts playing as it opens and
-rests again when scrolled back to the top. The silent recordings show no
-player controls. Under reduced motion nothing autoplays and native controls appear.
+Under 900px the bento and the two-column sections become one column and the
+section pill is hidden. Reduced motion stops the demo, the reveal transitions
+and the decorative loops. The fake apps inside the desk are hidden from
+assistive technology; the keypad under it is the accessible control.
