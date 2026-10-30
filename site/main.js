@@ -221,12 +221,53 @@ const updateScroll = () => {
   // Square the corners once the desk is about 96% wide, not at the very end of the scroll.
   desk.classList.toggle('is-open', eased > 0.85);
   if (eased > 0.17 && !introDone) startIntro();
-  footArt.style.setProperty('--rise', reducedMotion.matches ? 1 : clamp01((innerHeight - rise.top) / rise.height).toFixed(4));
+  footArt.firstElementChild.style.setProperty('--rise', reducedMotion.matches ? 1 : clamp01((innerHeight - rise.top) / rise.height).toFixed(4));
 };
 addEventListener('scroll', () => { scrollFrame ||= requestAnimationFrame(updateScroll); }, { passive: true });
 addEventListener('resize', updateScroll);
 new ResizeObserver(([entry]) => entry.target.style.setProperty('--scale', entry.contentRect.width / 1440)).observe(app.querySelector('.sheet-shot'));
 updateScroll();
+
+// The page's own rubber band: pulled past an end, the content moves away and the glow behind it stretches to fill the
+// gap, where the native one would show flat background. style.css turns the native one off.
+const main = app.querySelector('main');
+const footer = closing.querySelector('.footer');
+const heroBg = app.querySelector('.hero-bg');
+let stretch = 0;
+let settleTimer = 0;
+let settleFrame = 0;
+let pullClock = 0;
+const applyPull = () => {
+  const pull = 180 * (1 - 1 / (1 + Math.abs(stretch) * 0.55 / 180));
+  const y = Math.sign(stretch) * pull;
+  main.style.translate = y ? `0 ${y}px` : '';
+  footer.style.translate = stretch < 0 ? `0 ${y}px` : '';
+  footArt.style.scale = stretch < 0 ? `1 ${1 + pull / footArt.offsetHeight}` : '';
+  heroBg.style.translate = stretch > 0 ? `0 ${-y}px` : '';
+  heroBg.style.scale = stretch > 0 ? `1 ${1 + pull / heroBg.offsetHeight}` : '';
+};
+const settlePull = time => {
+  const elapsed = time - pullClock;
+  pullClock = time;
+  stretch *= Math.exp(-(elapsed || 16) / 110);
+  if (Math.abs(stretch) < 1) stretch = 0;
+  applyPull();
+  settleFrame = stretch ? requestAnimationFrame(settlePull) : 0;
+};
+addEventListener('wheel', event => {
+  if (reducedMotion.matches || event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  const delta = event.deltaY * (event.deltaMode ? 16 : 1);
+  const atTop = scrollY <= 0;
+  const atBottom = scrollY >= document.documentElement.scrollHeight - innerHeight - 1;
+  // Positive stretch is a pull past the top, negative past the bottom; turning back lets the page scroll and settles.
+  const pulling = (delta < 0 && atTop) || (delta > 0 && atBottom);
+  if (!pulling && (!stretch || settleFrame)) return;
+  cancelAnimationFrame(settleFrame);
+  settleFrame = 0;
+  clearTimeout(settleTimer);
+  if (pulling) { stretch -= delta; applyPull(); }
+  settleTimer = setTimeout(() => { pullClock = performance.now(); settleFrame = requestAnimationFrame(settlePull); }, pulling ? 90 : 0);
+}, { passive: true });
 
 // Feature clips play while on screen in a visible tab; reduced motion shows controls instead.
 const videos = [...app.querySelectorAll('video')];

@@ -3,7 +3,8 @@
 @font-face{font-family:'Cabinet Grotesk';src:url('./public/fonts/CabinetGrotesk-500.woff2') format('woff2');font-weight:500;font-display:swap}
 :root{--page:clamp(1180px,90vw,1480px);--section:clamp(96px,10vw,144px);--wallpaper:radial-gradient(70% 90% at 15% 105%,#1d4fd8cc,transparent 70%),radial-gradient(60% 70% at 90% 0%,#2b6df2b3,transparent 70%),radial-gradient(45% 55% at 62% 62%,#54afff66,transparent 75%),radial-gradient(30% 40% at 30% 20%,#3ad0ff33,transparent 75%),linear-gradient(160deg,#0a1024,#0c1a3d 55%,#0b0a16);--bg:#1b1b1d;--card:#222225;--card-2:#2a2a2e;--line:#ffffff14;--ink:#f5f5f7;--muted:#a1a1a8;--dim:#8a8a92;--accent:#2b6df2;--accent-soft:#7fa6ff;--display:'Cabinet Grotesk','DM Sans',sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--ease:cubic-bezier(.22,.8,.24,1)}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:80px}
+/* The native rubber band would show flat --bg past the glows; main.js draws its own. */
+html{scroll-behavior:smooth;scroll-padding-top:80px;overscroll-behavior-y:none}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 'DM Sans',sans-serif;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;padding:0}
@@ -44,7 +45,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .hero{position:relative;isolation:isolate;padding:56px 20px 0;text-align:center}
 .desk-stage{position:relative;margin:88px -20px 0}
 /* Hero backdrop: a strip of columns scrolling past, an aurora, and a lit horizon behind the desk. */
-.hero-bg{position:absolute;inset:-68px 0 auto;height:min(1500px,170vh);z-index:-1;overflow:hidden;pointer-events:none}
+.hero-bg{transform-origin:50% 0;position:absolute;inset:-68px 0 auto;height:min(1500px,170vh);z-index:-1;overflow:hidden;pointer-events:none}
 .hero-bg i{position:absolute;display:block}
 .hb-cols{inset:0 -360px 0 0;background:linear-gradient(180deg,#54afff12,transparent 60%) 0 0/360px 100%,repeating-linear-gradient(90deg,#ffffff12 0 1px,transparent 1px 120px),repeating-linear-gradient(90deg,#54afff1f 0 1px,transparent 1px 360px);mask-image:radial-gradient(85% 70% at 50% 0%,#000 25%,transparent 80%);animation:hb-scroll 18s linear infinite}
 .hb-aurora{left:50%;top:26%;width:1600px;height:820px;translate:-50% 0;background:radial-gradient(closest-side at 32% 58%,#54afff8c,transparent),radial-gradient(closest-side at 70% 42%,#2b6df280,transparent),radial-gradient(closest-side at 50% 80%,#3ad0ff33,transparent);animation:hb-drift 12s ease-in-out infinite alternate}
@@ -480,12 +481,13 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .footer p a{text-decoration:underline;text-underline-offset:3px}
 
 /* Closing: the wordmark, cut into Defi's columns (preset widths, 12 px gaps) that scroll past in a seamless loop at the page bottom */
-.closing{position:relative;isolation:isolate;overflow:hidden;padding-top:300px}
+/* The art clips itself: a clip here would cut the light with a hard edge as it stretches upward. */
+.closing{position:relative;isolation:isolate;padding-top:300px}
 .closing::after{content:'';position:absolute;inset:auto 0 0;height:120px;background:linear-gradient(#1b1b1d00,#1b1b1da6);pointer-events:none}
 .closing .footer{position:relative;z-index:1;border-top:0;color:#ffffffd9;text-shadow:0 1px 10px #000}
-.foot-art{position:absolute;inset:auto 0 0;z-index:-1;height:440px;pointer-events:none;transform:translateY(calc((1 - var(--rise,0)) * 25%));will-change:transform}
+.foot-art{transform-origin:50% 100%;position:absolute;inset:auto 0 0;z-index:-1;height:440px;overflow:hidden;pointer-events:none}
 .foot-art i{position:absolute;display:block}
-.fl-track{position:absolute;inset:0 auto 0 0;display:flex;animation:foot-loop 50s linear infinite;mask-image:linear-gradient(transparent,#000 60%)}
+.fl-track{position:absolute;inset:0 auto 0 0;display:flex;translate:0 calc((1 - var(--rise,0)) * 25%);will-change:translate;animation:foot-loop 50s linear infinite;mask-image:linear-gradient(transparent,#000 60%)}
 .fl-track i{position:relative;flex:none;height:100%;margin-right:8px;border-radius:28px 28px 0 0;background:linear-gradient(to top,#54afff8c,#2b6df24d 45%,transparent 90%);filter:blur(14px);opacity:.75}
 .fl-track i.on{background:linear-gradient(to top,#54afffd9,#2b6df299 40%,#2b6df233 75%,transparent);opacity:1}
 /* The track holds two identical copies with trailing margins, so -50% lands on the same frame. */
