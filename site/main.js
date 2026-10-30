@@ -71,8 +71,6 @@ const closeInstallMenus = (except) => app.querySelectorAll('.install-more[open]'
 document.addEventListener('click', event => closeInstallMenus(event.target));
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeInstallMenus(); });
 
-mountHeroTitle(app.querySelector('.hero'), reducedMotion);
-
 // Interactive desk: a short demo plays until the visitor takes over.
 const desk = app.querySelector('.desk');
 const caption = app.querySelector('.desk-caption');
@@ -421,3 +419,8 @@ if (!reducedMotion.matches) {
     reveal.observe(element);
   });
 }
+
+// The title's reveal waits for the work above, which would otherwise block it and show every word at once.
+await nextFrame();
+mountHeroTitle(app.querySelector('.hero'), reducedMotion);
+document.documentElement.classList.remove('hold-title');

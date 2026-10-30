@@ -17,6 +17,8 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Meet Defi: a Mac desktop with its windows lined up in columns." />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- main.js starts the title's reveal; the timer keeps the title from staying hidden if it fails. -->
+    <script>document.documentElement.classList.add('hold-title');setTimeout(()=>document.documentElement.classList.remove('hold-title'),5000)</script>
     <noscript><style>.nav-pill,.pill-light,.desk-stage{display:none}</style></noscript>
   </head>
   <body>

@@ -67,6 +67,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .badge span{padding:2px 8px;border-radius:999px;background:var(--ink);color:#111;font-size:11px;font-weight:700;letter-spacing:.06em}
 .hero h1{margin:22px 0 18px;font:500 clamp(54px,7vw,96px)/1.06 var(--display);letter-spacing:-.04em}
 .hword{display:inline-block;animation:hword .8s var(--d) var(--ease) both}
+.hold-title .hword{animation-play-state:paused}
 @keyframes hword{from{opacity:0;filter:blur(10px);transform:translateY(.18em)}}
 .hletter{display:inline-block}
 .hero-baseline{display:inline-block;width:0;height:0}
