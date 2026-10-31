@@ -203,6 +203,20 @@ struct DefiSettingsModelTests {
   }
 
   @Test
+  func recordingRejectsAChordHeldUnderAnotherName() throws {
+    let url = try configFile()
+    defer { removeConfig(url) }
+    let model = DefiSettingsModel(configURL: url)
+    let french = try #require(keyboardLayout(inputSourceID: "com.apple.keylayout.French", keyboardType: 91))
+    model.followKeyboardLayout { french }
+    // On French `ctrl-alt-leftbracket` falls back to the `^` key, which `ctrl-alt-^` also names.
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "ctrl-alt-f" })
+    model.moveShortcut(row, to: "ctrl-alt-^")
+    #expect(model.message?.contains("already used") == true)
+    #expect(model.config.keys["ctrl-alt-^"] == nil)
+  }
+
+  @Test
   func recordingEveryExistingCombinationKeepsItsBinding() throws {
     let url = try configFile()
     defer { removeConfig(url) }

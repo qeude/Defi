@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import Carbon
 import DefiConfig
@@ -235,5 +236,67 @@ struct KeyboardLayoutResolverTests {
     #expect(throws: HotKeyError.invalidAccelerator("ctrl-alt-unknown")) {
       try resolveHotKeys(["ctrl-alt-unknown": "maximize-column"], aliases: [:], layout: nil)
     }
+  }
+}
+
+@MainActor
+struct KeyboardLayoutLabelTests {
+  private func label(_ accelerator: String, _ layout: KeyboardLayout, _ config: Config = Config()) -> String {
+    shortcutKeyLabel(
+      accelerator, aliases: [:], resolved: ShortcutResolution(config: config, layout: layout))
+  }
+
+  @Test
+  func labelsNameTheKeyActuallyPressed() throws {
+    let french = try installed("French")
+    #expect(label("ctrl-alt-period", french) == "⌃⌥⇧;")
+    #expect(label("ctrl-alt-rightbracket", french) == "⌃⌥⇧)")
+    #expect(label("ctrl-alt-leftbracket", french) == "⌃⌥^")
+    #expect(label("ctrl-alt-1", french) == "⌃⌥1")
+    #expect(label("ctrl-alt-backslash", try installed("ABC", type: jis)) == "⌃⌥¥")
+  }
+
+  @Test
+  func inactiveShortcutsSayWhy() throws {
+    let config = Config(keys: ["ctrl-alt-é": "maximize-column"])
+    #expect(label("ctrl-alt-é", try installed("French"), config) == "Held by ⌃⌥2")
+    #expect(label("ctrl-alt-é", try installed("US"), config) == "Not on this layout")
+  }
+
+  @Test
+  func anUnsavedAcceleratorIsLabelledFromItsOwnResolution() throws {
+    #expect(label("ctrl-alt-ù", try installed("French")) == "⌃⌥Ù")
+  }
+
+  @Test
+  func cheatsheetShowsTheResolvedKeys() throws {
+    let rows = shortcutGroups(config: Config(), layout: try installed("French")).flatMap(\.rows)
+    #expect(rows.contains { $0.action == "Last column" && $0.modifiers == "⌃⌥⇧" && $0.key == ")" })
+    #expect(rows.contains { $0.action == "Workspace 1–9" && $0.key == "1–9" })
+  }
+
+  @Test(arguments: ["US", "French", "Dvorak", "ABC"])
+  func recordedKeysResolveBackToTheKeyPressed(name: String) throws {
+    let layout = try installed(name, type: name == "ABC" ? jis : ansi)
+    let modifiers: NSEvent.ModifierFlags = [.control, .option]
+    for code in layoutScannedKeyCodes {
+      guard let accelerator = recordedAccelerator(keyCode: code, modifiers: modifiers, layout: layout) else {
+        // Only a key with no table name may stay unrecorded, e.g. French 93 printing a character that
+        // an earlier key already prints.
+        #expect(!acceleratorKeyCodes.values.contains(code), "\(name) \(code)")
+        continue
+      }
+      let resolved = try resolveHotKeys([accelerator: ""], aliases: [:], layout: layout)
+      #expect(resolved.keys.keys.map(chord) == ["ctrl-alt-\(code)"], "\(name) \(code) \(accelerator)")
+    }
+  }
+
+  @Test
+  func recordedNamesOnFrench() throws {
+    let french = try installed("French")
+    let modifiers: NSEvent.ModifierFlags = [.control, .option]
+    #expect(recordedAccelerator(keyCode: 33, modifiers: modifiers, layout: french) == "alt-ctrl-^")
+    #expect(recordedAccelerator(keyCode: 18, modifiers: modifiers, layout: french) == "alt-ctrl-1")
+    #expect(recordedAccelerator(keyCode: 41, modifiers: modifiers, layout: french) == "alt-ctrl-m")
   }
 }

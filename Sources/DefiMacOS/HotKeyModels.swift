@@ -321,3 +321,55 @@ func configuredHotKeys(
 ) throws(HotKeyError) -> [Key: (accelerator: String, command: String)] {
   try resolveHotKeys(config.keys, aliases: config.modifierCombinations, layout: layout).keys
 }
+
+extension Key {
+  var modifierNames: Set<String> {
+    let flags = CGEventFlags(rawValue: modifierBits)
+    return Set(
+      [("ctrl", CGEventFlags.maskControl), ("alt", .maskAlternate), ("shift", .maskShift), ("cmd", .maskCommand)]
+        .filter { flags.contains($0.1) }.map(\.0))
+  }
+}
+
+func canonicalKeyName(_ character: String) -> String {
+  acceleratorSymbolCharacters.first { $0.value == character }?.key ?? character
+}
+
+/// What labels and conflict checks need: the chord each accelerator holds on one layout, or why it holds none.
+struct ShortcutResolution {
+  let layout: KeyboardLayout?
+  let aliases: [String: String]
+  let resolution: HotKeyResolution
+  private let chords: [String: Key]
+  private let reasons: [String: HotKeyInactivity]
+
+  init(bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?) {
+    self.layout = layout
+    self.aliases = aliases
+    let resolution = (try? resolveHotKeys(bindings, aliases: aliases, layout: layout)) ?? HotKeyResolution()
+    self.resolution = resolution
+    chords = Dictionary(
+      resolution.keys.compactMap { key, binding in
+        normalizedAccelerator(binding.accelerator, aliases: aliases).map { ($0, key) }
+      }, uniquingKeysWith: { first, _ in first })
+    reasons = Dictionary(
+      resolution.inactive.compactMap { accelerator, reason in
+        normalizedAccelerator(accelerator, aliases: aliases).map { ($0, reason) }
+      }, uniquingKeysWith: { first, _ in first })
+  }
+
+  init(config: Config, layout: KeyboardLayout?) {
+    self.init(bindings: config.keys, aliases: config.modifierCombinations, layout: layout)
+  }
+
+  func key(for normalizedAccelerator: String) -> Key? { chords[normalizedAccelerator] }
+  func inactivity(for normalizedAccelerator: String) -> HotKeyInactivity? { reasons[normalizedAccelerator] }
+
+  /// Digits and arrows keep their name; any other key is named for the keycap at its resolved code.
+  func keyName(for key: Key, named name: String) -> String {
+    guard let layout, Int(name) == nil, (acceleratorKeyCodes[name] ?? 0) < 123,
+      let character = layout.baseCharacter(code: key.code, command: key.modifierNames.contains("cmd"))
+    else { return name }
+    return canonicalKeyName(character)
+  }
+}

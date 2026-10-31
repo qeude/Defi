@@ -66,8 +66,15 @@ public final class DefiSettingsRuntimeStatus {
 @Observable
 public final class DefiSettingsModel {
   public private(set) var config: Config {
-    didSet { refreshRuleRows() }
+    didSet {
+      refreshRuleRows()
+      refreshShortcutResolution()
+    }
   }
+  private(set) var keyboardLayout: KeyboardLayout? {
+    didSet { refreshShortcutResolution() }
+  }
+  private(set) var shortcutResolution = ShortcutResolution(config: Config(), layout: nil)
   public private(set) var ruleRows: [SettingsRuleRow] = []
   public private(set) var displays: [SettingsDisplayOption] = []
   public private(set) var message: String?
@@ -81,6 +88,7 @@ public final class DefiSettingsModel {
   @ObservationIgnored private var watcherTask: Task<Void, Never>?
   @ObservationIgnored private var textInputObserver: CFRunLoopObserver?
   @ObservationIgnored private var directoryWatcher: DispatchSourceFileSystemObject?
+  @ObservationIgnored private var layoutObserver: KeyboardLayoutObserver?
 
   public init(configURL: URL = Config.defaultURL) {
     self.configURL = configURL
@@ -92,8 +100,36 @@ public final class DefiSettingsModel {
       message = "The configuration file is invalid. Defi keeps its last valid settings. \(error)"
     }
     refreshRuleRows()
+    refreshShortcutResolution()
     refreshSystemStatus()
     refreshDisplays()
+  }
+
+  /// Shows shortcuts on the keys the layout prints. Models stay physical until this is called.
+  func followKeyboardLayout(_ read: @escaping @MainActor () -> KeyboardLayout? = { currentKeyboardLayout() }) {
+    keyboardLayout = read()
+    layoutObserver = KeyboardLayoutObserver { [weak self] in
+      guard let self else { return }
+      let next = read()
+      if next != keyboardLayout { keyboardLayout = next }
+    }
+  }
+
+  private func refreshShortcutResolution() {
+    shortcutResolution = ShortcutResolution(config: config, layout: keyboardLayout)
+  }
+
+  /// The command already on the chord this accelerator would press, which string comparison cannot
+  /// see: on French `ctrl-alt-^` and a fallback `ctrl-alt-leftbracket` share a key.
+  private func chordConflict(_ accelerator: String, excluding excluded: String?) -> String? {
+    let alone = ShortcutResolution(
+      bindings: [accelerator: ""], aliases: config.modifierCombinations, layout: keyboardLayout)
+    guard let normalized = normalizedAccelerator(accelerator, aliases: config.modifierCombinations),
+      let key = alone.key(for: normalized),
+      let holder = shortcutResolution.resolution.keys[key],
+      !(excluded.map { sameAccelerator($0, holder.accelerator) } ?? false)
+    else { return nil }
+    return holder.command
   }
 
   public var configurationPath: String { configURL.path }
@@ -536,9 +572,11 @@ public final class DefiSettingsModel {
     let accelerator =
       normalizedAccelerator(proposed, aliases: config.modifierCombinations) ?? proposed
     guard !accelerator.isEmpty, !sameAccelerator(accelerator, row.accelerator) else { return }
-    if let conflict = config.keys.first(where: { sameAccelerator($0.key, accelerator) }) {
-      guard conflict.value != row.command else { return }
-      message = "This shortcut is already used by ‘\(conflict.value)’. Choose another combination."
+    if let conflict = config.keys.first(where: { sameAccelerator($0.key, accelerator) })?.value
+      ?? chordConflict(accelerator, excluding: row.accelerator)
+    {
+      guard conflict != row.command else { return }
+      message = "This shortcut is already used by ‘\(conflict)’. Choose another combination."
       return
     }
     var disabled = config.disabledKeys
@@ -570,8 +608,8 @@ public final class DefiSettingsModel {
     guard !command.isEmpty else { message = "Choose a command for this shortcut."; return }
     if let conflict = config.keys.first(where: {
       sameAccelerator($0.key, accelerator) && $0.key != row?.accelerator
-    }) {
-      message = "This shortcut is already used by ‘\(conflict.value)’. Choose another combination."
+    })?.value ?? chordConflict(accelerator, excluding: row?.accelerator) {
+      message = "This shortcut is already used by ‘\(conflict)’. Choose another combination."
       return
     }
     var disabled = config.disabledKeys
