@@ -276,8 +276,8 @@ final class PlatformEventMonitor {
   func handleMouseEvent(_ event: NSEvent) {
     guard desktopSessionActive else { return }
     if eventStartsMouseFocusInteraction(event.type) {
-      // Only a left click interrupts the motion: hiding the overlay reveals late windows.
-      if event.type == .leftMouseDown { NavigationActor.enqueue { RibbonProxyPresenter.cancelAll() } }
+      // Only a left click interrupts the motion: lifting the overlay reveals late windows.
+      if event.type == .leftMouseDown { NavigationActor.enqueue { RibbonProxyPresenter.cancelAllFading() } }
       let rawWindowID =
         event.cgEvent?.getIntegerValueField(
           .mouseEventWindowUnderMousePointerThatCanHandleThisEvent

@@ -148,6 +148,7 @@ final class OverviewSurfaceScene {
       group.animations = [position, transform, radius]
       group.duration = duration
       group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      group.preferredFrameRateRange = overviewAnimationFrameRate
       item.add(group, forKey: "overview-surface")
     }
     CATransaction.commit()

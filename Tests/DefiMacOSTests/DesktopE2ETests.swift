@@ -805,6 +805,9 @@ final class DesktopE2ETests: XCTestCase {
     }
     func panels() -> [NSWindow] { NSApplication.shared.windows.filter { $0.title == "Defi Overview" } }
 
+    // A panel of an earlier test may still be in its closing fade.
+    let earlierClosed = await waitUntil(timeout: 2) { panels().allSatisfy { !$0.isVisible } }
+    XCTAssertTrue(earlierClosed)
     controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
     XCTAssertEqual(controller.retainedPanelCount, screens.count)
     XCTAssertTrue(panels().allSatisfy { !$0.isVisible }, "Preparing must not show the Overview")

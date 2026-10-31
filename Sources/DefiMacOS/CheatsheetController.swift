@@ -7,6 +7,7 @@ import SwiftUI
 public final class CheatsheetController {
   private let config: Config
   private var panel: NSPanel?
+  private var closingPanel: NSPanel?
 
   public init(config: Config) {
     self.config = config
@@ -17,7 +18,9 @@ public final class CheatsheetController {
       ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
         .uint64Value == monitorID?.rawValue
     }) ?? NSScreen.main else { return }
-    close()
+    panel?.close()
+    panel = nil
+    finishClosing()
     let bounds = screen.visibleFrame
     let groups = shortcutGroups(
       config: config, layout: currentKeyboardLayout(),
@@ -56,8 +59,7 @@ public final class CheatsheetController {
     let hosting = NSHostingView(rootView: CheatsheetView(groups: groups, layout: layout))
     hosting.sizingOptions = []
     panel.contentView = hosting
-    let animated = config.animation.enabled
-      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    let animated = animates
     panel.alphaValue = animated ? 0.001 : 1
     panel.orderFrontRegardless()
     if animated {
@@ -71,8 +73,36 @@ public final class CheatsheetController {
   }
 
   public func close() {
-    panel?.close()
-    panel = nil
+    guard let panel else { return }
+    self.panel = nil
+    guard animates else { return panel.close() }
+    finishClosing()
+    closingPanel = panel
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0.12
+      context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+      panel.animator().alphaValue = 0
+    }
+    // Not the animation's completion: it does not always run, and an invisible panel would stay.
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(0.12))
+      if self?.closingPanel === panel { self?.finishClosing() }
+    }
+  }
+
+  /// A zero-length animation replaces the running fade: left running, it kept the closed panel on screen.
+  private func finishClosing() {
+    guard let closingPanel else { return }
+    self.closingPanel = nil
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0
+      closingPanel.animator().alphaValue = 0
+    }
+    closingPanel.close()
+  }
+
+  private var animates: Bool {
+    config.animation.enabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
   }
 }
 

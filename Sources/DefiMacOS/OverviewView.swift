@@ -254,6 +254,7 @@ final class OverviewView: NSView {
         let transition = CATransition()
         transition.type = .fade
         transition.duration = desktopFadeDuration
+        transition.preferredFrameRateRange = overviewAnimationFrameRate
         layers.desktop.add(transition, forKey: "desktopImage")
       } else {
         layers.desktop.removeAnimation(forKey: "desktopImage")
@@ -355,6 +356,7 @@ final class OverviewView: NSView {
         let reveal = CABasicAnimation(keyPath: "opacity")
         reveal.fromValue = 0
         reveal.duration = 0.2
+        reveal.preferredFrameRateRange = overviewAnimationFrameRate
         layers.blur.add(reveal, forKey: "reveal")
       }
       show(layers.blur, blurred, in: bounds, contentsRect: contentsRect)

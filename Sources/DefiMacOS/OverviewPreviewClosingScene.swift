@@ -123,6 +123,7 @@ final class OverviewPreviewClosingScene {
       animation.animations = [position, transform, radius]
       animation.duration = duration
       animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      animation.preferredFrameRateRange = overviewAnimationFrameRate
       item.add(animation, forKey: "overview-preview-close")
     }
     if let dim {
@@ -131,6 +132,7 @@ final class OverviewPreviewClosingScene {
       fade.fromValue = 1
       fade.duration = duration
       fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      fade.preferredFrameRateRange = overviewAnimationFrameRate
       dim.add(fade, forKey: "overview-preview-close")
     }
     CATransaction.commit()
