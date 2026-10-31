@@ -174,38 +174,150 @@ struct Key: Hashable, Sendable {
     accelerator: String,
     aliases: [String: String]
   ) throws(HotKeyError) {
-    guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
+    let (modifiers, name) = try parseAccelerator(accelerator, aliases: aliases)
+    guard let code = acceleratorKeyCodes[name] else {
       throw HotKeyError.invalidAccelerator(accelerator)
-    }
-    var parts = normalized.split(separator: "-").map(String.init)
-    guard let keyName = parts.popLast(), let code = acceleratorKeyCodes[keyName] else {
-      throw HotKeyError.invalidAccelerator(accelerator)
-    }
-    var modifiers: CGEventFlags = []
-    for name in parts {
-      switch name {
-      case "cmd", "command":
-        modifiers.insert(.maskCommand)
-      case "alt", "option":
-        modifiers.insert(.maskAlternate)
-      case "ctrl", "control":
-        modifiers.insert(.maskControl)
-      case "shift":
-        modifiers.insert(.maskShift)
-      default:
-        throw HotKeyError.invalidAccelerator(accelerator)
-      }
     }
     self.code = code
     modifierBits = modifiers.rawValue
   }
 }
 
-func configuredHotKeys(_ config: Config) throws(HotKeyError) -> [Key: (accelerator: String, command: String)] {
-  var bindings: [Key: (accelerator: String, command: String)] = [:]
-  for (accelerator, command) in config.keys.sorted(by: { $0.key < $1.key }) {
-    let key = try Key(accelerator: accelerator, aliases: config.modifierCombinations)
-    bindings[key] = (accelerator, command)
+func parseAccelerator(
+  _ accelerator: String, aliases: [String: String]
+) throws(HotKeyError) -> (modifiers: CGEventFlags, name: String) {
+  guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
+    throw HotKeyError.invalidAccelerator(accelerator)
   }
-  return bindings
+  var parts = normalized.split(separator: "-").map(String.init)
+  guard let name = parts.popLast() else { throw HotKeyError.invalidAccelerator(accelerator) }
+  var modifiers: CGEventFlags = []
+  for part in parts {
+    switch part {
+    case "cmd", "command":
+      modifiers.insert(.maskCommand)
+    case "alt", "option":
+      modifiers.insert(.maskAlternate)
+    case "ctrl", "control":
+      modifiers.insert(.maskControl)
+    case "shift":
+      modifiers.insert(.maskShift)
+    default:
+      throw HotKeyError.invalidAccelerator(accelerator)
+    }
+  }
+  return (modifiers, name)
+}
+
+/// Modifiers that change which character a key prints. Command is chosen by the binding, never added.
+struct KeyboardLayer: OptionSet, Hashable, Sendable {
+  let rawValue: Int
+  static let shift = KeyboardLayer(rawValue: 1)
+  static let option = KeyboardLayer(rawValue: 2)
+  static let command = KeyboardLayer(rawValue: 4)
+}
+
+/// Main-block typing keys, including the two JIS-only ones. Excludes the keypad, Return, Tab and Space.
+let layoutScannedKeyCodes: [UInt16] = Array(0...47).filter { $0 != 36 } + [50, 93, 94]
+
+/// What each key prints on one layout, lowercased and without dead keys. A key that prints
+/// nothing printable has no entry.
+struct KeyboardLayout: Equatable, Sendable {
+  let characters: [KeyboardLayer: [UInt16: String]]
+
+  /// Base, Shift, Option, then Option-Shift; the lowest scanned key code within a layer.
+  func position(of character: String, command: Bool) -> (code: UInt16, layer: KeyboardLayer)? {
+    for layer: KeyboardLayer in [[], .shift, .option, [.shift, .option]] {
+      let layer = command ? layer.union(.command) : layer
+      if let code = layoutScannedKeyCodes.first(where: { characters[layer]?[$0] == character }) {
+        return (code, layer)
+      }
+    }
+    return nil
+  }
+
+  func baseCharacter(code: UInt16, command: Bool) -> String? {
+    characters[command ? .command : []]?[code]
+  }
+}
+
+enum HotKeyInactivity: Equatable, Sendable {
+  case absentFromLayout
+  case held(by: String)
+}
+
+struct HotKeyResolution {
+  var keys: [Key: (accelerator: String, command: String)] = [:]
+  /// Bindings that hold no chord, by accelerator as configured.
+  var inactive: [String: HotKeyInactivity] = [:]
+}
+
+/// Each binding offers chords in rank order; sorted by rank, then accelerator, the first free one wins.
+/// 0 digits and arrows, always physical. 1 the character on the base layer. 2 the character
+/// on Shift or Option, with that modifier added. 3 the physical key. 4 the lowest free key, so a
+/// table name always holds a chord. Literal names (`é`) use ranks 1 and 2 only. A nil layout is physical.
+func resolveHotKeys(
+  _ bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?
+) throws(HotKeyError) -> HotKeyResolution {
+  struct Claim {
+    let rank: Int
+    let accelerator: String
+    let command: String
+    let modifiers: CGEventFlags
+    let code: UInt16?
+  }
+  var claims: [Claim] = []
+  for (accelerator, command) in bindings {
+    let (modifiers, name) = try parseAccelerator(accelerator, aliases: aliases)
+    func claim(_ rank: Int, _ modifiers: CGEventFlags, _ code: UInt16?) {
+      claims.append(Claim(rank: rank, accelerator: accelerator, command: command, modifiers: modifiers, code: code))
+    }
+    let physical = acceleratorKeyCodes[name]
+    // Digits and arrows (codes from 123) never follow the layout.
+    if let physical, layout == nil || Int(name) != nil || physical >= 123 {
+      claim(0, modifiers, physical)
+      continue
+    }
+    guard let layout else { continue }
+    let isLetter = physical != nil && acceleratorSymbolCharacters[name] == nil
+    let character = acceleratorSymbolCharacters[name] ?? name
+    if let hit = layout.position(of: character, command: modifiers.contains(.maskCommand)) {
+      var added: CGEventFlags = []
+      if hit.layer.contains(.shift) { added.insert(.maskShift) }
+      if hit.layer.contains(.option) { added.insert(.maskAlternate) }
+      if added.isEmpty {
+        claim(1, modifiers, hit.code)
+      } else if !isLetter {
+        claim(2, modifiers.union(added), hit.code)
+      }
+    }
+    if let physical {
+      claim(3, modifiers, physical)
+      claim(4, modifiers, nil)
+    }
+  }
+  var result = HotKeyResolution()
+  var placed = Set<String>()
+  var blockers: [String: String] = [:]
+  for claim in claims.sorted(by: { ($0.rank, $0.accelerator) < ($1.rank, $1.accelerator) })
+  where !placed.contains(claim.accelerator) {
+    func key(_ code: UInt16) -> Key { Key(code: code, flags: claim.modifiers.rawValue) }
+    guard let code = claim.code ?? layoutScannedKeyCodes.first(where: { result.keys[key($0)] == nil }) else { continue }
+    if let holder = result.keys[key(code)] {
+      blockers[claim.accelerator] = holder.accelerator
+    } else {
+      result.keys[key(code)] = (claim.accelerator, claim.command)
+      placed.insert(claim.accelerator)
+    }
+  }
+  for accelerator in bindings.keys where !placed.contains(accelerator) {
+    result.inactive[accelerator] = blockers[accelerator].map { .held(by: $0) } ?? .absentFromLayout
+  }
+  return result
+}
+
+func configuredHotKeys(
+  _ config: Config, layout: KeyboardLayout? = nil
+) throws(HotKeyError) -> [Key: (accelerator: String, command: String)] {
+  try resolveHotKeys(config.keys, aliases: config.modifierCombinations, layout: layout).keys
 }
