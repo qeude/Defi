@@ -47,10 +47,10 @@ public final class MacOSPlatform {
   }
   /// Shows the layout a drop at the pointer would produce, on the overlay only.
   /// `frames` cover every display: a drop on another one closes the gap here and opens
-  /// the slot there.
-  public func presentWindowProxyPreview(_ frames: [WindowID: Rect], heldWindowID: WindowID) {
+  /// the slot there. `rejectedFrame` marks a column the drop cannot join.
+  public func presentWindowProxyPreview(_ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?) {
     guard windowProxiesEnabled else { return }
-    windowProxyPreview = (frames, heldWindowID)
+    windowProxyPreview = (frames, heldWindowID, rejectedFrame)
     hostWindowProxyPreview()
     presentPendingWindowProxyPreview()
   }
@@ -66,7 +66,7 @@ public final class MacOSPlatform {
       NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
     }
   }
-  private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID)?
+  private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?)?
   private var windowProxyHostRetryAt: TimeInterval = 0
 
   /// Puts the display the drop would land on (not the carried window's own) on its
@@ -74,7 +74,7 @@ public final class MacOSPlatform {
   @discardableResult
   private func hostWindowProxyPreview() -> Bool {
     let now = ProcessInfo.processInfo.systemUptime
-    guard RibbonProxyPresenter.isCarrying, let (frames, id) = windowProxyPreview, let slot = frames[id],
+    guard RibbonProxyPresenter.isCarrying, let (frames, id, _) = windowProxyPreview, let slot = frames[id],
       now >= windowProxyHostRetryAt,
       let monitor = windowProxyMonitors.first(where: {
         !$0.windowIDs.contains(id) && slot.ribbonIntersects($0.viewport)
@@ -166,8 +166,10 @@ public final class MacOSPlatform {
   private var pressedWindow: (id: WindowID, frame: Rect, edgePointerX: Double?)?
 
   private func presentPendingWindowProxyPreview() {
-    guard let (frames, id) = windowProxyPreview else { return }
-    for presenter in RibbonProxyPresenter.all { presenter.preview(frames, heldWindowID: id) }
+    guard let (frames, id, rejectedFrame) = windowProxyPreview else { return }
+    for presenter in RibbonProxyPresenter.all {
+      presenter.preview(frames, heldWindowID: id, rejectedFrame: rejectedFrame)
+    }
   }
   private var windowProxyCarryRetryAt: TimeInterval = 0
 

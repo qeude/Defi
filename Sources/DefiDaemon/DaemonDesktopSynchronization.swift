@@ -757,7 +757,8 @@ extension Daemon {
               "mouse-drop-preview window=\(gestureWindowID.rawValue) target=\(target.map { "\($0)" } ?? "none")")
             platform.presentWindowProxyPreview(
               mouseDropPreviewFrames(in: preview, viewports: viewportsByMonitor),
-              heldWindowID: gestureWindowID)
+              heldWindowID: gestureWindowID,
+              rejectedFrame: mouseDropRejectedFrame(target, state: state, viewports: viewportsByMonitor))
           }
         }
       } else {

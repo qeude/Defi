@@ -422,6 +422,7 @@ final class RibbonProxyPresenter {
   /// The carried window's own slot in the ribbon, and a stacking slot that overrides it.
   private var ownSlot: Rect?
   private var previewSlot: Rect?
+  private var rejectionMarker: CALayer?
   /// Running slide of each proxy centre, so a retarget keeps its velocity.
   private var slides: [WindowID: (from: CGPoint, to: CGPoint, start: CFTimeInterval)] = [:]
   private var presenting = false
@@ -1098,6 +1099,7 @@ final class RibbonProxyPresenter {
     expectedTargets = [:]; requestedTargets = [:]
     releasePointerTrack()
     drag = .idle; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []; standIns = []
+    removeRejection()
     guard presenting, let layers else { return }
     removePlaceholder()
     if reason != "landed" { ribbonProxyLogger.notice("cancel \(reason, privacy: .public)") }
@@ -1195,8 +1197,8 @@ final class RibbonProxyPresenter {
   }
 
   /// Lays every other window out as the drop at the pointer would, on the overlay only,
-  /// and marks the carried window's place in that layout.
-  func preview(_ frames: [WindowID: Rect], heldWindowID: WindowID) {
+  /// and marks the carried window's place in that layout and any column it cannot join.
+  func preview(_ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?) {
     guard drag == .carrying(heldWindowID) || drag == .hosting(heldWindowID), let layers else { return }
     let now = CACurrentMediaTime()
     CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -1231,7 +1233,32 @@ final class RibbonProxyPresenter {
     }
     previewSlot = frames[heldWindowID]
     showSlot(in: layers)
+    showRejection(rejectedFrame, in: layers)
     ribbonProxyCommit(#line)
+  }
+
+  private func showRejection(_ frame: Rect?, in layers: RibbonProxyLayers) {
+    guard let frame, frame.ribbonIntersects(layers.area) else {
+      removeRejection()
+      return
+    }
+    let marker = rejectionMarker ?? CALayer()
+    if rejectionMarker == nil {
+      marker.cornerRadius = 12
+      marker.borderWidth = 4
+      marker.borderColor = NSColor.systemRed.cgColor
+      marker.backgroundColor = NSColor.systemRed.cgColor.copy(alpha: 0.15)
+      // Over the column's windows, under the carried one.
+      marker.zPosition = 100_000
+      layers.root.addSublayer(marker)
+      rejectionMarker = marker
+    }
+    marker.frame = local(frame, layers.area)
+  }
+
+  private func removeRejection() {
+    rejectionMarker?.removeFromSuperlayer()
+    rejectionMarker = nil
   }
 
   /// Mouse released: the carried proxy glides into its slot. The daemon's drop layout
@@ -1239,6 +1266,7 @@ final class RibbonProxyPresenter {
   func endDrag() {
     guard let id = drag.heldWindowID else { return }
     let carried = drag == .carrying(id) || drag == .hosting(id)
+    removeRejection()
     releasePointerTrack()
     drag = .dropping(id)
     ribbonProxyLogger.notice("drop id=\(id.rawValue) slot=\(self.placeholder.map { Int($0.frame.minX) } ?? -1)")
