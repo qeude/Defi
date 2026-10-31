@@ -261,8 +261,7 @@ for (const section of [
       ${card('b-5', `<img class="ill-shot" src="${media('feature-app-rules.webp')}" alt="Defi's Settings listing application rules, such as Xcode on the dev workspace" width="1000" height="690" loading="lazy">`, 'Every app in its place', 'Rules send an app to its named workspace, keep it floating or set its width when its window opens.')}
       ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll, with an empty workspace always ready.')}
       ${card('b-3', `<pre class="ill-code"><b>$</b> defi status
-<b>$</b> defi workspace dev
-<b>$</b> defi cycle-width</pre>`, 'Ready to script', 'The defi command runs the same actions as the keys, and SketchyBar can show your workspaces.')}
+<b>$</b> defi workspace dev</pre>`, 'Ready to script', 'The defi command runs the same actions as the keys, and SketchyBar can show your workspaces.')}
     </div>
   </section>`,
   `<section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
