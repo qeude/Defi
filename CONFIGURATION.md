@@ -23,8 +23,10 @@ setting affects the current layout.
 
 Invalid TOML, values, workspace references, commands, accelerators, and modifier
 aliases are shown in an app alert. Errors that prevent decoding stop startup;
-invalid hotkeys disable keyboard capture for that run. Configured mouse focus
-and cursor-motion tracking remain active when possible.
+malformed hotkeys disable keyboard capture for that run. Configured mouse focus
+and cursor-motion tracking remain active when possible. A well-formed key name
+that the current keyboard layout does not have is not an error: only that
+shortcut is inactive, and Settings says why.
 
 ## `[layout]`
 
@@ -498,7 +500,9 @@ you.
 ### Accelerator syntax
 
 Format: `<modifier-or-alias>-<modifier>-<key>`. Order and letter case do not
-matter. Final component must be a supported key name.
+matter. The final component is a key name from the list below or one other
+character, such as `ctrl-alt-é` or `ctrl-alt-¥`. `ctrl-alt-[` and
+`ctrl-alt-leftbracket` are the same shortcut.
 
 Supported key names:
 
@@ -509,6 +513,38 @@ Supported key names:
   `quote`, `backslash`, `comma`, `period`, `slash`
 
 Examples: `alt-left`, `cmd-shift-p`, `hyper-backslash`.
+
+### Keyboard layouts
+
+Shortcuts follow the keyboard layout and are recomputed when it changes. Defi
+reads the active ASCII-capable layout, so switching between Romaji and kana
+changes nothing. Where the layout is unavailable, every key name stays on its US
+position. Each key type resolves as follows:
+
+| Key | Where it lands |
+| --- | --- |
+| Digits and arrows | Always the same physical key. `ctrl-alt-1` stays on the number row on AZERTY. |
+| Letters | The key printing that letter, e.g. `ctrl-alt-f` on Dvorak. A layout without the letter keeps the US position. |
+| Punctuation names | The key printing the character. If it takes Shift or Option, those are added to the shortcut, so `ctrl-alt-rightbracket` can be `⌃⌥⇧)` on French. If that chord is taken, the key's US position; if that is taken too, the lowest-numbered main-block key that is free with the modifiers as written, so a default shortcut is never lost. |
+| Other characters | The key printing the character, with the same added modifiers. If the layout lacks it, or its key is held by another shortcut (digits and arrows win), that shortcut is inactive and the others are unaffected. |
+
+Earlier-claimed chords win in this order: digits and arrows, then characters on
+the unmodified key, then characters that need Shift or Option, then US
+positions, then the free-key search. Ties break by accelerator name, so the
+result never depends on the order of the file. The keypad is never used.
+Shortcuts containing `cmd` read the layout as Command sees it, which matters on
+Dvorak-QWERTY⌘.
+
+The cheatsheet and Settings show the key actually pressed, including added
+modifiers. An inactive shortcut reads "Not on this layout" or "Held by" the
+shortcut that owns the chord. Defi logs one line per inactive shortcut whenever
+the table changes. The Settings recorder stores a name that resolves back to the
+pressed key on the current layout, and Settings refuses a shortcut whose chord
+another shortcut already holds even when the names differ.
+
+Limit: the layout is read for the keyboard type macOS last reported. With an
+ANSI and a JIS keyboard attached at once, Defi follows the last one used and does
+not re-resolve until the layout changes.
 
 ### Commands
 
