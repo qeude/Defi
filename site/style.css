@@ -443,7 +443,7 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .ill-hz>span{margin-top:.14em;font-size:.28em;letter-spacing:0;color:var(--muted)}
 .b-5 .card-art{min-height:260px;-webkit-mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);mask-composite:intersect}
 .ill-shot{position:absolute;top:28px;left:28px;max-width:none;width:max(112%,460px);height:auto}
-.ill-code{width:100%;margin:0;padding:18px 20px;border-radius:14px;background:#141416;box-shadow:0 0 0 1px #ffffff1f,0 24px 50px -24px #000;font:500 clamp(11px,5.4cqi,14px)/1.7 var(--mono);color:var(--muted);white-space:pre;overflow:hidden}
+.ill-code{width:100%;margin:0;padding:16px 14px;border-radius:14px;background:#141416;box-shadow:0 0 0 1px #ffffff1f,0 24px 50px -24px #000;font:500 clamp(10px,5.4cqi,14px)/1.7 var(--mono);color:var(--muted);white-space:pre;overflow:hidden}
 .ill-code b{font-weight:inherit;color:#54afff}
 .ill-monitors{display:flex;align-items:flex-end;gap:12px;width:min(100%,420px)}
 .mon{flex:5;height:auto;aspect-ratio:16/10;gap:3px;padding:11px 4px 4px;border-radius:8px;overflow:visible;box-shadow:0 0 0 3px #0b0b0d,0 0 0 4px #ffffff24,0 24px 40px -18px #000}

@@ -262,7 +262,7 @@ for (const section of [
       ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll, with an empty workspace always ready.')}
       ${card('b-3', `<pre class="ill-code"><b>$</b> defi status
 <b>$</b> defi workspace dev
-<b>$</b> defi focus-column right</pre>`, 'Ready to script', 'The defi command runs the same actions as the keys, and SketchyBar can show your workspaces.')}
+<b>$</b> defi cycle-width</pre>`, 'Ready to script', 'The defi command runs the same actions as the keys, and SketchyBar can show your workspaces.')}
     </div>
   </section>`,
   `<section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
