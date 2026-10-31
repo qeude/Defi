@@ -84,6 +84,8 @@ final class DesktopE2ETests: XCTestCase {
       FrameAssignment(windowID: floating, frame: Rect(x: monitor.frame.x + half, y: monitor.frame.y, width: half, height: 440)),
     ]) }
     XCTAssertTrue(settleFrames(platform))
+    // The user's own windows can cover the tiled fixture while another app is active.
+    try activate(fixtures.tiledProcess, focusing: tiled, platform)
     let cursor = try XCTUnwrap(CGEvent(source: nil)?.location)
     defer { CGWarpMouseCursorPosition(cursor) }
     let received = DesktopValue<[PointerMotionInvocation]>([])
@@ -608,7 +610,8 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(pumpRunLoop(until: { sidebar.selectedRow == 1 && descendants().contains { $0 is NSStepper } }, timeout: 2),
       "Layout must be open before searching")
     let search = try XCTUnwrap(descendants().compactMap { $0 as? NSSearchField }.first)
-    XCTAssertTrue(window.makeFirstResponder(search))
+    // Pumping leaves a stale window-less NSApp.currentEvent, which the field's focus guard refuses.
+    search.selectText(nil)
     let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
     editor.insertText("RESERVED_TOP", replacementRange: NSRange(location: 0, length: 0))
     XCTAssertTrue(pumpRunLoop(until: { sidebar.numberOfRows == 1 }, timeout: 2))
@@ -817,6 +820,9 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(controller.surfaceTransitionCount, zooms + 1, "The zoom must run from verified native frames without previews")
     XCTAssertTrue(controller.openingTransitionHistory.contains("started(surfaces:0,"), controller.openingTransitionHistory)
     controller.close()
+    // Releasing the controller mid-zoom strands a screen-sized panel above every later test's windows.
+    let finalHidden = await waitUntil(timeout: 2) { panels().allSatisfy { !$0.isVisible } }
+    XCTAssertTrue(finalHidden)
     controller.prepare(windowPreviewsEnabled: false)
   }
 
