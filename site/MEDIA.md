@@ -35,6 +35,10 @@ Frame rate: ScreenCaptureKit delivers 120 fps while columns scroll and the
 Overview moves. Vertical workspace switches arrive at about 60 fps in the
 capture; those stretches repeat frames in the 120 fps files.
 
+`feature-app-rules.webp` (1000 × 690) is a crop of a Retina capture of the
+installed app's Settings › App Rules, shown at half size or less so it stays sharp. Its grays,
+warmed by the wallpaper in the capture, are shifted to the cool gray of the cards.
+
 `og.jpg` (1200 × 630) is the link preview image declared in `index.html`, made
 from real window captures in the desk's frame. Its URLs are absolute, so they
 must change if the site moves to another domain.

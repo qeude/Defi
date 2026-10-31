@@ -37,11 +37,10 @@ Rhythm and type:
    beside two stacked cards: Command-Tab and speed, its copy beside “120 Hz”
    (system face, snapping up from 0 out of a blur) over the footer's light
    columns, which rise behind it and then breathe slowly. Below, three cards
-   of falling width (5, 4 and 3 columns): columns that reflow (a window opens
-   into the strip, widens and settles), monitors, and floating (one window
-   lifts above the columns). The illustrations are small Defi desktops: wallpaper, windows with their app
-   icon, white focus border. Only those that show a behavior move:
-   reflow and floating loop calmly from the moment their card comes into view.
+   of falling width (5, 4 and 3 columns): app rules (a real capture of Defi's Settings, fading into the card),
+   monitors (small Defi desktops: wallpaper, windows with their app icon, white
+   focus border), and the command line (real `defi` commands). The desk above
+   already shows columns reflowing and windows floating.
    Every claim matches the code or CONFIGURATION.md.
 4. Shortcuts: “Hold ⌃ ⌥” (two keycaps) beside Defi's real cheatsheet for the
    built-in keys, laid out like CheatsheetView (black fading into glass, chord,
