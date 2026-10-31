@@ -12,6 +12,7 @@ public struct LayoutSettings: Equatable, Sendable {
   public var defaultColumnWidth: Double
   public var presetColumnWidths: [Double]
   public var centerFocusedColumn: CenterFocusedColumn
+  public var alwaysCenterSingleColumn: Bool
   public var innerHorizontalGap: Double
   public var innerVerticalGap: Double
   public var outerTopGap: Double
@@ -23,6 +24,7 @@ public struct LayoutSettings: Equatable, Sendable {
     defaultColumnWidth: Double = 0.80,
     presetColumnWidths: [Double] = [0.33, 0.50, 0.66, 0.80],
     centerFocusedColumn: CenterFocusedColumn = .never,
+    alwaysCenterSingleColumn: Bool = false,
     innerHorizontalGap: Double = 4,
     innerVerticalGap: Double = 4,
     outerTopGap: Double = 8,
@@ -33,6 +35,7 @@ public struct LayoutSettings: Equatable, Sendable {
     self.defaultColumnWidth = defaultColumnWidth
     self.presetColumnWidths = presetColumnWidths
     self.centerFocusedColumn = centerFocusedColumn
+    self.alwaysCenterSingleColumn = alwaysCenterSingleColumn
     self.innerHorizontalGap = innerHorizontalGap
     self.innerVerticalGap = innerVerticalGap
     self.outerTopGap = outerTopGap

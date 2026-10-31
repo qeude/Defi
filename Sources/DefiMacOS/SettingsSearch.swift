@@ -25,6 +25,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case about
   case defaultColumnWidth
   case focusedColumn
+  case centerLoneColumn
   case widthPresets
   case screenMargins
   case animations
@@ -69,6 +70,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues")
     case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width")
     case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center on overflow")
+    case .centerLoneColumn: (.layout, "Center a lone column", "layout.always_center_single_column single only one column middle")
     case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove")
     case .screenMargins: (
       .layout, "Spacing",

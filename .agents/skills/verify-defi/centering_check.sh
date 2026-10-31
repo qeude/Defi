@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Proves center_focused_column never / always / on-overflow on the installed daemon.
+# Proves center_focused_column never / always / on-overflow, always_center_single_column,
+# center-column, focus-window-or-workspace and focus-workspace-previous on the installed daemon.
 # Opens four scratch TextEdit documents on the trailing empty workspace, then for
 # each mode focuses the first column and steps right once, and classifies where the
 # focused window landed. The temporary config pins new columns to 0.5 (an exact fit)
@@ -11,7 +12,12 @@
 set -u
 out="${1:-dist/verification/evidence-$(date +%Y%m%d-%H%M%S)}"; mkdir -p "$out"
 config="$HOME/.config/defi/config.toml"
-defi status > "$out/before.status" || { echo "daemon unreachable"; exit 1; }
+# A daemon that has just started reports monitors=0 until discovery finishes.
+for _ in $(seq 1 40); do
+  defi status > "$out/before.status" 2>/dev/null && ! grep -q 'monitors=0\[\]' "$out/before.status" && break
+  sleep 0.5
+done
+[ -s "$out/before.status" ] || { echo "daemon unreachable"; exit 1; }
 field() { tr ' ' '\n' < "$1" | sed -n "s/^$2=//p"; }
 monitors="$(field "$out/before.status" monitors)"
 case "$monitors" in 1\[*) ;; *) echo "needs exactly one monitor, got $monitors"; exit 1 ;; esac
@@ -82,14 +88,60 @@ m=next(m for m in d["monitors"] if m["focused"])
 print(next(w["position"] for w in m["workspaces"] if w["kind"]=="trailing"))' < "$out/workspaces-before.json")"
 set_layout "default_column_width=0.5" "preset_column_widths=[0.5, 0.66]"
 defi focus-workspace-position "$trailing" > /dev/null; sleep 1
-for _ in 1 2 3 4; do
-  osascript -e 'tell application "TextEdit" to make new document' > /dev/null; sleep 1.2
-done
-osascript -e 'tell application "TextEdit" to activate' > /dev/null; sleep 1.5
-count="$(defi list-workspaces --json | python3 -c 'import json,sys
+fail=0
+expect() {
+  local got; got="$(where)"
+  [ "$got" = "$2" ] && verdict=PASS || { verdict=FAIL; fail=1; }
+  echo "$1: $verdict expected=$2 got=$got"
+}
+new_document() { osascript -e 'tell application "TextEdit" to make new document' > /dev/null; sleep 1.2; }
+scratch_count() {
+  defi list-workspaces --json | python3 -c 'import json,sys
 d=json.load(sys.stdin)
 m=next(m for m in d["monitors"] if m["focused"])
-print(next(w["windowCount"] for w in m["workspaces"] if w["active"]))')"
+print(next(w["windowCount"] for w in m["workspaces"] if w["active"]))'
+}
+# TextEdit's iCloud open panel can appear on launch and on activation, and Defi tiles it.
+close_open_panel() {
+  osascript -e 'tell application "TextEdit" to activate' \
+    -e 'tell application "System Events" to key code 53' > /dev/null 2>&1
+  sleep 1
+}
+open -g -a TextEdit --args -NSShowAppCentricOpenPanelInsteadOfUntitledFile NO; sleep 2
+osascript -e 'tell application "TextEdit" to close every window saving no' > /dev/null; sleep 1
+new_document
+osascript -e 'tell application "TextEdit" to activate' > /dev/null; sleep 1.5
+close_open_panel
+[ "$(scratch_count)" = 1 ] || { echo "lone column checks would run with $(scratch_count) columns"; exit 1; }
+set_layout 'center_focused_column="never"' 'always_center_single_column=true'
+expect "lone column, single-column setting on" centered
+set_layout 'center_focused_column="always"' 'always_center_single_column=false'
+expect "lone column, always" centered
+set_layout 'center_focused_column="never"'
+# A reload that only recenters must still move windows with animations off.
+cp "$config" "$out/config.animations-on"
+python3 - "$config" <<'PY' || { echo "FAIL: could not disable animations"; exit 1; }
+import re, sys, tomllib
+text = open(sys.argv[1]).read()
+section = r'(?m)^\[animation\]\s*\n(?:(?!\[).*\n)*'
+found = re.search(section, text)
+body = re.sub(r'(?m)^enabled\s*=.*\n', '', found.group(0)) if found else '[animation]\n'
+body = body.replace('[animation]\n', '[animation]\nenabled = false\n', 1)
+text = text[:found.start()] + body + text[found.end():] if found else text.rstrip('\n') + '\n\n' + body
+assert tomllib.loads(text)['animation']['enabled'] is False
+open(sys.argv[1], 'w').write(text)
+PY
+sleep 1.5
+set_layout 'always_center_single_column=true'
+expect "lone column, animations off" centered
+cp "$out/config.animations-on" "$config"
+sleep 1.5
+for _ in 1 2 3 4; do
+  close_open_panel
+  [ "$(scratch_count)" -lt 4 ] && new_document
+done
+close_open_panel
+count="$(scratch_count)"
 [ "$count" = 4 ] || { echo "expected 4 scratch columns, got $count"; exit 1; }
 
 modifiers="$(python3 - "$config" <<'PY'
@@ -111,7 +163,6 @@ step() {
   fi
 }
 
-fail=0
 captured_before="$(defi status | tr ' ' '\n' | sed -n 's/^captured=//p')"
 check() {
   local mode="$1" expected="$2" t0 got
@@ -128,6 +179,30 @@ check() {
 check never right-edge width-0.50
 check always centered width-0.50
 check on-overflow right-edge width-0.50
+set_mode always
+defi focus-column first > /dev/null; sleep 0.8; expect "first column, always" centered
+defi focus-column last > /dev/null; sleep 0.8; expect "last column, always" centered
+set_mode never
+defi focus-column first > /dev/null; sleep 0.8
+defi center-column > /dev/null; sleep 0.8; expect "first column, center-column" centered
+defi focus-column right > /dev/null; sleep 0.8; expect "center-column dropped by the next column" right-edge
+
+workspace() { defi status | tr ' ' '\n' | sed -n 's/^workspace=//p'; }
+expect_workspace() {
+  local got; got="$(workspace)"
+  [ "$got" = "$2" ] && verdict=PASS || { verdict=FAIL; fail=1; }
+  echo "$1: $verdict expected=$2 got=$got"
+}
+scratch="$(workspace)"
+defi focus-workspace-name "$initial" > /dev/null; sleep 1
+defi focus-workspace-previous > /dev/null; sleep 1; expect_workspace "previous workspace" "$scratch"
+defi focus-workspace-previous > /dev/null; sleep 1; expect_workspace "previous workspace again" "$initial"
+defi focus-workspace-previous > /dev/null; sleep 1; expect_workspace "previous workspace toggles" "$scratch"
+defi focus-window-or-workspace up > /dev/null; sleep 1
+above="$(workspace)"
+if [ "$above" != "$scratch" ]; then verdict=PASS; else verdict=FAIL; fail=1; fi
+echo "stack end crosses up: $verdict from=$scratch to=$above"
+defi focus-window-or-workspace down > /dev/null; sleep 1; expect_workspace "stack end crosses down" "$scratch"
 defi focus-column first > /dev/null
 for _ in 1 2 3 4; do
   defi cycle-width next > /dev/null; sleep 0.5; defi focus-column right > /dev/null; sleep 0.5

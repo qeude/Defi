@@ -106,8 +106,15 @@ struct CheatsheetHotKeyTests {
     let config = Config(keys: [
       "ctrl-alt-1": "workspace mail", "ctrl-alt-2": "focus-workspace-position 2",
       "ctrl-alt-shift-g": "toggle-overview", "ctrl-g": "maximize-column",
+      "ctrl-alt-c": "center-column", "ctrl-alt-j": "focus-window-or-workspace down",
+      "ctrl-alt-p": "focus-workspace-previous",
     ])
     let rows = shortcutGroups(config: config).flatMap(\.rows)
+    #expect(rows.contains(ShortcutRow(modifiers: "⌃⌥", key: "C", action: "Center column", shifted: nil)))
+    #expect(rows.contains(ShortcutRow(
+      modifiers: "⌃⌥", key: "J", action: "Window or workspace down", shifted: nil)))
+    #expect(rows.contains(ShortcutRow(
+      modifiers: "⌃⌥", key: "P", action: "Previous workspace", shifted: nil)))
     #expect(rows.contains(ShortcutRow(modifiers: "⌃⌥", key: "1", action: "Workspace mail",
       shifted: ShiftedShortcut(modifiers: "⌃⌥⇧", action: "Move column to workspace 1"))))
     #expect(rows.contains(ShortcutRow(modifiers: "⌃⌥", key: "2–9", action: "Workspace 2–9",

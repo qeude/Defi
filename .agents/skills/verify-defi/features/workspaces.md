@@ -6,6 +6,8 @@
 - Per-monitor workspace stacks.
 - Inactive workspace windows parked offscreen through topology and Accessibility.
 - Move column or window to a workspace or monitor.
+- `focus-workspace-previous` and `focus-window-or-workspace up|down`, proved by
+  `centering_check.sh` (see [scrolling-navigation.md](scrolling-navigation.md)).
 
 ## How to get to it (user POV)
 

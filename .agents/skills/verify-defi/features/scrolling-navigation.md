@@ -6,11 +6,14 @@
 - Move column, cycle and maximize width.
 - Speculative, latest-wins animation with position-only writes.
 - Focused column centering: `center_focused_column` `never`, `always`, `on-overflow`.
+- Lone column centering: `always_center_single_column`.
+- `center-column`, which centers the focused column until selection leaves it.
 
 ## How to get to it (user POV)
 
 Configured hotkeys, or the CLI. Centering mode: Settings > Layout > Focused
-column, or `center_focused_column` under `[layout]` in the config file.
+column and Center a lone column, or `center_focused_column` and
+`always_center_single_column` under `[layout]` in the config file.
 
 ## Driving it with the defi CLI
 
@@ -28,15 +31,21 @@ Pass: `focused=` changes as expected, `animating=false`, `drift=0[]`, `droppedFr
 python3 script/desktop_lock.py --wait .agents/skills/verify-defi/centering_check.sh
 ```
 
-The script opens four scratch TextEdit documents on the trailing empty
-workspace, focuses the first column, steps right once per mode, and classifies
-where the focused window landed. It restores the config, closes the documents
-and returns to the initial workspace.
+The script checks a lone scratch TextEdit document, then opens three more on the
+same workspace, focuses the first column, steps right once per mode, and
+classifies where the focused window landed. It also checks the first and last
+column under `always`, `center-column`, `focus-workspace-previous` and
+`focus-window-or-workspace`. It restores the config, closes the documents and
+returns to the initial workspace.
 
 | Column width | `never` | `always` | `on-overflow` |
 | --- | --- | --- | --- |
 | 0.50 (two columns fit exactly) | right-edge | centered | right-edge |
 | 0.66 (two columns overflow) | right-edge | centered | centered |
+
+A lone column, the first and last column under `always`, and the first column
+after `center-column` all print `centered`, which needs empty space at the strip
+edge.
 
 Pass: every row prints `PASS`, `drift=0[]`, initial workspace and config
 restored, `daemons: 1`. Run it again with `DRIVE=hotkeys` to send the default
@@ -46,7 +55,7 @@ Use when available.
 
 ## Gotchas
 
-- With one column on the workspace nothing moves; check `list-workspaces --json` window counts first.
+- With one column on the workspace nothing moves unless a centering rule asks for edge space; check `list-workspaces --json` window counts first.
 - Slow apps (`slowAppDetails`) legitimately settle later. Wait for `axPending=false`.
 - Visual smoothness needs Computer Use with human-paced input, not a tight loop.
 - Covering tests: `testFrameWritesConvergeOnRealWindows`, `testFocusFollowsLatestNativeIntent`.

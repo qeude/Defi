@@ -96,6 +96,7 @@ func overviewKeyAction(
     modifierBits == 0
     || commandName == "focus-column"
     || commandName == "focus-window"
+    || commandName == "focus-window-or-workspace"
   return switch keyCode {
   case 123 where navigatesOverview: .left
   case 124 where navigatesOverview: .right

@@ -115,4 +115,55 @@ struct OverviewScrollTests {
     #expect(transition.current.horizontalOffsets[sourceWorkspaceID] == 1)
     #expect(transition.target == nil)
   }
+
+  @Test
+  func `A strip centered with edge space does not jump inward when scrolled outward`() {
+    let step = 1.0 / (1_512 * (overviewWorkspaceStride(boundsHeight: 900, zoom: 0.25) - 28) / 900)
+    func scrolled(from start: Double, byX x: Double, maximum: Double) -> Double {
+      overviewViewportAfterScroll(
+        OverviewViewport(horizontalOffsets: [workspaceID: start]),
+        delta: NSPoint(x: x, y: 0),
+        hasPreciseScrollingDeltas: true,
+        viewSize: NSSize(width: 1_512, height: 900),
+        zoom: 0.25,
+        activeWorkspaceIndex: 1,
+        workspaceCount: 9,
+        horizontalWorkspaceID: workspaceID,
+        maximumHorizontalOffset: maximum
+      ).horizontalOffsets[workspaceID, default: 0]
+    }
+
+    #expect(scrolled(from: -0.25, byX: 1, maximum: 1) == -0.25)
+    #expect(abs(scrolled(from: -0.25, byX: -1, maximum: 1) - (-0.25 + step)) < 0.000_001)
+    #expect(scrolled(from: 1.25, byX: -1, maximum: 1) == 1.25)
+    #expect(abs(scrolled(from: 1.25, byX: 1, maximum: 1) - (1.25 - step)) < 0.000_001)
+    #expect(scrolled(from: 0.5, byX: 100_000, maximum: 1) == 0)
+    #expect(scrolled(from: 0.5, byX: -100_000, maximum: 1) == 1)
+  }
+
+  @Test
+  func `Paging keeps a strip outside the normal range where it is`() {
+    #expect(overviewHorizontalOffset(-0.25 - 1, from: -0.25, maximum: 1) == -0.25)
+    #expect(overviewHorizontalOffset(-0.25 + 1, from: -0.25, maximum: 1) == 0.75)
+    #expect(overviewHorizontalOffset(1.25 + 1, from: 1.25, maximum: 1) == 1.25)
+    #expect(overviewHorizontalOffset(1.25 - 1, from: 1.25, maximum: 1) == 0.25)
+    #expect(overviewHorizontalOffset(0.5 + 1, from: 0.5, maximum: 1) == 1)
+  }
+
+  @Test
+  func `Moving a selection keeps a centered source ribbon with edge space`() {
+    let sourceWorkspaceID = WorkspaceID(rawValue: "dev")
+    let transition = overviewViewportTransitionAfterSelectionAlignment(
+      current: OverviewViewport(horizontalOffsets: [workspaceID: 0, sourceWorkspaceID: -0.25]),
+      pendingTarget: nil,
+      animationTarget: nil,
+      workspaceID: workspaceID,
+      scrollOffset: 0,
+      sourceWorkspaceID: sourceWorkspaceID,
+      sourceMaximumHorizontalOffset: 1,
+      movedSelection: true
+    )
+
+    #expect(transition.current.horizontalOffsets[sourceWorkspaceID] == -0.25)
+  }
 }
