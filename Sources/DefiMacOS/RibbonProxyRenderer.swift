@@ -838,6 +838,11 @@ final class RibbonProxyPresenter {
       } != true
     }
     guard !presenting, drag == .idle, unsharp.isEmpty else {
+      // The overlay already covers the screen: it must not lift before the layout opens
+      // the window, or macOS's own placement shows.
+      if presenting, drag == .idle {
+        holdStart = now; holdUntil = max(holdUntil, now + 0.5)
+      }
       return ribbonProxyLogger.notice("open-hold-refused pid=\(processID) presenting=\(self.presenting) unsharp=\(unsharp.map { "\($0.id.rawValue):\(Int($0.to.width))x\(Int($0.to.height))" }, privacy: .public)")
     }
     guard begin(windows: windows, viewport: viewport, generation: submission, nativeTargets: [:],
