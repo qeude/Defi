@@ -103,7 +103,8 @@ final class DesktopE2ETests: XCTestCase {
     movement.post(tap: .cghidEventTap)
     XCTAssertTrue(pumpRunLoop(until: {
       received.value.last.flatMap { $0.windowID ?? platform.managedWindowID(at: $0.location) } == tiled
-    }, timeout: 1), "Pointer motion must resolve the fixture under the pointer: \(received.value)")
+    }, timeout: 1), "Pointer motion must resolve the fixture under the pointer: \(received.value), "
+      + "windows there: \(windowsDescription(at: center))")
     let transitions = onNavigation { manager.pointerTransitionCount }
     onNavigation { platform.warpCursor(to: floating, unlessUserInputAfter: .greatestFiniteMagnitude) }
     XCTAssertTrue(pumpRunLoop(until: { onNavigation { platform.cursorWarpPerformance }.applied == 1 }, timeout: 1))
@@ -1300,6 +1301,17 @@ final class DesktopE2ETests: XCTestCase {
   private func openFixtures(_ platform: MacOSPlatform) throws -> DesktopFocusFixturePair {
     frontmostBeforeFixtures = NSWorkspace.shared.frontmostApplication
     return try DesktopFocusFixturePair(platform: platform) { self.pumpRunLoop(until: $0, timeout: $1) }
+  }
+
+  /// What can block a pointer hit test, front to back.
+  private func windowsDescription(at point: CGPoint) -> [String] {
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+      as? [[String: Any]] ?? []
+    return windows.compactMap { window in
+      guard let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+        let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(point) else { return nil }
+      return "\(window[kCGWindowOwnerName as String] ?? "?") layer=\(window[kCGWindowLayer as String] ?? "?") \(frame)"
+    }
   }
 
   private func closeFixtures(_ fixtures: DesktopFocusFixturePair) {

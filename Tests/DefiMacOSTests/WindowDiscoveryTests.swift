@@ -10,6 +10,14 @@ struct WindowDiscoveryTests {
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
   @Test
+  func `An untitled dialog without chrome is a system accessory, a real dialog is not`() {
+    #expect(isSystemTextAccessory(title: "", hasCloseButton: false, isModal: false))
+    #expect(!isSystemTextAccessory(title: "", hasCloseButton: true, isModal: false))
+    #expect(!isSystemTextAccessory(title: "", hasCloseButton: false, isModal: true))
+    #expect(!isSystemTextAccessory(title: "Find", hasCloseButton: false, isModal: false))
+  }
+
+  @Test
   func axFrameConversionValidatesValueTypes() throws {
     var point = CGPoint(x: 4, y: 34)
     var size = CGSize(width: 800, height: 700)

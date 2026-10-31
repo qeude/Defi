@@ -49,5 +49,17 @@ overlay's layers alive at zero opacity between motions did not help either (88 a
 focus writes past the motion moved its hitches later without a clear gain (41 against 44 to
 66), from a single valid run.
 
+Three more passes per variant, on the built-in 120 Hz display (M1 Pro), measured against
+five control runs of 175 to 232 hitches in total. None left that noise, on any action:
+starting the springs 8 or 16 ms after the commit (186, 230), spacing native writes by 16 ms
+(224), dropping layers off screen on one side for the whole motion (215, 179), writing
+parked windows 220 ms later (180), stopping the border settle loop after landing (208), and
+removing the Overview's closing glass fade with a layer-driven cheatsheet fade (212).
+Instruments labels about a third of Defi's hitches "potentially expensive app update", few
+"expensive render", and gives the rest no cause. Controls vary as much per action (column
+1.6 to 3.8 hitches per event), so single runs cannot judge a change. Zero hitches was not
+reached on any overlay motion: what remains below the overlay is the compositor and the
+apps, and no public API or tested private call removes them.
+
 Until it is accepted, Defi keeps the translucent overlay and the measured limit
 above.

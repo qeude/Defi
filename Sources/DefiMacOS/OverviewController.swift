@@ -425,6 +425,7 @@ public final class OverviewController: NSObject {
         monitorID: monitorID, screen: screen,
         usesCapturedDesktop: !usesWorkspaceParking, delegate: self
       )
+      panel.view.animatesSelection = animationsEnabled
       panel.openingTransitionChanged = { [weak self] event in
         self?.recordOpeningTransition(event, monitorID: monitorID)
       }

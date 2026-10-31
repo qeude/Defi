@@ -7,6 +7,21 @@ import Testing
 @testable import DefiMacOS
 
 struct RibbonProxyTests {
+  @Test
+  func `A floating window whose target is in view arrives with the vertical switch`() {
+    let viewport = Rect(x: 0, y: 0, width: 1000, height: 800)
+    let target = Rect(x: 700, y: 40, width: 200, height: 300)
+    let parked = Rect(x: 999, y: 40, width: 200, height: 300)
+    let arriving = windowProxyMotion(ribbonTargets: [:], otherTargets: [WindowID(rawValue: 1): target],
+      previousLogical: [:], observed: [WindowID(rawValue: 1): target], verticalShift: 800, viewport: viewport)
+    #expect(arriving.first?.to == target)
+    #expect(arriving.first?.from == Rect(x: 700, y: -760, width: 200, height: 300))
+    let leaving = windowProxyMotion(ribbonTargets: [:], otherTargets: [WindowID(rawValue: 1): parked],
+      previousLogical: [:], observed: [WindowID(rawValue: 1): target], verticalShift: -800, viewport: viewport)
+    #expect(leaving.first?.from == target)
+    #expect(leaving.first?.to == Rect(x: 700, y: -760, width: 200, height: 300))
+  }
+
   @Test func overviewZoomHoldsCapturesApartFromRibbonMotion() {
     let store = RibbonProxyStore(), display: CGDirectDisplayID = 3
     store.setOverviewZooming(true, MonitorID(rawValue: 3))
