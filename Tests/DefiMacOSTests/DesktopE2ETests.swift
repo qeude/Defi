@@ -386,6 +386,43 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(dismissals.withLock { $0 }, 1)
   }
 
+  /// Moonlight and other SDL apps capture the keyboard with this exact call.
+  func testKeyboardCaptureByAnotherAppSilencesShortcuts() throws {
+    _ = try preflight()
+    typealias MainConnection = @convention(c) () -> Int32
+    typealias SetMode = @convention(c) (Int32, Int32) -> Int32
+    let skyLight = try XCTUnwrap(dlopen(
+      "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY | RTLD_LOCAL))
+    let connection = unsafeBitCast(try XCTUnwrap(dlsym(skyLight, "CGSMainConnectionID")), to: MainConnection.self)()
+    let setMode = unsafeBitCast(try XCTUnwrap(dlsym(skyLight, "CGSSetGlobalHotKeyOperatingMode")), to: SetMode.self)
+    defer { _ = setMode(connection, 0) }
+
+    let log = CommandLog()
+    let manager = onNavigation { HotKeyManager(
+      config: Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: ["hyper-left": "focus-column left"])
+    ) { log.append($0.command) } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+    func pressShortcut() throws {
+      let source = CGEventSource(stateID: .hidSystemState)
+      let key = try XCTUnwrap(CGEvent(keyboardEventSource: source, virtualKey: 123, keyDown: true))
+      key.flags = [.maskAlternate, .maskCommand, .maskControl]
+      key.post(tap: .cghidEventTap)
+      key.type = .keyUp
+      key.post(tap: .cghidEventTap)
+      Thread.sleep(forTimeInterval: 0.2)
+    }
+
+    try pressShortcut()
+    XCTAssertEqual(log.all, ["focus-column left"], "A shortcut fires while no app captures the keyboard")
+    XCTAssertEqual(setMode(connection, 1), 0)
+    try pressShortcut()
+    XCTAssertEqual(log.all, ["focus-column left"], "A shortcut must not fire while another app captures the keyboard")
+    XCTAssertEqual(setMode(connection, 0), 0)
+    try pressShortcut()
+    XCTAssertEqual(log.all, ["focus-column left", "focus-column left"], "Shortcuts resume when the capture ends")
+  }
+
   func testCarbonReservationsReleaseForRecordingTextEditingAndStop() throws {
     let platform = try preflight()
     let fixtures = try openFixtures(platform)
