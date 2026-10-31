@@ -190,14 +190,23 @@ extension Daemon {
         previousMonitorIDs: previousFloatingMonitorIDs
       )
       synchronizeScrollOffsets(state: &state, viewports: nextViewports)
-      snapScrollOffsetsToTargets()
-      applyCurrentLayout(
-        asynchronousPositions: true,
-        updateVisibility: true,
-        positionTimeoutSeconds: 0.05,
-        forceFloatingFrameWrites: viewportsChanged,
-        source: "config-reload"
-      )
+      var animated = false
+      if !bordersChanged, !viewportsChanged,
+        configurationOnlyRecenters(from: previousConfig, to: nextConfig)
+      {
+        startScrollAnimationsIfNeeded()
+        animated = dispatchScrollAnimationIfNeeded()
+      }
+      if !animated {
+        snapScrollOffsetsToTargets()
+        applyCurrentLayout(
+          asynchronousPositions: true,
+          updateVisibility: true,
+          positionTimeoutSeconds: 0.05,
+          forceFloatingFrameWrites: viewportsChanged,
+          source: "config-reload"
+        )
+      }
     }
 
     updateOverviewIfOpen()
@@ -370,4 +379,13 @@ extension Daemon {
       _ = handle(command)
     }
   }
+}
+
+/// A centering change moves only the scroll offset, so it can use the scroll animation.
+func configurationOnlyRecenters(from previous: Config, to next: Config) -> Bool {
+  var layout = previous.layout
+  layout.centerFocusedColumn = next.layout.centerFocusedColumn
+  layout.alwaysCenterSingleColumn = next.layout.alwaysCenterSingleColumn
+  return layout == next.layout && layout != previous.layout
+    && previous.workspaces == next.workspaces
 }

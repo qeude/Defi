@@ -8,6 +8,23 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func onlyACenteringChangeUsesTheScrollAnimation() {
+    let base = Config()
+    var centerMode = base
+    centerMode.layout.centerFocusedColumn = .always
+    var loneColumn = base
+    loneColumn.layout.alwaysCenterSingleColumn = true
+    var centerAndGaps = centerMode
+    centerAndGaps.layout.gaps = 20
+    var centerAndWorkspaces = centerMode
+    centerAndWorkspaces.workspaces.names = ["mail"]
+    #expect(configurationOnlyRecenters(from: base, to: centerMode))
+    #expect(configurationOnlyRecenters(from: base, to: loneColumn))
+    #expect(!configurationOnlyRecenters(from: base, to: base))
+    #expect(!configurationOnlyRecenters(from: base, to: centerAndGaps))
+    #expect(!configurationOnlyRecenters(from: base, to: centerAndWorkspaces))
+  }
+
   @Test func pendingNativeFocusDoesNotHoldBackNewlyAdmittedWindows() {
     let main = MonitorID(rawValue: 1), side = MonitorID(rawValue: 2)
     let old = WindowID(rawValue: 1), new = WindowID(rawValue: 2)
