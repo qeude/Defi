@@ -16,6 +16,14 @@ struct SettingsSearchTests {
     #expect(results.first?.destination == destination)
   }
 
+  @Test(arguments: [
+    "center lone column", "layout.always_center_single_column", "single column",
+  ])
+  func findsTheLoneColumnToggle(query: String) throws {
+    let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
+    #expect(results.first?.destination == .option(.centerLoneColumn))
+  }
+
   @Test(arguments: ["  RESERVED_TOP \n", "Layout.reserved_top", "reserved top area"])
   func findsOptionByLabelAndConfigKey(query: String) throws {
     let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])

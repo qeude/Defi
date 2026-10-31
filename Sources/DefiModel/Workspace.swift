@@ -36,10 +36,14 @@ public struct Column: Equatable, Codable, Sendable {
 public struct ScrollFocus: Equatable, Codable, Sendable {
   public var windowID: WindowID
   public var centered: Bool
+  /// `true` after `center-column`, until selection leaves the column. Never `false`:
+  /// optional so stores written before it existed still decode.
+  public var pinned: Bool?
 
-  public init(windowID: WindowID, centered: Bool) {
+  public init(windowID: WindowID, centered: Bool, pinned: Bool? = nil) {
     self.windowID = windowID
     self.centered = centered
+    self.pinned = pinned
   }
 }
 

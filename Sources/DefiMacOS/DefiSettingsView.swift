@@ -343,6 +343,11 @@ private struct LayoutSettingsView: View {
           Text("Center on overflow").tag("on-overflow")
         }
         .settingsSearchTarget(.focusedColumn)
+        settingsToggle(
+          model, title: SettingsOption.centerLoneColumn.title, table: "layout",
+          key: "always_center_single_column", value: model.config.layout.alwaysCenterSingleColumn
+        )
+          .settingsSearchTarget(.centerLoneColumn)
       }
       WidthPresetsSettings(model: model)
         .settingsSearchTarget(.widthPresets)

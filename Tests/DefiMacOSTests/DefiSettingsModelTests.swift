@@ -94,6 +94,7 @@ struct DefiSettingsModelTests {
     #expect(commands.contains("send-window-to-workspace-name web"))
     #expect(commands.contains("focus-workspace-position 9"))
     #expect(commands.contains("toggle-overview"))
+    #expect(commands.contains("center-column"))
     for command in commands { _ = try parseCommand(command) }
     let unnamed = SettingsShortcutActions.availableCommands(workspaces: [])
     #expect(!unnamed.contains("focus-workspace-name dev"))

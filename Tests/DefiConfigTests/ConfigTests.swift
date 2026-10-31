@@ -199,6 +199,18 @@ struct ConfigTests {
       .centerFocusedColumn == expected)
   }
 
+  @Test(arguments: [("true", true), ("false", false)])
+  func decodesAlwaysCenterSingleColumn(value: String, expected: Bool) throws {
+    #expect(try Config.decode(Data("[layout]\nalways_center_single_column = \(value)".utf8)).layout
+      .alwaysCenterSingleColumn == expected)
+  }
+
+  @Test
+  func `A lone column stays uncentered by default`() throws {
+    #expect(!LayoutConfig().alwaysCenterSingleColumn)
+    #expect(!(try Config.decode(Data("[layout]\ngaps = 4".utf8)).layout.alwaysCenterSingleColumn))
+  }
+
   @Test
   func `Decodes example shape and generates named workspace keys`() throws {
     let data = Data(

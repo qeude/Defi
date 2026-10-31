@@ -36,6 +36,7 @@ public enum Command: Equatable, Codable, Sendable {
   case focusMonitor(Direction)
   case cycleWidth(Direction)
   case maximizeColumn
+  case centerColumn
   case toggleFloating
   case activateFloating
   case joinWindow(Direction)
