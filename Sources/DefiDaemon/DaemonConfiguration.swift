@@ -238,6 +238,7 @@ extension Daemon {
     }
     let manager = HotKeyManager(
       config: config,
+      followsKeyboardLayout: true,
       userInputTracker: platform.userInputTracker,
       pointerMotionTracker: platform.pointerMotionTracker,
       pointerMotionHandler: { [weak self] invocation in

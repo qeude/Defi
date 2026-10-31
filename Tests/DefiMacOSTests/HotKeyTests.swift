@@ -284,6 +284,22 @@ struct HotKeyTests {
   }
 
   @Test
+  func replacedBindingsDispatchOnTheNewChordAtOnce() throws {
+    let old = try Key(accelerator: "hyper-f", aliases: aliases)
+    let moved = Key(code: 16, flags: old.modifierBits)
+    let (context, invocations) = makeContext(bindings: [old: "maximize-column"])
+    context.setBindings([moved: "maximize-column"])
+    #expect(context.bindingCount == 1)
+    for code: CGKeyCode in [3, 16] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = [.maskAlternate, .maskCommand, .maskControl]
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(invocations.commands == ["maximize-column"])
+    #expect(context.capturedKeyCount == 1)
+  }
+
+  @Test
   func overviewModeRoutesBoundKeysToOverviewWithoutCommands() throws {
     let bindings = Dictionary(uniqueKeysWithValues: try [
       ("hyper-left", "focus-column left"), ("hyper-1", "workspace dev"),

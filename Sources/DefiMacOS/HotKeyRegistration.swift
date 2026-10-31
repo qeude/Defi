@@ -20,19 +20,24 @@ extension Key {
 /// its own run loop, including while the application's event loop is busy.
 /// All Carbon calls and references remain on the main thread.
 final class HotKeyRegistration: @unchecked Sendable {
-  private let bindings: [Key: String]
   private let monitor: InputMonitor
+  private let resolve: (@MainActor () -> HotKeyResolution?)?
   private let changed: @Sendable (HotKeyError?) -> Void
   private let cancelled = Mutex(false)
   @MainActor private var references: [EventHotKeyRef] = []
   @MainActor private var eventHandler: EventHandlerRef?
   @MainActor private var observer: CFRunLoopObserver?
   @MainActor private var suspended: Bool?
+  @MainActor private var bindings: [Key: String]
+  @MainActor private var layoutObserver: KeyboardLayoutObserver?
+  @MainActor private var registrationFailed = false
 
-  init(bindings: [Key: String], monitor: InputMonitor,
+  /// `resolve`, when given, reads the keyboard layout and runs on the main thread only.
+  init(bindings: [Key: String], monitor: InputMonitor, resolve: (@MainActor () -> HotKeyResolution?)? = nil,
        changed: @escaping @Sendable (HotKeyError?) -> Void) {
     self.bindings = bindings
     self.monitor = monitor
+    self.resolve = resolve
     self.changed = changed
   }
 
@@ -66,9 +71,31 @@ final class HotKeyRegistration: @unchecked Sendable {
         }
         self.observer = observer
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        if let resolve {
+          if let resolution = resolve() { adopt(resolution) }
+          layoutObserver = KeyboardLayoutObserver { [weak self] in self?.layoutChanged() }
+        }
         refresh()
       }
     }
+  }
+
+  @MainActor private func adopt(_ resolution: HotKeyResolution) {
+    bindings = resolution.keys.mapValues(\.command)
+    monitor.setBindings(bindings)
+    for (accelerator, reason) in resolution.inactive.sorted(by: { $0.key < $1.key }) {
+      NSLog("Defi: shortcut %@ is inactive: %@", accelerator, String(describing: reason))
+    }
+  }
+
+  /// Also fires for input-method switches that keep the layout, which resolve to the same table.
+  @MainActor private func layoutChanged() {
+    guard !cancelled.withLock({ $0 }), let resolution = resolve?(),
+      registrationFailed || resolution.keys.mapValues(\.command) != bindings
+    else { return }
+    adopt(resolution)
+    suspended = nil
+    refresh()
   }
 
   @MainActor private func refresh() {
@@ -95,6 +122,7 @@ final class HotKeyRegistration: @unchecked Sendable {
       )
       guard status == noErr, let reference else {
         unregister()
+        registrationFailed = true
         changed(.registrationFailed(keyCode: key.code, status: status))
         return
       }
@@ -104,6 +132,7 @@ final class HotKeyRegistration: @unchecked Sendable {
       unregister()
       return
     }
+    registrationFailed = false
     monitor.setHotKeysRegistered(!references.isEmpty)
     changed(nil)
   }
@@ -124,6 +153,7 @@ final class HotKeyRegistration: @unchecked Sendable {
       MainActor.assumeIsolated {
         if let observer { CFRunLoopObserverInvalidate(observer) }
         observer = nil
+        layoutObserver = nil
         unregister()
         if let eventHandler { RemoveEventHandler(eventHandler) }
         eventHandler = nil

@@ -57,7 +57,9 @@ public final class HotKeyManager {
   private var registration: HotKeyRegistration?
   private let registrationHandler: @NavigationActor @Sendable (Bool, HotKeyError?) -> Void
 
-  public var bindingCount: Int { bindings.count }
+  private let resolveBindings: (@MainActor () -> HotKeyResolution?)?
+
+  public var bindingCount: Int { context?.bindingCount ?? bindings.count }
 
   public var isHotKeyCaptureEnabled: Bool {
     bindingError == nil && bindingCount > 0 && isEnabled && context?.hasRegisteredHotKeys == true
@@ -79,8 +81,11 @@ public final class HotKeyManager {
     context?.pointerTransitionCount ?? 0
   }
 
+  /// With `followsKeyboardLayout` the shortcuts move to the keys the layout prints, and again whenever
+  /// the layout changes. Tests keep the default so they do not depend on the developer's layout.
   public init(
     config: Config,
+    followsKeyboardLayout: Bool = false,
     userInputTracker: UserInputTracker = UserInputTracker(),
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
@@ -123,6 +128,11 @@ public final class HotKeyManager {
     self.bindings = bindings
     self.bindingError = bindingError
     configurationError = bindingError
+    let (keys, aliases) = (config.keys, config.modifierCombinations)
+    resolveBindings = followsKeyboardLayout
+      ? { @MainActor () -> HotKeyResolution? in
+        try? resolveHotKeys(keys, aliases: aliases, layout: currentKeyboardLayout())
+      } : nil
   }
 
   public func start() throws {
@@ -242,7 +252,9 @@ public final class HotKeyManager {
     guard bindingError == nil else {
       return
     }
-    let registration = HotKeyRegistration(bindings: bindings, monitor: context) { [weak self] error in
+    let registration = HotKeyRegistration(
+      bindings: bindings, monitor: context, resolve: resolveBindings
+    ) { [weak self] error in
       NavigationActor.enqueue {
         guard let self, self.context === context else { return }
         self.bindingError = error
@@ -288,7 +300,7 @@ final class InputMonitor: @unchecked Sendable {
   private static let commandTabKeyCode = CGKeyCode(48)
   private static let closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
 
-  private let bindings: [Key: String]
+  private var bindings: [Key: String]
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
@@ -393,6 +405,12 @@ final class InputMonitor: @unchecked Sendable {
   }
 
   var hasRegisteredHotKeys: Bool { lock.withLock { registeredHotKeys } }
+
+  var bindingCount: Int { lock.withLock { bindings.count } }
+
+  func setBindings(_ bindings: [Key: String]) {
+    lock.withLock { self.bindings = bindings }
+  }
 
   func setHotKeysRegistered(_ registered: Bool) {
     let dismiss = lock.withLock {
@@ -501,6 +519,7 @@ final class InputMonitor: @unchecked Sendable {
     lock.lock()
     let overviewModeEnabled = overviewModeEnabled
     let cheatsheetVisible = cheatsheetVisible
+    let bindings = bindings
     lock.unlock()
     if cheatsheetVisible && code == 53 { return Unmanaged.passUnretained(event) }
     if overviewModeEnabled,
@@ -601,7 +620,7 @@ final class InputMonitor: @unchecked Sendable {
     if targetPID == getpid(), textInputFocused() { return Unmanaged.passUnretained(event) }
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let key = Key(code: code, flags: event.flags.rawValue)
-    let (overview, cheatsheet) = lock.withLock { (overviewModeEnabled, cheatsheetVisible) }
+    let (overview, cheatsheet, bindings) = lock.withLock { (overviewModeEnabled, cheatsheetVisible, bindings) }
     if cheatsheet && code == 53 {
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
