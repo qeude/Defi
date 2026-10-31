@@ -101,6 +101,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .focusWorkspace(try parseRelativeWorkspace(argument("direction")))
   case "focus-workspace-position":
     return .focusWorkspace(try parseWorkspacePosition(argument("position")))
+  case "focus-workspace-previous":
+    return .focusWorkspace(.lastActive)
   case "focus-workspace-name":
     return .focusWorkspace(.named(try argument("workspace")))
   case "reorder-workspace":

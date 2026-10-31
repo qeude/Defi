@@ -524,6 +524,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `focus-workspace up\|down` | Focus the adjacent workspace without wrapping. | `<mod>-up` / `<mod>-down` |
 | `focus-workspace-position <n>` | Focus a 1-based position, clamped to trailing. | `<mod>-1` … `<mod>-9` after configured names |
 | `focus-workspace-name <name>` or `workspace <name>` | Focus a persistent named workspace, including on another monitor. | `<mod>-1` … `<mod>-9` for configured names |
+| `focus-workspace-previous` | Return to the workspace this monitor showed before the active one. Press it again to go back. Any change of the active workspace counts, including a click, the Dock, Command-Tab, and the Overview. Each monitor keeps one entry, and it survives daemon restarts in the same macOS session. Nothing happens when that workspace is gone or has moved to another monitor. | unset |
 | `focus-window up` | Focus previous window in current stack. | `<mod>-k` |
 | `focus-window down` | Focus next window in current stack. | `<mod>-j` |
 | `focus-window first` | Focus first window in current stack. | unset |

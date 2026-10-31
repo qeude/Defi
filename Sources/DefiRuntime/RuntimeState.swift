@@ -247,7 +247,12 @@ public struct RuntimeState: Equatable, Sendable {
         $0.id == disconnected.activeWorkspace
       }) == true
     {
-      monitors[monitors.count - 1].activeWorkspace = disconnected.activeWorkspace
+      // A new Monitor, not a write, so the restore records no visit.
+      let restored = monitors[monitors.count - 1]
+      monitors[monitors.count - 1] = Monitor(
+        id: restored.id, workspaces: restored.workspaces,
+        activeWorkspace: disconnected.activeWorkspace
+      )
     }
     maintainWorkspaceLifecycle()
   }
@@ -460,6 +465,17 @@ public struct RuntimeState: Equatable, Sendable {
         return nil
       }
       return (monitorIndex, targetIndex)
+    case .lastActive:
+      guard monitors.indices.contains(monitorIndex),
+        let active = monitors[monitorIndex].workspaces.firstIndex(where: {
+          $0.id == monitors[monitorIndex].activeWorkspace
+        })
+      else { return nil }
+      // A previous workspace that is gone, moved away, or already active means stay.
+      let previous = monitors[monitorIndex].previousWorkspace.flatMap { id in
+        monitors[monitorIndex].workspaces.firstIndex(where: { $0.id == id })
+      }
+      return (monitorIndex, previous ?? active)
     }
   }
 

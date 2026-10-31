@@ -1072,6 +1072,10 @@ public final class OverviewController: NSObject {
           ? (monitor, monitor.workspaces[min(position - 1, monitor.workspaces.count - 1)]) : nil
       case .relative:
         destination = nil
+      case .lastActive:
+        destination = monitor.previousWorkspace
+          .flatMap { id in monitor.workspaces.first(where: { $0.id == id }) }
+          .map { (monitor, $0) }
       }
       guard let (destinationMonitor, destinationWorkspace) = destination else { return selection }
       if let remembered = selectionsByWorkspace[destinationWorkspace.id],
