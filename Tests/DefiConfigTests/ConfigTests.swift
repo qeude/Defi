@@ -13,6 +13,26 @@ struct ConfigTests {
     }
   }
 
+  @Test
+  func singleCharacterKeyNamesNormalizeAndSymbolsCollideWithTheirNames() {
+    #expect(normalizedAccelerator("ctrl-alt-[", aliases: [:]) == "alt-ctrl-leftbracket")
+    #expect(normalizedAccelerator("ctrl-alt-leftbracket", aliases: [:]) == "alt-ctrl-leftbracket")
+    #expect(normalizedAccelerator("ctrl-alt-\\", aliases: [:]) == "alt-ctrl-backslash")
+    #expect(normalizedAccelerator("ctrl-alt-É", aliases: [:]) == "alt-ctrl-é")
+    #expect(normalizedAccelerator("ctrl-alt-e\u{301}", aliases: [:]) == normalizedAccelerator("ctrl-alt-\u{e9}", aliases: [:]))
+    #expect(normalizedAccelerator("ctrl-alt-¥", aliases: [:]) == "alt-ctrl-¥")
+    #expect(normalizedAccelerator("ctrl-alt-unknown", aliases: [:]) == nil)
+    #expect(normalizedAccelerator("ctrl-alt-fn", aliases: [:]) == nil)
+    #expect(normalizedAccelerator("ctrl-alt- ", aliases: [:]) == nil)
+  }
+
+  @Test
+  func literalKeyNamesAreValidConfiguration() throws {
+    let config = Config(keys: ["ctrl-alt-¥": "toggle-floating", "ctrl-alt-é": "maximize-column"])
+    try config.validate()
+    #expect(config.keys["ctrl-alt-¥"] == "toggle-floating")
+  }
+
   @Test(arguments: ["ctrl-alt", "ctrl-alt-shift", "ctrl-cmd", "ctrl-cmd-shift"])
   func collidingMonitorKeysPreserveConfiguredNavigation(modifier: String) throws {
     let config = try Config.decode(Data("default_key_modifier = \"\(modifier)\"".utf8))

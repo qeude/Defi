@@ -13,12 +13,22 @@ public let acceleratorKeyCodes: [String: UInt16] = [
   "left": 123, "right": 124, "down": 125, "up": 126,
 ]
 
+/// Characters behind the punctuation names, so `[` and `leftbracket` are one binding.
+public let acceleratorSymbolCharacters: [String: String] = [
+  "leftbracket": "[", "rightbracket": "]", "backslash": "\\", "slash": "/", "semicolon": ";",
+  "quote": "'", "minus": "-", "equal": "=", "comma": ",", "period": ".",
+]
+
 /// Shared by default merging and native hotkey parsing so aliases collide consistently.
+/// The key is a table name or one other character, which the keyboard layout may or may not have.
 public func normalizedAccelerator(_ accelerator: String, aliases: [String: String]) -> String? {
   var parts = accelerator.lowercased().split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-  guard parts.count > 1, !parts.contains(where: \.isEmpty),
-    let key = parts.popLast(), acceleratorKeyCodes[key] != nil
-  else { return nil }
+  guard parts.count > 1, !parts.contains(where: \.isEmpty), var key = parts.popLast() else { return nil }
+  key = key.precomposedStringWithCanonicalMapping
+  if let name = acceleratorSymbolCharacters.first(where: { $0.value == key })?.key { key = name }
+  guard acceleratorKeyCodes[key] != nil || (key.count == 1 && !key.allSatisfy(\.isWhitespace)) else {
+    return nil
+  }
   let modifiers = parts.flatMap { part in
     (aliases[part] ?? part).lowercased().split(separator: "+", omittingEmptySubsequences: false).map {
       let name = $0.trimmingCharacters(in: .whitespaces)
