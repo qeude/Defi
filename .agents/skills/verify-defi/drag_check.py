@@ -2,7 +2,7 @@
 """Native title-bar drags of fixture windows on an empty workspace, checked against column membership.
 Usage: python3 script/desktop_lock.py --wait python3 .agents/skills/verify-defi/drag_check.py [evidence-dir]
 Needs cliclick and Accessibility for the calling terminal. Restores the initial workspace."""
-import json, re, subprocess, sys, time
+import json, os, re, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -40,27 +40,39 @@ def frame(fixture, window_number):
     return next(r['frame'] for r in rows if r['windowNumber'] == window_number)
 
 
-def drag(fixture, window_number, targets, workspace, display_width, hold=.35):
-    """Human-paced drag of the title bar so the window center visits each absolute x in `targets`
+def drag(fixture, window_number, targets, workspace, display_width, shot, hold=.35):
+    """Human-paced drag of the title bar so the pointer visits each absolute x, or (x, y), in `targets`
     (30 moves per leg at ~20 ms), pause, sample the previewed drop and membership while held, release.
     Targets stay 80 pt inside the display so macOS edge tiling never engages."""
+    time.sleep(.5)
     x, y, w, _ = frame(fixture, window_number)
     sx, sy = round(x + w / 2), round(y + 12)
     since = trace_time()
-    script, last = [f'm:{sx},{sy}', 'w:80', f'dd:{sx},{sy}', 'w:120'], sx
+    script, last, last_y = [f'm:{sx},{sy}', 'w:80', f'dd:{sx},{sy}', 'w:120'], sx, sy
     for target in targets:
+        target, target_y = target if isinstance(target, tuple) else (target, last_y)
         target = min(max(round(target), 80), display_width - 80)
+        target_y = round(target_y)
         for i in range(1, 31):
-            script += [f'dm:{round(last + (target - last) * i / 30)},{sy}', 'w:20']
-        last = target
+            script += [f'dm:{round(last + (target - last) * i / 30)},'
+                       f'{round(last_y + (target_y - last_y) * i / 30)}', 'w:20']
+        last, last_y = target, target_y
     try:
         subprocess.run(['cliclick', *script, f'w:{int(hold * 1000)}'], check=True)
+        subprocess.run(['screencapture', '-x', shot], check=False)
         previews = shown_preview(since)
         held = columns(workspace)
         held_frame = frame(fixture, window_number)
     finally:
-        subprocess.run(['cliclick', f'du:{last},{sy}'], check=True)
-    return previews, held, held_frame, last
+        subprocess.run(['cliclick', f'du:{last},{last_y}'], check=True)
+    # A busy trace can evict the preview while held: the commit names the previewed target too.
+    deadline, committed = time.monotonic() + 1.5, []
+    while not previews and not committed and time.monotonic() < deadline:
+        committed = [target for stamp, target in
+                     re.findall(rf'^(\d+\.\d+) mouse-drop window={window_number} target=(.+)$',
+                                session.command('trace'), re.M) if float(stamp) > since]
+        time.sleep(.05)
+    return previews or committed[-1:], held, held_frame, last
 
 
 def trace_time():
@@ -131,7 +143,8 @@ def main():
 
         def check(name, number, targets, want, want_preview):
             before = columns(empty)
-            previews, held, held_frame, pointer = drag(windows[number], number, targets, empty, display_width)
+            previews, held, held_frame, pointer = drag(
+                windows[number], number, targets, empty, display_width, out / f'held-{name}.png')
             want = want or before
             actual, settled = converge(empty, want)
             ok = settled and actual == want and held == before and (bool(previews) or not want_preview)
@@ -147,6 +160,55 @@ def main():
         check('extract-stack-bottom-right', b, [center(c, .35)], [[a], [c], [b]], True)
         check('single-column-left-across-two', b, [center(a, -.35)], [[b], [a], [c]], True)
         check('drop-back-at-origin', a, [center(c, .35), center(a) + 10], None, False)
+        # [b], [a], [c] here. Natural drags into and out of growing stacks; rows come from
+        # live frames because every join rebalances the column.
+        def row_point(host, row):
+            x, y, w, h = frame(windows[host], host)
+            return x + w / 2, y + h * (.25 if row == 'above' else .75)
+
+        def add_window(binary='PerformanceFixture'):
+            extra = pe.Fixture(out / binary, out / f'extra-{len(fixtures)}.jsonl')
+            fixtures.append(extra)
+            extra.ask()
+            pe.activate(extra.process.pid)
+            number = extra.ask('create', id='main')['windows'][0]['windowNumber']
+            windows[number] = extra
+            deadline = time.monotonic() + 8
+            while number not in sum(columns(empty), []) and time.monotonic() < deadline:
+                time.sleep(.2)
+            session.command('focus-column', 'last')
+            time.sleep(.4)
+            session.command('cycle-width', 'previous')
+            time.sleep(.6)
+            return number
+
+        check('stack-2-below', a, [row_point(c, 'below')], [[b], [c, a]], True)
+        d = add_window()
+        check('stack-3-between', d, [row_point(a, 'above')], [[b], [c, d, a]], True)
+        e = add_window()
+        check('stack-4-top', e, [row_point(c, 'above')], [[b], [e, c, d, a]], True)
+        check('own-stack-reorder', a, [row_point(e, 'above')], [[b], [a, e, c, d]], True)
+        check('extract-from-4', c, [center(b, -.35)], [[c], [b], [a, e, d]], True)
+        check('extract-from-3', e, [center(b, .35)], [[c], [b], [e], [a, d]], True)
+
+        # Two windows that each need over half the height, on the next empty workspace.
+        pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/ClampFixture.swift',
+                '-o', out / 'ClampFixture'])
+        height = int(re.search(r'monitors=\d+\[\d+:\d+x(\d+)', session.command('status')).group(1))
+        monitor = json.loads(session.command('list-workspaces', '--json'))['monitors'][0]
+        empty = next(w for w in monitor['workspaces'] if w['windowCount'] == 0)['id']
+        session.command('workspace', empty)
+        os.environ['DEFI_FIXTURE_MIN'] = f'200,{int(height * .6)}'
+        try:
+            f, g = add_window('ClampFixture'), add_window('ClampFixture')
+        finally:
+            os.environ.pop('DEFI_FIXTURE_MIN', None)
+        converge(empty, [[f], [g]])
+        time.sleep(.4)
+        check('rejected-stack', f, [row_point(g, 'above')], [[f], [g]], True)
+        if 'rejectedStack' not in (results[-1]['previews'] or [''])[0]:
+            results[-1]['pass'] = False
+            print(f'rejected-stack: FAIL previewed {results[-1]["previews"]}')
         print('cross-monitor: SKIP single-monitor harness')
     finally:
         for f in fixtures:

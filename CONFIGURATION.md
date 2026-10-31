@@ -295,11 +295,14 @@ Screen Recording permission.
 
 ## Mouse reordering
 
-Drag a tiled window by its native title bar. Crossing a neighboring slot reorders
-the column live and animates the other columns while the dragged window stays
-under the pointer. Vertical dragging reorders windows inside the same stacked
-column. Resizing remains width learning and never changes order. Reordering stays
-inside the window's current monitor and active workspace. Mouse-down on an
+Drag a tiled window by its native title bar. The overlay shows the layout the drop
+would produce while the dragged window stays under the pointer; release commits it.
+The middle half of another column inserts the window into its stack, and the outer
+quarters and gaps create a neighboring column. Vertical dragging picks a row inside
+the same stacked column. A stack the window cannot fit in gets a red outline, and
+dropping there leaves everything in place. Without the overlay, the outline and the
+preview are missing but the drop behaves the same. Resizing remains width learning
+and never changes order. Mouse-down on an
 adjacent column defers scroll alignment until release, so the strip stays fixed
 under the pointer while deciding between a click and a drag.
 
