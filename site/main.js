@@ -255,12 +255,13 @@ for (const section of [
     <h2 id="features-title">What Defi does</h2>
     <p class="section-lede left">A tiling window manager built around one idea from Niri: columns that scroll, on the Mac you already use.</p>
     <div class="bento">
-      ${card('b-hero card-video', recording('feature-overview.mp4', 'feature-overview.jpg', 'Defi Overview browsing workspace rows and their windows'), 'Every window at a glance', 'Zoom out to every workspace, with live pictures of your windows. Click one to go there.')}
+      ${card('b-hero card-video', recording('feature-overview.mp4', 'feature-overview.jpg', 'Defi Overview browsing workspace rows and their windows'), 'Every window at a glance', 'Zoom out to every workspace, with live pictures of your windows. Click one to go there, or drag it to another workspace.')}
       ${card('b-side', `<div class="ill-native"><div class="cmdtab">${['safari', 'ghostty', 'xcode', 'messages', 'music'].map((a, i) => `<span class="${i === 2 ? 'on' : ''}">${appIcon(a)}${i === 2 ? '<em>Xcode</em>' : ''}</span>`).join('')}</div><p>${kbd(['⌘'])}<span>+</span>${kbd(['⇥'])}</p></div>`, 'Still a Mac', 'Clicks, the Dock and Command-Tab take you to the right workspace.')}
       ${card('b-split', `<div class="hz-light" aria-hidden="true">${[0.33, 0.5, 0.8, 0.5, 0.33].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="flex:${w}"></i>`).join('')}</div><p class="ill-hz" aria-label="120 Hz"><b aria-hidden="true">120</b><span>Hz</span></p>`, 'Fast as your keys', 'Animations at up to 120 Hz. Commands never wait for a slow app.')}
-      ${card('b-5', `<div class="mini ill-reflow">${miniWin('safari')}${miniWin('xcode', 'on new')}${miniWin('ghostty')}${miniWin('notes')}</div>`, 'Columns that reflow', 'Open a window and it joins the strip. Widen or close one and the others make room.')}
-      ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll.')}
-      ${card('b-3', `<div class="mini ill-float">${miniWin('safari')}${miniWin('ghostty')}${miniWin('notes')}${miniWin('music', 'on float')}</div>`, 'Floating when you need it', 'One key lifts a window above the columns.')}
+      ${card('b-5', `<img class="ill-shot" src="${media('feature-app-rules.webp')}" alt="Defi's Settings listing application rules, such as Xcode on the dev workspace" width="1000" height="690" loading="lazy">`, 'Every app in its place', 'Rules send an app to its named workspace, keep it floating or set its width when its window opens.')}
+      ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll, with an empty workspace always ready.')}
+      ${card('b-3', `<pre class="ill-code"><b>$</b> defi status
+<b>$</b> defi workspace dev</pre>`, 'Ready to script', 'The defi command runs the same actions as the keys, and SketchyBar can show your workspaces.')}
     </div>
   </section>`,
   `<section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
@@ -388,16 +389,6 @@ if (!reducedMotion.matches) {
     observer.disconnect();
     setTimeout(countHz, 150);
   }, { threshold: 0.6 }).observe(hz);
-}
-
-// The reflow and floating illustrations start looping once their card is well in view.
-if (!reducedMotion.matches) {
-  const player = new IntersectionObserver(entries => entries.forEach(({ target, isIntersecting }) => {
-    if (!isIntersecting) return;
-    player.unobserve(target);
-    target.classList.add('play');
-  }), { threshold: 0.6 });
-  app.querySelectorAll('.bento .card').forEach(card => player.observe(card));
 }
 
 // Reveal on scroll.

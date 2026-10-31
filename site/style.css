@@ -423,10 +423,6 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .mw.on{box-shadow:0 0 0 2px #fff,0 14px 28px -10px #000}
 .mw .app-icon{width:min(56%,44px);height:auto;aspect-ratio:1;border-radius:22%}
 .mw:not(.on) .app-icon{opacity:.8}
-/* In a loop, from the moment the card comes into view: a window opens into the strip, widens, settles, and closes;
-   its neighbors reflow around it. Holds between steps keep it calm. */
-.play .ill-reflow .new{animation:reflow 8s var(--ease) infinite}
-@keyframes reflow{0%,8%,94%,100%{flex-grow:0;margin-left:-8px;opacity:0}22%,34%{flex-grow:1;margin-left:0;opacity:1}46%,60%{flex-grow:1.9;margin-left:0;opacity:1}72%,82%{flex-grow:1;margin-left:0;opacity:1}}
 /* Behind 120 Hz, Defi's columns as light, like the footer's: preset widths, the focused one brighter. They rise when the number snaps up. */
 .b-split{position:relative}
 .b-split .card-art{position:static;overflow:visible}
@@ -445,14 +441,10 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .ill-hz{display:flex;align-items:flex-start;justify-content:center;align-self:center;gap:.08em;margin:0;font:600 clamp(56px,36cqi,128px)/1 -apple-system,BlinkMacSystemFont,'SF Pro Display','DM Sans',sans-serif;letter-spacing:-.045em;font-variant-numeric:tabular-nums;color:var(--ink)}
 .ill-hz b{font-weight:inherit}
 .ill-hz>span{margin-top:.14em;font-size:.28em;letter-spacing:0;color:var(--muted)}
-/* One window lifted off the strip: white focus ring, a real offset shadow, a slow drift. */
-.ill-float .mw:not(.float){opacity:.55}
-.ill-float .mw:not(.float) .app-icon{display:none}
-.ill-float .float{position:absolute;inset:26% 20% 10%;z-index:1;opacity:1;background:#26262c}
-.ill-float .float .app-icon{width:min(34%,52px)}
-/* In a loop: the window lifts off the columns into the floating layer, holds, and settles back, as the key toggles it. */
-.play .ill-float .float{animation:float-lift 6s cubic-bezier(.65,0,.35,1) infinite}
-@keyframes float-lift{0%,12%,92%,100%{transform:translateY(14%) scale(.92);box-shadow:0 0 0 2px #fff,0 0 0 0 #0000}30%,74%{transform:none;box-shadow:0 0 0 2px #fff,0 24px 40px -10px #000}}
+.b-5 .card-art{min-height:260px;-webkit-mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);mask-composite:intersect}
+.ill-shot{position:absolute;top:28px;left:28px;max-width:none;width:max(112%,460px);height:auto}
+.ill-code{width:100%;margin:0;padding:16px 14px;border-radius:14px;background:#141416;box-shadow:0 0 0 1px #ffffff1f,0 24px 50px -24px #000;font:500 clamp(10px,5.4cqi,14px)/1.7 var(--mono);color:var(--muted);white-space:pre;overflow:hidden}
+.ill-code b{font-weight:inherit;color:#54afff}
 .ill-monitors{display:flex;align-items:flex-end;gap:12px;width:min(100%,420px)}
 .mon{flex:5;height:auto;aspect-ratio:16/10;gap:3px;padding:11px 4px 4px;border-radius:8px;overflow:visible;box-shadow:0 0 0 3px #0b0b0d,0 0 0 4px #ffffff24,0 24px 40px -18px #000}
 .mon::before{height:7px;border-radius:8px 8px 0 0}
@@ -552,6 +544,6 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 @media (prefers-reduced-motion:reduce){
   .hero-bg i,.hword{animation:none}
   html{scroll-behavior:auto}
-  .ill-reflow *,.term u,.foot-art *,.ill-float *,.hz-light i{animation:none!important}
+  .term u,.foot-art *,.hz-light i{animation:none!important}
   .reveal{opacity:1;transform:none}
 }
