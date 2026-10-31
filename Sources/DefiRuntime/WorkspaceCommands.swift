@@ -302,6 +302,8 @@ func workspaceID(for target: WorkspaceTarget) -> WorkspaceID {
     WorkspaceID(rawValue: "position-\(position)")
   case .relative(let direction):
     WorkspaceID(rawValue: direction.rawValue)
+  case .lastActive:
+    WorkspaceID(rawValue: "previous")
   }
 }
 

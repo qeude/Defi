@@ -16,6 +16,7 @@ struct ModelTests {
     ("workspace sim", Command.switchWorkspace(WorkspaceID(rawValue: "sim"))),
     ("focus-workspace down", Command.focusWorkspace(.relative(.down))),
     ("focus-workspace-position 4", Command.focusWorkspace(.position(4))),
+    ("focus-workspace-previous", Command.focusWorkspace(.lastActive)),
     (
       "move-column-to-workspace up",
       Command.moveColumnToWorkspace(.relative(.up), follow: true)
@@ -103,6 +104,7 @@ struct ModelTests {
     (Command.maximizeColumn, true),
     (Command.centerColumn, false),
     (Command.focusWindowOrWorkspace(.down), false),
+    (Command.focusWorkspace(.lastActive), false),
     (Command.toggleFloating, true),
     (Command.joinWindow(.left), true),
     (Command.unjoinWindows, true),

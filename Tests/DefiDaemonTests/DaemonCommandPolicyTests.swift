@@ -747,6 +747,43 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func focusWorkspacePreviousIsAnOrdinaryWorkspaceActivation() throws {
+    let monitor = MonitorID(rawValue: 1)
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["one", "two", "three"])))
+    state.attachMonitor(monitor)
+    state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "one")
+    try reduce(.focusWorkspace(.named("three")), on: monitor, state: &state)
+    let command = Command.focusWorkspace(.lastActive)
+
+    #expect(command.activatesWorkspace)
+    let target = try #require(workspaceTargetID(for: command, on: monitor, state: state))
+    #expect(target == WorkspaceID(rawValue: "one"))
+    let intent = try #require(workspaceTransitionIntent(targetWorkspaceID: target, state: state))
+    #expect(intent.direction == -1)
+    #expect(intent.incomingWorkspaceID == WorkspaceID(rawValue: "one"))
+  }
+
+  @Test
+  func focusWorkspacePreviousWithoutHistoryStaysOnTheActiveWorkspace() throws {
+    let monitor = MonitorID(rawValue: 1)
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["one", "two"])))
+    state.attachMonitor(monitor)
+    state.monitors[0] = Monitor(
+      id: monitor, workspaces: state.monitors[0].workspaces, activeWorkspace: WorkspaceID(rawValue: "one")
+    )
+    let command = Command.focusWorkspace(.lastActive)
+    let validationState = try changedState(after: command, on: monitor, from: state)
+
+    #expect(validationState == nil)
+    #expect(workspaceTargetID(for: command, on: monitor, state: state) == WorkspaceID(rawValue: "one"))
+    #expect(workspaceTransitionIntent(targetWorkspaceID: WorkspaceID(rawValue: "one"), state: state) == nil)
+    #expect(commandValidationIsNoOp(
+      hasValidationState: false, rebasesPendingFrame: false, command: command,
+      workspaceFocusMonitorID: monitor, activeMonitorID: monitor, selectedWindowIsNativelyFocused: true
+    ))
+  }
+
+  @Test
   func focusWindowOrWorkspaceInsideAStackStaysAWindowFocus() {
     let monitor = MonitorID(rawValue: 1)
     var state = RuntimeState(config: Config())

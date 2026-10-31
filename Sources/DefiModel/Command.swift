@@ -15,6 +15,7 @@ public enum WorkspaceTarget: Equatable, Codable, Sendable {
   case relative(Direction)
   case position(Int)
   case named(String)
+  case lastActive
 }
 
 public enum Command: Equatable, Codable, Sendable {

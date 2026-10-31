@@ -35,6 +35,7 @@ struct OverviewHotKeyTests {
     (19, hyper, "focus-workspace-position 2", .workspace(.position(2))),
     (20, hyper, "focus-workspace-name dev-secondary", .workspace(.named("dev-secondary"))),
     (123, 0, nil, .left), (123, hyper, "focus-column left", .left), (123, hyper, nil, nil),
+    (50, hyper, "focus-workspace-previous", .workspace(.lastActive)),
     (125, hyper, "focus-window-or-workspace down", .down),
     (126, hyper, "focus-window-or-workspace up", .up),
     (123, hyperShift, "move-column left", .layout(.moveColumn(.left))),
