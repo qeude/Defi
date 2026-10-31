@@ -30,8 +30,8 @@ Never import AppKit, ApplicationServices, or CoreGraphics from pure modules.
 
 Private macOS APIs are limited to optional read-only metadata, such as window
 IDs, bounds, constraints, and corner radii, to read-only captures of window and
-desktop pixels while Screen Recording is granted, and to Defi-owned surfaces
-such as border overlays. Pixel captures fall back to public ScreenCaptureKit. Third-party windows are only observed through private APIs;
+desktop pixels while Screen Recording is granted, to reading the global hotkey
+operating mode, and to Defi-owned surfaces such as border overlays. Pixel captures fall back to public ScreenCaptureKit. Third-party windows are only observed through private APIs;
 their position and size change only through public Accessibility.
 
 - use private metadata only when it materially improves a user-visible result

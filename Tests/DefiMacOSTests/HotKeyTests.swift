@@ -72,6 +72,46 @@ struct OverviewHotKeyTests {
   }
 
   @Test(arguments: [false, true])
+  func boundKeysStaySilentWhileAnotherAppCapturesTheKeyboard(captured: Bool) throws {
+    let key = try Key(accelerator: "alt-left", aliases: [:])
+    let invocations = HotKeyInvocationRecorder()
+    let tracker = UserInputTracker()
+    let context = InputMonitor(
+      bindings: [key: "focus-column left"], userInputTracker: tracker,
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { invocations.append($0) }, deliverOverview: { _ in },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in },
+      textInputFocused: { false }, keyboardCaptured: { captured })
+    context.setHotKeysRegistered(true)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = [.maskAlternate]
+    event.timestamp = 7_000_000_000
+    let forwarded = context.handle(type: .keyDown, event: event)
+    #expect(forwarded?.takeUnretainedValue() === event)
+    #expect(invocations.commands == (captured ? [] : ["focus-column left"]))
+    #expect(context.capturedKeyCount == (captured ? 0 : 1))
+    #expect(tracker.snapshot.latestCapturedCommandTimestamp == (captured ? 0 : 7))
+  }
+
+  @Test(arguments: [false, true])
+  func cheatsheetModifierStaysSilentWhileAnotherAppCapturesTheKeyboard(captured: Bool) throws {
+    let key = try Key(accelerator: "alt-left", aliases: [:])
+    let inputs = Mutex<[CheatsheetInput]>([])
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      cheatsheetModifierBits: key.modifierBits,
+      deliverCheatsheet: { input in inputs.withLock { $0.append(input) } },
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, textInputFocused: { false }, keyboardCaptured: { captured })
+    context.setHotKeysRegistered(true)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = [.maskAlternate]
+    #expect(context.handle(type: .flagsChanged, event: event) != nil)
+    #expect(inputs.withLock { $0 } == [.modifiersChanged(matches: !captured, released: false)])
+  }
+
+  @Test(arguments: [false, true])
   func interceptedModalKeysStillUpdateUserActivity(overview: Bool) throws {
     let tracker = UserInputTracker()
     let context = InputMonitor(
