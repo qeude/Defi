@@ -22,7 +22,7 @@ windows shown were each neutral or worse.
 
 Constant 120 Hz motion needs the windows below the overlay to stop costing the
 compositor for the duration of a motion, without their apps seeing an
-occlusion. The candidates, none of them allowed by ADR 0001 today:
+occlusion. The candidates:
 
 - Move the windows off the compositor's path during the motion, for example by
   parking every moving window before the motion and placing it once at the
@@ -39,6 +39,15 @@ succeeds, but the windows below still flip to occluded at every step (21-27 chan
 in 16 navigations, against 4-5 today). Neither candidate is open today, and the
 second would not help: neither focus changes nor an opaque backdrop made the
 replica's windows occluded, and its overlay costs as little translucent.
+
+`script/fluidity_probe.py` counts hitches per user action. Over 36 column navigations,
+skipping every native position write gave 51 hitches against 98 (two runs each), most in
+the first 100 ms and after 300 ms; the middle of the spring is nearly clean. Native moves
+are therefore about half of the cost, and the rest belongs to the start and the landing.
+Deferring landing captures by 700 ms did not help (98 against 82, two runs each). Keeping the
+overlay's layers alive at zero opacity between motions did not help either (88 against 83). Deferring
+focus writes past the motion moved its hitches later without a clear gain (41 against 44 to
+66), from a single valid run.
 
 Until it is accepted, Defi keeps the translucent overlay and the measured limit
 above.

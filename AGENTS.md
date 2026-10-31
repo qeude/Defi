@@ -40,6 +40,11 @@ their position and size change only through public Accessibility.
 - resolve private symbols dynamically; missing or changed symbols must never prevent startup
 - fall back immediately when optional private metadata is unavailable or invalid
 - focus, lifecycle, Spaces, and compositor control remain on public macOS APIs
+- in shipped builds, Defi works with System Integrity Protection enabled and
+  injects no code into another process
+- prototypes may try any other private API within those two limits; one ships
+  only with a gain measured beyond noise, a complete public fallback, and an ADR
+  ([ADR 0001](docs/adr/0001-keep-macos-authoritative.md))
 
 ## Screen Recording
 
@@ -64,7 +69,7 @@ Keep:
 - keyboard and CLI control
 - minimal config by default
 
-Exclude from MVP:
+Out of scope:
 
 - BSP layouts
 - native macOS Spaces control
@@ -90,7 +95,7 @@ competing event taps, socket ownership, AX writes, and visible layout glitches.
 
 Managed tiled windows fill vertical workspace space. Width changes reflow siblings. Inactive workspace windows park offscreen. Active-workspace focus stays explicit.
 
-Poll-based discovery is acceptable for MVP. Keep cadence bounded and frame writes diffed. AX notifications may replace polling later without changing pure runtime contracts.
+AX notifications drive discovery, with bounded delayed reads for apps that report late. Keep cadence bounded and frame writes diffed.
 
 ## Navigation, focus, and parking invariants
 
@@ -116,7 +121,9 @@ Current strategy may evolve when replacement preserves the same outcomes and tes
 
 The scrolling workspace is one continuous horizontal strip.
 
-- animate entering, visible, and leaving windows on the same overlay timeline; each native window moves once
+- animate entering, visible, and leaving windows on the same overlay timeline
+- move each native window once per motion; a strategy with more moves must show
+  fewer dropped frames and no window placed visibly in two steps
 - never impose an arbitrary cap that leaves an entering ribbon window unanimated
 - never minimize managed windows to implement virtual workspaces
 - park inactive-workspace windows through topology and Accessibility, never visual opacity

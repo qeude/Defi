@@ -6,15 +6,27 @@ status: accepted
 
 Defi manages real third-party windows through public Accessibility APIs and
 treats confirmed native focus together with the latest human focus intent as
-authoritative. Navigation, focus, and window movement never require Screen
-Recording; the Overview may use it for window previews (ADR 0003) and degrades
-to cards when it is unavailable. Native windows are never simulated with
-captured overlays during scrolling.
+authoritative. Focus, lifecycle, Spaces, Dock, Command-Tab, and modal behavior
+remain owned by macOS.
 
-Private APIs are limited to optional read-only metadata, such as WindowServer
-geometry or corner radii, and to Defi-owned surfaces such as border overlays.
-Symbols are resolved dynamically, and every lookup has a fully functional public
-fallback. Third-party window position and size are never mutated through
-private APIs: a private frame backend was evaluated, could not move third-party
-windows, and was removed. Focus, lifecycle, Spaces, Dock, Command-Tab, and
-modal behavior remain owned by macOS.
+Motion is drawn from captured window pictures on a Defi-owned overlay, and the
+real windows move underneath it through Accessibility. The overlay only draws:
+navigation, focus, and window movement never depend on capture or on Screen
+Recording, and without the permission windows move at once. The Overview degrades
+to cards in the same case (ADR 0003).
+
+Three limits are firm in shipped builds:
+
+- Third-party window position and size change only through public Accessibility.
+  A private frame backend was evaluated, could not move third-party windows, and
+  was removed.
+- Defi works with System Integrity Protection enabled.
+- Defi injects no code into another process.
+
+Other private APIs ship when they are optional read-only metadata, read-only
+captures, or calls on Defi-owned surfaces. Symbols are resolved dynamically, and
+every use has a fully functional public fallback.
+
+Prototypes may try any other private API within the last two limits. One ships
+only with a gain measured beyond noise, a complete public fallback, and an ADR
+recording the decision.
