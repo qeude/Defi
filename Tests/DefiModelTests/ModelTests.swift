@@ -6,6 +6,8 @@ struct ModelTests {
     ("focus-column left", Command.focusColumn(.left)),
     ("focus-column first", Command.focusColumn(.first)),
     ("focus-window last", Command.focusWindow(.last)),
+    ("focus-window-or-workspace up", Command.focusWindowOrWorkspace(.up)),
+    ("focus-window-or-workspace down", Command.focusWindowOrWorkspace(.down)),
     ("move-column last", Command.moveColumn(.last)),
     ("move-window down", Command.moveWindow(.down)),
     ("move-column-to-monitor left", Command.moveColumnToMonitor(.left)),
@@ -49,6 +51,8 @@ struct ModelTests {
   @Test(arguments: [
     ("move-window right", CommandParseError.invalidDirection("right")),
     ("move-column-to-monitor next", .invalidDirection("next")),
+    ("focus-window-or-workspace next", .invalidDirection("next")),
+    ("focus-window-or-workspace", .missingArgument("direction")),
     ("toggle-fullscreen", .unknownCommand("toggle-fullscreen")),
   ])
   func `Rejects invalid directions and obsolete commands`(input: String, error: CommandParseError) {
@@ -78,6 +82,15 @@ struct ModelTests {
   }
 
   @Test
+  func `The composite focus command is stateless until resolved`() {
+    let command = Command.focusWindowOrWorkspace(.down)
+    #expect(!command.activatesWorkspace)
+    #expect(!command.movesWindowBetweenWorkspaces)
+    #expect(!command.movesWindowsAcrossMonitors)
+    #expect(!command.explicitlyFocusesFloating)
+  }
+
+  @Test
   func `Sending a column does not follow it`() {
     #expect(Command.moveColumnToWorkspace(.named("web"), follow: true).followsWindowMove)
     #expect(!Command.moveColumnToWorkspace(.named("web"), follow: false).followsWindowMove)
@@ -89,6 +102,7 @@ struct ModelTests {
     (Command.cycleWidth(.next), true),
     (Command.maximizeColumn, true),
     (Command.centerColumn, false),
+    (Command.focusWindowOrWorkspace(.down), false),
     (Command.toggleFloating, true),
     (Command.joinWindow(.left), true),
     (Command.unjoinWindows, true),

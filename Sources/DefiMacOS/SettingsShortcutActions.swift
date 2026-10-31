@@ -2,6 +2,7 @@ enum SettingsShortcutActions {
   static let actions = [
     "focus-column", "focus-floating", "move-column", "move-window",
     "move-column-to-monitor", "move-window-to-monitor", "focus-window",
+    "focus-window-or-workspace",
     "move-window-to-workspace", "send-window-to-workspace",
     "move-column-to-workspace", "move-column-to-workspace-name",
     "send-column-to-workspace", "send-column-to-workspace-name",
@@ -60,6 +61,7 @@ enum SettingsShortcutActions {
     "move-column-to-monitor": ["left", "right", "up", "down"],
     "move-window-to-monitor": ["left", "right", "up", "down"],
     "focus-window": ["previous", "next", "first", "last"],
+    "focus-window-or-workspace": ["up", "down"],
     "focus-workspace": ["up", "down"],
     "reorder-workspace": ["up", "down"],
     "move-workspace-to-monitor": ["left", "right", "up", "down"],

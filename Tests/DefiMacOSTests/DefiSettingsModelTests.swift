@@ -95,6 +95,8 @@ struct DefiSettingsModelTests {
     #expect(commands.contains("focus-workspace-position 9"))
     #expect(commands.contains("toggle-overview"))
     #expect(commands.contains("center-column"))
+    #expect(commands.contains("focus-window-or-workspace up"))
+    #expect(commands.contains("focus-window-or-workspace down"))
     for command in commands { _ = try parseCommand(command) }
     let unnamed = SettingsShortcutActions.availableCommands(workspaces: [])
     #expect(!unnamed.contains("focus-workspace-name dev"))

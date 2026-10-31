@@ -54,6 +54,30 @@ public func reduce(
   }
 }
 
+/// Binds a command whose meaning depends on the selection to the concrete command it
+/// is in `state`. The daemon calls this before it classifies a command, because the
+/// workspace transition and focus machinery read the concrete command. Idempotent.
+public func resolvedCommand(
+  _ command: Command,
+  on monitorID: MonitorID?,
+  state: RuntimeState
+) -> Command {
+  guard case .focusWindowOrWorkspace(let direction) = command,
+    let monitor = state.monitors.first(where: { $0.id == monitorID }) ?? state.monitors.first
+  else { return command }
+  let crossesWorkspace = Command.focusWorkspace(.relative(direction))
+  guard
+    let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
+    workspace.columns.indices.contains(workspace.focusedColumn)
+  else { return crossesWorkspace }
+  let column = workspace.columns[workspace.focusedColumn]
+  let atStackEnd =
+    direction == .up
+    ? column.focusedWindow <= 0
+    : column.focusedWindow >= column.windows.count - 1
+  return atStackEnd && workspace.focusedLayer == .tiled ? crossesWorkspace : .focusWindow(direction)
+}
+
 public func reduce(
   _ command: Command,
   on requestedMonitorID: MonitorID?,
@@ -69,6 +93,7 @@ public func reduce(
       state.monitors.firstIndex(where: { $0.id == requestedID })
     } ?? 0
   let layout = state.layout
+  let command = resolvedCommand(command, on: state.monitors[monitorIndex].id, state: state)
 
   if let selectedWindowID = state.selectedWindowID(on: state.monitors[monitorIndex].id),
     state.nativeFullscreenWindowIDs.contains(selectedWindowID),
@@ -278,7 +303,7 @@ public func reduce(
         viewports: viewports,
         state: &state
       )
-    case .focusMonitor:
+    case .focusMonitor, .focusWindowOrWorkspace:
       break
     case .joinWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
@@ -368,7 +393,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .centerColumn, .toggleFloating, .joinWindow, .unjoinWindows:
     true
-  case .focusColumn, .focusFloating, .focusWindow, .switchWorkspace,
+  case .focusColumn, .focusFloating, .focusWindow, .focusWindowOrWorkspace, .switchWorkspace,
     .focusWorkspace, .focusMonitor,
     .activateFloating, .toggleOverview, .toggleCheatsheet, .runStartupCommands:
     false
