@@ -67,6 +67,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .badge span{padding:2px 8px;border-radius:999px;background:var(--ink);color:#111;font-size:11px;font-weight:700;letter-spacing:.06em}
 .hero h1{margin:22px 0 18px;font:500 clamp(54px,7vw,96px)/1.06 var(--display);letter-spacing:-.04em}
 .hword{display:inline-block;animation:hword .8s var(--d) var(--ease) both}
+.hold-title .hword{animation-play-state:paused}
 @keyframes hword{from{opacity:0;filter:blur(10px);transform:translateY(.18em)}}
 .hletter{display:inline-block}
 .hero-baseline{display:inline-block;width:0;height:0}
@@ -99,6 +100,8 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 /* The interactive desk: a Mac 900 pt tall drawn at real size, scaled to the frame */
 .desk{position:relative;z-index:1;width:100%;aspect-ratio:16/10;min-height:200px;max-height:var(--desk-max-h);border-radius:24px;overflow:hidden;background:#000;transform:scale(var(--grow));transform-origin:50% 0;box-shadow:0 0 0 1.2px #ffffff26;text-align:left;cursor:default;user-select:none;-webkit-user-select:none;will-change:transform;transition:border-radius .3s}
 .desk.is-open{border-radius:0}
+/* Until main.js sets --grow, the frame would show at full width. */
+.desk:empty,.desk-stage:has(.desk:empty) .desk-bezel{visibility:hidden}
 /* The display bezel lives on its own layer so the desk only changes transform while scrolling. */
 .desk-bezel{position:absolute;top:0;left:0;width:100%;aspect-ratio:16/10;min-height:200px;max-height:var(--desk-max-h);border-radius:24px;transform:scale(var(--grow));transform-origin:50% 0;box-shadow:0 0 0 12px #0b0b0d,0 0 0 13.4px #ffffff14,0 50px 120px -30px #000;opacity:var(--open);pointer-events:none;will-change:transform,opacity}
 .desk:focus-visible{outline:3px solid var(--accent-soft);outline-offset:-3px}
@@ -372,7 +375,7 @@ aside p.on{background:#ffffff1f}
 @media (max-width:1479px){.desk-stage{--legend-reserve:190px}}
 @media (min-width:601px) and (max-width:700px){.desk-stage{--legend-reserve:230px}}
 .keypad button{display:inline-flex;align-items:center;gap:4px;height:34px;white-space:nowrap;padding:0 6px;background:none;font-size:13px;color:var(--muted);transition:transform .15s,color .15s}
-.keypad button span{margin-left:5px}
+.keypad button span:not(.visually-hidden){margin-left:5px}
 .keypad button:hover kbd{background:#3a3a40}
 .keypad button:hover,.keypad button.pressed{color:var(--ink)}
 .keypad button.pressed{transform:translateY(1px)}
@@ -542,7 +545,7 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
   .hero h1{font-size:38px}
   .lede{font-size:17px}
   .install-button code{font-size:11px}
-  .keypad button:not(.keypad-hold) span{display:none}
+  .keypad button:not(.keypad-hold) span:not(.visually-hidden){position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip-path:inset(50%)}
   .desk{border-radius:10px;margin-top:44px}
   .footer{flex-direction:column;text-align:center}
 }

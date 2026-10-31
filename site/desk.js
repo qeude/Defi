@@ -166,7 +166,7 @@ export function windowMarkup({ app, title }) {
   return `<div class="ov-title" aria-hidden="true">${appIcon(app)}<span>${shown}</span></div><div class="app app-${app}" aria-hidden="true">${CONTENT[app](title)}</div>`;
 }
 
-export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
+export function mountDesk(root, { reducedMotion, onCommand = () => {}, size }) {
   root.innerHTML = `<div class="screen">
     <div class="wallpaper"></div><div class="ov-backdrop"></div>
     <div class="track"></div>
@@ -179,7 +179,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
     <div class="defi-menu" role="menu" hidden></div>
     <div class="spotlight" aria-hidden="true"><div class="sp-bar"><svg viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sp-text"></span></div><div class="sp-result"><img src="${icon}" alt=""><b>Defi</b><span>Application</span></div></div>
     <div class="dock">${DOCK_APPS.map(app => `<button type="button" class="dock-item" data-app="${app}" aria-label="${APPS[app].name}">${appIcon(app)}<span class="dot"></span><span class="tip">${APPS[app].name}</span></button>`).join('')}</div>
-    <div class="cheatsheet" aria-hidden="true">${cheatsheetMarkup()}</div>
+    <div class="cheatsheet" aria-hidden="true"></div>
   </div>`;
   root.style.setProperty('--spring', SPRING);
   root.style.setProperty('--spring-s', `${SPRING_S.toFixed(3)}s`);
@@ -207,7 +207,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
     if (!rows.has(space)) {
       const row = document.createElement('div');
       row.className = 'ws';
-      row.innerHTML = '<button type="button" class="ov-more left" tabindex="-1"></button><button type="button" class="ov-more right" tabindex="-1"></button>';
+      row.innerHTML = '<button type="button" class="ov-more left" tabindex="-1" aria-label="Previous columns"></button><button type="button" class="ov-more right" tabindex="-1" aria-label="Next columns"></button>';
       // A pill pages the row by one column, like Defi's.
       row.querySelectorAll('.ov-more').forEach((pill, i) => pill.addEventListener('click', event => {
         event.stopPropagation();
@@ -355,6 +355,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
     menuApp.textContent = app.name;
     menus.innerHTML = app.menus.map(menu => `<span>${menu}</span>`).join('');
     label.textContent = String(active + 1);
+    defiButton.setAttribute('aria-label', `Defi menu, workspace ${active + 1}`);
     root.querySelectorAll('.dock-item').forEach(item => item.classList.toggle('running', spaces.some(space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)].some(win => win.app === item.dataset.app))));
     if (!defiMenu.hidden) fillMenu();
   }
@@ -701,7 +702,10 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
   }
   function holdModifier() {
     clearTimeout(sheetTimer);
-    sheetTimer = setTimeout(() => sheet.classList.add('on'), 600);
+    sheetTimer = setTimeout(() => {
+      sheet.innerHTML ||= cheatsheetMarkup(); // Drawn on first use: most visitors never hold the keys.
+      sheet.classList.add('on');
+    }, 600);
   }
 
   // Opening Defi from Spotlight: the windows leave the pile for their columns and workspaces.
@@ -746,7 +750,8 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
     root.style.setProperty('--screen-w', `${W}px`);
     root.style.setProperty('--ov-edge', `${overviewEdge()}px`);
   };
-  fit(root.clientWidth, root.clientHeight);
+  fit(size.width, size.height);
+  render();
   new ResizeObserver(([entry]) => {
     fit(entry.contentRect.width, entry.contentRect.height);
     render();
@@ -754,6 +759,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {} }) {
   const syncMotion = () => root.classList.toggle('no-anim', reducedMotion.matches);
   reducedMotion.addEventListener('change', syncMotion);
   syncMotion();
-  render();
+  // A phone's Dock is too small to tap; the keypad under the desk does its work.
+  root.querySelector('.dock').inert = matchMedia('(hover:none) and (max-width:600px)').matches;
   return { press, pressInOverview, holdModifier, hideSheet, launch };
 }

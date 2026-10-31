@@ -17,18 +17,28 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Meet Defi: a Mac desktop with its windows lined up in columns." />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- main.js starts the title's reveal; the timer keeps the title from staying hidden if it fails. -->
+    <script>document.documentElement.classList.add('hold-title');setTimeout(()=>document.documentElement.classList.remove('hold-title'),5000)</script>
+    <noscript><style>.nav-pill,.pill-light,.desk-stage{display:none}</style></noscript>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
-    <div id="app"></div>
-    <noscript>
+    <div id="app">
+      <!-- The first screen is plain HTML so it paints, and its icon loads, before main.js runs. -->
+      <header class="nav"><a class="wordmark" href="#top"><img class="brand-icon" src="./media/defi-icon.png" alt="" width="28" height="28"><span>Defi</span></a>
+        <nav aria-label="Main navigation" class="nav-pill"><a href="#features">Features</a><a href="#shortcuts">Shortcuts</a><a href="#faq">FAQ</a></nav>
+        <div class="nav-actions"><a class="pill pill-dark" href="https://github.com/qeude/Defi"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a><a class="pill pill-light" href="#install">Install</a></div></header>
       <main id="main">
-        <h1>Defi</h1>
-        <p>Defi tiles your Mac windows into scrolling columns. Move between windows with your keyboard, organize tasks in workspaces, and install with Homebrew:</p>
-        <p><code>brew install --cask qeude/tap/defi</code></p>
-        <p><a href="https://github.com/qeude/Defi">Defi on GitHub</a></p>
+        <section class="hero" id="top">
+          <div class="hero-bg" aria-hidden="true"><i class="hb-cols"></i><i class="hb-aurora"></i></div>
+          <p class="badge"><span>ALPHA</span>For Apple Silicon Macs on macOS 26</p>
+          <h1 aria-label="Your desktop, without the edges."><span aria-hidden="true"><span class="hword" style="--d:80ms">Your</span> <span class="hword" style="--d:160ms">desktop,</span><br><span class="hword" style="--d:400ms">without</span> <span class="hword" style="--d:480ms">the</span> <span class="hword" data-dissolve style="--d:560ms">edges.</span></span></h1>
+          <p class="lede">Defi is a scrolling window manager for macOS: windows line up side by side on one strip, and the keyboard takes you along it.</p>
+          <div class="actions"><div class="install"><button type="button" class="install-button" data-copy title="Copy the Homebrew command"><code>brew install --cask qeude/tap/defi</code><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="visually-hidden" role="status"></span></button><details class="install-more"><summary aria-label="Other ways to install" title="Other ways to install"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 4.5 3.5 3.5 3.5-3.5"/></svg></summary><div class="install-menu"><p><b>With curl</b></p><button type="button" class="copy-line" data-copy="curl -fsSL https://raw.githubusercontent.com/qeude/Defi/main/script/install.sh | sh" title="Copy the curl command"><code>curl -fsSL https://raw.githubusercontent.com/qeude/Defi/main/script/install.sh | sh</code><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="visually-hidden" role="status"></span></button><p><b>With the DMG.</b> Download it from the <a href="https://github.com/qeude/Defi/releases/latest">latest release</a> and drag Defi to Applications. macOS blocks its first launch: open Defi, close the warning, click Open Anyway in System Settings › Privacy &amp; Security, and confirm.</p><p class="note">Defi is self-signed and not notarized, so only install it if you trust this source.</p></div></details></div><a class="pill pill-dark pill-lg" href="https://github.com/qeude/Defi"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a></div>
+          <div class="desk-stage"><div class="desk-horizon" aria-hidden="true"></div><div class="desk-bezel" aria-hidden="true"></div><div class="desk" tabindex="0" role="application" aria-label="Interactive Defi preview. Use Control-Option with the arrow keys, minus, equal, O or F. Hold Control-Option to see the shortcuts."></div></div>
+        </section>
       </main>
-    </noscript>
+    </div>
     <script type="module" src="./main.js"></script>
   </body>
 </html>
