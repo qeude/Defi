@@ -84,16 +84,22 @@ func overviewViewportAfterScroll(
     ) - 28
     let contentScale = workspaceHeight / max(viewSize.height, 1)
     let projectedPointsPerScrollUnit = viewSize.width * contentScale
-    let offset = viewport.horizontalOffsets[horizontalWorkspaceID, default: 0]
-      - delta.x * deltaScale / max(projectedPointsPerScrollUnit, 1)
-    viewport.horizontalOffsets[horizontalWorkspaceID] = min(
-      max(offset, 0),
-      maximumHorizontalOffset
+    let start = viewport.horizontalOffsets[horizontalWorkspaceID, default: 0]
+    viewport.horizontalOffsets[horizontalWorkspaceID] = overviewHorizontalOffset(
+      start - delta.x * deltaScale / max(projectedPointsPerScrollUnit, 1),
+      from: start,
+      maximum: maximumHorizontalOffset
     )
   case nil:
     break
   }
   return viewport
+}
+
+/// Clamps a strip offset to `0...maximum`, except that a strip already outside that
+/// range, as a centered column leaves it, may stay and may only move inward.
+func overviewHorizontalOffset(_ offset: Double, from start: Double, maximum: Double) -> Double {
+  min(max(offset, min(start, 0)), max(maximum, start))
 }
 
 func overviewViewportTransitionAfterSelectionAlignment(
@@ -110,7 +116,7 @@ func overviewViewportTransitionAfterSelectionAlignment(
   aligned.horizontalOffsets[workspaceID] = scrollOffset
   if let sourceWorkspaceID, let sourceMaximumHorizontalOffset {
     aligned.horizontalOffsets[sourceWorkspaceID] = min(
-      max(aligned.horizontalOffsets[sourceWorkspaceID, default: 0], 0),
+      aligned.horizontalOffsets[sourceWorkspaceID, default: 0],
       sourceMaximumHorizontalOffset
     )
   }
@@ -1883,9 +1889,8 @@ extension OverviewController: OverviewViewDelegate {
       ?? OverviewViewport()
     activateMonitorHandler(view.monitorID)
     let currentOffset = viewport.horizontalOffsets[workspaceID] ?? 0
-    viewport.horizontalOffsets[workspaceID] = min(
-      max(currentOffset + Double(direction), 0),
-      maximumOffset
+    viewport.horizontalOffsets[workspaceID] = overviewHorizontalOffset(
+      currentOffset + Double(direction), from: currentOffset, maximum: maximumOffset
     )
     animateViewport(on: view.monitorID, to: viewport)
   }

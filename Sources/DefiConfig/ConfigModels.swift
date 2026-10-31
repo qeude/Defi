@@ -190,6 +190,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   public var defaultColumnWidth: Double
   public var presetColumnWidths: [Double]
   public var centerFocusedColumn: CenterFocusedColumnConfig
+  public var alwaysCenterSingleColumn: Bool
   public var gaps: Double
   public var outerTopGap: Double?
   public var outerRightGap: Double?
@@ -202,6 +203,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     defaultColumnWidth: Double = 0.80,
     presetColumnWidths: [Double] = [0.33, 0.50, 0.66, 0.80],
     centerFocusedColumn: CenterFocusedColumnConfig = .never,
+    alwaysCenterSingleColumn: Bool = false,
     gaps: Double = 8,
     outerTopGap: Double? = nil,
     outerRightGap: Double? = nil,
@@ -213,6 +215,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     self.defaultColumnWidth = defaultColumnWidth
     self.presetColumnWidths = presetColumnWidths
     self.centerFocusedColumn = centerFocusedColumn
+    self.alwaysCenterSingleColumn = alwaysCenterSingleColumn
     self.gaps = gaps
     self.outerTopGap = outerTopGap
     self.outerRightGap = outerRightGap
@@ -226,6 +229,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     case defaultColumnWidth = "default_column_width"
     case presetColumnWidths = "preset_column_widths"
     case centerFocusedColumn = "center_focused_column"
+    case alwaysCenterSingleColumn = "always_center_single_column"
     case gaps
     case outerTopGap = "outer_top_gap"
     case outerRightGap = "outer_right_gap"
@@ -248,6 +252,9 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
         CenterFocusedColumnConfig.self,
         forKey: .centerFocusedColumn
       ) ?? defaults.centerFocusedColumn
+    alwaysCenterSingleColumn =
+      try values.decodeIfPresent(Bool.self, forKey: .alwaysCenterSingleColumn)
+      ?? defaults.alwaysCenterSingleColumn
     gaps = try values.decodeIfPresent(Double.self, forKey: .gaps) ?? defaults.gaps
     outerTopGap = try values.decodeIfPresent(Double.self, forKey: .outerTopGap)
     outerRightGap = try values.decodeIfPresent(Double.self, forKey: .outerRightGap)

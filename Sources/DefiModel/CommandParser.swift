@@ -113,6 +113,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .cycleWidth(try parseDirection(argument("direction")))
   case "maximize-column":
     return .maximizeColumn
+  case "center-column":
+    return .centerColumn
   case "toggle-floating":
     return .toggleFloating
   case "activate-floating":

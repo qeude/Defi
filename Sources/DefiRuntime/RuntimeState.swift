@@ -891,6 +891,7 @@ extension LayoutSettings {
       defaultColumnWidth: config.layout.defaultColumnWidth,
       presetColumnWidths: config.layout.presetColumnWidths,
       centerFocusedColumn: CenterFocusedColumn(config.layout.centerFocusedColumn),
+      alwaysCenterSingleColumn: config.layout.alwaysCenterSingleColumn,
       innerHorizontalGap: gaps / 2 + border,
       innerVerticalGap: gaps / 2 + border,
       outerTopGap: (config.layout.outerTopGap ?? gaps) + border,
@@ -902,6 +903,7 @@ extension LayoutSettings {
 
   fileprivate func requiresImmediateReflow(comparedTo other: LayoutSettings) -> Bool {
     centerFocusedColumn != other.centerFocusedColumn
+      || alwaysCenterSingleColumn != other.alwaysCenterSingleColumn
       || innerHorizontalGap != other.innerHorizontalGap
       || innerVerticalGap != other.innerVerticalGap
       || outerTopGap != other.outerTopGap

@@ -200,6 +200,30 @@ struct PointerFocusTests {
   }
 
   @Test
+  func pointerFocusFromAnEdgeColumnCenteredWithEdgeSpaceFollowsTheScrollLimit() throws {
+    var state = try makeState(
+      columnWidths: [0.4, 0.4], gaps: 0, centerFocusedColumn: .always
+    )
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset == -0.3)
+    let original = state
+
+    // Centering the second column moves the strip from -0.3 to 0.1.
+    #expect(
+      focusWindowFromPointer(
+        WindowID(rawValue: 2), activeMonitorID: monitorID, state: &state,
+        viewports: [monitorID: viewport], maximumScrollAmount: 0.39
+      ) == nil
+    )
+    #expect(state == original)
+    #expect(
+      focusWindowFromPointer(
+        WindowID(rawValue: 2), activeMonitorID: monitorID, state: &state,
+        viewports: [monitorID: viewport], maximumScrollAmount: 0.4
+      ) == monitorID
+    )
+  }
+
+  @Test
   func repeatedPointerFocusDoesNothing() throws {
     var state = try makeState(columnWidths: [0.4, 0.4])
 
