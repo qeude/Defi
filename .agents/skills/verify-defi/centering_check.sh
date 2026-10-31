@@ -118,6 +118,24 @@ expect "lone column, single-column setting on" centered
 set_layout 'center_focused_column="always"' 'always_center_single_column=false'
 expect "lone column, always" centered
 set_layout 'center_focused_column="never"'
+# A reload that only recenters must still move windows with animations off.
+cp "$config" "$out/config.animations-on"
+python3 - "$config" <<'PY' || { echo "FAIL: could not disable animations"; exit 1; }
+import re, sys, tomllib
+text = open(sys.argv[1]).read()
+section = r'(?m)^\[animation\]\s*\n(?:(?!\[).*\n)*'
+found = re.search(section, text)
+body = re.sub(r'(?m)^enabled\s*=.*\n', '', found.group(0)) if found else '[animation]\n'
+body = body.replace('[animation]\n', '[animation]\nenabled = false\n', 1)
+text = text[:found.start()] + body + text[found.end():] if found else text.rstrip('\n') + '\n\n' + body
+assert tomllib.loads(text)['animation']['enabled'] is False
+open(sys.argv[1], 'w').write(text)
+PY
+sleep 1.5
+set_layout 'always_center_single_column=true'
+expect "lone column, animations off" centered
+cp "$out/config.animations-on" "$config"
+sleep 1.5
 for _ in 1 2 3 4; do
   close_open_panel
   [ "$(scratch_count)" -lt 4 ] && new_document
