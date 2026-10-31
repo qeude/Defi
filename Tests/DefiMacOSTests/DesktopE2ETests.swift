@@ -412,17 +412,18 @@ final class DesktopE2ETests: XCTestCase {
       key.post(tap: .cghidEventTap)
       key.type = .keyUp
       key.post(tap: .cghidEventTap)
-      Thread.sleep(forTimeInterval: 0.2)
     }
 
     try pressShortcut()
-    XCTAssertEqual(log.all, ["focus-column left"], "A shortcut fires while no app captures the keyboard")
+    XCTAssertTrue(pumpRunLoop(until: { log.count == 1 }, timeout: 2), "A shortcut fires while no app captures the keyboard")
     XCTAssertEqual(setMode(connection, 1), 0)
     try pressShortcut()
+    pumpRunLoop(for: 0.3)
     XCTAssertEqual(log.all, ["focus-column left"], "A shortcut must not fire while another app captures the keyboard")
     XCTAssertEqual(setMode(connection, 0), 0)
     try pressShortcut()
-    XCTAssertEqual(log.all, ["focus-column left", "focus-column left"], "Shortcuts resume when the capture ends")
+    XCTAssertTrue(pumpRunLoop(until: { log.count == 2 }, timeout: 2), "Shortcuts resume when the capture ends")
+    XCTAssertEqual(log.all, ["focus-column left", "focus-column left"])
   }
 
   func testCarbonReservationsReleaseForRecordingTextEditingAndStop() throws {
