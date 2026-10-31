@@ -426,6 +426,68 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(log.all, ["focus-column left", "focus-column left"])
   }
 
+  func testShortcutsFollowKeyboardLayoutChanges() throws {
+    _ = try preflight()
+    func inputSource(_ id: String) throws -> TISInputSource {
+      let sources = TISCreateInputSourceList([kTISPropertyInputSourceID as String: id] as CFDictionary, true)?
+        .takeRetainedValue() as? [TISInputSource]
+      return try XCTUnwrap(sources?.first, "\(id) must be installed")
+    }
+    func isEnabled(_ source: TISInputSource) -> Bool {
+      let enabled = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] ?? []
+      return enabled.contains { CFEqual($0, source) }
+    }
+    let original = try XCTUnwrap(TISCopyCurrentKeyboardInputSource()?.takeRetainedValue())
+    let abc = try inputSource("com.apple.keylayout.ABC")
+    let dvorak = try inputSource("com.apple.keylayout.Dvorak")
+    let kana = try inputSource("com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese")
+    // A Japanese mode can be selected only while its parent input method is enabled.
+    let japanese = try inputSource("com.apple.inputmethod.Kotoeri.RomajiTyping")
+    let added = [abc, dvorak, japanese, kana].filter { !isEnabled($0) }
+    defer {
+      TISSelectInputSource(original)
+      added.forEach { TISDisableInputSource($0) }
+    }
+    added.forEach { TISEnableInputSource($0) }
+    XCTAssertEqual(TISSelectInputSource(abc), noErr)
+    pumpRunLoop(for: 0.5)
+
+    let log = CommandLog()
+    let manager = onNavigation { HotKeyManager(
+      config: Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: ["hyper-f": "maximize-column"]),
+      followsKeyboardLayout: true
+    ) { log.append($0.command) } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+    func press(_ code: CGKeyCode) throws {
+      let source = CGEventSource(stateID: .hidSystemState)
+      let key = try XCTUnwrap(CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true))
+      key.flags = [.maskAlternate, .maskCommand, .maskControl]
+      key.post(tap: .cghidEventTap)
+      key.type = .keyUp
+      key.post(tap: .cghidEventTap)
+    }
+    func assertFires(onlyOn expected: CGKeyCode, not other: CGKeyCode, _ message: String) throws {
+      let before = log.count
+      try press(other)
+      pumpRunLoop(for: 0.3)
+      XCTAssertEqual(log.count, before, "\(message): key code \(other) must be free")
+      try press(expected)
+      XCTAssertTrue(pumpRunLoop(until: { log.count == before + 1 }, timeout: 2), "\(message): key code \(expected) must fire")
+    }
+
+    try assertFires(onlyOn: 3, not: 16, "ABC prints F on the home row")
+    XCTAssertEqual(TISSelectInputSource(dvorak), noErr)
+    pumpRunLoop(for: 0.5)
+    try assertFires(onlyOn: 16, not: 3, "Dvorak prints F on the top row")
+    XCTAssertEqual(TISSelectInputSource(kana), noErr)
+    pumpRunLoop(for: 0.5)
+    try assertFires(onlyOn: 16, not: 3, "Japanese input keeps the ASCII layout in use")
+    XCTAssertEqual(TISSelectInputSource(abc), noErr)
+    pumpRunLoop(for: 0.5)
+    try assertFires(onlyOn: 3, not: 16, "Returning to ABC moves the shortcut back")
+  }
+
   func testCarbonReservationsReleaseForRecordingTextEditingAndStop() throws {
     let platform = try preflight()
     let fixtures = try openFixtures(platform)
