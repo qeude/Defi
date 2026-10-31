@@ -8,6 +8,23 @@ import Foundation
 let hotKeyEventTapPlacement = CGEventTapPlacement.tailAppendEventTap
 let inputMonitorTapOptions = CGEventTapOptions.listenOnly
 
+// Private, read-only and optional: capturing apps silence Carbon hotkeys through this mode, but not the tap.
+let keyboardCapturedByAnotherApp: @Sendable () -> Bool = {
+  typealias Connection = @convention(c) () -> Int32
+  typealias GetMode = @convention(c) (Int32, UnsafeMutablePointer<Int32>) -> Int32
+  guard let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+    let connection = dlsym(skyLight, "SLSMainConnectionID") ?? dlsym(skyLight, "CGSMainConnectionID"),
+    let symbol = dlsym(skyLight, "SLSGetGlobalHotKeyOperatingMode")
+      ?? dlsym(skyLight, "CGSGetGlobalHotKeyOperatingMode")
+  else { return { false } }
+  let connectionID = unsafeBitCast(connection, to: Connection.self)()
+  let getMode = unsafeBitCast(symbol, to: GetMode.self)
+  return {
+    var mode: Int32 = 0
+    return getMode(connectionID, &mode) == 0 && mode != 0
+  }
+}()
+
 @NavigationActor
 public final class HotKeyManager {
   public typealias Handler = @NavigationActor @Sendable (HotKeyInvocation) -> Void
@@ -182,6 +199,8 @@ public final class HotKeyManager {
       NavigationActor.enqueue {
         closeIntentHandler(timestamp, processID)
       }
+    } keyboardCaptured: {
+      keyboardCapturedByAnotherApp()
     }
     // Install interception first so passive observation sees routed pointer events.
     // Ordinary shortcuts always pass through the filtering callback unchanged.
@@ -303,6 +322,7 @@ final class InputMonitor: @unchecked Sendable {
   private let cheatsheetModifierBits: UInt64?
   private let deliverCheatsheet: @Sendable (CheatsheetInput) -> Void
   private let textInputFocused: @Sendable () -> Bool
+  private let keyboardCaptured: @Sendable () -> Bool
 
   init(
     bindings: [Key: String],
@@ -317,10 +337,12 @@ final class InputMonitor: @unchecked Sendable {
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
     tapReenabled: @escaping @Sendable (TimeInterval) -> Void,
     closeIntent: @escaping @Sendable (TimeInterval, pid_t?) -> Void = { _, _ in },
-    textInputFocused: @escaping @Sendable () -> Bool = { settingsTextInputFocused.withLock { $0 } }
+    textInputFocused: @escaping @Sendable () -> Bool = { settingsTextInputFocused.withLock { $0 } },
+    keyboardCaptured: @escaping @Sendable () -> Bool = { false }
   ) {
     self.bindings = bindings
     self.textInputFocused = textInputFocused
+    self.keyboardCaptured = keyboardCaptured
     self.cheatsheetModifierBits = cheatsheetModifierBits
     self.deliverCheatsheet = deliverCheatsheet
     self.userInputTracker = userInputTracker
@@ -463,7 +485,7 @@ final class InputMonitor: @unchecked Sendable {
     if type == .flagsChanged {
       let bits = hotKeyModifierBits(event.flags)
       deliverCheatsheet(.modifiersChanged(
-        matches: hasRegisteredHotKeys && bits != 0 && bits == cheatsheetModifierBits,
+        matches: hasRegisteredHotKeys && bits != 0 && bits == cheatsheetModifierBits && !keyboardCaptured(),
         released: bits == 0
       ))
     } else if type == .keyDown {
@@ -492,7 +514,7 @@ final class InputMonitor: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     guard hasRegisteredHotKeys else { return Unmanaged.passUnretained(event) }
-    guard let command = bindings[key] else {
+    guard let command = bindings[key], !keyboardCaptured() else {
       return Unmanaged.passUnretained(event)
     }
     if command == "toggle-cheatsheet",

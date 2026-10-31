@@ -84,6 +84,8 @@ final class DesktopE2ETests: XCTestCase {
       FrameAssignment(windowID: floating, frame: Rect(x: monitor.frame.x + half, y: monitor.frame.y, width: half, height: 440)),
     ]) }
     XCTAssertTrue(settleFrames(platform))
+    // The user's own windows can cover the tiled fixture while another app is active.
+    try activate(fixtures.tiledProcess, focusing: tiled, platform)
     let cursor = try XCTUnwrap(CGEvent(source: nil)?.location)
     defer { CGWarpMouseCursorPosition(cursor) }
     let received = DesktopValue<[PointerMotionInvocation]>([])
@@ -386,6 +388,44 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(dismissals.withLock { $0 }, 1)
   }
 
+  /// Moonlight and other SDL apps capture the keyboard with this exact call.
+  func testKeyboardCaptureByAnotherAppSilencesShortcuts() throws {
+    _ = try preflight()
+    typealias MainConnection = @convention(c) () -> Int32
+    typealias SetMode = @convention(c) (Int32, Int32) -> Int32
+    let skyLight = try XCTUnwrap(dlopen(
+      "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY | RTLD_LOCAL))
+    let connection = unsafeBitCast(try XCTUnwrap(dlsym(skyLight, "CGSMainConnectionID")), to: MainConnection.self)()
+    let setMode = unsafeBitCast(try XCTUnwrap(dlsym(skyLight, "CGSSetGlobalHotKeyOperatingMode")), to: SetMode.self)
+    defer { _ = setMode(connection, 0) }
+
+    let log = CommandLog()
+    let manager = onNavigation { HotKeyManager(
+      config: Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: ["hyper-left": "focus-column left"])
+    ) { log.append($0.command) } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+    func pressShortcut() throws {
+      let source = CGEventSource(stateID: .hidSystemState)
+      let key = try XCTUnwrap(CGEvent(keyboardEventSource: source, virtualKey: 123, keyDown: true))
+      key.flags = [.maskAlternate, .maskCommand, .maskControl]
+      key.post(tap: .cghidEventTap)
+      key.type = .keyUp
+      key.post(tap: .cghidEventTap)
+    }
+
+    try pressShortcut()
+    XCTAssertTrue(pumpRunLoop(until: { log.count == 1 }, timeout: 2), "A shortcut fires while no app captures the keyboard")
+    XCTAssertEqual(setMode(connection, 1), 0)
+    try pressShortcut()
+    pumpRunLoop(for: 0.3)
+    XCTAssertEqual(log.all, ["focus-column left"], "A shortcut must not fire while another app captures the keyboard")
+    XCTAssertEqual(setMode(connection, 0), 0)
+    try pressShortcut()
+    XCTAssertTrue(pumpRunLoop(until: { log.count == 2 }, timeout: 2), "Shortcuts resume when the capture ends")
+    XCTAssertEqual(log.all, ["focus-column left", "focus-column left"])
+  }
+
   func testCarbonReservationsReleaseForRecordingTextEditingAndStop() throws {
     let platform = try preflight()
     let fixtures = try openFixtures(platform)
@@ -571,7 +611,8 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(pumpRunLoop(until: { sidebar.selectedRow == 1 && descendants().contains { $0 is NSStepper } }, timeout: 2),
       "Layout must be open before searching")
     let search = try XCTUnwrap(descendants().compactMap { $0 as? NSSearchField }.first)
-    XCTAssertTrue(window.makeFirstResponder(search))
+    // Pumping leaves a stale window-less NSApp.currentEvent, which the field's focus guard refuses.
+    search.selectText(nil)
     let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
     editor.insertText("RESERVED_TOP", replacementRange: NSRange(location: 0, length: 0))
     XCTAssertTrue(pumpRunLoop(until: { sidebar.numberOfRows == 1 }, timeout: 2))
@@ -780,6 +821,9 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(controller.surfaceTransitionCount, zooms + 1, "The zoom must run from verified native frames without previews")
     XCTAssertTrue(controller.openingTransitionHistory.contains("started(surfaces:0,"), controller.openingTransitionHistory)
     controller.close()
+    // Releasing the controller mid-zoom strands a screen-sized panel above every later test's windows.
+    let finalHidden = await waitUntil(timeout: 2) { panels().allSatisfy { !$0.isVisible } }
+    XCTAssertTrue(finalHidden)
     controller.prepare(windowPreviewsEnabled: false)
   }
 
