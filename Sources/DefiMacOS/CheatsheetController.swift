@@ -113,6 +113,8 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("join-window left", "Join left column"), ("join-window right", "Join right column"),
   ("unjoin-windows", "Unjoin"),
   ("focus-workspace up", "Workspace up"), ("focus-workspace down", "Workspace down"),
+  ("focus-window-or-workspace up", "Window or workspace up"),
+  ("focus-window-or-workspace down", "Window or workspace down"),
   ("focus-workspace-name", "Workspace"), ("workspace", "Workspace"),
   ("focus-workspace-position", "Workspace"), ("toggle-overview", "Overview"),
   ("focus-monitor", "Focus monitor"), ("move-workspace-to-monitor", "Move workspace to monitor"),

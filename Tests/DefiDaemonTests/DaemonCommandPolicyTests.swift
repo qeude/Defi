@@ -724,6 +724,45 @@ struct DaemonCommandPolicyTests {
     }
   }
 
+  @Test
+  func focusWindowOrWorkspaceAtAStackEndResolvesToTheAdjacentWorkspaceActivation() throws {
+    let monitor = MonitorID(rawValue: 1)
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["one", "two", "three"])))
+    state.attachMonitor(monitor)
+    state.monitors[0].workspaces[1].columns = [
+      Column(
+        windows: [WindowID(rawValue: 20), WindowID(rawValue: 21)], focusedWindow: 1,
+        width: .fraction(0.5))
+    ]
+    state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "two")
+    let command = resolvedCommand(.focusWindowOrWorkspace(.down), on: monitor, state: state)
+
+    #expect(command == .focusWorkspace(.relative(.down)))
+    #expect(command.activatesWorkspace)
+    let target = try #require(workspaceTargetID(for: command, on: monitor, state: state))
+    #expect(target == WorkspaceID(rawValue: "three"))
+    let intent = try #require(workspaceTransitionIntent(targetWorkspaceID: target, state: state))
+    #expect(intent.direction == 1)
+    #expect(intent.outgoingWorkspaceID == WorkspaceID(rawValue: "two"))
+  }
+
+  @Test
+  func focusWindowOrWorkspaceInsideAStackStaysAWindowFocus() {
+    let monitor = MonitorID(rawValue: 1)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitor)
+    state.monitors[0].workspaces[0].columns = [
+      Column(
+        windows: [WindowID(rawValue: 20), WindowID(rawValue: 21)], focusedWindow: 0,
+        width: .fraction(0.5))
+    ]
+    let command = resolvedCommand(.focusWindowOrWorkspace(.down), on: monitor, state: state)
+
+    #expect(command == .focusWindow(.down))
+    #expect(!command.activatesWorkspace)
+    #expect(workspaceTargetID(for: command, on: monitor, state: state) == nil)
+  }
+
   @Test(arguments: [false, true])
   func impossibleWorkspaceMonitorMoveDoesNotStealFocus(trailing: Bool) throws {
     let local = MonitorID(rawValue: 1), remote = MonitorID(rawValue: 2)

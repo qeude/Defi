@@ -373,8 +373,8 @@ extension Daemon {
     }
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
-      let command = try parseCommand(rawCommand)
-      if command == .toggleCheatsheet {
+      let parsedCommand = try parseCommand(rawCommand)
+      if parsedCommand == .toggleCheatsheet {
         guard desktopSessionActive, !state.monitors.isEmpty else {
           return .failure("cheatsheet unavailable before monitor discovery or during an inactive session")
         }
@@ -386,10 +386,10 @@ extension Daemon {
         return .success()
       }
       handleCheatsheetInput(.dismiss)
-      if command == .toggleOverview {
+      if parsedCommand == .toggleOverview {
         return toggleOverview()
       }
-      if overviewState.isOpen, command.editsSelectedLayout, monitorIndex == nil {
+      if overviewState.isOpen, parsedCommand.editsSelectedLayout, monitorIndex == nil {
         let originatingSession = overviewToggleState.snapshot().sessionGeneration
         deferredResponse?.deferResponse()
         DispatchQueue.main.async { [weak self] in
@@ -397,7 +397,7 @@ extension Daemon {
           if let controller = overviewController,
             overviewToggleState.isCurrentSession(originatingSession),
             controller.sessionGeneration == originatingSession {
-            let accepted = controller.applyLayoutCommand(command) {
+            let accepted = controller.applyLayoutCommand(parsedCommand) {
               [weak self] command, windowID, appID, monitorID, workspaceID, generation in
               NavigationActor.enqueue { [weak self] in
                 let operation = {
@@ -431,6 +431,7 @@ extension Daemon {
       } else {
         commandMonitorID = activeMonitorID ?? state.monitors.first?.id
       }
+      let command = resolvedCommand(parsedCommand, on: commandMonitorID, state: state)
       if !floatingFramesRefreshed, platform.hasPendingMouseResizeGesture,
         command.activatesWorkspace || command.movesWindowBetweenWorkspaces || command.movesWindowsAcrossMonitors,
         commandMonitorID != nil
