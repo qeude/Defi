@@ -644,7 +644,7 @@ final class InputMonitor: @unchecked Sendable {
     if targetPID == getpid(), textInputFocused() { return Unmanaged.passUnretained(event) }
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let key = Key(code: code, flags: event.flags.rawValue)
-    let (overview, cheatsheet, bindings) = lock.withLock { (overviewModeEnabled, cheatsheetVisible, bindings) }
+    let (overview, cheatsheet, bindings) = lock.withLock { (overviewModeEnabled, cheatsheetVisible, self.bindings) }
     if cheatsheet && code == 53 {
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
