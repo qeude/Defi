@@ -45,12 +45,13 @@ private func keyboardLayout(of source: TISInputSource, keyboardType: UInt32) -> 
   }
 }
 
-/// UCKeyTranslate prints for the ISO-only key (10) and the JIS-only keys (93, 94) on every keyboard
-/// type; a shortcut on a key the hardware lacks could never be pressed.
+/// UCKeyTranslate prints for the ISO-only key (10), the key JIS lacks (50) and the JIS-only keys (93, 94)
+/// on every keyboard type; a shortcut on a key the hardware lacks could never be pressed.
 private func keyExists(_ code: UInt16, _ keyboardType: UInt32) -> Bool {
   let type = KBGetLayoutType(Int16(truncatingIfNeeded: keyboardType))
   return switch code {
   case 10: type != OSType(kKeyboardANSI) && type != OSType(kKeyboardJIS)
+  case 50: type != OSType(kKeyboardJIS)
   case 93, 94: type != OSType(kKeyboardANSI) && type != OSType(kKeyboardISO)
   default: true
   }

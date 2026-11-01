@@ -127,6 +127,8 @@ struct KeyboardLayoutResolverTests {
     #expect(try installed("ABC", type: ansi).characters[[]]?[10] == nil)
     #expect(try installed("ABC", type: jis).characters[[]]?[10] == nil)
     #expect(try installed("ABC", type: iso).characters[[]]?[10] == "§")
+    #expect(try installed("ABC", type: jis).characters[[]]?[50] == nil)
+    #expect(try installed("ABC", type: ansi).characters[[]]?[50] == "`")
     #expect(try installed("ABC", type: ansi).characters[[]]?[93] == nil)
     #expect(try installed("ABC", type: iso).characters[[]]?[94] == nil)
     #expect(try installed("ABC", type: jis).characters[[]]?[93] == "¥")

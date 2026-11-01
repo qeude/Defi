@@ -99,7 +99,8 @@ final class HotKeyRegistration: @unchecked Sendable {
   /// Also fires for input-method switches that keep the layout, which resolve to the same table.
   @MainActor private func layoutChanged() {
     guard !cancelled.withLock({ $0 }), let resolution = resolve?(),
-      registrationFailed || !held.isEmpty || resolution.keys.mapValues(\.command) != bindings.mapValues(\.command)
+      registrationFailed || !held.isEmpty || resolution.closeWindowKeyCodes != closeWindowKeyCodes
+        || resolution.keys.mapValues(\.command) != bindings.mapValues(\.command)
     else { return }
     adopt(resolution)
     suspended = nil
