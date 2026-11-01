@@ -130,10 +130,10 @@ public final class HotKeyManager {
     self.bindings = bindings
     self.bindingError = bindingError
     configurationError = bindingError
-    let (keys, aliases) = (config.keys, config.modifierCombinations)
+    let (keys, aliases, written) = (config.keys, config.modifierCombinations, Set(config.keyOverrides.keys))
     resolveBindings = followsKeyboardLayout
       ? { @MainActor () -> HotKeyResolution? in
-        try? resolveHotKeys(keys, aliases: aliases, layout: currentKeyboardLayout())
+        try? resolveHotKeys(keys, aliases: aliases, layout: currentKeyboardLayout(), userWritten: written)
       } : nil
   }
 

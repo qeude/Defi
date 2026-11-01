@@ -262,10 +262,12 @@ private let acceleratorPairs = [["leftbracket", "rightbracket"]]
 /// 0 digits and arrows, always physical. 1 the character on the base layer. 2 the physical key of a
 /// bracket pair that cannot sit on its characters. 3 the character on Shift or Option, with that
 /// modifier added. 4 the physical key. 5 the lowest free key, so a table name always holds a chord. Literal names (`é`) use ranks 1 and 3
-/// only. A nil layout is physical. A written-Shift symbol
+/// only. A nil layout is physical. A character or digit claim of a binding the user wrote
+/// (`userWritten`) sorts ahead of every generated claim; fallbacks never do. A written-Shift symbol
 /// first tries its unshifted sibling's key, once the sibling is placed.
 func resolveHotKeys(
-  _ bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?
+  _ bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?,
+  userWritten: Set<String> = []
 ) throws(HotKeyError) -> HotKeyResolution {
   struct Claim {
     let rank: Int
@@ -275,7 +277,8 @@ func resolveHotKeys(
     let code: UInt16?
     var added = false
     var follows: String?
-    var order: (Int, String) { (rank, accelerator) }
+    var userFirst = false
+    var order: (Int, Int, String) { (userFirst ? 0 : 1, rank, accelerator) }
   }
   var parsed: [(accelerator: String, command: String, modifiers: CGEventFlags, name: String)] = []
   for (accelerator, command) in bindings {
@@ -303,10 +306,11 @@ func resolveHotKeys(
     let (accelerator, command, modifiers, name) = binding
     let follows = acceleratorSymbolCharacters[name] == nil || !modifiers.contains(.maskShift)
       ? nil : siblings[shape(name, modifiers.subtracting(.maskShift))]
+    let written = userWritten.contains(accelerator)
     func claim(_ rank: Int, _ modifiers: CGEventFlags, _ code: UInt16?, added: Bool = false) {
       claims.append(Claim(
         rank: rank, accelerator: accelerator, command: command, modifiers: modifiers, code: code,
-        added: added, follows: follows))
+        added: added, follows: follows, userFirst: written && [0, 1, 3].contains(rank)))
     }
     let physical = acceleratorKeyCodes[name]
     // Digits and arrows (codes from 123) never follow the layout.
@@ -356,7 +360,7 @@ func resolveHotKeys(
     guard let sibling = claim.follows.flatMap({ placed[$0] }), !sibling.added else { continue }
     follows.append(Claim(
       rank: 0, accelerator: claim.accelerator, command: claim.command, modifiers: claim.modifiers,
-      code: sibling.code))
+      code: sibling.code, userFirst: userWritten.contains(claim.accelerator)))
   }
   place(followers + follows)
   for accelerator in bindings.keys where placed[accelerator] == nil {
@@ -368,7 +372,9 @@ func resolveHotKeys(
 func configuredHotKeys(
   _ config: Config, layout: KeyboardLayout? = nil
 ) throws(HotKeyError) -> [Key: (accelerator: String, command: String)] {
-  try resolveHotKeys(config.keys, aliases: config.modifierCombinations, layout: layout).keys
+  try resolveHotKeys(
+    config.keys, aliases: config.modifierCombinations, layout: layout, userWritten: Set(config.keyOverrides.keys)
+  ).keys
 }
 
 extension Key {
@@ -394,11 +400,12 @@ struct ShortcutResolution {
 
   init(
     bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?,
-    heldByAnotherApp: Set<String> = []
+    userWritten: Set<String> = [], heldByAnotherApp: Set<String> = []
   ) {
     self.layout = layout
     self.aliases = aliases
-    var resolution = (try? resolveHotKeys(bindings, aliases: aliases, layout: layout)) ?? HotKeyResolution()
+    var resolution = (try? resolveHotKeys(bindings, aliases: aliases, layout: layout, userWritten: userWritten))
+      ?? HotKeyResolution()
     for (key, binding) in resolution.keys where heldByAnotherApp.contains(binding.accelerator) {
       resolution.keys[key] = nil
       resolution.inactive[binding.accelerator] = .heldByAnotherApp
@@ -417,7 +424,7 @@ struct ShortcutResolution {
   init(config: Config, layout: KeyboardLayout?, heldByAnotherApp: Set<String> = []) {
     self.init(
       bindings: config.keys, aliases: config.modifierCombinations, layout: layout,
-      heldByAnotherApp: heldByAnotherApp)
+      userWritten: Set(config.keyOverrides.keys), heldByAnotherApp: heldByAnotherApp)
   }
 
   func key(for normalizedAccelerator: String) -> Key? { chords[normalizedAccelerator] }

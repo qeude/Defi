@@ -23,7 +23,8 @@ private func chord(_ key: Key) -> String {
 }
 
 private func resolution(_ config: Config = Config(), _ layout: KeyboardLayout?) throws -> HotKeyResolution {
-  try resolveHotKeys(config.keys, aliases: config.modifierCombinations, layout: layout)
+  try resolveHotKeys(
+    config.keys, aliases: config.modifierCombinations, layout: layout, userWritten: Set(config.keyOverrides.keys))
 }
 
 /// Accelerator to chord, `inactive` when the binding holds none.
@@ -178,10 +179,19 @@ struct KeyboardLayoutResolverTests {
     #expect(byAccelerator["alt-é"] == "alt-19")
     #expect(byAccelerator["ctrl-alt-ù"] == "ctrl-alt-39")
     // The digit row wins: workspace 2 already holds ctrl-alt-19.
-    // The digit row wins: workspace 2 already holds ctrl-alt-19.
-    #expect(result.inactive["ctrl-alt-é"] == .held(by: "ctrl-alt-2"))
+    // A binding the user wrote holds its character ahead of the generated digit.
+    #expect(byAccelerator["ctrl-alt-é"] == "ctrl-alt-19")
+    #expect(result.inactive == ["ctrl-alt-2": .held(by: "ctrl-alt-é")])
     // The literal took quote's physical key, so quote claims the lowest free one instead.
     #expect(byAccelerator["ctrl-alt-quote"] == "ctrl-alt-0")
+  }
+
+  @Test
+  func theDaemonPathAlsoRanksWhatTheUserWroteFirst() throws {
+    let config = Config(keys: ["ctrl-alt-é": "maximize-column"])
+    let keys = try configuredHotKeys(config, layout: installed("French"))
+    #expect(keys[Key(code: 19, flags: CGEventFlags([.maskControl, .maskAlternate]).rawValue)]?.command == "maximize-column")
+    #expect(keys.values.filter { $0.accelerator == "ctrl-alt-2" }.isEmpty)
   }
 
   @Test
@@ -289,7 +299,8 @@ struct KeyboardLayoutLabelTests {
   @Test
   func inactiveShortcutsSayWhy() throws {
     let config = Config(keys: ["ctrl-alt-é": "maximize-column"])
-    #expect(label("ctrl-alt-é", try installed("French"), config) == "Held by ⌃⌥2")
+    #expect(label("ctrl-alt-é", try installed("French"), config) == "⌃⌥É")
+    #expect(label("ctrl-alt-2", try installed("French"), config) == "Held by ⌃⌥É")
     #expect(label("ctrl-alt-é", try installed("US"), config) == "Not on this layout")
   }
 

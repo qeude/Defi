@@ -533,8 +533,12 @@ position. Each key type resolves as follows:
 
 Earlier-claimed chords win in this order: digits and arrows, then characters on
 the unmodified key, then bracket pairs on their US positions, then characters
-that need Shift or Option, then US positions, then the free-key search. Ties break by accelerator name, so the
-result never depends on the order of the file. The keypad is never used.
+that need Shift or Option, then US positions, then the free-key search. Ties
+break by accelerator name, so the result never depends on the order of the file.
+A shortcut you wrote in `[keys]` holds its digit, arrow or character ahead of
+every generated default, so on French `ctrl-alt-é` keeps the key of the digit 2
+and the default `ctrl-alt-2` reads "Held by" it. A displaced default moves on to
+its own fallbacks. The keypad is never used.
 Shortcuts containing `cmd` read the layout as Command sees it, which matters on
 Dvorak-QWERTY⌘.
 
