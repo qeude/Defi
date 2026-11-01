@@ -50,6 +50,9 @@ final class DesktopFocusFixturePair {
         try processes[index].run()
       }
       var discovered: [Window] = []
+      // A loaded VM launches apps slowly; this budget covers setup, not Defi's behavior.
+      let discoveryBudget = ProcessInfo.processInfo.environment["DEFI_E2E_FIXTURE_DISCOVERY_SECONDS"]
+        .flatMap(TimeInterval.init) ?? 2
       let ready = pump({
         let snapshot = platform.snapshot(config: Config())
         discovered = processes.indices.compactMap { index in
@@ -59,7 +62,7 @@ final class DesktopFocusFixturePair {
           }
         }
         return discovered.count == 2
-      }, 2)
+      }, discoveryBudget)
       guard ready, tiledProcess.isRunning, floatingProcess.isRunning,
         tiledProcess.processIdentifier != floatingProcess.processIdentifier,
         discovered[0].id != discovered[1].id,
