@@ -116,21 +116,30 @@ struct KeyboardLayoutResolverTests {
 
   @Test
   func everyDefaultResolvesOnEveryInstalledAsciiLayout() throws {
+    let configs = [
+      Config(),
+      Config(modifierCombinations: ["hyper": "alt+cmd+ctrl"], defaultKeyModifier: "hyper"),
+    ]
     let sources = TISCreateInputSourceList(nil, true).takeRetainedValue() as! [TISInputSource]
     var read = 0
     for source in sources {
       guard let ascii = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable),
         CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque(ascii).takeUnretainedValue()),
-        let id = TISGetInputSourceProperty(source, kTISPropertyInputSourceID),
-        let layout = keyboardLayout(
-          inputSourceID: Unmanaged<CFString>.fromOpaque(id).takeUnretainedValue() as String, keyboardType: ansi)
+        let id = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
       else { continue }
-      read += 1
-      let result = try resolution(Config(), layout)
-      #expect(result.inactive.count == 0, "\(result.inactive)")
-      #expect(result.keys.count == Config().keys.count)
+      let name = Unmanaged<CFString>.fromOpaque(id).takeUnretainedValue() as String
+      for type in [ansi, jis] {
+        guard let layout = keyboardLayout(inputSourceID: name, keyboardType: type) else { continue }
+        read += 1
+        for config in configs {
+          let result = try resolution(config, layout)
+          #expect(result.inactive.count == 0, "\(name) \(type) \(config.defaultKeyModifier): \(result.inactive)")
+          #expect(result.keys.count == config.keys.count, "\(name) \(type) \(config.defaultKeyModifier)")
+        }
+      }
     }
-    #expect(read > 20)
+    #expect(read > 40)
+    #expect(configs[1].keys.keys.contains("hyper-shift-rightbracket"))
   }
 
   @Test
