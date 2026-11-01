@@ -102,10 +102,13 @@ signed installed app, real multi-display hardware, or animation quality.
 `testTwoDisplayWindowsStayOnTheirDisplay` has been unstable on the virtual display.
 Run `verify.py desktop` for those before a release.
 
-`testFocusFollowsLatestNativeIntent` fails on any desktop while a full-screen
-transparent window sits above the fixtures, such as a notification banner's or one
-from an app like Hex, because it blocks the pointer hit test. The script clears the
-VM image's boot banner.
+`testFocusFollowsLatestNativeIntent` fails on any desktop while another app's
+window with a non-zero alpha sits above the fixtures, because it blocks the pointer
+hit test. Notification Center's full-display window blocks only over its content.
+The script clears the VM image's boot banner.
+
+`testPointerResolvesThroughNotificationBannerOverlay` posts one real notification,
+the only system surface the desktop tests create. It reports not run if none appears.
 
 Prepare a signed app without stopping the installed daemon:
 

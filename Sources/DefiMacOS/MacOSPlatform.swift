@@ -592,6 +592,7 @@ public final class MacOSPlatform {
   }
   @MainActor var pointerHitTestRecords: [CGWindowRecord] = []
   @MainActor var pointerHitTestDockProcessIDs = Set<pid_t>()
+  @MainActor var pointerHitTestNotificationCenterProcessIDs = Set<pid_t>()
   @MainActor var pointerHitTestSnapshotTimestamp: TimeInterval?
   @MainActor var borderFrames: [FrameAssignment] = []
   @MainActor var borderSelectedWindowID: WindowID?

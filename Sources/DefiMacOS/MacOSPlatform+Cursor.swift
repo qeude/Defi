@@ -1,5 +1,6 @@
 import DefiRuntime
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import DefiModel
 import Foundation
@@ -147,19 +148,64 @@ func transparentDockOverlayWindowIDs(
     guard record.layer > 0,
       dockProcessIDs.contains(record.processID),
       record.title == "Dock" || hasTransparentBacking,
-      monitorFrames.contains(where: { monitorFrame in
-        record.frame.x <= monitorFrame.x + 1
-          && record.frame.y <= monitorFrame.y + 1
-          && record.frame.x + record.frame.width
-            >= monitorFrame.x + monitorFrame.width - 1
-          && record.frame.y + record.frame.height
-            >= monitorFrame.y + monitorFrame.height - 1
-      })
+      coversMonitor(record.frame, monitorFrames: monitorFrames)
     else {
       return nil
     }
     return record.id
   })
+}
+
+private func coversMonitor(_ frame: Rect, monitorFrames: [Rect]) -> Bool {
+  monitorFrames.contains { monitorFrame in
+    frame.x <= monitorFrame.x + 1
+      && frame.y <= monitorFrame.y + 1
+      && frame.x + frame.width >= monitorFrame.x + monitorFrame.width - 1
+      && frame.y + frame.height >= monitorFrame.y + monitorFrame.height - 1
+  }
+}
+
+// Banners and the open panel share one full-display window, so only Accessibility
+// tells their content from the empty area that lets the pointer through.
+func notificationCenterContentIsUnder(_ location: CGPoint, processIDs: Set<pid_t>) -> Bool {
+  processIDs.contains { processID in
+    let application = AXUIElementCreateApplication(processID)
+    AXUIElementSetMessagingTimeout(application, 0.1)
+    var element: AXUIElement?
+    guard AXUIElementCopyElementAtPosition(application, Float(location.x), Float(location.y), &element) == .success,
+      let element
+    else {
+      return true
+    }
+    AXUIElementSetMessagingTimeout(element, 0.1)
+    var role: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success else {
+      return true
+    }
+    // Outside its content, Notification Center answers with its menu bar element.
+    return role as? String != kAXMenuBarRole
+  }
+}
+
+func transparentNotificationCenterOverlayWindowIDs(
+  records: [CGWindowRecord],
+  notificationCenterProcessIDs: Set<pid_t>,
+  monitorFrames: [Rect]
+) -> Set<CGWindowID> {
+  Set(records.compactMap { record in
+    guard record.layer > 0,
+      notificationCenterProcessIDs.contains(record.processID),
+      coversMonitor(record.frame, monitorFrames: monitorFrames)
+    else {
+      return nil
+    }
+    return record.id
+  })
+}
+
+// Fully transparent windows draw nothing and WindowServer sends them no pointer events.
+func invisibleWindowIDs(records: [CGWindowRecord]) -> Set<CGWindowID> {
+  Set(records.filter { $0.alpha == 0 }.map(\.id))
 }
 
 func transparentPointerOverlayWindowIDs(
@@ -187,7 +233,8 @@ extension MacOSPlatform {
 
   @MainActor private func pointerHitTestSnapshot() -> (
     records: [CGWindowRecord],
-    dockProcessIDs: Set<pid_t>
+    dockProcessIDs: Set<pid_t>,
+    notificationCenterProcessIDs: Set<pid_t>
   ) {
     // Unresolved pointer motion can arrive at 120 Hz. Keep WindowServer and
     // Dock enumeration out of the hot path while retaining a bounded staleness.
@@ -196,7 +243,11 @@ extension MacOSPlatform {
       cachedAt: pointerHitTestSnapshotTimestamp,
       now: now
     ) {
-      return (pointerHitTestRecords, pointerHitTestDockProcessIDs)
+      return (
+        pointerHitTestRecords,
+        pointerHitTestDockProcessIDs,
+        pointerHitTestNotificationCenterProcessIDs
+      )
     }
 
     let records = copyCGWindows(
@@ -207,10 +258,16 @@ extension MacOSPlatform {
         withBundleIdentifier: "com.apple.dock"
       ).map(\.processIdentifier)
     )
+    let notificationCenterProcessIDs = Set(
+      NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.apple.notificationcenterui"
+      ).map(\.processIdentifier)
+    )
     pointerHitTestRecords = records
     pointerHitTestDockProcessIDs = dockProcessIDs
+    pointerHitTestNotificationCenterProcessIDs = notificationCenterProcessIDs
     pointerHitTestSnapshotTimestamp = now
-    return (records, dockProcessIDs)
+    return (records, dockProcessIDs, notificationCenterProcessIDs)
   }
 
   @MainActor public func managedWindowIDUnderPointer(
@@ -232,11 +289,20 @@ extension MacOSPlatform {
     {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
     }
+    let notificationCenterOverlayWindowIDs = transparentNotificationCenterOverlayWindowIDs(
+      records: snapshot.records,
+      notificationCenterProcessIDs: snapshot.notificationCenterProcessIDs,
+      monitorFrames: lastMonitorFrames
+    )
+    let pointerIsOverNotificationCenterContent = !notificationCenterOverlayWindowIDs.isEmpty
+      && notificationCenterContentIsUnder(location, processIDs: snapshot.notificationCenterProcessIDs)
     let nonblockingWindowIDs = transparentDockOverlayWindowIDs(
       records: snapshot.records,
       dockProcessIDs: snapshot.dockProcessIDs,
       monitorFrames: lastMonitorFrames
     )
+      .union(pointerIsOverNotificationCenterContent ? [] : notificationCenterOverlayWindowIDs)
+      .union(invisibleWindowIDs(records: snapshot.records))
       .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
       .union(borderManager.transparentSurfaceWindowIDs)
       .union(nativeFullscreenPlaceholderManager.transparentSurfaceWindowIDs)

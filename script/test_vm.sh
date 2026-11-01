@@ -66,7 +66,7 @@ for plist in /System/Library/LaunchDaemons/*.plist; do
   label="$(basename "$plist" .plist)"
   if echo "$label" | grep -Eiq "$pattern"; then launchctl disable "system/$label"; fi
 done
-# The image's login-item banner would otherwise stay up and block the pointer hit test.
+# The image's login-item banner would otherwise stay up and block the pointer over it.
 rm -rf "/Users/admin/Library/Group Containers/group.com.apple.usernoted/db2"
 pkill -x usernoted
 pkill -x NotificationCenter
