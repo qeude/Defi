@@ -313,9 +313,10 @@ func resolveHotKeys(
   var claims: [Claim] = []
   for binding in parsed {
     let (accelerator, command, modifiers, name) = binding
-    let follows = acceleratorSymbolCharacters[name] == nil || !modifiers.contains(.maskShift)
-      ? nil : siblings[shape(name, modifiers.subtracting(.maskShift))]
     let written = userWritten.contains(accelerator)
+    // A written chord that needs an added modifier competes for it instead of waiting for its sibling.
+    let follows = acceleratorSymbolCharacters[name] == nil || !modifiers.contains(.maskShift) || (written && !sitsPlain(binding))
+      ? nil : siblings[shape(name, modifiers.subtracting(.maskShift))]
     func claim(_ rank: Int, _ modifiers: CGEventFlags, _ code: UInt16?, added: Bool = false) {
       claims.append(Claim(
         rank: rank, accelerator: accelerator, command: command, modifiers: modifiers, code: code,
@@ -378,9 +379,11 @@ func resolveHotKeys(
   let followers = claims.filter { $0.follows != nil }
   var follows: [Claim] = []
   for claim in followers where !follows.contains(where: { $0.accelerator == claim.accelerator }) {
-    guard let sibling = claim.follows.flatMap({ placed[$0] }), !sibling.added else { continue }
+    guard let sibling = claim.follows.flatMap({ placed[$0] }), !sibling.added,
+      let binding = parsed.first(where: { $0.accelerator == claim.accelerator })
+    else { continue }
     follows.append(Claim(
-      rank: 0, accelerator: claim.accelerator, command: claim.command, modifiers: claim.modifiers,
+      rank: 0, accelerator: claim.accelerator, command: claim.command, modifiers: binding.modifiers,
       code: sibling.code, userFirst: userWritten.contains(claim.accelerator)))
   }
   place(followers + follows)

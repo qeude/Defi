@@ -217,6 +217,19 @@ struct DefiSettingsModelTests {
   }
 
   @Test
+  func changingACommandKeepsItsLayoutChord() throws {
+    let url = try configFile()
+    defer { removeConfig(url) }
+    let model = DefiSettingsModel(configURL: url)
+    let french = try #require(keyboardLayout(inputSourceID: "com.apple.keylayout.French", keyboardType: 91))
+    model.followKeyboardLayout { french }
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "ctrl-alt-shift-backslash" })
+    model.saveShortcut(row, accelerator: row.accelerator, command: "center-column")
+    #expect(model.message?.contains("already used") != true)
+    #expect(model.config.keys["alt-ctrl-shift-backslash"] == "center-column")
+  }
+
+  @Test
   func recordingEveryExistingCombinationKeepsItsBinding() throws {
     let url = try configFile()
     defer { removeConfig(url) }

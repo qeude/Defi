@@ -129,6 +129,8 @@ public final class DefiSettingsModel {
   /// The command already on the chord this accelerator would press, which string comparison cannot
   /// see: on French `ctrl-alt-^` and a fallback `ctrl-alt-leftbracket` share a key.
   private func chordConflict(_ accelerator: String, excluding excluded: String?) -> String? {
+    // An unchanged accelerator keeps the chord it already holds among its siblings.
+    if let excluded, sameAccelerator(accelerator, excluded) { return nil }
     let alone = ShortcutResolution(
       bindings: [accelerator: ""], aliases: config.modifierCombinations, layout: keyboardLayout)
     guard let normalized = normalizedAccelerator(accelerator, aliases: config.modifierCombinations),

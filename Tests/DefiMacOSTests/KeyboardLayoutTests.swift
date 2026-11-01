@@ -382,4 +382,23 @@ struct KeyboardLayoutLabelTests {
     #expect(recordedAccelerator(keyCode: 18, modifiers: modifiers, layout: french) == "alt-ctrl-1")
     #expect(recordedAccelerator(keyCode: 41, modifiers: modifiers, layout: french) == "alt-ctrl-m")
   }
+
+  @Test
+  func writtenShiftedSymbolWinsTheChordItsGeneratedSiblingWouldAdd() throws {
+    let result = try resolveHotKeys(
+      ["ctrl-alt-period": "generated", "ctrl-alt-shift-period": "written"], aliases: [:],
+      layout: installed("French"), userWritten: ["ctrl-alt-shift-period"])
+    #expect(result.keys.contains { chord($0.key) == "ctrl-alt-shift-43" && $0.value.command == "written" })
+    #expect(result.keys.contains { chord($0.key) == "ctrl-alt-47" && $0.value.command == "generated" })
+  }
+
+  @Test
+  func followerKeepsItsWrittenModifiers() throws {
+    // `/` holds the chord `\\` would add, so `ctrl-backslash` takes its physical key and the follower joins it.
+    let result = try resolveHotKeys(
+      ["ctrl-alt-shift-slash": "a", "ctrl-backslash": "b", "ctrl-shift-backslash": "c"], aliases: [:],
+      layout: installed("French"))
+    #expect(result.keys.contains { chord($0.key) == "ctrl-42" && $0.value.command == "b" })
+    #expect(result.keys.contains { chord($0.key) == "ctrl-shift-42" && $0.value.command == "c" })
+  }
 }
