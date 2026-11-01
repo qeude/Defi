@@ -107,7 +107,7 @@ final class HotKeyRegistration: @unchecked Sendable {
     refresh()
   }
 
-  @MainActor private func refresh() {
+  @MainActor func refresh() {
     guard !cancelled.withLock({ $0 }) else { return }
     // Text editing in Defi must retain native shortcuts. The recorder's active
     // interceptor remains independent of these reservations.
@@ -116,10 +116,8 @@ final class HotKeyRegistration: @unchecked Sendable {
     guard suspended != shouldSuspend else { return }
     suspended = shouldSuspend
     unregister()
-    guard !shouldSuspend else {
-      changed(nil, held)
-      return
-    }
+    // A deliberate suspension changes no status; resuming reports the real result.
+    guard !shouldSuspend else { return }
     var failed: [(key: Key, status: Int32)] = []
     for (index, key) in bindings.keys.sorted(by: {
       ($0.code, $0.modifierBits) < ($1.code, $1.modifierBits)

@@ -449,3 +449,33 @@ struct HotKeyModifierReleaseTests {
   }
 
 }
+
+@MainActor
+struct HotKeyRegistrationStatusTests {
+  @Test
+  func recordingSuspensionReportsNoStatusChange() async throws {
+    let reports = Mutex(0)
+    let monitor = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    let registration = HotKeyRegistration(bindings: [:], monitor: monitor) { _, _ in
+      reports.withLock { $0 += 1 }
+    }
+    defer {
+      ShortcutRecorderButton.captureHandler.withLock { $0 = nil }
+      registration.stop()
+    }
+    registration.start()
+    // start() hops through the main queue, which only drains when this actor yields.
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(reports.withLock { $0 } == 1)
+    ShortcutRecorderButton.captureHandler.withLock { $0 = { _, _, _ in } }
+    registration.refresh()
+    #expect(reports.withLock { $0 } == 1, "A status report here rebuilds Settings and cancels the recorder")
+    ShortcutRecorderButton.captureHandler.withLock { $0 = nil }
+    registration.refresh()
+    #expect(reports.withLock { $0 } == 2, "Resuming must report the real registration result")
+  }
+}
