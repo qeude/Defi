@@ -433,22 +433,28 @@ final class DesktopE2ETests: XCTestCase {
         .takeRetainedValue() as? [TISInputSource]
       return try XCTUnwrap(sources?.first, "\(id) must be installed")
     }
-    func isEnabled(_ source: TISInputSource) -> Bool {
-      let enabled = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] ?? []
-      return enabled.contains { CFEqual($0, source) }
+    func enabledSources() -> [TISInputSource] {
+      TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] ?? []
     }
+    let enabledBefore = enabledSources()
+    let inputMenuPreference = "visible" as CFString
+    let inputMenuDomain = "com.apple.TextInputMenu" as CFString
+    let inputMenuBefore = CFPreferencesCopyAppValue(inputMenuPreference, inputMenuDomain)
     let original = try XCTUnwrap(TISCopyCurrentKeyboardInputSource()?.takeRetainedValue())
     let abc = try inputSource("com.apple.keylayout.ABC")
     let dvorak = try inputSource("com.apple.keylayout.Dvorak")
     let kana = try inputSource("com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese")
     // A Japanese mode can be selected only while its parent input method is enabled.
     let japanese = try inputSource("com.apple.inputmethod.Kotoeri.RomajiTyping")
-    let added = [abc, dvorak, japanese, kana].filter { !isEnabled($0) }
     defer {
       TISSelectInputSource(original)
-      added.forEach { TISDisableInputSource($0) }
+      // Enabling Japanese also enables its palette and shows the Input menu, so restore by difference.
+      enabledSources().filter { source in !enabledBefore.contains { CFEqual($0, source) } }
+        .forEach { TISDisableInputSource($0) }
+      CFPreferencesSetAppValue(inputMenuPreference, inputMenuBefore, inputMenuDomain)
+      CFPreferencesAppSynchronize(inputMenuDomain)
     }
-    added.forEach { TISEnableInputSource($0) }
+    [abc, dvorak, japanese, kana].forEach { TISEnableInputSource($0) }
     XCTAssertEqual(TISSelectInputSource(abc), noErr)
     pumpRunLoop(for: 0.5)
 

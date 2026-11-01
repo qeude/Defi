@@ -408,10 +408,6 @@ extension Key {
   }
 }
 
-func canonicalKeyName(_ character: String) -> String {
-  acceleratorSymbolCharacters.first { $0.value == character }?.key ?? character
-}
-
 /// What labels and conflict checks need: the chord each accelerator holds on one layout, or why it holds none.
 struct ShortcutResolution {
   let layout: KeyboardLayout?

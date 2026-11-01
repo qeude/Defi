@@ -19,13 +19,17 @@ public let acceleratorSymbolCharacters: [String: String] = [
   "quote": "'", "minus": "-", "equal": "=", "comma": ",", "period": ".",
 ]
 
+/// The table name of a punctuation character; any other character is its own name.
+public func canonicalKeyName(_ character: String) -> String {
+  acceleratorSymbolCharacters.first { $0.value == character }?.key ?? character
+}
+
 /// Shared by default merging and native hotkey parsing so aliases collide consistently.
 /// The key is a table name or one other character, which the keyboard layout may or may not have.
 public func normalizedAccelerator(_ accelerator: String, aliases: [String: String]) -> String? {
   var parts = accelerator.lowercased().split(separator: "-", omittingEmptySubsequences: false).map(String.init)
   guard parts.count > 1, !parts.contains(where: \.isEmpty), var key = parts.popLast() else { return nil }
-  key = key.precomposedStringWithCanonicalMapping
-  if let name = acceleratorSymbolCharacters.first(where: { $0.value == key })?.key { key = name }
+  key = canonicalKeyName(key.precomposedStringWithCanonicalMapping)
   guard acceleratorKeyCodes[key] != nil || (key.count == 1 && !key.allSatisfy(\.isWhitespace)) else {
     return nil
   }
