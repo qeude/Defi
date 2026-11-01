@@ -254,10 +254,16 @@ struct HotKeyResolution {
   var inactive: [String: HotKeyInactivity] = [:]
 }
 
+/// Names that move together: when either cannot sit on its character without added modifiers,
+/// both take their physical keys, so the pair never splits across the keyboard.
+private let acceleratorPairs = [["leftbracket", "rightbracket"]]
+
 /// Each binding offers chords in rank order; sorted by rank, then accelerator, the first free one wins.
-/// 0 digits and arrows, always physical. 1 the character on the base layer. 2 the character
-/// on Shift or Option, with that modifier added. 3 the physical key. 4 the lowest free key, so a
-/// table name always holds a chord. Literal names (`é`) use ranks 1 and 2 only. A nil layout is physical.
+/// 0 digits and arrows, always physical. 1 the character on the base layer. 2 the physical key of a
+/// bracket pair that cannot sit on its characters. 3 the character on Shift or Option, with that
+/// modifier added. 4 the physical key. 5 the lowest free key, so a table name always holds a chord. Literal names (`é`) use ranks 1 and 3
+/// only. A nil layout is physical. A written-Shift symbol
+/// first tries its unshifted sibling's key, once the sibling is placed.
 func resolveHotKeys(
   _ bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?
 ) throws(HotKeyError) -> HotKeyResolution {
@@ -267,12 +273,40 @@ func resolveHotKeys(
     let command: String
     let modifiers: CGEventFlags
     let code: UInt16?
+    var added = false
+    var follows: String?
+    var order: (Int, String) { (rank, accelerator) }
   }
-  var claims: [Claim] = []
+  var parsed: [(accelerator: String, command: String, modifiers: CGEventFlags, name: String)] = []
   for (accelerator, command) in bindings {
     let (modifiers, name) = try parseAccelerator(accelerator, aliases: aliases)
-    func claim(_ rank: Int, _ modifiers: CGEventFlags, _ code: UInt16?) {
-      claims.append(Claim(rank: rank, accelerator: accelerator, command: command, modifiers: modifiers, code: code))
+    parsed.append((accelerator, command, modifiers, name))
+  }
+  func position(_ name: String, _ modifiers: CGEventFlags) -> (code: UInt16, layer: KeyboardLayer)? {
+    layout?.position(of: acceleratorSymbolCharacters[name] ?? name, command: modifiers.contains(.maskCommand))
+  }
+  func sitsPlain(_ binding: (accelerator: String, command: String, modifiers: CGEventFlags, name: String)) -> Bool {
+    position(binding.name, binding.modifiers).map { $0.layer.isDisjoint(with: [.shift, .option]) } ?? false
+  }
+  func shape(_ name: String, _ modifiers: CGEventFlags) -> String { "\(name)-\(modifiers.rawValue)" }
+  var physicalPairs = Set<String>()
+  for pair in acceleratorPairs {
+    let members = parsed.filter { pair.contains($0.name) }
+    for group in Dictionary(grouping: members, by: { $0.modifiers.rawValue }).values
+    where Set(group.map(\.name)) == Set(pair) && !group.allSatisfy(sitsPlain) {
+      physicalPairs.formUnion(group.map(\.accelerator))
+    }
+  }
+  let siblings = Dictionary(parsed.map { (shape($0.name, $0.modifiers), $0.accelerator) }, uniquingKeysWith: { first, _ in first })
+  var claims: [Claim] = []
+  for binding in parsed {
+    let (accelerator, command, modifiers, name) = binding
+    let follows = acceleratorSymbolCharacters[name] == nil || !modifiers.contains(.maskShift)
+      ? nil : siblings[shape(name, modifiers.subtracting(.maskShift))]
+    func claim(_ rank: Int, _ modifiers: CGEventFlags, _ code: UInt16?, added: Bool = false) {
+      claims.append(Claim(
+        rank: rank, accelerator: accelerator, command: command, modifiers: modifiers, code: code,
+        added: added, follows: follows))
     }
     let physical = acceleratorKeyCodes[name]
     // Digits and arrows (codes from 123) never follow the layout.
@@ -280,39 +314,52 @@ func resolveHotKeys(
       claim(0, modifiers, physical)
       continue
     }
-    guard let layout else { continue }
+    guard layout != nil else { continue }
     let isLetter = physical != nil && acceleratorSymbolCharacters[name] == nil
-    let character = acceleratorSymbolCharacters[name] ?? name
-    if let hit = layout.position(of: character, command: modifiers.contains(.maskCommand)) {
+    let paired = physicalPairs.contains(accelerator)
+    if paired { claim(2, modifiers, physical) }
+    if let hit = position(name, modifiers) {
       var added: CGEventFlags = []
       if hit.layer.contains(.shift) { added.insert(.maskShift) }
       if hit.layer.contains(.option) { added.insert(.maskAlternate) }
       if added.isEmpty {
-        claim(1, modifiers, hit.code)
+        claim(paired ? 3 : 1, modifiers, hit.code)
       } else if !isLetter {
-        claim(2, modifiers.union(added), hit.code)
+        claim(3, modifiers.union(added), hit.code, added: true)
       }
     }
     if let physical {
-      claim(3, modifiers, physical)
-      claim(4, modifiers, nil)
+      claim(4, modifiers, physical)
+      claim(5, modifiers, nil)
     }
   }
   var result = HotKeyResolution()
-  var placed = Set<String>()
+  var placed: [String: (code: UInt16, added: Bool)] = [:]
   var blockers: [String: String] = [:]
-  for claim in claims.sorted(by: { ($0.rank, $0.accelerator) < ($1.rank, $1.accelerator) })
-  where !placed.contains(claim.accelerator) {
-    func key(_ code: UInt16) -> Key { Key(code: code, flags: claim.modifiers.rawValue) }
-    guard let code = claim.code ?? layoutScannedKeyCodes.first(where: { result.keys[key($0)] == nil }) else { continue }
-    if let holder = result.keys[key(code)] {
-      blockers[claim.accelerator] = holder.accelerator
-    } else {
-      result.keys[key(code)] = (claim.accelerator, claim.command)
-      placed.insert(claim.accelerator)
+  func place(_ list: [Claim]) {
+    for claim in list.sorted(by: { $0.order < $1.order }) where placed[claim.accelerator] == nil {
+      func key(_ code: UInt16) -> Key { Key(code: code, flags: claim.modifiers.rawValue) }
+      let free = { layoutScannedKeyCodes.first(where: { result.keys[key($0)] == nil }) }
+      guard let code = claim.code ?? free() else { continue }
+      if let holder = result.keys[key(code)] {
+        blockers[claim.accelerator] = holder.accelerator
+      } else {
+        result.keys[key(code)] = (claim.accelerator, claim.command)
+        placed[claim.accelerator] = (code, claim.added)
+      }
     }
   }
-  for accelerator in bindings.keys where !placed.contains(accelerator) {
+  place(claims.filter { $0.follows == nil })
+  let followers = claims.filter { $0.follows != nil }
+  var follows: [Claim] = []
+  for claim in followers where !follows.contains(where: { $0.accelerator == claim.accelerator }) {
+    guard let sibling = claim.follows.flatMap({ placed[$0] }), !sibling.added else { continue }
+    follows.append(Claim(
+      rank: 0, accelerator: claim.accelerator, command: claim.command, modifiers: claim.modifiers,
+      code: sibling.code))
+  }
+  place(followers + follows)
+  for accelerator in bindings.keys where placed[accelerator] == nil {
     result.inactive[accelerator] = blockers[accelerator].map { .held(by: $0) } ?? .absentFromLayout
   }
   return result

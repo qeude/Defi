@@ -528,12 +528,12 @@ position. Each key type resolves as follows:
 | --- | --- |
 | Digits and arrows | Always the same physical key. `ctrl-alt-1` stays on the number row on AZERTY. |
 | Letters | The key printing that letter, e.g. `ctrl-alt-f` on Dvorak. A layout without the letter keeps the US position. |
-| Punctuation names | The key printing the character. If it takes Shift or Option, those are added to the shortcut, so `ctrl-alt-rightbracket` can be `⌃⌥⇧)` on French. If that chord is taken, the key's US position; if that is taken too, the lowest-numbered main-block key that is free with the modifiers as written, so a default shortcut is never lost. |
+| Punctuation names | The key printing the character. If it takes Shift or Option, those are added to the shortcut, so `ctrl-alt-period` is `⌃⌥⇧;` on French. `leftbracket` and `rightbracket` with the same modifiers move together: if either would need added modifiers, both take their US positions when free (`⌃⌥^` and `⌃⌥$` on French). A name written with Shift, such as `ctrl-alt-shift-minus`, takes the key of its unshifted sibling when that sibling needs no added modifiers and the chord is free. If a chord is taken, the key's US position; if that is taken too, the lowest-numbered main-block key that is free with the modifiers as written, so a default shortcut is never lost. |
 | Other characters | The key printing the character, with the same added modifiers. If the layout lacks it, or its key is held by another shortcut (digits and arrows win), that shortcut is inactive and the others are unaffected. |
 
 Earlier-claimed chords win in this order: digits and arrows, then characters on
-the unmodified key, then characters that need Shift or Option, then US
-positions, then the free-key search. Ties break by accelerator name, so the
+the unmodified key, then bracket pairs on their US positions, then characters
+that need Shift or Option, then US positions, then the free-key search. Ties break by accelerator name, so the
 result never depends on the order of the file. The keypad is never used.
 Shortcuts containing `cmd` read the layout as Command sees it, which matters on
 Dvorak-QWERTY⌘.

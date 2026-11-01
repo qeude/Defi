@@ -36,7 +36,8 @@ private func chords(_ config: Config = Config(), _ layout: KeyboardLayout?) thro
 
 private typealias Row = (accelerator: String, us: String, french: String, dvorak: String, jis: String)
 
-// Mac French cannot type the bracket pair or `\` without Option-Shift, so those fall back.
+// Mac French cannot type the bracket pair or `\` without Option-Shift. The pair stays on its own keys
+// (33 and 30); `\` takes Option-Shift-/ (code 47).
 private let defaultRows: [Row] = [
   ("ctrl-alt-f", "ctrl-alt-3", "ctrl-alt-3", "ctrl-alt-16", "ctrl-alt-3"),
   ("ctrl-alt-j", "ctrl-alt-38", "ctrl-alt-38", "ctrl-alt-8", "ctrl-alt-38"),
@@ -44,7 +45,7 @@ private let defaultRows: [Row] = [
   ("ctrl-alt-o", "ctrl-alt-31", "ctrl-alt-31", "ctrl-alt-1", "ctrl-alt-31"),
   ("ctrl-alt-r", "ctrl-alt-15", "ctrl-alt-15", "ctrl-alt-31", "ctrl-alt-15"),
   ("ctrl-alt-leftbracket", "ctrl-alt-33", "ctrl-alt-33", "ctrl-alt-27", "ctrl-alt-30"),
-  ("ctrl-alt-rightbracket", "ctrl-alt-30", "ctrl-alt-shift-27", "ctrl-alt-24", "ctrl-alt-42"),
+  ("ctrl-alt-rightbracket", "ctrl-alt-30", "ctrl-alt-30", "ctrl-alt-24", "ctrl-alt-42"),
   ("ctrl-alt-shift-leftbracket", "ctrl-alt-shift-33", "ctrl-alt-shift-33", "ctrl-alt-shift-27", "ctrl-alt-shift-30"),
   ("ctrl-alt-shift-rightbracket", "ctrl-alt-shift-30", "ctrl-alt-shift-30", "ctrl-alt-shift-24", "ctrl-alt-shift-42"),
   ("ctrl-alt-backslash", "ctrl-alt-42", "ctrl-alt-shift-47", "ctrl-alt-42", "ctrl-alt-93"),
@@ -177,6 +178,7 @@ struct KeyboardLayoutResolverTests {
     #expect(byAccelerator["alt-é"] == "alt-19")
     #expect(byAccelerator["ctrl-alt-ù"] == "ctrl-alt-39")
     // The digit row wins: workspace 2 already holds ctrl-alt-19.
+    // The digit row wins: workspace 2 already holds ctrl-alt-19.
     #expect(result.inactive["ctrl-alt-é"] == .held(by: "ctrl-alt-2"))
     // The literal took quote's physical key, so quote claims the lowest free one instead.
     #expect(byAccelerator["ctrl-alt-quote"] == "ctrl-alt-0")
@@ -222,14 +224,33 @@ struct KeyboardLayoutResolverTests {
   }
 
   @Test
-  func bracketPairSplitsDeterministicallyOnFrench() throws {
-    // Both brackets want ctrl-alt-shift-5; the plainer written chord wins it every time.
-    let french = try installed("French")
-    for _ in 0..<3 {
-      let result = try chords(Config(), french)
-      #expect(result["ctrl-alt-rightbracket"] == "ctrl-alt-shift-27")
-      #expect(result["ctrl-alt-shift-rightbracket"] == "ctrl-alt-shift-30")
-    }
+  func bracketPairStaysOnItsOwnKeysWhenEitherNeedsAddedModifiers() throws {
+    // On French neither bracket is typed plain, and Option-Shift-5 is the digit 5 chord.
+    let result = try chords(Config(), installed("French"))
+    #expect(result["ctrl-alt-leftbracket"] == "ctrl-alt-33")
+    #expect(result["ctrl-alt-rightbracket"] == "ctrl-alt-30")
+    #expect(result["ctrl-alt-shift-leftbracket"] == "ctrl-alt-shift-33")
+    #expect(result["ctrl-alt-shift-rightbracket"] == "ctrl-alt-shift-30")
+    // `[` is plain on key 5 but `]` is not: the plain one gives up its character with it.
+    let mixed = KeyboardLayout(characters: [[]: [5: "["], [.shift, .option]: [6: "]"]])
+    let both = try resolveHotKeys(
+      ["ctrl-alt-leftbracket": "a", "ctrl-alt-rightbracket": "b"], aliases: [:], layout: mixed)
+    #expect(both.keys.map { "\(chord($0.key)) \($0.value.accelerator)" }.sorted()
+      == ["ctrl-alt-30 ctrl-alt-rightbracket", "ctrl-alt-33 ctrl-alt-leftbracket"])
+    // Bound alone, a bracket keeps looking for its character.
+    let alone = try resolveHotKeys(["ctrl-alt-leftbracket": "a"], aliases: [:], layout: mixed)
+    #expect(alone.keys.map { chord($0.key) } == ["ctrl-alt-5"])
+  }
+
+  @Test
+  func aShiftedSymbolFollowsItsSiblingsKeyWhenFree() throws {
+    // `x` holds key 27, so minus falls to the first free key, 0. Shift-minus would take its own
+    // physical key 27 with Shift, but it follows minus to key 0 instead.
+    let layout = KeyboardLayout(characters: [[]: [0: "a", 27: "x"]])
+    let bound = ["ctrl-alt-x": "a", "ctrl-alt-minus": "b", "ctrl-alt-shift-minus": "c"]
+    let result = try resolveHotKeys(bound, aliases: [:], layout: layout)
+    #expect(result.keys.map { "\(chord($0.key)) \($0.value.accelerator)" }.sorted()
+      == ["ctrl-alt-0 ctrl-alt-minus", "ctrl-alt-27 ctrl-alt-x", "ctrl-alt-shift-0 ctrl-alt-shift-minus"])
   }
 
   @Test
@@ -259,7 +280,7 @@ struct KeyboardLayoutLabelTests {
   func labelsNameTheKeyActuallyPressed() throws {
     let french = try installed("French")
     #expect(label("ctrl-alt-period", french) == "⌃⌥⇧;")
-    #expect(label("ctrl-alt-rightbracket", french) == "⌃⌥⇧)")
+    #expect(label("ctrl-alt-rightbracket", french) == "⌃⌥$")
     #expect(label("ctrl-alt-leftbracket", french) == "⌃⌥^")
     #expect(label("ctrl-alt-1", french) == "⌃⌥1")
     #expect(label("ctrl-alt-backslash", try installed("ABC", type: jis)) == "⌃⌥¥")
@@ -288,7 +309,7 @@ struct KeyboardLayoutLabelTests {
   @Test
   func cheatsheetShowsTheResolvedKeys() throws {
     let rows = shortcutGroups(config: Config(), layout: try installed("French")).flatMap(\.rows)
-    #expect(rows.contains { $0.action == "Last column" && $0.modifiers == "⌃⌥⇧" && $0.key == ")" })
+    #expect(rows.contains { $0.action == "Last column" && $0.modifiers == "⌃⌥" && $0.key == "$" })
     #expect(rows.contains { $0.action == "Workspace 1–9" && $0.key == "1–9" })
   }
 
