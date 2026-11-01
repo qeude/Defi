@@ -672,6 +672,13 @@ func isAppDrawnPopup(subrole: String?, isModal: Bool) -> Bool {
   !isModal && (subrole == "AXSystemDialog" || subrole == "AXSystemFloatingWindow")
 }
 
+/// A system text accessory: a remote view TextEdit shows as an untitled dialog each time its
+/// text settles. It animates its own size and refuses to move, so managing it opened a floating
+/// window on the overlay and held every workspace landing until it timed out.
+func isSystemTextAccessory(title: String, hasCloseButton: Bool, isModal: Bool) -> Bool {
+  title.isEmpty && !hasCloseButton && !isModal
+}
+
 func classifyWindow(
   role: String?,
   subrole: String?,

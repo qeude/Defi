@@ -525,20 +525,24 @@ func windowProxyRibbonHistory(_ ribbonFrames: [FrameAssignment], previous: [Wind
 func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
   ribbonTargets: [WindowID: Rect], previousRibbonFrames: [WindowID: Rect],
   opened: Set<WindowID>, dropped: WindowID?, skipped: Set<WindowID> = []) -> Bool {
-  displayCount == 1 || monitor.workspaceShift != nil
-    || !monitor.windowIDs.isDisjoint(with: opened.union([dropped].compactMap { $0 }))
-    || ribbonTargets.contains { id, to in previousRibbonFrames[id].map { !approximatelyEqual($0, to) } ?? true }
+  let reflows = ribbonTargets.contains { id, to in previousRibbonFrames[id].map { !approximatelyEqual($0, to) } ?? true }
     || previousRibbonFrames.keys.contains {
       monitor.windowIDs.contains($0) && ribbonTargets[$0] == nil && !skipped.contains($0)
     }
+  // A floating window opens where macOS placed it, over a still ribbon: an overlay
+  // would only cover it with an empty card until its first capture.
+  let openedHere = opened.intersection(monitor.windowIDs)
+  if !reflows, !openedHere.isEmpty, monitor.workspaceShift == nil, dropped == nil { return false }
+  return displayCount == 1 || monitor.workspaceShift != nil
+    || !monitor.windowIDs.isDisjoint(with: opened.union([dropped].compactMap { $0 })) || reflows
 }
 
 /// Plans each proxy from what is on screen to its target. Windows without a
 /// known start (entering from parking) travel with the shared motion.
 func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID: Rect],
   previousLogical: [WindowID: Rect], observed: [WindowID: Rect], verticalShift: Double? = nil,
-  settled: [WindowID: RibbonProxySettle] = [:], dropped: WindowID? = nil, opened: Set<WindowID> = [])
-  -> [(id: WindowID, from: Rect, to: Rect)] {
+  settled: [WindowID: RibbonProxySettle] = [:], dropped: WindowID? = nil, opened: Set<WindowID> = [],
+  viewport: Rect? = nil) -> [(id: WindowID, from: Rect, to: Rect)] {
   let targets = otherTargets.merging(ribbonTargets) { _, ribbon in ribbon }
   let shared = verticalShift.map { CGPoint(x: 0, y: $0) } ?? targets.lazy.compactMap { id, to in
     previousLogical[id].map { CGPoint(x: to.x - $0.x, y: to.y - $0.y) }
@@ -566,7 +570,11 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
     // In a vertical switch, leaving windows slide off with the shift on the overlay,
     // wherever their native windows park: from their ribbon place, or else from where
     // they are (no ribbon history must not send them sideways to their parking).
-    let leavingFrom = verticalShift != nil && ribbonTargets[id] == nil ? previousLogical[id] ?? native : nil
+    // A floating window is off the ribbon too, but its target in view says it arrives: sent
+    // off with the others, the landing then waited for a window that never left.
+    let arrives = verticalShift != nil && ribbonTargets[id] == nil
+      && viewport.map { windowProxyVisibleOverlap(target, $0) > 2 } ?? false
+    let leavingFrom = verticalShift != nil && ribbonTargets[id] == nil && !arrives ? previousLogical[id] ?? native : nil
     let logicalTo = leavingFrom.map { Rect(x: $0.x, y: $0.y + shared.y, width: $0.width, height: $0.height) }
       ?? target
     // Native clamping (a few points) owns the vertical extent; a real height change,
@@ -580,8 +588,8 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
     let clamp = clamped && abs(offset) < 40 ? offset : 0
     // Off the ribbon without history (another workspace's window re-parked): it stays
     // put. Shifted with the ribbon, it crossed the screen into its parking corner.
-    let shift = ribbonTargets[id] == nil ? .zero : ribbonShift(logicalTo)
-    let start = leavingFrom ?? previousLogical[id]
+    let shift = ribbonTargets[id] == nil && !arrives ? .zero : ribbonShift(logicalTo)
+    let start = leavingFrom ?? (arrives ? nil : previousLogical[id])
       ?? Rect(x: logicalTo.x - shift.x, y: logicalTo.y - shift.y, width: logicalTo.width, height: logicalTo.height)
     // Where this app really put the window last time it had this size (its own cell
     // grid or clamp): the picture lands exactly on the window, not a few points off.
@@ -651,6 +659,8 @@ extension MacOSPlatform {
       ? ribbonProxySpringDuration : nil) : nil
     guard let duration else {
       presenter.supersedeIfTargetsChanged(assignments, generation: frameSubmissionGeneration)
+      // No overlay for this opening: a hold for it would only freeze the screen over the window.
+      if !moves, !opened.isDisjoint(with: monitor.windowIDs) { presenter.releaseHold() }
       let area = RibbonProxyStore.shared.screen(containing: viewport)?.visibleFrame
       // Every managed window on the display: the active ribbon by distance, then
       // other workspaces so a vertical switch finds their pictures warm.
@@ -675,7 +685,7 @@ extension MacOSPlatform {
     let planned = windowProxyMotion(ribbonTargets: ribbonTargets, otherTargets: otherTargets,
       previousLogical: previousRibbonFrames, observed: observed,
       verticalShift: workspaceShift, settled: RibbonProxyStore.shared.settled,
-      dropped: windowProxyDroppedWindowID, opened: opened)
+      dropped: windowProxyDroppedWindowID, opened: opened, viewport: viewport)
     if let shift = workspaceShift {
       ribbonProxyLogger.notice("workspace-switch shift=\(Int(shift))")
     }

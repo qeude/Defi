@@ -4,6 +4,8 @@ import DefiCore
 import DefiModel
 import QuartzCore
 
+let overviewSelectionFadeDuration: TimeInterval = 0.1
+
 // The overview is a retained layer tree: a refresh moves existing textures and the
 // compositor blends them, so no frame rasterizes the panel on the main thread.
 @MainActor
@@ -19,6 +21,7 @@ final class OverviewView: NSView {
   private(set) var desktopImage: NSImage?
   // Cross-fades the wallpaper on the next render; Core Animation runs the fade.
   private var desktopFadeDuration: TimeInterval = 0
+  var animatesSelection = false
   var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: WindowPicture] = [:]
   private var blurredPreviews: [WindowID: CGImage] = [:]
@@ -254,6 +257,7 @@ final class OverviewView: NSView {
         let transition = CATransition()
         transition.type = .fade
         transition.duration = desktopFadeDuration
+        transition.preferredFrameRateRange = overviewAnimationFrameRate
         layers.desktop.add(transition, forKey: "desktopImage")
       } else {
         layers.desktop.removeAnimation(forKey: "desktopImage")
@@ -355,6 +359,7 @@ final class OverviewView: NSView {
         let reveal = CABasicAnimation(keyPath: "opacity")
         reveal.fromValue = 0
         reveal.duration = 0.2
+        reveal.preferredFrameRateRange = overviewAnimationFrameRate
         layers.blur.add(reveal, forKey: "reveal")
       }
       show(layers.blur, blurred, in: bounds, contentsRect: contentsRect)
@@ -401,6 +406,16 @@ final class OverviewView: NSView {
     origin: CGPoint
   ) {
     let selected = selection?.windowID == card.windowID && selection?.location.monitorID == monitorID
+    // The ring moves between cards at a key press: it dissolves over the card's motion.
+    if let wasSelected = layer.value(forKey: "selected") as? Bool, wasSelected != selected,
+      animatesSelection, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      let transition = CATransition()
+      transition.type = .fade
+      transition.duration = overviewSelectionFadeDuration
+      transition.preferredFrameRateRange = overviewAnimationFrameRate
+      layer.add(transition, forKey: "selection")
+    }
+    layer.setValue(selected, forKey: "selected")
     guard let border = overviewWindowBorderAppearance(
       isSelected: selected,
       style: borderStyle,

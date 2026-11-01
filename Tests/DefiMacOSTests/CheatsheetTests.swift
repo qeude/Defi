@@ -125,7 +125,8 @@ struct CheatsheetHotKeyTests {
   }
 }
 
-@MainActor
+// Serialized: both tests find their panel by title, and a closing panel stays visible while it fades.
+@MainActor @Suite(.serialized)
 struct CheatsheetPanelTests {
   @Test
   func `Panel fits its content and never restores a closed panel or takes focus`() async throws {
@@ -167,7 +168,9 @@ struct CheatsheetPanelTests {
     try await Task.sleep(for: .milliseconds(200))
     #expect(current.frame == fitted, "The fitted panel must not resize after showing")
     controller.close()
-    while current.isVisible, ContinuousClock.now < deadline + .seconds(1) {
+    // Its own deadline: under load the one above has passed before the closing fade starts.
+    let closed = ContinuousClock.now + .seconds(3)
+    while current.isVisible, ContinuousClock.now < closed {
       try await Task.sleep(for: .milliseconds(10))
     }
     #expect(!current.isVisible)

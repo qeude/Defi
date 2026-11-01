@@ -425,6 +425,7 @@ public final class OverviewController: NSObject {
         monitorID: monitorID, screen: screen,
         usesCapturedDesktop: !usesWorkspaceParking, delegate: self
       )
+      panel.view.animatesSelection = animationsEnabled
       panel.openingTransitionChanged = { [weak self] event in
         self?.recordOpeningTransition(event, monitorID: monitorID)
       }
@@ -775,8 +776,8 @@ public final class OverviewController: NSObject {
       }
     }
     previewCacheExpiry = expiry
-    // Retain textures only through the closing handoff, not for a minute afterward.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: expiry)
+    // Retain textures only through the closing handoff, zoom and fade, not for a minute afterward.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22 + OverviewPanel.wallpaperFadeDuration + 0.1, execute: expiry)
     sessionGeneration &+= 1
     edgeScrollTimer?.invalidate()
     edgeScrollTimer = nil
@@ -806,17 +807,22 @@ public final class OverviewController: NSObject {
       }) == true
     for panel in closingPanels {
       if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: 0.22) { continue }
+      let committedOffsets = commitScrollOffsets ? viewports[panel.monitorID]?.horizontalOffsets : nil
       if nativeExitCanZoom, animationsEnabled,
         !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
         let snapshot, let monitor = snapshot.monitors.first(where: { $0.id == panel.monitorID }),
-        let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
+        var workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
         workspace.floatingWindows.isEmpty,
         let viewport = snapshot.monitorFrames[monitor.id], let screen = screen(for: monitor.id),
         let projection = closingProjections[monitor.id],
         let scene = OverviewPreviewClosingScene(projection: projection,
           workspaceID: workspace.id, screen: screen, previews: closingPreviews,
           wallpaper: panel.view.desktopImage, cornerRadius: windowCornerRadius,
-          targets: computeLayout(workspace: workspace, viewport: viewport,
+          targets: computeLayout(workspace: {
+            // A scroll committed by this close: the zoom lands where the windows will be.
+            workspace.scrollOffset = committedOffsets?[workspace.id] ?? workspace.scrollOffset
+            return workspace
+          }(), viewport: viewport,
             windows: Array(snapshot.windows.values), settings: layout), windows: snapshot.windows)
       {
         panel.hidePreviewScene(scene, duration: 0.22)
@@ -899,6 +905,12 @@ public final class OverviewController: NSObject {
       finishSelectionCloseIfReady()
       return
     }
+    // A card already in place has nothing to align: closing waits for its native focus only.
+    guard selectionNeedsAlignment else {
+      selectionAlignmentFinished = true
+      finishSelectionCloseIfReady()
+      return
+    }
     let generation = sessionGeneration
     DispatchQueue.main.asyncAfter(deadline: .now() + overviewTransitionDuration) {
       [weak self] in
@@ -906,6 +918,17 @@ public final class OverviewController: NSObject {
       selectionAlignmentFinished = true
       finishSelectionCloseIfReady()
     }
+  }
+
+  private var selectionNeedsAlignment: Bool {
+    guard viewportAnimations.isEmpty, let location = selection?.location,
+      let monitor = snapshot?.monitors.first(where: { $0.id == location.monitorID }),
+      monitor.activeWorkspace == location.workspaceID,
+      let workspace = monitor.workspaces.first(where: { $0.id == location.workspaceID }),
+      let viewport = viewports[location.monitorID]
+    else { return true }
+    return viewport.workspaceOffset != 0
+      || viewport.horizontalOffsets[workspace.id, default: workspace.scrollOffset] != workspace.targetScrollOffset
   }
 
   private func navigate(_ action: OverviewKeyAction) {
@@ -1639,7 +1662,7 @@ public final class OverviewController: NSObject {
         )
       }
     }
-    if geometryChanged { updatePanels(only: monitorID) }
+    if geometryChanged { updatePanels(scheduleCaptures: false, only: monitorID) }
     let fadePending = updatePreviewFade(on: monitorID)
     view?.displayIfNeeded()
     if (view?.renderCount ?? 0) > rendersBefore {
@@ -1659,6 +1682,8 @@ public final class OverviewController: NSObject {
     {
       link.isPaused = true
       lastRenderedRefresh[monitorID] = nil
+      // Cards the motion brought into view: captures wait for the end, not per frame.
+      schedulePreviewsIfNeeded()
       presentationChanged()
     }
   }

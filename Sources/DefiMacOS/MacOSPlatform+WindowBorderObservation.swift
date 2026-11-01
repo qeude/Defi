@@ -93,7 +93,15 @@ extension MacOSPlatform {
         // An app's later dialogs, panels and native tabs open where they are: checked
         // after the hold, off the main thread, since the read waits on the app.
         let created = UncheckedSendable(value: element), checksOwnWindow = (previousWindowCount ?? 0) > 0
+        let createdNumber = self?.windowIDProvider.windowID(for: element)
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+          // Picture in picture floats above the overlay and never opens a column: holding
+          // the screen for its layout froze every window behind it.
+          if let createdNumber, windowFloatsAboveRibbon(createdNumber) {
+            return NavigationActor.enqueue { [weak self] in
+              if self?.latestOpening == opening { RibbonProxyPresenter.releaseHolds() }
+            }
+          }
           let shown = applicationShownWindowIDs(processID)
           if checksOwnWindow, let frame = ownWindowFrame(created.value) {
             NavigationActor.enqueue { [weak self] in
@@ -809,6 +817,11 @@ func applicationFocusedWindow(_ processID: pid_t) -> AXUIElement? {
   guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
     let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
   return (value as! AXUIElement)
+}
+
+/// Whether WindowServer shows this window above the standard level.
+func windowFloatsAboveRibbon(_ number: CGWindowID) -> Bool {
+  (ribbonProxyWindowDescriptions([number]).first?[kCGWindowLayer as String] as? Int).map { $0 > 0 } ?? false
 }
 
 /// The standard-level windows WindowServer shows for an app, from its public list.

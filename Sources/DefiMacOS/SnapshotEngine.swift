@@ -1107,6 +1107,14 @@ extension SnapshotEngine {
       || window.role != kAXWindowRole
       || window.subrole != kAXStandardWindowSubrole
     {
+      if !forceTiling, !configuredFloating, window.subrole == kAXDialogSubrole, window.title.isEmpty {
+        var close: CFTypeRef?, modal: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &close)
+        AXUIElementCopyAttributeValue(element, kAXModalAttribute as CFString, &modal)
+        if isSystemTextAccessory(title: window.title, hasCloseButton: close != nil, isModal: modal as? Bool ?? false) {
+          return .ignored
+        }
+      }
       // Only popup subroles hinge on modality: a modal one is a real dialog.
       let isModal = !forceTiling && !configuredFloating
         && isAppDrawnPopup(subrole: window.subrole, isModal: false)

@@ -351,6 +351,7 @@ final class RibbonProxyPresenter {
   static var all: Dictionary<CGDirectDisplayID, RibbonProxyPresenter>.Values { presenters.values }
   static var isCarrying: Bool { presenters.values.contains { $0.isCarrying } }
   static func picturesArrived() { for presenter in presenters.values { presenter.picturesArrived() } }
+  static func cancelAllFading() { for presenter in presenters.values { presenter.cancelFading() } }
   static func cancelAll(_ reason: String = "external") { for presenter in presenters.values { presenter.cancel(reason) } }
   static func releaseHolds() { for presenter in presenters.values { presenter.releaseHold() } }
   static func extendHolds(to seconds: CFTimeInterval = 1.2) { for presenter in presenters.values { presenter.extendHold(to: seconds) } }
@@ -410,7 +411,7 @@ final class RibbonProxyPresenter {
   private var drag = RibbonProxyDrag.idle
   /// Resized windows whose fresh capture the landing waits for.
   private var awaitingFresh: Set<WindowID> = []
-  /// Windows shown with a veil and icon, until a picture newer than `veiledSince` arrives.
+  /// Windows shown with their icon, until a picture newer than `veiledSince` arrives.
   private var veiled: Set<WindowID> = []
   /// Native frames read when the motion landed; the fade starts from them.
   var landedNative: [WindowID: Rect] = [:]
@@ -549,7 +550,6 @@ final class RibbonProxyPresenter {
     // The windows in view outrank the others for the budget, planned with the same recency:
     // what it restores stays full. Parked windows keep their own recency: marking them
     // with the motion let them outrank the next column, reduced and restored at every step.
-    // A stand-in in view left blurred for the whole motion is veiled under its app icon, as in Trellis.
     let inView = Set(shown.filter {
       ribbonProxyShows(local($0.from, area), in: layers.root.bounds)
         || ribbonProxyShows(local($0.to, area), in: layers.root.bounds)
@@ -559,8 +559,7 @@ final class RibbonProxyPresenter {
     let now = CACurrentMediaTime()
     pictures.markShown(Array(inView), at: now + 0.001)
     pictures.markShown(arriving.map(\.id), at: now + 0.002)
-    let reduced = inView.filter { pictures.picture($0)?.isReduced == true }
-    let blurred = reduced.subtracting(pictures.restore(Array(reduced)))
+    pictures.restore(inView.filter { pictures.picture($0)?.isReduced == true })
     // One command can submit twice (layout, then scroll) with a narrower window set;
     // mid-motion, a window left out keeps travelling instead of vanishing.
     for (id, layer) in windowLayers where !shownIDs.contains(id) && previous[id] == nil {
@@ -604,8 +603,7 @@ final class RibbonProxyPresenter {
       layer.removeAllAnimations()
       layer.isHidden = false
       for sublayer in layer.sublayers ?? [] { sublayer.removeAllAnimations() }
-      let styled = style(layer, for: window, selected: window.id == selectedWindowID,
-        blurred: blurred.contains(window.id))
+      let styled = style(layer, for: window, selected: window.id == selectedWindowID)
       // A window parked for the whole motion has no border at rest: its sliver gets none here.
       if !ribbonProxyShows(from, in: layers.root.bounds), !ribbonProxyShows(to, in: layers.root.bounds) {
         layer.sublayers?.first { $0.name == "border" }?.isHidden = true
@@ -649,8 +647,10 @@ final class RibbonProxyPresenter {
     let flushMS = Int((CACurrentMediaTime() - committing) * 1_000)
     presenting = true
     holdUntil = holds ? CACurrentMediaTime() + 0.5 : 0
+    holdRelease?.cancel(); holdRelease = nil
     holdStart = CACurrentMediaTime()
-    RibbonProxyStore.shared.setMoving(true, display)
+    // A hold is still: the snapshot that opens the window and fresh pictures must not wait for it.
+    RibbonProxyStore.shared.setMoving(!holds, display)
     // This display's borders only: another display's stay as they are.
     let borders = borderWindowIDs.map { $0.union(shownIDs) } ?? managed
     if !bordersHidden || hiddenBorderIDs != borders {
@@ -693,7 +693,9 @@ final class RibbonProxyPresenter {
     if !redrawn.isEmpty {
       refreshing.formUnion(redrawn.map(\.id))
       Task { [weak self] in
-        for delay in [80, 100, 120] {
+        // Each capture costs the compositor frames: one when the app has redrawn at its slot
+        // size, one more for a slow app.
+        for delay in [130, 170] {
           try? await Task.sleep(for: .milliseconds(delay))
           guard let self, generation == token else { return }
           redrawn.forEach(ribbonProxyCaptureNow)
@@ -707,7 +709,7 @@ final class RibbonProxyPresenter {
     }.map(\.id)).union(unsettledLeaving.subtracting(expected.keys).subtracting([draggedWindowID].compactMap { $0 }))
     unsettledLeaving = leaving
     let drawn = Set(shown.map(\.id) + [draggedWindowID].compactMap { $0 })
-    let stop = ribbonProxyVisualStop(travel: travel)
+    let stop = holds ? 0 : ribbonProxyVisualStop(travel: travel)
     // The windows below redraw at their new place first; a long motion or a drag then
     // goes opaque, which spares the compositor drawing them under every frame.
     // Opaque from the start occluded every window below at each step: apps stopped
@@ -837,6 +839,11 @@ final class RibbonProxyPresenter {
       } != true
     }
     guard !presenting, drag == .idle, unsharp.isEmpty else {
+      // The overlay already covers the screen: it must not lift before the layout opens
+      // the window, or macOS's own placement shows.
+      if presenting, drag == .idle {
+        holdStart = now; holdUntil = max(holdUntil, now + 0.5)
+      }
       return ribbonProxyLogger.notice("open-hold-refused pid=\(processID) presenting=\(self.presenting) unsharp=\(unsharp.map { "\($0.id.rawValue):\(Int($0.to.width))x\(Int($0.to.height))" }, privacy: .public)")
     }
     guard begin(windows: windows, viewport: viewport, generation: submission, nativeTargets: [:],
@@ -893,6 +900,7 @@ final class RibbonProxyPresenter {
       }
       return
     }
+    holdRelease = nil
     if timedOut { lastFallback = "landing-timeout" }
     // The carried window and the reflowed neighbours stay on the overlay until the
     // drop layout (or its timeout) takes over.
@@ -970,6 +978,10 @@ final class RibbonProxyPresenter {
           // A few frames: the native ring is set, and can reach the screen a frame or two late.
           try? await Task.sleep(for: .milliseconds(40))
         }
+        // A window opening during the handoff: lifting now would show macOS's placement.
+        while generation == fadeToken, holdUntil > CACurrentMediaTime() {
+          try? await Task.sleep(for: .milliseconds(8))
+        }
         guard generation == fadeToken, let layers = self.layers else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let fade = CABasicAnimation(keyPath: "opacity")
@@ -1046,7 +1058,7 @@ final class RibbonProxyPresenter {
           if picture.size.width > shown.width + 0.5 || picture.size.height > shown.height + 0.5 {
             sublayer.masksToBounds = true
           }
-        case "veil", "icon": sublayer.opacity = 0
+        case "icon": sublayer.opacity = 0
         default: break
         }
       }
@@ -1093,6 +1105,27 @@ final class RibbonProxyPresenter {
     if isRetargeted(by: assignments, generation: submission) { cancel("superseded") }
   }
 
+  /// A click interrupts the motion: the pictures fade over the windows already in place.
+  func cancelFading() {
+    guard presenting, let layers else { return cancel("click") }
+    generation &+= 1
+    let token = generation
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = (layers.root.presentation() ?? layers.root).opacity
+    fade.duration = ribbonProxyClickFadeDuration
+    fade.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+    layers.root.opacity = 0
+    // Under begin()'s key: a motion starting during this fade removes it.
+    layers.root.add(fade, forKey: "fade")
+    ribbonProxyCommit(#line)
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(ribbonProxyClickFadeDuration))
+      guard let self, generation == token else { return }
+      cancel("click")
+    }
+  }
+
   func cancel(_ reason: String = "external") {
     generation &+= 1
     holdUntil = 0
@@ -1115,8 +1148,10 @@ final class RibbonProxyPresenter {
     windowLayers = [:]
     ribbonProxyCommit(#line)
     // Rapid navigation keeps borders hidden instead of toggling them per step.
+    // A click ended the motion: its window's ring shows at once.
+    let restoreDelay = reason == "click" ? 0 : 250
     borderRestore = Task { [weak self] in
-      do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+      do { try await Task.sleep(for: .milliseconds(restoreDelay)) } catch { return }
       guard let self, !presenting, bordersHidden else { return }
       bordersHidden = false; setBordersHidden(false); borderRestore = nil
     }
@@ -1408,37 +1443,29 @@ final class RibbonProxyPresenter {
     // Captures already carry the window's transparent rounded corners: the content is
     // only clipped while a larger picture is cropped by a smaller frame.
     content.cornerRadius = 12
-    // A light veil under the icon says "this picture stands in for the window"
-    // while keeping it readable.
-    let veil = CALayer()
-    veil.name = "veil"; veil.cornerRadius = 12
-    veil.backgroundColor = CGColor(gray: 0, alpha: 0.16)
     let icon = CALayer()
     icon.name = "icon"; icon.contentsGravity = .resizeAspect
     icon.shadowColor = CGColor(gray: 0, alpha: 1); icon.shadowOpacity = 0.4
     icon.shadowRadius = 10; icon.shadowOffset = CGSize(width: 0, height: -3)
     let border = CALayer()
     border.name = "border"
-    for sublayer in [shadow, content, veil, icon, border] { layer.addSublayer(sublayer) }
+    for sublayer in [shadow, content, icon, border] { layer.addSublayer(sublayer) }
     return layer
   }
 
   /// Styles the proxy; returns whether it shows a picture and whether the app
   /// icon is laid over it.
   private func style(_ layer: CALayer, for window: RibbonProxyWindow,
-    selected: Bool, blurred: Bool) -> (pictured: Bool, badged: Bool) {
+    selected: Bool) -> (pictured: Bool, badged: Bool) {
     let sublayers = Dictionary((layer.sublayers ?? []).compactMap { sublayer in
       sublayer.name.map { ($0, sublayer) } }) { first, _ in first }
     let picture = WindowCaptureStore.shared.picture(window.id)
-    // A cropped picture still reads as the window: only a missing picture, or an old one
-    // arriving vertically from another workspace, gets the icon over a veil.
-    let badged = window.appID != "" && (blurred || picture.map { picture in
-      abs(window.from.y - window.to.y) > window.to.height / 2 && CACurrentMediaTime() - picture.capturedAt > 10
-    } ?? true)
+    // Any picture reads as the window: an icon popped over an old or reduced one at every
+    // workspace switch, then faded. Only a window without a picture gets its icon.
+    let badged = window.appID != "" && picture == nil
     let radius = cornerRadii[window.id] ?? 12
     layer.setValue(radius, forKey: ribbonProxyRadiusKey)
     sublayers["content"]?.cornerRadius = radius
-    sublayers["veil"]?.cornerRadius = radius
     setContents(sublayers["content"], picture?.contents)
     sublayers["content"]?.masksToBounds = picture.map {
       $0.size.width > window.to.width + 0.5 || $0.size.height > window.to.height + 0.5
@@ -1450,8 +1477,6 @@ final class RibbonProxyPresenter {
         height: max(window.from.height, window.to.height)))
     } ?? CGColor(gray: 0.16, alpha: 1)
     setContents(sublayers["icon"], badged ? WindowCaptureStore.shared.icon(window.processID) : nil)
-    sublayers["veil"]?.isHidden = !(badged && picture != nil)
-    sublayers["veil"]?.opacity = 1
     sublayers["icon"]?.opacity = 1
     if let border = sublayers["border"] {
       if let borderStyle, let appearance = overviewWindowBorderAppearance(isSelected: selected,
@@ -1508,6 +1533,7 @@ func ribbonProxyFullyOnScreen(_ frame: Rect) -> Bool {
 }
 
 let ribbonProxyDrawingAlpha: CGFloat = 0.999
+let ribbonProxyClickFadeDuration: CFTimeInterval = 0.06
 
 /// The edge colour fills only a frame larger than its picture: under a picture that covers
 /// it, the fill is a second full-window pass the compositor blends for nothing.
@@ -1767,7 +1793,7 @@ func ribbonProxySublayerFrames(_ layer: CALayer, size: CGSize,
   borderStyle: WindowBorderStyle?) -> [(CALayer, CGRect)] {
   (layer.sublayers ?? []).compactMap { sublayer in
     switch sublayer.name {
-    case "content", "veil": return (sublayer, CGRect(origin: .zero, size: size))
+    case "content": return (sublayer, CGRect(origin: .zero, size: size))
     // The shadow falls 6 pt below the window, like the system's.
     case "shadow":
       let pad = ribbonProxyShadowPad

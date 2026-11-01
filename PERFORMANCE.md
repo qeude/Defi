@@ -13,8 +13,8 @@ not because it replaces the compositor. Priorities, in order, are:
 3. Smooth, refresh-aware motion.
 4. Low CPU, memory, wakeup, and energy cost.
 
-The public Accessibility path is the baseline. Captured window overlays are out
-of scope for scrolling, and private APIs never move third-party windows
+Real windows move through public Accessibility, under a captured overlay that
+draws the motion, and private APIs never move third-party windows
 ([ADR 0001](docs/adr/0001-keep-macos-authoritative.md)).
 
 ## Performance contract

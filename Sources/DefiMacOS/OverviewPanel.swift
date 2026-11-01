@@ -19,9 +19,12 @@ protocol OverviewViewDelegate: AnyObject {
   func overviewView(_ view: OverviewView, pageWorkspace: WorkspaceID, direction: Int)
 }
 
+/// ProMotion: without a preference the compositor may settle for 60 Hz.
+let overviewAnimationFrameRate = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+
 @MainActor
 final class OverviewPanel {
-  private static let wallpaperFadeDuration = 0.16
+  static let wallpaperFadeDuration = 0.16
   let monitorID: MonitorID
   let usesCapturedDesktop: Bool
   let window: NSPanel
@@ -120,6 +123,7 @@ final class OverviewPanel {
         let transition = CATransition()
         transition.type = .fade
         transition.duration = fadeDuration
+        transition.preferredFrameRateRange = overviewAnimationFrameRate
         desktopView.layer?.add(transition, forKey: "desktopImage")
       }
       desktopView.layer?.contents = image
@@ -190,10 +194,7 @@ final class OverviewPanel {
     surfaceTask?.cancel()
     openingTransitionChanged?("presented(ms:\(Int((CACurrentMediaTime() - requested) * 1_000)))")
     scene.animate(opening: true, duration: duration)
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = duration
-      glassView.animator().alphaValue = 1
-    }
+    fadeGlass(to: 1, duration: duration)
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
@@ -222,10 +223,7 @@ final class OverviewPanel {
     view.suppressedSurfaceWindowIDs = Set(surfaceScene.nativeFrames.keys)
     rootView.layer?.addSublayer(surfaceScene.layer)
     surfaceScene.animate(opening: false, duration: duration)
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = duration
-      glassView.animator().alphaValue = 0
-    }
+    fadeGlass(to: 0, duration: duration)
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
@@ -241,36 +239,51 @@ final class OverviewPanel {
     let zoomsWallpaper = scene.zoomsWallpaper
     rootView.layer?.addSublayer(scene.layer)
     scene.animate(duration: duration)
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = duration
-      glassView.animator().alphaValue = 0
-    }
+    fadeGlass(to: 0, duration: duration)
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
-      if zoomsWallpaper {
-        // The panel covers the menu bar and Dock; cross-fade them in instead of popping.
-        // Core Animation keeps the fade smooth while the main thread is busy.
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 1
-        fade.duration = Self.wallpaperFadeDuration
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        // The zoomed wallpaper covers the screen; drop the opaque black backing so
-        // the fade reveals the real desktop instead of dipping through black.
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        rootView.layer?.backgroundColor = NSColor.clear.cgColor
-        desktopView.isHidden = true
-        rootView.layer?.opacity = 0
-        rootView.layer?.add(fade, forKey: "overview-wallpaper-fade")
-        CATransaction.commit()
-        do { try await Task.sleep(for: .seconds(Self.wallpaperFadeDuration)) } catch { return }
-        guard !Task.isCancelled, surfaceGeneration == generation else { return }
-      }
-      hide()
+      if zoomsWallpaper { await fadeRevealingDesktop(generation: generation) } else { hide() }
     }
+  }
+
+  /// The panel covers the menu bar and Dock; cross-fade them in instead of popping.
+  /// Core Animation keeps the fade smooth while the main thread is busy.
+  private func fadeRevealingDesktop(generation: UInt64) async {
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 1
+    fade.duration = Self.wallpaperFadeDuration
+    fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+    fade.preferredFrameRateRange = overviewAnimationFrameRate
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    // Drop the opaque black backing so the fade reveals the real desktop instead of
+    // dipping through black.
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    rootView.layer?.backgroundColor = NSColor.clear.cgColor
+    desktopView.isHidden = true
+    rootView.layer?.opacity = 0
+    rootView.layer?.add(fade, forKey: "overview-wallpaper-fade")
+    CATransaction.commit()
+    do { try await Task.sleep(for: .seconds(Self.wallpaperFadeDuration)) } catch { return }
+    guard !Task.isCancelled, surfaceGeneration == generation else { return }
+    hide()
+  }
+
+  /// Compositor-driven with a 120 Hz preference: an AppKit animator stays on the main
+  /// thread's clock and never asks ProMotion for more than 60 Hz.
+  private func fadeGlass(to alpha: CGFloat, duration: TimeInterval) {
+    guard let layer = glassView.layer else { glassView.alphaValue = alpha; return }
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = (layer.presentation() ?? layer).opacity
+    fade.duration = duration
+    fade.preferredFrameRateRange = overviewAnimationFrameRate
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    glassView.alphaValue = alpha
+    layer.add(fade, forKey: "overview-glass-fade")
+    CATransaction.commit()
   }
 
   private func cancelSurfaceTransition(reason: String = "replaced") {
@@ -297,11 +310,13 @@ final class OverviewPanel {
     CATransaction.setDisableActions(true)
     rootView.layer?.removeAnimation(forKey: "overview-wallpaper-fade")
     rootView.layer?.opacity = 1
-    window.isOpaque = usesCapturedDesktop
-    window.backgroundColor = usesCapturedDesktop ? .black : .clear
-    rootView.layer?.backgroundColor = usesCapturedDesktop
-      ? NSColor.black.cgColor
-      : NSColor.clear.cgColor
+    // No wallpaper captured yet: the real desktop shows through, not a black first frame.
+    let hasWallpaper = usesCapturedDesktop && desktopView.layer?.contents != nil
+    window.isOpaque = hasWallpaper
+    window.backgroundColor = hasWallpaper ? .black : .clear
+    let backing = (hasWallpaper ? NSColor.black : NSColor.clear).cgColor
+    rootView.layer?.backgroundColor = backing
+    desktopView.layer?.backgroundColor = backing
     desktopView.isHidden = false
     CATransaction.commit()
   }
@@ -312,7 +327,23 @@ final class OverviewPanel {
     invalidatedSurfaceWindowIDs = []
     if let surfaceScene, surfaceScene.projection != projection {
       ids.formUnion(surfaceScene.nativeFrames.keys)
+      let sceneLayer = surfaceScene.layer
       cancelSurfaceTransition(reason: "projection-changed")
+      // The cards gain their titles below: the zoom's pictures dissolve instead of popping.
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = 1
+      fade.duration = 0.1
+      fade.preferredFrameRateRange = overviewAnimationFrameRate
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      rootView.layer?.addSublayer(sceneLayer)
+      sceneLayer.opacity = 0
+      sceneLayer.add(fade, forKey: "overview-scene-fade")
+      CATransaction.commit()
+      Task {
+        try? await Task.sleep(for: .seconds(fade.duration))
+        sceneLayer.removeFromSuperlayer()
+      }
     }
     return ids
   }
