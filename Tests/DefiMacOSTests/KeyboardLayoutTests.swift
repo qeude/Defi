@@ -264,6 +264,14 @@ struct KeyboardLayoutLabelTests {
   }
 
   @Test
+  func anAcceleratorAnotherAppHoldsSaysSo() throws {
+    let resolved = ShortcutResolution(config: Config(), layout: try installed("US"), heldByAnotherApp: ["ctrl-alt-f"])
+    #expect(shortcutKeyLabel("ctrl-alt-f", aliases: [:], resolved: resolved) == "Held by another app")
+    #expect(shortcutKeyLabel("ctrl-alt-j", aliases: [:], resolved: resolved) == "⌃⌥J")
+    #expect(resolved.resolution.inactive == ["ctrl-alt-f": .heldByAnotherApp])
+  }
+
+  @Test
   func anUnsavedAcceleratorIsLabelledFromItsOwnResolution() throws {
     #expect(label("ctrl-alt-ù", try installed("French")) == "⌃⌥Ù")
   }

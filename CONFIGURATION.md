@@ -474,8 +474,11 @@ through a passive event tap. Commands remain responsive while the main event
 loop is busy, and normal shortcut events are not discarded by Defi's tap.
 Reservations are suspended during shortcut recording and text editing in Defi.
 Shortcuts stay silent while another app captures the keyboard.
-Registration failures disable shortcuts and appear in the settings status and
-an app alert; input observation remains active. A separate filtering tap handles
+A shortcut whose chord another app already reserves is skipped and reads "Held
+by another app" in Settings; the others keep working, and Defi retries it when
+the keyboard layout changes or the configuration reloads. If no chord registers,
+shortcuts are disabled and the failure appears in the settings status and an app
+alert; input observation remains active. A separate filtering tap handles
 overview navigation, shortcut recording, help dismissal, and pointer routing.
 
 ```toml
@@ -536,8 +539,8 @@ Shortcuts containing `cmd` read the layout as Command sees it, which matters on
 Dvorak-QWERTY⌘.
 
 The cheatsheet and Settings show the key actually pressed, including added
-modifiers. An inactive shortcut reads "Not on this layout" or "Held by" the
-shortcut that owns the chord. Defi logs one line per inactive shortcut whenever
+modifiers. An inactive shortcut reads "Not on this layout", "Held by" the
+shortcut that owns the chord, or "Held by another app". Defi logs one line per inactive shortcut whenever
 the table changes. The Settings recorder stores a name that resolves back to the
 pressed key on the current layout, and Settings refuses a shortcut whose chord
 another shortcut already holds even when the names differ.

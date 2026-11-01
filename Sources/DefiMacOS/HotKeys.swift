@@ -37,10 +37,12 @@ public final class HotKeyManager {
   public typealias OverviewHandler =
     @NavigationActor @Sendable (OverviewKeyAction) -> Void
 
-  private let bindings: [Key: String]
+  private let bindings: [Key: (accelerator: String, command: String)]
   private let handler: Handler
   public let tracksPointerMotion: Bool
   public private(set) var bindingError: HotKeyError?
+  /// Shortcuts whose chord another app reserves, as configured. The others keep working.
+  public private(set) var heldByAnotherApp: [String] = []
   private let configurationError: HotKeyError?
   private let pointerMotionHandler: PointerMotionHandler?
   private let tapReenabledHandler: TapReenabledHandler
@@ -55,7 +57,7 @@ public final class HotKeyManager {
   private var context: InputMonitor?
   private var thread: Thread?
   private var registration: HotKeyRegistration?
-  private let registrationHandler: @NavigationActor @Sendable (Bool, HotKeyError?) -> Void
+  private let registrationHandler: @NavigationActor @Sendable (Bool, HotKeyError?, [String]) -> Void
 
   private let resolveBindings: (@MainActor () -> HotKeyResolution?)?
 
@@ -95,7 +97,7 @@ public final class HotKeyManager {
     overviewHandler: @escaping OverviewHandler = { _ in },
     overviewCancelHandler: (@Sendable () -> Void)? = nil,
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
-    registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?) -> Void = { _, _ in },
+    registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?, [String]) -> Void = { _, _, _ in },
     handler: @escaping Handler
   ) {
     self.handler = handler
@@ -117,10 +119,10 @@ public final class HotKeyManager {
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     self.displayPointerRouter = displayPointerRouter
-    var bindings: [Key: String] = [:]
+    var bindings: [Key: (accelerator: String, command: String)] = [:]
     var bindingError: HotKeyError?
     do {
-      bindings = try configuredHotKeys(config).mapValues(\.command)
+      bindings = try configuredHotKeys(config)
     } catch let error {
       bindings.removeAll(keepingCapacity: false)
       bindingError = error
@@ -173,7 +175,7 @@ public final class HotKeyManager {
     let overviewCancelHandler = self.overviewCancelHandler
     let cheatsheetHandler = self.cheatsheetHandler
     let context = InputMonitor(
-      bindings: bindings,
+      bindings: bindings.mapValues(\.command),
       userInputTracker: userInputTracker,
       pointerMotionTracker: pointerMotionTracker,
       displayPointerRouter: displayPointerRouter,
@@ -254,11 +256,12 @@ public final class HotKeyManager {
     }
     let registration = HotKeyRegistration(
       bindings: bindings, monitor: context, resolve: resolveBindings
-    ) { [weak self] error in
+    ) { [weak self] error, held in
       NavigationActor.enqueue {
         guard let self, self.context === context else { return }
         self.bindingError = error
-        self.registrationHandler(self.isHotKeyCaptureEnabled, error)
+        self.heldByAnotherApp = held
+        self.registrationHandler(self.isHotKeyCaptureEnabled, error, held)
       }
     }
     self.registration = registration

@@ -22,19 +22,22 @@ extension Key {
 final class HotKeyRegistration: @unchecked Sendable {
   private let monitor: InputMonitor
   private let resolve: (@MainActor () -> HotKeyResolution?)?
-  private let changed: @Sendable (HotKeyError?) -> Void
+  private let changed: @Sendable (HotKeyError?, [String]) -> Void
   private let cancelled = Mutex(false)
   @MainActor private var references: [EventHotKeyRef] = []
   @MainActor private var eventHandler: EventHandlerRef?
   @MainActor private var observer: CFRunLoopObserver?
   @MainActor private var suspended: Bool?
-  @MainActor private var bindings: [Key: String]
+  @MainActor private var bindings: [Key: (accelerator: String, command: String)]
   @MainActor private var layoutObserver: KeyboardLayoutObserver?
+  /// Accelerators whose chord another app already reserves; a layout change or reload retries them.
+  @MainActor private var held: [String] = []
   @MainActor private var registrationFailed = false
 
   /// `resolve`, when given, reads the keyboard layout and runs on the main thread only.
-  init(bindings: [Key: String], monitor: InputMonitor, resolve: (@MainActor () -> HotKeyResolution?)? = nil,
-       changed: @escaping @Sendable (HotKeyError?) -> Void) {
+  init(bindings: [Key: (accelerator: String, command: String)], monitor: InputMonitor,
+       resolve: (@MainActor () -> HotKeyResolution?)? = nil,
+       changed: @escaping @Sendable (HotKeyError?, [String]) -> Void) {
     self.bindings = bindings
     self.monitor = monitor
     self.resolve = resolve
@@ -55,7 +58,7 @@ final class HotKeyRegistration: @unchecked Sendable {
           types.count, &types, nil, &eventHandler
         )
         guard status == noErr else {
-          changed(.registrationFailed(keyCode: nil, status: status))
+          changed(.registrationFailed(keyCode: nil, status: status), [])
           return
         }
         let observer = CFRunLoopObserverCreateWithHandler(
@@ -66,7 +69,7 @@ final class HotKeyRegistration: @unchecked Sendable {
         guard let observer else {
           if let eventHandler { RemoveEventHandler(eventHandler) }
           eventHandler = nil
-          changed(.registrationFailed(keyCode: nil, status: Int32(memFullErr)))
+          changed(.registrationFailed(keyCode: nil, status: Int32(memFullErr)), [])
           return
         }
         self.observer = observer
@@ -81,8 +84,7 @@ final class HotKeyRegistration: @unchecked Sendable {
   }
 
   @MainActor private func adopt(_ resolution: HotKeyResolution) {
-    bindings = resolution.keys.mapValues(\.command)
-    monitor.setBindings(bindings)
+    bindings = resolution.keys
     for (accelerator, reason) in resolution.inactive.sorted(by: { $0.key < $1.key }) {
       NSLog("Defi: shortcut %@ is inactive: %@", accelerator, String(describing: reason))
     }
@@ -91,7 +93,7 @@ final class HotKeyRegistration: @unchecked Sendable {
   /// Also fires for input-method switches that keep the layout, which resolve to the same table.
   @MainActor private func layoutChanged() {
     guard !cancelled.withLock({ $0 }), let resolution = resolve?(),
-      registrationFailed || resolution.keys.mapValues(\.command) != bindings
+      registrationFailed || !held.isEmpty || resolution.keys.mapValues(\.command) != bindings.mapValues(\.command)
     else { return }
     adopt(resolution)
     suspended = nil
@@ -108,9 +110,10 @@ final class HotKeyRegistration: @unchecked Sendable {
     suspended = shouldSuspend
     unregister()
     guard !shouldSuspend else {
-      changed(nil)
+      changed(nil, held)
       return
     }
+    var failed: [(key: Key, status: Int32)] = []
     for (index, key) in bindings.keys.sorted(by: {
       ($0.code, $0.modifierBits) < ($1.code, $1.modifierBits)
     }).enumerated() {
@@ -120,21 +123,33 @@ final class HotKeyRegistration: @unchecked Sendable {
         EventHotKeyID(signature: 0x44656669, id: UInt32(index + 1)),
         GetApplicationEventTarget(), OptionBits(kEventHotKeyNoOptions), &reference
       )
-      guard status == noErr, let reference else {
-        unregister()
-        registrationFailed = true
-        changed(.registrationFailed(keyCode: key.code, status: status))
-        return
+      if status == noErr, let reference {
+        references.append(reference)
+      } else {
+        failed.append((key, status))
       }
-      references.append(reference)
     }
     guard !cancelled.withLock({ $0 }) else {
       unregister()
       return
     }
+    // Nothing registered: the whole set is unavailable. Otherwise one chord held elsewhere costs only itself.
+    if references.isEmpty, let first = failed.first {
+      registrationFailed = true
+      changed(.registrationFailed(keyCode: first.key.code, status: first.status), [])
+      return
+    }
     registrationFailed = false
+    // The tap must not run a command for a chord another app owns.
+    let lost = Set(failed.map(\.key))
+    monitor.setBindings(bindings.filter { !lost.contains($0.key) }.mapValues(\.command))
     monitor.setHotKeysRegistered(!references.isEmpty)
-    changed(nil)
+    let heldNow = failed.compactMap { bindings[$0.key]?.accelerator }.sorted()
+    if heldNow != held {
+      held = heldNow
+      for accelerator in heldNow { NSLog("Defi: shortcut %@ is inactive: held by another app", accelerator) }
+    }
+    changed(nil, held)
   }
 
   @MainActor private func unregister() {

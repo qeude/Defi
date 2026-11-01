@@ -244,6 +244,8 @@ struct KeyboardLayout: Equatable, Sendable {
 enum HotKeyInactivity: Equatable, Sendable {
   case absentFromLayout
   case held(by: String)
+  /// Registered elsewhere, so Carbon refused the chord.
+  case heldByAnotherApp
 }
 
 struct HotKeyResolution {
@@ -343,10 +345,17 @@ struct ShortcutResolution {
   private let chords: [String: Key]
   private let reasons: [String: HotKeyInactivity]
 
-  init(bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?) {
+  init(
+    bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?,
+    heldByAnotherApp: Set<String> = []
+  ) {
     self.layout = layout
     self.aliases = aliases
-    let resolution = (try? resolveHotKeys(bindings, aliases: aliases, layout: layout)) ?? HotKeyResolution()
+    var resolution = (try? resolveHotKeys(bindings, aliases: aliases, layout: layout)) ?? HotKeyResolution()
+    for (key, binding) in resolution.keys where heldByAnotherApp.contains(binding.accelerator) {
+      resolution.keys[key] = nil
+      resolution.inactive[binding.accelerator] = .heldByAnotherApp
+    }
     self.resolution = resolution
     chords = Dictionary(
       resolution.keys.compactMap { key, binding in
@@ -358,8 +367,10 @@ struct ShortcutResolution {
       }, uniquingKeysWith: { first, _ in first })
   }
 
-  init(config: Config, layout: KeyboardLayout?) {
-    self.init(bindings: config.keys, aliases: config.modifierCombinations, layout: layout)
+  init(config: Config, layout: KeyboardLayout?, heldByAnotherApp: Set<String> = []) {
+    self.init(
+      bindings: config.keys, aliases: config.modifierCombinations, layout: layout,
+      heldByAnotherApp: heldByAnotherApp)
   }
 
   func key(for normalizedAccelerator: String) -> Key? { chords[normalizedAccelerator] }

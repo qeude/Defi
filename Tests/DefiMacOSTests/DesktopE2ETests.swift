@@ -602,32 +602,67 @@ final class DesktopE2ETests: XCTestCase {
       OptionBits(kEventHotKeyExclusive), &reference), noErr)
     let reserved = try XCTUnwrap(reference)
     defer { UnregisterEventHotKey(reserved) }
+    // Slash is reserved by the test above: that one chord is lost, and the other registers.
+    let config = Config(keys: ["ctrl-alt-cmd-a": "focus-column left", "ctrl-alt-cmd-slash": "focus-column right"])
+    let partial = onNavigation { HotKeyManager(config: config) { invocation in commands.append(invocation.command) } }
+    try onNavigation { try partial.start() }
+    defer { onNavigation { partial.stop() } }
+    XCTAssertTrue(pumpRunLoop(until: { onNavigation { partial.heldByAnotherApp == ["ctrl-alt-cmd-slash"] } }, timeout: 1))
+    XCTAssertNil(onNavigation { partial.bindingError })
+    XCTAssertTrue(onNavigation { partial.isEnabled })
+    XCTAssertTrue(onNavigation { partial.isHotKeyCaptureEnabled }, "One held chord must not disable the others")
+    let earlier = try Key(accelerator: "ctrl-alt-cmd-a", aliases: [:])
+    var reservedByDefi: EventHotKeyRef?
+    XCTAssertEqual(RegisterEventHotKey(UInt32(earlier.code), earlier.carbonModifiers,
+      EventHotKeyID(signature: 0x54657374, id: 2), GetApplicationEventTarget(),
+      OptionBits(kEventHotKeyExclusive), &reservedByDefi), OSStatus(eventHotKeyExistsErr), "A must stay reserved by Defi")
+    if let reservedByDefi { UnregisterEventHotKey(reservedByDefi) }
+    func press(_ key: Key) throws {
+      let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+      event.flags = [.maskControl, .maskAlternate, .maskCommand]
+      event.post(tap: .cghidEventTap)
+      event.type = .keyUp
+      event.post(tap: .cghidEventTap)
+    }
+    try press(key)
+    try press(earlier)
+    XCTAssertTrue(pumpRunLoop(until: { commands.count == 5 }, timeout: 1))
+    pumpRunLoop(for: 0.2)
+    XCTAssertEqual(commands.all.suffix(1), ["focus-column left"], "Only the chord Defi holds runs a command")
+    XCTAssertEqual(commands.count, 5, "The chord another app holds must not run a command")
+    onNavigation { partial.stop() }
+
+    // When no chord registers, the whole set is unavailable but observation stays on.
+    var blockers: [EventHotKeyRef] = []
+    defer { blockers.forEach { UnregisterEventHotKey($0) } }
+    for (index, chord) in try configuredHotKeys(config).keys.filter({ $0 != key }).enumerated() {
+      XCTAssertTrue(pumpRunLoop(until: {
+        var reference: EventHotKeyRef?
+        let status = RegisterEventHotKey(UInt32(chord.code), chord.carbonModifiers,
+          EventHotKeyID(signature: 0x54657374, id: UInt32(10 + index)), GetApplicationEventTarget(),
+          OptionBits(kEventHotKeyExclusive), &reference)
+        if status == noErr, let reference { blockers.append(reference) }
+        return status == noErr
+      }, timeout: 1), "Defi must release \(chord) after stop")
+    }
     let tracker = UserInputTracker()
-    let failing = onNavigation { HotKeyManager(config: Config(keys: [
-      "ctrl-alt-cmd-a": "focus-column left", "ctrl-alt-cmd-slash": "focus-column right",
-    ]), userInputTracker: tracker) { invocation in commands.append(invocation.command) } }
+    let failing = onNavigation { HotKeyManager(config: config, userInputTracker: tracker) { invocation in
+      commands.append(invocation.command) } }
     try onNavigation { try failing.start() }
     defer { onNavigation { failing.stop() } }
     XCTAssertTrue(pumpRunLoop(until: { onNavigation { failing.bindingError != nil } }, timeout: 1))
     XCTAssertTrue(onNavigation { failing.isEnabled }, "Observation must survive a Carbon registration failure")
     XCTAssertFalse(onNavigation { failing.isHotKeyCaptureEnabled })
-    guard case .registrationFailed(keyCode: key.code, status: _) = onNavigation({ failing.bindingError }) else {
-      return XCTFail("Expected a Carbon reservation error for slash")
+    guard case .registrationFailed(keyCode: _, status: _) = onNavigation({ failing.bindingError }) else {
+      return XCTFail("Expected a Carbon reservation error when nothing registers")
     }
-    // The A reservation sorts before slash and must be released by the rollback.
-    let earlier = try Key(accelerator: "ctrl-alt-cmd-a", aliases: [:])
-    var rolledBack: EventHotKeyRef?
-    XCTAssertEqual(RegisterEventHotKey(UInt32(earlier.code), earlier.carbonModifiers,
-      EventHotKeyID(signature: 0x54657374, id: 2), GetApplicationEventTarget(),
-      OptionBits(kEventHotKeyExclusive), &rolledBack), noErr, "A reservation must be released after slash fails")
-    if let rolledBack { UnregisterEventHotKey(rolledBack) }
     let arrow = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 123, keyDown: true))
     arrow.flags = [.maskAlternate]
     arrow.post(tap: .cghidEventTap)
     arrow.type = .keyUp
     arrow.post(tap: .cghidEventTap)
     XCTAssertTrue(pumpRunLoop(until: { tracker.latestEventTimestamp > 0 }, timeout: 1))
-    XCTAssertEqual(commands.count, 4)
+    XCTAssertEqual(commands.count, 5)
   }
 
   // MARK: Settings

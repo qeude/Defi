@@ -273,6 +273,8 @@ func shortcutKeyLabel(
   case .held(let holder):
     return "Held by " + shortcutKeyLabel(
       holder, aliases: aliases, displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift, resolved: resolved)
+  case .heldByAnotherApp:
+    return "Held by another app"
   default:
     return "Not on this layout"
   }

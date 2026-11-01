@@ -50,8 +50,14 @@ public final class DefiSettingsRuntimeStatus {
   /// Set only when shortcuts are not working.
   public private(set) var keyboardMessage: String?
   public private(set) var lastValidConfig: Config?
+  /// Accelerators another app reserves. Their rows read "Held by another app" the next time Settings refreshes.
+  public private(set) var heldShortcuts: Set<String> = []
 
   private init() {}
+
+  public func updateHeldShortcuts(_ accelerators: [String]) {
+    heldShortcuts = Set(accelerators)
+  }
 
   public func updateKeyboardStatus(_ message: String?) {
     keyboardMessage = message
@@ -116,7 +122,8 @@ public final class DefiSettingsModel {
   }
 
   private func refreshShortcutResolution() {
-    shortcutResolution = ShortcutResolution(config: config, layout: keyboardLayout)
+    shortcutResolution = ShortcutResolution(
+      config: config, layout: keyboardLayout, heldByAnotherApp: DefiSettingsRuntimeStatus.shared.heldShortcuts)
   }
 
   /// The command already on the chord this accelerator would press, which string comparison cannot
