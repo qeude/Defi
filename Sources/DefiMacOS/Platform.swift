@@ -15,6 +15,7 @@ struct CGWindowRecord: Sendable {
   let frame: Rect
   let isOnscreen: Bool
   let memoryUsage: Int?
+  let alpha: Double
 
   init(
     id: CGWindowID,
@@ -24,7 +25,8 @@ struct CGWindowRecord: Sendable {
     title: String,
     frame: Rect,
     isOnscreen: Bool = true,
-    memoryUsage: Int? = nil
+    memoryUsage: Int? = nil,
+    alpha: Double = 1
   ) {
     self.id = id
     self.processID = processID
@@ -34,6 +36,7 @@ struct CGWindowRecord: Sendable {
     self.frame = frame
     self.isOnscreen = isOnscreen
     self.memoryUsage = memoryUsage
+    self.alpha = alpha
   }
 }
 
@@ -94,7 +97,8 @@ func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {
     ),
     isOnscreen: (item[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue
       ?? false,
-    memoryUsage: (item[kCGWindowMemoryUsage as String] as? NSNumber)?.intValue
+    memoryUsage: (item[kCGWindowMemoryUsage as String] as? NSNumber)?.intValue,
+    alpha: (item[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
   )
 }
 

@@ -361,6 +361,54 @@ struct CursorTests {
       == (hitsManaged ? .managed(WindowID(rawValue: 1)) : .blocked))
   }
 
+  // alpha, whether the managed window behind is hit at (300, 500)
+  @Test(arguments: [
+    // Hex keeps nameless full-display windows at layer 26 with alpha 0
+    (0.0, true),
+    // a real full-display overlay from another app still blocks
+    (1.0, false),
+    (0.5, false),
+  ])
+  func onlyFullyTransparentThirdPartyOverlayLetsPointerThrough(alpha: Double, hitsManaged: Bool) {
+    let records = [
+      record(id: 9, processID: 90, layer: 26, title: "", alpha: alpha),
+      record(id: 1, processID: 10),
+    ]
+    #expect(managedPointerHitTest(at: CGPoint(x: 300, y: 500), records: records,
+      managedWindowIDs: [WindowID(rawValue: 1)], nonblockingWindowIDs: invisibleWindowIDs(records: records))
+      == (hitsManaged ? .managed(WindowID(rawValue: 1)) : .blocked))
+  }
+
+  @Test
+  func windowServerRecordReadsAlphaAndDefaultsToOpaque() throws {
+    var item: [String: Any] = [
+      kCGWindowLayer as String: 26,
+      kCGWindowNumber as String: 9,
+      kCGWindowOwnerPID as String: 90,
+      kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 10, height: 10).dictionaryRepresentation,
+    ]
+    #expect(try #require(cgWindowRecord(item)).alpha == 1)
+    item[kCGWindowAlpha as String] = 0.0
+    #expect(try #require(cgWindowRecord(item)).alpha == 0)
+  }
+
+  // process, layer, frame -> transparent
+  @Test(arguments: [
+    (90 as pid_t, 21, Rect(x: 0, y: 0, width: 1512, height: 982), true),
+    // another process with the same shape stays blocking
+    (91 as pid_t, 21, Rect(x: 0, y: 0, width: 1512, height: 982), false),
+    // a partial Notification Center surface stays blocking
+    (90 as pid_t, 21, Rect(x: 1100, y: 40, width: 400, height: 120), false),
+    (90 as pid_t, 0, Rect(x: 0, y: 0, width: 1512, height: 982), false),
+  ] as [(pid_t, Int, Rect, Bool)])
+  func onlyFullDisplayNotificationCenterOverlayIsTransparent(processID: pid_t, layer: Int, frame: Rect,
+    transparent: Bool) {
+    let records = [record(id: 9, processID: processID, layer: layer, frame: frame)]
+    #expect(transparentNotificationCenterOverlayWindowIDs(records: records,
+      notificationCenterProcessIDs: [90], monitorFrames: [Rect(x: 0, y: 37, width: 1512, height: 901)])
+      == (transparent ? [9] : []))
+  }
+
   struct CursorOverlayCase: CustomTestStringConvertible, Sendable {
     let name: String
     var ownerName = ""
@@ -434,7 +482,8 @@ struct CursorTests {
     layer: Int = 0,
     title: String? = nil,
     frame: Rect? = nil,
-    memoryUsage: Int? = nil
+    memoryUsage: Int? = nil,
+    alpha: Double = 1
   ) -> CGWindowRecord {
     CGWindowRecord(
       id: id,
@@ -443,7 +492,8 @@ struct CursorTests {
       layer: layer,
       title: title ?? "Window \(id)",
       frame: frame ?? self.frame,
-      memoryUsage: memoryUsage
+      memoryUsage: memoryUsage,
+      alpha: alpha
     )
   }
 }

@@ -114,6 +114,45 @@ final class DesktopE2ETests: XCTestCase {
       "A programmatic cursor warp must not emit pointer transitions")
   }
 
+  func testPointerResolvesThroughNotificationBannerOverlay() throws {
+    let platform = try preflight()
+    let fixtures = try openFixtures(platform)
+    defer { closeFixtures(fixtures) }
+    let tiled = fixtures.tiledWindowID
+    let snapshot = platform.snapshot(config: Config())
+    let monitor = try XCTUnwrap(snapshot.monitors.first { monitor in
+      snapshot.windows.contains { $0.id == tiled && targetIntersects($0.frame, monitor: monitor.frame) }
+    })
+    let frame = Rect(x: monitor.frame.x, y: monitor.frame.y, width: monitor.frame.width, height: 440)
+    onNavigation { platform.apply([FrameAssignment(windowID: tiled, frame: frame)]) }
+    XCTAssertTrue(settleFrames(platform))
+    try activate(fixtures.tiledProcess, focusing: tiled, platform)
+    let processIDs = Set(NSRunningApplication.runningApplications(
+      withBundleIdentifier: "com.apple.notificationcenterui"
+    ).map(\.processIdentifier))
+    let empty = CGPoint(x: frame.x + 100, y: frame.y + 400)
+    let bannerCandidates = stride(from: frame.y, to: frame.y + 160, by: 20).map {
+      CGPoint(x: frame.x + frame.width - 120, y: $0)
+    }
+
+    let notification = Process()
+    notification.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    notification.arguments = ["-e", "display notification \"Defi E2E\""]
+    try notification.run()
+    guard pumpRunLoop(until: {
+      copyCGWindows(options: [.optionOnScreenOnly]).contains { $0.layer > 0 && processIDs.contains($0.processID) }
+    }, timeout: 5) else {
+      try notRun(lane: "notification-banner", reason: "no Notification Center banner appeared")
+    }
+    // Let the banner finish sliding in.
+    pumpRunLoop(for: 1)
+    let banner = try XCTUnwrap(bannerCandidates.last { notificationCenterContentIsUnder($0, processIDs: processIDs) })
+    XCTAssertEqual(platform.managedWindowID(at: empty), tiled,
+      "A notification must not block the pointer outside it: \(windowsDescription(at: empty))")
+    XCTAssertNil(platform.managedWindowID(at: banner),
+      "The banner itself must keep the pointer: \(windowsDescription(at: banner))")
+  }
+
   func testTiledFocusKeepsFloatingWindowAboveIt() throws {
     let platform = try preflight()
     let fixtures = try openFixtures(platform)
