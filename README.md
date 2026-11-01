@@ -38,7 +38,7 @@ windows. Click a window, select it in the Dock, or use Command-Tab as usual.
 - **Dynamic workspaces**: Always have an empty
   workspace ready, and keep named workspaces for recurring tasks.
 - **App rules & floating windows**: Send apps to named workspaces, keep them
-  floating, or set their initial width. Float any other window with one key.
+  floating, or set their initial width. Float any other window with a shortcut.
 - **Independent monitors**: Each display has its own workspaces and layout.
 - **Overview**: Browse workspaces, select windows,
   and drag them between workspaces, with optional window previews.
