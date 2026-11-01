@@ -314,9 +314,10 @@ func resolveHotKeys(
   for binding in parsed {
     let (accelerator, command, modifiers, name) = binding
     let written = userWritten.contains(accelerator)
-    // A written chord that needs an added modifier competes for it instead of waiting for its sibling.
-    let follows = acceleratorSymbolCharacters[name] == nil || !modifiers.contains(.maskShift) || (written && !sitsPlain(binding))
+    let sibling = acceleratorSymbolCharacters[name] == nil || !modifiers.contains(.maskShift)
       ? nil : siblings[shape(name, modifiers.subtracting(.maskShift))]
+    // A written chord competes for its own key instead of waiting for its sibling, unless a bracket pair moved it.
+    let follows = written && !physicalPairs.contains(sibling ?? "") ? nil : sibling
     func claim(_ rank: Int, _ modifiers: CGEventFlags, _ code: UInt16?, added: Bool = false) {
       claims.append(Claim(
         rank: rank, accelerator: accelerator, command: command, modifiers: modifiers, code: code,

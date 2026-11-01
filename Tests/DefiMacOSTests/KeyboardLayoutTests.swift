@@ -393,6 +393,14 @@ struct KeyboardLayoutLabelTests {
   }
 
   @Test
+  func writtenShiftedSymbolOnTheBaseLayerWinsItsChord() throws {
+    let result = try resolveHotKeys(
+      ["ctrl-alt-period": "generated", "ctrl-alt-semicolon": "sibling", "ctrl-alt-shift-semicolon": "written"],
+      aliases: [:], layout: installed("French"), userWritten: ["ctrl-alt-shift-semicolon"])
+    #expect(result.keys.contains { chord($0.key) == "ctrl-alt-shift-43" && $0.value.command == "written" })
+  }
+
+  @Test
   func followerKeepsItsWrittenModifiers() throws {
     // `/` holds the chord `\\` would add, so `ctrl-backslash` takes its physical key and the follower joins it.
     let result = try resolveHotKeys(
