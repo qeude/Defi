@@ -193,6 +193,11 @@ Choose verification by the changed behavior:
 Complete the applicable checks and fix failures caused by the requested change
 before handoff. Report any check that could not run and why.
 
+When `tart list` shows a local `defi-e2e` VM, prefer `script/test_vm.sh` for
+iterating on desktop tests, so the user keeps their desktop. It queues on its own VM lock rather than the
+desktop reservation. It complements `verify.py desktop`, which remains the certifying lane. See
+`CONTRIBUTING.md` for its limits.
+
 Use a separate worktree per concurrent code writer. Prepared bundles and results
 live under the ignored `dist/verification/`; source drift invalidates a run.
 Local verification never enables desktop E2E tests or installs the app.

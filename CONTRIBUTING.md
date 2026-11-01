@@ -76,6 +76,37 @@ checks. It forces `DEFI_E2E=0` even if your shell enabled it. Tests using AppKit
 notification centers or fake AX elements stay local; actual window mutation,
 event posting, and global hotkey capture belong in `DesktopE2ETests`.
 
+### Optional: desktop tests in a VM
+
+If your desktop is busy, you can run `DesktopE2ETests` in a windowless
+[Tart](https://github.com/cirruslabs/tart) VM. This is a personal convenience:
+nothing requires Tart, and the lane does not replace `verify.py desktop`.
+
+```sh
+tart clone ghcr.io/cirruslabs/macos-golden-gate-base:latest defi-e2e
+tart set defi-e2e --cpu 4 --memory 4096
+script/test_vm.sh                                # or DesktopE2ETests/<test>
+```
+
+The script restarts a VM left running and always stops it at the end, which frees
+its memory. If a run is killed outright, use `tart stop defi-e2e`.
+Plan for about 50 GB of disk and 4 GB of
+memory while it runs. The script disables guest services Defi never touches, such
+as Siri, iCloud, and Shortcuts, from the VM's second boot on.
+
+Runs queue on a per-VM lock. `DEFI_VM_SECOND_DISPLAY=1` adds a virtual second
+display for the two-display tests.
+
+The VM runs with SIP disabled, so it cannot certify SIP-enabled behavior, the
+signed installed app, real multi-display hardware, or animation quality.
+`testTwoDisplayWindowsStayOnTheirDisplay` has been unstable on the virtual display.
+Run `verify.py desktop` for those before a release.
+
+`testFocusFollowsLatestNativeIntent` fails on any desktop while a full-screen
+transparent window sits above the fixtures, such as a notification banner's or one
+from an app like Hex, because it blocks the pointer hit test. The script clears the
+VM image's boot banner.
+
 Prepare a signed app without stopping the installed daemon:
 
 ```sh

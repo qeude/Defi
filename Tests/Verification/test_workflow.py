@@ -5,6 +5,7 @@ import json
 import os
 import plistlib
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -477,6 +478,16 @@ class WorkflowTests(unittest.TestCase):
         result = subprocess.run([str(ROOT / "script/build_and_run.sh"), "--typo"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn("usage:", result.stderr)
+
+    def test_product_does_not_depend_on_disabled_sip(self):
+        # The test VM runs with SIP off; shipped code must never need that.
+        forbidden = re.compile(r"csrutil|csr_check|csr_get|TCC\.db|DYLD_|task_for_pid|mach_inject|scripting.?addition"
+                               r"|com\.apple\.private\.|com\.apple\.security\.(cs\.disable|get-task-allow)", re.I)
+        paths = [*(ROOT / "Sources").rglob("*"), *(ROOT / "Support").rglob("*"),
+                 ROOT / "script/install.sh", ROOT / "script/package_release.sh"]
+        hits = [str(path.relative_to(ROOT)) for path in paths
+                if path.is_file() and forbidden.search(path.read_text(errors="ignore"))]
+        self.assertEqual(hits, [])
 
 
 if __name__ == "__main__":
