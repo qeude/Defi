@@ -432,8 +432,6 @@ private final class BorderSegment {
       )
       shapeLayer.lineWidth = width
       CATransaction.commit()
-      // setFrame above applied at once: the new path must not wait for the run loop's commit.
-      if sizeChanged { CATransaction.flush() }
     }
 
     if panel.sharingType != (captureEnabled ? .readOnly : .none) {

@@ -227,7 +227,7 @@ final class OverviewPanel {
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
-      await fadeRevealingDesktop(generation: generation)
+      hide()
     }
     return true
   }
@@ -243,7 +243,7 @@ final class OverviewPanel {
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
-      await fadeRevealingDesktop(generation: generation)
+      if zoomsWallpaper { await fadeRevealingDesktop(generation: generation) } else { hide() }
     }
   }
 

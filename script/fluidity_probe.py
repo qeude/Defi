@@ -91,7 +91,30 @@ def scenario(out, label, rounds, on_ready, only=None):
         time.sleep(1.5)
         on_ready()
         started = time.time()
+
+        def launch_and_quit():
+            mark('launch')
+            launched = pe.Fixture(out / 'PerformanceFixture', out / f'{label}-launch-{len(events)}.jsonl')
+            launched.ask()  # registered with LaunchServices: activation can find it
+            pe.activate(launched.process.pid)
+            launched.ask('create', id='only')
+            time.sleep(1.5)
+            mark('quit')
+            launched.close()
+            time.sleep(1.2)
+
         for _ in range(rounds):
+            if only == 'quit':
+                for _ in range(6):
+                    launch_and_quit()
+                    pe.activate(fixture.process.pid)
+                    time.sleep(.6)
+                continue
+            if only == 'overview':
+                for _ in range(8):
+                    go('overview-open', 'toggle-overview', pause=1)
+                    go('overview-close', 'toggle-overview', pause=1)
+                continue
             for direction in ['right'] * 3 + ['left'] * 3:
                 go('column', 'focus-column', direction)
             if only == 'column':
@@ -106,15 +129,7 @@ def scenario(out, label, rounds, on_ready, only=None):
                 mark('close')
                 fixture.ask('close', id=window['id'])
                 time.sleep(1.2)
-            mark('launch')
-            launched = pe.Fixture(out / 'PerformanceFixture', out / f'{label}-launch-{len(events)}.jsonl')
-            launched.ask()  # registered with LaunchServices: activation can find it
-            pe.activate(launched.process.pid)
-            launched.ask('create', id='only')
-            time.sleep(1.5)
-            mark('quit')
-            launched.close()
-            time.sleep(1.2)
+            launch_and_quit()
             pe.activate(other.process.pid)
             other.ask('create', id=f'activate-{time.time()}')
             time.sleep(1.2)
@@ -203,7 +218,7 @@ def main():
     p.add_argument('output', type=Path)
     p.add_argument('--bundle', action='append', required=True, help='LABEL=path')
     p.add_argument('--rounds', type=int, default=1)
-    p.add_argument('--only', choices=['column'], help='a short trace of one action: finalizes in a minute')
+    p.add_argument('--only', choices=['column', 'overview', 'quit'], help='a short trace of one action: finalizes in a minute')
     p.add_argument('--defaults', action='append', default=[], help='LABEL:KEY=INT, set in the daemon domain for that side')
     args = p.parse_args()
     if inherited_lock() is None:
@@ -235,7 +250,7 @@ def main():
                     subprocess.run(['defaults', 'write', 'com.qeude.defi', key, '-int', value], check=True)
             install(Path(path).resolve())
             pe.wait_for_idle()
-            result = trace_trial(out, label, args.rounds, args.only, args.rounds * 7 + 3 if args.only else None)
+            result = trace_trial(out, label, args.rounds, args.only, args.rounds * {'overview': 18, 'quit': 30, 'column': 7}[args.only] + 3 if args.only else None)
             print(json.dumps(result), flush=True)
     finally:
         try:

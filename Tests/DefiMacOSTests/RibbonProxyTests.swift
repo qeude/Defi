@@ -116,11 +116,16 @@ struct RibbonProxyTests {
     }
     #expect(!moves(left, targets: [a: frame], previous: [a: frame, c: frame]))
     #expect(moves(left, displays: 1, targets: [a: frame], previous: [a: frame]))
+    // A floating window opening over a still ribbon needs no overlay, on any display count.
+    #expect(!moves(left, displays: 1, targets: [a: frame], previous: [a: frame], opened: [b]))
+    #expect(moves(left, displays: 1, targets: [a: moved], previous: [a: frame], opened: [b]))
+    // Tiled: it enters the ribbon, so the layout does move.
+    #expect(moves(left, displays: 1, targets: [a: frame, b: frame], previous: [a: frame], opened: [b]))
     #expect(moves(left, targets: [a: moved], previous: [a: frame]))
     #expect(moves(left, targets: [a: frame, b: frame], previous: [a: frame]))
     // A window leaving the ribbon (closed, sent away) reflows the display.
     #expect(moves(left, targets: [a: frame], previous: [a: frame, b: frame]))
-    #expect(moves(left, targets: [a: frame], previous: [a: frame], opened: [b]))
+    #expect(!moves(left, targets: [a: frame], previous: [a: frame], opened: [b]))
     #expect(!moves(left, targets: [a: frame], previous: [a: frame], opened: [c], dropped: c))
     #expect(moves(left, targets: [a: frame], previous: [a: frame], dropped: a))
     // A window this layout skips (a focus change pending elsewhere) stays where it is.

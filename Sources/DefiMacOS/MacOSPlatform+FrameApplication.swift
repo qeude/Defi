@@ -525,12 +525,16 @@ func windowProxyRibbonHistory(_ ribbonFrames: [FrameAssignment], previous: [Wind
 func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
   ribbonTargets: [WindowID: Rect], previousRibbonFrames: [WindowID: Rect],
   opened: Set<WindowID>, dropped: WindowID?, skipped: Set<WindowID> = []) -> Bool {
-  displayCount == 1 || monitor.workspaceShift != nil
-    || !monitor.windowIDs.isDisjoint(with: opened.union([dropped].compactMap { $0 }))
-    || ribbonTargets.contains { id, to in previousRibbonFrames[id].map { !approximatelyEqual($0, to) } ?? true }
+  let reflows = ribbonTargets.contains { id, to in previousRibbonFrames[id].map { !approximatelyEqual($0, to) } ?? true }
     || previousRibbonFrames.keys.contains {
       monitor.windowIDs.contains($0) && ribbonTargets[$0] == nil && !skipped.contains($0)
     }
+  // A floating window opens where macOS placed it, over a still ribbon: an overlay
+  // would only cover it with an empty card until its first capture.
+  let openedHere = opened.intersection(monitor.windowIDs)
+  if !reflows, !openedHere.isEmpty, monitor.workspaceShift == nil, dropped == nil { return false }
+  return displayCount == 1 || monitor.workspaceShift != nil
+    || !monitor.windowIDs.isDisjoint(with: opened.union([dropped].compactMap { $0 })) || reflows
 }
 
 /// Plans each proxy from what is on screen to its target. Windows without a
