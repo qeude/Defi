@@ -551,7 +551,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `cycle-width previous` | Select previous width preset, wrapping. | `<mod>-minus` |
 | `cycle-width next` | Select next width preset, wrapping. | `<mod>-equal` |
 | `maximize-column` | Toggle focused column between full width and previous width. | `<mod>-f` |
-| `center-column` | Center the focused column on screen until selection leaves it. | unset |
+| `center-column` | Center the focused column on screen until selection leaves it. | `<mod>-c` |
 | `toggle-floating` | Toggle focused window between tiled and floating layers. | `<mod>-backslash` |
 | `activate-floating` | Select floating layer and foreground its selected window. | `<mod>-shift-backslash` |
 | `focus-floating previous` | Focus previous floating window, wrapping. | `<mod>-comma` |
@@ -796,6 +796,7 @@ names = []
 "ctrl-alt-minus" = "cycle-width previous"
 "ctrl-alt-equal" = "cycle-width next"
 "ctrl-alt-f" = "maximize-column"
+"ctrl-alt-c" = "center-column"
 "ctrl-alt-backslash" = "toggle-floating"
 "ctrl-alt-shift-backslash" = "activate-floating"
 "ctrl-alt-comma" = "focus-floating previous"

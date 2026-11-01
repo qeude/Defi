@@ -247,6 +247,7 @@ struct ConfigTests {
     #expect(config.keys["hyper-minus"] == "cycle-width previous")
     #expect(config.keys["hyper-equal"] == "cycle-width next")
     #expect(config.keys["hyper-f"] == "maximize-column")
+    #expect(config.keys["hyper-c"] == "center-column")
     #expect(config.keys["hyper-backslash"] == "toggle-floating")
     #expect(config.keys["hyper-shift-backslash"] == "activate-floating")
     #expect(config.keys["hyper-comma"] == "focus-floating previous")

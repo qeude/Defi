@@ -59,6 +59,7 @@ struct CheatsheetHotKeyTests {
         row("←", "Column left", "Move column left"), row("→", "Column right", "Move column right"),
         row("[", "First column", "Move column to first"),
         row("]", "Last column", "Move column to last"),
+        row("C", "Center column"),
       ]),
       ShortcutGroup(title: "Windows in a column", rows: [
         row("K", "Window up", "Move window up"), row("J", "Window down", "Move window down"),
