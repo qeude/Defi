@@ -77,6 +77,10 @@ final class HotKeyRegistration: @unchecked Sendable {
         if let resolve {
           if let resolution = resolve() { adopt(resolution) }
           layoutObserver = KeyboardLayoutObserver { [weak self] in self?.layoutChanged() }
+          monitor.onKeyboardTypeChange { [weak self] type in
+            observedKeyboardType.withLock { $0 = type }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.layoutChanged() } }
+          }
         }
         refresh()
       }

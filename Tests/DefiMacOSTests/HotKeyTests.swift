@@ -74,6 +74,23 @@ struct OverviewHotKeyTests {
     }
   }
 
+  @Test
+  func keyboardTypeChangesFireOncePerChangeAndSyntheticKeysAreIgnored() throws {
+    let seen = Mutex<[UInt32]>([])
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, textInputFocused: { false })
+    context.onKeyboardTypeChange { type in seen.withLock { $0.append(type) } }
+    for type: Int64 in [0, 91, 91, 0, 201, 201, 91] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+      event.setIntegerValueField(.keyboardEventKeyboardType, value: type)
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(seen.withLock { $0 } == [91, 201, 91])
+  }
+
   @Test(arguments: [false, true])
   func boundKeysStaySilentWhileAnotherAppCapturesTheKeyboard(captured: Bool) throws {
     let key = try Key(accelerator: "alt-left", aliases: [:])

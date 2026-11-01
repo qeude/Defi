@@ -545,9 +545,10 @@ the table changes. The Settings recorder stores a name that resolves back to the
 pressed key on the current layout, and Settings refuses a shortcut whose chord
 another shortcut already holds even when the names differ.
 
-Limit: the layout is read for the keyboard type macOS last reported. With an
-ANSI and a JIS keyboard attached at once, Defi follows the last one used and does
-not re-resolve until the layout changes.
+The layout is read for the keyboard type of the last key pressed. With an ANSI
+and a JIS keyboard attached at once, shortcuts re-resolve when you switch
+keyboards, so the first key from the other one still follows the previous table.
+Settings reads the same type but only refreshes when the input source changes.
 
 ### Commands
 

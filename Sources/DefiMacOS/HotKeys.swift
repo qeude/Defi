@@ -322,6 +322,8 @@ final class InputMonitor: @unchecked Sendable {
   }
   private var taps: [Tap] = []
   private var registeredHotKeys = false
+  private var keyboardType: Int64 = 0
+  private var keyboardTypeChanged: (@Sendable (UInt32) -> Void)?
   private var runLoop: CFRunLoop?
   private var captured = 0
   private var reenables = 0
@@ -415,6 +417,21 @@ final class InputMonitor: @unchecked Sendable {
     lock.withLock { self.bindings = bindings }
   }
 
+  func onKeyboardTypeChange(_ handler: @escaping @Sendable (UInt32) -> Void) {
+    lock.withLock { keyboardTypeChanged = handler }
+  }
+
+  /// Keys from another physical keyboard may print differently. Synthetic events report type 0.
+  private func noteKeyboardType(of event: CGEvent) {
+    let type = event.getIntegerValueField(.keyboardEventKeyboardType)
+    let handler = lock.withLock { () -> (@Sendable (UInt32) -> Void)? in
+      guard type != 0, type != keyboardType else { return nil }
+      keyboardType = type
+      return keyboardTypeChanged
+    }
+    handler?(UInt32(truncatingIfNeeded: type))
+  }
+
   func setHotKeysRegistered(_ registered: Bool) {
     let dismiss = lock.withLock {
       let dismiss = registeredHotKeys && !registered
@@ -476,6 +493,7 @@ final class InputMonitor: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let isKeyDown = type == .keyDown
+    if isKeyDown { noteKeyboardType(of: event) }
     let eventTargetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
     let isDefiTextInput = hotKeyTargetIsCurrentApplication(
       eventTargetPID, currentPID: getpid(),

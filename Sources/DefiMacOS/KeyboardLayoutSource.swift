@@ -1,12 +1,18 @@
 import Carbon
 import Foundation
+import Synchronization
+
+/// The keyboard type of the last real key the input tap saw, 0 until then. The tap writes an integer
+/// here and never calls TIS; with several keyboards attached it is the one in use.
+let observedKeyboardType = Mutex<UInt32>(0)
 
 /// The ASCII-capable layout rather than the selected source, so Romaji and kana keep the layout
 /// that shortcuts use. Main thread only: TIS is not safe on the tap thread or the navigation actor.
 @MainActor
 func currentKeyboardLayout() -> KeyboardLayout? {
   guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() else { return nil }
-  return keyboardLayout(of: source, keyboardType: UInt32(LMGetKbdType()))
+  let observed = observedKeyboardType.withLock { $0 }
+  return keyboardLayout(of: source, keyboardType: observed != 0 ? observed : UInt32(LMGetKbdType()))
 }
 
 /// Reads an installed layout without selecting it.
