@@ -247,7 +247,6 @@ final class OverviewPanel {
     }
   }
 
-  /// The fallback when no zoom can close the panel: it dissolves over the desktop.
   /// The panel covers the menu bar and Dock; cross-fade them in instead of popping.
   /// Core Animation keeps the fade smooth while the main thread is busy.
   private func fadeRevealingDesktop(generation: UInt64) async {

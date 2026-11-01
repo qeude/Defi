@@ -647,6 +647,7 @@ final class RibbonProxyPresenter {
     let flushMS = Int((CACurrentMediaTime() - committing) * 1_000)
     presenting = true
     holdUntil = holds ? CACurrentMediaTime() + 0.5 : 0
+    holdRelease?.cancel(); holdRelease = nil
     holdStart = CACurrentMediaTime()
     // A hold is still: the snapshot that opens the window and fresh pictures must not wait for it.
     RibbonProxyStore.shared.setMoving(!holds, display)
@@ -899,6 +900,7 @@ final class RibbonProxyPresenter {
       }
       return
     }
+    holdRelease = nil
     if timedOut { lastFallback = "landing-timeout" }
     // The carried window and the reflowed neighbours stay on the overlay until the
     // drop layout (or its timeout) takes over.
