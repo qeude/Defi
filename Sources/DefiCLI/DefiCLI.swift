@@ -10,6 +10,10 @@ struct DefiCLI {
         try ServiceManager.run(service)
         return
       }
+      if options.triage {
+        try Triage.run(agent: options.triageAgent, socketURL: options.socketURL)
+        return
+      }
       if options.purge {
         try Uninstaller.purge()
         return
@@ -39,6 +43,7 @@ struct Options {
       defi [--socket <path>] [--monitor <index>] <command> [arguments]
       defi service enable|disable|start|stop|restart|status
       defi uninstall --purge
+      defi triage [--agent claude|codex]
 
     examples:
       defi focus-column left
@@ -55,6 +60,8 @@ struct Options {
   let command: [String]
   let service: String?
   let purge: Bool
+  let triage: Bool
+  let triageAgent: TriageAgent?
 
   init(arguments: [String]) throws {
     var socketURL = SocketPath.defaultURL
@@ -79,6 +86,8 @@ struct Options {
       }
       index += 1
     }
+    var triage = false
+    var triageAgent: TriageAgent?
     if remaining == ["uninstall", "--purge"] {
       purge = true
       service = nil
@@ -88,11 +97,25 @@ struct Options {
       purge = false
       service = remaining[1]
       command = []
+    } else if remaining.first == "triage" {
+      switch remaining.count {
+      case 1: break
+      case 3 where remaining[1] == "--agent":
+        guard let agent = TriageAgent(rawValue: remaining[2]) else { throw CLIError.usage }
+        triageAgent = agent
+      default: throw CLIError.usage
+      }
+      triage = true
+      purge = false
+      service = nil
+      command = []
     } else {
       purge = false
       service = nil
       command = remaining
     }
+    self.triage = triage
+    self.triageAgent = triageAgent
     self.socketURL = socketURL
     self.monitorIndex = monitorIndex
   }

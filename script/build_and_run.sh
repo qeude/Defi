@@ -60,6 +60,7 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BIN_DIR/$PROCESS_NAME" "$APP_BINARY"
 cp "$BIN_DIR/defi" "$CLI_BINARY"
 cp "$INFO_PLIST_SOURCE" "$APP_CONTENTS/Info.plist"
+cp "$ROOT_DIR/.github/triage/PLAYBOOK.md" "$APP_RESOURCES/triage-playbook.md"
 chmod +x "$APP_BINARY" "$CLI_BINARY"
 
 MINIMUM_SYSTEM_VERSION="$(/usr/bin/plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST_SOURCE")"

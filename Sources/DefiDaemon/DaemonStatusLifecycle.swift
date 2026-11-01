@@ -185,6 +185,7 @@ extension Daemon {
       return
         "\(columnWidthStatus(column.width))/pre-max:\(column.preMaximizedWidth.map(columnWidthStatus) ?? "none")"
     }()
+    let bundle = DiagnosticRecorder.bundleVersion
     let displaySizes = latestMonitors.map {
       "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
     }.joined(separator: ",")
@@ -214,6 +215,8 @@ extension Daemon {
       + " inputConvergedN/P50/P95/P99=\(latencyStatus(commandLatency.convergence))"
       + " inputFocusN/P50/P95/P99=\(latencyStatus(commandLatency.focus))"
       + " windowDiscovery{\(platform.windowDiscoveryStatus)}"
+      + " version=\(bundle.version)+\(bundle.build)"
+      + " accessibility=\(platform.accessibilityTrusted(prompt: false) ? "granted" : "denied")"
   }
 
   private func columnWidthStatus(_ width: ColumnWidth) -> String {
