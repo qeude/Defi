@@ -37,10 +37,12 @@ public final class HotKeyManager {
   public typealias OverviewHandler =
     @NavigationActor @Sendable (OverviewKeyAction) -> Void
 
-  private let bindings: [Key: String]
+  private let bindings: [Key: (accelerator: String, command: String)]
   private let handler: Handler
   public let tracksPointerMotion: Bool
   public private(set) var bindingError: HotKeyError?
+  /// Shortcuts whose chord another app reserves, as configured. The others keep working.
+  public private(set) var heldByAnotherApp: [String] = []
   private let configurationError: HotKeyError?
   private let pointerMotionHandler: PointerMotionHandler?
   private let tapReenabledHandler: TapReenabledHandler
@@ -55,9 +57,11 @@ public final class HotKeyManager {
   private var context: InputMonitor?
   private var thread: Thread?
   private var registration: HotKeyRegistration?
-  private let registrationHandler: @NavigationActor @Sendable (Bool, HotKeyError?) -> Void
+  private let registrationHandler: @NavigationActor @Sendable (Bool, HotKeyError?, [String]) -> Void
 
-  public var bindingCount: Int { bindings.count }
+  private let resolveBindings: (@MainActor () -> HotKeyResolution?)?
+
+  public var bindingCount: Int { context?.bindingCount ?? bindings.count }
 
   public var isHotKeyCaptureEnabled: Bool {
     bindingError == nil && bindingCount > 0 && isEnabled && context?.hasRegisteredHotKeys == true
@@ -79,8 +83,11 @@ public final class HotKeyManager {
     context?.pointerTransitionCount ?? 0
   }
 
+  /// With `followsKeyboardLayout` the shortcuts move to the keys the layout prints, and again whenever
+  /// the layout changes. Tests keep the default so they do not depend on the developer's layout.
   public init(
     config: Config,
+    followsKeyboardLayout: Bool = false,
     userInputTracker: UserInputTracker = UserInputTracker(),
     pointerMotionTracker: PointerMotionTracker = PointerMotionTracker(),
     pointerMotionHandler: PointerMotionHandler? = nil,
@@ -90,7 +97,7 @@ public final class HotKeyManager {
     overviewHandler: @escaping OverviewHandler = { _ in },
     overviewCancelHandler: (@Sendable () -> Void)? = nil,
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
-    registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?) -> Void = { _, _ in },
+    registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?, [String]) -> Void = { _, _, _ in },
     handler: @escaping Handler
   ) {
     self.handler = handler
@@ -112,10 +119,10 @@ public final class HotKeyManager {
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     self.displayPointerRouter = displayPointerRouter
-    var bindings: [Key: String] = [:]
+    var bindings: [Key: (accelerator: String, command: String)] = [:]
     var bindingError: HotKeyError?
     do {
-      bindings = try configuredHotKeys(config).mapValues(\.command)
+      bindings = try configuredHotKeys(config)
     } catch let error {
       bindings.removeAll(keepingCapacity: false)
       bindingError = error
@@ -123,6 +130,11 @@ public final class HotKeyManager {
     self.bindings = bindings
     self.bindingError = bindingError
     configurationError = bindingError
+    let (keys, aliases, written) = (config.keys, config.modifierCombinations, Set(config.keyOverrides.keys))
+    resolveBindings = followsKeyboardLayout
+      ? { @MainActor () -> HotKeyResolution? in
+        try? resolveHotKeys(keys, aliases: aliases, layout: currentKeyboardLayout(), userWritten: written)
+      } : nil
   }
 
   public func start() throws {
@@ -163,7 +175,7 @@ public final class HotKeyManager {
     let overviewCancelHandler = self.overviewCancelHandler
     let cheatsheetHandler = self.cheatsheetHandler
     let context = InputMonitor(
-      bindings: bindings,
+      bindings: bindings.mapValues(\.command),
       userInputTracker: userInputTracker,
       pointerMotionTracker: pointerMotionTracker,
       displayPointerRouter: displayPointerRouter,
@@ -242,11 +254,14 @@ public final class HotKeyManager {
     guard bindingError == nil else {
       return
     }
-    let registration = HotKeyRegistration(bindings: bindings, monitor: context) { [weak self] error in
+    let registration = HotKeyRegistration(
+      bindings: bindings, monitor: context, resolve: resolveBindings
+    ) { [weak self] error, held in
       NavigationActor.enqueue {
         guard let self, self.context === context else { return }
         self.bindingError = error
-        self.registrationHandler(self.isHotKeyCaptureEnabled, error)
+        self.heldByAnotherApp = held
+        self.registrationHandler(self.isHotKeyCaptureEnabled, error, held)
       }
     }
     self.registration = registration
@@ -286,9 +301,9 @@ public final class HotKeyManager {
 
 final class InputMonitor: @unchecked Sendable {
   private static let commandTabKeyCode = CGKeyCode(48)
-  private static let closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
 
-  private let bindings: [Key: String]
+  private var bindings: [Key: String]
+  private var closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
@@ -307,6 +322,8 @@ final class InputMonitor: @unchecked Sendable {
   }
   private var taps: [Tap] = []
   private var registeredHotKeys = false
+  private var keyboardType: Int64 = 0
+  private var keyboardTypeChanged: (@Sendable (UInt32) -> Void)?
   private var runLoop: CFRunLoop?
   private var captured = 0
   private var reenables = 0
@@ -394,6 +411,30 @@ final class InputMonitor: @unchecked Sendable {
 
   var hasRegisteredHotKeys: Bool { lock.withLock { registeredHotKeys } }
 
+  var bindingCount: Int { lock.withLock { bindings.count } }
+
+  func setBindings(_ bindings: [Key: String], closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]) {
+    lock.withLock {
+      self.bindings = bindings
+      self.closeWindowKeyCodes = closeWindowKeyCodes
+    }
+  }
+
+  func onKeyboardTypeChange(_ handler: @escaping @Sendable (UInt32) -> Void) {
+    lock.withLock { keyboardTypeChanged = handler }
+  }
+
+  /// Keys from another physical keyboard may print differently. Synthetic events report type 0.
+  private func noteKeyboardType(of event: CGEvent) {
+    let type = event.getIntegerValueField(.keyboardEventKeyboardType)
+    let handler = lock.withLock { () -> (@Sendable (UInt32) -> Void)? in
+      guard type != 0, type != keyboardType else { return nil }
+      keyboardType = type
+      return keyboardTypeChanged
+    }
+    handler?(UInt32(truncatingIfNeeded: type))
+  }
+
   func setHotKeysRegistered(_ registered: Bool) {
     let dismiss = lock.withLock {
       let dismiss = registeredHotKeys && !registered
@@ -455,6 +496,7 @@ final class InputMonitor: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     let isKeyDown = type == .keyDown
+    if isKeyDown { noteKeyboardType(of: event) }
     let eventTargetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
     let isDefiTextInput = hotKeyTargetIsCurrentApplication(
       eventTargetPID, currentPID: getpid(),
@@ -501,6 +543,7 @@ final class InputMonitor: @unchecked Sendable {
     lock.lock()
     let overviewModeEnabled = overviewModeEnabled
     let cheatsheetVisible = cheatsheetVisible
+    let bindings = bindings
     lock.unlock()
     if cheatsheetVisible && code == 53 { return Unmanaged.passUnretained(event) }
     if overviewModeEnabled,
@@ -558,7 +601,7 @@ final class InputMonitor: @unchecked Sendable {
       focusIntent = nil
     }
     let closeIntent = isKeyDown && commandPressed
-      && Self.closeWindowKeyCodes.contains(code)
+      && lock.withLock({ closeWindowKeyCodes }).contains(code)
       && !isDefiTextInput
     userInputTracker.record(
       timestamp: timestamp,
@@ -601,7 +644,7 @@ final class InputMonitor: @unchecked Sendable {
     if targetPID == getpid(), textInputFocused() { return Unmanaged.passUnretained(event) }
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let key = Key(code: code, flags: event.flags.rawValue)
-    let (overview, cheatsheet) = lock.withLock { (overviewModeEnabled, cheatsheetVisible) }
+    let (overview, cheatsheet, bindings) = lock.withLock { (overviewModeEnabled, cheatsheetVisible, self.bindings) }
     if cheatsheet && code == 53 {
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)

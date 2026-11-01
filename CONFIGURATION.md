@@ -23,8 +23,10 @@ setting affects the current layout.
 
 Invalid TOML, values, workspace references, commands, accelerators, and modifier
 aliases are shown in an app alert. Errors that prevent decoding stop startup;
-invalid hotkeys disable keyboard capture for that run. Configured mouse focus
-and cursor-motion tracking remain active when possible.
+malformed hotkeys disable keyboard capture for that run. Configured mouse focus
+and cursor-motion tracking remain active when possible. A well-formed key name
+that the current keyboard layout does not have is not an error: only that
+shortcut is inactive, and Settings says why.
 
 ## `[layout]`
 
@@ -472,8 +474,11 @@ through a passive event tap. Commands remain responsive while the main event
 loop is busy, and normal shortcut events are not discarded by Defi's tap.
 Reservations are suspended during shortcut recording and text editing in Defi.
 Shortcuts stay silent while another app captures the keyboard.
-Registration failures disable shortcuts and appear in the settings status and
-an app alert; input observation remains active. A separate filtering tap handles
+A shortcut whose chord another app already reserves is skipped and reads "Held
+by another app" in Settings; the others keep working, and Defi retries it when
+the keyboard layout changes or the configuration reloads. If no chord registers,
+shortcuts are disabled and the failure appears in the settings status and an app
+alert; input observation remains active. A separate filtering tap handles
 overview navigation, shortcut recording, help dismissal, and pointer routing.
 
 ```toml
@@ -498,7 +503,9 @@ you.
 ### Accelerator syntax
 
 Format: `<modifier-or-alias>-<modifier>-<key>`. Order and letter case do not
-matter. Final component must be a supported key name.
+matter. The final component is a key name from the list below or one other
+character, such as `ctrl-alt-é` or `ctrl-alt-¥`. `ctrl-alt-[` and
+`ctrl-alt-leftbracket` are the same shortcut.
 
 Supported key names:
 
@@ -509,6 +516,44 @@ Supported key names:
   `quote`, `backslash`, `comma`, `period`, `slash`
 
 Examples: `alt-left`, `cmd-shift-p`, `hyper-backslash`.
+
+### Keyboard layouts
+
+Shortcuts follow the keyboard layout and are recomputed when it changes. Defi
+reads the active ASCII-capable layout, so switching between Romaji and kana
+changes nothing. Where the layout is unavailable, every key name stays on its US
+position. Each key type resolves as follows:
+
+| Key | Where it lands |
+| --- | --- |
+| Digits and arrows | Always the same physical key. `ctrl-alt-1` stays on the number row on AZERTY. |
+| Letters | The key printing that letter, e.g. `ctrl-alt-f` on Dvorak. A layout without the letter keeps the US position. |
+| Punctuation names | The key printing the character. If it takes Shift or Option, those are added to the shortcut, so `ctrl-alt-period` is `⌃⌥⇧;` on French. `leftbracket` and `rightbracket` with the same modifiers move together: if either would need added modifiers, both take their US positions when free (`⌃⌥^` and `⌃⌥$` on French). A name written with Shift, such as `ctrl-alt-shift-minus`, takes the key of its unshifted sibling when that sibling needs no added modifiers and the chord is free. If a chord is taken, the key's US position; if that is taken too, the first main-block key that is free with the modifiers as written, so a default shortcut is never lost. That search tries keys printing a symbol first, then letters, then digits, lowest key number first within each; keys the keyboard lacks (§ off ISO keyboards, ¥ and _ off JIS) are never used. |
+| Other characters | The key printing the character, with the same added modifiers. If the layout lacks it, or its key is held by another shortcut (digits and arrows win), that shortcut is inactive and the others are unaffected. |
+
+Earlier-claimed chords win in this order: digits and arrows, then characters on
+the unmodified key, then bracket pairs on their US positions, then characters
+that need Shift or Option, then US positions, then the free-key search. Ties
+break by accelerator name, so the result never depends on the order of the file.
+A shortcut you wrote in `[keys]` holds its digit, arrow or character ahead of
+every generated default, so on French `ctrl-alt-é` keeps the key of the digit 2
+and the default `ctrl-alt-2` reads "Held by" it. A displaced default moves on to
+its own fallbacks. The keypad is never used.
+Shortcuts containing `cmd` read the layout as Command sees it, which matters on
+Dvorak-QWERTY⌘. So does Defi's detection of Command-Q and Command-W as a
+window about to close.
+
+The cheatsheet and Settings show the key actually pressed, including added
+modifiers. An inactive shortcut reads "Not on this layout", "Held by" the
+shortcut that owns the chord, or "Held by another app". Defi logs one line per inactive shortcut whenever
+the table changes. The Settings recorder stores a name that resolves back to the
+pressed key on the current layout, and Settings refuses a shortcut whose chord
+another shortcut already holds even when the names differ.
+
+The layout is read for the keyboard type of the last key pressed. With an ANSI
+and a JIS keyboard attached at once, shortcuts re-resolve when you switch
+keyboards, so the first key from the other one still follows the previous table.
+Settings reads the same type but only refreshes when the input source changes.
 
 ### Commands
 

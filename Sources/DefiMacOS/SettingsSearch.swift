@@ -197,7 +197,10 @@ enum SettingsSearchCatalog {
     }
   }
 
-  static func results(matching query: String, config: Config, shortcuts: [SettingsShortcutRow]) -> [SettingsSearchResult] {
+  static func results(
+    matching query: String, config: Config, shortcuts: [SettingsShortcutRow],
+    resolution: ShortcutResolution? = nil
+  ) -> [SettingsSearchResult] {
     guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
     let pages = SettingsPage.allCases.map {
       SettingsSearchResult(destination: .page($0), title: $0.rawValue, context: "Settings page")
@@ -213,16 +216,19 @@ enum SettingsSearchCatalog {
           title: "\(field.title) · \(name)", context: "Workspaces · Named workspaces", terms: field.terms)
       }
     }
-    return (pages + options + workspaces + shortcutResults(config: config, shortcuts: shortcuts))
+    return (pages + options + workspaces + shortcutResults(config: config, shortcuts: shortcuts, resolution: resolution))
       .filter { $0.matches(query) }
   }
 
-  static func shortcutResults(config: Config, shortcuts: [SettingsShortcutRow]) -> [SettingsSearchResult] {
+  static func shortcutResults(
+    config: Config, shortcuts: [SettingsShortcutRow], resolution: ShortcutResolution? = nil
+  ) -> [SettingsSearchResult] {
     let bindings = Dictionary(grouping: shortcuts, by: \.command)
     return SettingsShortcutActions.commands(workspaces: config.workspaces.names, rows: shortcuts).map { command in
       let rows = bindings[command] ?? []
       let labels = rows.map { row in
-        let label = shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, displayHyper: false)
+        let label = shortcutKeyLabel(
+          row.accelerator, aliases: config.modifierCombinations, displayHyper: false, resolved: resolution)
         return label + (row.isEnabled ? "" : " (Disabled)")
       }
       let keys = rows.flatMap { row -> [String] in
@@ -231,9 +237,9 @@ enum SettingsSearchCatalog {
           .replacingOccurrences(of: "ctrl", with: "control")
           .replacingOccurrences(of: "cmd", with: "command")
         return [row.accelerator, normalized, words,
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, displayHyper: false),
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations),
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, hyperIncludesShift: true)]
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, displayHyper: false, resolved: resolution),
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, resolved: resolution),
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, hyperIncludesShift: true, resolved: resolution)]
       }
       return SettingsSearchResult(destination: .shortcut(command), title: commandTitle(command),
         context: "Input · Keyboard shortcuts", detail: labels.isEmpty ? "Not assigned" : labels.joined(separator: " · "),

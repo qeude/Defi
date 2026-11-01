@@ -426,6 +426,74 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(log.all, ["focus-column left", "focus-column left"])
   }
 
+  func testShortcutsFollowKeyboardLayoutChanges() throws {
+    _ = try preflight()
+    func inputSource(_ id: String) throws -> TISInputSource {
+      let sources = TISCreateInputSourceList([kTISPropertyInputSourceID as String: id] as CFDictionary, true)?
+        .takeRetainedValue() as? [TISInputSource]
+      return try XCTUnwrap(sources?.first, "\(id) must be installed")
+    }
+    func enabledSources() -> [TISInputSource] {
+      TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] ?? []
+    }
+    let enabledBefore = enabledSources()
+    let inputMenuPreference = "visible" as CFString
+    let inputMenuDomain = "com.apple.TextInputMenu" as CFString
+    let inputMenuBefore = CFPreferencesCopyAppValue(inputMenuPreference, inputMenuDomain)
+    let original = try XCTUnwrap(TISCopyCurrentKeyboardInputSource()?.takeRetainedValue())
+    let abc = try inputSource("com.apple.keylayout.ABC")
+    let dvorak = try inputSource("com.apple.keylayout.Dvorak")
+    let kana = try inputSource("com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese")
+    // A Japanese mode can be selected only while its parent input method is enabled.
+    let japanese = try inputSource("com.apple.inputmethod.Kotoeri.RomajiTyping")
+    defer {
+      TISSelectInputSource(original)
+      // Enabling Japanese also enables its palette and shows the Input menu, so restore by difference.
+      enabledSources().filter { source in !enabledBefore.contains { CFEqual($0, source) } }
+        .forEach { TISDisableInputSource($0) }
+      CFPreferencesSetAppValue(inputMenuPreference, inputMenuBefore, inputMenuDomain)
+      CFPreferencesAppSynchronize(inputMenuDomain)
+    }
+    [abc, dvorak, japanese, kana].forEach { TISEnableInputSource($0) }
+    XCTAssertEqual(TISSelectInputSource(abc), noErr)
+    pumpRunLoop(for: 0.5)
+
+    let log = CommandLog()
+    let manager = onNavigation { HotKeyManager(
+      config: Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: ["hyper-f": "maximize-column"]),
+      followsKeyboardLayout: true
+    ) { log.append($0.command) } }
+    try startHotKeys(manager)
+    defer { onNavigation { manager.stop() } }
+    func press(_ code: CGKeyCode) throws {
+      let source = CGEventSource(stateID: .hidSystemState)
+      let key = try XCTUnwrap(CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true))
+      key.flags = [.maskAlternate, .maskCommand, .maskControl]
+      key.post(tap: .cghidEventTap)
+      key.type = .keyUp
+      key.post(tap: .cghidEventTap)
+    }
+    func assertFires(onlyOn expected: CGKeyCode, not other: CGKeyCode, _ message: String) throws {
+      let before = log.count
+      try press(other)
+      pumpRunLoop(for: 0.3)
+      XCTAssertEqual(log.count, before, "\(message): key code \(other) must be free")
+      try press(expected)
+      XCTAssertTrue(pumpRunLoop(until: { log.count == before + 1 }, timeout: 2), "\(message): key code \(expected) must fire")
+    }
+
+    try assertFires(onlyOn: 3, not: 16, "ABC prints F on the home row")
+    XCTAssertEqual(TISSelectInputSource(dvorak), noErr)
+    pumpRunLoop(for: 0.5)
+    try assertFires(onlyOn: 16, not: 3, "Dvorak prints F on the top row")
+    XCTAssertEqual(TISSelectInputSource(kana), noErr)
+    pumpRunLoop(for: 0.5)
+    try assertFires(onlyOn: 16, not: 3, "Japanese input keeps the ASCII layout in use")
+    XCTAssertEqual(TISSelectInputSource(abc), noErr)
+    pumpRunLoop(for: 0.5)
+    try assertFires(onlyOn: 3, not: 16, "Returning to ABC moves the shortcut back")
+  }
+
   func testCarbonReservationsReleaseForRecordingTextEditingAndStop() throws {
     let platform = try preflight()
     let fixtures = try openFixtures(platform)
@@ -540,32 +608,67 @@ final class DesktopE2ETests: XCTestCase {
       OptionBits(kEventHotKeyExclusive), &reference), noErr)
     let reserved = try XCTUnwrap(reference)
     defer { UnregisterEventHotKey(reserved) }
+    // Slash is reserved by the test above: that one chord is lost, and the other registers.
+    let config = Config(keys: ["ctrl-alt-cmd-a": "focus-column left", "ctrl-alt-cmd-slash": "focus-column right"])
+    let partial = onNavigation { HotKeyManager(config: config) { invocation in commands.append(invocation.command) } }
+    try onNavigation { try partial.start() }
+    defer { onNavigation { partial.stop() } }
+    XCTAssertTrue(pumpRunLoop(until: { onNavigation { partial.heldByAnotherApp == ["ctrl-alt-cmd-slash"] } }, timeout: 1))
+    XCTAssertNil(onNavigation { partial.bindingError })
+    XCTAssertTrue(onNavigation { partial.isEnabled })
+    XCTAssertTrue(onNavigation { partial.isHotKeyCaptureEnabled }, "One held chord must not disable the others")
+    let earlier = try Key(accelerator: "ctrl-alt-cmd-a", aliases: [:])
+    var reservedByDefi: EventHotKeyRef?
+    XCTAssertEqual(RegisterEventHotKey(UInt32(earlier.code), earlier.carbonModifiers,
+      EventHotKeyID(signature: 0x54657374, id: 2), GetApplicationEventTarget(),
+      OptionBits(kEventHotKeyExclusive), &reservedByDefi), OSStatus(eventHotKeyExistsErr), "A must stay reserved by Defi")
+    if let reservedByDefi { UnregisterEventHotKey(reservedByDefi) }
+    func press(_ key: Key) throws {
+      let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+      event.flags = [.maskControl, .maskAlternate, .maskCommand]
+      event.post(tap: .cghidEventTap)
+      event.type = .keyUp
+      event.post(tap: .cghidEventTap)
+    }
+    try press(key)
+    try press(earlier)
+    XCTAssertTrue(pumpRunLoop(until: { commands.count == 5 }, timeout: 1))
+    pumpRunLoop(for: 0.2)
+    XCTAssertEqual(commands.all.suffix(1), ["focus-column left"], "Only the chord Defi holds runs a command")
+    XCTAssertEqual(commands.count, 5, "The chord another app holds must not run a command")
+    onNavigation { partial.stop() }
+
+    // When no chord registers, the whole set is unavailable but observation stays on.
+    var blockers: [EventHotKeyRef] = []
+    defer { blockers.forEach { UnregisterEventHotKey($0) } }
+    for (index, chord) in try configuredHotKeys(config).keys.filter({ $0 != key }).enumerated() {
+      XCTAssertTrue(pumpRunLoop(until: {
+        var reference: EventHotKeyRef?
+        let status = RegisterEventHotKey(UInt32(chord.code), chord.carbonModifiers,
+          EventHotKeyID(signature: 0x54657374, id: UInt32(10 + index)), GetApplicationEventTarget(),
+          OptionBits(kEventHotKeyExclusive), &reference)
+        if status == noErr, let reference { blockers.append(reference) }
+        return status == noErr
+      }, timeout: 1), "Defi must release \(chord) after stop")
+    }
     let tracker = UserInputTracker()
-    let failing = onNavigation { HotKeyManager(config: Config(keys: [
-      "ctrl-alt-cmd-a": "focus-column left", "ctrl-alt-cmd-slash": "focus-column right",
-    ]), userInputTracker: tracker) { invocation in commands.append(invocation.command) } }
+    let failing = onNavigation { HotKeyManager(config: config, userInputTracker: tracker) { invocation in
+      commands.append(invocation.command) } }
     try onNavigation { try failing.start() }
     defer { onNavigation { failing.stop() } }
     XCTAssertTrue(pumpRunLoop(until: { onNavigation { failing.bindingError != nil } }, timeout: 1))
     XCTAssertTrue(onNavigation { failing.isEnabled }, "Observation must survive a Carbon registration failure")
     XCTAssertFalse(onNavigation { failing.isHotKeyCaptureEnabled })
-    guard case .registrationFailed(keyCode: key.code, status: _) = onNavigation({ failing.bindingError }) else {
-      return XCTFail("Expected a Carbon reservation error for slash")
+    guard case .registrationFailed(keyCode: _, status: _) = onNavigation({ failing.bindingError }) else {
+      return XCTFail("Expected a Carbon reservation error when nothing registers")
     }
-    // The A reservation sorts before slash and must be released by the rollback.
-    let earlier = try Key(accelerator: "ctrl-alt-cmd-a", aliases: [:])
-    var rolledBack: EventHotKeyRef?
-    XCTAssertEqual(RegisterEventHotKey(UInt32(earlier.code), earlier.carbonModifiers,
-      EventHotKeyID(signature: 0x54657374, id: 2), GetApplicationEventTarget(),
-      OptionBits(kEventHotKeyExclusive), &rolledBack), noErr, "A reservation must be released after slash fails")
-    if let rolledBack { UnregisterEventHotKey(rolledBack) }
     let arrow = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 123, keyDown: true))
     arrow.flags = [.maskAlternate]
     arrow.post(tap: .cghidEventTap)
     arrow.type = .keyUp
     arrow.post(tap: .cghidEventTap)
     XCTAssertTrue(pumpRunLoop(until: { tracker.latestEventTimestamp > 0 }, timeout: 1))
-    XCTAssertEqual(commands.count, 4)
+    XCTAssertEqual(commands.count, 5)
   }
 
   // MARK: Settings

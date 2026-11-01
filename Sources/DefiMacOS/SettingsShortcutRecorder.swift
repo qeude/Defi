@@ -3,17 +3,36 @@ import DefiConfig
 import SwiftUI
 import Synchronization
 
-/// Uses the same physical key codes as the global hotkey engine.
-func recordedAccelerator(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> String? {
-  guard !modifiers.intersection([.command, .control, .option]).isEmpty,
-    let key = acceleratorKeyCodes.first(where: { $0.value == keyCode })?.key
-  else { return nil }
+/// Without a layout, uses the same physical key codes as the global hotkey engine. With one, records
+/// the first name that resolves back to the pressed chord on that layout: a digit or arrow by name,
+/// else the key's character, else its table name.
+func recordedAccelerator(
+  keyCode: UInt16, modifiers: NSEvent.ModifierFlags, layout: KeyboardLayout? = nil
+) -> String? {
+  guard !modifiers.intersection([.command, .control, .option]).isEmpty else { return nil }
+  let physical = acceleratorKeyCodes.first(where: { $0.value == keyCode })?.key
+  var names = [physical].compactMap { $0 }
+  if let layout {
+    let character = layout.baseCharacter(code: keyCode, command: modifiers.contains(.command))
+      .map(canonicalKeyName)
+    let pinned = physical.map { Int($0) != nil || keyCode >= 123 } ?? false
+    names = pinned ? names : [character].compactMap { $0 } + names
+  }
   var parts: [String] = []
   if modifiers.contains(.control) { parts.append("ctrl") }
   if modifiers.contains(.option) { parts.append("alt") }
   if modifiers.contains(.shift) { parts.append("shift") }
   if modifiers.contains(.command) { parts.append("cmd") }
-  return normalizedAccelerator((parts + [key]).joined(separator: "-"), aliases: [:])
+  for name in names {
+    guard let accelerator = normalizedAccelerator((parts + [name]).joined(separator: "-"), aliases: [:])
+    else { continue }
+    guard let layout else { return accelerator }
+    guard let modifiers = try? parseAccelerator(accelerator, aliases: [:]).modifiers,
+      let alone = try? resolveHotKeys([accelerator: ""], aliases: [:], layout: layout)
+    else { continue }
+    if alone.keys[Key(code: keyCode, flags: modifiers.rawValue)] != nil { return accelerator }
+  }
+  return nil
 }
 
 struct SettingsShortcutRecorder: NSViewRepresentable {
@@ -150,7 +169,7 @@ final class ShortcutRecorderButton: NSButton {
     }
     guard
       let accelerator = recordedAccelerator(
-        keyCode: keyCode, modifiers: modifiers
+        keyCode: keyCode, modifiers: modifiers, layout: currentKeyboardLayout()
       )
     else {
       title = "Use ⌃, ⌥ or ⌘ + key"

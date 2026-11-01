@@ -74,6 +74,45 @@ struct OverviewHotKeyTests {
     }
   }
 
+  @Test
+  func closeIntentFollowsTheSwappedKeyCodes() throws {
+    let closes = Mutex(0)
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, closeIntent: { _, _ in closes.withLock { $0 += 1 } }, textInputFocused: { false })
+    func press(_ code: CGKeyCode) throws {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = [.maskCommand]
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    try press(13)
+    try press(6)
+    #expect(closes.withLock { $0 } == 1)
+    context.setBindings([:], closeWindowKeyCodes: [0, 6])
+    try press(6)
+    try press(13)
+    #expect(closes.withLock { $0 } == 2)
+  }
+
+  @Test
+  func keyboardTypeChangesFireOncePerChangeAndSyntheticKeysAreIgnored() throws {
+    let seen = Mutex<[UInt32]>([])
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, textInputFocused: { false })
+    context.onKeyboardTypeChange { type in seen.withLock { $0.append(type) } }
+    for type: Int64 in [0, 91, 91, 0, 201, 201, 91] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+      event.setIntegerValueField(.keyboardEventKeyboardType, value: type)
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(seen.withLock { $0 } == [91, 201, 91])
+  }
+
   @Test(arguments: [false, true])
   func boundKeysStaySilentWhileAnotherAppCapturesTheKeyboard(captured: Bool) throws {
     let key = try Key(accelerator: "alt-left", aliases: [:])
@@ -281,6 +320,22 @@ struct HotKeyTests {
     modifierRelease.type = .flagsChanged
     modifierRelease.flags = [.maskAlternate, .maskCommand]
     #expect(context.handle(type: .flagsChanged, event: modifierRelease)?.takeUnretainedValue() === modifierRelease)
+  }
+
+  @Test
+  func replacedBindingsDispatchOnTheNewChordAtOnce() throws {
+    let old = try Key(accelerator: "hyper-f", aliases: aliases)
+    let moved = Key(code: 16, flags: old.modifierBits)
+    let (context, invocations) = makeContext(bindings: [old: "maximize-column"])
+    context.setBindings([moved: "maximize-column"])
+    #expect(context.bindingCount == 1)
+    for code: CGKeyCode in [3, 16] {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = [.maskAlternate, .maskCommand, .maskControl]
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    #expect(invocations.commands == ["maximize-column"])
+    #expect(context.capturedKeyCount == 1)
   }
 
   @Test

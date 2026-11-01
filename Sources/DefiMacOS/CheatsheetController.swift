@@ -20,7 +20,7 @@ public final class CheatsheetController {
     close()
     let bounds = screen.visibleFrame
     let groups = shortcutGroups(
-      config: config,
+      config: config, layout: currentKeyboardLayout(),
       displayHyper: UserDefaults.standard.object(forKey: "displayHyperSymbol") as? Bool ?? true,
       hyperIncludesShift: UserDefaults.standard.bool(forKey: "displayHyperIncludesShift")
     )
@@ -171,21 +171,19 @@ private struct ShortcutBinding {
 }
 
 func shortcutGroups(
-  config: Config, displayHyper: Bool = true, hyperIncludesShift: Bool = false
+  config: Config, layout: KeyboardLayout? = nil, displayHyper: Bool = true, hyperIncludesShift: Bool = false
 ) -> [ShortcutGroup] {
-  func chord(_ accelerator: String) -> (modifiers: Set<String>, key: String)? {
-    guard var parts = normalizedAccelerator(accelerator, aliases: config.modifierCombinations)?
-      .split(separator: "-").map(String.init) else { return nil }
-    let key = parts.removeLast()
-    return (Set(parts), key)
-  }
   func label(_ modifiers: Set<String>) -> String {
     modifierLabel(modifiers, displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift)
   }
-  let bindings = ((try? configuredHotKeys(config)) ?? [:]).values.compactMap { binding in
-    chord(binding.accelerator).map {
-      ShortcutBinding(modifiers: $0.modifiers, key: $0.key, command: binding.command)
-    }
+  let resolution = ShortcutResolution(config: config, layout: layout)
+  let bindings = resolution.resolution.keys.compactMap { key, binding in
+    normalizedAccelerator(binding.accelerator, aliases: config.modifierCombinations)?
+      .split(separator: "-").last.map {
+        ShortcutBinding(
+          modifiers: key.modifierNames, key: resolution.keyName(for: key, named: String($0)),
+          command: binding.command)
+      }
   }
   // A Shift chord joins the row of the same chord without Shift in the same section.
   let chords = Set(bindings.map { $0.chord($0.modifiers) })
@@ -249,17 +247,37 @@ func shortcutGroups(
   return groups
 }
 
+/// With `resolved`, the label names the key actually pressed, including modifiers the layout adds,
+/// or says why the shortcut is inactive. An accelerator the resolution does not know is resolved alone.
 func shortcutKeyLabel(
   _ accelerator: String, aliases: [String: String],
-  displayHyper: Bool = true, hyperIncludesShift: Bool = false
+  displayHyper: Bool = true, hyperIncludesShift: Bool = false,
+  resolved: ShortcutResolution? = nil
 ) -> String {
   guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
     return accelerator
   }
   var parts = normalized.split(separator: "-").map(String.init)
   let key = parts.removeLast()
-  return modifierLabel(Set(parts), displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift)
-    + keySymbol(key)
+  func label(_ modifiers: Set<String>, _ key: String) -> String {
+    modifierLabel(modifiers, displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift) + keySymbol(key)
+  }
+  guard var resolved else { return label(Set(parts), key) }
+  if resolved.key(for: normalized) == nil, resolved.inactivity(for: normalized) == nil {
+    resolved = ShortcutResolution(bindings: [accelerator: ""], aliases: aliases, layout: resolved.layout)
+  }
+  if let chord = resolved.key(for: normalized) {
+    return label(chord.modifierNames, resolved.keyName(for: chord, named: key))
+  }
+  switch resolved.inactivity(for: normalized) {
+  case .held(let holder):
+    return "Held by " + shortcutKeyLabel(
+      holder, aliases: aliases, displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift, resolved: resolved)
+  case .heldByAnotherApp:
+    return "Held by another app"
+  default:
+    return "Not on this layout"
+  }
 }
 
 private func modifierLabel(

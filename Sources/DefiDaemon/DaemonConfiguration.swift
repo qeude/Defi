@@ -238,6 +238,7 @@ extension Daemon {
     }
     let manager = HotKeyManager(
       config: config,
+      followsKeyboardLayout: true,
       userInputTracker: platform.userInputTracker,
       pointerMotionTracker: platform.pointerMotionTracker,
       pointerMotionHandler: { [weak self] invocation in
@@ -315,13 +316,15 @@ extension Daemon {
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         self.handleCheatsheetInput(input)
       },
-      registrationHandler: { [weak self] enabled, error in
+      registrationHandler: { [weak self] enabled, error, held in
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         let message = error.map { "Keyboard shortcuts unavailable: \($0)" }
           ?? (enabled ? nil : "Keyboard shortcuts suspended")
+          ?? (held.isEmpty ? nil : "Held by another app: \(held.joined(separator: ", "))")
         Task { @MainActor [weak self] in
           guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
           DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(message)
+          DefiSettingsRuntimeStatus.shared.updateHeldShortcuts(held)
           if let error { presentDefiConfigurationError(error) }
         }
         if let error {

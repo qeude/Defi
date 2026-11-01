@@ -10,13 +10,15 @@ public struct DefiSettingsView: View {
   @FocusState private var resultsFocused: Bool
 
   public init(configURL: URL = Config.defaultURL) {
-    _model = State(initialValue: DefiSettingsModel(configURL: configURL))
+    let model = DefiSettingsModel(configURL: configURL)
+    model.followKeyboardLayout()
+    _model = State(initialValue: model)
   }
 
   public var body: some View {
     let query = sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     let results = query.isEmpty ? [] : SettingsSearchCatalog.results(
-      matching: query, config: model.config, shortcuts: model.shortcutRows)
+      matching: query, config: model.config, shortcuts: model.shortcutRows, resolution: model.shortcutResolution)
 
     NavigationSplitView(columnVisibility: .constant(.all)) {
       List(selection: Binding<SettingsDestination?>(
@@ -631,7 +633,8 @@ private struct SettingsShortcutActionRow: View {
     SettingsShortcutRecorder(
       label: row.map {
         shortcutKeyLabel($0.accelerator, aliases: model.config.modifierCombinations,
-          displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift)
+          displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift,
+          resolved: model.shortcutResolution)
       } ?? "Record Shortcut…",
       command: command,
       onRecord: { model.saveShortcut(row, accelerator: $0, command: command) }
@@ -1544,7 +1547,8 @@ private struct SettingsShortcutEditor: View {
           label: accelerator.isEmpty
             ? "Record Shortcut…"
             : shortcutKeyLabel(accelerator, aliases: model.config.modifierCombinations,
-              displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift),
+              displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift,
+              resolved: model.shortcutResolution),
           command: sourceRow?.command ?? "New shortcut",
           onRecord: { accelerator = $0 }
         )
