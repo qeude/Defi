@@ -827,8 +827,6 @@ public final class OverviewController: NSObject {
       {
         panel.hidePreviewScene(scene, duration: 0.22)
         previewClosingCount += 1
-      } else if animationsEnabled, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-        panel.fadeOut()
       } else {
         panel.hide()
       }

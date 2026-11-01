@@ -1,11 +1,8 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'script'))
-sys.modules.setdefault('performance_experiments', mock.MagicMock())
-sys.modules.setdefault('desktop_session', mock.MagicMock())
 import fluidity_probe as probe  # noqa: E402
 
 

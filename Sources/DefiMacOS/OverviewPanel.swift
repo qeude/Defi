@@ -248,18 +248,9 @@ final class OverviewPanel {
   }
 
   /// The fallback when no zoom can close the panel: it dissolves over the desktop.
-  func fadeOut() {
-    cancelSurfaceTransition()
-    let generation = surfaceGeneration
-    // Strong: a panel released mid-fade must still leave the screen, it blocks input.
-    surfaceTask = Task {
-      await fadeRevealingDesktop(generation: generation, keepingWallpaper: true)
-    }
-  }
-
   /// The panel covers the menu bar and Dock; cross-fade them in instead of popping.
   /// Core Animation keeps the fade smooth while the main thread is busy.
-  private func fadeRevealingDesktop(generation: UInt64, keepingWallpaper: Bool = false) async {
+  private func fadeRevealingDesktop(generation: UInt64) async {
     let fade = CABasicAnimation(keyPath: "opacity")
     fade.fromValue = 1
     fade.duration = Self.wallpaperFadeDuration
@@ -272,7 +263,7 @@ final class OverviewPanel {
     window.isOpaque = false
     window.backgroundColor = .clear
     rootView.layer?.backgroundColor = NSColor.clear.cgColor
-    desktopView.isHidden = !keepingWallpaper
+    desktopView.isHidden = true
     rootView.layer?.opacity = 0
     rootView.layer?.add(fade, forKey: "overview-wallpaper-fade")
     CATransaction.commit()

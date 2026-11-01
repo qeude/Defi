@@ -22,6 +22,7 @@ import animation_benchmark
 import test_coverage
 from test_performance_experiments import PerformanceExperimentsTests
 from test_motion_probe import MotionProbeTests
+from test_fluidity_probe import AttributeTests
 
 
 class WorkflowTests(unittest.TestCase):

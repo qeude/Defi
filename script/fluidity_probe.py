@@ -219,7 +219,6 @@ def main():
     p.add_argument('--bundle', action='append', required=True, help='LABEL=path')
     p.add_argument('--rounds', type=int, default=1)
     p.add_argument('--only', choices=['column', 'overview', 'quit'], help='a short trace of one action: finalizes in a minute')
-    p.add_argument('--defaults', action='append', default=[], help='LABEL:KEY=INT, set in the daemon domain for that side')
     args = p.parse_args()
     if inherited_lock() is None:
         p.error('run under script/desktop_lock.py --wait')
@@ -241,13 +240,6 @@ def main():
     session.start()
     try:
         for label, path in (b.split('=', 1) for b in args.bundle):
-            specs = [spec.split(':', 1) for spec in args.defaults]
-            for key in {pair.split('=')[0] for _, pair in specs}:
-                subprocess.run(['defaults', 'delete', 'com.qeude.defi', key], capture_output=True)
-            for side, pair in specs:
-                if side == label:
-                    key, value = pair.split('=')
-                    subprocess.run(['defaults', 'write', 'com.qeude.defi', key, '-int', value], check=True)
             install(Path(path).resolve())
             pe.wait_for_idle()
             result = trace_trial(out, label, args.rounds, args.only, args.rounds * {'overview': 18, 'quit': 30, 'column': 7}[args.only] + 3 if args.only else None)

@@ -659,6 +659,8 @@ extension MacOSPlatform {
       ? ribbonProxySpringDuration : nil) : nil
     guard let duration else {
       presenter.supersedeIfTargetsChanged(assignments, generation: frameSubmissionGeneration)
+      // No overlay for this opening: a hold for it would only freeze the screen over the window.
+      if !moves, !opened.isDisjoint(with: monitor.windowIDs) { presenter.releaseHold() }
       let area = RibbonProxyStore.shared.screen(containing: viewport)?.visibleFrame
       // Every managed window on the display: the active ribbon by distance, then
       // other workspaces so a vertical switch finds their pictures warm.

@@ -976,6 +976,10 @@ final class RibbonProxyPresenter {
           // A few frames: the native ring is set, and can reach the screen a frame or two late.
           try? await Task.sleep(for: .milliseconds(40))
         }
+        // A window opening during the handoff: lifting now would show macOS's placement.
+        while generation == fadeToken, holdUntil > CACurrentMediaTime() {
+          try? await Task.sleep(for: .milliseconds(8))
+        }
         guard generation == fadeToken, let layers = self.layers else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let fade = CABasicAnimation(keyPath: "opacity")
