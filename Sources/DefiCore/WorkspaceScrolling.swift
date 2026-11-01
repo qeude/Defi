@@ -94,15 +94,29 @@ public func focusedColumnScrollTarget(
   } else {
     overflows = false
   }
-  let centers: Bool
-  switch settings.centerFocusedColumn {
-  case .never: centers = false
-  case .always: centers = true
-  case .onOverflow: centers = overflows
+  // A pin belongs to its column, so selecting another column drops it.
+  let pinned =
+    recordedFocus.map { $0.pinned == true && selectedColumn?.windows.contains($0.windowID) == true }
+    ?? false
+  // Exact centering may leave edge space; an oversized column stays left-aligned.
+  let exactCenter =
+    widths.indices.contains(workspace.focusedColumn) && focusedWidth <= 1 + 1e-9
+    ? focusedLeft + focusedWidth / 2 - 0.5 : focusedLeft
+  let offset: Double
+  if pinned || settings.centerFocusedColumn == .always
+    || (settings.alwaysCenterSingleColumn && workspace.columns.count == 1)
+  {
+    offset = exactCenter
+  } else if settings.centerFocusedColumn == .onOverflow, overflows {
+    offset = centered
+  } else {
+    offset = revealed
   }
   return (
-    centers ? centered : revealed,
-    selectedWindowID.map { ScrollFocus(windowID: $0, centered: overflows) }
+    offset,
+    selectedWindowID.map {
+      ScrollFocus(windowID: $0, centered: overflows, pinned: pinned ? true : nil)
+    }
   )
 }
 

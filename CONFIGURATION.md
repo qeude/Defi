@@ -35,6 +35,7 @@ Controls column sizing, width cycling, focused-column placement, and gaps.
 default_column_width = 0.80
 preset_column_widths = [0.33, 0.50, 0.66, 0.80]
 center_focused_column = "never"
+always_center_single_column = false
 gaps = 8
 outer_top_gap = 8
 outer_right_gap = 8
@@ -48,7 +49,8 @@ reserved_bottom = 0
 | --- | --- | --- | --- |
 | `default_column_width` | `0.80` | number from `0.05` to `1.0` | Fraction of monitor width assigned to each new column. |
 | `preset_column_widths` | `[0.33, 0.50, 0.66, 0.80]` | non-empty array of numbers from `0.05` to `1.0` | Ordered widths used by `cycle-width`. Cycling wraps at both ends. |
-| `center_focused_column` | `"never"` | `"never"`, `"always"`, or `"on-overflow"` | `"always"` centers focused columns that fit on screen. `"never"` scrolls only enough to keep focus visible. `"on-overflow"` centers a newly focused column only when it cannot share the screen with the previously focused column. See [Focused column centering](#focused-column-centering). |
+| `center_focused_column` | `"never"` | `"never"`, `"always"`, or `"on-overflow"` | `"always"` centers the focused column when it fits on screen, including the first and last column, which leaves empty space at the strip edge. `"never"` scrolls only enough to keep focus visible. `"on-overflow"` centers a newly focused column only when it cannot share the screen with the previously focused column. See [Focused column centering](#focused-column-centering). |
+| `always_center_single_column` | `false` | boolean | Center a workspace's only column in every `center_focused_column` mode. With more than one column it changes nothing. See [Focused column centering](#focused-column-centering). |
 | `gaps` | `8` | number from `0` to `256` | Uniform logical-pixel gap between windows and monitor edges. An outside border is part of its window, so gaps start at the border's outer edge. |
 | `outer_top_gap` | `gaps` | number from `0` to `256` | Optional top-edge override. |
 | `outer_right_gap` | `gaps` | number from `0` to `256` | Optional right-edge override. |
@@ -84,6 +86,16 @@ An exact fit counts as fitting.
 - With no previous column, such as the first window on a workspace or after
   the previous window closed, Defi scrolls only enough to reveal the new column.
 - A column wider than the screen is left-aligned in every mode.
+- `"always"` and `always_center_single_column` put a column in the exact middle
+  of the screen. The first and last column then leave empty space at the strip
+  edge. `"on-overflow"` and `"never"` never leave edge space on their own.
+- `always_center_single_column` applies when the workspace holds exactly one
+  column. A second column ends it and the mode's normal rule takes over.
+- `center-column` centers the focused column once, in any mode, and keeps it
+  centered while the selection stays in that column, through width changes and
+  focus moves inside a stack. Selecting another column drops it. Pressing it
+  again changes nothing. It does nothing on an empty workspace or for a window in
+  native fullscreen, and it leaves a floating selection in the floating layer.
 - Moving focus within one column keeps that column where it is. Focusing the
   selected window again changes nothing.
 - The decision holds until the selected window changes. Moving the column or
@@ -512,10 +524,12 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `focus-workspace up\|down` | Focus the adjacent workspace without wrapping. | `<mod>-up` / `<mod>-down` |
 | `focus-workspace-position <n>` | Focus a 1-based position, clamped to trailing. | `<mod>-1` … `<mod>-9` after configured names |
 | `focus-workspace-name <name>` or `workspace <name>` | Focus a persistent named workspace, including on another monitor. | `<mod>-1` … `<mod>-9` for configured names |
+| `focus-workspace-previous` | Return to the workspace this monitor showed before the active one. Press it again to go back. Any change of the active workspace counts, including a click, the Dock, Command-Tab, and the Overview. Each monitor keeps one entry, and it survives daemon restarts in the same macOS session. Nothing happens when that workspace is gone or has moved to another monitor. | unset |
 | `focus-window up` | Focus previous window in current stack. | `<mod>-k` |
 | `focus-window down` | Focus next window in current stack. | `<mod>-j` |
 | `focus-window first` | Focus first window in current stack. | unset |
 | `focus-window last` | Focus last window in current stack. | unset |
+| `focus-window-or-workspace up\|down` | Focus the previous or next window in the current stack. At the top or bottom of the stack, or with no tiled window selected, focus the adjacent workspace instead. The new workspace keeps its remembered selection. It clamps at the first workspace and does not wrap. A floating selection beside tiled columns moves to the tiled layer like `focus-window`. | unset |
 | `move-column left` | Move focused column left. | `<mod>-shift-left` |
 | `move-column right` | Move focused column right. | `<mod>-shift-right` |
 | `move-column first` | Move focused column to first position. | `<mod>-shift-leftbracket` |
@@ -537,6 +551,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `cycle-width previous` | Select previous width preset, wrapping. | `<mod>-minus` |
 | `cycle-width next` | Select next width preset, wrapping. | `<mod>-equal` |
 | `maximize-column` | Toggle focused column between full width and previous width. | `<mod>-f` |
+| `center-column` | Center the focused column on screen until selection leaves it. | `<mod>-c` |
 | `toggle-floating` | Toggle focused window between tiled and floating layers. | `<mod>-backslash` |
 | `activate-floating` | Select floating layer and foreground its selected window. | `<mod>-shift-backslash` |
 | `focus-floating previous` | Focus previous floating window, wrapping. | `<mod>-comma` |
@@ -710,6 +725,7 @@ show_cheatsheet_on_modifier_hold = true
 default_column_width = 0.80
 preset_column_widths = [0.33, 0.50, 0.66, 0.80]
 center_focused_column = "never"
+always_center_single_column = false
 gaps = 8
 reserved_top = 0
 reserved_bottom = 0
@@ -780,6 +796,7 @@ names = []
 "ctrl-alt-minus" = "cycle-width previous"
 "ctrl-alt-equal" = "cycle-width next"
 "ctrl-alt-f" = "maximize-column"
+"ctrl-alt-c" = "center-column"
 "ctrl-alt-backslash" = "toggle-floating"
 "ctrl-alt-shift-backslash" = "activate-floating"
 "ctrl-alt-comma" = "focus-floating previous"

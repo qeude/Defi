@@ -15,6 +15,7 @@ public enum WorkspaceTarget: Equatable, Codable, Sendable {
   case relative(Direction)
   case position(Int)
   case named(String)
+  case lastActive
 }
 
 public enum Command: Equatable, Codable, Sendable {
@@ -25,6 +26,7 @@ public enum Command: Equatable, Codable, Sendable {
   case moveColumnToMonitor(Direction)
   case moveWindowToMonitor(Direction)
   case focusWindow(Direction)
+  case focusWindowOrWorkspace(Direction)
   case moveWindowToWorkspace(WorkspaceID)
   case sendWindowToWorkspace(WorkspaceID)
   case switchWorkspace(WorkspaceID)
@@ -36,6 +38,7 @@ public enum Command: Equatable, Codable, Sendable {
   case focusMonitor(Direction)
   case cycleWidth(Direction)
   case maximizeColumn
+  case centerColumn
   case toggleFloating
   case activateFloating
   case joinWindow(Direction)

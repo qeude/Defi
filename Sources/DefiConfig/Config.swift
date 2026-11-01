@@ -314,6 +314,7 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-minus": "cycle-width previous",
       "\(modifier)-equal": "cycle-width next",
       "\(modifier)-f": "maximize-column",
+      "\(modifier)-c": "center-column",
       "\(modifier)-backslash": "toggle-floating",
       "\(modifier)-shift-backslash": "activate-floating",
       "\(modifier)-comma": "focus-floating previous",

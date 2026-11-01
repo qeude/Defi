@@ -48,6 +48,8 @@ public func parseCommand(_ input: String) throws -> Command {
     )
   case "focus-window":
     return .focusWindow(try parseDirection(argument("direction")))
+  case "focus-window-or-workspace":
+    return .focusWindowOrWorkspace(try parseVerticalDirection(argument("direction")))
   case "move-window-to-workspace":
     let value = try argument("workspace")
     if value == "up" || value == "down" {
@@ -99,6 +101,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .focusWorkspace(try parseRelativeWorkspace(argument("direction")))
   case "focus-workspace-position":
     return .focusWorkspace(try parseWorkspacePosition(argument("position")))
+  case "focus-workspace-previous":
+    return .focusWorkspace(.lastActive)
   case "focus-workspace-name":
     return .focusWorkspace(.named(try argument("workspace")))
   case "reorder-workspace":
@@ -113,6 +117,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .cycleWidth(try parseDirection(argument("direction")))
   case "maximize-column":
     return .maximizeColumn
+  case "center-column":
+    return .centerColumn
   case "toggle-floating":
     return .toggleFloating
   case "activate-floating":
