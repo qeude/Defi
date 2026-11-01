@@ -172,6 +172,7 @@ def trace_trial(out, label, rounds, only=None, seconds=None):
     directory.mkdir()
     pid = subprocess.run(['pgrep', 'defi-daemon'], capture_output=True, text=True).stdout.split()[0]
     recorders = []
+    existing_traces = set(glob.glob(os.environ.get('TMPDIR', '/tmp') + '/instruments*.ktrace'))
 
     def start_trace():
         recorders.append(subprocess.Popen(['xcrun', 'xctrace', 'record', '--template', 'Animation Hitches',
@@ -196,7 +197,7 @@ def trace_trial(out, label, rounds, only=None, seconds=None):
     finally:
         for recorder in recorders:
             recorder.wait()
-    for path in glob.glob(os.environ.get('TMPDIR', '/tmp') + '/instruments*.ktrace'):
+    for path in set(glob.glob(os.environ.get('TMPDIR', '/tmp') + '/instruments*.ktrace')) - existing_traces:
         os.remove(path)
     (directory / 'toc.xml').write_bytes(subprocess.run(
         ['xcrun', 'xctrace', 'export', '--input', str(trace), '--toc'], capture_output=True).stdout)
