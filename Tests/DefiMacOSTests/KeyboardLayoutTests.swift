@@ -103,17 +103,33 @@ struct KeyboardLayoutResolverTests {
   }
 
   // Hand-derived from `com.apple.keylayout.German`: `\` needs Option-Shift-7, which is
-  // ctrl-alt-shift-7, and Shift-# is claimed by `'`. Key code 0 is the lowest free key.
+  // ctrl-alt-shift-7, and Shift-# is claimed by `'`. Shift-backslash cannot follow backslash to
+  // key 42, so it takes the first key printing a symbol that is free with Control, Option and Shift: `´` at 24.
   @Test
-  func germanBackslashPairClaimsTheLowestFreeKey() throws {
+  func germanShiftedBackslashTakesTheFirstFreeSymbolKey() throws {
     let result = try chords(Config(), installed("German"))
-    #expect(result["ctrl-alt-shift-backslash"] == "ctrl-alt-shift-0")
+    #expect(result["ctrl-alt-shift-backslash"] == "ctrl-alt-shift-24")
     #expect(result["ctrl-alt-backslash"] == "ctrl-alt-42")
   }
 
-  @Test(arguments: ["Spanish", "Swedish"])
-  func backslashFallsBackToTheLowestFreeKey(name: String) throws {
-    #expect(try chords(Config(), installed(name))["ctrl-alt-backslash"] == "ctrl-alt-0")
+  // Spanish: `\` is Option-6 (the 6 key) and `'` holds key 42, so the first free key printing a symbol
+  // is `<` at 50, after `=` `-` and the bracket pair's `` ` `` and `´`. Swedish: `´` at 24 is free.
+  @Test(arguments: [("Spanish", "ctrl-alt-50"), ("Swedish", "ctrl-alt-24")])
+  func backslashFallsBackToTheFirstFreeSymbolKey(name: String, expected: String) throws {
+    #expect(try chords(Config(), installed(name))["ctrl-alt-backslash"] == expected)
+  }
+
+  // UCKeyTranslate prints a character for key 10 (§) and keys 93 and 94 on every keyboard type, but
+  // only ISO keyboards have the first and only JIS keyboards the others.
+  @Test
+  func keysTheHardwareLacksPrintNothing() throws {
+    let iso: UInt32 = 92
+    #expect(try installed("ABC", type: ansi).characters[[]]?[10] == nil)
+    #expect(try installed("ABC", type: jis).characters[[]]?[10] == nil)
+    #expect(try installed("ABC", type: iso).characters[[]]?[10] == "§")
+    #expect(try installed("ABC", type: ansi).characters[[]]?[93] == nil)
+    #expect(try installed("ABC", type: iso).characters[[]]?[94] == nil)
+    #expect(try installed("ABC", type: jis).characters[[]]?[93] == "¥")
   }
 
   @Test
@@ -196,8 +212,9 @@ struct KeyboardLayoutResolverTests {
     // A binding the user wrote holds its character ahead of the generated digit.
     #expect(byAccelerator["ctrl-alt-é"] == "ctrl-alt-19")
     #expect(result.inactive == ["ctrl-alt-2": .held(by: "ctrl-alt-é")])
-    // The literal took quote's physical key, so quote claims the lowest free one instead.
-    #expect(byAccelerator["ctrl-alt-quote"] == "ctrl-alt-0")
+    // The digit row holds `'` at 21 and the literal took quote's physical key 39, so quote takes
+    // the first free key printing a symbol: 18 to 24 are the digit row and `-`, and 27 is `)`.
+    #expect(byAccelerator["ctrl-alt-quote"] == "ctrl-alt-27")
   }
 
   @Test
@@ -215,8 +232,9 @@ struct KeyboardLayoutResolverTests {
     let result = try chords(config, layout)
     #expect(result["ctrl-alt-¥"] == "ctrl-alt-93")
     #expect(result["ctrl-alt-_"] == "ctrl-alt-94")
-    // ¥ took the key backslash would use, and `]` took its physical key.
-    #expect(result["ctrl-alt-backslash"] == "ctrl-alt-0")
+    // ¥ took the key backslash would use, and `]` took its physical key, so backslash takes the
+    // first key printing a symbol: `^` at 24.
+    #expect(result["ctrl-alt-backslash"] == "ctrl-alt-24")
   }
 
   @Test

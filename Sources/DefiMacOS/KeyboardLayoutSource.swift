@@ -35,13 +35,24 @@ private func keyboardLayout(of source: TISInputSource, keyboardType: UInt32) -> 
       if layer.contains(.shift) { modifiers |= shiftKey }
       if layer.contains(.option) { modifiers |= optionKey }
       if layer.contains(.command) { modifiers |= cmdKey }
-      for code in layoutScannedKeyCodes {
+      for code in layoutScannedKeyCodes where keyExists(code, keyboardType) {
         if let character = printedCharacter(layout, code, modifiers: UInt32(modifiers >> 8), keyboardType) {
           characters[layer, default: [:]][code] = character
         }
       }
     }
     return KeyboardLayout(characters: characters)
+  }
+}
+
+/// UCKeyTranslate prints for the ISO-only key (10) and the JIS-only keys (93, 94) on every keyboard
+/// type; a shortcut on a key the hardware lacks could never be pressed.
+private func keyExists(_ code: UInt16, _ keyboardType: UInt32) -> Bool {
+  let type = KBGetLayoutType(Int16(truncatingIfNeeded: keyboardType))
+  return switch code {
+  case 10: type != OSType(kKeyboardANSI) && type != OSType(kKeyboardJIS)
+  case 93, 94: type != OSType(kKeyboardANSI) && type != OSType(kKeyboardISO)
+  default: true
   }
 }
 

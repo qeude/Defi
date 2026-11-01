@@ -269,7 +269,8 @@ func closeWindowKeyCodes(layout: KeyboardLayout?) -> Set<CGKeyCode> {
 /// Each binding offers chords in rank order; sorted by rank, then accelerator, the first free one wins.
 /// 0 digits and arrows, always physical. 1 the character on the base layer. 2 the physical key of a
 /// bracket pair that cannot sit on its characters. 3 the character on Shift or Option, with that
-/// modifier added. 4 the physical key. 5 the lowest free key, so a table name always holds a chord. Literal names (`é`) use ranks 1 and 3
+/// modifier added. 4 the physical key. 5 the free key that is not a letter or digit on the layout, then
+/// a letter, then a digit, so a table name always holds a chord. Literal names (`é`) use ranks 1 and 3
 /// only. A nil layout is physical. A character or digit claim of a binding the user wrote
 /// (`userWritten`) sorts ahead of every generated claim; fallbacks never do. A written-Shift symbol
 /// first tries its unshifted sibling's key, once the sibling is placed.
@@ -345,13 +346,25 @@ func resolveHotKeys(
       claim(5, modifiers, nil)
     }
   }
+  var scanOrders: [Bool: [UInt16]] = [:]
+  func scanOrder(command: Bool) -> [UInt16] {
+    if let order = scanOrders[command] { return order }
+    let printed = layout?.characters[command ? .command : []] ?? [:]
+    func group(_ code: UInt16) -> Int {
+      guard let first = printed[code]?.first else { return 3 }
+      return first.isLetter ? 1 : ("0"..."9").contains(first) ? 2 : 0
+    }
+    let order = layoutScannedKeyCodes.sorted { (group($0), $0) < (group($1), $1) }
+    scanOrders[command] = order
+    return order
+  }
   var result = HotKeyResolution()
   var placed: [String: (code: UInt16, added: Bool)] = [:]
   var blockers: [String: String] = [:]
   func place(_ list: [Claim]) {
     for claim in list.sorted(by: { $0.order < $1.order }) where placed[claim.accelerator] == nil {
       func key(_ code: UInt16) -> Key { Key(code: code, flags: claim.modifiers.rawValue) }
-      let free = { layoutScannedKeyCodes.first(where: { result.keys[key($0)] == nil }) }
+      let free = { scanOrder(command: claim.modifiers.contains(.maskCommand)).first(where: { result.keys[key($0)] == nil }) }
       guard let code = claim.code ?? free() else { continue }
       if let holder = result.keys[key(code)] {
         blockers[claim.accelerator] = holder.accelerator
