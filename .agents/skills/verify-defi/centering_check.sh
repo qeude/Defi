@@ -6,7 +6,7 @@
 # focused window landed. The temporary config pins new columns to 0.5 (an exact fit)
 # and presets to [0.5, 0.66], so one cycle-width step gives the 0.66 overflow phase.
 # Restores the config, closes the documents and returns to the initial workspace.
-# DRIVE=hotkeys sends the configured <mod>-leftbracket / <mod>-right key events
+# DRIVE=hotkeys sends the configured <mod>-leftbracket / <mod>-right / <mod>-c key events
 # through System Events instead of CLI commands, and checks the daemon captured them.
 # Usage: [DRIVE=hotkeys] centering_check.sh [evidence-dir]   (run under `python3 script/desktop_lock.py --wait`)
 set -u
@@ -184,7 +184,12 @@ defi focus-column first > /dev/null; sleep 0.8; expect "first column, always" ce
 defi focus-column last > /dev/null; sleep 0.8; expect "last column, always" centered
 set_mode never
 defi focus-column first > /dev/null; sleep 0.8
-defi center-column > /dev/null; sleep 0.8; expect "first column, center-column" centered
+if [ "${DRIVE:-cli}" = hotkeys ]; then
+  osascript -e "tell application \"System Events\" to key code 8 using {$modifiers}" # <mod>-c
+else
+  defi center-column > /dev/null
+fi
+sleep 0.8; expect "first column, center-column" centered
 defi focus-column right > /dev/null; sleep 0.8; expect "center-column dropped by the next column" right-edge
 
 workspace() { defi status | tr ' ' '\n' | sed -n 's/^workspace=//p'; }

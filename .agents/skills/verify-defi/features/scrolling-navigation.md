@@ -49,7 +49,7 @@ edge.
 
 Pass: every row prints `PASS`, `drift=0[]`, initial workspace and config
 restored, `daemons: 1`. Run it again with `DRIVE=hotkeys` to send the default
-`hyper-leftbracket` and `hyper-right` key events at human pace; it also requires
+`hyper-leftbracket`, `hyper-right` and `hyper-c` key events at human pace; it also requires
 the daemon's `captured=` counter to rise. Check visual smoothness with Computer
 Use when available.
 
