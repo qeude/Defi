@@ -188,7 +188,15 @@ run `~/Applications/Defi.app/Contents/MacOS/defi quit`, or quit `defi-daemon`
 through Activity Monitor. Adjust the app path for an installation in
 `/Applications`.
 
-For a bug report, include your Defi and macOS versions, affected apps, monitor
+For a bug report, run the bundled CLI's `defi triage` first, or choose **Start
+Triage** under **Settings > About**. It writes your machine facts and a
+support playbook to a session folder, then starts your own `claude` or `codex` in
+the terminal to investigate the problem and draft the issue with you. It needs
+one of those agents installed and asks before it fixes anything or posts anything.
+Without an agent it prints the file paths so you can paste the prompt into any
+coding agent.
+
+To report by hand, include your Defi and macOS versions, affected apps, monitor
 setup, and steps to reproduce. The bundled CLI's `status` and `trace` commands
 can help explain what happened. Review their output, config snippets, and
 recordings before posting: they may expose window titles, paths, workspace

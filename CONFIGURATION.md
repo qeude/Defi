@@ -661,6 +661,7 @@ CLI-only integration commands:
 | `--monitor <index> <command>` | Execute command on 1-based `NSScreen.screens`/SketchyBar display index. |
 | `set-reserved-area top\|bottom <points>` | Override extra reserved edge on every display, or targeted `--monitor`. |
 | `clear-reserved-area` | Restore configured reserved edges. |
+| `triage [--agent claude\|codex]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start your `claude` or `codex` to investigate a problem and draft an issue. Never sent to the daemon. |
 
 See [SketchyBar integration](contrib/sketchybar/README.md) for event contract and example scripts.
 

@@ -32,6 +32,7 @@ enum Uninstaller {
       home.appending(path: "Library/Application Support/Defi"),
       home.appending(path: "Library/Logs/Defi"),
       home.appending(path: "Library/Logs/Defi.log"),
+      home.appending(path: "Library/Caches/Defi"),
       ServiceManager.legacyPlistURL,
       SocketPath.defaultURL,
       DaemonLockPath.defaultURL,

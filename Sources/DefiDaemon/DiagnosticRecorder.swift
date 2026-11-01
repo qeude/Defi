@@ -253,13 +253,16 @@ final class DiagnosticRecorder: @unchecked Sendable {
     return directoryURL.appending(path: name)
   }
 
+  static var bundleVersion: (version: String, build: String) {
+    (
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        ?? "development",
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+    )
+  }
+
   private static var currentBuild: String {
-    let version = Bundle.main.object(
-      forInfoDictionaryKey: "CFBundleShortVersionString"
-    ) as? String ?? "development"
-    let build = Bundle.main.object(
-      forInfoDictionaryKey: "CFBundleVersion"
-    ) as? String ?? "unknown"
+    let (version, build) = bundleVersion
     return "\(version) (\(build))"
   }
 }

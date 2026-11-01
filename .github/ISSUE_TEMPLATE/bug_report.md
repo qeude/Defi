@@ -4,6 +4,9 @@ about: Report something that does not work as expected.
 labels: bug
 ---
 
+<!-- Run `defi triage` first if you can: it lets your own coding agent gather the
+facts below and draft this report with you. -->
+
 ## What happened?
 
 Describe the problem and what you expected instead.
