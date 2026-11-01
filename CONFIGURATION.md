@@ -540,7 +540,8 @@ every generated default, so on French `ctrl-alt-é` keeps the key of the digit 2
 and the default `ctrl-alt-2` reads "Held by" it. A displaced default moves on to
 its own fallbacks. The keypad is never used.
 Shortcuts containing `cmd` read the layout as Command sees it, which matters on
-Dvorak-QWERTY⌘.
+Dvorak-QWERTY⌘. So does Defi's detection of Command-Q and Command-W as a
+window about to close.
 
 The cheatsheet and Settings show the key actually pressed, including added
 modifiers. An inactive shortcut reads "Not on this layout", "Held by" the

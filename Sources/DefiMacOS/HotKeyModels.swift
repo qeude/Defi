@@ -252,11 +252,19 @@ struct HotKeyResolution {
   var keys: [Key: (accelerator: String, command: String)] = [:]
   /// Bindings that hold no chord, by accelerator as configured.
   var inactive: [String: HotKeyInactivity] = [:]
+  /// Q and W as Command sees them on this layout; they close a window.
+  var closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
 }
 
 /// Names that move together: when either cannot sit on its character without added modifiers,
 /// both take their physical keys, so the pair never splits across the keyboard.
 private let acceleratorPairs = [["leftbracket", "rightbracket"]]
+
+func closeWindowKeyCodes(layout: KeyboardLayout?) -> Set<CGKeyCode> {
+  Set([("q", 12), ("w", 13)].map { character, physical in
+    layout?.position(of: character, command: true).flatMap { $0.layer == .command ? $0.code : nil } ?? physical
+  })
+}
 
 /// Each binding offers chords in rank order; sorted by rank, then accelerator, the first free one wins.
 /// 0 digits and arrows, always physical. 1 the character on the base layer. 2 the physical key of a
@@ -366,6 +374,7 @@ func resolveHotKeys(
   for accelerator in bindings.keys where placed[accelerator] == nil {
     result.inactive[accelerator] = blockers[accelerator].map { .held(by: $0) } ?? .absentFromLayout
   }
+  result.closeWindowKeyCodes = closeWindowKeyCodes(layout: layout)
   return result
 }
 

@@ -29,6 +29,7 @@ final class HotKeyRegistration: @unchecked Sendable {
   @MainActor private var observer: CFRunLoopObserver?
   @MainActor private var suspended: Bool?
   @MainActor private var bindings: [Key: (accelerator: String, command: String)]
+  @MainActor private var closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
   @MainActor private var layoutObserver: KeyboardLayoutObserver?
   /// Accelerators whose chord another app already reserves; a layout change or reload retries them.
   @MainActor private var held: [String] = []
@@ -89,6 +90,7 @@ final class HotKeyRegistration: @unchecked Sendable {
 
   @MainActor private func adopt(_ resolution: HotKeyResolution) {
     bindings = resolution.keys
+    closeWindowKeyCodes = resolution.closeWindowKeyCodes
     for (accelerator, reason) in resolution.inactive.sorted(by: { $0.key < $1.key }) {
       NSLog("Defi: shortcut %@ is inactive: %@", accelerator, String(describing: reason))
     }
@@ -146,7 +148,8 @@ final class HotKeyRegistration: @unchecked Sendable {
     registrationFailed = false
     // The tap must not run a command for a chord another app owns.
     let lost = Set(failed.map(\.key))
-    monitor.setBindings(bindings.filter { !lost.contains($0.key) }.mapValues(\.command))
+    monitor.setBindings(
+      bindings.filter { !lost.contains($0.key) }.mapValues(\.command), closeWindowKeyCodes: closeWindowKeyCodes)
     monitor.setHotKeysRegistered(!references.isEmpty)
     let heldNow = failed.compactMap { bindings[$0.key]?.accelerator }.sorted()
     if heldNow != held {

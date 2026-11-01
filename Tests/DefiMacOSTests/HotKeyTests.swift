@@ -75,6 +75,28 @@ struct OverviewHotKeyTests {
   }
 
   @Test
+  func closeIntentFollowsTheSwappedKeyCodes() throws {
+    let closes = Mutex(0)
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, closeIntent: { _, _ in closes.withLock { $0 += 1 } }, textInputFocused: { false })
+    func press(_ code: CGKeyCode) throws {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = [.maskCommand]
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    try press(13)
+    try press(6)
+    #expect(closes.withLock { $0 } == 1)
+    context.setBindings([:], closeWindowKeyCodes: [0, 6])
+    try press(6)
+    try press(13)
+    #expect(closes.withLock { $0 } == 2)
+  }
+
+  @Test
   func keyboardTypeChangesFireOncePerChangeAndSyntheticKeysAreIgnored() throws {
     let seen = Mutex<[UInt32]>([])
     let context = InputMonitor(

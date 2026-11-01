@@ -301,9 +301,9 @@ public final class HotKeyManager {
 
 final class InputMonitor: @unchecked Sendable {
   private static let commandTabKeyCode = CGKeyCode(48)
-  private static let closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
 
   private var bindings: [Key: String]
+  private var closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
@@ -413,8 +413,11 @@ final class InputMonitor: @unchecked Sendable {
 
   var bindingCount: Int { lock.withLock { bindings.count } }
 
-  func setBindings(_ bindings: [Key: String]) {
-    lock.withLock { self.bindings = bindings }
+  func setBindings(_ bindings: [Key: String], closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]) {
+    lock.withLock {
+      self.bindings = bindings
+      self.closeWindowKeyCodes = closeWindowKeyCodes
+    }
   }
 
   func onKeyboardTypeChange(_ handler: @escaping @Sendable (UInt32) -> Void) {
@@ -598,7 +601,7 @@ final class InputMonitor: @unchecked Sendable {
       focusIntent = nil
     }
     let closeIntent = isKeyDown && commandPressed
-      && Self.closeWindowKeyCodes.contains(code)
+      && lock.withLock({ closeWindowKeyCodes }).contains(code)
       && !isDefiTextInput
     userInputTracker.record(
       timestamp: timestamp,

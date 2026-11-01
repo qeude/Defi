@@ -164,6 +164,20 @@ struct KeyboardLayoutResolverTests {
     #expect(result["ctrl-alt-cmd-f"] == "ctrl-alt-cmd-3")
   }
 
+  // Command-Q and Command-W close; they sit where the Command layer prints q and w. Mac French prints
+  // them on keys 0 and 6, and Dvorak-QWERTY⌘ keeps the QWERTY positions under Command.
+  @Test
+  func closeWindowKeysFollowTheCommandLayer() throws {
+    #expect(closeWindowKeyCodes(layout: nil) == [12, 13])
+    #expect(closeWindowKeyCodes(layout: try installed("US")) == [12, 13])
+    #expect(closeWindowKeyCodes(layout: try installed("French")) == [0, 6])
+    #expect(closeWindowKeyCodes(layout: try installed("Dvorak")) == [7, 43])
+    #expect(closeWindowKeyCodes(layout: try installed("DVORAK-QWERTYCMD")) == [12, 13])
+    // A layout without the letters keeps the physical keys.
+    #expect(closeWindowKeyCodes(layout: KeyboardLayout(characters: [[]: [0: "a"]])) == [12, 13])
+    #expect(try resolution(Config(), try installed("French")).closeWindowKeyCodes == [0, 6])
+  }
+
   @Test
   func keypadCodesAreNeverScanned() throws {
     let config = Config(keys: ["alt-slash": "maximize-column"])
