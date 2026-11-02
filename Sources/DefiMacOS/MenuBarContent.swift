@@ -11,8 +11,13 @@ public struct MenuBarContent: View {
 
   public var body: some View {
     Group {
+      if state.needsAccessibilityPermission {
+        Button("Grant Accessibility Permission…") {
+          openDefiAccessibilitySettings()
+        }
+      }
       if !state.workspaces.isEmpty {
-        Menu("Workspaces", systemImage: "rectangle.3.group") {
+        Menu("Workspaces") {
           ForEach(state.workspaces, id: \.id) { workspace in
             Toggle(
               workspace.label,
@@ -23,30 +28,26 @@ public struct MenuBarContent: View {
             )
           }
         }
-        Divider()
-      }
-      if state.needsAccessibilityPermission {
-        Button("Grant Accessibility Permission…", systemImage: "accessibility") {
-          openDefiAccessibilitySettings()
-        }
-      }
-      if let version = AppUpdater.shared.availableVersion {
-        Button("Update to Defi \(version)", systemImage: "arrow.down.circle") {
-          AppUpdater.shared.install()
-        }
-        .disabled(AppUpdater.shared.status == .installing)
-      } else if AppUpdater.shared.isEligible {
-        Button("Check for Updates…", systemImage: "arrow.triangle.2.circlepath") {
-          Task { await AppUpdater.shared.check() }
-        }
-        .disabled(AppUpdater.shared.status == .checking)
       }
       SettingsLink {
         Text("Settings…")
       }
       .keyboardShortcut(",", modifiers: .command)
+      if let version = AppUpdater.shared.availableVersion {
+        Divider()
+        Button("Update to Defi \(version)") {
+          AppUpdater.shared.install()
+        }
+        .disabled(AppUpdater.shared.status == .installing)
+      } else if AppUpdater.shared.isEligible {
+        Divider()
+        Button("Check for Updates…") {
+          Task { await AppUpdater.shared.check() }
+        }
+        .disabled(AppUpdater.shared.status == .checking)
+      }
       Divider()
-      Button("Quit Defi", systemImage: "power") {
+      Button("Quit Defi") {
         commandHandler("quit")
       }
       .keyboardShortcut("q")
