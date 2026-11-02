@@ -293,7 +293,8 @@ public final class HotKeyManager {
     thread = nil
   }
 
-  isolated deinit {
+  // Not `isolated`: macOS 15's runtime aborts when an isolated deinit runs with a task-local bound.
+  deinit {
     registration?.stop()
     context?.stop()
   }

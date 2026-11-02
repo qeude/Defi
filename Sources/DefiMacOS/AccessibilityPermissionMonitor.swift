@@ -7,8 +7,8 @@ public final class AccessibilityPermissionMonitor {
   static let notification = Notification.Name("com.apple.accessibility.api")
   private let center: NotificationCenter
   private let checkTrust: (Bool) -> Bool
-  private var observer: NSObjectProtocol?
-  private var timer: Timer?
+  nonisolated(unsafe) private var observer: NSObjectProtocol?
+  nonisolated(unsafe) private var timer: Timer?
   private var onGranted: (() -> Void)?
   private var started = false
 
@@ -58,7 +58,8 @@ public final class AccessibilityPermissionMonitor {
     onGranted = nil
   }
 
-  isolated deinit {
+  // Not `isolated`: macOS 15's runtime aborts when an isolated deinit runs with a task-local bound.
+  deinit {
     timer?.invalidate()
     if let observer { center.removeObserver(observer) }
   }

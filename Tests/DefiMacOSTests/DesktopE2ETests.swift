@@ -725,13 +725,15 @@ final class DesktopE2ETests: XCTestCase {
     let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 920, height: 620),
       styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
-    window.contentView = NSHostingView(rootView: DefiSettingsView(configURL: configURL))
     defer {
       window.close()
       NSApplication.shared.setActivationPolicy(originalPolicy)
       try? FileManager.default.removeItem(at: directory)
     }
     try activateTestRunner(through: fixtures, platform)
+    // The view activates the runner on appearing, even in a hidden window; on macOS 15 that
+    // request kept the fixture from taking focus.
+    window.contentView = NSHostingView(rootView: DefiSettingsView(configURL: configURL))
     window.makeKeyAndOrderFront(nil)
     func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
     func descendants() -> [NSView] { window.contentView.map(views) ?? [] }
