@@ -6,6 +6,8 @@ import Testing
 
 @testable import DefiMacOS
 
+// Waits allow 10 s: with the whole suite running in a 4-core VM, a global queue can take over 3 s
+// to start a block. A successful wait returns at once.
 @Suite(.serialized)
 struct FrameGeometryReadTests {
   private let accepted = Rect(x: 120, y: 40, width: 650, height: 700)
@@ -63,9 +65,9 @@ struct FrameGeometryReadTests {
         }
         if isFirst {
           first.signal()
-          overlap.withLock { $0 = second.wait(timeout: .now() + 3) == .success }
+          overlap.withLock { $0 = second.wait(timeout: .now() + 10) == .success }
         } else {
-          #expect(first.wait(timeout: .now() + 3) == .success)
+          #expect(first.wait(timeout: .now() + 10) == .success)
           second.signal()
         }
         return value
@@ -140,7 +142,7 @@ struct FrameGeometryReadTests {
     let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
       frameReader: { _ in
         entered.signal()
-        #expect(resume.wait(timeout: .now() + 3) == .success)
+        #expect(resume.wait(timeout: .now() + 10) == .success)
         return value
       }
     ))
@@ -151,10 +153,10 @@ struct FrameGeometryReadTests {
       result.withLock { $0 = frames }
       done.signal()
     }
-    #expect(entered.wait(timeout: .now() + 3) == .success)
+    #expect(entered.wait(timeout: .now() + 10) == .success)
     coordinator.invalidate(reason: "test-generation")
     resume.signal()
-    #expect(done.wait(timeout: .now() + 3) == .success)
+    #expect(done.wait(timeout: .now() + 10) == .success)
     #expect(engine.consumeAcceptedFrames(result.withLock { $0 }).isEmpty)
     #expect(coordinator.completedPosition(for: id) == nil)
     #expect(coordinator.latestBorderFrame(for: id) == nil)
@@ -192,7 +194,7 @@ struct FrameGeometryReadTests {
       frameReader: { element in
         if CFEqual(element, bWrite.element) {
           entered.signal()
-          #expect(release.wait(timeout: .now() + 3) == .success)
+          #expect(release.wait(timeout: .now() + 10) == .success)
         } else {
           fastEntered.signal()
         }
@@ -210,8 +212,8 @@ struct FrameGeometryReadTests {
       result.withLock { $0 = observations }
       done.signal()
     }
-    #expect(entered.wait(timeout: .now() + 3) == .success)
-    #expect(fastEntered.wait(timeout: .now() + 3) == .success)
+    #expect(entered.wait(timeout: .now() + 10) == .success)
+    #expect(fastEntered.wait(timeout: .now() + 10) == .success)
     let lane = coordinator.reserveProcessWriteQueue(for: -41)
     lane.queue.sync {}
     lane.release()
@@ -232,7 +234,7 @@ struct FrameGeometryReadTests {
     }
     #expect(done.wait(timeout: .now()) == .timedOut)
     release.signal()
-    #expect(done.wait(timeout: .now() + 3) == .success)
+    #expect(done.wait(timeout: .now() + 10) == .success)
     if delivery == "delivered-after-join" {
       #expect(coordinator.completedSize(for: a) == CGSize(width: 650, height: 700))
       #expect(engine.acceptBorderObservation(observation))
@@ -286,10 +288,10 @@ struct FrameGeometryReadTests {
       frameReader: { element in
         if CFEqual(element, bWrite.element) {
           bEntered.signal()
-          #expect(bRelease.wait(timeout: .now() + 3) == .success)
+          #expect(bRelease.wait(timeout: .now() + 10) == .success)
         } else if stage == "read" {
           aEntered.signal()
-          #expect(aRelease.wait(timeout: .now() + 3) == .success)
+          #expect(aRelease.wait(timeout: .now() + 10) == .success)
         }
         return old
       }
@@ -304,9 +306,9 @@ struct FrameGeometryReadTests {
       result.withLock { $0 = observations }
       done.signal()
     }
-    #expect(bEntered.wait(timeout: .now() + 3) == .success)
+    #expect(bEntered.wait(timeout: .now() + 10) == .success)
     if stage == "read" {
-      #expect(aEntered.wait(timeout: .now() + 3) == .success)
+      #expect(aEntered.wait(timeout: .now() + 10) == .success)
     } else {
       let lane = coordinator.reserveProcessWriteQueue(for: -41)
       lane.queue.sync {}
@@ -315,7 +317,7 @@ struct FrameGeometryReadTests {
     if stage != "delivery" { invalidate(engine, id: a, cause: cause) }
     aRelease.signal()
     bRelease.signal()
-    #expect(done.wait(timeout: .now() + 3) == .success)
+    #expect(done.wait(timeout: .now() + 10) == .success)
     if stage == "delivery" {
       #expect(engine.latestObservedFrames[a] == old)
       invalidate(engine, id: a, cause: cause)

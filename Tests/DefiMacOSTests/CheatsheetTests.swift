@@ -125,6 +125,10 @@ struct CheatsheetHotKeyTests {
   }
 }
 
+/// The panel fades on the main run loop, which the Swift Testing runner never turns.
+@MainActor
+private func turnMainRunLoop() { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+
 // Serialized: both tests find their panel by title, and a closing panel stays visible while it fades.
 @MainActor @Suite(.serialized)
 struct CheatsheetPanelTests {
@@ -154,6 +158,7 @@ struct CheatsheetPanelTests {
     while first.isVisible || current.alphaValue < 0.99
       || ContinuousClock.now - stableSince < .milliseconds(150), ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(10))
+      turnMainRunLoop()
       if current.frame != settled { settled = current.frame; stableSince = ContinuousClock.now }
     }
     #expect(!first.isVisible, "A closed panel must not reappear")

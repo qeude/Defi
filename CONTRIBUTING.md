@@ -91,7 +91,9 @@ script/test_vm.sh                                # or DesktopE2ETests/<test>
 The script restarts a VM left running and always stops it at the end, which frees
 its memory. If a run is killed outright, use `tart stop defi-e2e`.
 Plan for about 50 GB of disk and 4 GB of
-memory while it runs. The script disables guest services Defi never touches, such
+memory while it runs. The VM runs with `--no-audio`, so the alert sounds of
+shortcuts the tests send stay out of your speakers; pass it too when you start
+the VM by hand. The script disables guest services Defi never touches, such
 as Siri, iCloud, and Shortcuts, from the VM's second boot on.
 
 Runs queue on a per-VM lock. `DEFI_VM_SECOND_DISPLAY=1` adds a virtual second
