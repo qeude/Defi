@@ -26,10 +26,20 @@ struct CheatsheetView: View {
       ),
       in: .rect(cornerRadius: 20)
     )
-    .glassEffect(.regular, in: .rect(cornerRadius: 20))
+    .cheatsheetGlass()
   }
 
   private var core: Color { colorScheme == .dark ? .black : .white }
+}
+
+private extension View {
+  @ViewBuilder func cheatsheetGlass() -> some View {
+    if #available(macOS 26, *) {
+      glassEffect(.regular, in: .rect(cornerRadius: 20))
+    } else {
+      background(.regularMaterial, in: .rect(cornerRadius: 20))
+    }
+  }
 }
 
 struct CheatsheetContent: View {

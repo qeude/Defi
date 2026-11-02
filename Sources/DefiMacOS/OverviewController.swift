@@ -200,9 +200,9 @@ public final class OverviewController: NSObject {
   // Bounded per session: a failing wallpaper capture is retried on later updates.
   private var desktopRequests = 0
   private static let desktopRequestLimit = 5
-  private var capturesObserver: NSObjectProtocol?
+  nonisolated(unsafe) private var capturesObserver: NSObjectProtocol?
   private var previewRevealStartedAt: [WindowID: TimeInterval] = [:]
-  private var previewCacheExpiry: DispatchWorkItem?
+  nonisolated(unsafe) private var previewCacheExpiry: DispatchWorkItem?
   private var memoryPressureSource: DispatchSourceMemoryPressure?
   private var attemptedPreviewWindowIDs = Set<WindowID>()
   private var hasRequestedPreviewPermission = false
@@ -225,7 +225,7 @@ public final class OverviewController: NSObject {
     return String(format: "%.1fHz/frames:%d/late:%d/maxGapMs:%.2f/meanFrameMs:%.2f",
       hz, renderedFrames, lateRenderedRefreshes, maximumRenderedGap * 1_000, drawMS)
   }
-  private var viewportDisplayLinks: [MonitorID: CADisplayLink] = [:]
+  nonisolated(unsafe) private var viewportDisplayLinks: [MonitorID: CADisplayLink] = [:]
   private var pendingViewportFrames = Set<MonitorID>()
   private var displayLinkMonitorIDs: [ObjectIdentifier: MonitorID] = [:]
 
@@ -328,7 +328,8 @@ public final class OverviewController: NSObject {
     }
   }
 
-  isolated deinit {
+  // Not `isolated`: macOS 15's runtime aborts when an isolated deinit runs with a task-local bound.
+  deinit {
     blurTask?.cancel()
     previewCacheExpiry?.cancel()
     memoryPressureSource?.cancel()

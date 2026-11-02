@@ -11,7 +11,7 @@
 <p align="center">A scrolling window manager for macOS.</p>
 
 <p align="center">
-macOS 26+ · Alpha
+macOS 15.4+ · Alpha
 </p>
 
 <p align="center">
@@ -60,7 +60,7 @@ windows. Click a window, select it in the Dock, or use Command-Tab as usual.
 
 ## Get started
 
-Defi supports **Apple Silicon Macs running macOS 26 or newer**.
+Defi supports **Apple Silicon Macs running macOS 15.4 or newer**.
 Install with Homebrew:
 
 ```sh

@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
-import Testing
+import XCTest
 
 @testable import DefiMacOS
 
+/// XCTest, not Swift Testing: a synchronous XCTest pumps the main queue between checks, so the view's
+/// reveal tasks run. A Swift Testing test holds the main actor while pumping, and they never would.
 @MainActor
-struct SettingsSearchViewTests {
+final class SettingsSearchViewTests: XCTestCase {
   private func hostSettings() throws -> (NSWindow, URL) {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -31,7 +33,7 @@ struct SettingsSearchViewTests {
   }
 
   private func arrowDown(_ window: NSWindow) throws -> NSEvent {
-    try #require(NSEvent.keyEvent(
+    try XCTUnwrap(NSEvent.keyEvent(
       with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
       windowNumber: window.windowNumber, context: nil, characters: "\u{f701}",
       charactersIgnoringModifiers: "\u{f701}", isARepeat: false, keyCode: 125))
@@ -44,8 +46,7 @@ struct SettingsSearchViewTests {
       .intersection(scroll.contentView.bounds).isEmpty
   }
 
-  @Test
-  func cancelAfterKeyboardSelectionRestoresPages() throws {
+  func testCancelAfterKeyboardSelectionRestoresPages() throws {
     // The settings view switches the activation policy of the shared test process.
     let policy = NSApplication.shared.activationPolicy()
     let (window, directory) = try hostSettings()
@@ -59,33 +60,33 @@ struct SettingsSearchViewTests {
       descendants(window).compactMap { $0 as? NSTextField }
         .first { $0.placeholderString == "Search actions" }?.stringValue
     }
-    #expect(converge { descendants(window).contains { $0 is NSSearchField } })
-    let search = try #require(descendants(window).compactMap { $0 as? NSSearchField }.first)
-    #expect(window.makeFirstResponder(search))
-    let editor = try #require(search.currentEditor() as? NSTextView)
+    XCTAssertTrue(converge { descendants(window).contains { $0 is NSSearchField } })
+    let search = try XCTUnwrap(descendants(window).compactMap { $0 as? NSSearchField }.first)
+    XCTAssertTrue(window.makeFirstResponder(search))
+    let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
     editor.insertText("focus column left", replacementRange: NSRange(location: 0, length: 0))
-    #expect(converge { rows() == 2 })
+    XCTAssertTrue(converge { rows() == 2 })
     window.sendEvent(try arrowDown(window))
-    #expect(converge { shortcutFilter() == "focus-column first" }, "Down must select and reveal the actual shortcut action")
-    #expect(search.currentEditor() == nil, "Down must transfer focus into the results")
+    XCTAssertTrue(converge { shortcutFilter() == "focus-column first" }, "Down must select and reveal the actual shortcut action")
+    XCTAssertNil(search.currentEditor(), "Down must transfer focus into the results")
     window.sendEvent(try arrowDown(window))
-    #expect(converge { shortcutFilter() == "focus-column left" }, "Further arrows must navigate the native result list")
-    #expect(converge {
+    XCTAssertTrue(converge { shortcutFilter() == "focus-column left" }, "Further arrows must navigate the native result list")
+    XCTAssertTrue(converge {
       descendants(window).compactMap { $0 as? ShortcutRecorderButton }.contains {
         $0.accessibilityLabel() == "Record shortcut for focus-column left" && isVisibleInViewport($0)
       }
     }, "The selected shortcut's recorder must be visible inside the detail viewport")
-    let cancel = try #require((search.cell as? NSSearchFieldCell)?.cancelButtonCell)
+    let cancel = try XCTUnwrap((search.cell as? NSSearchFieldCell)?.cancelButtonCell)
     cancel.performClick(search)
-    #expect(search.stringValue == "")
-    #expect(converge { rows() == SettingsPage.allCases.count }, "Native cancel must restore the settings pages after keyboard selection")
-    #expect(shortcutFilter() ?? "" == "", "Native cancel must remove the exact shortcut filter")
-    #expect(window.makeFirstResponder(search))
-    let focusedEditor = try #require(search.currentEditor() as? NSTextView)
+    XCTAssertEqual(search.stringValue, "")
+    XCTAssertTrue(converge { rows() == SettingsPage.allCases.count }, "Native cancel must restore the settings pages after keyboard selection")
+    XCTAssertEqual(shortcutFilter() ?? "", "", "Native cancel must remove the exact shortcut filter")
+    XCTAssertTrue(window.makeFirstResponder(search))
+    let focusedEditor = try XCTUnwrap(search.currentEditor() as? NSTextView)
     focusedEditor.insertText("border width", replacementRange: NSRange(location: 0, length: 0))
-    #expect(converge { rows() == 1 })
-    #expect(search.currentEditor() === focusedEditor, "Typing must retain search focus")
+    XCTAssertTrue(converge { rows() == 1 })
+    XCTAssertTrue(search.currentEditor() === focusedEditor, "Typing must retain search focus")
     cancel.performClick(search)
-    #expect(converge { rows() == SettingsPage.allCases.count }, "Cancel must also restore pages while search remains focused")
+    XCTAssertTrue(converge { rows() == SettingsPage.allCases.count }, "Cancel must also restore pages while search remains focused")
   }
 }

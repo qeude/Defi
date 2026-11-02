@@ -131,7 +131,7 @@ extension MacOSPlatform {
       if kind == .focus, let processID, let self,
         let activation = userInputTracker.snapshot.applicationActivation, activation.processID == processID {
         let elements = UncheckedSendable(value: self.elements), coordinator = frameCoordinator
-        Task.detached(priority: .userInteractive) {
+        DispatchQueue.global(qos: .userInteractive).async {
           func known(_ element: AXUIElement?) -> WindowID? {
             element.flatMap { element in elements.value.first(where: { CFEqual($0.value, element) })?.key }
           }

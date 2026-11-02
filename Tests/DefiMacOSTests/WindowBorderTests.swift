@@ -894,15 +894,16 @@ struct WindowBorderTests {
   func skyLightMoveStaysAuthoritativeAcrossStackingAndReveal() {
     var batches: [[BorderSurfaceMove]] = []
     let (manager, windowID, panels) = movedBorder(
-      start: Rect(x: 100, y: 100, width: 800, height: 600)
+      start: Rect(x: 100, y: 100, width: 600, height: 600)
     ) { batches.append($0); return true }
     defer { manager.hide() }
-    let moved = Rect(x: 300, y: 120, width: 800, height: 600)
+    // Fits a 1024-point display: an edge off every screen takes another scale, so it is redrawn, not moved.
+    let moved = Rect(x: 300, y: 120, width: 600, height: 600)
     manager.updateGeometry(frames: [windowID: moved], style: style)
     let expected = manager.expectedEdgeFrames { _ in moved }[windowID] ?? [:]
     #expect(expected.count == 4)
     #expect(batches.count == 1)
-    #expect(Set(batches[0].map(\.origin.x)) == [300, 1087])
+    #expect(Set(batches[0].map(\.origin.x)) == [300, 887])
 
     manager.updateActiveStacking(for: windowID, stacking: .inactive(for: windowID))
     manager.updateActiveStacking(for: windowID, stacking: frontmostStacking(for: windowID))

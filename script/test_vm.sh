@@ -39,7 +39,7 @@ fi
 # Restart a VM left running: it may lack the Xcode share. Holding the lock makes this safe.
 tart stop "$VM" >/dev/null 2>&1 || true
 XCODE="$(cd "$(xcode-select -p)/../.." && pwd)"
-nohup tart run "$VM" --no-graphics "--dir=xcode:$XCODE:ro" >/dev/null 2>&1 9>&- &
+nohup tart run "$VM" --no-graphics --no-audio "--dir=xcode:$XCODE:ro" >/dev/null 2>&1 9>&- &
 trap 'tart stop "$VM" >/dev/null || true' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM

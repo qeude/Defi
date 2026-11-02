@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
   name: "Defi",
   platforms: [
-    .macOS(.v26)
+    .macOS("15.4")
   ],
   products: [
     .library(name: "DefiModel", targets: ["DefiModel"]),
