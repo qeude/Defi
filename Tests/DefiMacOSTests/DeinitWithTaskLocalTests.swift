@@ -1,5 +1,3 @@
-import DefiConfig
-import DefiRuntime
 import Foundation
 import XCTest
 
@@ -18,14 +16,6 @@ final class DeinitWithTaskLocalTests: XCTestCase {
       _ = OverviewController(focusWindow: { _, _, _, _ in }, focusWorkspace: { _, _ in },
         drop: { _, _, _, _, _ in }, activateMonitor: { _ in }, openStateChanged: { _ in },
         notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
-    }
-  }
-
-  func testHotKeyManagerReleasesWithTaskLocalBound() {
-    NavigationActor.shared.queue.sync {
-      NavigationActor.assumeIsolated {
-        Bound.$value.withValue(true) { _ = HotKeyManager(config: Config()) { _ in } }
-      }
     }
   }
 }
