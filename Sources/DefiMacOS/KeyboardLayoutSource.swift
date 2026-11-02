@@ -103,7 +103,8 @@ final class KeyboardLayoutObserver {
     }
   }
 
-  isolated deinit {
+  // Not `isolated`: macOS 15's runtime aborts when an isolated deinit runs with a task-local bound.
+  deinit {
     CFNotificationCenterRemoveEveryObserver(
       CFNotificationCenterGetDistributedCenter(), Unmanaged.passUnretained(self).toOpaque())
   }

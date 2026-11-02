@@ -31,7 +31,7 @@ final class OverviewPanel {
   let view: OverviewView
   private let desktopView: NSView
   private let rootView: NSView
-  private let glassView: NSGlassEffectView
+  private let glassView: NSView
   private var surfaceScene: OverviewSurfaceScene?
   private var previewClosingScene: OverviewPreviewClosingScene?
   var hasSurfaceScene: Bool { surfaceScene != nil || previewClosingScene != nil }
@@ -101,16 +101,25 @@ final class OverviewPanel {
     desktopView.layer?.contentsScale = screen.backingScaleFactor
     desktopView.layer?.masksToBounds = true
     desktopView.autoresizingMask = [.width, .height]
-    glassView = NSGlassEffectView(
-      frame: NSRect(origin: .zero, size: screen.frame.size)
-    )
-    glassView.style = .regular
-    glassView.appearance = NSAppearance(named: .darkAqua)
-    glassView.autoresizingMask = [.width, .height]
-    view.frame = glassView.bounds
+    let glassFrame = NSRect(origin: .zero, size: screen.frame.size)
+    view.frame = glassFrame
     view.wantsLayer = true
     view.autoresizingMask = [.width, .height]
-    glassView.contentView = view
+    if #available(macOS 26, *) {
+      let glass = NSGlassEffectView(frame: glassFrame)
+      glass.style = .regular
+      glass.contentView = view
+      glassView = glass
+    } else {
+      let material = NSVisualEffectView(frame: glassFrame)
+      material.material = .hudWindow
+      material.blendingMode = usesCapturedDesktop ? .withinWindow : .behindWindow
+      material.state = .active
+      material.addSubview(view)
+      glassView = material
+    }
+    glassView.appearance = NSAppearance(named: .darkAqua)
+    glassView.autoresizingMask = [.width, .height]
     rootView.addSubview(desktopView)
     rootView.addSubview(glassView)
     window.contentView = rootView
