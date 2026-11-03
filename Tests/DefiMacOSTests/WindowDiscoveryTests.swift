@@ -331,6 +331,18 @@ struct WindowDiscoveryTests {
       == disposition)
   }
 
+  @Test(arguments: [
+    (false, false, WindowDisposition.floating),
+    (true, false, .tiled),
+    (false, true, .tiled),
+  ])
+  func `A standard window that cannot grow floats unless a rule tiles it`(
+    canGrow: Bool, forceTiling: Bool, disposition: WindowDisposition) {
+    #expect(classifyWindow(role: kAXWindowRole, subrole: kAXStandardWindowSubrole, appID: "com.example.app",
+      hasCloseButton: true, canResize: true, canGrow: canGrow, configuredFloating: false,
+      forceTiling: forceTiling) == disposition)
+  }
+
   @Test
   func `Only a transient close button failure keeps a managed window closable`() {
     #expect(shouldTreatWindowAsClosable(error: .cannotComplete, hasValue: false, wasPreviouslyManaged: true))

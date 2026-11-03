@@ -1075,7 +1075,7 @@ private struct AppRulesSettingsView: View {
   var body: some View {
     Form {
       Section {
-        Text("Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace or initial width wins, while enabled behavior flags accumulate.")
+        Text("Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace, window placement, or initial width wins, while enabled behavior flags accumulate.")
           .font(.caption)
           .foregroundStyle(.secondary)
         Button(SettingsOption.addAppRule.title) { editor = RuleSheet(rule: nil, index: nil) }
@@ -1194,8 +1194,7 @@ private struct AppRulesSettingsView: View {
     var actions: [String] = []
     if let workspace = rule.workspace { actions.append("workspace \(workspace)") }
     if rule.followFocus { actions.append("follow focus") }
-    if rule.floating { actions.append("floating") }
-    if rule.forceTiling { actions.append("force tiling") }
+    if let window = rule.window { actions.append(window.settingsTitle.lowercased()) }
     if rule.intrinsicSize { actions.append("intrinsic size") }
     if let width = rule.initialColumnWidth { actions.append("initial width \(percent(width))") }
     if rule.includeInitialWidthInCycle { actions.append("include width in cycle") }
@@ -1271,7 +1270,7 @@ private struct SettingsRuleEditor: View {
 
   private var isValid: Bool {
     let hasMatcher = !(draft.appID?.isEmpty ?? true) || !(draft.title?.isEmpty ?? true) || !(draft.role?.isEmpty ?? true)
-    let hasAction = draft.workspace != nil || draft.followFocus || draft.floating || draft.forceTiling
+    let hasAction = draft.workspace != nil || draft.followFocus || draft.window != nil
       || draft.intrinsicSize || draft.initialColumnWidth != nil || draft.includeInitialWidthInCycle
     return hasMatcher && hasAction && (!customApplication || !(draft.appID?.isEmpty ?? true))
   }
@@ -1293,44 +1292,61 @@ private struct SettingsRuleEditor: View {
           }
         }
         if customApplication {
-          TextField("Bundle identifier or suffix", text: optionalStringBinding(\.appID))
-            .help("Matches a bundle identifier by case-insensitive exact or suffix comparison.")
+          TextField(text: optionalStringBinding(\.appID), prompt: nil) {
+            RuleInfoLabel("Bundle identifier or suffix",
+              "Matches the app’s bundle identifier, or its end, in any case. For example, “com.apple.Notes” or “Notes”.")
+          }
         }
       }
       Section("Window conditions") {
         DisclosureGroup("Advanced conditions", isExpanded: $conditionsExpanded) {
-          TextField("Title contains", text: optionalStringBinding(\.title))
-            .help("Case-insensitive substring match.")
-          TextField("Accessibility role", text: optionalStringBinding(\.role))
-            .help("Exact, case-sensitive role match.")
+          TextField(text: optionalStringBinding(\.title), prompt: nil) {
+            RuleInfoLabel("Title contains",
+              "Matches windows whose title contains this text, in any case. For example, “picture-in-picture” for a browser’s floating video.",
+              note: "Match the app alone when you can: titles change with the system language and some appear late.")
+          }
+          TextField(text: optionalStringBinding(\.role), prompt: nil) {
+            RuleInfoLabel("Accessibility role",
+              "Matches the window’s accessibility role exactly, such as “AXWindow”. Rarely needed.")
+          }
         }
       }
       Section("Actions") {
-        Picker("Move to workspace", selection: Binding(
+        Picker(selection: Binding(
           get: { draft.workspace ?? "" },
           set: { draft.workspace = $0.isEmpty ? nil : $0 }
         )) {
           Text("Leave workspace unchanged").tag("")
           ForEach(model.config.workspaces.names, id: \.self) { Text($0).tag($0) }
+        } label: {
+          RuleInfoLabel("Move to workspace", "Opens new matching windows on this named workspace.")
         }
-        settingsDraftToggle("Follow focus", value: \Rule.followFocus)
-        settingsDraftToggle("Float window", value: \Rule.floating)
-        settingsDraftToggle("Force tiling", value: \Rule.forceTiling)
-        settingsDraftToggle("Use intrinsic window size", value: \Rule.intrinsicSize)
-        Toggle("Set initial column width", isOn: Binding(
+        settingsDraftToggle("Follow focus", "Switches to that workspace when the new window takes focus.",
+          value: \Rule.followFocus)
+        Picker(selection: $draft.window) {
+          Text("Automatic").tag(RuleWindow?.none)
+          ForEach(RuleWindow.allCases, id: \.self) { Text($0.settingsTitle).tag(Optional($0)) }
+        } label: {
+          RuleInfoLabel("Window",
+            "Automatic suits most apps: app windows tile, while dialogs, progress, and fixed-size windows float.",
+            note: "Force only for a window Defi gets wrong. Force tiled also tiles the app’s dialogs; add a title to target one window.")
+        }
+        settingsDraftToggle("Use intrinsic window size",
+          "Keeps the window’s own size inside its column instead of filling it.", value: \Rule.intrinsicSize)
+        Toggle(isOn: Binding(
           get: { draft.initialColumnWidth != nil },
           set: { draft.initialColumnWidth = $0 ? model.config.layout.defaultColumnWidth : nil }
-        ))
+        )) {
+          RuleInfoLabel("Set initial column width", "Opens the window’s column at this width instead of the default.")
+        }
         if let width = draft.initialColumnWidth {
           SettingsNumberRow(
             title: "Initial width", value: width * 100, range: 5...100, step: 5, unit: "%",
 
             onChange: { draft.initialColumnWidth = $0 / 100 }
           )
-          Toggle("Include this width in Cycle Width", isOn: Binding(
-            get: { draft.includeInitialWidthInCycle },
-            set: { draft.includeInitialWidthInCycle = $0 }
-          ))
+          settingsDraftToggle("Include this width in Cycle Width",
+            "Adds this width to the sizes Cycle Width steps through.", value: \Rule.includeInitialWidthInCycle)
         }
       }
     }
@@ -1411,8 +1427,10 @@ private struct SettingsRuleEditor: View {
     )
   }
 
-  private func settingsDraftToggle(_ title: String, value keyPath: WritableKeyPath<Rule, Bool>) -> some View {
-    Toggle(title, isOn: Binding(get: { draft[keyPath: keyPath] }, set: { draft[keyPath: keyPath] = $0 }))
+  private func settingsDraftToggle(_ title: String, _ info: String, value keyPath: WritableKeyPath<Rule, Bool>) -> some View {
+    Toggle(isOn: Binding(get: { draft[keyPath: keyPath] }, set: { draft[keyPath: keyPath] = $0 })) {
+      RuleInfoLabel(title, info)
+    }
   }
 
   private func save() {
@@ -1873,5 +1891,47 @@ private struct SettingsReorderContainer<Item, ID: Hashable & Sendable>: ViewModi
     #else
     content
     #endif
+  }
+}
+
+/// A rule setting label followed by an info button that explains it in a popover.
+private struct RuleInfoLabel: View {
+  let title: String
+  let text: String
+  let note: String?
+  @State private var isPresented = false
+
+  init(_ title: String, _ text: String, note: String? = nil) {
+    self.title = title
+    self.text = text
+    self.note = note
+  }
+
+  var body: some View {
+    HStack(spacing: 4) {
+      Text(title)
+      Button { isPresented = true } label: { Image(systemName: "info.circle") }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("About \(title)")
+        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text(text)
+            if let note { Text(note).foregroundStyle(.secondary) }
+          }
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(width: 280, alignment: .leading)
+          .padding()
+        }
+    }
+  }
+}
+
+private extension RuleWindow {
+  var settingsTitle: String {
+    switch self {
+    case .forceFloating: "Force floating"
+    case .forceTiled: "Force tiled"
+    }
   }
 }

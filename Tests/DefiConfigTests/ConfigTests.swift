@@ -284,9 +284,9 @@ struct ConfigTests {
           appID: "com.apple.dt.Xcode",
           workspace: "dev",
           followFocus: true,
-          floating: true
+          window: .forceFloating
         ),
-        Rule(title: "Preview", forceTiling: true, intrinsicSize: true),
+        Rule(title: "Preview", window: .forceTiled, intrinsicSize: true),
       ]
     )
     let window = Window(
@@ -302,9 +302,26 @@ struct ConfigTests {
       decision == config.decision(appID: window.appID, title: window.title, role: window.role))
     #expect(decision.workspace == WorkspaceID(rawValue: "dev"))
     #expect(decision.followFocus)
-    #expect(decision.floating)
+    // The last matching window placement wins.
+    #expect(!decision.floating)
     #expect(decision.forceTiling)
     #expect(decision.intrinsicSize)
+  }
+
+  @Test
+  func `Window placement decodes and the last matching rule wins`() throws {
+    let config = try Config.decode(Data("""
+      [[rules]]
+      app_id = "net.kovidgoyal.kitty"
+      window = "force-tiled"
+      [[rules]]
+      title = "Picture-in-Picture"
+      window = "force-floating"
+      """.utf8))
+    #expect(config.rules.map(\.window) == [.forceTiled, .forceFloating])
+    #expect(config.decision(appID: "net.kovidgoyal.kitty", title: "zsh", role: nil) == RuleDecision(forceTiling: true))
+    #expect(config.decision(appID: "net.kovidgoyal.kitty", title: "Picture-in-Picture", role: nil) == RuleDecision(floating: true))
+    #expect(throws: (any Error).self) { try Config.decode(Data("[[rules]]\napp_id = \"a\"\nwindow = \"stacked\"".utf8)) }
   }
 
   @Test

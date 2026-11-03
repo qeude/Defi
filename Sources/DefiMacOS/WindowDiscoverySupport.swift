@@ -582,6 +582,7 @@ func frameFromAXValues(
 struct WindowManagementCapabilities: Equatable {
   let hasCloseButton: Bool
   let canResize: Bool
+  let canGrow: Bool
   let isModal: Bool
 }
 

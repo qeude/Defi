@@ -157,7 +157,7 @@ final class DesktopE2ETests: XCTestCase {
     let platform = try preflight()
     let fixtures = try openFixtures(platform)
     defer { closeFixtures(fixtures) }
-    let config = Config(rules: [Rule(appID: fixtures.floatingAppID, floating: true)])
+    let config = Config(rules: [Rule(appID: fixtures.floatingAppID, window: .forceFloating)])
     let snapshot = platform.snapshot(config: config)
     let floating = try XCTUnwrap(snapshot.windows.first { $0.id == fixtures.floatingWindowID && $0.floating })
     let tiled = try XCTUnwrap(snapshot.windows.first { $0.id == fixtures.tiledWindowID })

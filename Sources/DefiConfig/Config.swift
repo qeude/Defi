@@ -261,8 +261,10 @@ public struct Config: Equatable, Sendable {
         result.initialColumnWidth = width
       }
       result.followFocus = result.followFocus || rule.followFocus
-      result.floating = result.floating || rule.floating
-      result.forceTiling = result.forceTiling || rule.forceTiling
+      if let window = rule.window {
+        result.floating = window == .forceFloating
+        result.forceTiling = window == .forceTiled
+      }
       result.intrinsicSize = result.intrinsicSize || rule.intrinsicSize
       result.includeInitialWidthInCycle =
         result.includeInitialWidthInCycle || rule.includeInitialWidthInCycle

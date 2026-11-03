@@ -240,6 +240,7 @@ final class Daemon {
     self.desktopSnapshotOverviewUpdater = desktopSnapshotOverviewUpdater
     instanceLock = try DaemonInstanceLock(url: instanceLockURL)
     configURL = options.configURL ?? Config.defaultURL
+    migrateLegacyConfiguration(at: configURL)
     config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
     self.topologyStore = topologyStore

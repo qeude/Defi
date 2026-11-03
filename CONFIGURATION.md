@@ -704,8 +704,7 @@ title = "Simulator"
 role = "AXWindow"
 workspace = "dev"
 follow_focus = true
-floating = false
-force_tiling = true
+window = "force-tiled"
 intrinsic_size = true
 ```
 
@@ -716,8 +715,7 @@ intrinsic_size = true
 | `role` | unset | string | Exact, case-sensitive Accessibility role match, such as `AXWindow`. |
 | `workspace` | unset | string present in `[workspaces].names` | Places a newly discovered matching window on this workspace. |
 | `follow_focus` | `false` | boolean | Activates the target workspace when the matching new window has native focus. |
-| `floating` | `false` | boolean | Places matching window in workspace floating layer. |
-| `force_tiling` | `false` | boolean | Tiles matching window even when platform classification would normally float or ignore it. Overrides `floating`. |
+| `window` | unset | `"force-floating"` or `"force-tiled"` | Unset follows automatic placement, which suits most apps. `"force-floating"` puts it in the workspace floating layer. `"force-tiled"` puts it in a column, even for windows automatic placement would float or ignore. |
 | `include_initial_width_in_cycle` | `false` | boolean | Adds the matching initial width to `cycle-width` for the focused tiled window. |
 | `initial_column_width` | unset | number from `0.05` to `1.0` | Initial tiled column width as a monitor-relative fraction; defaults to `layout.default_column_width`. Does not resize floating windows or override `intrinsic_size`. |
 | `intrinsic_size` | `false` | boolean | Preserves observed window width and height inside its tile. |
@@ -725,19 +723,47 @@ intrinsic_size = true
 At least one matcher (`app_id`, `title`, or `role`) must be set for a rule to
 match. When multiple matchers exist in one rule, all must match.
 
+Avoid `title` when `app_id` alone is enough. Titles follow the system language,
+and some apps set a window's title shortly after opening it, while rules apply
+only when Defi first discovers the window. `title` has no wildcards or regular
+expressions. To float a browser's Picture-in-Picture video on an English system:
+
+```toml
+[[rules]]
+app_id = "org.mozilla.firefox"
+title = "picture-in-picture"
+window = "force-floating"
+```
+
 Multiple matching rules combine in file order:
 
 - last matching `workspace` wins
+- last matching `window` wins
 - last matching `initial_column_width` that specifies a value wins
 - boolean values combine with OR; later `false` cannot clear an earlier `true`
 
 Defi automatically floats sheets, dialogs, modal windows, native floating
-panels, and standard windows identified as fixed-size or auxiliary. Non-modal
+panels, and standard windows that are fixed-size, auxiliary, or offer neither an
+enabled full-screen nor zoom button, such as Finder copy progress. Non-modal
 system-dialog and system-floating windows are app-drawn menus or palettes and
-stay unmanaged; `floating = true` in an app rule still manages them. Floating
-windows keep observed size and position, park with their workspace, and remain
-isolated per monitor. Use `force_tiling = true` only for windows known to behave
-correctly when resized.
+stay unmanaged; `window = "force-floating"` in an app rule still manages them.
+Floating windows keep observed size and position, park with their workspace, and
+remain isolated per monitor. Leave `window` unset unless Defi places a window
+wrong: `window = "force-tiled"` also tiles the app's dialogs and fixed-size windows,
+so add `title` when only one window needs it.
+
+Some apps hide the title bar buttons of their main windows, for example a
+terminal set to hide its title bar. Their windows then float; tile them with a
+rule:
+
+```toml
+[[rules]]
+app_id = "net.kovidgoyal.kitty"
+window = "force-tiled"
+```
+
+Defi rewrites the earlier `floating` and `force_tiling` rule keys to `window`
+when it loads the configuration.
 
 Rules apply once when a window is first discovered, including new windows opened
 later by an app that is already running. Reloaded rules affect subsequently

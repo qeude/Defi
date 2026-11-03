@@ -348,14 +348,20 @@ public struct WorkspacesConfig: Codable, Equatable, Sendable {
   }
 }
 
+/// How a rule places matching windows.
+public enum RuleWindow: String, Codable, Equatable, Sendable, CaseIterable {
+  case forceFloating = "force-floating"
+  /// Tiles even windows that automatic classification would float or ignore.
+  case forceTiled = "force-tiled"
+}
+
 public struct Rule: Codable, Equatable, Sendable {
   public var appID: String?
   public var title: String?
   public var role: String?
   public var workspace: String?
   public var followFocus: Bool
-  public var floating: Bool
-  public var forceTiling: Bool
+  public var window: RuleWindow?
   public var intrinsicSize: Bool
   public var initialColumnWidth: Double?
   public var includeInitialWidthInCycle: Bool
@@ -366,8 +372,7 @@ public struct Rule: Codable, Equatable, Sendable {
     role: String? = nil,
     workspace: String? = nil,
     followFocus: Bool = false,
-    floating: Bool = false,
-    forceTiling: Bool = false,
+    window: RuleWindow? = nil,
     intrinsicSize: Bool = false,
     initialColumnWidth: Double? = nil,
     includeInitialWidthInCycle: Bool = false
@@ -377,8 +382,7 @@ public struct Rule: Codable, Equatable, Sendable {
     self.role = role
     self.workspace = workspace
     self.followFocus = followFocus
-    self.floating = floating
-    self.forceTiling = forceTiling
+    self.window = window
     self.intrinsicSize = intrinsicSize
     self.initialColumnWidth = initialColumnWidth
     self.includeInitialWidthInCycle = includeInitialWidthInCycle
@@ -390,8 +394,7 @@ public struct Rule: Codable, Equatable, Sendable {
     case role
     case workspace
     case followFocus = "follow_focus"
-    case floating
-    case forceTiling = "force_tiling"
+    case window
     case intrinsicSize = "intrinsic_size"
     case initialColumnWidth = "initial_column_width"
     case includeInitialWidthInCycle = "include_initial_width_in_cycle"
@@ -405,8 +408,7 @@ public struct Rule: Codable, Equatable, Sendable {
     role = try values.decodeIfPresent(String.self, forKey: .role)
     workspace = try values.decodeIfPresent(String.self, forKey: .workspace)
     followFocus = try values.decodeIfPresent(Bool.self, forKey: .followFocus) ?? defaults.followFocus
-    floating = try values.decodeIfPresent(Bool.self, forKey: .floating) ?? defaults.floating
-    forceTiling = try values.decodeIfPresent(Bool.self, forKey: .forceTiling) ?? defaults.forceTiling
+    window = try values.decodeIfPresent(RuleWindow.self, forKey: .window)
     intrinsicSize = try values.decodeIfPresent(Bool.self, forKey: .intrinsicSize) ?? defaults.intrinsicSize
     initialColumnWidth = try values.decodeIfPresent(Double.self, forKey: .initialColumnWidth)
     includeInitialWidthInCycle =

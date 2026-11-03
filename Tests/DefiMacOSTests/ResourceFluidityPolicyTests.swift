@@ -73,7 +73,7 @@ struct ResourceFluidityPolicyTests {
     let due = fallbackWindowRefreshProcessIDs(uncovered: [42], incompatible: [], eventProcessIDs: [],
       force: false, now: 0.3, deadlines: &deadlines)
     let result = engine.discoverSnapshotWindows(monitors: [],
-      config: Config(rules: [Rule(appID: "app-42", floating: true)]), incrementalProcessIDs: due,
+      config: Config(rules: [Rule(appID: "app-42", window: .forceFloating)]), incrementalProcessIDs: due,
       forceWindowListRefresh: false, forceWindowListRefreshProcessIDs: due.intersection([42]),
       forceApplicationInventoryRefresh: false, capturedTopologyRequiresFullSnapshot: false,
       topologyProcessIDs: [], createdElements: [:], preparedWindowAttributes: [:],

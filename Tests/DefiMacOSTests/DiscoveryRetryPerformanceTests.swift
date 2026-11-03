@@ -97,7 +97,7 @@ struct DiscoveryRetryPerformanceTests {
     var discoveryAt: Double? = nil
     var globalPasses = 0
     var passes = 0
-    let config = Config(rules: [Rule(appID: "app-42", floating: true)])
+    let config = Config(rules: [Rule(appID: "app-42", window: .forceFloating)])
     for index in 0...35 {
       let now = Double(index) / 100
       fixture.state.withLock { $0.now = now }

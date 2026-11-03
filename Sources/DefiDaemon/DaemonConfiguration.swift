@@ -137,7 +137,10 @@ extension Daemon {
     let url = configURL
     configReloadTask = Task { [weak self] in
       do {
-        let nextConfig = try await Task.detached { try Config.load(from: url) }.value
+        let nextConfig = try await Task.detached {
+          migrateLegacyConfiguration(at: url)
+          return try Config.load(from: url)
+        }.value
         guard !Task.isCancelled, let self, !shouldShutdown,
           nextConfig != config else { return }
         applyConfiguration(nextConfig)
