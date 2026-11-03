@@ -7,6 +7,11 @@ import Synchronization
 
 /// The last left press came from a trackpad, not a mouse: drag haptics play only for it.
 let leftDragFromTrackpad = Atomic<Bool>(false)
+/// The pointer travelled since the last left press: only it can drag a window, so a
+/// window Defi moves under a resting pointer (a click that reveals it) is no drag.
+let leftPressPointerTravelled = Atomic<Bool>(false)
+/// Farther than a click's jitter.
+let leftPressDragThreshold = 6.0
 
 func delayedApplicationActivationIsCurrent(
   startedAt: TimeInterval,
@@ -28,6 +33,7 @@ final class PlatformEventMonitor {
   private let liveFrameHandler:
     (_ pressedWindowID: WindowID?, _ type: NSEvent.EventType, _ pointer: CGPoint?) -> Void
   private var pressedWindowID: WindowID?
+  private var leftPressLocation: CGPoint?
   private let borderStackingHandler: () -> Void
   /// A left press: with the window a plain click pressed, nil under a modifier.
   private let mouseGestureStartedHandler: (_ clickedWindowID: WindowID?) -> Void
@@ -284,6 +290,8 @@ final class PlatformEventMonitor {
         ) ?? Int64(event.windowNumber)
       if event.type == .leftMouseDown {
         leftDragFromTrackpad.store(event.subtype == .touch, ordering: .relaxed)
+        leftPressLocation = event.cgEvent?.location
+        leftPressPointerTravelled.store(false, ordering: .relaxed)
         pressedWindowID = mouseFocusIntentWindowID(rawWindowID: rawWindowID)
         liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
       }
@@ -295,6 +303,11 @@ final class PlatformEventMonitor {
           )
           : nil
       )
+    }
+    if event.type == .leftMouseDragged, let start = leftPressLocation, let location = event.cgEvent?.location,
+      hypot(location.x - start.x, location.y - start.y) > leftPressDragThreshold
+    {
+      leftPressPointerTravelled.store(true, ordering: .relaxed)
     }
     if event.type == .leftMouseDragged || event.type == .leftMouseUp {
       liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)

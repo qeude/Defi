@@ -1753,6 +1753,24 @@ struct PlatformEventTests {
     #expect(windowSnapshotInvalidation(for: kind, processID: processID) == expected)
   }
 
+  @Test @MainActor
+  func onlyPointerTravelBeyondAClickJitterCountsAsADrag() throws {
+    let monitor = PlatformEventMonitor(handler: { _, _ in })
+    func travelled() -> Bool { leftPressPointerTravelled.load(ordering: .relaxed) }
+    func send(_ type: NSEvent.EventType, x: Double) throws {
+      monitor.handleMouseEvent(try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: 500),
+        modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)))
+    }
+    try send(.leftMouseDown, x: 500)
+    try send(.leftMouseDragged, x: 500 + leftPressDragThreshold - 1)
+    #expect(!travelled(), "A click's jitter is no drag")
+    try send(.leftMouseDragged, x: 500 + leftPressDragThreshold + 1)
+    try send(.leftMouseUp, x: 500 + leftPressDragThreshold + 1)
+    #expect(travelled(), "The release still sees the drag")
+    try send(.leftMouseDown, x: 500)
+    #expect(!travelled(), "The next press starts afresh")
+  }
+
   @Test
   func mouseGestureSynchronizesOnlyWhileDraggingAndEndsOnRelease() {
     typealias Actions = MouseGestureEventNormalizer.Actions
