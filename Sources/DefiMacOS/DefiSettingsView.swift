@@ -313,6 +313,14 @@ private struct GeneralSettingsView: View {
       Section("Diagnostics") {
         Button(SettingsOption.logs.title) { model.openLogs() }
           .settingsSearchTarget(.logs)
+        Toggle(SettingsOption.animationsInRecordings.title, isOn: Binding(
+          get: { DefiSettingsRuntimeStatus.shared.animationsInRecordings },
+          set: { DefiSettingsRuntimeStatus.shared.animationsInRecordings = $0 }
+        ))
+        .settingsSearchTarget(.animationsInRecordings)
+        Text("Screen recordings show what you see while windows move, for a bug report. Turns off when Defi restarts.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
     }
     .formStyle(.grouped)

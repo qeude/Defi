@@ -52,6 +52,11 @@ public final class DefiSettingsRuntimeStatus {
   public private(set) var lastValidConfig: Config?
   /// Accelerators another app reserves. Their rows read "Held by another app" the next time Settings refreshes.
   public private(set) var heldShortcuts: Set<String> = []
+  /// Lets screen recordings show the animation overlay for a bug report. Never persisted,
+  /// so a forgotten switch turns off when Defi restarts.
+  public var animationsInRecordings = false {
+    didSet { RibbonProxyRenderer.shared.applyRecordingVisibility() }
+  }
 
   private init() {}
 
