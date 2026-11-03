@@ -935,6 +935,12 @@ extension SnapshotEngine {
       mouseFocusIntentTimestamp = nil
       keyboardFocusIntentTimestamp = nil
     }
+    let mousePressedOtherApplication = mousePressLandedInOtherApplication(
+      pressedWindowID: mouseFocusIntentWindowID,
+      pressedWindowIsManaged: mouseFocusIntentWindowID.map { elements[$0] != nil } ?? false,
+      focusedProcessID: focusedWindowID.flatMap { processIDs[$0] },
+      windows: currentCGWindows ?? lastCGWindowInventory ?? []
+    )
     return DesktopSnapshot(
       monitors: monitors,
       windows: windows,
@@ -963,6 +969,7 @@ extension SnapshotEngine {
         nativeFocusObservedAfterMouseRelease,
       mouseFocusIntentWindowID: mouseFocusIntentWindowID,
       mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
+      mousePressedOtherApplication: mousePressedOtherApplication,
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
       freshFrameObservationIDs: freshObservationIDs.subtracting(inconclusiveObservationIDs),
       targetMismatches: targetMismatches,
@@ -970,4 +977,19 @@ extension SnapshotEngine {
     )
   }
 
+}
+
+/// A press on another app's window (the Dock, the menu bar) moves no managed window, so
+/// the focused window must not stand in as the gesture's window: its scroll anchor and
+/// its frame moved by the activation would undo the switch (issue #210).
+func mousePressLandedInOtherApplication(
+  pressedWindowID: WindowID?,
+  pressedWindowIsManaged: Bool,
+  focusedProcessID: pid_t?,
+  windows: [CGWindowRecord]
+) -> Bool {
+  guard let pressedWindowID, !pressedWindowIsManaged, let focusedProcessID,
+    let owner = windows.first(where: { UInt64($0.id) == pressedWindowID.rawValue })?.processID
+  else { return false }
+  return owner != focusedProcessID
 }
