@@ -673,10 +673,12 @@ extension Daemon {
       let physicalMonitorFrames = Dictionary(uniqueKeysWithValues: latestMonitors.map {
         ($0.id, $0.physicalFrame)
       })
+      // A Dock or menu bar press is no gesture of the focused window (issue #210).
+      let gestureFocusedWindowID = snapshot.mousePressedOtherApplication ? nil : snapshot.focusedWindowID
       let mouseGestureCandidateWindowIDs = [
         activelyResizedWindowID,
         snapshot.mouseFocusIntentWindowID,
-        snapshot.focusedWindowID,
+        gestureFocusedWindowID,
       ].compactMap { $0 }
       let translatedWindowID = mouseTranslatedTiledWindowID(
         candidateWindowIDs: mouseGestureCandidateWindowIDs,
@@ -689,7 +691,7 @@ extension Daemon {
         translatedWindowID: translatedWindowID,
         activeWindowID: activelyResizedWindowID,
         mouseFocusIntentWindowID: snapshot.mouseFocusIntentWindowID,
-        focusedWindowID: snapshot.focusedWindowID,
+        focusedWindowID: gestureFocusedWindowID,
         state: state
       )
       if let gestureWindowID {

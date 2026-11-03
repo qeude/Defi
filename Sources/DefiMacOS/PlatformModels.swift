@@ -74,6 +74,8 @@ public struct DesktopSnapshot: Sendable {
   public let nativeFocusObservedAfterMouseRelease: Bool
   public let mouseFocusIntentWindowID: WindowID?
   public let mouseFocusIntentTimestamp: TimeInterval?
+  /// The latest press landed on a window of another app than the focused window's.
+  public let mousePressedOtherApplication: Bool
   public let keyboardFocusIntentTimestamp: TimeInterval?
   public let freshFrameObservationIDs: Set<WindowID>
   public let targetMismatches: [FrameMismatch]
@@ -100,6 +102,7 @@ public struct DesktopSnapshot: Sendable {
     nativeFocusObservedAfterMouseRelease: Bool = false,
     mouseFocusIntentWindowID: WindowID? = nil,
     mouseFocusIntentTimestamp: TimeInterval? = nil,
+    mousePressedOtherApplication: Bool = false,
     keyboardFocusIntentTimestamp: TimeInterval? = nil,
     freshFrameObservationIDs: Set<WindowID>? = nil,
     targetMismatches: [FrameMismatch] = [],
@@ -126,6 +129,7 @@ public struct DesktopSnapshot: Sendable {
       nativeFocusObservedAfterMouseRelease
     self.mouseFocusIntentWindowID = mouseFocusIntentWindowID
     self.mouseFocusIntentTimestamp = mouseFocusIntentTimestamp
+    self.mousePressedOtherApplication = mousePressedOtherApplication
     self.keyboardFocusIntentTimestamp = keyboardFocusIntentTimestamp
     self.freshFrameObservationIDs =
       freshFrameObservationIDs ?? Set(windows.map(\.id))
