@@ -135,6 +135,27 @@ struct OverviewHotKeyTests {
     #expect(tracker.snapshot.latestCapturedCommandTimestamp == (captured ? 0 : 7))
   }
 
+  @Test
+  func typingExcludesCommandShortcuts() throws {
+    let tracker = UserInputTracker()
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: tracker,
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in },
+      textInputFocused: { false }, keyboardCaptured: { false })
+    func press(_ code: CGKeyCode, _ flags: CGEventFlags, at seconds: UInt64) throws {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = flags
+      event.timestamp = seconds * 1_000_000_000
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    try press(45, [.maskShift], at: 3)
+    try press(45, [.maskCommand], at: 5)
+    #expect(tracker.snapshot.latestTyping == 3)
+    #expect(tracker.snapshot.latestEventTimestamp == 5)
+  }
+
   @Test(arguments: [false, true])
   func cheatsheetModifierStaysSilentWhileAnotherAppCapturesTheKeyboard(captured: Bool) throws {
     let key = try Key(accelerator: "alt-left", aliases: [:])

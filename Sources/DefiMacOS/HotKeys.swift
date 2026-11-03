@@ -607,7 +607,9 @@ final class InputMonitor: @unchecked Sendable {
     userInputTracker.record(
       timestamp: timestamp,
       focusIntent: focusIntent,
-      closeIntent: closeIntent
+      closeIntent: closeIntent,
+      // Caps Lock can switch input sources, which shows the input mode marker.
+      typing: (isKeyDown && !commandPressed) || (type == .flagsChanged && code == 57)
     )
     if closeIntent {
       capturedModifierReleaseState.capture(
