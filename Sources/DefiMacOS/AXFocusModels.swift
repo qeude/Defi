@@ -56,19 +56,24 @@ struct NativeFocusRecoveryRequest: Equatable, Sendable {
   let excludingProcessID: pid_t
   let fallback: NativeFocusRecoveryFallback?
   let fallbackOnlyIfNoNewerInput: Bool
+  /// False when the caller keeps its requested selection after a failed write, so
+  /// native focus must not return to the fallback without newer input (issue #210).
+  let restoresFallbackOnFailure: Bool
 
   init(
     timestamp: TimeInterval,
     excludingWindowID: WindowID,
     excludingProcessID: pid_t,
     fallback: NativeFocusRecoveryFallback?,
-    fallbackOnlyIfNoNewerInput: Bool = false
+    fallbackOnlyIfNoNewerInput: Bool = false,
+    restoresFallbackOnFailure: Bool = true
   ) {
     self.timestamp = timestamp
     self.excludingWindowID = excludingWindowID
     self.excludingProcessID = excludingProcessID
     self.fallback = fallback
     self.fallbackOnlyIfNoNewerInput = fallbackOnlyIfNoNewerInput
+    self.restoresFallbackOnFailure = restoresFallbackOnFailure
   }
 }
 
@@ -221,7 +226,8 @@ func nativeFocusRecoveryRequestForCompletion(
     fallbackOnlyIfNoNewerInput:
       request.fallbackOnlyIfNoNewerInput
       || explicitFallback != nil
-      || result == .failedAfterMutation
+      || (result == .failedAfterMutation && request.restoresFallbackOnFailure),
+    restoresFallbackOnFailure: request.restoresFallbackOnFailure
   )
 }
 

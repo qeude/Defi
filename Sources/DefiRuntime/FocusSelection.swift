@@ -295,13 +295,17 @@ public func commandFocusCancellationFallback(
   return previousSelectedWindowID
 }
 
+/// A newer Defi command supersedes the cancelled focus instead of undoing it: the next
+/// key press of a navigation burst must start from the window the last one selected.
 public func cancelledFocusTargetsRequestedWindow(
   requestedWindowID: WindowID,
   requestedWindowIsNativelyFocused: Bool,
-  cancellingFocusTargetWindowID: WindowID?
+  cancellingFocusTargetWindowID: WindowID?,
+  commandCapturedAfterRequest: Bool = false
 ) -> Bool {
   requestedWindowIsNativelyFocused
     || cancellingFocusTargetWindowID == requestedWindowID
+    || commandCapturedAfterRequest
 }
 
 public func workspaceFocusCancellationFallback(

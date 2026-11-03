@@ -299,6 +299,10 @@ public struct FocusState: Equatable, Sendable {
     commandSubmission == submission && submittedCommandFocus == request
   }
 
+  /// A slow app can miss a focus write's timeout; each attempt waits on it again, so
+  /// retries space themselves out without a timer (issue #210).
+  static let commandFocusRetryLimit = 3
+
   public mutating func completeCommand(
     _ request: PendingAnimatedFocus,
     submission: FocusSubmissionID,
@@ -313,7 +317,7 @@ public struct FocusState: Equatable, Sendable {
     if result == .failed || result == .failedAfterMutation,
       let retryCount = nextCommandFocusRetryCount(
         currentRetryCount: request.retryCount,
-        maximumRetryCount: 1,
+        maximumRetryCount: Self.commandFocusRetryLimit,
         requestGeneration: request.commandGeneration,
         currentGeneration: commandGeneration,
         requestedWindowID: request.windowID,
@@ -334,7 +338,7 @@ public struct FocusState: Equatable, Sendable {
     }
     guard !keepsRequestedWindow,
       let fallback = commandFocusCancellationFallback(
-        cancelledBeforeMutation: result == .cancelled || result == .failed,
+        cancelledBeforeMutation: result == .cancelled,
         rollbackAfterMutation: result.requiresLogicalRollback,
         requestGeneration: request.commandGeneration,
         currentGeneration: commandGeneration,
@@ -392,7 +396,7 @@ public struct FocusState: Equatable, Sendable {
       let monitor = state.monitors.first(where: { $0.id == request.monitorID }),
       let fallback = workspaceFocusCancellationFallback(
         cancelledBeforeMutation: result == .cancelled || result == .failed,
-        rollbackAfterMutation: result.requiresLogicalRollback,
+        rollbackAfterMutation: result == .failedAfterMutation || result.requiresLogicalRollback,
         requestGeneration: request.commandGeneration,
         currentGeneration: commandGeneration,
         requestedWorkspaceID: request.requestedWorkspaceID,
@@ -684,8 +688,11 @@ public enum FocusCompletionEffect: Equatable, Sendable {
 }
 
 extension NativeFocusResult {
+  /// Only newer human input moves a command's selection back to where native focus
+  /// stayed. A failed write keeps the user's explicit request: rolling it back made the
+  /// ribbon bounce whenever a slow app missed the focus timeout (issue #210).
   fileprivate var requiresLogicalRollback: Bool {
-    self == .failedAfterMutation || self == .cancelledAfterInputMutation
+    self == .cancelledAfterInputMutation
   }
 }
 

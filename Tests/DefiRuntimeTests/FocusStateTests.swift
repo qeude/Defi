@@ -233,7 +233,7 @@ struct FocusStateTests {
     #expect(focus.commandCompletionIsCurrent(oldCommand, submission: newSubmission))
   }
 
-  @Test func lateCommandCompletionCannotRollbackNewerSelectionOrRetry() throws {
+  @Test func exhaustedFocusFailureKeepsRequestedSelection() throws {
     var state = makeState()
     var focus = FocusState()
     let request = command()
@@ -259,12 +259,30 @@ struct FocusStateTests {
       ) == .stale)
     #expect(focus.submittedCommandFocus == retry)
     #expect(state.selectedWindowID(on: monitor) == b)
+    // A slow app missing the focus timeout must not undo the navigation (issue #210):
+    // the command retries a bounded number of times, then keeps its selection.
+    var attempt = retry, attemptSubmission = retrySubmission
+    while true {
+      #expect(
+        focus.completeCommand(
+          attempt, submission: attemptSubmission, result: .failedAfterMutation, commandGeneration: 10,
+          keepsRequestedWindow: false, state: &state
+        ) == .settled)
+      #expect(state.selectedWindowID(on: monitor) == b)
+      guard let next = focus.pendingAnimatedFocus else { break }
+      #expect(next.retryCount == attempt.retryCount + 1)
+      attempt = next
+      attemptSubmission = focus.submitCommand(next)
+    }
+    #expect(attempt.retryCount == 3)
+
+    let cancelled = focus.submitCommand(request)
     #expect(
       focus.completeCommand(
-        retry, submission: retrySubmission, result: .failedAfterMutation, commandGeneration: 10,
+        request, submission: cancelled, result: .cancelled, commandGeneration: 10,
         keepsRequestedWindow: false, state: &state
       ) == .selectionChanged(monitor))
-    #expect(state.selectedWindowID(on: monitor) == a)
+    #expect(state.selectedWindowID(on: monitor) == a, "Newer human input still restores native focus's window")
 
     let obsoleteSubmission = focus.submitCommand(request)
     let newer = command(windowID: a, generation: 11)

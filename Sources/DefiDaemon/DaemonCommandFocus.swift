@@ -14,7 +14,11 @@ extension Daemon {
       requestedWindowIsNativelyFocused:
         platform.isWindowNativelyFocused(windowID),
       cancellingFocusTargetWindowID: platform.userInputTracker
-        .focusRecoveryTarget(after: requestInputTimestamp)?.windowID
+        .focusRecoveryTarget(after: requestInputTimestamp)?.windowID,
+      commandCapturedAfterRequest: max(
+        latestCommandInputTimestamp,
+        platform.userInputTracker.snapshot.latestCapturedCommandTimestamp
+      ) > requestInputTimestamp
     )
   }
 
@@ -53,6 +57,9 @@ extension Daemon {
         return self.focus.commandCompletionIsCurrent(request, submission: submission)
       },
       allowsNativeFullscreen: true,
+      // A failed command focus keeps the requested selection, so native focus must not
+      // fall back to the window the command left (issue #210).
+      restoresPreviousFocusOnFailure: false,
       completion: { [weak self] result in
         guard let self else { return }
         let effect = self.focus.completeCommand(

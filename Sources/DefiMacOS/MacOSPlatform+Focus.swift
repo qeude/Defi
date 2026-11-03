@@ -94,6 +94,7 @@ extension MacOSPlatform {
     cursorWarpPrefersTargetFrame: Bool = false,
     cursorWarpIsCurrent: (@NavigationActor @Sendable () -> Bool)? = nil,
     allowsNativeFullscreen: Bool = false,
+    restoresPreviousFocusOnFailure: Bool = true,
     completion: (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
     guard allowsNativeFullscreen || !nativeFullscreenWindowIDs.contains(windowID) else {
@@ -115,6 +116,7 @@ extension MacOSPlatform {
       cursorWarpUnlessPointerMovedAfter: cursorWarpInputTimestamp,
       cursorWarpPrefersTargetFrame: cursorWarpPrefersTargetFrame,
       cursorWarpIsCurrent: cursorWarpIsCurrent,
+      restoresFallbackOnFailure: restoresPreviousFocusOnFailure,
       completion: completion
     )
   }
@@ -130,6 +132,7 @@ extension MacOSPlatform {
     cursorWarpIsCurrent: (@NavigationActor @Sendable () -> Bool)? = nil,
     focusRecoveryFallback providedFocusRecoveryFallback:
       NativeFocusRecoveryFallback? = nil,
+    restoresFallbackOnFailure: Bool = true,
     createsRecoveryRequest: Bool = true,
     completion: (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
@@ -157,7 +160,8 @@ extension MacOSPlatform {
         timestamp: $0,
         excludingWindowID: windowID,
         excludingProcessID: processID,
-        fallback: focusRecoveryFallback
+        fallback: focusRecoveryFallback,
+        restoresFallbackOnFailure: restoresFallbackOnFailure
       )
     } : nil
     let internalFocusRequestID: UInt64?
