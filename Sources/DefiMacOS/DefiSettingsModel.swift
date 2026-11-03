@@ -763,7 +763,7 @@ public final class DefiSettingsModel {
   }
 
   private func hasActions(_ rule: Rule) -> Bool {
-    rule.workspace != nil || rule.followFocus || rule.floating || rule.forceTiling
+    rule.workspace != nil || rule.followFocus || rule.window != nil
       || rule.intrinsicSize || rule.initialColumnWidth != nil || rule.includeInitialWidthInCycle
   }
 
@@ -779,13 +779,12 @@ public final class DefiSettingsModel {
     add("title", original.title, rule.title)
     add("role", original.role, rule.role)
     add("workspace", original.workspace, rule.workspace)
+    add("window", original.window?.rawValue, rule.window?.rawValue)
     func addBool(_ key: String, _ old: Bool, _ new: Bool) {
       guard old != new else { return }
       changes.append(.set(table: "rules", key: key, value: new ? "true" : "false", occurrence: index))
     }
     addBool("follow_focus", original.followFocus, rule.followFocus)
-    addBool("floating", original.floating, rule.floating)
-    addBool("force_tiling", original.forceTiling, rule.forceTiling)
     addBool("intrinsic_size", original.intrinsicSize, rule.intrinsicSize)
     if original.initialColumnWidth != rule.initialColumnWidth {
       let width = rule.initialColumnWidth.map { String($0) }
@@ -798,12 +797,14 @@ public final class DefiSettingsModel {
 
   private func ruleValues(_ rule: Rule) -> [(String, String)] {
     var values: [(String, String)] = []
-    for (key, value) in [("app_id", rule.appID), ("title", rule.title), ("role", rule.role), ("workspace", rule.workspace)] {
+    for (key, value) in [
+      ("app_id", rule.appID), ("title", rule.title), ("role", rule.role), ("workspace", rule.workspace),
+      ("window", rule.window?.rawValue),
+    ] {
       if let value { values.append((key, tomlString(value))) }
     }
     for (key, enabled) in [
-      ("follow_focus", rule.followFocus), ("floating", rule.floating),
-      ("force_tiling", rule.forceTiling), ("intrinsic_size", rule.intrinsicSize),
+      ("follow_focus", rule.followFocus), ("intrinsic_size", rule.intrinsicSize),
       ("include_initial_width_in_cycle", rule.includeInitialWidthInCycle),
     ] where enabled {
       values.append((key, "true"))

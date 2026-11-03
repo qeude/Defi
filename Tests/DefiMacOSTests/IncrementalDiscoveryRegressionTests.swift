@@ -46,7 +46,7 @@ struct IncrementalDiscoveryRegressionTests {
     engine.discoveryMeasurementAccess = access
     let prepared = preparedFullRead ? engine.prepareWindowAttributes(processIDs: [41])
       : (attributes: [:], owners: [:], applications: [:])
-    let result = engine.discoverSnapshotWindows(monitors: [], config: Config(rules: [Rule(appID: "measurement", floating: true)]),
+    let result = engine.discoverSnapshotWindows(monitors: [], config: Config(rules: [Rule(appID: "measurement", window: .forceFloating)]),
       incrementalProcessIDs: [41], forceWindowListRefresh: true, forceApplicationInventoryRefresh: false,
       capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
       preparedWindowAttributes: prepared.attributes, preparedTransientOwnerWindowIDs: prepared.owners,
@@ -108,7 +108,7 @@ struct IncrementalDiscoveryRegressionTests {
         role: attributes.role, subrole: attributes.subrole, modal: true)
     }
     engine.discoveryMeasurementAccess = access
-    let result = engine.discoverSnapshotWindows(monitors: [], config: Config(rules: [Rule(appID: "measurement", floating: true)]),
+    let result = engine.discoverSnapshotWindows(monitors: [], config: Config(rules: [Rule(appID: "measurement", window: .forceFloating)]),
       incrementalProcessIDs: [41], forceWindowListRefresh: false, forceApplicationInventoryRefresh: false,
       capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
       preparedWindowAttributes: [:], preparedTransientOwnerWindowIDs: [:], preparedApplicationWindows: [:],
@@ -130,7 +130,7 @@ struct IncrementalDiscoveryRegressionTests {
     #expect(reads.state.withLock { $0.attributeCalls } == 0)
     #expect(reads.state.withLock { $0.relationshipCalls } == 1)
     #expect(reads.state.withLock { $0.listCalls[41] } == 1)
-    let result = engine.discoverSnapshotWindows(monitors: [], config: Config(rules: [Rule(appID: "measurement", floating: true)]),
+    let result = engine.discoverSnapshotWindows(monitors: [], config: Config(rules: [Rule(appID: "measurement", window: .forceFloating)]),
       incrementalProcessIDs: [41], forceWindowListRefresh: true, forceApplicationInventoryRefresh: false,
       capturedTopologyRequiresFullSnapshot: false, topologyProcessIDs: [], createdElements: [:],
       preparedWindowAttributes: prepared.attributes, preparedTransientOwnerWindowIDs: prepared.owners,
@@ -188,7 +188,7 @@ struct IncrementalDiscoveryRegressionTests {
     engine.publishCGWindowInventory(CGWindowInventory(records: cg, generation: 0,
       capturedAt: ProcessInfo.processInfo.systemUptime))
     engine.recordObservation(.frame, processID: 41, windowID: window.id)
-    let snapshot = engine.snapshot(config: Config(rules: [Rule(appID: "measurement", floating: true)]),
+    let snapshot = engine.snapshot(config: Config(rules: [Rule(appID: "measurement", window: .forceFloating)]),
       forceFullWindowRefresh: false, forceWindowListRefresh: false, forceApplicationInventoryRefresh: false)
     let observed = snapshot.windows.sorted { $0.id.rawValue < $1.id.rawValue }
     #expect(observed.map { $0.id.rawValue } == [4101, 4102])
@@ -199,7 +199,7 @@ struct IncrementalDiscoveryRegressionTests {
     #expect(observed.allSatisfy { $0.floating && $0.floatingOrigin == .configured })
     #expect(reads.state.withLock { $0.attributeCalls } == 1)
     engine.recordObservation(.frame, processID: 41)
-    let processWide = engine.snapshot(config: Config(rules: [Rule(appID: "measurement", floating: true)]),
+    let processWide = engine.snapshot(config: Config(rules: [Rule(appID: "measurement", window: .forceFloating)]),
       forceFullWindowRefresh: false, forceWindowListRefresh: false, forceApplicationInventoryRefresh: false)
     #expect(processWide.windows.map(\.id.rawValue).sorted() == [4101, 4102])
     #expect(reads.state.withLock { $0.attributeCalls } == 3, "A process-wide frame event reads each of its windows")

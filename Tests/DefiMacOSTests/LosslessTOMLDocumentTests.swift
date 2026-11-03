@@ -97,7 +97,7 @@ struct LosslessTOMLDocumentTests {
     tableDocument.set(table: "workspaces", key: "names", value: "[\"main\"]")
     #expect(
       tableDocument.render()
-        == "[workspaces]\ndefault = \"main\"\n\nnames = [\"main\"]\n# layout note\n[layout]\ngaps = 8\n"
+        == "[workspaces]\ndefault = \"main\"\nnames = [\"main\"]\n\n# layout note\n[layout]\ngaps = 8\n"
     )
 
     var rootDocument = LosslessTOMLDocument("# layout note\n[layout]\ngaps = 8\n")

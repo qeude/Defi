@@ -648,6 +648,25 @@ private let automaticFloatingWindowApplicationIDs: Set<String> = [
   "com.apple.quicklook.quicklookuiservice"
 ]
 
+/// Whether the window can grow through an enabled full-screen or zoom button. A window
+/// that offers neither is not designed to be big, such as Finder copy progress. Unknown reads count as growable.
+func windowCanGrow(_ element: AXUIElement) -> Bool {
+  [kAXFullScreenButtonAttribute, kAXZoomButtonAttribute].contains { attribute in
+    var button: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &button)
+    guard error == .success, let button else {
+      return error != .noValue && error != .attributeUnsupported
+    }
+    var enabled: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+      (button as! AXUIElement), kAXEnabledAttribute as CFString, &enabled) == .success
+    else {
+      return true
+    }
+    return enabled as? Bool ?? true
+  }
+}
+
 /// The frame of a titled document window outside a native tab group, read with a short
 /// timeout; `.some(nil)` for other windows, nil when the app does not answer in time.
 func ownWindowFrame(_ element: AXUIElement) -> Rect?? {
@@ -705,6 +724,7 @@ func classifyWindow(
   appID: String,
   hasCloseButton: Bool,
   canResize: Bool,
+  canGrow: Bool = true,
   isModal: Bool = false,
   configuredFloating: Bool,
   forceTiling: Bool
@@ -722,7 +742,7 @@ func classifyWindow(
   }
   guard subrole != nil else { return .unavailable }
   if isAppDrawnPopup(subrole: subrole, isModal: false) { return .ignored }
-  if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize {
+  if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize, canGrow {
     return .tiled
   }
   if subrole == kAXStandardWindowSubrole

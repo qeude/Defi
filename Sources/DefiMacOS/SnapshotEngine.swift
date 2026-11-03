@@ -1160,6 +1160,7 @@ extension SnapshotEngine {
         windowManagementCapabilities[window.id] = WindowManagementCapabilities(
           hasCloseButton: capabilities.hasCloseButton,
           canResize: capabilities.canResize,
+          canGrow: capabilities.canGrow,
           isModal: refreshedModalState
         )
       }
@@ -1169,6 +1170,7 @@ extension SnapshotEngine {
         appID: window.appID,
         hasCloseButton: capabilities.hasCloseButton,
         canResize: capabilities.canResize,
+        canGrow: capabilities.canGrow,
         isModal: modalState,
         configuredFloating: false,
         forceTiling: false
@@ -1214,16 +1216,20 @@ extension SnapshotEngine {
     {
       return fallbackDisposition
     }
+    let hasCloseButton = shouldTreatWindowAsClosable(
+      error: closeButtonError,
+      hasValue: closeButton != nil,
+      wasPreviouslyManaged: previousDisposition != nil
+    )
+    let canResize = windowCanResize(
+      sizeSettableError: sizeSettableError,
+      isSettable: sizeSettable.boolValue
+    )
     let capabilities = WindowManagementCapabilities(
-      hasCloseButton: shouldTreatWindowAsClosable(
-        error: closeButtonError,
-        hasValue: closeButton != nil,
-        wasPreviouslyManaged: previousDisposition != nil
-      ),
-      canResize: windowCanResize(
-        sizeSettableError: sizeSettableError,
-        isSettable: sizeSettable.boolValue
-      ),
+      hasCloseButton: hasCloseButton,
+      canResize: canResize,
+      // Only a window that would tile needs the extra read.
+      canGrow: hasCloseButton && canResize ? windowCanGrow(element) : true,
       isModal: isModal
     )
     windowManagementCapabilities[window.id] = capabilities
@@ -1233,6 +1239,7 @@ extension SnapshotEngine {
       appID: window.appID,
       hasCloseButton: capabilities.hasCloseButton,
       canResize: capabilities.canResize,
+      canGrow: capabilities.canGrow,
       isModal: capabilities.isModal,
       configuredFloating: configuredFloating,
       forceTiling: forceTiling

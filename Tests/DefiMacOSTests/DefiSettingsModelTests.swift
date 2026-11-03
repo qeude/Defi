@@ -117,10 +117,10 @@ struct DefiSettingsModelTests {
       workspace = "dev"
       [[rules]]
       app_id = "second" # keep second comment
-      floating = true
+      window = "force-floating"
       [[rules]]
       app_id = "third"
-      force_tiling = true
+      window = "force-tiled"
       """.utf8).write(to: url)
     let model = DefiSettingsModel(configURL: url)
     let ids = model.ruleRows.map(\.id)

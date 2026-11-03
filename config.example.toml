@@ -54,7 +54,7 @@ follow_focus = true
 app_id = "com.apple.iphonesimulator"
 workspace = "dev"
 follow_focus = true
-force_tiling = true
+window = "force-tiled"
 intrinsic_size = true
 
 # Web

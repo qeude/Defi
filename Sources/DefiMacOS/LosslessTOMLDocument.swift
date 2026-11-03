@@ -57,7 +57,14 @@ struct LosslessTOMLDocument {
     }
     guard let value else { return }
     let insertion = "\(quoteKeyIfNeeded(key)) = \(value)"
-    lines.insert(insertion, at: sectionEnd)
+    // Keep the blank lines that separate this table from the next one after the new key.
+    var insertionIndex = sectionEnd
+    while insertionIndex > sectionStart,
+      lines[insertionIndex - 1].trimmingCharacters(in: .whitespaces).isEmpty
+    {
+      insertionIndex -= 1
+    }
+    lines.insert(insertion, at: insertionIndex)
   }
 
   mutating func appendArrayTable(_ table: String, values: [(String, String)]) {
@@ -99,6 +106,23 @@ struct LosslessTOMLDocument {
     let sectionStart = table.isEmpty ? 0 : start + 1
     let sectionEnd = end ?? lines.endIndex
     return assignmentIndex(for: key, in: sectionStart..<sectionEnd) != nil
+  }
+
+  /// The raw text of a one-line value, without its trailing comment.
+  func value(table: String, key: String, occurrence: Int = 0) -> String? {
+    let (start, end) = range(of: table, occurrence: occurrence)
+    guard let start else { return nil }
+    let sectionStart = table.isEmpty ? 0 : start + 1
+    guard let index = assignmentIndex(for: key, in: sectionStart..<(end ?? lines.endIndex)),
+      let equals = firstEquals(in: lines[index])
+    else { return nil }
+    let line = lines[index]
+    return line[line.index(after: equals)..<(commentStart(in: line) ?? line.endIndex)]
+      .trimmingCharacters(in: .whitespaces)
+  }
+
+  func count(ofArrayTable table: String) -> Int {
+    ranges(of: table).count
   }
 
   func render() -> String {
