@@ -75,6 +75,35 @@ struct OverviewHotKeyTests {
   }
 
   @Test
+  func capturedShortcutIsKnownBeforeItsPressCountsAsInput() throws {
+    let key = try Key(accelerator: "ctrl-alt-left", aliases: [:])
+    let tracker = UserInputTracker()
+    let pressedAt: TimeInterval = 42
+    // Sampled mid-callback, where an in-flight focus can observe the press.
+    let pressSeenAsTyping = Mutex(false)
+    let context = InputMonitor(
+      bindings: [key: "focus-column left"], userInputTracker: tracker,
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, textInputFocused: { false },
+      keyboardCaptured: {
+        let input = tracker.snapshot
+        if input.latestEventTimestamp >= pressedAt && input.latestCapturedCommandTimestamp < pressedAt {
+          pressSeenAsTyping.withLock { $0 = true }
+        }
+        return false
+      })
+    context.setHotKeysRegistered(true)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = [.maskAlternate, .maskControl]
+    event.timestamp = CGEventTimestamp(pressedAt * 1_000_000_000)
+    _ = context.handle(type: .keyDown, event: event)
+    #expect(pressSeenAsTyping.withLock { $0 } == false)
+    #expect(tracker.snapshot.latestCapturedCommandTimestamp == pressedAt)
+    #expect(tracker.latestEventTimestamp == pressedAt)
+  }
+
+  @Test
   func closeIntentFollowsTheSwappedKeyCodes() throws {
     let closes = Mutex(0)
     let context = InputMonitor(

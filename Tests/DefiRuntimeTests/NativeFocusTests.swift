@@ -366,7 +366,7 @@ struct NativeFocusTests {
       fallback: WindowID(rawValue: 1)
     ),
     CommandCancellationCase(
-      name: "exhausted mutated failure restores previous selection",
+      name: "current mutated input cancellation restores previous selection",
       cancelledBeforeMutation: false,
       rollbackAfterMutation: true,
       fallback: WindowID(rawValue: 1)
@@ -433,6 +433,14 @@ struct NativeFocusTests {
         requestedWindowIsNativelyFocused: false,
         cancellingFocusTargetWindowID: WindowID(rawValue: 3)
       ) == false)
+    #expect(
+      cancelledFocusTargetsRequestedWindow(
+        requestedWindowID: requestedWindowID,
+        requestedWindowIsNativelyFocused: false,
+        cancellingFocusTargetWindowID: nil,
+        commandCapturedAfterRequest: true
+      ),
+      "The next key press of a burst supersedes the focus it cancelled")
   }
 
   struct WorkspaceCancellationCase: CustomTestStringConvertible, Sendable {

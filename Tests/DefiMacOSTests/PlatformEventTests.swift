@@ -747,6 +747,23 @@ struct PlatformEventTests {
         generationCurrent: true
       ).recovery == request
     )
+
+    // A command keeps its requested selection after a failure (issue #210): native focus
+    // returns to the window it left only for newer input, never on its own.
+    let kept = try #require(
+      nativeFocusRecoveryRequestForCompletion(
+        NativeFocusRecoveryRequest(
+          timestamp: 10, excludingWindowID: WindowID(rawValue: 2), excludingProcessID: 20,
+          fallback: original.fallback, restoresFallbackOnFailure: false
+        ),
+        result: .failedAfterMutation,
+        explicitFallback: nil
+      )
+    )
+    #expect(kept.fallback == original.fallback)
+    #expect(nativeFocusRecoveryFallbackTarget(kept, latestEventTimestamp: 10) == nil)
+    #expect(nativeFocusRecoveryFallbackTarget(request, latestEventTimestamp: 10)?.windowID
+      == WindowID(rawValue: 1))
   }
 
   @Test

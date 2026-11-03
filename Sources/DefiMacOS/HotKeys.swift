@@ -519,8 +519,12 @@ final class InputMonitor: @unchecked Sendable {
         capturedModifierReleaseState.reset()
       }
     }
-    if tracksGeneralUserInput {
-      recordGeneralUserInput(type: type, event: event, isDefiTextInput: isDefiTextInput)
+    // Record once the shortcut is resolved: a captured command must be visible before its
+    // press cancels in-flight focus, or the cancellation reads as typing and rolls back (#210).
+    defer {
+      if tracksGeneralUserInput {
+        recordGeneralUserInput(type: type, event: event, isDefiTextInput: isDefiTextInput)
+      }
     }
     if isDefiTextInput && (isKeyDown || type == .flagsChanged) {
       return Unmanaged.passUnretained(event)

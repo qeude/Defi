@@ -7,14 +7,16 @@ import Foundation
 extension Daemon {
   private func cancellationKeepsRequestedWindow(
     _ windowID: WindowID,
-    requestInputTimestamp: TimeInterval
+    requestInputTimestamp: TimeInterval,
+    commandCapturedAfterRequest: Bool = false
   ) -> Bool {
     return cancelledFocusTargetsRequestedWindow(
       requestedWindowID: windowID,
       requestedWindowIsNativelyFocused:
         platform.isWindowNativelyFocused(windowID),
       cancellingFocusTargetWindowID: platform.userInputTracker
-        .focusRecoveryTarget(after: requestInputTimestamp)?.windowID
+        .focusRecoveryTarget(after: requestInputTimestamp)?.windowID,
+      commandCapturedAfterRequest: commandCapturedAfterRequest
     )
   }
 
@@ -53,19 +55,41 @@ extension Daemon {
         return self.focus.commandCompletionIsCurrent(request, submission: submission)
       },
       allowsNativeFullscreen: true,
+      // A failed command focus keeps the requested selection, so native focus must not
+      // fall back to the window the command left (issue #210).
+      restoresPreviousFocusOnFailure: false,
       completion: { [weak self] result in
         guard let self else { return }
+        let newerCommandAt = max(
+          self.latestCommandInputTimestamp,
+          self.platform.userInputTracker.snapshot.latestCapturedCommandTimestamp
+        )
+        let supersededByCommand = newerCommandAt > request.focusInputTimestamp
         let effect = self.focus.completeCommand(
           request,
           submission: submission,
           result: result,
           commandGeneration: self.commandGeneration,
           keepsRequestedWindow: self.cancellationKeepsRequestedWindow(
-            request.windowID, requestInputTimestamp: request.focusInputTimestamp
+            request.windowID, requestInputTimestamp: request.focusInputTimestamp,
+            commandCapturedAfterRequest: supersededByCommand
           ),
           state: &self.state
         )
         guard effect != .stale else { return }
+        if effect == .settled, self.focus.pendingAnimatedFocus == nil,
+          self.state.selectedWindowID(on: request.monitorID) == request.windowID,
+          !self.platform.isWindowNativelyFocused(request.windowID)
+        {
+          if supersededByCommand, result == .cancelled || result == .cancelledAfterInputMutation {
+            // The next key press cancelled this focus before its command ran; if that
+            // command takes no focus, native focus must still land on the kept selection.
+            self.focus.queueCommand(commandFocusAfterNoOp(request, inputTimestamp: newerCommandAt))
+          } else if result == .failed || result == .failedAfterMutation {
+            self.platform.recordPerformanceTrace(
+              "command-focus-exhausted cg=\(request.commandGeneration) window=\(request.windowID.rawValue) result=\(result)")
+          }
+        }
         self.platform.recordCommandFocus(
           CommandPerformanceContext(
             generation: request.commandGeneration,
