@@ -170,6 +170,40 @@ The records have these kinds:
 The files never contain window titles, document contents or typed text. They do
 contain app identifiers and, in status, workspace names.
 
+### Visual glitches
+
+Defi draws window motion on an overlay from captured pictures of the windows, and it
+briefly freezes the screen with those pictures while an app opens a window. A picture
+taken a moment earlier can show older content, so a flicker, a page that jumps and
+comes back, or a window that looks wrong for an instant may come from the overlay
+rather than from a real window. These glitches leave no trace in the diagnostics
+files, so collect the following:
+
+- **Animations off.** Ask the user to turn off **Settings > Appearance > Animation >
+  Enable animations**, or with their approval set `enabled = false` under
+  `[animation]` in the config, which Defi reloads on save. Ask whether the glitch still
+  happens. If it stops, the overlay or its window captures are involved. Restore the
+  previous value afterwards unless the user keeps it as a workaround.
+- **Overlay log.** The overlay logs at debug level, which macOS does not keep for a
+  later `log show`. Before the user reproduces, start:
+
+      log stream --level debug --style compact --predicate 'subsystem == "com.qeude.defi" AND category == "ribbon-proxy"' > ~/Desktop/defi-overlay.txt
+
+  Ask the user to run `defi diagnostic-mark` as soon as the glitch happens, then stop
+  the stream with Control-C. The marker's `timestamp`, in UTC, dates the glitch in the
+  log. `present` and `fade` mark a motion drawn from pictures, `open-hold` a screen
+  frozen while an app opens a window, and `capture-fast` a new picture of a window.
+  Read the lines within two seconds of the marker. A glitch with no `present` or
+  `open-hold` near it did not come from a picture shown during a motion or a hold.
+- **Video.** Screen recordings and screenshots show the real windows under the
+  overlay, never the overlay itself, so a clean recording does not rule Defi out. Ask
+  the user to turn on **Settings > General > Diagnostics > Show animations in screen
+  recordings**, record the glitch, then turn it off. It also turns off when Defi
+  restarts. Builds without that switch need, with the user's approval,
+  `defaults write com.qeude.defi RibbonProxyCapturable -bool true` before recording
+  and `defaults delete com.qeude.defi RibbonProxyCapturable` after. A phone video of
+  the screen also works.
+
 ## 6. Check upstream
 
 Search existing issues in qeude/Defi (use `gh`, or the public GitHub search API if
@@ -185,9 +219,12 @@ updates daily and offers to install them, and Homebrew installs can run
 ## 7. Offer outcomes
 
 Present what you found and let the user choose: fix it now, file an issue, both, or
-neither. For fixes, propose the exact commands, explain what they do and what the user
-will see, and run them only with the user's approval. Prefer configuration fixes and
-permission fixes the user performs in System Settings.
+neither. When the problem cannot be fixed on this machine, the issue hands it to the
+maintainer, who cannot ask this user follow-up questions as easily as you can. Ask
+them now, and run the checks above that could narrow the cause, so the issue needs no
+further round trip. For fixes, propose the exact commands, explain what they do and
+what the user will see, and run them only with the user's approval. Prefer
+configuration fixes and permission fixes the user performs in System Settings.
 
 Do not patch the Defi source as a fix. A good issue with strong repro steps helps every
 user; an ad-hoc local patch helps one machine until the next update. If the user
@@ -204,9 +241,12 @@ work, never the tag-pinned diagnosis clone.
 - Environment covers the macOS version, the Mac model, the monitors and arrangement,
   the install method, and other window or key tools that were running.
 - Evidence is the few most relevant lines of status, trace, log or config, redacted.
+  For a visual glitch, it also says whether the glitch persists with animations off,
+  how it was captured, and the overlay log lines around the marker, with their times.
 - Use a plain, specific title with no prefix.
 - Show the user the complete final issue text and get an explicit yes before posting.
-  Never post without it.
+  Never post without it. Give that text as one Markdown block the user can copy, so
+  they can still post it themselves if the steps below fail or they prefer to.
 - Note at the end of the issue which agent and model produced it.
 - Post with `gh issue create --repo qeude/Defi --label via-triage` only if
   `gh api repos/qeude/Defi --jq .permissions.triage` prints `true`.

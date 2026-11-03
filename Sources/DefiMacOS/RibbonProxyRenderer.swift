@@ -235,14 +235,24 @@ final class RibbonProxyRenderer {
     Set(panels.values.compactMap { $0.windowNumber > 0 ? CGWindowID($0.windowNumber) : nil })
   }
 
-  /// Publishes screen geometry and permission for the navigation presenter.
-  func refreshEnvironment() {
-    // Verification only (`defaults write com.qeude.defi RibbonProxyCapturable -bool true`):
-    // screen recordings then include the overlay.
+  /// Screen recordings include the overlay while the Settings switch is on, or with
+  /// `defaults write com.qeude.defi RibbonProxyCapturable -bool true` for verification scripts.
+  private var recordingSharing: NSWindow.SharingType {
+    let capturable = DefiSettingsRuntimeStatus.shared.animationsInRecordings
+      || UserDefaults.standard.bool(forKey: "RibbonProxyCapturable")
+    return capturable ? .readOnly : .none
+  }
+
+  func applyRecordingVisibility() {
+    let sharing = recordingSharing
     // Assigned only on change: every assignment is a synchronous WindowServer call that
     // re-evaluates the window, and this runs after every layout.
-    let sharing: NSWindow.SharingType = UserDefaults.standard.bool(forKey: "RibbonProxyCapturable") ? .readOnly : .none
     for panel in panels.values where panel.sharingType != sharing { panel.sharingType = sharing }
+  }
+
+  /// Publishes screen geometry and permission for the navigation presenter.
+  func refreshEnvironment() {
+    applyRecordingVisibility()
     let authorized = CGPreflightScreenCaptureAccess()
     RibbonProxyStore.shared.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     RibbonProxyStore.shared.update(screens: NSScreen.screens.compactMap { screen in
@@ -315,7 +325,7 @@ final class RibbonProxyRenderer {
     panel.animationBehavior = .none
     // No .fullScreenAuxiliary: window pictures must never cover a fullscreen Space.
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-    panel.sharingType = .none
+    panel.sharingType = recordingSharing
     panel.title = "Defi Ribbon"
     panel.alphaValue = ribbonProxyDrawingAlpha
     let view = NSView(frame: CGRect(origin: .zero, size: frame.size))
