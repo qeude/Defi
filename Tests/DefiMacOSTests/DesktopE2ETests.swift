@@ -1307,6 +1307,9 @@ final class DesktopE2ETests: XCTestCase {
     guard ProcessInfo.processInfo.environment["DEFI_E2E"] == "1" else {
       throw XCTSkip("Set DEFI_E2E=1 to run real-desktop tests")
     }
+    // Without an application, AppKit omits a secondary display's menu bar from its visible
+    // frame; the daemon always has one, so the tests must see the same usable heights.
+    _ = NSApplication.shared
     let platform = onNavigation { MacOSPlatform() }
     let accessibility = platform.accessibilityTrusted(prompt: false)
     let screenRecording = CGPreflightScreenCaptureAccess()
