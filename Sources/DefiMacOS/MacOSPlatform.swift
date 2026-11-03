@@ -56,6 +56,8 @@ public final class MacOSPlatform {
   }
   /// The pointer let go: the next drag starts without a preview.
   public func endWindowProxyPreview() { windowProxyPreview = nil }
+  /// The pointer travelled past a click's jitter since the last left press.
+  public var leftPressPointerDragged: Bool { leftPressPointerTravelled.load(ordering: .relaxed) }
   /// A light trackpad tap as a dragged window's drop slot moves, for a trackpad drag
   /// only: macOS plays it on a Force Touch trackpad even while a mouse drags.
   public func playDropSlotHaptic() {

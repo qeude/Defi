@@ -717,12 +717,24 @@ extension Daemon {
         previousObservedFrames: previousMouseGestureWindowFrames,
         actualFrame: actualFrame
       )
+      // Only the pointer drags a window, and only away from its ribbon place: a window
+      // Defi moves into that place (a click that reveals it) is no drag, even while the
+      // pointer drifts during the press.
+      let draggedByUser =
+        if platform.leftPressPointerDragged, let gestureWindowID, let actualFrame {
+          mouseTranslatedTiledWindowID(
+            candidateWindowIDs: [gestureWindowID], externallyChangedFrames: [gestureWindowID: actualFrame],
+            state: state, viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames
+          ) == gestureWindowID
+        } else {
+          false
+        }
       if snapshot.leftMouseButtonDown {
         activelyResizedWindowID = gestureWindowID
         if let gestureWindowID, state.windows[gestureWindowID]?.floating == false,
           let actualFrame, let mouseGestureInitialFrame
         {
-          if mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame) {
+          if draggedByUser && mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame) {
             mouseGestureChangedWindowFrame = true
             platform.carryWindowProxy(gestureWindowID, stretches: false)
           } else if mouseFrameWasResized(from: mouseGestureInitialFrame, to: actualFrame) {
@@ -735,7 +747,7 @@ extension Daemon {
         if let gestureWindowID, state.windows[gestureWindowID]?.floating == false {
           // A click or a resize is no drop: only a moved window previews one.
           let moved = actualFrame.flatMap { actual in
-            mouseGestureInitialFrame.map { mouseFrameWasTranslated(from: $0, to: actual) }
+            mouseGestureInitialFrame.map { draggedByUser && mouseFrameWasTranslated(from: $0, to: actual) }
           } ?? false
           let target = moved ? CGEvent(source: nil).flatMap { event in
             mouseDropTarget(gestureWindowID,
@@ -772,7 +784,7 @@ extension Daemon {
         // resize never drops.
         if previewedTarget != nil, let gestureWindowID,
           let actualFrame, let mouseGestureInitialFrame,
-          mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame),
+          draggedByUser && mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame),
           let event = CGEvent(source: nil),
           let target = mouseDropTarget(gestureWindowID,
             pointer: (Double(event.location.x), Double(event.location.y)),
@@ -783,7 +795,7 @@ extension Daemon {
             monitorFrames: physicalMonitorFrames)
           droppedOnOverlay = true
           platform.recordPerformanceTrace("mouse-drop window=\(gestureWindowID.rawValue) target=\(target)")
-        } else if let gestureWindowID,
+        } else if draggedByUser, let gestureWindowID,
           let actualFrame,
           let mouseGestureInitialFrame,
           reorderTiledWindowAfterCompletedMouseDrag(
@@ -821,7 +833,7 @@ extension Daemon {
           }
           let now = ProcessInfo.processInfo.systemUptime
           animatesMouseDrop = animationsEnabled && state.windows[gestureWindowID]?.floating == false
-            && (mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: releasedFrame)
+            && ((draggedByUser && mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: releasedFrame))
               || mouseFrameWasResized(from: mouseGestureInitialFrame, to: releasedFrame))
           if animatesMouseDrop {
             // The overlay carries the window into its slot, so Defi writes the final
