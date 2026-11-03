@@ -6,6 +6,19 @@ import Synchronization
 /// here and never calls TIS; with several keyboards attached it is the one in use.
 let observedKeyboardType = Mutex<UInt32>(0)
 
+/// Whether an input method, such as Japanese, Chinese or Korean, is among the enabled input
+/// sources, selected or not: switching away from one still shows its input mode marker.
+/// Main thread only, as other TIS reads.
+func inputMethodEnabled() -> Bool {
+  let filter = [kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as String] as CFDictionary
+  let sources = TISCreateInputSourceList(filter, false)?.takeRetainedValue() as? [TISInputSource] ?? []
+  return sources.contains { source in
+    TISGetInputSourceProperty(source, kTISPropertyInputSourceType).map {
+      Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String != kTISTypeKeyboardLayout as String
+    } ?? false
+  }
+}
+
 /// The ASCII-capable layout rather than the selected source, so Romaji and kana keep the layout
 /// that shortcuts use. Main thread only: TIS is not safe on the tap thread or the navigation actor.
 @MainActor

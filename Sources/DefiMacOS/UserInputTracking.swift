@@ -29,6 +29,8 @@ public final class UserInputTracker: @unchecked Sendable {
     public let latestCapturedCommandTimestamp: TimeInterval
     public let latestFocusIntent: FocusIntent?
     public let latestCloseIntent: TimeInterval
+    /// A key typed without Command: text being entered, not a shortcut.
+    public let latestTyping: TimeInterval
     public let applicationActivation: ApplicationActivation?
     public var activatedProcessID: pid_t? { applicationActivation?.processID }
   }
@@ -43,6 +45,7 @@ public final class UserInputTracker: @unchecked Sendable {
   private var latestCapturedCommandTimestamp: TimeInterval = 0
   private var latestFocusIntent: FocusIntent?
   private var latestCloseIntentTimestamp: TimeInterval = 0
+  private var latestTypingTimestamp: TimeInterval = 0
   private var observedFocusIntentTimestamp: TimeInterval = 0
   private var observedFocusTargets: [ObservedFocusTarget] = []
   private var applicationActivation: ApplicationActivation?
@@ -52,7 +55,8 @@ public final class UserInputTracker: @unchecked Sendable {
   public func record(
     timestamp: TimeInterval,
     focusIntent: FocusIntentSource? = nil,
-    closeIntent: Bool = false
+    closeIntent: Bool = false,
+    typing: Bool = false
   ) {
     lock.lock()
     if timestamp > latestTimestamp && (focusIntent != nil || closeIntent) {
@@ -73,6 +77,9 @@ public final class UserInputTracker: @unchecked Sendable {
     }
     if closeIntent {
       latestCloseIntentTimestamp = max(latestCloseIntentTimestamp, timestamp)
+    }
+    if typing {
+      latestTypingTimestamp = max(latestTypingTimestamp, timestamp)
     }
     lock.unlock()
   }
@@ -300,6 +307,7 @@ public final class UserInputTracker: @unchecked Sendable {
       latestCapturedCommandTimestamp: latestCapturedCommandTimestamp,
       latestFocusIntent: latestFocusIntent,
       latestCloseIntent: latestCloseIntentTimestamp,
+      latestTyping: latestTypingTimestamp,
       applicationActivation: applicationActivation
     )
   }

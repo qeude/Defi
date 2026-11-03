@@ -683,6 +683,22 @@ func isSystemTextAccessory(title: String, hasCloseButton: Bool, isModal: Bool) -
   title.isEmpty && !hasCloseButton && !isModal
 }
 
+/// A new window that is a system text accessory, such as an input method's candidate list,
+/// read with a short timeout; false when the app does not answer in time.
+func isTextInputAccessory(_ element: AXUIElement) -> Bool {
+  AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+    var values: CFArray?
+    AXUIElementCopyMultipleAttributeValues(element,
+      [kAXSubroleAttribute, kAXTitleAttribute, kAXCloseButtonAttribute, kAXModalAttribute] as CFArray,
+      [], &values)
+    let read = values as? [AnyObject] ?? []
+    // A missing attribute reads back as an AXValue error, not as the attribute's type.
+    guard read.count == 4, read[0] as? String == kAXDialogSubrole else { return false }
+    return isSystemTextAccessory(title: read[1] as? String ?? "",
+      hasCloseButton: CFGetTypeID(read[2]) == AXUIElementGetTypeID(), isModal: read[3] as? Bool ?? false)
+  }
+}
+
 func classifyWindow(
   role: String?,
   subrole: String?,

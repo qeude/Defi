@@ -86,15 +86,28 @@ extension MacOSPlatform {
         // Only the latest window's check may release the hold: an earlier one timing out
         // would cut short the hold a later window still waits on.
         let opening = ProcessInfo.processInfo.systemUptime
-        NavigationActor.enqueue { [weak self] in
-          self?.latestOpening = opening
-          self?.holdWindowProxiesForOpening(processID)
+        let hold: @Sendable () -> Void = { [weak self] in
+          NavigationActor.enqueue { [weak self] in
+            self?.latestOpening = opening
+            self?.holdWindowProxiesForOpening(processID)
+          }
         }
+        // An input method's candidate list and mode marker open in the app typed into, and
+        // holding the screen for them flickered at every conversion. While such typing goes
+        // on, the hold waits for a read that tells them apart: a read that waits on the app,
+        // so a new window can show before its hold. Otherwise the hold starts at once.
+        let typesWithInputMethod = eventInput.map { opening - $0.latestTyping < 0.5 } == true
+          && inputMethodEnabled()
+        if !typesWithInputMethod { hold() }
         // An app's later dialogs, panels and native tabs open where they are: checked
         // after the hold, off the main thread, since the read waits on the app.
         let created = UncheckedSendable(value: element), checksOwnWindow = (previousWindowCount ?? 0) > 0
         let createdNumber = self?.windowIDProvider.windowID(for: element)
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+          if typesWithInputMethod {
+            if isTextInputAccessory(created.value) { return }
+            hold()
+          }
           // Picture in picture floats above the overlay and never opens a column: holding
           // the screen for its layout froze every window behind it.
           if let createdNumber, windowFloatsAboveRibbon(createdNumber) {
