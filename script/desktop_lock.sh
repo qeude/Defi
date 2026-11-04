@@ -38,7 +38,27 @@ fi
 mkdir -p "$(dirname "$LOCK")"
 export DEFI_DESKTOP_LOCK="$LOCK"
 # Keep the file (-k): unlinking a locked inode would let another process lock a new one.
-if [[ "$wait" -eq 1 ]]; then
-  exec lockf -k "$LOCK" "$SELF" --owned "$@"
-fi
-exec lockf -k -s -t 0 "$LOCK" "$SELF" --owned "$@"
+options=(-k)
+[[ "$wait" -eq 1 ]] || options+=(-s -t 0)
+# An interactive reservation stays in the foreground, where it owns the terminal.
+[[ -t 0 ]] && exec lockf "${options[@]}" "$LOCK" "$SELF" --owned "$@"
+
+# lockf releases the lock on SIGTERM while its command still runs, so a signal to our process group
+# must not reach it: run it in its own group and pass signals to the command, which then cleans up.
+holder=""
+forward() {
+  [[ -n "$holder" ]] || exit 143
+  local command
+  command="$(pgrep -P "$holder" || true)"
+  if [[ -n "$command" ]]; then kill -TERM $command; else kill -TERM "$holder"; fi
+}
+trap forward INT TERM
+set -m
+lockf "${options[@]}" "$LOCK" "$SELF" --owned "$@" &
+holder=$!
+set +m
+while :; do
+  code=0
+  wait "$holder" || code=$?
+  kill -0 "$holder" 2>/dev/null || exit "$code"
+done

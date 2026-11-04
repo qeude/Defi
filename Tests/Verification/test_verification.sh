@@ -77,8 +77,10 @@ test_local_never_enables_desktop_and_reports_failure_or_drift() {
     esac
     fake "$dir/bin" swift "[ \"\$1\" = --version ] && { echo Fixture; exit 0; }
 [ \"\$DEFI_E2E\" = 0 ] || exit 99
+[ \"\$(pwd -P)\" = \"$(cd "$dir" && pwd -P)\" ] || exit 98
 $body"
-    (cd "$dir" && PATH="$dir/bin:$PATH" DEFI_E2E=1 script/verify.sh local > "$dir/run.out" 2>&1)
+    # Called from another directory, it still builds and tests its own worktree.
+    (cd "$SCRATCH" && PATH="$dir/bin:$PATH" DEFI_E2E=1 "$dir/script/verify.sh" local > "$dir/run.out" 2>&1)
     code=$?
     report="$(ls "$dir"/dist/verification/*/result.json)"
     check "status is $expected" equal "$(jq -r .status "$report")" "$expected"

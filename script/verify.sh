@@ -58,16 +58,13 @@ kill_tree() { # kill_tree SIGNAL PID: signal a process and every descendant
 }
 
 # Background commands ignore SIGINT without a terminal, so interruptions travel as SIGTERM down the
-# process tree. The lock holder runs in its own process group: lockf releases the reservation on
-# SIGTERM while its child still runs, so a signal to our group must reach only us.
+# process tree.
 on_signal() {
   [[ "$INTERRUPTED" -eq 0 ]] || return
   INTERRUPTED=1
   if [[ -n "$LOCK_PID" ]]; then
-    # The locked phase restores the session itself; stop the lock holder only while it still waits.
-    local holder
-    holder="$(pgrep -P "$LOCK_PID" -f -- __locked)" # not the busy probe desktop_lock.sh may run
-    if [[ -n "$holder" ]]; then kill -TERM $holder; else kill -TERM "$LOCK_PID"; fi
+    # desktop_lock.sh passes it to the locked phase, which still restores the session.
+    kill -TERM "$LOCK_PID"
   elif [[ -n "$STEP_PID" ]]; then
     kill_tree TERM "$STEP_PID"
     (sleep 15 && kill -0 "$STEP_PID" && kill_tree KILL "$STEP_PID") >/dev/null 2>&1 &
@@ -256,6 +253,8 @@ while [[ "$MODE" != __locked && $# -gt 0 ]]; do
     *) usage ;;
   esac
 done
+# Build and test the worktree this script belongs to, wherever it is called from.
+cd "$ROOT"
 
 trap 'on_signal INT' INT
 trap 'on_signal TERM' TERM
@@ -309,13 +308,11 @@ same_source || die "Source changed during preparation; rerun local --stage"
 report '.phase = "waiting-desktop" | .phase_started_at = now'
 export DEFI_VERIFICATION_REPORT="$REPORT"
 [[ "$INTERRUPTED" -eq 0 ]] || interrupted
-set -m
 if [[ "$WAIT" -eq 1 ]]; then
-  "$SCRIPT/desktop_lock.sh" --wait "$0" __locked "$RUN" &
+  "$SCRIPT/desktop_lock.sh" --wait "$SCRIPT/verify.sh" __locked "$RUN" &
 else
-  "$SCRIPT/desktop_lock.sh" "$0" __locked "$RUN" &
+  "$SCRIPT/desktop_lock.sh" "$SCRIPT/verify.sh" __locked "$RUN" &
 fi
-set +m
 LOCK_PID=$!
 wait_for "$LOCK_PID"
 code=$?
