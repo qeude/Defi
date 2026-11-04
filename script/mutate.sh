@@ -85,10 +85,16 @@ survivors=0
 skipped=0
 ran=0
 for mutant in "${MUTANTS[@]}"; do
-  IFS='^' read -r current original replacement description <<<"$mutant"
+  IFS='^' read -r target original replacement description <<<"$mutant"
   [[ -z "${ONLY:-}" || "$description" =~ $ONLY ]] || continue
   ran=$((ran + 1))
-  cp "$current" "$current.mutate-backup"
+  # Back up through a temporary copy that must match the source before anything is planted,
+  # so a failed copy can never be restored over the original.
+  if ! cp "$target" "$target.mutate-partial" || ! cmp -s "$target" "$target.mutate-partial" \
+    || ! mv "$target.mutate-partial" "$target.mutate-backup"; then
+    rm -f "$target.mutate-partial"; echo "cannot back up $target" >&2; exit 2
+  fi
+  current="$target"
   if ! ORIGINAL="$original" REPLACEMENT="$replacement" perl -0pi -e '$o = quotemeta($ENV{ORIGINAL}); s/$o/$ENV{REPLACEMENT}/ or exit 3' "$current"; then
     echo "SKIP     $description (original line not found)"; skipped=$((skipped + 1)); restore; continue
   fi
