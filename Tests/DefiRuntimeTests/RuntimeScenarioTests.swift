@@ -309,6 +309,9 @@ let namedWorkspaceConfig: Config = {
   return config
 }()
 
+/// CPU-heavy campaigns: they run in the isolated `make check` lanes, not beside timing-sensitive
+/// suites in the full `swift test` run.
+@Suite(.enabled(if: RealResourceGuard.isEnforced, "runs under make check (DEFI_ISOLATED=1)"))
 struct RuntimeScenarioTests {
   /// Triaged violations the loop skips while they wait for a fix: code -> status and issue.
   /// A skipped code hides only its own violation; the scenario keeps checking every other rule.
