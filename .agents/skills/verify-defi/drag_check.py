@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Native title-bar drags of fixture windows on an empty workspace, checked against column membership.
-Usage: python3 script/desktop_lock.py --wait python3 .agents/skills/verify-defi/drag_check.py [evidence-dir]
+Usage: script/desktop_lock.sh --wait python3 .agents/skills/verify-defi/drag_check.py [evidence-dir]
 Needs cliclick and Accessibility for the calling terminal. Restores the initial workspace."""
 import json, os, re, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'script'))
-import performance_experiments as pe  # noqa: E402
-import desktop_session as session  # noqa: E402
+import desktop_fixtures as pe  # noqa: E402
 
 TOPOLOGY = Path.home() / 'Library/Application Support/Defi/workspace-topology.json'
 
@@ -29,7 +28,7 @@ def converge(workspace, expected, timeout=4):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         actual = columns(workspace)
-        if actual == expected and pe.settled(session.command('status')):
+        if actual == expected and pe.settled(pe.command('status')):
             return actual, True
         time.sleep(.1)
     return columns(workspace), False
@@ -70,14 +69,14 @@ def drag(fixture, window_number, targets, workspace, display_width, shot, hold=.
     while not previews and not committed and time.monotonic() < deadline:
         committed = [target for stamp, target in
                      re.findall(rf'^(\d+\.\d+) mouse-drop window={window_number} target=(.+)$',
-                                session.command('trace'), re.M) if float(stamp) > since]
+                                pe.command('trace'), re.M) if float(stamp) > since]
         time.sleep(.05)
     return previews or committed[-1:], held, held_frame, last
 
 
 def trace_time():
     """The daemon's latest trace timestamp, so a drag reads only its own preview events."""
-    stamps = re.findall(r'^(\d+\.\d+) ', session.command('trace'), re.M)
+    stamps = re.findall(r'^(\d+\.\d+) ', pe.command('trace'), re.M)
     return float(stamps[-1]) if stamps else 0.0
 
 
@@ -85,7 +84,7 @@ def shown_preview(since):
     """The drop target the overlay is previewing, from this drag's latest preview trace."""
     requested = [target for stamp, target in
                  re.findall(r'^(\d+\.\d+) mouse-drop-preview window=\d+ target=(.+)$',
-                            session.command('trace'), re.M)
+                            pe.command('trace'), re.M)
                  if float(stamp) > since]
     return [] if not requested or requested[-1] == 'none' else [requested[-1]]
 
@@ -94,12 +93,12 @@ def main():
     out = Path(sys.argv[1] if len(sys.argv) > 1 else
                ROOT / f'dist/verification/evidence-{time.strftime("%Y%m%d-%H%M%S")}')
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'before.status').write_text(session.command('status'))
+    (out / 'before.status').write_text(pe.command('status'))
     initial = next(w for w in (out / 'before.status').read_text().split() if w.startswith('workspace='))
     initial = initial.split('=', 1)[1]
     pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/PerformanceFixture.swift',
             '-o', out / 'PerformanceFixture'])
-    if len(json.loads(session.command('list-workspaces', '--json'))['monitors']) != 1:
+    if len(json.loads(pe.command('list-workspaces', '--json'))['monitors']) != 1:
         sys.exit('drag_check needs exactly one monitor; drive cross-monitor drops by hand')
     fixtures, results = [], []
     try:
@@ -108,28 +107,28 @@ def main():
         for f in fixtures:
             f.ask()
         pe.activate(fixtures[0].process.pid)
-        monitor = json.loads(session.command('list-workspaces', '--json'))['monitors'][0]
+        monitor = json.loads(pe.command('list-workspaces', '--json'))['monitors'][0]
         empty = next(w for w in monitor['workspaces'] if w['windowCount'] == 0)['id']
-        session.command('workspace', empty)
+        pe.command('workspace', empty)
         expected, discovered = [], set()
         for i, f in enumerate(fixtures):
             number = f.ask('create', id='main')['windows'][0]['windowNumber']
             expected.append((i, 'main', number))
             pe.wait_owned(fixtures, expected, empty, discovered)
-            session.command('focus-column', 'last')
+            pe.command('focus-column', 'last')
             pe.wait_owned(fixtures, expected, empty, discovered, selected=number)
-            session.command('cycle-width', 'previous')
+            pe.command('cycle-width', 'previous')
         a, b, c = (e[2] for e in expected)
         start, _ = converge(empty, [[a], [b], [c]])
-        session.command('focus-column', 'first')
+        pe.command('focus-column', 'first')
         time.sleep(.4)
-        session.command('focus-column', 'right')
+        pe.command('focus-column', 'right')
         time.sleep(.4)
-        session.command('join-window', 'left')
+        pe.command('join-window', 'left')
         stacked, _ = converge(empty, [[a, b], [c]])
-        session.command('trace')
+        pe.command('trace')
 
-        display_width = int(re.search(r'monitors=\d+\[\d+:(\d+)x', session.command('status')).group(1))
+        display_width = int(re.search(r'monitors=\d+\[\d+:(\d+)x', pe.command('status')).group(1))
         windows = dict(zip((a, b, c), fixtures))
 
         def center(number, offset=0.0):
@@ -151,7 +150,7 @@ def main():
             results.append({'name': name, 'before': before, 'heldDuringDrag': held, 'after': actual,
                             'expected': want, 'previews': previews, 'heldFrame': held_frame,
                             'pointerX': pointer, 'pass': ok})
-            (out / f'trace-{name}.log').write_text(session.command('trace'))
+            (out / f'trace-{name}.log').write_text(pe.command('trace'))
             print(f'{name}: {"PASS" if ok else "FAIL"} before={before} held={held} after={actual} '
                   f'expected={want} preview={previews[:1]} heldFrame={held_frame} pointerX={pointer}')
 
@@ -176,9 +175,9 @@ def main():
             deadline = time.monotonic() + 8
             while number not in sum(columns(empty), []) and time.monotonic() < deadline:
                 time.sleep(.2)
-            session.command('focus-column', 'last')
+            pe.command('focus-column', 'last')
             time.sleep(.4)
-            session.command('cycle-width', 'previous')
+            pe.command('cycle-width', 'previous')
             time.sleep(.6)
             return number
 
@@ -194,10 +193,10 @@ def main():
         # Two windows that each need over half the height, on the next empty workspace.
         pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/ClampFixture.swift',
                 '-o', out / 'ClampFixture'])
-        height = int(re.search(r'monitors=\d+\[\d+:\d+x(\d+)', session.command('status')).group(1))
-        monitor = json.loads(session.command('list-workspaces', '--json'))['monitors'][0]
+        height = int(re.search(r'monitors=\d+\[\d+:\d+x(\d+)', pe.command('status')).group(1))
+        monitor = json.loads(pe.command('list-workspaces', '--json'))['monitors'][0]
         empty = next(w for w in monitor['workspaces'] if w['windowCount'] == 0)['id']
-        session.command('workspace', empty)
+        pe.command('workspace', empty)
         os.environ['DEFI_FIXTURE_MIN'] = f'200,{int(height * .6)}'
         try:
             f, g = add_window('ClampFixture'), add_window('ClampFixture')
@@ -213,10 +212,10 @@ def main():
     finally:
         for f in fixtures:
             f.close()
-        session.command('workspace', initial)
-        (out / 'after.status').write_text(session.command('status'))
+        pe.command('workspace', initial)
+        (out / 'after.status').write_text(pe.command('status'))
         (out / 'results.json').write_text(json.dumps(results, indent=2))
-        daemons = session.daemon_count()
+        daemons = pe.daemon_count()
         print(f'daemons={daemons} evidence: {out}')
     sys.exit(0 if daemons == 1 and results and all(r['pass'] for r in results) else 1)
 

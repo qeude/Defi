@@ -29,17 +29,13 @@ if [[ -z "${DEFI_VM_LOCKED:-}" ]]; then
       Tests/Fixtures/VirtualDisplayFixture.m -o .build/desktop-fixtures/DefiVirtualDisplay
   fi
   export DEFI_VM_LOCKED=1
-  exec python3 -c 'import fcntl, os, sys
-fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)
-fcntl.flock(fd, fcntl.LOCK_EX)
-os.dup2(fd, 9)
-os.execvp(sys.argv[2], sys.argv[2:])' "$HOME/.tart/$VM.lock" "$ROOT_DIR/script/test_vm.sh" "$@"
+  exec lockf -k "$HOME/.tart/$VM.lock" "$ROOT_DIR/script/test_vm.sh" "$@"
 fi
 
 # Restart a VM left running: it may lack the Xcode share. Holding the lock makes this safe.
 tart stop "$VM" >/dev/null 2>&1 || true
 XCODE="$(cd "$(xcode-select -p)/../.." && pwd)"
-nohup tart run "$VM" --no-graphics --no-audio "--dir=xcode:$XCODE:ro" >/dev/null 2>&1 9>&- &
+nohup tart run "$VM" --no-graphics --no-audio "--dir=xcode:$XCODE:ro" >/dev/null 2>&1 &
 trap 'tart stop "$VM" >/dev/null || true' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -103,6 +99,6 @@ GUEST
 vm '[ ! -x ~/Applications/Defi.app/Contents/MacOS/defi ] || ~/Applications/Defi.app/Contents/MacOS/defi service stop >/dev/null 2>&1; pkill -x defi-daemon; for a in TextEdit Calculator Notes "System Settings"; do pkill -x "$a"; done; true'
 # The first AppKit launch after boot is slow; warm it so the first test does not pay for a cold cache.
 vm 'sudo -n launchctl asuser 501 sudo -n -u admin sh -c "sleep 3 | ~/defi-e2e/fixture warmup >/dev/null 2>&1"' || true
-echo "VM lane: $(vm csrutil status) A pass here does not certify SIP-enabled behavior; use verify.py desktop for that."
+echo "VM lane: $(vm csrutil status) A pass here does not certify SIP-enabled behavior; use verify.sh desktop for that."
 # launchctl asuser places the tests in the guest's GUI session; the image already grants its SSH path TCC access.
 vm "sudo -n launchctl asuser 501 sudo -n -u admin ~/defi-e2e/run.sh '$FILTER'"

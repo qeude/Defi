@@ -97,8 +97,8 @@ each of its events, and for at most a second while a group stays unsettled.
 When WindowServer records tie on frame, Quartz matching prefers the on-screen
 record, so a new window never borrows a hidden tab's ID.
 
-`script/native_tab_probe.py` drives a fixture through new tab, switch, close
-visible, close hidden, and a same-title new window, and reports the column
+The former `script/native_tab_probe.py` drove a fixture through new tab, switch, close
+visible, close hidden, and a same-title new window, and reported the column
 count, neighbour movement, and overlay presentations per step.
 
 ## Remaining rule

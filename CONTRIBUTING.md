@@ -42,22 +42,35 @@ the maintainer's optional setup, not an installation default.
 
 ## Checks
 
-Run the complete automated verification:
+Everything goes through `make`, and needs only the Swift toolchain and tools
+macOS ships, such as `jq` and `lockf`.
 
 ```sh
-python3 script/verify.py full --filter DesktopE2ETests/testFocusFollowsLatestNativeIntent
+make test     # Swift tests; desktop tests skip themselves
+make verify   # build, Swift tests and workflow checks, recorded under dist/verification/
 ```
 
-Omit `--filter` for the full native suite. Preparation happens locally; installation
-and native tests wait for the shared desktop reservation. A failed preparation
-never installs. The loop requires one running installed daemon for its session
-checkpoint. Visual inspection remains a separate check when required by the change.
+Neither touches your desktop. To also install the signed build and run the
+desktop tests:
+
+```sh
+make verify-desktop FILTER='DesktopE2ETests/(testFocusFollowsLatestNativeIntent|testTiledFocusKeepsFloatingWindowAboveIt)$'
+```
+
+Run the desktop tests covering the interactions you changed, and more, up to
+the whole suite, wherever a side effect is plausible. Omit `FILTER` for the
+full native suite, which is required on the release commit before tagging.
+`make verify-desktop` runs `script/verify.sh full`; preparation happens locally,
+then installation and native tests wait for the shared desktop reservation. A
+failed preparation never installs. The loop requires one running installed
+daemon for its session checkpoint. Visual inspection remains a separate check
+when required by the change.
 
 Inspect live progress from another terminal:
 
 ```sh
-python3 script/verify.py status
-python3 script/verify.py status dist/verification/<run-directory>
+make verify-status
+script/verify.sh status dist/verification/<run-directory>
 ```
 
 Reports update atomically at each phase and step completion. Status includes the
@@ -65,14 +78,8 @@ desktop owner's PID, project directory and report path, and elapsed time in the 
 phase. A killed process can leave a running report; `process_alive` distinguishes
 that case. The OS lock, rather than the retained owner metadata, determines availability.
 
-Run the local loop while continuing to use your desktop:
-
-```sh
-python3 script/verify.py local
-```
-
-It builds and runs Swift tests excluding `DesktopE2ETests`, plus the workflow
-checks. It forces `DEFI_E2E=0` even if your shell enabled it. Tests using AppKit
+`make verify` (`script/verify.sh local`) builds and runs Swift tests excluding
+`DesktopE2ETests`, plus the workflow checks in `Tests/Verification`. It forces `DEFI_E2E=0` even if your shell enabled it. Tests using AppKit
 notification centers or fake AX elements stay local; actual window mutation,
 event posting, and global hotkey capture belong in `DesktopE2ETests`.
 
@@ -80,7 +87,7 @@ event posting, and global hotkey capture belong in `DesktopE2ETests`.
 
 If your desktop is busy, you can run `DesktopE2ETests` in a windowless
 [Tart](https://github.com/cirruslabs/tart) VM. This is a personal convenience:
-nothing requires Tart, and the lane does not replace `verify.py desktop`.
+nothing requires Tart, and the lane does not replace `verify.sh desktop`.
 
 ```sh
 tart clone ghcr.io/cirruslabs/macos-golden-gate-base:latest defi-e2e
@@ -102,7 +109,7 @@ display for the two-display tests.
 The VM runs with SIP disabled, so it cannot certify SIP-enabled behavior, the
 signed installed app, real multi-display hardware, or animation quality.
 `testTwoDisplayWindowsStayOnTheirDisplay` has been unstable on the virtual display.
-Run `verify.py desktop` for those before a release.
+Run `verify.sh desktop` for those before a release.
 
 `testFocusFollowsLatestNativeIntent` fails on any desktop while another app's
 window with a non-zero alpha sits above the fixtures, because it blocks the pointer
@@ -115,7 +122,7 @@ the only system surface the desktop tests create. It reports not run if none app
 Prepare a signed app without stopping the installed daemon:
 
 ```sh
-python3 script/verify.py local --stage
+script/verify.sh local --stage
 ```
 
 The command prints a run directory under `dist/verification/` with `result.json`,
@@ -123,9 +130,9 @@ step logs, source identity, and the staged bundle's SHA-256. Use that directory
 for the exclusive desktop phase:
 
 ```sh
-python3 script/verify.py desktop dist/verification/<run-directory> --wait
+script/verify.sh desktop dist/verification/<run-directory> --wait
 # Or target one native scenario:
-python3 script/verify.py desktop dist/verification/<run-directory> --wait --filter DesktopE2ETests/testFocusFollowsLatestNativeIntent
+script/verify.sh desktop dist/verification/<run-directory> --wait --filter DesktopE2ETests/testFocusFollowsLatestNativeIntent
 ```
 
 This installs the exact prepared bundle without rebuilding it. It rejects source
@@ -177,7 +184,7 @@ guarantee FIFO ordering. Cancel with Ctrl-C.
 For manual visual validation, reserve the desktop in an interactive shell:
 
 ```sh
-python3 script/desktop_lock.py --wait bash
+script/desktop_lock.sh --wait bash
 # Run installation/desktop commands here, then inspect the app while this shell lives.
 # Restore the original workspace, confirm one daemon, and exit to release the desktop.
 ```
@@ -186,7 +193,7 @@ The lock does not prevent human input. Desktop tests still move real application
 windows and need a development desktop. Keep realistic interaction checks focused
 on the changed behavior and the final build.
 
-`./script/build_and_run.sh --verify` remains a build/install/readiness shortcut;
+`make install` (`./script/build_and_run.sh --verify`) remains a build/install/readiness shortcut;
 `./script/test_desktop.sh [DesktopE2ETests/testName]` remains available for native
 tests. Both use the same desktop reservation. The test script restores a previously
 running service on success, failure, or handled interruption.
@@ -202,9 +209,10 @@ that every third-party or default AppKit window reorders while inactive.
 
 | Script | Purpose |
 | --- | --- |
-| `verify.py` | Local preparation or exclusive desktop verification with recorded results. |
-| `desktop_lock.py` | Reserve the desktop across concurrent and nested commands. |
-| `desktop_session.py` | Checkpoint and restore existing session stores under the desktop reservation. |
+| `verify.sh` | Local preparation or exclusive desktop verification with recorded results. |
+| `desktop_lock.sh` | Reserve the desktop across concurrent and nested commands. |
+| `desktop_session.sh` | Checkpoint and restore existing session stores under the desktop reservation. |
+| `fluidity_probe.py` | Optional: dropped frames per user action, measured with Instruments (needs Python 3). |
 | `check_signing.sh` | Compare certificates and designated requirements without mutation. |
 | `build_and_run.sh` | Build, sign, install, and launch Defi; `--install-staged` reuses a prepared bundle. |
 | `resolve_signing_identity.sh` | Select the signing identity for the build script. |

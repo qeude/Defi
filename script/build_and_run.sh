@@ -40,8 +40,8 @@ if [[ "$MODE" == "--install-staged" ]]; then
     run|--verify|verify|--debug|debug|--logs|logs|--telemetry|telemetry) ;;
     *) echo "Invalid installation mode: $MODE" >&2; exit 2 ;;
   esac
-  if ! python3 "$ROOT_DIR/script/desktop_lock.py" --check; then
-    exec python3 "$ROOT_DIR/script/desktop_lock.py" "$0" --install-staged "$STAGING_BUNDLE" "$MODE"
+  if ! "$ROOT_DIR/script/desktop_lock.sh" --check; then
+    exec "$ROOT_DIR/script/desktop_lock.sh" "$0" --install-staged "$STAGING_BUNDLE" "$MODE"
   fi
 else
 BUILD_CONFIGURATION="release"
@@ -104,7 +104,7 @@ if [[ "$MODE" == "--stage" || "$MODE" == "stage" ]]; then
 fi
 
 # Preparation never occupies the desktop. Install exactly this signed bundle.
-exec python3 "$ROOT_DIR/script/desktop_lock.py" "$0" --install-staged "$STAGING_BUNDLE" "$MODE"
+exec "$ROOT_DIR/script/desktop_lock.sh" "$0" --install-staged "$STAGING_BUNDLE" "$MODE"
 fi
 
 codesign --verify --deep --strict --verbose=2 "$STAGING_BUNDLE"

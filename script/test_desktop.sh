@@ -11,12 +11,12 @@ if [[ "${1:-}" != "--run-built-tests" ]]; then
   mkdir -p "$(dirname "$FIXTURE_BINARY")"
   swiftc -swift-version 6 -parse-as-library "$ROOT_DIR/Tests/Fixtures/DesktopFocusFixture.swift" -o "$FIXTURE_BINARY"
   [[ "${1:-}" != "--build-tests" ]] || exit 0
-  exec python3 "$ROOT_DIR/script/desktop_lock.py" "$0" --run-built-tests "$@"
+  exec "$ROOT_DIR/script/desktop_lock.sh" "$0" --run-built-tests "$@"
 fi
 shift
 [[ -x "$FIXTURE_BINARY" ]] || { echo "Desktop fixture missing; run test_desktop.sh --build-tests first" >&2; exit 2; }
 export DEFI_DESKTOP_FIXTURE_BINARY="$FIXTURE_BINARY"
-if ! python3 "$ROOT_DIR/script/desktop_lock.py" --check; then
+if ! "$ROOT_DIR/script/desktop_lock.sh" --check; then
   echo "--run-built-tests requires a desktop reservation" >&2
   exit 2
 fi

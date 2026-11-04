@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Drives width changes on the FOCUSED window and reports whether each one animated.
 # Pairs return to the start: maximize-column x2, cycle-width next then prev.
-# Usage: resize_check.sh [evidence-dir]   (run under `python3 script/desktop_lock.py --wait`)
+# Usage: resize_check.sh [evidence-dir]   (run under `script/desktop_lock.sh --wait`)
 set -u
 out="${1:-dist/verification/evidence-$(date +%Y%m%d-%H%M%S)}"; mkdir -p "$out"
 defi status > "$out/before.status" || { echo "daemon unreachable"; exit 1; }

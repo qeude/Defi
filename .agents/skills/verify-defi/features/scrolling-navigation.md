@@ -28,7 +28,7 @@ Pass: `focused=` changes as expected, `animating=false`, `drift=0[]`, `droppedFr
 ## Journey: focused column centering
 
 ```sh
-python3 script/desktop_lock.py --wait .agents/skills/verify-defi/centering_check.sh
+script/desktop_lock.sh --wait .agents/skills/verify-defi/centering_check.sh
 ```
 
 The script checks a lone scratch TextEdit document, then opens three more on the
