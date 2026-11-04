@@ -73,7 +73,7 @@ final class PlatformEventMonitor {
     liveFrameHandler: @escaping (WindowID?, NSEvent.EventType, CGPoint?) -> Void = { _, _, _ in },
     borderStackingHandler: @escaping () -> Void = {},
     mouseGestureStartedHandler: @escaping (WindowID?) -> Void = { _ in },
-    now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    now: @escaping () -> TimeInterval = { DefiClock.uptime },
     addNotification: @escaping (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError = AXObserverAddNotification,
     removeNotification: @escaping (AXObserver, AXUIElement, CFString) -> AXError = AXObserverRemoveNotification
   ) {
@@ -121,7 +121,7 @@ final class PlatformEventMonitor {
             self.handler(.focus, nil)
             return
           }
-          let timestamp = ProcessInfo.processInfo.systemUptime
+          let timestamp = DefiClock.uptime
           Task.detached(priority: .userInitiated) { [weak self] in
             let processID = currentFrontmostProcessID(
               matchingBundleID: notificationBundleID
@@ -135,7 +135,7 @@ final class PlatformEventMonitor {
                 )
               else { return }
               if let processID {
-                let resolvedAt = ProcessInfo.processInfo.systemUptime
+                let resolvedAt = DefiClock.uptime
                 self.userInputTracker.recordApplicationActivation(
                   processID: processID, at: resolvedAt
                 )
@@ -368,7 +368,7 @@ final class PlatformEventMonitor {
       guard let observer = observer(for: processID) else { continue }
       prepareForWindowDiscovery(
         processID: processID,
-        application: AXUIElementCreateApplication(processID),
+        application: accessibilityApplication(processID),
         observer: observer
       )
 
@@ -539,7 +539,7 @@ final class PlatformEventMonitor {
     processID: pid_t,
     element: AXUIElement? = nil
   ) -> Bool {
-    let element = element ?? AXUIElementCreateApplication(processID)
+    let element = element ?? accessibilityApplication(processID)
     return notificationFailures[kind]?[element].map { now() < $0.retryAfter } ?? false
   }
 
@@ -656,6 +656,7 @@ final class PlatformEventMonitor {
     }
 
     var observer: AXObserver?
+    RealResourceGuard.check("AXObserverCreate")
     let result = AXObserverCreate(
       processID,
       { _, element, notification, context in

@@ -85,7 +85,7 @@ extension MacOSPlatform {
         processID != ProcessInfo.processInfo.processIdentifier || isStandardWindow(element) {
         // Only the latest window's check may release the hold: an earlier one timing out
         // would cut short the hold a later window still waits on.
-        let opening = ProcessInfo.processInfo.systemUptime
+        let opening = DefiClock.uptime
         let hold: @Sendable () -> Void = { [weak self] in
           NavigationActor.enqueue { [weak self] in
             self?.latestOpening = opening
@@ -127,8 +127,8 @@ extension MacOSPlatform {
           // a new standard window confirms one, and the hold waits for its layout. The
           // screen stays held while this check runs, and moves again as soon as it fails.
           NavigationActor.enqueue { RibbonProxyPresenter.extendHolds(to: 0.8) }
-          let deadline = ProcessInfo.processInfo.systemUptime + 0.8
-          while ProcessInfo.processInfo.systemUptime < deadline {
+          let deadline = DefiClock.uptime + 0.8
+          while DefiClock.uptime < deadline {
             if !applicationShownWindowIDs(processID).isSubset(of: shown) {
               return NavigationActor.enqueue { RibbonProxyPresenter.extendHolds() }
             }
@@ -150,11 +150,11 @@ extension MacOSPlatform {
           }
           // A slow app's focused window lags its activation; one window leaves no
           // ambiguity, as in the snapshot's own fallback, so the ribbon still animates.
-          let started = ProcessInfo.processInfo.systemUptime
+          let started = DefiClock.uptime
           let focused = applicationFocusedWindow(processID), focusedID = known(focused)
           let windowID = focusedID ?? known(applicationSingleWindow(processID))
           if focusedID == nil {
-            coordinator.recordTrace("activation-read pid=\(processID) focused=\(focused == nil ? "none" : "unknown") window=\(windowID.map { String($0.rawValue) } ?? "none") ms=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - started) * 1_000))")
+            coordinator.recordTrace("activation-read pid=\(processID) focused=\(focused == nil ? "none" : "unknown") window=\(windowID.map { String($0.rawValue) } ?? "none") ms=\(String(format: "%.1f", (DefiClock.uptime - started) * 1_000))")
           }
           guard let windowID else { return }
           NavigationActor.enqueue { activatedWindowHandler(windowID, activation.timestamp) }
@@ -204,7 +204,7 @@ extension MacOSPlatform {
           processID: processID
         )
         self?.nativeFocusEventPending = true
-        self?.nativeFocusEventTimestamp = ProcessInfo.processInfo.systemUptime
+        self?.nativeFocusEventTimestamp = DefiClock.uptime
         self?.borderStackingSettle.trigger()
         if let processID {
           self?.nativeFocusEventProcessIDs.insert(processID)
@@ -344,7 +344,7 @@ extension MacOSPlatform {
         ?? borderFrames.first(where: { $0.windowID == request.windowID })?.frame
         ?? latestObservedFrames[request.windowID]
       if reusingSnapshot, !frameCoordinator.isBusy,
-        let inventory = snapshotEngine.borderStackingInventory(now: ProcessInfo.processInfo.systemUptime),
+        let inventory = snapshotEngine.borderStackingInventory(now: DefiClock.uptime),
         let entries = windowBorderStackEntries(
           inventory: inventory, targetWindowID: request.windowID,
           targetProcessID: targetProcessID, targetFrame: targetFrame
@@ -490,7 +490,7 @@ extension MacOSPlatform {
         || borderRefreshBlockedBySettling(
           liveWindowIDs: liveGeometryWindowIDs,
           expectations: frameCommitExpectations,
-          now: ProcessInfo.processInfo.systemUptime
+          now: DefiClock.uptime
         )
     { return }
     if isLeftMouseButtonDown {
@@ -517,7 +517,7 @@ extension MacOSPlatform {
     let borderGeometryIsSettling = borderRefreshBlockedBySettling(
       liveWindowIDs: liveGeometryWindowIDs,
       expectations: frameCommitExpectations,
-      now: ProcessInfo.processInfo.systemUptime
+      now: DefiClock.uptime
     )
     if borderGeometryIsSettling {
       // Writes are still settling. Keep following displayed frames without
@@ -824,7 +824,7 @@ extension MacOSPlatform {
 /// The application's focused window, read with a short timeout: a busy app keeps the
 /// usual path, which reads its windows anyway.
 func applicationFocusedWindow(_ processID: pid_t) -> AXUIElement? {
-  let application = AXUIElementCreateApplication(processID)
+  let application = accessibilityApplication(processID)
   AXUIElementSetMessagingTimeout(application, 0.1)
   var value: CFTypeRef?
   guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
@@ -846,7 +846,7 @@ func applicationShownWindowIDs(_ processID: pid_t) -> Set<WindowID> {
 
 /// The application's only window, read with the same short timeout; nil for several.
 func applicationSingleWindow(_ processID: pid_t) -> AXUIElement? {
-  let application = AXUIElementCreateApplication(processID)
+  let application = accessibilityApplication(processID)
   AXUIElementSetMessagingTimeout(application, 0.1)
   var value: CFTypeRef?
   guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,

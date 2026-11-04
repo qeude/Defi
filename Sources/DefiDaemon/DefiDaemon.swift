@@ -20,7 +20,7 @@ struct DaemonOptions {
 
   init(arguments: [String]) throws {
     var configURL: URL?
-    var socketURL = SocketPath.defaultURL
+    var socketURL: URL?
     var index = 0
     while index < arguments.count {
       switch arguments[index] {
@@ -45,7 +45,7 @@ struct DaemonOptions {
       index += 1
     }
     self.configURL = configURL
-    self.socketURL = socketURL
+    self.socketURL = socketURL ?? SocketPath.defaultURL
   }
 }
 
@@ -82,7 +82,7 @@ final class Daemon {
   let instanceLock: DaemonInstanceLock
   let configURL: URL
   var config: Config
-  let platform = MacOSPlatform()
+  let platform: MacOSPlatform
   nonisolated let displayPointerRouter = DisplayPointerRouter()
   @MainActor lazy var displayArrangement = DisplayArrangementController(
     pointerRouter: displayPointerRouter, sessionID: topologySessionID
@@ -97,7 +97,11 @@ final class Daemon {
   let server: UnixSocketServer
   let topologyStore: WorkspaceTopologyStore
   nonisolated let topologySessionID: String
-  let diagnostics = DiagnosticRecorder()
+  let diagnostics: DiagnosticRecorder
+  /// Draws no Defi panel (Overview, cheatsheet); a simulated desktop has no screen.
+  var headless = false
+  /// Starts the keyboard path; a simulated desktop attaches its input without event taps.
+  var startHotKeys: @NavigationActor (HotKeyManager) throws -> Void = { try $0.start() }
   let readResponseCache = DaemonReadResponseCache()
   var focus = FocusState()
   var state: RuntimeState
@@ -233,8 +237,12 @@ final class Daemon {
     workspaceStatePublisher: @escaping @Sendable (Data) -> Void = postWorkspaceStateNotification,
     desktopSnapshotOverviewUpdater: @escaping @NavigationActor @Sendable (Daemon) -> Void = {
       $0.updateOverviewIfOpen()
-    }
+    },
+    platform: MacOSPlatform? = nil,
+    diagnostics: DiagnosticRecorder? = nil
   ) throws {
+    self.platform = platform ?? MacOSPlatform()
+    self.diagnostics = diagnostics ?? DiagnosticRecorder()
     self.menuBar = menuBar
     self.workspaceStatePublisher = workspaceStatePublisher
     self.desktopSnapshotOverviewUpdater = desktopSnapshotOverviewUpdater
@@ -250,13 +258,14 @@ final class Daemon {
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
     lastPersistedTopology = restoredTopology
-    platform.setCommandDiagnosticHandler { [weak self, weak diagnostics] sample in
+    let diagnostics = self.diagnostics
+    self.platform.setCommandDiagnosticHandler { [weak self, weak diagnostics] sample in
       diagnostics?.record(sample)
       if let reason = AutoMarkPolicy.reason(for: sample) {
         self?.autoMark(reason: reason)
       }
     }
-    platform.setDiagnosticAnomalyHandler { [weak diagnostics] uptime, event in
+    self.platform.setDiagnosticAnomalyHandler { [weak diagnostics] uptime, event in
       diagnostics?.recordAnomaly(uptime: uptime, event: event)
     }
   }
@@ -381,12 +390,12 @@ final class Daemon {
     finishPendingWorkspaceFocusIfReady()
     finishPendingPointerFocusIfReady()
     if let deadline = pendingDisplaySyncDeadlines.first,
-      ProcessInfo.processInfo.systemUptime >= deadline
+      DefiClock.uptime >= deadline
     {
       pendingDisplaySyncDeadlines.removeFirst()
       needsDesktopSync = true
     }
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     if platform.requestDueFrameCommitVerification(now: now) {
       needsDesktopSync = true
     }

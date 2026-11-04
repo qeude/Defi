@@ -93,7 +93,8 @@ public struct Config: Equatable, Sendable {
   }
 
   public static var defaultURL: URL {
-    FileManager.default.homeDirectoryForCurrentUser
+    RealResourceGuard.check("default user config path")
+    return FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".config/defi/config.toml")
   }
 

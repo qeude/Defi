@@ -21,7 +21,7 @@ extension AXFocusWriter {
       activeGeneration = queued.generation
       lock.unlock()
 
-      let startedAt = ProcessInfo.processInfo.systemUptime
+      let startedAt = DefiClock.uptime
       let request = queued.request
       guard isCurrent(queued) else {
         let generationCurrent = isCurrent(queued.generation)
@@ -62,12 +62,12 @@ extension AXFocusWriter {
             cancelled = true
             return
           }
-          let mainStartedAt = ProcessInfo.processInfo.systemUptime
+          let mainStartedAt = DefiClock.uptime
           var mainResult = operations.setMain(request.element)
           focusMutationApplied = mainResult == .success
           windowSelectionSucceeded = mainResult == .success
           mainDurationMS =
-            (ProcessInfo.processInfo.systemUptime - mainStartedAt) * 1_000
+            (DefiClock.uptime - mainStartedAt) * 1_000
           cancelled = !isCurrent(queued)
           var raiseResult = AXError.cannotComplete
           if !cancelled, mainResult != .success {
@@ -75,7 +75,7 @@ extension AXFocusWriter {
               cancelled = true
               return
             }
-            let raiseStartedAt = ProcessInfo.processInfo.systemUptime
+            let raiseStartedAt = DefiClock.uptime
             raiseResult = operations.raise(request.element)
             focusMutationApplied =
               focusMutationApplied
@@ -84,7 +84,7 @@ extension AXFocusWriter {
               windowSelectionSucceeded
               || raiseResult == .success
             raiseDurationMS =
-              (ProcessInfo.processInfo.systemUptime - raiseStartedAt) * 1_000
+              (DefiClock.uptime - raiseStartedAt) * 1_000
           }
           cancelled = cancelled || !isCurrent(queued)
           if !cancelled,
@@ -99,7 +99,7 @@ extension AXFocusWriter {
                 cancelled = true
                 return
               }
-              let retryMainStartedAt = ProcessInfo.processInfo.systemUptime
+              let retryMainStartedAt = DefiClock.uptime
               mainResult = operations.setMain(request.element)
               focusMutationApplied =
                 focusMutationApplied
@@ -108,13 +108,13 @@ extension AXFocusWriter {
                 windowSelectionSucceeded
                 || mainResult == .success
               mainDurationMS +=
-                (ProcessInfo.processInfo.systemUptime - retryMainStartedAt) * 1_000
+                (DefiClock.uptime - retryMainStartedAt) * 1_000
               if mainResult != .success {
                 guard isCurrent(queued) else {
                   cancelled = true
                   return
                 }
-                let retryRaiseStartedAt = ProcessInfo.processInfo.systemUptime
+                let retryRaiseStartedAt = DefiClock.uptime
                 raiseResult = operations.raise(request.element)
                 focusMutationApplied =
                   focusMutationApplied
@@ -123,7 +123,7 @@ extension AXFocusWriter {
                   windowSelectionSucceeded
                   || raiseResult == .success
                 raiseDurationMS +=
-                  (ProcessInfo.processInfo.systemUptime - retryRaiseStartedAt) * 1_000
+                  (DefiClock.uptime - retryRaiseStartedAt) * 1_000
               }
             }
             cancelled = !isCurrent(queued)
@@ -146,7 +146,7 @@ extension AXFocusWriter {
       if activationRequired == true, isCurrent(queued) {
         activationAttempted = true
         activationSucceeded = false
-        let activationStartedAt = ProcessInfo.processInfo.systemUptime
+        let activationStartedAt = DefiClock.uptime
         let activate = operations.prepareActivation()
         if isCurrent(queued) {
           let activationResult = activate(request.application)
@@ -164,7 +164,7 @@ extension AXFocusWriter {
           activationSucceeded: activationSucceeded
         )
         activationDurationMS =
-          (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1_000
+          (DefiClock.uptime - activationStartedAt) * 1_000
       } else if activationRequired == nil || !isCurrent(queued) {
         if activationRequired == true { markRecoveryActivationNeeded() }
         cancelled = true
@@ -180,7 +180,7 @@ extension AXFocusWriter {
             cancelled = true
             break
           }
-          let raiseStartedAt = ProcessInfo.processInfo.systemUptime
+          let raiseStartedAt = DefiClock.uptime
           let outcome = performForegroundRaise(
             isCurrent: {
               isCurrent(queued) && inputGuardIsCurrent(request)
@@ -198,7 +198,7 @@ extension AXFocusWriter {
             }
           )
           raiseDurationMS +=
-            (ProcessInfo.processInfo.systemUptime - raiseStartedAt) * 1_000
+            (DefiClock.uptime - raiseStartedAt) * 1_000
           retried = retried || outcome.retried
           if outcome.cancelled {
             cancelled = true
@@ -211,7 +211,7 @@ extension AXFocusWriter {
         cancelled = true
       }
       let durationMS =
-        (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+        (DefiClock.uptime - startedAt) * 1_000
       lock.lock()
       lastDurationMS = durationMS
       if usedFastPath { fastPathCount += 1 }

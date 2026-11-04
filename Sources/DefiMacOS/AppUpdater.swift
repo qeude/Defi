@@ -1,4 +1,5 @@
 import AppKit
+import DefiModel
 import Foundation
 import Observation
 import Security
@@ -245,6 +246,7 @@ public final class AppUpdater {
       width: size.width, height: size.height
     )
     // Never takes focus by appearing: a keystroke in progress must not trigger an update.
+    RealResourceGuard.check("AppKit panel")
     let panel = AppUpdatePanel(
       contentRect: frame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY),
       styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],

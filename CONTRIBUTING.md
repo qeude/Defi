@@ -46,9 +46,56 @@ Everything goes through `make`, and needs only the Swift toolchain and tools
 macOS ships, such as `jq` and `lockf`.
 
 ```sh
+make check    # isolated loop: pure and simulated-desktop tests in parallel, about 40 s
 make test     # Swift tests; desktop tests skip themselves
-make verify   # build, Swift tests and workflow checks, recorded under dist/verification/
+make verify   # make check, then build, Swift tests and workflow checks, recorded under dist/verification/
 ```
+
+### The isolated loop
+
+`make check` is the first feedback loop. It is safe while Defi runs and in any number of
+worktrees at once.
+
+Under `DEFI_ISOLATED=1`, the test process stops as soon as Defi code reaches a real macOS
+resource. The trap prints the resource and the call stack. The guarded resources are:
+
+- Accessibility elements and writes;
+- event taps and global hotkeys;
+- display configuration and cursor warps;
+- AppKit panels;
+- the daemon's default lock, socket, config and session paths.
+
+It runs three lanes:
+
+- **Pure scenarios** (`RuntimeScenarioTests`): seeded random and exhaustive short action
+  sequences on `DefiRuntime`. After every step they check `RuntimeState.validate()`, the frame
+  rules and the command intents.
+- **Simulated desktop** (`FocusInvariantHarnessTests`): the real `Daemon`, `MacOSPlatform`,
+  `InputMonitor`, focus writer and frame coordinator, running against `FakeMacOS` on a
+  `VirtualClock`. Every simulated behavior cites its source. A violation that uses no catalog
+  behavior is a harness defect.
+- **Guard tests** (`RealResourceGuardTests`): they prove each guard traps.
+
+A failure prints the invariant, the shrunk scenario, the catalog behaviors it used and the
+command that replays it:
+
+```sh
+DEFI_ISOLATED=1 DEFI_SCENARIO_SEED=9 DEFI_SCENARIO_RUNS=1 swift test --skip-build --filter FocusInvariantHarnessTests
+```
+
+These variables tune a campaign:
+
+- `DEFI_SCENARIO_RUNS` sets the number of scenarios.
+- `DEFI_SCENARIO_SHARD=i/n` runs one share of the seeds.
+- `DEFI_SCENARIO_DEEP=1` runs the full exhaustive alphabet.
+- `DEFI_SCENARIO_TRACE=1` adds the daemon trace.
+
+Triaged suspects are listed in [docs/testing/known-suspects.md](docs/testing/known-suspects.md)
+and in the tests that skip them. Retro-validation results are in
+[docs/testing/retro-validation.md](docs/testing/retro-validation.md).
+
+A bug found anywhere else first becomes a failing scenario or invariant in this loop, then gets
+fixed. Add a catalog behavior only with its source.
 
 Neither touches your desktop. To also install the signed build and run the
 desktop tests:

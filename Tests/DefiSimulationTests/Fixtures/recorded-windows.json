@@ -1,0 +1,82 @@
+[
+  {
+    "appID": "com.apple.MenuBarAgent",
+    "canGrow": false,
+    "canResize": false,
+    "disposition": "floating",
+    "hasCloseButton": false,
+    "isModal": false,
+    "role": "AXWindow",
+    "subrole": "AXDialog"
+  },
+  {
+    "appID": "com.mitchellh.ghostty",
+    "canGrow": true,
+    "canResize": true,
+    "disposition": "tiled",
+    "hasCloseButton": true,
+    "isModal": false,
+    "role": "AXWindow",
+    "subrole": "AXStandardWindow"
+  },
+  {
+    "appID": "com.apple.finder",
+    "canGrow": true,
+    "canResize": true,
+    "disposition": "tiled",
+    "hasCloseButton": true,
+    "isModal": false,
+    "role": "AXWindow",
+    "subrole": "AXStandardWindow"
+  },
+  {
+    "appID": "com.apple.finder",
+    "canGrow": false,
+    "canResize": false,
+    "disposition": "ignored",
+    "hasCloseButton": false,
+    "isModal": false,
+    "role": "AXScrollArea",
+    "subrole": null
+  },
+  {
+    "appID": "com.apple.dt.Devices",
+    "canGrow": true,
+    "canResize": true,
+    "disposition": "tiled",
+    "hasCloseButton": true,
+    "isModal": false,
+    "role": "AXWindow",
+    "subrole": "AXStandardWindow"
+  },
+  {
+    "appID": "com.qeude.defi",
+    "canGrow": false,
+    "canResize": false,
+    "disposition": "ignored",
+    "hasCloseButton": false,
+    "isModal": false,
+    "role": "AXWindow",
+    "subrole": "AXSystemDialog"
+  },
+  {
+    "appID": "com.apple.dt.Xcode",
+    "canGrow": true,
+    "canResize": true,
+    "disposition": "tiled",
+    "hasCloseButton": true,
+    "isModal": false,
+    "role": "AXWindow",
+    "subrole": "AXStandardWindow"
+  },
+  {
+    "appID": "com.apple.mail",
+    "canGrow": true,
+    "canResize": true,
+    "disposition": "tiled",
+    "hasCloseButton": true,
+    "isModal": false,
+    "role": "AXWindow",
+    "subrole": "AXStandardWindow"
+  }
+]

@@ -34,8 +34,8 @@ extension MacOSPlatform {
     RibbonProxyPresenter.cancelAll()
     frameSubmissionGeneration &+= 1
     invalidateFocusStateForDisplayChange()
-    let focusDeadline = ProcessInfo.processInfo.systemUptime + 5
-    while focusWriter.isBusy && ProcessInfo.processInfo.systemUptime < focusDeadline {
+    let focusDeadline = DefiClock.uptime + 5
+    while focusWriter.isBusy && DefiClock.uptime < focusDeadline {
       try? await Task.sleep(for: .milliseconds(10))
     }
     let coordinator = frameCoordinator

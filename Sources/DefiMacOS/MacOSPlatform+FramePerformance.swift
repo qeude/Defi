@@ -211,7 +211,7 @@ extension MacOSPlatform {
   public func recordCommandFocus(
     _ context: CommandPerformanceContext,
     result: NativeFocusResult,
-    at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+    at timestamp: TimeInterval = DefiClock.uptime
   ) {
     guard result == .completed || result == .completedWithoutMutation,
       let latency = commandLatency.recordFocus(context, at: timestamp)
@@ -396,7 +396,7 @@ extension MacOSPlatform {
   }
 
   public var windowDiscoveryStatus: String {
-    snapshotEngine.cgWindowDiscoveryStatus(now: ProcessInfo.processInfo.systemUptime)
+    snapshotEngine.cgWindowDiscoveryStatus(now: DefiClock.uptime)
   }
 
   public func dueWindowDiscoveryRetryProcessIDs(now: TimeInterval) -> Set<pid_t> {

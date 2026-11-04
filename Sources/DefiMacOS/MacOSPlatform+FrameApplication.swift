@@ -77,7 +77,7 @@ extension MacOSPlatform {
     // One switch, one slide: a later apply (a restore, a repair) must not reuse it.
     for index in windowProxyMonitors.indices { windowProxyMonitors[index].workspaceShift = nil }
     // Native windows jump once to their targets, under the overlay when it draws the motion.
-    let applyStartedAt = ProcessInfo.processInfo.systemUptime
+    let applyStartedAt = DefiClock.uptime
     let tracesInitialFrame = !newlyDiscoveredWindowIDs.isEmpty
     if tracesInitialFrame {
       let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
@@ -136,7 +136,7 @@ extension MacOSPlatform {
         commandPerformance,
         expectedWindowIDs: performancePlan.expectedWindowIDs,
         hasFrameWrites: performancePlan.hasMeasuredFrameWrites,
-        at: ProcessInfo.processInfo.systemUptime
+        at: DefiClock.uptime
       )
     }
     var writePerformanceByWindowID: [WindowID: CommandPerformanceContext] = [:]
@@ -408,7 +408,7 @@ extension MacOSPlatform {
     )
     if tracesInitialFrame {
       let elapsedMS =
-        (ProcessInfo.processInfo.systemUptime - applyStartedAt) * 1_000
+        (DefiClock.uptime - applyStartedAt) * 1_000
       frameCoordinator.recordTrace(
         "initial-apply-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
@@ -466,7 +466,7 @@ extension MacOSPlatform {
       lastHiddenWindowIDs = effectiveHiddenWindowIDs
     }
     lastFrameApplyDurationMS =
-      (ProcessInfo.processInfo.systemUptime - applyStartedAt) * 1_000
+      (DefiClock.uptime - applyStartedAt) * 1_000
   }
 
 }

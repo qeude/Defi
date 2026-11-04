@@ -1,10 +1,11 @@
 import ApplicationServices
+import DefiModel
 import DefiRuntime
 
 @MainActor
 final class ObservationMeasurementAccess {
   var receive: ((PlatformEventKind, pid_t?, AXUIElement?) -> Void)?
-  var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+  var now: () -> TimeInterval = { DefiClock.uptime }
   var schedule: (Int, @escaping @MainActor @Sendable () -> Void) -> (() -> Void) = { delay, work in
     let item = DispatchWorkItem { MainActor.assumeIsolated { work() } }
     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: item)
@@ -18,7 +19,7 @@ final class ObservationMeasurementAccess {
 @MainActor
 extension MacOSPlatform {
   var observationNow: TimeInterval {
-    observationMeasurementAccess?.now() ?? ProcessInfo.processInfo.systemUptime
+    observationMeasurementAccess?.now() ?? DefiClock.uptime
   }
 
   @discardableResult

@@ -187,14 +187,16 @@ public enum IPCError: Error, CustomStringConvertible, Sendable {
 
 public enum SocketPath {
   public static var defaultURL: URL {
-    URL(filePath: NSTemporaryDirectory())
+    RealResourceGuard.check("default IPC socket path")
+    return     URL(filePath: NSTemporaryDirectory())
       .appending(path: "defi-\(getuid()).sock")
   }
 }
 
 public enum DaemonLockPath {
   public static var defaultURL: URL {
-    URL(filePath: NSTemporaryDirectory())
+    RealResourceGuard.check("default daemon lock path")
+    return     URL(filePath: NSTemporaryDirectory())
       .appending(path: "defi-\(getuid()).lock")
   }
 }

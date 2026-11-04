@@ -212,7 +212,7 @@ extension Daemon {
     closeOverview()
     handleCheatsheetInput(.dismiss)
     displayConfigurationEventCount += 1
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     pendingDisplaySyncDeadlines = [0.05, 0.2, 0.5, 1.0, 2.0].map {
       now + $0
     }
@@ -282,7 +282,7 @@ extension Daemon {
       workspaceID: workspace.id
     )
     if var animation = scrollAnimations[key] {
-      animation.lastStepAt = ProcessInfo.processInfo.systemUptime
+      animation.lastStepAt = DefiClock.uptime
       scrollAnimations[key] = animation
     }
     displayedFrameRebaseCount += 1

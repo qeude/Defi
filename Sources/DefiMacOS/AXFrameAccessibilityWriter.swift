@@ -206,6 +206,7 @@ final class AXFrameAccessibilityWriter {
     application: AXUIElement
   ) -> Bool {
     if let enhancedUIWriter { return enhancedUIWriter(application, enabled) }
+    RealResourceGuard.check("AXEnhancedUserInterface write")
     return AXUIElementSetAttributeValue(
       application,
       "AXEnhancedUserInterface" as CFString,

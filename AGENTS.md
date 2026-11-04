@@ -183,7 +183,13 @@ Choose verification by the changed behavior:
 - Documentation-only changes: check the diff and any changed links or commands;
   no build, app launch, or desktop validation is needed.
 - Code, tests, or build configuration: run `make verify`.
-  This runs `swift build`, non-desktop Swift tests, and workflow tests.
+  It starts with `make check`, the isolated loop: pure and simulated-desktop scenarios under
+  `DEFI_ISOLATED=1`. That loop is safe while Defi runs and in concurrent worktrees. Then it runs
+  `swift build`, non-desktop Swift tests, and workflow tests. Use `make check` alone while
+  iterating.
+- Every bug found outside the isolated loop (desktop tests, Computer Use, user reports) first
+  becomes a failing invariant or scenario in `make check`. A new simulated macOS behavior needs a
+  source: Apple documentation, a PR, this file, or a dated measurement.
 - Platform integration, daemon startup, packaging, or desktop-visible behavior:
   `make verify-desktop FILTER='DesktopE2ETests/(testA|testB)$'` prepares a signed
   bundle, waits for the desktop, then installs it and runs native tests. By

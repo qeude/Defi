@@ -80,7 +80,7 @@ extension AXFrameCoordinator {
       var observation: BorderGeometryObservation?
       if let ticket, isCurrent(generation: ticket.generation),
         borderBindingIsCurrent(ticket.target) {
-        let sampledAt = ProcessInfo.processInfo.systemUptime
+        let sampledAt = DefiClock.uptime
         let frame = borderNativeFrameReader(ticket.target.windowID).flatMap(validatedWindowFrame)
           ?? AXMessagingTimeoutAccess.shared.withTimeout(
             0.025, elements: [ticket.target.application, ticket.target.element]

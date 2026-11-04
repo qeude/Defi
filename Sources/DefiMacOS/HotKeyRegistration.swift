@@ -1,4 +1,5 @@
 import AppKit
+import DefiModel
 import Carbon
 import Foundation
 import Synchronization
@@ -123,6 +124,7 @@ final class HotKeyRegistration: @unchecked Sendable {
       ($0.code, $0.modifierBits) < ($1.code, $1.modifierBits)
     }).enumerated() {
       var reference: EventHotKeyRef?
+      RealResourceGuard.check("RegisterEventHotKey")
       let status = RegisterEventHotKey(
         UInt32(key.code), key.carbonModifiers,
         EventHotKeyID(signature: 0x44656669, id: UInt32(index + 1)),

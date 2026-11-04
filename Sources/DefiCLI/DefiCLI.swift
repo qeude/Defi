@@ -53,6 +53,7 @@ struct Options {
       defi --monitor 1 set-reserved-area top 36
       defi status
       defi trace
+      defi debug-windows   # window attributes as JSON for classification fixtures, no titles
     """
 
   let socketURL: URL

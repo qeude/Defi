@@ -270,9 +270,7 @@ extension Daemon {
           ? selectedWindowID
           : nil
         for delay in windowCloseRefreshDelays {
-          NavigationActor.shared.queue.asyncAfter(
-            deadline: .now() + .milliseconds(delay)
-          ) {
+          DefiClock.after(Double(delay) / 1_000, on: NavigationActor.shared.queue) {
             NavigationActor.assumeIsolated {
               let input = self.platform.userInputTracker.snapshot
               guard self.desktopSessionActive,
@@ -338,7 +336,7 @@ extension Daemon {
       self?.enqueueHotKey(invocation)
     }
     do {
-      try manager.start()
+      try startHotKeys(manager)
       hotKeys = manager
       let keyboardMessage = manager.bindingError.map {
         "Keyboard shortcuts unavailable: \($0.description)"

@@ -257,7 +257,7 @@ extension Daemon {
   }
 
   func scheduleIdleTick() {
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     let userInputAt = platform.userInputTracker.latestEventTimestamp
     let delay = idleDesktopRefreshDelay(
       now: now,
@@ -301,6 +301,11 @@ extension Daemon {
         repeating: .nanoseconds(intervalNanoseconds),
         leeway: .nanoseconds(leewayNanoseconds)
       )
+      timerFrequencyHz = frequencyHz
+      return
+    }
+    // Simulated time has no wall-clock timer: the simulation ticks the daemon itself.
+    guard DefiClock.virtual == nil else {
       timerFrequencyHz = frequencyHz
       return
     }
@@ -381,8 +386,8 @@ extension Daemon {
     )
     platform.apply(assignments, skipping: state.nativeFullscreenWindowIDs)
     // Drain terminal effects before the process exits; do not occupy the navigation executor.
-    let deadline = ProcessInfo.processInfo.systemUptime + 5
-    while platform.hasPendingFrameWrites && ProcessInfo.processInfo.systemUptime < deadline {
+    let deadline = DefiClock.uptime + 5
+    while platform.hasPendingFrameWrites && DefiClock.uptime < deadline {
       try? await Task.sleep(for: .milliseconds(10))
     }
   }

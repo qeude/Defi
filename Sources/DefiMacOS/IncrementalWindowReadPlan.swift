@@ -88,13 +88,13 @@ extension SnapshotEngine {
       guard isCurrent(job.processID), let application = job.application else {
         return PreparedAXProcessReadResult(processID: job.processID, windows: [], application: nil)
       }
-      let start = ProcessInfo.processInfo.systemUptime
+      let start = DefiClock.uptime
       let windows = AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: [application.element]) {
         self.readDiscoveryApplicationWindows(application.element, processID: job.processID)
       }
       return PreparedAXProcessReadResult(processID: job.processID, windows: [],
         application: PreparedAXApplicationWindows(elements: windows,
-          durationMS: (ProcessInfo.processInfo.systemUptime - start) * 1000))
+          durationMS: (DefiClock.uptime - start) * 1000))
     })
     for read in listResults where isCurrent(read.processID) { result.applications[read.processID] = read.application }
     var jobs: [PreparedAXProcessRead] = []

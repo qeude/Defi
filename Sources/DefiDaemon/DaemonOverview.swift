@@ -136,6 +136,7 @@ extension Daemon {
   }
 
   private func applyOverviewToggle(_ request: OverviewToggleRequest) {
+    guard !headless else { return }
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
     DispatchQueue.main.async { [self] in
       guard overviewToggleState.beginApplying(request) else { return }
@@ -164,6 +165,7 @@ extension Daemon {
   }
 
   private func presentOverview() {
+    guard !headless else { return }
     let snapshot = makeOverviewSnapshot(), config = config, layout = state.layout
     DispatchQueue.main.async { [self] in
       let controller = overviewController ?? makeOverviewController()
@@ -232,7 +234,7 @@ extension Daemon {
         overviewInputMode(isOpen)
         publishOverviewState()
         let parksWindows = overviewController?.usesWorkspaceParking == true
-        let timestamp = ProcessInfo.processInfo.systemUptime
+        let timestamp = DefiClock.uptime
         NavigationActor.enqueue { [self] in
           overviewExitPreparationActive = false
           overviewState.isOpen = isOpen
@@ -365,7 +367,7 @@ extension Daemon {
     let previousSelectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
-    let inputTimestamp = ProcessInfo.processInfo.systemUptime
+    let inputTimestamp = DefiClock.uptime
     do {
       let focusedMonitorID = try focusOverviewWindow(
         OverviewWindowIntent(
@@ -451,7 +453,7 @@ extension Daemon {
   ) {
     guard overviewToggleState.isCurrentSession(overviewGeneration) else { return }
     overviewEditedMonitorIDs.formUnion(applyOverviewScrollOffsets(offsets, state: &state))
-    let inputTimestamp = ProcessInfo.processInfo.systemUptime
+    let inputTimestamp = DefiClock.uptime
     do {
       let selectedWindowID = try focusOverviewWorkspace(
         monitorID: monitorID,
@@ -548,7 +550,7 @@ extension Daemon {
     sourceWorkspaceID: WorkspaceID,
     target: OverviewDropTarget
   ) {
-    let inputTimestamp = ProcessInfo.processInfo.systemUptime
+    let inputTimestamp = DefiClock.uptime
     do {
       let result = try applyOverviewDrop(
         OverviewWindowIntent(

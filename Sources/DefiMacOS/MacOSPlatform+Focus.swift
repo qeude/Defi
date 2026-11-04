@@ -16,7 +16,7 @@ extension MacOSPlatform {
     submittedFocusRecoveryRequestID = nil
     submittedFocusRecoveryTimestamp = nil
     submittedFocusRecoveryGeneration = nil
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     internalFocusSuppressions = internalFocusSuppressions.filter {
       $0.value.deadline >= now
     }
@@ -45,7 +45,7 @@ extension MacOSPlatform {
   ) {
     focusRecoveryIntentGeneration &+= 1
     focusRecoveryResolver.invalidate()
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     internalFocusSuppressions = focusSuppressionsAfterRecoveryInvalidation(
       internalFocusSuppressions,
       now: now,
@@ -168,7 +168,7 @@ extension MacOSPlatform {
     if suppressesNativeFocusEvent {
       let requestInputTimestamp = maximumUserInputTimestamp
         ?? userInputTracker.latestEventTimestamp
-      let suppressionDeadline = ProcessInfo.processInfo.systemUptime + 2
+      let suppressionDeadline = DefiClock.uptime + 2
       if focusWriter.isBusy {
         internalFocusSuppressions = internalFocusSuppressions.mapValues {
           extendingInternalFocusSuppression(
@@ -509,7 +509,7 @@ extension MacOSPlatform {
 
   private func activateFocusRecoveryProcess(_ processID: pid_t) {
     frameCoordinator.recordTrace("focus-recovery pid=\(processID)")
-    let application = applications[processID] ?? AXUIElementCreateApplication(processID)
+    let application = applications[processID] ?? accessibilityApplication(processID)
     nextFocusRecoveryGeneration &+= 1
     let generation = nextFocusRecoveryGeneration
     let timestamp = userInputTracker.latestEventTimestamp

@@ -46,7 +46,7 @@ extension Daemon {
     source: String = "layout"
   ) {
     guard !restorationInFlight, !shouldShutdown else { return }
-    let layoutStartedAt = ProcessInfo.processInfo.systemUptime
+    let layoutStartedAt = DefiClock.uptime
     var assignments: [FrameAssignment] = []
     var ribbonFrames: [FrameAssignment] = []
     var borderAssignments: [FrameAssignment] = []
@@ -195,9 +195,9 @@ extension Daemon {
       state.selectedWindowID(on: $0)
     }
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
-    let borderStartedAt = ProcessInfo.processInfo.systemUptime
+    let borderStartedAt = DefiClock.uptime
     let layoutMS =
-      (ProcessInfo.processInfo.systemUptime - layoutStartedAt) * 1_000
+      (DefiClock.uptime - layoutStartedAt) * 1_000
     platform.recordPerformanceTrace(
       "frame-submit source=\(source) cg=\(commandPerformance?.generation.description ?? "none") layoutMs=\(String(format: "%.2f", layoutMS))"
     )
@@ -280,7 +280,7 @@ extension Daemon {
     )
     if tracesWindowCreation {
       let elapsedMS =
-        (ProcessInfo.processInfo.systemUptime - borderStartedAt) * 1_000
+        (DefiClock.uptime - borderStartedAt) * 1_000
       platform.recordPerformanceTrace(
         "initial-border-prepare ms=\(String(format: "%.2f", elapsedMS))"
       )

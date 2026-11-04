@@ -1,4 +1,5 @@
 import AppKit
+import DefiModel
 import ApplicationServices
 
 struct AXFocusOperations: @unchecked Sendable {
@@ -28,13 +29,14 @@ struct AXFocusOperations: @unchecked Sendable {
     NSRunningApplication(processIdentifier: $0)?.isActive == true
   }
   var prepareActivation: () -> (AXUIElement) -> AXError = {
-    let system = AXUIElementCreateSystemWide()
+    let system = accessibilitySystemWide()
     return {
       AXUIElementSetAttributeValue(system, kAXFocusedApplicationAttribute as CFString, $0)
     }
   }
   var activateApplication: (pid_t) -> Bool = {
-    NSRunningApplication(processIdentifier: $0)?.activate() == true
+    RealResourceGuard.check("NSRunningApplication.activate")
+    return NSRunningApplication(processIdentifier: $0)?.activate() == true
   }
   var withTimeout: (Float, [AXUIElement], () -> Void) -> Void = { timeout, elements, perform in
     AXMessagingTimeoutAccess.shared.withTimeout(timeout, elements: elements, perform: perform)

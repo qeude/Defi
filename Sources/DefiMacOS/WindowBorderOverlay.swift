@@ -80,7 +80,7 @@ final class BorderOverlay {
     return nil
   }
 
-  init(windowID: WindowID, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+  init(windowID: WindowID, now: @escaping () -> TimeInterval = { DefiClock.uptime }) {
     let targetWindowNumber = Int(windowID.rawValue)
     segments = Dictionary(
       uniqueKeysWithValues: WindowBorderSegmentKind.allCases.map {
@@ -320,6 +320,7 @@ private final class BorderSegment {
   init(targetWindowNumber: Int, now: @escaping () -> TimeInterval) {
     self.targetWindowNumber = targetWindowNumber
     self.now = now
+    RealResourceGuard.check("AppKit panel")
     panel = NSPanel(
       contentRect: .zero,
       styleMask: [.nonactivatingPanel],

@@ -154,7 +154,7 @@ extension Daemon {
     invalidateSubmittedWorkspaceFocus(recoveringTo: windowID)
     cancelSubmittedPointerFocus(recoveringTo: windowID)
     activeMonitorID = monitorID
-    platform.recordPerformanceTrace("\(trace) window=\(windowID.rawValue) inputAgeMs=\(inputAt.map { String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - $0) * 1_000) } ?? "none")")
+    platform.recordPerformanceTrace("\(trace) window=\(windowID.rawValue) inputAgeMs=\(inputAt.map { String(format: "%.1f", (DefiClock.uptime - $0) * 1_000) } ?? "none")")
     platform.commitWindowBorderSelection(windowID)
     startScrollAnimationsIfNeeded()
     _ = dispatchScrollAnimationIfNeeded()

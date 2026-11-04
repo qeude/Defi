@@ -145,7 +145,7 @@ public final class UserInputTracker: @unchecked Sendable {
 
   public func recordApplicationActivation(
     processID: pid_t,
-    at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+    at timestamp: TimeInterval = DefiClock.uptime
   ) {
     lock.lock()
     defer { lock.unlock() }
@@ -158,7 +158,7 @@ public final class UserInputTracker: @unchecked Sendable {
   /// Pending resolution is bounded and belongs only to the current frontmost app.
   public func pendingApplicationActivation(
     frontmostProcessID: @autoclosure () -> pid_t?,
-    at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+    at timestamp: TimeInterval = DefiClock.uptime
   ) -> ApplicationActivation? {
     lock.lock()
     guard let activation = applicationActivation else {

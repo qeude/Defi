@@ -35,6 +35,7 @@ extension Daemon {
     let visible = cheatsheetState.isVisible
     let config = config
     let targetMonitor = monitorID ?? activeMonitorID ?? state.monitors.first?.id
+    guard !headless else { return }
     DispatchQueue.main.async { [self] in
       if visible {
         let controller = cheatsheetController ?? CheatsheetController(config: config)

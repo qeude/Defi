@@ -110,6 +110,7 @@ private final class NativeFullscreenPlaceholderPanel {
       appID: placeholder.appID,
       title: placeholder.title
     )
+    RealResourceGuard.check("AppKit panel")
     panel = NSPanel(
       contentRect: .zero,
       styleMask: [.borderless, .nonactivatingPanel],

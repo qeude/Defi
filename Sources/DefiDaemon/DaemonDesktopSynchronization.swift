@@ -202,7 +202,7 @@ extension Daemon {
         scheduleTick()
       }
     }
-    let snapshotCompletedAt = ProcessInfo.processInfo.systemUptime
+    let snapshotCompletedAt = DefiClock.uptime
     if shouldCloseOverviewAfterNativeFocusChange(
       nativeFocusChanged: snapshot.nativeFocusChanged,
       overviewOpenedAt: overviewOpenedAt,
@@ -545,7 +545,7 @@ extension Daemon {
           mouseReleaseFocusIntentCurrent: mouseReleaseFocusIntentCurrent,
           keyboardFocusIntentCurrent: keyboardFocusIntentCurrent,
           nativeFocusSuppressed:
-            ProcessInfo.processInfo.systemUptime < suppressNativeFocusUntil,
+            DefiClock.uptime < suppressNativeFocusUntil,
           applicationActivationTimestamp: activationTimestamp,
           latestCommandInputTimestamp: latestFocusIntentTimestamp
         )
@@ -831,7 +831,7 @@ extension Daemon {
           if !droppedOnOverlay, mouseFrameWasResized(from: mouseGestureInitialFrame, to: releasedFrame) {
             releasedResizeFrame = releasedFrame
           }
-          let now = ProcessInfo.processInfo.systemUptime
+          let now = DefiClock.uptime
           animatesMouseDrop = animationsEnabled && state.windows[gestureWindowID]?.floating == false
             && ((draggedByUser && mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: releasedFrame))
               || mouseFrameWasResized(from: mouseGestureInitialFrame, to: releasedFrame))
@@ -868,7 +868,7 @@ extension Daemon {
           let update = advanceMouseGestureSettlement(
             settlement,
             actualFrame: actualFrame,
-            now: ProcessInfo.processInfo.systemUptime
+            now: DefiClock.uptime
           )
           mouseGestureSettlement = update.settlement
           if update.shouldFinish {

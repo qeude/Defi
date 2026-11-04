@@ -1255,7 +1255,7 @@ extension SnapshotEngine {
     // Stored once per read, on every exit: pointer focus never sees a half-done read.
     var focusedPopup = false
     defer { nativeFocusIsAppPopup = focusedPopup }
-    let system = AXUIElementCreateSystemWide()
+    let system = accessibilitySystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
       .withTimeout(
         focusSnapshotAccessibilityTimeoutSeconds,
@@ -1309,7 +1309,7 @@ extension SnapshotEngine {
     { return nil }
     let focusedApplicationElement: AXUIElement =
       readFocusedProcessID && focusedProcessID == resolvedProcessID
-      ? systemFocusedElement! : AXUIElementCreateApplication(resolvedProcessID)
+      ? systemFocusedElement! : accessibilityApplication(resolvedProcessID)
     if resolvedProcessID != focusedProcessID && !requiresConfirmedWindow {
       if let stable = stableWindowID(
         processID: resolvedProcessID,

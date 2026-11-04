@@ -133,7 +133,7 @@ struct FrameCommitTests {
     let original = coordinator.processWriteQueue(for: 42)
     defer { releaseWork.signal() }
 
-    coordinator.enqueueProcessWrite(for: 42, after: .now() + 0.1) {
+    coordinator.enqueueProcessWrite(for: 42, after: 0.1) {
       workStarted.signal()
       releaseWork.wait()
     }

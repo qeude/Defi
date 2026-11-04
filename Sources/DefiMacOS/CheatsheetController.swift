@@ -39,6 +39,7 @@ public final class CheatsheetController {
       width: size.width, height: size.height
     )
     // With a screen, the content rect is relative to that screen's origin.
+    RealResourceGuard.check("AppKit panel")
     let panel = CheatsheetPanel(
       contentRect: frame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY),
       styleMask: [.borderless, .nonactivatingPanel],

@@ -1,4 +1,5 @@
 import ApplicationServices
+import DefiModel
 import Foundation
 
 final class AXMessagingTimeoutAccess: @unchecked Sendable {
@@ -34,9 +35,9 @@ final class AXMessagingTimeoutAccess: @unchecked Sendable {
     observeWait: ((TimeInterval) -> Void)? = nil,
     perform: () throws -> Result
   ) rethrows -> Result {
-    let waitingSince = observeWait.map { _ in ProcessInfo.processInfo.systemUptime }
+    let waitingSince = observeWait.map { _ in DefiClock.uptime }
     let acquisition = acquireLocks(for: elements)
-    if let waitingSince { observeWait?(ProcessInfo.processInfo.systemUptime - waitingSince) }
+    if let waitingSince { observeWait?(DefiClock.uptime - waitingSince) }
     defer {
       releaseLocks(acquisition, elements: elements)
     }

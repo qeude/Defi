@@ -1,4 +1,5 @@
 import Darwin
+import DefiModel
 import DefiRuntime
 import Foundation
 
@@ -49,7 +50,8 @@ struct WorkspaceTopologyStore {
   }
 
   static var defaultURL: URL {
-    FileManager.default.homeDirectoryForCurrentUser
+    RealResourceGuard.check("default workspace topology store")
+    return     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: "Library/Application Support/Defi/workspace-topology.json")
   }
 }

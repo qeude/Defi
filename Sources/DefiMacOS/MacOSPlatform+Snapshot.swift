@@ -80,7 +80,7 @@ extension SnapshotEngine {
     let fallbackFreshReadProcessIDs = fallbackWindowRefreshProcessIDs(
       uncovered: uncoveredProcessIDs, incompatible: platformInputs.incompatible,
       eventProcessIDs: topologyProcessIDs.union(frameProcessIDs),
-      force: forceFullWindowRefresh, now: ProcessInfo.processInfo.systemUptime,
+      force: forceFullWindowRefresh, now: DefiClock.uptime,
       deadlines: &fallbackFreshReadDeadlines
     )
     if eventRequiresFullSnapshot {
@@ -134,7 +134,7 @@ extension SnapshotEngine {
       )
     }
     let urgentProcessIDs = eventProcessIDs.union(
-      urgentRetentionProcessIDs(at: ProcessInfo.processInfo.systemUptime)
+      urgentRetentionProcessIDs(at: DefiClock.uptime)
     )
     let chunkedFullActive =
       !applications.isEmpty
@@ -167,7 +167,7 @@ extension SnapshotEngine {
         defersBackgroundReads: defersBackgroundReads,
         maximumDeferredAgeSeconds: 0.5,
         deferredSince: deferredFreshReadsStartedAt,
-        now: ProcessInfo.processInfo.systemUptime
+        now: DefiClock.uptime
       )
       effectiveIncrementalProcessIDs = partition.allowedNow
       chunkedFullRefreshRemainingProcessIDs =
@@ -193,7 +193,7 @@ extension SnapshotEngine {
         defersBackgroundReads: defersBackgroundReads,
         maximumDeferredAgeSeconds: 0.5,
         deferredSince: deferredFreshReadsStartedAt,
-        now: ProcessInfo.processInfo.systemUptime
+        now: DefiClock.uptime
       )
       deferredFreshReadProcessIDs = partition.stillDeferred
       deferredFreshReadsStartedAt = partition.deferredSince
@@ -249,11 +249,11 @@ extension SnapshotEngine {
         cachedCGWindows = reusableCGWindows
         return cachedCGWindows
       }
-      let copyStartedAt = ProcessInfo.processInfo.systemUptime
+      let copyStartedAt = DefiClock.uptime
       let inventoryGeneration = windowSnapshotObservationGeneration
       let copied = discoveryMeasurementAccess?.snapshotCGWindows.map { $0() } ?? copyCGWindowsIfAvailable()
       let copyDurationMS =
-        (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
+        (DefiClock.uptime - copyStartedAt) * 1_000
       snapshotCGWindowCopyCount += 1
       lastSnapshotCGWindowCopyDurationMS = copyDurationMS
       maximumSnapshotCGWindowCopyDurationMS = max(
@@ -283,7 +283,7 @@ extension SnapshotEngine {
       Set(applications.keys).subtracting(Set(lastApplicationWindowElements.keys))
     )
     func shouldReadProcess(_ processID: pid_t) -> Bool {
-      let now = ProcessInfo.processInfo.systemUptime
+      let now = DefiClock.uptime
       guard !eventRequiresFullSnapshot, !forceApplicationInventoryRefresh,
         !alwaysReadsProcesses.contains(processID), overlayMoving(),
         !urgentRetentionProcessIDs(at: now).contains(processID),
@@ -474,7 +474,7 @@ extension SnapshotEngine {
       processIDs: currentCGWindows == nil
         ? dueCGWindowRetryProcessIDs
         : dueCGWindowRetryProcessIDs.intersection(discovery.refreshedProcessIDs),
-      now: ProcessInfo.processInfo.systemUptime,
+      now: DefiClock.uptime,
       unresolved: currentCGWindows == nil ? nil : unresolvedOutcomes
     )
     cgWindowDiscoveryRetries = retries
@@ -490,7 +490,7 @@ extension SnapshotEngine {
     for diagnostic in diagnostics
     where previousSignatures[diagnostic.identity] != diagnostic.traceSignature {
       frameCoordinator.recordTrace(
-        "window-discovery \(diagnostic.detail(now: ProcessInfo.processInfo.systemUptime))"
+        "window-discovery \(diagnostic.detail(now: DefiClock.uptime))"
       )
     }
     for identity in previousSignatures.keys where nextSignatures[identity] == nil {
@@ -538,7 +538,7 @@ extension SnapshotEngine {
         $0.rawValue < $1.rawValue
       }.map { String($0.rawValue) }.joined(separator: ",")
       let elapsedMS =
-        (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+        (DefiClock.uptime - snapshotStartedAt) * 1_000
       frameCoordinator.recordTrace(
         "window-snapshot mode=\(snapshotMode) ms=\(String(format: "%.2f", elapsedMS)) discovered=\(newlyDiscoveredWindowIDs.count)[\(discoveredIDs)] total=\(windows.count)"
       )
@@ -627,7 +627,7 @@ extension SnapshotEngine {
     }
     frameCoordinator.pruneRecentInternalFrameWrites(
       liveWindowIDs: Set(nextElements.keys),
-      now: ProcessInfo.processInfo.systemUptime
+      now: DefiClock.uptime
     )
     frameCoordinator.pruneProcessLatencyState(
       liveProcessIDs: Set(nextApplications.keys)
@@ -798,7 +798,7 @@ extension SnapshotEngine {
     let frontmostProcessID = currentFrontmostProcessID(
       appKitProcessID: frontmostApplication.0,
       appKitBundleID: frontmostApplication.1,
-      cgWindows: borderStackingInventory(now: ProcessInfo.processInfo.systemUptime)
+      cgWindows: borderStackingInventory(now: DefiClock.uptime)
     )
     lastResolvedFrontmostProcessID = frontmostProcessID
     let activation = userInputTracker.pendingApplicationActivation(
@@ -883,7 +883,7 @@ extension SnapshotEngine {
     if !nativeFocusEventShouldRemainPending(
       eventPending: nativeFocusEventPending,
       targetMatched: nativeFocusTargetMatched,
-      eventAge: ProcessInfo.processInfo.systemUptime - nativeFocusEventTimestamp,
+      eventAge: DefiClock.uptime - nativeFocusEventTimestamp,
       sourceIsFrontmost: nativeFocusEventHasUnknownProcess
         || frontmostProcessID.map(nativeFocusEventProcessIDs.contains) == true
     ) {
@@ -899,13 +899,13 @@ extension SnapshotEngine {
     }
     if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
       let elapsedMS =
-        (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+        (DefiClock.uptime - snapshotStartedAt) * 1_000
       frameCoordinator.recordTrace(
         "window-snapshot-complete ms=\(String(format: "%.2f", elapsedMS))"
       )
     }
     let snapshotDurationMS =
-      (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+      (DefiClock.uptime - snapshotStartedAt) * 1_000
     lastWindowSnapshotDurationMS = snapshotDurationMS
     maximumWindowSnapshotDurationMS = max(
       maximumWindowSnapshotDurationMS,

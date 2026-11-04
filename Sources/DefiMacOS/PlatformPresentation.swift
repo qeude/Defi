@@ -106,9 +106,11 @@ extension MacOSPlatform {
   @MainActor func publishPresentationStatus() {
     guard !presentationStatusPending else { return }
     presentationStatusPending = true
-    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [self] in
-      presentationStatusPending = false
-      collectPresentationStatus()
+    DefiClock.after(0.016, on: .main) { [self] in
+      MainActor.assumeIsolated {
+        presentationStatusPending = false
+        collectPresentationStatus()
+      }
     }
   }
 
@@ -139,7 +141,8 @@ extension MacOSPlatform {
       failureCodes: failureCodes,
       coverage: eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0, 0),
       frontmostProcessID:
-        positiveProcessID(NSWorkspace.shared.frontmostApplication?.processIdentifier)
+        positiveProcessID(system.frontmostProcessID.map { $0() }
+          ?? NSWorkspace.shared.frontmostApplication?.processIdentifier)
         ?? snapshotEngine.lastResolvedFrontmostProcessID,
       reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
       borders: borderManager.performance

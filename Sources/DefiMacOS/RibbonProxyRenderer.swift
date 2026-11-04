@@ -313,6 +313,7 @@ final class RibbonProxyRenderer {
   }
 
   private func makePanel(frame: CGRect) -> NSPanel {
+    RealResourceGuard.check("AppKit panel")
     let panel = NSPanel(contentRect: frame,
       styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false

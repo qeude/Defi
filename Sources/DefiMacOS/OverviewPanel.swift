@@ -62,6 +62,7 @@ final class OverviewPanel {
     self.usesCapturedDesktop = usesCapturedDesktop
     view = OverviewView(monitorID: monitorID, delegate: delegate)
     desktopView = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+    RealResourceGuard.check("AppKit panel")
     window = NSPanel(
       contentRect: screen.frame,
       styleMask: [.borderless, .nonactivatingPanel],

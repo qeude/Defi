@@ -170,7 +170,7 @@ extension Daemon {
   }
 
   func startScrollAnimationsIfNeeded() {
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     for monitorIndex in state.monitors.indices {
       let activeWorkspace = state.monitors[monitorIndex].activeWorkspace
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {

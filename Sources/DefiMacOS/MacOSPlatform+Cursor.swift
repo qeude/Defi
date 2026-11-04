@@ -169,7 +169,7 @@ private func coversMonitor(_ frame: Rect, monitorFrames: [Rect]) -> Bool {
 // tells their content from the empty area that lets the pointer through.
 func notificationCenterContentIsUnder(_ location: CGPoint, processIDs: Set<pid_t>) -> Bool {
   processIDs.contains { processID in
-    let application = AXUIElementCreateApplication(processID)
+    let application = accessibilityApplication(processID)
     AXUIElementSetMessagingTimeout(application, 0.1)
     var element: AXUIElement?
     guard AXUIElementCopyElementAtPosition(application, Float(location.x), Float(location.y), &element) == .success,
@@ -238,7 +238,7 @@ extension MacOSPlatform {
   ) {
     // Unresolved pointer motion can arrive at 120 Hz. Keep WindowServer and
     // Dock enumeration out of the hot path while retaining a bounded staleness.
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     if pointerHitTestCacheIsFresh(
       cachedAt: pointerHitTestSnapshotTimestamp,
       now: now
@@ -378,6 +378,7 @@ extension MacOSPlatform {
           let currentLocation = CGEvent(source: nil)?.location,
           let destination = cursorWarpDestination(frame: frame, currentLocation: currentLocation)
         else { return nil }
+        RealResourceGuard.check("CGWarpMouseCursorPosition")
         return CGWarpMouseCursorPosition(destination)
       }
       NavigationActor.enqueue { [self] in

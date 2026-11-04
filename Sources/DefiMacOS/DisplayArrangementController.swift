@@ -29,7 +29,7 @@ public final class DisplayArrangementController {
       primaryDisplay: { MonitorID(rawValue: UInt64(CGMainDisplayID())) },
       isMirrored: { CGDisplayIsInMirrorSet(CGDirectDisplayID($0.rawValue)) != 0 },
       pointerRouter: pointerRouter,
-      stateURL: sessionID == nil ? nil : FileManager.default.homeDirectoryForCurrentUser
+      stateURL: sessionID == nil ? nil : Self.realSessionStore() ?? FileManager.default.homeDirectoryForCurrentUser
         .appending(path: "Library/Application Support/Defi/display-arrangement.json"),
       sessionID: sessionID
     )
@@ -221,7 +221,14 @@ public final class DisplayArrangementController {
     })
   }
 
+  // The display arrangement store lives in the user session; isolated tests must inject one.
+  private static func realSessionStore() -> URL? {
+    RealResourceGuard.check("default display arrangement store")
+    return nil
+  }
+
   static func apply(_ frames: [MonitorID: Rect], scope: CGConfigureOption = .forAppOnly) -> CGError {
+    RealResourceGuard.check("CGConfigureDisplayOrigin")
     var transaction: CGDisplayConfigRef?
     let begin = CGBeginDisplayConfiguration(&transaction)
     guard begin == .success, let transaction else { return begin }
@@ -269,6 +276,7 @@ public final class DisplayPointerRouter: @unchecked Sendable {
     source?.localEventsSuppressionInterval = 0
     self.init(warpPointer: { point in
       withExtendedLifetime(source) {}
+      RealResourceGuard.check("CGWarpMouseCursorPosition")
       let result = CGWarpMouseCursorPosition(point)
       if result == .success { CGAssociateMouseAndMouseCursorPosition(1) }
       return result

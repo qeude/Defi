@@ -81,7 +81,7 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
     else {
       return nil
     }
-    let application = AXUIElementCreateApplication(processID)
+    let application = accessibilityApplication(processID)
     guard let windows = AXMessagingTimeoutAccess.shared.withTimeout(
       0.025,
       elements: [application],

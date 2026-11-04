@@ -1,0 +1,59 @@
+name: Desktop
+
+# Desktop tests on a hosted macOS runner, with Defi-owned fixture windows only. Hosted runners
+# allow sudo writes to the system TCC database, so the test processes get Accessibility before
+# the tests start. Screen Recording is not granted, so previews and the overlay stay off.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop tests
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build tests and fixtures
+        run: ./script/test_desktop.sh --build-tests
+
+      - name: Grant Accessibility to the test processes
+        run: |
+          developer="$(xcode-select -p)"
+          clients=(
+            /bin/bash
+            "$developer/usr/bin/xctest"
+            "$developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper"
+            "$PWD/.build/desktop-fixtures/DefiDesktopFocusFixture"
+          )
+          for client in "${clients[@]}"; do
+            [ -e "$client" ] || { echo "::warning::missing $client"; continue; }
+            sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+              "INSERT OR REPLACE INTO access(service,client,client_type,auth_value,auth_reason,auth_version,csreq,policy_id,indirect_object_identifier_type,indirect_object_identifier,indirect_object_code_identity,flags,last_modified) VALUES('kTCCServiceAccessibility','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$(date +%s));"
+          done
+          sudo launchctl stop com.apple.tccd 2>/dev/null || true
+          sleep 2
+
+      - name: Desktop tests
+        run: ./script/test_desktop.sh 2>&1 | tee desktop.log
+
+      - name: Report Accessibility availability
+        if: always()
+        run: |
+          if grep -q "DEFI_E2E accessibility=available" desktop.log; then
+            echo "Accessibility was available."
+          else
+            echo "::error::Accessibility was not available; the desktop tests did not run for real."
+            exit 1
+          fi

@@ -69,7 +69,7 @@ func internalFocusSuppressionAfterCompletion(
   _ suppression: InternalFocusSuppression?,
   requestID: UInt64,
   result: NativeFocusResult,
-  at timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+  at timestamp: TimeInterval = DefiClock.uptime
 ) -> InternalFocusSuppression? {
   guard let suppression, suppression.requestID == requestID else {
     return suppression

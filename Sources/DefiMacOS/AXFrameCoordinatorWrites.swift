@@ -76,13 +76,13 @@ extension AXFrameCoordinator {
         group.enter()
         enqueueProcessWrite(for: batch.processID) { [self] in
           defer { group.leave() }
-          let batchStartedAt = ProcessInfo.processInfo.systemUptime
+          let batchStartedAt = DefiClock.uptime
           let result = applyBatch(batch, frame: frame)
           accumulator.add(
             applied: result.applied,
             stale: result.stale,
             processID: batch.processID,
-            processLatencyMS: (ProcessInfo.processInfo.systemUptime - batchStartedAt) * 1_000,
+            processLatencyMS: (DefiClock.uptime - batchStartedAt) * 1_000,
             attempted: result.attempted
           )
         }
@@ -181,14 +181,14 @@ extension AXFrameCoordinator {
     for processID: pid_t,
     qos: DispatchQoS = .unspecified,
     flags: DispatchWorkItemFlags = [],
-    after deadline: DispatchTime? = nil,
+    after delay: TimeInterval? = nil,
     operation: @escaping @Sendable () -> Void
   ) {
     enqueueProcessWrite(
       using: reserveProcessWriteQueue(for: processID),
       qos: qos,
       flags: flags,
-      after: deadline,
+      after: delay,
       operation: operation
     )
   }
@@ -197,17 +197,17 @@ extension AXFrameCoordinator {
     using reservation: ProcessWriteQueueReservation,
     qos: DispatchQoS = .unspecified,
     flags: DispatchWorkItemFlags = [],
-    after deadline: DispatchTime? = nil,
+    after delay: TimeInterval? = nil,
     operation: @escaping @Sendable () -> Void
   ) {
     let work: @Sendable () -> Void = {
       defer { reservation.release() }
       operation()
     }
-    if let deadline {
-      reservation.queue.asyncAfter(
-        deadline: deadline, qos: qos, flags: flags, execute: work
-      )
+    if let delay {
+      DefiClock.after(delay, on: reservation.queue) {
+        reservation.queue.async(qos: qos, flags: flags, execute: work)
+      }
     } else {
       reservation.queue.async(qos: qos, flags: flags, execute: work)
     }
@@ -363,7 +363,7 @@ extension AXFrameCoordinator {
       }
       let point = item.value.point
       let size = item.value.size
-      let writeStartedAt = ProcessInfo.processInfo.systemUptime
+      let writeStartedAt = DefiClock.uptime
       let timeout = frameMessagingTimeout(item.value)
       let requiresAsynchronousSizeWrite = asynchronousSizeWriteIsRequired(
         sizeChanged: item.value.sizeChanged,
@@ -394,7 +394,7 @@ extension AXFrameCoordinator {
         elements: applicationTimeoutManagedByBatch ? [item.value.element] : [item.value.application, item.value.element],
         observeWait: { timeoutWaitMS = $0 * 1_000 }
       ) {
-        let timeoutConfiguredAt = ProcessInfo.processInfo.systemUptime
+        let timeoutConfiguredAt = DefiClock.uptime
         let generationIsCurrent = isCurrent(generation: frame.generation)
         // Growth that macOS would clamp to the display at the window's current
         // position resizes after the move instead.
@@ -447,11 +447,11 @@ extension AXFrameCoordinator {
             shouldApply: { self.isCurrent(generation: frame.generation) }
           )
         }
-        let positionStartedAt = ProcessInfo.processInfo.systemUptime
+        let positionStartedAt = DefiClock.uptime
         var positionApplied = generationIsCurrent
           && (!positionWriteRequired || applyFinalPosition())
         let positionDurationMS =
-          (ProcessInfo.processInfo.systemUptime - positionStartedAt) * 1_000
+          (DefiClock.uptime - positionStartedAt) * 1_000
         if resizesAfterMove {
           applyAsynchronousSize()
           if sizeApplied, isCurrent(generation: frame.generation) {
@@ -494,7 +494,7 @@ extension AXFrameCoordinator {
           positionApplied: positionApplied,
           acceptedPosition: acceptedPosition,
           timeoutConfiguredAt: timeoutConfiguredAt,
-          positionAppliedAt: ProcessInfo.processInfo.systemUptime,
+          positionAppliedAt: DefiClock.uptime,
           positionDurationMS: positionDurationMS
         )
       }
@@ -511,7 +511,7 @@ extension AXFrameCoordinator {
       )
       let timeoutConfiguredAt = writeResult.timeoutConfiguredAt
       let positionAppliedAt = writeResult.positionAppliedAt
-      let timeoutResetAt = ProcessInfo.processInfo.systemUptime
+      let timeoutResetAt = DefiClock.uptime
       let writeElapsedMS =
         (timeoutResetAt - writeStartedAt) * 1_000
       if sizeApplied, requiresAsynchronousSizeWrite {
@@ -631,7 +631,7 @@ extension AXFrameCoordinator {
   ) {
     enqueueProcessWrite(
       for: processID,
-      after: .now() + enhancedUIRestoreDelay
+      after: enhancedUIRestoreDelay
     ) { [weak self] in
       guard let self else { return }
       lock.lock()
@@ -698,7 +698,7 @@ extension AXFrameCoordinator {
     }
     // A successful AX write can still be clamped by the application.
     guard sizeWasReadBack else { return }
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     borderGeometryWrittenAt[windowID] = now
     let point = borderGeometries[windowID].map {
       CGPoint(x: $0.frame.x, y: $0.frame.y)
@@ -734,7 +734,7 @@ extension AXFrameCoordinator {
         for (_, write) in writes.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
           guard isCurrent(generation: frame.generation) else { break }
           guard let target = write.binding, snapshotEngine.borderBindingIsCurrent(target) else { continue }
-          let sampledAt = ProcessInfo.processInfo.systemUptime
+          let sampledAt = DefiClock.uptime
           let accepted = messagingTimeoutAccess.withTimeout(
             max(write.timeoutSeconds, 0.025), elements: [target.application, target.element]
           ) { accessibilityWriter.readFrame(target.element) }

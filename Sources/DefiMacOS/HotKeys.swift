@@ -167,53 +167,7 @@ public final class HotKeyManager {
         .takeUnretainedValue()
       return context.handle(type: type, event: event)
     }
-    let handler = self.handler
-    let pointerMotionHandler = self.pointerMotionHandler
-    let tapReenabledHandler = self.tapReenabledHandler
-    let closeIntentHandler = self.closeIntentHandler
-    let overviewHandler = self.overviewHandler
-    let overviewCancelHandler = self.overviewCancelHandler
-    let cheatsheetHandler = self.cheatsheetHandler
-    let context = InputMonitor(
-      bindings: bindings.mapValues(\.command),
-      userInputTracker: userInputTracker,
-      pointerMotionTracker: pointerMotionTracker,
-      displayPointerRouter: displayPointerRouter,
-      tracksPointerWindowTransitions: pointerMotionHandler != nil,
-      cheatsheetModifierBits: bindingError == nil ? cheatsheetModifierBits : nil,
-      deliverCheatsheet: { input in
-        NavigationActor.enqueue {
-          cheatsheetHandler(input)
-        }
-      }
-    ) { invocation in
-      NavigationActor.enqueue {
-        handler(invocation)
-      }
-    } deliverOverview: { action in
-      // Escape and the overview toggle must not queue behind slow AX work.
-      if action == .cancel, let overviewCancelHandler {
-        overviewCancelHandler()
-        return
-      }
-      NavigationActor.enqueue {
-        overviewHandler(action)
-      }
-    } deliverPointerMotion: { invocation in
-      NavigationActor.enqueue {
-        pointerMotionHandler?(invocation)
-      }
-    } tapReenabled: { timestamp in
-      NavigationActor.enqueue {
-        tapReenabledHandler(timestamp)
-      }
-    } closeIntent: { timestamp, processID in
-      NavigationActor.enqueue {
-        closeIntentHandler(timestamp, processID)
-      }
-    } keyboardCaptured: {
-      keyboardCapturedByAnotherApp()
-    }
+    let context = makeInputMonitor(keyboardCaptured: keyboardCapturedByAnotherApp)
     // Install interception first so passive observation sees routed pointer events.
     // Ordinary shortcuts always pass through the filtering callback unchanged.
     let interceptorMask = mask & ~CGEventMask(
@@ -248,6 +202,66 @@ public final class HotKeyManager {
       throw HotKeyError.eventTapUnavailable
     }
     registerHotKeys(in: context)
+  }
+
+  private func makeInputMonitor(keyboardCaptured: @escaping @Sendable () -> Bool) -> InputMonitor {
+      let handler = self.handler
+      let pointerMotionHandler = self.pointerMotionHandler
+      let tapReenabledHandler = self.tapReenabledHandler
+      let closeIntentHandler = self.closeIntentHandler
+      let overviewHandler = self.overviewHandler
+      let overviewCancelHandler = self.overviewCancelHandler
+      let cheatsheetHandler = self.cheatsheetHandler
+      return InputMonitor(
+        bindings: bindings.mapValues(\.command),
+        userInputTracker: userInputTracker,
+        pointerMotionTracker: pointerMotionTracker,
+        displayPointerRouter: displayPointerRouter,
+        tracksPointerWindowTransitions: pointerMotionHandler != nil,
+        cheatsheetModifierBits: bindingError == nil ? cheatsheetModifierBits : nil,
+        deliverCheatsheet: { input in
+          NavigationActor.enqueue {
+            cheatsheetHandler(input)
+          }
+        }
+      ) { invocation in
+        NavigationActor.enqueue {
+          handler(invocation)
+        }
+      } deliverOverview: { action in
+        // Escape and the overview toggle must not queue behind slow AX work.
+        if action == .cancel, let overviewCancelHandler {
+          overviewCancelHandler()
+          return
+        }
+        NavigationActor.enqueue {
+          overviewHandler(action)
+        }
+      } deliverPointerMotion: { invocation in
+        NavigationActor.enqueue {
+          pointerMotionHandler?(invocation)
+        }
+      } tapReenabled: { timestamp in
+        NavigationActor.enqueue {
+          tapReenabledHandler(timestamp)
+        }
+      } closeIntent: { timestamp, processID in
+        NavigationActor.enqueue {
+          closeIntentHandler(timestamp, processID)
+        }
+      } keyboardCaptured: {
+        keyboardCaptured()
+      }
+  }
+
+  /// The input path of `start()` without event taps, its thread or global hotkeys: a
+  /// simulated desktop feeds synthetic events to the returned monitor's `handle(type:event:)`.
+  func attachInputMonitorWithoutEventTaps(
+    keyboardCaptured: @escaping @Sendable () -> Bool
+  ) -> InputMonitor {
+    let context = makeInputMonitor(keyboardCaptured: keyboardCaptured)
+    self.context = context
+    return context
   }
 
   private func registerHotKeys(in context: InputMonitor) {
@@ -379,6 +393,7 @@ final class InputMonitor: @unchecked Sendable {
     options: CGEventTapOptions, mask: CGEventMask, callback: CGEventTapCallBack
   ) throws -> CFMachPort {
     let reference = Unmanaged.passRetained(self)
+    RealResourceGuard.check("CGEvent.tapCreate")
     guard let port = CGEvent.tapCreate(
       tap: .cgSessionEventTap, place: hotKeyEventTapPlacement, options: options,
       eventsOfInterest: mask, callback: callback, userInfo: reference.toOpaque()
@@ -743,9 +758,7 @@ final class InputMonitor: @unchecked Sendable {
     lock.unlock()
 
     guard schedulesDelivery else { return }
-    NavigationActor.shared.queue.asyncAfter(
-      deadline: .now() + deliveryDelay
-    ) { [weak self] in
+    DefiClock.after(deliveryDelay, on: NavigationActor.shared.queue) { [weak self] in
       self?.flushPointerMotion(generation: deliveryGeneration)
     }
   }

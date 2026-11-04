@@ -1,10 +1,16 @@
-.PHONY: build test run install verify verify-desktop verify-status package-release
+.PHONY: build check test run install verify verify-desktop verify-status package-release
 
 # Desktop tests to run, as a swift test filter: make verify-desktop FILTER='DesktopE2ETests/(testA|testB)$'
 FILTER ?= DesktopE2ETests
 
 build:
 	swift build
+
+# Isolated loop: pure and simulated tests only. Safe while Defi runs: under DEFI_ISOLATED=1 any
+# real macOS resource (Accessibility, event taps, hotkeys, displays, panels, session paths) traps.
+check:
+	swift build --build-tests
+	./script/check.sh
 
 # Desktop tests skip themselves unless DEFI_E2E=1; this never touches the desktop.
 test:
@@ -18,7 +24,8 @@ install:
 	./script/build_and_run.sh --verify
 
 # Build, Swift tests and workflow checks, recorded under dist/verification; never touches the desktop.
-verify:
+# The isolated loop runs first so a broken invariant fails fast.
+verify: check
 	./script/verify.sh local
 
 # verify, then wait for the desktop reservation, install the signed build and run the desktop tests.

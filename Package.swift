@@ -60,6 +60,10 @@ let package = Package(
       name: "DefiCLI",
       dependencies: ["DefiModel", "DefiIPC"]
     ),
+    .target(
+      name: "DefiScenarioSupport",
+      path: "Tests/DefiScenarioSupport"
+    ),
     .testTarget(
       name: "DefiModelTests",
       dependencies: ["DefiModel"]
@@ -75,6 +79,7 @@ let package = Package(
     .testTarget(
       name: "DefiRuntimeTests",
       dependencies: [
+        "DefiScenarioSupport",
         "DefiRuntime",
         "DefiConfig",
         "DefiModel",
@@ -96,6 +101,20 @@ let package = Package(
         "DefiCore",
         "DefiModel",
       ]
+    ),
+    .testTarget(
+      name: "DefiSimulationTests",
+      dependencies: [
+        "DefiScenarioSupport",
+        "DefiDaemon",
+        "DefiMacOS",
+        "DefiRuntime",
+        "DefiConfig",
+        "DefiCore",
+        "DefiIPC",
+        "DefiModel",
+      ],
+      resources: [.copy("Fixtures")]
     ),
     .testTarget(
       name: "DefiDaemonTests",

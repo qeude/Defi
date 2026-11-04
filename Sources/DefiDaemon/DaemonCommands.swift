@@ -79,12 +79,12 @@ private func ipcEventHandler(
             if DaemonReadResponseCache.isReadCommand(request.command),
               let cached = readResponseCache.response(
                 for: request.command,
-                now: ProcessInfo.processInfo.systemUptime
+                now: DefiClock.uptime
               )
             {
               return cached
             }
-            let receivedAt = ProcessInfo.processInfo.systemUptime
+            let receivedAt = DefiClock.uptime
             let deferred = DeferredCommandReply()
             let response = NavigationActor.shared.queue.sync {
               NavigationActor.assumeIsolated {
@@ -103,7 +103,7 @@ private func ipcEventHandler(
                   readResponseCache.store(
                     message: response.message,
                     for: request.command,
-                    now: ProcessInfo.processInfo.systemUptime
+                    now: DefiClock.uptime
                   )
                 }
                 return response
@@ -324,6 +324,18 @@ extension Daemon {
     if rawCommand == "trace" {
       return .success(platform.frameCoordinatorTrace)
     }
+    if rawCommand == "debug-windows" {
+      guard let deferredResponse else { return .failure("debug-windows requires a client") }
+      deferredResponse.deferResponse()
+      DispatchQueue.global(qos: .userInitiated).async {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let report = (try? encoder.encode(recordWindowAttributes()))
+          .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        NavigationActor.enqueue { deferredResponse.perform { .success(report) } }
+      }
+      return .success("deferred")
+    }
     if rawCommand == "border-audit" {
       guard let deferredResponse else { return .failure("border-audit requires a client") }
       deferredResponse.deferResponse()
@@ -372,7 +384,7 @@ extension Daemon {
       return .success("queued for current window geometry")
     }
     do {
-      let commandStartedAt = ProcessInfo.processInfo.systemUptime
+      let commandStartedAt = DefiClock.uptime
       let parsedCommand = try parseCommand(rawCommand)
       if parsedCommand == .toggleCheatsheet {
         guard desktopSessionActive, !state.monitors.isEmpty else {
@@ -544,7 +556,7 @@ extension Daemon {
       ) {
         preserveFocusIntentAfterNoOp(at: commandInputTimestamp)
         lastCommandDurationMS =
-          (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
+          (DefiClock.uptime - commandStartedAt) * 1_000
         diagnostics.recordNoOp(
           commandDiagnosticMetadata(
             command: rawCommand,
@@ -578,7 +590,7 @@ extension Daemon {
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
       let validationMS =
-        (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
+        (DefiClock.uptime - commandStartedAt) * 1_000
       platform.recordPerformanceTrace(
         "command-start cg=\(currentCommandGeneration) command=\(rawCommand) source=\(receivedAt != nil ? "ipc" : inputTimestamp != nil ? "hotkey" : "internal") validationMs=\(String(format: "%.2f", validationMS))"
       )
@@ -759,14 +771,14 @@ extension Daemon {
       {
         invalidateSubmittedCommandFocus()
       }
-      let stateReadyAt = ProcessInfo.processInfo.systemUptime
+      let stateReadyAt = DefiClock.uptime
       synchronizeScrollOffsets(state: &state, viewports: commandViewports)
       if switchesWorkspace {
         snapScrollOffsetsToTargets()
       } else {
         startScrollAnimationsIfNeeded()
       }
-      let animationReadyAt = ProcessInfo.processInfo.systemUptime
+      let animationReadyAt = DefiClock.uptime
       platform.recordPerformanceTrace(
         "command-ready cg=\(currentCommandGeneration) stateMs=\(String(format: "%.2f", (stateReadyAt - commandStartedAt) * 1_000)) scrollMs=\(String(format: "%.2f", (animationReadyAt - stateReadyAt) * 1_000))"
       )
@@ -999,7 +1011,7 @@ extension Daemon {
         setTimerFrequency(60)
       }
       lastCommandDurationMS =
-        (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
+        (DefiClock.uptime - commandStartedAt) * 1_000
       performanceLogger.debug(
         "command applied command=\(rawCommand, privacy: .public) duration_ms=\(self.lastCommandDurationMS, format: .fixed(precision: 2)) animations=\(self.scrollAnimations.count)"
       )

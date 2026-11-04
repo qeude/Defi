@@ -360,7 +360,7 @@ func currentFrontmostProcessID(
     coreGraphicsProcessID: coreGraphicsProcessID,
     coreGraphicsBundleID: coreGraphicsBundleID
   ) { return resolved }
-  let system = AXUIElementCreateSystemWide()
+  let system = accessibilitySystemWide()
   let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
     focusSnapshotAccessibilityTimeoutSeconds,
     elements: [system]

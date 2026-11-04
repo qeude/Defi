@@ -13,7 +13,7 @@ struct DiscoveryMeasurementAccess: Sendable {
 
 extension SnapshotEngine {
   var discoveryNow: TimeInterval {
-    discoveryMeasurementAccess?.now() ?? ProcessInfo.processInfo.systemUptime
+    discoveryMeasurementAccess?.now() ?? DefiClock.uptime
   }
 
   func readDiscoveryApplicationWindows(_ element: AXUIElement, processID: pid_t) -> [AXUIElement]? {

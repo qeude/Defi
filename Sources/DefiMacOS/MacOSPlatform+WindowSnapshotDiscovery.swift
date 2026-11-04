@@ -211,7 +211,7 @@ extension SnapshotEngine {
       }
 
       let observedCGWindows = publicCGWindows() ?? []
-      let inventoryStartedAt = ProcessInfo.processInfo.systemUptime
+      let inventoryStartedAt = DefiClock.uptime
       let workspaceApplications: [(processID: pid_t, application: NSRunningApplication?)] =
         !refreshesApplicationInventory ? []
         : discoveryMeasurementAccess?.runningProcessIDs?().map { ($0, nil) }
@@ -270,7 +270,7 @@ extension SnapshotEngine {
       }
       if refreshesApplicationInventory {
         recordDurationSample(
-          (ProcessInfo.processInfo.systemUptime - inventoryStartedAt) * 1_000,
+          (DefiClock.uptime - inventoryStartedAt) * 1_000,
           in: &applicationInventoryDurationSamplesMS
         )
       }
@@ -345,7 +345,7 @@ extension SnapshotEngine {
           continue
         }
         let appElement = previousApplications[processID]
-          ?? AXUIElementCreateApplication(processID)
+          ?? accessibilityApplication(processID)
         nextApplications[processID] = appElement
         nextApplicationIDs[processID] = appID
         if enhancedUIByProcess[processID] == nil {
@@ -399,7 +399,7 @@ extension SnapshotEngine {
         if readsWindowList {
           refreshedProcessIDs.insert(processID)
           applicationWindowListReadCount += 1
-          let windowListStartedAt = ProcessInfo.processInfo.systemUptime
+          let windowListStartedAt = DefiClock.uptime
           let preparedWindows = preparedReadIsCurrent ? preparedApplicationWindows[processID] : nil
           let copiedWindows: [AXUIElement]? = preparedWindows != nil ? preparedWindows!.elements
             : AXMessagingTimeoutAccess.shared.withTimeout(
@@ -421,14 +421,14 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             }
           recordDurationSample(
             preparedWindows?.durationMS
-              ?? (ProcessInfo.processInfo.systemUptime - windowListStartedAt) * 1_000,
+              ?? (DefiClock.uptime - windowListStartedAt) * 1_000,
             in: &applicationWindowListDurationSamplesMS
           )
           recordWindowListRetryResult(processID: processID, succeeded: copiedWindows != nil, now: discoveryNow)
           if copiedWindows == nil {
             // A session transition can invalidate an existing AX connection.
             // Renew it for the already scheduled retry, without an extra read.
-            nextApplications[processID] = AXUIElementCreateApplication(processID)
+            nextApplications[processID] = accessibilityApplication(processID)
           }
           appWindows = copiedWindows ?? cachedApplicationWindows
         } else {
@@ -890,7 +890,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       processIDs: processIDs,
       topologyProcessIDs: topologyProcessIDs
     )
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     let ownerLookupCandidateIDs = revalidatedCandidateIDs.union(
       candidateIDs.filter {
         transientOwnerResolutionIsDue(

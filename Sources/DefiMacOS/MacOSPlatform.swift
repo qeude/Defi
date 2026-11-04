@@ -75,7 +75,7 @@ public final class MacOSPlatform {
   /// overlay, so its ribbon can make room as it does on a single display.
   @discardableResult
   private func hostWindowProxyPreview() -> Bool {
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     guard RibbonProxyPresenter.isCarrying, let (frames, id, _) = windowProxyPreview, let slot = frames[id],
       now >= windowProxyHostRetryAt,
       let monitor = windowProxyMonitors.first(where: {
@@ -113,7 +113,7 @@ public final class MacOSPlatform {
       if hostWindowProxyPreview() { presentPendingWindowProxyPreview() }
       return
     }
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     guard windowProxiesEnabled, now >= windowProxyCarryRetryAt,
       let monitor = windowProxyMonitors.first(where: { $0.windowIDs.contains(windowID) }) else { return }
     guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else {
@@ -234,6 +234,9 @@ public final class MacOSPlatform {
     forceApplicationInventoryRefresh: Bool,
     completion: @escaping @NavigationActor @Sendable (DesktopSnapshot) -> Void
   ) {
+    if let snapshotSource = system.snapshotSource {
+      return snapshotSource(config, completion)
+    }
     snapshotEngine.beginSnapshot(
       config: config,
       forceFullWindowRefresh: forceFullWindowRefresh,
@@ -326,7 +329,7 @@ public final class MacOSPlatform {
   }
   nonisolated let frameCoordinator: AXFrameCoordinator
   nonisolated let pendingBorderGeometry = Mutex(PendingBorderGeometry())
-  nonisolated let focusWriter = AXFocusWriter()
+  nonisolated let focusWriter: AXFocusWriter
   nonisolated let focusRecoveryResolver = AXFocusRecoveryResolver()
   @MainActor lazy var windowIDProvider = AXWindowIDProvider()
 
@@ -550,7 +553,7 @@ public final class MacOSPlatform {
   /// Defi focused one of this app's windows lately: its activation may be that focus's
   /// echo, not the user's.
   public nonisolated func internalFocusIsRecent(processID: pid_t) -> Bool {
-    let now = ProcessInfo.processInfo.systemUptime, owners = processIDs
+    let now = DefiClock.uptime, owners = processIDs
     return internalFocusSuppressions.contains { $0.value.deadline >= now && owners[$0.key] == processID }
   }
   nonisolated var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
@@ -643,6 +646,7 @@ public final class MacOSPlatform {
   var cursorWarpSkippedCount = 0
   var cursorWarpFailedCount = 0
 
+  nonisolated let system: MacOSPlatformSystem
   public nonisolated let userInputTracker = UserInputTracker()
   public nonisolated let pointerMotionTracker = PointerMotionTracker()
 
@@ -650,7 +654,13 @@ public final class MacOSPlatform {
     self.init(frameCoordinator: nil)
   }
 
-  init(frameCoordinator suppliedCoordinator: AXFrameCoordinator?) {
+  init(
+    frameCoordinator suppliedCoordinator: AXFrameCoordinator?,
+    focusOperations: AXFocusOperations = AXFocusOperations(),
+    system: MacOSPlatformSystem = .real
+  ) {
+    self.system = system
+    focusWriter = AXFocusWriter(operations: focusOperations)
     let boundsProvider = WindowServerBoundsProvider()
     borderBoundsProvider = boundsProvider
     frameCoordinator = suppliedCoordinator ?? AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
@@ -686,7 +696,7 @@ public final class MacOSPlatform {
     let exited = nativeFullscreenWindowIDs.subtracting(windowIDs)
     nativeFullscreenWindowIDs = windowIDs
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     if !entered.isEmpty {
       RibbonProxyPresenter.cancelAll()
       frameSubmissionGeneration &+= 1
@@ -724,7 +734,7 @@ public final class MacOSPlatform {
 
   public func isInitialFrameSettlementActive(
     for windowID: WindowID,
-    now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    now: TimeInterval = DefiClock.uptime
   ) -> Bool {
     initialFrameSettlementDeadlines[windowID].map { $0 > now } ?? false
   }

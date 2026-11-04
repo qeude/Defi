@@ -338,6 +338,7 @@ final class AXWindowIDProvider {
     }
     guard NSApp != nil else { return }
     if probePanel == nil {
+      RealResourceGuard.check("AppKit panel")
       let panel = NSPanel(
         contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
         styleMask: [.nonactivatingPanel],
@@ -370,7 +371,7 @@ final class AXWindowIDProvider {
 
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(
-      AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier),
+      accessibilityApplication(ProcessInfo.processInfo.processIdentifier),
       kAXWindowsAttribute as CFString,
       &value
       ) == .success,

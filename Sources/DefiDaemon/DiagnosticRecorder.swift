@@ -52,8 +52,11 @@ private struct PersistentDiagnosticRecord: Encodable {
 }
 
 final class DiagnosticRecorder: @unchecked Sendable {
-  static let defaultDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-    .appending(path: "Library/Logs/Defi/Diagnostics", directoryHint: .isDirectory)
+  static var defaultDirectoryURL: URL {
+    RealResourceGuard.check("default diagnostics directory")
+    return FileManager.default.homeDirectoryForCurrentUser
+      .appending(path: "Library/Logs/Defi/Diagnostics", directoryHint: .isDirectory)
+  }
 
   let directoryURL: URL
   let maximumFileSize: Int
@@ -145,7 +148,7 @@ final class DiagnosticRecorder: @unchecked Sendable {
   /// Claims one automatic mark; false while rate-limited.
   func reserveAutoMark() -> Bool {
     autoMarkLimiter.withLock {
-      $0.allow(at: ProcessInfo.processInfo.systemUptime)
+      $0.allow(at: DefiClock.uptime)
     }
   }
 
@@ -154,7 +157,7 @@ final class DiagnosticRecorder: @unchecked Sendable {
       var record = makeRecord(
         kind: "marker",
         timestamp: Date(),
-        uptime: ProcessInfo.processInfo.systemUptime
+        uptime: DefiClock.uptime
       )
       if let autoReason {
         record.event = "auto"

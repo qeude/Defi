@@ -1,4 +1,5 @@
 import ApplicationServices
+import DefiModel
 import Foundation
 
 /// AppKit answers Accessibility on Defi's own windows (the tiled Settings window) on the
@@ -6,6 +7,7 @@ import Foundation
 /// main, bounded so a main thread waiting on a write queue never deadlocks; a write that
 /// has not started by then is dropped, one already running may still land.
 func performAccessibilityWrite(on element: AXUIElement, _ write: @escaping () -> AXError) -> AXError {
+  RealResourceGuard.check("Accessibility write")
   var processID: pid_t = 0
   guard !Thread.isMainThread, AXUIElementGetPid(element, &processID) == .success,
     processID == ProcessInfo.processInfo.processIdentifier

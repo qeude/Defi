@@ -12,7 +12,7 @@ extension AXFrameCoordinator {
     windowID: WindowID,
     expectedPoint: CGPoint
   ) {
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     let schedule = ParkingVerificationSchedule(
       expectedPoint: expectedPoint,
       deadline: now + 1.4
@@ -29,7 +29,7 @@ extension AXFrameCoordinator {
     parkingVerificationSchedules[windowID] = schedule
     lock.unlock()
     for (index, delay) in [0.4, 1.4].enumerated() {
-      queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+      DefiClock.after(delay, on: queue) { [weak self] in
         self?.verifyParkingTarget(
           windowID: windowID,
           expectedPoint: expectedPoint,
@@ -46,15 +46,15 @@ extension AXFrameCoordinator {
     deadline: TimeInterval
   ) {
     for delay in [0.12, 0.25, 0.45, 0.75, 1.1, 1.5, 2.1] {
-      queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+      DefiClock.after(delay, on: queue) { [weak self] in
         self?.verifyInitialSettlementTarget(windowID: windowID)
       }
     }
     let expirationDelay = max(
-      deadline - ProcessInfo.processInfo.systemUptime,
+      deadline - DefiClock.uptime,
       0
     )
-    queue.asyncAfter(deadline: .now() + expirationDelay) { [weak self] in
+    DefiClock.after(expirationDelay, on: queue) { [weak self] in
       self?.clearInitialSettlementTarget(
         windowID: windowID,
         matchingGeneration: generation
@@ -69,7 +69,7 @@ extension AXFrameCoordinator {
     )
     lock.lock()
     guard let settlementTarget = initialSettlementTargets[windowID],
-      ProcessInfo.processInfo.systemUptime < settlementTarget.deadline,
+      DefiClock.uptime < settlementTarget.deadline,
       initialSettlementRepairIsCurrent(
         expectedGeneration: settlementTarget.generation,
         currentGeneration: settlementTarget.generation,
@@ -115,7 +115,7 @@ extension AXFrameCoordinator {
     switch initialSettlementObservation(
       actual: actual,
       target: target,
-      now: ProcessInfo.processInfo.systemUptime,
+      now: DefiClock.uptime,
       deadline: settlementTarget.deadline
     ) {
     case .expired:
@@ -132,7 +132,7 @@ extension AXFrameCoordinator {
     case .drifted:
       break
     }
-    let observationTime = ProcessInfo.processInfo.systemUptime
+    let observationTime = DefiClock.uptime
     lock.lock()
     let previousDrift = initialSettlementDriftSamples[windowID]
     let driftIsStable = initialSettlementDriftIsStable(
@@ -153,7 +153,7 @@ extension AXFrameCoordinator {
         now: observationTime,
         deadline: settlementTarget.deadline
       ) {
-        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+        DefiClock.after(delay, on: queue) { [weak self] in
           self?.verifyInitialSettlementTarget(windowID: windowID)
         }
       }
@@ -243,7 +243,7 @@ extension AXFrameCoordinator {
     lock.lock()
     defer { lock.unlock() }
     guard let currentTarget = initialSettlementTargets[windowID],
-      ProcessInfo.processInfo.systemUptime < currentTarget.deadline
+      DefiClock.uptime < currentTarget.deadline
     else {
       return false
     }
@@ -288,7 +288,7 @@ extension AXFrameCoordinator {
             if verified {
               parkingVerificationSchedules[windowID] = nil
             } else {
-              queue.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+              DefiClock.after(1.4, on: queue) { [weak self] in
                 self?.verifyParkingTarget(
                   windowID: windowID,
                   expectedPoint: expectedPoint,
@@ -377,7 +377,7 @@ extension AXFrameCoordinator {
   ) {
     lock.lock()
     completedPositions[windowID] = point
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     borderGeometryWrittenAt[windowID] = now
     if positionWasReadBack, let geometry = borderGeometries[windowID] {
       borderGeometries[windowID] = (
@@ -389,7 +389,7 @@ extension AXFrameCoordinator {
   }
 
   func appendTraceLocked(_ event: String) {
-    let uptime = ProcessInfo.processInfo.systemUptime
+    let uptime = DefiClock.uptime
     traceEntries.append(String(format: "%.6f %@", uptime, event))
     if traceEntries.count > 512 {
       traceEntries.removeFirst(traceEntries.count - 512)

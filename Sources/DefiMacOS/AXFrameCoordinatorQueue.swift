@@ -27,11 +27,11 @@ extension AXFrameCoordinator {
       )
       lock.unlock()
 
-      let startedAt = ProcessInfo.processInfo.systemUptime
+      let startedAt = DefiClock.uptime
       let result = applyFrame(frame, skippedProcesses: [])
       let aborted = !isCurrent(generation: frame.generation)
       let elapsedMS =
-        (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+        (DefiClock.uptime - startedAt) * 1_000
       lock.lock()
       completedWrites += result.applied
       skippedStaleWrites += result.stale

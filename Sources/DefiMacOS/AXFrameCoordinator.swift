@@ -127,7 +127,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     guard let deadline = immediateReadbackProcessDeadlines[processID] else {
       return false
     }
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = DefiClock.uptime
     if deadline < now {
       immediateReadbackProcessDeadlines[processID] = nil
       return false
@@ -142,7 +142,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     immediateReadbackProcessDeadlines[processID] =
-      ProcessInfo.processInfo.systemUptime + duration
+      DefiClock.uptime + duration
   }
 
   func updateParkingTargets(_ targets: [WindowID: AsyncPositionWrite]) {
@@ -442,7 +442,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return (borderGeometryWrittenAt[windowID] ?? -.infinity)
-      > ProcessInfo.processInfo.systemUptime - seconds
+      > DefiClock.uptime - seconds
   }
 
   func retainBorderGeometry(for windowIDs: Set<WindowID>) {
@@ -641,7 +641,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
         lock.unlock()
         guard !superseded else { return }
         // AXUIElement isn't Sendable; an application element is fully identified by its pid.
-        let application = AXUIElementCreateApplication(processID)
+        let application = accessibilityApplication(processID)
         let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [application]) {
           accessibilityWriter.setEnhancedUserInterface(true, application: application)
         }

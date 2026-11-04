@@ -99,12 +99,12 @@ extension SnapshotEngine {
         }
         var applicationWindows: PreparedAXApplicationWindows?
         if let candidate = job.application, readIsCurrent(job.processID) {
-          let readStartedAt = ProcessInfo.processInfo.systemUptime
+          let readStartedAt = DefiClock.uptime
           let windows = AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [candidate.element]) {
             self.readDiscoveryApplicationWindows(candidate.element, processID: job.processID)
           }
           applicationWindows = PreparedAXApplicationWindows(elements: windows,
-            durationMS: (ProcessInfo.processInfo.systemUptime - readStartedAt) * 1_000)
+            durationMS: (DefiClock.uptime - readStartedAt) * 1_000)
         }
         return PreparedAXProcessReadResult(
           processID: job.processID, windows: reads, application: applicationWindows
