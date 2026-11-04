@@ -56,6 +56,9 @@ jobs:
           echo "reduceMotion=$(defaults read com.apple.universalaccess reduceMotion 2>&1)"
 
       - name: Desktop tests
+        env:
+          # Hosted runners launch the fixture apps slowly; this budget covers setup only.
+          DEFI_E2E_FIXTURE_DISCOVERY_SECONDS: "10"
         run: |
           set -o pipefail
           ./script/test_desktop.sh 2>&1 | tee desktop.log
