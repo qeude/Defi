@@ -30,6 +30,8 @@ final class DaemonFocusWorld {
   // Ground truth for the oracle, kept apart from Defi's own view.
   var intendedWindowID: WindowID?
   var humanInputSinceIntent = false
+  /// The window the user last typed into, until a newer intent: macOS must keep it.
+  var typedIntoWindowID: WindowID?
   /// A focus notification macOS delivered that the next snapshot reports.
   private var focusNotificationDelivered = false
 
@@ -213,11 +215,13 @@ final class DaemonFocusWorld {
       let right = column == 0 ? true : column == columns.count - 1 ? false : preferRight
       intendedWindowID = columns[column + (right ? 1 : -1)]
       humanInputSinceIntent = false
+      typedIntoWindowID = nil
       fake.writerStepsDuringTapCallout = writerStepsDuringTap
       post(keyCode: right ? 124 : 123, flags: [.maskControl, .maskAlternate])
       fake.writerStepsDuringTapCallout = false
     case .type:
       humanInputSinceIntent = true
+      typedIntoWindowID = fake.keyWindow
       post(keyCode: 0, flags: [])
     case .writerStep:
       if let operation = fake.gate.step(writerBusy: { platform.focusWriter.isBusy }) {
@@ -243,10 +247,16 @@ final class DaemonFocusWorld {
       daemon.tick()
       await settle()
     case .userFocuses(let index):
+      // A Command-Tab or a click takes longer than a whole focus write: each AX call ends
+      // within its timeout (16 or 50 ms, AXFocusWriterExecution), so the writer finishes first.
+      while let operation = fake.gate.step(writerBusy: { platform.focusWriter.isBusy }) {
+        log.append("  writer before the user's switch: \(operation)")
+      }
       // Defi follows an outside focus change only once macOS reports it; until the
       // next calm the step oracle has no Defi intent to hold the selection to.
       humanInputSinceIntent = true
       intendedWindowID = nil
+      typedIntoWindowID = nil
       post(keyCode: 48, flags: .maskCommand)
       fake.userFocuses(windows[index])
     }
@@ -343,6 +353,13 @@ final class DaemonFocusWorld {
 
   func checkCalm() -> FocusViolation? {
     if let violation = checkStep() { return violation }
+    // Typing is the latest intent: no Defi focus write may take macOS away from that window.
+    if let typed = typedIntoWindowID, fake.keyWindow != typed {
+      return FocusViolation(
+        invariant: "typing-target-kept",
+        detail: "the user typed into window \(typed.rawValue) but macOS shows \(fake.keyWindow.map { "\($0.rawValue)" } ?? "nil") once calm"
+      )
+    }
     // Scrolling keeps focus visible (CONFIGURATION.md, center_focused_column).
     if let selected = selectedWindowID, let frame = fake.frame(of: selected),
       frame.x < monitor.frame.x - 1 || frame.x + frame.width > monitor.frame.x + monitor.frame.width + 1

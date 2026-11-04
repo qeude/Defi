@@ -19,5 +19,7 @@ change that fixes it.
 | `native-converges ["axCallTakesUpToItsTimeout", "focusNotificationArrivesLate", "writerRunsDuringTapCallout"]` | simulated desktop | suspect | A Defi focus write still in flight lands after the user's Command-Tab or click and takes focus back from the window the user chose. Found once in 100 000 scenarios. | `DEFI_SCENARIO_SEED=2433` |
 | `native-converges ["focusNotificationArrivesLate"]` | simulated desktop | suspect | The user's Command-Tab is reported late. Column presses made meanwhile start from Defi's old selection, queue a focus that never commits, and Defi and macOS stay on different windows once calm. Found only by the PCT scheduler. | `DEFI_SCENARIO_SEED=230`, PCT lane |
 
+| `typing-target-kept` (3 classes: plain, busy app, writer during tap) | simulated desktop | suspect | A superseded focus write still in flight finishes after newer typing and moves macOS away from the window the user typed into. Found by the typing oracle added after the mutation check. | `DEFI_SCENARIO_SEED=370`: `[press, writerStep, press (writer during tap), type]` |
+
 The simulated-desktop rows still use the simulated desktop snapshot, which stands in for
 `SnapshotEngine`. A desktop or CI run should confirm them before the fix.

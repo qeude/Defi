@@ -61,7 +61,7 @@ let scenarioCommands: [Command] = [
   .focusMonitor(.right), .focusMonitor(.left), .cycleWidth(.next), .maximizeColumn,
   .centerColumn, .toggleFloating, .joinWindow(.left), .joinWindow(.right), .unjoinWindows,
   .focusWindowOrWorkspace(.down), .focusWindowOrWorkspace(.up), .focusFloating(.next),
-  .focusWorkspace(.named("mail")), .moveColumnToWorkspace(.named("code"), follow: true),
+  .focusWorkspace(.position(2)), .focusWorkspace(.named("mail")), .moveColumnToWorkspace(.named("code"), follow: true),
   .moveWindowToWorkspaceTarget(.named("mail"), follow: false), .moveWorkspaceToMonitor(.left),
 ]
 
@@ -221,6 +221,31 @@ extension RuntimeWorld {
       let expected = column.windows[min(max(column.focusedWindow, 0), column.windows.count - 1)]
       if state.selectedWindowID(on: monitorID) != expected {
         fail("focus-column-missed", "expected window \(expected), selection is \(String(describing: state.selectedWindowID(on: monitorID)))")
+      }
+    case .focusWorkspace(.position(let position)) where position > 0:
+      guard let before = before.monitors.first(where: { $0.id == monitorID }), !before.workspaces.isEmpty,
+        let after = state.monitors.first(where: { $0.id == monitorID })
+      else { return }
+      let target = before.workspaces[min(position - 1, before.workspaces.count - 1)].id
+      if after.activeWorkspace != target {
+        fail("focus-workspace-position", "expected workspace \(target) at position \(position), active is \(after.activeWorkspace)")
+      }
+    case .joinWindow(let direction) where direction == .left || direction == .right:
+      guard let joined = selectedBefore,
+        let monitor = before.monitors.first(where: { $0.id == monitorID }),
+        let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
+        workspace.focusedLayer == .tiled,
+        let column = workspace.columns.firstIndex(where: { $0.windows.contains(joined) }),
+        workspace.columns.indices.contains(column + (direction == .right ? 1 : -1))
+      else { return }
+      // A stale row index is the triaged focus-index-out-of-range bug, not a new intent loss.
+      if RuntimeScenarioTests.knownCodes["focus-index-out-of-range"] != nil,
+        state.monitors.flatMap(\.workspaces).flatMap(\.columns).contains(where: {
+          !$0.windows.indices.contains($0.focusedWindow)
+        })
+      { return }
+      if state.selectedWindowID(on: monitorID) != joined {
+        fail("join-lost-window", "joined window \(joined) is not the selection, \(String(describing: state.selectedWindowID(on: monitorID))) is")
       }
     case .toggleFloating:
       guard let window = selectedBefore,

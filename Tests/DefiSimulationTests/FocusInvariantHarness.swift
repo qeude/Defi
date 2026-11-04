@@ -121,6 +121,9 @@ func runFocusScenario(_ steps: [FocusStep]) async -> (FocusViolation?, [String],
 /// The busy-app classes are variants of the same rollback.
 /// Key: invariant plus the catalog behaviors of the minimal case.
 let knownFocusSuspects: [String: String] = [
+  #"typing-target-kept ["axCallTakesUpToItsTimeout", "busyAppTimesOut", "focusNotificationArrivesLate", "timedOutWriteLandsLater"]"#: "suspect: a superseded focus write still in flight completes after newer typing and moves macOS away from the window the user typed into; confirm on the desktop",
+  #"typing-target-kept ["axCallTakesUpToItsTimeout", "focusNotificationArrivesLate", "writerRunsDuringTapCallout"]"#: "suspect: a superseded focus write still in flight completes after newer typing and moves macOS away from the window the user typed into; confirm on the desktop",
+  #"typing-target-kept ["axCallTakesUpToItsTimeout", "focusNotificationArrivesLate"]"#: "suspect: a superseded focus write still in flight completes after newer typing and moves macOS away from the window the user typed into; confirm on the desktop",
   #"native-converges ["focusNotificationArrivesLate"]"#:
     "suspect: column presses made while a Command-Tab notification is late queue a focus that never commits; Defi and macOS stay apart once calm (found by PCT, seed 230); confirm on the desktop",
   #"native-converges ["axCallTakesUpToItsTimeout", "focusNotificationArrivesLate", "writerRunsDuringTapCallout"]"#:
