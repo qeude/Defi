@@ -1334,7 +1334,7 @@ final class DesktopE2ETests: XCTestCase {
     if count < 2 { try notRun(lane: "two-display", reason: "requires 2 displays, found \(count)") }
   }
 
-  /// verify.py accepts a skip only with this marker and reports it as not run.
+  /// verify.sh accepts a skip only with this marker and reports it as not run.
   private func notRun(lane: String, reason: String) throws -> Never {
     print("DEFI_E2E not-run lane=\(lane) test=\(name) reason=\(reason)")
     throw XCTSkip("\(lane) lane: \(reason)")

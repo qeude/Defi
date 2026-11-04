@@ -13,12 +13,10 @@ Hotkeys for `maximize-column` and `cycle-width`, or the CLI.
 ## Driving it with the defi CLI
 
 ```sh
-python3 script/desktop_lock.py --wait .agents/skills/verify-defi/resize_check.sh
+script/desktop_lock.sh --wait .agents/skills/verify-defi/resize_check.sh
 ```
 
 Pass: every line `ANIMATED` (`intermediateWrites > 0`), `convergedMs` well under 400, `drift=0[]`, script exit 0. `JUMP-NO-STEPS` means the window jumped: read the matching `trace-*.log` (`size-commit` at start vs end, `cadence ... appliedIntermediateWrites=`).
-
-Fixture-level proof (idle desktop only, probe waits for 10 s without input): `script/maximize_probe.py --bundle LABEL=path [--command cycle-width next] [--fixture-env DEFI_FIXTURE_RESIZE_MS=40] out/` reports first growth, time to full width, distinct widths, reversals and uncovered width; compare against a reference bundle. Also run the `native-compare` `scroll` and `workspace` guards from `script/performance_experiments.py` to prove navigation did not regress.
 
 ## Gotchas
 

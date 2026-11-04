@@ -12,9 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'script'))
-import performance_experiments as pe  # noqa: E402
-import desktop_session as session  # noqa: E402
-from desktop_lock import inherited_lock  # noqa: E402
+import desktop_fixtures as pe  # noqa: E402
 
 TRACE_SECONDS = 45
 # Render spikes over this are macOS's own, also seen with Defi stopped.
@@ -69,7 +67,7 @@ def scenario(out, label, rounds, on_ready, only=None):
 
     def go(name, *args, pause=.9):
         mark(name)
-        subprocess.run([str(session.CLI), *args], check=True, capture_output=True)
+        subprocess.run([str(pe.CLI), *args], check=True, capture_output=True)
         time.sleep(pause)
 
     fixture = pe.Fixture(out / 'PerformanceFixture', out / f'{label}-fixture.jsonl')
@@ -78,16 +76,16 @@ def scenario(out, label, rounds, on_ready, only=None):
         fixture.ask()
         other.ask()
         pe.activate(fixture.process.pid)
-        monitor = json.loads(session.command('list-workspaces', '--json'))['monitors'][0]
+        monitor = json.loads(pe.command('list-workspaces', '--json'))['monitors'][0]
         empty = next(w for w in monitor['workspaces'] if w['windowCount'] == 0)
-        session.command('workspace', empty['id'])
+        pe.command('workspace', empty['id'])
         time.sleep(1)
         expected, discovered = [], set()
         for n in range(5):
             report = fixture.ask('create', id=f'w{n}')
             expected.append((0, f'w{n}', next(w['windowNumber'] for w in report['windows'] if w['id'] == f'w{n}')))
             pe.wait_owned([fixture], expected, empty['id'], discovered)
-        session.command('focus-column', 'first')
+        pe.command('focus-column', 'first')
         time.sleep(1.5)
         on_ready()
         started = time.time()
@@ -185,11 +183,11 @@ def trace_trial(out, label, rounds, only=None, seconds=None):
         time.sleep(2)
 
     before = cpu_seconds(pid)
-    writes_before = int(re.search(r'posWrites=(\d+)', session.command('status')).group(1))
+    writes_before = int(re.search(r'posWrites=(\d+)', pe.command('status')).group(1))
     try:
         events, elapsed = scenario(out, label, rounds, start_trace, only)
         cpu = cpu_seconds(pid) - before
-        status = session.command('status')
+        status = pe.command('status')
     except BaseException:
         for recorder in recorders:
             recorder.terminate()
@@ -221,8 +219,8 @@ def main():
     p.add_argument('--rounds', type=int, default=1)
     p.add_argument('--only', choices=['column', 'overview', 'quit'], help='a short trace of one action: finalizes in a minute')
     args = p.parse_args()
-    if inherited_lock() is None:
-        p.error('run under script/desktop_lock.py --wait')
+    if not pe.locked():
+        p.error('run under script/desktop_lock.sh --wait')
     out = args.output.resolve()
     out.mkdir(parents=True)
     installed = Path.home() / 'Applications/Defi.app'
@@ -233,12 +231,12 @@ def main():
     def install(bundle):
         pe.run([ROOT / 'script/check_signing.sh', installed, bundle])
         pe.run([ROOT / 'script/build_and_run.sh', '--install-staged', bundle, '--verify'], timeout=120)
-        session.start()
+        pe.session('start')
         pe.wait_for_quiet_alerts()
 
     checkpoint = out / 'checkpoint'
-    session.checkpoint(checkpoint)
-    session.start()
+    pe.session('checkpoint', checkpoint)
+    pe.session('start')
     try:
         for label, path in (b.split('=', 1) for b in args.bundle):
             install(Path(path).resolve())
@@ -249,8 +247,8 @@ def main():
         try:
             install(original)
         finally:
-            session.restore(checkpoint)
-            print('daemons', session.daemon_count(), flush=True)
+            pe.session('restore', checkpoint)
+            print('daemons', pe.daemon_count(), flush=True)
 
 
 if __name__ == '__main__':

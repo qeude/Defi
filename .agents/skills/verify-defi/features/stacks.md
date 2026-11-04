@@ -14,7 +14,7 @@ Stack windows with `join-window left|right` (Control+Option+; and Control+Option
 ## Driving it with the defi CLI
 
 ```sh
-python3 script/desktop_lock.py --wait python3 .agents/skills/verify-defi/stacks_check.py
+script/desktop_lock.sh --wait python3 .agents/skills/verify-defi/stacks_check.py
 ```
 
 The script opens ClampFixture windows with `DEFI_FIXTURE_MIN` on the first empty workspace of the first monitor and shrinks the viewport with `set-reserved-area bottom 400`. Each scenario prints PASS or FAIL. Afterwards it restores the bottom edge, closes its windows, returns to the initial workspace and writes evidence. Pass means every line is PASS and `daemons=1`.

@@ -4,27 +4,26 @@
 Uses ClampFixture windows whose NSWindow minimum height is set through DEFI_FIXTURE_MIN, on the
 first empty workspace of the first monitor. Shrinks the viewport with
 `set-reserved-area bottom`, then restores it to --restore-bottom (default 0, the built-in default).
-Usage: python3 script/desktop_lock.py --wait python3 .agents/skills/verify-defi/stacks_check.py [evidence-dir]
+Usage: script/desktop_lock.sh --wait python3 .agents/skills/verify-defi/stacks_check.py [evidence-dir]
 """
 import argparse, json, os, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'script'))
-import performance_experiments as pe  # noqa: E402
-import desktop_session as session  # noqa: E402
+import desktop_fixtures as pe  # noqa: E402
 
 SHRINK_PT = 400
 results = []
 
 
 def defi(*args):
-    done = subprocess.run([str(session.CLI), *args], capture_output=True, text=True, timeout=15)
+    done = subprocess.run([str(pe.CLI), *args], capture_output=True, text=True, timeout=15)
     return done.returncode == 0, (done.stdout + done.stderr).strip()
 
 
 def status_value(key):
-    for token in session.command('status').split(' '):
+    for token in pe.command('status').split(' '):
         if token.startswith(key + '='):
             return token[len(key) + 1:]
     return None
@@ -40,7 +39,7 @@ def wait_until(condition, timeout=5):
 def applied_writes(window_number, seconds=3):
     """AX frame writes the coordinator applied to one window over `seconds`."""
     def events():
-        for line in session.command('trace').splitlines():
+        for line in pe.command('trace').splitlines():
             fields = line.split(' ')
             try:
                 yield float(fields[0]), fields
@@ -116,7 +115,7 @@ class Windows:
             frames = {name: self.frame(name) for name in self.fixtures}
             if frames != previous:
                 previous, since = frames, time.monotonic()
-            elif time.monotonic() - since > .6 and pe.settled(session.command('status')):
+            elif time.monotonic() - since > .6 and pe.settled(pe.command('status')):
                 return True
             time.sleep(.1)
         return False
@@ -128,21 +127,21 @@ def main():
     parser.add_argument('--restore-bottom', type=int, default=0, choices=range(0, 513), metavar='0..512')
     args = parser.parse_args()
     # Reserved-area commands apply to every monitor; restoring one value is only safe with one.
-    if len(json.loads(session.command('list-workspaces', '--json'))['monitors']) != 1:
+    if len(json.loads(pe.command('list-workspaces', '--json'))['monitors']) != 1:
         sys.exit('stacks_check.py requires exactly one monitor')
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'before.status').write_text(session.command('status'))
-    (out / 'workspaces-before.json').write_text(session.command('list-workspaces', '--json'))
+    (out / 'before.status').write_text(pe.command('status'))
+    (out / 'workspaces-before.json').write_text(pe.command('list-workspaces', '--json'))
     initial_workspace = status_value('workspace')
-    daemon = Path(session.CLI).with_name('defi-daemon')
+    daemon = Path(pe.CLI).with_name('defi-daemon')
     daemon_digest = daemon.read_bytes()
     binary = out / 'ClampFixture'
     pe.run(['swiftc', '-parse-as-library', ROOT / 'Tests/Fixtures/ClampFixture.swift', '-o', binary])
 
-    monitor = json.loads(session.command('list-workspaces', '--json'))['monitors'][0]
+    monitor = json.loads(pe.command('list-workspaces', '--json'))['monitors'][0]
     empty = next(w for w in monitor['workspaces'] if w['windowCount'] == 0)
-    session.command('workspace', empty['id'])
+    pe.command('workspace', empty['id'])
     windows = Windows(binary, out, empty['id'])
     try:
         windows.open('plain')
@@ -223,13 +222,13 @@ def main():
         for name in list(windows.fixtures):
             windows.fixtures.pop(name)[0].close()
         time.sleep(1)
-        session.command('workspace', initial_workspace)
-        (out / 'after.status').write_text(session.command('status'))
-        (out / 'workspaces-after.json').write_text(session.command('list-workspaces', '--json'))
-        (out / 'trace.log').write_text(session.command('trace'))
+        pe.command('workspace', initial_workspace)
+        (out / 'after.status').write_text(pe.command('status'))
+        (out / 'workspaces-after.json').write_text(pe.command('list-workspaces', '--json'))
+        (out / 'trace.log').write_text(pe.command('trace'))
     if daemon.read_bytes() != daemon_digest:
         check('installed daemon unchanged during the run', False, 'another install replaced the bundle')
-    daemons = session.daemon_count()
+    daemons = pe.daemon_count()
     print(f'daemons={daemons} evidence: {out}')
     return 0 if results and all(ok for _, ok in results) and daemons == 1 else 1
 

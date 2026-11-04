@@ -182,16 +182,20 @@ Choose verification by the changed behavior:
 
 - Documentation-only changes: check the diff and any changed links or commands;
   no build, app launch, or desktop validation is needed.
-- Code, tests, or build configuration: run `python3 script/verify.py local`.
+- Code, tests, or build configuration: run `make verify`.
   This runs `swift build`, non-desktop Swift tests, and workflow tests.
 - Platform integration, daemon startup, packaging, or desktop-visible behavior:
-  prepare with `python3 script/verify.py local --stage`, then run
-  `python3 script/verify.py desktop <run-directory>` for installation and native
-  tests. A focused `--filter DesktopE2ETests/testName` is appropriate when the
-  affected interaction is covered; report that scope.
-  `python3 script/verify.py full [--filter DesktopE2ETests/testName]` chains both
-  phases and waits for the desktop automatically. Inspect progress with
-  `python3 script/verify.py status [run-directory]`.
+  `make verify-desktop FILTER='DesktopE2ETests/(testA|testB)$'` prepares a signed
+  bundle, waits for the desktop, then installs it and runs native tests. By
+  default, run only the desktop tests covering the interactions you changed.
+  Widen the selection, up to the whole suite, wherever you suspect a side
+  effect, or when the change touches shared platform plumbing no specific test
+  maps to. Report the chosen tests and why. To prepare first and take the
+  desktop later, run `script/verify.sh local --stage`, then
+  `script/verify.sh desktop <run-directory> --filter …`. Before tagging a
+  release, run `make verify-desktop` unfiltered on the release commit; it
+  certifies the batch of changes the scoped runs let through. Inspect progress
+  with `make verify-status` or `script/verify.sh status [run-directory]`.
   Desktop tests use Defi-owned fixture windows only. A run with one display
   reports the two-display lane under `desktop.not_run`; that lane is not
   covered, so name it in the handoff. The render budget is an opt-in perf
@@ -202,7 +206,7 @@ before handoff. Report any check that could not run and why.
 
 When `tart list` shows a local `defi-e2e` VM, prefer `script/test_vm.sh` for
 iterating on desktop tests, so the user keeps their desktop. It queues on its own VM lock rather than the
-desktop reservation. It complements `verify.py desktop`, which remains the certifying lane. See
+desktop reservation. It complements `verify.sh desktop`, which remains the certifying lane. See
 `CONTRIBUTING.md` for its limits.
 
 Use a separate worktree per concurrent code writer. Prepared bundles and results
@@ -216,10 +220,10 @@ of Computer Use validation.
 
 All installation, desktop tests, and Computer Use validation must share the
 per-user desktop reservation. Scripts acquire it automatically and exit 75
-when busy. Use `verify.py desktop <run-directory> --wait` to resume automatically
+when busy. Use `verify.sh desktop <run-directory> --wait` to resume automatically
 when available; sources and the bundle are rechecked after acquiring the reservation.
 For Computer Use, hold
-`python3 script/desktop_lock.py --wait bash` in a persistent interactive terminal,
+`script/desktop_lock.sh --wait bash` in a persistent interactive terminal,
 run any installation from that shell, inspect the desktop while it remains
 open, and exit the shell after restoration. Other agents can continue local
 work. This lock coordinates cooperating agents, not the user's mouse or keyboard.

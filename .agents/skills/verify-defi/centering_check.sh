@@ -8,7 +8,7 @@
 # Restores the config, closes the documents and returns to the initial workspace.
 # DRIVE=hotkeys sends the configured <mod>-leftbracket / <mod>-right / <mod>-c key events
 # through System Events instead of CLI commands, and checks the daemon captured them.
-# Usage: [DRIVE=hotkeys] centering_check.sh [evidence-dir]   (run under `python3 script/desktop_lock.py --wait`)
+# Usage: [DRIVE=hotkeys] centering_check.sh [evidence-dir]   (run under `script/desktop_lock.sh --wait`)
 set -u
 out="${1:-dist/verification/evidence-$(date +%Y%m%d-%H%M%S)}"; mkdir -p "$out"
 config="$HOME/.config/defi/config.toml"
@@ -52,22 +52,17 @@ restore() {
 }
 trap restore EXIT
 
-# Usage: set_layout key=toml-value...  Rewrites those [layout] keys and checks the result parses.
+# Usage: set_layout key=toml-value...  Rewrites those [layout] keys, first in the table.
 set_layout() {
-  python3 - "$config" "$@" <<'PY' || { echo "FAIL: could not write [layout] $*"; exit 1; }
-import re, sys, tomllib
-path, pairs = sys.argv[1], [a.split('=', 1) for a in sys.argv[2:]]
-text = open(path).read()
-for key, _ in pairs:
-    text = re.sub(rf'(?m)^{key}\s*=.*\n', '', text)
-if not re.search(r'(?m)^\[layout\]\s*$', text):
-    text = text.rstrip('\n') + '\n\n[layout]\n'
-lines = ''.join(f'{key} = {value}\n' for key, value in pairs)
-text = re.sub(r'(?m)^\[layout\]\s*\n', lambda m: m.group(0) + lines, text, count=1)
-layout = tomllib.loads(text)['layout']
-assert all(layout[key] == tomllib.loads(f'v = {value}')['v'] for key, value in pairs)
-open(path, 'w').write(text)
-PY
+  local pair keys="" lines=""
+  for pair in "$@"; do keys="$keys ${pair%%=*}"; lines="$lines${pair%%=*} = ${pair#*=}"$'\n'; done
+  KEYS="$keys" LINES="$lines" awk '
+    BEGIN { n = split(ENVIRON["KEYS"], key, " "); lines = ENVIRON["LINES"] }
+    { for (i = 1; i <= n; i++) if (index($0, key[i]) == 1 && substr($0, length(key[i]) + 1) ~ /^[ \t]*=/) next }
+    !done && /^\[layout\][ \t]*$/ { print; printf "%s", lines; done = 1; next }
+    { print }
+    END { if (!done) { print ""; print "[layout]"; printf "%s", lines } }' "$config" > "$config.tmp" \
+    && mv "$config.tmp" "$config" || { echo "FAIL: could not write [layout] $*"; exit 1; }
   sleep 1.5
 }
 set_mode() { set_layout "center_focused_column=\"$1\""; }
@@ -82,10 +77,8 @@ where() {
   else echo "x=$x width=$w"; fi
 }
 
-trailing="$(python3 -c 'import json,sys
-d=json.load(sys.stdin)
-m=next(m for m in d["monitors"] if m["focused"])
-print(next(w["position"] for w in m["workspaces"] if w["kind"]=="trailing"))' < "$out/workspaces-before.json")"
+trailing="$(jq -r 'first(.monitors[] | select(.focused)) | first(.workspaces[] | select(.kind == "trailing")) | .position' \
+  "$out/workspaces-before.json")"
 set_layout "default_column_width=0.5" "preset_column_widths=[0.5, 0.66]"
 defi focus-workspace-position "$trailing" > /dev/null; sleep 1
 fail=0
@@ -96,10 +89,8 @@ expect() {
 }
 new_document() { osascript -e 'tell application "TextEdit" to make new document' > /dev/null; sleep 1.2; }
 scratch_count() {
-  defi list-workspaces --json | python3 -c 'import json,sys
-d=json.load(sys.stdin)
-m=next(m for m in d["monitors"] if m["focused"])
-print(next(w["windowCount"] for w in m["workspaces"] if w["active"]))'
+  defi list-workspaces --json \
+    | jq -r 'first(.monitors[] | select(.focused)) | first(.workspaces[] | select(.active)) | .windowCount'
 }
 # TextEdit's iCloud open panel can appear on launch and on activation, and Defi tiles it.
 close_open_panel() {
@@ -120,17 +111,11 @@ expect "lone column, always" centered
 set_layout 'center_focused_column="never"'
 # A reload that only recenters must still move windows with animations off.
 cp "$config" "$out/config.animations-on"
-python3 - "$config" <<'PY' || { echo "FAIL: could not disable animations"; exit 1; }
-import re, sys, tomllib
-text = open(sys.argv[1]).read()
-section = r'(?m)^\[animation\]\s*\n(?:(?!\[).*\n)*'
-found = re.search(section, text)
-body = re.sub(r'(?m)^enabled\s*=.*\n', '', found.group(0)) if found else '[animation]\n'
-body = body.replace('[animation]\n', '[animation]\nenabled = false\n', 1)
-text = text[:found.start()] + body + text[found.end():] if found else text.rstrip('\n') + '\n\n' + body
-assert tomllib.loads(text)['animation']['enabled'] is False
-open(sys.argv[1], 'w').write(text)
-PY
+awk '/^\[/ { section = ($0 ~ /^\[animation\][ \t]*$/); print; if (section) { print "enabled = false"; found = 1 }; next }
+  section && /^enabled[ \t]*=/ { next }
+  { print }
+  END { if (!found) { print ""; print "[animation]"; print "enabled = false" } }' "$config" > "$config.tmp" \
+  && mv "$config.tmp" "$config" || { echo "FAIL: could not disable animations"; exit 1; }
 sleep 1.5
 set_layout 'always_center_single_column=true'
 expect "lone column, animations off" centered
@@ -144,16 +129,24 @@ close_open_panel
 count="$(scratch_count)"
 [ "$count" = 4 ] || { echo "expected 4 scratch columns, got $count"; exit 1; }
 
-modifiers="$(python3 - "$config" <<'PY'
-import re, sys, tomllib
-config = tomllib.loads(open(sys.argv[1]).read())
-modifier = config.get('default_key_modifier', 'alt')
-names = {'alt': 'option', 'option': 'option', 'opt': 'option', 'cmd': 'command', 'command': 'command',
-         'ctrl': 'control', 'control': 'control', 'shift': 'shift'}
-parts = re.split(r'[+-]', config.get('modifier_combinations', {}).get(modifier, modifier))
-print(', '.join(f'{names[p.strip().lower()]} down' for p in parts))
-PY
-)" || { echo "cannot resolve default_key_modifier"; exit 1; }
+# The System Events modifier list for default_key_modifier, expanded through [modifier_combinations].
+modifiers="$(awk '
+  function clean(v) { sub(/^[^=]*=[ \t]*/, "", v); sub(/[ \t]*(#.*)?$/, "", v); gsub(/"/, "", v); return v }
+  /^\[/ { table = $0; gsub(/^\[|\][ \t]*$/, "", table); next }
+  table == "" && /^default_key_modifier[ \t]*=/ { modifier = clean($0) }
+  table == "modifier_combinations" && /=/ { key = $0; sub(/[ \t]*=.*/, "", key); gsub(/"/, "", key); combination[key] = clean($0) }
+  END {
+    split("alt option option option opt option cmd command command command ctrl control control control shift shift", pairs, " ")
+    for (i = 1; i < 16; i += 2) name[pairs[i]] = pairs[i + 1]
+    if (modifier == "") modifier = "alt"
+    n = split((modifier in combination) ? combination[modifier] : modifier, part, /[+-]/)
+    for (i = 1; i <= n; i++) {
+      p = tolower(part[i]); gsub(/^[ \t]+|[ \t]+$/, "", p)
+      if (!(p in name)) exit 1
+      list = list (i > 1 ? ", " : "") name[p] " down"
+    }
+    print list
+  }' "$config")" || { echo "cannot resolve default_key_modifier"; exit 1; }
 step() {
   if [ "${DRIVE:-cli}" = hotkeys ]; then
     local code; [ "$1" = first ] && code=33 || code=124

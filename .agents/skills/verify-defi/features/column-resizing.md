@@ -45,7 +45,7 @@ for i in 1...steps {
 usleep(120_000); post(.leftMouseUp, p[2], p[3])
 ```
 
-Journey, under `python3 script/desktop_lock.py --wait bash`:
+Journey, under `script/desktop_lock.sh --wait bash`:
 
 ```sh
 swiftc -O drag.swift -o drag                      # in the scratch directory holding drag.swift

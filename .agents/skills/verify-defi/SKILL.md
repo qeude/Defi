@@ -19,19 +19,19 @@ Rules that override convenience (from `AGENTS.md`):
 | Change | Tier | Command |
 | --- | --- | --- |
 | Docs only | none | check the diff |
-| Code, tests, build config | local | `python3 script/verify.py local` |
-| Daemon wiring, platform integration, desktop-visible | stage + desktop | `python3 script/verify.py local --stage` then `python3 script/verify.py desktop dist/verification/<run> --wait [--filter DesktopE2ETests/<test>]` |
+| Code, tests, build config | local | `make verify` |
+| Daemon wiring, platform integration, desktop-visible | stage + desktop | `make verify-desktop FILTER='DesktopE2ETests/(<tests>)$'` |
 | Animation, focus, parking, hotkeys, Dock/Command-Tab, overview visuals | all of the above plus live drive | sections below |
 
-`verify.py local` never installs and forces `DEFI_E2E=0`. `desktop` installs the exact staged bundle, runs XCTest, and restores the session store. Zero executed or skipped tests count as incomplete, not pass. Only the two-display lane (`testTwoDisplay*`, needs two displays) and the opt-in perf lane (`DEFI_E2E_PERF=1`) may skip; `result.json` lists them under `desktop.not_run`, which is not a pass.
+`make verify` never installs and forces `DEFI_E2E=0`. `make verify-desktop` installs the exact staged bundle, runs XCTest, and restores the session store. Zero executed or skipped tests count as incomplete, not pass. Only the two-display lane (`testTwoDisplay*`, needs two displays) and the opt-in perf lane (`DEFI_E2E_PERF=1`) may skip; `result.json` lists them under `desktop.not_run`, which is not a pass.
 
 ## Launch
 
 The installed app is the unit under test. To put your change into it:
 
 ```sh
-python3 script/verify.py local --stage          # prints dist/verification/<run>
-python3 script/verify.py desktop dist/verification/<run> --wait
+script/verify.sh local --stage          # prints dist/verification/<run>
+script/verify.sh desktop dist/verification/<run> --wait
 ```
 
 Signing must keep the installed designated requirement or macOS re-prompts for Accessibility and Screen Recording. If the identity is missing, set `DEFI_CODESIGN_IDENTITY` in the ignored `.env.local`. Do not choose another certificate.
@@ -68,7 +68,7 @@ Note `defi workspace 2` selects a workspace by ID, not by position, so the daemo
 
 Parse `defi status` by splitting on spaces and grepping `key=`. Do not scrape by column.
 
-For real human timing, hotkeys and mouse behavior, hold the desktop reservation in an interactive shell (`python3 script/desktop_lock.py --wait bash`) and use Computer Use. Synthetic command bursts alone do not certify native focus or animation quality.
+For real human timing, hotkeys and mouse behavior, hold the desktop reservation in an interactive shell (`script/desktop_lock.sh --wait bash`) and use Computer Use. Synthetic command bursts alone do not certify native focus or animation quality.
 
 ## Evidence
 
@@ -87,14 +87,14 @@ Proof standard: drive the user path (CLI command or real hotkey), capture the st
 1. Close any overview you opened (`defi toggle-overview` only if `overview=open`).
 2. Restore the initial workspace you recorded in `before.status` with `defi focus-workspace-name <name>`.
 3. Restore any config file you edited from your backup. Never leave `~/.config/defi/config.toml` changed.
-4. Exit the `desktop_lock.py` shell if you opened one.
+4. Exit the `desktop_lock.sh` shell if you opened one.
 5. Run the doctor and confirm exactly one daemon.
 
 Keep the evidence directory.
 
 ## Width animation check
 
-After any change to size writes, growth, shrink or the animation loop: `python3 script/desktop_lock.py --wait .agents/skills/verify-defi/resize_check.sh` (see `features/width-animation.md`).
+After any change to size writes, growth, shrink or the animation loop: `script/desktop_lock.sh --wait .agents/skills/verify-defi/resize_check.sh` (see `features/width-animation.md`).
 
 ## Feature map
 
