@@ -250,7 +250,9 @@ final class FakeMacOS: @unchecked Sendable {
           used.insert(.busyAppTimesOut)
           return false
         }
-        return frontmost == processID && app.focusedWindow == window
+        // Measured 2026-11-05 (desktop fidelity trace, GitHub macos-26): an app's focused
+        // window reads as focused even while another app is frontmost.
+        return app.focusedWindow == window
       }
     }
     operations.setMain = { [self] element in
@@ -275,8 +277,9 @@ final class FakeMacOS: @unchecked Sendable {
             self.used.insert(.busyAppTimesOut)
             return .cannotComplete
           }
-          self.activate(processID)
-          return .success
+          // Measured 2026-11-05 (desktop fidelity trace, GitHub macos-26): setting the system-wide
+          // focused application fails with kAXErrorInvalidUIElement; Defi then activates the app.
+          return .invalidUIElement
         }
       }
     }

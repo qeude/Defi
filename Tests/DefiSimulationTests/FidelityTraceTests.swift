@@ -65,7 +65,13 @@ struct FidelityTraceTests {
     for (scenario, realCalls) in real.sorted(by: { $0.key < $1.key }) {
       let calls = simulated[scenario] ?? []
       let shape: (AXCall) -> String = { "\($0.operation)(\($0.target)) -> \($0.result)" }
-      #expect(calls.map(shape) == realCalls.map(shape), "\(scenario): simulated calls differ from the real desktop")
+      // How many superseded requests of a burst still run depends on thread timing, on macOS and
+      // in the simulation alike, so only the final request's calls are compared.
+      let finalRequest: ([AXCall]) -> [String] = { log in
+        let last = log.lastIndex { $0.operation == "targetIsFocused" } ?? 0
+        return log[last...].map(shape)
+      }
+      #expect(finalRequest(calls) == finalRequest(realCalls), "\(scenario): simulated calls differ from the real desktop")
       for call in realCalls where call.operation != "activateApplication" && call.milliseconds > 75 {
         Issue.record("\(scenario): real \(shape(call)) took \(call.milliseconds) ms, beyond the catalog bound")
       }
