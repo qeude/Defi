@@ -1484,3 +1484,64 @@ private final class DesktopValue<Value> {
   var value: Value
   init(_ value: Value) { self.value = value }
 }
+
+// MARK: - Fidelity trace
+
+/// The focus scenarios the simulated macOS replays (DefiSimulationTests/FidelityTraceTests).
+let fidelityScenarios = ["focus-other-app", "focus-back", "rapid-burst"]
+
+extension DesktopE2ETests {
+  /// Records the Accessibility focus calls of a few scenarios on the real desktop and writes
+  /// them to DEFI_AX_TRACE_OUT, so CI can compare them with the simulated macOS.
+  func testFocusTraceForSimulationFidelity() throws {
+    _ = try preflight()
+    let labels = Mutex<[pid_t: String]>([:])
+    let windowLabels = Mutex<[String: AXUIElement]>([:])
+    let log = AXCallLog { element in
+      for (label, candidate) in windowLabels.withLock({ $0 }) where CFEqual(candidate, element) {
+        return label
+      }
+      var processID: pid_t = 0
+      AXUIElementGetPid(element, &processID)
+      return labels.withLock { $0[processID] } ?? "other"
+    }
+    let platform = onNavigation {
+      MacOSPlatform(frameCoordinator: nil, focusOperations: AXFocusOperations().recording(into: log))
+    }
+    let fixtures = try openFixtures(platform)
+    defer { closeFixtures(fixtures) }
+    let tiled = fixtures.tiledWindowID, floating = fixtures.floatingWindowID
+    labels.withLock {
+      $0[fixtures.tiledProcess.processIdentifier] = "app-a"
+      $0[fixtures.floatingProcess.processIdentifier] = "app-b"
+    }
+    onNavigation {
+      windowLabels.withLock {
+        $0["window-a"] = platform.elements[tiled]
+        $0["window-b"] = platform.elements[floating]
+      }
+    }
+    func waitIdle() {
+      XCTAssertTrue(pumpRunLoop(until: { !onNavigation { platform.hasPendingFocusWrite } }, timeout: 3))
+    }
+    try activate(fixtures.floatingProcess, focusing: floating, platform)
+    waitIdle()
+    var trace: [String: [AXCall]] = [:]
+    for scenario in fidelityScenarios {
+      log.reset()
+      switch scenario {
+      case "focus-other-app": onNavigation { platform.focus(tiled) }
+      case "focus-back": onNavigation { platform.focus(floating) }
+      default: for id in [tiled, floating, tiled, floating] { onNavigation { platform.focus(id) } }
+      }
+      waitIdle()
+      trace[scenario] = log.entries
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let out = URL(filePath: ProcessInfo.processInfo.environment["DEFI_AX_TRACE_OUT"]
+      ?? FileManager.default.temporaryDirectory.appending(path: "defi-ax-trace.json").path)
+    try encoder.encode(trace).write(to: out)
+    print("DEFI_E2E ax-trace=\(out.path)")
+  }
+}
