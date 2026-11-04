@@ -48,7 +48,9 @@ jobs:
           sleep 2
 
       - name: Desktop tests
-        run: ./script/test_desktop.sh 2>&1 | tee desktop.log
+        run: |
+          set -o pipefail
+          ./script/test_desktop.sh 2>&1 | tee desktop.log
 
       - name: Report Accessibility availability
         if: always()
