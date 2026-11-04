@@ -201,10 +201,17 @@ final class DaemonFocusWorld {
 
   /// Native moves of the last column press, per window (AGENTS.md: one move per motion).
   var pressMoves: [WindowID: Int] = [:]
+  /// A violation a step observed while it ran, reported by the next check.
+  var stepViolation: FocusViolation?
+  /// Frame writes in the second half of the calm rounds, when nothing should move any more.
+  var lateCalmWrites = 0
 
   func run(_ step: FocusStep) async {
     if step != .writerStep && step != .writerRuns { fake.noteStepWhileWriterWaits() }
     _ = fake.takeMoves()
+    _ = fake.takeWrites()
+    let hiddenBefore = Set(windows.filter(platform.isWindowHidden))
+    let generationBefore = daemon.commandGeneration
     switch step {
     case .press(let preferRight, let writerStepsDuringTap):
       let columns = activeColumns
@@ -246,6 +253,8 @@ final class DaemonFocusWorld {
       await advance(by: 0.016)
       daemon.tick()
       await settle()
+    case .setAccessibility(let granted):
+      fake.setAccessibility(granted: granted)
     case .userFocuses(let index):
       // A Command-Tab or a click takes longer than a whole focus write: each AX call ends
       // within its timeout (16 or 50 ms, AXFocusWriterExecution), so the writer finishes first.
@@ -262,6 +271,42 @@ final class DaemonFocusWorld {
     }
     await settle()
     if case .press = step { pressMoves = fake.takeMoves() } else { pressMoves = [:] }
+    observe(step, hiddenBefore: hiddenBefore, generationBefore: generationBefore)
+  }
+
+  /// Oracles that need what happened during the step, not only where it ended.
+  private func observe(_ step: FocusStep, hiddenBefore: Set<WindowID>, generationBefore: UInt64) {
+    guard stepViolation == nil else { return }
+    // Without Accessibility every call fails; Defi waits instead of retrying in a loop.
+    let refused = fake.takeDeniedAttempts()
+    if refused > 24 {
+      stepViolation = FocusViolation(
+        invariant: "retry-storm-without-accessibility",
+        detail: "\(refused) Accessibility calls refused in one step"
+      )
+    }
+    // Every bound shortcut the tap sees becomes one command (AGENTS.md: keyboard capture and
+    // command intake stay responsive while Accessibility work is pending).
+    if case .press = step, daemon.commandGeneration != generationBefore &+ 1 {
+      stepViolation = FocusViolation(
+        invariant: "shortcut-lost",
+        detail: "a column press produced \(daemon.commandGeneration &- generationBefore) commands"
+      )
+    }
+    // A window hidden before and after a step never shows on the display in between
+    // (AGENTS.md: parked windows never leak into visible monitor regions).
+    let hiddenAfter = Set(windows.filter(platform.isWindowHidden))
+    let visible = monitor.frame
+    for write in fake.takeWrites() where hiddenBefore.contains(write.window) && hiddenAfter.contains(write.window) {
+      let overlap = min(write.frame.x + write.frame.width, visible.x + visible.width) - max(write.frame.x, visible.x)
+      if overlap > parkedSliverWidth + 1 {
+        stepViolation = FocusViolation(
+          invariant: "parked-window-shown",
+          detail: "hidden window \(write.window.rawValue) was written \(Int(overlap)) pt onto the display"
+        )
+        return
+      }
+    }
   }
 
   /// Column order on the active workspace, one window per column in this world.
@@ -315,13 +360,20 @@ final class DaemonFocusWorld {
 
   /// macOS calms down: apps answer again and the daemon keeps ticking.
   func calm() async {
+    fake.setAccessibility(granted: true)
     for app in processIDs.indices {
       fake.setBusy(processIDs[app], false, landLateWrites: true)
     }
     for round in 0..<20 {
       let before = (selectedWindowID, fake.keyWindow)
+      _ = fake.takeWrites()
       await run(.deliverFocusNotification)
+      // Calm lasts 2 s of simulated time, past the 1.4 s frame settlement re-check
+      // (AXFrameCoordinatorSettlement); convergence must happen within it.
+      await advance(by: 0.084)
       await run(.tick)
+      // run() drained this round's writes for its own oracle; count them before they go.
+      if round >= 10 { lateCalmWrites += fake.takeMoves().values.reduce(0, +) }
       while let operation = fake.gate.step(writerBusy: { platform.focusWriter.isBusy }) {
         log.append("  calm \(round) writer: \(operation)")
         await settle()
@@ -333,6 +385,11 @@ final class DaemonFocusWorld {
   }
 
   func checkStep() -> FocusViolation? {
+    if let stepViolation { return stepViolation }
+    // Timers keep firing only while work is pending; a growing backlog is a busy loop.
+    if clock.pendingTimerCount > 500 {
+      return FocusViolation(invariant: "timer-storm", detail: "\(clock.pendingTimerCount) timers are pending")
+    }
     if let intendedWindowID, !humanInputSinceIntent, selectedWindowID != intendedWindowID {
       return FocusViolation(
         invariant: "latest-intent-wins",
@@ -353,6 +410,13 @@ final class DaemonFocusWorld {
 
   func checkCalm() -> FocusViolation? {
     if let violation = checkStep() { return violation }
+    // Once macOS is calm nothing moves (AGENTS.md: frames converge without feedback loops).
+    if lateCalmWrites > 0 {
+      return FocusViolation(
+        invariant: "writes-once-calm",
+        detail: "\(lateCalmWrites) frame writes in the last 10 calm rounds"
+      )
+    }
     // Typing is the latest intent: no Defi focus write may take macOS away from that window.
     if let typed = typedIntoWindowID, fake.keyWindow != typed {
       return FocusViolation(

@@ -3,6 +3,7 @@
 # processes under DEFI_ISOLATED=1 so any real macOS resource traps. Safe while Defi runs.
 #   check.sh            run every lane; exit 1 when a lane fails, 2 on a setup error
 #   SHARDS=n check.sh   split the simulated-desktop campaign across n processes (default: half the cores, 1 to 4)
+#   FAIL_FAST=1 check.sh  stop every lane at the first failure (mutation runs)
 # Each lane logs to $LOGS/<lane>.log; failing lanes print their failure reports.
 # The lanes only run built products, so they share .build without its SwiftPM lock.
 set -uo pipefail
@@ -14,7 +15,7 @@ cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 default_shards=$((cores / 2)); ((default_shards < 1)) && default_shards=1; ((default_shards > 4)) && default_shards=4
 SHARDS="${SHARDS:-$default_shards}"
 [[ "$SHARDS" =~ ^[1-9][0-9]*$ ]] || { echo "SHARDS must be a positive integer, got '$SHARDS'" >&2; exit 2; }
-PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests'
+PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests|PermissionScenarioTests|KnownSuspectMatchTests'
 mkdir -p "$LOGS" && LOGS="$(cd "$LOGS" && pwd)" || exit 2
 rm -f "$LOGS"/*.log
 
@@ -35,6 +36,25 @@ for ((shard = 0; shard < SHARDS; shard++)); do
     >"$LOGS/desktop-$shard.log" 2>&1 &
   pids+=($!)
 done
+
+# FAIL_FAST=1 (mutation runs): the first failing lane stops the others; one failure is enough.
+if [[ "${FAIL_FAST:-}" == 1 ]]; then
+  while :; do
+    running=0
+    for index in "${!pids[@]}"; do
+      pid="${pids[$index]}"
+      if kill -0 "$pid" 2>/dev/null; then
+        running=1
+      elif ! wait "$pid"; then
+        echo "FAIL  ${lanes[$index]} ($LOGS/${lanes[$index]}.log)"
+        for other in "${pids[@]}"; do pkill -P "$other" 2>/dev/null; kill "$other" 2>/dev/null; done
+        exit 1
+      fi
+    done
+    ((running)) || break
+    sleep 0.5
+  done
+fi
 
 failed=0
 for index in "${!pids[@]}"; do

@@ -26,6 +26,8 @@ enum FocusStep: Hashable, ShrinkableStep {
   case tick
   /// The user focuses another window outside Defi: Command-Tab, the Dock or a click.
   case userFocuses(window: Int)
+  /// The user revokes or grants Defi's Accessibility permission in System Settings.
+  case setAccessibility(granted: Bool)
 
   var description: String {
     switch self {
@@ -37,6 +39,7 @@ enum FocusStep: Hashable, ShrinkableStep {
     case .deliverFocusNotification: "deliverFocusNotification"
     case .tick: "tick"
     case .userFocuses(let window): "userFocuses(window \(window + 1))"
+    case .setAccessibility(let granted): granted ? "grantAccessibility" : "revokeAccessibility"
     }
   }
 
@@ -65,7 +68,8 @@ func generateFocusScenario(seed: UInt64) -> [FocusStep] {
     case 55..<70: .setBusy(app: random.below(3), busy: random.chance(60), landLateWrites: random.chance(50))
     case 70..<80: .deliverFocusNotification
     case 80..<88: .tick
-    case 88..<94: .userFocuses(window: random.below(4))
+    case 88..<93: .userFocuses(window: random.below(4))
+    case 93..<96: .setAccessibility(granted: random.chance(50))
     default: .type
     }
   }
@@ -121,6 +125,14 @@ func runFocusScenario(_ steps: [FocusStep]) async -> (FocusViolation?, [String],
 /// The busy-app classes are variants of the same rollback.
 /// Key: invariant plus the catalog behaviors of the minimal case.
 let knownFocusSuspects: [String: String] = [
+  #"focus-visible ["accessibilityRevoked", "axCallTakesUpToItsTimeout", "focusNotificationArrivesLate"]"#:
+    "suspect: frames refused while Accessibility was revoked are never rewritten once it is granted again; the simulated snapshot reports no target mismatches, so confirm once the real SnapshotEngine runs on the fake",
+  #"focus-visible ["accessibilityRevoked", "axCallTakesUpToItsTimeout"]"#:
+    "suspect: frames refused while Accessibility was revoked are never rewritten once it is granted again; the simulated snapshot reports no target mismatches, so confirm once the real SnapshotEngine runs on the fake",
+  #"focus-visible ["accessibilityRevoked"]"#:
+    "suspect: frames refused while Accessibility was revoked are never rewritten once it is granted again; the simulated snapshot reports no target mismatches, so confirm once the real SnapshotEngine runs on the fake",
+  #"focus-visible ["accessibilityRevoked", "focusNotificationArrivesLate"]"#:
+    "suspect: frames refused while Accessibility was revoked are never rewritten once it is granted again; the simulated snapshot reports no target mismatches, so confirm once the real SnapshotEngine runs on the fake",
   #"typing-target-kept ["axCallTakesUpToItsTimeout", "busyAppTimesOut", "focusNotificationArrivesLate", "timedOutWriteLandsLater"]"#: "suspect: a superseded focus write still in flight completes after newer typing and moves macOS away from the window the user typed into; confirm on the desktop",
   #"typing-target-kept ["axCallTakesUpToItsTimeout", "focusNotificationArrivesLate", "writerRunsDuringTapCallout"]"#: "suspect: a superseded focus write still in flight completes after newer typing and moves macOS away from the window the user typed into; confirm on the desktop",
   #"typing-target-kept ["axCallTakesUpToItsTimeout", "focusNotificationArrivesLate"]"#: "suspect: a superseded focus write still in flight completes after newer typing and moves macOS away from the window the user typed into; confirm on the desktop",

@@ -30,6 +30,11 @@ enum FakeMacBehavior: String, CaseIterable, Sendable {
   /// that report late": Defi learns a native focus change only when its notification
   /// is delivered, after the change itself.
   case focusNotificationArrivesLate
+  /// AXError.h, kAXErrorAPIDisabled: "Assistive applications are not enabled in System
+  /// Preferences". The user can revoke Defi's Accessibility grant at any time; every AX call
+  /// then fails until it is granted again (AGENTS.md: navigation never depends on capture,
+  /// and Defi must not spin while it waits).
+  case accessibilityRevoked
 }
 
 /// Lets the harness advance the real AXFocusWriter one AX call at a time. The writer
@@ -109,6 +114,25 @@ final class FakeMacOS: @unchecked Sendable {
   private var used = Set<FakeMacBehavior>()
   /// Set by the harness while a key press should let the writer run during a tap callout.
   var writerStepsDuringTapCallout = false
+  /// Every AX write attempted while Accessibility is revoked, since the last `takeDeniedAttempts()`.
+  private var accessibilityGranted = true
+  private var deniedAttempts = 0
+
+  func setAccessibility(granted: Bool) {
+    lock.withLock {
+      accessibilityGranted = granted
+      if !granted { used.insert(.accessibilityRevoked) }
+    }
+  }
+
+  func takeDeniedAttempts() -> Int { lock.withLock { defer { deniedAttempts = 0 }; return deniedAttempts } }
+
+  /// True while Accessibility is revoked; counts the refused call (caller holds the lock).
+  private func refusedWithoutAccessibility() -> Bool {
+    guard !accessibilityGranted else { return false }
+    deniedAttempts += 1
+    return true
+  }
   var writerBusy: @Sendable () -> Bool = { false }
 
   init(space: Int32, owners: [WindowID: pid_t], focused: [pid_t: WindowID], frontmost: pid_t) {
@@ -140,6 +164,8 @@ final class FakeMacOS: @unchecked Sendable {
   private var nativeFrames: [WindowID: Rect] = [:]
   /// Native moves per window since the last `takeMoves()`: one motion should move a window once.
   private var moves: [WindowID: Int] = [:]
+  /// Every frame macOS applied since the last `takeWrites()`, in order.
+  private var writes: [(window: WindowID, frame: Rect)] = []
 
   func frame(of windowID: WindowID) -> Rect? { lock.withLock { nativeFrames[windowID] } }
 
@@ -149,11 +175,12 @@ final class FakeMacOS: @unchecked Sendable {
   func moveWindow(_ element: AXUIElement, to point: CGPoint) -> Bool {
     guard let windowID = windowID(of: element) else { return false }
     return lock.withLock {
-      guard var frame = nativeFrames[windowID] else { return false }
+      guard !refusedWithoutAccessibility(), var frame = nativeFrames[windowID] else { return false }
       frame.x = point.x
       frame.y = point.y
       nativeFrames[windowID] = frame
       moves[windowID, default: 0] += 1
+      writes.append((windowID, frame))
       return true
     }
   }
@@ -161,15 +188,18 @@ final class FakeMacOS: @unchecked Sendable {
   func resizeWindow(_ element: AXUIElement, to size: CGSize) -> Bool {
     guard let windowID = windowID(of: element) else { return false }
     return lock.withLock {
-      guard var frame = nativeFrames[windowID] else { return false }
+      guard !refusedWithoutAccessibility(), var frame = nativeFrames[windowID] else { return false }
       frame.width = size.width
       frame.height = size.height
       nativeFrames[windowID] = frame
+      writes.append((windowID, frame))
       return true
     }
   }
 
   func takeMoves() -> [WindowID: Int] { lock.withLock { defer { moves = [:] }; return moves } }
+
+  func takeWrites() -> [(window: WindowID, frame: Rect)] { lock.withLock { defer { writes = [] }; return writes } }
   var frontmostProcessID: pid_t { lock.withLock { frontmost } }
   var behaviorsUsed: Set<FakeMacBehavior> { lock.withLock { used } }
 
@@ -213,7 +243,7 @@ final class FakeMacOS: @unchecked Sendable {
       gate.arrive("read-focus")
       let window = windowID(of: element)
       return lock.withLock {
-        guard let window, let processID = owners[window], let app = apps[processID] else {
+        guard !refusedWithoutAccessibility(), let window, let processID = owners[window], let app = apps[processID] else {
           return false
         }
         if app.busy {
@@ -240,6 +270,7 @@ final class FakeMacOS: @unchecked Sendable {
         self.gate.arrive("set-focused-application")
         let processID = self.processID(of: application)
         return self.lock.withLock {
+          if self.refusedWithoutAccessibility() { return .apiDisabled }
           if self.apps[processID]?.busy == true {
             self.used.insert(.busyAppTimesOut)
             return .cannotComplete
@@ -261,6 +292,7 @@ final class FakeMacOS: @unchecked Sendable {
   private func selectWindow(_ element: AXUIElement) -> AXError {
     guard let window = windowID(of: element) else { return .invalidUIElement }
     return lock.withLock {
+      if refusedWithoutAccessibility() { return .apiDisabled }
       guard let processID = owners[window], var app = apps[processID] else {
         return .invalidUIElement
       }

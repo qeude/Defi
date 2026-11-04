@@ -61,6 +61,8 @@ public final class VirtualClock: Sendable {
 
   public var now: TimeInterval { state.withLock { $0.now } }
 
+  public var pendingTimerCount: Int { state.withLock { $0.timers.count } }
+
   /// The earliest pending deadline, if any timer is waiting.
   public var nextDeadline: TimeInterval? { state.withLock { $0.timers.map(\.deadline).min() } }
 

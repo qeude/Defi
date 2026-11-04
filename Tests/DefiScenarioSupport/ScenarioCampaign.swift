@@ -104,6 +104,24 @@ public struct ScenarioFailureReport: Sendable {
   public let isKnownSuspect: Bool
 }
 
+/// A known suspect covers every class with its invariant whose behaviors include the suspect's:
+/// "inv [a, b]" covers "inv [a, b, c]". Keys follow `ScenarioOutcome.classKey`.
+public func knownSuspect(_ key: String, in suspects: [String: String]) -> String? {
+  if let exact = suspects[key] { return exact }
+  func split(_ key: String) -> (String, Set<String>) {
+    guard let open = key.firstIndex(of: "[") else { return (key, []) }
+    let invariant = String(key[..<open]).trimmingCharacters(in: .whitespaces)
+    let names = key[open...].trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+      .split(separator: ",").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"")) }
+    return (invariant, Set(names.filter { !$0.isEmpty }))
+  }
+  let (invariant, behaviors) = split(key)
+  return suspects.first { candidate in
+    let (suspectInvariant, required) = split(candidate.key)
+    return suspectInvariant == invariant && required.isSubset(of: behaviors)
+  }?.value
+}
+
 /// Runs seeded scenarios, shrinks each new failure class to its minimal case, and reports
 /// it once with the replay command. Classes listed in `knownSuspects` are printed but not
 /// failed, so the loop stays green while a triaged suspect waits for confirmation.
@@ -139,7 +157,7 @@ nonisolated(nonsending) public func runScenarioCampaign<Step: ShrinkableStep>(
     guard reports[key] == nil else { continue }
     let shown = minimalOutcome.invariant == nil ? outcome : minimalOutcome
     let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
-    let suspect = knownSuspects[key]
+    let suspect = knownSuspect(key, in: knownSuspects)
     let text = """
       [\(name)] \(suspect == nil ? "FAILURE" : "known suspect: \(suspect!)")
       invariant: \(shown.invariant ?? invariant): \(shown.message)
