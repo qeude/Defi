@@ -66,21 +66,41 @@ MUTANTS=(
 )
 
 restore() { [ -n "${current:-}" ] && [ -f "$current.mutate-backup" ] && mv "$current.mutate-backup" "$current"; current=; }
-trap restore EXIT INT TERM
+trap restore EXIT
+trap 'restore; exit 130' INT TERM
+
+# One run per checkout: concurrent runs would share the backups and plant into each other.
+LOCK="$ROOT/.build/mutate.lock"
+mkdir -p "$ROOT/.build"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "another mutation run holds $LOCK" >&2; exit 2
+fi
+trap 'restore; rmdir "$LOCK"' EXIT
+
+# A kill only means something against a passing baseline.
+if ! swift build --build-tests >/dev/null 2>&1; then echo "baseline does not build" >&2; exit 2; fi
+if ! ./script/check.sh >/dev/null 2>&1; then echo "baseline make check fails; fix it first" >&2; exit 2; fi
 
 survivors=0
+skipped=0
+ran=0
 for mutant in "${MUTANTS[@]}"; do
   IFS='^' read -r current original replacement description <<<"$mutant"
   [[ -z "${ONLY:-}" || "$description" =~ $ONLY ]] || continue
+  ran=$((ran + 1))
   cp "$current" "$current.mutate-backup"
   if ! ORIGINAL="$original" REPLACEMENT="$replacement" perl -0pi -e '$o = quotemeta($ENV{ORIGINAL}); s/$o/$ENV{REPLACEMENT}/ or exit 3' "$current"; then
-    echo "SKIP     $description (original line not found)"; restore; continue
+    echo "SKIP     $description (original line not found)"; skipped=$((skipped + 1)); restore; continue
   fi
   if ! swift build --build-tests >/dev/null 2>&1; then
-    echo "SKIP     $description (does not compile)"; restore; continue
+    echo "SKIP     $description (does not compile)"; skipped=$((skipped + 1)); restore; continue
   fi
-  if output="$(./script/check.sh 2>&1)"; then
+  output="$(./script/check.sh 2>&1)"; status=$?
+  if [ "$status" -eq 0 ]; then
     echo "SURVIVED $description"; survivors=$((survivors + 1))
+  elif [ "$status" -ne 1 ]; then
+    # check.sh exits 1 for failing tests only; anything else is a setup error, not a kill.
+    echo "ERROR    $description (check.sh exited $status)"; restore; exit 2
   else
     # Which lanes and tests caught it: the new scenarios, or the existing unit tests.
     lanes="$(grep -oE '^FAIL +[a-z0-9-]+' <<<"$output" | awk '{print $2}' | sort -u | tr '\n' ' ')"
@@ -89,6 +109,7 @@ for mutant in "${MUTANTS[@]}"; do
   fi
   restore
 done
-swift build --build-tests >/dev/null 2>&1
-echo "$survivors of ${#MUTANTS[@]} mutants survived"
+swift build --build-tests >/dev/null 2>&1 || { echo "rebuilding the restored sources failed" >&2; exit 2; }
+echo "$survivors of $ran mutants survived, $skipped skipped"
+((ran > skipped)) || { echo "every mutant was skipped" >&2; exit 2; }
 [ "$survivors" -eq 0 ]
