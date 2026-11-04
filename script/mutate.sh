@@ -98,9 +98,9 @@ for mutant in "${MUTANTS[@]}"; do
   output="$(./script/check.sh 2>&1)"; status=$?
   if [ "$status" -eq 0 ]; then
     echo "SURVIVED $description"; survivors=$((survivors + 1))
-  elif [ "$status" -ne 1 ]; then
-    # check.sh exits 1 for failing tests only; anything else is a setup error, not a kill.
-    echo "ERROR    $description (check.sh exited $status)"; restore; exit 2
+  elif [ "$status" -ne 1 ] || ! grep -qE 'recorded an issue|Test Case .* failed|Fatal error|unexpected signal' "$ROOT"/.build/check/*.log 2>/dev/null; then
+    # A kill needs a failing test or a crash in a lane log; anything else is a setup error.
+    echo "ERROR    $description (check.sh exited $status without a test failure)"; restore; exit 2
   else
     # Which lanes and tests caught it: the new scenarios, or the existing unit tests.
     lanes="$(grep -oE '^FAIL +[a-z0-9-]+' <<<"$output" | awk '{print $2}' | sort -u | tr '\n' ' ')"

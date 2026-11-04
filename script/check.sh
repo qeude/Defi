@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The isolated feedback loop: pure tests and simulated-desktop scenarios, run in parallel
 # processes under DEFI_ISOLATED=1 so any real macOS resource traps. Safe while Defi runs.
-#   check.sh            run every lane; exit 1 when one fails
+#   check.sh            run every lane; exit 1 when a lane fails, 2 on a setup error
 #   SHARDS=n check.sh   split the simulated-desktop campaign across n processes (default: half the cores, 1 to 4)
 # Each lane logs to $LOGS/<lane>.log; failing lanes print their failure reports.
 # The lanes only run built products, so they share .build without its SwiftPM lock.
@@ -15,10 +15,10 @@ default_shards=$((cores / 2)); ((default_shards < 1)) && default_shards=1; ((def
 SHARDS="${SHARDS:-$default_shards}"
 [[ "$SHARDS" =~ ^[1-9][0-9]*$ ]] || { echo "SHARDS must be a positive integer, got '$SHARDS'" >&2; exit 2; }
 PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests'
-mkdir -p "$LOGS" && LOGS="$(cd "$LOGS" && pwd)" || exit 1
+mkdir -p "$LOGS" && LOGS="$(cd "$LOGS" && pwd)" || exit 2
 rm -f "$LOGS"/*.log
 
-cd "$ROOT" || exit 1
+cd "$ROOT" || exit 2
 export DEFI_ISOLATED=1
 # IPC tests use real socket timeouts, so they run alone before the CPU-heavy lanes start.
 if swift test --skip-build --ignore-lock --filter DefiIPCTests >"$LOGS/ipc.log" 2>&1; then
