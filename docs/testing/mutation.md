@@ -13,10 +13,10 @@ chance, which now runs alone before the parallel lanes.
 
 | Area | Killed | Survivors |
 |---|---|---|
-| Layout, lifecycle, routing | 20 of 25 | join focus, focus after a column closes, reorder past the trailing workspace, workspace position off by one, command rollback onto another monitor |
-| Focus | 7 of 13 | daemon fallback after failure, inactive app not activated, writer ignores newer input, redundant focus write, recovery target, hotkeys while the keyboard is captured |
+| Layout, lifecycle, routing | 18 of 22 | join focus, focus after a column closes, reorder past the trailing workspace, workspace position off by one |
+| Focus | 7 of 14 | command rollback onto another monitor, daemon fallback after failure, inactive app not activated, writer ignores newer input, redundant focus write, recovery target, hotkeys while the keyboard is captured |
 | Frames | 2 of 7 | size writes on position-only navigation, stale-write detection, superseded size writes, write ordering, parking repair |
-| Not simulated yet | 2 of 8 | classification (2), snapshot focus (3), mouse drop slot, overview drop, borders |
+| Not simulated yet | 2 of 10 | classification (2), snapshot focus (3), mouse drop slot, overview drop, borders |
 
 The lane column shows who caught each kill. Most kills come from the unit tests that already
 existed. Only three bugs were caught by the new scenarios alone: empty inactive workspaces
