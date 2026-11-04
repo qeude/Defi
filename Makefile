@@ -1,4 +1,4 @@
-.PHONY: build check test run install verify verify-desktop verify-status package-release
+.PHONY: build check mutate test run install verify verify-desktop verify-status package-release
 
 # Desktop tests to run, as a swift test filter: make verify-desktop FILTER='DesktopE2ETests/(testA|testB)$'
 FILTER ?= DesktopE2ETests
@@ -11,6 +11,10 @@ build:
 check:
 	swift build --build-tests
 	./script/check.sh
+
+# Plants known bugs one at a time and reports which ones make check misses.
+mutate:
+	./script/mutate.sh
 
 # Desktop tests skip themselves unless DEFI_E2E=1; this never touches the desktop.
 test:
