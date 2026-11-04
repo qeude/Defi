@@ -13,8 +13,9 @@ LOGS="${LOGS:-$ROOT/.build/check}"
 cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 default_shards=$((cores / 2)); ((default_shards < 1)) && default_shards=1; ((default_shards > 4)) && default_shards=4
 SHARDS="${SHARDS:-$default_shards}"
+[[ "$SHARDS" =~ ^[1-9][0-9]*$ ]] || { echo "SHARDS must be a positive integer, got '$SHARDS'" >&2; exit 2; }
 PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|DefiIPCTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests'
-mkdir -p "$LOGS"
+mkdir -p "$LOGS" && LOGS="$(cd "$LOGS" && pwd)" || exit 1
 rm -f "$LOGS"/*.log
 
 cd "$ROOT" || exit 1
