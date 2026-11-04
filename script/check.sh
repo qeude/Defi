@@ -14,12 +14,18 @@ cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 default_shards=$((cores / 2)); ((default_shards < 1)) && default_shards=1; ((default_shards > 4)) && default_shards=4
 SHARDS="${SHARDS:-$default_shards}"
 [[ "$SHARDS" =~ ^[1-9][0-9]*$ ]] || { echo "SHARDS must be a positive integer, got '$SHARDS'" >&2; exit 2; }
-PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|DefiIPCTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests'
+PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests'
 mkdir -p "$LOGS" && LOGS="$(cd "$LOGS" && pwd)" || exit 1
 rm -f "$LOGS"/*.log
 
 cd "$ROOT" || exit 1
 export DEFI_ISOLATED=1
+# IPC tests use real socket timeouts, so they run alone before the CPU-heavy lanes start.
+if swift test --skip-build --ignore-lock --filter DefiIPCTests >"$LOGS/ipc.log" 2>&1; then
+  echo "ok    ipc"
+else
+  echo "FAIL  ipc ($LOGS/ipc.log)"; grep -E 'recorded an issue|error' "$LOGS/ipc.log" | head -20; exit 1
+fi
 lanes=(pure)
 DEFI_SCENARIO_SHARD=0/1 swift test --skip-build --ignore-lock --filter "$PURE" >"$LOGS/pure.log" 2>&1 &
 pids=($!)
