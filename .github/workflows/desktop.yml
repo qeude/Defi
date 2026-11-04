@@ -47,6 +47,14 @@ jobs:
           sudo launchctl stop com.apple.tccd 2>/dev/null || true
           sleep 2
 
+      - name: Turn Reduce Motion off
+        # Hosted runners enable it; the desktop preflight needs animations on.
+        run: |
+          defaults write com.apple.universalaccess reduceMotion -bool false
+          defaults write com.apple.Accessibility ReduceMotionEnabled -bool false
+          killall cfprefsd 2>/dev/null || true
+          echo "reduceMotion=$(defaults read com.apple.universalaccess reduceMotion 2>&1)"
+
       - name: Desktop tests
         run: |
           set -o pipefail
