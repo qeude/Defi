@@ -44,13 +44,23 @@ options=(-k)
 [[ -t 0 ]] && exec lockf "${options[@]}" "$LOCK" "$SELF" --owned "$@"
 
 # lockf releases the lock on SIGTERM while its command still runs, so a signal to our process group
-# must not reach it: run it in its own group and pass signals to the command, which then cleans up.
+# must not reach it: run it in its own group and signal the command's whole tree, as a group signal
+# would, so a shell blocked on a synchronous child stops too and then cleans up.
 holder=""
+signal_tree() {
+  local child
+  for child in $(pgrep -P "$1" || true); do signal_tree "$child"; done
+  kill -TERM "$1" 2>/dev/null || true
+}
 forward() {
   [[ -n "$holder" ]] || exit 143
   local command
   command="$(pgrep -P "$holder" || true)"
-  if [[ -n "$command" ]]; then kill -TERM $command; else kill -TERM "$holder"; fi
+  if [[ -n "$command" ]]; then
+    for command in $command; do signal_tree "$command"; done
+  else
+    kill -TERM "$holder"
+  fi
 }
 trap forward INT TERM
 set -m
