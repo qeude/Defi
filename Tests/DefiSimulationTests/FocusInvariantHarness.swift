@@ -131,7 +131,9 @@ let knownFocusSuspects: [String: String] = [
   #"native-converges ["axCallTakesUpToItsTimeout", "focusNotificationArrivesLate"]"#: "suspect: typing while a column focus is in flight rolls the selection back to a window macOS never focused (commandFocusCancellationFallback ignores native focus); reproduced on the real daemon with the simulated snapshot, confirm on the desktop",
 ]
 
-@Suite(.serialized)
+/// The simulated desktop installs a process-wide virtual clock, so it runs only in the
+/// isolated `make check` processes, never beside other suites that read real time.
+@Suite(.serialized, .enabled(if: RealResourceGuard.isEnforced, "runs under make check (DEFI_ISOLATED=1)"))
 struct FocusInvariantHarnessTests {
   /// Every ordering of three user and macOS actions after one press: the bounded exhaustive
   /// scheduler. About a minute, so only with DEFI_SCENARIO_DEEP=1.

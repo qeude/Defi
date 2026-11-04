@@ -1,3 +1,4 @@
+import DefiModel
 import DefiRuntime
 import DefiScenarioSupport
 import Foundation
@@ -31,7 +32,7 @@ struct TraceReplayTests {
   }
 
   /// DEFI_REPLAY_TRACE=<file> replays a saved `defi trace` on the simulated desktop.
-  @Test(.enabled(if: ProcessInfo.processInfo.environment["DEFI_REPLAY_TRACE"] != nil)) @NavigationActor
+  @Test(.enabled(if: RealResourceGuard.isEnforced && ProcessInfo.processInfo.environment["DEFI_REPLAY_TRACE"] != nil)) @NavigationActor
   func replaySavedTrace() async throws {
     let path = ProcessInfo.processInfo.environment["DEFI_REPLAY_TRACE"]!
     let steps = focusSteps(fromTrace: try String(contentsOfFile: path, encoding: .utf8))
