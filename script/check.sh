@@ -2,14 +2,17 @@
 # The isolated feedback loop: pure tests and simulated-desktop scenarios, run in parallel
 # processes under DEFI_ISOLATED=1 so any real macOS resource traps. Safe while Defi runs.
 #   check.sh            run every lane; exit 1 when one fails
-#   SHARDS=n check.sh   split the simulated-desktop campaign across n processes (default 4)
+#   SHARDS=n check.sh   split the simulated-desktop campaign across n processes (default: half the cores, 1 to 4)
 # Each lane logs to $LOGS/<lane>.log; failing lanes print their failure reports.
 # The lanes only run built products, so they share .build without its SwiftPM lock.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGS="${LOGS:-$ROOT/.build/check}"
-SHARDS="${SHARDS:-4}"
+# Lanes compete for CPU; timing-sensitive tests (IPC timeouts) fail on an oversubscribed machine.
+cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+default_shards=$((cores / 2)); ((default_shards < 1)) && default_shards=1; ((default_shards > 4)) && default_shards=4
+SHARDS="${SHARDS:-$default_shards}"
 PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|DefiIPCTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests'
 mkdir -p "$LOGS"
 rm -f "$LOGS"/*.log
