@@ -1753,6 +1753,22 @@ struct PlatformEventTests {
     #expect(windowSnapshotInvalidation(for: kind, processID: processID) == expected)
   }
 
+  @Test
+  func applicationEventWithoutProcessIDRequestsAFullTopologyRead() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    engine.recordObservation(.application, processID: nil)
+    #expect(engine.pendingObservations.topologyPending, "an unscoped launch must rediscover windows")
+    #expect(engine.pendingObservations.topologyRequiresFullSnapshot)
+  }
+
+  @Test
+  func aFrameTouchingAMonitorEdgeDoesNotIntersectIt() {
+    let monitor = Rect(x: 0, y: 0, width: 1_000, height: 800)
+    #expect(!targetIntersects(Rect(x: 100, y: 800, width: 500, height: 300), monitor: monitor),
+      "a window on the display below starts at the shared edge")
+    #expect(targetIntersects(Rect(x: 100, y: 799, width: 500, height: 300), monitor: monitor))
+  }
+
   @Test @MainActor
   func onlyPointerTravelBeyondAClickJitterCountsAsADrag() throws {
     let monitor = PlatformEventMonitor(handler: { _, _ in })
@@ -1765,6 +1781,7 @@ struct PlatformEventTests {
     try send(.leftMouseDragged, x: 500 + leftPressDragThreshold - 1)
     #expect(!travelled(), "A click's jitter is no drag")
     try send(.leftMouseDragged, x: 500 + leftPressDragThreshold + 1)
+    #expect(travelled(), "The drag counts before the release")
     try send(.leftMouseUp, x: 500 + leftPressDragThreshold + 1)
     #expect(travelled(), "The release still sees the drag")
     try send(.leftMouseDown, x: 500)

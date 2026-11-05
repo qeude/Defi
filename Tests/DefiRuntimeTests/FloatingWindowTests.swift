@@ -345,6 +345,28 @@ struct FloatingWindowTests {
   }
 
   @Test
+  func `A restored modal returns after the window that took its place`() throws {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let above = window(110), modal = window(111), below = window(112), newcomer = window(113)
+    for window in [above, modal, below, newcomer] {
+      try discoverWindow(window, decision: RuleDecision(), state: &state)
+    }
+    state.monitors[0].workspaces[0].columns = [
+      Column(windows: [above.id, modal.id, below.id], focusedWindow: 0, width: .pixels(900)),
+      Column(window: newcomer.id, width: .pixels(900)),
+    ]
+    reconcileWindows([above, automaticFloater(modal), below, newcomer], config: config, state: &state)
+    state.monitors[0].workspaces[0].columns = [
+      Column(windows: [above.id, newcomer.id, below.id], focusedWindow: 0, width: .pixels(900))
+    ]
+    reconcileWindows([above, modal, below, newcomer], config: config, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows)
+      == [[above.id, newcomer.id, modal.id, below.id]], "it goes back before its old next sibling")
+  }
+
+  @Test
   func `A restored modal keeps the focus that is current when it returns`() throws {
     let config = Config()
     func state(_ windows: [Window]) throws -> RuntimeState {

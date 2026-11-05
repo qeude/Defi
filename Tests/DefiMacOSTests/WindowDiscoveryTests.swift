@@ -621,5 +621,12 @@ struct NativeWindowTabDiscoveryTests {
         windowFrame: frame
       ) == false
     )
+    #expect(
+      nativeTabGroupFrameIsInWindowChrome(
+        Rect(x: 100, y: 72, width: 1_200, height: 0),
+        windowFrame: frame
+      ) == false,
+      "A collapsed tab group shows no tabs"
+    )
   }
 }
