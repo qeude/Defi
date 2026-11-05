@@ -317,7 +317,7 @@ struct RuntimeScenarioTests {
   /// A skipped code hides only its own violation; the scenario keeps checking every other rule.
   static let knownCodes: [String: String] = [
     "focus-index-out-of-range":
-      "bug: joinWindow(.right) from a stack leaves the source column's row index stale (joinFocusedWindow); issue pending",
+      "bug: joinWindow(.right) from a stack leaves the source column's row index stale (joinFocusedWindow); #222",
   ]
   static let knownSuspects: [String: String] = [:]
   /// Known codes plus DEFI_SCENARIO_SKIP (comma separated), which retro-validation uses to
