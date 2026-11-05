@@ -490,6 +490,33 @@ struct FocusStateTests {
     )
   }
 
+  @Test
+  func cancelledCommandDoesNotRestoreAWindowThatMovedToAnotherMonitor() {
+    var state = makeState()
+    let other = MonitorID(rawValue: 2)
+    state.attachMonitor(other)
+    // The source workspace moved to the other monitor while the focus request was in flight.
+    var source = state.monitors[0].workspaces.removeFirst()
+    source.columns = [Column(window: a, width: .fraction(0.5))]
+    source.focusedColumn = 0
+    state.monitors[1].workspaces.insert(source, at: 0)
+    state.monitors[1].activeWorkspace = first
+    state.monitors[0].workspaces[0].columns = [Column(window: b, width: .fraction(0.5))]
+    state.monitors[0].workspaces[0].focusedColumn = 0
+    state.monitors[0].activeWorkspace = second
+    #expect(state.selectedWindowID(on: monitor) == b)
+    #expect(state.location(containing: a)?.monitorID == other)
+    var focus = FocusState()
+    let request = command()
+    let submission = focus.submitCommand(request)
+    let before = state
+    #expect(focus.completeCommand(
+      request, submission: submission, result: .cancelled, commandGeneration: 10,
+      keepsRequestedWindow: false, state: &state
+    ) == .settled)
+    #expect(state == before, "Another monitor's window must not take this monitor's selection")
+  }
+
   private func command(windowID: WindowID? = nil, generation: UInt64 = 10) -> PendingAnimatedFocus {
     PendingAnimatedFocus(
       windowID: windowID ?? b, previousSelectedWindowID: a,

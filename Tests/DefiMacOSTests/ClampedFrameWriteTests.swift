@@ -142,4 +142,33 @@ struct ClampedFrameWriteTests {
     #expect(coordinator.initialSettlementTargets[expired] == nil)
     #expect(coordinator.initialSettlementTargets[renewed]?.generation == 3)
   }
+
+  @Test
+  func parkingWriteSupersededBetweenRetriesReportsFailure() {
+    var checks = 0, moves = 0
+    let writer = AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in moves += 1; return true },
+      // The app ignores the move, so the park must be retried.
+      positionReader: { _ in CGPoint(x: 0, y: 40) },
+      enhancedUIWriter: { _, _ in true }, nativePositionReader: { _, _ in nil }
+    )
+    let element = AXUIElementCreateApplication(-1)
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: CGPoint(x: 0, y: 40), point: CGPoint(x: 1199, y: 40),
+      fromSize: CGSize(width: 800, height: 700), size: CGSize(width: 800, height: 700),
+      positionChanged: true, sizeChanged: false,
+      synchronousSizeWriteSucceeded: true, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: true,
+      requiresVerifiedOffscreenWrite: false
+    )
+    // A newer frame supersedes the park after its first attempt.
+    let applied = writer.applyPosition(write, point: write.point) {
+      checks += 1
+      return checks <= 2
+    }
+    #expect(!applied, "A superseded park must not report that the window is parked")
+    #expect(moves == 1)
+  }
+
 }

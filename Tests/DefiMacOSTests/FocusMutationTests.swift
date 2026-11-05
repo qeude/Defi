@@ -214,4 +214,29 @@ struct FocusMutationTests {
     #expect(proof.old == [NativeFocusCompletion(result: .cancelled, recoveryRequest: nil)])
     #expect(proof.carriedRecovery == nil)
   }
+
+  // Keystrokes reach only the active app: a focus write that leaves it inactive sends them elsewhere.
+  @Test(arguments: [false, true])
+  func focusActivatesAnInactiveApplicationEvenWhenNotRequested(applicationIsActive: Bool) throws {
+    let activations = Mutex(0)
+    let done = DispatchSemaphore(value: 0)
+    let writer = AXFocusWriter(operations: AXFocusOperations(
+      targetIsFocused: { _, _ in false },
+      setMain: { _ in .success },
+      raise: { _ in .success },
+      applicationIsActive: { _ in applicationIsActive },
+      prepareActivation: { { _ in activations.withLock { $0 += 1 }; return .success } },
+      activateApplication: { _ in false },
+      withTimeout: { _, _, perform in perform() }
+    ))
+    let element = AXUIElementCreateApplication(-72)
+    writer.submit(AsyncFocusRequest(
+      element: element, application: element, processID: -72,
+      selectsSpecificWindow: true, validatesSpecificWindowFocus: true,
+      activatesApplication: false, foregroundWindowElements: [],
+      inputGuard: nil, recoveryRequest: nil
+    )) { _ in done.signal() }
+    try #require(done.wait(timeout: .now() + 5) == .success)
+    #expect(activations.withLock { $0 } == (applicationIsActive ? 0 : 1))
+  }
 }

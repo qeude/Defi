@@ -123,6 +123,20 @@ struct WindowDiscoveryTests {
       "A verified process accepts its single window")
   }
 
+  @NavigationActor
+  @Test
+  func `Several windows of a process without a remembered focus resolve no stable window`() {
+    let platform = MacOSPlatform()
+    let windows = [1, 2].map {
+      Window(id: WindowID(rawValue: $0), appID: "com.example.app", title: "Window \($0)", frame: frame,
+        processID: processID, monitorID: MonitorID(rawValue: 1))
+    }
+    #expect(platform.stableWindowID(processID: processID, in: windows) == nil,
+      "Guessing one of several windows would focus the wrong one")
+    platform.lastFocusedWindowByProcess[processID] = windows[1].id
+    #expect(platform.stableWindowID(processID: processID, in: windows) == windows[1].id)
+  }
+
   @Test
   func `Focused frame matches a managed window through small drift but not a distant auxiliary window`() {
     let managed = Window(id: WindowID(rawValue: 1), appID: "com.example.app", title: "Main", frame: frame,

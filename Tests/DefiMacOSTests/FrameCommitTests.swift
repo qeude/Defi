@@ -1273,4 +1273,60 @@ struct FrameCommitTests {
     ))
   }
 
+
+  @Test
+  func `A position only frame that supersedes a queued one keeps its unfinished size write`() {
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter())
+    // Hold the drain so both frames stay queued and observable.
+    coordinator.running = true
+    let id = WindowID(rawValue: 1)
+    coordinator.submit([id: makeMotionWrite(fromX: 0, toX: 100, sizeChanged: true)], source: "test-resize")
+    coordinator.submit([id: makeMotionWrite(fromX: 100, toX: 200)], source: "test-scroll")
+    let write = coordinator.pending?.writes[id]
+    #expect(write?.point.x == 200)
+    #expect(write?.sizeChanged == true, "The newer frame must still apply the size the older one never wrote")
+    #expect(coordinator.droppedCount == 1)
+  }
+
+  @Test
+  func `A slow position write raises the predicted latency of its process`() {
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      positionWriter: { _, _ in usleep(40_000); return true },
+      nativePositionReader: { _, _ in nil }
+    ))
+    coordinator.latestGeneration = 1
+    let id = WindowID(rawValue: 1)
+    let frame = QueuedPositionFrame(
+      generation: 1, source: "test-slow-app", writes: [id: makeMotionWrite(fromX: 0, toX: 100)],
+      stagesVisibleBeforeParking: false, completion: nil
+    )
+    #expect(coordinator.predictedProcessLatency(processID: 42) == 8)
+    _ = coordinator.applyFrame(frame, skippedProcesses: [])
+    #expect(coordinator.predictedProcessLatency(processID: 42) >= 30)
+  }
+
+  @Test
+  func `A retired enhanced UI restore superseded by a rediscovery leaves the app alone`() {
+    let enables = Mutex(0)
+    let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      enhancedUIWriter: { _, enabled in
+        if enabled { enables.withLock { $0 += 1 } }
+        return true
+      }
+    ))
+    let application = AXUIElementCreateApplication(-1)
+    _ = coordinator.beginDeferredEnhancedUIRestore(processID: 42, application: application)
+    // Hold the process lane so the app reappears before the retired restore runs.
+    let lane = coordinator.reserveProcessWriteQueue(for: 42)
+    let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+    lane.queue.async { started.signal(); release.wait() }
+    #expect(started.wait(timeout: .now() + 1) == .success)
+    coordinator.pruneProcessLatencyState(liveProcessIDs: [])
+    let rediscovered = coordinator.beginDeferredEnhancedUIRestore(processID: 42, application: application)
+    release.signal()
+    coordinator.enhancedUIRestoreGroup.wait()
+    lane.release()
+    #expect(enables.withLock { $0 } == 0, "The rediscovered app's motion still needs its enhanced UI off")
+    #expect(coordinator.deferredEnhancedUIRestores[42]?.token == rediscovered)
+  }
 }
