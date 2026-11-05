@@ -342,6 +342,9 @@ public func joinFocusedWindow(
       workspace.columns[adjustedTarget].windows.count - 1
     workspace.focusedColumn = adjustedTarget
   } else {
+    workspace.columns[sourceColumnIndex].focusedWindow = min(
+      sourceWindowIndex, workspace.columns[sourceColumnIndex].windows.count - 1
+    )
     workspace.columns[targetColumnIndex].windows.append(windowID)
     workspace.columns[targetColumnIndex].focusedWindow =
       workspace.columns[targetColumnIndex].windows.count - 1

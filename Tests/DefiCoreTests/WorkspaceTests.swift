@@ -61,6 +61,18 @@ struct WorkspaceTests {
   }
 
   @Test
+  func `Joining the last row out of a stack keeps a valid focused row`() throws {
+    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
+    for id: UInt64 in 1...3 { insertNewWindow(WindowID(rawValue: id), into: &workspace, settings: settings) }
+    workspace.focusedColumn = 1
+    try joinFocusedWindow(.left, in: &workspace, settings: settings)
+    try joinFocusedWindow(.right, in: &workspace, settings: settings)
+
+    #expect(workspace.columns[0].windows == [WindowID(rawValue: 1)])
+    #expect(workspace.columns[0].focusedWindow == 0)
+  }
+
+  @Test
   func `Maximized column restores pixel width`() {
     var column = Column(window: WindowID(rawValue: 1), width: .pixels(420))
 
