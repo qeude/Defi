@@ -31,6 +31,21 @@ struct DelayedObservationCampaignRegressionTests {
     #expect(clock.timers.isEmpty)
   }
 
+  @Test func campaignStagesFireAtTheirDelaysAndNotBefore() {
+    let platform = NavigationActor.shared.queue.sync { NavigationActor.assumeIsolated { MacOSPlatform() } }
+    let clock = VirtualObservationClock()
+    clock.attach(platform)
+    var fired: [(delay: Int, at: Double)] = []
+    platform.delayedObservationCampaigns.merge(
+      lane: .creation(7), delays: [40, 120], platform: platform
+    ) { delay, _ in fired.append((delay, clock.now)) }
+    clock.advance(0.039, platform, deliver: false)
+    #expect(fired.isEmpty)
+    clock.advance(0.2, platform, deliver: false)
+    #expect(fired.map(\.delay) == [40, 120])
+    #expect(fired.map { ($0.at * 1000).rounded() } == [40, 120])
+  }
+
   @Test(arguments: [false, true])
   func replacedCampaignRejectsOldDeliveryAndOldRetirement(retireBeforeRestart: Bool) {
     let platform = NavigationActor.shared.queue.sync { NavigationActor.assumeIsolated { MacOSPlatform() } }

@@ -1,2 +1,4 @@
 id	reason
 DisplayArrangement:8:flip-lt	sorting by y with <= instead of < only reorders equal tops, and the overlap test gives the same answer for equal tops in either order
+DelayedObservationCampaigns:65:delay-x10	the 1 µs tolerance becomes 10 µs; stage deadlines are whole milliseconds apart, so no stage changes side
+DelayedObservationCampaigns:65:flip-gt	> versus >= on a deadline exactly 1 µs past now; deadlines are whole milliseconds, so the tie never occurs
