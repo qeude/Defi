@@ -432,6 +432,48 @@ struct HotKeyTests {
   }
 
   @Test
+  func cheatsheetShortcutTogglesOnOnePressAndOnceWhileHeld() throws {
+    let toggle = try Key(accelerator: "hyper-slash", aliases: aliases)
+    let (context, invocations) = makeContext(bindings: [toggle: "toggle-cheatsheet"])
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: toggle.code, keyDown: true))
+    event.flags = CGEventFlags(rawValue: toggle.modifierBits)
+    _ = context.handle(type: .keyDown, event: event)
+    #expect(invocations.commands == ["toggle-cheatsheet"])
+    event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+    _ = context.handle(type: .keyDown, event: event)
+    _ = context.handle(type: .keyDown, event: event)
+    #expect(invocations.commands == ["toggle-cheatsheet"])
+  }
+
+  @Test
+  func commandTabClosesAnOpenOverviewAndReachesMacOS() throws {
+    let actions = Mutex<[OverviewKeyAction]>([])
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { action in actions.withLock { $0.append(action) } },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    context.setOverviewModeEnabled(true)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 48, keyDown: true))
+    event.flags = [.maskCommand]
+    #expect(context.handle(type: .keyDown, event: event)?.takeUnretainedValue() === event)
+    #expect(actions.withLock { $0 } == [.cancel])
+  }
+
+  @Test
+  func aDisabledTapNotificationWithoutDisabledTapsReenablesNothing() throws {
+    let reenabled = Mutex(0)
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in reenabled.withLock { $0 += 1 } })
+    let event = try #require(CGEvent(source: nil))
+    #expect(context.handle(type: .tapDisabledByTimeout, event: event) != nil)
+    #expect(reenabled.withLock { $0 } == 0)
+  }
+
+  @Test
   func scrollWheelRecordsUserInput() throws {
     let tracker = UserInputTracker()
     let context = InputMonitor(
