@@ -21,29 +21,31 @@ struct SuspectReplayTests {
   func knownFocusSuspectsOnTheRealDesktop() async throws {
     let desk = try await RealDesk()
     defer { desk.close() }
-    var results: [String: [Bool]] = [:]
+    var results: [String: [Outcome]] = [:]
     var details: [String] = []
-    for _ in 0..<12 {
+    for _ in 0..<30 {
       // seed 9: typing while a column focus is in flight.
       for (name, presses) in [("typing-during-focus", 1), ("superseded-write-then-typing", 2)] {
         let outcome = await desk.replay(presses: presses)
-        results[name, default: []].append(outcome.agreed)
-        if !outcome.agreed { details.append("DEFI_E2E suspect-round \(name) \(outcome.detail)") }
+        results[name, default: []].append(outcome.result)
+        if outcome.result != .agreed { details.append("DEFI_E2E suspect-round \(name) \(outcome.result) \(outcome.detail)") }
       }
     }
     var lines: [String] = []
     for (name, outcomes) in results.sorted(by: { $0.key < $1.key }) {
-      let diverged = outcomes.filter { !$0 }.count
-      lines.append("DEFI_E2E suspect \(name) diverged=\(diverged)/\(outcomes.count)")
+      let count = { (kind: Outcome) in outcomes.filter { $0 == kind }.count }
+      lines.append("DEFI_E2E suspect \(name) diverged=\(count(.diverged)) inconclusive=\(count(.inconclusive)) of \(outcomes.count)")
     }
     lines += details
     print(lines.joined(separator: "\n"))
     if let out = ProcessInfo.processInfo.environment["DEFI_SUSPECT_OUT"] {
       try lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
     }
-    #expect(results.values.allSatisfy { $0.count == 12 })
+    #expect(results.values.allSatisfy { $0.count == 30 })
   }
 }
+
+enum Outcome: String { case agreed, diverged, inconclusive }
 
 /// Two fixture apps, each with one window, managed by an in-process daemon on the real platform.
 @NavigationActor
@@ -149,11 +151,11 @@ final class RealDesk {
 
   /// Busy fixture, one or two column presses toward it, then typing; returns whether Defi and
   /// macOS agree on one window once calm, and typing kept its window.
-  func replay(presses: Int) async -> (agreed: Bool, detail: String) {
+  func replay(presses: Int) async -> (result: Outcome, detail: String) {
     await run(for: 0.5)
     guard let current = selected, let other = windows.keys.first(where: { $0 != current }),
       let otherIndex = windows[other]
-    else { return (false, "no selection") }
+    else { return (.inconclusive, "no selection") }
     inputs[otherIndex].fileHandleForWriting.write(Data("busy 300\n".utf8))
     let monitor = daemon.state.monitors[0]
     let columns = monitor.workspaces.first { $0.id == monitor.activeWorkspace }?.columns.flatMap(\.windows) ?? []
@@ -163,16 +165,22 @@ final class RealDesk {
       post(keyCode: (press % 2 == 0) == right ? 124 : 123, flags: [.maskControl, .maskAlternate])
       try? await Task.sleep(for: .milliseconds(30))
     }
+    // Read where the keystroke lands, as the daemon's next real snapshot sees it.
+    daemon.needsDesktopSync = true
+    daemon.tick()
     let typedInto = nativeFocus
     post(keyCode: 0, flags: [])
     await run(for: 2)
     let native = nativeFocus
+    // Without a managed window in front (the test runner or a system app took it), or without
+    // knowing where the keystroke landed, the round says nothing about the suspect.
+    guard native != nil, presses == 1 || typedInto != nil else { return (.inconclusive, "native=\(id(native)) typedInto=\(id(typedInto))") }
     let agreed = native == selected && (presses == 1 || native == typedInto)
-    guard !agreed else { return (true, "") }
+    guard !agreed else { return (.agreed, "") }
     let calm = "selected=\(id(selected)) native=\(id(native)) typedInto=\(id(typedInto)) from=\(id(current)) busy=\(id(other))"
     // A slow convergence is not a stuck one: look again after 3 more seconds.
     await run(for: 3)
-    return (false, calm + " after3s selected=\(id(selected)) native=\(id(nativeFocus))")
+    return (.diverged, calm + " after3s selected=\(id(selected)) native=\(id(nativeFocus))")
   }
 
   private func id(_ window: WindowID?) -> String { window.map { "\($0.rawValue)" } ?? "-" }
