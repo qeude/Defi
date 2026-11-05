@@ -102,7 +102,10 @@ final class DaemonFocusWorld {
       frontmostProcessID: { @Sendable in fake.frontmostProcessID }
     )
     platform = MacOSPlatform(
-      frameCoordinator: AXFrameCoordinator(accessibilityWriter: frameWriter),
+      frameCoordinator: AXFrameCoordinator(
+        accessibilityWriter: frameWriter,
+        messagingTimeoutAccess: fake.timeoutAccess
+      ),
       focusOperations: fake.operations,
       system: system
     )
@@ -279,6 +282,15 @@ final class DaemonFocusWorld {
     guard stepViolation == nil else { return }
     // Without Accessibility every call fails; Defi waits instead of retrying in a loop.
     let refused = fake.takeDeniedAttempts()
+    // A busy app holds each call until its messaging timeout; Defi bounds focus writes to 16
+    // then 50 ms (AXFocusWriterExecution) and layout writes to 50 ms (positionTimeoutSeconds).
+    let slowest = fake.takeSlowestBusyCall()
+    if slowest > 0.05 + 0.000_1 {
+      stepViolation = FocusViolation(
+        invariant: "busy-app-call-unbounded",
+        detail: "a call to a busy app could hold Defi \(Int(slowest * 1_000)) ms, over the 50 ms budget"
+      )
+    }
     if refused > 24 {
       stepViolation = FocusViolation(
         invariant: "retry-storm-without-accessibility",

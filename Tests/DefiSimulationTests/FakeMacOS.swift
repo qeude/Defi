@@ -176,6 +176,7 @@ final class FakeMacOS: @unchecked Sendable {
     guard let windowID = windowID(of: element) else { return false }
     return lock.withLock {
       guard !refusedWithoutAccessibility(), var frame = nativeFrames[windowID] else { return false }
+      if let owner = owners[windowID], apps[owner]?.busy == true { noteBusyCall(element, owner) }
       frame.x = point.x
       frame.y = point.y
       nativeFrames[windowID] = frame
@@ -189,12 +190,36 @@ final class FakeMacOS: @unchecked Sendable {
     guard let windowID = windowID(of: element) else { return false }
     return lock.withLock {
       guard !refusedWithoutAccessibility(), var frame = nativeFrames[windowID] else { return false }
+      if let owner = owners[windowID], apps[owner]?.busy == true { noteBusyCall(element, owner) }
       frame.width = size.width
       frame.height = size.height
       nativeFrames[windowID] = frame
       writes.append((windowID, frame))
       return true
     }
+  }
+
+  /// Messaging timeouts Defi set, by element (AXUIElementSetMessagingTimeout).
+  private var messagingTimeouts: [CFHashCode: Float] = [:]
+  /// The longest a call to a busy app held its caller since the last take: the element's
+  /// messaging timeout, else its application's, else the 6 s Accessibility default.
+  private var slowestBusyCall: Float = 0
+
+  /// Defi's own timeout bookkeeping, setting timeouts on this fake instead of macOS.
+  lazy var timeoutAccess = AXMessagingTimeoutAccess { [unowned self] in self.setMessagingTimeout($0, $1) }
+
+  func setMessagingTimeout(_ element: AXUIElement, _ timeout: Float) {
+    lock.withLock { messagingTimeouts[CFHash(element)] = timeout > 0 ? timeout : nil }
+  }
+
+  func takeSlowestBusyCall() -> Float { lock.withLock { defer { slowestBusyCall = 0 }; return slowestBusyCall } }
+
+  /// Called with `lock` held, for an Accessibility call that reached a busy app.
+  private func noteBusyCall(_ element: AXUIElement, _ processID: pid_t) {
+    used.insert(.busyAppTimesOut)
+    let timeout = messagingTimeouts[CFHash(element)]
+      ?? messagingTimeouts[CFHash(applicationElement(processID))] ?? 6
+    slowestBusyCall = max(slowestBusyCall, timeout)
   }
 
   func takeMoves() -> [WindowID: Int] { lock.withLock { defer { moves = [:] }; return moves } }
@@ -246,6 +271,8 @@ final class FakeMacOS: @unchecked Sendable {
         guard !refusedWithoutAccessibility(), let window, let processID = owners[window], let app = apps[processID] else {
           return false
         }
+        // Production bounds this read itself (AXFocusOperations.targetIsFocused), outside
+        // the operations this fake replaces, so it adds no cost here.
         if app.busy {
           used.insert(.busyAppTimesOut)
           return false
@@ -273,6 +300,8 @@ final class FakeMacOS: @unchecked Sendable {
         let processID = self.processID(of: application)
         return self.lock.withLock {
           if self.refusedWithoutAccessibility() { return .apiDisabled }
+          // The system-wide write is refused at once on the real desktop (fidelity trace), so it
+          // never waits for the busy app.
           if self.apps[processID]?.busy == true {
             self.used.insert(.busyAppTimesOut)
             return .cannotComplete
@@ -288,7 +317,9 @@ final class FakeMacOS: @unchecked Sendable {
       lock.withLock { activate(processID) }
       return true
     }
-    operations.withTimeout = { _, _, perform in perform() }
+    operations.withTimeout = { [self] timeout, elements, perform in
+      timeoutAccess.withTimeout(timeout, elements: elements, perform: perform)
+    }
     return operations
   }
 
@@ -300,7 +331,7 @@ final class FakeMacOS: @unchecked Sendable {
         return .invalidUIElement
       }
       if app.busy {
-        used.insert(.busyAppTimesOut)
+        noteBusyCall(element, processID)
         app.lateWrites.append(window)
         apps[processID] = app
         return .cannotComplete
