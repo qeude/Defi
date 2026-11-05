@@ -201,6 +201,7 @@ final class FakeMacOS: @unchecked Sendable {
       if let owner = owners[windowID], apps[owner]?.busy == true { noteBusyCall(element, owner) }
       frame.x = point.x
       frame.y = point.y
+      frame = whereMacOSLeaves(frame)
       nativeFrames[windowID] = frame
       moves[windowID, default: 0] += 1
       writes.append((windowID, frame))
@@ -264,6 +265,20 @@ final class FakeMacOS: @unchecked Sendable {
       if apps[processID]?.busy == true { noteBusyCall(application, processID) }
       return true
     }
+  }
+
+  /// Measured 2026-11-05 on the GitHub macos-26 runner (desktop frame fidelity trace, PR #221),
+  /// 1024 x 768 display: a window written wholly beside the display is pulled back until 40 pt
+  /// show, a one-point sliver stays where it is written, and a window written below is raised
+  /// to 89 pt above the display's bottom. Windows that still overlap a display are left alone.
+  private func whereMacOSLeaves(_ frame: Rect) -> Rect {
+    guard let display = displays.first(where: { $0.y <= frame.y && frame.y < $0.y + $0.height }) ?? displays.first
+    else { return frame }
+    var frame = frame
+    if frame.x >= display.x + display.width { frame.x = display.x + display.width - 40 }
+    if frame.x + frame.width <= display.x { frame.x = display.x - frame.width + 40 }
+    frame.y = min(frame.y, display.y + display.height - 89)
+    return frame
   }
 
   func takeMoves() -> [WindowID: Int] { lock.withLock { defer { moves = [:] }; return moves } }

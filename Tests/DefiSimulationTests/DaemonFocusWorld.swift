@@ -57,7 +57,8 @@ final class DaemonFocusWorld {
     let fake = FakeMacOS(
       space: space, owners: owners,
       focused: [processIDs[0]: windows[0], processIDs[1]: windows[1], processIDs[2]: windows[3]],
-      frontmost: processIDs[0]
+      frontmost: processIDs[0],
+      displays: [monitor.physicalFrame]
     )
     self.fake = fake
     for (index, window) in windows.enumerated() {
