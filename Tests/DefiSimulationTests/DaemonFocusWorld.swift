@@ -87,13 +87,11 @@ final class DaemonFocusWorld {
       positionWriter: { @Sendable write, point in fake.moveWindow(write.element, to: point) },
       sizeWriter: { @Sendable write, size in fake.resizeWindow(write.element, to: size) },
       sizeReader: { @Sendable element in
-        fake.windowID(of: element).flatMap(fake.frame).map { CGSize(width: $0.width, height: $0.height) }
+        fake.readFrame(element).map { CGSize(width: $0.width, height: $0.height) }
       },
-      positionReader: { @Sendable element in
-        fake.windowID(of: element).flatMap(fake.frame).map { CGPoint(x: $0.x, y: $0.y) }
-      },
-      frameReader: { @Sendable element in fake.windowID(of: element).flatMap(fake.frame) },
-      enhancedUIWriter: { @Sendable _, _ in true },
+      positionReader: { @Sendable element in fake.readFrame(element).map { CGPoint(x: $0.x, y: $0.y) } },
+      frameReader: { @Sendable element in fake.readFrame(element) },
+      enhancedUIWriter: { @Sendable application, _ in fake.setEnhancedUserInterface(application) },
       nativePositionReader: { @Sendable windowID, _ in fake.frame(of: windowID).map { CGPoint(x: $0.x, y: $0.y) } }
     )
     var snapshotSource: MacOSPlatformSystem.SnapshotSource?

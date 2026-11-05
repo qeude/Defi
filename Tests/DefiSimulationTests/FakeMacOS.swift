@@ -222,6 +222,24 @@ final class FakeMacOS: @unchecked Sendable {
     slowestBusyCall = max(slowestBusyCall, timeout)
   }
 
+  /// A frame read, as the window's app answers it: a busy app holds the read like any call.
+  func readFrame(_ element: AXUIElement) -> Rect? {
+    guard let windowID = windowID(of: element) else { return nil }
+    return lock.withLock {
+      if let owner = owners[windowID], apps[owner]?.busy == true { noteBusyCall(element, owner) }
+      return nativeFrames[windowID]
+    }
+  }
+
+  /// AXEnhancedUserInterface, which Defi turns off around frame writes; a busy app holds it too.
+  func setEnhancedUserInterface(_ application: AXUIElement) -> Bool {
+    let processID = processID(of: application)
+    return lock.withLock {
+      if apps[processID]?.busy == true { noteBusyCall(application, processID) }
+      return true
+    }
+  }
+
   func takeMoves() -> [WindowID: Int] { lock.withLock { defer { moves = [:] }; return moves } }
 
   func takeWrites() -> [(window: WindowID, frame: Rect)] { lock.withLock { defer { writes = [] }; return writes } }
