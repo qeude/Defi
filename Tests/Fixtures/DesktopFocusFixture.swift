@@ -34,6 +34,11 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
     // Cooperative activation: only the active app can let the test runner activate.
     DispatchQueue.global().async {
       while let line = readLine() {
+        // "busy <ms>": the main thread stops answering, like an app busy with its own work.
+        if line.hasPrefix("busy "), let milliseconds = UInt32(line.dropFirst(5)) {
+          DispatchQueue.main.async { usleep(milliseconds * 1_000) }
+          continue
+        }
         guard line.hasPrefix("yield "), let pid = pid_t(line.dropFirst(6)) else { continue }
         DispatchQueue.main.async {
           NSRunningApplication(processIdentifier: pid).map { NSApplication.shared.yieldActivation(to: $0) }

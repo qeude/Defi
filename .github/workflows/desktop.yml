@@ -68,6 +68,14 @@ jobs:
       - name: Compare the simulated macOS with the real trace
         run: DEFI_ISOLATED=1 DEFI_AX_TRACE_IN="$RUNNER_TEMP/ax-trace.json" DEFI_FRAME_TRACE_IN="$RUNNER_TEMP/frame-trace.json" swift test --skip-build --filter FidelityTraceTests
 
+      - name: Replay the known focus suspects on the real desktop
+        if: always()
+        env:
+          DEFI_E2E_SUSPECTS: "1"
+          DEFI_DESKTOP_FIXTURE_BINARY: ${{ github.workspace }}/.build/desktop-fixtures/DefiDesktopFocusFixture
+          DEFI_SUSPECT_OUT: ${{ runner.temp }}/suspects.txt
+        run: swift test --skip-build --filter SuspectReplayTests
+
       - name: Keep the real focus and frame traces
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,6 +84,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ax-trace.json
             ${{ runner.temp }}/frame-trace.json
+            ${{ runner.temp }}/suspects.txt
           if-no-files-found: warn
 
       - name: Report Accessibility availability
