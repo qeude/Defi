@@ -299,6 +299,17 @@ struct FrameSettlementVerificationTests {
     #expect(platform.nextFrameCommitVerificationAt == nil)
   }
 
+  @MainActor @Test func unattemptedVerificationHandsOverToTheWatchdogThreeSecondsAfterTheDeadline() async throws {
+    let (platform, _, id, start) = await fixture()
+    defer { withExtendedLifetime(platform) {} }
+    let engine = platform.snapshotEngine
+    #expect(engine.requestDueFrameCommitVerification(now: start + 1))
+    let deadline = try #require(engine.frameCommitExpectations[id]?.deadline)
+    let read = try #require(engine.captureFrameCommitReads()[id])
+    engine.finishFrameCommitReads([id: read], attemptedWindowIDs: [], now: deadline + 3)
+    #expect(engine.frameCommitExpectations[id]?.verification == .watchdog)
+  }
+
   @MainActor @Test func exhaustedVerificationDoesNotForceUnrelatedSnapshots() async throws {
     let (platform, reads, id, start) = await fixture()
     defer { withExtendedLifetime(platform) {} }

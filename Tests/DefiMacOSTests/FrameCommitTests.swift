@@ -1023,6 +1023,13 @@ struct FrameCommitTests {
       expected: nil
     ),
     IncrementalRefreshCase(
+      name: "gesture without coalesced frame processes uses full refresh",
+      eventPending: false,
+      processIDs: [],
+      allowsCoalescedProcessRefresh: true,
+      expected: nil
+    ),
+    IncrementalRefreshCase(
       name: "focus only synchronization reuses cached windows",
       eventPending: false,
       processIDs: [],

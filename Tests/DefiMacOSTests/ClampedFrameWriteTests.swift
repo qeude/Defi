@@ -110,4 +110,36 @@ struct ClampedFrameWriteTests {
     #expect(state.size == CGSize(width: 640, height: 970))
   }
 
+  @Test func repairedProcessStaysOnImmediateReadbackForThirtySecondsOnly() throws {
+    let coordinator = AXFrameCoordinator()
+    let before = DefiClock.uptime
+    coordinator.markProcessNeedsImmediateReadback(7)
+    #expect(coordinator.processNeedsImmediateReadback(7))
+    let deadline = try #require(coordinator.immediateReadbackProcessDeadlines[7])
+    #expect(deadline >= before + 30 && deadline <= DefiClock.uptime + 30)
+  }
+
+  @Test func expiringInitialSettlementClearsOnlyItsOwnGeneration() {
+    let coordinator = AXFrameCoordinator()
+    let element = AXUIElementCreateApplication(-1)
+    let write = AsyncPositionWrite(
+      element: element, application: element, processID: -1,
+      fromPoint: .zero, point: CGPoint(x: 0, y: 30),
+      fromSize: .zero, size: CGSize(width: 640, height: 970),
+      positionChanged: true, sizeChanged: true,
+      synchronousSizeWriteSucceeded: false, enhancedUIWasEnabled: false,
+      timeoutSeconds: 0.016, isParked: false,
+      requiresVerifiedOffscreenWrite: false
+    )
+    let expired = WindowID(rawValue: 1), renewed = WindowID(rawValue: 2)
+    coordinator.initialSettlementTargets = [
+      expired: InitialSettlementTarget(generation: 1, write: write, deadline: 10),
+      renewed: InitialSettlementTarget(generation: 3, write: write, deadline: 10),
+    ]
+    coordinator.clearInitialSettlementTarget(windowID: expired, matchingGeneration: 1)
+    // A timer from an older settlement must not drop the newer target.
+    coordinator.clearInitialSettlementTarget(windowID: renewed, matchingGeneration: 2)
+    #expect(coordinator.initialSettlementTargets[expired] == nil)
+    #expect(coordinator.initialSettlementTargets[renewed]?.generation == 3)
+  }
 }

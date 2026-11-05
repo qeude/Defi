@@ -36,6 +36,16 @@ struct ProcessDiscoveryRetryRegressionTests {
     }
   }
 
+  @Test func pastRetryDeadlineWithoutDueProcessesRequestsNoTargetedRefresh() {
+    // A stale deadline alone would otherwise trigger a targeted refresh on every tick.
+    let request = windowDiscoveryRefreshRequest(
+      now: 1, globalDeadline: 10, interval: 1,
+      retryDeadline: 0, userInputIdleDuration: 2, dueProcessIDs: []
+    )
+    #expect(!request.targeted)
+    #expect(!request.due)
+  }
+
   @Test func deadlinesPreserveEarliestAndRemoveTerminatedProcesses() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     engine.applications = [41: AXUIElementCreateApplication(-41), 42: AXUIElementCreateApplication(-42)]

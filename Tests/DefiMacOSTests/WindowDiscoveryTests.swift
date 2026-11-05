@@ -60,6 +60,26 @@ struct WindowDiscoveryTests {
     #expect(expired.deadlines.isEmpty)
   }
 
+  @Test
+  func `Transiently missing windows are retained for 750 ms by default`() {
+    // Discovery relies on the default; a longer grace leaves closed windows as ghost columns.
+    let windowID = WindowID(rawValue: 42)
+    let retention = retainedWindowIDsWithinGracePeriod([windowID], previousDeadlines: [:], now: 10)
+    #expect(retention.deadlines[windowID] == 10.75)
+  }
+
+  @Test
+  func `A fullscreen surface a couple of points off the display still counts as fullscreen`() {
+    let display = MonitorSnapshot(id: MonitorID(rawValue: 1), frame: Rect(x: 0, y: 23, width: 1_512, height: 959),
+      physicalFrame: Rect(x: 0, y: 0, width: 1_512, height: 982))
+    func surface(x: Double) -> CGWindowRecord {
+      CGWindowRecord(id: 99, processID: 10, layer: 0, title: "",
+        frame: Rect(x: x, y: 0, width: 1_512, height: 982), isOnscreen: true)
+    }
+    #expect(nativeFullscreenProcessIDs(cgWindows: [surface(x: 2)], monitors: [display]) == [10])
+    #expect(nativeFullscreenProcessIDs(cgWindows: [surface(x: 3)], monitors: [display]).isEmpty)
+  }
+
   @Test(
     arguments: [
       (pid_t?(42), pid_t?(7), pid_t?(nil), pid_t?(nil)),
@@ -547,6 +567,7 @@ struct NativeWindowTabDiscoveryTests {
           hidden: NativeTabSurface(frame: frame, isOnscreen: onscreen.contains(hidden))])
     }
     #expect(settling(listed: [visible], onscreen: [visible]) == false)
+    #expect(settling(listed: [visible], onscreen: []))
     #expect(settling(listed: [visible], onscreen: [hidden]))
     #expect(settling(listed: [visible, hidden], onscreen: [visible]))
     #expect(settling(listed: [], onscreen: [visible]))
