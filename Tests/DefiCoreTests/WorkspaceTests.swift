@@ -33,6 +33,19 @@ struct WorkspaceTests {
   }
 
   @Test
+  func `Focusing the first and last columns selects the edge columns`() throws {
+    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
+    for id: UInt64 in 1...3 {
+      insertNewWindow(WindowID(rawValue: id), into: &workspace, settings: settings)
+    }
+
+    try focusColumn(.first, in: &workspace, settings: settings)
+    #expect(workspace.focusedColumn == 0)
+    try focusColumn(.last, in: &workspace, settings: settings)
+    #expect(workspace.focusedColumn == 2)
+  }
+
+  @Test
   func `Removing last window repairs focus`() {
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: settings)
@@ -94,6 +107,20 @@ struct WorkspaceTests {
     )
 
     #expect(column.width == testCase.expectedWidth)
+  }
+
+  @Test
+  func `Cycling off the presets skips a preset only one pixel wider`() {
+    var column = Column(window: WindowID(rawValue: 1), width: .pixels(512))
+
+    cycleWidth(
+      of: &column,
+      direction: .next,
+      presets: [0.5 + 1.0 / 1_024, 0.75],
+      viewportWidth: 1_024
+    )
+
+    #expect(column.width == .fraction(0.75))
   }
 
   @Test(arguments: [

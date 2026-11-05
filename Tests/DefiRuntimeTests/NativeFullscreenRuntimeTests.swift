@@ -54,6 +54,23 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
+  func `Exit snapshot that still misses hidden windows keeps them`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    reconcileWindows(
+      [state.windows[fullscreenID]!],
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+
+    // The first snapshot after the exit can still precede the other windows' return.
+    reconcileWindows([state.windows[fullscreenID]!], config: Config(), state: &state)
+
+    #expect(Set(state.windows.keys) == Set([1, 2, 3].map { WindowID(rawValue: $0) }))
+  }
+
+  @Test
   func `Explicit window closure is applied while a fullscreen space hides discovery`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)
@@ -260,6 +277,24 @@ struct NativeFullscreenRuntimeTests {
     #expect(state == beforeMutation)
 
     try reduce(.focusColumn(.left), on: monitorID, state: &state)
+    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
+  }
+
+  @Test
+  func `Moving a column past the fullscreen placeholder keeps it at the strip end`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+    _ = focusWindow(WindowID(rawValue: 3), state: &state)
+
+    try reduce(.moveColumn(.right), on: monitorID, state: &state)
+
+    #expect(columnWindowIDs(in: state) == [[1], [3], [2]])
     #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
   }
 

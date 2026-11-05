@@ -181,4 +181,19 @@ struct LayoutGapRuntimeTests {
     #expect(state.monitors[0].workspaces[0].scrollOffset == 0.25)
     #expect(state.monitors[0].workspaces.contains { $0.id == WorkspaceID(rawValue: "web") })
   }
+
+  @Test
+  func eachOuterGapOverrideAloneRequestsAReflow() {
+    let overrides: [LayoutConfig] = [
+      LayoutConfig(outerTopGap: 30),
+      LayoutConfig(outerRightGap: 30),
+      LayoutConfig(outerBottomGap: 30),
+      LayoutConfig(outerLeftGap: 30),
+    ]
+    for layout in overrides {
+      var state = RuntimeState(config: Config())
+      let reflows = state.applyConfiguration(Config(layout: layout))
+      #expect(reflows)
+    }
+  }
 }

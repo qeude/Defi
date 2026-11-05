@@ -11,6 +11,17 @@ struct DynamicWorkspaceTests {
   private let secondary = MonitorID(rawValue: 2)
 
   @Test
+  func `Validation reports a trailing workspace that is not last`() {
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["dev"])))
+    state.attachMonitor(primary)
+    #expect(state.validate().isEmpty)
+
+    state.monitors[0].workspaces.reverse()
+
+    #expect(state.validate().map(\.code).contains("trailing-workspace"))
+  }
+
+  @Test
   func `First primary display connection adopts workspaces and remembers affinity`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
@@ -75,6 +86,35 @@ struct DynamicWorkspaceTests {
     )
 
     #expect(state.monitors.first(where: { $0.id == replacement })?.workspaces.contains(where: { $0.id == WorkspaceID(rawValue: "remote") }) == true)
+  }
+
+  @Test
+  func namedWorkspaceAddedByReloadJoinsItsDisplayAndReturnsThereInOrder() {
+    let identities = [primary: "display-a", secondary: "display-b"]
+    var state = RuntimeState(config: Config())
+    state.retainMonitors([primary, secondary], stableIDs: identities)
+    let ordinary = [WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w2")]
+    state.monitors[1].workspaces.insert(
+      contentsOf: ordinary.enumerated().map { index, id in
+        Workspace(
+          id: id, kind: .ordinary, affinity: secondary, affinityPosition: index,
+          columns: [Column(window: WindowID(rawValue: UInt64(index + 1)), width: .fraction(0.5))]
+        )
+      },
+      at: 0
+    )
+    state.maintainWorkspaceLifecycle()
+
+    state.applyConfiguration(Config(workspaces: WorkspacesConfig(
+      names: ["remote"], monitorIDs: ["remote": "display-b"]
+    )))
+    let expected = ordinary + [WorkspaceID(rawValue: "remote")]
+    #expect(Array(state.monitors[1].workspaces.map(\.id).prefix(3)) == expected)
+
+    state.retainMonitors([primary], stableIDs: [primary: "display-a"])
+    state.retainMonitors([primary, secondary], stableIDs: identities)
+
+    #expect(Array(state.monitors[1].workspaces.map(\.id).prefix(3)) == expected)
   }
 
   @Test

@@ -497,6 +497,27 @@ struct NativeFocusTests {
   }
 
   @Test
+  func workspaceFocusRollbackAfterMutationRestoresPreviousWorkspace() {
+    let requestedWindowID = WindowID(rawValue: 2)
+    let fallback = { (rollback: Bool) in
+      workspaceFocusCancellationFallback(
+        cancelledBeforeMutation: false,
+        rollbackAfterMutation: rollback,
+        requestGeneration: 4,
+        currentGeneration: 4,
+        requestedWorkspaceID: WorkspaceID(rawValue: "web"),
+        activeWorkspaceID: WorkspaceID(rawValue: "web"),
+        previousWorkspaceID: WorkspaceID(rawValue: "dev"),
+        requestedWindowID: requestedWindowID,
+        selectedWindowID: requestedWindowID
+      )
+    }
+
+    #expect(fallback(true) == WorkspaceID(rawValue: "dev"))
+    #expect(fallback(false) == nil)
+  }
+
+  @Test
   func pendingWorkspaceFocusRefreshRequiresSameMonitorWorkspaceAndSelection() {
     let monitor = MonitorID(rawValue: 1)
     let workspace = WorkspaceID(rawValue: "web")
