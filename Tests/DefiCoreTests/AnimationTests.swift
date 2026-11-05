@@ -38,4 +38,13 @@ struct AnimationTests {
         maximumAbsoluteDelta: 1_000
       ) == nil)
   }
+
+  @Test
+  func `A collapsed strip gives no displayed frame rebase`() {
+    #expect(
+      rebaseScalarToDisplayedFrames(
+        logicalValue: 0.5, expectedMinusDisplayedDeltas: [200],
+        maximumAbsoluteDelta: 1_000, logicalScale: 0
+      ) == nil)
+  }
 }

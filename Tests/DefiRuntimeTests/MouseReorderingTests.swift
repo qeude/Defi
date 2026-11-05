@@ -1129,6 +1129,64 @@ struct MouseReorderingTests {
     #expect(state == before)
   }
 
+  @Test(arguments: [(2.0, 0.0), (0.0, 2.0)])
+  func `A move that changes the size by the two point tolerance is still a translation`(
+    widthChange: Double, heightChange: Double
+  ) throws {
+    let state = try makeState(windowCount: 1)
+    let windowID = WindowID(rawValue: 1)
+    let target = try targetFrame(for: windowID, state: state)
+    let moved = Rect(x: target.x + 100, y: target.y,
+      width: target.width + widthChange, height: target.height + heightChange)
+    try #require(moved.width - target.width == widthChange && moved.height - target.height == heightChange)
+    #expect(mouseTranslatedTiledWindowID(
+      candidateWindowIDs: [windowID], externallyChangedFrames: [windowID: moved],
+      state: state, viewports: [monitorID: viewport], monitorFrames: [monitorID: viewport]
+    ) == windowID)
+  }
+
+  @Test
+  func `A drag reaching exactly the previous column's center keeps the order`() throws {
+    var state = try makeState(windowCount: 2)
+    let previous = try targetFrame(for: WindowID(rawValue: 1), state: state)
+    let dragged = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    let previousCenter = previous.x + previous.width / 2
+    let released = Rect(x: previousCenter - dragged.width / 2, y: dragged.y,
+      width: dragged.width, height: dragged.height)
+    try #require(released.x + released.width / 2 == previousCenter)
+    #expect(!reorderTiledWindowAfterMouseDrag(
+      WindowID(rawValue: 2), actualFrame: released, state: &state, viewports: [monitorID: viewport]))
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [[WindowID(rawValue: 1)], [WindowID(rawValue: 2)]])
+  }
+
+  @Test
+  func `A stacked window centered exactly on its column's right edge stays stacked`() throws {
+    var state = try stackedState(stackSize: 2)
+    let dragged = WindowID(rawValue: 2)
+    let frame = try targetFrame(for: dragged, state: state)
+    let released = Rect(x: frame.x + frame.width / 2, y: frame.y, width: frame.width, height: frame.height)
+    try #require(released.x + released.width / 2 == frame.x + frame.width)
+    #expect(!reorderTiledWindowAfterMouseDrag(dragged, actualFrame: released, state: &state,
+      viewports: [monitorID: viewport]))
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows).first == [WindowID(rawValue: 1), dragged])
+  }
+
+  @Test
+  func `The middle half of a column that stacks ends before its three quarter mark`() throws {
+    let state = try makeState(windowCount: 3)
+    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    #expect(mouseStackTarget(
+      WindowID(rawValue: 1), pointer: (host.x + host.width * 3 / 4, host.y + host.height / 2),
+      state: state, viewports: [monitorID: viewport]) == nil)
+  }
+
+  @Test
+  func `A pointer on the monitor's right edge still targets this monitor`() throws {
+    var state = try makeState(windowCount: 2)
+    narrowColumns(&state)
+    #expect(dropTarget(1, viewport.x + viewport.width, state: state) != nil)
+  }
+
   private let secondMonitorID = MonitorID(rawValue: 2)
   private let secondViewport = Rect(x: 1_000, y: 0, width: 1_000, height: 700)
 
@@ -1261,6 +1319,13 @@ struct DesktopSynchronizationTests {
       scrollAnimationActive: true,
       nativeFocusSyncPending: true,
       isReady: true
+    ),
+    SynchronizationCase(
+      name: "stale native focus waits for scroll animation",
+      scrollAnimationActive: true,
+      nativeFocusSyncPending: true,
+      nativeFocusHasNewerHumanIntent: false,
+      isReady: false
     ),
     SynchronizationCase(
       name: "frame debt bypasses command quiet period",

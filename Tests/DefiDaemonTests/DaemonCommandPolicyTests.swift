@@ -638,6 +638,13 @@ struct DaemonCommandPolicyTests {
         otherMonitorFrames: [Rect(x: 0, y: 800, width: 1_000, height: 800)]
       )
     )
+    // The path spans one display height above and below; a display touching its top edge is clear.
+    #expect(
+      workspaceTransitionPathIsClear(
+        ownerFrame: owner,
+        otherMonitorFrames: [Rect(x: 0, y: -1_600, width: 1_000, height: 800)]
+      )
+    )
   }
 
   @Test
