@@ -7,6 +7,7 @@ import DefiScenarioSupport
 import Foundation
 import Testing
 
+@testable import DefiDaemon
 @testable import DefiMacOS
 
 /// One step of a generated scenario. Steps describe what the user and macOS do; Defi's
@@ -192,6 +193,17 @@ struct FocusInvariantHarnessTests {
       classes[key] = "\(violation) after \(steps)"
     }}}
     for report in classes.values.sorted() { Issue.record(Comment(rawValue: report)) }
+  }
+
+  /// `defi status` reports what macOS answers for Defi's Accessibility grant.
+  @Test @NavigationActor
+  func statusReportsTheAccessibilityGrant() async throws {
+    defer { try? FileManager.default.removeItem(at: DaemonFocusWorld.processDirectory) }
+    let world = try await DaemonFocusWorld()
+    defer { world.shutdown() }
+    #expect(world.daemon.status().contains("accessibility=granted"))
+    world.fake.setAccessibility(granted: false)
+    #expect(world.daemon.status().contains("accessibility=denied"))
   }
 
   @Test(arguments: ["random", "pct", "workspaces"]) @NavigationActor

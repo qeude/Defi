@@ -231,6 +231,13 @@ struct ConfigTests {
     #expect(!(try Config.decode(Data("[layout]\ngaps = 4".utf8)).layout.alwaysCenterSingleColumn))
   }
 
+  /// AGENTS.md: window previews are on by default; without Screen Recording they degrade.
+  @Test
+  func `Window previews are on by default`() throws {
+    #expect(OverviewConfig().windowPreviews)
+    #expect(try Config.decode(Data("[overview]\nzoom = 0.25".utf8)).overview.windowPreviews)
+  }
+
   @Test
   func `Decodes example shape and generates named workspace keys`() throws {
     let data = Data(

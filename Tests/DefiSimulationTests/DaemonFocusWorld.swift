@@ -97,7 +97,8 @@ final class DaemonFocusWorld {
     var snapshotSource: MacOSPlatformSystem.SnapshotSource?
     let system = MacOSPlatformSystem(
       snapshotSource: { config, completion in snapshotSource?(config, completion) },
-      frontmostProcessID: { @Sendable in fake.frontmostProcessID }
+      frontmostProcessID: { @Sendable in fake.frontmostProcessID },
+      accessibilityTrusted: { @Sendable _ in fake.isAccessibilityTrusted }
     )
     platform = MacOSPlatform(
       frameCoordinator: AXFrameCoordinator(

@@ -220,6 +220,7 @@ public final class MacOSPlatform {
   }
 
   nonisolated public func accessibilityTrusted(prompt: Bool) -> Bool {
+    if let trusted = system.accessibilityTrusted { return trusted(prompt) }
     return snapshotEngine.accessibilityTrusted(prompt: prompt)
   }
 

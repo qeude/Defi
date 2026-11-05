@@ -122,6 +122,9 @@ final class FakeMacOS: @unchecked Sendable {
   private var accessibilityGranted = true
   private var deniedAttempts = 0
 
+  /// What AXIsProcessTrustedWithOptions answers Defi.
+  var isAccessibilityTrusted: Bool { lock.withLock { accessibilityGranted } }
+
   func setAccessibility(granted: Bool) {
     lock.withLock {
       accessibilityGranted = granted

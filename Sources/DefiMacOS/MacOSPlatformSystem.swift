@@ -16,11 +16,17 @@ public struct MacOSPlatformSystem: Sendable {
   var snapshotSource: SnapshotSource?
   /// The process macOS shows as frontmost; nil reads NSWorkspace.
   var frontmostProcessID: (@Sendable () -> pid_t?)?
+  /// Whether macOS trusts Defi for Accessibility; nil asks AXIsProcessTrustedWithOptions.
+  var accessibilityTrusted: (@Sendable (_ prompt: Bool) -> Bool)?
 
   public static let real = MacOSPlatformSystem()
 
-  init(snapshotSource: SnapshotSource? = nil, frontmostProcessID: (@Sendable () -> pid_t?)? = nil) {
+  init(
+    snapshotSource: SnapshotSource? = nil, frontmostProcessID: (@Sendable () -> pid_t?)? = nil,
+    accessibilityTrusted: (@Sendable (_ prompt: Bool) -> Bool)? = nil
+  ) {
     self.snapshotSource = snapshotSource
     self.frontmostProcessID = frontmostProcessID
+    self.accessibilityTrusted = accessibilityTrusted
   }
 }
