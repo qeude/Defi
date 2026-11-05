@@ -29,7 +29,7 @@ The checkout itself is never mutated.
    - `Tests/Mutation/equivalent.tsv` lists equivalent mutants, each with its reason. They
      are excluded too.
 
-## Result on 2026-11-05
+## Result on 2026-11-05 (working sample)
 
 - The catalog has 5 287 mutants, and the sample has 442.
 - 382 sample mutants compile, and 52 of them are equivalent.
@@ -62,6 +62,34 @@ The same sample caught 19% at the first run of this campaign. The score rose in 
 4. **One test per surviving mutant.** Each targeted test was written for one survivor and
    checked against that mutant. Rows with lane `targeted` in the results were killed by such a
    test, confirmed with a single-mutant run.
+
+### Witness sample: bugs nobody looked at
+
+The working sample above guided new tests and oracles, and about 80 of its kills come from tests
+written against one known mutant, so its score overstates what `make check` catches. The witness
+sample (`Tests/Mutation/witness.tsv`, `sample.py --witness --seed 2`) shares no mutant with it,
+leaves out curated mutants, and was never used to write a test. Its 314 mutants ran on
+2026-11-05. 276 compile, and their equivalent mutants are not triaged yet, so the score is a
+lower bound.
+
+| Bug type | Killed | | Area | Killed |
+|---|---|---|---|---|
+| Oscillation | 13 of 23 (57%) | | Mouse | 8 of 10 (80%) |
+| Unexpected result | 46 of 90 (51%) | | Layout | 28 of 36 (78%) |
+| Stale write | 9 of 20 (45%) | | Displays | 8 of 18 (44%) |
+| Multi-display leak | 8 of 21 (38%) | | Discovery | 14 of 37 (38%) |
+| Lost input | 7 of 22 (32%) | | Focus | 16 of 42 (38%) |
+| Flicker | 6 of 21 (29%) | | Frames | 18 of 52 (35%) |
+| Glitch | 5 of 20 (25%) | | Daemon | 11 of 42 (26%) |
+| Delay | 6 of 25 (24%) | | Animation | 4 of 16 (25%) |
+| Missing animation | 6 of 25 (24%) | | Overview | 1 of 14 (7%) |
+| Lag | 2 of 9 (22%) | | Permissions | 0 of 9 (0%) |
+| **Total** | **108 of 276 (39%)** | | | |
+
+The catalog has no unused permission or hang mutants left, so the witness sample has none of
+those types. The gap between 87% on the working sample and 39% here measures how much of the
+earlier gain was fitted to known mutants. Generic gains (oracles, a more faithful fake macOS,
+more suites in the loop) show here; mutant-specific tests do not.
 
 ### Out of reach without real pixels or Accessibility
 
