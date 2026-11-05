@@ -320,6 +320,8 @@ struct WindowDiscoveryTests {
     (kAXWindowRole, kAXStandardWindowSubrole, "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE", true, true, false, false, false,
       .floating),
     (kAXWindowRole, kAXStandardWindowSubrole, "com.example.quicklook.editor", true, true, false, false, false, .tiled),
+    // a standard window whose size cannot be set floats
+    (kAXWindowRole, kAXStandardWindowSubrole, "com.example.app", true, false, false, false, false, .floating),
     (kAXWindowRole, kAXUnknownSubrole, "com.example.app", false, false, false, true, false, .floating),
     (kAXWindowRole, kAXUnknownSubrole, "net.imput.helium", false, false, false, false, true, .tiled),
   ] as [(String, String?, String, Bool, Bool, Bool, Bool, Bool, WindowDisposition)])

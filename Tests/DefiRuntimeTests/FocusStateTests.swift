@@ -419,6 +419,24 @@ struct FocusStateTests {
     #expect(state.selectedWindowID(on: monitor) == b)
   }
 
+  /// A replaced window retargets a workspace focus only while its write is submitted or in flight.
+  @Test(arguments: [(true, false, true), (false, true, true), (false, false, false)])
+  func replacementRetargetsOnlyAWorkspaceFocusThatIsBeingWritten(
+    submitted: Bool, writePending: Bool, retargets: Bool
+  ) {
+    var focus = FocusState()
+    let request = PendingWorkspaceFocus(
+      monitorID: monitor, requestedWorkspaceID: first, previousWorkspaceID: nil,
+      requestedWindowID: b, restoresPreviousWorkspaceOnCancellation: false,
+      commandGeneration: 10, focusInputTimestamp: 10, cursorWarpInputTimestamp: nil
+    )
+    if submitted { _ = focus.submitWorkspace(request) } else { focus.queueWorkspace(request) }
+    let replacement = WindowID(rawValue: 4)
+    let effects = focus.rebind(using: [b: replacement], workspaceWritePending: writePending)
+    #expect(effects.workspace == (retargets ? replacement : nil))
+    #expect(focus.pendingWorkspaceFocus?.requestedWindowID == replacement)
+  }
+
   @Test func pointerObservationWaitsForGeometryAndRechecksInput() throws {
     var focus = FocusState()
     let state = makeState()
