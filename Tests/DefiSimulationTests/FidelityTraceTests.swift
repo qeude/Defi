@@ -85,4 +85,27 @@ struct FidelityTraceTests {
     #expect(Set(trace.keys) == ["focus-other-app", "focus-back", "rapid-burst"])
     #expect(trace.values.allSatisfy { !$0.isEmpty })
   }
+
+  /// DEFI_FRAME_TRACE_IN names the real frame trace (DesktopE2ETests.testFrameTraceForSimulationFidelity).
+  /// Tolerance: the simulated window settles within 2 pt of where macOS left the real one.
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["DEFI_FRAME_TRACE_IN"] != nil))
+  func simulatedPositionWritesSettleWhereTheRealDesktopLeavesWindows() throws {
+    let path = ProcessInfo.processInfo.environment["DEFI_FRAME_TRACE_IN"]!
+    let real = try JSONDecoder().decode([String: FrameWriteTrace].self, from: Data(contentsOf: URL(filePath: path)))
+    #expect(!real.isEmpty)
+    let window = WindowID(rawValue: 1)
+    for (scenario, trace) in real.sorted(by: { $0.key < $1.key }) {
+      let fake = FakeMacOS(
+        space: FakeMacOS.spaceForNextWorld(), owners: [window: -91], focused: [-91: window], frontmost: -91,
+        displays: [trace.display]
+      )
+      fake.setFrame(trace.start, of: window)
+      _ = fake.moveWindow(fake.windowElement(window), to: CGPoint(x: trace.target.x, y: trace.target.y))
+      let settled = try #require(fake.frame(of: window))
+      #expect(
+        abs(settled.x - trace.settled.x) <= 2 && abs(settled.y - trace.settled.y) <= 2,
+        "\(scenario): simulated window settles at \(settled), macOS left it at \(trace.settled)"
+      )
+    }
+  }
 }

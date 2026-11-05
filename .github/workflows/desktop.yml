@@ -60,19 +60,22 @@ jobs:
           # Hosted runners launch the fixture apps slowly; this budget covers setup only.
           DEFI_E2E_FIXTURE_DISCOVERY_SECONDS: "10"
           DEFI_AX_TRACE_OUT: ${{ runner.temp }}/ax-trace.json
+          DEFI_FRAME_TRACE_OUT: ${{ runner.temp }}/frame-trace.json
         run: |
           set -o pipefail
           ./script/test_desktop.sh 2>&1 | tee desktop.log
 
       - name: Compare the simulated macOS with the real trace
-        run: DEFI_ISOLATED=1 DEFI_AX_TRACE_IN="$RUNNER_TEMP/ax-trace.json" swift test --skip-build --filter FidelityTraceTests
+        run: DEFI_ISOLATED=1 DEFI_AX_TRACE_IN="$RUNNER_TEMP/ax-trace.json" DEFI_FRAME_TRACE_IN="$RUNNER_TEMP/frame-trace.json" swift test --skip-build --filter FidelityTraceTests
 
-      - name: Keep the real focus trace
+      - name: Keep the real focus and frame traces
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ax-trace
-          path: ${{ runner.temp }}/ax-trace.json
+          path: |
+            ${{ runner.temp }}/ax-trace.json
+            ${{ runner.temp }}/frame-trace.json
           if-no-files-found: warn
 
       - name: Report Accessibility availability

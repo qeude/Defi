@@ -1,4 +1,5 @@
 import ApplicationServices
+import DefiModel
 import Foundation
 import Synchronization
 
@@ -10,6 +11,22 @@ public struct AXCall: Codable, Equatable, Sendable {
   public var target: String
   public var result: String
   public var milliseconds: Double
+}
+
+/// Where macOS left a window after one Accessibility position write, relative to the display
+/// it started on: what the simulated macOS must reproduce for parking and offscreen writes.
+public struct FrameWriteTrace: Codable, Equatable, Sendable {
+  public var display: Rect
+  public var start: Rect
+  public var target: Rect
+  public var settled: Rect
+
+  public init(display: Rect, start: Rect, target: Rect, settled: Rect) {
+    self.display = display
+    self.start = start
+    self.target = target
+    self.settled = settled
+  }
 }
 
 public final class AXCallLog: Sendable {

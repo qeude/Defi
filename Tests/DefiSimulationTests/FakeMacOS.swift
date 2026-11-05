@@ -142,8 +142,15 @@ final class FakeMacOS: @unchecked Sendable {
   }
   var writerBusy: @Sendable () -> Bool = { false }
 
-  init(space: Int32, owners: [WindowID: pid_t], focused: [pid_t: WindowID], frontmost: pid_t) {
+  /// The displays' frames, in Accessibility coordinates, for where macOS leaves moved windows.
+  let displays: [Rect]
+
+  init(
+    space: Int32, owners: [WindowID: pid_t], focused: [pid_t: WindowID], frontmost: pid_t,
+    displays: [Rect] = []
+  ) {
     self.space = space
+    self.displays = displays
     self.owners = owners
     self.frontmost = frontmost
     apps = Dictionary(uniqueKeysWithValues: Set(owners.values).map {

@@ -1545,3 +1545,66 @@ extension DesktopE2ETests {
     print("DEFI_E2E ax-trace=\(out.path)")
   }
 }
+
+/// Position writes whose outcome the simulated macOS must reproduce, relative to the display:
+/// inside it, Defi's one-point parking sliver on each side, and beyond each edge.
+let frameFidelityScenarios = ["inside", "sliver-right", "sliver-left", "beyond-right", "beyond-left", "beyond-bottom"]
+
+func frameFidelityTarget(_ scenario: String, start: Rect, display: Rect) -> Rect {
+  var target = start
+  switch scenario {
+  case "inside": target.x = display.x + 40
+  case "sliver-right": target.x = display.x + display.width - parkedSliverWidth
+  case "sliver-left": target.x = display.x - start.width + parkedSliverWidth
+  case "beyond-right": target.x = display.x + display.width + 200
+  case "beyond-left": target.x = display.x - start.width - 200
+  default: target.y = display.y + display.height + 200
+  }
+  return target
+}
+
+extension DesktopE2ETests {
+  /// Writes a fixture window's position to each frame fidelity target and records where macOS
+  /// left it, into DEFI_FRAME_TRACE_OUT, so CI can compare with the simulated macOS.
+  func testFrameTraceForSimulationFidelity() throws {
+    _ = try preflight()
+    let platform = onNavigation { MacOSPlatform() }
+    let fixtures = try openFixtures(platform)
+    defer { closeFixtures(fixtures) }
+    let element = try XCTUnwrap(onNavigation { platform.elements[fixtures.tiledWindowID] })
+    func frame() throws -> Rect {
+      var position: CFTypeRef?, size: CFTypeRef?
+      XCTAssertEqual(AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &position), .success)
+      XCTAssertEqual(AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &size), .success)
+      var point = CGPoint.zero, extent = CGSize.zero
+      AXValueGetValue(try XCTUnwrap(position) as! AXValue, .cgPoint, &point)
+      AXValueGetValue(try XCTUnwrap(size) as! AXValue, .cgSize, &extent)
+      return Rect(x: point.x, y: point.y, width: extent.width, height: extent.height)
+    }
+    func move(to rect: Rect) throws {
+      var point = CGPoint(x: rect.x, y: rect.y)
+      XCTAssertEqual(AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString,
+        try XCTUnwrap(AXValueCreate(.cgPoint, &point))), .success)
+      pumpRunLoop(for: 0.3)
+    }
+    let bounds = CGDisplayBounds(CGMainDisplayID())
+    let display = Rect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height)
+    var start = try frame()
+    start.x = display.x + 100
+    start.y = display.y + 100
+    var trace: [String: FrameWriteTrace] = [:]
+    for scenario in frameFidelityScenarios {
+      try move(to: start)
+      let begin = try frame()
+      let target = frameFidelityTarget(scenario, start: begin, display: display)
+      try move(to: target)
+      trace[scenario] = FrameWriteTrace(display: display, start: begin, target: target, settled: try frame())
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let out = URL(filePath: ProcessInfo.processInfo.environment["DEFI_FRAME_TRACE_OUT"]
+      ?? FileManager.default.temporaryDirectory.appending(path: "defi-frame-trace.json").path)
+    try encoder.encode(trace).write(to: out)
+    print("DEFI_E2E frame-trace=\(out.path)")
+  }
+}
