@@ -28,6 +28,11 @@ enum FocusStep: Hashable, ShrinkableStep {
   case userFocuses(window: Int)
   /// The user revokes or grants Defi's Accessibility permission in System Settings.
   case setAccessibility(granted: Bool)
+  /// The user focuses the workspace below or above (`<mod>-down` / `<mod>-up`).
+  case switchWorkspace(down: Bool)
+  /// The user moves the focused column to the workspace below or above and follows it
+  /// (`<mod>-shift-down` / `<mod>-shift-up`).
+  case moveColumnToWorkspace(down: Bool)
 
   var description: String {
     switch self {
@@ -40,6 +45,8 @@ enum FocusStep: Hashable, ShrinkableStep {
     case .tick: "tick"
     case .userFocuses(let window): "userFocuses(window \(window + 1))"
     case .setAccessibility(let granted): granted ? "grantAccessibility" : "revokeAccessibility"
+    case .switchWorkspace(let down): "switchWorkspace(\(down ? "down" : "up"))"
+    case .moveColumnToWorkspace(let down): "moveColumnToWorkspace(\(down ? "down" : "up"))"
     }
   }
 
@@ -70,6 +77,26 @@ func generateFocusScenario(seed: UInt64) -> [FocusStep] {
     case 80..<88: .tick
     case 88..<93: .userFocuses(window: random.below(4))
     case 93..<96: .setAccessibility(granted: random.chance(50))
+    default: .type
+    }
+  }
+}
+
+/// The random scenario with workspace switches and column moves between workspaces, so
+/// parking, workspace focus and vertical transitions run under the same timing faults.
+func generateWorkspaceFocusScenario(seed: UInt64) -> [FocusStep] {
+  var random = SplitMix64(seed: seed)
+  return (0..<(4 + random.below(20))).map { _ in
+    switch random.below(100) {
+    case 0..<22: .press(preferRight: random.chance(70), writerStepsDuringTap: random.chance(30))
+    case 22..<34: .switchWorkspace(down: random.chance(55))
+    case 34..<42: .moveColumnToWorkspace(down: random.chance(60))
+    case 42..<52: .writerStep
+    case 52..<62: .writerRuns
+    case 62..<74: .setBusy(app: random.below(3), busy: random.chance(60), landLateWrites: random.chance(50))
+    case 74..<82: .deliverFocusNotification
+    case 82..<90: .tick
+    case 90..<95: .userFocuses(window: random.below(4))
     default: .type
     }
   }
@@ -171,16 +198,17 @@ struct FocusInvariantHarnessTests {
     for report in classes.values.sorted() { Issue.record(Comment(rawValue: report)) }
   }
 
-  @Test(arguments: ["random", "pct"]) @NavigationActor
+  @Test(arguments: ["random", "pct", "workspaces"]) @NavigationActor
   func randomFocusScenariosKeepFocusInvariants(scheduler: String) async {
     defer { try? FileManager.default.removeItem(at: DaemonFocusWorld.processDirectory) }
     let reports = await runScenarioCampaign(
       name: "focus/\(scheduler)",
       testFilter: "FocusInvariantHarnessTests",
-      defaultRuns: scheduler == "pct" ? 160 : 400,
+      defaultRuns: ["pct": 160, "workspaces": 200][scheduler] ?? 400,
       knownSuspects: knownFocusSuspects,
       shrinkReplays: 2,
-      generate: scheduler == "pct" ? generatePCTFocusScenario : generateFocusScenario,
+      generate: ["pct": generatePCTFocusScenario, "workspaces": generateWorkspaceFocusScenario][scheduler]
+        ?? generateFocusScenario,
       run: { steps in
         let (violation, log, behaviors) = await runFocusScenario(steps)
         return ScenarioOutcome(

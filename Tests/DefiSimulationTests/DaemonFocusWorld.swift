@@ -200,6 +200,24 @@ final class DaemonFocusWorld {
     )
   }
 
+  /// Whether the last column press had a column to go to; a no-op press is no command.
+  var pressHadTarget = true
+  /// The workspace the latest workspace command chose, until other input follows.
+  var intendedWorkspaceID: WorkspaceID?
+
+  /// Where a workspace command lands: the adjacent workspace, which moving a column away from
+  /// the empty trailing workspace keeps; nil when it would not move.
+  func workspaceID(after down: Bool, moving: Bool) -> WorkspaceID? {
+    let monitor = daemon.state.monitors[0]
+    guard let index = monitor.workspaces.firstIndex(where: { $0.id == monitor.activeWorkspace }) else { return nil }
+    if moving, monitor.workspaces[index].columns.isEmpty { return nil }
+    let target = index + (down ? 1 : -1)
+    guard monitor.workspaces.indices.contains(target) else { return nil }
+    return monitor.workspaces[target].id
+  }
+
+  var activeWorkspaceID: WorkspaceID { daemon.state.monitors[0].activeWorkspace }
+
   /// Native moves of the last column press, per window (AGENTS.md: one move per motion).
   var pressMoves: [WindowID: Int] = [:]
   /// A violation a step observed while it ran, reported by the next check.
@@ -214,8 +232,24 @@ final class DaemonFocusWorld {
     let hiddenBefore = Set(windows.filter(platform.isWindowHidden))
     let generationBefore = daemon.commandGeneration
     switch step {
+    case .switchWorkspace(let down), .moveColumnToWorkspace(let down):
+      let moves = if case .moveColumnToWorkspace = step { true } else { false }
+      // The latest intent is the workspace; its remembered selection is Defi's to choose.
+      intendedWindowID = nil
+      intendedWorkspaceID = workspaceID(after: down, moving: moves)
+      humanInputSinceIntent = false
+      typedIntoWindowID = nil
+      post(keyCode: down ? 125 : 126, flags: moves ? [.maskControl, .maskAlternate, .maskShift] : [.maskControl, .maskAlternate])
     case .press(let preferRight, let writerStepsDuringTap):
       let columns = activeColumns
+      intendedWorkspaceID = nil
+      pressHadTarget = columns.count > 1
+      guard pressHadTarget else {
+        // One column or none: the press has nowhere to go and changes nothing.
+        intendedWindowID = nil
+        post(keyCode: preferRight ? 124 : 123, flags: [.maskControl, .maskAlternate])
+        break
+      }
       // The user aims from where they last aimed, or from the screen after typing.
       let column = humanInputSinceIntent || intendedWindowID == nil
         ? focusedColumn
@@ -266,12 +300,16 @@ final class DaemonFocusWorld {
       // next calm the step oracle has no Defi intent to hold the selection to.
       humanInputSinceIntent = true
       intendedWindowID = nil
+      intendedWorkspaceID = nil
       typedIntoWindowID = nil
       post(keyCode: 48, flags: .maskCommand)
       fake.userFocuses(windows[index])
     }
     await settle()
-    if case .press = step { pressMoves = fake.takeMoves() } else { pressMoves = [:] }
+    switch step {
+    case .press, .switchWorkspace, .moveColumnToWorkspace: pressMoves = fake.takeMoves()
+    default: pressMoves = [:]
+    }
     observe(step, hiddenBefore: hiddenBefore, generationBefore: generationBefore)
   }
 
@@ -297,7 +335,7 @@ final class DaemonFocusWorld {
     }
     // Every bound shortcut the tap sees becomes one command (AGENTS.md: keyboard capture and
     // command intake stay responsive while Accessibility work is pending).
-    if case .press = step, daemon.commandGeneration != generationBefore &+ 1 {
+    if case .press = step, pressHadTarget, daemon.commandGeneration != generationBefore &+ 1 {
       stepViolation = FocusViolation(
         invariant: "shortcut-lost",
         detail: "a column press produced \(daemon.commandGeneration &- generationBefore) commands"
@@ -406,6 +444,13 @@ final class DaemonFocusWorld {
         detail: "selection is \(selectedWindowID.map { "\($0.rawValue)" } ?? "nil") but the latest command chose \(intendedWindowID.rawValue) and no human input followed"
       )
     }
+    // AGENTS.md: stale native focus must not reactivate a workspace without newer human intent.
+    if let intendedWorkspaceID, !humanInputSinceIntent, activeWorkspaceID != intendedWorkspaceID {
+      return FocusViolation(
+        invariant: "latest-workspace-wins",
+        detail: "workspace \(activeWorkspaceID.rawValue) is active but the latest command chose \(intendedWorkspaceID.rawValue) and no human input followed"
+      )
+    }
     if let (window, moves) = pressMoves.first(where: { $0.value > 1 }) {
       return FocusViolation(
         invariant: "one-move-per-motion",
@@ -443,10 +488,11 @@ final class DaemonFocusWorld {
         detail: "selected window \(selected.rawValue) spans x \(Int(frame.x))...\(Int(frame.x + frame.width)) outside the display once macOS is calm"
       )
     }
-    if fake.keyWindow != selectedWindowID {
+    // An active empty workspace has no native focus target (AGENTS.md); macOS keeps its own.
+    if let selectedWindowID, fake.keyWindow != selectedWindowID {
       return FocusViolation(
         invariant: "native-converges",
-        detail: "macOS key window is \(fake.keyWindow.map { "\($0.rawValue)" } ?? "nil") but Defi selects \(selectedWindowID.map { "\($0.rawValue)" } ?? "nil") once macOS is calm"
+        detail: "macOS key window is \(fake.keyWindow.map { "\($0.rawValue)" } ?? "nil") but Defi selects \(selectedWindowID.rawValue) once macOS is calm"
       )
     }
     return nil
