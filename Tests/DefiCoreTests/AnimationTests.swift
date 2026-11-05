@@ -11,6 +11,11 @@ struct AnimationTests {
   }
 
   @Test
+  func `A zero duration lands on the target at once`() {
+    #expect(animatedScalar(from: 0, to: 1, elapsed: 0, duration: 0) == 1)
+  }
+
+  @Test
   func displayedScrollRebaseConvertsPointsToViewportUnits() {
     #expect(rebaseScalarToDisplayedFrames(
       logicalValue: 0.5, expectedMinusDisplayedDeltas: [200, 202, 4000],

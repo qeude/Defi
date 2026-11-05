@@ -16,7 +16,8 @@ default_shards=$((cores / 2)); ((default_shards < 1)) && default_shards=1; ((def
 SHARDS="${SHARDS:-$default_shards}"
 [[ "$SHARDS" =~ ^[1-9][0-9]*$ ]] || { echo "SHARDS must be a positive integer, got '$SHARDS'" >&2; exit 2; }
 PURE='DefiModelTests|DefiCoreTests|DefiConfigTests|DefiRuntimeTests|RealResourceGuardTests|WindowClassificationFixtureTests|TraceReplayTests|PermissionScenarioTests|KnownSuspectMatchTests|FidelityTraceTests'
-# DefiMacOS unit suites that run under the guard: input monitor, focus and frame writers, discovery.
+# DefiDaemon and the DefiMacOS unit suites that run under the guard: input monitor, focus and frame
+# writers, discovery.
 # Suites left out reach a real resource (AppKit panels, Accessibility elements) and trap.
 MACOS='AXTimeoutBatchTests|BudgetedFreshReadPartitionTests|ClampedFrameWriteTests|ConfigMigrationTests|CursorTests|DefiSettingsModelTests|DeinitWithTaskLocalTests|DelayedObservationCampaignRegressionTests|DisplayArrangementControllerTests|FocusMutationTests|FrameCommitTransitionTests|FrameGeometryReadTests|FrameSettlementVerificationTests|HotKeyModifierReleaseTests|HotKeyRegistrationStatusTests|HotKeyTests|KeyboardLayoutLabelTests|KeyboardLayoutResolverTests|LosslessTOMLDocumentTests|MousePressApplicationTests|NativeWindowTabDiscoveryTests|ObservationCampaignRegressionTests|OverviewHotKeyTests|OverviewPreviewTests|OverviewScrollTests|RibbonProxyTests|SettingsSearchTests|WindowBorderSyncTests|WindowClassificationReviewFeedbackTests|WindowDiscoveryTests'
 mkdir -p "$LOGS" && LOGS="$(cd "$LOGS" && pwd)" || exit 2
@@ -34,7 +35,7 @@ lanes=(pure)
 DEFI_SCENARIO_SHARD=0/1 swift test --skip-build --ignore-lock --filter "$PURE" >"$LOGS/pure.log" 2>&1 &
 pids=($!)
 lanes+=(macos)
-swift test --skip-build --ignore-lock --filter "DefiMacOSTests\\.($MACOS)\\b" >"$LOGS/macos.log" 2>&1 &
+swift test --skip-build --ignore-lock --filter "DefiMacOSTests\\.($MACOS)\\b|DefiDaemonTests" >"$LOGS/macos.log" 2>&1 &
 pids+=($!)
 for ((shard = 0; shard < SHARDS; shard++)); do
   lanes+=("desktop-$shard")

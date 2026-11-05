@@ -45,7 +45,8 @@ struct DaemonDesktopSynchronizationTests {
         instanceLockURL: lockURL,
         topologyStore: topologyStore,
         workspaceStatePublisher: { data in publications.withLock { $0.append(data) } },
-        desktopSnapshotOverviewUpdater: { _ in }
+        desktopSnapshotOverviewUpdater: { _ in },
+        diagnostics: DiagnosticRecorder(directoryURL: directory.appending(path: "diagnostics"))
       )
       defer { daemon.flushPendingTopologyWrite() }
       daemon.restorationInFlight = true
