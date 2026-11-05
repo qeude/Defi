@@ -1,1 +1,2 @@
 id	reason
+DisplayArrangement:8:flip-lt	sorting by y with <= instead of < only reorders equal tops, and the overlap test gives the same answer for equal tops in either order

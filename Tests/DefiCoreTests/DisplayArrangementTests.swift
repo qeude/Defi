@@ -132,4 +132,79 @@ struct DisplayArrangementTests {
     #expect(!isDisplayStaircase([external: staircase[external]!], primary: external))
     #expect(isolatedDisplayArrangement(sideBySide, primary: external) == staircase)
   }
+
+  /// Side by side on the desk; Defi's staircase puts the external display above-right.
+  var sideBySide: (desk: [MonitorID: Rect], technical: [MonitorID: Rect]) {
+    let desk = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      external: Rect(x: 1_000, y: 0, width: 1_000, height: 700),
+    ]
+    return (desk, isolatedDisplayArrangement(desk, primary: laptop))
+  }
+
+  @Test
+  func `Pointer moving inside a display or along an edge stays there`() {
+    let (desk, technical) = sideBySide
+    // Mid-display on the external display: no edge is near.
+    #expect(displayPointerDestination(
+      x: 1_500, y: -350, deltaX: 5, deltaY: 0, technical: technical, desk: desk) == nil)
+    // A pointer already in the technical gap beside the laptop belongs to no display.
+    #expect(displayPointerDestination(
+      x: 1_500, y: 350, deltaX: 5, deltaY: 0, technical: technical, desk: desk) == nil)
+    // Sliding down the external display's left edge does not cross it.
+    #expect(displayPointerDestination(
+      x: 1_000, y: -350, deltaX: 0, deltaY: 5, technical: technical, desk: desk) == nil)
+    // Sliding sideways along the bottom edge does not cross into the display below.
+    let below = MonitorID(rawValue: 3)
+    let stackedDesk = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      below: Rect(x: 0, y: 700, width: 1_000, height: 700),
+    ]
+    let stackedTechnical = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      below: Rect(x: 2_000, y: 0, width: 1_000, height: 700),
+    ]
+    #expect(displayPointerDestination(
+      x: 500, y: 699, deltaX: 3, deltaY: 0, technical: stackedTechnical, desk: stackedDesk) == nil)
+  }
+
+  @Test
+  func `An overshoot from the top row of a display still crosses`() throws {
+    let (desk, technical) = sideBySide
+    let destination = try #require(displayPointerDestination(
+      x: 1_015, y: 0, deltaX: 16, deltaY: 0, technical: technical, desk: desk))
+    #expect(destination.monitorID == external)
+  }
+
+  @Test
+  func `An overshoot through the exact corner of an edge does not cross`() {
+    let below = MonitorID(rawValue: 3)
+    let desk = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      below: Rect(x: 0, y: 700, width: 2_000, height: 700),
+    ]
+    let technical = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      below: Rect(x: 0, y: 800, width: 2_000, height: 700),
+    ]
+    // The path leaves the laptop through its bottom-right corner point (1000, 700).
+    #expect(displayPointerDestination(
+      x: 1_002, y: 710, deltaX: 4, deltaY: 20, technical: technical, desk: desk) == nil)
+  }
+
+  @Test
+  func `A large overshoot lands inside a narrow target display`() throws {
+    let desk = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      external: Rect(x: 1_000, y: 0, width: 10, height: 700),
+    ]
+    let technical = [
+      laptop: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      external: Rect(x: 1_000, y: -700, width: 10, height: 700),
+    ]
+    let destination = try #require(displayPointerDestination(
+      x: 1_049, y: 350, deltaX: 50, deltaY: 0, technical: technical, desk: desk))
+    #expect(destination.monitorID == external)
+    #expect(destination.x < 1_010)
+  }
 }
