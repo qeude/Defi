@@ -3,6 +3,10 @@
 has at least --per-type mutants and the rest follow the weight of past fixes by area.
 
     sample.py [--size 400] [--per-type 25] [--seed 1] [--out Tests/Mutation/sample.tsv]
+    sample.py --witness --seed 2 --exclude Tests/Mutation/sample.tsv --out Tests/Mutation/witness.tsv
+
+A witness sample leaves out the curated mutants and every mutant of the excluded samples, so it
+measures the loop on bugs nobody looked at while writing tests or oracles.
 """
 import argparse
 import csv
@@ -28,12 +32,15 @@ def main():
     parser.add_argument("--per-type", type=int, default=25)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--out", default="Tests/Mutation/sample.tsv")
+    parser.add_argument("--witness", action="store_true", help="leave out the curated mutants")
+    parser.add_argument("--exclude", action="append", default=[], help="a sample whose mutants are left out")
     args = parser.parse_args()
     random.seed(args.seed)
     curated = read(ROOT / "Tests/Mutation/curated.tsv")
-    catalog = read(ROOT / "Tests/Mutation/catalog.tsv")
+    seen = {row["id"] for path in args.exclude for row in read(ROOT / path)}
+    catalog = [row for row in read(ROOT / "Tests/Mutation/catalog.tsv") if row["id"] not in seen]
     random.shuffle(catalog)
-    chosen = {row["id"]: row for row in curated}
+    chosen = {} if args.witness else {row["id"]: row for row in curated}
     for kind in sorted({row["type"] for row in catalog}):
         have = sum(1 for row in chosen.values() if row["type"] == kind)
         for row in [r for r in catalog if r["type"] == kind and r["id"] not in chosen][: max(0, args.per_type - have)]:
