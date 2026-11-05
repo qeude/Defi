@@ -7,3 +7,20 @@ AXFrameCoordinator:379:double-write	Set.formUnion is idempotent, so a second uni
 StackConstraints:197:flip-lt	The guard requires !fits(column.windows[...]), so fits(windows[...count-1]) is false and the loop always stops at runLength <= count-1; runLength never reaches count, so < and <= behave alike.
 DaemonStatusLifecycle:390:flip-lt	The only difference is one extra 10 ms drain poll when uptime equals the 5 s deadline exactly while writes are still pending, which nothing can observe.
 MacOSPlatform+EventObservation:38:flip-lt	< versus <= differs only when uptime equals the deadline exactly, which adds at most one 10 ms poll before the same restore.
+RuntimeState:923:drop-or	LayoutSettings(config:) always sets innerHorizontalGap and innerVerticalGap to the same gaps/2+border, so the innerVerticalGap comparison already detects every change.
+Workspace:277:flip-ge	Differs only when two preset effective widths differ by exactly .ulpOfOne (2^-52), a float coincidence below any pixel, not a meaningful configuration.
+CommandReducer:240:drop-and	The recorded centered flag is read only while the same window stays selected, and then the center-column pin (kept until selection leaves the column, which also replaces the recorded window) overrides it.
+StackConstraints:104:flip-gt	Differs only when the per-slot surplus is exactly 0.001 point, a sub-pixel height change.
+WindowReconciliation:9:assign-false	The only production caller (reconcileWindows) always passes isNativelyFocused explicitly; the default is used only by tests.
+CommandReducer:200:flip-gt	The guard !presets.contains(width) ensures no preset equals width, so > and >= select the same index.
+RuntimeState:924:drop-or	innerVerticalGap always equals innerHorizontalGap (both gaps/2+border), so the remaining comparison detects every change.
+WorkspaceCommands:148:flip-lt	Sorts a Set of distinct window IDs, so no two elements compare equal and < and <= give the same order.
+WindowReconciliation:271:assign-false	relocateTransientIfNeeded returns false once each transient sits at its target, so the extra bounded passes are no-ops.
+DisplayArrangementController:235:flip-lt	Sorts dictionary entries whose MonitorID keys are unique, so < and <= give the same order.
+DisplayArrangement:61:flip-lt	Sorts unique dictionary keys, so < and <= give the same order.
+MouseReordering:43:assign-false	observedPostReleaseChange is only read in `converged`, which with stableSince nil requires now >= now + quietDuration (0.05 at the only caller), so the initial value never decides anything; any frame change sets both fields together
+ScrollReconciliation:160:flip-lt	tiledWindowWidthLearning returns nil unless |learned.width - requestedWidth| >= 1 (the 80 pt clamp included), so learned.width never equals requestedWidth - 0.5
+DaemonAnimation:350:drop-call	commitCommandFocus calls focus.submitCommand, which sets pendingAnimatedFocus to nil, and nothing between the two reads pendingAnimatedFocus
+WorkspaceScrolling:76:flip-gt	when minimumScroll == maximumScroll both branches yield that same value (clamping scrollOffset to a single-point range)
+MacOSPlatform:724:flip-lt	entered is a Set of distinct window IDs, so < and <= order every pair identically.
+WindowDiscoverySupport:445:assign-false	The only caller (SnapshotEngine.swift:1457) always passes includingTransientRelationships explicitly, so the default is never used.
