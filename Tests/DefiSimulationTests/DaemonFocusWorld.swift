@@ -182,6 +182,17 @@ final class DaemonFocusWorld {
     let isActivation = changed && activation != nil && focused.flatMap { owners[$0] } == activation?.processID
     var keyboardIntent: TimeInterval?
     if let intent = input.latestFocusIntent, case .keyboard = intent.source { keyboardIntent = intent.timestamp }
+    // The real snapshot reports windows away from their targets (MacOSPlatform+Snapshot), so
+    // Defi rewrites frames an app moved; a parked window that holds its park is no mismatch.
+    let mismatches = windows.compactMap { id -> FrameMismatch? in
+      guard let actual = fake.frame(of: id), let target = platform.targetFrames[id],
+        !approximatelyEqual(actual, target),
+        !(platform.isWindowHidden(id) && parkedFrameHolds(actual, target: target)),
+        targetIntersectsAnyMonitor(target, monitors: [monitor])
+      else { return nil }
+      return FrameMismatch(windowID: id, actual: actual, target: target)
+    }
+    for mismatch in mismatches { platform.pendingFrameCorrections[mismatch.windowID] = mismatch.actual }
     return DesktopSnapshot(
       monitors: [monitor],
       windows: windows.map { id in
@@ -196,6 +207,7 @@ final class DaemonFocusWorld {
       applicationActivationTimestamp: isActivation ? activation?.timestamp : nil,
       latestUserInputTimestamp: input.latestEventTimestamp,
       keyboardFocusIntentTimestamp: keyboardIntent,
+      targetMismatches: mismatches,
       frontmostProcessID: fake.frontmostProcessID
     )
   }
@@ -232,6 +244,12 @@ final class DaemonFocusWorld {
     let hiddenBefore = Set(windows.filter(platform.isWindowHidden))
     let generationBefore = daemon.commandGeneration
     switch step {
+    case .appRestoresHiddenWindow(let index):
+      let window = windows[index]
+      guard platform.isWindowHidden(window), let frame = fake.frame(of: window) else { break }
+      fake.appMoves(window, to: Rect(x: monitor.frame.x + 100, y: frame.y, width: frame.width, height: frame.height))
+      // What the AX moved notification does: ask for a desktop sync.
+      daemon.needsDesktopSync = true
     case .switchWorkspace(let down), .moveColumnToWorkspace(let down):
       let moves = if case .moveColumnToWorkspace = step { true } else { false }
       // The latest intent is the workspace; its remembered selection is Defi's to choose.
@@ -487,6 +505,20 @@ final class DaemonFocusWorld {
         invariant: "focus-visible",
         detail: "selected window \(selected.rawValue) spans x \(Int(frame.x))...\(Int(frame.x + frame.width)) outside the display once macOS is calm"
       )
+    }
+    // AGENTS.md: parking converges and self-repairs without leaking parked windows into
+    // visible monitor regions.
+    for window in windows where platform.isWindowHidden(window) {
+      guard let frame = fake.frame(of: window) else { continue }
+      let visible = monitor.frame
+      let overlap = min(frame.x + frame.width, visible.x + visible.width) - max(frame.x, visible.x)
+      if overlap > parkedSliverWidth + 1 {
+        if ProcessInfo.processInfo.environment["DEFI_CALM_STAT"] != nil { print("leak-debug", window.rawValue, frame, platform.targetFrames[window] as Any, windows.map { (fake.frame(of: $0)!.x, platform.isWindowHidden($0)) }, activeColumns, daemon.state.monitors[0].workspaces.map { ($0.id.rawValue, $0.columns.count, $0.scrollOffset) }) }
+        return FocusViolation(
+          invariant: "parking-leak",
+          detail: "hidden window \(window.rawValue) shows \(Int(overlap)) pt on the display once macOS is calm"
+        )
+      }
     }
     // An active empty workspace has no native focus target (AGENTS.md); macOS keeps its own.
     if let selectedWindowID, fake.keyWindow != selectedWindowID {

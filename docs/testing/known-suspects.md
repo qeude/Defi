@@ -20,7 +20,13 @@ change that fixes it.
 | `native-converges ["focusNotificationArrivesLate"]` | simulated desktop | suspect | The user's Command-Tab is reported late. Column presses made meanwhile start from Defi's old selection, queue a focus that never commits, and Defi and macOS stay on different windows once calm. Found only by the PCT scheduler. | `DEFI_SCENARIO_SEED=230`, PCT lane |
 
 | `typing-target-kept` (3 classes: plain, busy app, writer during tap) | simulated desktop | suspect | A superseded focus write still in flight finishes after newer typing and moves macOS away from the window the user typed into. Found by the typing oracle added after the mutation check. | `DEFI_SCENARIO_SEED=370`: `[press, writerStep, press (writer during tap), type]` |
-| `focus-visible` with `accessibilityRevoked` | simulated desktop | suspect, possibly a harness gap | Frames refused while Accessibility was revoked are never rewritten once it is granted again. The simulated snapshot reports no target mismatches, which the real SnapshotEngine would, so this needs the real engine on the fake before it counts. | seed 330 |
+
+## Harness defects found and fixed
+
+| Class | Cause | Fix |
+|---|---|---|
+| `focus-visible` with `accessibilityRevoked` | The simulated snapshot reported no window away from its target, so frames refused while Accessibility was revoked were never rewritten. The real snapshot reports such mismatches. | The simulated snapshot reports target mismatches with the production rule. The class no longer appears in 36 000 scenarios. |
+| `busy-app-call-unbounded` at 6 000 ms | The fake kept messaging timeouts per equal element, but the simulated snapshot recreates element references; one thread's reset erased another's timeout. | Timeouts are kept per element reference, as Defi's `AXMessagingTimeoutAccess` does. |
 
 The simulated-desktop rows still use the simulated desktop snapshot, which stands in for
 `SnapshotEngine`. A desktop or CI run should confirm them before the fix.

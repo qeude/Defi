@@ -35,6 +35,10 @@ enum FakeMacBehavior: String, CaseIterable, Sendable {
   /// then fails until it is granted again (AGENTS.md: navigation never depends on capture,
   /// and Defi must not spin while it waits).
   case accessibilityRevoked
+  /// AGENTS.md: parking must "self-repair after delayed application behavior"; an app may put
+  /// a parked window back on screen, and macOS pulls a window onto the display under most of
+  /// its width.
+  case appMovesParkedWindowBack
 }
 
 /// Lets the harness advance the real AXFocusWriter one AX call at a time. The writer
@@ -171,6 +175,14 @@ final class FakeMacOS: @unchecked Sendable {
 
   func setFrame(_ frame: Rect, of windowID: WindowID) { lock.withLock { nativeFrames[windowID] = frame } }
 
+  /// The window's app moves it on its own, as after a delayed restore of its last position.
+  func appMoves(_ windowID: WindowID, to frame: Rect) {
+    lock.withLock {
+      nativeFrames[windowID] = frame
+      used.insert(.appMovesParkedWindowBack)
+    }
+  }
+
   // Frame writes run on the frame coordinator's queues, outside the focus writer's gate.
   func moveWindow(_ element: AXUIElement, to point: CGPoint) -> Bool {
     guard let windowID = windowID(of: element) else { return false }
@@ -199,17 +211,22 @@ final class FakeMacOS: @unchecked Sendable {
     }
   }
 
-  /// Messaging timeouts Defi set, by element (AXUIElementSetMessagingTimeout).
-  private var messagingTimeouts: [CFHashCode: Float] = [:]
-  /// The longest a call to a busy app held its caller since the last take: the element's
-  /// messaging timeout, else its application's, else the 6 s Accessibility default.
+  /// Messaging timeouts Defi set, per element reference (AXUIElementSetMessagingTimeout takes
+  /// the reference; Defi's AXMessagingTimeoutAccess keys its bookkeeping the same way).
+  private var messagingTimeouts: [UInt: Float] = [:]
+  private static func reference(_ element: AXUIElement) -> UInt {
+    UInt(bitPattern: Unmanaged.passUnretained(element).toOpaque())
+  }
+
+  /// The longest a call to a busy app held its caller since the last take: the timeout set on
+  /// the element reference the call used, else the 6 s Accessibility default.
   private var slowestBusyCall: Float = 0
 
   /// Defi's own timeout bookkeeping, setting timeouts on this fake instead of macOS.
   lazy var timeoutAccess = AXMessagingTimeoutAccess { [unowned self] in self.setMessagingTimeout($0, $1) }
 
   func setMessagingTimeout(_ element: AXUIElement, _ timeout: Float) {
-    lock.withLock { messagingTimeouts[CFHash(element)] = timeout > 0 ? timeout : nil }
+    lock.withLock { messagingTimeouts[Self.reference(element)] = timeout > 0 ? timeout : nil }
   }
 
   func takeSlowestBusyCall() -> Float { lock.withLock { defer { slowestBusyCall = 0 }; return slowestBusyCall } }
@@ -217,8 +234,7 @@ final class FakeMacOS: @unchecked Sendable {
   /// Called with `lock` held, for an Accessibility call that reached a busy app.
   private func noteBusyCall(_ element: AXUIElement, _ processID: pid_t) {
     used.insert(.busyAppTimesOut)
-    let timeout = messagingTimeouts[CFHash(element)]
-      ?? messagingTimeouts[CFHash(applicationElement(processID))] ?? 6
+    let timeout = messagingTimeouts[Self.reference(element)] ?? 6
     slowestBusyCall = max(slowestBusyCall, timeout)
   }
 
