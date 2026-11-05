@@ -18,6 +18,10 @@ private final class HotKeyInvocationRecorder: Sendable {
   var commands: [String] {
     invocations.withLock { $0.map(\.command) }
   }
+
+  var sourceProcessIDs: [Int32?] {
+    invocations.withLock { $0.map(\.sourceProcessID) }
+  }
 }
 
 @Suite
@@ -221,6 +225,79 @@ struct OverviewHotKeyTests {
     #expect(tracker.latestEventTimestamp == 7)
     #expect(tracker.snapshot.latestCapturedCommandTimestamp == (overview ? 7 : 0))
   }
+
+  @Test(arguments: [false, true])
+  func focusedDefiTextFieldKeepsOverviewKeysOnlyWhenTheyTargetDefi(targetsDefi: Bool) throws {
+    let actions = Mutex<[OverviewKeyAction]>([])
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { action in actions.withLock { $0.append(action) } },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in }, textInputFocused: { true })
+    context.setOverviewModeEnabled(true)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 123, keyDown: true))
+    event.flags = []
+    event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(targetsDefi ? getpid() : 4242))
+    let forwarded = context.intercept(type: .keyDown, event: event)
+    if targetsDefi {
+      #expect(forwarded?.takeUnretainedValue() === event, "The arrow moves the caret in Defi's own field")
+      #expect(actions.withLock { $0 }.isEmpty)
+    } else {
+      #expect(forwarded == nil, "Another app's key still drives the overview")
+      #expect(actions.withLock { $0 } == [.left])
+    }
+  }
+
+  @Test
+  func typingInADefiTextFieldLeavesTheCheatsheetModifierAloneButAClickDismissesIt() throws {
+    let key = try Key(accelerator: "alt-left", aliases: [:])
+    let inputs = Mutex<[CheatsheetInput]>([])
+    let context = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      cheatsheetModifierBits: key.modifierBits,
+      deliverCheatsheet: { input in inputs.withLock { $0.append(input) } },
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, textInputFocused: { true })
+    context.setHotKeysRegistered(true)
+    let modifier = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 58, keyDown: true))
+    modifier.type = .flagsChanged
+    modifier.flags = [.maskAlternate]
+    modifier.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(getpid()))
+    #expect(context.handle(type: .flagsChanged, event: modifier)?.takeUnretainedValue() === modifier)
+    #expect(inputs.withLock { $0 }.isEmpty)
+    let click = try #require(CGEvent(
+      mouseEventSource: nil, mouseType: .leftMouseDown,
+      mouseCursorPosition: CGPoint(x: 10, y: 10), mouseButton: .left
+    ))
+    click.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(getpid()))
+    #expect(context.handle(type: .leftMouseDown, event: click)?.takeUnretainedValue() === click)
+    #expect(inputs.withLock { $0 } == [.dismiss])
+  }
+
+  @Test
+  func overviewKeysReachTheOverviewHandlerThroughTheHotKeyManager() async throws {
+    let actions = Mutex<[OverviewKeyAction]>([])
+    let context = await Self.overviewInput { action in actions.withLock { $0.append(action) } }
+    context.setOverviewModeEnabled(true)
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 123, keyDown: true))
+    event.flags = []
+    #expect(context.intercept(type: .keyDown, event: event) == nil)
+    await Self.drainNavigationActor()
+    #expect(actions.withLock { $0 } == [.left])
+  }
+
+  @NavigationActor
+  private static func overviewInput(
+    _ handler: @escaping @NavigationActor @Sendable (OverviewKeyAction) -> Void
+  ) -> InputMonitor {
+    HotKeyManager(config: Config(), overviewHandler: handler) { _ in }
+      .attachInputMonitorWithoutEventTaps(keyboardCaptured: { false })
+  }
+
+  /// Runs after every block enqueued on the actor's serial queue before it.
+  @NavigationActor
+  private static func drainNavigationActor() {}
 
 }
 
@@ -516,6 +593,45 @@ struct HotKeyTests {
     #expect(intents.withLock { $0.map(\.timestamp) } == [expectedTimestamp])
     let expectedProcessID = rawProcessID > 0 ? rawProcessID : nil
     #expect(intents.withLock { $0.map(\.processID) } == [expectedProcessID])
+  }
+
+  @Test(arguments: [(Int64(0), nil), (4242, 4242)] as [(Int64, Int32?)])
+  func capturedShortcutReportsTheProcessThatPostedIt(rawProcessID: Int64, expected: Int32?) throws {
+    let key = try Key(accelerator: "hyper-left", aliases: aliases)
+    let (context, invocations) = makeContext(bindings: [key: "focus-column left"])
+    let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    event.flags = CGEventFlags(rawValue: key.modifierBits)
+    event.setIntegerValueField(.eventSourceUnixProcessID, value: rawProcessID)
+    _ = context.handle(type: .keyDown, event: event)
+    #expect(invocations.sourceProcessIDs == [expected])
+  }
+
+  @Test
+  func aClickAfterACapturedChordLetsTheLaterModifierReleaseCountAsInput() throws {
+    let key = try Key(accelerator: "hyper-left", aliases: aliases)
+    let tracker = UserInputTracker()
+    let context = InputMonitor(
+      bindings: [key: "focus-column left"], userInputTracker: tracker,
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in },
+      tapReenabled: { _ in }, textInputFocused: { false })
+    context.setHotKeysRegistered(true)
+    let chord = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+    chord.flags = CGEventFlags(rawValue: key.modifierBits)
+    chord.timestamp = 5_000_000_000
+    _ = context.handle(type: .keyDown, event: chord)
+    let click = try #require(CGEvent(
+      mouseEventSource: nil, mouseType: .leftMouseDown,
+      mouseCursorPosition: CGPoint(x: 10, y: 10), mouseButton: .left
+    ))
+    click.timestamp = 6_000_000_000
+    _ = context.handle(type: .leftMouseDown, event: click)
+    let release = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 58, keyDown: false))
+    release.type = .flagsChanged
+    release.flags = []
+    release.timestamp = 7_000_000_000
+    _ = context.handle(type: .flagsChanged, event: release)
+    #expect(tracker.latestEventTimestamp == 7, "The chord's modifiers stopped being Defi's once the user clicked")
   }
 
 }

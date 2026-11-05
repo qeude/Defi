@@ -545,6 +545,24 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `Post release settlement polls every 50 ms and finishes at the check it schedules`() {
+    let released = Rect(x: 300, y: 0, width: 500, height: 700)
+    let late = Rect(x: 700, y: 0, width: 500, height: 700)
+    let settlement = MouseGestureSettlement(generation: 1, windowID: WindowID(rawValue: 1),
+      initialFrame: Rect(x: 0, y: 0, width: 500, height: 700), releasedFrame: released, now: 10,
+      maximumDuration: mouseGestureSettlementMaximumDuration(latencySensitive: false))
+    #expect(abs(settlement.nextCheckAt - 10.05) < 1e-9, "the first poll precedes the deadline")
+    let unchanged = advanceMouseGestureSettlement(settlement, actualFrame: released, now: 10.05)
+    #expect(!unchanged.shouldFinish)
+    #expect(abs(unchanged.settlement.nextCheckAt - 10.1) < 1e-9, "a late frame is seen within a poll")
+    let changed = advanceMouseGestureSettlement(unchanged.settlement, actualFrame: late, now: 10.1)
+    #expect(!changed.shouldFinish)
+    let quiet = advanceMouseGestureSettlement(changed.settlement, actualFrame: late,
+      now: changed.settlement.nextCheckAt)
+    #expect(quiet.shouldFinish, "the scheduled quiet check converges without one more poll")
+  }
+
+  @Test
   func `Post release settlement ignores a late frame matching a Defi write`() {
     let external = Rect(x: 0, y: 0, width: 600, height: 700)
     let delayedWrite = Rect(x: 0, y: 0, width: 800, height: 700)

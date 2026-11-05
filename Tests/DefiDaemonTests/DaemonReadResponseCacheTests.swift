@@ -6,7 +6,8 @@ import Testing
 struct DaemonReadResponseCacheTests {
   @Test
   func `Read responses are served per command until they expire`() {
-    let cache = DaemonReadResponseCache(maxAge: 0.25)
+    // The daemon's own cache: `defi status` right after a command must not lag behind it.
+    let cache = DaemonReadResponseCache()
     #expect(cache.response(for: "status", now: 10) == nil)
     cache.store(message: "running", for: "status", now: 10)
     cache.store(message: "events", for: "trace", now: 10)

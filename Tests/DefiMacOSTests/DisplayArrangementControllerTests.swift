@@ -76,6 +76,45 @@ struct DisplayArrangementControllerTests {
   }
 
   @Test
+  func restartIgnoresASavedDeskWithAnEmptyDisplay() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    let desk = [
+      first: Rect(x: -1_512, y: 50, width: 1_512, height: 982),
+      second: Rect(x: 0, y: 0, width: 1_920, height: 1_080),
+    ]
+    var current = desk
+    func controller() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current }, applyFrames: { frames, _ in current = frames; return .success },
+        primaryDisplay: { second }, pointerRouter: DisplayPointerRouter(warpPointer: { _ in .success }),
+        stateURL: stateURL, sessionID: "session-a"
+      )
+    }
+    #expect(controller().reconcile())
+    let technical = current
+    #expect(technical != desk)
+    let restarted = controller()
+    _ = restarted.reconcile()
+    #expect(restarted.deskFrames == desk, "an intact store recovers the desk")
+    // Corrupt one saved desk frame to zero height.
+    var stored = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+    var savedDesk = try #require(stored["desk"] as? [Any])
+    let index = try #require(savedDesk.firstIndex { $0 is [String: Any] })
+    var frame = try #require(savedDesk[index] as? [String: Any])
+    frame["height"] = 0
+    savedDesk[index] = frame
+    stored["desk"] = savedDesk
+    try JSONSerialization.data(withJSONObject: stored).write(to: stateURL)
+    let corrupted = controller()
+    _ = corrupted.reconcile()
+    // Ignored like a missing store: the staircase alone never becomes the desk.
+    #expect(corrupted.deskFrames.isEmpty)
+    #expect(corrupted.status == "ambiguous")
+  }
+
+  @Test
   func restartRetainsPointerCrossingsWhenMacOSKeepsTheTechnicalArrangement() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

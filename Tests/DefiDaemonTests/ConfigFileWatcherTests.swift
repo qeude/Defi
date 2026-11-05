@@ -54,11 +54,13 @@ struct ConfigFileWatcherTests {
     #expect(counter.value == 2)
   }
 
+  /// A save applies after a 0.2 s debounce; one second leaves room for a loaded machine.
   @MainActor
   private func waitForReloadCount(_ expected: Int, counter: ReloadCounter) async throws {
-    for _ in 0..<100 {
+    for _ in 0..<20 {
       if counter.value >= expected { return }
       try await Task.sleep(for: .milliseconds(50))
     }
+    Issue.record("config reload \(expected) did not apply within a second")
   }
 }
