@@ -22,17 +22,21 @@ struct SuspectReplayTests {
     let desk = try await RealDesk()
     defer { desk.close() }
     var results: [String: [Bool]] = [:]
+    var details: [String] = []
     for _ in 0..<12 {
       // seed 9: typing while a column focus is in flight.
-      results["typing-during-focus", default: []].append(await desk.replay(presses: 1))
-      // seed 370: a superseded focus write still in flight when the user types.
-      results["superseded-write-then-typing", default: []].append(await desk.replay(presses: 2))
+      for (name, presses) in [("typing-during-focus", 1), ("superseded-write-then-typing", 2)] {
+        let outcome = await desk.replay(presses: presses)
+        results[name, default: []].append(outcome.agreed)
+        if !outcome.agreed { details.append("DEFI_E2E suspect-round \(name) \(outcome.detail)") }
+      }
     }
     var lines: [String] = []
     for (name, outcomes) in results.sorted(by: { $0.key < $1.key }) {
       let diverged = outcomes.filter { !$0 }.count
       lines.append("DEFI_E2E suspect \(name) diverged=\(diverged)/\(outcomes.count)")
     }
+    lines += details
     print(lines.joined(separator: "\n"))
     if let out = ProcessInfo.processInfo.environment["DEFI_SUSPECT_OUT"] {
       try lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
@@ -145,11 +149,11 @@ final class RealDesk {
 
   /// Busy fixture, one or two column presses toward it, then typing; returns whether Defi and
   /// macOS agree on one window once calm, and typing kept its window.
-  func replay(presses: Int) async -> Bool {
+  func replay(presses: Int) async -> (agreed: Bool, detail: String) {
     await run(for: 0.5)
     guard let current = selected, let other = windows.keys.first(where: { $0 != current }),
       let otherIndex = windows[other]
-    else { return false }
+    else { return (false, "no selection") }
     inputs[otherIndex].fileHandleForWriting.write(Data("busy 300\n".utf8))
     let monitor = daemon.state.monitors[0]
     let columns = monitor.workspaces.first { $0.id == monitor.activeWorkspace }?.columns.flatMap(\.windows) ?? []
@@ -163,8 +167,15 @@ final class RealDesk {
     post(keyCode: 0, flags: [])
     await run(for: 2)
     let native = nativeFocus
-    return native == selected && (presses == 1 || native == typedInto)
+    let agreed = native == selected && (presses == 1 || native == typedInto)
+    guard !agreed else { return (true, "") }
+    let calm = "selected=\(id(selected)) native=\(id(native)) typedInto=\(id(typedInto)) from=\(id(current)) busy=\(id(other))"
+    // A slow convergence is not a stuck one: look again after 3 more seconds.
+    await run(for: 3)
+    return (false, calm + " after3s selected=\(id(selected)) native=\(id(nativeFocus))")
   }
+
+  private func id(_ window: WindowID?) -> String { window.map { "\($0.rawValue)" } ?? "-" }
 
   func close() {
     for input in inputs { try? input.fileHandleForWriting.close() }
