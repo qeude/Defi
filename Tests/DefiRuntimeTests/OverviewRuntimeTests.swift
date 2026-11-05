@@ -180,6 +180,24 @@ struct OverviewRuntimeTests {
       ])
   }
 
+  /// The dragged column leaves its slot first, so a drop index right of it counts one less.
+  @Test(arguments: [(UInt64(1), 3, [UInt64(2), 3, 1, 4]), (UInt64(4), 1, [UInt64(1), 4, 2, 3])])
+  func `A column dragged inside its workspace lands in the slot it was dropped on`(
+    moving: UInt64, index: Int, order: [UInt64]
+  ) throws {
+    var state = makeState()
+    let ids = (1...4).map { WindowID(rawValue: UInt64($0)) }
+    state.monitors[0].workspaces[0].columns = ids.map { Column(window: $0, width: .fraction(0.5)) }
+    for id in ids { state.windows[id] = window(id, monitorID: firstMonitor) }
+    _ = try applyOverviewDrop(
+      intent(for: WindowID(rawValue: moving)),
+      target: .newColumn(monitorID: firstMonitor, workspaceID: firstWorkspace, columnIndex: index),
+      viewports: [firstMonitor: Rect(x: 0, y: 0, width: 1_000, height: 800)],
+      state: &state
+    )
+    #expect(state.monitors[0].workspaces[0].columns.map { $0.windows[0].rawValue } == order)
+  }
+
   @Test
   func `Rejects stale and fullscreen drops without mutation`() {
     let moving = WindowID(rawValue: 1)

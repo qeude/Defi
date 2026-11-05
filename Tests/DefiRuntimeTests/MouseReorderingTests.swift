@@ -796,6 +796,23 @@ struct MouseReorderingTests {
   }
 
   @Test
+  func `A window pulled out of a stack keeps its column as a drop slot`() throws {
+    var state = try makeState(windowCount: 4)
+    let id = { (raw: Int) in WindowID(rawValue: UInt64(raw)) }
+    var stack = Column(window: id(2), width: .fraction(0.3))
+    stack.windows.append(id(3))
+    state.monitors[0].workspaces[0].columns = [Column(window: id(1), width: .fraction(0.3)), stack, Column(window: id(4), width: .fraction(0.3))]
+    state.monitors[0].workspaces[0].focusedColumn = 0
+    state.monitors[0].workspaces[0].scrollOffset = 0
+    state.monitors[0].workspaces[0].targetScrollOffset = 0
+    let last = try targetFrame(for: id(4), state: state)
+    let target = mouseDropTarget(
+      id(3), pointer: (last.x + last.width - 10, last.y + last.height / 2),
+      state: state, viewports: [monitorID: viewport])
+    #expect(target == .column(index: 3))
+  }
+
+  @Test
   func `Dropping a window back on its own place changes nothing`() throws {
     var state = try makeState(windowCount: 3)
     let dragged = WindowID(rawValue: 1)
