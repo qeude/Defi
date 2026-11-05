@@ -33,8 +33,8 @@ struct CursorTests {
 
   @Test(
     arguments: zip(
-      [CGPoint(x: 0, y: 0), CGPoint(x: 300, y: 500)],
-      [CGPoint(x: 300, y: 500), nil]
+      [CGPoint(x: 0, y: 0), CGPoint(x: 300, y: 500), CGPoint(x: 300, y: 100), CGPoint(x: 300, y: 900)],
+      [CGPoint(x: 300, y: 500), nil, CGPoint(x: 300, y: 500), CGPoint(x: 300, y: 500)]
     )
   )
   func cursorWarpsToCenterOnlyOutsideWindow(currentLocation: CGPoint, destination: CGPoint?) {

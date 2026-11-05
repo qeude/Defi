@@ -206,4 +206,10 @@ struct WindowBorderSyncTests {
       windowBorderAuditReport(expected: [:], actual: [:], backend: "fallback:move")
         == "backend=fallback:move no-comparable-borders")
   }
+
+  @Test
+  func `A border colour's alpha is its high byte`() {
+    #expect(windowBorderAlpha(of: 0x80FF_0000) == 0x80)
+    #expect(windowBorderAlpha(of: 0x00FF_FFFF) == 0)
+  }
 }

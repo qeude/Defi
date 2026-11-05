@@ -1,3 +1,4 @@
+import CoreGraphics
 import DefiModel
 import Testing
 
@@ -440,5 +441,13 @@ struct FrameCommitTransitionTests {
         ]
       ) == [drifting]
     )
+  }
+
+  @Test
+  func `A parked window holds up to its title-bar slack above, and only 1 pt below`() {
+    let target = CGPoint(x: 990, y: 400)
+    #expect(parkedPositionHolds(CGPoint(x: 990, y: 400 - 40), target: target))
+    #expect(parkedPositionHolds(CGPoint(x: 990, y: 401), target: target))
+    #expect(!parkedPositionHolds(CGPoint(x: 990, y: 401.5), target: target))
   }
 }

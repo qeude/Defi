@@ -2,3 +2,8 @@ id	reason
 DisplayArrangement:8:flip-lt	sorting by y with <= instead of < only reorders equal tops, and the overlap test gives the same answer for equal tops in either order
 DelayedObservationCampaigns:65:delay-x10	the 1 µs tolerance becomes 10 µs; stage deadlines are whole milliseconds apart, so no stage changes side
 DelayedObservationCampaigns:65:flip-gt	> versus >= on a deadline exactly 1 µs past now; deadlines are whole milliseconds, so the tie never occurs
+curated:18	The trailing workspace is always last, so only .down can target it, and reduce() always ends in maintainWorkspaceLifecycle, which moves the empty trailing workspace back to the end and recomputes affinityPositions, so the swap is undone.
+AXFrameCoordinator:379:double-write	Set.formUnion is idempotent, so a second union with the same keys leaves windowIDs unchanged.
+StackConstraints:197:flip-lt	The guard requires !fits(column.windows[...]), so fits(windows[...count-1]) is false and the loop always stops at runLength <= count-1; runLength never reaches count, so < and <= behave alike.
+DaemonStatusLifecycle:390:flip-lt	The only difference is one extra 10 ms drain poll when uptime equals the 5 s deadline exactly while writes are still pending, which nothing can observe.
+MacOSPlatform+EventObservation:38:flip-lt	< versus <= differs only when uptime equals the deadline exactly, which adds at most one 10 ms poll before the same restore.

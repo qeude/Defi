@@ -136,4 +136,13 @@ struct ParkingTests {
     (max(min(lhs.x + lhs.width, rhs.x + rhs.width) - max(lhs.x, rhs.x), 0),
       max(min(lhs.y + lhs.height, rhs.y + rhs.height) - max(lhs.y, rhs.y), 0))
   }
+
+  @Test
+  func `A window centred on its display parks at the right edge first`() {
+    let display = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let parked = parkedFrame(
+      Rect(x: 250, y: 0, width: 500, height: 700), display: display,
+      visibleFrame: Rect(x: 0, y: 30, width: 1_000, height: 670), otherDisplays: [])
+    #expect(parked.x == 1_000 - parkedSliverWidth)
+  }
 }

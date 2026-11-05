@@ -136,4 +136,14 @@ struct WorkspaceTests {
     #expect(column.width == testCase.expectedWidth)
     #expect(column.preMaximizedWidth == testCase.expectedPreviousWidth)
   }
+
+  @Test
+  func `Removing a column after the focused one keeps focus`() {
+    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
+    for id in 1...3 { insertNewWindow(WindowID(rawValue: UInt64(id)), into: &workspace, settings: settings) }
+    workspace.focusedColumn = 1
+
+    #expect(removeWindow(WindowID(rawValue: 3), from: &workspace, settings: settings))
+    #expect(workspace.focusedColumn == 1)
+  }
 }
