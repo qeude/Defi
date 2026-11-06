@@ -43,7 +43,10 @@ let package = Package(
     ),
     .target(
       name: "DefiMacOS",
-      dependencies: ["DefiModel", "DefiCore", "DefiConfig", "DefiRuntime"]
+      dependencies: [
+        "DefiModel", "DefiCore", "DefiConfig", "DefiRuntime",
+        .product(name: "TOMLDecoder", package: "TOMLDecoder"),
+      ]
     ),
     .executableTarget(
       name: "DefiDaemon",

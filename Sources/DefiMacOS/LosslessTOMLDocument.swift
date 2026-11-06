@@ -78,6 +78,33 @@ struct LosslessTOMLDocument {
     hasFinalNewline = true
   }
 
+  /// Renames a key in place, keeping its value, comments, and quoting style.
+  mutating func renameKey(table: String, from old: String, to new: String) {
+    let (start, end) = range(of: table)
+    guard let start else { return }
+    let sectionStart = table.isEmpty ? 0 : start + 1
+    guard let index = assignmentIndex(for: old, in: sectionStart..<(end ?? lines.endIndex)),
+      let equals = firstEquals(in: lines[index])
+    else { return }
+    let line = lines[index]
+    let written = line[..<equals]
+    let indent = written.prefix { $0 == " " || $0 == "\t" }
+    let spacing = String(written.reversed().prefix { $0 == " " || $0 == "\t" }.reversed())
+    let quoted = written.trimmingCharacters(in: .whitespaces).hasPrefix("\"")
+    let key = quoted
+      ? "\"\(new.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
+      : quoteKeyIfNeeded(new)
+    lines[index] = indent + key + spacing + line[equals...]
+  }
+
+  /// Removes a standard table with its header and the comments right above it.
+  mutating func removeTable(_ table: String) {
+    guard !table.isEmpty else { return }
+    let (start, end) = range(of: table)
+    guard let start else { return }
+    lines.removeSubrange(leadingCommentStart(before: start)..<(end ?? lines.endIndex))
+  }
+
   mutating func removeArrayTable(_ table: String, occurrence: Int) {
     let sections = ranges(of: table)
     guard sections.indices.contains(occurrence) else { return }

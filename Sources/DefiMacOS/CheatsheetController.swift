@@ -208,7 +208,7 @@ func shortcutGroups(
   }
   let resolution = ShortcutResolution(config: config, layout: layout)
   let bindings = resolution.resolution.keys.compactMap { key, binding in
-    normalizedAccelerator(binding.accelerator, aliases: config.modifierCombinations)?
+    normalizedAccelerator(binding.accelerator, aliases: config.modifierAliases)?
       .split(separator: "-").last.map {
         ShortcutBinding(
           modifiers: key.modifierNames, key: resolution.keyName(for: key, named: String($0)),

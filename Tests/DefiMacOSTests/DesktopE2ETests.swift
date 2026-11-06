@@ -347,7 +347,7 @@ final class DesktopE2ETests: XCTestCase {
     let tracker = UserInputTracker()
     let received = Mutex<[HotKeyInvocation]>([])
     let manager = onNavigation { HotKeyManager(
-      config: Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: ["hyper-left": "focus-column left"]),
+      config: Config(mod: "alt+cmd+ctrl", keys: ["mod-left": "focus-column left"]),
       userInputTracker: tracker
     ) { invocation in received.withLock { $0.append(invocation) } } }
     try startHotKeys(manager)
@@ -441,7 +441,7 @@ final class DesktopE2ETests: XCTestCase {
 
     let log = CommandLog()
     let manager = onNavigation { HotKeyManager(
-      config: Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: ["hyper-left": "focus-column left"])
+      config: Config(mod: "alt+cmd+ctrl", keys: ["mod-left": "focus-column left"])
     ) { log.append($0.command) } }
     try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
@@ -500,7 +500,7 @@ final class DesktopE2ETests: XCTestCase {
 
     let log = CommandLog()
     let manager = onNavigation { HotKeyManager(
-      config: Config(modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], keys: ["hyper-f": "maximize-column"]),
+      config: Config(mod: "alt+cmd+ctrl", keys: ["mod-f": "maximize-column"]),
       followsKeyboardLayout: true
     ) { log.append($0.command) } }
     try startHotKeys(manager)

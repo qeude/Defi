@@ -227,8 +227,7 @@ struct SettingsRevealModifier: ViewModifier {
           guard !Task.isCancelled else { return }
           let alignment: UnitPoint
           switch anchor {
-          case .keyboardShortcuts, .option(.widthPresets), .option(.modifierAliases),
-            .option(.namedWorkspaces), .option(.appRules):
+          case .keyboardShortcuts, .option(.widthPresets), .option(.namedWorkspaces), .option(.appRules):
             alignment = .top
           default:
             alignment = .center
@@ -510,10 +509,8 @@ private struct InputSettingsView: View {
           .disabled(!model.config.input.focusFollowsMouse)
       }
       Section("Modifiers") {
-        DefaultModifierField(model: model)
-          .settingsSearchTarget(.defaultModifier)
-        ModifierAliasesSettings(model: model)
-          .settingsSearchTarget(.modifierAliases)
+        ModKeyRow(model: model)
+          .settingsSearchTarget(.modKey)
       }
       Section("Shortcut guide") {
         Toggle(SettingsOption.shortcutGuide.title, isOn: Binding(
@@ -640,7 +637,7 @@ private struct SettingsShortcutActionRow: View {
   private func recorder(_ row: SettingsShortcutRow?) -> some View {
     SettingsShortcutRecorder(
       label: row.map {
-        shortcutKeyLabel($0.accelerator, aliases: model.config.modifierCombinations,
+        shortcutKeyLabel($0.accelerator, aliases: model.config.modifierAliases,
           displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift,
           resolved: model.shortcutResolution)
       } ?? "Record Shortcut…",
@@ -1572,7 +1569,7 @@ private struct SettingsShortcutEditor: View {
         SettingsShortcutRecorder(
           label: accelerator.isEmpty
             ? "Record Shortcut…"
-            : shortcutKeyLabel(accelerator, aliases: model.config.modifierCombinations,
+            : shortcutKeyLabel(accelerator, aliases: model.config.modifierAliases,
               displayHyper: displayHyper, hyperIncludesShift: hyperIncludesShift,
               resolved: model.shortcutResolution),
           command: sourceRow?.command ?? "New shortcut",
@@ -1693,89 +1690,53 @@ private struct SettingsShortcutEditor: View {
   }
 }
 
+/// Modifiers in macOS display order: config name, symbol, and spoken name.
+private let modifierOrder: [(name: String, symbol: String, title: String)] = [
+  ("ctrl", "⌃", "Control"), ("alt", "⌥", "Option"), ("shift", "⇧", "Shift"), ("cmd", "⌘", "Command"),
+]
+
 @MainActor
-private struct ModifierAliasesSettings: View {
+private struct ModKeyRow: View {
   let model: DefiSettingsModel
-  @State private var alias = ""
-  @State private var combination = ""
+
+  /// Names in `mod`; the config already rejects anything else.
+  private var selection: Set<String> {
+    let names = (normalizedAccelerator("mod-a", aliases: model.config.modifierAliases) ?? "").split(separator: "-")
+    return Set(names.dropLast().map(String.init))
+  }
+
+  private func save(_ names: Set<String>) {
+    let value = modifierOrder.filter { names.contains($0.name) }.map(\.name).joined(separator: "+")
+    model.set(table: "", key: "mod", value: value == Config.defaultMod ? nil : tomlString(value))
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("Modifier aliases").font(.headline)
-      ForEach(model.config.modifierCombinations.keys.sorted(), id: \.self) { name in
-        ModifierAliasRow(name: name, value: model.config.modifierCombinations[name] ?? "", model: model)
+    HStack {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(SettingsOption.modKey.title)
+        Text("Every built-in shortcut and each mod- shortcut you write uses these modifiers.")
+          .font(.caption).foregroundStyle(.secondary)
       }
-      HStack {
-        TextField("Alias", text: $alias)
-          .frame(width: 130)
-        TextField("Modifiers, e.g. ctrl+alt", text: $combination)
-        Button("Add") {
-          let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-          guard !trimmed.isEmpty, model.config.modifierCombinations[trimmed] == nil else { return }
-          model.set(table: "modifier_combinations", key: trimmed, value: tomlString(combination))
-          if model.message == nil { alias = ""; combination = "" }
+      Spacer()
+      HStack(spacing: 4) {
+        ForEach(modifierOrder, id: \.name) { modifier in
+          Toggle(modifier.symbol, isOn: Binding(
+            get: { selection.contains(modifier.name) },
+            set: { on in
+              var names = selection
+              if on { names.insert(modifier.name) } else { names.remove(modifier.name) }
+              if !names.isEmpty { save(names) }
+            }
+          ))
+          .toggleStyle(.button)
+          .help(modifier.title)
+          .accessibilityLabel(modifier.title)
         }
-        .disabled(alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || combination.isEmpty)
       }
+      Button("Reset") { model.set(table: "", key: "mod", value: nil) }
+        .disabled(model.config.mod == Config.defaultMod)
+        .help("Use Control–Option")
     }
-    .padding(.vertical, 4)
-  }
-}
-
-@MainActor
-private struct DefaultModifierField: View {
-  let model: DefiSettingsModel
-  @State private var draft: String
-  @FocusState private var focused: Bool
-
-  init(model: DefiSettingsModel) {
-    self.model = model
-    _draft = State(initialValue: model.config.defaultKeyModifier)
-  }
-
-  var body: some View {
-    HStack {
-      TextField("Default key modifier", text: $draft)
-        .focused($focused)
-        .onSubmit(commit)
-    }
-    .onChange(of: model.config.defaultKeyModifier) { _, value in
-      draft = value
-    }
-  }
-
-  private func commit() {
-    model.set(table: "", key: "default_key_modifier", value: tomlString(draft))
-    focused = false
-  }
-}
-
-@MainActor
-private struct ModifierAliasRow: View {
-  let name: String
-  let value: String
-  let model: DefiSettingsModel
-  @State private var draft: String
-
-  init(name: String, value: String, model: DefiSettingsModel) {
-    self.name = name
-    self.value = value
-    self.model = model
-    _draft = State(initialValue: value)
-  }
-
-  var body: some View {
-    HStack {
-      Text(name).font(.body.monospaced()).frame(width: 130, alignment: .leading)
-      TextField("Modifiers", text: $draft)
-        .onSubmit { model.set(table: "modifier_combinations", key: name, value: tomlString(draft)) }
-      Button(role: .destructive) {
-        model.set(table: "modifier_combinations", key: name, value: nil)
-      } label: { Image(systemName: "minus.circle") }
-        .buttonStyle(.borderless)
-        .help("Remove modifier alias")
-    }
-    .onChange(of: value) { _, newValue in draft = newValue }
   }
 }
 

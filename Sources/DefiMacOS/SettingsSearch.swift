@@ -38,8 +38,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case pointerFollowsFocus
   case pointerFocusScroll
   case pointerFocusDelay
-  case defaultModifier
-  case modifierAliases
+  case modKey
   case customShortcut
   case shortcutGuide
   case keyboardShortcuts
@@ -90,8 +89,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse")
     case .pointerFocusScroll: (.input, "Maximum pointer-focus scroll", "input.focus_follows_mouse_max_scroll_amount mouse")
     case .pointerFocusDelay: (.input, "Pointer-focus delay", "input.focus_follows_mouse_delay_ms mouse")
-    case .defaultModifier: (.input, "Default key modifier", "default_key_modifier keyboard")
-    case .modifierAliases: (.input, "Modifier aliases", "modifier_combinations alias modifiers")
+    case .modKey: (.input, "Mod key", "mod modifier keyboard hyper prefix")
     case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding")
     case .shortcutGuide: (.input, "Show guide when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")
     case .keyboardShortcuts: (.input, "Keyboard shortcuts", "keys keybinding bindings record reset actions")
@@ -233,18 +231,18 @@ enum SettingsSearchCatalog {
       let rows = bindings[command] ?? []
       let labels = rows.map { row in
         let label = shortcutKeyLabel(
-          row.accelerator, aliases: config.modifierCombinations, displayHyper: false, resolved: resolution)
+          row.accelerator, aliases: config.modifierAliases, displayHyper: false, resolved: resolution)
         return label + (row.isEnabled ? "" : " (Disabled)")
       }
       let keys = rows.flatMap { row -> [String] in
-        let normalized = normalizedAccelerator(row.accelerator, aliases: config.modifierCombinations) ?? row.accelerator
+        let normalized = normalizedAccelerator(row.accelerator, aliases: config.modifierAliases) ?? row.accelerator
         let words = normalized.replacingOccurrences(of: "alt", with: "option")
           .replacingOccurrences(of: "ctrl", with: "control")
           .replacingOccurrences(of: "cmd", with: "command")
         return [row.accelerator, normalized, words,
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, displayHyper: false, resolved: resolution),
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, resolved: resolution),
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierCombinations, hyperIncludesShift: true, resolved: resolution)]
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, displayHyper: false, resolved: resolution),
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, resolved: resolution),
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, hyperIncludesShift: true, resolved: resolution)]
       }
       return SettingsSearchResult(destination: .shortcut(command), title: commandTitle(command),
         context: "Input · Keyboard shortcuts", detail: labels.isEmpty ? "Not assigned" : labels.joined(separator: " · "),

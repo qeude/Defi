@@ -232,17 +232,13 @@ struct HotKeyTests {
     }
   }
 
-  @Test(arguments: ["combo", "zzcombo", "shift-control-option"])
+  @Test(arguments: ["ctrl+alt+shift", "Shift + Control + Option"])
   func equivalentAcceleratorsRespectConfigurationPrecedence(modifier: String) throws {
-    let aliases = ["combo": "Ctrl + Alt + Shift", "zzcombo": "Ctrl + Alt + Shift"]
-    let config = Config(modifierCombinations: aliases, defaultKeyModifier: modifier)
-    let key = try Key(accelerator: "ctrl-alt-shift-left", aliases: aliases)
+    let config = Config(mod: modifier)
+    let key = try Key(accelerator: "ctrl-alt-shift-left", aliases: [:])
     #expect(try configuredHotKeys(config)[key]?.command == "focus-column left")
     // An explicit binding wins even when its spelling sorts before the default.
-    let overridden = Config(
-      modifierCombinations: aliases, defaultKeyModifier: modifier,
-      keys: ["combo-left": "focus-column first"]
-    )
+    let overridden = Config(mod: modifier, keys: ["alt-ctrl-shift-left": "focus-column first"])
     #expect(try configuredHotKeys(overridden)[key]?.command == "focus-column first")
   }
 

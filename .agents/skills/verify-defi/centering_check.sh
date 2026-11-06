@@ -129,24 +129,23 @@ close_open_panel
 count="$(scratch_count)"
 [ "$count" = 4 ] || { echo "expected 4 scratch columns, got $count"; exit 1; }
 
-# The System Events modifier list for default_key_modifier, expanded through [modifier_combinations].
+# The System Events modifier list for `mod`.
 modifiers="$(awk '
   function clean(v) { sub(/^[^=]*=[ \t]*/, "", v); sub(/[ \t]*(#.*)?$/, "", v); gsub(/"/, "", v); return v }
   /^\[/ { table = $0; gsub(/^\[|\][ \t]*$/, "", table); next }
-  table == "" && /^default_key_modifier[ \t]*=/ { modifier = clean($0) }
-  table == "modifier_combinations" && /=/ { key = $0; sub(/[ \t]*=.*/, "", key); gsub(/"/, "", key); combination[key] = clean($0) }
+  table == "" && /^mod[ \t]*=/ { modifier = clean($0) }
   END {
     split("alt option option option opt option cmd command command command ctrl control control control shift shift", pairs, " ")
     for (i = 1; i < 16; i += 2) name[pairs[i]] = pairs[i + 1]
-    if (modifier == "") modifier = "alt"
-    n = split((modifier in combination) ? combination[modifier] : modifier, part, /[+-]/)
+    if (modifier == "") modifier = "ctrl+alt"
+    n = split(modifier, part, /[+]/)
     for (i = 1; i <= n; i++) {
       p = tolower(part[i]); gsub(/^[ \t]+|[ \t]+$/, "", p)
       if (!(p in name)) exit 1
       list = list (i > 1 ? ", " : "") name[p] " down"
     }
     print list
-  }' "$config")" || { echo "cannot resolve default_key_modifier"; exit 1; }
+  }' "$config")" || { echo "cannot resolve mod"; exit 1; }
 step() {
   if [ "${DRIVE:-cli}" = hotkeys ]; then
     local code; [ "$1" = first ] && code=33 || code=124

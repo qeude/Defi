@@ -24,7 +24,7 @@ private func chord(_ key: Key) -> String {
 
 private func resolution(_ config: Config = Config(), _ layout: KeyboardLayout?) throws -> HotKeyResolution {
   try resolveHotKeys(
-    config.keys, aliases: config.modifierCombinations, layout: layout, userWritten: Set(config.keyOverrides.keys))
+    config.keys, aliases: config.modifierAliases, layout: layout, userWritten: Set(config.keyOverrides.keys))
 }
 
 /// Accelerator to chord, `inactive` when the binding holds none.
@@ -40,27 +40,27 @@ private typealias Row = (accelerator: String, us: String, french: String, dvorak
 // Mac French cannot type the bracket pair or `\` without Option-Shift. The pair stays on its own keys
 // (33 and 30); `\` takes Option-Shift-/ (code 47).
 private let defaultRows: [Row] = [
-  ("ctrl-alt-f", "ctrl-alt-3", "ctrl-alt-3", "ctrl-alt-16", "ctrl-alt-3"),
-  ("ctrl-alt-j", "ctrl-alt-38", "ctrl-alt-38", "ctrl-alt-8", "ctrl-alt-38"),
-  ("ctrl-alt-k", "ctrl-alt-40", "ctrl-alt-40", "ctrl-alt-9", "ctrl-alt-40"),
-  ("ctrl-alt-o", "ctrl-alt-31", "ctrl-alt-31", "ctrl-alt-1", "ctrl-alt-31"),
-  ("ctrl-alt-r", "ctrl-alt-15", "ctrl-alt-15", "ctrl-alt-31", "ctrl-alt-15"),
-  ("ctrl-alt-leftbracket", "ctrl-alt-33", "ctrl-alt-33", "ctrl-alt-27", "ctrl-alt-30"),
-  ("ctrl-alt-rightbracket", "ctrl-alt-30", "ctrl-alt-30", "ctrl-alt-24", "ctrl-alt-42"),
-  ("ctrl-alt-shift-leftbracket", "ctrl-alt-shift-33", "ctrl-alt-shift-33", "ctrl-alt-shift-27", "ctrl-alt-shift-30"),
-  ("ctrl-alt-shift-rightbracket", "ctrl-alt-shift-30", "ctrl-alt-shift-30", "ctrl-alt-shift-24", "ctrl-alt-shift-42"),
-  ("ctrl-alt-backslash", "ctrl-alt-42", "ctrl-alt-shift-47", "ctrl-alt-42", "ctrl-alt-93"),
-  ("ctrl-alt-shift-backslash", "ctrl-alt-shift-42", "ctrl-alt-shift-42", "ctrl-alt-shift-42", "ctrl-alt-shift-93"),
-  ("ctrl-alt-minus", "ctrl-alt-27", "ctrl-alt-24", "ctrl-alt-39", "ctrl-alt-27"),
-  ("ctrl-alt-equal", "ctrl-alt-24", "ctrl-alt-44", "ctrl-alt-30", "ctrl-alt-shift-27"),
-  ("ctrl-alt-comma", "ctrl-alt-43", "ctrl-alt-46", "ctrl-alt-13", "ctrl-alt-43"),
-  ("ctrl-alt-period", "ctrl-alt-47", "ctrl-alt-shift-43", "ctrl-alt-14", "ctrl-alt-47"),
-  ("ctrl-alt-semicolon", "ctrl-alt-41", "ctrl-alt-43", "ctrl-alt-6", "ctrl-alt-41"),
-  ("ctrl-alt-quote", "ctrl-alt-39", "ctrl-alt-39", "ctrl-alt-12", "ctrl-alt-39"),
+  ("mod-f", "ctrl-alt-3", "ctrl-alt-3", "ctrl-alt-16", "ctrl-alt-3"),
+  ("mod-j", "ctrl-alt-38", "ctrl-alt-38", "ctrl-alt-8", "ctrl-alt-38"),
+  ("mod-k", "ctrl-alt-40", "ctrl-alt-40", "ctrl-alt-9", "ctrl-alt-40"),
+  ("mod-o", "ctrl-alt-31", "ctrl-alt-31", "ctrl-alt-1", "ctrl-alt-31"),
+  ("mod-r", "ctrl-alt-15", "ctrl-alt-15", "ctrl-alt-31", "ctrl-alt-15"),
+  ("mod-leftbracket", "ctrl-alt-33", "ctrl-alt-33", "ctrl-alt-27", "ctrl-alt-30"),
+  ("mod-rightbracket", "ctrl-alt-30", "ctrl-alt-30", "ctrl-alt-24", "ctrl-alt-42"),
+  ("mod-shift-leftbracket", "ctrl-alt-shift-33", "ctrl-alt-shift-33", "ctrl-alt-shift-27", "ctrl-alt-shift-30"),
+  ("mod-shift-rightbracket", "ctrl-alt-shift-30", "ctrl-alt-shift-30", "ctrl-alt-shift-24", "ctrl-alt-shift-42"),
+  ("mod-backslash", "ctrl-alt-42", "ctrl-alt-shift-47", "ctrl-alt-42", "ctrl-alt-93"),
+  ("mod-shift-backslash", "ctrl-alt-shift-42", "ctrl-alt-shift-42", "ctrl-alt-shift-42", "ctrl-alt-shift-93"),
+  ("mod-minus", "ctrl-alt-27", "ctrl-alt-24", "ctrl-alt-39", "ctrl-alt-27"),
+  ("mod-equal", "ctrl-alt-24", "ctrl-alt-44", "ctrl-alt-30", "ctrl-alt-shift-27"),
+  ("mod-comma", "ctrl-alt-43", "ctrl-alt-46", "ctrl-alt-13", "ctrl-alt-43"),
+  ("mod-period", "ctrl-alt-47", "ctrl-alt-shift-43", "ctrl-alt-14", "ctrl-alt-47"),
+  ("mod-semicolon", "ctrl-alt-41", "ctrl-alt-43", "ctrl-alt-6", "ctrl-alt-41"),
+  ("mod-quote", "ctrl-alt-39", "ctrl-alt-39", "ctrl-alt-12", "ctrl-alt-39"),
   // Digits and arrows never follow the layout.
-  ("ctrl-alt-1", "ctrl-alt-18", "ctrl-alt-18", "ctrl-alt-18", "ctrl-alt-18"),
-  ("ctrl-alt-shift-9", "ctrl-alt-shift-25", "ctrl-alt-shift-25", "ctrl-alt-shift-25", "ctrl-alt-shift-25"),
-  ("ctrl-alt-left", "ctrl-alt-123", "ctrl-alt-123", "ctrl-alt-123", "ctrl-alt-123"),
+  ("mod-1", "ctrl-alt-18", "ctrl-alt-18", "ctrl-alt-18", "ctrl-alt-18"),
+  ("mod-shift-9", "ctrl-alt-shift-25", "ctrl-alt-shift-25", "ctrl-alt-shift-25", "ctrl-alt-shift-25"),
+  ("mod-left", "ctrl-alt-123", "ctrl-alt-123", "ctrl-alt-123", "ctrl-alt-123"),
 ]
 
 @MainActor
@@ -108,15 +108,15 @@ struct KeyboardLayoutResolverTests {
   @Test
   func germanShiftedBackslashTakesTheFirstFreeSymbolKey() throws {
     let result = try chords(Config(), installed("German"))
-    #expect(result["ctrl-alt-shift-backslash"] == "ctrl-alt-shift-24")
-    #expect(result["ctrl-alt-backslash"] == "ctrl-alt-42")
+    #expect(result["mod-shift-backslash"] == "ctrl-alt-shift-24")
+    #expect(result["mod-backslash"] == "ctrl-alt-42")
   }
 
   // Spanish: `\` is Option-6 (the 6 key) and `'` holds key 42, so the first free key printing a symbol
   // is `<` at 50, after `=` `-` and the bracket pair's `` ` `` and `´`. Swedish: `´` at 24 is free.
   @Test(arguments: [("Spanish", "ctrl-alt-50"), ("Swedish", "ctrl-alt-24")])
   func backslashFallsBackToTheFirstFreeSymbolKey(name: String, expected: String) throws {
-    #expect(try chords(Config(), installed(name))["ctrl-alt-backslash"] == expected)
+    #expect(try chords(Config(), installed(name))["mod-backslash"] == expected)
   }
 
   // UCKeyTranslate prints a character for key 10 (§) and keys 93 and 94 on every keyboard type, but
@@ -138,7 +138,7 @@ struct KeyboardLayoutResolverTests {
   func everyDefaultResolvesOnEveryInstalledAsciiLayout() throws {
     let configs = [
       Config(),
-      Config(modifierCombinations: ["hyper": "alt+cmd+ctrl"], defaultKeyModifier: "hyper"),
+      Config(mod: "alt+cmd+ctrl"),
     ]
     let sources = TISCreateInputSourceList(nil, true).takeRetainedValue() as! [TISInputSource]
     var read = 0
@@ -153,13 +153,13 @@ struct KeyboardLayoutResolverTests {
         read += 1
         for config in configs {
           let result = try resolution(config, layout)
-          #expect(result.inactive.count == 0, "\(name) \(type) \(config.defaultKeyModifier): \(result.inactive)")
-          #expect(result.keys.count == config.keys.count, "\(name) \(type) \(config.defaultKeyModifier)")
+          #expect(result.inactive.count == 0, "\(name) \(type) \(config.mod): \(result.inactive)")
+          #expect(result.keys.count == config.keys.count, "\(name) \(type) \(config.mod)")
         }
       }
     }
     #expect(read > 40)
-    #expect(configs[1].keys.keys.contains("hyper-shift-rightbracket"))
+    #expect(configs[1].keys.keys.contains("mod-shift-rightbracket"))
   }
 
   @Test
@@ -167,10 +167,10 @@ struct KeyboardLayoutResolverTests {
     // Without an `o` on the base layer, the table name keeps its physical key.
     let withoutO = KeyboardLayout(characters: [[]: [3: "f", 31: "x"]])
     let result = try chords(Config(), withoutO)
-    #expect(result["ctrl-alt-f"] == "ctrl-alt-3")
-    #expect(result["ctrl-alt-o"] == "ctrl-alt-31")
+    #expect(result["mod-f"] == "ctrl-alt-3")
+    #expect(result["mod-o"] == "ctrl-alt-31")
     let onlyUpper = KeyboardLayout(characters: [[]: [:], .shift: [5: "o"]])
-    #expect(try chords(Config(), onlyUpper)["ctrl-alt-o"] == "ctrl-alt-31")
+    #expect(try chords(Config(), onlyUpper)["mod-o"] == "ctrl-alt-31")
   }
 
   @Test
@@ -178,7 +178,7 @@ struct KeyboardLayoutResolverTests {
     let layout = try installed("DVORAK-QWERTYCMD")
     let config = Config(keys: ["ctrl-alt-cmd-f": "maximize-column"])
     let result = try chords(config, layout)
-    #expect(result["ctrl-alt-f"] == "ctrl-alt-16")
+    #expect(result["mod-f"] == "ctrl-alt-16")
     #expect(result["ctrl-alt-cmd-f"] == "ctrl-alt-cmd-3")
   }
 
@@ -213,10 +213,10 @@ struct KeyboardLayoutResolverTests {
     // The digit row wins: workspace 2 already holds ctrl-alt-19.
     // A binding the user wrote holds its character ahead of the generated digit.
     #expect(byAccelerator["ctrl-alt-é"] == "ctrl-alt-19")
-    #expect(result.inactive == ["ctrl-alt-2": .held(by: "ctrl-alt-é")])
+    #expect(result.inactive == ["mod-2": .held(by: "ctrl-alt-é")])
     // The digit row holds `'` at 21 and the literal took quote's physical key 39, so quote takes
     // the first free key printing a symbol: 18 to 24 are the digit row and `-`, and 27 is `)`.
-    #expect(byAccelerator["ctrl-alt-quote"] == "ctrl-alt-27")
+    #expect(byAccelerator["mod-quote"] == "ctrl-alt-27")
   }
 
   @Test
@@ -224,7 +224,7 @@ struct KeyboardLayoutResolverTests {
     let config = Config(keys: ["ctrl-alt-é": "maximize-column"])
     let keys = try configuredHotKeys(config, layout: installed("French"))
     #expect(keys[Key(code: 19, flags: CGEventFlags([.maskControl, .maskAlternate]).rawValue)]?.command == "maximize-column")
-    #expect(keys.values.filter { $0.accelerator == "ctrl-alt-2" }.isEmpty)
+    #expect(keys.values.filter { $0.accelerator == "mod-2" }.isEmpty)
   }
 
   @Test
@@ -236,7 +236,7 @@ struct KeyboardLayoutResolverTests {
     #expect(result["ctrl-alt-_"] == "ctrl-alt-94")
     // ¥ took the key backslash would use, and `]` took its physical key, so backslash takes the
     // first key printing a symbol: `^` at 24.
-    #expect(result["ctrl-alt-backslash"] == "ctrl-alt-24")
+    #expect(result["mod-backslash"] == "ctrl-alt-24")
   }
 
   @Test
@@ -271,10 +271,10 @@ struct KeyboardLayoutResolverTests {
   func bracketPairStaysOnItsOwnKeysWhenEitherNeedsAddedModifiers() throws {
     // On French neither bracket is typed plain, and Option-Shift-5 is the digit 5 chord.
     let result = try chords(Config(), installed("French"))
-    #expect(result["ctrl-alt-leftbracket"] == "ctrl-alt-33")
-    #expect(result["ctrl-alt-rightbracket"] == "ctrl-alt-30")
-    #expect(result["ctrl-alt-shift-leftbracket"] == "ctrl-alt-shift-33")
-    #expect(result["ctrl-alt-shift-rightbracket"] == "ctrl-alt-shift-30")
+    #expect(result["mod-leftbracket"] == "ctrl-alt-33")
+    #expect(result["mod-rightbracket"] == "ctrl-alt-30")
+    #expect(result["mod-shift-leftbracket"] == "ctrl-alt-shift-33")
+    #expect(result["mod-shift-rightbracket"] == "ctrl-alt-shift-30")
     // `[` is plain on key 5 but `]` is not: the plain one gives up its character with it.
     let mixed = KeyboardLayout(characters: [[]: [5: "["], [.shift, .option]: [6: "]"]])
     let both = try resolveHotKeys(
@@ -340,10 +340,10 @@ struct KeyboardLayoutLabelTests {
 
   @Test
   func anAcceleratorAnotherAppHoldsSaysSo() throws {
-    let resolved = ShortcutResolution(config: Config(), layout: try installed("US"), heldByAnotherApp: ["ctrl-alt-f"])
-    #expect(shortcutKeyLabel("ctrl-alt-f", aliases: [:], resolved: resolved) == "Held by another app")
+    let resolved = ShortcutResolution(config: Config(), layout: try installed("US"), heldByAnotherApp: ["mod-f"])
+    #expect(shortcutKeyLabel("mod-f", aliases: Config().modifierAliases, resolved: resolved) == "Held by another app")
     #expect(shortcutKeyLabel("ctrl-alt-j", aliases: [:], resolved: resolved) == "⌃⌥J")
-    #expect(resolved.resolution.inactive == ["ctrl-alt-f": .heldByAnotherApp])
+    #expect(resolved.resolution.inactive == ["mod-f": .heldByAnotherApp])
   }
 
   @Test

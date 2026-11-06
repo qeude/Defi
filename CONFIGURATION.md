@@ -21,8 +21,8 @@ the installed service. Reloading preserves workspace contents, focus, column
 widths, and scroll positions. Geometry is recalculated only when a changed
 setting affects the current layout.
 
-Invalid TOML, values, workspace references, commands, accelerators, and modifier
-aliases are shown in an app alert. Errors that prevent decoding stop startup;
+Invalid TOML, values, workspace references, commands, accelerators, and `mod`
+values are shown in an app alert. Errors that prevent decoding stop startup;
 malformed hotkeys disable keyboard capture for that run. Configured mouse focus
 and cursor-motion tracking remain active when possible. A well-formed key name
 that the current keyboard layout does not have is not an error: only that
@@ -378,39 +378,56 @@ Example:
 names = ["dev", "web", "tools"]
 ```
 
-This generates stable `ctrl-alt-1 = "workspace dev"`, `ctrl-alt-2 = "workspace web"`,
-and `ctrl-alt-3 = "workspace tools"` bindings. `ctrl-alt-4` through `ctrl-alt-9` address the
-current monitor's dynamic positions. Matching `ctrl-alt-shift-N` bindings use
+This generates stable `mod-1 = "workspace dev"`, `mod-2 = "workspace web"`,
+and `mod-3 = "workspace tools"` bindings. `mod-4` through `mod-9` address the
+current monitor's dynamic positions. Matching `mod-shift-N` bindings use
 `move-column-to-workspace-name` and follow the moved column. Positions are
 1-based, do not wrap, and values beyond the current stack select trailing.
 
-## `default_key_modifier`
+## `mod`
 
-Controls the modifier prefix used to generate built-in bindings.
+The modifiers that `mod` stands for. Every built-in binding uses it, and so can
+your own:
 
 ```toml
-default_key_modifier = "hyper"
+mod = "ctrl+alt+cmd"
 
-[modifier_combinations]
-hyper = "Alt + Cmd + Ctrl"
+[keys]
+"mod-d" = "diagnostic-mark"
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `default_key_modifier` | `"ctrl-alt"` | modifier name, hyphen-separated modifiers, or alias | Prefix used for every generated default binding. |
+| `mod` | `"ctrl+alt"` | `+`-separated modifier names | Modifiers behind `mod` in every accelerator. |
 
-Changing this value moves all generated navigation, layout, floating-window,
-stacking, and first-nine-workspace bindings to the new prefix. If a generated
-accelerator matches a fixed monitor shortcut, the generated binding takes
-precedence, including when aliases or modifier ordering differ. If the modifier
-already includes Shift, base navigation wins over the equivalent Shift binding.
-Explicit `[keys]` overrides still take precedence over both. With a Hyper
-(`Alt + Cmd + Ctrl`) modifier, `ctrl-cmd-alt-<arrow>` is column focus, so bind
+Accepted modifier names are:
+
+| Canonical name | Accepted names |
+| --- | --- |
+| Command | `cmd`, `command` |
+| Option | `alt`, `option` |
+| Control | `ctrl`, `control` |
+| Shift | `shift` |
+
+Names and order are case-insensitive. Settings → Input → Mod key sets the same
+value.
+
+Changing `mod` moves all generated navigation, layout, floating-window,
+stacking, and first-nine-workspace bindings, and every `mod-` binding you wrote,
+to the new modifiers. If a generated accelerator matches a fixed monitor
+shortcut, the generated binding takes precedence, whatever the spelling. If
+`mod` already includes Shift, base navigation wins over the equivalent Shift
+binding. Explicit `[keys]` overrides still take precedence over both. With a
+Hyper (`ctrl+alt+cmd`) `mod`, `ctrl-cmd-alt-<arrow>` is column focus, so bind
 `move-workspace-to-monitor` yourself if you need it.
+
+`mod` replaced `default_key_modifier` and `[modifier_combinations]`. Defi
+rewrites a file that still uses them on launch: `mod` takes the old default
+modifier, and a binding that used another alias spells out its modifiers.
 
 ## `show_cheatsheet_on_modifier_hold`
 
-Defaults to `true`. Hold `default_key_modifier` alone for 600 ms to show the
+Defaults to `true`. Hold the `mod` modifiers alone for 600 ms to show the
 configured shortcuts on the active monitor without changing focus. With a
 combination such as the default Control-Option, the delay starts once every
 modifier of the combination is down and no other modifier is. Releasing any of
@@ -425,7 +442,7 @@ be used together:
 show_cheatsheet_on_modifier_hold = false
 
 [keys]
-"ctrl-alt-slash" = "toggle-cheatsheet"
+"mod-slash" = "toggle-cheatsheet"
 ```
 
 There is no default binding for `toggle-cheatsheet`. It keeps the help open after
@@ -435,7 +452,7 @@ Configuration reload and display or session changes also dismiss the help.
 Settings → Input → Shortcut display controls whether matching Control–Option–Command
 combinations appear as `✧`, and whether Shift is included in that abbreviation.
 These display preferences also apply to the cheatsheet; they do not change key
-bindings or modifier aliases. Other combinations show their individual modifier
+bindings or `mod`. Other combinations show their individual modifier
 symbols. The cheatsheet fade respects `[animation].enabled` and Reduce Motion.
 
 Settings can move a built-in shortcut to a different accelerator while keeping
@@ -443,32 +460,6 @@ the other inherited defaults intact. It records the suppressed built-in
 accelerators in the optional root-level `disabled_keys` array; restoring a
 shortcut removes its override and suppression so the built-in binding is
 inherited again.
-
-## `[modifier_combinations]`
-
-Defines reusable modifier aliases for accelerators.
-
-```toml
-[modifier_combinations]
-hyper = "Alt + Cmd + Ctrl"
-meh = "Alt + Ctrl + Shift"
-```
-
-| Setting | Default | Values/type | Description |
-| --- | --- | --- | --- |
-| any lowercase alias | none | `+`-separated modifier string | Alias available as one accelerator component and as `default_key_modifier`. |
-
-Accepted modifier names are:
-
-| Canonical name | Accepted names |
-| --- | --- |
-| Command | `cmd`, `command` |
-| Option | `alt`, `option` |
-| Control | `ctrl`, `control` |
-| Shift | `shift` |
-
-Names are case-insensitive inside alias values. Alias keys should be lowercase.
-Aliases cannot reference other aliases.
 
 ## `[keys]`
 
@@ -488,8 +479,8 @@ overview navigation, shortcut recording, help dismissal, and pointer routing.
 
 ```toml
 [keys]
-"hyper-left" = "focus-column left"
-"hyper-shift-1" = "move-window-to-workspace dev"
+"mod-left" = "focus-column left"
+"mod-shift-1" = "move-window-to-workspace dev"
 ```
 
 Custom entries merge with generated defaults. A matching accelerator overrides
@@ -498,16 +489,17 @@ generated accelerator is supported through the optional root-level
 `disabled_keys` array:
 
 ```toml
-disabled_keys = ["ctrl-alt-left"]
+disabled_keys = ["mod-left"]
 ```
 
-This suppresses the generated `ctrl-alt-left` binding while keeping the other
+This suppresses the generated `mod-left` binding while keeping the other
 generated shortcuts. Settings can disable and restore generated shortcuts for
 you.
 
 ### Accelerator syntax
 
-Format: `<modifier-or-alias>-<modifier>-<key>`. Order and letter case do not
+Format: `<modifier>-<modifier>-<key>`, where a modifier is a name from the
+[`mod`](#mod) table or `mod` itself. Order and letter case do not
 matter. The final component is a key name from the list below or one other
 character, such as `ctrl-alt-é` or `ctrl-alt-¥`. `ctrl-alt-[` and
 `ctrl-alt-leftbracket` are the same shortcut.
@@ -520,7 +512,7 @@ Supported key names:
 - punctuation: `minus`, `equal`, `leftbracket`, `rightbracket`, `semicolon`,
   `quote`, `backslash`, `comma`, `period`, `slash`
 
-Examples: `alt-left`, `cmd-shift-p`, `hyper-backslash`.
+Examples: `alt-left`, `cmd-shift-p`, `mod-backslash`.
 
 ### Keyboard layouts
 
@@ -649,7 +641,7 @@ frames, or visibility:
 
 ```toml
 [keys]
-"hyper-d" = "diagnostic-mark"
+"mod-d" = "diagnostic-mark"
 ```
 
 Defi also records the same payload automatically (`kind=marker`, `event=auto`,
@@ -795,7 +787,7 @@ These values are active without config. Normal config should contain overrides
 only.
 
 ```toml
-default_key_modifier = "ctrl-alt"
+mod = "ctrl+alt"
 show_cheatsheet_on_modifier_hold = true
 
 [layout]
@@ -830,32 +822,30 @@ placement = "outside"
 [workspaces]
 names = []
 
-[modifier_combinations]
-
 [keys]
-"ctrl-alt-left" = "focus-column left"
-"ctrl-alt-right" = "focus-column right"
-"ctrl-alt-j" = "focus-window down"
-"ctrl-alt-k" = "focus-window up"
-"ctrl-alt-up" = "focus-workspace up"
-"ctrl-alt-down" = "focus-workspace down"
-"ctrl-alt-o" = "toggle-overview"
-"ctrl-alt-leftbracket" = "focus-column first"
-"ctrl-alt-rightbracket" = "focus-column last"
+"mod-left" = "focus-column left"
+"mod-right" = "focus-column right"
+"mod-j" = "focus-window down"
+"mod-k" = "focus-window up"
+"mod-up" = "focus-workspace up"
+"mod-down" = "focus-workspace down"
+"mod-o" = "toggle-overview"
+"mod-leftbracket" = "focus-column first"
+"mod-rightbracket" = "focus-column last"
 
-"ctrl-alt-shift-left" = "move-column left"
-"ctrl-alt-shift-right" = "move-column right"
-"ctrl-alt-shift-j" = "move-window down"
-"ctrl-alt-shift-k" = "move-window up"
-"ctrl-alt-shift-up" = "move-column-to-workspace up"
-"ctrl-alt-shift-down" = "move-column-to-workspace down"
-"ctrl-alt-shift-leftbracket" = "move-column first"
-"ctrl-alt-shift-rightbracket" = "move-column last"
+"mod-shift-left" = "move-column left"
+"mod-shift-right" = "move-column right"
+"mod-shift-j" = "move-window down"
+"mod-shift-k" = "move-window up"
+"mod-shift-up" = "move-column-to-workspace up"
+"mod-shift-down" = "move-column-to-workspace down"
+"mod-shift-leftbracket" = "move-column first"
+"mod-shift-rightbracket" = "move-column last"
 
-"ctrl-alt-1" = "focus-workspace-position 1"
-# ... through ctrl-alt-9
-"ctrl-alt-shift-1" = "move-column-to-workspace-position 1"
-# ... through ctrl-alt-shift-9
+"mod-1" = "focus-workspace-position 1"
+# ... through mod-9
+"mod-shift-1" = "move-column-to-workspace-position 1"
+# ... through mod-shift-9
 
 "ctrl-cmd-left" = "focus-monitor left"
 "ctrl-cmd-right" = "focus-monitor right"
@@ -870,17 +860,17 @@ names = []
 "ctrl-cmd-alt-up" = "move-workspace-to-monitor up"
 "ctrl-cmd-alt-down" = "move-workspace-to-monitor down"
 
-"ctrl-alt-minus" = "cycle-width previous"
-"ctrl-alt-equal" = "cycle-width next"
-"ctrl-alt-f" = "maximize-column"
-"ctrl-alt-c" = "center-column"
-"ctrl-alt-backslash" = "toggle-floating"
-"ctrl-alt-shift-backslash" = "activate-floating"
-"ctrl-alt-comma" = "focus-floating previous"
-"ctrl-alt-period" = "focus-floating next"
-"ctrl-alt-semicolon" = "join-window left"
-"ctrl-alt-quote" = "join-window right"
-"ctrl-alt-r" = "unjoin-windows"
+"mod-minus" = "cycle-width previous"
+"mod-equal" = "cycle-width next"
+"mod-f" = "maximize-column"
+"mod-c" = "center-column"
+"mod-backslash" = "toggle-floating"
+"mod-shift-backslash" = "activate-floating"
+"mod-comma" = "focus-floating previous"
+"mod-period" = "focus-floating next"
+"mod-semicolon" = "join-window left"
+"mod-quote" = "join-window right"
+"mod-r" = "unjoin-windows"
 
 # No rules by default.
 ```
@@ -894,7 +884,7 @@ exist before the first stable release; use setting names exactly as documented.
 ## Full example
 
 See [config.example.toml](config.example.toml) for a daily-use config with named
-workspaces, a Hyper modifier, and application rules.
+workspaces, a Hyper `mod`, and application rules.
 
 ## Named workspace icons
 

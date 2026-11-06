@@ -57,7 +57,7 @@ struct DefiSettingsModelTests {
     let url = configURL()
     defer { removeConfig(url) }
     let model = DefiSettingsModel(configURL: url)
-    let row = try #require(model.shortcutRows.first { $0.accelerator == "ctrl-alt-left" })
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "mod-left" })
     model.removeShortcut(row)
     let disabled = try #require(model.shortcutRows.first { $0.accelerator == row.accelerator })
     #expect(disabled.isEnabled == false)
@@ -210,7 +210,7 @@ struct DefiSettingsModelTests {
     let french = try #require(keyboardLayout(inputSourceID: "com.apple.keylayout.French", keyboardType: 91))
     model.followKeyboardLayout { french }
     // On French `ctrl-alt-leftbracket` falls back to the `^` key, which `ctrl-alt-^` also names.
-    let row = try #require(model.shortcutRows.first { $0.accelerator == "ctrl-alt-f" })
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "mod-f" })
     model.moveShortcut(row, to: "ctrl-alt-^")
     #expect(model.message?.contains("already used") == true)
     #expect(model.config.keys["ctrl-alt-^"] == nil)
@@ -223,7 +223,7 @@ struct DefiSettingsModelTests {
     let model = DefiSettingsModel(configURL: url)
     let french = try #require(keyboardLayout(inputSourceID: "com.apple.keylayout.French", keyboardType: 91))
     model.followKeyboardLayout { french }
-    let row = try #require(model.shortcutRows.first { $0.accelerator == "ctrl-alt-shift-backslash" })
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "mod-shift-backslash" })
     model.saveShortcut(row, accelerator: row.accelerator, command: "center-column")
     #expect(model.message?.contains("already used") != true)
     #expect(model.config.keys["alt-ctrl-shift-backslash"] == "center-column")
@@ -233,11 +233,11 @@ struct DefiSettingsModelTests {
   func recordingEveryExistingCombinationKeepsItsBinding() throws {
     let url = try configFile()
     defer { removeConfig(url) }
-    let original = Data("default_key_modifier = \"hyper\"\n[modifier_combinations]\nhyper = \"Alt + Cmd + Ctrl\"\n".utf8)
+    let original = Data("mod = \"ctrl+alt+cmd\"\n".utf8)
     try original.write(to: url)
     let model = DefiSettingsModel(configURL: url)
     for row in model.shortcutRows {
-      let key = try Key(accelerator: row.accelerator, aliases: model.config.modifierCombinations)
+      let key = try Key(accelerator: row.accelerator, aliases: model.config.modifierAliases)
       let recorded = try #require(recordedAccelerator(
         keyCode: key.code, modifiers: NSEvent.ModifierFlags(rawValue: UInt(key.modifierBits))))
       model.moveShortcut(row, to: recorded)

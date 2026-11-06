@@ -399,7 +399,7 @@ func configuredHotKeys(
   _ config: Config, layout: KeyboardLayout? = nil
 ) throws(HotKeyError) -> [Key: (accelerator: String, command: String)] {
   try resolveHotKeys(
-    config.keys, aliases: config.modifierCombinations, layout: layout, userWritten: Set(config.keyOverrides.keys)
+    config.keys, aliases: config.modifierAliases, layout: layout, userWritten: Set(config.keyOverrides.keys)
   ).keys
 }
 
@@ -445,7 +445,7 @@ struct ShortcutResolution {
 
   init(config: Config, layout: KeyboardLayout?, heldByAnotherApp: Set<String> = []) {
     self.init(
-      bindings: config.keys, aliases: config.modifierCombinations, layout: layout,
+      bindings: config.keys, aliases: config.modifierAliases, layout: layout,
       userWritten: Set(config.keyOverrides.keys), heldByAnotherApp: heldByAnotherApp)
   }
 

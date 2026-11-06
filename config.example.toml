@@ -1,4 +1,4 @@
-default_key_modifier = "hyper"
+mod = "ctrl+alt+cmd"
 
 [input]
 focus_follows_mouse = true
@@ -17,11 +17,8 @@ zoom = 0.5
 names = ["dev", "web", "dev-secondary", "tools"]
 default = "dev"
 
-[modifier_combinations]
-hyper = "Alt + Cmd + Ctrl"
-
 [keys]
-"hyper-d" = "diagnostic-mark"
+"mod-d" = "diagnostic-mark"
 
 # Dev
 

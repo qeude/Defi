@@ -226,8 +226,7 @@ extension Daemon {
 
   private func hotKeyConfigurationChanged(from previous: Config, to next: Config) -> Bool {
     previous.keys != next.keys
-      || previous.modifierCombinations != next.modifierCombinations
-      || previous.defaultKeyModifier != next.defaultKeyModifier
+      || previous.mod != next.mod
       || previous.showCheatsheetOnModifierHold != next.showCheatsheetOnModifierHold
       || previous.input.focusFollowsMouse != next.input.focusFollowsMouse
       || previous.input.mouseFollowsFocus != next.input.mouseFollowsFocus
